@@ -964,22 +964,35 @@ class TypeLayerWalk {
    * The type objects recorded for `let` bindings whose initialiser is a
    * `Result` by construction — the bug-0079 §Fix (a) ident provenance channel,
    * keyed by OBJECT IDENTITY (the WHY is at the `let` arm that populates it).
-   * Per-parse instance state, like `diagnostics`.
+   * `bindLoopElement` is the channel's second writer, and writes only to
+   * INHERIT a membership onto the twin it records for an unproven loop variable
+   * — never to mint one, so the `let` arm remains the sole judge of what is
+   * `Result`-valued. Per-parse instance state, like `diagnostics`.
    */
   private readonly resultBindings = new Set<CompatType>();
 
   /**
    * The type objects recorded for a binding whose recorded type is an ERASED
    * read rather than a declared one — the bug-0050 §Fix laundered-binding
-   * channel, fed by the two arms that record an INFERRED type: `walkStmt`'s
-   * unannotated `let` (the initialiser's own read) and `walkExpr`'s `par for`
-   * (the iterand's element read). Keyed by OBJECT IDENTITY for the same reason
-   * `resultBindings` above is: `bindings.get(name)` returns the exact object
-   * the recording arm stored, so identity is the channel back to an erasure a
-   * name lookup alone cannot see. `walkFn`'s parameter scope feeds nothing
-   * here — an author-written annotation IS a declared type, so it is a proof. `provableArgType`'s `ident` arm withholds on a hit; a false
-   * identity hit only withholds, never fabricates an emission. Per-parse
-   * instance state, like `diagnostics`.
+   * channel. FOUR writers: `walkStmt`'s unannotated `let` arm (the
+   * initialiser's own read); the two loop arms — `walkStmt`'s `case "for"` and
+   * `walkExpr`'s `case "par-for"` — through the shared `bindLoopElement` (the
+   * iterand's element read); and `recordWithheldBinders`, for a binder class
+   * this layer cannot type at all (it marks the sentinel it mints). Keyed by
+   * OBJECT IDENTITY for the same reason `resultBindings` above is:
+   * `bindings.get(name)` returns the exact object the recording arm stored, so
+   * identity is the channel back to an erasure a name lookup alone cannot see.
+   * `bindLoopElement` is what keeps that exactness true at the two loop arms:
+   * `unfoldAlias` (./type-compat.ts) hands back a `TypeEnv` alias's element BY
+   * REFERENCE, and `collectTypeEnv`, `collectSchemaFields` and
+   * `paramsFieldBindings` each build exactly one such object per alias
+   * declaration, per declared schema field, or per `params:` field, for the
+   * WHOLE parse — so it marks a fresh twin instead of that borrowed object,
+   * keeping the marked object reachable from exactly one scope entry (bug 0194
+   * §Fix). `walkFn`'s parameter scope feeds nothing here — an author-written
+   * annotation IS a declared type, so it is a proof. `provableArgType`'s
+   * `ident` arm withholds on a hit; a false identity hit only withholds, never
+   * fabricates an emission. Per-parse instance state, like `diagnostics`.
    */
   private readonly unprovableBindings = new Set<CompatType>();
 
@@ -1182,16 +1195,12 @@ class TypeLayerWalk {
         // would be judged structurally at the sinks that refuse unresolvables
         // — measured, it draws a false `theta/parse/non-array-iterand … got
         // unknown` on `fn h(p) { for x in p { for y in x { } } }`, which loads
-        // cleanly. The `unprovableBindings` marking mirrors the `par for`
-        // arm's own soundness discipline: an unprovable iterand's element is
-        // no proof at a judgement sink.
+        // cleanly. The `unprovableBindings` marking, and the reason an
+        // unprovable iterand's element is no proof at a judgement sink, are
+        // `bindLoopElement`'s — the one step both loop arms share.
         const unfolded = unfoldAlias(iterandType, this.env);
         if (unfolded.kind === "array") {
-          const elementType = unfolded.element;
-          inner.set(stmt.variable, elementType);
-          if (this.provableArgType(stmt.iterand, bindings) === undefined) {
-            this.unprovableBindings.add(elementType);
-          }
+          this.bindLoopElement(inner, stmt.variable, unfolded.element, stmt.iterand, bindings);
         } else {
           this.recordWithheldBinders(inner, [stmt.variable]);
         }
@@ -1237,6 +1246,102 @@ class TypeLayerWalk {
       this.walkBlock(otherwise, new Map(bindings), flow);
     } else {
       this.walkStmt(otherwise, new Map(bindings), flow);
+    }
+  }
+
+  /**
+   * Bind `variable`'s loop-element type into `scope`, and mark it in
+   * `unprovableBindings` when `iterand` is not a proof — the one step
+   * `walkStmt`'s `case "for"` (`unfolded.kind === "array"` branch) and
+   * `walkExpr`'s `case "par-for"` both need, called from both so the marking
+   * step cannot drift between the two arms. Bug 0194 §Fix (d) constraint 1:
+   * the arms mark through the same `unprovableBindings` set and measurably
+   * poison each other in both directions, so this step has no discriminating
+   * parameter and must move in lock-step across both call sites in one
+   * commit — a shared private helper, not two edits.
+   *
+   * WHY MARK AT ALL: the loop variable inherits the iterand's erasure. An
+   * unprovable iterand (`[flag ? 1 : "a"]` reads `array<integer>` after
+   * `commonType` discards the `string` arm) hands `element` a reading no
+   * runtime iteration need produce, so a body `g(x)` must not treat that
+   * reading as a proof at a judgement sink.
+   *
+   * IDENTITY IS THE RIGHT CHANNEL FOR A MINTED OBJECT, WRONG FOR A BORROWED
+   * ONE. `unprovableBindings`'s only read (`provableArgType`'s `ident` arm)
+   * tests `bindings.get(name)` against this set BY OBJECT IDENTITY, which is
+   * sound exactly when the tested object belongs to the one scope entry the
+   * mark was taken for — `recordWithheldBinders` mints that object fresh, so
+   * identity is exact there. `element` here is not minted for this call:
+   * `unfoldAlias` (./type-compat.ts) hands back a `TypeEnv` alias's
+   * right-hand side BY REFERENCE, and `collectTypeEnv`, `collectSchemaFields`
+   * and `paramsFieldBindings` each build exactly ONE `CompatType` — per alias
+   * declaration, per declared schema field, per `params:` field — for the
+   * WHOLE parse, so a borrowed `element` is the very object every LATER
+   * reader of that same alias, field or `params:` binding gets back too.
+   * Recording and marking a fresh `{ ...element }` instead, scoped to the one
+   * loop this call is for, is what makes true what `unprovableBindings`'s own
+   * doc comment asserts — "`bindings.get(name)` returns the exact object the
+   * recording arm stored" — because the marked object is now reachable from
+   * exactly one scope entry, not from every reader of the declaration it was
+   * borrowed from.
+   *
+   * A SHALLOW copy suffices, and the twin must inherit EVERY channel keyed on
+   * the identity of the object it copies — a stand-in that stands in on one
+   * such channel and not on another is not a stand-in. This file holds exactly
+   * two, both `Set<CompatType>` tested against the top-level object
+   * `bindings.get(name)` returns; nested identity is consulted on neither,
+   * which is what makes a shallow spread enough:
+   *
+   *   - `unprovableBindings`, read by `provableArgType`'s `ident` arm. The twin
+   *     joins it EXPLICITLY below — this method's whole subject.
+   *   - `resultBindings`, read by `interpolationIsResult`'s `ident` arm (bug
+   *     0079's `Result`-provenance channel). The unannotated `let` arm is its
+   *     only FEED, but the READ tests whatever object `bindings` holds for the
+   *     interpolated name, and that object can be the one this method copies:
+   *     `commonType`'s dominating-candidate clause (./type-compat.ts, reached
+   *     through `StaticTypeInferencePass`'s array-literal element derivation)
+   *     returns its candidate BY REFERENCE, so `let r = Ok(1)` / `let xs = [r]`
+   *     makes `xs`'s element the very object `resultBindings` recorded for
+   *     `r`. A twin that did not inherit that membership would flip the read
+   *     false and withhold `theta/parse/interpolated-result` for a `${…}` over
+   *     the loop variable. Hence the CARRY below: it inherits the membership
+   *     rather than severing it, and because it fires only where the copied
+   *     object already carried the provenance it can restore no verdict beyond
+   *     that object's own and can add no emission.
+   *
+   * Every VALUE-channel reader (`containsWithheldBinderType`,
+   * `checkCompatible`, `displayType`) reads STRUCTURE, and `{ ...element }`
+   * is value-equal to `element` by construction — same `kind`, same nested
+   * fields — so no value-channel verdict can move either: the typed-`let` sink
+   * (`theta/parse/let-rhs-type-mismatch`) judges a copied element exactly as
+   * it judges the original.
+   *
+   * The copy is CONDITIONAL because marking is. Only an unproven iterand
+   * reaches `this.unprovableBindings.add`, so a provable loop still records the
+   * very object `unfoldAlias` handed it — no copy, no extra allocation, no
+   * channel to inherit, no observable change on a provable path.
+   *
+   * The direction stays ONE-WAY. `unprovableBindings`'s only read feeds a
+   * withholding decision (`checkFnCallArgs` skips its row on a hit), never an
+   * emission, so changing WHICH object a mark lands on can only RESTORE a
+   * true positive some unrelated binding's mark was suppressing — it cannot
+   * fabricate an `E` no reader is owed.
+   */
+  private bindLoopElement(
+    scope: Map<string, CompatType>,
+    variable: string,
+    element: CompatType,
+    iterand: Expr,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    const unproven = this.provableArgType(iterand, bindings) === undefined;
+    const recorded: CompatType = unproven ? { ...element } : element;
+    scope.set(variable, recorded);
+    if (unproven) {
+      this.unprovableBindings.add(recorded);
+      if (this.resultBindings.has(element)) {
+        this.resultBindings.add(recorded);
+      }
     }
   }
 
@@ -2204,18 +2309,7 @@ class TypeLayerWalk {
         const inner = new Map(bindings);
         const elementType: CompatType =
           iterandType.kind === "array" ? iterandType.element : { kind: "named", name: "unknown" };
-        inner.set(e.variable, elementType);
-        if (this.provableArgType(e.iterand, bindings) === undefined) {
-          // The loop variable inherits the iterand's erasure: an unprovable
-          // iterand (`[flag ? 1 : "a"]` reads `array<integer>` after
-          // `#commonType` discards the `string` arm) hands `elementType` a
-          // reading no runtime iteration need produce, so a body `g(x)` must
-          // not treat it as a proof. Same channel as the `let` arm's own
-          // record: `inner.set` stores the exact object `#typeExpr`'s `ident`
-          // arm returns for `e.variable`, so object identity carries the
-          // erasure a name lookup alone cannot see.
-          this.unprovableBindings.add(elementType);
-        }
+        this.bindLoopElement(inner, e.variable, elementType, e.iterand, bindings);
         this.walkBlock(e.body, inner, flow);
         return;
       }

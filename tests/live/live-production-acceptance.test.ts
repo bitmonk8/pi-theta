@@ -8074,3 +8074,262 @@ describe("H8a-T — bug 0192: a params:-declared binding carries its declared ty
     }
   });
 });
+
+// ===========================================================================
+// Bug 0194 — `TypeLayerWalk.unprovableBindings` keys its withhold by
+// JavaScript OBJECT IDENTITY, and the two loop arms mark
+// `unfoldAlias(iterand).element` — an object BORROWED from the `TypeEnv` (one
+// `CompatType` per alias declaration per parse, handed back by reference by
+// `unfoldAlias`). So a withhold recorded for ONE unprovable loop lands on the
+// object every LATER reader of the same alias gets back, and one unprovable
+// loop suppresses a TRUE `theta/parse/fn-arg-type-mismatch` at every later
+// PROVABLE loop in the whole document — order-dependent, cross-`fn`, and
+// silent on every channel
+// (docs/bugs/0194-unprovable-marking-by-object-identity-shared-alias-element.md).
+//
+// The 30-cell dedicated witness
+// (tests/loop-element-withhold-binding-scoped.test.ts) proves the mechanism
+// offline at the `parseThetaDocument` boundary across all three shared-object
+// families (the alias element, the declared-field object, the
+// `params:`-seeded object) and both loop arms; this cell proves the one
+// consequence that offline harness cannot observe — the suppressed
+// `E`-severity refusal lets the theta REGISTER through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer), so the mistyped call is bound
+// unchecked at runtime with no diagnostic on any channel. The registry row
+// itself states that no runtime AJV net covers this position
+// (code-registry-parse.md, `theta/parse/fn-arg-type-mismatch`).
+//
+// The load-bearing theta mirrors the dedicated witness's cell a1: an erased
+// receiver (`let m = flag ? A { … } : B { … }` — not a proven `#commonType`
+// reduction, so `m` is unprovable while `m.xs` still unfolds through the alias
+// to an `array`), a first `for` over `m.xs` that judges nothing, and a second
+// `for` over the provable alias-typed parameter `ys: L` whose body hands `g`
+// an `integer` at a `string` parameter. Deleting only the first loop leaves the
+// second loop's verdict intact, which is exactly what the SIBLING theta below
+// plants.
+//
+// RED-PROVEN PRE-FIX at 4ae4ec3f / 0.112.0: with the fix reverted the
+// load-bearing theta REGISTERED — the suppressed refusal is the defect, and
+// that measurement is what makes this cell's `toBeUndefined` load-bearing
+// rather than vacuous. It is green with the fix, and green in every committed
+// tree that carries it. The sibling and both controls were green at 4ae4ec3f
+// too and must stay green: they are what makes a red here attributable to the
+// suppression rather than to a broken workspace, a dead gate, or a fixture that
+// cannot register at all.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0050/0136/0126/0190/
+// 0192 cells above claim). ADDITIVE ONLY: no existing cell in this file (1–49)
+// is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** Lines 4–6 of every bug-0194 fixture below: the alias and the two ternary arms. */
+const B194_PREAMBLE = [
+  "---",
+  "mode: prompt",
+  "---",
+  "schema L = array<integer>",
+  "schema A { xs: L }",
+  "schema B { xs: array<string> }",
+];
+
+/**
+ * The load-bearing theta — the dedicated witness's cell a1. Its second loop's
+ * argument satisfies `theta/parse/fn-arg-type-mismatch`'s *Trigger* in every
+ * particular (`ys` is an annotated parameter of an alias declared
+ * `array<integer>`, TYPE-11 makes that alias its right-hand side,
+ * control-flow.md:13 gives `b` the element type, and `g` declares a `string`
+ * parameter), and the withhold recorded for the FIRST loop's `a` suppresses
+ * it. Measured offline: `[]`, so `hasLoadParseError` has nothing to act on and
+ * the theta registers. The trailing `1` supplies the theta's final value — no
+ * `@`-query is needed for a prompt-mode theta to register (mirrors the bug
+ * 0050 / 0190 cells' own fixtures).
+ */
+function suppressedFnArgMismatchTheta(): string {
+  return [
+    ...B194_PREAMBLE,
+    "fn g(s: string): number { 1 }",
+    "fn f(flag: boolean, ys: L): number {",
+    '  let m = flag ? A { xs: [1] } : B { xs: ["a"] }',
+    "  for a in m.xs {",
+    "    let z = a",
+    "  }",
+    "  for b in ys {",
+    "    g(b)",
+    "  }",
+    "  1",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The SIBLING: byte-identical to the load-bearing theta with the first loop's
+ * three lines DELETED, and nothing else changed — the erased receiver is still
+ * declared and still unprovable. It must NOT register, before or after the
+ * fix. This is what proves the suppressed diagnostic is a real refusal on a
+ * live gate in a live workspace: the same second loop, the same alias, the
+ * same argument, judged.
+ */
+function judgedFnArgMismatchTheta(): string {
+  return [
+    ...B194_PREAMBLE,
+    "fn g(s: string): number { 1 }",
+    "fn f(flag: boolean, ys: L): number {",
+    '  let m = flag ? A { xs: [1] } : B { xs: ["a"] }',
+    "  for b in ys {",
+    "    g(b)",
+    "  }",
+    "  1",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The ordinary always-registers control: the WHOLE poisoning shape — erased
+ * receiver, unprovable first loop, provable second loop — with a COMPATIBLE
+ * second-loop argument (`gi` declares `integer`, the alias's element type).
+ * Must register both before and after the fix, isolating the load-bearing
+ * theta's post-fix refusal to the type mismatch rather than to "two loops over
+ * one alias never register in this harness".
+ */
+function compatibleLoopArgTheta(): string {
+  return [
+    ...B194_PREAMBLE,
+    "fn gi(n: integer): number { 1 }",
+    "fn f(flag: boolean, ys: L): number {",
+    '  let m = flag ? A { xs: [1] } : B { xs: ["a"] }',
+    "  for a in m.xs {",
+    "    let z = a",
+    "  }",
+    "  for b in ys {",
+    "    gi(b)",
+    "  }",
+    "  1",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0194: a withhold recorded for one loop variable does not suppress a later provable loop's fn-arg refusal, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose first unprovable loop precedes a second loop's provably mistyped argument, while the same second loop alone is refused and the compatible-argument shape registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // load-bearing theta's post-fix absence could be (wrongly) attributed to
+      // a broken workspace instead of the gate under test.
+      { source: "project", stem: "b194livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The always-registers control: the same two-loops-over-one-alias shape
+      // with a compatible second-loop argument.
+      { source: "project", stem: "b194livegood", text: compatibleLoopArgTheta() },
+      // The SIBLING: the load-bearing theta with the first loop deleted. Must
+      // NOT register, before or after — the live proof that the suppressed
+      // diagnostic is a real refusal reachable in this workspace.
+      { source: "project", stem: "b194livesib", text: judgedFnArgMismatchTheta() },
+      // The load-bearing theta: the same second loop, preceded by one
+      // unprovable loop over the SAME alias's element.
+      { source: "project", stem: "b194livebroken", text: suppressedFnArgMismatchTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b194livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the load-bearing theta's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b194livegood"),
+        "the same-shape control with a COMPATIBLE second-loop argument did " +
+          "not register — two loops over one alias cannot register in this " +
+          "harness at all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The sibling: green at 4ae4ec3f and green with the fix. Without it, the
+      // load-bearing theta's post-fix non-registration could be attributed to
+      // a gate that refuses this fixture family for some other reason, and its
+      // PRE-fix registration could be attributed to a dead gate.
+      expect(
+        handle.command("b194livesib"),
+        "the sibling whose second loop's argument is provably mistyped — the " +
+          "load-bearing theta with only the first loop deleted — registered " +
+          "anyway, so theta/parse/fn-arg-type-mismatch is not reachable at " +
+          "this input class in this workspace and the load-bearing theta's " +
+          "own verdict cannot be attributed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+
+      // THE DEFECT: through the REAL production composition root (not the
+      // offline `parseThetaDocument` harness the dedicated witness uses), the
+      // theta whose FIRST loop is unprovable over the same alias element
+      // registers — `provableArgType`'s `ident` arm answers `undefined` for `b`
+      // because `unprovableBindings.has` hits the object the first loop marked,
+      // `checkFnCallArgs` skips the row, `checkFnArgCompat` is never called,
+      // and `hasLoadParseError` has nothing to act on. Measured registering at
+      // 4ae4ec3f / 0.112.0 with the fix reverted — the registered `E`-severity
+      // refusal the defect withholds, restored here.
+      expect(
+        handle.command("b194livebroken"),
+        "the caller whose second loop passes a provably mistyped argument " +
+          "registered anyway through the live discovery/session_start path — " +
+          "the withhold recorded for the FIRST loop's variable suppressed the " +
+          "second loop's true theta/parse/fn-arg-type-mismatch, while the " +
+          "b194livesib sibling (the same theta with only the first loop " +
+          "deleted) was refused. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b194livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: both refusals land at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
+      // 0089/…/0136/0126/0185/0190/0192 cells above). Reuses this file's
+      // existing `fnArgTypeMismatchFragment` reader (bug 0050's addition)
+      // rather than a second one — both refusals push the SAME registered code
+      // with the SAME unplaceholdered Message, so they are told apart by which
+      // theta's own file path `renderDiagnosticLine`
+      // (src/diagnostics/diagnostic.ts) prefixes onto the rendered line, the
+      // discrimination bug 0149's cell above already uses.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = fnArgTypeMismatchFragment("g", 0, "s", "string", "integer");
+      expect(
+        notes.some(
+          (note) => note.includes(expectedFragment) && note.includes("b194livesib"),
+        ),
+        "no theta-system-note entry named the fn-arg-type-mismatch rejection " +
+          "for the SIBLING theta, so the code is not reachable at this input " +
+          "class in this workspace. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+      expect(
+        notes.some(
+          (note) => note.includes(expectedFragment) && note.includes("b194livebroken"),
+        ),
+        "no theta-system-note entry named the fn-arg-type-mismatch rejection " +
+          "for the LOAD-BEARING theta — the suppression is silent on every " +
+          "channel, which is the bug: the author sees a clean load. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+      expect(
+        notes.some((note) => note.includes("b194livegood")),
+        "a theta-system-note entry named the always-registers control, whose " +
+          "second-loop argument is COMPATIBLE — the fix must judge this slot, " +
+          "not refuse the shape. Notes: " + JSON.stringify(notes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -1363,6 +1363,18 @@ this report named as the flip condition.
      identical behaviour at this baseline, the settled §Fix ordered the marking
      mirrored, and the failure direction is the admissible one — a withheld
      true positive, never a false `E`. Filing candidate covering both arms.
+     **Discharged in 0.113.0** by bug
+     [0194](./0194-unprovable-marking-by-object-identity-shared-alias-element.md),
+     which covers both arms in one commit through a shared
+     `TypeLayerWalk.bindLoopElement`: each arm now records and marks a fresh
+     twin of the element it would otherwise borrow, so a withhold applies to the
+     one loop variable it was taken for. This item's own fixture stopped
+     poisoning first — bug 0190 (0.111.0) made `p.xs` a proof — so 0194's
+     witness is built on an erased receiver instead, and it closes the same
+     suppression for `collectSchemaFields`' declared-field objects and
+     `paramsFieldBindings`' seeded objects as well as for a `TypeEnv` alias's
+     element. The `let` arm's own borrowed marking is unmoved and is recorded as
+     0194's residual 1.
   5. **Orchestrator self-authorizations, recorded rather than left invisible.**
      (i) Cells `u9` and `u13r` moved although the fix brief named only `n1`,
      `u12e` and `u13me`. `u9`'s re-adjudication on this exact event is named in

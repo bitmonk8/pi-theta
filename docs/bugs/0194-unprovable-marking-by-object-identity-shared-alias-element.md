@@ -1,11 +1,11 @@
 # Bug 0194 — `unprovableBindings` (`type-layer-checks.ts:906`) keys its withhold by OBJECT IDENTITY while a `TypeEnv` alias's right-hand side is ONE object shared by every use of that alias, so a single unprovable `for a in p.xs` over `schema L = array<integer>` marks the alias's element and suppresses the true `theta/parse/fn-arg-type-mismatch` a LATER `for b in ys { g(b) }` over a provable `ys: L` emits — measured `[]`, where deleting or reordering the earlier loop emits the `E`; the plain `for` arm (`:1110–1116`) and the `par for` arm (`:2065–2080`) mark through the same set and poison each other in both directions
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three routes with
-  different blast radii, and the `par for` arm must move in the same commit.
-  No ordering dependency blocks this report. Bug
-  [0190](./0190-fn-arg-sink-withholds-provable-member-reads.md) is open against
-  the arm that supplies every measured unprovable iterand at HEAD; whichever
-  lands second re-derives §Reproduction (§Fix (e)).
+- **Status:** fixed (0.113.0) — §Fix route 1 (copy on mark), at both loop arms
+  in one commit through a shared helper. §Reproduction was re-derived at the
+  fix's baseline as §Fix (e) requires: bug
+  [0190](./0190-fn-arg-sink-withholds-provable-member-reads.md) landed first
+  (0.111.0) and every fixture below stopped poisoning, so the witness is built
+  on the unprovable-and-array-typed shapes that remain. See `## Fix (0.113.0)`.
 - **Sev/Diff estimate:** S1/D3 — a registered `E`-severity refusal whose
   *Trigger* the input satisfies is withheld on every channel and the theta
   registers, which is S1's "inputs accepted that the spec refuses … with no
@@ -823,3 +823,282 @@ blocks the other.
   `parseThetaDocument` through `parseDoc` (`tests/helpers/e2e-s1.ts`).
   Thirty-three rows across §Reproduction (a)–(e), each with its control.
   Written, run, deleted.
+
+## Fix (0.113.0)
+
+- **What shipped**, keyed to §Fix:
+  - **§Fix (a), route 1 — copy on mark, at both loop arms, through ONE shared
+    helper.** `src/parser/type-layer-checks.ts`: a new private
+    `TypeLayerWalk.bindLoopElement` resolves the iterand's proof verdict once,
+    records the loop variable in the body scope, and marks it in
+    `unprovableBindings` when the iterand is not a proof — recording and marking
+    a fresh `{ ...element }` twin **iff** unproven, and the borrowed object
+    itself otherwise. `walkStmt`'s `case "for"` (`unfolded.kind === "array"`
+    branch) and `walkExpr`'s `case "par-for"` both call it; the `for` arm's
+    non-`array` `recordWithheldBinders` fallback and the `par for` arm's
+    `named "unknown"` element are unchanged. The marked object is now reachable
+    from exactly one scope entry, which is what `unprovableBindings`' own doc
+    comment already asserted and what the borrowed object made false.
+  - **§Fix (d) constraint 1 — both arms, lock-step, one commit.** A shared
+    helper rather than two edits: the marking step is byte-identical in both
+    arms and has no discriminating parameter, and the arms write to the one set,
+    so a fix at one arm alone leaves the defect reachable through the other
+    keyword. Both call sites move in this commit.
+  - **The `resultBindings` carry — required by route 1's own warrant, not a
+    widening of it.** Route 1 stands or falls on the twin being a faithful
+    stand-in for the object it copies, and identity-keyed membership is part of
+    what that object carries. `bindLoopElement`'s unproven branch therefore
+    inherits bug 0079's provenance across the copy —
+    `if (this.resultBindings.has(element)) { this.resultBindings.add(recorded); }`
+    — which restores the pre-fix verdict exactly and can add no emission,
+    because it fires only where the copied object already carried the
+    membership. Found by review round 1, measured at both ends (below).
+  - **Route adjudication, with grounds.** Route 1 over route 2 (key the withhold
+    by binding name/scope) and route 3 (uncopy the sharing at the source), on
+    three grounds. (i) **The route-1 audit is complete and bounded, and it was
+    re-verified rather than assumed:** all of `src/` holds exactly two
+    `Set<CompatType>` and no `Map<CompatType, …>` — `unprovableBindings` (one
+    read, `provableArgType`'s `ident` arm) and `resultBindings` (one read,
+    `interpolationIsResult`'s `ident` arm) — and no other `CompatType` identity
+    comparison exists anywhere. Both channels are accounted for at the marking
+    site: the first is set explicitly, the second inherited. (ii) **Route 2's
+    diff carries a false-`E` risk in the other direction.** A name-keyed
+    withhold must be copied at every `new Map(bindings)` site *and* cleared at
+    every `bindings.set` that rebinds a marked name; a missed copy leaks a mark
+    past a scope exit (suppression), a missed clear withholds a proof
+    (suppression), and a wrong clear manufactures an `E`. Route 1 needs neither
+    invariant: the object it marks is the object the scope holds, by
+    construction. (iii) **Route 3 was rejected as §Fix (c) frames it** —
+    `unfoldAlias` is exported and called from `checkCompatible` on every
+    compatibility question, so per-call allocation is a hot-path cost and a
+    cross-module contract change over callers this report never audited.
+  - **The `let` arm is a live suppression route at this baseline and is
+    deliberately NOT in this fix.** Measured: with `schema P { xs: L }` and an
+    erased `m`, `let zs = m.xs` marks the borrowed field object and a later
+    `let ws = q.xs` over a proven `q` records the same object, so `hs(ws)`'s
+    true `expected array<string>, got array<integer>` is withheld — deleting the
+    `let zs` line restores it. Three grounds for the exclusion. (i) §Fix (d)
+    constraint 1 names only the two LOOP arms as the lock-step obligation. (ii)
+    §Non-goals pins `resultBindings` as unreached by routes 1/2 in terms, and
+    the `let` arm's recorded object is that set's ONLY feed. (iii) Measured, a
+    twin at that site BREAKS bug 0079: `let r = Ok(1)` / `let c = r` /
+    `` @`x${c}` `` draws `theta/parse/interpolated-result` at this baseline
+    *solely* because `c` and `r` share one object, so copying there withholds a
+    registered `E` across a protected 49-cell family. Preserving it would need a
+    provenance carry inside 0079's channel for a shape this report never
+    measured. Cell `d6` pins the `let` arm's behaviour as a BOUND — unmoved,
+    before and after — and residual 1 below carries the evidence.
+  - **§Reproduction re-derived at the fix's baseline (§Fix (e)).** Bug 0190
+    (0.111.0) made a member read of a declared field on a resolved object schema
+    a proof, so **every fixture in §Reproduction (a)–(c) stopped poisoning**:
+    `for a in p.xs` over an annotated `p: P` now emits the mismatch at the later
+    loop, and so does the laundered `let zs = p.xs`. The witness is built on the
+    shape that remains — an **erased receiver**, which is 0190's own
+    receiver-proof obligation withholding: `let m = flag ? A { xs: [1] } :
+    B { xs: ["a"] }` is not a proven reduction, so `m.xs` unfolds to an array
+    while `provableArgType` withholds, and the marking fires. A composite
+    containing one (`flag ? ys : m.xs`) reaches it too. Measured non-reaching,
+    unchanged from §Reproduction (e): a user `fn` call and an `invoke`, whose
+    static type is a nominal minted from the callee and never unfolds to an
+    array.
+  - **All THREE shared-object families reproduce and are closed.** (1) the
+    `TypeEnv` **alias element** — `collectTypeEnv` calls
+    `annotationToCompatType` once per alias declaration per parse and
+    `unfoldAlias` returns it by reference (cells a1–a3, b1–b3, c1, c2, c5–c9);
+    (2) the **declared-field object** — `collectSchemaFields` builds one
+    `CompatType` per declared field per parse and bug 0190's
+    `declaredFieldType` hands it back by reference, so an unprovable read off an
+    erased receiver suppressed a later loop over ANOTHER proven receiver's same
+    field, with no alias anywhere in the fixture (cell c3); (3) the
+    **`params:`-seeded object** — bug 0192's `paramsFieldBindings` seeds one
+    `CompatType` per `params:` field per parse (cell c4). Copy-on-mark is
+    provenance-agnostic: it copies whatever object the arm was about to mark, so
+    one helper closes all three, and the `walkFn`-seeded annotated `fn`
+    `array<T>` parameter shape with it (measured).
+  - **§Fix (d) constraint 2 — the marking survives.** Cell `e4` of
+    `tests/plain-for-loop-variable-element-type.test.ts` was FLIPPED by bug 0190
+    and now EMITS off a proven member iterand, so the doc's "`e4` stays `[]`" is
+    stale; it is green under this fix, as is that file's group (g). The
+    constraint's content is carried instead by cell `d5`: an unproven iterand's
+    OWN loop variable is still withheld at the fn-arg slot (`[]`), which reds if
+    the marking is deleted rather than re-keyed — verified by neutralisation.
+  - **§Fix (d) constraint 3 — GOV-15 addition arm, enumerated.** Every program
+    that newly gains an `E` is a two-loops-over-one-shared-element shape in one
+    of the three families above, in any of the four arm orders; each loads
+    cleanly at 0.112.0 and each newly draws `theta/parse/fn-arg-type-mismatch`,
+    which `hasLoadParseError` turns into a registration denial. That is
+    observable (b) moving under the *Diagnostic-registry carve-out*, in the
+    strictly-narrower shape of the 0031 → 0084 → 0126 chain: a *Trigger*
+    becoming reachable at an input class with a byte-unchanged registry. No code
+    added, removed or renamed; no *Message* reworded (DIAG-2 / DIAG-4); `docs/`
+    carries no registry or spec change in this commit.
+  - **§Fix (d) constraint 4 — no false `E`.** The set's only read feeds
+    withholding decisions, so re-keying a mark can only restore a suppressed
+    true positive. The twin is value-equal by construction — every VALUE-channel
+    reader (`containsWithheldBinderType`, `checkCompatible`, `displayType`)
+    recurses structure — and the §Reproduction (d) rows are pinned unmoved, row
+    4 included: the typed-`let` sink still emits
+    `theta/parse/let-rhs-type-mismatch` on a poisoned loop variable, because it
+    reads the map by VALUE (cell `d3`).
+  - **§Fix (d) constraint 5 — corpus, re-measured.** 34 committed
+    `.theta` / `.thetalib` files, **0** declaring an alias schema of any shape;
+    one file contains a loop (`docs/examples/fan-out-reviews.theta`), over
+    non-alias iterands. `tests/committed-fixture-parse-gate.test.ts` (36 cells,
+    green) is the corpus-wide discharge per `AGENTS.md`; its own accounting is
+    31 `.theta` + 2 `.thetalib` shipped plus one deliberately-invalid seeded
+    fixture.
+  - **§Fix (d) constraint 6 — the witness is new.**
+    `tests/loop-element-withhold-binding-scoped.test.ts`, 30 cells, additive:
+    the (a) suppression triple with BOTH controls (delete and reorder), the (b)
+    four-way arm matrix (for→for is a1; par→for, for→par, par→par), the (c)
+    reach rows (cross-`fn`, composite iterand, the declared-field family, the
+    `params:` family, third-loop monotonicity, transitive unannotated `let`,
+    nested alias chain, `let`-bound iterand, string alias in the reversed
+    direction), the (d) fences (two provable loops, minted-literal element,
+    typed-`let` sink, named-object-vs-element discrimination, `d5`'s withhold
+    survival, `d6`'s `let`-arm bound), and the (e) group pinning the
+    `resultBindings` carry in both arms with two controls. Whole ordered
+    diagnostics arrays throughout, messages read from the registry (DIAG-4),
+    ranges pinned on the (a) triple. Plus additive H8a live cell 50 in
+    `tests/live/live-production-acceptance.test.ts`.
+
+- **Gates** (each re-run by the orchestrator, not taken from a nested report):
+  - *Witness*: `npx vitest run tests/loop-element-withhold-binding-scoped.test.ts`
+    → `Tests 13 failed | 13 passed (26)` before the fix, every red the ABSENT
+    `theta/parse/fn-arg-type-mismatch` (`Array []` against the expected code);
+    `Tests 30 passed (30)` after.
+  - *Full suite*: `npm test` → `Test Files 316 passed (316)`,
+    `Tests 5345 passed (5345)`. Baseline 315 / 5315 plus the 30 new cells; no
+    other file moved.
+  - *Typecheck*: `npx tsc --noEmit -p tsconfig.json` → exit 0, no output.
+  - *Lint*: `npm run lint` → exit 0, no output.
+  - *Live, for real*: H8a cell 50 → `Tests 1 passed | 49 skipped (50)` (the 49
+    are the `-t` filter, not a skip); both H9a acceptance files →
+    `Test Files 2 passed (2)`, `Tests 11 passed (11)`, spawning the real `pi`
+    binary in print mode. `tests/fixtures/h7a/permitted-codes.json` needed no
+    append — the run decided it, and the `permittedCodesSubset` invariant held.
+
+- **Blast-radius pre-measurement** (before the witness was written): the settled
+  route was prototyped and the FULL suite run — 315 files / 5315 tests green,
+  identical to baseline, zero reds. A vehicle sweep over every test fixture
+  found no cell driving two SEQUENTIAL loops over one shared element; the tree's
+  multi-loop fixtures are all NESTED, matching §Affected's "Test coverage of
+  this defect: none". The one flip the pre-measurement MISSED is recorded as the
+  review's own finding below — no in-tree cell drives that shape either.
+
+- **Review**: 2 rounds.
+  - *Round 1 (deep)*: SIX findings. **F1, correctness blocker** — the twin
+    severed bug 0079's `resultBindings` provenance and DROPPED a registered `E`:
+    measured at both ends, `let r = Ok(1)` / `let xs = [r]` /
+    ``for b in xs { @`x${b}` }`` gave `[interpolated-result]` before the fix and
+    `[]` with the un-remedied fix, because `commonType`'s single-candidate
+    clause returns its candidate BY REFERENCE, so the array's element IS the
+    object `resultBindings` holds. F2 — the helper's audit paragraph asserted
+    what F1 falsified. F3 — the witness header cited five
+    `type-layer-checks.ts:NNN` lines this commit moves; converted to
+    symbol-only, the convention the 0126 and 0192 witnesses over this module
+    keep. F4 — live cell 50's standing "documented correct-reason RED" banner
+    was false at ship (green in its birth commit); reworded to a version-pinned
+    past red-proof. F5 — `unprovableBindings`' field comment contradicted itself
+    on its writers; now enumerates four. F6 — the WHY-mark rationale from the
+    deleted `par for` inline comment was restored into the helper and the
+    dangling "mirrors the `par for` arm" clause re-pointed.
+  - *Round 2 (fast)*: CLEAN. No findings; one non-blocking prose residual
+    (residual 4 below).
+
+- **Verification**: PASS, four obligations, three neutralisations.
+  - *The witness reds without the fix, and reds for the right reason*: (1a) the
+    whole helper collapsed to pre-fix behaviour → 13 failed / 17 passed, exactly
+    a1/b1–b3/c1–c9, groups (d) and (e) green; (1b) the `resultBindings` carry
+    alone dropped → EXACTLY `e1` and `e2` red, everything else green, so the
+    carry is load-bearing and not decoration; (1c) the marking deleted entirely
+    → `d5` reds, the anti-over-correction pin. All three restorations byte-exact
+    by blob hash (`f368133a…` pre, neutralised `9f22aaad…` / `d9ee8bb2…` /
+    `2c632747…`, restored `f368133a…`), no `git stash`, no `git checkout`. The
+    verifier corrected one orchestrator forecast on the record: group (e) does
+    NOT red under (1a), because with no twin the recorded object IS the
+    `resultBindings` member and membership is trivially preserved — the carry's
+    necessity is observable only once a twin exists, which is what (1b)
+    isolates.
+  - *Full default suite green*: 316 files / 5345 tests.
+  - *Live end-to-end exercise of the fixed path*: H8a cell 50 and both H9a
+    acceptance files, all green, run for real; no live red, so no attribution
+    was needed.
+  - *Lint and typecheck*: exit 0 both, using the `package.json` definitions.
+  - Protected families re-run explicitly and green: `interpolated-result-gate`
+    (49), `plain-for-loop-variable-element-type` (53),
+    `fn-arg-type-mismatch-wired` (87), `member-access-declared-field-type` (72),
+    `params-declared-type-in-type-layer` (32), `committed-fixture-parse-gate`
+    (36).
+
+- **Residuals** (for the PARENT to file; no bug document is created here):
+  1. **The `let` arm marks a BORROWED object too, and it is a live suppression
+     route.** `walkStmt`'s `let` arm marks whatever `typeOf` returned for the
+     initialiser, which for a member read is the declared-field object. Measured
+     at this baseline with `schema L = array<integer>`, `schema P { xs: L }`,
+     `schema B { xs: array<string> }`, `fn hs(a: array<string>)` and an erased
+     `m`: `let zs = m.xs` then `let ws = q.xs` over a proven `q: P` then
+     `hs(ws)` → `[]`, where deleting the `let zs` line →
+     `error theta/parse/fn-arg-type-mismatch :: fn 'hs' argument 0 ('a') type
+     mismatch: expected array<string>, got array<integer>`. Same class as this
+     report, same admissible direction, different marking site, and a
+     WHOLE-array object rather than an element. Cell `d6` pins it unmoved.
+     **A fix there cannot copy the way this one does**: the `let` arm's recorded
+     object is `resultBindings`' only feed, and measured, a twin there withholds
+     `theta/parse/interpolated-result` on `let r = Ok(1)` / `let c = r` /
+     `` @`x${c}` `` — so it needs the provenance carry this fix introduced at
+     the loop arms, extended to the membership a `let` may itself mint. Not
+     fixed: §Fix (d) constraint 1 and §Non-goals both scope this report to the
+     two loop arms.
+  2. **`commonType`'s dominating-candidate clause returns its candidate BY
+     REFERENCE, which is the deeper source.** It is how an array literal's
+     element comes to be the very object a sibling binding recorded, and it is
+     what made F1 reachable. This fix mitigates at the marking sites, which is
+     §Fix routes 1/2's whole posture; the source itself is §Fix route 3's
+     territory (`unfoldAlias`'s and the inference pass's aliasing contracts) and
+     is untouched. One consequence is visible without any loop: a
+     `let xs = flag ? [r] : ["a"]` over a `Result`-recorded `r` carries the
+     membership through the composite. Not measured further, not filed here.
+  3. **Three `theta/parse/*` codes have no row on the four sharded spec registry
+     pages**: `par-query-in-body`, `par-shared-mutation`, `par-break-continue`,
+     all three stated in `control-flow.md` prose under CTRL-4 and all three
+     tabulated in `docs/reference/diagnostics.md`. Cell `e2` needs
+     `par-query-in-body`'s *Message* for its whole-list assertion, so the
+     witness reads the sharded pages first and falls back to
+     `docs/reference/diagnostics.md` — whose own header declares that column
+     normative under DIAG-4 — throwing loudly and naming both pages when
+     neither carries the code. Pre-existing gap, disclosed, no `docs/` file
+     touched.
+  4. **A house-convention phrase in the live acceptance file names a no-op
+     hook.** "through the real production composition root (`session_start →
+     resources_discover → composeExtensionInstance → checkTypeLayer`)" appears
+     byte-identically at 17 sites in
+     `tests/live/live-production-acceptance.test.ts`, the new cell included;
+     read as a literal call chain it is inaccurate, because `resources_discover`
+     is registered as a no-op handler and the compose work runs inside the
+     `session_start` handler. Pre-existing at 16 of the 17 sites; rewording one
+     would leave the file inconsistent. Assertions are unaffected — they observe
+     `bootShippedExtension`, not the comment. Reported, not swept (bug 0134's
+     class).
+  5. **Line-number citation drift from this commit, disclosed and not chased.**
+     The fix adds 124 lines to `src/parser/type-layer-checks.ts`, so `path:line`
+     citations at or after the `unprovableBindings` field shift. A sweep found
+     roughly 303 such citations across about 54 files under `docs/bugs/`
+     (`README.md` included) and ten test files. None was edited: chasing them is
+     bug 0134's class, and the test files are protected witnesses. Citations
+     below that field are unaffected. This document's own §Affected line numbers
+     are stale in the same way, as its 0.107.0 baseline already made them.
+
+- **Discharge notes appended**: bug 0126's §Fix *Residuals* item 4 (this
+  report's origin) and bug 0192's §Fix *Residuals* item 1 (shared-element
+  identity poisoning reaching `params:`-declared arrays). Neither status was
+  flipped.
+
+- **Pinned dispositions / non-goals**: the withholding posture itself (bug
+  0050's, and correct — cell `d5` pins it); bug 0190's `member`-arm proof rule
+  (this fix's reachability supplier, untouched); the `non-array-iterand` renders
+  of §Reproduction (e) (the `named "<own spelling>"` fallback family, bug 0126's
+  §Non-goals and RFC 0008); `resultBindings`' SEMANTICS (the carry inherits a
+  membership, it never mints one — the `let` arm remains the sole judge of what
+  is `Result`-valued); the nine type-layer codes bug 0126 made reachable (they
+  read the map by VALUE and are measured unmoved); route 3.

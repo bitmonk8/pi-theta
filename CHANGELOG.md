@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.113.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0194 — a withhold recorded for one loop variable suppressed a later,
+  provable loop's true `theta/parse/fn-arg-type-mismatch`, because the two loop
+  arms marked an element object they had BORROWED rather than minted.**
+  `unprovableBindings` is keyed by object identity, and the object each loop arm
+  marked was shared for the whole parse: `collectTypeEnv` builds one
+  `CompatType` per alias declaration and `unfoldAlias` returns it by reference,
+  `collectSchemaFields` builds one per declared field, and
+  `paramsFieldBindings` seeds one per `params:` field. So one unprovable loop
+  marked the shared element and every later loop over the same alias, declared
+  field or `params:` field read that mark back and had its judgement withheld —
+  order-dependent, across `fn` boundaries, and silent on every channel, since
+  the set's only read makes `checkFnCallArgs` skip the row. Both arms wrote to
+  the one set and suppressed across each other in both directions. A new shared
+  `TypeLayerWalk.bindLoopElement` now serves both arms and records and marks a
+  fresh twin of the element when, and only when, the iterand is not a proof, so
+  the mark is reachable from exactly one scope entry — the invariant the set's
+  own doc comment already asserted. The twin inherits the `Result`-provenance
+  membership of the object it copies, so bug 0079's static
+  `theta/parse/interpolated-result` gate is unmoved. A provable loop is
+  unchanged. The withhold itself survives for genuinely unproven iterands, and
+  the typed-`let` sink, which reads the bindings map by value, is unmoved.
+  Programs with a suppressed mismatch now draw the registered `E` and are denied
+  registration — GOV-15's addition arm under the diagnostic-registry carve-out,
+  with a byte-unchanged registry. Locked by 30 new offline cells
+  (`tests/loop-element-withhold-binding-scoped.test.ts`) covering all three
+  shared-object families, the four-way arm matrix and the non-reaching fences,
+  plus one additive H8a live cell for the registration consequence.
+
 ## [0.112.0] - 2026-08-18
 
 ### Fixed

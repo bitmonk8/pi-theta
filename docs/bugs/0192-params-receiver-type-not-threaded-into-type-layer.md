@@ -999,6 +999,22 @@ surface.
      0126's and bug 0190's and are untouched here. Adjacent to bug 0194's
      order-dependent suppression subject. Not fixed: §Fix (c) requires the
      `fn`-parameter position's semantics be inherited identically.
+     **Addressed in 0.113.0** by bug
+     [0194](./0194-unprovable-marking-by-object-identity-shared-alias-element.md),
+     at the two loop arms only. Its shared `TypeLayerWalk.bindLoopElement`
+     records and marks a fresh twin of the element rather than the borrowed
+     object, and the copy is provenance-agnostic — it copies whatever object the
+     arm was about to mark — so all three shapes this item names are closed
+     through those arms: the `params:`-seeded object (0194's cell `c4`, measured
+     with a composite iterand reducing to the seeded array), the
+     `walkFn`-seeded annotated `fn` `array<T>` parameter (measured), and
+     `collectTypeEnv`'s / `collectSchemaFields`' shared objects (its cells `c1`,
+     `c2`, `c3`). What remains open from this item is the OTHER writer: the
+     `let` arm marks a borrowed object too, which 0194 records as its residual 1
+     with a measured suppression and with the reason a copy there is not
+     available — that object is `resultBindings`' only feed.
+     `#commonType`'s by-reference dominating candidate is unchanged and is
+     0194's residual 2.
   2. **A stale claim in a protected witness's prose, not edited.**
      `tests/fn-arg-type-mismatch-wired.test.ts`'s u9 group banner paraphrases
      `collectLocalBinderNames` as "a frontmatter `params:` field never reaches
