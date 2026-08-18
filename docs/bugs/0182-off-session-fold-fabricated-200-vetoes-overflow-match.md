@@ -1,8 +1,9 @@
 # Bug 0182 — `classifyOffSessionReply` hard-codes `httpStatus: 200` into the classifier input, so bug 0065's widened anthropic/mistral overflow gate is unreachable at every off-session `complete()` seam: the fold delivers no `null` for the widened arm to admit, and its own fabricated 200 is a captured non-400 status that vetoes the signature match — a real `prompt is too long: 220044 tokens > 200000 maximum` reaches the author as `Err(TransportError)` with both counts dropped where the same bytes at `httpStatus: null` classify `ContextOverflowError { tokens_used: 220044, tokens_limit: 200000 }` — and the same fabrication is the standing counterexample to `provider-error-mapping.md:7`'s "the runtime registers `onResponse` on every `complete()` call", which none of the three off-session call sites does
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the surface is fixed
+- **Status:** fixed (0.110.0). At filing, §Fix was constraint-pinned, not
+  settled: the surface was fixed
   (`classifyOffSessionReply` plus the three off-session `complete()` call sites
-  that feed it) and the constraints are measured, but *which* mechanism removes
+  that feed it) and the constraints were measured, but *which* mechanism removes
   the fabrication is undecided, and the two live candidates collide from
   opposite sides — capturing the real status closes the `:7` spec tension and
   matches what bug 0011's fix already did to the binder's identical fabricated
@@ -10,8 +11,10 @@
   adapter property that is UNMEASURED here (bug 0065 residual 2); folding to
   `null` is honest about the no-capture, leaves the spec tension standing, and
   makes `tests/off-session-transport-classification.test.ts` cell (v)'s
-  assertion unreachable off-session. The adjudication is made in-run against the
-  evidence in §Fix (b) and the measurement §Fix (d) names.
+  assertion unreachable off-session. The adjudication was made in-run against the
+  evidence in §Fix (b) and the measurement §Fix (d) names: mechanism **(b)(1)**,
+  against a §Fix (d) measurement that was **taken live** rather than derived —
+  see `## Fix (0.110.0)` below.
   Residual **1** (with residual **5** folded in) of the bug 0065 fix (0.100.0,
   commit `9c6e8efc`), recorded in that run's report
   (`.pi/tmp/fixes/0065-report.md` §*Residuals / notes*, items 1 and 5) and in
@@ -861,3 +864,297 @@ and changes no verdict here.
   cells green; every value in §Reproduction is its stdout verbatim. Written,
   run, deleted; `git status --short` and
   `ls tests tests/live | grep -i scratch` both empty afterwards.
+
+## Fix (0.110.0)
+
+- **Mechanism settled — §Fix (b)(1), capture the real status.** The literal is
+  gone; `classifyOffSessionReply` takes the captured `ProviderResponse |
+  undefined` as a required third parameter and presents
+  `httpStatus: captured?.status ?? null` — the shape `#classifyBinderAttempt`
+  has shipped since bug 0011 (v0.26.0), applied to the seam that fix did not
+  reach. (b)(2) (fold to `null`) was rejected on evidence, not preference: it is
+  strictly worse for `openai-completions` than (b)(1), losing **both** that
+  provider's overflow sub-cases (the HTTP-400 one *and* the HTTP-200
+  body-envelope one) where (b)(1) loses only the first, while additionally
+  inverting a landed 0007-lineage assertion and leaving `:7`'s registration
+  sentence false. (b)(3) was not reached: §Fix (b)(3) admits it only if (1) and
+  (2) both fail on evidence, and (1) did not.
+
+- **The §Fix (d) measurement — MEASURED, not derived.** §Fix (d) named the one
+  fact that could have rerouted the adjudication to (b)(2): whether the
+  `openai-completions` adapter invokes `onResponse` before resolving an HTTP
+  400. Bug 0065 residual 2 recorded it as untakeable in this environment. It was
+  retaken here and it **succeeded**. First attempt, threading auth exactly as
+  `#completeBinderReply` does (`ModelRegistry.getApiKeyAndHeaders` →
+  `options.apiKey` / `options.headers`), reproduced 0065's residual verbatim —
+  `401: {"message":"Missing Authentication header","code":401}` at openrouter and
+  `401: {"message":"LiteLLM Virtual Key expected. Received=UNIT****KEY1, expected
+  to start with 'sk-'.", …}` at the unity gateway. The masked key is the
+  diagnosis: for both `openai-completions` providers the registry's out-of-band
+  read returns the **name** of the credential's environment variable rather than
+  its value (23 characters = `PERSONAL_OPENROUTER_KEY`, 18 =
+  `UNITY_LITELLM_KEY1`). Threading the environment's own value instead, the
+  measurement lands, in both directions and on two independent 400 stimuli:
+
+  ```
+  [0182 d 200-control] MODEL: openrouter/openai/gpt-3.5-turbo (api=openai-completions, cw=16385)
+  [0182 d 200-control] ONRESPONSE FIRINGS: [200]
+  [0182 d 200-control] STOPREASON: stop
+  [0182 d 400-overflow] ONRESPONSE FIRINGS: []
+  [0182 d 400-overflow] STOPREASON: error
+  [0182 d 400-overflow] ERRORMESSAGE: 400: {"message":"This endpoint's maximum context length is 16385 tokens. However, you requested about 32786 tokens (32770 of text input, 16 in the output). …","code":400,"metadata":{"provider_name":null}}
+  [0182 d 400-badparam] ONRESPONSE FIRINGS: []
+  [0182 d 400-badparam] ERRORMESSAGE: 400: {"message":"Expected temperature to be at most 2, received 99","code":400,"metadata":{"provider_name":null}}
+  ```
+
+  The `temperature: 99` 400 recorded `[]` at the unity gateway too. So the
+  `openai-completions` adapter **withholds `onResponse` on an HTTP 400** and
+  fires it exactly once with `[200]` on a success — the 200 control is what makes
+  the empty firings evidence about the adapter's error path rather than about an
+  unregistered callback, and it confirms the static read at
+  `dist/api/openai-completions.js` (`.withResponse()` throws on a non-2xx before
+  the `onResponse` line) that §Reproduction (f) could only derive. The
+  `anthropic-messages` half needs no restatement: bug 0065's live gate cell (b)
+  measures it on every run of `tests/live/provider-error-revalidation-gate.test.ts`.
+
+- **The openai-400 trade, stated explicitly.** Because the adapter withholds,
+  an `openai-completions` HTTP-400 overflow off-session now presents `null` and
+  openai's gate refuses `null`, so that sub-case classifies `transport` where the
+  fabricated 200 used to buy it `context_overflow`. This is a
+  **regression-by-honesty and the specified outcome**, not a defect: `:7` says a
+  no-status `openai-completions` response "classifies as network-level even when
+  its `errorMessage` carries overflow wording", and the fabrication was masking
+  exactly that. It is pinned by witness cell **W5** so it can never regress
+  silently in either direction. Weighed against (b)(2)'s cost — which flips cell
+  (v), a landed 0007-lineage lock, and takes openai's HTTP-200 body-envelope arm
+  off *every* off-session seam — the trade is one unobserved-in-the-wild sub-case
+  against the live reality of anthropic overflows, and it leaves the openai
+  HTTP-200 arm reachable on a *real* 200 (measured `[200]`) instead of a
+  fabricated one.
+
+- **The intended behavioural change (GOV-15).** No source-language observable
+  moves: this is a classifier-input fix and registers no code, mints no
+  diagnostic, and changes no parse verdict. The one author-visible flip is the
+  point of the bug — an off-session `@`-query overflow against
+  `anthropic-messages` / `mistral` / `mistral-conversations` binds
+  `Err(ContextOverflowError { tokens_used, tokens_limit })` where it bound
+  `Err(TransportError)` with both counts dropped. QRY-10 is the authority
+  (`query-failure-and-repair.md:25`: the counts "are populated when the provider
+  supplies them in the error payload"), and the provider supplied both.
+
+- **What shipped:**
+  - `src/extension/production-theta-producer.ts` — `classifyOffSessionReply`
+    gains the required third parameter and presents `captured?.status ?? null`;
+    its doc-comment's false clause ("registers no `onResponse` … and 200 is what
+    admits the openai HTTP-200 … gate") is replaced by the captured-status
+    contract, and the transport fold's in-body comment now states the true WHY
+    for its pinned surface (PIC-51 / bug 0007, published regardless of any
+    captured status) instead of the now-false "no HTTP status is captured at this
+    seam". Each of the three off-session `complete()` call sites —
+    `offSessionComplete` (which was a two-argument call and gains an options
+    object), `OffSessionQueryModel.#driveFreePhaseRound`,
+    `dispatchForcedRespondTurn` — registers its own function-local `let captured`
+    plus `onResponse` closure and threads the value into its fold call.
+    Per-invocation by construction; no shared slot (CLAUDE.md).
+  - `docs/spec_topics/pi-integration-contract/provider-error-mapping.md` — one
+    amendment, at `:7`. The registration sentence "the runtime registers
+    `onResponse` on every `complete()` call" **became true** with this fix and
+    needed no carve-out: all four `complete()` call sites in `src/` now register
+    it (the binder's plus these three; grep-enumerated, there is no fifth). Its
+    parenthetical, which pointed only at the binder's options enumeration, now
+    also names the off-session query and forced-respond calls and says what their
+    registration buys — that PIC-50's "exactly as the binder's `complete()` call
+    is" now holds of their HTTP-status input too. `:17`, `:18`, `:19` and `:24`
+    are untouched (§Fix constraint 6: the rows were right, the input was wrong).
+    File is 86 lines before and after with every anchor on its original line
+    (3, 7, 9, 11, 22, 31, 38, 54, 65), so no citing document drifted.
+  - `tests/off-session-transport-classification.test.ts` — +8 cells (W1–W8) and
+    the two edits §Fix constraint 3 authorizes: the mocked `complete` now accepts
+    its options and fires a scripted `onResponse` (a `WeakMap` side table keyed on
+    the reply object, so no scripted reply carries a non-`AssistantMessage`
+    member), and cell (v)'s fixture gains `onResponseStatus: 200` with its WHY
+    comment restated — the 200 is now the adapter's real captured status. **Cell
+    (v)'s assertion is byte-untouched**, and cells (i), (ii), (iii), (iv), (iv-b),
+    (vi), (vii) and both green controls are byte-identical.
+  - `tests/live/off-session-overflow-classification.test.ts` — NEW. Two live
+    cells driving a real off-session `@`-query end to end through the production
+    driver, scored on the arm an author's own `match` takes.
+
+- **Seam census (§Fix (e), all four seams accounted for).**
+  1. `#driveFreePhaseRound` — witnessed offline (W1, W8) and live (both cells:
+     an untyped `@`-query in a `subagent fn` body takes this dispatch).
+  2. `dispatchForcedRespondTurn` from the off-session driver — witnessed offline
+     (W2: a clean free-phase turn, then the overflow on the respond dispatch).
+  3. `dispatchForcedRespondTurn` from the **live prompt-mode** driver — verified
+     by construction, not driven: `LivePromptQueryModel` reaches the *same*
+     function through the same call expressions, and the fold call it classifies
+     through is the single one inside that function, so seam 2's witness covers
+     this seam's classification by identity of code path.
+  4. `offSessionComplete` — threaded and read, but **unwitnessed by
+     construction**; see residual 2.
+
+- **Constraint discharge (§Fix (c)), one line each.**
+  1. `src/binder/provider-error-mapping.ts` is byte-unchanged (`git diff --stat`
+     empty for it), and `tests/binder-inference-provider-mapping.test.ts` — 58
+     cells including the captured-non-400 veto cell — is byte-unchanged and green.
+  2. No non-overflow outcome moved: W6 drives a non-overflow error-stop with a
+     captured **500** and with no firing and asserts the two leaves `toEqual`
+     each other and the pinned surface — a captured 500 would make the
+     classifier's own verdict `retryable: true` / `http_status: 500`, so the fold
+     is proven to still overwrite both.
+  3. Cell (v) was handled explicitly, as a fixture change with an untouched
+     assertion; the blast radius was measured before the witness was written, by
+     prototyping the mechanism and running the full suite — exactly one
+     pre-existing cell red, and it was that one.
+  4. The `length` arm stays reachable and status-blind: W7 drives it under a
+     captured **400** and still gets `context_overflow`, null counts, and
+     `raw_response` carrying the partial text; untouched cell (iii) agrees.
+  5. Scope held: `#classifyBinderAttempt`, `extractPromptModeQueryResult` and
+     every registered code are untouched; the diff is the fold, its three call
+     sites, one spec parenthetical, and tests.
+  6. The spec edit is same-commit and mechanism-determined, and is the one
+     parenthetical described above.
+  7. Bug 0065 is not reopened: its record, its 12 offline cells, its live gate
+     (re-run green here) and its spec amendments stand. Its §Actual behaviour's
+     wrong "fixed `null` fold" wording is corrected by this record's existence,
+     not by editing that document.
+
+- **Live signature RETIRED.** The off-session-overflow→transport signature — a
+  real anthropic overflow reaching a theta author as `Err(TransportError)` — is
+  retired at 0.110.0. It was the last open live signature in the set. It is now a
+  *pinned red under revert* instead: with the literal restored the new live cell
+  renders `VERDICT=TRANSPORT|END` and fails, and with the fix it renders
+  `VERDICT=OVF_LIMIT_200000|END`.
+
+- **Gates** (each run by the orchestrator, not taken on report):
+  - Witness, red before: `6 failed | 12 passed (18)` in
+    `tests/off-session-transport-classification.test.ts` — W1/W2/W3 on
+    `transport` vs `context_overflow` with both counts dropped (byte-identical to
+    §Reproduction (d)'s leaf), W4 on the two verdicts being equal, W5 on
+    `context_overflow` vs `transport`, W8 on `Received: "TRANSPORT"`. W6/W7 are
+    green both sides by design — they are the non-perturbation controls.
+  - Witness, green after: `Tests 18 passed (18)`.
+  - Full default suite: `Test Files 313 passed (313)` / `Tests 5257 passed
+    (5257)` — the 0.109.0 baseline of 5249 plus these 8 cells, zero failures.
+  - Typecheck: `npx tsc --noEmit -p tsconfig.json` → no output, exit 0.
+  - Lint: `npm run lint` → no output, exit 0.
+  - Live, the new cell: `[bug 0182 live ovfctl] USERTEXTS:
+    ["VERDICT=UNEXPECTED_OK|END"]`, `[bug 0182 live ovflive] USERTEXTS:
+    ["VERDICT=OVF_LIMIT_200000|END"]`, `Tests 2 passed (2)`.
+  - Live, both directions: with `httpStatus: 200` temporarily restored the same
+    drive rendered `["VERDICT=TRANSPORT|END"]` and the cell failed; the file was
+    then restored byte-exactly (`diff` against a pre-probe copy empty, blob hash
+    identical) and re-ran green. Proven twice — once by the orchestrator, once
+    independently by the verifier.
+  - Live, bug 0065's 3-cell re-validation gate (it LOCKS, being binder-shaped):
+    `[bug 0065 live a] ONRESPONSE FIRINGS: [200]`, `[bug 0065 live b] …: []`,
+    `[bug 0065 live c] …: []` with `CLASSIFIER VERDICT:
+    {"kind":"context_overflow", …,"tokens_used":220039,"tokens_limit":200000, …}`,
+    `Tests 3 passed (3)`.
+  - Live H8a, whole half: `Test Files 5 passed (5)` / `Tests 55 passed (55)`
+    (47 + 3 + 1 + 2 + the 2 new).
+  - Live H9a, both files: `Tests 11 passed (11)`. No `theta/*` code is added
+    anywhere by this fix, so every permitted-codes assertion ran byte-unchanged.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned one finding and one
+  non-blocking residual: F1 (`house-rule`) — the transport fold's in-body comment
+  "no HTTP status is captured at this seam (hence `http_status: null`, never the
+  fabricated 200)" was falsified by this diff's own third parameter and left
+  dangling historical narration of a removed defect; R1 (`test`) — the
+  `offSessionComplete` registration has no cell that can red (residual 2 below).
+  F1 was routed to `bug-fix-fixer-light` and fixed comment-only (3 comment lines,
+  every changed line prefixed `  // `, file line count unchanged). The polish was
+  verified by gate-diff — suite, typecheck and lint re-run green, every hunk a
+  comment — so the confirmation review round was skipped by rule. Everything the
+  reviewer checked it quoted: the three capture sites in full context, the
+  option-spread shadowing question (`OffSessionRequestAuth` is
+  `{ apiKey?, headers? }`, so no spread can shadow `onResponse`), the
+  byte-unchanged binder files, the anchor line list, and a mechanical
+  red-direction entailment of every new assertion.
+
+- **Verification:** SOLID, no findings. Obligation by obligation: (1) the witness
+  reds under a one-line revert with the bug's exact signature and re-greens after
+  a byte-exact restore (blob hash `03d2a7e7` matching an independently computed
+  backup hash — no `git checkout` was used, the tree not being at HEAD);
+  (2) 313 files / 5257 tests, 0 failures; (3) every live obligation run for real
+  — the new cell green, its red direction independently reproduced, 0065's gate
+  3/3, H8a 55/55, H9a 11/11, with the open-signature list checked before any
+  attribution and no red to attribute; (4) typecheck and lint clean; (5) the
+  unwitnessed `offSessionComplete` seam read line by line and confirmed to
+  register and thread correctly, with both its callers traced to the same
+  unmintable-from-source gate.
+
+- **Residuals:**
+  1. **The binder's BND-3 note loses the provider's text on any classification
+     that now returns `context_overflow`** — re-recorded from §Non-goals,
+     source-traced, not fixed here and not owned here.
+     `#classifyBinderAttempt` selects its message with
+     `classified.kind === "transport" && classified.message !== ""` and otherwise
+     takes the fixed `"provider transport failure"` fallback, then returns
+     `outcome.kind: "transport"` for every classification per
+     `determinism-cancellation-failure.md:36`. So a binder attempt whose response
+     classifies `context_overflow` renders the BND-3 template
+     `theta /<name>: argument binder unavailable (<provider>: <message>)` with the
+     fixed fallback instead of the provider's own overflow text. This predates
+     this fix and is unchanged by it — bug 0065's element 1 is what made the
+     `context_overflow` classification reachable on the binder path — and §Fix
+     constraint 5 forbade touching it here. The parent decides filing.
+  2. **`offSessionComplete`'s `onResponse` registration has no test that can
+     red.** Dropping it would leave `captured` permanently `undefined`, i.e. the
+     honest `null` class rather than a fabricated value, so the failure mode is
+     silent-but-safe; and both callers are gated behind the same
+     unmintable-from-source condition (`#completeFused`, the degraded arm
+     "reachable only via a `schema: \"\"` QueryExpr, which bug 0014's parse
+     rejection makes unmintable from source", and `offSessionFollowUp`, wired to
+     the same respond-less branch). `grep -rn "completeFused\|offSessionFollowUp"
+     tests/` returns zero matches. An offline cell would have to fabricate an AST
+     to reach it, which is why none was added.
+  3. **The registry returns credential *names*, not values, for both
+     `openai-completions` providers on the out-of-band read.**
+     `ModelRegistry.getApiKeyAndHeaders` resolved `ok: true` with a 23-character
+     "key" that is the string `PERSONAL_OPENROUTER_KEY` (and 18 characters =
+     `UNITY_LITELLM_KEY1`), which the endpoints reject with 401. This is the
+     mechanism behind bug 0065 residual 2's unexplained 401s, and it is why no
+     shipped live cell pins the openai measurement above: a cell reading the
+     operator's environment variable directly would fail loudly in every other
+     install, which is worse than no cell. The measurement therefore lives in
+     this record, not in a gate. Host/config-shaped; nothing in theta's own
+     surface is implicated.
+  4. **Mistral remains UNMEASURED**, restating bug 0065 residual 3's class: no
+     `mistral` api provider exists in the configured install, so W3 rides
+     shared-gate parity and says so, claiming no measurement.
+
+- **Discharge notes appended:**
+  `0065-anthropic-overflow-status-gate-unsatisfiable.md` — a coordination note
+  recording that its `## Fix (0.100.0)` §Residuals **1** and **5** are discharged
+  here.
+
+- **Pinned dispositions / non-goals** (unchanged, not re-litigated): whether
+  pi-ai should fire `onResponse` on error responses is upstream (bug 0065
+  §Non-goals); PIC-51b's deliberate status-blindness on the on-session
+  prompt-mode probe is specified behaviour, not a defect; the binder's fold of
+  `ContextOverflowError` into the transport class is unchanged; the
+  `openai-completions` HTTP-200 body-envelope gate itself is untouched — what
+  moved is which status the seam presents to it; positional drift in citations to
+  `production-theta-producer.ts` is bug 0134's adjudicated do-not-chase class and
+  no citation was renumbered anywhere.
+
+- **Decisions recorded in lieu of asking** (the `question` tool is unavailable in
+  this run, so each is on the record with its bound):
+  1. *Which mechanism.* Settled as (b)(1) inside §Fix's own constraint envelope,
+     on the (d) measurement plus the (b)(2)-is-worse-for-openai comparison above.
+     No constraint was widened.
+  2. *The spec parenthetical.* §Fix constraint 6 authorizes a same-commit `:7`
+     edit and states mechanism (i) needs no carve-out; the parenthetical widening
+     is the smallest edit that keeps the sentence's cross-reference complete once
+     three more call sites satisfy it. Bound: one parenthetical, no normative
+     clause touched, file length and every anchor line unchanged.
+  3. *Taking the (d) measurement with the environment's credential* after the
+     registry's own value was rejected as a 401. Bound: a scratch, deleted probe;
+     no shipped file reads an environment credential; the finding is residual 3.
+  4. *No shipped live cell for the openai measurement*, for the reason in
+     residual 3 — a gate that cannot run outside this install would violate the
+     no-silent-skipping rule by construction.
+  5. *Skipping the confirmation review round* after the comment-only polish,
+     which that round's own gate-diff (every hunk a comment, gates green)
+     authorizes.

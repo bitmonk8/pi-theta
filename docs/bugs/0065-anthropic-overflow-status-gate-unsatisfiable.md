@@ -573,3 +573,47 @@ a cheap deliberate 400 is the mechanical form of that gate.
   fold of `ContextOverflowError` into the transport class is unchanged and
   verified above; `raw_response: null` on a probe that supplies no
   `rawResponse` is by construction.
+
+## Coordination note — residuals 1 and 5 discharged (bug 0182, 0.110.0)
+
+Append-only; nothing above this line is rewritten.
+
+`## Fix (0.100.0)` §*Residuals* **1** and **5** are discharged by the bug 0182
+fix at 0.110.0
+([`0182-off-session-fold-fabricated-200-vetoes-overflow-match.md`](./0182-off-session-fold-fabricated-200-vetoes-overflow-match.md),
+`## Fix (0.110.0)`).
+
+- **Residual 1** — the off-session fold's fabricated `httpStatus: 200`, which
+  made this fix's widened gate unreachable at every off-session seam. The literal
+  is gone: `classifyOffSessionReply` now presents
+  `httpStatus: captured?.status ?? null` from a per-invocation `onResponse`
+  capture registered at each of the three off-session `complete()` call sites —
+  the shape `#classifyBinderAttempt` has shipped since bug 0011. This document's
+  §*Actual behaviour* describes that fold as supplying "the fixed `null` fold in
+  the off-session path"; it was `200`, and had been since v0.18.0. Bug 0182's
+  §*Kind* element 4 is the evidence and its `## Fix (0.110.0)` is the correction
+  of record. **That wording is left as filed here deliberately** — bug 0182 §Fix
+  constraint 7 pins this document byte-stable apart from this note, and its
+  §Provenance records the divergence rather than editing it away.
+
+- **Residual 5** — the latent `:7` tension: the page stated that the runtime
+  "registers `onResponse` on every `complete()` call" while three off-session call
+  sites registered none. The sentence is now **true**; all four `complete()` call
+  sites in `src/` register it. Bug 0182's same-commit spec edit widened only that
+  sentence's parenthetical cross-reference to name the off-session sites beside
+  the binder's. No carve-out was needed and none was added, so this residual is
+  closed rather than re-filed.
+
+Unaffected by that fix and unchanged here: this document's `## Fix (0.100.0)`
+record, its 12 offline cells, its spec amendments, and its live re-validation
+gate `tests/live/provider-error-revalidation-gate.test.ts` (re-run for real
+during the 0182 verification — 3/3 green, `ONRESPONSE FIRINGS: [200]` / `[]` /
+`[]`, cell (c)'s classifier verdict `context_overflow` with
+`tokens_used: 220039` / `tokens_limit: 200000`). Residual **2** (the openai
+`onResponse` measurement this environment could not take) is now **taken** —
+see bug 0182's `## Fix (0.110.0)`, which records the measurement verbatim and,
+as its residual 3, the reason it had failed here: for both `openai-completions`
+providers the registry's out-of-band `getApiKeyAndHeaders` returns the *name* of
+the credential's environment variable rather than its value. Residual **3**
+(mistral unmeasured) and residual **4** (mistral's veto coverage symmetry) stand
+unchanged.

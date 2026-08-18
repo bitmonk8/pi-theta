@@ -61,6 +61,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const scripted = vi.hoisted(() => ({
   queue: [] as unknown[],
   calls: 0,
+  // Bug 0182: the per-reply `onResponse` firing directive — the HTTP status the
+  // adapter reports for THAT reply, keyed by the reply object `reply()` built.
+  // A SIDE TABLE rather than a member of the reply, so every scripted reply
+  // stays a pure `AssistantMessage` shape on the surface production code reads.
+  onResponseStatus: new WeakMap<object, number>(),
 }));
 
 // Replace ONLY the off-session `complete()` free function; every other pi-ai
@@ -69,22 +74,46 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    complete: vi.fn(async () => {
-      const index = scripted.calls;
-      scripted.calls += 1;
-      if (scripted.queue.length === 0) {
-        // No silent skipping: a drive against an unscripted cell fails loudly.
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${scripted.calls})`,
-        );
-      }
-      // Per-call consumption with the LAST entry sticky: a drive that issues
-      // MORE calls than the cell scripted keeps observing the terminal reply
-      // (a dead provider keeps failing identically), so today's respond-repair
-      // over-driving (bug 0007: 1 + attempts(3) = 4 calls) stays observable as
-      // a CALL-COUNT assertion instead of a mid-flight harness throw.
-      return scripted.queue[Math.min(index, scripted.queue.length - 1)];
-    }),
+    complete: vi.fn(
+      async (
+        _model: unknown,
+        _context: unknown,
+        options?: { readonly onResponse?: (response: unknown) => void },
+      ) => {
+        const index = scripted.calls;
+        scripted.calls += 1;
+        if (scripted.queue.length === 0) {
+          // No silent skipping: a drive against an unscripted cell fails loudly.
+          throw new Error(
+            `scripted complete() called with an EMPTY reply queue (call #${scripted.calls})`,
+          );
+        }
+        // Per-call consumption with the LAST entry sticky: a drive that issues
+        // MORE calls than the cell scripted keeps observing the terminal reply
+        // (a dead provider keeps failing identically), so today's respond-repair
+        // over-driving (bug 0007: 1 + attempts(3) = 4 calls) stays observable as
+        // a CALL-COUNT assertion instead of a mid-flight harness throw.
+        const entry = scripted.queue[Math.min(index, scripted.queue.length - 1)];
+        // Bug 0182: a consumed entry that scripts a status fires the CALLER's
+        // `ProviderStreamOptions.onResponse` exactly once, before the reply
+        // resolves — the pi-ai adapters' own order (the SDK call resolves,
+        // `onResponse` is invoked with `{ status, headers }`, the reply is
+        // returned: node_modules/@earendil-works/pi-ai/dist/api/
+        // anthropic-messages.js, dist/api/openai-completions.js). A caller that
+        // registers NO callback observes nothing, exactly as the real adapters
+        // behave, so a firing scripted against a seam that registers none is
+        // inert; scripting none reproduces the adapters' measured error-response
+        // shape (`ONRESPONSE FIRINGS: []`).
+        const status =
+          typeof entry === "object" && entry !== null
+            ? scripted.onResponseStatus.get(entry)
+            : undefined;
+        if (status !== undefined) {
+          options?.onResponse?.({ status, headers: {} });
+        }
+        return entry;
+      },
+    ),
   };
 });
 
@@ -166,6 +195,14 @@ function reply(fields: {
     readonly name: string;
     readonly arguments: Record<string, unknown>;
   }>;
+  /**
+   * Bug 0182: the HTTP status the adapter reports through
+   * `ProviderStreamOptions.onResponse` for this reply. OMITTED means the
+   * adapter never fires — the measured anthropic and openai-completions
+   * error-response shape (`ONRESPONSE FIRINGS: []`) and the no-HTTP-response
+   * class `provider-error-mapping.ts` spells `httpStatus: null`.
+   */
+  readonly onResponseStatus?: number;
 }): unknown {
   const content: Record<string, unknown>[] =
     fields.text !== undefined ? [{ type: "text", text: fields.text }] : [];
@@ -177,7 +214,7 @@ function reply(fields: {
       arguments: call.arguments,
     });
   }
-  return {
+  const message = {
     role: "assistant",
     content,
     api: fields.api ?? "anthropic-messages",
@@ -185,6 +222,10 @@ function reply(fields: {
     ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
     timestamp: 0,
   };
+  if (fields.onResponseStatus !== undefined) {
+    scripted.onResponseStatus.set(message, fields.onResponseStatus);
+  }
+  return message;
 }
 
 /**
@@ -504,17 +545,21 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
     // openai's documented overflow gate admits HTTP-200 stopReason-error
     // envelopes (provider-error-mapping.md §Overflow signatures); the
     // anthropic gate admits HTTP 400 or no captured status
-    // (provider-error-mapping.md §Classifier input surface), but it stays
-    // unobservable at this seam: `classifyOffSessionReply`
-    // (src/extension/production-theta-producer.ts:5378-5401) presents a
-    // fixed `httpStatus: 200`, which a captured non-400 status vetoes —
-    // hence openai here.
+    // (provider-error-mapping.md §Classifier input surface), which is a
+    // DIFFERENT row — hence openai here.
+    // The scripted `onResponse({ status: 200 })` is the REAL captured status of
+    // this envelope, not a fold fabrication: an openai-completions success
+    // response fires `onResponse` once with `[200]` (measured), and this arm's
+    // whole subject is an overflow delivered INSIDE a 200 body, so the arm
+    // stays reachable off-session once the seam presents what it captured
+    // (bug 0182 §Fix (b)(1)).
     // Today: fabricated success — final value "".
     scripted.queue = [
       reply({
         stopReason: "error",
         errorMessage: OPENAI_OVERFLOW_MESSAGE,
         api: "openai-completions",
+        onResponseStatus: 200,
       }),
     ];
 
@@ -639,5 +684,390 @@ describe("bug 0007 (GREEN controls) — clean off-session turns flow through the
       "the two-phase shape: one free-phase call + one forced respond dispatch " +
         "(bug 0010 increment D)",
     ).toBe(2);
+  });
+});
+
+// ===========================================================================
+// Bug 0182 — the off-session fold must present the HTTP status the seam
+// CAPTURED, never a fabricated 200.
+//
+// docs/bugs/0182-off-session-fold-fabricated-200-vetoes-overflow-match.md:
+// `classifyOffSessionReply` (src/extension/production-theta-producer.ts) builds
+// its `classifyProviderResponse` input with a literal `httpStatus: 200`. Bug
+// 0065 widened the anthropic / mistral overflow gate to
+// `input.httpStatus === 400 || input.httpStatus === null`
+// (`overflowStatusGateSatisfied`, src/binder/provider-error-mapping.ts) because
+// the `anthropic-messages` adapter measurably never fires `onResponse` on an
+// HTTP 400 — but 200 is neither value, and provider-error-mapping.md:7 makes a
+// CAPTURED non-400 status VETO a match under a row whose gate names HTTP 400.
+// The widened arm is therefore unreachable at every off-session seam: a real
+// `prompt is too long: 220044 tokens > 200000 maximum` reaches the theta author
+// as `Err(transport)` with both counts dropped, where the same bytes with no
+// captured status classify `context_overflow { 220044, 200000 }`.
+//
+// These cells pin the FIXED classifier input: the status the seam actually
+// captured (`captured?.status ?? null` — the shape `#classifyBinderAttempt`
+// already ships), which for a reply the adapter never reported on is `null`.
+// The harness's `reply({ onResponseStatus })` firing is the ONLY source of a
+// non-null status here, so a cell that scripts none IS the no-captured-status
+// class and a cell that scripts one is a genuine capture.
+//
+// Spec: provider-error-mapping.md:7 (§Classifier input surface — the
+// no-captured-status carve-out, its `openai-completions` exclusion, and the
+// captured-status veto), :17 (the anthropic row: "HTTP 400, or no captured HTTP
+// status"), :19 (mistral), :24 (§Overflow token-count extraction), :31
+// (§Stop-reason classification); query/query-failure-and-repair.md:25 (QRY-10 —
+// the counts are populated when the provider supplies them);
+// errors-and-results/queryerror-variants.md:125 (the `ContextOverflowError`
+// field set); conversation-drive.md:16 (PIC-50 — the off-session `complete()`
+// call's provider failures are classified "exactly as the binder's `complete()`
+// call is").
+// ===========================================================================
+
+/**
+ * The bug-0182 author-side witness theta (W8): the `subagent fn` body MATCHES
+ * the untyped `@`-query's Result and renders one deterministic token per
+ * verdict, so the observable is the arm an author's `match` actually takes.
+ * Pattern forms are expressions.md#pattern-grammar — a constructor over an
+ * object/schema pattern with literal fields, no guards and no rest patterns.
+ * The query is the `match` SCRUTINEE rather than a `let` binding: a bare
+ * `let r = @…` binds the UNWRAPPED value on success and terminates the body on
+ * failure (`evalExpr`'s checkpointed-effect arm in
+ * src/runtime/statement-executor.ts yields its `fail` flow), so the query's
+ * `Result` is observable only where a `match` dispatches on it.
+ */
+const MATCH_ARM_THETA = [
+  "---",
+  "mode: prompt",
+  "---",
+  "subagent fn probe() {",
+  "  let verdict = match @`Echo` {",
+  '    Ok(_) => "UNEXPECTED_OK",',
+  '    Err(QueryError { kind: "context_overflow", tokens_limit: 200000 }) => "OVF_LIMIT_200000",',
+  '    Err(QueryError { kind: "context_overflow" }) => "OVF_NO_COUNTS",',
+  '    Err(QueryError { kind: "transport" }) => "TRANSPORT",',
+  '    Err(_) => "OTHER",',
+  "  }",
+  "  verdict",
+  "}",
+  "let out = probe()",
+  "out",
+  "",
+].join("\n");
+
+describe("bug 0182 — the off-session fold's fabricated httpStatus 200 vetoes the overflow-signature match", () => {
+  /**
+   * The verbatim live anthropic overflow `errorMessage`, copied from the pin
+   * bug 0065's 0.100.0 run committed at
+   * tests/binder-inference-provider-mapping.test.ts:942 (recorded from one real
+   * `complete()` against `claude-haiku-4-5` with `"word ".repeat(220_000)` at
+   * pi-ai 0.80.10, alongside `ONRESPONSE FIRINGS: []` and `STOPREASON: error`).
+   * Whole-string numeric runs are SEVEN, so the counts asserted below can only
+   * come from `extractOverflowTokens`'s provider-message window
+   * (`prompt is too long: 220044 tokens > 200000 maximum`, exactly two runs).
+   */
+  const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
+    `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
+
+  /** A `mistral`-row overflow body: that row's own signature is `/context.*length/i`. */
+  const MISTRAL_OVERFLOW_MESSAGE = "the context length was exceeded";
+
+  /** A resolved `mistral` off-session model; `.api` and `.provider` stay distinct. */
+  const MISTRAL_MODEL = {
+    id: "m3",
+    api: "mistral",
+    provider: "mistral-ai",
+    strictCapable: true,
+  };
+
+  it("(0182 W1) untyped FREE-PHASE seam: the live anthropic overflow with no captured status is Err(context_overflow) carrying 220044/200000 — not Err(transport)", async () => {
+    // The untyped `@`-query dispatches through
+    // `OffSessionQueryModel.#driveFreePhaseRound`'s
+    // `complete(model, …, { signal, …auth })`. NO firing is scripted because
+    // that is the measured anthropic error-response shape
+    // (`ONRESPONSE FIRINGS: []`): the seam's real classifier input is the
+    // no-HTTP-response class `null`, the value provider-error-mapping.md:17
+    // admits alongside HTTP 400. The fold sends 200 instead, and 200 is the one
+    // value the gate refuses.
+    scripted.queue = [
+      reply({ stopReason: "error", errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE }),
+    ];
+
+    const execution = await driveTheta(UNTYPED_THETA, ANTHROPIC_MODEL);
+
+    const err = expectErrQueryError(execution);
+    expect(
+      err,
+      "bug 0182: a genuine `prompt is too long` refusal must reach the author as " +
+        "the ContextOverflowError variant carrying the two integers the provider " +
+        "stated in its own message (QRY-10; queryerror-variants.md:125). " +
+        'kind "transport" means the fold fabricated a captured 200 and the ' +
+        "anthropic status gate vetoed the signature match on a status no " +
+        `onResponse produced. observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "context_overflow",
+      message: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+      tokens_used: 220044,
+      tokens_limit: 200000,
+      raw_response: null,
+    });
+    expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
+  });
+
+  it("(0182 W2) typed FORCED-RESPOND seam: the same overflow on the respond dispatch is Err(context_overflow) carrying 220044/200000", async () => {
+    // The second seam of the census. Reply 1 terminates the free phase cleanly,
+    // so the overflow lands on `dispatchForcedRespondTurn`'s
+    // `complete(model, …, { toolChoice, signal, …auth })` — the seam a
+    // prompt-mode typed query also takes, carrying the whole accumulated query
+    // window plus the QRY-15 template, which is the shape most likely to
+    // overflow. Same fold, same fabricated status, so the fix is proven here and
+    // not only at the free-phase dispatch.
+    scripted.queue = [
+      reply({ stopReason: "stop", text: "thinking" }),
+      reply({ stopReason: "error", errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE }),
+    ];
+
+    const execution = await driveTheta(TYPED_THETA, ANTHROPIC_MODEL);
+
+    const err = expectErrQueryError(execution);
+    expect(
+      err,
+      "bug 0182: the forced respond dispatch classifies through the same fold, " +
+        "so it must surface the same ContextOverflowError. observed: " +
+        JSON.stringify(err),
+    ).toEqual({
+      kind: "context_overflow",
+      message: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+      tokens_used: 220044,
+      tokens_limit: 200000,
+      raw_response: null,
+    });
+    expect(
+      scripted.calls,
+      "the free-phase call + the failing forced respond dispatch = exactly TWO",
+    ).toBe(2);
+  });
+
+  it("(0182 W3) untyped, mistral (UNMEASURED): a context-length body with no captured status is Err(context_overflow) with both counts null", async () => {
+    // WHY UNMEASURED. The `mistral` row moves with anthropic by SHARED-GATE
+    // PARITY ONLY: both api values fall through to the single
+    // `input.httpStatus === 400 || input.httpStatus === null` return in
+    // `overflowStatusGateSatisfied`, so whatever that gate concedes to anthropic
+    // it concedes to mistral by construction. NO `mistral` api provider exists
+    // in the configured pi install (bug 0065 residual 3 — the install exposes
+    // `anthropic-messages`, `openai-completions` and `openai-responses` only),
+    // so whether the mistral adapter withholds `onResponse` on a 400 is NOT
+    // claimed by this cell, which measures nothing live. Counts stay null on
+    // every route: `mistral` is outside `TOKEN_EXTRACTING_APIS`.
+    scripted.queue = [
+      reply({
+        stopReason: "error",
+        errorMessage: MISTRAL_OVERFLOW_MESSAGE,
+        api: "mistral",
+      }),
+    ];
+
+    const execution = await driveTheta(UNTYPED_THETA, MISTRAL_MODEL);
+
+    const err = expectErrQueryError(execution);
+    expect(
+      err,
+      "bug 0182: the mistral row shares the anthropic gate expression verbatim, " +
+        "so it must share the widening the fold's fabricated 200 defeats " +
+        `(provider-error-mapping.md:19). observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "context_overflow",
+      message: MISTRAL_OVERFLOW_MESSAGE,
+      tokens_used: null,
+      tokens_limit: null,
+      raw_response: null,
+    });
+    expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
+  });
+
+  it("(0182 W4) the captured status is THREADED, not ignored: the same openai overflow bytes classify differently with and without a firing", async () => {
+    // The threading witness. Both drives script the SAME `errorMessage`, api and
+    // stop reason; the ONLY difference is whether the adapter reported a status.
+    // `openai-completions`'s gate is `400 || (200 && stopReason "error")`, so a
+    // captured 200 admits the match and no captured status refuses it
+    // (provider-error-mapping.md:7 — the carve-out "does not extend to
+    // `openai-completions`"). Two identical verdicts mean the fold never reads
+    // the capture and the threading is dead code.
+    scripted.queue = [
+      reply({
+        stopReason: "error",
+        errorMessage: OPENAI_OVERFLOW_MESSAGE,
+        api: "openai-completions",
+        onResponseStatus: 200,
+      }),
+    ];
+    const captured = expectErrQueryError(await driveTheta(UNTYPED_THETA, OPENAI_MODEL));
+
+    // A fresh script for the second drive: the queue is per-drive and the call
+    // count is asserted below, so both are reset rather than carried over.
+    scripted.queue = [
+      reply({
+        stopReason: "error",
+        errorMessage: OPENAI_OVERFLOW_MESSAGE,
+        api: "openai-completions",
+      }),
+    ];
+    scripted.calls = 0;
+    const uncaptured = expectErrQueryError(await driveTheta(UNTYPED_THETA, OPENAI_MODEL));
+
+    expect(
+      captured.kind === uncaptured.kind,
+      "bug 0182: the two drives differ in NOTHING but the adapter's `onResponse` " +
+        "firing, so an identical verdict proves the fold decided on a status the " +
+        `seam never captured. captured-200 verdict: ${JSON.stringify(captured)}; ` +
+        `no-firing verdict: ${JSON.stringify(uncaptured)}`,
+    ).toBe(false);
+    expect(
+      captured.kind,
+      'a captured 200 with stopReason "error" is openai\'s body-envelope overflow ' +
+        `arm (provider-error-mapping.md:18). observed: ${JSON.stringify(captured)}`,
+    ).toBe("context_overflow");
+    expect(
+      uncaptured.kind,
+      "no captured status is the network-level class, which openai's gate refuses " +
+        `(provider-error-mapping.md:7). observed: ${JSON.stringify(uncaptured)}`,
+    ).toBe("transport");
+    expect(scripted.calls, "one provider call resolves the second drive").toBe(1);
+  });
+
+  it("(0182 W5) untyped, openai-completions: an HTTP-400 overflow — the measured no-firing shape — is Err(transport) with http_status null and retryable false", async () => {
+    // REGRESSION BY HONESTY, and it is the SPECIFIED outcome rather than a
+    // defect.
+    // (a) MEASURED live: the `openai-completions` pi-ai adapter fires
+    //     `onResponse` exactly once with `[200]` on a success and ZERO times on
+    //     an HTTP 400 — on `openrouter/openai/gpt-3.5-turbo` a real overflow 400
+    //     recorded `ONRESPONSE FIRINGS: []`, and a `temperature: 99` 400
+    //     recorded `[]` as well. A real openai overflow 400 therefore reaches
+    //     this seam with NO captured status, which is what this cell scripts.
+    // (b) provider-error-mapping.md:7 states that outcome: the
+    //     no-captured-status carve-out "does not extend to `openai-completions`,
+    //     whose gate admits only a captured status — HTTP 400, or HTTP 200
+    //     resolving with `stopReason: \"error\"`", so "a no-status
+    //     `openai-completions` response classifies as network-level even when
+    //     its `errorMessage` carries overflow wording". The fold's fabricated
+    //     200 masked that by satisfying the gate's second half with a status the
+    //     seam never had.
+    // (c) The openai HTTP-200 body-envelope arm is UNAFFECTED: a real 200 does
+    //     fire, which is why cell (v) above scripts the firing and keeps its
+    //     `context_overflow` assertion.
+    scripted.queue = [
+      reply({
+        stopReason: "error",
+        errorMessage: OPENAI_OVERFLOW_MESSAGE,
+        api: "openai-completions",
+      }),
+    ];
+
+    const execution = await driveTheta(UNTYPED_THETA, OPENAI_MODEL);
+
+    const err = expectErrQueryError(execution);
+    expect(
+      err,
+      "bug 0182: with no captured status openai's gate refuses the signature " +
+        "match, and the fold's pinned surface publishes `http_status: null` / " +
+        `\`retryable: false\` regardless. observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "transport",
+      message: OPENAI_OVERFLOW_MESSAGE,
+      http_status: null,
+      provider: "openai-completions",
+      retryable: false,
+    });
+    expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
+  });
+
+  it("(0182 W6 control) non-perturbation: a NON-overflow error-stop renders a byte-identical leaf with and without a captured 500", async () => {
+    // §Fix constraint 2: threading the captured status must move no non-overflow
+    // outcome. A captured 500 would make the classifier's OWN verdict
+    // `http_status: 500` / `retryable: true` (`transportRetryable`), so this pair
+    // proves the fold still overwrites both fields with its pinned values
+    // (PIC-51 / conversation-drive.md:16) rather than publishing what it
+    // captured.
+    scripted.queue = [
+      reply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE, onResponseStatus: 500 }),
+    ];
+    const withCapture = expectErrQueryError(await driveTheta(UNTYPED_THETA, ANTHROPIC_MODEL));
+
+    scripted.queue = [reply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE })];
+    scripted.calls = 0;
+    const withoutCapture = expectErrQueryError(await driveTheta(UNTYPED_THETA, ANTHROPIC_MODEL));
+
+    expect(
+      withCapture,
+      "a captured status must not leak into the fold's transport surface. " +
+        `captured-500 leaf: ${JSON.stringify(withCapture)}; no-firing leaf: ` +
+        JSON.stringify(withoutCapture),
+    ).toEqual(withoutCapture);
+    expect(
+      withCapture,
+      `the pinned off-session transport surface. observed: ${JSON.stringify(withCapture)}`,
+    ).toEqual({
+      kind: "transport",
+      message: AUTH_ERROR_MESSAGE,
+      http_status: null,
+      provider: "anthropic-messages",
+      retryable: false,
+    });
+  });
+
+  it("(0182 W7 control) the `length` stop-reason arm stays reachable and status-blind, even under a captured 400", async () => {
+    // §Fix constraint 4: `classifyProviderResponse`'s `length` arm reads no
+    // status (provider-error-mapping.md:31), so threading the captured value
+    // must not move it — the variant's other off-session route keeps working,
+    // counts null and `raw_response` carrying the partial text.
+    scripted.queue = [
+      reply({ stopReason: "length", text: "partial answer", onResponseStatus: 400 }),
+    ];
+
+    const execution = await driveTheta(UNTYPED_THETA, ANTHROPIC_MODEL);
+
+    const err = expectErrQueryError(execution);
+    expect(
+      err,
+      "the output-boundary terminator classifies on the stop reason alone. " +
+        `observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "context_overflow",
+      message: "",
+      tokens_used: null,
+      tokens_limit: null,
+      raw_response: "partial answer",
+    });
+    expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
+  });
+
+  it("(0182 W8) the AUTHOR'S match arm: a theta matching the query Result renders OVF_LIMIT_200000, never TRANSPORT", async () => {
+    // The most faithful witness — the whole point of the variant is the arm an
+    // author writes, and `MATCH_ARM_THETA` renders one deterministic token per
+    // verdict so the observable is that DISPATCH rather than a field the test
+    // reads itself. All four `Err` arms are live: the `length`-stop route
+    // renders `OVF_NO_COUNTS` through the same theta (cell W7's classification),
+    // so `OVF_LIMIT_200000` is reachable only when both the variant AND the
+    // extracted `tokens_limit` are right.
+    scripted.queue = [
+      reply({ stopReason: "error", errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE }),
+    ];
+
+    const execution = await driveTheta(MATCH_ARM_THETA, ANTHROPIC_MODEL);
+
+    expect(
+      execution.outcome,
+      `the drive must complete; observed error: ${JSON.stringify(execution.error)}`,
+    ).toBe("success");
+    expect(
+      execution.result.value,
+      'bug 0182: the author\'s `Err(QueryError { kind: "context_overflow", ' +
+        "tokens_limit: 200000 })` arm must be the arm that runs on a real " +
+        "anthropic overflow. `TRANSPORT` means the fabricated 200 sent the author " +
+        "down the transport arm with both counts gone; `OVF_NO_COUNTS` means the " +
+        "variant matched but the counts were dropped. observed final value: " +
+        JSON.stringify(execution.result.value),
+    ).toBe("OVF_LIMIT_200000");
+    expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
   });
 });

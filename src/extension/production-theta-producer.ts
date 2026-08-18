@@ -5089,6 +5089,13 @@ class OffSessionQueryModel implements QueryModelDriver {
       ...(this.#respond !== undefined ? [respondToolEntry(this.#respond)] : []),
     ];
     const auth = await this.#auth();
+    // Bug 0182: a per-round capture, mirroring `#classifyBinderAttempt`'s — a
+    // module-level slot would carry one round's status into the NEXT round's
+    // classification (CLAUDE.md: no globals/statics/singletons).
+    let captured: ProviderResponse | undefined;
+    const onResponse = (response: ProviderResponse): void => {
+      captured = response;
+    };
     // CANCEL-3: attach the swallowing handler at the Promise's construction
     // site, before the first microtask boundary, so a late rejection arriving
     // after the query checkpoint surfaced `cause: "cancelled"` is absorbed.
@@ -5102,12 +5109,12 @@ class OffSessionQueryModel implements QueryModelDriver {
           // tool-less shape.
           ...(tools.length > 0 ? { tools } : {}),
         },
-        { signal: this.#signal, ...(auth ?? {}) },
+        { signal: this.#signal, onResponse, ...(auth ?? {}) },
       ),
       signalGuard(this.#signal),
       noopSwallowChannels(),
     );
-    const classified = classifyOffSessionReply(model, reply);
+    const classified = classifyOffSessionReply(model, reply, captured);
     if (classified.kind === "failure") {
       // Bug 0007 / PIC-50: the classified off-session provider failure rides
       // the loop's transport arm — never masked as a terminating `Ok(text)`.
@@ -5445,10 +5452,21 @@ async function offSessionComplete(
       "H8a: an off-session chained query has no resolved model (ctx.model is undefined).",
     );
   }
-  const reply: AssistantMessage = await complete(model, {
-    messages: [{ role: "user", content: prompt, timestamp: 0 }],
-  });
-  return classifyOffSessionReply(model, reply);
+  // Bug 0182: a per-call capture, mirroring `#classifyBinderAttempt`'s — a
+  // module-level slot would carry this call's status into the NEXT fused
+  // completion's classification (CLAUDE.md: no globals/statics/singletons).
+  let captured: ProviderResponse | undefined;
+  const onResponse = (response: ProviderResponse): void => {
+    captured = response;
+  };
+  const reply: AssistantMessage = await complete(
+    model,
+    {
+      messages: [{ role: "user", content: prompt, timestamp: 0 }],
+    },
+    { onResponse },
+  );
+  return classifyOffSessionReply(model, reply, captured);
 }
 
 /**
@@ -5459,14 +5477,17 @@ async function offSessionComplete(
  * the off-session call. A normal terminator passes through to the text
  * extraction; EVERY other string `stopReason` (`"error"`, `"length"`,
  * `"aborted"`, `"content_filter"`, any unrecognised) routes through the
- * existing `classifyProviderResponse` table with a fixed `httpStatus: 200` —
- * the off-session QUERY path registers no `onResponse` and captures no real
- * HTTP status, and 200 is what admits the openai HTTP-200 stopReason-error
- * overflow gate.
+ * existing `classifyProviderResponse` table with the status THIS call
+ * actually captured (bug 0182): `httpStatus: captured?.status ?? null`.
+ * `ProviderClassifierInput.httpStatus`'s own doc-comment
+ * (`src/binder/provider-error-mapping.ts`) admits only a real captured value
+ * or that `null` — nothing else — so a caller whose `onResponse` never fires
+ * feeds the classifier the network-level `null` class, never a stand-in 200.
  */
 function classifyOffSessionReply(
   model: Model<Api>,
   reply: AssistantMessage,
+  captured: ProviderResponse | undefined,
 ): OffSessionCompletion {
   const provider = String(model.api);
   const stopReason = (reply as { readonly stopReason?: string }).stopReason;
@@ -5484,7 +5505,7 @@ function classifyOffSessionReply(
   const partialText = assistantText(reply);
   const classified = classifyProviderResponse({
     api: provider,
-    httpStatus: 200,
+    httpStatus: captured?.status ?? null,
     stopReason,
     ...(typeof errorMessage === "string" ? { errorMessage } : {}),
     rawResponse: partialText !== "" ? partialText : null,
@@ -5498,9 +5519,9 @@ function classifyOffSessionReply(
   }
   // Every other classification folds to the pinned off-session transport
   // surface — the binder's fold: message from the classifier, fixed surface
-  // fields. The stop-reason arm pins `retryable: false`; no HTTP status is
-  // captured at this seam (hence `http_status: null`, never the fabricated
-  // 200); `provider` is the resolved model's api-shaped `.api`
+  // fields. The off-session transport surface is pinned (PIC-51 / bug
+  // 0007): `http_status: null` and `retryable: false` regardless of any
+  // captured status; `provider` is the resolved model's api-shaped `.api`
   // (queryerror-variants.md provider derivation — the model this wrapper
   // actually dispatched, not ctx's user-session model). An empty/absent
   // classifier message takes PIC-51's fixed fallback.
@@ -5607,6 +5628,14 @@ async function dispatchForcedRespondTurn(
   const provider = String(model.api);
   const tool: Tool = respondToolEntry(respond);
   const auth = await respond.auth();
+  // Bug 0182: a per-dispatch capture, mirroring `#classifyBinderAttempt`'s —
+  // each forced respond call (a fresh attempt, or a repair restart) is its
+  // own invocation, so a module-level slot would carry one dispatch's status
+  // into the next's classification (CLAUDE.md: no globals/statics/singletons).
+  let captured: ProviderResponse | undefined;
+  const onResponse = (response: ProviderResponse): void => {
+    captured = response;
+  };
   const options: Record<string, unknown> = {
     // The forced tool choice — the entire content of spec finding T34
     // (`pi.sendUserMessage` exposes no toolChoice; `complete()` is the channel)
@@ -5617,6 +5646,7 @@ async function dispatchForcedRespondTurn(
     // CANCEL-4-style in-flight forwarding: the theta signal threads into the
     // provider invocation so an abort during the call propagates.
     signal: respond.signal,
+    onResponse,
     ...(auth ?? {}),
   };
   let reply: AssistantMessage;
@@ -5686,7 +5716,7 @@ async function dispatchForcedRespondTurn(
   }
   // No matching call: classify the stop reason through the 0007/0009-aligned
   // table (provider = the resolved RESPOND model's `.api`).
-  const classified = classifyOffSessionReply(model, reply);
+  const classified = classifyOffSessionReply(model, reply, captured);
   if (classified.kind === "failure") {
     return { kind: "transport", error: classified.error };
   }

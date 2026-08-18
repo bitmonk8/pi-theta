@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.110.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0182 — an off-session `@`-query overflow reached the theta author as
+  `Err(TransportError)` with both token counts dropped, because the off-session
+  fold fabricated the one classifier input the overflow gate reads.**
+  `classifyOffSessionReply` wrote a literal `httpStatus: 200` into its
+  `classifyProviderResponse` input, so bug 0065's widened anthropic / mistral
+  gate (`httpStatus === 400 || httpStatus === null`) was unreachable at every
+  off-session seam: the fold delivered no `null` for the widened arm to admit,
+  and its own fabricated 200 was a captured non-400 status, which vetoes a match
+  under a row whose gate names HTTP 400. A real
+  `prompt is too long: 220044 tokens > 200000 maximum` therefore bound
+  `Err(TransportError)` where the identical bytes at `httpStatus: null` classify
+  `Err(ContextOverflowError { tokens_used: 220044, tokens_limit: 200000 })`.
+  The fold now presents the status the seam actually captured
+  (`captured?.status ?? null`), and each of the three off-session `complete()`
+  call sites — `offSessionComplete`, the free-phase dispatch and the forced
+  respond dispatch — registers its own per-invocation `onResponse`, which is the
+  correction bug 0011 already made to the binder at 0.26.0. Author-visible
+  change: an off-session overflow against `anthropic-messages` / `mistral` now
+  takes the `ContextOverflowError` `match` arm with both counts populated
+  (QRY-10). `provider-error-mapping.md`'s "the runtime registers `onResponse` on
+  every `complete()` call" is true for the first time — all four call sites now
+  do — and its cross-reference names the off-session sites alongside the
+  binder's. Measured live, not derived: the `openai-completions` adapter
+  withholds `onResponse` on an HTTP 400 (`ONRESPONSE FIRINGS: []`, against
+  `[200]` on a success), so an openai HTTP-400 overflow off-session now
+  classifies `transport` — the outcome that page already specifies for a
+  no-status openai response, previously masked by the fabrication.
+
 ## [0.109.0] - 2026-08-18
 
 ### Fixed
