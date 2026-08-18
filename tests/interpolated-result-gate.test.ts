@@ -988,3 +988,692 @@ describe("bug 0079 (d) — the registry row is the oracle for both halves", () =
     );
   });
 });
+
+// ===========================================================================
+// BUG 0114 — a `Result` NESTED inside an interpolated array or object.
+//
+// Bug 0079 (everything above) closed the TOP-LEVEL position in both halves.
+// CONTAINMENT DEFEATS BOTH. At HEAD 5c9104ab, `stringifyInterpolation`
+// (src/extension/production-theta-producer.ts:5934) derives the QRY-18
+// discriminator ONCE, from the whole interpolated value (:5942), and for the
+// `array` / `object` arms (:5943) returns
+// `JSON.stringify(translateInterpolationOutbound(value, env))` at :5950 —
+// before the sole runtime raise at :5957, which is therefore unreachable for any
+// value whose own top level is a container. `translateInterpolationOutbound`
+// (:5973) classifies nothing: it resolves a declaring-SCHEMA brand, and a
+// `Result` carries `RESULT_TAG` rather than `SCHEMA_TAG`, so no schema resolves
+// and the carrier's own enumerable `ok` / `value` / `error` keys are copied
+// through unchanged. The static half never descends either —
+// `interpolationIsResult` (src/parser/type-layer-checks.ts:2218) switches on the
+// top-level node kind and answers `false` for an `array` or `object` literal, so
+// the sole emission site (:2184, driven from `checkQueryInterpolationResults` at
+// :2164) never fires. Twelve sources therefore load with `diagnostics` exactly
+// `[]`, raise no panic, and put the interpreter-private carrier in the prompt
+// text.
+// (docs/bugs/0114-nested-result-in-interpolated-object-leaks-carrier.md)
+//
+// SPEC ANCHORS (content re-derived at HEAD 5c9104ab / 0.107.0; line numbers
+// as this commit leaves the spec, not HEAD's own numbering).
+//   - docs/spec_topics/runtime-value-model.md:14, the `Result` row, ending "so a
+//     `Result` value never crosses the wire"; :16, the reference-encoding
+//     paragraph — the carrier shapes "are implementation details … either may
+//     change without a spec revision", and "The interpreter recognises a
+//     `Result` by that brand, never by the `{ ok, … }` shape".
+//   - docs/spec_topics/query/query-escapes-stringification.md:16 (QRY-18's
+//     rule), :26 (the `array<T>` row), :27 (the Schema-typed object row), :28
+//     (the `Result<T, E>` row → `theta/parse/interpolated-result`), :32 (the
+//     static/runtime split, whose RUNTIME arm this group's disposition sits in),
+//     :34 (recursive outbound wire-name translation — group (f)'s two rename
+//     controls run through the exact function a fix edits).
+//   - docs/spec_topics/control-flow.md:74, CTRL-3: "The value is
+//     `array<Result<T, QueryError>>`". The one composite the spec itself defines
+//     as an array of `Result`s, and cell (e1)'s fixture.
+//   - docs/spec_topics/diagnostics/code-registry-parse.md:74, the
+//     `theta/parse/interpolated-result` row. DIAG-4
+//     (docs/spec_topics/diagnostics/diagnostic-shape.md:74) makes its *Message*
+//     column normative; every expected message below is read through the EXISTING
+//     {@link interpolatedResultMessage} oracle (:199) and no prose is copied.
+//     DIAG-2 (:72) keeps the registry closed — a nested disposition reuses the
+//     registered code and mints nothing.
+//
+// FIXED CONTRACT pinned by groups (e)/(f)/(g) (bug 0114 §Expected behaviour,
+// Reading A — adopted; §Fix (a) route 2, the runtime disposition at the nested
+// position, with route 1's static descent declined):
+//   1. no render reaching `pi.sendUserMessage` carries a branded `Result`'s
+//      carrier keys at ANY depth;
+//   2. the disposition is the EXISTING registered
+//      `theta/parse/interpolated-result`, Message unchanged — no new code, and
+//      per §Fix (d) no third raise site;
+//   3. classification stays `isResultValue` (src/runtime/value.ts:443 — the
+//      non-enumerable `RESULT_TAG` brand read through `privateBrandOf`, :186),
+//      NEVER key presence, at every depth. Bug 0017's invariant; group (f)'s
+//      first two cells pin it at the nested position;
+//   4. QRY-18 :34's recursive wire-name translation is unchanged for every value
+//      that is not a `Result` — group (f) cells 3 and 4.
+//
+// Route 2 changes no parse-layer line, so every nested fixture below keeps
+// parsing with `diagnostics` EXACTLY `[]`. {@link assertNestedCarrierRefused}
+// asserts that as the settled route's own pin, and this group deliberately does
+// NOT assert a parse diagnostic on any nested row: the existing {@link drive}
+// (:521) fails loudly when a fixture stops parsing, which is the correct
+// behaviour for a group whose every fixture parses clean by design.
+//
+// HEAD MEASUREMENTS (5c9104ab, offline, provider-free, deterministic; `diags` is
+// the parse's whole UNFILTERED array, `sent` every text handed to
+// `pi.sendUserMessage`). The twelve leaks, seven controls and six covered
+// positions below are each carried in a table entry and printed by the red
+// output:
+//   L01 par-for whole value     diags=[] sent=["x[{\"ok\":true,\"value\":2},{\"ok\":true,\"value\":3}]"]
+//   L02 inline array literal    diags=[] sent=["x[{\"ok\":true,\"value\":1}]"]
+//   L03 bound unannotated       diags=[] sent=["x[{\"ok\":true,\"value\":1}]"]
+//   L04 written array<integer>  diags=[] sent=["x[{\"ok\":true,\"value\":1}]"]
+//   L05 written array<Result<>> diags=[] sent=["x[{\"ok\":true,\"value\":1}]"]
+//   L06 both carrier arms       diags=[] sent=["x[{\"ok\":true,\"value\":1},{\"ok\":false,\"error\":2}]"]
+//   L07 mixed elements          diags=[] sent=["x[1,{\"ok\":true,\"value\":2},\"s\"]"]
+//   L08 schema array<integer>   diags=[] sent=["x{\"xs\":[{\"ok\":true,\"value\":1}]}"]
+//   L09 bare object literal     diags=[] sent=["x{\"r\":{\"ok\":true,\"value\":1}}"]
+//   L10 depth [[Ok(1)]]         diags=[] sent=["x[[{\"ok\":true,\"value\":1}]]"]
+//   L11 depth [rs]              diags=[] sent=["x[[{\"ok\":true,\"value\":2},{\"ok\":true,\"value\":3}]]"]
+//   L12 depth S { xs: rs }      diags=[] sent=["x{\"xs\":[{\"ok\":true,\"value\":2},{\"ok\":true,\"value\":3}]}"]
+//   C01..C07 the controls       diags=[] sent as group (f) asserts, byte for byte
+//   P01 top-level ctor          diags=[error theta/parse/interpolated-result] sent=[] PANIC
+//   P02 top-level binding       diags=[error theta/parse/interpolated-result] sent=[] PANIC
+//   P03 par-for element read    diags=[error theta/parse/interpolated-result] sent=[] PANIC
+//   P04 inferred element read   diags=[]                                      sent=[] PANIC
+//   P05 bug 0031's ctor field   diags=[error theta/parse/object-field-type-mismatch]
+//   P06 Result-typed field      diags=[error theta/parse/result-in-schema-position,
+//                                      error theta/parse/unresolved-named-type]
+//
+// HARNESS NOTES.
+//   - Nothing above this banner is modified. Bug 0079's file authorises exactly
+//     this: bug 0114 §Fix's Witness paragraph asks for these rows in "the harness
+//     `tests/interpolated-result-gate.test.ts` extended, not a new mechanism".
+//     `parseOnly` (:228), `drive` (:521), `FM` (:233), `ROW1` (:559),
+//     `TAIL_QUERY` (:575), `CARRIER_PREFIX` (:582),
+//     `interpolatedResultMessage` (:199), `assertGateFiredWith` (:357),
+//     `tailQueryRange` (:245), `showDiagnostics` (:261) and
+//     `LiveSessionDouble.sentQueryTexts` (:417) are all reused as-is.
+//   - NO COLLISION WITH (c3). Cell (c3) (:950) drives its OWN fixture at :955 —
+//     `drive` mints a fresh `LiveSessionDouble` per call at :529 — and counts
+//     carrier-prefix texts on THAT drive's `outcome.session.sentQueryTexts` at
+//     :965. `sentQueryTexts` is a per-instance field (:417, pushed at :423), so
+//     the count is drive-scoped, never file-wide, and no cell below can
+//     contribute to it.
+//   - Group (e)'s cell (e2) drives a source the static half REFUSES, so it cannot
+//     use `drive` — that helper's parse-clean guard is correct and is not
+//     relaxed. {@link driveRefusedSource} is a deliberate narrow duplicate for
+//     exactly that row, mirroring bug 0114's own probe, which "drives every row
+//     whatever the parse said, so the refused rows show both dispositions".
+// ===========================================================================
+
+/**
+ * {@link drive} without its parse-clean guard, for a row the static half already
+ * REFUSES at load. `drive` (:521) fails loudly when a fixture carries an
+ * error-severity diagnostic, and that guard is correct for every group-(b)/(c)/
+ * (e)/(f) fixture — all of which parse clean. Cell (e2) needs the opposite: it
+ * pins the RUNTIME half of a position the parse half already covers, which is the
+ * two-character contrast bug 0114 §Reproduction turns on (`${rs}` leaks,
+ * `${rs[0]}` refuses AND panics AND sends nothing). A narrow copy, never a
+ * relaxation of the protected helper.
+ */
+async function driveRefusedSource(src: string): Promise<Drive> {
+  const doc = parseOnly(src);
+  const session = new LiveSessionDouble();
+  const deps = createProductionProducerDeps({
+    pi: livePi(session),
+    root: rootLive(session),
+    modelRegistry: registryDouble(),
+  });
+  const theta: ThetaCompositionInput = {
+    slashName: "bug0114",
+    sourcePath: FIXTURE_PATH,
+    frontmatter: doc.frontmatter as ParsedFrontmatter,
+    body: doc.body,
+  };
+  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxLive(session) });
+  if (binding.drivenAgainst !== "prompt-user-session") {
+    throw new Error(
+      `harness: expected the LIVE prompt-mode drive, got ${String(binding.drivenAgainst)}`,
+    );
+  }
+  try {
+    return { kind: "value", execution: await executeBody(doc.body, binding.executeDeps), session };
+  } catch (thrown) {
+    return { kind: "threw", thrown, session };
+  }
+}
+
+/** One bug-0114 fixture plus its HEAD-measured parse and wire observations. */
+interface NestedRow {
+  /** The §Reproduction row id, so a red names the measured row it came from. */
+  readonly id: string;
+  /** What the row is, in the failure message's own voice. */
+  readonly what: string;
+  /** The whole theta source, frontmatter included. */
+  readonly src: string;
+  /** Every text HEAD hands to `pi.sendUserMessage` for this row. */
+  readonly headSent: readonly string[];
+}
+
+/** The `par for` prologue CTRL-3 (control-flow.md:74) types `array<Result<…>>`. */
+const PAR_FOR = "let ns = [1, 2]\nlet rs = par for n in ns {\n  n + 1\n}\n";
+
+/** The carrier text HEAD renders for a lone `Ok(1)` inside an array. */
+const NESTED_OK1 = 'x[{"ok":true,"value":1}]';
+
+/**
+ * The twelve §Reproduction rows whose render reaches the model carrying the
+ * interpreter-private carrier at HEAD. Held as one table so cell (e14) can pin
+ * all twelve rows' `sentQueryTexts` in a single ordered whole-list assertion: a
+ * partial fix that closes some containers and not others reds there even if it
+ * turned individual cells green.
+ */
+const NESTED_ROWS: readonly NestedRow[] = [
+  {
+    id: "L01",
+    what: "a whole `par for` value interpolated — CTRL-3's own `array<Result<T, QueryError>>`",
+    src: FM + PAR_FOR + "@`x${rs}`\n",
+    headSent: ['x[{"ok":true,"value":2},{"ok":true,"value":3}]'],
+  },
+  {
+    id: "L02",
+    what: "an inline array literal holding an `Ok`, with no binding at all",
+    src: FM + "@`x${[Ok(1)]}`\n",
+    headSent: [NESTED_OK1],
+  },
+  {
+    id: "L03",
+    what: "an unannotated array binding holding an `Ok`",
+    src: FM + "let xs = [Ok(1)]\n@`x${xs}`\n",
+    headSent: [NESTED_OK1],
+  },
+  {
+    id: "L04",
+    what: "an array binding annotated `array<integer>` — the written non-`Result` sink",
+    src: FM + "let xs: array<integer> = [Ok(1)]\n@`x${xs}`\n",
+    headSent: [NESTED_OK1],
+  },
+  {
+    id: "L05",
+    what:
+      "an array binding annotated `array<Result<integer, QueryError>>` — the author WROTE `Result` and the load is still clean",
+    src: FM + "let xs: array<Result<integer, QueryError>> = [Ok(1)]\n@`x${xs}`\n",
+    headSent: [NESTED_OK1],
+  },
+  {
+    id: "L06",
+    what: "an array holding BOTH carrier arms, `Ok` and `Err`",
+    src: FM + "@`x${[Ok(1), Err(2)]}`\n",
+    headSent: ['x[{"ok":true,"value":1},{"ok":false,"error":2}]'],
+  },
+  {
+    id: "L07",
+    what: "one `Result` among ordinary elements",
+    src: FM + '@`x${[1, Ok(2), "s"]}`\n',
+    headSent: ['x[1,{"ok":true,"value":2},"s"]'],
+  },
+  {
+    id: "L08",
+    what: "a Schema-typed object whose declared `array<integer>` field holds an `Ok`",
+    src: FM + "schema S { xs: array<integer> }\nlet s = S { xs: [Ok(1)] }\n@`x${s}`\n",
+    headSent: ['x{"xs":[{"ok":true,"value":1}]}'],
+  },
+  {
+    id: "L09",
+    what:
+      "a bare object literal written inside the interpolation — QRY-18's object row, reached directly",
+    src: FM + "@`x${ {r: Ok(1)} }`\n",
+    headSent: ['x{"r":{"ok":true,"value":1}}'],
+  },
+  {
+    id: "L10",
+    what: "depth: an array of arrays holding an `Ok`",
+    src: FM + "let xs = [[Ok(1)]]\n@`x${xs}`\n",
+    headSent: ['x[[{"ok":true,"value":1}]]'],
+  },
+  {
+    id: "L11",
+    what: "depth: the `par for` value one container deeper",
+    src: FM + PAR_FOR + "let xs = [rs]\n@`x${xs}`\n",
+    headSent: ['x[[{"ok":true,"value":2},{"ok":true,"value":3}]]'],
+  },
+  {
+    id: "L12",
+    what: "depth: the `par for` value inside a Schema-typed object's `array<integer>` field",
+    src: FM + "schema S { xs: array<integer> }\n" + PAR_FOR + "let s = S { xs: rs }\n@`x${s}`\n",
+    headSent: ['x{"xs":[{"ok":true,"value":2},{"ok":true,"value":3}]}'],
+  },
+];
+
+/**
+ * The §Reproduction row named `id`. A missing id is a harness defect and fails
+ * LOUDLY — a cell silently asserting nothing is worse than a red.
+ */
+function nestedRow(id: string): NestedRow {
+  const row = NESTED_ROWS.find((r) => r.id === id);
+  if (row === undefined) {
+    throw new Error(
+      `harness: bug 0114 has no §Reproduction row \`${id}\` in NESTED_ROWS — the table is this group's only fixture source, so a missing id is a harness failure, never a skip`,
+    );
+  }
+  return row;
+}
+
+/**
+ * The bug-0114 fixed contract on one row, in all three directions:
+ *
+ *   0. the PARSE layer is untouched — `diagnostics` stays exactly `[]`, which is
+ *      §Fix (a) route 2's own pin (the settled route takes the runtime
+ *      disposition and declines route 1's static descent). Deliberately NOT a
+ *      parse-diagnostic assertion: see the banner above;
+ *   1. NOTHING reaches `pi.sendUserMessage` — asserted FIRST so a red prints the
+ *      exact carrier text the model receives today;
+ *   2. the drive aborts with the EXISTING registered
+ *      `theta/parse/interpolated-result`, classified by `isThetaPanic` (so QRY-21
+ *      keeps holding for it) and carrying the registry's Message (DIAG-4, read
+ *      through {@link interpolatedResultMessage}, never copied prose).
+ *
+ * Both directions are reachable: cell (g4) — `let xs = [Ok(1)]` / `${xs[0]}`,
+ * §Reproduction row P04 — is GREEN at HEAD through this same helper, so the
+ * assertions below are proven able to pass as well as to fail.
+ */
+async function assertNestedCarrierRefused(row: NestedRow): Promise<void> {
+  const doc = parseOnly(row.src);
+  expect(
+    doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+    `bug 0114 §Fix (a) route 2 (settled): the nested disposition is RUNTIME-only, so the parse layer is untouched and ${row.id} keeps loading with an empty diagnostics array. Observed: ${showDiagnostics(doc)}`,
+  ).toEqual([]);
+
+  const outcome = await drive(row.src);
+
+  // DIRECTION 1 first, so a red names the exact bytes the model receives.
+  expect(
+    outcome.session.sentQueryTexts,
+    `DIRECTION 1 (bug 0114 §Expected behaviour, Reading A): no render reaching \`pi.sendUserMessage\` may carry a branded \`Result\`'s carrier keys at ANY depth — runtime-value-model.md:14 "so a \`Result\` value never crosses the wire", :16 "either may change without a spec revision". ${row.id} is ${row.what}; at HEAD it sends ${JSON.stringify(row.headSent)}`,
+  ).toEqual([]);
+
+  if (outcome.kind === "value") {
+    expect(
+      `no panic; the drive completed and sent ${JSON.stringify(outcome.session.sentQueryTexts)}`,
+      `PRIMARY (bug 0114 §Fix (a) route 2): ${row.id} — ${row.what} — must abort the theta with the registered ${INTERPOLATED_RESULT_CODE}. At HEAD \`stringifyInterpolation\` (src/extension/production-theta-producer.ts:5934) derives the QRY-18 discriminator once at :5942 and returns \`JSON.stringify(translateInterpolationOutbound(...))\` at :5950 for the container arms, before the sole raise at :5957, so no panic is possible for a nested \`Result\``,
+    ).toBe(`panic ${INTERPOLATED_RESULT_CODE}`);
+    throw new Error("unreachable: the assertion above always fails on a value disposition");
+  }
+
+  const { thrown } = outcome;
+  expect(
+    isThetaPanic(thrown),
+    `bug 0114 §Fix (d): the nested raise is the SAME \`InterpolatedResultPanic\` class (src/render/query-render.ts:110), which is what keeps QRY-21 true for it — a panic during interpolation is not contained by \`let _ =\`. Thrown: ${String(thrown)}`,
+  ).toBe(true);
+  expect(
+    (thrown as { readonly code: string }).code,
+    `PRIMARY (bug 0114 §Fix (b)): the disposition is the EXISTING registered ${INTERPOLATED_RESULT_CODE} (code-registry-parse.md:74) — one code, no new row, no third raise site. Thrown: ${String(thrown)}`,
+  ).toBe(INTERPOLATED_RESULT_CODE);
+  expect(
+    (thrown as Error).message,
+    "DIAG-4 (diagnostic-shape.md:74): the expected message is READ from the registry Message column, never copied prose",
+  ).toBe(interpolatedResultMessage());
+}
+
+/**
+ * A bug-0114 group-(f) control: the render is byte-identical before and after.
+ * Whole-list `toEqual`, not a substring — the two wire-name rows run through the
+ * exact recursion (`translateInterpolationOutbound`,
+ * src/extension/production-theta-producer.ts) a fix edits, so a fix that
+ * disturbs QRY-18 :34's recursive translation by one byte reds here.
+ */
+async function assertNestedControlRenders(
+  src: string,
+  what: string,
+  expected: string,
+): Promise<void> {
+  const outcome = await drive(src);
+  if (outcome.kind === "threw") {
+    throw new Error(
+      `CONTROL BROKEN (bug 0114 §Fix (e)) — ${what} holds no branded \`Result\` at any depth, so it must still render; the runtime threw ${String(outcome.thrown)}. A nested classifier keyed on KEY PRESENCE rather than \`isResultValue\` (src/runtime/value.ts:443, the non-enumerable RESULT_TAG brand) is the first suspect — bug 0017's invariant`,
+    );
+  }
+  expect(
+    outcome.session.sendUserMessageCalls,
+    "harness guard: the untyped query drives exactly one streamed user turn",
+  ).toBe(1);
+  expect(
+    outcome.session.sentQueryTexts,
+    `CONTROL (bug 0114 §Fix (e)): ${what} renders byte-identically before and after the fix — QRY-18 :26/:27 compact \`JSON.stringify\` with :34's recursive wire-name translation applied`,
+  ).toEqual([expected]);
+}
+
+/**
+ * The runtime half of a position the static gate already refuses: the drive
+ * aborts with the registered panic and sends NOTHING. Used only by cell (e2),
+ * through {@link driveRefusedSource}. Green now, green after.
+ */
+async function assertRefusedSourceAlsoPanics(src: string, what: string): Promise<void> {
+  const outcome = await driveRefusedSource(src);
+  expect(
+    outcome.session.sentQueryTexts,
+    `bug 0114 §Reproduction (the covered contrast): ${what} sends NOTHING — this is the position bug 0079 closed`,
+  ).toEqual([]);
+  if (outcome.kind === "value") {
+    expect(
+      `no panic; the drive completed and sent ${JSON.stringify(outcome.session.sentQueryTexts)}`,
+      `REGRESSION PIN (bug 0079, kept by bug 0114 §Fix (e)): ${what} must keep aborting with ${INTERPOLATED_RESULT_CODE}`,
+    ).toBe(`panic ${INTERPOLATED_RESULT_CODE}`);
+    throw new Error("unreachable: the assertion above always fails on a value disposition");
+  }
+  expect(
+    isThetaPanic(outcome.thrown),
+    `the abort must classify as a ThetaPanic. Thrown: ${String(outcome.thrown)}`,
+  ).toBe(true);
+  expect(
+    (outcome.thrown as { readonly code: string }).code,
+    `REGRESSION PIN: the registered code. Thrown: ${String(outcome.thrown)}`,
+  ).toBe(INTERPOLATED_RESULT_CODE);
+  expect((outcome.thrown as Error).message, "DIAG-4: the registry Message column").toBe(
+    interpolatedResultMessage(),
+  );
+}
+
+// ===========================================================================
+// (e) THE NESTED POSITION — twelve sources that load clean, never panic, and put
+// the interpreter-private carrier on the wire. RED at HEAD; this group IS the
+// defect. Governing sentence — query-escapes-stringification.md:33:
+// "Containment does not change the disposition: an `array<T>` or Schema-typed
+// object interpolation whose value holds a `Result` at **any depth** takes the
+// `Result<T, E>` row's disposition".
+// ===========================================================================
+
+describe("bug 0114 (e) — a nested `Result` takes QRY-18's `Result` row: containment does not launder the carrier", () => {
+  it("RED (e1, PRIMARY / L01): the whole `par for` value — CTRL-3's own composite — must not render its carrier", async () => {
+    // control-flow.md:74 (CTRL-3): "The value is `array<Result<T, QueryError>>`".
+    // Not a contrivance — it is the one composite the spec itself defines as an
+    // array of `Result`s, and interpolating it whole is how an author dumps a
+    // fan-out into a prompt. Paired with (e2), which differs by two characters.
+    await assertNestedCarrierRefused(nestedRow("L01"));
+  });
+
+  it("(e2, PRIMARY pair / P03): the two-character contrast — the ELEMENT read off the SAME fixture refuses, panics, and sends nothing", async () => {
+    // The other half of the primary pair, at the DRIVE level rather than the
+    // parse level. Cell (a9) (:691) pins the parse disposition of an element read
+    // on its own, different `par for` fixture; this cell pins the RUNTIME
+    // disposition on bug 0114's primary fixture, which is what makes the contrast
+    // a contrast — (e1) sends the carrier, (e2) sends nothing. Green now, green
+    // after. Cell (g3) pins the same fixture's parse disposition.
+    await assertRefusedSourceAlsoPanics(
+      FM + PAR_FOR + "@`x${rs[0]}`\n",
+      "the ELEMENT read `${rs[0]}` off bug 0114's primary `par for` fixture",
+    );
+  });
+
+  it("RED (e3 / L02): an inline array literal `${[Ok(1)]}` — no binding at all", async () => {
+    await assertNestedCarrierRefused(nestedRow("L02"));
+  });
+
+  it("RED (e4 / L03): a bound, unannotated `let xs = [Ok(1)]`", async () => {
+    await assertNestedCarrierRefused(nestedRow("L03"));
+  });
+
+  it("RED (e5 / L04): a written `array<integer>` sink admits the `Ok` element in silence", async () => {
+    // `checkCommonType`'s sink loop skips any branch whose compatibility answer is
+    // "unknown", and a `result-ctor` types as an unresolvable `named "Ok"`, so the
+    // declared element type buys nothing (bug 0114 §Actual behaviour). The sink is
+    // real — the same fixture with `["a"]` draws
+    // `theta/parse/array-element-type-mismatch`.
+    await assertNestedCarrierRefused(nestedRow("L04"));
+  });
+
+  it("RED (e6 / L05): the sharpest row — the author WRITES `array<Result<integer, QueryError>>` and it still loads and leaks", async () => {
+    // `interpolationIsResult` (src/parser/type-layer-checks.ts:2218) reaches
+    // `isResultGenericType` (:2269) only for an `ident` or an `index` whose own
+    // type spells `Result<…>`. An `array<Result<…>>` type is an array, so the
+    // author has said the word `Result` in the source and the gate that exists for
+    // that word does not see it.
+    await assertNestedCarrierRefused(nestedRow("L05"));
+  });
+
+  it("RED (e7 / L06): both carrier arms — `${[Ok(1), Err(2)]}`", async () => {
+    await assertNestedCarrierRefused(nestedRow("L06"));
+  });
+
+  it('RED (e8 / L07): one `Result` among ordinary elements — `${[1, Ok(2), "s"]}`', async () => {
+    await assertNestedCarrierRefused(nestedRow("L07"));
+  });
+
+  it("RED (e9 / L08): QRY-18's Schema-typed object row, reached through a branded value whose `array<integer>` field holds an `Ok`", async () => {
+    // `translateInterpolationOutbound` resolves `S`, renames nothing, and
+    // recurses into the field with `integer` as the type hint; the element
+    // resolves no schema of its own, so its own enumerable keys copy through.
+    await assertNestedCarrierRefused(nestedRow("L08"));
+  });
+
+  it("RED (e10 / L09): the object arm reached directly — a bare object literal written inside the interpolation", async () => {
+    // The same literal in STATEMENT position is refused (`let o = { r: Ok(1) }`
+    // draws `theta/parse/bare-object-literal`). Whether that rule should reach an
+    // interpolation source is fenced in bug 0114 §Non-goals; this cell uses the
+    // spelling only as a measured route to QRY-18's object row (:27).
+    await assertNestedCarrierRefused(nestedRow("L09"));
+  });
+
+  it("RED (e11 / L10): depth — `let xs = [[Ok(1)]]`", async () => {
+    await assertNestedCarrierRefused(nestedRow("L10"));
+  });
+
+  it("RED (e12 / L11): depth — the `par for` value one container deeper", async () => {
+    await assertNestedCarrierRefused(nestedRow("L11"));
+  });
+
+  it("RED (e13 / L12): depth — the `par for` value inside a Schema-typed object's field", async () => {
+    await assertNestedCarrierRefused(nestedRow("L12"));
+  });
+
+  it("RED (e14, AGGREGATE): across ALL TWELVE rows, nothing reaching the wire carries the carrier prefix — one ordered whole-list pin", async () => {
+    // The shape of (c3) (:950), applied to the twelve leaking rows instead of one
+    // control: a partial fix that closes some containers and not others reds here
+    // even if it turned individual cells green. `CARRIER_PREFIX` (:582) is the
+    // assertion vocabulary, and the ordered list names every row that leaked, so
+    // the red output IS the residual leak table.
+    const leaked: string[] = [];
+    let sentTotal = 0;
+    for (const row of NESTED_ROWS) {
+      const outcome = await drive(row.src);
+      sentTotal += outcome.session.sentQueryTexts.length;
+      for (const text of outcome.session.sentQueryTexts) {
+        if (text.includes(CARRIER_PREFIX)) {
+          leaked.push(`${row.id} :: ${JSON.stringify(text)}`);
+        }
+      }
+    }
+    expect(
+      leaked,
+      `PRIMARY (bug 0114 §Expected behaviour, Reading A): "No render reaching \`pi.sendUserMessage\` contains the carrier keys of a branded \`Result\` at any depth." Every entry below is one §Reproduction row still putting ${JSON.stringify(CARRIER_PREFIX)} on the wire`,
+    ).toEqual([]);
+    expect(
+      sentTotal,
+      "bug 0114 §Fix (a) route 2: the twelve nested rows abort the theta and send NOTHING — QRY-18 :28 fixes the `Result` disposition as a rejection, and rendering a `Result` usefully is fenced in §Non-goals",
+    ).toBe(0);
+  });
+});
+
+// ===========================================================================
+// (f) CONTROLS — bug 0114 §Fix (e). Measured silent today and required
+// byte-identical after: bug 0017's two nested shapes, QRY-18 :34's two wire-name
+// renames (the same recursion a fix edits), the enum element, a plain array, and
+// an array of ordinary schema values. Green now, green after.
+// ===========================================================================
+
+describe("bug 0114 (f) — controls: containment must not change any NON-`Result` render", () => {
+  it("CONTROL (f1 / C01): bug 0017's `{ ok, label }` shape AT THE NESTED POSITION still renders its fields", async () => {
+    // runtime-value-model.md:16: "The interpreter recognises a `Result` by that
+    // brand, never by the `{ ok, … }` shape". Cell (c1) (:898) pins this at the
+    // TOP level; a nested classifier keyed on key presence passes (c1) and reds
+    // here, which is the whole point of the cell.
+    await assertNestedControlRenders(
+      FM +
+        "schema F { ok: boolean, label: string }\n" +
+        'let xs = [F { ok: true, label: "x" }]\n' +
+        "@`x${xs}`\n",
+      "an ARRAY of ordinary objects whose declared fields are `ok` and `label`",
+      'x[{"ok":true,"label":"x"}]',
+    );
+  });
+
+  it("CONTROL (f2 / C02): a nested object BYTE-IDENTICAL to the `Err` carrier still renders", async () => {
+    // The strongest form: `{"ok":false,"error":"boom"}` is exactly what an `Err`
+    // carrier serialises to, differing only in the brand — and here it sits one
+    // level inside another schema value, the position (c2) (:928) does not reach.
+    await assertNestedControlRenders(
+      FM +
+        "schema G { ok: boolean, error: string }\n" +
+        "schema H { g: G }\n" +
+        'let h = H { g: G { ok: false, error: "boom" } }\n' +
+        "@`x${h}`\n",
+      "a nested object byte-identical to the `Err` carrier",
+      'x{"g":{"ok":false,"error":"boom"}}',
+    );
+  });
+
+  it("CONTROL (f3 / C03): QRY-18 :34's recursive wire-name translation through a NESTED schema value", async () => {
+    // query-escapes-stringification.md:34: "Wire-name translation for objects and
+    // arrays uses the outbound translation pass … the theta-side names an author
+    // writes never appear in the rendered prompt." This runs through
+    // `translateInterpolationOutbound` — the exact function a fix edits —
+    // so the whole rendered text is asserted, not a substring.
+    await assertNestedControlRenders(
+      FM +
+        'schema P { m as "wire_m": string }\n' +
+        "schema Q { p: P }\n" +
+        'let q = Q { p: P { m: "a" } }\n' +
+        "@`x${q}`\n",
+      "a renamed field on a schema value nested inside another schema value",
+      'x{"p":{"wire_m":"a"}}',
+    );
+  });
+
+  it("CONTROL (f4 / C04): QRY-18 :34's recursive wire-name translation through an ARRAY element", async () => {
+    await assertNestedControlRenders(
+      FM + 'schema P { m as "wire_m": string }\n' + 'let xs = [P { m: "a" }]\n' + "@`x${xs}`\n",
+      "a renamed field on a schema value inside an array",
+      'x[{"wire_m":"a"}]',
+    );
+  });
+
+  it("CONTROL (f5 / C05): the enum row inside a container — an enum VARIANT named `Ok`", async () => {
+    // QRY-18 :25 renders an enum variant as its bare wire value; inside an array
+    // that is a quoted JSON string. The variant is literally named `Ok`, so a
+    // nested classifier keyed on anything but the RESULT_TAG brand reds here —
+    // bug 0020's shared-brand posture, at the nested position.
+    await assertNestedControlRenders(
+      FM + "enum S { Ok, Bad }\n" + "let xs = [S.Ok]\n" + "@`x${xs}`\n",
+      "an array holding an enum variant named `Ok`",
+      'x["Ok"]',
+    );
+  });
+
+  it("CONTROL (f6 / C06): a plain array of integers", async () => {
+    await assertNestedControlRenders(
+      FM + "@`x${[1, 2]}`\n",
+      "a plain `array<integer>` literal",
+      "x[1,2]",
+    );
+  });
+
+  it("CONTROL (f7 / C07): an array of ordinary schema values", async () => {
+    await assertNestedControlRenders(
+      FM + "schema P { m: string }\n" + 'let xs = [P { m: "a" }]\n' + "@`x${xs}`\n",
+      "an array of ordinary schema values",
+      'x[{"m":"a"}]',
+    );
+  });
+});
+
+// ===========================================================================
+// (g) THE SIX COVERED POSITIONS — bug 0114 §Fix (e)'s "required unchanged".
+// Bug 0079's and bug 0031's territory, re-pinned here so a nested fix that
+// regresses the TOP-LEVEL gate reds in this file's bug-0114 half too. Green now,
+// green after.
+// ===========================================================================
+
+describe("bug 0114 (g) — the covered positions stay covered: a nested fix must not regress the top-level gate", () => {
+  it("CONTROL (g1 / P01): the top-level constructor interpolated directly is still refused at load", () => {
+    assertGateFiredWith(
+      FM + "@`x${Ok(1)}`\n",
+      "a top-level `Ok` constructor interpolated directly",
+      tailQueryRange,
+    );
+  });
+
+  it("CONTROL (g2 / P02): `let r = Ok(1)` / `${r}` — the top-level binding — is still refused at load", () => {
+    // The same fixture cell (a1) (:589) pins through `assertGateFired`; restated
+    // here through `assertGateFiredWith`, which additionally pins the WHOLE
+    // diagnostics array to that one row, so a nested route that added a second
+    // emission for the same source reds.
+    assertGateFiredWith(
+      FM + ROW1 + TAIL_QUERY,
+      "a top-level binding holding an `Ok`",
+      tailQueryRange,
+    );
+  });
+
+  it("CONTROL (g3 / P03): the `par for` ELEMENT read is still refused at load", () => {
+    // Cell (a9) (:691) pins this disposition on its own `par for` fixture; this
+    // cell pins it on bug 0114's primary fixture, whose whole-value sibling (e1)
+    // is the defect. Two characters apart, opposite dispositions.
+    assertGateFiredWith(
+      FM + PAR_FOR + "@`x${rs[0]}`\n",
+      "an element read off bug 0114's primary `par for` value",
+      tailQueryRange,
+    );
+  });
+
+  it("CONTROL (g4 / P04): `let xs = [Ok(1)]` / `${xs[0]}` — parse `[]`, panic only, nothing sent", async () => {
+    // The GREEN-DIRECTION PROOF for {@link assertNestedCarrierRefused}: this row
+    // already satisfies every assertion that helper makes — parse `[]`, an
+    // `isThetaPanic` carrying the registered code and the registry Message, and an
+    // empty `sentQueryTexts`. It is exactly the post-fix shape of the twelve (e)
+    // rows, so the helper is proven able to pass as well as to fail.
+    await assertNestedCarrierRefused({
+      id: "P04",
+      what: "an element read off an INFERRED array binding — the runtime arm alone",
+      src: FM + "let xs = [Ok(1)]\n@`x${xs[0]}`\n",
+      headSent: [],
+    });
+  });
+
+  it("CONTROL (g5 / P05): bug 0031's route — `S { n: Ok(1) }` under `n: integer` still draws object-field-type-mismatch", () => {
+    // `checkObjectFieldCompat`'s `forceIncompatible` (src/parser/type-compat.ts,
+    // driven from src/parser/type-layer-checks.ts:1572) decides a `result-ctor`
+    // FIELD VALUE incompatible outright. Its array-element neighbour has no
+    // counterpart, which is why (e9)/L08 leaks one line away in the same schema.
+    const doc = parseOnly(
+      FM + "schema S { n: integer }\n" + "let s = S { n: Ok(1) }\n" + "@`x${s}`\n",
+    );
+    expect(
+      doc.diagnostics.map((d) => d.code),
+      `REGRESSION PIN (bug 0114 §Fix (e), "required unchanged"): bug 0031's constructor-field route must keep refusing a \`result-ctor\` field value. Observed: ${showDiagnostics(doc)}`,
+    ).toContain("theta/parse/object-field-type-mismatch");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `REGRESSION PIN: the whole diagnostics array is exactly bug 0031's row. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual(["error theta/parse/object-field-type-mismatch"]);
+  });
+
+  it("CONTROL (g6 / P06): a `Result`-typed schema FIELD still draws result-in-schema-position", () => {
+    // runtime-value-model.md:14's warrant: "`Result` is not a lowerable type form
+    // and is rejected in any schema-feeding position at parse time
+    // (`theta/parse/result-in-schema-position`)". Unchanged by any nested route.
+    const doc = parseOnly(
+      FM + "schema S { r: Result<integer, QueryError> }\n" + "let n = 1\n" + "@`x${n}`\n",
+    );
+    expect(
+      doc.diagnostics.map((d) => d.code),
+      `REGRESSION PIN (bug 0114 §Fix (e), "required unchanged"): a \`Result\`-typed schema field is refused at parse. Observed: ${showDiagnostics(doc)}`,
+    ).toContain("theta/parse/result-in-schema-position");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `REGRESSION PIN: the whole ordered diagnostics array for a \`Result\`-typed field. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([
+      "error theta/parse/result-in-schema-position",
+      "error theta/parse/unresolved-named-type",
+    ]);
+  });
+});

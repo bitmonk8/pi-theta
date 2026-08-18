@@ -282,7 +282,9 @@ bash-style argument-slice sugar (`${@:N}`, `$1`, `$@`, `$ARGUMENTS`);
 slash-command arguments are bound to typed `params` and referenced by name. The
 interpolated value renders by its Theta static type per the canonical
 stringification table; `Result<T, E>` interpolands are rejected at parse time
-(`theta/parse/interpolated-result`).
+(`theta/parse/interpolated-result`). A `Result` held at a nested position inside
+an interpolated array or object raises the same code as a runtime panic, because
+a container's own static type is never `Result<T, E>`.
 
 ## Provenance
 

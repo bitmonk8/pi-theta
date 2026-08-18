@@ -1,9 +1,12 @@
 # Bug 0114 — A `Result` nested inside an interpolated object or array is serialised as its interpreter-private `{"ok":…,"value":…}` carrier: the value is classified once at the top level, so `${[Ok(1)]}`, `${rs}` over a `par for` value, and a schema value whose `array<integer>` field holds an `Ok` all load with zero diagnostics, raise no panic, and put the brand's carrier keys in the prompt text sent to the model — the residual bug 0079's §Non-goals fenced, whose disposition QRY-18 does not state
 
-- **Status:** open. §Fix is not settled: this report exists to pin the QRY-18
-  nested disposition before any code lands. No ordering dependency —
+- **Status:** fixed (0.108.0). §Fix was settled in-run, inside this report's own
+  constraints, and the adjudication is recorded in §Fix (0.108.0): Reading A;
+  route 2 (the runtime disposition at the nested position) with route 1's static
+  descent declined; the QRY-18 nested sentence and its mirrors landed in the same
+  commit. No ordering dependency —
   [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) is
-  **fixed (0.69.0)** and owns both sites a fix here rebases on (one static
+  **fixed (0.69.0)** and owns both sites this fix rebased on (one static
   emission, one runtime raise).
 - **Sev/Diff estimate:** S1/D3 — S1 because an encoding
   `docs/spec_topics/runtime-value-model.md:16` declares an implementation detail
@@ -844,3 +847,279 @@ reuse.
   quoted above, then deleted. No provider and no model were involved; no file
   under `src/`, `tests/` or `docs/` was written by the probe. `docs/bugs/README.md`
   and every other bug document are unmodified by this filing.
+
+## Fix (0.108.0)
+
+**The adjudication this report owed.** Reading A governs:
+`runtime-value-model.md:14`'s "so a `Result` value never crosses the wire" is
+unconditional, and the implementation was non-conformant at the nested position.
+All four of §Expected behaviour's grounds were re-derived at the fix HEAD and
+none falsified — `:16`'s "may change without a spec revision" is unsatisfiable
+while the carrier's bytes are what the model receives; the privacy family
+(0017 / 0020 / 0027 / 0079) exists to keep the encoding out of model-visible
+positions; `checkObjectFieldCompat`'s `forceIncompatible` already refuses a
+`result-ctor` in a schema field, measured; and QRY-18 `:26`/`:27` describe the
+shape of a well-typed container's render, contemplating no element whose type
+the type layer never resolved.
+
+**Route settlement.** Route 3's *form* was mandated: the QRY-18 nested sentence
+and every mirror land in this commit. Inside that, the code route is **route 2**
+— the runtime disposition at the nested position — and **route 1's static
+descent was deliberately declined**, on five grounds:
+
+1. QRY-18 `:16` keys the table on the interpolated expression's own **static
+   type**. A container's static type is `array<T>` or a Schema-typed object; the
+   nested `Result`-ness is a property of the value, never of the expression's
+   type. `:32` already fixes that situation's disposition ("When the type is
+   unresolvable …, the runtime renderer falls back to a panic carrying the same
+   `theta/parse/interpolated-result` diagnostic code"), so the sentence added
+   here *records* an existing split rather than inventing a static obligation.
+2. Measured benefit is 2 of 12 rows. A descent into the container the author
+   wrote at the interpolation reaches only `${[Ok(1)]}` and `${ {r: Ok(1)} }`
+   (two more with a `resultBindings` extension the report leaves unsettled). It
+   does not reach the primary row — CTRL-3's `par for` composite interpolated
+   whole — nor either schema-field row. §Fix's own words: "The render recursion
+   is the only place every measured row meets."
+3. GOV-15 minimality: the static half flips *registration* for loads-clean
+   sources, a strictly larger governed-observable change than route 2, which
+   flips only the render of sources that today leak — for the same wire outcome.
+4. False-positive surface: the nine controls (a4)–(a7), (a11)–(a15) exist
+   because bug 0079's round 1 measured that risk in the parse layer. Route 2
+   changes no parse-layer line, so it cannot disturb them.
+5. Constraint (d): route 2 adds **zero** raise sites and **zero** emission sites.
+
+**What shipped.**
+
+- `src/extension/production-theta-producer.ts` — §Fix (a) route 2 and §Fix (c).
+  `translateInterpolationOutbound` takes an explicit `NestedResultReach`
+  accumulator, threaded through both recursion sites, and records a reach when
+  it meets a branded `Result` — classified by `isResultValue`
+  (`src/runtime/value.ts`, read through `privateBrandOf`'s descriptor check),
+  never by the `{ ok, … }` shape, at every depth. The test sits after the
+  `typeof value !== "object" || value === null` guard and before schema
+  resolution, so `schemaTagOf`'s no-rename default can no longer copy the
+  carrier's own enumerable keys through. `stringifyInterpolation` discards the
+  lowered tree on a reach and routes the value through the **pre-existing**
+  `stringifyInterpolatedValue(value, { kind: "result" })` arm, so the
+  **pre-existing sole** `throw new InterpolatedResultPanic` fires for the nested
+  position exactly as it already did for the top-level one.
+- `docs/spec_topics/query/query-escapes-stringification.md` — §Fix (b), route 3's
+  form: one new note under the QRY-18 table, placed directly after the note it
+  qualifies (the `Result`-rejection note), stating that containment does not
+  change the disposition, that a container's own static type is never
+  `Result<T, E>` so this is the **runtime** arm of the preceding note, that this
+  is what keeps "a `Result` value never crosses the wire" true at every depth,
+  and that `:33`'s recursive wire-name translation (now `:34`) is unchanged for
+  every value that is not a `Result`.
+- `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 Trigger
+  widening (below), same commit.
+- `docs/reference/frontmatter.md` — the user-facing mirror's "rejected at parse
+  time" clause, which a runtime-only nested arm leaves incomplete, now names the
+  runtime arm.
+- `tests/interpolated-result-gate.test.ts` — bug 0079's 22-cell witness extended
+  by **27 additive cells** (49 total). Additive only: 689 insertions, **0**
+  deletions; lines 1–990 are byte-identical to their pre-fix state (`cmp`).
+- `tests/live/live-production-acceptance.test.ts` — an additive **46th** H8a
+  cell driving the bug's primary shape (a `par for` value interpolated whole)
+  through the real discovery-to-registration path and a real drive.
+
+**DIAG-2 Trigger determination — a widening was owed.** The row at
+`code-registry-parse.md:74` was read as written first, per §Fix (b). Its Trigger
+admits two clauses: `expr` has Theta static type `Result<T, E>`, or the type is
+statically unresolvable. For the primary row (`let rs = par for …` / `${rs}`)
+the expression's static type is `array<Result<…>>` — neither `Result<T, E>` nor
+unresolvable — so **neither clause admitted the nested emission** and the
+Trigger took a widening naming the sub-case, landing in this commit. **No new
+code was minted**, no closed union was extended, and **DIAG-4 held mechanically**:
+splitting the row on `|` before and after shows 8 of 9 cells byte-identical, with
+only the Trigger cell changed — the *Message*
+(`Result value cannot be interpolated; unwrap with ? or match first`), Sev `E`,
+Phase `type`, the rule link and the fix hint are untouched. GOV-15 disposition:
+the **diagnostic-registry carve-out**
+(`docs/spec_topics/governance/source-language-stability.md`, `#diagnostic-registry-carve-out`),
+which dispositions a DIAG-2 *trigger* change "as an addition for inputs newly
+brought into the code's emission set" — admissible within theta 1.x.
+**Mirrors reached, and not reached:** `docs/reference/diagnostics.md` carries no
+*Trigger* column (Code / Sev / Phase / Message), so it owed nothing and is
+unedited; `docs/reference/frontmatter.md` owed the runtime arm and got it;
+`docs/spec_topics/runtime-value-model.md:14`/`:16` owed **nothing** — this fix
+makes both sentences true rather than needing them qualified, which is the
+difference between Reading A and Reading B made concrete.
+
+**CIO-3 posture — no new walk, so no cap.** The reach rides the recursion
+`translateInterpolationOutbound` already performs for QRY-18 `:34`'s wire-name
+translation; no second traversal was introduced, so there is nothing new for
+`MAX_JSON_DEPTH` to bound. A capped pre-walk would have admitted a `Result` past
+the cap — the precise shape bug
+[0187](./0187-untyped-subagent-return-boundary-no-depth-ceiling.md) documents at
+a different boundary — trading one leak for another instead of closing this one.
+The reach is therefore exact at every depth the lowering itself reaches, which is
+what "no carrier keys at ANY depth" requires.
+
+**One emission site, one runtime raise — grep-proven post-fix (constraint (d)).**
+`grep -rn "throw new InterpolatedResultPanic" src/` → exactly one hit,
+`src/extension/production-theta-producer.ts:5967`.
+`grep -rn "code: INTERPOLATED_RESULT_CODE" src/parser/` → exactly one hit,
+`src/parser/type-layer-checks.ts:2184`. No third site, and the raise is the same
+`ThetaPanic` subclass, so QRY-21 (a panic during interpolation is not contained
+by `let _ =`) holds for the nested position for the reason it already held for
+the top-level one.
+
+**GOV-15 byte-flip enumeration (prompt text is a governed observable).**
+
+- **Load flips: zero.** No parse-layer line changed. Every source that loaded
+  before still loads; every source refused before is still refused — the six
+  covered positions are pinned as cells (g1)–(g6).
+- **Render flips: exactly the interpolations whose evaluated value holds a
+  branded `Result` at any depth** — the twelve §Reproduction rows. Each now
+  aborts the theta with `theta/parse/interpolated-result` (bug 0079's
+  `theta /<name> aborted: <message>` framing) and sends **nothing**, in place of
+  sending the carrier.
+- **Every other interpolation is byte-identical**, pinned by the seven (f)
+  controls with whole-text `toEqual`: bug 0017's two nested shapes (including one
+  byte-identical to the `Err` carrier), both QRY-18 `:34` wire-name renames, the
+  enum element, a plain array, and an array of ordinary schema values.
+- **Committed corpus: zero flips.** All 34 committed `.theta` / `.thetalib`
+  (`git ls-files`) were read in full: every `${…}` interpolates a scalar, a field
+  access, or a non-`Result` schema value; `docs/examples/fan-out-reviews.theta`
+  destructures its `par for` value with `match` and interpolates the resulting
+  string, never the composite. The parse half is gate-enforced by
+  `tests/committed-fixture-parse-gate.test.ts` inside the default suite.
+
+**Pre-fix baseline, re-derived at the fix HEAD** (`5c9104ab` / 0.107.0; the
+report was filed at `a410f727` / 0.69.0 and every `:5xxx` citation in it had gone
+stale — `production-theta-producer.ts` is 6350 lines at this HEAD and
+`type-layer-checks.ts` 2548, so everything was re-located by symbol). Twenty-five
+rows through the real `parseThetaDocument` and the real production-composition
+drive, prompt text read at `pi.sendUserMessage`: the twelve leaking rows leak
+byte-for-byte as §Reproduction records, the seven controls render as recorded,
+and the six covered positions refuse as recorded. **No drift on any row** despite
+the intervening churn (0067, 0172-f2, 0181, 0180, 0050, 0126).
+
+**Gates.**
+
+- Witness: `npx vitest run tests/interpolated-result-gate.test.ts` →
+  `Test Files  1 passed (1)` / `Tests  49 passed (49)` (13 cells RED before the
+  code landed, 36 green; 49 green after).
+- Default suite: `npx vitest run` → `Test Files  312 passed (312)` /
+  `Tests  5235 passed (5235)` (pre-fix tracked baseline 312 / 5208; +27 cells).
+- `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+- `npm run lint` → exit 0, no output.
+- Live H8a:
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`
+  → 46 cells, 44 passed / 2 red in the full batch; both reds are pre-briefed
+  known-open classes on unrelated fixtures (a stochastic sentinel refusal on the
+  typed-query lowering cell, and one 180 s stall on the bug-0172 boundary cell),
+  and both re-ran **green in isolation**. The new 46th cell passed.
+- Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/`
+  → `Test Files  2 passed (2)` / `Tests  11 passed (11)`, empty-capture stderr
+  gate satisfied.
+
+**H9a permitted codes — decided by the real run.** All 11 cells passed with the
+empty-capture stderr gate satisfied, so no shipped fixture is brought into this
+code's emission set and `tests/fixtures/h7a/permitted-codes.json` is deliberately
+unchanged — blob `a4a8da04209f90e13d815edd92c1fc682e2a2236`, byte-identical to
+`HEAD:tests/fixtures/h7a/permitted-codes.json`. Corroboration from the same run:
+H9a's `acc-typed-inline.theta` interpolates a value whose fields are
+`{ ok: boolean, label: string }` — control (f1)'s shape, shipped — and stayed
+green, which is the brand-versus-shape distinction holding live.
+
+**Review.** One round plus one pre-review correction round.
+
+- *Pre-review correction round* (not a review round; round numbering unaffected):
+  inserting the QRY-18 note moved `query-escapes-stringification.md:33` to `:34`,
+  and this commit's own new witness comments cited `:33` in eight places.
+  Comment / docstring / test-title / expect-message text only — zero assertion
+  changes, zero behavioural changes, lines 1–990 byte-identical throughout, all
+  gates re-run green.
+- *Round 1 (deep):* one `prose` finding — three ongoing-contract comments cited
+  the producer's pre-fix `:5973` for `translateInterpolationOutbound`, which this
+  very diff moved to `:6010`, inside sentences that already carried post-diff
+  spec citations. Fixed by dropping the volatile line number and keeping the
+  symbol (unique in `src/`), which is the durable form given how hard this file
+  churns. One non-blocking prose residual (a banner's provenance parenthetical
+  overclaimed "every line re-derived at HEAD") reworded in the same pass.
+  Everything else verified clean with evidence: constraint (d) by grep,
+  constraint (c) by reading `privateBrandOf`'s descriptor check, the protected
+  990 lines by `cmp`, the accumulator's freshness per interpolation part, the
+  impossibility of the discarded tree reaching `JSON.stringify`, DIAG-4 by
+  cell-wise row comparison, and the mirror determinations independently.
+- *Post-polish confirmation:* the polish round's diff was inspected hunk by hunk
+  — five hunks, all comment or docstring prose, no executable line — and the
+  gates re-run green, so the confirmation review round was skipped on that basis
+  and the skip is recorded here.
+
+**Verification.** SOLID.
+
+- *The witness genuinely witnesses.* Three independent neutralise → red →
+  byte-exact restore → green cycles, each restore proven with `git hash-object`
+  against the hash captured before the neutralisation
+  (`f3162009b83d6c5f27c603986dfc5381a3d8c328`). **N1** (container arm ignores the
+  reach) reddened exactly the 13 nested cells with the carrier back on the wire.
+  **N2** (classify by `"ok" in value` instead of the brand — bug 0017/0020's
+  forbidden test) reddened exactly five: bug 0114's (f1)/(f2) **and bug 0079's
+  own (c1)/(c2)/(c3)**, which sit inside the protected 990 lines, while
+  (f3)–(f7) stayed green because their fixtures carry no `ok` key — targeted,
+  not collateral. **N1 again**, against the live path, reddened the new 46th H8a
+  cell with a real dispatched model turn carrying
+  `x[{"ok":true,"value":2},{"ok":true,"value":3}]`; restored, the same cell is
+  green pre-dispatch with zero model turns.
+- *Full default suite green* — 312 / 5235, run before and after every
+  neutralisation cycle with identical results.
+- *End-to-end live coverage of the fixed path* — the additive 46th H8a cell,
+  run for real, red-proved under neutralisation and green on restore; plus H9a
+  11/11 for the permitted-codes decision.
+- *Lint and typecheck* — both exit 0, run twice.
+
+**Residuals.**
+
+(i) **The load-refusal upgrade for the provable subset was declined, not
+overlooked.** `${[Ok(1)]}` and `${ {r: Ok(1)} }` — and, with an extension of
+`resultBindings` (`src/parser/type-layer-checks.ts`, the identity set bug 0079
+added) to record an array- or object-literal initialiser holding an `Ok`/`Err`,
+also `let xs = [Ok(1)]` / `${xs}` and `let xs = [[Ok(1)]]` / `${xs}` — are
+provable at parse time and now abort mid-drive instead of refusing at load.
+Evidence: measured post-fix, those rows report `diagnostics: []` and panic at
+render. Consequence: QRY-18 `:32`'s "static where possible" claim stays exactly
+as partial for containers as it was before this fix — no worse, not better. The
+five-ground derivation for declining it is above; the `resultBindings` scope
+question §Fix (a) route 1 leaves open remains open.
+
+(ii) **Nine line-number citations in four sibling bug documents went stale by
+exactly one line**, because inserting the QRY-18 note grew
+`query-escapes-stringification.md` by one line at `:33`: `0085:361` (`:35`),
+`0116:664` (`:58`), `0117:196`, `:490`, `:882` (`:58`), `0120:37`, `:557`, `:690`
+(`:33`). All are `+1` now. They were **not** edited — each belongs to another
+report, and this fix's own citations into that page were corrected instead. The
+corpus convention that bug documents anchor their citations to a named HEAD
+covers the drift; recorded here so the count is on the record rather than
+discovered later.
+
+(iii) **The closed panic-source enumeration is inherited, not created.**
+`error-model.md:65–74` lists six `theta/runtime/*` panic sources and QRY-18's
+parse-coded interpolation panic was already absent from it at the fix HEAD;
+mirrored at `docs/reference/errors-and-results.md:80–89`. This fix widens the set
+of inputs that reach that panic without changing the enumeration's silence. Owned
+by open bug [0117](./0117-error-model-omits-parse-coded-interpolation-panic.md)
+and deliberately not fixed in passing, exactly as §Fix (b) directs.
+
+(iv) **The two type-side §Non-goals are unchanged and stay recorded
+dispositions.** `checkCommonType`'s `"unknown"` skip still admits an `Ok` element
+under a written `array<integer>` sink (`let xs: array<integer> = [Ok(1)]` loads
+clean — it now panics at render rather than leaking), and whether bug 0031's
+`forceIncompatible` route should extend to the element position remains a
+separate adjudication. Whether `theta/parse/bare-object-literal` should reach an
+interpolation source is likewise untouched; this fix uses that spelling only as a
+measured route to QRY-18's object row.
+
+**Discharge notes appended** to bug
+[0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md), whose
+§Fix record §Residuals (i) named this residual and is discharged by this fix.
+
+**Pinned dispositions / non-goals.** QRY-18 `:28` still fixes `Result` as a
+rejection; rendering it as its payload remains a GOV-30 spec edit, not a bug fix.
+Classification stays the interpreter-private brand at every depth — a
+key-presence test is forbidden, and N2 proves five cells enforce it. The
+`system:` interpolation surface keeps no `result` arm (`params:` types never
+include `Result`). Route 1's static descent is declined with the derivation
+recorded, not silently omitted.

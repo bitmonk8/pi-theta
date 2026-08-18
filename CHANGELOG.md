@@ -6,6 +6,42 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0114 — a `Result` nested inside an interpolated array or object was
+  serialised as its interpreter-private `{"ok":…,"value":…}` carrier and sent
+  to the model.** QRY-18's discriminator was derived once, from the whole
+  interpolated value, so `stringifyInterpolation` returned
+  `JSON.stringify(translateInterpolationOutbound(…))` for the `array` and
+  `object` arms before bug 0079's runtime raise was reachable, and the lowering
+  itself classified nothing: a `Result` carries `RESULT_TAG` rather than
+  `SCHEMA_TAG`, so no schema resolved and the carrier's own `ok` / `value` /
+  `error` keys were copied through. Twelve sources — `${[Ok(1)]}`, a `par for`
+  value interpolated whole (the one composite CTRL-3 defines as an array of
+  `Result`s), a schema value whose `array<integer>` field holds an `Ok`, and
+  the depth variants — loaded with zero diagnostics, raised no panic, and put
+  the brand's carrier keys in the prompt text. `translateInterpolationOutbound`
+  now records a reach when it meets a branded `Result` at any depth —
+  classified by `isResultValue`, the non-enumerable brand, never by the
+  `{ ok, … }` shape (bugs 0017/0020) — and `stringifyInterpolation` discards
+  the lowered tree and routes the value through the `Result` arm bug 0079
+  already wired, so the sole runtime raise stays sole and the sole static
+  emission is untouched. The reach rides the recursion the lowering already
+  performs, so no new depth walk exists to bound under CIO-3. The QRY-18 spec
+  silence is closed in the same commit: a new note under the stringification
+  table states that containment does not change the disposition and that a
+  container's own static type is never `Result<T, E>`, so this is the runtime
+  arm of the existing static/runtime split; the
+  `theta/parse/interpolated-result` Trigger takes a DIAG-2 widening naming the
+  nested sub-case (Message byte-unchanged per DIAG-4, GOV-15 engaged in the
+  addition direction under the diagnostic-registry carve-out), and
+  `docs/reference/frontmatter.md` names the runtime arm. No load flips and no
+  shipped fixture changes bytes. Locked by 27 additive cells on bug 0079's
+  witness (`tests/interpolated-result-gate.test.ts`, 49 total) and an additive
+  H8a live cell.
+
 ## [0.107.0] - 2026-08-17
 
 ### Fixed

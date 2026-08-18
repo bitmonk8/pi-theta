@@ -380,3 +380,29 @@ rather than key presence preserves that.
   `tests/committed-fixture-parse-gate.test.ts` takes its corpus from
   `git ls-files '*.theta' '*.thetalib'` — so that claim is gate-enforced and
   re-derivable by running the default suite. Status unchanged.
+
+- **Discharge note (bug 0114, 0.108.0).** §Residuals **(i)** of this record — "A
+  `Result` NESTED inside an interpolated object or array still serialises the
+  carrier … `translateInterpolationOutbound` resolves no declaring schema and
+  recurses with keys unchanged" — is **DISCHARGED**. Bug
+  [0114](./0114-nested-result-in-interpolated-object-leaks-carrier.md) adjudicated
+  the QRY-18 nested disposition (Reading A: `runtime-value-model.md:14`'s "a
+  `Result` value never crosses the wire" is unconditional) and closed it by
+  extending this fix's own runtime half: `translateInterpolationOutbound` records
+  a reach when it meets a branded `Result` at any depth, and
+  `stringifyInterpolation` routes the value through the `stringifyInterpolatedValue`
+  `result` arm this record already wired, so **the sole raise this record
+  established stays sole** — `grep -rn "throw new InterpolatedResultPanic" src/`
+  is still exactly one hit, and the sole static emission is still
+  `checkQueryInterpolationResults`. Classification remains `isResultValue`, never
+  key presence, and cells (c1)–(c3) of this record's witness are part of the proof:
+  neutralising the nested classification to `"ok" in value` reddens exactly them
+  plus bug 0114's two nested equivalents. This record's 22 cells are byte-unchanged;
+  bug 0114 extended the same file with 27 additive cells (49 total), as its
+  harness-reuse design intended. Two corrections to this record's own text, both
+  measured at 0.107.0: the object-arm spelling `let o = { r: Ok(1) }` given here
+  does **not** load (`theta/parse/bare-object-literal`) — the object arm is reached
+  through a branded schema value whose `array<T>` field holds the `Result`, or
+  through a bare object literal written inside the interpolation; and the array arm
+  reproduces exactly as stated. Residuals (ii), (iii) and (iv) of this record are
+  untouched — filed as bugs 0115, 0116 and 0118 respectively. Status unchanged.

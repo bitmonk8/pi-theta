@@ -5940,6 +5940,7 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
   }
   const value = evaluatePureExpression(parsed, env);
   const type = interpolationTypeOf(value);
+  const reach: NestedResultReach = { found: false };
   if (type.kind === "object" || type.kind === "array") {
     // QRY-18: a Schema-typed object / `array<T>` interpolation renders as compact
     // `JSON.stringify` with wire-name translation applied recursively. The
@@ -5947,16 +5948,44 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
     // nesting level, driven by each object value's declaring-schema brand (with
     // the declared field type as a fallback for un-branded nested values); theta
     // code never sees a wire name, and the model never sees a theta-side name.
-    return JSON.stringify(translateInterpolationOutbound(value, env));
+    const lowered = translateInterpolationOutbound(value, env, reach);
+    if (!reach.found) {
+      return JSON.stringify(lowered);
+    }
+    // The lowering reached a branded `Result` somewhere inside the container.
+    // Containment does not change QRY-18's disposition (bug 0114): the lowered
+    // tree is discarded unrendered, and the value falls to the `Result` arm
+    // below — the same arm the top-level case already uses.
   }
-  const rendered = stringifyInterpolatedValue(value, type);
+  const rendered = stringifyInterpolatedValue(value, reach.found ? { kind: "result" } : type);
   if (!rendered.ok) {
-    // QRY-18's runtime fallback (bug 0079): a `Result` reaching this render is
-    // one the static gate left unproven, so it aborts the theta with the same
-    // registered code rather than rendering the carrier.
+    // QRY-18's runtime fallback (bug 0079, reached at the nested position too
+    // per bug 0114): a `Result` reaching this render — top-level or nested
+    // inside a container, at any depth — is one the static gate left unproven,
+    // so it aborts the theta with the same registered code rather than
+    // rendering the carrier. The sole runtime raise, for both positions.
     throw new InterpolatedResultPanic(rendered.diagnostic.message);
   }
   return rendered.text;
+}
+
+/**
+ * Whether the outbound lowering (`translateInterpolationOutbound`) reached a
+ * branded `Result` anywhere inside the interpolated value. Threaded down the
+ * walk as an explicit parameter — no global, no module state — so the reach is
+ * exact at whatever depth the lowering itself visits, which is what "no
+ * carrier keys at any depth" (bug 0114) requires.
+ *
+ * No depth cap: this rides the walk `translateInterpolationOutbound` already
+ * performs for QRY-18's wire-name translation rather than adding a second
+ * traversal, so there is no new depth walk for CIO-3's `MAX_JSON_DEPTH`
+ * discipline to bound. A cap here would admit past it the very `Result` this
+ * reach exists to catch — the shape of defect bug 0187 documents at a
+ * different boundary — trading one leak for another instead of closing this
+ * one.
+ */
+interface NestedResultReach {
+  found: boolean;
 }
 
 /**
@@ -5969,10 +5998,19 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
  * Enum values collapse to their bare wire string; arrays recurse element-wise;
  * primitives pass through. A value whose schema cannot be resolved recurses with
  * its keys unchanged (the safe no-rename default).
+ *
+ * A branded `Result` reached at any depth records `reach.found` and returns
+ * immediately, ahead of schema resolution: `schemaTagOf` never resolves one
+ * (it carries `RESULT_TAG`, not `SCHEMA_TAG`), so falling through to the
+ * no-rename default would copy its carrier keys straight through unchanged
+ * (bug 0114). Classification is `isResultValue` — the non-enumerable brand —
+ * never the `{ ok, … }` shape, so an ordinary object whose own declared fields
+ * spell `ok` still falls through to that path unchanged (bug 0017).
  */
 function translateInterpolationOutbound(
   value: ThetaValue,
   env: LexicalEnvironment,
+  reach: NestedResultReach,
   typeHint?: string,
 ): unknown {
   if (isEnumValue(value)) {
@@ -5981,16 +6019,20 @@ function translateInterpolationOutbound(
   }
   if (Array.isArray(value)) {
     const elementHint = typeHint !== undefined ? arrayElementTypeSource(typeHint) : undefined;
-    return value.map((element) => translateInterpolationOutbound(element, env, elementHint));
+    return value.map((element) => translateInterpolationOutbound(element, env, reach, elementHint));
   }
   if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  if (isResultValue(value)) {
+    reach.found = true;
     return value;
   }
 
   // Resolve the declaring schema: the construction-time brand is authoritative;
   // an un-branded value falls back to the declared field type when that names a
-  // resolvable schema (a `Result` value / bare literal resolves to neither and
-  // recurses with its keys unchanged).
+  // resolvable schema (a bare object literal resolves to neither and recurses
+  // with its keys unchanged).
   const hintName = typeHint !== undefined ? identifierTypeSource(typeHint) : undefined;
   const brand = schemaTagOf(value);
   const schemaName =
@@ -6007,7 +6049,7 @@ function translateInterpolationOutbound(
   for (const [thetaKey, fieldValue] of Object.entries(value)) {
     const field = fields.get(thetaKey);
     const wireKey = field?.wire ?? thetaKey;
-    result[wireKey] = translateInterpolationOutbound(fieldValue, env, field?.type);
+    result[wireKey] = translateInterpolationOutbound(fieldValue, env, reach, field?.type);
   }
   return result;
 }

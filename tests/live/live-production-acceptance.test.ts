@@ -1385,6 +1385,98 @@ describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instea
   });
 });
 
+/**
+ * Bug 0114's PRIMARY shape (docs/bugs/0114-nested-result-in-interpolated-object-leaks-carrier.md):
+ * a `par for` value is `array<Result<T, QueryError>>` (control-flow.md:74,
+ * CTRL-3), and interpolating it WHOLE — no static annotation anywhere spells
+ * `Result` for a container, so `interpolationIsResult`
+ * (src/parser/type-layer-checks.ts) never fires — registers cleanly, exactly
+ * like half (b) above. Bug 0114 §Fix (a) route 2 (settled, not route 1's
+ * static descent) makes the RUNTIME lowering
+ * (`translateInterpolationOutbound`) the only place that reaches the branded
+ * `Result` at the nested position.
+ */
+function nestedResultInterpolationTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let ns = [1, 2]",
+    "let rs = par for n in ns {",
+    "  n + 1",
+    "}",
+    "@`x${rs}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0114: a Result NESTED inside an interpolated `par for` value panics instead of sending the carrier, live (Convention: live-host acceptance)", () => {
+  it("registers a caller whose `${…}` interpolates a whole `par for` value holding nested `Result`s, then aborts the drive with the registered panic before any turn is sent, spending zero model turns", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b114livepanic", text: nestedResultInterpolationTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: bug 0114 §Fix (a) route 2 keeps the parse layer
+      // untouched — no static descent into the container — so this caller
+      // MUST register before the drive below can exercise the runtime
+      // fallback. A regression that widened the static gate to refuse this
+      // shape at load (route 1, deliberately declined) would red HERE first,
+      // not at the drive assertions below.
+      expect(
+        handle.command("b114livepanic"),
+        "the nested-Result `par for` caller did not register — either the " +
+          "static gate over-fired on a container it must defer (bug 0114 " +
+          "§Fix (a) route 2, a regression this cell does not intend to test) " +
+          "or discovery/registration itself regressed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The FIXED observable (bug 0114): `stringifyInterpolation`'s container
+      // arm threads an explicit `NestedResultReach` accumulator through
+      // `translateInterpolationOutbound`; reaching the branded `Result`
+      // nested inside the `par for` array discards the lowered tree and
+      // routes through the SAME `stringifyInterpolatedValue(value, { kind:
+      // "result" })` arm bug 0079's top-level case already uses — zero new
+      // raise sites (`grep -c "throw new InterpolatedResultPanic" src/` stays
+      // 1) — so `InterpolatedResultPanic` fires INSIDE `renderQueryText`,
+      // strictly before any provider dispatch (the same pre-dispatch
+      // position bug 0079 (b) above pins). This drive therefore spends ZERO
+      // tokens on the fixed path: no `pi.sendUserMessage` call is ever
+      // reached. Assert on real observables (AGENTS.md §"Assert on real
+      // observables"), never on `prompt()` merely resolving:
+      // `turn.userTexts` (the deterministic wire-leak invariant, now proven
+      // at the NESTED position — pre-fix this exact fixture sent
+      // `x[{"ok":true,"value":2},{"ok":true,"value":3}]`) and
+      // `turn.systemNotes` (the panic framing), both read off the SETTLED
+      // in-memory `SessionManager`.
+      const turn = await driveSlashCaptureTurn(handle, "/b114livepanic");
+      expect(
+        turn.userTexts,
+        "DIRECTION 1 (bug 0114 §Expected behaviour, Reading A — " +
+          "runtime-value-model.md:14 \"a Result value never crosses the " +
+          "wire\" at ANY depth, not only the top level): no user turn may be " +
+          "sent once the nested render panics. Sent: " +
+          JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+      expect(
+        turn.systemNotes,
+        "PRIMARY (bug 0114 §Fix (b), the DIAG-2 Trigger widening at " +
+          "code-registry-parse.md:74): the panic must be framed on the " +
+          "theta-system-note channel with the SAME registered " +
+          "`theta/parse/interpolated-result` code's Message (DIAG-4, read " +
+          "from the registry, never copied prose) bug 0079's top-level case " +
+          "already uses — one code, no new row, no third raise site. System " +
+          "notes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([interpolatedResultAbortedNote("b114livepanic")]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
 // ===========================================================================
 // Bug 0080 — `keys()` / `values()` on a named-schema value, and the QRY-18
 // outbound JSON built from the same record, followed the CONSTRUCTOR's field
