@@ -216,3 +216,4 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0194 — `unprovableBindings` marks by object identity — a shared alias element suppresses a later true refusal](./0194-unprovable-marking-by-object-identity-shared-alias-element.md) — open
 - [0195 — `control-flow.md` claims `for x in []` draws `array-no-common-type` — both spellings measure silent](./0195-control-flow-empty-array-iterand-claim-false.md) — open
 - [0196 — A provable nested-`Result` interpolation aborts at render, not load — the declined static half of the 0114 fix](./0196-provable-nested-result-interpolation-aborts-at-render-not-load.md) — open
+- [0197 — A `params:` default whose head resolves but names no enum silently unfills — the declared default evaporates](./0197-params-default-non-enum-head-silently-unfilled.md) — open
