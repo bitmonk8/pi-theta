@@ -8534,3 +8534,208 @@ describe("H8a-T — bug 0197: a params: default whose member-access head resolve
     }
   });
 });
+
+// ===========================================================================
+// Bug 0184 (live) — a literal ARM of a MIXED union now enforces the params:
+// boundary at a real subagent child's marshalled-params intake.
+// `docs/bugs/0184-union-arm-literal-lowers-empty-schema.md`: `lowerTypeExpr`'s
+// per-arm union recursion (`src/parser/params.ts:679-681`) and
+// `lowerBraceGroupUnionArms`'s non-brace-arm call (`:1208-1209`) never consulted the
+// literal sublanguage, so a MIXED union's own literal arm (one non-literal arm
+// beside it) fell to `lowerTypeExpr`'s trailing catch-all and lowered the
+// permissive `{}` — an empty schema AJV admits every JSON value against, so
+// `sev: 'Sev | "high"'` enforced nothing beyond the `Sev` arm and a value
+// NEITHER declared arm names (`"zzz"`) was silently ACCEPTED at all three
+// `params:` consumers. The fix (§Fix) routes both recursions through
+// `lowerLiteralSublanguage`, gated to a MIXED arm set by `isMixedLiteralArmSet`
+// (so the sibling all-literal face bug 0164 owns is left alone), so the
+// literal arm now lowers schema-subset.md:79's `{"const":"high"}` and the same
+// out-of-declared-set value is refused.
+//
+// NO EXISTING LIVE CELL EXERCISES THIS SHAPE. The bug-0056 cell above drives a
+// params: union too, but its declared type is `'"x" | "y"'` — ALL-literal, bug
+// 0164/0056's own already-fixed face, which reaches `lowerLiteralSublanguage`
+// at the TOP of the source and never enters the per-arm recursion this report
+// fixes. The bug-0097 cell drives a params: union of two ANONYMOUS
+// brace-rooted arms — no literal arm at all. The bug-0172-face-2 cell drives a
+// union `Sev | null` at the `invoke<T>` RETURN boundary, not a literal arm and
+// not the params: FIELD intake. This cell closes the gap the bug doc's own
+// §Reproduction (d) names: a MIXED union — one named-enum arm, one literal arm
+// — at the params: field position, proved through the real RFC-0006
+// marshalled-params AJV intake a spawned subagent child runs, mirroring the
+// bug-0056 cell's own GOOD/BAD invoke() shape exactly.
+//
+// `b184livechild`'s params: field is `p: 'Sev | "high"'` against a
+// body-declared `enum Sev { High = "high", Low = "low" }` (the bug doc's own
+// canonical declarations). Two `invoke(...)` calls from `b184livecheck`, each
+// bound to a plain identifier (withholding both from the static
+// invoke-arg-type-mismatch checker, this file's own established technique):
+// `good = "high"` — admitted BOTH pre-fix (the empty arm admits everything)
+// and post-fix (admitted by TWO arms: the `Sev` enum and the literal) — and
+// `bad = "zzz"` — admitted pre-fix through the empty arm, REFUSED post-fix
+// because neither the `Sev` enum nor the literal `"high"` names it. Each
+// `Result` is `match`ed explicitly into a plain string (no `?`, no unhandled
+// `Err`), and the one closing query renders both outcomes as theta CODE
+// computed them — never asserted on `prompt()` merely resolving.
+//
+// Token cost: ONE dispatched query in the parent (the same profile as the
+// bug-0056/bug-0097 cells above); the child spends none (`mode: subagent`
+// tail is the bound field itself, no model turn in the child's own body).
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted.
+// ===========================================================================
+
+/**
+ * The `mode: subagent` callee: a MIXED-union params: field — one named-enum
+ * arm, one literal arm, the bug doc's own canonical declaration
+ * (`enum Sev { High = "high", Low = "low" }`) — whose tail is the bound field
+ * itself, zero model turns, mirroring `literalParamsChildTheta` exactly but
+ * for the MIXED rather than the all-literal union.
+ */
+function mixedUnionParamsChildTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: 'Sev | \"high\"'",
+    "---",
+    'enum Sev { High = "high", Low = "low" }',
+    "p",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The load-bearing parent: TWO `invoke(...)` calls against the SAME callee —
+ * one argument the declared arms admit (`"high"`, admitted under BOTH the
+ * pre-fix empty arm and the post-fix `Sev`/literal arms), one no declared arm
+ * admits (`"zzz"`) — each bound to a plain identifier so
+ * `collectProvableArgTypes`'s `"ident"` withholding keeps BOTH calls off the
+ * static invoke-arg-type-mismatch checker's plate (see the bug-0056 cell's own
+ * file-header note above), leaving the runtime AJV net at the child's params
+ * intake as the only judge. Each `Result` is `match`ed EXPLICITLY into a plain
+ * string — `"ACCEPTED"` for `Ok`, `"REJECTED " + <the wire cause>` for `Err`
+ * — so nothing here is an unhandled `Err` (no `?`, no panic path), and the ONE
+ * closing query renders both outcomes the way theta CODE computed them,
+ * independent of anything the model says back.
+ */
+function mixedUnionParamsInvokeCheckTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let good = "high"',
+    'let bad = "zzz"',
+    'let okResult = invoke("./b184livechild.theta", good)',
+    'let badResult = invoke("./b184livechild.theta", bad)',
+    "let okOutcome = match okResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "let badOutcome = match badResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0184: a literal ARM of a mixed union enforces the params: boundary at the child's params intake, live (Convention: live-host acceptance)", () => {
+  it("accepts an invoke(...) argument the declared mixed-union arms admit and refuses one neither arm admits, through the real RFC-0006 marshalled-params AJV intake", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // invoke() outcome below could be (wrongly) attributed to a broken
+      // workspace instead of the mixed-union params lowering under test.
+      { source: "project", stem: "b184livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b184livechild", text: mixedUnionParamsChildTheta() },
+      { source: "project", stem: "b184livecheck", text: mixedUnionParamsInvokeCheckTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b184livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the mixed-union params lowering under test, would explain either " +
+          "invoke() outcome below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b184livechild"),
+        "the mixed-union-typed-params callee did not register — its " +
+          "bind_model: chain failed to resolve (a workspace/registry problem, " +
+          "not the lowering under test). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b184livecheck"),
+        "the invoking parent did not register — precondition unmet before any " +
+          "live turn is driven. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b184livecheck");
+      const outbound = turn.userTexts.join("\n");
+
+      // THE CONTROL — the declared-set argument is accepted at BOTH the
+      // permissive and the enforcing lowering (an empty schema admits
+      // everything; the enforcing `anyOf` admits it under the `Sev` enum arm
+      // AND the literal arm), isolating the fixed observable below to the
+      // OUT-of-declared-set argument specifically rather than to "invoke() to
+      // this callee never succeeds in this harness".
+      expect(
+        outbound,
+        "the in-declared-set invoke() argument was not accepted — Registered: " +
+          JSON.stringify(handle.registeredNames()) + "; outbound: " +
+          JSON.stringify(turn.userTexts),
+      ).toContain("GOOD=ACCEPTED");
+
+      // THE FIXED OBSERVABLE. Pre-fix the `params:` position lowers
+      // `{"anyOf":[{"$ref":"#/$defs/Sev"},{}]}` — arm 1 is the EMPTY schema, so
+      // the union admits every JSON value regardless of arm 0 — and the
+      // out-of-declared-set argument is silently ACCEPTED at the child's
+      // params intake too: `BAD=ACCEPTED`. Post-fix arm 1 is
+      // schema-subset.md:79's `{"const":"high"}` (bug 0184 §Fix), so the SAME
+      // argument is refused by BOTH arms with `InvokeInfraError { cause:
+      // "validation" }` (`refuseParams`, src/runtime/subagent-params.ts) —
+      // `BAD=REJECTED validation`, rendered by theta CODE from the real
+      // `Result` the real RFC-0006 child intake returned, never asserted on
+      // `prompt()` merely resolving.
+      expect(
+        outbound,
+        "the out-of-declared-set invoke() argument was not refused — the " +
+          "params: position's mixed-union literal arm did not enforce at the " +
+          "child's params intake (bug 0184 did not fire, or fired with an " +
+          "unexpected cause). Registered: " + JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("BAD=REJECTED validation");
+      expect(
+        outbound,
+        "the out-of-declared-set invoke() argument was accepted — the pre-fix " +
+          "permissive empty-arm lowering's own failure signature. outbound: " +
+          JSON.stringify(turn.userTexts),
+      ).not.toContain("BAD=ACCEPTED");
+
+      // No fail-closed ending of the PARENT's own drive: both `invoke(...)`
+      // results are `match`ed explicitly above (no `?`, no unhandled `Err`),
+      // so this theta's own top-level outcome is Success either way — a
+      // failure note here would mean the fixture itself is broken, not that
+      // bug 0184 fired.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b184livecheck (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the invoking parent's own drive surfaced fail-closed system note(s) " +
+          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

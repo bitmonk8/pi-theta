@@ -1,12 +1,16 @@
 # Bug 0184 — a literal ARM of a mixed union lowers to the EMPTY schema at all four `Type` positions instead of `docs/spec_topics/schema-subset.md:79`'s `{ "const": <value> }`: `Sev | "high"` lowers `{"anyOf":[{"$ref":"#/$defs/Sev"},{}]}`, a real `AjvSchemaValidator` admits `"zzz"`, `7`, `null`, `[]` and `{}` for a param the author closed to one enum plus one string, and since the bug 0172 face-2 dispatch (0.102.0) the enum tag a body sees depends on arm ORDER — `"high" | Sev` takes the empty arm for every value and tags nothing, where `Sev | "high"` tags both `"high"` and `"low"`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the change routes
-  the union-ARM recursion `lowerTypeExpr` (`src/parser/params.ts:677`) and
-  `lowerBraceGroupUnionArms` (`:1159`) share with every position through the
-  literal sublanguage, and the placement is left to the run because the two
-  obvious placements have different blast radii and one of them is
-  [0164](./0164-generic-argument-literal-lowers-permissive.md)'s mechanism.
-  Ordering: nothing blocks this report from starting.
+- **Status:** fixed (0.115.0). Was open with §Fix constraint-pinned: the change
+  routes the union-ARM recursion `lowerTypeExpr` (`src/parser/params.ts:677` at
+  filing, `:679-681` after) and `lowerBraceGroupUnionArms` (`:1159` at filing,
+  `:1208-1209` after) share with every position through the literal
+  sublanguage, and the placement was left to the run. The run took §Fix's
+  OPTION (ii) — the per-arm consult only, gated to MIXED arm sets, with no
+  whole-source consult at the head of `lowerTypeExpr` — so
+  [0164](./0164-generic-argument-literal-lowers-permissive.md)'s subject is left
+  BYTE-INTACT and 0164 stays open with its cells green. The full record is
+  `## Fix (0.115.0)` below.
+  Ordering: nothing blocked this report from starting.
   [0164](./0164-generic-argument-literal-lowers-permissive.md) is the sibling
   face and the one report whose remedy overlaps — **whichever lands second
   re-derives the other's rows rather than assuming them**, because a per-arm
@@ -1101,3 +1105,292 @@ Constraints on any implementation:
   `lowerUnion` isolating the per-arm-consult collision. Run against a tree with
   no tracked file modified, then deleted per scratch policy and the deletion
   swept case-insensitively.
+
+## Fix (0.115.0)
+
+- **What shipped, keyed to §Fix:**
+  - **The per-arm consult, at both recursion sites together (§Fix constraint 6).**
+    `src/parser/params.ts` gained two module-private helpers beside
+    `classifyLoweredUnionArm`: `isMixedLiteralArmSet` (`:832`) — true when any
+    arm fails `parseLiteralArm` — and `lowerLiteralUnionArm` (`:853`), which
+    declines a `PRIMITIVE_TYPES` spelling FIRST and otherwise returns
+    `lowerLiteralSublanguage(arm)`. Both union-arm recursions consult them and
+    fall back with `??`: `lowerTypeExpr`'s union split (`:678-681`) and
+    `lowerBraceGroupUnionArms`'s non-brace-arm call (`:1203-1209`). No second
+    emission is spelled and no import direction is crossed — the ingredient is
+    bug 0056's own export in the same module. The inlined primitive
+    classification, `lowerUnion`, the hoist, the mint and the 0.102.0 dispatch
+    are untouched.
+  - **Prose pins, same commit (§Fix constraint 3).** `params.ts`
+    `lowerLiteralSublanguage`'s doc (the "everywhere" clause: the whole-source
+    decline is unchanged, the ARM is not); `params.ts` the `unspellable` sink's
+    declined-traffic list (a mixed union's literal arm no longer ARRIVES there;
+    what remains is the all-literal-union-inside-a-generic-argument face and the
+    brace-carrying survivors); `src/runtime/query-schema-lowering.ts:85-91` (the
+    permissive-`{}` inventory item, re-derived to the remaining member and
+    attributing the departure to this §Fix);
+    `docs/spec_topics/runtime-value-model.md:34`'s parenthetical, replaced with
+    a two-arms-admit example that is still true — "`Severity | "high"` over
+    `"high"`: the enum arm admits it because `Severity` declares it, the literal
+    arm because it IS `"high"`". The first-admitting-arm RULE is byte-unchanged
+    (§Non-goals). The user-facing mirror `docs/reference/type-system.md:153-156`
+    states the rule without the stale example, so it is TRUE unedited — read and
+    left byte-unchanged.
+  - **`isUnspellableTextRefusable` byte-unchanged (§Fix constraint 4).** Its
+    premise became true rather than being edited: `diff` of HEAD `:1201-1226`
+    against the worktree `:1251-1276` is empty (doc comment AND body), and its
+    three readers (`parseParams`, `theta-document.ts`'s two body positions) are
+    absent from the diff.
+  - **No new diagnostic, no new permissive lowering (§Fix constraint 9).** Zero
+    registry rows added, DIAG-2 not engaged,
+    `tests/fixtures/h7a/permitted-codes.json` unchanged (verified by the real
+    live run, not assumed). The step-5 sidecar SHAPE did not move —
+    `SchemaSidecar` is still four maps plus optional `unionArms`; only the arms'
+    content changed, so `schema-subset.md` step 5 and both reference mirrors
+    needed no edit.
+- **The placement adjudication (§Fix's open choice, settled by the parent).**
+  OPTION (ii) — *at the arm*, gated to MIXED arm sets, with NO whole-source
+  consult at the head of `lowerTypeExpr`. Grounds: the operator's set
+  instruction excludes
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) and forbids
+  fixing it in passing; §Fix constraint 2 sanctions this branch explicitly and
+  states its obligation, which this fix discharges — `array<"x" | "y">` stays
+  BYTE-UNCHANGED at `{"type":"array","items":{"anyOf":[{},{}]}}` and
+  `array<"x">` at `items: {}`. OPTION (i) — *at the head of `lowerTypeExpr`* —
+  was REJECTED: it is 0164 §Fix's second candidate, reaches the
+  generic-ARGUMENT face in the same change and would close half of 0164 as a
+  side effect, which the set boundary forbids. The gate is what makes (ii)
+  possible: an ALL-literal arm set is already owned as a WHOLE SOURCE by
+  `lowerLiteralSublanguage` (`:80`'s `{"type":"string","enum":[…]}` or the bare
+  `enum`), and a per-arm consult with nothing in front of it would shadow that
+  with `{"anyOf":[{"const":"x"},{"const":"y"}]}` — the third value
+  §Reproduction (h) measured and no step-3 row states. Both directions were
+  measured, not assumed (controls `d7`/`d8`/`d9` of the new witness; 0164's
+  `d6` and `e2` green and byte-untouched).
+- **§Fix constraint 1's class table, AS MEASURED** at the fix's baseline
+  `83f6dac0` / 0.114.0 (not copied from the 0.102.0 filing; the two agree).
+  Byte-identical at all four `Type` positions, zero diagnostics at every one,
+  before AND after. Declarations `enum Sev { High = "high", Low = "low" }`,
+  `schema Triage { urgent: boolean }`:
+
+  ```
+  source                 HEAD                                            AFTER
+  Sev | "high"           {"anyOf":[{"$ref":…Sev},{}]}                    {"anyOf":[{"$ref":…Sev},{"const":"high"}]}
+  "high" | Sev           {"anyOf":[{},{"$ref":…Sev}]}                    {"anyOf":[{"const":"high"},{"$ref":…Sev}]}
+  Sev | "high" | "low"   {"anyOf":[{"$ref":…Sev},{},{}]}                 {"anyOf":[{"$ref":…Sev},{"const":"high"},{"const":"low"}]}
+  Sev | 1                {"anyOf":[{"$ref":…Sev},{}]}                    {"anyOf":[{"$ref":…Sev},{"const":1}]}
+  "x" | string           {"anyOf":[{},{"type":"string"}]}                {"anyOf":[{"const":"x"},{"type":"string"}]}
+  "x" | integer          {"anyOf":[{},{"type":"integer"}]}               {"anyOf":[{"const":"x"},{"type":"integer"}]}
+  "x" | Triage           {"anyOf":[{},{"$ref":…Triage}]}                 {"anyOf":[{"const":"x"},{"$ref":…Triage}]}
+  "a" | Triage           {"anyOf":[{},{"$ref":…Triage}]}                 {"anyOf":[{"const":"a"},{"$ref":…Triage}]}
+  string | "x"           {"anyOf":[{"type":"string"},{}]}                {"anyOf":[{"type":"string"},{"const":"x"}]}
+  { a: string } | "lit"  {"anyOf":[{"$ref":…__inline_968e40317188aebd},{}]}   {"anyOf":[{"$ref":…968e40317188aebd},{"const":"lit"}]}
+  Sev | true             {"anyOf":[{"$ref":…Sev},{"const":true}]}        UNCHANGED (bug 0044's atom arm, :723-727, already emits :79)
+  Sev | null             {"anyOf":[{"$ref":…Sev},{"type":"null"}]}       UNCHANGED (constraint 5)
+  string | null          {"type":["string","null"]}                      UNCHANGED (the collapse survives)
+  Triage | null          {"anyOf":[{"$ref":…Triage},{"type":"null"}]}    UNCHANGED
+  array<Sev> | null      {"anyOf":[{"type":"array",…},{"type":"null"}]}  UNCHANGED
+  "x" | "y"              {"type":"string","enum":["x","y"]}              UNCHANGED (all-literal ⇒ whole-source :80)
+  {a: integer} | Triage  {"anyOf":[{"$ref":…__inline_df817…},{"$ref":…Triage}]}   UNCHANGED
+  array<"x" | "y">       {"type":"array","items":{"anyOf":[{},{}]}}      UNCHANGED (bug 0164's subject)
+  array<"x">             {"type":"array","items":{}}                     UNCHANGED (bug 0164's subject)
+  Sev | Tirage           {"anyOf":[{"$ref":…Sev},{}]} + its diagnostic   UNCHANGED (resolution arm :748-750)
+  Sev | Result<T,E>      {"anyOf":[{"$ref":…Sev},{}]} + its diagnostic   UNCHANGED (non-array generic arm :706-709)
+  ```
+
+  Real AJV over the lowered `params:` document for `sev: 'Sev | "high"'`
+  inverts as §Fix constraint 10 requires: `"high"` and `"low"` ACCEPTED;
+  `"zzz"`, `7`, `true`, `null`, `[]`, `{}`, `{"sev":"high"}` REFUSED (all seven
+  were ACCEPTED before). Per arm: arm 0 `{"$ref":…Sev}` admits the two declared
+  strings, arm 1 was `{}` (every payload) and is now `{"const":"high"}` (that
+  string alone). The tag now follows the VALUE: `"low"` is tagged `Sev.Low`
+  under BOTH spellings (it was bare under `"high" | Sev`), and `"high"` stays
+  tagged under `Sev | "high"` and bare under `"high" | Sev` — the literal's own
+  value is the one case arm order still settles, which is
+  `runtime-value-model.md:34`'s rule applied to real arms.
+- **GOV-15 enumeration (§Fix constraint 8), five directions, premeasured before
+  Phase 1 by prototyping the adjudicated placement and running the FULL suite:**
+  (1) *validation* — mixed-literal-union `params:`/annotation positions now
+  REFUSE values no declared arm admits; loads are unchanged and zero
+  diagnostics fire before AND after, so the flip is invocation-time AJV
+  verdicts and wire dispatch, never a load; (2) *dispatch* — the enum tag stops
+  being order-dependent; wire JSON is identical either way, so only `==`
+  against a constructed variant observes it; (3) *mint* —
+  `__inline_`/`__theta_respond_` slugs re-mint wherever a mixed-literal-union
+  sits in the hashed fragment; (4) *all-literal unions byte-unchanged
+  everywhere* — top-level through the whole-source sublanguage,
+  generic-argument through the mixed gate; (5) *null idiom, brace arms,
+  unresolved and non-`array`-generic arms unchanged*. The prototype's
+  full-suite run produced **exactly 10 reds in 7 files** — the nine
+  constraint-3 cells, `schema-body` `e2` counting twice for its two positions —
+  and no other file moved. No unauthorized flip.
+- **Census.** Exhaustive over all 34 tracked `.theta`/`.thetalib` files at this
+  HEAD: four declare a `|` in a type position —
+  `docs/examples/handle-error.theta:8`, `docs/examples/review-lens.theta:12`,
+  `docs/examples/sentiment.theta:8`, `tests/fixtures/h7a/acceptance.theta:21` —
+  and all four are ALL-string-literal unions, so none is in the moved class and
+  **no shipped fixture's slug re-mints**.
+  `tests/committed-fixture-parse-gate.test.ts` (36 tests) is green, which is
+  what discharges the corpus-wide claim.
+- **Slug re-mints observed** (measured, four-position parity asserted per §Fix
+  constraint 7): `p: '{m: Sev | "high"}'` `__inline_d120f11c7193b40b` →
+  `__inline_1197ce20e189483d`; `@<Sev | "high">`
+  `__theta_respond_cfd165c062368209` → `__theta_respond_ecfad44b0c4ba51b`;
+  `@<"high" | Sev>` `__theta_respond_4d8ebd87b276a6f3` →
+  `__theta_respond_6d204979b1ba5867`. UNCHANGED: `@<Sev | null>`
+  `__theta_respond_4d64eb5d58b6cca8`, `p: '{m: Sev | null}'`
+  `__inline_2fc88229bf3727aa`, and the `{ a: string }` arm's own
+  `__inline_968e40317188aebd` (the brace arm's name does not depend on its
+  sibling). One source text still mints ONE name at every hoisting position.
+- **§Fix constraint 3's lock-step inventory — nine cells moved under this
+  report's authority, each re-derived (never deleted) with its subject
+  preserved:**
+  1. `tests/params-literal-sublanguage-lowering.test.ts` cell `d4`
+     (`"x" | integer`) — subject: four-position parity of a mixed union's
+     emission. Preserved (still all four `POSITIONS`); bytes moved.
+  2. same file cell `d5` (`"x" | Triage`) — subject: the same rule with a NAMED
+     arm. Preserved; bytes moved. `d1`-`d3` (the `null` idiom) and `d6`
+     (`array<"x" | "y">`, 0164's) byte-UNTOUCHED and green.
+  3. `tests/literal-union-string-enum-emission.test.ts` cell `e3`
+     (`"x" | string`) — subject: the mixed union's emission at the direct
+     `lowerTypeSource` position. Preserved; bytes moved.
+  4. same file, the header signature-table row for that source — annotated with
+     the AFTER value beside its era-stamped probe, not overwritten.
+  5. `tests/union-generic-arm-lowering.test.ts` cell `g8` (`"a" | Triage`, all
+     four positions) — subject: a source with no top-level `<` is untouched by
+     the generic-arm reorder. Preserved; bytes moved. `g7` (`"x" | "y"`,
+     all-literal) unchanged.
+  6. `tests/schema-body-nontype-text-refusal.test.ts` row `e2`
+     (`"x" | integer`, `field` AND `alias`) — subject: the SILENCE. Preserved
+     and still asserted first (`[]` diagnostics); the bytes assertion moved.
+  7. `tests/params-scalar-nontype-text-refusal.test.ts` rows `d7` (literal arm
+     first) and `d8` (`string | "x"`, literal arm last) — subject: the SILENCE.
+     Preserved and still asserted; bytes moved.
+  8. `tests/inline-object-nested-lowering.test.ts` cell `g8`'s "a LITERAL arm"
+     row (`{ a: string } | "lit"`) — subject: that a brace arm making the union
+     lower arm by arm changes nothing about the OTHER arms' dispositions.
+     Preserved: the unresolved-name and non-`array`-generic rows in the same
+     table are byte-untouched (their `{}` is the resolution/generic arm's, not
+     the catch-all's), so the cell still discriminates. This is the
+     `lowerBraceGroupUnionArms` site. `a10` untouched.
+  9. `tests/inbound-union-arm-dispatch.test.ts` `RED (first-match-wins)` — bug
+     0172's PREMISE cell, title kept verbatim. Subject: arm order settles a
+     value BOTH arms admit — SURVIVES, because `"high"` is still admitted by
+     arm 0 (the enum declares it) and by arm 1 (`{"const":"high"}` IS it), and
+     the cell still asserts that both admit before asserting the tag. What
+     moved is the premise: `arms[1]` is `{"const":"high"}` and stops admitting
+     `"low"`, `7` and `null`. The cell GAINED the `"low"` row as the
+     discriminating case under both spellings — with one admitting arm, the tag
+     follows the value.
+- **Gates** (parent's own re-runs, after every phase):
+  - Witness, fix neutralised (`isMixedLiteralArmSet` forced `false`):
+    `Test Files 8 failed (8) | Tests 40 failed | 455 passed (495)` — 30 in the
+    new witness file plus exactly the nine lock-step cells (`schema-body` `e2`
+    twice). Restored blob-hash-exactly
+    (`82faf5012471eeb1dec03e0b3e6f67a77f38ae20` before and after), then
+    `Test Files 8 passed (8) | Tests 495 passed (495)`.
+  - Full default suite:
+    `Test Files 317 passed (317) | Tests 5440 passed (5440)` (baseline at
+    dispatch: 316 files / 5359 tests).
+  - `npm run typecheck` — `tsc -p tsconfig.json --noEmit`, clean.
+  - `npm run lint` — `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    clean.
+  - Live:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "mixed-union arms admit"`
+    → `Tests 1 passed | 51 skipped (52)`; red-proven under the same
+    neutralisation with the documented pre-fix signature (`BAD=ACCEPTED` where
+    the fix gives `BAD=REJECTED validation`), then restored and green. H9a both
+    files: `Test Files 2 passed (2) | Tests 11 passed (11)`.
+- **Review:** 3 rounds. Round 0 (pre-review CORRECTION round, not a review
+  round): citation digits only in the new witness file and one added comment
+  line — zero assertions, zero executable lines. Round 1 (deep): one BLOCKER —
+  §Fix constraint 3's four sibling-doc authority notes were absent — plus two
+  non-blocking prose findings (four kept titles stating the pre-fix
+  disposition; one citation span). Everything else CLEAN, including the class
+  table, constraints 2/4/5/6/9, the nine cells, the witness against constraint
+  10, the four prose pins and every citation this run wrote. Fixer round 1
+  (`bug-fix-fixer-light`): the four titles and the citation span, prose only.
+  The blocker was discharged by the parent (the notes below). Round 2 (fast):
+  CLEAN — re-derived all five doc notes against the code and the tests, proved
+  the notes append-only and the line endings preserved (0098 is CRLF),
+  confirmed no third arm-lowering recursion site exists, and re-ran every gate
+  itself.
+- **Verification:** VERIFIED. (1) The witness reds without the fix and greens
+  with it, blob-hash-restored, and the no-op controls stay GREEN under the same
+  neutralisation — so the controls are controls, not duplicates of the subject.
+  (2) Full default suite green. (3) One additive H8a live cell (the file's
+  52nd) drives a MIXED-union `params:` field through a real subagent child's
+  RFC-0006 marshalled-params AJV intake with two `invoke(...)` arguments — one
+  the arms admit, one no arm admits — run for real, red-proven, restored,
+  green; H9a both files green (11 tests); `permitted-codes.json` unchanged,
+  verified by the run. (4) `npm run typecheck` and `npm run lint` clean.
+- **Residuals:**
+  1. **`tests/inline-object-nested-lowering.test.ts:1814`'s cell title reads
+     "the permissive-`{}` family keeps its members".** The family lost one
+     member here, so the title is imprecise; the cell's own body prose already
+     states it ("ONE MEMBER LEFT THE FAMILY LATER … the family one member
+     smaller") and every per-row assertion is correct. NOT changed on purpose:
+     §Fix constraint 3 has each moved cell KEEP ITS TITLE, and this title
+     asserts no bytes — its surviving-members claim is still true. Raised by
+     review round 2 as non-blocking; material for a future title pass.
+  2. **Pre-existing `src/parser/params.ts:NNN` citations elsewhere in the tree
+     are now off by this fix's line shift** (+2 before the new helpers, +48/+50
+     after) — e.g. `tests/annotation-root-brace-union-lowering.test.ts:949`
+     (`:1140`) and `tests/params-scalar-nontype-text-refusal.test.ts:732`
+     (`:1159`). Deliberately NOT swept: a repo-wide citation sweep is the class
+     bug 0134 records, and only citations THIS run wrote were repaired (all of
+     them, verified). Open bug docs that cite those lines
+     ([0164](./0164-generic-argument-literal-lowers-permissive.md),
+     [0098](./0098-nonstring-literal-union-emission-unspecified.md),
+     [0028](./0028-unresolved-annotation-silent-permissive-lowering.md)) and
+     this report's own §Affected keep their as-measured numbers; a later fix
+     touching those files re-derives them.
+  3. **A shredded segment set whose middle segment is a well-formed literal**
+     (`{a: "x" | "y" | Cat}` reached inside a generic argument) now emits
+     `{"const":"y"}` for that segment where it emitted `{}`. That `{}` came
+     from the missing literal rule, so it is inside §Fix constraint 1's table
+     rather than outside it; no in-tree cell pins it and the suite is green.
+     Noted for the record, not a defect.
+  4. **Two orchestrator self-authorizations, both citation/comment-only.**
+     (a) The pre-review correction round's bound under-enumerated the new
+     witness file: it is UNTRACKED, so ALL of its `params.ts` citations were
+     written this run, and 12 more were stale after the fixer's authorized
+     seven. Question: *may I complete the same citation-only repair rather than
+     ship a brand-new file whose one bullet mixes repaired and stale numbering
+     for the same symbol?* Evidence: `git status --short` proves the file is
+     untracked (no pre-existing citation to preserve); the correction-round
+     mandate names exactly this hazard ("rather than letting stale citations
+     propagate into review and into the shipped record"); each of the 12 target
+     lines was read out of the post-fix source and quoted; and the fixer's
+     independent derivation agreed line for line. Bound: comment lines 33-50
+     and 1442 of `tests/union-arm-literal-const-lowering.test.ts`, digits
+     inside `params.ts` citations only, zero assertions, zero executable lines.
+     One comment line was split in two to hold the wider `:1208-1209`
+     citation, so the file went 1657 → 1658 lines. STOP valve: any red, or any
+     repair reaching a non-comment line, stops the round — neither occurred,
+     and the file is green. (b) The same class for the new live cell's own
+     header, which cited the pre-fix `:677`/`:1159`: repaired to
+     `:679-681`/`:1208-1209`, one comment line, gates re-run green after.
+- **Discharge notes appended** (append-only, nothing deleted):
+  [0172](./0172-inbound-translation-pass-unperformed-at-three-boundaries.md)'s
+  `## Fix (0.102.0)` *Residuals* item 1 — this filing's origin — marked
+  discharged here, with its `RED (first-match-wins)` premise cell's fate
+  stated; and §Fix constraint 3's authority notes on
+  [0043](./0043-union-nonprimitive-arm-lowers-permissive.md),
+  [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md) and
+  [0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md)
+  §Non-goals (each bullet's disposition moved, by this §Fix, with the cells
+  named), plus a COORDINATION note on
+  [0098](./0098-nonstring-literal-union-emission-unspecified.md) §Non-goals.
+- **Pinned dispositions / non-goals:** 0164 stays OPEN with its subject
+  BYTE-INTACT — `array<"x" | "y">` and `array<"x">` are pinned unchanged by
+  this report's own witness, its `d6` / `e2` cells are green and byte-untouched,
+  and its doc took NO edit. 0098 stays OPEN: a single non-string literal ARM
+  now lands on `:79`'s `const` and never reaches its bare-`enum` branch, so
+  this fix narrowed its reachable inputs (`1 | 2`, `"x" | null` still reach it
+  whole) without answering which bytes that branch owes; its status is
+  unchanged. 0028 keeps the remaining permissive-`{}` inventory (one member
+  removed, the inventory comment re-derived). The first-admitting-arm dispatch
+  rule, `null` as a primitive at an arm, brace-rooted and shredded arms,
+  `splitTopLevel`'s angle-only nesting and `respondSchemaSlug`'s non-canonical
+  hash are unchanged and stay where §Non-goals puts them.

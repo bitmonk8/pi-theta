@@ -507,21 +507,72 @@ describe("bug 0172 face 2 — first-admitting-arm dispatch at a lowered anyOf po
     requireAdmitted(boundary, "high");
     const arms = rootArmsOf(boundary);
     expect(arms).toHaveLength(2);
-    // BOTH arms admit `"high"`: arm 0 is the `Sev` `$ref`, and the bare
-    // string-literal arm lowers to the EMPTY schema, which admits every value.
-    // The dispatch is adjudicated FIRST-MATCH-WINS on schema-subset.md:85's
-    // source order, so arm 0 governs and the value is tagged — the ambiguity is
-    // settled by the rule rather than left to make the tag depend on a sibling
-    // arm's shape.
+    // BOTH arms admit `"high"`: arm 0 is the `Sev` `$ref`, and the
+    // string-literal arm admits the literal's own value. The dispatch is
+    // adjudicated FIRST-MATCH-WINS on schema-subset.md:85's source order, so arm
+    // 0 governs and the value is tagged — the ambiguity is settled by the rule
+    // rather than left to make the tag depend on a sibling arm's shape.
+    //
+    // THE PREMISE MOVED; THE SUBJECT DID NOT. Bug 0172's own residual 1 filed
+    // the lowering defect this cell's premise rested on: at 0.102.0 arm 1 was
+    // the EMPTY schema (`expect(arms[1]).toEqual({})`), which admits EVERY
+    // value, so it also admitted `"low"`, `7` and `null`. Bug 0184 §Fix routes
+    // the union-ARM recursion through the literal sublanguage, so arm 1 is now
+    // schema-subset.md:79's `{"const":"high"}` — and this cell is STILL a real
+    // both-arms-admit witness, because both arms admit `"high"` under the new
+    // bytes too (bug 0184 §Reproduction (c) measured exactly that). What the fix
+    // removes is the arm's over-admission, which is why the `"low"` row below is
+    // now the discriminating case: `"low"` is admitted by arm 0 ONLY, so it is
+    // tagged whichever order the two arms are written in, and the first-match
+    // adjudication is doing work on `"high"` alone. Bug 0184 §Fix is the
+    // authority that moved the premise; the subject — arm order settles a value
+    // BOTH arms admit — is bug 0172 §Fix face 2's and is unchanged.
     expect(arms[0]).toEqual({ $ref: "#/$defs/Sev" });
-    expect(arms[1]).toEqual({});
-    expect(boundary.validator.compile(arms[1] as LoweredSchema).validate("high")).toEqual({
+    expect(
+      arms[1],
+      "schema-subset.md:79 gives the literal arm `{ \"const\": <value> }`; the EMPTY schema this " +
+        "arm carried before bug 0184 §Fix admits every JSON value, which is what made the enum " +
+        "tag a function of arm ORDER rather than of the value",
+    ).toEqual({ const: "high" });
+    expect(
+      boundary.validator.compile(arms[1] as LoweredSchema).validate("high"),
+      "the both-arms-admit premise on the literal's OWN value, which survives the fix: this is " +
+        "what keeps first-match-wins the rule that decides the outcome for `\"high\"`",
+    ).toEqual({
       ok: true,
     });
+    // The arm's over-admission is gone: each of these is admitted by arm 0 and
+    // refused by arm 1, so no ambiguity arises for them at all.
+    for (const overAdmitted of ["low", 7, null] as const) {
+      expect(
+        boundary.validator.compile(arms[1] as LoweredSchema).validate(overAdmitted).ok,
+        `the literal arm declares exactly \`"high"\`, so ${JSON.stringify(overAdmitted)} must be ` +
+          `REFUSED by it (bug 0184 §Fix); an arm admitting it is the empty schema this cell's ` +
+          `premise used to pin`,
+      ).toBe(false);
+    }
 
     const rebuilt = walkInbound(boundary, "high");
 
     expect(valuesEqual(rebuilt, makeEnumValue("Sev", "high"))).toBe(true);
+
+    // THE DISCRIMINATING ROW. `"low"` is admitted by arm 0 only, under BOTH
+    // spellings of the two arms, so its tag follows the VALUE rather than the
+    // arm order — which is the property the empty arm destroyed and the
+    // `{"const":"high"}` arm restores. The reversed spelling is read here as
+    // well, because that is the spelling whose empty FIRST arm stripped the tag
+    // from every value (bug 0184 §Reproduction (e)).
+    for (const annotation of ['Sev | "high"', '"high" | Sev']) {
+      const lowBoundary = boundaryFor(annotation, UNION_DOC);
+      requireAdmitted(lowBoundary, "low");
+      expect(
+        valuesEqual(walkInbound(lowBoundary, "low"), makeEnumValue("Sev", "low")),
+        `runtime-value-model.md:34 — \`@<${annotation}>\` over \`"low"\` has exactly ONE ` +
+          `admitting arm (the \`Sev\` \`$ref\`), so first-match-wins selects it whichever ` +
+          `position it is written in and the value is tagged. With an EMPTY literal arm the ` +
+          `reversed spelling took that arm instead and the tag disappeared`,
+      ).toBe(true);
+    }
   });
 
   it("RED (decode-inbound-step): the shared boundary step tags a `Sev | null` payload", () => {

@@ -771,6 +771,17 @@ unreached positions are byte-identical to HEAD.
   `{"anyOf":[{},{"type":"string"}]}`; the literal arm's `{}` comes from
   `lowerTypeExpr`'s trailing catch-all, never from this arm.
   [0043](./0043-union-nonprimitive-arm-lowers-permissive.md) §Non-goals owns it.
+  **Moved at 0.115.0.** Bug
+  [0184](./0184-union-arm-literal-lowers-empty-schema.md) §Fix is the authority:
+  a MIXED arm set's literal arm now consults the same sublanguage per arm, so
+  `"x" | string` lowers `{"anyOf":[{"const":"x"},{"type":"string"}]}` and the
+  literal arm no longer reaches that catch-all at all. This report's own
+  whole-source check and its emission are unchanged; cell `e3` of
+  `tests/literal-union-string-enum-emission.test.ts` and the header
+  signature-table row for the same source were re-derived under 0184 §Fix
+  constraint 3, with cell `e2` — the generic-argument face,
+  [0164](./0164-generic-argument-literal-lowers-permissive.md)'s — left
+  byte-untouched.
 - **A generic argument's element type.** `array<"x" | "y">` lowers
   `{"type":"array","items":{"anyOf":[{},{}]}}` because `lowerTypeExpr`'s `array`
   branch recurses into itself (`src/parser/params.ts:392–395`). Same family as

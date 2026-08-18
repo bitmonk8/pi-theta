@@ -6,6 +6,52 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0184 — a literal ARM of a MIXED union lowered to the EMPTY schema at all
+  four `Type` positions instead of `docs/spec_topics/schema-subset.md:79`'s
+  `{ "const": <value> }`.** `Sev | "high"` lowered
+  `{"anyOf":[{"$ref":"#/$defs/Sev"},{}]}`, and an empty arm is a schema AJV
+  admits every JSON value against — so a real `AjvSchemaValidator` over the
+  lowered `params:` document accepted `"zzz"`, `7`, `true`, `null`, `[]` and
+  `{}` for a param the author had closed to one enum plus one string, at all
+  three consumers (the binder envelope, the post-default-merge revalidation and
+  the subagent child's params intake), while `relaxParamsSchema` copied the same
+  empty arm into the model-facing envelope. Since the bug 0172 face-2 dispatch
+  (0.102.0) the empty arm had a second consequence: the enum tag a body binds
+  depended on arm ORDER, because an empty arm admits everything and therefore
+  wins whenever it is written first — `"high" | Sev` bound `"high"` AND `"low"`
+  as bare untagged strings where `Sev | "high"` tagged both. The lowering pass
+  reached the literal rows only from the TOP of a type source: both union-arm
+  recursions (`lowerTypeExpr`'s per-arm call and `lowerBraceGroupUnionArms`'s
+  non-brace-arm call) re-entered `lowerTypeExpr`, which owns no literal
+  sublanguage and returns `{}` from its trailing catch-all, and
+  `isUnspellableTextRefusable` declined literal-shaped sink entries, so the loss
+  was silent at every position. Both recursions now consult the literal
+  sublanguage per arm, gated to a MIXED arm set (one carrying at least one
+  non-literal arm), so a literal arm lowers `{ "const": <value> }` and the union
+  enforces exactly the value set its arms declare; the tag now follows the value
+  rather than the arm order. A bare `null` arm keeps the primitive reading
+  (`Sev | null` stays `{"type":"null"}` at its arm, `string | null` keeps the
+  collapsed `{"type":["string","null"]}`), a `true`/`false` arm is byte-unchanged,
+  and an ALL-literal union — including one reached through a generic argument
+  (`array<"x" | "y">`) — is byte-unchanged everywhere.
+  `isUnspellableTextRefusable` and its three readers are byte-unchanged: the
+  premise they rest on became true. No diagnostic was added and no lowering
+  became more permissive.
+
+  **Behaviour change to note.** A theta that loaded cleanly still loads cleanly
+  with the same (zero) diagnostics, but a mixed-literal-union param now REFUSES
+  values no declared arm admits at invocation time, an `@<T>` annotation over
+  such a union now constrains the model to the declared set, and the
+  content-addressed names both hash the lowered fragment — so
+  `__theta_respond_<slug>` and any `__inline_<slug>` carrying such a field
+  re-mint. No committed `.theta`/`.thetalib` is in that class (all four
+  `|`-declaring fixtures are all-string-literal unions), so no shipped fixture's
+  slug moves.
+
 ## [0.114.0] - 2026-08-19
 
 ### Fixed

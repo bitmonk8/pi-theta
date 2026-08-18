@@ -120,6 +120,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 // over-reaching into §Non-goals — a mixed union, a literal union inside a
 // generic argument, `T | null` for non-literal `T`, and every primitive, named
 // type, `array<T>` and non-literal inline object.
+// TWO OF GROUP (d)'s ROWS LATER MOVED UNDER ANOTHER REPORT: bug 0184 §Fix routes
+// the union-ARM recursion through this same literal sublanguage (gated to the
+// MIXED arm set), so the mixed-union rows `d4` (`"x" | integer`) and `d5`
+// (`"x" | Triage`) are re-derived onto their `{"const":…}` arm under that
+// report's authority. Bug 0056 §Non-goals' own reading — that the WHOLE-SOURCE
+// check declines a mixed union — is unchanged and is still why those rows exist;
+// what moved is the ARM's disposition. `d1`–`d3` (the `null` idiom, which bug
+// 0184 §Fix constraint 5 protects by testing `PRIMITIVE_TYPES` first) and `d6`
+// (`array<"x" | "y">`, bug 0164's face, which bug 0184's mixed-arm-set gate
+// leaves alone) stay byte-frozen.
 //
 // THE SLUG ORACLE IS INDEPENDENT. `schemaSlug` (src/parser/schema-lowering.ts)
 // is deliberately NOT imported: an oracle taken from the implementation under
@@ -890,7 +900,7 @@ describe("bug 0056 (c) — the production validator over the lowered `params:` d
 // these are what keeps the fix from over-reaching.
 // ===========================================================================
 
-describe("bug 0056 (d) — every source the literal recogniser declines keeps its bytes", () => {
+describe("bug 0056 (d) — every source the literal recogniser declines keeps its bytes, except d4/d5 (bug 0184 §Fix)", () => {
   /** Each control, its pinned fragment, and the positions it is comparable at. */
   const CONTROLS: ReadonlyArray<readonly [string, string, unknown, readonly Position[], string]> = [
     [
@@ -912,18 +922,25 @@ describe("bug 0056 (d) — every source the literal recogniser declines keeps it
     [
       "d4",
       '"x" | integer',
-      { anyOf: [{}, { type: "integer" }] },
+      { anyOf: [{ const: "x" }, { type: "integer" }] },
       POSITIONS,
-      "bug 0043 §Non-goals holds the MIXED union: the all-arms-literal test declines it at every " +
-        "position, so its literal arm stays permissive everywhere and bug 0056 §Non-goals leaves " +
-        "it there",
+      "bug 0043 §Non-goals held the MIXED union and bug 0056 §Non-goals left it there — the " +
+        "all-arms-literal test declines a union carrying a non-literal arm at every position, so " +
+        "the whole source goes to `lowerTypeExpr`, whose per-arm recursion re-enters ITSELF and " +
+        "owns no literal rule. THE MECHANISM IS UNCHANGED AND THE DISPOSITION IS NOT: bug 0184 " +
+        "§Fix routes the union-ARM recursion through the same literal sublanguage (gated to the " +
+        "MIXED arm set), so `\"x\"` lowers schema-subset.md:79's `{ \"const\": \"x\" }` at the arm " +
+        "while `integer` keeps its primitive `{\"type\":\"integer\"}`. Bug 0184 §Fix is the " +
+        "authority that moved these bytes; this cell keeps its subject, the four-position parity",
     ],
     [
       "d5",
       '"x" | Triage',
-      { anyOf: [{}, { $ref: "#/$defs/Triage" }] },
+      { anyOf: [{ const: "x" }, { $ref: "#/$defs/Triage" }] },
       POSITIONS,
-      "the same mixed-union rule with a named arm",
+      "the same mixed-union rule with a named arm, and the same lift: bug 0184 §Fix gives the " +
+        "literal arm schema-subset.md:79's `const` while the named arm keeps resolving to its own " +
+        "`$defs` entry",
     ],
     [
       "d6",

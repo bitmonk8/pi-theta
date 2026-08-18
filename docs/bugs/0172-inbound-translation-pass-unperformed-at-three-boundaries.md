@@ -1499,6 +1499,16 @@ declined by the adjudication.
      arm and receives no tag, where `Sev | "high"` tags. Pinned loudly by
      `RED (first-match-wins)`, which asserts the arm shapes as its premise, so a
      later lowering change reds there rather than silently altering the dispatch.
+     **Discharged at 0.115.0** by bug
+     [0184](./0184-union-arm-literal-lowers-empty-schema.md), filed from this
+     residual and fixed there: the literal arm lowers `{"const":"high"}` at all
+     four `Type` positions, so the tag follows the value rather than the arm
+     order. `RED (first-match-wins)` reded exactly as designed and was
+     re-derived in lock-step under 0184 §Fix constraint 3 — its subject (arm
+     order settles a value BOTH arms admit) survives on `"high"`, which both
+     arms still admit, and `"low"` joined the cell as the discriminating case
+     now that the literal arm refuses it. The adjudicated dispatch rule itself
+     is unchanged.
   2. **The enforced-entry-point question stays open**, as at 0.97.0.
      `src/runtime/inbound-boundary.ts` is a shared step, not an enforced entry
      point, and its header says so. This run deliberately did not answer it; the

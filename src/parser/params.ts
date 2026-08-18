@@ -559,9 +559,11 @@ export interface LowerCtx {
    * appended in lowering order (bug 0059 §Fix). Like `unresolved` and
    * `slugCollisions`, the caller owns the array's lifetime and this module
    * never reads it back: `parseParams` declines the recognised `LiteralType`
-   * atoms and brace-carrying survivors of this arm's legitimate traffic (a
-   * mixed union's literal arm; a brace-rooted type nested in a generic
-   * argument or a union arm) and turns what remains into
+   * atoms and brace-carrying survivors of this arm's legitimate traffic (an
+   * ALL-literal union's arms reached from a generic argument, bug 0164's
+   * face — a mixed union's own literal arm no longer arrives here, bug 0184
+   * §Fix; a brace-rooted type nested in a generic argument or a union arm)
+   * and turns what remains into
    * `theta/load/params-type-not-expression` at the field being lowered.
    * `checkSchemaDeclarationGraph` and `walkStatement`'s `schema` arm
    * (theta-document.ts) read this same sink for the two body positions,
@@ -673,8 +675,10 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   // schema-subset.md:81).
   const arms = splitTopLevel(s, "|");
   if (arms.length > 1) {
+    const mixedArmSet = isMixedLiteralArmSet(arms);
     const loweredArms: LoweredUnionArm[] = arms.map((arm) => {
-      const lowered = lowerTypeExpr(arm, lowerCtx);
+      const lowered =
+        (mixedArmSet ? lowerLiteralUnionArm(arm) : undefined) ?? lowerTypeExpr(arm, lowerCtx);
       const type = lowered["type"];
       if (
         Object.keys(lowered).length === 1 &&
@@ -808,6 +812,50 @@ export function classifyLoweredUnionArm(lowered: Record<string, unknown>): Lower
     return { kind: "primitive", type: type as LoweredPrimitiveType };
   }
   return { kind: "non-primitive", lowered };
+}
+
+/**
+ * Whether a union's arm set carries AT LEAST ONE arm the literal recogniser
+ * declines — the gate on the per-arm literal consult below.
+ *
+ * An arm set that is WHOLLY literal is already owned, as a whole source, by
+ * `lowerLiteralSublanguage`: schema-subset.md:80's `{"type":"string","enum":
+ * […]}` for the all-string case and its bare-`enum` sibling otherwise, neither
+ * of which an arm-by-arm `anyOf` reproduces. Consulting per arm there would
+ * shadow that emission with `{"anyOf":[{"const":"x"},{"const":"y"}]}` — a
+ * third value no step-3 row states — wherever an all-literal union reaches
+ * `lowerTypeExpr` rather than one of the two whole-source callers, which is
+ * the generic-argument recursion that bug 0164 owns. So the consult is gated
+ * to the MIXED set, and an all-literal set keeps the bytes that recursion
+ * produces for it today (bug 0184 §Fix constraint 2).
+ */
+function isMixedLiteralArmSet(arms: readonly string[]): boolean {
+  return arms.some((arm) => parseLiteralArm(arm) === undefined);
+}
+
+/**
+ * Lower ONE arm of a mixed union through the literal sublanguage — a single
+ * accepted atom's schema-subset.md:79 `{"const": <value>}` — or `undefined`
+ * when the arm is not the sublanguage's and the caller must lower it exactly
+ * as it does every other arm (bug 0184 §Fix).
+ *
+ * THE PRIMITIVE TEST COMES FIRST, mirroring the order in which `lowerTypeExpr`'s
+ * own atom section reads an atom. `null` is BOTH a `PrimitiveType`
+ * (grammar.md:97) and a `LiteralType` (`:102`), and SUBS-1
+ * (schema-subset.md:81) counts it as a primitive by name — the nullability
+ * idiom is that rule's own reference vector, so `Sev | null` keeps
+ * `{"type":"null"}` at its arm and `string | null` keeps the collapsed
+ * `{"type":["string","null"]}` instead of being widened into an `anyOf` of
+ * `{"const":null}` (bug 0184 §Fix constraint 5). Every other primitive
+ * spelling is declined by the recogniser anyway; testing the set rather than
+ * `null` alone keeps the two readings ordered rather than enumerated.
+ */
+function lowerLiteralUnionArm(arm: string): Record<string, unknown> | undefined {
+  const s = arm.trim();
+  if (PRIMITIVE_TYPES.has(s as LoweredPrimitiveType)) {
+    return undefined;
+  }
+  return lowerLiteralSublanguage(s);
 }
 
 /**
@@ -1152,11 +1200,13 @@ export function lowerBraceGroupUnionArms(
   ) {
     return undefined;
   }
+  const mixedArmSet = isMixedLiteralArmSet(arms);
   const loweredArms = arms.map((arm) =>
     classifyLoweredUnionArm(
       isSingleEnclosingBraceGroup(arm)
         ? hoistInlineObjectType(arm, lowerCtx, lowerFieldType)
-        : lowerTypeExpr(arm, lowerCtx),
+        : ((mixedArmSet ? lowerLiteralUnionArm(arm) : undefined) ??
+          lowerTypeExpr(arm, lowerCtx)),
     ),
   );
   return { ...lowerUnion(loweredArms) };
@@ -1232,8 +1282,13 @@ export function isUnspellableTextRefusable(text: string): boolean {
  * literal emission, or `undefined` when `source` is not (wholly) that
  * sublanguage: a union carrying any non-literal arm declines whole, matching
  * `parseLiteralArm`'s own per-arm decline (bug 0043 §Non-goals; bug 0056
- * §Non-goals — a mixed union's literal arm stays permissive at
- * `lowerTypeExpr`, everywhere).
+ * §Non-goals — a mixed union still declines WHOLE here, unchanged). The
+ * literal ARM no longer stays permissive "everywhere": bug 0184 §Fix gates
+ * `lowerTypeExpr`'s own union-arm recursion, and `lowerBraceGroupUnionArms`'s
+ * non-brace-arm one, on this same recogniser, so a MIXED arm set's own
+ * literal arm reaches schema-subset.md:79's `const` there, while an
+ * ALL-literal set still lowers whole through this function, unshadowed (bug
+ * 0184 §Fix constraint 2).
  *
  * The one emission `lowerParamsFieldType` (below) and `lowerTypeSource`
  * (body-type-lowering.ts) both call, so the `params:` position agrees with

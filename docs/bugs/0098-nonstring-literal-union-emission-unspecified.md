@@ -553,6 +553,16 @@ text.
   lowers `{"type":"array","items":{"anyOf":[{},{}]}}`; neither reaches the
   branch. [0043](./0043-union-nonprimitive-arm-lowers-permissive.md) §Non-goals
   owns both.
+  **Coordination note (0.115.0).** Bug
+  [0184](./0184-union-arm-literal-lowers-empty-schema.md) §Fix moved the
+  MIXED-UNION half only, and narrowed this report rather than settling it:
+  `1 | string` lowers `{"anyOf":[{"const":1},{"type":"string"}]}`, so a single
+  non-string literal ARM lands on `:79`'s `const` and never reaches the
+  bare-`enum` branch this report owns. The branch keeps every input that
+  reaches it whole through `lowerLiteralSublanguage` — `1 | 2` and `"x" | null`
+  — and their bytes are still unspecified, so this report stays OPEN with its
+  subject intact. `array<1 | 2>` is byte-unchanged and stays
+  [0164](./0164-generic-argument-literal-lowers-permissive.md)'s.
 - **The string-literal-union emission.** `:80` spells it and
   [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md) landed it
   (0.59.0). The ternary's true side, the byte-identity between

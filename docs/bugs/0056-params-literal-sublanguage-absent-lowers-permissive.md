@@ -702,6 +702,18 @@ Constraints on any implementation:
   `params:` by the same route.
   [0043](./0043-union-nonprimitive-arm-lowers-permissive.md)'s §Non-goals holds
   that shape. Nothing here changes it.
+  **Moved at 0.115.0.** Bug
+  [0184](./0184-union-arm-literal-lowers-empty-schema.md) §Fix is the authority:
+  `"x" | integer` lowers `{"anyOf":[{"const":"x"},{"type":"integer"}]}` and
+  `"x" | Triage` lowers `{"anyOf":[{"const":"x"},{"$ref":"#/$defs/Triage"}]}`,
+  at all four positions. The all-arms-literal test this report installed is
+  unchanged — a mixed union still declines it whole; what moved is that the
+  union-ARM recursion consults the same sublanguage per arm once the arm set
+  carries a non-literal arm. Cells `d4` and `d5` were re-derived under 0184 §Fix
+  constraint 3. `d1`–`d3` (the `null` idiom, which 0184 §Fix constraint 5
+  protects by reading a `PrimitiveType` spelling first) and `d6` (the generic
+  argument, [0164](./0164-generic-argument-literal-lowers-permissive.md)'s) are
+  byte-untouched.
 - **A literal union inside a generic argument.** `array<"x" | "y">` lowers
   `items: {"anyOf":[{},{}]}` at every position, because `lowerTypeExpr` recurses
   a generic's argument through itself. The fix as scoped does not reach it;

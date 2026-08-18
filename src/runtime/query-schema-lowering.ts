@@ -82,10 +82,13 @@
 //     where the annotation itself IS one enclosing brace group, a
 //     restriction bug 0053 §Fix places on the one position where the
 //     fragment is the document root rather than a field or an arm.
-//     Separately, a literal
-//     atom is recognised only by `lowerTypeSource`'s own top-level check, so a
-//     literal arm of a union that is not all-literal still lowers `{}`
-//     (`"a" | Triage` → `anyOf: [{}, {"$ref": …}]`).
+//     Separately, an ALL-literal union reached through a GENERIC ARGUMENT
+//     still lowers `{}` per arm here, because the per-arm literal consult
+//     (params.ts, bug 0184 §Fix) is gated to a MIXED arm set and leaves that
+//     one to this same catch-all: `array<"x" | "y">` → `items:
+//     {"anyOf":[{},{}]}` (bug 0164's face). A MIXED union's own literal arm
+//     left this family under bug 0184 §Fix: `"a" | Triage` now lowers
+//     `anyOf: [{"const":"a"}, {"$ref": …}]`, not `{}`.
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
 // (QRY-22).

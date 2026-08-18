@@ -145,6 +145,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // LITERAL arm of a mixed union keeps its `{}` (a10, g7). Bug 0039 §Fix
 // constraint 1 admits a permissive lowering and forbids a wrong one, so
 // converting one of those would be a regression, not an improvement.
+// THE THIRD MEMBER LEFT THE FAMILY LATER, under its own report: bug 0184 §Fix
+// routes BOTH union-arm recursions — `lowerTypeExpr`'s union split and
+// `lowerBraceGroupUnionArms`' non-brace-arm call — through the literal
+// sublanguage, so a literal arm of a MIXED union lowers schema-subset.md:79's
+// `{ "const": <value> }` (cell g8's "a LITERAL arm" row, re-derived under that
+// report's authority). The other two members are untouched: `array<{…}>` keeps
+// `items: {}` and an unresolved name keeps its `{}`, and so does an ALL-literal
+// union reached through a generic argument (bug 0164's face, which bug 0184's
+// mixed-arm-set gate deliberately leaves alone).
 //
 // A BRACE-ROOTED UNION ARM IS NOT ONE OF THEM. §Fix's "Existing pins that move
 // by design" names it: the arm is a `Type` position, so it hoists, and
@@ -1807,13 +1816,26 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
     // name, and the non-`array` generic keep their `{}`. Each now sits beside a
     // hoisted arm, and each is still lowered by the same `lowerTypeExpr` call
     // the whole-source delegation made on it.
+    //
+    // ONE MEMBER LEFT THE FAMILY LATER: bug 0184 §Fix gives
+    // `lowerBraceGroupUnionArms`' non-brace-arm call (src/parser/params.ts:1208-1209)
+    // the same literal consult it gives `lowerTypeExpr`'s union split — both
+    // sites move together, or one type expression's answer would split by
+    // whether a SIBLING arm happens to be brace-rooted (bug 0184 §Fix
+    // constraint 6) — so the LITERAL arm now lowers schema-subset.md:79's
+    // `{ "const": "lit" }`. The unresolved-name and non-`array`-generic arms are
+    // untouched: their `{}` comes from `lowerTypeExpr`'s resolution and generic
+    // arms, not from the trailing catch-all the consult sits in front of, so
+    // this cell's subject — that a brace arm making the union lower arm by arm
+    // changes nothing about the OTHER arms' dispositions — survives intact, with
+    // the family one member smaller.
     const rows: ReadonlyArray<
       readonly [string, string, Record<string, unknown>, readonly string[]]
     > = [
       [
         "a LITERAL arm",
         '{ a: string } | "lit"',
-        { anyOf: [{ $ref: `#/$defs/${A_STR_INLINE}` }, {}] },
+        { anyOf: [{ $ref: `#/$defs/${A_STR_INLINE}` }, { const: "lit" }] },
         [],
       ],
       [
@@ -1835,7 +1857,11 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
       const lowered = lowerTypeSource(source, triageMap(), defs, unresolved);
       expect(
         lowered,
-        `${label}: bug 0039 §Fix leaves this member of the permissive-\`{}\` family untouched; observed ${JSON.stringify(lowered)}`,
+        `${label}: bug 0039 §Fix leaves this member of the permissive-\`{}\` family untouched — ` +
+          `except that bug 0184 §Fix later took the LITERAL arm out of the family, routing ` +
+          `\`lowerBraceGroupUnionArms\`' non-brace-arm call through the literal sublanguage so it ` +
+          `lowers schema-subset.md:79's \`const\`; the unresolved-name and non-\`array\`-generic ` +
+          `arms keep their \`{}\` because theirs is not the catch-all's; observed ${JSON.stringify(lowered)}`,
       ).toEqual(expected);
       expect(
         unresolved,

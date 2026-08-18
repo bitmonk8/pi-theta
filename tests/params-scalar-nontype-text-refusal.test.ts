@@ -80,7 +80,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   4. Grammar-admitted traffic that legitimately reaches the same catch-all
 //      keeps its bytes: a brace-rooted arm nested in a generic argument or a
 //      union arm, a mixed-union literal arm, and the all-literal union arms of
-//      `array<"x" | "y">` (constraint 3, group (d)).
+//      `array<"x" | "y">` (constraint 3, group (d)). TWO OF THOSE ROWS' BYTES
+//      LATER MOVED UNDER ANOTHER REPORT: bug 0184 §Fix routes the union-ARM
+//      recursion through the literal sublanguage (gated to the MIXED arm set),
+//      so the mixed-union literal arm lowers schema-subset.md:79's
+//      `{ "const": <value> }` at rows d7 and d8. Constraint 3's own claim — that
+//      this traffic stays SILENT — is untouched and is what those rows still
+//      assert; the `array<"x" | "y">` rows (d1/d2/d3, bug 0164's face) stay
+//      byte-frozen because the mixed-gating leaves an ALL-literal arm set alone.
 //
 // THE TWO AUTHORIZED BOUNDARY SENTENCES, quoted rather than re-derived:
 //   - Widened brace decline — "the brace frame (`lowerParamsFieldType`'s
@@ -126,10 +133,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // carve-out from it: d5 (`string | {a: string}`) is a bug-0097-MOVED row — its
 // brace arm hoists under `__inline_<slug>` rather than reaching
 // `lowerTypeExpr`'s catch-all — so it is asserted on its own, outside (d)'s
-// byte-invariance loop, under bug 0097 §Fix's authority. Group (d)'s
+// byte-invariance loop, under bug 0097 §Fix's authority. A SECOND carve-out came
+// later: d7 (`"x" | integer`) and d8 (`string | "x"`) are bug-0184-MOVED rows —
+// their literal ARM lowers schema-subset.md:79's `const` rather than the
+// permissive `{}` — re-derived in place inside (d)'s loop under bug 0184 §Fix's
+// authority, with their SILENCE unchanged and still their subject. Group (d)'s
 // `array<"x" | "y">` row is the sharpest of the tripwires — its union arms DO
 // reach the catch-all and land in the sink, so
-// only the caller's literal decline keeps them silent (bug 0164).
+// only the caller's literal decline keeps them silent (bug 0164), and bug 0184's
+// mixed-arm-set gate is what leaves it there.
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles inside
 // one `parseThetaDocument` call over a string (`parseDoc`, tests/helpers/e2e-s1.ts
@@ -947,16 +959,24 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
     { $ref: `#/$defs/${A_ARRAY_INLINE_INLINE}` },
     [A_ARRAY_INLINE_INLINE],
   ],
+  // d7 / d8 are bug-0184-MOVED rows: the literal ARM of a MIXED union lowers
+  // schema-subset.md:79's `{ "const": <value> }` because bug 0184 §Fix routes
+  // `lowerTypeExpr`'s per-arm recursion through the literal sublanguage. Before
+  // that fix each arm was the permissive `{}` from the trailing catch-all. Their
+  // SILENCE — bug 0059 §Fix constraint 3's claim, that grammar-admitted traffic
+  // reaching the catch-all draws no `params-type-not-expression` — is unchanged
+  // and is what these two rows are here for; only the pinned bytes moved, under
+  // bug 0184 §Fix's authority.
   [
     "d7 (mixed union, literal arm first)",
     '"x" | integer',
-    { anyOf: [{}, { type: "integer" }] },
+    { anyOf: [{ const: "x" }, { type: "integer" }] },
     [],
   ],
   [
     "d8 (mixed union, literal arm last)",
     'string | "x"',
-    { anyOf: [{ type: "string" }, {}] },
+    { anyOf: [{ type: "string" }, { const: "x" }] },
     [],
   ],
   ["d9 (unbalanced generic arguments)", "array<{x: integer, y: string}>", {}, []],
@@ -979,7 +999,13 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
         `${label}: a refusal reaching this row refuses input the grammar admits at all four ` +
           `positions — the failure mode bug 0041's §Fix disqualified its own lowering point for`,
       ).toEqual([]);
-      expect(fragmentAtP(label, doc), `${label}: the lowered bytes at the field`).toEqual(fragment);
+      expect(
+        fragmentAtP(label, doc),
+        `${label}: the lowered bytes at the field. The table is the source of truth for these ` +
+          `bytes; rows \`d7\` and \`d8\` were re-derived under bug 0184 §Fix (a literal ARM of a ` +
+          `MIXED union lowers schema-subset.md:79's \`const\`, not the permissive \`{}\`), and ` +
+          `every other row's are bug 0059 §Fix constraint 3's own`,
+      ).toEqual(fragment);
       expect(
         Object.keys(defsOf(label, doc)),
         `${label}: the minted \`$defs\` names, hashed from the lowered fragment ` +

@@ -1080,18 +1080,30 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
     }
   });
 
-  it("CONTROL (g8): a LITERAL arm of a mixed union keeps its permissive variant", () => {
+  it("CONTROL (g8): a LITERAL arm of a mixed union lowers its `const`, while the named arm keeps its `$ref`, at all four positions", () => {
     // Named by §Non-goals, and still held there after bug 0056: the all-arms
     // literal test declines a union carrying a non-literal arm at EVERY
-    // position, so `"a"` beside a named arm lowers `{}` as one variant of an
-    // otherwise correct `anyOf` — the shape g7's move does not reach. The union
-    // already splits (no `<`), so the reorder does not reach it either.
+    // position, so `"a"` beside a named arm reaches `lowerTypeExpr`'s per-arm
+    // recursion — the shape g7's move does not reach. The union already splits
+    // (no `<`), so the reorder does not reach it either.
+    //
+    // WHAT MOVED, AND WHAT DID NOT. Bug 0184 §Fix routes that per-arm recursion
+    // through the same literal sublanguage (gated to the MIXED arm set), so the
+    // `{}` variant this cell pinned is now schema-subset.md:79's
+    // `{ "const": "a" }`. The mechanism above is unchanged and so is this cell's
+    // subject — a literal arm of a mixed union, at all four positions, untouched
+    // by the generic-arm reorder this describe block is about. Bug 0184 §Fix is
+    // the authority that lifted the disposition; the earlier "unfiled" reading
+    // is what it replaced (bug 0043 §Non-goals is a CLOSED document, which is
+    // why no open report owned the shape until 0184).
     for (const position of POSITIONS) {
       const fragment = fragmentOf("g8", position, '"a" | Triage');
       expect(
         fragment,
-        `g8 [${position}]: unfiled and unchanged here; observed ${JSON.stringify(fragment)}`,
-      ).toEqual({ anyOf: [{}, { $ref: "#/$defs/Triage" }] });
+        `g8 [${position}]: the literal ARM lowers schema-subset.md:79's \`const\` and the named ` +
+          `arm keeps resolving to its own \`$defs\` entry (bug 0184 §Fix; formerly "unfiled and ` +
+          `unchanged here" under bug 0043 §Non-goals); observed ${JSON.stringify(fragment)}`,
+      ).toEqual({ anyOf: [{ const: "a" }, { $ref: "#/$defs/Triage" }] });
     }
   });
 });

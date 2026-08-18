@@ -102,6 +102,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   params  p: "x" | "y"                         {"anyOf":[{},{}]}
 //   generic array<"x" | "y">                     {"type":"array","items":{"anyOf":[{},{}]}}
 //   mixed   "x" | string                         {"anyOf":[{},{"type":"string"}]}
+//                                                (bug 0184 §Fix moves this row to
+//                                                {"anyOf":[{"const":"x"},{"type":"string"}]}:
+//                                                the literal ARM lowers under
+//                                                schema-subset.md:79 once the union-arm
+//                                                recursion consults the same sublanguage
+//                                                this file's arm owns at the whole source)
 //   SUBS-1  string | null                        {"type":["string","null"]}
 //
 // WHAT IS RED HERE: every cell of groups (a), (b) and (c)'s c2 — each observes
@@ -113,7 +119,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 // guard in its REFUSING direction) and group (e)'s e2 / e3 / e4 (the generic
 // argument and mixed union bug 0056 §Non-goals leaves permissive, plus the
 // SUBS-1 control) are green now and must stay green
-// byte-for-byte: they are what keeps the fix from over-reaching. `1 | 2`,
+// byte-for-byte: they are what keeps the fix from over-reaching. ONE EXCEPTION,
+// LIFTED LATER BY ITS OWN REPORT: bug 0184 §Fix routes the union-ARM recursion
+// through this same literal sublanguage, so `e3`'s mixed union `"x" | string`
+// is re-derived onto `{"anyOf":[{"const":"x"},{"type":"string"}]}` under that
+// report's authority — `e2` (the generic argument, bug 0164's face) and `e4`
+// (the SUBS-1 control) stay byte-frozen. `1 | 2`,
 // `"x" | 1`, `true | false` and `"x" | null` keep the bare `enum` because `:80`
 // spells the emission for an enum or a STRING-literal union only, and
 // `{"type":"string","enum":[1,2]}` would refuse every value `1 | 2` declares.
@@ -700,14 +711,19 @@ describe("bug 0055 (e) — the position bug 0056 reaches, and the three that sta
     ).toEqual({ type: "array", items: { anyOf: [{}, {}] } });
   });
 
-  it("CONTROL (e3, MIXED UNION): `\"x\" | string` keeps `{\"anyOf\":[{},{\"type\":\"string\"}]}`", () => {
+  it("CONTROL (e3, MIXED UNION): `\"x\" | string` keeps `{\"anyOf\":[{\"const\":\"x\"},{\"type\":\"string\"}]}`", () => {
     const lowered = lowerSource("e3", '"x" | string');
     expect(
       lowered,
       `bug 0055 §Non-goals — \`parseLiteralArm\` (params.ts) fails on ` +
         `\`string\`, so the whole-union literal check never fires and the source goes ` +
-        `whole to \`lowerTypeExpr\`; observed ${JSON.stringify(lowered)}`,
-    ).toEqual({ anyOf: [{}, { type: "string" }] });
+        `whole to \`lowerTypeExpr\`. THAT MECHANISM IS UNCHANGED; THE DISPOSITION MOVED: bug ` +
+        `0184 §Fix consults the same sublanguage PER ARM of a mixed union, so the whole-source ` +
+        `decline still happens and the literal ARM now lowers schema-subset.md:79's ` +
+        `\`{ "const": "x" }\` while \`string\` keeps its primitive \`{"type":"string"}\`. Bug ` +
+        `0184 §Fix is the authority that moved these bytes; the cell keeps its subject, the ` +
+        `mixed union's emission at this position; observed ${JSON.stringify(lowered)}`,
+    ).toEqual({ anyOf: [{ const: "x" }, { type: "string" }] });
   });
 
   it("CONTROL (e4, SUBS-1): `string | null` keeps the multi-type-array form", () => {

@@ -757,6 +757,18 @@ proving the single-term path is byte-unchanged.
   `params:` sub-assertion `{ anyOf: [{}, {}] }` did not move, and the cell's own
   subject (that neither spelling carries a `<`, so this fix's reorder moves
   nothing there) is intact.
+  **Moved at 0.115.0.** Bug
+  [0184](./0184-union-arm-literal-lowers-empty-schema.md) §Fix is the authority
+  that lifted this bullet's disposition for a union carrying at least one
+  non-literal arm: `"a" | Triage` lowers
+  `{"anyOf":[{"const":"a"},{"$ref":…}]}` at all four `Type` positions, because
+  the per-arm recursion now consults the literal sublanguage for a MIXED arm
+  set. That fix re-derived this report's `g8` CONTROL in
+  `tests/union-generic-arm-lowering.test.ts` under its own §Fix; `g7` is the
+  ALL-literal `"x" | "y"`, which that fix's mixed-arm-set gate leaves
+  byte-unchanged, so it did not move. The generic-ARGUMENT face stays outside —
+  `array<"x" | "y">` is byte-unchanged and belongs to
+  [0164](./0164-generic-argument-literal-lowers-permissive.md).
 - **`splitTopLevel`'s angle-only default nesting.** A brace-carrying union
   source (`{a: string | null}`) still splits inside the braces. That is 0039's
   and 0035's subject; the reordering neither improves nor worsens it, because

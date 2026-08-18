@@ -107,7 +107,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      object, a literal atom, a literal union, a primitive union — and the
 //      empty inline object `{}` keeps its single `empty-schema-body`
 //      (constraint 3, group (e)). A recogniser that reaches any of these is
-//      over-refusing.
+//      over-refusing. ONE ROW'S BYTES LATER MOVED UNDER ANOTHER REPORT: bug
+//      0184 §Fix routes the union-ARM recursion through the literal
+//      sublanguage, so the mixed literal union `"x" | integer` lowers
+//      `{"anyOf":[{"const":"x"},{"type":"integer"}]}` rather than
+//      `{"anyOf":[{},{"type":"integer"}]}`. Constraint 4's own claim — that this
+//      traffic keeps its SILENCE at both positions — is untouched and is what
+//      row `e2` below still asserts; only the pinned fragment was re-derived.
 //   5. The controls do not move (constraint 5, group (f)), and the three OTHER
 //      `Type` positions show byte-identical lowered documents AND byte-identical
 //      diagnostic sequences (constraint 2, group (g)): the `@<T>` annotation,
@@ -988,7 +994,18 @@ const ADMITTED_ROWS: ReadonlyArray<
   ]
 > = [
   ["e1 (brace-rooted arm in a generic argument)", "array<{b: string}>", { type: "array", items: {} }, [], []],
-  ["e2 (mixed literal union)", '"x" | integer', { anyOf: [{}, { type: "integer" }] }, [], []],
+  // The literal ARM lowers schema-subset.md:79's `{ "const": "x" }` and the
+  // primitive arm keeps `{"type":"integer"}` (bug 0184 §Fix, the authority that
+  // moved this row's bytes; before it the arm was the permissive `{}`). Bug 0061
+  // §Fix constraint 4's claim over this row — that it keeps its SILENCE at both
+  // positions — is unchanged and is the row's subject.
+  [
+    "e2 (mixed literal union)",
+    '"x" | integer',
+    { anyOf: [{ const: "x" }, { type: "integer" }] },
+    [],
+    [],
+  ],
   [
     "e3 (inline object type, hoisted)",
     "{b: string}",
@@ -1007,7 +1024,7 @@ const ADMITTED_ROWS: ReadonlyArray<
   ["e7 (empty inline object)", "{}", PERMISSIVE, [], [["theta/parse/empty-schema-body", "{}"]]],
 ];
 
-describe("bug 0061 (e) — grammar-admitted catch-all traffic keeps its bytes and its silence", () => {
+describe("bug 0061 (e) — grammar-admitted catch-all traffic keeps its bytes (except e2, bug 0184 §Fix) and its silence", () => {
   for (const [label, typeSource, fragment, hoisted, expectedCodes] of ADMITTED_ROWS) {
     for (const position of ["field", "alias"] as const) {
       it(`GREEN (${label}, ${position}): \`${typeSource}\` is unchanged`, () => {
@@ -1021,7 +1038,10 @@ describe("bug 0061 (e) — grammar-admitted catch-all traffic keeps its bytes an
         ).toEqual(expectedCodes.map(([code, value]) => line(code, "<X>", value)));
         expect(
           read.lowered,
-          `${cell}: the emission the table prescribes, byte-for-byte`,
+          `${cell}: the emission the table prescribes, byte-for-byte. The table is the source of ` +
+            `truth for these bytes; row \`e2\`'s were re-derived under bug 0184 §Fix (a literal ` +
+            `ARM of a MIXED union lowers schema-subset.md:79's \`const\`, not the permissive ` +
+            `\`{}\`), and every other row's are bug 0061 §Fix constraint 4's own`,
         ).toEqual(position === "field" ? sField(fragment) : fragment);
         for (const [slug, body] of hoisted) {
           expect(
