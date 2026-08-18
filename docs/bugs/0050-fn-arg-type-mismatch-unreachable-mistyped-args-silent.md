@@ -704,3 +704,40 @@ method half and no longer of the field half. Opening the sink is outside bug
 0136's §Fix — it touches neither that arm nor any route that document enumerates
 — and would flip an 84-cell protected witness, so it was left to its own report
 and recorded as residual 1 of bug 0136's `## Fix (0.106.0)`.
+
+## Discharge note — bug 0190 landed (0.111.0): the sink now consumes the proof
+
+The coordination note above ended on an open clause: the substrate proves the
+type, the sink declines to use the proof, and "the substrate's mints remain this
+report's to fix". **That clause is discharged for the FIELD half** by bug
+[0190](./0190-fn-arg-sink-withholds-provable-member-reads.md) at 0.111.0.
+
+- `provableArgType`'s shared `case "member"` / `case "method-call"` arm **split**.
+  The `member` label consumes bug 0136's resolved branch — a member read of a
+  declared field on a resolved object schema is now a proof `checkFnArgCompat`
+  judges — while both of that arm's fallbacks stay unproven. Row **x11** of bug
+  0136's witness, which pinned the withholding, now pins the emission.
+- **This report's soundness discipline is intact and was extended, not
+  weakened.** Bug 0190's `member` label requires the RECEIVER to be a proven read
+  before it will judge the field type, because an erased receiver otherwise
+  launders its erasure through the field lookup and manufactures a false `E` — the
+  same species as this report's own review-round-r2 `index`-arm laundering
+  finding, at a fifth route. Measured and witnessed in both directions.
+- **The fabricated-mint subject this report established is preserved
+  cell-by-cell.** u6's ASSERTION is byte-unchanged and still asserts the absence
+  of this row's code; only its PREMISE was re-derived, because post-0136 the
+  field-name mint survives for an absent field or an unresolvable receiver rather
+  than for every member read, and u6's own silence is a COMPATIBLE
+  `number ⊑ number` relation. The u8 / u8b / u8p callee-name group and the
+  u9 family's identifier-name group are untouched in rule and in assertion; only
+  their by-analogy references to the field namespace were narrowed to the
+  fallback. The group gained a positive differentiator (**u6p**) and the two
+  fallback bounds (**u6b**, **u6c**), so it now decides in both directions
+  instead of being three absences a fix could satisfy by withholding on every
+  member read.
+- **What is still this report's to fix stays open.** The `method-call` half still
+  mints from the METHOD name and stays withheld; the `call` / `invoke` arm still
+  mints from the CALLEE and stays withheld, its rule and its `return undefined`
+  byte-unchanged. Argument arity (bug 0131, cell a1) and the imported-callee
+  route (bug 0138, cell i1) are unmoved and keep their own reports and their own
+  cells.

@@ -7683,3 +7683,171 @@ describe("H8a-T — bug 0185: a params: default naming an unresolvable Enum.Vari
     }
   });
 });
+
+// ===========================================================================
+// Bug 0190 — `provableArgType`'s shared `case "member"` / `case "method-call"`
+// arm (src/parser/type-layer-checks.ts) returned `undefined` unconditionally
+// for a member read, so the wired `theta/parse/fn-arg-type-mismatch` sink
+// withheld on every member-read argument even though a member read's static
+// type is now the receiver's DECLARED FIELD TYPE (`#typeExpr`'s `case
+// "member"`, bug 0136) — measured, `fn g(n: integer)` called `g(p.s)` with
+// `p.s` declared `string` reported `[]`, while the identical mismatch one
+// spelling over (an annotated parameter) reported the `E` code
+// (docs/bugs/0190-fn-arg-sink-withholds-provable-member-reads.md). The fix
+// splits the shared arm: `case "method-call"` keeps `undefined`, and `case
+// "member"` becomes a proof exactly when the RECEIVER is itself a proven read
+// AND the field resolves to a DECLARED type on a resolved object schema — the
+// declared field type, TYPE-11-unfolded, via the new
+// `StaticTypeInferencePass.declaredFieldType` query.
+//
+// The 87-cell (was 84) protected witness
+// (tests/fn-arg-type-mismatch-wired.test.ts, cells u6p/u6b/u6c) and the
+// dedicated 23-cell witness (tests/fn-arg-member-read-proof.test.ts) prove the
+// mechanism offline at the `parseThetaDocument` boundary; this cell proves the
+// SAME registration consequence end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer) — the fixed path had zero live
+// coverage before this addition.
+//
+// The mistyped caller mirrors the bug doc's §Reproduction row R1 and the
+// dedicated witness's cell R1 verbatim (`schema P { s: string }` +
+// `fn g(n: integer): integer { n }` + `fn f(p: P): integer { g(p.s) }`): a
+// same-file plain `fn` call whose argument is a MEMBER READ, both operands
+// statically resolvable (the declared field type and the declared parameter
+// type), the simplest input the row's Trigger names.
+// `theta/parse/fn-arg-type-mismatch` is severity `E`, so `hasLoadParseError`
+// un-registers the caller at the SAME site the bug 0050 cell above exercises
+// for the identifier-argument twin of this row.
+//
+// The compatible sibling mirrors the dedicated witness's BOUND S1 verbatim
+// (the same schema and call shape, with `g`'s parameter declared `string`
+// instead of `integer`): opening the sink judges, it does not indiscriminately
+// refuse, so a member-read argument whose declared field type IS compatible
+// with the parameter still registers — the isolating direction bug 0050's own
+// cell established for a literal argument, replayed here for a member read.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0050/0136/0126 cells
+// above claim). ADDITIVE ONLY: no existing cell in this file (1–47) is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * The bug doc's own §Reproduction row R1 / the dedicated witness's cell R1,
+ * verbatim (tests/fn-arg-member-read-proof.test.ts `A_R1`): a member read of a
+ * field declared `string` fed to a parameter declared `integer`, both
+ * statically resolvable. The trailing `1` supplies the theta's final value —
+ * no `@`-query is needed for a prompt-mode theta to register (mirrors the bug
+ * 0050 cell's own `illegalFnArgTheta`).
+ */
+function illegalMemberArgTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { s: string }",
+    "fn g(n: integer): integer { n }",
+    "fn f(p: P): integer { g(p.s) }",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with a COMPATIBLE member-read argument — the
+ * dedicated witness's BOUND S1, verbatim (`E_S1`): `g`'s parameter is declared
+ * `string`, matching `p.s`'s own declared type. Must register both before and
+ * after the fix, isolating the illegal caller's refusal to the declared-type
+ * mismatch rather than to "a member-read argument never registers in this
+ * harness".
+ */
+function legalMemberArgTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { s: string }",
+    "fn g(n: string): string { n }",
+    "fn f(p: P): string { g(p.s) }",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0190: the fn-argument sink judges a provable member-read argument, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose fn call passes a member read whose declared field type mismatches the parameter, while its compatible-argument sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // illegal caller's absence could be (wrongly) attributed to a broken
+      // workspace instead of the gate under test.
+      { source: "project", stem: "b190livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: identical schema, identical annotated-parameter
+      // `fn` and call shape, but a COMPATIBLE member-read argument — must
+      // still register, isolating the refusal to the declared-type mismatch
+      // rather than to "a member-read argument never registers in this
+      // harness".
+      { source: "project", stem: "b190livegood", text: legalMemberArgTheta() },
+      // The load-bearing illegal caller: the bug doc's own §Reproduction row
+      // R1, a member read whose declared field type (`string`) mismatches the
+      // declared parameter type (`integer`).
+      { source: "project", stem: "b190livebroken", text: illegalMemberArgTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b190livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gate under test, would explain the illegal caller's absence too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b190livegood"),
+        "the same-shape sibling with a compatible member-read argument did " +
+          "not register — a member-read argument cannot register in this " +
+          "harness at all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the dedicated witness
+      // uses), a same-file plain `fn` call whose MEMBER-READ argument is
+      // provably incompatible with the declared parameter type does NOT
+      // register — `checkFnCallArgs` (type-layer-checks.ts) now reaches
+      // `provableArgType`'s opened `member` arm, fires
+      // `theta/parse/fn-arg-type-mismatch`, and `hasLoadParseError` un-registers
+      // this caller at the SAME site the bug 0050 cell above exercises for the
+      // identifier-argument twin of this row.
+      expect(
+        handle.command("b190livebroken"),
+        "the caller whose fn call passes a provably mistyped MEMBER-READ " +
+          "argument registered anyway through the live discovery/session_start " +
+          "path — theta/parse/fn-arg-type-mismatch did not fire on the " +
+          "declared field type. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b190livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = fnArgTypeMismatchFragment("g", 0, "n", "integer", "string");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the fn-arg-type-mismatch rejection " +
+          "for the illegal member-read caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

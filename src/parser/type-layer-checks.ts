@@ -1792,9 +1792,10 @@ class TypeLayerWalk {
         // value proves nothing about that value's type — where the spelling
         // collides with a declared schema it resolves and is judged nominally
         // (TYPE-10) against a declaration the read has nothing to do with,
-        // which is the false-judgement shape the `member` / `method-call` and
-        // `call` / `invoke` arms below refuse over the field and callee
-        // namespaces. `bindings` is still not a complete local view — a
+        // which is the false-judgement shape the `member` arm's field-name
+        // fallback, the `method-call` arm, and the `call` / `invoke` arms
+        // below refuse over the field and callee namespaces. `bindings` is
+        // still not a complete local view — a
         // frontmatter `params:` field never reaches it — so a MISS means "not
         // recorded", never "no such binding", and the only sound answer is to
         // withhold. The binder classes this layer cannot type are recorded as
@@ -1818,27 +1819,80 @@ class TypeLayerWalk {
         // cannot see.
         return this.unprovableBindings.has(recorded) ? undefined : recorded;
       }
-      case "member":
       case "method-call":
-        // A read that mints a `named` type out of an author-chosen FIELD or
-        // METHOD name is not a proof of the value's type: `#typeExpr` answers
-        // `named <field>` for `v.P` and `named <method>` for `xs.length()`,
-        // neither of which is the type of the value the read produces. The
-        // adjacent `interpolationIsResult` refuses the same minted names for
-        // the same reason — a name an author chose for a field or a method
-        // collides freely with a declared schema's name, so reading meaning
-        // out of it judges an unrelated namespace.
+        // A read that mints a `named` type out of an author-chosen METHOD
+        // name is not a proof of the value's type: `#typeExpr` answers
+        // `named <method>` for `xs.length()`, which is not the type of the
+        // value the call produces. The adjacent `interpolationIsResult`
+        // refuses the same minted names for the same reason — a name an
+        // author chose for a field or a method collides freely with a
+        // declared schema's name, so reading meaning out of it judges an
+        // unrelated namespace.
         //
         // No sound emission is lost by withholding here. A minted name that
         // resolves to nothing declared already defers at `checkCompatible`
         // (`"unknown"`), and one that DOES resolve is judging the declaration
         // that happens to share the spelling rather than the read value.
         return undefined;
+      case "member":
+        // PROOF iff both hold: the RECEIVER is itself a proven read
+        // (`provableArgType(expr.target, bindings)` is defined) AND the read
+        // resolves to a DECLARED field type on a resolved object schema —
+        // `StaticTypeInferencePass`'s own-key-guarded branch, reached here
+        // through `declaredFieldType`. The proven answer IS that declared
+        // field type, TYPE-11-unfolded.
+        //
+        // (1) Why a declared field type is a proof at all. Bug 0136 made a
+        // member read's static type the receiver's declared field type, and
+        // wrote the rule into expressions.md's Member access bullet: the
+        // static result type of `obj.field` is the receiver's declared type
+        // for that field, TYPE-11-unfolded. TYPE-9 conditions this sink's
+        // obligation on both operands being statically resolvable, and a
+        // declared field on a resolved object schema is read straight out of
+        // the `TypeEnv` rather than left past the parser's static view.
+        //
+        // (2) Why the arm's other two outcomes are not proofs. The
+        // field-name mint (an absent field, a fields-less declaration, or a
+        // declined `typeSource`) is author-chosen and can RESOLVE against an
+        // unrelated declaration sharing its spelling — `schema Zzz = integer`
+        // beside `p.Zzz` on a `P` that declares no `Zzz` — and
+        // expressions.md's Member access bullet assigns an absent
+        // theta-side name a RUNTIME `theta/runtime/missing-object-key`
+        // panic; judging the mint would refuse at `E` a program whose
+        // specified disposition is a panic. The receiver's own `named`, for
+        // an unresolvable receiver, is exactly what `checkCompatible`
+        // answers `"unknown"` for and defers.
+        //
+        // (3) Why the RECEIVER's own proof is a further, separate
+        // obligation — a soundness requirement this arm cannot ship
+        // without, not a preference. An erased receiver launders its
+        // erasure through the field lookup: for
+        // `let m = flag ? A { s: "x" } : B { s: 1 }`, the ternary is not a
+        // proven reduction (`#commonType` rule 3 falls back to
+        // `candidates[0]`, discarding the `B` arm), so `m` is recorded in
+        // `unprovableBindings` (read here through the `ident` arm's identity
+        // check) — and `m.s` then resolves against `A` and answers `string`,
+        // while the runtime can hand the callee a `B` whose `s` IS the
+        // `integer` the parameter declares. Without this clause that program
+        // draws a false
+        // `theta/parse/fn-arg-type-mismatch: expected integer, got string`.
+        // This is the same species as the `index` arm's own obligation
+        // below: "The proof obligation belongs to the target: recur on it
+        // the way the `try` arm recurs on its operand"; this arm carries the
+        // identical obligation over its RECEIVER. The conservatism this
+        // buys: where an erased receiver's candidate schemas happen to
+        // declare the same field type, withholding loses a sound emission —
+        // but withholding can only ever suppress an emission, never
+        // manufacture one, which is the asymmetry the whole predicate is
+        // built on.
+        return this.provableArgType(expr.target, bindings) === undefined
+          ? undefined
+          : this.pass.declaredFieldType(expr, this.env, bindings);
       case "call":
       case "invoke":
         // A `named` type minted from an author-chosen CALLEE is not a proof of
-        // the call's value type, for the reason the `member` / `method-call`
-        // arm above already states at the field namespace: `#typeExpr` answers
+        // the call's value type, for the reason the `method-call` arm above
+        // already states at the method namespace: `#typeExpr` answers
         // `named <callee>` for `f(x)` and `named <path>` for an `invoke`, and
         // neither names the type of the value the call produces. The operand a
         // sound judgement needs is the callee's declared RETURN type, which

@@ -1067,21 +1067,40 @@ describe("bug 0136 (x) — the sub-case bounds §Fix (c) and (d) require asserte
     );
   });
 
-  it("BOUND x11: the FN-ARGUMENT sink still WITHHOLDS on a now-provable member read", () => {
-    // THE RESIDUAL BOUNDARY. `provableArgType`'s `case "member"` returns
-    // `undefined` unconditionally, and bug 0136's settled route does not touch
-    // it: the route enumerates the inference arm and its consumers, not the
-    // sink's own identity channel. So `g(p.s)` with `p.s: string` against
-    // `fn g(n: integer)` stays silent — which is exactly why
-    // tests/fn-arg-type-mismatch-wired.test.ts's 84 cells stay green across
-    // this fix. OPENING THAT SINK IS OUT OF 0136's SCOPE and would flip that
-    // protected witness; it belongs to its own report. A RED here means the fix
-    // widened past its route.
+  it("RED x11: the FN-ARGUMENT sink CONSUMES the proof this arm supplies", () => {
+    // THE HANDED-OVER BOUNDARY, taken up. This cell pinned `[]` while
+    // `provableArgType`'s shared `case "member"` / `case "method-call"` arm
+    // returned `undefined` before reading anything, and its own text delegated
+    // the flip to the report owning that arm. Bug 0190
+    // (docs/bugs/0190-fn-arg-sink-withholds-provable-member-reads.md) splits
+    // it: the `member` label admits exactly the resolved branch THIS file's
+    // subject arm takes — a receiver that is itself a proven read, resolving to
+    // an object schema with an own key for the field — so `g(p.s)` with `p.s`
+    // declared `string` against `fn g(n: integer)` is judged at the argument
+    // slot TYPE-9 names, with the declared field type in the `<actual>`
+    // position. That is one operand and one verdict across the three sinks:
+    // x9's constructor field, b13's typed `let`, and now this one.
+    //
+    // A RED here separates two causes by its actual list. `[]` means the
+    // argument sink withholds again — either this arm's resolved branch stopped
+    // being a proof, or the `member` label was folded back in with
+    // `method-call`. Any OTHER list means the fixture acquired a second
+    // verdict, which the whole-list comparison names rather than hides.
+    const FN_ARG = "theta/parse/fn-arg-type-mismatch";
     expectRow(
       "x11",
       X.x11 as string,
-      CLEAN,
-      "the fn-argument sink's withholding is independent of the inference arm and is not 0136's to open",
+      one(
+        FN_ARG,
+        msg(FN_ARG, [
+          ["<name>", "g"],
+          ["<i>", "0"],
+          ["<param>", "n"],
+          ["<expected>", "integer"],
+          ["<actual>", "string"],
+        ]),
+      ),
+      "the declared field type this arm returns is a proof of the read value's type, so the fn-argument sink judges what the substrate proves",
     );
   });
 

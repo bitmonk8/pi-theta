@@ -37,8 +37,18 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //               position (expressions.md:46), so the check withholds.
 //   u1–u5       bug 0081's union arm closed this group's erasure: each read is
 //               now a proven union, and the argument sink judges it for real.
-//   u6          a `named` type minted from a FIELD name is not a proof of the
-//               read value's type either, and must not be judged.
+//   u6, u6p,    a member read of a DECLARED field on a RESOLVED object schema
+//   u6b, u6c    IS a proof of the read value's type (bug 0136, 0.106.0, and
+//               `expressions.md`'s member-access static-result-type sentence),
+//               so u6p judges one; the FIELD-NAME MINT that survives for an
+//               absent field or an unresolvable receiver is not, so u6b and
+//               u6c refuse it. u6 itself is silent on a COMPATIBLE relation
+//               rather than a withheld read: its field `P` is declared
+//               `number` against a `number` parameter. u6p is RED until the
+//               shared arm splits; u6, u6b and u6c hold in both directions.
+//               Authority for this re-derivation:
+//               docs/bugs/0190-fn-arg-sink-withholds-provable-member-reads.md
+//               §Fix (f).
 //   u7, u7p     an index read's proof obligation belongs to the target, not the
 //               element narrowing alone; bug 0081 makes u7's target a proof
 //               where it used to be an erasure, so both cells now emit.
@@ -722,6 +732,23 @@ const U6 =
   FM +
   "schema P { a: number }\nschema W { P: number }\nfn f(n: number): number { 1 }\nlet v = W { P: 3 }\nlet r = f(v.P)\nr\n";
 
+/**
+ * u6's three companions, added under bug 0190 §Fix (f) so the group decides in
+ * both directions: a member read whose DECLARED field type disagrees with the
+ * parameter (which must emit), and the two FALLBACK reads that must not — an
+ * absent field, and an absent field whose minted name RESOLVES against a
+ * declared alias.
+ */
+const U6P_DECLARED_FIELD_MISMATCH =
+  FM +
+  "schema P { s: string }\nfn g(n: integer): integer { n }\nfn f(p: P): integer { g(p.s) }\n1\n";
+const U6B_ABSENT_FIELD =
+  FM +
+  "schema P { s: string }\nfn g(n: integer): integer { n }\nfn f(p: P): integer { g(p.zzz) }\n1\n";
+const U6C_ABSENT_FIELD_RESOLVING_MINT =
+  FM +
+  'schema Zzz = integer\nschema P { s: string }\nfn g(n: string): string { n }\nfn f(p: P): string { g(p.Zzz) }\n"t"\n';
+
 const U7_DIRECT =
   FM + 'fn f(s: string): number { 1 }\nlet xs = [false ? 1 : "a"]\nlet r = f(xs[0])\nr\n';
 const U7_LAUNDERED =
@@ -1387,28 +1414,105 @@ describe("bug 0050/0081 — a once-erased argument read is now a proven union an
 });
 
 // ===========================================================================
-// u6 — the fabricated-name guard. `StaticTypeInferencePass`'s `member` arm
-// (src/parser/static-type-inference.ts:242) types `v.P` as `named "P"` — the
-// author-chosen FIELD NAME, not the field's declared type — and its
-// `method-call` arm (:261) does the same with the method name. Where such a
-// minted name collides with a declared schema, `checkCompatible` does not
-// defer to `"unknown"`: it judges nominally (TYPE-10) against a declaration
-// the read has nothing to do with. The neighbouring `interpolationIsResult`
-// (src/parser/type-layer-checks.ts) already refuses minted member names for
-// this reason, and the argument sink refuses them on the same rule.
+// u6 / u6p / u6b / u6c — the FIELD-NAME MINT guard, and the read that is no
+// longer a mint. RE-DERIVED under bug 0190 §Fix (f)
+// (docs/bugs/0190-fn-arg-sink-withholds-provable-member-reads.md), whose
+// authority for this edit is that one premise carried two halves with
+// different truth values behind one verdict.
+//
+// `StaticTypeInferencePass`'s `member` arm resolves the receiver and returns
+// the field's DECLARED type, unfolded per TYPE-11 (bug 0136,
+// docs/bugs/0136-member-access-types-as-field-name-not-field-type.md; the same
+// commit wrote the rule into `expressions.md`'s member-access bullet — "The
+// static result type of `obj.field` is the receiver's declared type for that
+// field"). A member read of a declared field on a RESOLVED object schema is
+// therefore a proof of the read value's type, and cell u6p judges one.
+//
+// What survives as a mint is the FALLBACK. For an absent field, a fields-less
+// declaration or a field `typeSource` the annotation converter declined, the
+// arm answers `named <field>` — the author-chosen FIELD NAME, which is not the
+// type of the value the read produces and which can RESOLVE against an
+// unrelated declaration (cells u6b, u6c). The pass's `method-call` arm mints
+// from the METHOD name on the same footing, so that half's withholding is
+// whole and untouched. Where such a minted name collides with a declared
+// schema, `checkCompatible` does not defer to `"unknown"`: it judges nominally
+// (TYPE-10) against a declaration the read has nothing to do with. The
+// neighbouring `interpolationIsResult` (src/parser/type-layer-checks.ts)
+// already refuses minted member names for this reason, and the argument sink
+// refuses the mint on the same rule.
+//
+// u6's own ASSERTION is unchanged by that re-derivation, and its silence is
+// now attributed differently: the field `P` is declared `number` and the
+// parameter declares `number`, so an opened sink relates `number ⊑ number` and
+// reports nothing.
 // ===========================================================================
 
 describe("bug 0050 — a FABRICATED field-name argument read is not a proof and is not judged", () => {
   it("u6: `f(v.P)` where `P` names both a field and a declared schema draws no fn-arg-type-mismatch", () => {
-    // `v.P` evaluates to `3` — exactly the `number` the parameter declares —
-    // while its static read is `named "P"`, resolving to the unrelated
-    // `schema P { a: number }`. Judging that reading rejects a program whose
-    // argument value the declared parameter type accepts.
+    // `v.P` evaluates to `3` and reads statically as the field's DECLARED
+    // `number` — exactly the type the parameter declares — so the relation is
+    // COMPATIBLE and this fixture owes nothing whether the sink withholds or
+    // judges. The premise this cell used to record (that the read is
+    // `named "P"`, resolving to the unrelated `schema P { a: number }`) is
+    // false for the field half: the surviving mint is the FALLBACK that u6b and
+    // u6c measure. Re-derived under bug 0190 §Fix (f); the assertion is
+    // unchanged.
     const doc = parse(U6);
     argRange(doc, "f", 0);
     expectNoFnArgMismatch(
       doc,
-      "u6 — the static read names the field, not the field's type; the collision with `schema P` is what turns an already-sound deferral into a false judgement",
+      "u6 — the declared field type and the declared parameter type are both `number`, so the silence here is a COMPATIBLE relation and not a withheld read; the collision with `schema P` no longer supplies the read's type",
+    );
+  });
+
+  it("u6p: `g(p.s)` where the DECLARED field type disagrees with the parameter fires once", () => {
+    // The positive differentiator, and the cell that keeps this group from
+    // being three absences a fix could satisfy by withholding on every member
+    // read — which is the defect bug 0190 reports. `p.s` is declared `string`
+    // on a RESOLVED `schema P`, `expressions.md`'s member-access bullet makes
+    // that the read's static type, and TYPE-9 names this slot's code for a
+    // static failure with both operands resolvable.
+    const doc = parse(U6P_DECLARED_FIELD_MISMATCH);
+    const argument = argRange(doc, "g", 0);
+    expect(
+      argument,
+      "PRECONDITION: the argument `p.s` sits on the third body line; a drifted layout must fail here rather than let the mismatch assertion below measure the wrong site",
+    ).toEqual(range(6, 25, 6, 28));
+    expectOneFnArgMismatch(
+      doc,
+      fnArgMessage("g", 0, "n", "integer", "string"),
+      argument,
+      "u6p — a declared field type is a proof of the read value's type, so this is the emission the field-name mint's withholding must leave intact",
+    );
+  });
+
+  it("u6b: an ABSENT field draws no fn-arg-type-mismatch", () => {
+    // The first fallback bound. `p.zzz` has no own key in `P`'s declared-field
+    // record, so the arm answers the FIELD-NAME MINT, and `expressions.md`'s
+    // member-access bullet assigns that program a runtime
+    // `theta/runtime/missing-object-key` rather than a parse `E`. Green in both
+    // directions.
+    const doc = parse(U6B_ABSENT_FIELD);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u6b — an absent field has no declared type to prove, so the read stays a mint and its specified disposition is a runtime panic this sink must not pre-empt",
+    );
+  });
+
+  it("u6c: an absent field whose minted name RESOLVES draws no fn-arg-type-mismatch", () => {
+    // The second fallback bound, and why the mint's withholding is a constraint
+    // rather than a preference: `schema Zzz = integer` makes `named "Zzz"`
+    // resolve, so a member arm returning the read's type unconditionally would
+    // relate `Zzz` to a `string` parameter and emit a false `E` on a program
+    // whose disposition is a panic. The field name is author-chosen and
+    // unconstrained here — `lexical.md`'s lowercase-first rule binds DECLARED
+    // field names, and `p.Zzz` declares nothing. Green in both directions.
+    const doc = parse(U6C_ABSENT_FIELD_RESOLVING_MINT);
+    argRange(doc, "g", 0);
+    expectNoFnArgMismatch(
+      doc,
+      "u6c — a minted field name that happens to resolve is still a spelling, so the already-open sibling sinks may judge the collision and this one must not",
     );
   });
 });
@@ -1519,7 +1623,9 @@ describe("bug 0050/0081 — an index read off a now-proven target is judged", ()
 // `StaticTypeInferencePass`'s `call` arm
 // (src/parser/static-type-inference.ts:251) types `F(3)` as `named "F"` — the
 // author-chosen CALLEE name, not the type of the value the call returns —
-// exactly as its `member` arm mints a field name (cell u6). Where that name
+// exactly as its `member` arm's FALLBACK mints a field name for an absent
+// field (cells u6b, u6c). The callee namespace's premise is INTACT: bug 0136
+// moved the field half of the mint and nothing else. Where that name
 // collides with a declared schema, `checkCompatible` judges nominally
 // (TYPE-10) against a declaration the call has nothing to do with, so the
 // argument sink withholds on the whole arm (src/parser/type-layer-checks.ts
@@ -1600,8 +1706,9 @@ describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and
 // (src/parser/static-type-inference.ts:211–216) answers
 // `bindings.get(name) ?? { kind: "named", name }`, so for any identifier the
 // walk's `bindings` map does not hold, the "type" is MINTED FROM THE
-// IDENTIFIER'S OWN SPELLING — the same fabrication cells u6 and u8 refuse over
-// the field and callee namespaces, one namespace over. A minted name that
+// IDENTIFIER'S OWN SPELLING — the same fabrication cells u6b / u6c and u8
+// refuse over the field-name FALLBACK and the callee namespace, one namespace
+// over. A minted name that
 // resolves to nothing declared defers at `checkCompatible` (`"unknown"`); one
 // that collides with a declared schema is judged nominally under TYPE-10
 // against a declaration the read has nothing to do with.

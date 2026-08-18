@@ -1,13 +1,13 @@
 # Bug 0190 — `provableArgType`'s shared `case "member"` / `case "method-call"` arm (`type-layer-checks.ts:1804–1819`) returns `undefined` unconditionally, so the wired `theta/parse/fn-arg-type-mismatch` sink withholds on every member-read argument even though bug 0136 (0.106.0) made a member read's static type the receiver's *declared field type*: measured, `fn g(n: integer)` called as `g(p.s)` with `p.s` declared `string` reports `[]`, while the identical mismatch one spelling over — an annotated parameter, an annotated `let` — reports the `E` code, and the sibling typed-`let` and constructor-field sinks report it on that same member read
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the shared arm's
-  split, the fallback-provenance question, the object-schema-typed-field
-  sub-case, and the re-pin of an 84-cell protected witness each need
-  adjudication before code lands. No ordering dependency blocks this report —
-  the substrate half landed in bug 0136 at 0.106.0. Bug
-  [0126](./0126-plain-for-binds-no-loop-variable.md) is open against a different
-  arm of the same file and its prototype already moves four cells of the same
-  witness; the file-family coordination is in §Fix (f).
+- **Status:** fixed (0.111.0). §Fix was constraint-pinned rather than settled;
+  every adjudication it demanded — the route, the object-schema-typed-field
+  sub-case, the per-consumer widening, the registry question, and the re-pin of
+  the protected witness — is recorded in `## Fix (0.111.0)` below. The substrate
+  half landed in bug 0136 at 0.106.0. Bug
+  [0126](./0126-plain-for-binds-no-loop-variable.md) shipped at 0.107.0 ahead of
+  this report, so the witness contention §Fix (f) anticipated resolved in that
+  order and its plain-`for` arm is a THIRD consumer of the predicate.
 - **Sev/Diff estimate:** S1/D3 — a registered `E`-severity row whose *Trigger*
   the input satisfies in every particular emits nothing on the member-read
   argument class, the registry row states no runtime net backstops it, and the
@@ -738,3 +738,275 @@ spec's. Move any registry row, severity or *Message*.
   tree (80/84 with bug 0126's prototype applied — that prototype's own
   `for`-class cells, listed in §Related). No file in `src/` or `tests/` was
   modified by this filing.
+
+## Fix (0.111.0)
+
+- **What shipped**, keyed to §Fix:
+  - **(a) The shared arm split** — `src/parser/type-layer-checks.ts`,
+    `provableArgType`: `case "member"` and `case "method-call"` no longer share
+    a body. `method-call` keeps `return undefined` and keeps only the half of
+    the premise that is still true (the METHOD-name mint); the FIELD half is
+    gone from that label. `case "call"` / `case "invoke"` keeps its rule and its
+    `return undefined` byte-for-byte — its only edit is a two-substring
+    repointing of a cross-reference that no longer names a rule living at "the
+    field namespace" (now "the `method-call` arm above … at the method
+    namespace"). `static-type-inference.ts`'s `case "method-call"` is
+    byte-untouched.
+  - **(b) The member label admits exactly bug 0136's resolved branch** —
+    `provableArgType`'s new `member` arm returns a proof when, and only when,
+    the receiver is itself a proven read AND the read resolves to a declared
+    field type; both of bug 0136's fallbacks (the receiver's own `named` for an
+    unresolvable receiver, the field-name mint for an absent field / a
+    fields-less declaration / a declined `typeSource`) stay unproven.
+  - **ROUTE 1 taken, adjudicated** — the provenance comes from the pass, not
+    from the sink. `src/parser/static-type-inference.ts` gains a private
+    `#memberType` returning `{ type, declared }`, which `#typeExpr`'s
+    `case "member"` and a new public `declaredFieldType` (placed beside `typeOf`,
+    same `bindings` default) both delegate to. **Grounds:** Route 2 would add a
+    third reader of the `fields` record, against bug 0136's recorded posture and
+    bug 0031/0038's guard-reuse rule, and would leave two copies of one rule free
+    to disagree after any later change to the arm. Route 1 keeps the resolution
+    at ONE site and the reader count at exactly TWO —
+    `TypeLayerWalk.declaredFieldsOf` and `StaticTypeInferencePass.#memberType`
+    (verified by sweeping every `.fields` access in `src/`; the remaining hits
+    read a `LowerableField[]` AST array, `CompatType`'s inline-`object` variant,
+    or a `Map`, none of them this record). §Fix's foreclosed third shape —
+    provenance inside `CompatType` — was not taken; `src/parser/type-compat.ts`
+    is blob-identical to HEAD.
+  - **A SOUNDNESS CLAUSE §Fix (b) DOES NOT ENUMERATE, added and witnessed.**
+    §Fix (b)'s biconditional, read literally, admits an ERASED receiver, and
+    that reading is unshippable. Measured: for `schema A { s: string }` /
+    `schema B { s: integer }` / `fn g(n: integer)` /
+    `let m = flag ? A { s: "x" } : B { s: 1 }` / `g(m.s)` the ternary is not a
+    proven reduction (`#commonType` rule 3 discards the `B` arm), so `m` is
+    recorded in `unprovableBindings`, the field lookup resolves against `A`, and
+    the sink emits `expected integer, got string` — a FALSE `E` on a program
+    whose runtime value the declared parameter type accepts, since the runtime
+    can hand `g` a `B` whose `s` IS an `integer`. The arm therefore carries a
+    RECEIVER-proof obligation (`provableArgType(expr.target, bindings)`), which
+    is the same species as the `index` arm's own target obligation in the same
+    `switch` and the same species bug 0050's review round r2 landed across four
+    routes. **Adjudicated on §Expected behaviour**, whose "A proof is
+    distinguished from a mint" paragraph states the rule the literal §Fix (b)
+    text under-specifies: "only a read that proves the runtime value's type may
+    be judged". Witnessed by cells L1 / L2 / L6 (the ternary, binding-hop and
+    `match` erasure routes) with L5 as the proven-receiver differentiator, and
+    red-proven under its own dedicated neutralisation.
+  - **(c) Sub-question 1 — ADMITTED: an object-schema-typed field IS a proof.**
+    **Grounds:** TYPE-10 makes the declared `named` the value's type and names
+    this row as a parse-time reporting channel for a cross-named-schema
+    mismatch; the typed-`let` sink already judges the same read (measured,
+    `expected integer, got Q`); §Expected behaviour's "One operand, one verdict,
+    across sinks" requires the three sinks to agree; and cell u8p already
+    establishes a constructor-minted `named` as a proof, so the discriminator is
+    PROVENANCE, not the returned `kind`. Excluding it would have needed a
+    kind-filter with no spec grounding. Witness row R17 pins the admission with
+    `got Q` in the `<actual>` position.
+  - **(d) Sub-question 2 — THREE consumers, not two, each with its intended
+    post-fix value stated and witnessed.** §Fix (d) enumerated two; bug 0126
+    shipped at 0.107.0 and its plain-`for` arm consumes the predicate too. Every
+    external call site enumerated: `checkFnCallArgs` (the sink) — judges a proven
+    member-read argument (rows R1, R6, R7, R8, R9, R17); the unannotated-`let`
+    marking guard — a proven member-read initialiser is NO LONGER marked in
+    `unprovableBindings`, so the sinks reading it go live (row R10); the
+    plain-`for` element inheritance — a proven member iterand's element is a
+    proof (cell e4 of `tests/plain-for-loop-variable-element-type.test.ts`,
+    flipped); the `par for` element inheritance — likewise (row R11, against its
+    already-firing annotated control R12). No fourth consumer exists; the
+    remaining five occurrences are the predicate's own recursion.
+  - **(e) Sub-question 3 — NO registry edit; DIAG-2 not engaged.** The row's
+    *Trigger* read verbatim at HEAD: "A plain top-level `fn` call `f(args)` — a
+    same-file or imported `.thetalib` function call that is neither an
+    `invoke(...)` nor a `.theta`-callable call — passes an argument whose static
+    type is not compatible with the matched parameter's declared type. Always
+    parse-time: top-level `fn` declarations are hoisted and always statically
+    resolvable, so no runtime AJV safety net applies." No operand-kind
+    restriction, so the member-read class was always inside it. No row is added,
+    removed, re-triggered or re-severitied and no *Message* moved:
+    `docs/spec_topics/diagnostics/code-registry-parse.md` is blob-identical to
+    HEAD (`7a623f35…`). This is the GOV-15 diagnostic-registry carve-out's
+    ADDITION direction, discharged by measurement rather than assumption —
+    `tests/committed-fixture-parse-gate.test.ts` (36 tests, hard per-extension
+    counts over `git ls-files '*.theta' '*.thetalib'`) is green, so no committed
+    corpus fixture flips.
+  - **(f) Witness obligations** — `tests/fn-arg-type-mismatch-wired.test.ts`
+    84 → 87 cells: u6's premise RE-DERIVED (never deleted) in its four sites —
+    the header inventory entry, the group banner, the cell comment and the `why`
+    string — to state that a member read of a DECLARED field on a RESOLVED
+    object schema is a proof while the surviving FALLBACK mint is not, with u6's
+    own silence re-attributed to a COMPATIBLE `number ⊑ number` relation rather
+    than to withholding; u6's ASSERTION is byte-unchanged. The u8 and u9 banners'
+    by-analogy references to the field namespace are NARROWED to the fallback,
+    their rules and every assertion in those groups unchanged. Three cells added
+    so the group decides in both directions: **u6p** (a declared field type
+    disagreeing with the parameter — must emit) and **u6b** / **u6c** (an absent
+    field, and an absent field whose mint resolves against a declared alias —
+    must not). The four cells bug 0126 re-derived (u9, u12e, u13me, u13r) are
+    byte-identical to HEAD, verified by extraction-diff.
+    `tests/member-access-declared-field-type.test.ts` — row **x11** flipped from
+    `CLEAN` to the emitted code under this report's authority (its own comment
+    delegated the flip here), re-pinned to the whole ordered code+message list,
+    which is strictly stronger than the `[]` it replaces; 0136's subject rows
+    untouched. `tests/plain-for-loop-variable-element-type.test.ts` — cell
+    **e4** flipped and retitled under this report's authority, with a
+    located-form assertion pinning the emission to the argument node, and its
+    header ledger reclassifying e4 from a both-directions regression pin to a
+    fix-produced emission (the contradiction this fix introduced; see Residual
+    3). New dedicated witness `tests/fn-arg-member-read-proof.test.ts`, 23 cells
+    in seven labelled groups.
+  - **(h) The must-nots, all verified.** No emission on a `method-call` argument
+    (R13), an absent field (R14, u6b), an absent field whose mint resolves
+    against a declared alias (R15, u6c), or an enum-variant argument (R19). No
+    third reader of the `fields` record. `checkFnArgCompat`
+    (`src/parser/type-compat.ts`) untouched — blob-identical to HEAD; its
+    `"unknown"` deferral remains the spec's. No registry row, severity or
+    *Message* moved.
+
+- **Gates** (verbatim):
+  - Witness, red before: the four files together →
+    `Test Files 4 failed (4)`, `Tests 12 failed | 223 passed (235)`, every red
+    carrying the withholding signature (`actual diagnostics: []` where the
+    expectation names `theta/parse/fn-arg-type-mismatch`).
+  - Witness, green after: `Tests 235 passed (235)` — 23 / 87 / 72 / 53.
+  - Full default suite: `npm test` → `Test Files 314 passed (314)`,
+    `Tests 5283 passed (5283)` (baseline at HEAD `f455a166`: 313 / 5257).
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  - Lint: `npm run lint`
+    (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) → exit 0, no output.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests 48 passed (48)`,
+    171.19 s; the additive cell alone → `1 passed | 47 skipped`.
+  - Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/` → `Test Files 2 passed (2)`,
+    `Tests 11 passed (11)` (both files: `noninteractive-acceptance` 10,
+    `ctor-unresolved-load-refusal` 1).
+  - GOV-15 corpus gate: `tests/committed-fixture-parse-gate.test.ts` →
+    `Tests 36 passed (36)`.
+  - H9a permitted-codes decided BY THE REAL RUN, not by assumption: **no append**
+    — `tests/fixtures/h7a/permitted-codes.json` blob-unchanged at
+    `a4a8da04209f90e13d815edd92c1fc682e2a2236`.
+
+- **Blast-radius pre-measurement** (mandatory, GOV-15 addition direction, run
+  BEFORE any test was written): the settled route was prototyped at HEAD and the
+  FULL suite run. Exactly TWO reds, both doc-named flip authorities — `x11` and
+  `e4`. Zero unauthorized flips. `tests/fn-arg-type-mismatch-wired.test.ts`
+  stayed 84/84 (u6's assertion holds either way, as §Reproduction R20/R21
+  predicted, and no other cell's fixture carries a member read at an argument
+  position), and the committed-corpus gate stayed green. Every §Reproduction row
+  R1–R21 was re-derived at HEAD with a scratch probe before any red was pinned
+  and reproduced VERBATIM — zero drift from the values recorded at `6942ef27`.
+  The committed-corpus vehicle sweep found two `.theta` fixtures carrying a
+  member-shaped argument, both Trigger-excluded (an `invoke` and a Pi-tool call —
+  the classes cells x1 and x3 pin).
+
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — **2 findings, both
+  `prose`**, zero `correctness` / `fidelity` / `spec` / `house-rule` / `test`. It
+  independently probed 17 further soundness routes (erased receivers via ternary
+  / `match` / binding hop, index-over-member, member-over-index,
+  member-over-`try`, `match`-arm binders, `par for` and plain-`for` elements,
+  withheld binders, a frontmatter `params:` receiver, alias cycles,
+  self-referential schemas, inline-object-typed fields, `Object.prototype`
+  field-name collisions, a declined `typeSource`, union-typed fields, enum
+  receivers) and found the receiver clause correct, correctly placed and
+  complete, with no over-withholding. Findings: R12 mislabelled "consumer 3" in
+  the new witness; the plain-`for` header ledger left false for e4. Round 2
+  (`bug-fix-reviewer-fast`, confirmation for the `bug-fix-fixer-light` pass) —
+  **CLEAN**, no findings, with the ledger bound verified hunk-by-hunk, the
+  `Expr` / `Stmt` leaf enumeration checked member-by-member against
+  `theta-document.ts`, and the site-list precondition proven non-vacuous by
+  probe.
+
+- **Verification:** `bug-fix-verifier` — **SOLID**, no findings.
+  - *Both directions, three neutralisations, each predicted BEFORE the run and
+    matched exactly, each restore blob-hash-verified byte-exact.* (A) the whole
+    `member` arm → exactly the 12 cells Phase 1 measured red at HEAD, cell for
+    cell. (B) the RECEIVER-proof clause alone → exactly L1, L2, L6, each
+    acquiring the predicted false
+    `fn-arg-type-mismatch: expected integer, got string`, nothing else moving.
+    (C) the provenance bit alone → R15 and u6c only; the verifier derived that
+    narrower set from `checkCompatible` ahead of the run and it held, correcting
+    the naive "all four fallback bounds red" reading (see Residual 2).
+  - *Full suite*: 314 files / 5283 tests green, run twice.
+  - *Live, end-to-end, for real*: one additive H8a cell (47 → 48) exercising the
+    REGISTRATION consequence through the real production composition root — the
+    mistyped-member-read caller does not register while its compatible-argument
+    sibling and a precondition control both do — red-proven live under
+    neutralisation A (the mistyped theta registered anyway; `Registered:
+    ["b190livebroken","b190livectl","b190livegood"]`) and green restored. Full
+    H8a 48/48, full H9a 11/11 across both files.
+  - *Lint and typecheck*: exit 0 both, using the `package.json` definitions.
+  - Two live reds on the verifier's first full H8a pass were attributed, not
+    blamed: the bug-0080 cell's 180 s stall and a stochastic sentinel-refusal on
+    the typed-query cell, both green on isolated re-run and both in classes this
+    surface's diff cannot reach. The orchestrator's own subsequent full H8a run
+    came back 48/48 with neither recurring.
+
+- **Residuals** (for the PARENT to file; no bug document is created here):
+  1. **Bug 0194's order-dependent suppression now reaches this route.**
+     `unprovableBindings` marks `CompatType` nodes by object IDENTITY, and a
+     `TypeEnv` alias element marked unprovable at one use suppresses a later true
+     positive at another. The member-read route this fix opens into the fn-arg
+     sink is subject to that: an unprovable loop over one alias use can suppress
+     a true fn-arg mismatch at a later provable use of the same element object.
+     NOT fixed here and deliberately not touched — 0194 owns it. Stated because
+     this fix widens the input class that reaches it.
+  2. **R14 / u6b are held by `checkFnArgCompat`'s deferral, not by the
+     provenance bit.** Neutralisation C measured it: with `declaredFieldType`
+     ignoring `declared`, R15 and u6c red (their mint `named "Zzz"` RESOLVES
+     against a declared alias) while R14 and u6b stay green (their mint
+     `named "zzz"` resolves to nothing, so `checkCompatible` answers `"unknown"`
+     and the emitter withholds one layer down). The discriminator is whether the
+     mint resolves, not merely that the arm fell back. Both bounds are witnessed
+     either way; the provenance bit's own isolating witnesses are R15 and u6c.
+  3. **`tests/plain-for-loop-variable-element-type.test.ts`'s header ledger.**
+     The e4 reclassification was applied here under a bounded self-authorization
+     (one enumeration line plus its attribution) because this fix is what made
+     the ledger's "holds in both directions" claim false and the file's own
+     group-(e) banner already contradicted it. The rest of that ledger is bug
+     0126's bookkeeping and was left alone.
+  4. **`vehicleSites` in the new witness does not walk `FnDecl.withClause`'s
+     expression values.** A `with { model: p.s }` clause could carry a vehicle
+     site the site-list precondition would not report. No fixture in the file
+     declares a `with` clause, and the site lists are proven non-vacuous by
+     probe, so nothing false-passes today. Remedy for whoever next touches the
+     file: walk `s.withClause`'s field values in `case "fn"`.
+  5. **The sibling harness `binderSites`
+     (`tests/plain-for-loop-variable-element-type.test.ts`) still ends both its
+     switches with a silent `default: return`** — the pattern this fix's own
+     walker had corrected next door. Pre-existing and outside this report's
+     authorized sites.
+  6. **Conservatism the receiver-proof clause buys.** Where an erased receiver's
+     candidate schemas happen to declare the SAME field type, the arm withholds
+     and a sound emission is lost. Deliberate: withholding can only ever suppress
+     an emission, never manufacture one, which is the asymmetry the whole
+     predicate is built on.
+  7. **A stale failure-message string in the wired witness's
+     `expectOneFnArgMismatch` helper** still says the code "has no emission site
+     in `src/` at this HEAD" — false since bug 0050 wired it at 0.77.0.
+     Pre-existing, outside §Fix (f)'s authorized sites, and now inherited by the
+     new cell u6p on failure. Bug 0134's class.
+  8. **Citation drift, disclosed and not chased** (bug 0134's class).
+     `static-type-inference.ts` 413 → 459 lines and `type-layer-checks.ts`
+     2548 → 2602, so implementation line citations past the edited regions shift
+     in this document, in the coordination clauses of bugs 0050 and 0136, in
+     sibling reports, and in several committed test-file banners. No citation
+     outside this fix's own files was touched.
+
+- **Discharge notes appended:** bug 0136's document (residual 1 discharged by
+  this fix); bug 0050's document (its coordination note's "remains this report's
+  to fix" clause discharged for the field half).
+
+- **Pinned dispositions / non-goals:** the `method-call` half stays withheld —
+  its mint is the METHOD name and its resolution source would be the stdlib
+  signature table (bug 0136's §Non-goals). The `call` / `invoke` arm stays
+  withheld — the operand a sound judgement needs is the callee's declared RETURN
+  type. The absent-field disposition stays a RUNTIME
+  `theta/runtime/missing-object-key` panic. The extension-layer sibling
+  `collectProvableArgTypes` (`src/extension/invoke-static-checks.ts`) is
+  untouched — a different layer and a different set of registry rows. Argument
+  arity stays out (bug 0131, cell a1). The imported-callee route stays out (bug
+  0138, cell i1). Bug 0191's constraint is INHERITED, not resolved: an enum name
+  shadowed by a same-spelled schema still produces an unproven mint at this sink
+  (cell L4). Bug 0192's boundary holds: a `params:`-declared receiver still
+  defers, verified by probe with real frontmatter (cell S3 covers the
+  unannotated-parameter shape). Bug 0194 is not fixed (Residual 1).

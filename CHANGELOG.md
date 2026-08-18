@@ -6,6 +6,56 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.111.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0190 — the wired `theta/parse/fn-arg-type-mismatch` sink withheld on
+  every member-read argument, because `provableArgType`'s `case "member"` shared
+  one unconditional `return undefined` with `case "method-call"`.** Bug 0136
+  (0.106.0) made a member read's static type the receiver's *declared field
+  type*, but the argument sink's own proof gate still refused the operand: `fn
+  g(n: integer)` called as `g(p.s)` with `p.s` declared `string` reported `[]`,
+  while the identical mismatch spelled as an annotated parameter or an annotated
+  `let` reported the `E` code, and the sibling typed-`let` and constructor-field
+  sinks reported it on that same member read. Nothing downstream recovered the
+  check — the registry row states no runtime net applies, and `evalUserFnCall`
+  validates arity only — so a theta whose mistyped member-read argument went
+  unreported carried no `E` and registered.
+
+  The shared arm now **splits**. `case "method-call"` keeps `undefined` and the
+  half of its premise that is still true (a `named` minted from the METHOD name
+  is no proof); `case "member"` admits exactly bug 0136's resolved branch — a
+  proof exists when, and only when, the receiver is itself a proven read and the
+  read resolves to a declared field type on a resolved object schema. Both of
+  that arm's fallbacks stay unproven: the receiver's own `named` for an
+  unresolvable receiver, and the field-name mint for an absent field, a
+  fields-less declaration or a declined `typeSource` — that mint can resolve
+  against an unrelated declaration sharing its spelling, and `expressions.md`
+  assigns an absent theta-side name a runtime `theta/runtime/missing-object-key`
+  panic rather than a parse `E`. The provenance the sink needs comes from the
+  substrate, not from a second copy of the rule: `StaticTypeInferencePass` gains
+  a private `#memberType` returning the type together with whether it is
+  declared, which `#typeExpr`'s `case "member"` and a new public
+  `declaredFieldType` both delegate to — one resolution site, and the `fields`
+  record still has exactly two readers. The receiver-proof half of the predicate
+  is load-bearing: without it an erased receiver launders its erasure through
+  the field lookup, and `let m = flag ? A { s: "x" } : B { s: 1 }` then `g(m.s)`
+  draws a false `E` on a program whose runtime value the declared parameter type
+  accepts.
+
+  An object-schema-typed field is admitted as a proof (TYPE-10 makes the
+  declared `named` the value's type, and the typed-`let` sink already judged it),
+  so the three sinks now agree on one operand. The widening travels to all three
+  consumers of the predicate: a proven member-read initialiser is no longer
+  marked unprovable at the unannotated-`let` guard, and a proven member iterand's
+  element is a proof at both the plain-`for` and `par for` arms. `case "call"` /
+  `case "invoke"` keeps its rule, `static-type-inference.ts`'s
+  `case "method-call"` is byte-untouched, `checkFnArgCompat` is unchanged, and no
+  registry row moved — the row's *Trigger* already covered the argument class
+  with no operand-kind restriction, so this is the GOV-15 diagnostic-registry
+  carve-out's addition direction, discharged by measurement.
+
 ## [0.110.0] - 2026-08-18
 
 ### Fixed

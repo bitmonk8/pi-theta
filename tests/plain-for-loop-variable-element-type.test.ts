@@ -67,12 +67,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //       binding in place, the withheld sentinel's spelling without it).
 //   (c) c8, the nested body that READS the inner variable.
 //   (d) d1, d1n, d2, d2n — the collision rows that decide on the ELEMENT type.
-//   (e) e1, the fn-arg composition.
+//   (e) e1, the fn-arg composition; e4, the member-iterand proof, moved here
+//       under bug 0190's authority (see the group-(e) banner).
 //   (f) f1, f2 — the alias iterand and the member iterand.
 // The rows below are regression pins: each holds in both directions, with or
 // without that binding, and must stay green regardless:
 //   every `par for` and `let` control of group (a); b3, b5, b6, b7; c1–c7;
-//   d3, d3n, d4, d4n, d5 and every collision-pair identity; e2, e3, e4;
+//   d3, d3n, d4, d4n, d5 and every collision-pair identity; e2, e3;
 //   g1–g6; h1–h3.
 //
 // Group (a)'s three cells share one `it`, and the two controls are asserted
@@ -1335,27 +1336,33 @@ describe("bug 0126 (d) — a declaration sharing the loop variable's spelling ch
 // name THIS report as their flip condition. This row is that flip, measured
 // from the other side.
 //
-// e4 pins the `unprovableBindings` marking the fix must mirror from the
-// `par for` arm: an iterand that is not itself a proof hands the loop variable
-// an element no runtime iteration need produce, so the fn-arg sink must not
-// treat it as one. This row is `[]` with or without the element binding —
-// and it EMITS a
-// `got integer` if the marking is dropped, which makes it the guard's witness
-// rather than a bare absence.
+// e4 was written as the `unprovableBindings` mirror's witness, on the premise
+// that a MEMBER iterand is not a proof — and it named its own external flip
+// condition: "the row is unprovable because `provableArgType`'s shared
+// `member` / `method-call` arm returns `undefined` for every member read …
+// Whichever change lands second re-derives this row." That change has landed.
+// Bug 0190 (docs/bugs/0190-fn-arg-sink-withholds-provable-member-reads.md)
+// splits the shared arm, and a member read of a declared field on a resolved
+// object schema becomes a PROOF, so `p.xs` declared `array<integer>` supplies a
+// proven element and the argument slot is judged. The emission is the exact one
+// this banner predicted — `expected string, got integer` — and it is a TRUE
+// positive: every iteration hands `g` an `integer`.
 //
-// e4's FLIP CONDITION IS EXTERNAL, and is disclosed rather than hidden: the row
-// is unprovable because `provableArgType`'s shared `member` / `method-call` arm
-// returns `undefined` for every member read, so a member iterand supplies the
-// element a name lookup can read but never a proof of it. The in-tree pin of
-// that withholding is row x11 of
-// tests/member-access-declared-field-type.test.ts, which holds the same sink
-// silent on `g(p.s)` from the other side — the member read is now typed and the
-// argument sink still declines it. Opening that arm is a change to neither this
-// report nor 0136, and it flips this row: the member iterand becomes a proof and
-// e4 emits `fn 'g' argument 0 ('s') type mismatch: expected string, got integer`
-// — a TRUE positive, since every iteration hands `g` an `integer`. Whichever
-// change lands second re-derives this row; nothing here may be weakened to
-// accommodate it.
+// The MIRROR ITSELF IS UNTOUCHED by that re-derivation. The `for` arm still
+// copies the `par for` arm's marking, which is what bug 0126 establishes and
+// bug 0190 does not disturb; what moved is the iterand's verdict, not the rule
+// that reads it. The marking's own witnesses are the UNPROVEN iterand classes
+// of group (g), where the loop variable is a withheld binder and every sink
+// there stays silent.
+//
+// e4 is therefore a FIX-PRODUCED EMISSION for this report as well, and no
+// longer the both-directions regression pin the file header lists it as: remove
+// the element binding in `walkStmt`'s `case "for"` and the loop variable is a
+// withheld binder again, the argument sink withholds, and this row's list goes
+// empty. The file header's ledger is bug 0126's own bookkeeping and is left for
+// that report to move. The other side of the same flip is row x11 of
+// tests/member-access-declared-field-type.test.ts, re-pinned under the same
+// authority. Nothing here may be weakened to accommodate either.
 // ===========================================================================
 
 const E1_FN_ARG =
@@ -1399,14 +1406,28 @@ describe("bug 0126 (e) — attribution", () => {
     );
   });
 
-  it("PIN e4: an iterand that is not itself a proof leaves the element unprovable", () => {
-    expectRow(
+  it("RED e4: a PROVEN member iterand's element is judged at the fn-arg slot", () => {
+    // The retitle is the re-derivation: this fixture's iterand IS a proof under
+    // bug 0190, so the cell no longer describes an unprovable one. The `for`
+    // arm's element marking inherits the iterand's verdict, and here that
+    // verdict is `array<integer>` off a declared field on a resolved schema.
+    const doc = expectRow(
       "e4",
       E4_UNPROVABLE_ITERAND,
       ["for x@11:12-11:16", "let _r@12:5-12:18"],
-      CLEAN,
-      "the `par for` arm marks an unprovable iterand's element unprovable and the `for` arm must mirror that; dropping the marking makes this fixture emit `expected string, got integer` off a read the layer has not proven. Green in both directions of THIS fix; the external flip condition is `provableArgType`'s `member` arm returning `undefined`, pinned from the other side by row x11 of tests/member-access-declared-field-type.test.ts",
+      one(FN_ARG, fnArg("g", 0, "s", "string", "integer")),
+      "a member read of a declared field on a resolved object schema is a proof (bug 0190), so the element it supplies is a proof too and every iteration genuinely hands `g` an `integer`",
     );
+    // The located form, so the row pins WHICH node carries the verdict: the
+    // argument inside the loop body, not the iterand and not the statement. A
+    // fix that hangs the emission on the loop reds here with a green list above.
+    expect(
+      doc.diagnostics.map((d: Diagnostic) => {
+        const r = d.range;
+        return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}`;
+      }),
+      `e4 — the emission belongs to the argument node inside the body. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${FN_ARG} @12:16-12:17`]);
   });
 });
 

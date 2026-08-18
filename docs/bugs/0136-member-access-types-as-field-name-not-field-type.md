@@ -1760,3 +1760,41 @@ at the sink by WITHHOLDING (`provableArgType` refuses spelling-mints;
 substrate — `classifyReceiver`, `checkMemberAccess` and
 `StaticTypeInferencePass` are byte-unchanged by the 0050 fix. The substrate's
 mints remain this report's to fix.
+
+## Discharge note — bug 0190 landed (0.111.0): residual 1 is closed
+
+`## Fix (0.106.0)`'s **residual 1** recorded that `provableArgType`'s
+`case "member"` (`src/parser/type-layer-checks.ts`) still returned `undefined`
+unconditionally, so the fn-argument sink declined the proof this report's member
+arm had begun supplying, and that witness row **x11** pinned the withholding as
+`[]` in both directions of this fix. That residual is **discharged** by bug
+[0190](./0190-fn-arg-sink-withholds-provable-member-reads.md) at 0.111.0.
+
+What changed at the sink, and what did not:
+
+- The shared `case "member"` / `case "method-call"` arm **split**. The `member`
+  label now consumes this report's resolved branch through a new public
+  `declaredFieldType` query on `StaticTypeInferencePass`, which delegates to the
+  same private `#memberType` this report's `#typeExpr` `case "member"` arm now
+  also delegates to — so the resolution stays at ONE site and the `fields`
+  record still has exactly two readers, which is the posture this report
+  recorded. The `method-call` label keeps `undefined` and keeps the half of the
+  premise that is still true.
+- **This report's arm is behaviour-identical.** `#typeExpr`'s `case "member"`
+  returns the same `CompatType` for every input it did at 0.106.0; the extraction
+  added a provenance bit beside the type, not a new answer. This document's own
+  72-cell witness is green throughout, and its subject rows are untouched.
+- Row **x11 flipped** from `CLEAN` to the emitted code, under bug 0190's
+  authority — the flip its own comment delegated to that report. The re-pin is
+  the whole ordered code-and-message list, which is strictly stronger than the
+  `[]` it replaced.
+- **Residual 2 is NOT discharged and was deliberately inherited as a
+  constraint.** An enum name shadowed by a same-spelled schema still falls
+  through to the field-name mint, and bug 0190's fix keeps that mint UNPROVEN at
+  the fn-argument sink rather than resolving it — pinned there by cell L4. That
+  position remains bug
+  [0191](./0191-enum-name-shadowed-by-schema-fabricates-member-type.md)'s.
+- **Residual 5 is NOT discharged either.** A frontmatter `params:`-declared
+  receiver still defers at every sink, verified by probe during bug 0190's
+  review; that position remains bug
+  [0192](./0192-params-receiver-type-not-threaded-into-type-layer.md)'s.

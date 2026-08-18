@@ -26,7 +26,7 @@
 // Spec (narrative): type-system.md, expressions.md, control-flow.md,
 // functions.md. Closes no new spec REQ-ID.
 
-import type { Block, Expr, IfStmt, ThetaBody, Stmt } from "./theta-document";
+import type { Block, Expr, IfStmt, MemberExpr, ThetaBody, Stmt } from "./theta-document";
 import { commonType, displayType, resolveNamed, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
 
 /**
@@ -188,6 +188,30 @@ export class StaticTypeInferencePass {
   }
 
   /**
+   * The DECLARED field type a member-access node resolves to, or `undefined`
+   * when `#memberType` fell back to an unresolvable receiver's own name or a
+   * field-name mint. This is the provenance question `typeOf` cannot answer:
+   * `typeOf`'s returned `CompatType` cannot distinguish a resolved declared
+   * field type from either fallback, because two of `#memberType`'s three
+   * outcomes are `named` and a bare `CompatType` carries no marker for which.
+   *
+   * Lives beside `typeOf` so the resolution stays in ONE place: both answers
+   * come from the same `#memberType` the walk itself uses to type every
+   * `member` node, so no consumer re-derives the receiver unfold, the
+   * `resolveNamed` lookup, or the own-key `fields` guard, and no third reader
+   * of the `fields` record is created (bug 0136's recorded posture; bug
+   * 0031/0038's guard-reuse rule). Pure like `typeOf` — it records nothing.
+   */
+  declaredFieldType(
+    node: MemberExpr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType> = new Map(),
+  ): CompatType | undefined {
+    const { type, declared } = this.#memberType(node, env, bindings);
+    return declared ? type : undefined;
+  }
+
+  /**
    * Compute the static type of an expression node over the resolved
    * `CompatType` model. Recurses into operands to compute composite types; the
    * recursion is pure (it records nothing), so only the statement-level nodes
@@ -239,44 +263,8 @@ export class StaticTypeInferencePass {
           node.arms.map((arm) => this.#typeExpr(arm.body, env, bindings)),
           env,
         );
-      case "member": {
-        // The declared field type is one own-key-guarded lookup away, and
-        // type-system.md:48's deferral licence is for an operand past the
-        // parser's static view — a declared field on a resolved object schema
-        // is not one. The lookup reuses bug 0031's `Object.hasOwn` guard and
-        // bug 0038's `resolveNamed`, both already established at this exact
-        // record, rather than re-deriving a third reader of it.
-        //
-        // When the receiver resolves to no declaration, the arm returns the
-        // receiver's OWN `named` rather than `node.field`. For `Enum.Variant`
-        // this is schemas.md:97's "statically typed as `Enum`" for free — the
-        // receiver is `named <Enum>`, no `enum` entry ever enters the
-        // `TypeEnv`, so it stays unresolved and the expression defers exactly
-        // as type-system.md:48 prescribes. The same branch is also the
-        // provably-inert answer for every other unresolvable receiver:
-        // `node.field` might resolve by accident against an unrelated
-        // declaration that happens to share its spelling, where the receiver
-        // has just been proven to resolve to nothing.
-        //
-        // An absent field, a `fields` record the schema declaration carries
-        // none of, and a field whose `typeSource` failed to convert all fall
-        // through to the closing nominal fallback rather than reporting:
-        // expressions.md:9 assigns an absent theta-side name a RUNTIME
-        // `theta/runtime/missing-object-key` panic, not a parse diagnostic,
-        // so answering here would pre-empt it.
-        const receiver = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
-        if (receiver.kind === "named") {
-          const decl = resolveNamed(env, receiver.name);
-          if (decl === undefined) {
-            return receiver;
-          }
-          const fields = decl.kind === "object-schema" ? decl.fields : undefined;
-          if (fields !== undefined && Object.hasOwn(fields, node.field)) {
-            return unfoldAlias(fields[node.field] as CompatType, env);
-          }
-        }
-        return { kind: "named", name: node.field };
-      }
+      case "member":
+        return this.#memberType(node, env, bindings).type;
       case "index": {
         // TYPE-11: unfolding first makes an alias of `array<T>` narrow to `T`;
         // TYPE-10 object-schema and unresolvable names unfold to themselves.
@@ -327,6 +315,64 @@ export class StaticTypeInferencePass {
         };
       }
     }
+  }
+
+  /**
+   * The static type of a member-access node, together with whether that type
+   * is a DECLARED field type (`declared: true`) or one of the arm's two
+   * fallbacks (`declared: false`). The declared field type is one
+   * own-key-guarded lookup away, and the Unresolvable operands paragraph's
+   * deferral licence is for an operand past the parser's static view — a
+   * declared field on a resolved object schema is not one. The lookup reuses
+   * bug 0031's `Object.hasOwn` guard and bug 0038's `resolveNamed`, both
+   * already established at this exact record, rather than re-deriving a
+   * third reader of it.
+   *
+   * Type and provenance travel together in one return because a bare
+   * `CompatType` cannot carry the distinction on its own: two of the three
+   * outcomes below are `named`, so nothing in the returned shape tells a
+   * TYPE-10 nominal that IS the value's type (a resolved field whose own
+   * declared type is an object schema) apart from a mint that resolves
+   * against an unrelated declaration by spelling. A caller that must judge
+   * only the resolved outcome reads `declared` (`declaredFieldType` above);
+   * a caller that wants the pass's best-effort answer regardless of
+   * provenance reads only `type` (`typeOf`, `#typeExpr`'s `case "member"`).
+   *
+   * When the receiver resolves to no declaration, `declared` is `false` and
+   * `type` is the receiver's OWN `named` rather than `node.field`. For
+   * `Enum.Variant` this is schemas.md's Enum declarations section's
+   * "statically typed as `Enum`" for free — the receiver is `named <Enum>`,
+   * no `enum` entry ever enters the `TypeEnv`, so it stays unresolved and the
+   * expression defers exactly as the Unresolvable operands paragraph
+   * prescribes. The same branch is also the provably-inert answer for every
+   * other unresolvable receiver: `node.field` might resolve by accident
+   * against an unrelated declaration that happens to share its spelling,
+   * where the receiver has just been proven to resolve to nothing.
+   *
+   * An absent field, a `fields` record the schema declaration carries none
+   * of, and a field whose `typeSource` failed to convert all fall through to
+   * the closing nominal fallback (`declared: false`) rather than reporting:
+   * expressions.md's Member access bullet assigns an absent theta-side name a
+   * RUNTIME `theta/runtime/missing-object-key` panic, not a parse
+   * diagnostic, so answering here would pre-empt it.
+   */
+  #memberType(
+    node: MemberExpr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): { readonly type: CompatType; readonly declared: boolean } {
+    const receiver = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
+    if (receiver.kind === "named") {
+      const decl = resolveNamed(env, receiver.name);
+      if (decl === undefined) {
+        return { type: receiver, declared: false };
+      }
+      const fields = decl.kind === "object-schema" ? decl.fields : undefined;
+      if (fields !== undefined && Object.hasOwn(fields, node.field)) {
+        return { type: unfoldAlias(fields[node.field] as CompatType, env), declared: true };
+      }
+    }
+    return { type: { kind: "named", name: node.field }, declared: false };
   }
 
   /** The static type of a binary-operator expression. */
