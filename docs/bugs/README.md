@@ -212,3 +212,6 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0190 — `provableArgType` withholds judgement on now-provable member-read arguments](./0190-fn-arg-sink-withholds-provable-member-reads.md) — open
 - [0191 — An enum name shadowed by a same-spelled schema still fabricates the variant-name type](./0191-enum-name-shadowed-by-schema-fabricates-member-type.md) — open
 - [0192 — A `params:`-declared binding carries no declared type into the type-layer walk](./0192-params-receiver-type-not-threaded-into-type-layer.md) — open
+- [0193 — Two withheld-binder gates lost their last pinning cell — neutering either leaves the suite green](./0193-withheld-binder-gates-lost-last-pinning-cells.md) — open
+- [0194 — `unprovableBindings` marks by object identity — a shared alias element suppresses a later true refusal](./0194-unprovable-marking-by-object-identity-shared-alias-element.md) — open
+- [0195 — `control-flow.md` claims `for x in []` draws `array-no-common-type` — both spellings measure silent](./0195-control-flow-empty-array-iterand-claim-false.md) — open
