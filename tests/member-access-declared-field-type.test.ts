@@ -112,10 +112,10 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //
 //   RED under neutralisation — (a)1/2/4; the nine member rows of (b);
 //     (c)1–(c)8; (d)1/2/3/7/9/11/13/14/16/18/19; (e)1/3/4/5/6;
-//     (x)8/9/10/13/18; (h)1/2/3.
+//     (x)8/9/10/13/18/20; (h)1/2/3.
 //   GREEN in both directions — (e)7 (the object-index fence), all of (f) (the
 //     sibling-arm tripwires), (h)5 (the absent-field disposition), (e)8,
-//     (x)1/2/3/4/5/6/7/11/20, (d)4/5/6/8/10/12/15/17/20, every (b) control,
+//     (x)1/2/3/4/5/6/7/11, (d)4/5/6/8/10/12/15/17/20, every (b) control,
 //     (c)9, (a)3.
 //
 // (e)1 and (e)3 red under neutralisation TOO. The bug document's §Fix (d) and
@@ -1129,34 +1129,44 @@ describe("bug 0136 (x) — the sub-case bounds §Fix (c) and (d) require asserte
     );
   });
 
-  it("BOUND x20: a frontmatter `params:` receiver DEFERS — `[]` in BOTH directions", () => {
-    // MEASURED `[]`, and the reason sits at a position disjoint from this arm.
+  it("RED x20: a frontmatter `params:` receiver REPORTS — bug 0192 supplies the receiver type this arm consumes", () => {
+    // RE-PINNED under bug 0192 §Fix (f)
+    // (docs/bugs/0192-params-receiver-type-not-threaded-into-type-layer.md),
+    // which owns this row's subject and authorises exactly this flip. The row's
+    // identity, place and fixture are unchanged; only its oracle moves, from the
+    // deferral BOUND it carried to the emission its `fn`-parameter twin (b15)
+    // already reports on the same body.
+    //
     // (a) The receiver route is a frontmatter `params:` field of object-schema
-    // type, read in an `if` condition at the body's top level. (b) It defers
-    // because that field carries no declared TYPE into the top-level walk:
-    // `checkTypeLayer` threads the `params:` field names into
-    // `collectLocalBinderNames` alone — a shadowing / call-site NAME set — and
-    // then starts the walk with an empty bindings map, so nothing records `p`'s
-    // declared `P`. Contrast `walkFn`, which seeds each parameter's declared
-    // type into the fn's own scope map: that is the mechanism every one of the
-    // five §Reproduction (e) receiver routes rides, and it is why the same body
-    // inside `fn f(p: P)` reports (row b15). With no declared type recorded, `p`
-    // types through the `ident` arm's nominal fallback as `named "p"`, which
-    // resolves to no declaration, so this arm returns the receiver and defers —
-    // §Fix (a)/(c)'s specified behaviour for an unresolvable receiver, not a
-    // defect in it. (c) The gap is therefore at the BINDING position, the same
-    // shape bug 0126 files for the plain-`for` loop variable at a third
-    // position, and this row is a bound the fix PRESERVES rather than a route it
-    // closes: `[]` whether the arm resolves the field type or not.
+    // type, read in an `if` condition at the body's top level. (b) It measured
+    // `[]` because that field carried no declared TYPE into the top-level walk:
+    // `checkTypeLayer` threaded the `params:` field names into
+    // `collectLocalBinderNames` alone — a shadowing / call-site NAME set, a
+    // `Set<string>` that cannot carry a type — and then started the walk with an
+    // empty bindings map, so nothing recorded `p`'s declared `P`. `p` typed
+    // through the `ident` arm's nominal fallback as `named "p"`, which resolves
+    // to no declaration, so THIS arm returned the receiver and every check
+    // deferred — §Fix (a)/(c)'s specified behaviour for an unresolvable
+    // receiver, and never a defect in it. (c) The gap was one position upstream,
+    // at the BINDING: bug 0192 widens `checkTypeLayer`'s params parameter to
+    // carry each field's declared type source beside its name and seeds the root
+    // bindings map through `annotationToCompatType`, the same converter `walkFn`
+    // uses for a `fn` parameter — so the two positions decide identically by
+    // construction, `p` types as `named "P"`, and this arm resolves the field to
+    // its declared `string` exactly as it does for b15. (d) That is why bug 0192
+    // moves this row without editing this file's subject arm: the fix supplies
+    // the receiver type the arm already knows how to use. This row is bug 0192's
+    // §Reproduction (a2); its whole row set, both directions, is
+    // tests/params-declared-type-in-type-layer.test.ts.
     const doc = parseDoc(X20, "bug0136.theta");
     expect(
       doc.diagnostics.map((d) => d.code),
-      `x20 — a frontmatter \`params:\` receiver carries no declared type into the top-level walk, so the read is unresolvable and every check defers\n  actual diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `x20 — a frontmatter \`params:\` receiver carries its declared type into the top-level walk, so the field read resolves and the condition check fires (bug 0192 §Fix (f))\n  actual diagnostics: ${render(doc)}`,
+    ).toEqual([NON_BOOLEAN_COND]);
     expect(
       doc.diagnostics.map((d) => d.message),
-      `x20 — total silence is the pin, in both directions\n  actual diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `x20 — DIAG-4 (diagnostic-shape.md:74): the declared field type renders in the \`<type>\` placeholder, not the field or receiver NAME\n  actual diagnostics: ${render(doc)}`,
+    ).toEqual([condition("string")]);
   });
 });
 

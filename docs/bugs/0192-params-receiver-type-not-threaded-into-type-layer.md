@@ -1,6 +1,7 @@
 # Bug 0192 — `checkTypeLayer` (`type-layer-checks.ts:235–259`) starts the top-level walk with an empty bindings map and threads the frontmatter `params:` fields in as NAMES only (`collectLocalBinderNames`, `:245`), so a `params:`-declared binding carries no declared type into the walk: twelve registered `E`-severity type-layer codes are unreachable on a params-typed read anywhere in the body, where the byte-identical `fn`-parameter form reports all twelve, and `theta/parse/non-array-iterand` fires falsely at `E` on `for y in xs` over a `params: xs: array<string>` — the third position of the erasure family after bug 0136's member arm (fixed 0.106.0) and bug 0126's plain-`for` loop variable
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the route choice
+- **Status:** fixed (0.112.0). Was open with §Fix constraint-pinned rather than
+  settled: the route choice
   between the two existing declared-type converters, and the GOV-15 enumeration
   the flip needs, are in-run decisions. No ordering dependency blocks this and it
   blocks nothing; the coordination constraints against
@@ -666,3 +667,374 @@ surface.
   (`92960836d84c8323231777ceeefa62e66dd44a7a`) directly through the production
   wiring of `theta-document.ts:899–903`; every row was then re-measured against
   the pristine tree with identical results.
+
+## Fix (0.112.0)
+
+- **What shipped**, keyed to §Fix:
+  - **(a)/(b) The type reaches `bindings`, threaded from the record already at
+    the call site.** `src/parser/type-layer-checks.ts`: `checkTypeLayer`'s third
+    parameter widens from `readonly string[]` to
+    `readonly ParamsFieldSource[] = []`, a new exported interface carrying each
+    field's body-visible `name` beside its declared `typeSource`. The NAME half
+    still feeds `collectLocalBinderNames` and nothing else, so bug 0050's
+    shadowing / callee-resolution `Set<string>` is behaviour-identical. The TYPE
+    half seeds the root map the walk starts from:
+    `checker.walkBlock(body, paramsFieldBindings(paramsFields), …)` replaces
+    `new Map()`. `src/parser/theta-document.ts`: the one production call site
+    projects `{ name: f.wireName, typeSource: f.type }` instead of `f.wireName`
+    alone. No new frontmatter read, no new parse, no second reader of the
+    `params:` fields.
+  - **ONE RECORD ARRAY, adjudicated — not a fourth parameter.** §Fix (b) admits
+    either. **Grounds:** the name channel and the type channel are then derived
+    from the same records and cannot disagree about which identifier a field
+    binds; two parallel parameters could be fed from two different projections
+    and drift out of step silently, and the drift would be invisible — a
+    shadowing set keyed by one spelling and a type map keyed by another produces
+    no diagnostic, only a wrong one or a missing one.
+  - **NAME-KEYING ADJUDICATED: `BypassParamsField.wireName` IS the body-visible
+    identifier at this position.** The route must key the map by the identifier
+    the body actually resolves, and wire-renaming semantics do exist in this
+    language, so the choice was established rather than assumed. Four
+    independent sources: (i) `src/parser/frontmatter.ts` sets `wireName: name`
+    in the SAME loop iteration that pushes `ParamFieldInput`'s `name` from the
+    same local variable, so for a `params:` field the two are byte-identical by
+    construction; (ii) `src/extension/production-composition.ts`'s own comment
+    on the tool-arg / invoke-arg projection — "`wireName` is the `params:` YAML
+    key exactly as written"; (iii)
+    `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`
+    §`${param}` templates — "`${param.field}` paths use theta-side `params`
+    names throughout — never an `as "WireName"` rename target", consistent with
+    the Runtime Value Model invariant that theta code never sees wire names, so
+    the `as "WireName"` rename lives only at the schema-field and
+    inline-object-type positions (bug 0160's subject) and never at `params:`;
+    (iv) `checkLexicalCallSites`'s `rootLocals` — the shipped reader that
+    actually resolves body identifiers and emits
+    `theta/parse/unknown-identifier` — already keys its root scope by
+    `f.wireName`, and §Reproduction (e) measures that resolution working. The
+    type map is therefore keyed by the same spelling the lexical layer binds.
+    **REJECTED, with grounds:** `FrontmatterParseResult.paramFields`
+    (`ParamFieldInput`, `name` + `typeSource`, a REQUIRED member since bug 0185)
+    is also in scope at the call site and is the semantically theta-side record,
+    but it is populated whenever a frontmatter BLOCK exists while `frontmatter`
+    is `null` for a frontmatter that does not register — feeding it would have
+    silently widened bug 0050's shadowing set for unregistered documents, a
+    behaviour change outside this report's claim. Its values for this position
+    are identical, so nothing is lost by not taking it.
+  - **(c) CONVERTER ADJUDICATED: `annotationToCompatType`, the type layer's
+    own.** `paramsFieldBindings` (new, pure, module-level, placed beside the
+    converter) projects each field as
+    `annotationToCompatType(field.typeSource) ?? { kind: "named", name: field.typeSource }`
+    — `walkFn`'s own seed expression, mirrored in shape. **Grounds:**
+    (1) §Expected behaviour makes the `fn`-parameter form the ORACLE ("fire
+    exactly as they do on the byte-identical `fn`-parameter form"), and one
+    shared converter makes the two positions decide identically BY CONSTRUCTION
+    rather than by coincidence over the four measured spellings —
+    `type-system.md:15` puts both in one annotation-position list; (2) the two
+    converters differ on the `array<T>`-with-declining-element decline path (a
+    nominal-`unknown` element here, `undefined` in `paramsDeclaredCompatType`),
+    and where they differ the BODY position must follow the `fn`-parameter
+    position, which is this converter; (3) it is the smaller change — no
+    splitter injection, no cross-layer import, and `walkFn` already establishes
+    the `??` fallback shape; (4) no third projection is written and
+    `paramsDeclaredCompatType` keeps its single existing caller (`params.ts`,
+    the default-compatibility check), which judges a different question — the
+    default literal INSIDE the frontmatter, not the body read.
+    `src/parser/type-compat.ts` and `src/parser/params.ts` are blob-identical to
+    HEAD (`23a75a14…`, `b7988d93…`).
+  - **(c) `unprovableBindings` NON-ENTRY, proven structurally rather than
+    asserted.** `paramsFieldBindings` is a module-level function, not a
+    `TypeLayerWalk` method, so it has no access to the instance set: a seeded
+    entry cannot be laundered there by construction. The set's two feeding arms
+    are unchanged (`walkStmt`'s unannotated `let`, `walkExpr`'s `par for`
+    element) and neither reaches a seeded root type except through the
+    loop-element inheritance both already carried for an annotated `fn` array
+    parameter. The channel's own contract states the rule this position inherits
+    — "an author-written annotation IS a declared type, so it is a proof".
+    Witnessed: cell a5 (a bare `params:` identifier at the fn-argument sink) and
+    cell m1 (a params-rooted member read at the same sink) both emit; had the
+    type been laundered, those two would have stayed silent while the other
+    eleven rows moved.
+  - **(d) Both `for` arms move; `checkForIterand` untouched.** The false
+    `E`-severity `theta/parse/non-array-iterand` disappears on a declared
+    `array<T>` param at both call sites — `walkStmt`'s `case "for"` (b1, b2, b3)
+    and `walkExpr`'s `case "par-for"` (b4) — because the iterand now types as a
+    real `array`, not because any gate was widened.
+    `src/parser/control-flow.ts` is blob-identical to HEAD (`b46be336…`). The
+    message defect §Reproduction (b) records (`got xs`, a binding name in a
+    `<type>` slot, outside `placeholder-rendering-a.md:11–13`'s category-1 rule)
+    is cured by the REMOVAL of the false emission, not by a rendering edit.
+  - **(e) Coordination discharged.** Bug 0126 landed at 0.107.0, so its
+    plain-`for` arm already binds the loop variable; this fix supplies the
+    iterand type that arm consumes, which is why the loop-element consumers move
+    (cells L1–L4) with `walkStmt`'s `case "for"` body untouched. Bug 0136's arm
+    (`src/parser/static-type-inference.ts`, blob-identical to HEAD,
+    `56de1cb6…`) is likewise untouched: the fix supplies the receiver type the
+    arm already knows how to use, which is why §Reproduction (a2) and (b2)'s
+    member routes move without editing that file.
+  - **(f) Witness re-pins.** `tests/member-access-declared-field-type.test.ts`
+    row **x20** flipped from the `[]` bound to
+    `theta/parse/non-boolean-condition` / `condition must be boolean; got
+    string` — the value the row's own pre-measurement predicted before
+    measurement contradicted it — with its derivation comment re-derived to cite
+    this report; the `X20` fixture, the row's identity and its place are
+    unchanged, and the other 71 cells are untouched. One further token in that
+    file moved, gated on a measurement: the `── BOTH DIRECTIONS ──` header
+    listed `(x)20` under "GREEN in both directions", which the flip falsifies.
+    With the fix applied, neutralising bug 0136's member arm reds exactly the
+    header's pre-declared set PLUS x20 and nothing else (43 reds = the 42 listed
+    cells + x20, item for item), so `20` moved to the "RED under neutralisation"
+    list; `src/parser/static-type-inference.ts` was restored byte-exact after
+    that measurement, hash-verified.
+    `tests/fn-arg-member-read-proof.test.ts` (bug 0190's 23-cell witness) is
+    **blob-identical to HEAD** (`1324fd6c…`): its cell S3 was verified NOT to
+    move — the vehicle is `fn f(p)`, an UNANNOTATED `fn` parameter recorded as a
+    WITHHELD binder by `recordWithheldBinders`, not a `params:`-declared
+    receiver, so the receiver stays unproven and the cell stays CLEAN. Its
+    comment's "bug 0192's territory" phrasing is a mis-attribution left as bug
+    0190 wrote it (Residual 3).
+  - **(h) Fences held, in both directions.** d1/d2 stay `[]` — a legal use did
+    not become a refusal. d3 (inline object type) and d4 (`enum`-typed param)
+    stay `[]` on the `params:` AND the `fn`-parameter spelling, so neither
+    converter's nominal fallback nor the missing `enum` in `collectTypeEnv` was
+    widened. §Reproduction (e)'s `unknown-identifier` is unmoved and
+    `checkLexicalCallSites`'s `rootLocals` was not touched. All six were
+    verified green in both directions under neutralisation.
+  - **NO SPEC EDIT, adjudicated.** §Expected behaviour's own reading holds at
+    this HEAD: the observables are determined. `type-system.md:15` places
+    frontmatter `params:` in the annotation-position list, `:27` makes `⊑` the
+    single relation governing those positions, `:48` licenses a deferral only
+    for an operand past the parser's static view (a `params:` type is written in
+    the file), `frontmatter-fields-a.md:57` states the body-side consequence
+    ("exposed as typed variables in the theta body") and `:58` that the RHS is
+    "the same grammar used in every other type-annotation position", and
+    `control-flow.md:13` admits `for x in xs` for any `array<T>`. Which
+    `CompatType` each spelling projects to is exactly as unstated for a `let`
+    annotation and a `fn` parameter type, both implemented from the same grammar
+    sentence, so no sentence was minted. Every anchor was verified verbatim at
+    this HEAD; `docs/spec_topics/type-system.md` is blob-identical
+    (`883e7efc…`) and no file under `docs/spec_topics/` or `docs/reference/`
+    changed.
+  - **(g) GOV-15, BOTH directions, enumerated by measurement.** Thirteen
+    registry rows change reachability at this position; no row is added,
+    removed, renamed, re-triggered or re-severitied, so DIAG-2/3/4 need no new
+    adjudication and `docs/spec_topics/diagnostics/code-registry-parse.md` is
+    blob-identical to HEAD (`7a623f35…`).
+    **Twelve ADDITIONS** — the (a) programs load cleanly today, so they are
+    inside the *loads-cleanly predicate* (`#gov-15-loads-cleanly`); each row's
+    *Trigger*, read as written, admits a `params:`-declared operand with no
+    position restriction, so each is a trigger-SCOPE addition and not a trigger
+    change:
+    1. `theta/parse/non-boolean-condition` — "Non-`boolean` value used in `if` /
+       `while` / ternary condition or as `&&` / `||` operand." (a1, a2, a3, a15,
+       c1, c2, L1, L2, L3, and x20)
+    2. `theta/parse/let-rhs-type-mismatch` — "The RHS initialiser of a typed
+       binding `let x: T = expr` has a static type that is not compatible with
+       the annotation `T` … where the RHS type is statically resolvable." (a4,
+       a14, a16)
+    3. `theta/parse/fn-arg-type-mismatch` — "A plain top-level `fn` call
+       `f(args)` — a same-file or imported `.thetalib` function call that is
+       neither an `invoke(...)` nor a `.theta`-callable call — passes an argument
+       whose static type is not compatible with the matched parameter's declared
+       type. Always parse-time…" (a5, m1, L4)
+    4. `theta/parse/unknown-method` — "Method or property accessed on a built-in
+       type that the theta 1.0 stdlib does not expose." (a6)
+    5. `theta/parse/integer-narrowing` — "`number` value used where `integer` is
+       expected (the `integer → number` widening is one-way)." (a7)
+    6. `theta/parse/question-on-non-result` — "`?` applied to an operand whose
+       Theta static type is not `Result<T, QueryError>` for some `T`…" (a8)
+    7. `theta/parse/non-orderable-operands` — "`<`, `<=`, `>`, or `>=` applied
+       to a non-orderable operand pair — a numeric operand against a `string`,
+       or an operand whose type is not `number`/`integer` or `string`…" (a9)
+    8. `theta/parse/non-string-array-join` — "`arr.join(...)` invoked on an
+       array whose element type is not `string`." (a10)
+    9. `theta/parse/non-string-object-index` — "Indexed access `obj[k]` on an
+       object-value receiver whose index expression `k` is not of type
+       `string`…" (a11)
+    10. `theta/parse/non-indexable-receiver` — "Indexed access `a[...]` whose
+        receiver `a` is neither `array<T>` nor an object value…" (a12)
+    11. `theta/parse/object-field-type-mismatch` — "A schema-constructor field
+        value has a static type that is not compatible with the schema's
+        declared type for that field … where the field value's type is
+        statically resolvable." (a13)
+    12. `theta/parse/array-element-type-mismatch` — "Array literal element does
+        not type-check against the surrounding sink's element type." (a14)
+    **One REMOVAL, outside GOV-15's promise** — `theta/parse/non-array-iterand`
+    ("`for x in expr` where `expr` is not `array<T>`"): §Reproduction (b)'s four
+    programs carry an `E` today, so the *loads-cleanly predicate* excludes them
+    from the promised input set and their removal is unconstrained by it. It is
+    recorded as a removal for the inputs taken out of the emission set — a
+    declared `array<T>` param, a declared `array<T>` field of an object-schema
+    param, and a type ALIAS of `array<T>`, at both the plain-`for` and `par for`
+    call sites.
+  - **BUG 0124's CONSEQUENCE, STATED AND NOT FIXED.** Routing through
+    `annotationToCompatType` does put that converter's trailing-punctuation
+    leniency (bug 0124, open) in the path of the `params:` position: a junk
+    spelling it admits now produces an opaque `named` at a body read instead of
+    nothing at all. The two positions' input sets are still not identical — the
+    `params:` RHS has its own load-time text gate
+    (`theta/load/params-type-not-expression`, `code-registry-load.md:19`,
+    reached through `paramValueCanCarryType`) which the three body `Type`
+    positions lack, so most of 0124's junk is refused upstream of the seeding.
+    The converter is byte-untouched — `paramsFieldBindings` is inserted after it
+    — and 0124 keeps its status and its subject.
+  - **THE BUG 0190 COMPOSITION, MEASURED AND WITNESSED.** Bug 0190 (0.111.0)
+    opened the fn-argument sink to a member read whose receiver is a proven read
+    AND whose field resolves to a declared field type. A `params:`-declared
+    receiver becomes exactly such a proven read through `provableArgType`'s
+    `ident` arm — a `bindings` hit that is not in `unprovableBindings` — so
+    params-rooted member reads now reach that sink: cell **m1**, `params: p: P` /
+    `schema P { s: string }` / `fn g(n: integer)` / `g(p.s)` →
+    `theta/parse/fn-arg-type-mismatch: fn 'g' argument 0 ('n') type mismatch:
+    expected integer, got string`, byte-identical to its `fn`-parameter control.
+    The same proof makes a params-typed member iterand provable, so the
+    loop-element consumers go live in all four shapes: L1 plain `for`, L2
+    `par for`, L3 member iterand, L4 the element at the fn-argument sink.
+
+- **Gates** (verbatim):
+  - Witness, red before (Phase 1, at HEAD `85770a8c`):
+    `tests/params-declared-type-in-type-layer.test.ts` →
+    `Test Files 1 failed (1)`, `Tests 27 failed | 5 passed (32)` — the 5 green
+    are the d1–d4 / e fences, and every red carries the measured baseline
+    signature (`actual diagnostics: []` where the control's verdict belongs, or
+    the false `non-array-iterand … got xs`).
+    `tests/member-access-declared-field-type.test.ts` →
+    `Tests 1 failed | 71 passed (72)`, x20 only.
+  - Witness, green after: `Tests 104 passed (104)` — 32 / 72.
+  - Full default suite: `npx vitest run` → `Test Files 315 passed (315)`,
+    `Tests 5315 passed (5315)` (baseline at HEAD `85770a8c`: 314 / 5283, plus
+    this fix's one new file / 32 cells).
+  - Typecheck: `npx tsc --noEmit -p tsconfig.json` → exit 0, no output
+    (`tsconfig.json` includes `tests`, so both new test files are typechecked).
+  - Lint: `npm run lint`
+    (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) → exit 0, no output.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts -t "bug 0192"` →
+    `Tests 1 passed | 48 skipped (49)`, 281 ms — registration-only, zero model
+    turns. RED-PROVEN live pre-fix by the same command:
+    `Registered: ["b192livectl","b192liverefuse"]` — the control registered, the
+    `array<string>`-param caller did NOT (the false `E`), and the
+    misused-`string` caller DID (the silent-deferral defect); both faces invert
+    post-fix.
+  - Live H9a, both files, for real:
+    `tests/live/acceptance/noninteractive-acceptance.test.ts` →
+    `Tests 10 passed (10)`, 57.9 s;
+    `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` →
+    `Tests 1 passed (1)`, 8.5 s. Eleven cells, no red, no stall, no
+    `0xC0000142`, no stochastic sentinel refusal.
+  - H9a permitted-codes decided BY THE REAL RUN, not by prediction: **no
+    append** — all ten `assertCodesSubsetOfPermitted` call sites green, so no
+    code appeared outside the list, and `tests/fixtures/h7a/permitted-codes.json`
+    is blob-unchanged at `a4a8da04…`. Only one H9a fixture declares `params:`
+    (`acc-params-binder.theta`, `topic: string` / `count: number = 3`) and its
+    body reads neither field, so the seeded map has no observable there.
+  - GOV-15 corpus gate: `tests/committed-fixture-parse-gate.test.ts` →
+    `Tests 36 passed (36)`, over all 33 shipped `.theta` / `.thetalib` files
+    (the count re-derived independently from `git ls-files`).
+
+- **Blast-radius pre-measurement** (mandatory, run BEFORE any test was written):
+  the adjudicated route was prototyped at HEAD `85770a8c` and the FULL suite
+  run. Exactly ONE red in 314 files / 5283 tests — **x20**, the §Fix (f) flip
+  authority — and zero unauthorized flips. Every §Reproduction row (a1–a16,
+  b1–b4, c1–c2, d1–d4, e) was re-derived at this HEAD with a scratch probe
+  before any red was pinned and reproduced VERBATIM: zero drift from the values
+  recorded at `6942ef27`, despite 0126 (0.107.0), 0185 (0.109.0) and 0190
+  (0.111.0) landing in between. The vehicle sweep is the suite itself plus the
+  corpus gate: no `tests/params-*` or `tests/binder-*` witness carries a BODY
+  READ of a typed `params:` field, which is why 5283 tests move exactly one cell.
+  §Fix (f)'s three named callable-argument sinks were MEASURED, not predicted —
+  `docs/examples/import-thetalib.theta`,
+  `docs/examples/typed-params-across-boundary.theta` and
+  `docs/examples/ralph.theta` each parse with ZERO diagnostics of any severity
+  post-fix (re-measured independently at verification), so no shipped corpus file
+  changes registration in either direction.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`, deep) — **CLEAN**, zero
+  findings across `correctness` / `fidelity` / `spec` / `test` / `house-rule` /
+  `prose`, with one non-blocking residual: state bug 0124's reach in this record,
+  done above. It re-ran both directions itself by writing the HEAD blobs over the
+  two `src/` files and restoring them hash-verified, traced every identity-keyed
+  channel (`unprovableBindings` has exactly one read site and returns `undefined`
+  on a hit, so it is suppression-only; `resultBindings` — the one identity
+  channel that PRODUCES an emission — is fed only behind `isCertainResultNode`,
+  whose qualifying kinds mint fresh objects, so a seeded params object can never
+  enter it), verified all fourteen registry rows and eight spec anchors verbatim,
+  confirmed the witness is DIAG-4-sourced rather than hand-copied and cannot pass
+  vacuously, and re-measured the new ident-arm comment's own "measured" claim by
+  probe.
+
+- **Verification:** `bug-fix-verifier` — **SOLID**, no findings.
+  - *Both directions, hash-proven.* Neutralisation was the MINIMAL semantic
+    reversal — the type half only (`new Map()` restored, the widened parameter
+    and the name half left in place), isolating the seeded-type channel as the
+    cause: `Tests 28 failed | 76 passed (104)`, the reds spanning both directions
+    (a1, m1 additions; b1, L1 removals) plus x20, with the fences d1–d4 and e
+    green under neutralisation too. Restored by explicit edit and proven
+    byte-exact against the pre-neutralisation working-tree hash (`4e9325ab…`
+    before and after, `git diff --stat` identical), then
+    `Tests 104 passed (104)`.
+  - *Full suite*: 315 files / 5315 tests green.
+  - *Live, end to end, for real*: the additive H8a cell (48 → 49 cells)
+    exercising the REGISTRATION consequence through the real production
+    composition root, plus both H9a acceptance files (11 cells) spawning the real
+    `pi` binary in print mode. All green; the permitted-codes question answered
+    from the runs.
+  - *Lint and typecheck*: exit 0 both, using the `package.json` definitions.
+  - *Corpus*: the gate plus an independent per-sink probe over the three named
+    fixtures.
+
+- **Residuals** (for the PARENT to file; no bug document is created here):
+  1. **Shared-element identity poisoning reaches params-declared arrays.** The
+     seeded `CompatType` for a `params: xs: array<T>` field is one object per
+     parse, so its `.element` is shared by every loop over that field. Both loop
+     arms mark an element unprovable by IDENTITY when the iterand is not a proven
+     read (`unprovableBindings.add(elementType)`), and `#commonType` returns a
+     dominating candidate BY IDENTITY, so a composite unprovable iterand that
+     reduces to the seeded array object (a `match` with one unprovable arm, say)
+     can poison the shared element and SUPPRESS a later, sound loop-element
+     judgement over the same field in the same parse. It can only suppress, never
+     manufacture — the set has exactly one read site and it returns `undefined`
+     on a hit. The identical shape pre-exists byte-for-byte for a
+     `walkFn`-seeded annotated `fn` `array<T>` parameter and for
+     `collectTypeEnv`'s shared field-type objects; the marking arms are bug
+     0126's and bug 0190's and are untouched here. Adjacent to bug 0194's
+     order-dependent suppression subject. Not fixed: §Fix (c) requires the
+     `fn`-parameter position's semantics be inherited identically.
+  2. **A stale claim in a protected witness's prose, not edited.**
+     `tests/fn-arg-type-mismatch-wired.test.ts`'s u9 group banner paraphrases
+     `collectLocalBinderNames` as "a frontmatter `params:` field never reaches
+     the map at all", which this fix falsifies. It is a comment in a protected
+     witness for which no authority in this report's §Fix names a change, so it
+     was reported rather than swept (bug 0134's class). Its assertions are
+     unaffected and the file is green.
+     `docs/bugs/0145-inference-pass-no-match-arm-scope.md` carries the same
+     historical claim, accurate at its own filing time.
+  3. **Bug 0190's cell S3 comment mis-attributes its subject.**
+     `tests/fn-arg-member-read-proof.test.ts` cell S3 is labelled "bug 0192's
+     territory, upstream of this arm", but its vehicle is `fn f(p)` — an
+     UNANNOTATED `fn` parameter, which `walkFn` records through
+     `recordWithheldBinders` — not a `params:`-declared receiver. Verified by
+     reading the vehicle and by the cell staying green through every run here.
+     The cell's BOUND is correct and unchanged; only its attribution is loose.
+     Left as bug 0190 wrote it.
+  4. **Line-citation drift in sibling documents, disclosed not chased.** This fix
+     adds ninety lines to `src/parser/type-layer-checks.ts`, shifting every
+     `type-layer-checks.ts:NNN` citation below the insertion points in roughly
+     thirty `docs/bugs/*.md` files. Bug 0134's class: disclosed, not swept. Every
+     comment this fix writes cites SYMBOLS, so nothing it authored needs chasing.
+  5. **The `docs/reference/frontmatter.md` mirror gap** (`:119–121` drops the
+     spec page's "exposed as typed variables in the theta body" clause) is
+     unchanged — prose only, named a non-goal by this report, and not required by
+     the route taken.
+
+- **Discharge notes appended:**
+  `docs/bugs/0136-member-access-types-as-field-name-not-field-type.md` —
+  residual 5 is discharged by this fix.
+
+- **Pinned dispositions / non-goals:** bug 0124 keeps its status and its subject
+  — the converter is consumed, never tightened; bug 0191 (an enum shadowed by a
+  same-spelled schema) and bug 0194 (identity-marking suppression) are untouched
+  and neither status moved; the binder, AJV and runtime paths are untouched
+  (`src/binder/binder-envelope.ts` blob-identical, `ab02246a…`); `enum`-typed
+  and inline-object-typed `params:` fields keep deferring exactly as their
+  `fn`-parameter controls do (d3, d4); the `params:` default-literal
+  compatibility check keeps its own converter and its own single caller.

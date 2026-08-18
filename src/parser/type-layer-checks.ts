@@ -221,28 +221,59 @@ interface WalkCtx {
 }
 
 /**
+ * One frontmatter `params:` field, as `checkTypeLayer` needs it: the field's
+ * body-visible identifier (the `params:` YAML key a body read spells) beside
+ * its declared type SOURCE, verbatim (bug 0192 §Fix (a)). ONE record array,
+ * not a name array and a type array as two parallel parameters: the name
+ * channel (`collectLocalBinderNames`) and the type channel (the seeded root
+ * `bindings` map, `paramsFieldBindings`) are then guaranteed to agree on which
+ * identifier a field binds, where two parallel parameters could be fed from
+ * two different projections and drift out of step silently.
+ */
+export interface ParamsFieldSource {
+  /** The field's body-visible identifier. */
+  readonly name: string;
+  /** The field's declared type source, verbatim. */
+  readonly typeSource: string;
+}
+
+/**
  * Run the wired `type`-phase checkers over a parsed `V19a` body, returning the
  * aggregated (unsorted; the caller sorts through `assembleDiagnostics`) type-
  * layer diagnostics. Consumes the `V20b` per-expression static-type lookup.
  *
- * `paramsFieldNames` is the frontmatter `params:` field wire names —
- * `checkLexicalCallSites`'s own root-locals source (`./theta-document.ts`:
- * `frontmatter?.params?.fields ?? []`, field `wireName`), threaded in by
- * explicit dependency injection so a frontmatter parameter counts as a local
- * binder too (bug 0050 §Fix). Defaults to `[]` so an existing two-argument
- * caller keeps compiling.
+ * `paramsFields` is the frontmatter `params:` field records — each field's
+ * body-visible identifier beside its declared type source
+ * (`./theta-document.ts`: `frontmatter?.params?.fields ?? []`, projected from
+ * `BypassParamsField`'s `wireName` / `type`), threaded in by explicit
+ * dependency injection. Two channels are derived from these same records
+ * (bug 0192 §Fix):
+ *
+ *   - the NAME half feeds `collectLocalBinderNames` exactly as it did before
+ *     this parameter carried a type — bug 0050 §Fix's shadowing / callee-
+ *     resolution `Set<string>` is unchanged, so a frontmatter parameter still
+ *     counts as a local binder too;
+ *   - the TYPE half seeds the root `bindings` map the top-level walk starts
+ *     from (`paramsFieldBindings`), so a `params:`-declared read carries its
+ *     declared `CompatType` into the walk the same way an annotated `fn`
+ *     parameter does (`walkFn`).
+ *
+ * Defaults to `[]` so an existing two-argument caller keeps compiling.
  */
 export function checkTypeLayer(
   body: ThetaBody,
   file: string,
-  paramsFieldNames: readonly string[] = [],
+  paramsFields: readonly ParamsFieldSource[] = [],
 ): Diagnostic[] {
   const pass = new StaticTypeInferencePass({ checkCompatible });
   const env = collectTypeEnv(body.statements);
   const fnReturns = collectFnReturnAnnotations(body.statements);
   const fnDecls = collectTopLevelFns(body.statements);
   const importedSymbols = collectImportedSymbols(body.statements);
-  const shadowedNames = collectLocalBinderNames(body, paramsFieldNames);
+  const shadowedNames = collectLocalBinderNames(
+    body,
+    paramsFields.map((f) => f.name),
+  );
   // Run the `V20b` read-only whole-program pass in production: it types every
   // statement-level node and validates the substrate composes with the parse.
   pass.infer(body, env);
@@ -255,7 +286,9 @@ export function checkTypeLayer(
     importedSymbols,
     shadowedNames,
   );
-  checker.walkBlock(body, new Map(), { returnScope: { kind: "inferred" } });
+  checker.walkBlock(body, paramsFieldBindings(paramsFields), {
+    returnScope: { kind: "inferred" },
+  });
   return checker.diagnostics;
 }
 
@@ -491,14 +524,17 @@ function collectImportedSymbols(statements: readonly Stmt[]): ReadonlySet<string
  *
  * expressions.md §"Identifier resolution" ranks `local > fn > import >
  * callable`, so a call of a locally bound name is not a user-`fn` call; but
- * `TypeLayerWalk`'s own `bindings` map is not a complete local view — it never
- * sees a frontmatter `params:` field, and it holds the binder classes this
- * layer cannot type (a match-arm binding, an unannotated `fn` parameter, a loop
- * variable whose iterand is not an `array<T>` — the `array` case carries the
- * iterand's element type, bug 0126 §Fix) as WITHHELD entries rather than as
- * judged types (`recordWithheldBinders`) — so resolution is withheld for any name
- * bound as a local ANYWHERE in the file. Withholding can only suppress an
- * emission, never produce one, the asymmetry this module's header already states.
+ * `TypeLayerWalk`'s own `bindings` map is still not a complete local view. A
+ * frontmatter `params:` field's declared type reaches it now (bug 0192 §Fix
+ * seeds the root map from the same records this function's caller derives
+ * `paramsFieldNames` from — `paramsFieldBindings`), but it still holds the
+ * binder classes this layer cannot type (a match-arm binding, an unannotated
+ * `fn` parameter, a loop variable whose iterand is not an `array<T>` — the
+ * `array` case carries the iterand's element type, bug 0126 §Fix) as WITHHELD
+ * entries rather than as judged types (`recordWithheldBinders`) — so
+ * resolution is withheld for any name bound as a local ANYWHERE in the file.
+ * Withholding can only suppress an emission, never produce one, the asymmetry
+ * this module's header already states.
  */
 function collectLocalBinderNames(
   body: ThetaBody,
@@ -829,6 +865,48 @@ export function annotationToCompatType(src: string): CompatType | undefined {
     return { kind: "prim", name: text as PrimitiveName };
   }
   return { kind: "named", name: text };
+}
+
+/**
+ * Build the root `bindings` map `checkTypeLayer`'s top-level walk starts from
+ * (bug 0192 §Fix): one entry per frontmatter `params:` field, projecting its
+ * declared type source onto a `CompatType` through THIS module's own
+ * `annotationToCompatType` — the converter `walkFn` seeds an annotated `fn`
+ * parameter's scope entry from
+ * (`annotationToCompatType(p.type) ?? { kind: "named", name: p.type }`),
+ * mirrored here byte-for-byte in shape so the two positions decide identically
+ * BY CONSTRUCTION rather than by coincidence over whichever spellings happen
+ * to be measured. `paramsDeclaredCompatType` (./type-compat.ts) is
+ * deliberately NOT used here: the two converters differ on the
+ * `array<T>`-with-declining-element decline path (a nominal-`unknown` element
+ * here, `undefined` there), and where they differ the body position follows
+ * the `fn`-parameter position — this converter, not that one. A `params:`
+ * field always declares a type (unlike a `fn` parameter, which may be
+ * unannotated), so every entry is seeded unconditionally — there is no
+ * WITHHELD branch to mirror from `walkFn` here.
+ *
+ * A plain function, not a `TypeLayerWalk` method, so it has no access to
+ * `unprovableBindings`: a seeded entry can never be recorded there by
+ * construction, which is what keeps a `params:`-declared read a PROOF at the
+ * `provableArgType` sink — an author-written annotation IS a declared type,
+ * exactly as an annotated `fn` parameter's is (`unprovableBindings`'s own doc
+ * comment states the rule this position inherits).
+ *
+ * Returns a fresh `Map` per call: `TypeLayerWalk.walkBlock` mutates its root
+ * argument directly for each top-level `let`, so a shared or cached map would
+ * leak bindings across parses.
+ */
+function paramsFieldBindings(
+  fields: readonly ParamsFieldSource[],
+): Map<string, CompatType> {
+  const bindings = new Map<string, CompatType>();
+  for (const field of fields) {
+    bindings.set(
+      field.name,
+      annotationToCompatType(field.typeSource) ?? { kind: "named", name: field.typeSource },
+    );
+  }
+  return bindings;
 }
 
 /**
@@ -1795,8 +1873,14 @@ class TypeLayerWalk {
         // which is the false-judgement shape the `member` arm's field-name
         // fallback, the `method-call` arm, and the `call` / `invoke` arms
         // below refuse over the field and callee namespaces. `bindings` is
-        // still not a complete local view — a
-        // frontmatter `params:` field never reaches it — so a MISS means "not
+        // still not a complete local view (a `params:` field reaches it now,
+        // by bug 0192 §Fix, but other names legitimately resolve without ever
+        // reaching this map): a `tools:`-declared callable name read as a
+        // VALUE, for instance, resolves through the lexical layer's own
+        // `identRoots` rather than through `bindings` at all — measured, a
+        // plain `fn` call passing one as an argument draws no diagnostic here,
+        // where the same position over an undeclared name draws
+        // `theta/parse/unknown-identifier` instead. So a MISS still means "not
         // recorded", never "no such binding", and the only sound answer is to
         // withhold. The binder classes this layer cannot type are recorded as
         // WITHHELD entries instead of being left to miss

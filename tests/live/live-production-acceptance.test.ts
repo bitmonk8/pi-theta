@@ -7851,3 +7851,226 @@ describe("H8a-T — bug 0190: the fn-argument sink judges a provable member-read
     }
   });
 });
+
+// ===========================================================================
+// Bug 0192 — `checkTypeLayer` (src/parser/type-layer-checks.ts) threaded the
+// frontmatter `params:` fields into `collectLocalBinderNames` as NAMES only (a
+// `Set<string>`, bug 0050's shadowing channel) and started the top-level walk
+// with `new Map()`, so no `params:` field carried a declared `CompatType` into
+// `bindings`. Twelve registered `E`-severity type-layer rows were therefore
+// unreachable on every read of a `params:`-declared binding — where the
+// byte-identical `fn`-parameter form reports all twelve — and a thirteenth,
+// `theta/parse/non-array-iterand`, fired FALSELY at `E` on `for y in xs` over
+// `params: xs: array<string>`, a program control-flow.md:13 admits
+// (docs/bugs/0192-params-receiver-type-not-threaded-into-type-layer.md). The
+// fix widens that third parameter to carry each field's declared type source
+// beside its wire name and seeds the root `bindings` map through
+// `annotationToCompatType` — the same converter `walkFn` uses for a `fn`
+// parameter — so the `params:` position and the `fn`-parameter position decide
+// identically by construction.
+//
+// The 32-cell offline witness
+// (tests/params-declared-type-in-type-layer.test.ts) proves the mechanism at
+// the `parseThetaDocument` boundary, and bug 0136's row x20 is re-pinned from a
+// deferral bound to a reporting row under bug 0192 §Fix (f). This cell proves
+// the REGISTRATION consequence end to end through the real production
+// composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer) — which the offline tier cannot
+// see, because `hasLoadParseError` (src/extension/production-composition.ts) is
+// what turns an `E`-severity `theta/parse/*` into a denied registration.
+//
+// BOTH DIRECTIONS IN ONE CELL, mirrored from the bug 0136 cell above (the
+// `b136livefield` / `b136liverefuse` pair, an admission and a denial sharing
+// one precondition control) and the bug 0126 cell that follows it:
+//   - `b192livearray` — the REMOVAL direction, the bug doc's own §Reproduction
+//     row b1 / the offline witness's cell b1: `params: xs: array<string>` with
+//     a body `for y in xs { y }`. Pre-fix the iterand typed as the nominal
+//     `named "xs"` — the BINDING'S OWN IDENTIFIER, which the message then
+//     rendered into its `<type>` slot (`got xs`, outside
+//     placeholder-rendering-a.md:11–13's category-1 rule) — so
+//     `checkForIterand` (src/parser/control-flow.ts) refused a spec-legal
+//     iterand at `E` and this caller did not register at all. Post-fix `xs`
+//     carries its declared `array<string>`, the iterand check admits it, and
+//     the caller REGISTERS. Asserted by the same absence-of-regression-fragment
+//     channel the bug 0089/0136 cells use, reusing this file's existing
+//     `nonArrayIterandFragment` reader rather than adding one.
+//   - `b192liverefuse` — the ADDITION direction, the bug doc's §Reproduction
+//     row a6 / the offline witness's cell a6: `params: s: string` with a body
+//     `let v = s.frobnicate()`. Pre-fix `s` typed as the unresolvable
+//     `named "s"`, `checkMethodCall`'s A2 gate deferred, and this caller
+//     REGISTERED on a declared type the parser never checked. Post-fix `s`
+//     carries its declared `string`, `theta/parse/unknown-method` fires at
+//     PARSE (`E`), and `hasLoadParseError` denies registration. Reuses this
+//     file's existing `unknownMethodFragment` reader (bug 0125's addition) —
+//     the same registered code and message shape the bug 0136/0126 cells above
+//     assert.
+//
+// WHY `b192livearray` DECLARES `bind_model:` AND `b192liverefuse` DOES NOT.
+// `classifyBinderBypass` (src/binder/binder-envelope.ts) admits the
+// single-string bypass for exactly one field declared `string` with no default
+// and neither optional nor nullable, so `b192liverefuse` is bypass-eligible and
+// needs no binder-model chain. `xs: array<string>` is not that shape, so
+// `b192livearray` classifies `binder` and needs a resolvable chain at LOAD or
+// it draws `theta/load/binder-model-unresolved` (`E`) and fails to register for
+// a reason that has nothing to do with this bug — which would leave the removal
+// direction unwitnessed. It therefore declares the same
+// `bind_model: anthropic/claude-haiku-4-5` the bug 0181 and bug 0185 cells
+// above already prove resolves live; resolution is a local metadata check
+// against the model registry, so no token is spent on it.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens (the same profile the bug 0070/0071/0077/0079(a)/
+// 0110/0084/0089/…/0136/0126/0185/0190 cells above claim). No subagent child
+// process is spawned (both fixtures are prompt mode, with no `invoke(...)` and
+// no `subagent fn`), so the #subagent-child-pins convention this file's harness
+// otherwise honours does not apply to this cell. ADDITIVE ONLY: no existing
+// cell in this file (1–48) is weakened, reworded, reordered or deleted; this is
+// cell 49, appended after the bug 0190 cell.
+// ===========================================================================
+
+/**
+ * The bug doc's own §Reproduction row b1, verbatim (the offline witness's cell
+ * b1, tests/params-declared-type-in-type-layer.test.ts), replayed here through
+ * the real discovery→registration path instead of the offline harness: a
+ * `params:` field declared `array<string>` and a plain `for` loop over it.
+ * `focus_areas: array<string>` is the spec's own opening `params:` example
+ * (docs/spec_topics/frontmatter/frontmatter-fields-a.md:23) and iterating one
+ * is the ordinary use, but no shipped fixture declares an `array<…>` param, so
+ * nothing in the committed corpus witnessed the refusal. The trailing `1`
+ * supplies the theta's final value — no `@`-query is needed for a prompt-mode
+ * theta to register, matching the bug 0089 cell's own `aliasIterandTheta`
+ * above. `bind_model:` is load-bearing: this field shape is not bypass-eligible
+ * (see the banner above). Never driven; registration is its whole observable.
+ */
+function paramsArrayIterandTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  xs: array<string>",
+    "---",
+    "for y in xs {",
+    "  y",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bug doc's own §Reproduction row a6, verbatim (the offline witness's cell
+ * a6): a `params:` field declared `string` and a method call the theta 1.0
+ * stdlib does not expose on that declared type. One field, `string`, no
+ * default — `classifyBinderBypass`'s single-string-bypass shape, so it needs no
+ * `bind_model:` chain and its registration verdict is about this bug alone. The
+ * trailing `v` supplies the theta's final value. Never driven: post-fix it does
+ * not register, and pre-fix its registration is the defect.
+ */
+function paramsUnknownMethodTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "params:",
+    "  s: string",
+    "---",
+    "let v = s.frobnicate()",
+    "v",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0192: a params:-declared binding carries its declared type into the type layer, live (Convention: live-host acceptance)", () => {
+  it("registers a caller whose `for` loop iterates a params: field declared array<string>, and does not register a sibling whose method call misuses a params: field's declared string type, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // fixture's outcome could be (wrongly) attributed to a broken workspace
+      // instead of the gates under test.
+      { source: "project", stem: "b192livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The REMOVAL direction: registration-restored.
+      { source: "project", stem: "b192livearray", text: paramsArrayIterandTheta() },
+      // The ADDITION direction, sharing the precondition control above.
+      { source: "project", stem: "b192liverefuse", text: paramsUnknownMethodTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b192livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the gates under test, would explain either fixture's outcome too. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE REMOVAL DIRECTION: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the 32-cell witness
+      // uses), a `for` loop over a `params:` field declared `array<string>`
+      // registers — the field's declared type reaches the type layer's root
+      // bindings map, `checkForIterand` admits the iterand, and
+      // `hasLoadParseError` has nothing to act on.
+      expect(
+        handle.command("b192livearray"),
+        "the caller whose `for` loop iterates a params: field declared " +
+          "array<string> failed to register — theta/parse/non-array-iterand " +
+          "fired on a program control-flow.md:13 admits, at E severity, " +
+          "denying registration. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b192livearray");
+
+      // THE ADDITION DIRECTION: the sibling whose method call misuses a
+      // params: field's declared `string` must NOT register — the opposite
+      // direction, proven in the same cell at no extra token cost.
+      expect(
+        handle.command("b192liverefuse"),
+        "the caller whose method call misuses a params: field declared " +
+          "string registered anyway through the live discovery/session_start " +
+          "path — theta/parse/unknown-method did not fire on the declared " +
+          "params: type. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b192liverefuse");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: both verdicts land at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
+      // 0089/…/0136/0126/0185/0190 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+
+      // Removal direction: absence of the pre-fix regression fragment is the
+      // success signal (mirrors the bug 0089/0136 cells' own convention
+      // exactly). The pre-fix render carries the BINDING'S identifier in the
+      // `<type>` slot, so the substituted type here is `xs`.
+      const regressionFragment = nonArrayIterandFragment("xs");
+      expect(
+        notes.some((note) => note.includes(regressionFragment)),
+        "a theta-system-note entry named the non-array-iterand rejection for " +
+          "the params-array caller — the declared array<string> did not reach " +
+          "the iterand check. Notes: " + JSON.stringify(notes),
+      ).toBe(false);
+
+      // Addition direction: presence of the new rejection fragment is the
+      // success signal (mirrors the bug 0136/0126 cells' own convention
+      // exactly, reusing bug 0125's `unknownMethodFragment`). The type named is
+      // the field's DECLARED type, which is the whole point of the fix.
+      const expectedFragment = unknownMethodFragment("frobnicate", "string");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the unknown-method rejection for " +
+          "the params-method-misuse caller. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

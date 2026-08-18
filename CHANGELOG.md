@@ -6,6 +6,46 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0192 — a `params:`-declared binding carried no declared type into the
+  type-layer walk, so twelve registered `E`-severity checks were unreachable on
+  every read of a frontmatter parameter and `theta/parse/non-array-iterand`
+  refused a spec-legal `for y in xs` over a declared `array<string>`.**
+  `checkTypeLayer` received the `params:` field wire names, passed them to
+  `collectLocalBinderNames` — bug 0050's shadowing `Set<string>`, which cannot
+  carry a type — and then started the top-level walk with an empty bindings map,
+  so a `params:` identifier typed through the nominal identifier fallback as
+  `named "<its own spelling>"` and every judgement sink deferred on it. The
+  byte-identical `fn`-parameter spelling of the same body reported all twelve.
+  The one sink that refuses rather than defers on an unresolvable name,
+  `checkForIterand`, drew an `E` on `for y in xs` over a declared `array<string>`
+  — rendering the binding's own identifier in the message's `<type>` slot — and
+  an `E`-severity `theta/parse/*` denies registration, so a program
+  `control-flow.md:13` admits did not load.
+
+  The parameter now carries both halves in one record array
+  (`ParamsFieldSource`, the field's body-visible name beside its declared type
+  source). The name half feeds `collectLocalBinderNames` unchanged; the type half
+  seeds the root `bindings` map through the same `annotationToCompatType` that
+  `walkFn` uses for an annotated `fn` parameter, so the `params:` and
+  `fn`-parameter positions decide identically by construction —
+  `type-system.md:15` puts them in one annotation-position list. Twelve registry
+  rows become reachable (`non-boolean-condition`, `let-rhs-type-mismatch`,
+  `fn-arg-type-mismatch`, `unknown-method`, `integer-narrowing`,
+  `question-on-non-result`, `non-orderable-operands`, `non-string-array-join`,
+  `non-string-object-index`, `non-indexable-receiver`,
+  `object-field-type-mismatch`, `array-element-type-mismatch`) and the false
+  `non-array-iterand` stops firing at both loop arms. Bug 0190's fn-argument
+  member-read sink composes with it: a params-rooted `g(p.s)` now reports.
+  Inline-object-typed and `enum`-typed `params:` fields keep deferring exactly as
+  their `fn`-parameter controls do, and the lexical layer's
+  `theta/parse/unknown-identifier` is unmoved. No registry row, severity or
+  message changed; no shipped `.theta` / `.thetalib` fixture changes registration
+  in either direction.
+
 ## [0.111.0] - 2026-08-18
 
 ### Fixed

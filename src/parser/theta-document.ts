@@ -927,11 +927,39 @@ export function parseThetaDocument(
   // array-join, and — bug 0050 — a plain `fn` call's argument types). The
   // `params:` field wire names are the same whole-file local-binder source
   // `checkLexicalCallSites` above reads, so a frontmatter parameter shadows a
-  // same-named top-level `fn` exactly as a `let` binding does.
+  // same-named top-level `fn` exactly as a `let` binding does; the declared
+  // type source now rides beside the name in the SAME record, so a `params:`-
+  // declared read also carries its declared type into the walk (bug 0192
+  // §Fix) — one array of `{ name, typeSource }` records rather than two
+  // parallel arrays, so the two channels cannot disagree about which
+  // identifier a field binds.
+  //
+  // NAME-KEYING ADJUDICATION: `wireName` is the body-visible identifier at
+  // this `params:` position — four independent sources agree, not merely a
+  // convenient pick. (i) frontmatter.ts sets `wireName: name` in the SAME loop
+  // iteration that pushes `ParamFieldInput`'s `name` from the same local
+  // variable, so the two are byte-identical by construction. (ii)
+  // src/extension/production-composition.ts's own comment on its tool-arg /
+  // invoke-arg projection: 'wireName is the params: YAML key exactly as
+  // written'. (iii) frontmatter-fields-b-and-templates.md §${param} templates:
+  // '${param.field} paths use theta-side params names throughout — never an
+  // as "WireName" rename target', consistent with the Runtime Value Model
+  // invariant that theta code never sees wire names — that rename applies only
+  // at the schema-field / inline-object positions (bug 0160), never at
+  // `params:`. (iv) `checkLexicalCallSites`'s `rootLocals` above already keys
+  // its root scope by `f.wireName` and is the shipped reader that resolves
+  // body identifiers, so this is that same key.
+  //
+  // REJECTED: `paramFields` (`ParamFieldInput`, `name` + `typeSource`) is also
+  // in scope here and carries identical values for this position, but it is
+  // populated whenever a frontmatter BLOCK exists, whereas `frontmatter` is
+  // `null` when the frontmatter does not register — reading it instead would
+  // silently widen bug 0050's shadowing set for a document with no registered
+  // frontmatter, a behaviour change this report does not claim.
   const typeLayerDiags = checkTypeLayer(
     { statements, tail: resolvedTail },
     file,
-    (frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+    (frontmatter?.params?.fields ?? []).map((f) => ({ name: f.wireName, typeSource: f.type })),
   );
 
   // imports.md §"`.thetalib` file rules": a `.thetalib` top level may contain only

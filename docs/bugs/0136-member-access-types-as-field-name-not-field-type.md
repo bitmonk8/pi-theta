@@ -1798,3 +1798,30 @@ What changed at the sink, and what did not:
   receiver still defers at every sink, verified by probe during bug 0190's
   review; that position remains bug
   [0192](./0192-params-receiver-type-not-threaded-into-type-layer.md)'s.
+
+## Discharge note — bug 0192 landed (0.112.0): residual 5 is closed
+
+- **Residual 5 is discharged.** `checkTypeLayer` now seeds the top-level walk's
+  root `bindings` map from the frontmatter `params:` fields, projecting each
+  field's declared type source through the same `annotationToCompatType` that
+  `walkFn` uses for an annotated `fn` parameter, so a `params:`-declared
+  receiver carries its declared type into this file's member arm. The arm itself
+  is byte-untouched (`src/parser/static-type-inference.ts` blob-identical across
+  that fix): it was already correct for a resolvable receiver, and the gap was
+  one position upstream, exactly as this residual recorded.
+- Row **x20 flipped** from the `[]` deferral BOUND to
+  `theta/parse/non-boolean-condition` / `condition must be boolean; got string`
+  — the value this document's own pre-measurement predicted before measurement
+  contradicted it — under bug 0192 §Fix (f)'s authority, which owns that row's
+  subject. The `X20` fixture, the row's identity and its place are unchanged;
+  its derivation comment was re-derived to cite bug 0192, and the other 71 cells
+  are untouched.
+- The `── BOTH DIRECTIONS ──` header's row classification moved with it: `(x)20`
+  is now RED under neutralisation rather than green in both directions, gated on
+  a measurement taken with bug 0192's fix applied — neutralising this document's
+  member arm reds exactly the header's pre-declared set plus x20, item for item,
+  and nothing else.
+- **Residual 2 is still NOT discharged.** An enum name shadowed by a
+  same-spelled schema is unmoved: bug 0192 seeded a receiver type and touched no
+  mint, so that position remains bug
+  [0191](./0191-enum-name-shadowed-by-schema-fabricates-member-type.md)'s.
