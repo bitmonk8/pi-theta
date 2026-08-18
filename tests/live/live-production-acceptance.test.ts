@@ -8333,3 +8333,204 @@ describe("H8a-T — bug 0194: a withhold recorded for one loop variable does not
     }
   });
 });
+
+// ===========================================================================
+// Bug 0197 — a `params:` default whose member-access HEAD resolves and names no
+// enum (`sev: 'Sev = Box.sev'` against a declared `schema Box`) loaded with ZERO
+// diagnostics, registered, and then bound WITHOUT the field:
+// `walkParamsDefaultNames`'s `member` arm (src/parser/theta-document.ts) refused
+// only an undeclared variant of a declared `enum` and a head that resolves to
+// nothing, and returned silently for a head that RESOLVES to a non-enum — while
+// `grammar.md:26` makes "head is an enum name in scope" a side condition OF the
+// `NamedValueLit` production, so the RHS derives no arm of `Literal` and is an
+// identifier reference that is not an `Enum.Variant` access: one of the forms
+// `theta/parse/default-not-literal`'s registered *Trigger* already enumerates
+// (code-registry-parse.md:48). At invocation the recovery's evaluation panicked,
+// the panic was absorbed, the field never reached the merge, and — because a
+// defaulted field is never in the lowered schema's `required` set (params.ts) —
+// the post-default-merge AJV check admitted the absence, after which the success
+// echo tagged the field `(default)` over a `null`
+// (docs/bugs/0197-params-default-non-enum-head-silently-unfilled.md).
+//
+// The 28-cell (was 14) witness
+// (tests/params-default-unresolvable-enum-variant.test.ts, groups C / L / W / G /
+// E) proves the mechanism offline at the `parseThetaDocument` boundary across all
+// three head-declaration kinds and all three admitted depths, plus the byte-exact
+// span and the echo tag; this cell proves the one consequence that offline
+// harness cannot observe — that the REAL production composition root
+// (session_start → resources_discover → composeExtensionInstance) drops the
+// fixture, so no slash command exists for it and no binder round trip is ever
+// spent. It is the same obligation bug 0185's cell 47 above discharges for the
+// two spellings whose names do not resolve, at the third arm beside them.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens, the same profile as the bug 0059/0126/0136/0185/0190/
+// 0192/0194 cells above. No subagent child process is spawned (every fixture is
+// prompt mode, with no `invoke(...)` and no `subagent fn`), so the
+// #subagent-child-pins convention this file's harness otherwise honours does not
+// apply to this cell. ADDITIVE ONLY: this is cell 51; cells 1–50 are unchanged,
+// and cell 41 (bug 0181's resolvable-variant binder pass) and cell 47 (bug
+// 0185's load refusal) — the two fences bug 0197 §Fix (c7) names — are
+// byte-identical.
+// ===========================================================================
+
+/** Bug 0197's declarations: the enum the field is typed by, and the `schema` whose name is the offending head. */
+const B197_BODY = [
+  'enum Sev { High = "high", Low = "low" }',
+  "schema Box { sev: Sev, who: string }",
+];
+
+/**
+ * The same-shape SIBLING whose default RESOLVES: the SAME body (the enum AND the
+ * `schema Box` whose name the load-bearing fixture's head spells), the same field
+ * name and declared type, with the head naming the ENUM instead of the schema.
+ * Must still register, so this cell cannot pass by failing to discover anything
+ * shaped like its subject, and its registration isolates the refusal below to the
+ * non-enum HEAD rather than to "a `params:` default naming `Enum.Variant` access
+ * cannot register here" — the bug 0059 pair's own isolation, one level up.
+ *
+ * A single field whose declared type is the `NamedType` `Sev` (not `string`) is
+ * not `classifyBinderBypass`'s single-string-bypass shape, so it needs a
+ * resolvable `bind_model:` chain to register — the same reference cell 41 above
+ * already proves resolves live. Never driven: registration is its whole
+ * observable.
+ */
+function resolvableEnumHeadDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  sev: 'Sev = Sev.High'",
+    "---",
+    ...B197_BODY,
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bug's own subject, verbatim (docs/bugs/0197-…md §Reproduction (a) row a1 /
+ * the unit witness's cell `m11`): the sibling above with ONE identifier changed,
+ * the head naming the declared `schema` instead of the `enum`. Post-fix the
+ * gate's third arm refuses this at LOAD with `theta/parse/default-not-literal` at
+ * the `params:` field's own range, so `hasLoadParseError`
+ * (src/extension/production-composition.ts) denies registration strictly before
+ * `resolveBinderModel` is reached and before any envelope exists.
+ *
+ * Declares the SAME `bind_model:` the sibling above does, for cell 47's stated
+ * reason: an UNDECLARED `bind_model:` would introduce a second, unrelated
+ * load-time refusal (`theta/load/binder-model-unresolved`, a non-bypass theta
+ * with no resolvable binder-model chain) that would also deny registration — for
+ * the wrong reason, confounding the attribution this cell's obligation requires.
+ */
+function nonEnumHeadDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  sev: 'Sev = Box.sev'",
+    "---",
+    ...B197_BODY,
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0197: a params: default whose member-access head resolves and names no enum does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose params: default names a declared schema at the head of an Enum.Variant access, while a precondition control and the same-shape enum-head sibling both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a broken
+      // workspace could be (wrongly) blamed for the refusing fixture's absence
+      // too.
+      { source: "project", stem: "b197livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling whose default's head is the ENUM — must still
+      // register, so this cell cannot pass by failing to discover anything
+      // shaped like its subject.
+      {
+        source: "project",
+        stem: "b197liveresolves",
+        text: resolvableEnumHeadDefaultTheta(),
+      },
+      // The load-bearing refusing theta: the bug's own subject.
+      { source: "project", stem: "b197livebox", text: nonEnumHeadDefaultTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b197livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the head classification under test, would explain the refusing " +
+          "fixture's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b197liveresolves"),
+        "the same-shape sibling whose default's head names the ENUM did not " +
+          "register — a params: default naming Enum.Variant access cannot " +
+          "register in this harness at all, independent of this bug; that would " +
+          "leave the refusing fixture's absence unwitnessed rather than caused " +
+          "by the non-enum head. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE DEFECT: through the REAL production composition root (not the
+      // offline parseThetaDocument harness the unit witness uses), the theta
+      // whose params: default spells a declared `schema` at the head of an
+      // Enum.Variant access registers — the gate's `member` arm falls through
+      // silently for a head that resolves and names no enum, so
+      // hasLoadParseError has nothing to act on, one binder round trip is spent
+      // per invocation, and the field is bound absent with the echo claiming it
+      // was filled.
+      expect(
+        handle.command("b197livebox"),
+        "the theta whose params: default names a declared schema at the head " +
+          "of an Enum.Variant access registered anyway through the live " +
+          "discovery/session_start path — theta/parse/default-not-literal did " +
+          "not fire from the params: position, while the b197liveresolves " +
+          "sibling (the same theta with the enum at the head) registered as it " +
+          "must. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b197livebox");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/0084/
+      // 0089/…/0166/0185/0194 cells above). Reuses this file's existing
+      // `defaultNotLiteralFragment` reader (bug 0166's addition) rather than a
+      // second one — DIAG-4 makes the registry's Message column normative, and
+      // `<expr>` is the offending sub-expression's own source span
+      // (placeholder-rendering-a.md:49).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = defaultNotLiteralFragment("Box.sev");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the default-not-literal rejection, " +
+          "naming the offending sub-expression, for the refusing fixture. " +
+          "Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+      expect(
+        notes.some(
+          (note) => note.includes("theta/parse/") && note.includes("b197liveresolves"),
+        ),
+        "a theta/parse/ note named the enum-head sibling, whose default " +
+          "RESOLVES — the gate must keep its enum-first head precedence and " +
+          "draw no theta/parse/ refusal against it; the universal W-severity " +
+          "theta/load/binder-model-strict-capability-unknown note naming its " +
+          "path (code-registry-load.md:37) fires on every conforming run and " +
+          "is expected, out of scope here. Notes: " + JSON.stringify(notes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

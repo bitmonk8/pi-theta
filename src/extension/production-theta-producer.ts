@@ -608,12 +608,16 @@ class UnknownHostToolError extends Error {}
  * the malformed retry re-issues against the SAME schema).
  */
 /**
- * The post-default-merge outcome `runBinder` routes on: the merged `args` plus
- * the `params`-boundary classification the named hook computed over them.
+ * The post-default-merge outcome `runBinder` routes on: the merged `args`, the
+ * `params`-boundary classification the named hook computed over them, and the
+ * wire names `fillDefaultsAndRevalidate` actually filled — the echo's `(default)`
+ * tag source (`defaulting.ts:70–75`), so the tag is read from what the fill step
+ * did rather than recomputed from what the theta declared.
  */
 interface MergedDeclaredDefaults {
   readonly args: Readonly<Record<string, unknown>>;
   readonly classification: BinderArgsClassification;
+  readonly defaultedWireNames: readonly string[];
 }
 
 interface BinderForcedToolDispatch {
@@ -929,7 +933,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // one-line success echo note (`Running /<name>: …`) on the theta-system-note
     // channel immediately before the theta starts, UNLESS `bind_echo: false`. The
     // bypass arms auto-suppress the echo independently and never reach here.
-    this.#emitBinderEchoNote(binderInput.theta, params, binderArgs, merged.args);
+    this.#emitBinderEchoNote(binderInput.theta, params, merged.args, merged.defaultedWireNames);
     return { bound: true, args: merged.args };
   }
 
@@ -938,22 +942,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `Running /<name>: <formatted-args>` system note on the theta-system-note
    * channel — the SAME `pi.sendMessage` delivery the SLSH-1 overflow / SNOTE-1
    * notes use — unless `bind_echo:` is `false`. Each top-level `params:` field
-   * renders in declaration order; a field that took its declared default this
-   * run (absent from the binder-supplied `args`) is tagged `(default)`. The echo
-   * is rendered off the resolved runtime values (value-driven `EchoType`
-   * derivation, disambiguating `integer` vs `number` from the lowered schema)
-   * and passed through the shared 120-code-point cap.
+   * renders in declaration order; a field is tagged `(default)` iff its wire
+   * name is in `defaultedWireNames`, the fill step's own report of which
+   * fields took their declared default this run
+   * (defaulting-system-note-echo.md:9; `defaulting.ts:70–75`,
+   * `argument-echo.ts:74`). The echo is rendered off the resolved runtime
+   * values (value-driven `EchoType` derivation, disambiguating `integer` vs
+   * `number` from the lowered schema) and passed through the shared
+   * 120-code-point cap.
    */
   #emitBinderEchoNote(
     theta: ConversationBindInput["theta"],
     params: NonNullable<ConversationBindInput["theta"]["frontmatter"]["params"]>,
-    binderArgs: Readonly<Record<string, unknown>>,
     mergedArgs: Readonly<Record<string, unknown>>,
+    defaultedWireNames: readonly string[],
   ): void {
     if (theta.frontmatter.bindEcho === false) {
       return;
     }
-    const defaulted = new Set(params.defaultedFields);
+    const tookDefaultWireNames = new Set(defaultedWireNames);
     const properties =
       params.loweredSchema !== undefined
         ? ((params.loweredSchema as Record<string, unknown>)["properties"] as
@@ -962,12 +969,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         : undefined;
     const echoParams: EchoParam[] = params.fields.map((field) => {
       const value = (mergedArgs[field.wireName] ?? null) as ThetaValue;
-      // The `(default)` tag fires only when the field took its declared default
-      // this run (fill-if-absent): a wire name ABSENT from the binder-supplied
-      // args and declared defaulted.
-      const tookDefault =
-        defaulted.has(field.wireName) &&
-        !Object.prototype.hasOwnProperty.call(binderArgs, field.wireName);
+      // The tag is membership in `defaultedWireNames`, not a recomputation from
+      // the theta's declared defaults: a field the fill step could not recover
+      // a value for (`#recoverDeclaredDefaults`'s best-effort arms) is absent
+      // from `defaultedWireNames` even though it is declared defaulted, so it
+      // renders untagged rather than claiming a fill that did not happen.
+      const tookDefault = tookDefaultWireNames.has(field.wireName);
       return {
         name: field.wireName,
         value,
@@ -1262,8 +1269,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     if (params.loweredSchema === undefined) {
       // No lowered `params:` document to validate against, so the boundary this
       // hook guards does not exist for this theta. (`runBinder` already returns
-      // ahead of the binder pass in that case; this is its type narrowing.)
-      return { args: binderArgs, classification: { kind: "ok" } };
+      // ahead of the binder pass in that case; this is its type narrowing.) No
+      // fill step ran, so no wire name took a default.
+      return { args: binderArgs, classification: { kind: "ok" }, defaultedWireNames: [] };
     }
     // Recovery is best-effort and may yield nothing (an in-memory theta, an
     // unreadable file, a default that does not re-parse, a default whose
@@ -1278,7 +1286,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // returned to the caller, which owns the body-run vs short-circuit routing.
     const validator = this.#input.root.schemaValidator.compile(params.loweredSchema);
     const result = fillDefaultsAndRevalidate({ binderArgs, defaults, validator });
-    return { args: result.args, classification: result.classification };
+    return {
+      args: result.args,
+      classification: result.classification,
+      defaultedWireNames: result.defaultedWireNames,
+    };
   }
 
   /**

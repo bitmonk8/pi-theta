@@ -1,24 +1,19 @@
 # Bug 0197 — A `params:` default whose member-access head RESOLVES but names no enum — `sev: 'Sev = Box.sev'` against a declared `schema Box` — loads with zero diagnostics, and every invocation that omits the field binds WITHOUT it: `checkParamsDefaultNames` (`theta-document.ts:5934–5959`) refuses only an undeclared variant of a declared enum and a head that resolves to nothing, the recovery's `isThetaPanic` catch (`production-theta-producer.ts:1364–1371`) absorbs the panic, a defaulted field is never in the lowered schema's `required` set (`params.ts:277–278`) so the post-merge AJV check admits the absence, and the operator's success echo tags the field `(default)` while rendering `null` — a declared default admitted at load and never bound, after which a `string`-annotated param reaches the body as `null` (measured `"hi null"`) or the first field read aborts the theta at `theta/runtime/null-member-access`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three remedy points
-  are enumerated with their measured end states, and the run adjudicates the
-  code identity (`theta/parse/default-not-literal`,
-  `theta/parse/unknown-identifier`, or a DIAG-2 mint) against the sentences
-  §Expected behaviour quotes. Ordering: nothing blocks this report
-  from starting and it blocks nothing, but two open reports meet it and neither
-  may be assumed —
-  [0140](./0140-bare-schema-reference-value-position-silent.md) owns the
-  identifier root set this position's gate consumes, so a 0140 fix that stops
-  folding declaration names into the value scope changes this position's verdict
-  without deciding it (§Fix (e1), mechanism verified); and
-  [0191](./0191-enum-name-shadowed-by-schema-fabricates-member-type.md) owns the
-  enum-name question at the head, which this gate and the type layer answer
-  differently today (§Reproduction (f)). A fix here also **flips cell C** of
-  `tests/params-default-unresolvable-enum-variant.test.ts:1157–1200`, which pins
-  the current end state as a fence for exactly this input; the flip is this
-  report's to authorise, because
+- **Status:** fixed (0.114.0). Was open with §Fix constraint-pinned; the run
+  adjudicated the code identity as `theta/parse/default-not-literal` against
+  all three candidates and composed remedy routes (1) + (3) — the full record
+  is `## Fix (0.114.0)` below. The two open reports that met it were held to,
+  not decided: [0140](./0140-bare-schema-reference-value-position-silent.md)'s
+  body-position code question stays UNASSUMED (no evaluator arm, no root set
+  edited), and
+  [0191](./0191-enum-name-shadowed-by-schema-fabricates-member-type.md)'s
+  shadow question stays open with this gate's enum-first head precedence kept
+  and recorded. Cell C of
+  `tests/params-default-unresolvable-enum-variant.test.ts` — the fence
   [0185](./0185-unresolvable-enum-variant-default-panics-recovery.md)'s
-  `## Fix (0.109.0)` installed the cell for that purpose.
+  `## Fix (0.109.0)` installed for exactly this flip — was rewritten as the
+  load-refusal row under this report's authority.
 - **Sev/Diff estimate:** S1/D3 — S1 because the theta loads with zero
   diagnostics, registers, binds, and runs while the declared default is never
   applied: the invocation's `args` omit the field (`{"topic":"hello"}`
@@ -1090,3 +1085,134 @@ the fixture, the range oracle and the three fences). Rows owed:
   tests/params-default-unresolvable-enum-variant.test.ts` gives
   `Tests 14 passed (14)`.
 - Style authority: `docs/STYLE.md`.
+
+## Fix (0.114.0)
+
+- What shipped, keyed to §Fix:
+  - **Route (1) — the load gate's third arm.** `walkParamsDefaultNames`'s
+    `member` arm (`src/parser/theta-document.ts`) emits
+    `theta/parse/default-not-literal` when, and only when,
+    `enums.get(head) === undefined && roots.has(head)` — a head that RESOLVES
+    in the whole-file identifier root scope and names no declared `enum`. The
+    enum arm still runs FIRST (the 0191 precedence, kept); the
+    unresolved-head arm still draws `theta/parse/unknown-identifier` (it
+    gained an explicit `return`, a no-op — the pre-image fell through to the
+    same terminal return); the already-refused-field skip and the
+    `expr.target.kind !== "ident"` early return are untouched. The message is
+    `params default RHS must be a literal-sublanguage form; offending
+    sub-expression: <expr>` with `<expr>` sliced BYTE-EXACT from the field's
+    own `defaultSource` via the pre-existing `positionToOffset`
+    (placeholder-rendering-a.md's render-the-source-span-verbatim rule; an
+    access written `Box . sev` renders its internal whitespace back — witness
+    cell W). The range is the `params:` field's own. The gate's exemption
+    doc-comment was re-derived into the three-arm statement (WHY, not
+    history).
+  - **Route (3) — echo honesty.** `MergedDeclaredDefaults`
+    (`src/extension/production-theta-producer.ts`) gained
+    `defaultedWireNames`, threaded from `fillDefaultsAndRevalidate`'s own
+    report at both construction sites (the loweredSchema-undefined arm
+    returns `[]`); `#emitBinderEchoNote` now tags `(default)` by membership
+    in that list instead of recomputing from `params.defaultedFields` + an
+    absent binder key, and its dead `binderArgs` parameter is gone. A field
+    the recovery could not produce a value for renders UNTAGGED.
+  - **Route (2) NOT taken**, exactly as §Fix (a) frames it: (1) landing makes
+    the bind-time refusal unreachable for this class, and (2) would spend a
+    model call and mint a new binder refusal row.
+  - **Spec, same commit:**
+    `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §Defaults — the
+    0185 clause re-derived to split the head condition's two failure modes: a
+    head that resolves to NOTHING leaves the intended form undetermined and
+    stays a NAME question (`theta/parse/unknown-identifier`); a head that
+    RESOLVES to a declaration that is not an enum determines the form
+    completely — the RHS is an identifier reference that is not an
+    `Enum.Variant` access, one of the shape violations already enumerated —
+    and is `theta/parse/default-not-literal`. The registry row is BYTE-
+    UNCHANGED (no Trigger/Message edit — the row's enumeration already covers
+    the form), so DIAG-2/DIAG-4 are not engaged; the reference mirrors
+    (`docs/reference/frontmatter.md`, `docs/reference/grammar.md`) already
+    state non-`Enum.Variant` identifier references as
+    `default-not-literal` and carry no 0185 clause — verified, unchanged.
+- Adjudications (recorded in full in `.pi/tmp/fixes/0197-brief.md`):
+  - **Code identity = `theta/parse/default-not-literal`**, stated against all
+    three candidates: CHOSEN because the row's registered Trigger already
+    enumerates "identifier reference other than `Enum.Variant`" and
+    `Box.sev`'s head fails `grammar.md`'s head side condition, so the RHS
+    derives no `NamedValueLit` and the row covers it by construction, one row
+    for every head kind, naming the offending sub-expression.
+    `theta/parse/unknown-identifier` REJECTED: `unknown identifier 'Box'` for
+    a name declared in the same file is the misdescription 0140 §Fix route 1
+    weighs against, and taking it would settle 0140's open code question by
+    precedent. A NEW code REJECTED: its stated benefit (naming the head's
+    declaration kind) is unattainable without a name→kind source the gate
+    does not have — building one would answer 0191's shadow question, and
+    adopting the type layer's shadow-preferring answer would refuse shadowed
+    `X.Variant` defaults that load today (a GOV-15 flip on 0191's admitted
+    class).
+  - **0140 UNASSUMED.** No evaluator arm and no root set edited
+    (`collectIdentRoots`, `evaluatePureExpression`, the body walk all
+    byte-unchanged), so 0140's body-position rows are untouched —
+    `let x = Box.sev` still loads clean and still aborts at
+    `theta/runtime/null-member-access`. Its code question stays open; a later
+    0140 fix states what its route does to this `params:` position.
+  - **0191's disposition recorded, not fixed.** This gate keeps consulting
+    `hoistEnumVariants` BEFORE `roots`, so under a same-file `schema X` /
+    `enum X` shadow the head is still the ENUM here (witness rows F1/F2/F3
+    pin the three verdicts). NO new enum-name source was introduced — the
+    hoisted variant sets are the gate's existing one.
+- Gates: witness `tests/params-default-unresolvable-enum-variant.test.ts`
+  14 → 28 cells, 28/28 green (cell C rewritten as the load-refusal row under
+  this report's own authority — the fence 0185 installed for exactly this
+  flip — plus L2–L7 head-kind/depth rows, W whitespace preservation, X/F1–F3
+  controls, G registration, E echo honesty, K corpus census; group-C header
+  prose re-derived; groups A/B/D/R byte-unchanged). `npm test` 316 files /
+  5359 tests green; `npx tsc -p tsconfig.json --noEmit` clean;
+  `npm run lint` clean. Live: additive H8a cell (three planted thetas —
+  control, refused, enum-head sibling), full H8a 51/51, H9a 11/11 across BOTH
+  acceptance files, `tests/fixtures/h7a/permitted-codes.json` byte-unchanged
+  (`a4a8da04…`) — decided by the real runs.
+- Review: r1 deep — ONE finding, F1 [test]: the H8a cell's final assertion
+  was permanently red (a bare `b197liveresolves` substring predicate fights
+  the universal `theta/load/binder-model-strict-capability-unknown` W-note,
+  which names every theta's path on conforming runs). Fixed by fixer-light on
+  the settled remedy: predicate scoped to
+  `note.includes("theta/parse/") && note.includes("b197liveresolves")`,
+  failure message re-derived; the cell runs green live. r2 fast
+  (confirmation — the fixer touched an executable test line) — CLEAN; it
+  traced the scoped predicate non-vacuous (a real mis-refusal note would
+  carry both substrings).
+- Verification: SOLID (`.pi/tmp/fixes/0197-verify.md`). Neutralisation (a),
+  route 1 alone reverted: predicted and got EXACTLY cells C/L2–L7/W/G red
+  (9/28; full suite 9/5359) with the live cell red on registration-denial and
+  cell E green (E is route 3's isolating witness). Neutralisation (b), route
+  3 alone reverted: predicted and got EXACTLY cell E red (1/28) with the live
+  cell green. Both restores blob-hash-verified. Registry page, reference
+  mirrors, and the three protected sibling witnesses
+  (`params-default-type-compat`, `params-default-enum-access-merge`,
+  `binder-post-merge-ajv-enforcement`) byte-unchanged.
+- GOV-15: the flip class is exactly a `params:` default whose member-access
+  head resolves in the whole-file root scope and names no declared `enum`, at
+  the bare field, an array element, or an object field value — the addition
+  direction through the diagnostic-registry carve-out, the disposition 0185
+  applied for the sibling spellings. Census at HEAD re-run: 34 committed
+  `.theta`/`.thetalib` files, 0 declaring an `enum`, 0 carrying a
+  member-access `params:` default — corpus reach zero.
+- Process note (the 0066 precedent): the orchestrator died host-side after
+  gating Phase 1 (10 RED right-reason) and dispatching Phase 2; the main
+  session completed phases 2–5 under the §Stability fallback, driving the
+  review loop and verifier itself. The orchestrator's binding adjudications
+  survived in `.pi/tmp/fixes/0197-brief.md` and were implemented verbatim.
+- Residuals: none filed. Recorded-not-filed: the
+  `tests/binder-post-merge-ajv-enforcement.test.ts` comment describing a
+  `name=null (default)` rendering is a superseded pre-0066 narrative (its own
+  cell asserts no success echo at all) — 0134's class; bug 0092's doc carries
+  a stale illustrative citation of the removed `binderArgs` guard — 0134's
+  class, disclosed by the verifier.
+- Discharge notes appended: 0185's doc (its `## Fix (0.109.0)` residual 2 —
+  the "not re-filed" disposition was overridden by the parent at 0197's
+  filing and the defect is now fixed here).
+- Pinned dispositions / non-goals: the recovery's `isThetaPanic` absorption
+  and its three best-effort arms keep their end state (only their ECHO
+  stopped over-claiming); defaulted fields STAY OUT of the lowered schema's
+  `required` set (0185 residual 1); the value-mismatch fence (`Sev = "nope"`)
+  stays at the merge; row c6's `type-system.md` §Unresolvable-operands
+  deferral survives verbatim.

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,30 +25,71 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // recovery whose caller's doc-comment (`:1245`) says it never throws
 // (docs/bugs/0185-unresolvable-enum-variant-default-panics-recovery.md).
 //
-// WHAT IS RED HERE AND WHY, row by row.
-//   LOAD (group A) — eight cells, each red because the diagnostic list is
-//   EMPTY at HEAD. `m1` (bare annotated field), `m6` (`Box { … }` field), `m12`
-//   (bare-object field), `m7` (array element) and `m8` (union arm) each expect
-//   the one `theta/parse/unknown-variant` the byte-identical body expression
-//   already draws; `m9` expects the same code for the case-mismatched variant
-//   (variant names are case-sensitive); `m2` expects
-//   `theta/parse/unknown-identifier` for the unregistered head, the pair the
-//   body position mints; `m10` is `m1`'s fixture whose scripted envelope
-//   SUPPLIES the field, and it expects the identical refusal — the row that
-//   proves the abort at HEAD is unconditional on the default being used. Every
-//   expected range is the `params:` field's OWN range (the YAML value node's,
-//   `src/parser/frontmatter.ts:730`), never the synthesized zero body range the
-//   panic carries.
-//   INVOCATION (group C) — `m11` (`sev: 'Sev = Box.sev'`) is the one input the
-//   parse gate does not pre-empt: its head RESOLVES but names no enum, so the
-//   body position is silent on it too. It is red because the dispatch delivers
-//   `emitPanicNote("theta /m11 aborted: null member access: .sev", …)` instead
-//   of settling on a value.
-//   GREEN BY DESIGN, on both sides of the fix — group B's three fences (`s1`,
-//   `s14`, `s11`), group D's precedence row (`p1`) and group R's range oracle
-//   (`r1`). They fence the flip class: a resolvable variant, deferral row c6, a
-//   VALUE outside the variant set, a field already carrying an error-severity
-//   default diagnostic, and the range arithmetic itself.
+// Bug 0197 — the residual that fix left at this position, and this file's
+// current subject: a `params:` default whose member-access HEAD resolves and
+// names no enum (`sev: 'Sev = Box.sev'` against the declared `schema Box`) loads
+// with ZERO diagnostics, registers, and then binds WITHOUT the field.
+// `walkParamsDefaultNames`'s `member` arm
+// (`src/parser/theta-document.ts:5962–5988`) asks two questions — the head names
+// a declared `enum` and the tail is not one of its variants (`:5967–5977`), or
+// the head resolves to nothing in the whole-file root scope (`:5978–5986`) — and
+// returns silently (`:5987`) for their conjunction, which is every name
+// `collectIdentRoots` (`:4774`) folds except a declared `enum`. At invocation the
+// recovery evaluates the default, `resolveEnumVariant` answers `undefined`, and
+// the `NullMemberAccessPanic` is absorbed by the `isThetaPanic` catch
+// (`src/extension/production-theta-producer.ts:1364–1371`), which `continue`s —
+// so the field never reaches `defaults`, `fillDefaultsAndRevalidate` fills only
+// what it is handed (`src/binder/defaulting.ts:134–139`), and a defaulted field
+// is never in the lowered schema's `required` set
+// (`src/parser/params.ts:277–278`), so the post-default-merge AJV check admits
+// the absence. The one surface that speaks asserts the opposite:
+// `#emitBinderEchoNote` (`production-theta-producer.ts:947`) recomputes the
+// `(default)` tag from `params.defaultedFields` plus an absent binder key
+// (`:968–970`) instead of reading the fill step's own report
+// (`defaulting.ts:75`, whose doc-comment `:70–74` and
+// `src/render/argument-echo.ts:74` both name as the tag's source), so a field
+// that took no default renders `sev=null (default)`
+// (docs/bugs/0197-params-default-non-enum-head-silently-unfilled.md).
+//
+// WHAT IS RED HERE AND WHY, row by row, at HEAD `a7d15562` (v0.113.0). The
+// `RED (…)` / `GREEN (…)` prefix on each row names the state that row was ADDED
+// in, so group A's eight rows keep 0185's `RED` prefixes and are green here.
+//   LOAD (bug 0197: group C plus groups L, W) — eight cells, each red because
+//   the diagnostic list is EMPTY at HEAD: the bare annotated field (group C,
+//   `m11`), a second declared `schema` head (`a2`), a `params:`-field head
+//   (`a3`), a declared `fn` head (`a4`), the array element (`a5`), the
+//   schema-constructor field (`a6`), the bare-object field (`a6b`), and the
+//   spelling carrying internal whitespace (group W, `a1w`). Each expects one
+//   error-severity `theta/parse/default-not-literal` at the `params:` field's
+//   OWN range (the YAML value node's — `rangeOf((item.value ?? item.key) …)`,
+//   `src/parser/frontmatter.ts:739`), whose message is READ from the registry
+//   (DIAG-4) with `<expr>` filled by the offending sub-expression's own bytes.
+//   Group W is the row that separates a rendered SOURCE SPAN from a
+//   reconstructed `<head>.<field>`: `Sev = Box . sev` must render `Box . sev`,
+//   internal whitespace preserved
+//   (`docs/spec_topics/diagnostics/placeholder-rendering-a.md:49`).
+//   REGISTRATION (group G) — the same eight fixtures, projected through the
+//   predicate the discovery parse-drop gate applies to a discovered `.theta`
+//   (`hasLoadParseError`, `src/extension/production-composition.ts:2214–2221`,
+//   at `:2261`): red because none of them carries the error-severity
+//   `theta/parse/*` that gate consumes.
+//   ECHO (group E) — `e1` is group B's `s1` fixture driven as an in-memory
+//   theta (no `sourcePath`), the recovery's FIRST best-effort arm and the one
+//   arm a load refusal does not remove from the invocation path. It is red
+//   because the success echo tags a field that took no default: HEAD renders
+//   `sev=null (default)` where the row expects `sev=null`.
+//   GREEN ON BOTH SIDES — group A's eight 0185 load rows, group B's three
+//   fences (`s1`, `s14`, `s11`), group D's precedence row (`p1`), group R's
+//   range oracle (`r1`), group X's two displacement controls (group A's `m1` /
+//   `m2` fixtures re-read for their CODES, proving the third arm displaced
+//   neither existing one), group F's three shadow rows (`f1`, `f2`, `f3` — the
+//   head is the declared `enum` under a same-file `schema` shadow, so
+//   `Color.Red` stays silent and `Color.Nope` / `Color.a` stay
+//   `theta/parse/unknown-variant`) and group K's corpus census. They fence the
+//   flip class: a resolvable variant, deferral row c6, a VALUE outside the
+//   variant set, a field already carrying an error-severity default diagnostic,
+//   the range arithmetic, both existing name arms, this gate's enum-first head
+//   precedence, and the flip's reach over the committed corpus.
 //
 // MEASURED SIGNATURES AT HEAD `a8d95853` (v0.108.0), offline, deterministic,
 // provider-free; re-derived by probe before this file was added, then deleted.
@@ -76,12 +118,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //   s14 bound=true  {"topic":"hello","p":"A"}       Running /s14: topic=hello, p=A (default)
 //   s11 bound=false theta /s11: argument binding produced invalid args —
 //                   /sev must be equal to one of the allowed values
-// POST-FIX, the observables group C pins: no panic note, `bound=true`,
-// `args={"topic":"hello"}` (the field left UNFILLED, as the recovery's three
-// already-documented best-effort cases leave theirs), echo
-// `Running /m11: topic=hello, sev=null (default)`. A defaulted field is dropped
-// from the lowered schema's `required` set (`src/parser/params.ts:277`), so the
-// merge admits the absent field and no AJV refusal is reachable on this row.
+//
+// MEASURED SIGNATURES AT HEAD `a7d15562` (v0.113.0) for bug 0197's rows,
+// offline, deterministic, provider-free; re-derived by probe before those rows
+// were added, then deleted. LOAD — every head-class fixture, at every admitted
+// depth and in both spellings of the same access, parses with ZERO diagnostics:
+//   sev: 'Sev = Box.sev'                        diags []   [m11, group C]
+//   sev: 'Sev = Plain.who'                      diags []   [a2]
+//   sev: 'Sev = topic.foo'                      diags []   [a3]
+//   sev: 'Sev = f.foo'                          diags []   [a4]
+//   sevs: 'array<Sev> = [Box.sev]'              diags []   [a5]
+//   box: 'Box = Box { sev: Box.sev, who: "w" }' diags []   [a6]
+//   box: 'Box = { sev: Box.sev, who: "w" }'     diags []   [a6b]
+//   sev: 'Sev = Box . sev'                      diags []   [a1w, group W]
+// The three shadow rows already carry the verdicts group F pins for them —
+// `Color = Color.Red` `[]`, `Color = Color.Nope` and `Color = Color.a` one
+// `theta/parse/unknown-variant` each at the field's own range — and the corpus
+// census reads 34 committed `.theta` / `.thetalib` files, 0 declaring an `enum`
+// and 0 carrying a member-access `params:` default, so the flip class has zero
+// reach over shipped source.
+// INVOCATION at this HEAD. `m11`'s row is the verdict group C itself pinned,
+// green at `a7d15562` before the rewrite below — the end state 0185 installed it
+// to fence and bug 0197 §Fix (c6) authorises moving. `e1`'s row is measured on
+// the probe:
+//   m11 panics [] errNotes [] bound=true {"topic":"hello"}
+//       Running /m11: topic=hello, sev=null (default)   binderCalls 1
+//   e1  (no `sourcePath`, the recovery's first best-effort arm)
+//       Running /e1: topic=hello, sev=null (default)
+// POST-FIX, the observables these rows pin: each of the eight load fixtures
+// draws ONE error-severity `theta/parse/default-not-literal` at the `params:`
+// field's own range, so `hasLoadParseError`
+// (`src/extension/production-composition.ts:2214–2221`, consumed by the
+// discovery parse-drop gate at `:2261`) denies registration and no binder call
+// is reachable for the spelling at all; and the echo reads the fill step's own
+// `defaultedWireNames`, so a field that took no default renders UNTAGGED
+// (`Running /e1: topic=hello, sev=null`) while a field that genuinely took its
+// declared default keeps its tag (group B's `s1` / `s14`, byte-identical).
 //
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/schemas.md:97 — "Unknown-variant references
@@ -302,6 +374,21 @@ function unknownIdentifierMessage(name: string): string {
   return registryMessageOf(UNKNOWN_IDENTIFIER_CODE).replace("<name>", () => name);
 }
 
+/**
+ * The not-literal message for one offending sub-expression. The replacement is a
+ * function so a `$` inside the rendered span can never read as a
+ * `String.replace` substitution pattern.
+ *
+ * `docs/spec_topics/diagnostics/placeholder-rendering-a.md:49` makes `<expr>`
+ * "the offending source span verbatim, copied byte-for-byte … with internal
+ * whitespace preserved", so every caller below passes the fixture's OWN bytes
+ * rather than a `<head>.<field>` reconstruction of them — which is what makes
+ * group W discriminating.
+ */
+function notLiteralMessage(expr: string): string {
+  return registryMessageOf(NOT_LITERAL_CODE).replace("<expr>", () => expr);
+}
+
 // ===========================================================================
 // Fixtures.
 // ===========================================================================
@@ -325,6 +412,25 @@ const ENUM_BODY = [
  * whose enum declares bare variants so the wire strings are `"A"` / `"B"`.
  */
 const C6_BODY = "enum Sev { A, B }";
+
+/**
+ * `ENUM_BODY` plus a declared `fn`, so cell `a4`'s head names a callable. A `fn`
+ * is a root (`collectIdentRoots`, `src/parser/theta-document.ts:4774`, folds
+ * `fn` / `schema` / `enum` names) and has no first-class value under FN-1, so it
+ * is a head the gate's root scope admits and no environment can ever bind.
+ */
+const FN_HEAD_BODY = `${ENUM_BODY}\nfn f(): number { 1 }`;
+
+/**
+ * Bug 0197 §Reproduction (f)'s body: a declared `enum` shadowed by a same-file
+ * `schema` of the same name. Group F pins which declaration this gate's `member`
+ * arm resolves the head against — `hoistEnumVariants`
+ * (`src/parser/theta-document.ts:5858`) is consulted FIRST (the arm's own first
+ * test, `:5967`), so the head is the ENUM here even though the type layer
+ * prefers the shadowing `schema` (bug 0191's open subject). A route that read
+ * declaration kind instead would refuse `Color.Red`, which loads today.
+ */
+const SHADOW_BODY = ["enum Color { Red }", "schema Color { a: string }"].join("\n");
 
 /** The two-space `params:` indent every fixture field carries. */
 const FIELD_INDENT = "  ";
@@ -417,6 +523,56 @@ const CELLS = {
   },
   /** (R) The range oracle — a shape the shipped parser already locates. */
   r1: { field: `sev: 'Sev = foo()'`, body: ENUM_BODY, envelope: OMITTED },
+  /** (L2) A SECOND declared `schema` head — the class is not one name. */
+  a2: { field: `sev: 'Sev = Plain.who'`, body: ENUM_BODY, envelope: OMITTED },
+  /**
+   * (L3) A `params:`-field head. `topic` is a root (`collectIdentRoots` folds
+   * the field names) and can never be bound while a default evaluates:
+   * `#recoverDeclaredDefaults` builds the environment with `paramBindings`
+   * `undefined` (`src/extension/production-theta-producer.ts:1321–1326`).
+   */
+  a3: { field: `sev: 'Sev = topic.foo'`, body: ENUM_BODY, envelope: OMITTED },
+  /** (L4) A declared `fn` head — a root with no first-class value at all. */
+  a4: { field: `sev: 'Sev = f.foo'`, body: FN_HEAD_BODY, envelope: OMITTED },
+  /** (L5) The array element — the same head one container production down. */
+  a5: { field: `sevs: 'array<Sev> = [Box.sev]'`, body: ENUM_BODY, envelope: OMITTED },
+  /** (L6) The schema-constructor field value. */
+  a6: {
+    field: `box: 'Box = Box { sev: Box.sev, who: "w" }'`,
+    body: ENUM_BODY,
+    envelope: OMITTED,
+  },
+  /** (L7) The bare-object spelling of `a6` — the second admitted object form. */
+  a6b: {
+    field: `box: 'Box = { sev: Box.sev, who: "w" }'`,
+    body: ENUM_BODY,
+    envelope: OMITTED,
+  },
+  /**
+   * (W) `m11`'s access with internal whitespace. The only cell whose rendered
+   * `<expr>` differs from `<head>.<field>`, so it is the row that separates a
+   * message sliced from the source from one reconstructed out of the two
+   * identifier texts.
+   */
+  a1w: { field: `sev: 'Sev = Box . sev'`, body: ENUM_BODY, envelope: OMITTED },
+  /** (F1) The shadowed head with a DECLARED variant — loads today, keeps loading. */
+  f1: { field: `sev: 'Color = Color.Red'`, body: SHADOW_BODY, envelope: OMITTED },
+  /** (F2) The shadowed head with an undeclared tail — the enum arm claims it. */
+  f2: { field: `sev: 'Color = Color.Nope'`, body: SHADOW_BODY, envelope: OMITTED },
+  /**
+   * (F3) The shadowed head whose tail is a declared FIELD of the shadowing
+   * `schema` — still an unknown VARIANT, because the enum wins the head.
+   */
+  f3: { field: `sev: 'Color = Color.a'`, body: SHADOW_BODY, envelope: OMITTED },
+  /**
+   * (E) `s1`'s fixture, byte for byte, driven as an IN-MEMORY theta (no
+   * `sourcePath`). Its default resolves, so the only reason its field goes
+   * unfilled is the recovery's first best-effort exit
+   * (`#recoverDeclaredDefaults`, `production-theta-producer.ts:1305–1308`) — the
+   * one unfilled-field vehicle a load refusal on the reported spelling does not
+   * remove from the invocation path.
+   */
+  e1: { field: `sev: 'Sev = Sev.High'`, body: ENUM_BODY, envelope: OMITTED },
 } as const satisfies Record<string, Cell>;
 
 type CellName = keyof typeof CELLS;
@@ -525,6 +681,28 @@ function locatedRefusals(doc: ThetaDocument): LocatedRefusal[] {
     range: d.range,
     message: d.message,
   }));
+}
+
+/**
+ * Whether these diagnostics deny the theta registration. This MIRRORS the
+ * production predicate `hasLoadParseError`
+ * (`src/extension/production-composition.ts:2214–2221`) rather than calling it:
+ * `rg -n "export function hasLoadParseError" src/` matches nothing, so the
+ * function is module-private and no test can reach it. The predicate is consumed
+ * at three sites, of which the discovery parse-drop gate (`:2261`) is the one
+ * that decides whether a discovered `.theta` becomes a runnable slash command;
+ * the other two are the `.theta`-callable arity read (`:1496`) and the callee
+ * composition step (`:2102`), both of which drop the file the same way.
+ *
+ * Mirrored, not restated: an `error`-severity diagnostic whose code sits in the
+ * `theta/load/` or `theta/parse/` namespace. Warnings never deny registration.
+ */
+function deniesRegistration(doc: ThetaDocument): boolean {
+  return doc.diagnostics.some(
+    (d) =>
+      d.severity === "error" &&
+      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
+  );
 }
 
 /** Parse a cell that must load cleanly before it is driven, or fail loudly. */
@@ -662,6 +840,22 @@ function scriptToolCallEnvelope(envelope: unknown): void {
   };
 }
 
+/**
+ * How one driven cell reaches the declared-default recovery. The default (absent
+ * options) is the on-disk shape every pre-existing cell drives: a `sourcePath`
+ * the in-memory fixture fs resolves.
+ */
+interface DriveOptions {
+  /**
+   * Drive the cell as an in-memory theta with NO `sourcePath`, so
+   * `#recoverDeclaredDefaults` returns `[]` without reading anything and the
+   * declared default is never applied — one of the recovery's three
+   * already-documented best-effort arms
+   * (`src/extension/production-theta-producer.ts:1246–1256`).
+   */
+  readonly withoutSourcePath?: true;
+}
+
 /** One `emitPanicNote` delivery, captured verbatim. */
 interface PanicDelivery {
   readonly framing: string;
@@ -697,11 +891,18 @@ interface DispatchCapture {
  * conversation bindings are replaced, because binding a real Pi session is what
  * would make this tier non-offline.
  */
-async function driveSlash(name: CellName): Promise<DispatchCapture> {
+async function driveSlash(name: CellName, options?: DriveOptions): Promise<DispatchCapture> {
   const doc = parseDrivenCell(name);
   const theta: ThetaCompositionInput = {
     slashName: name,
-    sourcePath: sourcePathOf(name),
+    // `sourcePath` is the byte source `#recoverDeclaredDefaults` re-reads the
+    // declared defaults from. Omitting it selects the recovery's FIRST
+    // best-effort exit (`production-theta-producer.ts:1305–1308`, "a theta with
+    // no on-disk `sourcePath` (an in-memory fixture)"), which is group E's
+    // vehicle for an unfilled field. Spread rather than assigned `undefined`
+    // because `sourcePath` is an OPTIONAL property and the repo compiles under
+    // `exactOptionalPropertyTypes`.
+    ...(options?.withoutSourcePath === true ? {} : { sourcePath: sourcePathOf(name) }),
     frontmatter: doc.frontmatter!,
     body: doc.body,
     binderModel: "binder-model",
@@ -1145,53 +1346,66 @@ describe("bug 0185 (B3) — CONTROL: a VALUE outside the variant set stays refus
 });
 
 // ===========================================================================
-// (C) THE INVOCATION HALF — the one input the parse gate does not pre-empt.
-// `Box` RESOLVES in the whole-file root scope but names no enum, so neither
-// resolution arm claims it and the body position is silent on the same
-// sub-expression (bug 0140's open subject). The recovery is therefore the last
-// line, and `#mergeDeclaredDefaults`'s doc-comment
-// (`src/extension/production-theta-producer.ts:1245`) already says what it must
-// do: leave the field unfilled and never throw.
+// (C) THE LOAD ROW FOR THE HEAD THAT RESOLVES AND NAMES NO ENUM. `Box` is a
+// declared `schema`: it IS in the whole-file root scope and declares no enum, so
+// `grammar.md:26`'s head side condition ("head is an enum name in scope") is not
+// met and the RHS derives no arm of `Literal` — an identifier reference that is
+// not an `Enum.Variant` access, which is one of the forms
+// `theta/parse/default-not-literal`'s registered *Trigger* enumerates
+// (`code-registry-parse.md:48`).
+//
+// WHICH ASSERTION MOVED, AND WHY. 0185 installed this cell as the fence for
+// exactly this flip and bug 0197 §Fix (c6) authorises moving it. Gone: the load
+// SILENCE premise (`diagnostics` `[]`) inverts into the one located refusal
+// below, and with it the five invocation assertions this cell used to pin —
+// `panics = []`, `bound = true`, `args = {"topic":"hello"}`, the echo
+// `Running /m11: topic=hello, sev=null (default)` and `binderCalls = 1`. They
+// are not weakened, they are UNREACHABLE: an error-severity `theta/parse/*`
+// denies the theta registration (`hasLoadParseError`,
+// `src/extension/production-composition.ts:2214–2221`, at the discovery
+// parse-drop gate `:2261`), so production never composes a runnable command for
+// this fixture and no envelope, merge or echo exists for it. This cell therefore
+// does not drive: `parseDrivenCell` refuses a fixture that does not parse
+// cleanly, which is the harness's own statement of the same fact.
+//
+// The end state those five assertions described — a declared default admitted at
+// load and then absent from the merged args, with the echo claiming it was
+// applied — remains reachable through the recovery's three documented
+// best-effort arms, which no load refusal can pre-empt. Group E witnesses it
+// there, on the in-memory-theta arm, and pins that the echo stops claiming the
+// fill.
 // ===========================================================================
 
-describe("bug 0185 (C) — an evaluation the parse gate cannot pre-empt settles on a value", () => {
-  it("RED (C): `sev: 'Sev = Box.sev'` leaves the field UNFILLED instead of aborting the theta", async () => {
+describe("bug 0197 (C) — the head that RESOLVES and names no enum refuses at load", () => {
+  it("RED (C): `sev: 'Sev = Box.sev'` draws one `theta/parse/default-not-literal` and reaches no invocation", () => {
     const doc = parseCell("m11");
-    expect(
-      doc.diagnostics,
-      "premise: this cell must stay a LOAD-silent row — its head resolves, so neither the unknown-variant arm nor the unknown-identifier arm claims it, and the recovery is the only boundary left",
-    ).toEqual([]);
 
-    const capture = await driveSlash("m11");
-
-    // THE PRIMARY ASSERTION, first so the red names the symptom the bug reports.
-    // error-model.md:74 — the runtime-defect surface is "not a new authoring
-    // concept (no theta expression 'causes' one)" — and
-    // code-registry-runtime.md:15 scopes `theta/runtime/null-member-access` to
-    // "`expr.field` where `expr` evaluated to `null`". The author wrote no
-    // `null`; the evaluator's `ident` arm manufactures it.
+    // THE PRIMARY ASSERTION, first so the red names the symptom the bug reports:
+    // the whole diagnostic list, EMPTY at this HEAD.
     expect(
-      panicFramings(capture),
-      "no panic may be delivered: `#mergeDeclaredDefaults`'s doc-comment says recovery 'never throws', and a default that parses and then fails to resolve is a fourth best-effort case that must behave like its three siblings",
-    ).toEqual([]);
+      diagCodes(doc),
+      "grammar.md:26 makes `head is an enum name in scope` a side condition OF the `NamedValueLit` production, so a resolving non-enum head derives no arm of `Literal` and is a SHAPE failure; HEAD raises nothing and binds the invocation without the field",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
     expect(
-      capture.errNotes,
-      "the SLSH-3 `Err`-note renderer is not on this path and must not become so",
-    ).toEqual([]);
-
+      locatedRefusals(doc),
+      "the refusal names the offending sub-expression (DIAG-4) and is located at the `params:` field's own range, so it points at the declaration rather than at the top of the file",
+    ).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("m11"),
+        range: paramsFieldRange("m11"),
+        message: notLiteralMessage("Box.sev"),
+      },
+    ]);
     expect(
-      capture.binder?.bound,
-      "the recovery leaves the field unfilled and the merge proceeds; a defaulted field is dropped from the lowered schema's `required` set (src/parser/params.ts:277), so the absent field passes the post-merge AJV hook",
+      deniesRegistration(doc),
+      "severity must be `error` in the `theta/parse/` namespace: a warning would leave the theta registered and every invocation still binding without the declared default",
     ).toBe(true);
     expect(
-      boundArgs(capture),
-      "the unfilled field is absent from the merged document — the same end state the recovery's three documented best-effort cases produce",
-    ).toEqual({ topic: "hello" });
-    expect(
-      capture.notes,
-      "GOV-15 observable (c) — the operator gets the BND-1 success echo, whose defaulted term renders `null` because no value was recovered for it",
-    ).toEqual(["Running /m11: topic=hello, sev=null (default)"]);
-    expect(capture.binderCalls, "exactly ONE binder model call, retry or none").toBe(1);
+      scripted.calls.length,
+      "no binder model call is spent on this fixture: the refusal is upstream of registration, so the per-invocation round trip the defect spends is never made — and this cell reaches none by construction, because a non-registering fixture has no dispatch for the harness to drive",
+    ).toBe(0);
   });
 });
 
@@ -1215,5 +1429,447 @@ describe("bug 0185 (D) — a shape refusal pre-empts the name refusal on the sam
       locatedRefusals(doc)[0]?.range,
       "the surviving diagnostic keeps the field's own range",
     ).toEqual(paramsFieldRange("p1"));
+  });
+});
+
+// ===========================================================================
+// (L) THE HEAD CLASS, PER DECLARATION KIND AND PER DEPTH. Six cells beside
+// group C's bare field, each red at HEAD because the diagnostic list is EMPTY.
+// The class is every name `collectIdentRoots`
+// (`src/parser/theta-document.ts:4774`) folds except a declared `enum`: a
+// `schema` name, a `params:` field name, a `fn` name. Two of those three can
+// never hold a value in a default's environment at all — the recovery builds it
+// with `paramBindings` `undefined`
+// (`src/extension/production-theta-producer.ts:1321–1326`), and a `fn` has no
+// first-class value under FN-1 — which is why membership in the gate's root set
+// does not answer whether a default can produce a value.
+//
+// Every row asserts the WHOLE diagnostic list projected through
+// `locatedRefusals`, with the message read from the registry (DIAG-4,
+// `docs/spec_topics/diagnostics/diagnostic-shape.md:74`) and the range read
+// through the group-R-calibrated `paramsFieldRange` oracle, so no row can pass on
+// a second diagnostic, a warning, a body-ranged site or a restated message.
+// ===========================================================================
+
+describe("bug 0197 (L2) — a second declared `schema` head refuses identically", () => {
+  it("RED (L2): `sev: 'Sev = Plain.who'` draws `theta/parse/default-not-literal` at the field's range", () => {
+    const doc = parseCell("a2");
+
+    expect(
+      diagCodes(doc),
+      "the class is not one name: `Plain` is a second declared `schema`, so the same conjunction (`enums.get(head)` undefined, `roots.has(head)` true) holds and the same row must fire",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a2"),
+        range: paramsFieldRange("a2"),
+        message: notLiteralMessage("Plain.who"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (L3) — a `params:`-field head refuses", () => {
+  it("RED (L3): `sev: 'Sev = topic.foo'` refuses although `topic` is a field of this same `params:` block", () => {
+    const doc = parseCell("a3");
+
+    // `topic` is in the gate's root set (`collectIdentRoots` folds the `params:`
+    // field names) and is unbindable where the default runs, so this row is the
+    // one showing that the gate's question (is the name in scope) and the
+    // evaluator's (does the name hold a readable value) are different questions,
+    // and that only the second decides whether a default can be filled.
+    expect(
+      diagCodes(doc),
+      "a head that can never be bound while a default evaluates cannot produce a value, and admitting it is what leaves the field silently unfilled",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a3"),
+        range: paramsFieldRange("a3"),
+        message: notLiteralMessage("topic.foo"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (L4) — a declared `fn` head refuses", () => {
+  it("RED (L4): `sev: 'Sev = f.foo'` refuses on a name with no first-class value at all", () => {
+    const doc = parseCell("a4");
+
+    expect(
+      diagCodes(doc),
+      "FN-1 gives a `fn` name no first-class value, so no member access on it is a literal-sublanguage form under any environment",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a4"),
+        range: paramsFieldRange("a4"),
+        message: notLiteralMessage("f.foo"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (L5) — an array element refuses at its own depth", () => {
+  it("RED (L5): `sevs: 'array<Sev> = [Box.sev]'` draws one refusal naming the ELEMENT", () => {
+    const doc = parseCell("a5");
+
+    // The whole container default evaporates at HEAD, not only its element, so
+    // the depth positions are pinned here exactly as group A pins them for the
+    // unknown-variant arm: the descent covers the literal sublanguage's container
+    // productions (`walkParamsDefaultNames`, src/parser/theta-document.ts:5952–5961).
+    expect(
+      diagCodes(doc),
+      "the array descent reaches the element, and the offending sub-expression is the member access rather than the array literal that contains it",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a5"),
+        range: paramsFieldRange("a5"),
+        message: notLiteralMessage("Box.sev"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (L6) — a schema-constructor field value refuses", () => {
+  it("RED (L6): `box: 'Box = Box { sev: Box.sev, who: \"w\" }'` refuses on its inner field value", () => {
+    const doc = parseCell("a6");
+
+    expect(
+      diagCodes(doc),
+      "one field draws one diagnostic, and the offending sub-expression is the inner member access rather than the construction that contains it",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a6"),
+        range: paramsFieldRange("a6"),
+        message: notLiteralMessage("Box.sev"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (L7) — the bare-object spelling refuses identically", () => {
+  it("RED (L7): `box: 'Box = { sev: Box.sev, who: \"w\" }'` draws the same one diagnostic", () => {
+    const doc = parseCell("a6b");
+
+    // The two object spellings differ only in the brand the literal carries;
+    // group A pins both for the unknown-variant arm, so both are pinned here for
+    // the third arm. A divergence would mean the new arm is reached through one
+    // container production and not its sibling.
+    expect(
+      diagCodes(doc),
+      "frontmatter-fields-a.md:60 admits bare-key object literals alongside variant-schema construction, so both spellings of one value are refused alike",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(locatedRefusals(doc)).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a6b"),
+        range: paramsFieldRange("a6b"),
+        message: notLiteralMessage("Box.sev"),
+      },
+    ]);
+  });
+});
+
+// ===========================================================================
+// (W) THE BYTE-EXACT SPAN. Red at HEAD for the same reason as group L — the
+// diagnostic list is EMPTY for `sev: 'Sev = Box . sev'`, measured at `a7d15562`
+// — and load-bearing for a second reason no other row carries:
+// `docs/spec_topics/diagnostics/placeholder-rendering-a.md:49` makes `<expr>`
+// "the offending source span verbatim, copied byte-for-byte … with internal
+// whitespace preserved", so this is the row a message reconstructed as
+// `<head>.<field>` from the two identifier texts reds on. Both spellings name the
+// same access, so no reconstruction satisfies this row and group C's row at once.
+// ===========================================================================
+
+describe("bug 0197 (W) — the message renders the offending span verbatim", () => {
+  it("RED (W): `sev: 'Sev = Box . sev'` renders `Box . sev`, its internal whitespace preserved", () => {
+    const doc = parseCell("a1w");
+
+    expect(
+      diagCodes(doc),
+      "an internal space around the `.` changes no side condition of the production: the head still resolves and still names no enum",
+    ).toEqual([`error ${NOT_LITERAL_CODE}`]);
+    expect(
+      locatedRefusals(doc),
+      "placeholder-rendering-a.md:49 requires the offending source span byte-for-byte, so the author reads back what they wrote rather than a normalisation of it",
+    ).toEqual([
+      {
+        severity: "error",
+        code: NOT_LITERAL_CODE,
+        file: parsePathOf("a1w"),
+        range: paramsFieldRange("a1w"),
+        message: notLiteralMessage("Box . sev"),
+      },
+    ]);
+  });
+});
+
+// ===========================================================================
+// (X) THE TWO DISPLACEMENT CONTROLS. Green on both sides. The third arm is
+// reached only when `enums.get(head)` is undefined AND `roots.has(head)` is true,
+// so it must claim neither spelling the two existing arms own: group A1's
+// `Sev.Missing` (the head names the declared enum) and group A2's `Nope.Missing`
+// (the head resolves to nothing) — the pair the bug document's controls name, its
+// second row spelled `Nope.foo` there and `Nope.Missing` here because both are
+// one head that resolves to nothing and group A already carries the fixture.
+// Groups A1 / A2 own the full located projections for those two rows; this cell
+// pins only that their CODES did not move, which is the displacement question.
+// ===========================================================================
+
+describe("bug 0197 (X) — the third arm displaces neither existing arm", () => {
+  it("GREEN (X): `Sev.Missing` keeps `theta/parse/unknown-variant` and `Nope.Missing` keeps `theta/parse/unknown-identifier`", () => {
+    expect(
+      diagCodes(parseCell("m1")),
+      "the enum-head arm is tested FIRST (`walkParamsDefaultNames`'s `member` arm, src/parser/theta-document.ts:5967), so a declared enum head keeps drawing the variant code and never the shape code",
+    ).toEqual([`error ${UNKNOWN_VARIANT_CODE}`]);
+    expect(
+      diagCodes(parseCell("m2")),
+      "a head that resolves to NOTHING leaves the intended form undetermined and stays a name question; only a head that RESOLVES to a non-enum determines the form and is a shape question",
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER_CODE}`]);
+  });
+});
+
+// ===========================================================================
+// (F) WHICH DECLARATION THE HEAD RESOLVES AGAINST (bug 0191). Green on both
+// sides. `hoistEnumVariants` (`src/parser/theta-document.ts:5858`) is consulted
+// before the root scope, so under a same-file `schema Color` / `enum Color`
+// shadow the head is the ENUM at this gate — while `#typeExpr`'s `member` arm
+// adopts the shadowing `schema` (bug 0191's open subject). These three rows pin
+// that the third arm keeps the enum-first precedence: a route that classified the
+// head by declaration kind, or that adopted the type layer's answer, would refuse
+// `Color.Red` — input that loads today, which is a GOV-15 flip on 0191's own
+// admitted class.
+// ===========================================================================
+
+describe("bug 0197 (F1) — a shadowed head with a declared variant keeps loading", () => {
+  it("GREEN (F1): `sev: 'Color = Color.Red'` draws nothing", () => {
+    expect(
+      locatedRefusals(parseCell("f1")),
+      "the head is the declared `enum` and `Red` is one of its variants, so no arm claims it; refusing it would flip an input that loads today",
+    ).toEqual([]);
+  });
+});
+
+describe("bug 0197 (F2) — a shadowed head with an undeclared tail stays a variant question", () => {
+  it("GREEN (F2): `sev: 'Color = Color.Nope'` keeps `theta/parse/unknown-variant`", () => {
+    expect(locatedRefusals(parseCell("f2"))).toEqual([
+      {
+        severity: "error",
+        code: UNKNOWN_VARIANT_CODE,
+        file: parsePathOf("f2"),
+        range: paramsFieldRange("f2"),
+        message: unknownVariantMessage("Nope", "Color"),
+      },
+    ]);
+  });
+});
+
+describe("bug 0197 (F3) — a shadowed head whose tail is a declared schema FIELD stays a variant question", () => {
+  it("GREEN (F3): `sev: 'Color = Color.a'` keeps `theta/parse/unknown-variant` although `a` is a field of the shadowing schema", () => {
+    expect(
+      locatedRefusals(parseCell("f3")),
+      "the enum wins the head, so the tail is judged against the variant set and not against the shadowing schema's fields — the disagreement with the type layer bug 0191 owns, recorded here rather than decided",
+    ).toEqual([
+      {
+        severity: "error",
+        code: UNKNOWN_VARIANT_CODE,
+        file: parsePathOf("f3"),
+        range: paramsFieldRange("f3"),
+        message: unknownVariantMessage("a", "Color"),
+      },
+    ]);
+  });
+});
+
+// ===========================================================================
+// (G) REGISTRATION. Red at HEAD, over every fixture of the class at once: the
+// consequence that makes the load rows above worth having is that the theta does
+// not become a runnable slash command, so no invocation, no binder round trip and
+// no unfilled binding is reachable for the spelling.
+// ===========================================================================
+
+/** Every fixture of bug 0197's head class, at every depth and in both spellings. */
+const REFUSING_CELLS = [
+  "m11",
+  "a2",
+  "a3",
+  "a4",
+  "a5",
+  "a6",
+  "a6b",
+  "a1w",
+] as const satisfies readonly CellName[];
+
+describe("bug 0197 (G) — every fixture of the class is denied registration", () => {
+  it("RED (G): each of the eight head-class fixtures carries the error-severity `theta/parse/*` the registration gate consumes", () => {
+    const verdicts = REFUSING_CELLS.map(
+      (name) => `${name}: ${String(deniesRegistration(parseCell(name)))}`,
+    );
+
+    expect(
+      verdicts,
+      "`hasLoadParseError` (src/extension/production-composition.ts:2214–2221) denies registration for an error-severity `theta/load/*` / `theta/parse/*`, and the discovery parse-drop gate (`:2261`) is where a discovered `.theta` is dropped on it; a fixture carrying none registers and then binds without its declared default",
+    ).toEqual(REFUSING_CELLS.map((name) => `${name}: true`));
+  });
+});
+
+// ===========================================================================
+// (E) THE ECHO. Red at HEAD because the success echo tags a field that took no
+// default. `defaulting-system-note-echo.md:9` partitions on the FILL — "Only a
+// field that took its declared default this way is tagged `(default)`" — and
+// `fillDefaultsAndRevalidate` reports the fill it performed
+// (`defaultedWireNames`, `src/binder/defaulting.ts:75`, whose doc-comment `:70–74`
+// and `src/render/argument-echo.ts:74` both name as the tag's source).
+// `#emitBinderEchoNote` recomputes the tag instead, from the theta's declared
+// `defaultedFields` plus an absent binder key
+// (`src/extension/production-theta-producer.ts:968–970`), so a field the merge
+// never filled renders `(default)` over the absent key's `?? null` coalesce
+// (`:964`).
+//
+// THE VEHICLE, and why it is this one: a load refusal removes the reported
+// spelling from the invocation path entirely, so the unfilled-field rendering has
+// to be reached through one of the recovery's three pre-existing best-effort arms
+// (`#mergeDeclaredDefaults`'s doc-comment,
+// `production-theta-producer.ts:1246–1256`). This cell takes the FIRST — a theta
+// with no `sourcePath`, which returns `[]` without reading anything (`:1305–1308`).
+// The other two would have to defeat the fixture fs on purpose: it REJECTS an
+// unregistered path loudly by design, and `FIXTURE_SOURCES` registers every cell
+// in the table.
+//
+// The other direction is group B's, not duplicated here: `s1` — this cell's
+// fixture, byte for byte, driven WITH its `sourcePath` — and `s14` pin that a
+// field which genuinely takes its declared default keeps its tag. The two cells
+// differ in exactly one input, so the tag's presence tracks the fill and nothing
+// else.
+// ===========================================================================
+
+describe("bug 0197 (E) — a field that took no default renders UNTAGGED", () => {
+  it("RED (E): an in-memory theta fills nothing, and its echo must not claim the fill", async () => {
+    expect(
+      CELLS.e1.field,
+      "premise: this cell's fixture text is `s1`'s, so the only difference between the tagged fence and this untagged row is whether the theta has an on-disk `sourcePath`",
+    ).toBe(CELLS.s1.field);
+
+    const capture = await driveSlash("e1", { withoutSourcePath: true });
+
+    // THE PRIMARY ASSERTION, first so the red names the symptom the bug reports.
+    expect(
+      capture.notes,
+      "GOV-15 observable (c) — the operator is told the declared default was applied to a field the merge never filled; the tag is defined by what happened, not by what was declared",
+    ).toEqual(["Running /e1: topic=hello, sev=null"]);
+
+    expect(
+      capture.panics,
+      "the first best-effort arm reads nothing and evaluates nothing, so no panic is reachable on it",
+    ).toEqual([]);
+    expect(
+      capture.errNotes,
+      "the SLSH-3 `Err`-note renderer is not on this path and must not become so",
+    ).toEqual([]);
+    expect(
+      capture.binder?.bound,
+      "route (3) repairs the SURFACE only: the recovery's three documented best-effort arms keep their end state, so this row still binds",
+    ).toBe(true);
+    expect(
+      boundArgs(capture),
+      "the unfilled field is absent from the merged document, which is what makes the rendered `null` a coalesce rather than a value",
+    ).toEqual({ topic: "hello" });
+    expect(capture.binderCalls, "exactly ONE binder model call, retry or none").toBe(1);
+  });
+});
+
+// ===========================================================================
+// (K) THE COMMITTED CORPUS. Green on both sides, and the GOV-15 measurement the
+// flip class is judged against
+// (`docs/spec_topics/governance/source-language-stability.md:9`, `:25`): a load
+// refusal makes a currently-loading theta refuse, so the reach over shipped
+// source is what decides whether the change sits inside the equivalence promise.
+// Measured at `a7d15562`: 34 committed `.theta` / `.thetalib` files, none
+// declaring an `enum` and none carrying a member-access `params:` default — so
+// `tests/committed-fixture-parse-gate.test.ts` never meets this input, and the
+// class consists of authoring mistakes that currently register and then drop a
+// declared default.
+// ===========================================================================
+
+/** The repository root, resolved from this file's own URL rather than from `cwd`. */
+const REPO_ROOT_URL = new URL("../", import.meta.url);
+
+/**
+ * Every committed `.theta` / `.thetalib`, read through `git ls-files` — the census
+ * bug 0197 §Fix (d) requires be re-run over the index rather than inferred from
+ * `tests/committed-fixture-parse-gate.test.ts`.
+ *
+ * NO SILENT SKIPPING: an unavailable `git` makes `execFileSync` THROW out of this
+ * reader (it is deliberately uncaught, so the cell fails naming the unmet
+ * precondition), and an empty listing throws naming the census — a census that
+ * read nothing would report zero reach while measuring nothing.
+ */
+function committedThetaCorpus(): readonly string[] {
+  const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
+    cwd: fileURLToPath(REPO_ROOT_URL),
+    encoding: "utf8",
+  });
+  const files = listed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (files.length === 0) {
+    throw new Error(
+      "harness: `git ls-files -- '*.theta' '*.thetalib'` listed no file, so the GOV-15 corpus census measured nothing — a harness failure, never a skip",
+    );
+  }
+  return files;
+}
+
+/**
+ * A declared named `enum` at a line's start — the precondition for a shipped
+ * `Enum.Variant` default. `[ \t]` rather than `\s` so the class cannot straddle a
+ * line break under the `m` flag.
+ */
+const ENUM_DECL_RE = /^[ \t]*enum[ \t]/m;
+
+/**
+ * A single-quoted `params:` field whose default RHS opens with a member access —
+ * the bug document's own census grep, with the same `[ \t]` narrowing and the
+ * whitespace tolerance group W's spelling needs.
+ */
+const MEMBER_DEFAULT_RE = /^[ \t]+\w+: *'[^']*= *[A-Za-z_][A-Za-z0-9_]*[ \t]*\.[ \t]*[A-Za-z_]/m;
+
+describe("bug 0197 (K) — the flip class has zero reach over the committed corpus", () => {
+  it("GREEN (K): no committed `.theta` / `.thetalib` declares an `enum` or carries a member-access `params:` default", () => {
+    const corpus = committedThetaCorpus();
+
+    expect(
+      corpus.length,
+      "premise: the census must actually read the committed corpus, or the two emptiness claims below are vacuous (34 files at `a7d15562`)",
+    ).toBeGreaterThan(0);
+
+    const sources = corpus.map((relative) => ({
+      relative,
+      text: readFileSync(fileURLToPath(new URL(relative, REPO_ROOT_URL)), "utf8"),
+    }));
+
+    expect(
+      sources.filter((file) => ENUM_DECL_RE.test(file.text)).map((file) => file.relative),
+      "a shipped file declaring an `enum` is the precondition for a shipped `Enum.Variant` default, so the census records that first",
+    ).toEqual([]);
+    expect(
+      sources.filter((file) => MEMBER_DEFAULT_RE.test(file.text)).map((file) => file.relative),
+      "no shipped source spells a member-access `params:` default, so the load refusal this file pins flips no committed file and the equivalence promise is met through the diagnostic-registry carve-out",
+    ).toEqual([]);
   });
 });

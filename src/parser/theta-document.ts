@@ -5888,19 +5888,35 @@ function rangeKey(range: SourceRange): string {
  * reaches the binder's defaults recovery instead, where it aborts the invocation
  * under a runtime panic code whose trigger the author's source does not match.
  *
- * Two arms, each the body's own:
+ * Three arms:
  *
  *   - the head names a declared `enum` and the tail is not one of its variants
  *     — `theta/parse/unknown-variant`, via the body's own `checkVariantAccess`;
  *   - the head resolves to nothing in the whole-file root scope —
  *     `theta/parse/unknown-identifier`, the code the body raises for the same
- *     head.
+ *     head;
+ *   - the head RESOLVES (a `schema` name, another `params:` field, a `fn` —
+ *     every `collectIdentRoots` source but a declared `enum`) and names no
+ *     enum — `theta/parse/default-not-literal`.
  *
- * A head that DOES resolve but names no enum (a `schema` name, an imported
- * symbol, a `fn`) is neither arm: the body admits that spelling silently too, so
- * refusing it here would break the subset relation in the other direction and
- * would pre-empt an open question about the body position. It stays deferred to
- * the invocation boundary.
+ * `grammar.md`'s "head is an enum name in scope" is a side condition OF the
+ * `NamedValueLit` production, not a separate check on an otherwise-formed
+ * `Literal`. A head that resolves to nothing leaves the intended form
+ * undetermined, so the second arm stays a NAME question. A head that RESOLVES
+ * but names no enum determines the form completely: the RHS is an identifier
+ * reference that is not an `Enum.Variant` access, one of the forms
+ * `default-not-literal`'s registered *Trigger* already enumerates, so the third
+ * arm is a SHAPE question the moment the head is known.
+ *
+ * The enum arm runs FIRST, so a same-file `schema X` shadowing `enum X`
+ * resolves the head against the declared `enum` at this gate, independently of
+ * which declaration the type layer's own `member` arm prefers under the same
+ * shadow (bug 0191's open subject).
+ *
+ * All three arms walk only a `params:` default. A member access at a body
+ * VALUE position resolves through the body's own walk and the runtime
+ * evaluator instead, so that position's disposition (bug 0140's open subject)
+ * is unaffected by which of the three arms fires here.
  *
  * The range is the `params:` field's own, so the diagnostic points at the
  * declaration rather than at the top of the file. A field the frontmatter parse
@@ -5929,7 +5945,7 @@ function checkParamsDefaultNames(
     if (parsed === null) {
       continue;
     }
-    walkParamsDefaultNames(parsed, enums, roots, { file, range: field.range }, out);
+    walkParamsDefaultNames(parsed, enums, roots, { file, range: field.range }, defaultSource, out);
   }
   return out;
 }
@@ -5940,23 +5956,30 @@ function checkParamsDefaultNames(
  * elements and the field values of `BareObjectLit` / `NamedObjectLit` — which
  * are the depths `Enum.Variant` is reachable at. Anything else is outside the
  * production set and is the is-literal check's subject, not this one's.
+ *
+ * `defaultSource` is the field's default RHS verbatim — the exact string
+ * `expr` (and every node reachable from it) was parsed out of by
+ * `parseExpressionSource` — so the third `member` arm can render `<expr>` as
+ * the offending member access's own byte span (placeholder-rendering-a.md:49)
+ * rather than a `<head>.<field>` reconstruction of it.
  */
 function walkParamsDefaultNames(
   expr: Expr,
   enums: ReadonlyMap<string, ReadonlySet<string>>,
   roots: ReadonlySet<string>,
   site: SchemaDeclSite,
+  defaultSource: string,
   out: Diagnostic[],
 ): void {
   switch (expr.kind) {
     case "array":
       for (const element of expr.elements) {
-        walkParamsDefaultNames(element, enums, roots, site, out);
+        walkParamsDefaultNames(element, enums, roots, site, defaultSource, out);
       }
       return;
     case "object":
       for (const field of expr.fields) {
-        walkParamsDefaultNames(field.value, enums, roots, site, out);
+        walkParamsDefaultNames(field.value, enums, roots, site, defaultSource, out);
       }
       return;
     case "member": {
@@ -5983,7 +6006,27 @@ function walkParamsDefaultNames(
           range: site.range,
           message: `unknown identifier '${head}'`,
         });
+        return;
       }
+      // The head RESOLVES and names no enum, so `grammar.md`'s "head is an
+      // enum name in scope" side condition on `NamedValueLit` fails: the RHS
+      // derives no arm of `Literal` and is an identifier reference that is not
+      // an `Enum.Variant` access, one of the forms this code's registered
+      // *Trigger* already enumerates. `<expr>` is sliced from `defaultSource`
+      // by offset, not reassembled from `head` and `expr.field`, so an access
+      // written with internal whitespace (`Box . sev`) renders that whitespace
+      // back.
+      const offendingSpan = defaultSource.slice(
+        positionToOffset(defaultSource, expr.range.start),
+        positionToOffset(defaultSource, expr.range.end),
+      );
+      out.push({
+        severity: "error",
+        code: "theta/parse/default-not-literal",
+        file: site.file,
+        range: site.range,
+        message: `params default RHS must be a literal-sublanguage form; offending sub-expression: ${offendingSpan}`,
+      });
       return;
     }
     default:

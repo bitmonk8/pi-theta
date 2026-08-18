@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0197 — a `params:` default whose member-access head resolves but names
+  no enum (`sev: 'Sev = Box.sev'` against a declared `schema Box`) loaded with
+  zero diagnostics and every invocation omitting the field bound WITHOUT it —
+  the declared default silently evaporated, and the success echo claimed the
+  fill (`sev=null (default)`).** Two composed remedies. (1) The load gate's
+  `member` arm gained its third arm: a head that RESOLVES in the whole-file
+  identifier root scope and names no declared `enum` now draws
+  `theta/parse/default-not-literal` at the field's own range, the offending
+  sub-expression rendered as its byte-exact source span — the RHS derives no
+  `NamedValueLit` (the head fails the production's own side condition), so the
+  row's registered Trigger already covers the form; the enum arm keeps running
+  first (a same-file `schema X` shadowing `enum X` still resolves the head
+  against the enum — bug 0191's open question is recorded, not decided), and
+  the unresolved-head arm keeps `theta/parse/unknown-identifier` (bug 0140's
+  body-position code question stays unassumed — no evaluator arm, no root set
+  touched). `frontmatter-fields-a.md` §Defaults re-derived in the same commit:
+  the head condition's two failure modes split — resolves-to-nothing is a NAME
+  question, resolves-to-non-enum is a SHAPE question. (2) Echo honesty: the
+  `(default)` tag is now read from `fillDefaultsAndRevalidate`'s own
+  `defaultedWireNames` report instead of being recomputed from the theta's
+  declared defaults, so a field the recovery could not produce a value for
+  renders untagged instead of claiming a fill that did not happen. Witness
+  grown 14 → 28 cells (cell C — the fence bug 0185 installed for exactly this
+  flip — rewritten as the load-refusal row under this report's authority);
+  additive live H8a cell. Defaulted fields stay out of the lowered schema's
+  `required` set; the recovery's never-throws contract and its best-effort
+  arms keep their end state.
+
 ## [0.113.0] - 2026-08-18
 
 ### Fixed

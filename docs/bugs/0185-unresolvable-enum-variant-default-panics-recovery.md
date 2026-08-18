@@ -1215,6 +1215,16 @@ rather than rejecting.
      subject at the body position, and §Non-goals scopes it out here. The
      witness's route-3 cell pins the non-aborting end state so a later 0140 fix
      has a fence to move against. Not re-filed.
+     **Discharged by bug 0197's fix (0.114.0):** the parent overrode the
+     not-re-filed disposition at filing time (the residual's stated ground —
+     pre-empting 0140 — was answered by scoping the code choice as a
+     coordination obligation rather than a pre-emption), and
+     [0197](./0197-params-default-non-enum-head-silently-unfilled.md) now
+     refuses the spelling at load with `theta/parse/default-not-literal`
+     (0140's body-position code question left UNASSUMED; this gate's
+     enum-first head precedence kept). Cell C — the fence this residual
+     installed — was rewritten as the load-refusal row under 0197's
+     authority, exactly as intended.
   3. **Positional-citation drift.** `theta-document.ts` grew 183 lines,
      `production-theta-producer.ts` 29 and `frontmatter.ts` 9, so citations into
      them from other documents shifted. 0134's adjudicated do-not-chase class;
