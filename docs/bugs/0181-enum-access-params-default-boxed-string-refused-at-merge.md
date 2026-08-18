@@ -1222,3 +1222,26 @@ Three further findings decided the rest:
   (`#intakeSubagentRootParams` fills no declared default;
   `fillDefaultsAndRevalidate` still has exactly one production caller) and the
   `invoke(...)` / `.theta`-callable argument paths are all unchanged.
+
+## Coordination note — bug 0185 (0.109.0)
+
+Append-only. `## Fix (0.103.0)` residual **1** — "an unresolvable
+`Enum.Variant` default throws out of the recovery", filed as
+[0185](./0185-unresolvable-enum-variant-default-panics-recovery.md) — is
+**discharged**. Two changes, composed:
+`src/parser/theta-document.ts` now reaches the body's own `checkVariantAccess`
+from the `params:` position, so `sev: 'Sev = Sev.Missing'` refuses at LOAD with
+`theta/parse/unknown-variant` at the field's own range and never registers; and
+`#recoverDeclaredDefaults` absorbs a `ThetaPanic` from the default's evaluation
+(re-raising every other throw), so the never-throws sentence in
+`#mergeDeclaredDefaults`'s doc-comment — the location this document's §Related
+corrected — is now true for the fourth case as well.
+
+This fix's own subject is untouched: the ten cells of
+`tests/params-default-enum-access-merge.test.ts` are byte-identical and green,
+including cell 9's value-mismatch control (`Sev = "nope"` still refuses at the
+post-default-merge AJV hook with `details: { event: {} }`) and cell 10's
+deferral row c6. Residuals 2, 3 and 4 are unchanged — 0185 §Non-goals scopes
+`runtime-value-model.md`'s bypass sentence out, `renderEchoValue`'s `enum` case
+stays unreachable from the binder echo, and the positional drift stays 0134's
+do-not-chase class.

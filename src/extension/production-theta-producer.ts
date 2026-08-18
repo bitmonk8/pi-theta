@@ -246,6 +246,7 @@ import {
   evaluateIndexAccess,
   evaluateMemberAccess,
   HostFatal,
+  isThetaPanic,
   nonObjectReceiverRejection,
 } from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
@@ -1243,8 +1244,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * re-read via the `FileSystem` seam, its `= <literal>` default RHS is split
    * off, and the literal is parsed + evaluated through the same pure evaluator
    * the body uses. Recovery is best-effort — a theta with no on-disk `sourcePath`
-   * (an in-memory fixture), an unreadable file, or a default that does not parse
-   * simply leaves that field unfilled (the prior behaviour for it), never throws.
+   * (an in-memory fixture), an unreadable file, a default that does not parse, or
+   * a default that parses and then panics while evaluating leaves that field
+   * unfilled, never throws. An unfilled field is ABSENT from the merged args, and
+   * a defaulted field is never in the lowered schema's `required` set
+   * (`parseParams`, `parser/params.ts`, writes `required.push(field.name)` only
+   * under `field.defaultSource === undefined`), so the post-default-merge AJV
+   * check below ADMITS that absence and the invocation binds without the field.
+   * All four best-effort cases therefore reach one end state, and what DID arrive
+   * is still validated at the `params` boundary.
    */
   async #mergeDeclaredDefaults(
     theta: ConversationBindInput["theta"],
@@ -1258,9 +1266,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return { args: binderArgs, classification: { kind: "ok" } };
     }
     // Recovery is best-effort and may yield nothing (an in-memory theta, an
-    // unreadable file, a default that does not re-parse). That leaves the field
-    // unfilled — it does NOT excuse the boundary: what did arrive is still
-    // validated below.
+    // unreadable file, a default that does not re-parse, a default whose
+    // evaluation panics). That leaves the field unfilled — it does NOT excuse
+    // the boundary: what did arrive is still validated below.
     const defaults =
       params.defaultedFields.length === 0
         ? []
@@ -1339,9 +1347,31 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // document is homogeneous wire form, which is what
       // `DefaultedField.defaultValue` (`binder/defaulting.ts`) already
       // contracts for.
+      // A default that parses can still fail to EVALUATE — an `Enum.Variant`
+      // whose head resolves to no first-class value hands the pure evaluator's
+      // member arm a `null` target, which panics. The panic is correct where it
+      // is raised and wrong here: this recovery's contract (above) is that a
+      // default it cannot make a value of leaves its field unfilled, which keeps
+      // the field out of the merged args. A defaulted field is not in the lowered
+      // schema's `required` set (`parseParams` guards the `required.push` on
+      // `field.defaultSource === undefined`), so the post-default-merge AJV check
+      // ADMITS that absence and the invocation binds without the field — the end
+      // state the three sibling best-effort cases already reach, with what DID
+      // arrive still validated there. Only the closed `ThetaPanic` set is absorbed
+      // — any other throw is an interpreter defect and belongs to the
+      // runtime-defect surface, so it propagates unchanged.
+      let evaluated: ThetaValue;
+      try {
+        evaluated = evaluatePureExpression(parsed, env);
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised below — error-model.md#runtime-panics
+        if (!isThetaPanic(thrown)) {
+          throw thrown;
+        }
+        continue;
+      }
       defaults.push({
         wireName,
-        defaultValue: projectForValidation(evaluatePureExpression(parsed, env)),
+        defaultValue: projectForValidation(evaluated),
       });
     }
     return defaults;

@@ -7430,3 +7430,256 @@ describe("H8a-T — bug 0126: a plain `for` body's method misuse of its loop var
     }
   });
 });
+
+// ===========================================================================
+// Bug 0185 — `checkVariantAccess` (src/parser/schema-declarations.ts:315) had
+// exactly one call site, inside the body's own structural walk
+// (theta-document.ts:6641), so a `params:` default's `Enum.Variant` access
+// never reached it: `sev: 'Sev = Sev.Missing'` against `enum Sev { High =
+// "high", Low = "low" }` loaded with ZERO diagnostics and registered, then
+// aborted EVERY invocation — `resolveEnumVariant`
+// (src/runtime/lexical-environment.ts:526) answered `undefined`, the pure
+// evaluator's `member` arm fell through to `evaluateMemberAccess(null,
+// "Missing")`, and that raised `NullMemberAccessPanic` out of a recovery whose
+// own doc-comment says it never throws
+// (docs/bugs/0185-unresolvable-enum-variant-default-panics-recovery.md). The
+// fix's route 1 (`checkParamsDefaultNames` / `walkParamsDefaultNames` /
+// `hoistEnumVariants`, src/parser/theta-document.ts, wired after
+// `checkUnknownIdentifiers`) reaches the body's own `checkVariantAccess` from
+// the `params:` position too, so the unresolvable variant now refuses at
+// LOAD, before registration and before any binder call.
+//
+// THE FIXED OBSERVABLE, MIRRORED FROM THE BUG 0059/0136/0126 CELLS ABOVE:
+// registration-only, zero-model-turn. Post-fix the refusing theta does NOT
+// register, so — unlike the bug 0181 live cell above, which drives a real
+// binder pass over a RESOLVABLE `Enum.Variant` default — this cell spends no
+// token at all: `hasLoadParseError` (src/extension/production-composition.ts)
+// denies registration on the SAME `theta/parse/unknown-variant` diagnostic
+// the body position already draws, strictly before `resolveBinderModel` is
+// ever reached (parseDiscoveredTheta's drop happens in the pass BEFORE the
+// binder-model-resolution loop), so neither fixture below needs its
+// registration verdict proven by a driven turn.
+//
+// THE PRECONDITION CONTROL, mirrored from the bug 0059/0136/0126 cells: an
+// ordinary theta in the SAME workspace, proving the workspace and discovery
+// walk both work. A SECOND control shares this cell's workspace — the
+// same-shape SIBLING whose `Enum.Variant` default RESOLVES
+// (`sev: 'Sev = Sev.High'`) — so the refusing fixture's absence cannot be
+// (wrongly) attributed to "a `params:` default naming `Enum.Variant` access
+// never registers here" instead of to the unresolvable VARIANT, mirroring the
+// bug 0059 pair's (`conformantParamsTypeTheta` / `junkParamsTypeTheta`) own
+// isolation. The sibling's one field declares the `NamedType` `Sev`, not
+// `string`, so `classifyBinderBypass` (src/binder/binder-envelope.ts)
+// classifies it `binder` rather than bypass-eligible; it declares the same
+// `bind_model:` bug 0181's live cell above already proves resolves live, so
+// its chain resolves at LOAD (a local metadata check against the model
+// registry inside `resolveBinderModel`, src/binder/binder-model.ts — no token
+// is spent whether or not a theta is ever driven). Neither sibling is driven.
+//
+// No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
+// the hardening probes) declares an `enum` at all — the bug doc's own corpus
+// census (§Affected, "Corpus census, re-run at HEAD") and a fresh `rg -n
+// "^\s*enum " tests/live/` agree — so the fixed arm had NO live reach before
+// this cell.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens, the same profile as the bug 0059/0126/0136
+// cells above. No subagent child process is spawned (every fixture is prompt
+// mode, with no `invoke(...)` and no `subagent fn`), so the
+// #subagent-child-pins convention this file's harness otherwise honours does
+// not apply to this cell. ADDITIVE ONLY: cell 41 (bug 0181, above) and every
+// other cell in this file (1–46) are unchanged; this is cell 47, added after
+// the bug 0126 cell.
+// ===========================================================================
+
+/** The code the `params:` position now mints for an undeclared enum variant. */
+const UNKNOWN_VARIANT_CODE = "theta/parse/unknown-variant";
+
+/** The sharded registry page carrying `theta/parse/unknown-variant`'s row. */
+const UNKNOWN_VARIANT_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/unknown-variant: unknown variant '<variant>' on enum
+ * '<enum>'` — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's `unknownMethodFragment` /
+ * `nonArrayIterandFragment`. The row carries the `<variant>`/`<enum>`
+ * placeholder pair, so this helper fills both and the trailing assertion
+ * confirms neither is left unsubstituted.
+ */
+function unknownVariantFragment(variant: string, enumName: string): string {
+  const template = registryMessage(
+    UNKNOWN_VARIANT_REGISTRY,
+    UNKNOWN_VARIANT_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${UNKNOWN_VARIANT_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<variant>", variant)
+    .replaceAll("<enum>", enumName);
+  expect(
+    message,
+    `${UNKNOWN_VARIANT_CODE}: an unsubstituted <…> placeholder remains — the ` +
+      "registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${UNKNOWN_VARIANT_CODE}: ${message}`;
+}
+
+/**
+ * The same-shape SIBLING whose `Enum.Variant` default RESOLVES (the unit
+ * witness's cell `s1`,
+ * `tests/params-default-unresolvable-enum-variant.test.ts`, itself 0181's own
+ * fence), replayed here through the real discovery→registration path instead
+ * of the offline harness. Must still register, isolating the refusing
+ * fixture's absence to the unresolvable VARIANT rather than to "a `params:`
+ * default naming `Enum.Variant` access cannot register here" — the bug 0059
+ * pair's own isolation, one level up. A single field whose declared type is
+ * the `NamedType` `Sev` (not `string`) is not `classifyBinderBypass`'s
+ * single-string-bypass shape, so it needs a resolvable `bind_model:` chain to
+ * register — the same reference bug 0181's live cell above already proves
+ * resolves live. Never driven: registration is this sibling's whole
+ * observable.
+ */
+function resolvableEnumVariantDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  sev: 'Sev = Sev.High'",
+    "---",
+    'enum Sev { High = "high", Low = "low" }',
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The bug's own subject, verbatim (docs/bugs/0185-…md §Reproduction (a) row 1
+ * / the unit witness's cell `m1`): the SAME field name and enum as the
+ * sibling above, the variant misspelled. Post-fix, `checkParamsDefaultNames`
+ * (`src/parser/theta-document.ts`) reaches the body's own `checkVariantAccess`
+ * (`src/parser/schema-declarations.ts:315`) from the `params:` position and
+ * refuses this at LOAD with `theta/parse/unknown-variant`, so
+ * `hasLoadParseError` (`src/extension/production-composition.ts`) denies
+ * registration strictly before `resolveBinderModel` is ever reached. Declares
+ * the SAME `bind_model:` the sibling above does — inert post-fix (this
+ * fixture is dropped in the FIRST parse-drop loop, before the second loop's
+ * binder-model-resolution step is ever reached for it) and load-bearing for
+ * the neutralised direction: were `checkParamsDefaultNames`'s result dropped
+ * from `assembleDiagnostics`, an UNDECLARED `bind_model:` would introduce a
+ * second, unrelated load-time refusal (`theta/load/binder-model-unresolved`,
+ * a non-bypass theta with no resolvable binder-model chain) that would also
+ * deny registration — for the wrong reason, confounding the neutralisation
+ * proof this cell's obligation requires (that the refusing theta REGISTERS
+ * once this fix's own gate is the only thing removed). Declaring the same
+ * resolvable chain here removes that confound.
+ */
+function unresolvableEnumVariantDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  sev: 'Sev = Sev.Missing'",
+    "---",
+    'enum Sev { High = "high", Low = "low" }',
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0185: a params: default naming an unresolvable Enum.Variant does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose params: default names an undeclared enum variant, while a precondition control and a resolvable-variant sibling both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace,
+      // proving the workspace and discovery walk both work — without this, a
+      // broken workspace could be (wrongly) blamed for the refusing
+      // fixture's absence too.
+      { source: "project", stem: "b185livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling whose Enum.Variant default RESOLVES — must
+      // still register, so this cell cannot pass by failing to discover
+      // anything shaped like its subject.
+      {
+        source: "project",
+        stem: "b185liveresolves",
+        text: resolvableEnumVariantDefaultTheta(),
+      },
+      // The load-bearing refusing theta: the bug's own subject.
+      {
+        source: "project",
+        stem: "b185livemissing",
+        text: unresolvableEnumVariantDefaultTheta(),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b185livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the unknown-variant rule under test, would explain the refusing " +
+          "fixture's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b185liveresolves"),
+        "the same-shape sibling whose Enum.Variant default RESOLVES did not " +
+          "register — a params: default naming Enum.Variant access cannot " +
+          "register in this harness at all, independent of this bug; that " +
+          "would leave the refusing fixture's absence unwitnessed rather than " +
+          "caused by the unresolvable variant. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // params: default naming a variant its enum does not declare does NOT
+      // register — checkParamsDefaultNames now reaches the body's own
+      // checkVariantAccess from the params: position, hasLoadParseError
+      // denies registration, and no binder call is ever made.
+      expect(
+        handle.command("b185livemissing"),
+        "the theta whose params: default names an undeclared enum variant " +
+          "registered anyway through the live discovery/session_start path " +
+          "— theta/parse/unknown-variant did not fire from the params: " +
+          "position. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b185livemissing");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/…/0126 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unknownVariantFragment("Missing", "Sev");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the unknown-variant rejection, " +
+          "naming both the variant and the enum, for the refusing fixture. " +
+          "Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

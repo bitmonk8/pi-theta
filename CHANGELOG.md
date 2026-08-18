@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-08-18
+
+### Fixed
+
+- **bug 0185 — a `params:` default naming a variant its enum does not declare
+  loaded with zero diagnostics and then aborted every invocation.**
+  `sev: 'Sev = Sev.Missing'` against `enum Sev { High = "high", Low = "low" }`
+  parsed clean, lowered, and registered, because `checkVariantAccess` had
+  exactly one call site — inside the body's own structural walk — so the
+  `params:` default position never reached it. Every invocation then spent its
+  binder model call, entered `#mergeDeclaredDefaults`, and threw:
+  `resolveEnumVariant` answered `undefined`, the pure evaluator's `member` arm
+  fell through to `evaluateMemberAccess(null, "Missing")`, and the run ended
+  `theta /<name> aborted: null member access: .Missing` at the zero body range —
+  under a runtime code whose registered trigger is `expr.field` on a `null` the
+  author never wrote, naming neither the enum, the variant nor the `params:`
+  line, and against `#mergeDeclaredDefaults`'s own doc-comment contract that the
+  recovery "never throws". Supplying the argument explicitly panicked
+  identically, because recovery iterates `defaultedFields` before
+  fill-if-absent. Two changes, composed. The `params:` default RHS is now
+  re-parsed at the one position that holds the parsed fields, the body's hoisted
+  enum-variant sets and the whole-file identifier roots at once, and an
+  `Enum.Variant` failing either of `NamedValueLit`'s grammar side conditions
+  draws the body expression grammar's own code there — `theta/parse/unknown-variant`
+  for an undeclared variant of a declared enum, `theta/parse/unknown-identifier`
+  for a head that resolves to nothing — at the field's own range, before
+  registration and before any binder call. And `#recoverDeclaredDefaults` now
+  absorbs a `ThetaPanic` from a default's evaluation (re-raising every other
+  throw, so `HostFatal` and the runtime-defect surface are unaffected), leaving
+  that field unfilled: the fourth best-effort case reaches the same end state as
+  the three the doc-comment already enumerated, which is what makes the sentence
+  true. A resolvable variant keeps its current bytes at every position — the
+  annotated field, both object spellings, the array element, the union arm, the
+  load-time compatibility deferral row, and the live binder cell — and a wire
+  string outside the variant set stays a value question, still refused at the
+  post-default-merge AJV hook. Locked by
+  `tests/params-default-unresolvable-enum-variant.test.ts` (14 cells: the four
+  unresolvable positions plus the bare-object spelling, the case-mismatched
+  variant, the unregistered-enum head, the supplied-argument row, the
+  non-aborting invocation row for the one spelling the parse gate does not
+  pre-empt, the one-diagnostic-per-field precedence row, a range oracle, and
+  three fences) and by a new zero-model-turn H8a live cell driving the real
+  discovery-to-registration path with a precondition control and a
+  resolvable-variant sibling.
+
 ## [0.108.0] - 2026-08-18
 
 ### Fixed

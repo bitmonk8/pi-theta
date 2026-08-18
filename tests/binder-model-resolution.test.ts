@@ -279,7 +279,7 @@ describe("V11a-T — single-matcher cross-resolution reconciliation (host-interf
     const parseMatchers: ModelReferenceMatcher[] = [];
     const parse = (options: ParseFrontmatterOptions): FrontmatterParseResult => {
       parseMatchers.push(options.modelMatcher);
-      return { registered: true, diagnostics: [] };
+      return { registered: true, paramFields: [], diagnostics: [] };
     };
 
     const binderMatchers: ModelReferenceMatcher[] = [];

@@ -198,6 +198,15 @@ export interface FrontmatterParseResult {
   readonly registered: boolean;
   /** The defaulted frontmatter, present iff `registered` is `true`. */
   readonly frontmatter?: ParsedFrontmatter;
+  /**
+   * The `params:` fields as written, in declaration order — the located form
+   * carrying each field's own `range` and its verbatim `defaultSource`.
+   * `ParsedFrontmatter.params.fields` is the binder's bypass-classification
+   * projection and carries no range, so a whole-file check that must point at a
+   * `params:` line (rather than at the synthesized zero body range) reads this
+   * instead. Empty when the source declares no `params:` block.
+   */
+  readonly paramFields: readonly ParamFieldInput[];
   /** Every diagnostic raised during the parse, in source order. */
   readonly diagnostics: readonly Diagnostic[];
 }
@@ -1270,7 +1279,7 @@ export function parseFrontmatter(
 
   const registered = !diagnostics.some((d) => d.severity === "error");
   if (!registered) {
-    return { registered: false, diagnostics };
+    return { registered: false, paramFields: fieldInputs, diagnostics };
   }
 
   // `modeValue` is defined here: a missing `mode:` is an error, which would have
@@ -1310,5 +1319,5 @@ export function parseFrontmatter(
       ? { argumentHint: argumentHintValue }
       : {}),
   };
-  return { registered: true, frontmatter, diagnostics };
+  return { registered: true, frontmatter, paramFields: fieldInputs, diagnostics };
 }

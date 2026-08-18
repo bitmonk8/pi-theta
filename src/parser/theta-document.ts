@@ -78,6 +78,7 @@ import {
   type ByClauseDecl,
   type DiscriminatedUnionDecl,
   type DiscriminatorCandidateField,
+  type SchemaDeclSite,
   type SchemaGraphNode,
   type UnionVariantSchema,
 } from "./schema-declarations";
@@ -91,7 +92,12 @@ import {
   isSingleEnclosingBraceGroup,
   type SchemaSlugCollision,
 } from "./body-type-lowering";
-import { isUnspellableTextRefusable, splitTopLevel, splitTopLevelSegments } from "./params";
+import {
+  isUnspellableTextRefusable,
+  splitTopLevel,
+  splitTopLevelSegments,
+  type ParamFieldInput,
+} from "./params";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
 // pure parse-time check rather than re-deriving the diagnostic. Parser→runtime
@@ -828,6 +834,11 @@ export function parseThetaDocument(
 
   const frontmatterDiags: Diagnostic[] = [...bodyTypeDiags];
   let frontmatter: ParsedFrontmatter | null = null;
+  // The located `params:` fields (each with its own `range` and verbatim
+  // `defaultSource`) and the ranges the frontmatter parse already refused,
+  // feeding the `params:`-default name-resolution check below.
+  let paramFields: readonly ParamFieldInput[] = [];
+  const frontmatterRefusedRanges = new Set<string>();
   if (split.frontmatterText !== null) {
     // `splitFrontmatter` returns the frontmatter text with the `---` fences
     // stripped, but `parseFrontmatter` re-requires them (its
@@ -844,6 +855,12 @@ export function parseThetaDocument(
       bodyTypes,
     });
     frontmatter = fm.frontmatter ?? null;
+    paramFields = fm.paramFields;
+    for (const d of fm.diagnostics) {
+      if (d.severity === "error" && d.range !== undefined) {
+        frontmatterRefusedRanges.add(rangeKey(d.range));
+      }
+    }
     frontmatterDiags.push(...fm.diagnostics);
   }
 
@@ -869,6 +886,21 @@ export function parseThetaDocument(
   const unknownIdentDiags = checkUnknownIdentifiers(
     { statements, tail: resolvedTail },
     identRoots,
+    file,
+  );
+
+  // The `params:` default half's two NAME-resolution side conditions
+  // (grammar.md `NamedValueLit`: "head is an enum name in scope, tail a declared
+  // variant"). They are tested here rather than inside the default's own
+  // is-literal check because that check judges a parsed node the literal
+  // sublanguage builds without either identifier's text, and because this is the
+  // one position that holds the parsed `params:` fields, the body's hoisted
+  // enum-variant sets, and the whole-file identifier roots at once.
+  const paramsDefaultNameDiags = checkParamsDefaultNames(
+    paramFields,
+    hoistEnumVariants(statements),
+    identRoots,
+    frontmatterRefusedRanges,
     file,
   );
 
@@ -919,6 +951,7 @@ export function parseThetaDocument(
     docScan.diagnostics,
     structuralDiags,
     unknownIdentDiags,
+    paramsDefaultNameDiags,
     callSiteLexicalDiags,
     typeLayerDiags,
     thetalibTopLevelDiags,
@@ -5754,7 +5787,7 @@ interface StructuralRefs {
   readonly schemas: ReadonlyMap<string, readonly string[]>;
   /**
    * The whole-file type-declaring name universe `collectBodyTypes` builds
-   * (`FrontmatterBodyTypes`, frontmatter.ts:219–234): every body `schema` name
+   * (`FrontmatterBodyTypes`, frontmatter.ts:228–243): every body `schema` name
    * (object or alias/union form) with its object field sources or `undefined`,
    * every body `enum` name, and every symbol a body `import` pulls in. Feeds
    * `checkObjectExpr`'s constructor-name classification when a name misses
@@ -5788,6 +5821,149 @@ interface WalkCtx {
 }
 
 /**
+ * Hoist the top-level `enum` declarations' variant-name sets, keyed by enum
+ * name. Whole-file and declaration-order-independent, matching the resolution
+ * rule frontmatter → body forward references already rely on. Read by the body's
+ * own structural walk and by the `params:` default check, so the two positions
+ * decide `Enum.Variant` against one set rather than two.
+ */
+function hoistEnumVariants(
+  statements: readonly Stmt[],
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const enums = new Map<string, ReadonlySet<string>>();
+  for (const s of statements) {
+    if (s.kind === "enum" && s.variants !== undefined) {
+      enums.set(s.name, new Set(s.variants));
+    }
+  }
+  return enums;
+}
+
+/** A stable key for a source range, for comparing two diagnostics' positions. */
+function rangeKey(range: SourceRange): string {
+  return `${range.start.line}:${range.start.column}-${range.end.line}:${range.end.column}`;
+}
+
+/**
+ * Check the NAME-resolution side conditions of a `params:` default's
+ * `Enum.Variant` forms (bug 0185 §Fix route 1).
+ *
+ * `NamedValueLit ::= Ident "." Ident` carries two side conditions in the grammar
+ * itself — "head is an enum name in scope, tail a declared variant"
+ * (grammar.md) — and the default half's is-literal check cannot test either: the
+ * node it judges records only whether the head was a bare identifier, not what
+ * the two identifiers spelled. The body tests them (`checkVariantAccess`, from
+ * `checkStructural`'s walk, and `checkUnknownIdentifiers`), and
+ * frontmatter-fields-a.md §Defaults requires the literal sublanguage to be a
+ * SUBSET of the body expression grammar, so the same bytes must draw the same
+ * code here. Without this check they draw none, and the unresolvable name
+ * reaches the binder's defaults recovery instead, where it aborts the invocation
+ * under a runtime panic code whose trigger the author's source does not match.
+ *
+ * Two arms, each the body's own:
+ *
+ *   - the head names a declared `enum` and the tail is not one of its variants
+ *     — `theta/parse/unknown-variant`, via the body's own `checkVariantAccess`;
+ *   - the head resolves to nothing in the whole-file root scope —
+ *     `theta/parse/unknown-identifier`, the code the body raises for the same
+ *     head.
+ *
+ * A head that DOES resolve but names no enum (a `schema` name, an imported
+ * symbol, a `fn`) is neither arm: the body admits that spelling silently too, so
+ * refusing it here would break the subset relation in the other direction and
+ * would pre-empt an open question about the body position. It stays deferred to
+ * the invocation boundary.
+ *
+ * The range is the `params:` field's own, so the diagnostic points at the
+ * declaration rather than at the top of the file. A field the frontmatter parse
+ * has already refused is skipped, keeping the "exactly one diagnostic per
+ * offending field" precedence the `params:` default checks hold among
+ * themselves.
+ */
+function checkParamsDefaultNames(
+  paramFields: readonly ParamFieldInput[],
+  enums: ReadonlyMap<string, ReadonlySet<string>>,
+  roots: ReadonlySet<string>,
+  refusedRanges: ReadonlySet<string>,
+  file: string,
+): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  for (const field of paramFields) {
+    const defaultSource = field.defaultSource;
+    if (defaultSource === undefined || refusedRanges.has(rangeKey(field.range))) {
+      continue;
+    }
+    // The literal sublanguage's own node model discards both identifier texts,
+    // so the RHS is re-parsed here through the body expression parser, which
+    // retains them. A source that does not parse as one expression carries no
+    // resolvable name and is the is-literal check's to refuse.
+    const parsed = parseExpressionSource(defaultSource);
+    if (parsed === null) {
+      continue;
+    }
+    walkParamsDefaultNames(parsed, enums, roots, { file, range: field.range }, out);
+  }
+  return out;
+}
+
+/**
+ * Descend a parsed `params:` default for `Enum.Variant` forms. The descent
+ * covers exactly the literal sublanguage's container productions — `ArrayLit`
+ * elements and the field values of `BareObjectLit` / `NamedObjectLit` — which
+ * are the depths `Enum.Variant` is reachable at. Anything else is outside the
+ * production set and is the is-literal check's subject, not this one's.
+ */
+function walkParamsDefaultNames(
+  expr: Expr,
+  enums: ReadonlyMap<string, ReadonlySet<string>>,
+  roots: ReadonlySet<string>,
+  site: SchemaDeclSite,
+  out: Diagnostic[],
+): void {
+  switch (expr.kind) {
+    case "array":
+      for (const element of expr.elements) {
+        walkParamsDefaultNames(element, enums, roots, site, out);
+      }
+      return;
+    case "object":
+      for (const field of expr.fields) {
+        walkParamsDefaultNames(field.value, enums, roots, site, out);
+      }
+      return;
+    case "member": {
+      if (expr.target.kind !== "ident") {
+        return;
+      }
+      const head = expr.target.name;
+      const variants = enums.get(head);
+      if (variants !== undefined) {
+        const diagnostic = checkVariantAccess(
+          { enumName: head, variant: expr.field, knownVariants: [...variants] },
+          site,
+        );
+        if (diagnostic !== undefined) {
+          out.push(diagnostic);
+        }
+        return;
+      }
+      if (!roots.has(head)) {
+        out.push({
+          severity: "error",
+          code: "theta/parse/unknown-identifier",
+          file: site.file,
+          range: site.range,
+          message: `unknown identifier '${head}'`,
+        });
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+/**
  * Run the implemented structural (AST-shape) parse-checkers over the whole-file
  * body and aggregate their diagnostics. These are shape-level well-formedness
  * checks that need no type inference: loop-context (`break` / `continue`), `fn`
@@ -5808,16 +5984,17 @@ function checkStructural(
   const fnNames = new Set<string>();
   // Hoisted top-level `enum` declarations, so a `Enum.Variant` member access to
   // a variant the enum does not declare is `theta/parse/unknown-variant`
-  // (schemas.md §Variant access).
-  const enums = new Map<string, ReadonlySet<string>>();
+  // (schemas.md §Variant access). `hoistEnumVariants` is shared with the
+  // `params:` default check (`checkParamsDefaultNames`, run later in the same
+  // `parseThetaDocument` pass) so the body walk and the frontmatter default
+  // walk decide `Enum.Variant` against one set rather than two.
+  const enums = hoistEnumVariants(body.statements);
   // Declared object-schema field name sets, so an object constructor against a
   // known object schema can be validated (extra / missing field).
   const schemas = new Map<string, readonly string[]>();
   for (const s of body.statements) {
     if (s.kind === "fn") {
       fnNames.add(s.name);
-    } else if (s.kind === "enum" && s.variants !== undefined) {
-      enums.set(s.name, new Set(s.variants));
     } else if (s.kind === "schema" && s.fields !== undefined) {
       schemas.set(s.name, s.fields.map((f) => f.name));
     }

@@ -211,7 +211,7 @@ describe("V9b-T — model-reference-matcher production wiring (model-registry su
     const seen: ModelReferenceMatcher[] = [];
     const parse = (options: ParseFrontmatterOptions): FrontmatterParseResult => {
       seen.push(options.modelMatcher);
-      return { registered: true, diagnostics: [] };
+      return { registered: true, paramFields: [], diagnostics: [] };
     };
 
     loadPassParse([{ file: "/x/a.theta" }, { file: "/x/b.theta" }], {
