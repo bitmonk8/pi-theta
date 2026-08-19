@@ -526,22 +526,22 @@ describe("bug 0180 — a typed invoke of a subagent-mode callee whose final valu
           `(ctlVal) CONTROL — and binds unchanged. Report: ${seen}`,
         ).toBe(1.5);
 
-        // The PINNED NON-GOAL. `0 * -1` is `-0`, which `JSON.stringify` renders
-        // `0`, so the sign is lost — a separately recorded residual, NOT this
-        // report's class. `-0` is finite and route (b) detects finiteness only,
-        // so the `ok` envelope must still be written and the caller must still
-        // bind. A red here means the detection widened into sign preservation and
-        // newly refuses a today-passing input with no registered class behind it.
+        // Bug 0188 §Fix (a): `0 * -1` is `-0`; the writer now emits the `-0`
+        // form the JSON grammar admits instead of substituting `0`, so the
+        // caller binds the callee's own sign. Route (b)'s finiteness-only
+        // detection is unmoved — the `ok` envelope still crosses — and this
+        // value is measured over REAL spawned children, across the TWO
+        // envelopes on this path (the kid's own, then this root's report).
         expect.soft(
           report.negOk,
-          `(negOk) CONTROL / PINNED NON-GOAL — -0 is finite, so it must keep crossing as an ok ` +
-            `envelope. Report: ${seen}`,
+          `(negOk) bug 0188 §Fix (a) — -0 is finite, so it still crosses as an ok ` +
+            `envelope; only the sign it carries changed. Report: ${seen}`,
         ).toBe(true);
         expect.soft(
           report.negVal,
-          `(negVal) CONTROL — the caller binds 0; the lost sign is a recorded residual, not this ` +
-            `report's class. Report: ${seen}`,
-        ).toBe(0);
+          `(negVal) bug 0188 §Fix (a) — the caller binds the callee's own sign, -0, ` +
+            `measured over REAL spawned children across two envelopes. Report: ${seen}`,
+        ).toBe(-0);
 
         // The parent's own diagnostic drain. At HEAD it is EMPTY — that is the
         // report's point: the loud arm mints an `InvokeInfraError` and emits

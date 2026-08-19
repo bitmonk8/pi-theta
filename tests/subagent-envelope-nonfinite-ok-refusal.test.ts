@@ -126,9 +126,9 @@ const REFUSAL_CODE = "theta/runtime/subagent-return-value-not-representable";
 
 /**
  * The refusal mapping shape route (b) adds beside the three existing fail-closed
- * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:252`;
- * `mapEnvelopeSchemaSkew`, `:275`; `mapExitWithoutEnvelope`, `:302`), all three
- * returning `EnvelopeFailureMapping` (`:241`). Declared structurally here rather
+ * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:334`;
+ * `mapEnvelopeSchemaSkew`, `:357`; `mapExitWithoutEnvelope`, `:384`), all three
+ * returning `EnvelopeFailureMapping` (`:323`). Declared structurally here rather
  * than imported so this file type-checks against the tree both before and after
  * the export lands.
  */
@@ -579,8 +579,8 @@ describe("bug 0180 (EXPORT) — the envelope module carries the route-(b) refusa
     // `Ok` payload, and the over-deep `Ok` payload bug 0187 added as *Fail-closed
     // over-deep `Ok` payload* (`subagent.md:115`). Four of the five carry a code
     // constant (`src/runtime/subagent-envelope.ts:91`, `:94`, `:97`, `:100`) and a
-    // mapping returning `EnvelopeFailureMapping` (`:241`, built at `:252`, `:275`,
-    // `:302`, `:593`); bug 0187 gives the fifth neither, deliberately, because no
+    // mapping returning `EnvelopeFailureMapping` (`:323`, built at `:334`, `:357`,
+    // `:384`, `:684`); bug 0187 gives the fifth neither, deliberately, because no
     // registry row exists for a ceiling-#4 depth breach to pair it with. This cell
     // reads the fourth code-carrying class off the module namespace.
     expect(
@@ -802,23 +802,22 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
   });
 
   it("CONTROL (FENCE-NEGATIVE-ZERO): -0 is finite, so it is NOT refused (green now, green after)", () => {
-    // PINNED NON-GOAL. `0 * -1` evaluates to `-0` and `serializeOkEnvelope(-0)`
-    // is `{"theta_result":{"v":1,"ok":0}}` — the sign is lost. That loss is a
-    // separately recorded residual, NOT this report's class: route (b)'s
-    // detection is finiteness only, and `-0` is finite. This cell is the fence
-    // that stops the detection widening into sign preservation, which would
-    // newly refuse a today-passing input with no registered class behind it.
+    // RE-PINNED under bug 0188 §Fix (a)
+    // (docs/bugs/0188-negative-zero-loses-sign-across-subagent-envelope.md):
+    // `0 * -1` evaluates to `-0`; route (b)'s finiteness-only detection still
+    // admits it, so this cell still fences that detection against widening
+    // into sign preservation. What the cell no longer fences is the envelope
+    // BYTES: route (a) now preserves the sign at the writer, so
+    // `serializeOkEnvelope(-0)` carries `-0` rather than substituting `0`.
     expect(
       refusalFor(-0),
       "-0 is a finite double; refusing it would widen route (b) past its stated class",
     ).toBeUndefined();
+    expect(refusalFor({ n: -0, who: "w" }), "including at a schema field").toBeUndefined();
     expect(
-      refusalFor({ n: -0, who: "w" }),
-      "including at a schema field",
-    ).toBeUndefined();
-    expect(serializeOkEnvelope(-0), "and the ok envelope is still written, carrying 0").toBe(
-      '{"theta_result":{"v":1,"ok":0}}\n',
-    );
+      serializeOkEnvelope(-0),
+      "the writer preserves the sign it now carries (bug 0188 §Fix (a))",
+    ).toBe('{"theta_result":{"v":1,"ok":-0}}\n');
   });
 
   it("CONTROL (FENCE-DEPTH): the walk does not descend past MAX_JSON_DEPTH (green now, green after)", () => {
@@ -877,12 +876,13 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
 
 describe("bug 0180 (MECHANISM) — what the envelope does with a non-finite Ok today", () => {
   it("MECHANISM: serializeOkEnvelope substitutes null for every non-finite number, at every depth (green now, green after)", () => {
-    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:117`) is
-    // `JSON.stringify` of the payload (`:119`), and its doc-comment (`:106-116`)
-    // records what that costs: `JSON.stringify` "has no non-finite form and
-    // would substitute `null` for a value the callee never produced". That
-    // substitution is what these rows measure. Route (b) leaves the serialiser
-    // alone and refuses before reaching it.
+    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:121`) still
+    // reaches `JSON.stringify`, via `stringifyPreservingNegativeZero` (`:186`),
+    // for every non-finite `number` — bug 0188 §Fix (a) touches only `-0` leaf
+    // rendering — and the cost is recorded at the refusal seam:
+    // `mapNonRepresentableReturnValue`'s doc-comment (`:666-668`) names the
+    // `null` substituted for a value the callee never produced — the
+    // substitution these rows measure; route (b) refuses before reaching it.
     expect(serializeOkEnvelope(Infinity)).toBe('{"theta_result":{"v":1,"ok":null}}\n');
     expect(serializeOkEnvelope(-Infinity)).toBe('{"theta_result":{"v":1,"ok":null}}\n');
     expect(serializeOkEnvelope(NaN)).toBe('{"theta_result":{"v":1,"ok":null}}\n');
@@ -1094,10 +1094,10 @@ describe("bug 0180 (CHILD) — the real child-side envelope writer over a non-fi
         label: 'NBox { n: 2, who: "w" }',
       },
       { body: "[1, 2]\n", line: '{"theta_result":{"v":1,"ok":[1,2]}}\n', label: "[1, 2]" },
-      // The pinned non-goal, at the real writer: `-0` is finite, so the ok
-      // envelope is still written (carrying `0`). A red here means the detection
-      // widened from finiteness into sign preservation.
-      { body: "0 * -1\n", line: '{"theta_result":{"v":1,"ok":0}}\n', label: "0 * -1 (-0)" },
+      // RE-PINNED under bug 0188 §Fix (a): `-0` is finite, so the ok envelope
+      // is still written, but the writer now preserves the sign instead of
+      // substituting `0` — a red means the detection widened or the sign regressed.
+      { body: "0 * -1\n", line: '{"theta_result":{"v":1,"ok":-0}}\n', label: "0 * -1 (-0)" },
     ];
     for (const row of rows) {
       const drive = await driveChildRoot(row.body);

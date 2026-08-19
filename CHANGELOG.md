@@ -6,6 +6,53 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0188 — `-0` crossed the subagent return envelope as `+0` while the
+  prompt→prompt attach leg bound it unchanged, so the callee's `mode:`
+  frontmatter selected the sign of the value the caller bound.** `0 * -1`,
+  `-1 * 0`, `0 / -1` and the literal `-0` each parse with `[]` diagnostics and
+  evaluate to `-0`, and theta code observes the sign through division —
+  `1 / (0 * -1)` is `-Infinity` where `1 / 0` is `Infinity`, and
+  `expressions.md:232` names `-Infinity` among division's specified results.
+  `serializeOkEnvelope(-0)` was `{"theta_result":{"v":1,"ok":0}}`, the parent
+  re-read `+0`, both legs validated `{"ok":true}` under `number`, `integer` and
+  `number | null`, and nothing emitted a diagnostic, a runtime event or a
+  `theta-system-note`. JSON was not the reason: `JSON.parse("-0")` recovers `-0`
+  at the root, at a field and in an array — the hole was the WRITER, and no
+  `replacer` or `toJSON` hook can make `JSON.stringify` emit the sign.
+  `serializeOkEnvelope` now serialises through `stringifyPreservingNegativeZero`
+  (`src/runtime/subagent-envelope.ts`), which emits the `-0` form the JSON
+  grammar already admits, so both legs bind the callee's own sign and
+  `invocation.md:36`'s mode-invariance holds. Pass 1 is `JSON.stringify` with an
+  identity replacer that only records whether a `-0` leaf was seen, and its bytes
+  are the emitted bytes whenever none was — so every payload not carrying `-0`
+  emits byte-identical bytes to 0.116.0. Pass 2 substitutes a collision-free
+  per-document sentinel for each `-0` leaf and replaces the quoted token with the
+  bare `-0`. Detection rides `JSON.stringify`'s own traversal, so the writer adds
+  no payload walk to bound (CIO-3) and the reach includes a `-0` leaf inside a
+  nested `Result` carrier. The parent, the driver, `parseEnvelopeLine`, the
+  envelope shape, the key set, the arm discrimination and the pinned version `v`
+  are unchanged: a number leaf's rendering within the same JSON grammar is not an
+  envelope-schema change, stated normatively in PIC-59's `Ok`-values bullet
+  alongside the completed account of what crosses the envelope. 0180's
+  finiteness-only refusal predicate is NOT widened — `-0` is admitted
+  deliberately and the writer preserves it — and 0187's depth refusal still runs
+  first. GOV-15 observable (a) moves on the subagent leg only, toward the prompt
+  leg; the prompt legs, the untyped `invoke(...)` discard, the five rendering
+  boundaries (`${z}` still renders `0`), equality (`+0 == -0` stays `true`) and
+  every operator are untouched. Locked by
+  `tests/subagent-envelope-negative-zero-fidelity.test.ts` (28 cells: both legs
+  over the shipped seams at the root, at a schema field, at an array element, at
+  depth and inside a `Result`; the caller-side reciprocal as the harm cell; a
+  22-row byte-identity corpus; sentinel-collision, depth-order, detection and
+  rendering-boundary fences), by additive `-0` round-trip rows in
+  `tests/subagent-envelope.test.ts`, by 0180's two re-pinned fence cells and its
+  `negVal` row over real spawned children, and by H8a live cell 54, whose
+  outbound query text names `-Infinity` where it named `Infinity` before.
+
 ## [0.116.0] - 2026-08-19
 
 ### Fixed

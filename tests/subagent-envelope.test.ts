@@ -55,7 +55,16 @@ import {
 // Representative instances of the runtime value model + every QueryError variant.
 // ---------------------------------------------------------------------------
 
-/** `Ok` values per the runtime value model (JSON-representable by construction). */
+/**
+ * `Ok` values per the runtime value model. Representability and depth are
+ * established by the caller before `serializeOkEnvelope` is reached
+ * (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue`), not assumed by
+ * construction; the writer itself preserves the sign of zero
+ * (`stringifyPreservingNegativeZero`, bug 0188 §Fix (a)). This corpus carries
+ * no `-0` row — the title generator below (`round-trips Ok(${JSON.stringify(value)})`)
+ * would render one as `0` — so the sign is covered separately and additively
+ * further down this file.
+ */
 const OK_VALUES: readonly unknown[] = [
   "hello",
   42,
@@ -184,6 +193,61 @@ describe("PIC-59 — envelope round-trip (Ok values)", () => {
       }
     });
   }
+});
+
+describe("PIC-59 — envelope round-trip (the sign of zero, bug 0188 §Fix (a))", () => {
+  // Kept OUT of `OK_VALUES`: that array feeds the title generator
+  // `round-trips Ok(${JSON.stringify(value)})`, and `JSON.stringify(-0)` is
+  // `"0"` — a `-0` row there would title itself as the `+0` case. `Object.is`
+  // is required throughout: `toEqual` treats `-0` and `+0` as equal, so it
+  // would pass whether or not the sign survived.
+  it("round-trips -0 at the root", () => {
+    const parsed = parseEnvelopeLine(serializeOkEnvelope(-0).trimEnd());
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind === "ok") {
+      expect(Object.is(parsed.value, -0)).toBe(true);
+    }
+  });
+
+  it("round-trips -0 at a schema field", () => {
+    const parsed = parseEnvelopeLine(serializeOkEnvelope({ n: -0, who: "w" }).trimEnd());
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind === "ok") {
+      const value = parsed.value as Record<string, unknown>;
+      expect(Object.is(value.n, -0)).toBe(true);
+      expect(value.who, "the sibling field is untouched").toBe("w");
+    }
+  });
+
+  it("round-trips -0 at an array element", () => {
+    const parsed = parseEnvelopeLine(serializeOkEnvelope([-0, 1]).trimEnd());
+    expect(parsed.kind).toBe("ok");
+    if (parsed.kind === "ok") {
+      const value = parsed.value as unknown[];
+      expect(Object.is(value[0], -0)).toBe(true);
+      expect(value[1], "the finite sibling element is untouched").toBe(1);
+    }
+  });
+
+  it("CONTROL: +0 at the same three positions still re-reads as +0, not -0", () => {
+    const root = parseEnvelopeLine(serializeOkEnvelope(0).trimEnd());
+    expect(root.kind).toBe("ok");
+    if (root.kind === "ok") {
+      expect(Object.is(root.value, -0), "the +0 control must not turn into -0").toBe(false);
+    }
+
+    const field = parseEnvelopeLine(serializeOkEnvelope({ n: 0, who: "w" }).trimEnd());
+    expect(field.kind).toBe("ok");
+    if (field.kind === "ok") {
+      expect(Object.is((field.value as Record<string, unknown>).n, -0)).toBe(false);
+    }
+
+    const element = parseEnvelopeLine(serializeOkEnvelope([0, 1]).trimEnd());
+    expect(element.kind).toBe("ok");
+    if (element.kind === "ok") {
+      expect(Object.is((element.value as unknown[])[0], -0)).toBe(false);
+    }
+  });
 });
 
 describe("PIC-59 — envelope round-trip (every Err variant)", () => {

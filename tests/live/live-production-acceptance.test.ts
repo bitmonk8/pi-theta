@@ -8897,3 +8897,191 @@ describe("H8a-T — bug 0187: a >cap FINITE terminal Ok payload at the uninferre
     }
   });
 });
+
+// ===========================================================================
+// Bug 0188 (live) — `-0` crosses the subagent return envelope as `+0` while the
+// prompt→prompt attach leg binds it unchanged, so a caller's own arithmetic over
+// the bound value flips sign depending on the callee's `mode:` frontmatter
+// alone. `docs/bugs/0188-negative-zero-loses-sign-across-subagent-envelope.md`
+// §Fix (a) — sign-preserving envelope encoding: `serializeOkEnvelope`
+// (`src/runtime/subagent-envelope.ts`) now serialises through
+// `stringifyPreservingNegativeZero`, which emits the `-0` form the JSON grammar
+// already admits (`JSON.parse("-0")` IS `-0`) instead of substituting `0`
+// (`JSON.stringify(-0)` is `"0"`, unconditionally — no `replacer` / `toJSON`
+// hook can change that, measured). The parent, the driver, the envelope shape,
+// the key set, `v`, arm discrimination and parse behaviour are all UNCHANGED —
+// the change is confined to the writer.
+//
+// NEITHER OF THE TWO EXISTING LIVE CELLS ADJACENT TO THIS CLASS CAN OBSERVE IT.
+// Bug 0180's live cell ("H8a-T — bug 0180", above) and bug 0187's live cell
+// (cell 53, immediately above) both key off PRESENCE/ABSENCE of a
+// `theta-system-note` naming a `return_validation` refusal — a BOOLEAN
+// observable — and the SNK-i template they both render through
+// (`src/runtime/err-note-render.ts:157`, "`${prefix} returned Err: invoke of
+// ${e.callee_path} failed (${e.cause})`") carries no `.message` and therefore
+// no VALUE: it cannot show a sign either way. Bug 0188 additionally never
+// refuses anything — §Fix (a) is silent-and-correct, not a new refusal
+// (§Fix (e)(6)) — so there is no note to key off at all, on EITHER leg, before
+// or after the fix: an `Ok(v)` top-level termination emits NO
+// `theta-system-note` (runtime-event-channel.md's success-side null-policy). A
+// note-channel cell could not distinguish this fix from a no-op.
+//
+// CONFIRMED BY GREP ACROSS `tests/live/**` BEFORE WRITING THIS CELL (this file,
+// `tests/live/acceptance/**`, `tests/live/hardening/**`): `Infinity`, a literal
+// `-0`, the spelling `0 * -1` (or `0*-1`), and `b188` were searched for. The two
+// `Infinity` hits that exist are both in THIS file, in the bug-0180 cell's own
+// header prose (~:6973, ~:7062) — comments describing the SILENT-SUBSTITUTION
+// mechanism 0180 fixed, not an assertion on a bound value's sign. `-0` (the
+// literal) does not occur; the many hyphen-then-digit matches grep also surfaces
+// (dates, `bug-0021`, etc.) are not it. `0 * -1` / `0*-1` occurs nowhere.
+// `b188` occurs nowhere. No existing cell observes a bound value's sign.
+//
+// THE OBSERVABLE THIS CELL USES INSTEAD: `turn.userTexts` — "the exact text the
+// theta CODE computed and sent, independent of the model's reply" (`./harness`'s
+// own doc-comment on `DrivenTurn.userTexts`), the DETERMINISTIC outbound-render
+// channel already used to observe computed values by many existing cells in
+// this file (the bug-0066 / B166 / B165 sentinel cells, the bug-0080-descriptor
+// `${v}` cell, and others). It is the one deterministic channel that can carry
+// a VALUE rather than a boolean, which is why it is the required alternative
+// here (AGENTS.md §"Assert on real observables").
+//
+// WHY `${1 / z}` DISCRIMINATES — TRACED THROUGH THE PRODUCTION CODE ITSELF, and
+// separately CONFIRMED BY RUNNING IT (a scratch vitest probe, written, run,
+// deleted — not part of this cell): `/` types unconditionally `number`
+// (`src/parser/static-type-inference.ts:407` — "expressions.md §'Other
+// arithmetic': `/` always produces `number`, whatever the operands"); query-
+// string interpolation derives its `InterpolationType` from the RUNTIME value
+// instead (`interpolationTypeOf`, `production-theta-producer.ts:6166` —
+// `typeof value === "number"` → `{ kind: "number" }`, for every JS number,
+// unconditionally, ahead of any static type); and the `"number"` arm of
+// `stringifyInterpolatedValue` (`src/render/query-render.ts:406`) renders
+// through `renderCanonicalNumber(value, "number")`
+// (`src/render/canonical-number.ts`), whose `canonicalDecimal` restores the `-`
+// sign for a negative body (`negative = value < 0`) and passes `Infinity` /
+// `-Infinity` through `expandToFixedPoint` UNCHANGED (neither matches its
+// exponential-form regex, so both render as those literal words). Measured:
+// `renderCanonicalNumber(-Infinity, "number")` is `"-Infinity"`;
+// `renderCanonicalNumber(Infinity, "number")` is `"Infinity"` — the same
+// conclusion the bug document states (§Reproduction (a): "`1 / (0 * -1)`
+// evaluates `-Infinity` where `1 / 0` evaluates `Infinity`").
+//
+// SHAPE. `b188livekid.theta` (`mode: subagent`) is bug 0188 §Reproduction (a)'s
+// own headline spelling — the pure tail expression `0 * -1` — zero model turns
+// of its own. `b188liveparent.theta` (`mode: prompt`) binds the callee's value
+// through a typed `invoke<number>`, unwraps it via `match` (the `Err` arm is a
+// control fallback only, never taken — the same construction the bug
+// document's §Reproduction (d)/(e) and the committed unit witness's
+// `HARM_CALLER_BODY` use), and interpolates the reciprocal into a `@`-query's
+// outbound text behind the `b188-marker=` anchor. Theta's query grammar admits
+// only a BACKTICK-delimited template after `@`
+// (`docs/spec_topics/query/query-forms.md:8`, and every `@` query in this
+// file) — there is no double-quoted `@ "…"` form — so the query below is
+// written `` @`…` `` like every other cell in this file.
+//
+//   - POST-FIX the parent binds the callee's `-0` (route (a) preserves the
+//     sign across the envelope), `1 / z` is `-Infinity`, and the sent text
+//     contains `b188-marker=-Infinity`.
+//   - PRE-FIX the parent binds `+0` (`serializeOkEnvelope` substitutes `0` for
+//     the callee's `-0`), `1 / z` is `Infinity`, and the sent text contains
+//     `b188-marker=Infinity` — which does NOT contain the post-fix substring,
+//     so the assertion discriminates in both directions.
+//
+// A REAL RFC-0006 CHILD PROCESS IS SPAWNED for the `mode: subagent` kid — this
+// file's imported `./harness` already sets all three `#subagent-child-pins` at
+// module scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
+// `SUBAGENT_PARENT_PID_ENV = String(process.ppid)`), exactly as every other
+// subagent-spawning cell in this file (bug 0067, bug 0172, bug 0174, bug 0180,
+// bug 0187 above) relies on; nothing new is pinned here.
+//
+// TOKEN COST: ONE real model turn — a ~12-token prompt ("Reply with the single
+// word OK. b188-marker=-Infinity", or `…Infinity` pre-fix) and a one-word
+// reply. This is NOT zero-token like the bug 0180 / bug 0187 cells above: the
+// note channel cannot carry a value (this cell's own reason for existing), so
+// the outbound query text is the only deterministic channel that can — and
+// observing it requires the query to actually be issued. `AGENTS.md` is
+// explicit that token cost is not a reason to skip this verification.
+//
+// ADDITIVE ONLY: this is cell 54; cells 1–53 are unchanged.
+// ===========================================================================
+
+/** The `mode: subagent` kid: bug 0188 §Reproduction (a)'s own headline spelling — a pure tail expression evaluating to `-0`, zero model turns of its own. */
+function b188LiveKidTheta(): string {
+  return ["---", "mode: subagent", "---", "0 * -1", ""].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: binds the callee's value through a typed
+ * `invoke<number>`, unwraps it via `match` (the `Err` arm is a control
+ * fallback only, never taken), and interpolates the reciprocal into the
+ * outbound query text behind the `b188-marker=` anchor — the one deterministic
+ * channel (`turn.userTexts`) that can observe the callee's sign.
+ */
+function b188LiveParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let r = invoke<number>("./b188livekid.theta")',
+    "let z = match r { Ok(v) => v, Err(e) => 1 }",
+    "@`Reply with the single word OK. b188-marker=${1 / z}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0188 (b188): a typed invoke<number> binds the sign-preserving envelope's -0 across a REAL spawned subagent child, live", () => {
+  it("the parent binds the callee's own -0 through the sign-preserving envelope, and the outbound query text names -Infinity rather than Infinity, through a REAL spawned subagent child, spending one real model turn", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b188livekid", text: b188LiveKidTheta() },
+      { source: "project", stem: "b188liveparent", text: b188LiveParentTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // LOUD PRECONDITION (AGENTS.md §"No silent skipping" — a discovery/parse
+      // failure must red with zero tokens): the parent command must exist
+      // before a live turn is driven.
+      expect(
+        handle.command("b188liveparent"),
+        "no bug-0188 parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b188liveparent");
+
+      // THE FIXED OBSERVABLE (AGENTS.md §"Assert on real observables" — NOT the
+      // note channel, which cannot carry a value for this fix, and NOT
+      // `assistantText`, which is stochastic). `turn.userTexts` is the
+      // deterministic outbound-render channel: exactly one query is issued (the
+      // parent's sole `@`-query statement), and its rendered text carries the
+      // callee's bound sign through `1 / z`'s reciprocal.
+      expect(
+        turn.userTexts,
+        "exactly one query is issued by the parent's sole `@`-query statement — " +
+          "observed: " + JSON.stringify(turn.userTexts),
+      ).toHaveLength(1);
+      expect(
+        turn.userTexts[0],
+        "bug 0188 §Fix (a): the parent must bind the callee's own -0 (not the +0 " +
+          "the pre-fix writer substituted), so 1 / z must render -Infinity — " +
+          "observed outbound text: " + JSON.stringify(turn.userTexts),
+      ).toContain("b188-marker=-Infinity");
+
+      // The drive must SUCCEED (AGENTS.md §"Assert on real observables": a
+      // fail-closed ending would otherwise be invisible to the assertion above
+      // alone). Asserted explicitly rather than inferred from the marker's
+      // presence.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        n.startsWith("theta /b188liveparent returned Err:"),
+      );
+      expect(
+        failureNotes,
+        "the drive must succeed — a fail-closed ending would make the marker " +
+          "assertion above meaningless. systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

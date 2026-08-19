@@ -1285,7 +1285,15 @@ census.
      widening", and a dedicated fence cell (`CONTROL (FENCE-NEGATIVE-ZERO)`, plus
      the integration witness's `negOk`/`negVal` rows) pins that a `-0` return
      still writes an `ok` envelope, so a later change cannot widen the detection
-     into it unnoticed. **Not filed** (a fix run creates no bug docs).
+     into it unnoticed. **Not filed** (a fix run creates no bug docs). —
+     **Discharged (0.117.0)** by
+     [0188](./0188-negative-zero-loses-sign-across-subagent-envelope.md), which
+     filed and fixed this residual by route (a): the envelope writer now emits
+     the `-0` form the JSON grammar already admits, so both legs bind the
+     callee's own sign and this detection predicate stays finiteness-only,
+     unwidened. The fence cell named above and the integration witness's `negVal`
+     row were re-pinned to the preserved sign under that report's authority, in
+     its own commit; `negOk` and `CONTROL (PROMPT-FINITE)` did not move.
   2. **A return boundary that runs no depth check has no backstop past the depth
      cap.** The child-side walk stops at `MAX_JSON_DEPTH` per CIO-3. At the typed
      `invoke<T>` boundary that is sound — ceiling-#4's own depth walk refuses a

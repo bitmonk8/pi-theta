@@ -1,8 +1,11 @@
 # Bug 0188 — `-0` crosses the subagent return envelope as `+0` while the prompt→prompt attach leg binds it unchanged: `0 * -1` parses with `[]` diagnostics and evaluates to `-0`, whose sign theta code observes through division (`1 / (0 * -1)` is `-Infinity` where `1 / 0` is `Infinity`), `serializeOkEnvelope(-0)` is `{"theta_result":{"v":1,"ok":0}}` because `JSON.stringify` never emits a sign the JSON grammar itself admits (`JSON.parse("-0")` IS `-0`), the parent re-reads `+0`, and BOTH legs validate `{"ok":true}` with no diagnostic — so the callee's `mode:` frontmatter selects the sign of the value the caller binds, the second JSON hole a legal theta value can occupy after the non-finite class bug 0180 closed at 0.105.0
 
-- **Status:** open. §Fix is **constraint-pinned, not settled**: the surface, the
-  mechanism and the reachable spellings are fixed and measured, and four
-  dispositions are stated with their costs, but which one lands is undecided —
+- **Status:** fixed (0.117.0). §Fix (0.117.0) below records what shipped:
+  route (a) — sign-preserving envelope encoding — parent-adjudicated before the
+  run and re-measured at HEAD `940206cb` rather than assumed. §Fix *as filed* was
+  **constraint-pinned, not settled**: the surface, the
+  mechanism and the reachable spellings were fixed and measured, and four
+  dispositions were stated with their costs, but which one lands was undecided —
   each moves GOV-15 observable (a)
   (`docs/spec_topics/governance/source-language-stability.md:5`) for a different
   leg, and one of them (§Fix (a)) turns on a PIC-59 wire-format question
@@ -1068,3 +1071,339 @@ HEAD `bf32ad03`; volatile positions in
 `src/extension/production-theta-producer.ts` (6350 lines) are named by symbol
 beside their line numbers, per
 [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
+
+## Fix (0.117.0)
+
+**Route: §Fix (a) — sign-preserving envelope encoding.** §Fix was
+constraint-pinned across four candidates and named the adjudication itself the
+deliverable. The route was **adjudicated by the parent on the record before the
+run started** and every stated ground was then re-measured at HEAD `940206cb`
+rather than assumed. The adjudication against all four candidates, with this
+document's own costs:
+
+- **(a) taken.** It makes the two legs identical **by construction**, which is
+  what `invocation.md:36` requires, and §Fix (a) itself records that it "is the
+  only candidate that does so without destroying information". Measured: the
+  writer now emits `-0` at the root, at a schema field, at an array element, at
+  depth, and inside a nested `Result` carrier, and `parseEnvelopeLine` re-reads
+  `Object.is(x, -0) === true` at every one of those positions. No parent-side
+  change was needed, because `JSON.parse` was always faithful
+  (§Reproduction (b)).
+- **(b) refused, and (a) was measurably not blocked.** Route (a) was prototyped
+  before Phase 1 and the FULL default suite run against it: exactly the three
+  §Fix (e)(4)-named assertions flipped, nothing else in 5460 tests moved. With
+  (a) available, (b)'s cost is unbought: its ground is "our writer does not emit
+  a form the format admits", which §Fix (b) itself marks as weaker than 0180's —
+  a statement about the implementation rather than the format. Two further costs
+  decided it: the refusal message renders `String(hit.value)`, and `String(-0)`
+  is `"0"` (measured), so a (b) refusal would name a value the author cannot
+  recognise; and (b) requires a DIAG-2 *Trigger* widening in
+  `code-registry-runtime.md:32` on the same commit as 0187's rewrite of that row.
+- **(c) refused, and it was never settled on.** Erasing the sign at the prompt
+  cell requires minting the sentence "the sign of zero is not part of a theta
+  `number`'s identity at a value boundary" — meaning the corpus does not
+  determine. `placeholder-rendering-a.md:79` localises the normalisation to "the
+  rendering boundary" and `runtime-value-model.md:26` scopes it to "the rendering
+  pipeline"; the envelope is a value boundary. (c) also destroys information on
+  the leg that preserves it and inverts the `PROMPT-FINITE` fence.
+- **(d)-alone refused** on the same ground: it owes the same new sentence to
+  justify leaving the divergence live, and §Fix (d) states that it "is a genuine
+  saving only if (a), (b) and (c) are all refused". Under (a) the documentation
+  half still ships, as §Fix (f)(1) requires.
+- **Downgrade condition NOT taken.** The estimate offers an S4 rescore if the run
+  adjudicates that the sign of zero is not part of a theta `number`'s identity.
+  Route (a) adjudicates the opposite: the sign IS part of the value's identity at
+  a value boundary, which is why it is preserved rather than normalised. The
+  reciprocal channel the downgrade may not ignore is witnessed
+  (`RED (HARM-SUBAGENT)`, and live cell 54's `-Infinity`), so the S1 score stands
+  as filed.
+
+**The PIC-59 wire-format question, adjudicated normatively (§Fix (a) bullet 2,
+§Fix (f)(1)).** A change to how a **number leaf** is rendered *within the same
+JSON grammar* is **not** a change to the envelope schema, so `v` stays `1` and
+PIC-59's skew detection is not engaged. Four grounds, each verified: the payload
+shape, the reserved key, the key set, the `v` field, the arm discrimination and
+`parseEnvelopeLine`'s behaviour are all unchanged (that function is
+byte-untouched); the reader was always capable — `JSON.parse` recovers `-0` at
+the root, at a field and in an array (§Reproduction (b), re-measured); both sides
+of the envelope ship in the same installed extension build, which is the premise
+`THETA_ENVELOPE_VERSION`'s own comment already records; and PIC-59's versioning
+requirement governs the envelope's **shape and version**, not a leaf's rendering.
+This mints no new meaning: it makes the bullet's existing opening clause —
+"**`Ok` values** serialise per the runtime value model" — TRUE, which §Expected
+behaviour adjudicates as "falsified on the fidelity reading" at HEAD. The bullet
+also states which reading of `runtime-value-model.md`'s `number` row the route
+takes (value-preserving at this boundary; the `-0`-to-`0` normalisation stays
+scoped to the rendering pipeline), as §Expected behaviour requires of the chosen
+route. Review round 1 caught the one sentence that over-reached: the fidelity
+claim is scoped to **finite** number leaves, because a non-finite leaf reachable
+only through a nested `Result` is still substituted — that residual is routed to
+PIC-59's own *Result-carriage bound* rather than claimed away (residual 1 below).
+
+**The implementation choice, and the property it rests on.** `JSON.stringify`
+cannot emit the sign through any `replacer` or `toJSON` hook (measured, four
+ways), so the writer needed a different encoder. Two candidates were weighed and
+the two-pass sentinel encoder was taken over a full custom stringifier, which
+would risk divergence in key order, string escaping and number formatting.
+`stringifyPreservingNegativeZero` (`src/runtime/subagent-envelope.ts`):
+
+1. **Pass 1** is `JSON.stringify` with an **identity** replacer that only
+   RECORDS whether a `-0` number leaf was seen. Its bytes are
+   `JSON.stringify`'s own, and they ARE the returned bytes whenever no `-0` is
+   present — so **every payload not carrying `-0` emits byte-identical bytes to
+   0.116.0**. Witnessed directly by `CONTROL (BYTES-IDENTICAL)`, a 22-row corpus
+   asserting the emitted line equals plain `JSON.stringify` of the same document
+   over `1e21`, `5e-324`, `-0.5`, escape-bearing and astral strings, a boxed
+   `String` enum carrier, a finite `Result` carrier, the string `"-0"`, the
+   record key `"-0"`, and an author string spelling this envelope — and
+   corroborated mechanically by the zero-red prototype sweep.
+2. **Pass 2**, only when a `-0` was seen, substitutes a per-document sentinel for
+   each `-0` leaf and textually replaces the quoted sentinel token with the bare
+   `-0`. The sentinel is minted by **doubling** a fixed seed while it still
+   occurs in pass 1's bytes: it is therefore provably absent from the author's
+   own bytes, the loop provably terminates (each iteration doubles the
+   candidate's length; past pass 1's length it cannot be a substring), and the
+   cost is `O(log n)` iterations. Witnessed by `RED (SENTINEL-COLLISION)` with
+   the seed and the doubled seed as author string data.
+
+**CIO-3 / §Fix (e)(7): there is no new payload walk to bound.** Detection and
+substitution both ride `JSON.stringify`'s **own** traversal, so the encoder
+hand-recurses nowhere and the prohibition on unbounded recursion in the envelope
+writer is satisfied with nothing to bound. That is stated in the encoder's
+doc-comment and it agrees with `firstNonFiniteNumber`'s and
+`wireFormExceedsDepthCap`'s, which do hand-recurse and are each bounded by
+`MAX_JSON_DEPTH`. 0187's depth refusal still runs FIRST in the writer's
+`terminal.ok` arm, so no over-cap payload outside a `Result` carrier reaches this
+encoder at all; `CONTROL (FENCE-DEPTH-ORDER)` drives the real writer with
+`[[[[[[0 * -1]]]]]]` and measures the depth refusal winning, with no `ok`
+envelope written.
+
+**The `Result`-carried `-0` interaction, stated rather than left implied.**
+Because the encoder rides `JSON.stringify`'s traversal, its reach is **wider**
+than either bounded walk's: `JSON.stringify` descends a `Result` carrier (the
+`makeOk`/`makeErr` brand is a non-enumerable symbol, its `ok` and
+`value`/`error` fields are own enumerable string keys), so a `-0` leaf carried
+inside one IS preserved. Measured: `[Ok(0 * -1), 1]` writes
+`{"theta_result":{"v":1,"ok":[{"ok":true,"value":-0},1]}}` and re-reads
+`Object.is(-0)` at `/0/value`; pinned by `RED (SEAM-RESULT-CARRIER)`, which is
+also the cell that pins the route's SHAPE — an implementation using a separate
+walk mirroring the module's two bounded walks would not descend the carrier and
+would red it. No conflict with 0187's `CONTROL (FENCE-NESTED-RESULT)`: that cell
+pins the DEPTH walk's non-descent, not serialisation, and
+`mapTooDeepReturnValue([Ok([[[[[1]]]]]), 1], …)` still answers `undefined`
+(re-pinned here as `CONTROL (FENCE-DEPTH-NESTED-RESULT)`, green in both
+directions). Both bounded walks are byte-untouched and PIC-59's *Result-carriage
+bound* still describes them exactly — this fix changes how a `-0` leaf renders,
+never which payloads are refused.
+
+**Corpus census, re-run at this HEAD.** 34 committed `.theta` / `.thetalib`
+files. One `*` occurrence, in comment prose; zero `%`; 200 `/` hits, every one
+comment prose, a `tools:`/import path, a `model:`/`bind_model:` reference or
+literal query-template text — **zero arithmetic division**. No committed fixture
+can mint a `-0`, so `tests/committed-fixture-parse-gate.test.ts` never meets one
+and the class stays unreachable from the shipped corpus. Vehicle sweep for
+`-0`-minting fixtures: none.
+
+- **What shipped:**
+  - `src/runtime/subagent-envelope.ts` — `serializeOkEnvelope` serialises through
+    the new module-private `stringifyPreservingNegativeZero`, backed by
+    `mintNegativeZeroSentinel` and the `NEGATIVE_ZERO_SENTINEL_SEED` const;
+    `serializeErrEnvelope`, `parseEnvelopeLine`, `firstNonFiniteNumber`,
+    `wireFormExceedsDepthCap`, `mapNonRepresentableReturnValue` and
+    `mapTooDeepReturnValue` are all byte-untouched in body. `(f)(2)`:
+    `serializeOkEnvelope`'s and `EnvelopeOk`'s doc-comments now say the caller
+    establishes finiteness **and** depth (0187's clause preserved) and the
+    **writer itself** establishes leaf fidelity for the sign of zero. `(e)(6)`:
+    `firstNonFiniteNumber`'s doc-comment records that the leaf test stays
+    finiteness and that `-0` is admitted **deliberately, not by oversight**.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — `(f)(1)`: PIC-59's
+    `Ok`-values bullet restated. 0187's two clauses survive **byte-exact**
+    ("at any depth **the two walks reach** …", "by whichever of the two
+    fail-closed requirements below applies …"), verified against
+    `git show 940206cb`; the *Fail-closed non-representable*, *Fail-closed
+    over-deep* bullets and the `#subagent-envelope-result-carriage-bound` anchor
+    definition are byte-identical. No producer change, no registry row, no
+    `docs/reference/diagnostics.md` change, no new code — route (a) mints none.
+  - `tests/subagent-envelope-negative-zero-fidelity.test.ts` — NEW, 28 cells, the
+    `(e)(8)` witness: §Reproduction (a), (c), (d) and (e) re-driven over the
+    shipped seams on both legs (the real `driveSubagentRootRegime` writer, the
+    real `parseEnvelopeLine`, the real `lowerQueryResponseSchema` plus the
+    production `AjvSchemaValidator`, the real `evaluateSource`), at the root, at a
+    schema field, at an array element, at depth and inside a `Result`, under
+    `number`, `integer` and `number | null`; the `+0` controls (`0 - 0`, `0 * 1`)
+    assert UNCHANGED bytes and values; `RED (HARM-SUBAGENT)` and `HARM-PROMPT` are
+    the caller-side reciprocal (`1 / z`) that measures the harm rather than the
+    mechanism; `CONTROL (BYTES-IDENTICAL)`, `RED (SENTINEL-COLLISION)`,
+    `FENCE-DEPTH-*`, `FENCE-DETECTION` and `BOUNDARY-*` pin the constraints.
+  - `tests/subagent-envelope.test.ts` — `(f)(3)`: the `OK_VALUES` doc-comment's
+    stale "(JSON-representable by construction)" parenthetical corrected, and
+    `-0` round-trip coverage added additively at the root, at a field and at an
+    array element with `Object.is` (`toEqual` treats `-0` and `+0` as equal), plus
+    a `+0` control. No existing row weakened.
+  - `tests/live/live-production-acceptance.test.ts` — H8a cell **54**, additive
+    (188 insertions, 0 deletions; cells 1–53 unchanged).
+- **Gates** (verbatim): witness
+  `tests/subagent-envelope-negative-zero-fidelity.test.ts` `Tests 28 passed (28)`;
+  full default suite `Test Files 319 passed (319)` / `Tests 5485 passed (5485)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean, no output;
+  `npm run lint` (`eslint … "src/**/*.ts"`) clean, no output. Live: H8a cell 54
+  `Tests 1 passed | 53 skipped (54)` (real spawned child, one real model turn),
+  red-proved in both directions; H9a
+  `tests/live/acceptance/noninteractive-acceptance.test.ts` `Tests 10 passed (10)`
+  and `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts`
+  `Tests 1 passed (1)`; the permitted-diagnostic-code subset gate passed at all
+  ten call sites with **no append** — route (a) mints no code, verified by the
+  real run rather than assumed.
+- **Review:** 2 rounds, plus one pre-review correction round and one polish round.
+  Round 1 (deep) — 5 findings: one `spec` (the PIC-59 fidelity sentence
+  over-claimed; falsified by the non-finite-leaf-inside-a-`Result` class the same
+  page names), three `test` and one `prose` (two wrong `path:line` citations, a
+  cost attribution pointing at a doc-comment this fix rewrote, and a present-tense
+  claim about the three fence cells that the same landing falsified). No
+  `correctness`, `fidelity` or `house-rule` defect; the encoder's
+  collision-freedom, termination and byte-identity were attacked with a live probe
+  and held. Round 2 (fast) — **CLEAN**, all five discharged, 0187's clauses
+  re-verified byte-exact, one non-blocking `prose` residual (a second instance of
+  the stale-claim pattern) which the polish round fixed.
+  The **pre-review correction round** reverted two files this fix does not own —
+  `tests/invoke-prompt-cell-enum-return.test.ts` and
+  `tests/invoke-return-enum-carrier-projection.test.ts` — byte-exact to HEAD
+  (`9ba11f71…`, `1eb000e9…`, hash-matched), because the implementer had chased
+  `subagent-envelope.ts` line citations into them; those citations were already
+  stale at HEAD and are 0134's do-not-chase class. It also corrected ten citation
+  strings inside this fix's own new witness file. The polish round changed one
+  comment character. Both were verified comment-only by diff inspection, with the
+  gates re-run green.
+- **Verification:** SOLID. (1) *The witness genuinely witnesses.* Neutralising
+  `serializeOkEnvelope` back to plain `JSON.stringify` reds **17** cells across
+  the three unit files, every failure showing `0` where `-0` is expected; restore
+  proved by `git hash-object` = `a74f338bb2f1c3fade2a838ba289a965c06f21e0` at each
+  of three neutralise/restore cycles, then `Tests 87 passed (87)`.
+  (2) *Full default suite* green, 319/5485. (3) *Live end-to-end.* No existing
+  live cell could observe a bound value's sign — the SNK-i note template
+  (`src/runtime/err-note-render.ts`) carries no `.message`, so bug 0180's cell and
+  bug 0187's cell 53 both read note presence/absence only. Cell 54 was added: a
+  `mode: subagent` kid whose sole statement is `0 * -1`, and a `mode: prompt`
+  parent that binds it and sends a query template interpolating `${1 / z}` behind
+  a `b188-marker=` anchor — so the observable is `driveSlashCaptureTurn`'s
+  `userTexts`, the deterministic outbound-render channel ("the exact text the
+  theta CODE computed and sent"), never `assistantText`. Green with the fix
+  (`b188-marker=-Infinity`); RED with it neutralised, quoting the observed
+  `"Reply with the single word OK. b188-marker=Infinity"`; restored
+  blob-hash-matched and green again. Both H9a files green, no permitted-code
+  append. No unexpected live red occurred, so no attribution against an open
+  `docs/bugs/` signature was needed. (4) *Lint and typecheck* clean.
+- **§Fix (e)(4) — 0180's six `-0` fence assertions, re-pinned per cell under this
+  bug's authority.** Exactly the cells route (a)'s claim inverts moved, measured
+  before Phase 1 and again after landing:
+  1. `tests/subagent-envelope-nonfinite-ok-refusal.test.ts` `CONTROL
+     (FENCE-NEGATIVE-ZERO)` — the `serializeOkEnvelope(-0)` byte assertion FLIPS
+     to `'{"theta_result":{"v":1,"ok":-0}}\n'`. Its two `refusalFor(...)`
+     `toBeUndefined()` assertions are **unchanged**: the detection predicate did
+     not move, and that is now the cell's whole point. Comment rewritten, not
+     deleted.
+  2. The same file's `CONTROL (CHILD-FINITE)` `0 * -1 (-0)` row — the real
+     writer's envelope byte FLIPS the same way. Every other row in that cell is
+     byte-untouched.
+  3. `tests/subagent-invoke-nonfinite-return-refusal.test.ts` `negVal` — the
+     assertion is `toBe`, i.e. `Object.is`, so it FLIPS: `.toBe(0)` becomes
+     `.toBe(-0)`. Read first, as required, rather than assumed. Measured over REAL
+     spawned children, across the **two** envelopes on that path (the kid's own
+     and the driven root's own report), which is why this cell witnesses the fix
+     end to end.
+  4. The same file's `negOk` — **unchanged** (`.toBe(true)`): the envelope is
+     still the `ok` arm and nothing is newly refused. Comment rewritten only.
+  5. `CONTROL (PROMPT-FINITE)`'s `Object.is(bound, -0)` row — **UNTOUCHED**. The
+     prompt leg is the fixed point route (a) converges the subagent leg onto.
+  6. `tests/subagent-return-depth-refusal.test.ts` (0187's 13 cells, including
+     `CONTROL (FENCE-NESTED-RESULT)`) — **byte-untouched**, 13/13 green, zero
+     flips. Both 0180 files' other cells are green with byte-untouched assertions.
+- **§Fix (e)(5) — GOV-15 named, not absorbed.** Observable (a)
+  (`source-language-stability.md:5`) moves on the **subagent leg only**, toward
+  the prompt leg and toward `invocation.md:36`. The enumeration, with the
+  zero-flip legs verified rather than assumed:
+  (i) **typed `invoke<T>`, subagent leg** — a caller that bound `+0` binds `-0`,
+  at every wire position within the cap, plus inside a `Result` carrier; verified
+  at the seam, at the real writer, at the parent's re-read, and over real spawned
+  children (`negVal`).
+  (ii) **`tools:`-declared `.theta` callable** — the same flip, by the same
+  writer: `driveSubagentRootRegime`'s `terminal.ok` arm is the single shared
+  serialisation site for both call forms, and that arm is what the `CHILD-*` cells
+  drive.
+  (iii) **top-level `/name` of a `mode: subagent` theta** — the envelope byte
+  changes and **no operator-visible rendering does**. Measured, not asserted: a
+  live probe dispatched a `mode: subagent` theta whose tail is `0 * -1` at the top
+  level on both sides of the fix and both produced byte-identical empty
+  `userTexts`, empty `systemNotes` and empty streamed text. The reasons: every
+  rendering boundary normalises `-0` to `0` (`renderCanonicalNumber`,
+  `stringifyInterpolatedValue`, `match-result.ts`'s scrutinee summary), an `Ok(v)`
+  top-level termination emits no `theta-system-note` at all, and the SNK-i err
+  template carries no value.
+  (iv) **untyped `invoke(...)`** — zero flip; `invocation.md:28` discards the
+  callee's value, so there is no sign to observe (bug 0068's bound).
+  (v) **both prompt legs** — zero flip; the prompt-to-prompt attach cell does not
+  serialise, and `CONTROL (PROMPT-FINITE)` plus `HARM-PROMPT` are green untouched.
+  (vi) **`-0`-free payloads** — envelope bytes IDENTICAL, witnessed by the 22-row
+  `CONTROL (BYTES-IDENTICAL)` corpus and by 5485 green tests.
+  (vii) **the two existing refusals** — 0180's non-finite class and 0187's
+  over-cap class are unchanged in reach, message and code.
+  Observable (c) (`theta-system-note` content) does not move at all: no new note,
+  no new code, and (iii)'s measurement shows the existing notes byte-identical.
+- **§Fix (e)(1)(2)(3)(6) — the boundaries that did not move.** Evaluation
+  semantics untouched (`tests/expression-evaluator.test.ts` green; no operator,
+  static type or panic changed). The rendering boundaries untouched — `${z}` still
+  renders `0`, and `canonical-number-render`, `argument-echo` and
+  `placeholder-rendering` are green, re-pinned here by `BOUNDARY-CANONICAL` and
+  `BOUNDARY-INTERPOLATION`. Equality untouched: `+0 == -0` stays `true`
+  (`runtime-value-model.test.ts`, re-pinned by `BOUNDARY-EQUALITY`) — two values
+  that compare equal and divide differently, which is IEEE-754 and already the
+  situation inside one theta. The detection predicate stays **finiteness**, said
+  so in the code so a later reader does not infer that `-0` was overlooked.
+- **Residuals:**
+  1. **A non-finite `number` reachable only through a nested `Result` is still
+     substituted, and the sign fix does not close it.** Review round 1 established
+     that the encoder's fidelity claim cannot be stated for all number leaves:
+     `[Ok(1 / 0), 1]` still writes
+     `{"theta_result":{"v":1,"ok":[{"ok":true,"value":null},1]}}` because
+     `firstNonFiniteNumber` does not descend a `Result` (0187 measured and
+     recorded the same bound). PIC-59's new sentence is therefore scoped to
+     **finite** leaves and routes the residual to that page's own
+     *Result-carriage bound*. This fix neither creates nor worsens it and does not
+     widen either bounded walk — 0180 §Non-goals reserves that mechanism, and
+     `src/runtime/wire-translation.ts` is byte-frozen. **Not filed** (a fix run
+     creates no bug docs); the subject belongs to the `Result`-carriage report
+     being filed separately.
+  2. **The `tools:`-callable and top-level `/name` flips are mechanism-derived,
+     not separately driven by a dedicated unit cell.** Both cross the single
+     shared `driveSubagentRootRegime` `terminal.ok` arm that the `CHILD-*` cells
+     drive, and (iii) above is measured live; no cell isolates the `tools:` form
+     with a `-0` payload. §Provenance already marks both hops as read from source
+     rather than driven.
+  3. **Line citations into `src/runtime/subagent-envelope.ts` shifted by 82 lines
+     past line 110.** §Affected's positions are stamped at HEAD `bf32ad03` and are
+     not rewritten, per 0134. Other documents citing this module by line — 0002,
+     0008, 0067, 0086, 0112, 0168, 0174, 0178, 0179, 0189 and the two reports being
+     filed in parallel — are **not chased**; every one was checked to cite
+     parent-side functions this fix does not touch. Two test files this fix does
+     not own carry citations that were already stale at HEAD; the pre-review
+     correction round restored them byte-exact rather than chasing them.
+- **Discharge notes appended:**
+  [0180](./0180-invoke-return-nonfinite-number-mode-variance.md)'s
+  `## Fix (0.105.0)` §*Residuals* item 1 — the filing origin of this report —
+  discharged (0.117.0). 0187's `## Fix (0.116.0)` record makes no claim this fix
+  falsifies: its PIC-59 clauses survive byte-exact, its *Result-carriage bound* is
+  untouched and still accurate of both bounded walks, its rewritten registry
+  *Trigger* is unchanged, and its 13 cells are byte-untouched and green — so
+  nothing is appended there.
+- **Pinned dispositions / non-goals:** 0180's non-finite refusal, its registered
+  code, its message shape and PIC-59's fail-closed bullet stay settled — the
+  detection predicate is NOT widened to the sign of zero. `NaN` payload identity,
+  the five rendering boundaries' `-0`-to-`0` decisions, the equality relation,
+  what `*`, `/`, `%` and unary `-` produce, the AJV seam's `strict: false` posture
+  and the untyped `invoke(...)` discard are all untouched.
+  `src/runtime/wire-translation.ts` (0174) and
+  `src/extension/production-theta-producer.ts` are byte-untouched. With the
+  non-finite class closed at 0.105.0, the over-cap class at 0.116.0 and the sign
+  of zero here, the enumeration of `JSON.stringify` holes a legal theta value can
+  occupy at this writer is closed at three; a route finding a fourth records it
+  rather than widening, on the terms 0180 set.

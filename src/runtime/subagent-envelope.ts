@@ -63,7 +63,7 @@ export const THETA_RESULT_KEY = "theta_result";
  */
 export const THETA_ENVELOPE_VERSION = 1;
 
-/** The `ok` arm of the envelope payload: the child's final value, whose representability AND depth the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue`) rather than assuming either by construction. */
+/** The `ok` arm of the envelope payload: the child's final value, whose representability AND depth the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue`) rather than assuming either by construction; the writer itself establishes the sign of zero (`stringifyPreservingNegativeZero`, bug 0188 §Fix (a)). */
 export interface EnvelopeOk {
   readonly v: number;
   readonly ok: unknown;
@@ -110,13 +110,95 @@ export const SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE = "theta/runtime/subag
  * JSON-document depth exceeds ceiling #4's cap is refused
  * (`mapTooDeepReturnValue`), and — within that cap — a payload carrying a
  * non-finite `number` anywhere within it is refused
- * (`mapNonRepresentableReturnValue`), rather than reaching `JSON.stringify`,
- * which has no non-finite form and would substitute `null` for a value the
- * callee never produced.
+ * (`mapNonRepresentableReturnValue`). The writer itself establishes leaf
+ * fidelity for the sign of zero: `stringifyPreservingNegativeZero` emits the
+ * `-0` form the JSON grammar already admits — `JSON.parse` recovers `-0` at
+ * the root, at a field and in an array — rather than reaching plain
+ * `JSON.stringify`, which renders every `-0` as `0` and cannot be made to do
+ * otherwise by any `replacer` or `toJSON` hook (measured): the hole bug 0188
+ * §Fix (a) closes is in the writer, not in the wire format.
  */
 export function serializeOkEnvelope(value: unknown): string {
   const payload: EnvelopeOk = { v: THETA_ENVELOPE_VERSION, ok: value };
-  return `${JSON.stringify({ [THETA_RESULT_KEY]: payload })}\n`;
+  return `${stringifyPreservingNegativeZero({ [THETA_RESULT_KEY]: payload })}\n`;
+}
+
+/**
+ * The seed `mintNegativeZeroSentinel` doubles until it is absent from the
+ * document it is substituted into — named so a reader of a captured envelope
+ * line recognises it as this module's own marker rather than author data.
+ */
+const NEGATIVE_ZERO_SENTINEL_SEED = "theta_negative_zero_sentinel";
+
+/**
+ * Mint a string guaranteed absent from `plain` by doubling
+ * `NEGATIVE_ZERO_SENTINEL_SEED` for as long as the candidate still occurs in
+ * it. Each iteration doubles the candidate's length, so once it exceeds
+ * `plain`'s length the candidate cannot be a substring of `plain`: the loop
+ * terminates in at most `O(log n)` iterations (`n` = `plain.length`) and the
+ * returned sentinel is provably absent from `plain`, whatever `plain`
+ * contains — including author string data that spells the seed itself.
+ */
+function mintNegativeZeroSentinel(plain: string): string {
+  let sentinel = NEGATIVE_ZERO_SENTINEL_SEED;
+  while (plain.includes(sentinel)) {
+    sentinel += sentinel;
+  }
+  return sentinel;
+}
+
+/**
+ * `JSON.stringify`, with `-0` number leaves rendered as `-0` rather than `0`.
+ * Two passes:
+ *
+ * 1. Stringify `document` with an IDENTITY replacer that only RECORDS
+ *    whether a `-0` number leaf was seen; the replacer changes no value, so
+ *    this pass's bytes are `JSON.stringify`'s own. For every `document`
+ *    carrying no `-0`, those bytes are what this function returns — measured
+ *    over `tests/subagent-envelope-negative-zero-fidelity.test.ts`'s
+ *    `BYTES-IDENTICAL` cell and over every committed envelope-producing
+ *    test.
+ * 2. Only when a `-0` leaf was seen: re-stringify with a replacer that maps
+ *    each `-0` leaf to a sentinel string `mintNegativeZeroSentinel` mints
+ *    against pass 1's own bytes, then textually replace each quoted sentinel
+ *    token with the bare `-0` token. The sentinel is absent from pass 1's
+ *    bytes by construction, so the quoted token in this pass's own output
+ *    occurs only where this replacer put it, and the substitution to `-0`
+ *    is exact.
+ *
+ * Detection and rendering both ride `JSON.stringify`'s OWN traversal, so this
+ * function walks no payload of its own: CIO-3's prohibition on unbounded
+ * recursion in the envelope writer is satisfied with nothing to bound here —
+ * unlike `firstNonFiniteNumber` and `wireFormExceedsDepthCap`, which
+ * hand-recurse and are each bounded by `MAX_JSON_DEPTH`.
+ *
+ * That traversal is also why this function's reach INCLUDES a `-0` leaf
+ * nested inside a `Result` carrier: the `makeOk` / `makeErr` carrier's `ok`
+ * and `value` / `error` fields are own enumerable string keys, which
+ * `JSON.stringify` descends even though neither `firstNonFiniteNumber` nor
+ * `wireFormExceedsDepthCap` does. Those two walks are UNCHANGED, and PIC-59's
+ * *Result-carriage bound*
+ * (`docs/spec_topics/pi-integration-contract/subagent.md`,
+ * `#subagent-envelope-result-carriage-bound`) still describes them exactly:
+ * this function's wider reach changes how a `-0` leaf renders, never which
+ * payloads are refused.
+ */
+function stringifyPreservingNegativeZero(document: unknown): string {
+  let carriesNegativeZero = false;
+  const plain = JSON.stringify(document, (_key: string, member: unknown): unknown => {
+    if (typeof member === "number" && Object.is(member, -0)) {
+      carriesNegativeZero = true;
+    }
+    return member;
+  });
+  if (!carriesNegativeZero) {
+    return plain;
+  }
+  const sentinel = mintNegativeZeroSentinel(plain);
+  const encoded = JSON.stringify(document, (_key: string, member: unknown): unknown =>
+    typeof member === "number" && Object.is(member, -0) ? sentinel : member,
+  );
+  return encoded.split(`"${sentinel}"`).join("-0");
 }
 
 /**
@@ -340,6 +422,15 @@ function escapePointerToken(token: string): string {
  * an RFC-6901 JSON Pointer on the way down. Mirrors `depth-walk.ts`'s
  * `firstTooDeep` discipline: a level counter with the root at level 1, and one
  * reference token of pointer accumulated per descent.
+ *
+ * The leaf test is finiteness (`Number.isFinite`), not sign — a `-0` leaf
+ * passes it, deliberately rather than by oversight. Bug 0188 route (a) closes
+ * the sign-of-zero defect by preserving a `-0` leaf's sign at the writer
+ * (`stringifyPreservingNegativeZero`) instead of widening this predicate to
+ * refuse it, which would newly refuse a today-passing input with no
+ * registered class behind it
+ * (`docs/bugs/0188-negative-zero-loses-sign-across-subagent-envelope.md`
+ * §Fix (e)(6)).
  *
  * Bounded by `MAX_JSON_DEPTH`, because unbounded recursion inside the envelope
  * writer is forbidden (CIO-3). The bound costs nothing at every subagent
