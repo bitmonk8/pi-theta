@@ -941,7 +941,7 @@ const U13PH_OBJECT_INDEX_PROVEN_KEY =
   FM +
   'schema Q { b: string }\nlet q: Q = Q { b: "s" }\nlet k = 3\nfor w in [1] { let v = q[k] }\n"t"\n';
 
-/** The marking-channel deferral (round-7 residual R1) and the render residual. */
+/** The marking channel's true positive when an arm body IS its binder, and the render residual. */
 const U13E_ARM_IDENTITY_MARKING =
   FM +
   'fn g(s: string): number { 1 }\nlet x = 1\nlet m = match "hi" { x => x }\nlet r = g(x)\nr\n';
@@ -2973,36 +2973,48 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual([`error ${objectIndexMessage("integer")} @${at(range(7, 24, 7, 28))}`]);
   });
 
-  it("u13e: an arm body that IS its binder leaves the outer binding unjudged (round-7 residual R1)", () => {
-    // The marking channel, pinned as its own deferral. The inference pass types
-    // an arm body in the ENCLOSING scope (it has no arm-scope concept,
-    // src/parser/static-type-inference.ts:237–241), so `typeOf(match)` returns
-    // the outer `x`'s recorded object BY IDENTITY through `#commonType`'s
-    // single-candidate return (:341–352) and the `ident` arm's own identity
-    // return (:214–216). The arm-scoped reduction correctly withholds, so the
-    // `let`-marking guard adds that SHARED object to `unprovableBindings`
-    // (src/parser/type-layer-checks.ts:1019–1020, :1052) and the outer `x` reads
-    // unprovable for the rest of the walk — hence no emission on `g(x)`, where
-    // one would be true (`x` is the integer `1`).
+  it("u13e: an arm body that IS its binder no longer withholds the outer binding's verdict", () => {
+    // The marking channel, restated as the emission it used to withhold. Two
+    // independent conditions could flip this cell and this comment named both.
+    // ONE IS NOW TAKEN. The `let` arm's marking guard adds the object
+    // `typeOf(stmt.init)` returned to `unprovableBindings` by IDENTITY
+    // (`walkStmt`'s `case "let"`, src/parser/type-layer-checks.ts:1187, read at
+    // `provableArgType`'s `ident` arm, :2053). Here that object is the outer
+    // `x`'s: the inference pass types an arm body in the ENCLOSING bindings map
+    // (`#typeExpr`'s `case "match"`, src/parser/static-type-inference.ts:261–265),
+    // so `typeOf(match)` hands back the recorded object through `#commonType`'s
+    // single-candidate fallback (:434–439, :438) over what the `ident` arm
+    // already returned by identity (:235–240). The arm-scoped reduction
+    // correctly withholds, so the SHARED object is marked and the outer `x`
+    // reads unprovable for the rest of the walk. Bug 0199
+    // (docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md) keys that
+    // mark to the binding it was recorded for, which restores the emission below
+    // — a true positive, since `x` IS the integer `1` — and is the authority
+    // under which this cell asserts it.
     //
-    // Withheld true positive, not a false `E`: `unprovableBindings` has exactly
-    // one read site (`provableArgType`'s `ident` arm), whose only effect is
-    // hit-becomes-withhold, so the channel can only turn a proof into a
-    // deferral. Scope-map containment is unaffected — cells u12p / u12pb and
-    // the `for` shape (`let x = 1` then `for x in ["a"] { … }` then `g(x)`,
-    // which still emits) show the record itself does not leak outward; what
-    // leaks is the MARKING. It flips the day the inference pass types arm
-    // bodies in an arm scope, or the day the marking guard keys on something
-    // other than the rhs type object's identity.
+    // THE OTHER FLIP DAY IS STILL OPEN, and is not this cell's to spend. Bug
+    // 0145 (docs/bugs/0145-inference-pass-no-match-arm-scope.md) owns the
+    // arm-scope question: the pass has no arm scope, so an arm body's binder is
+    // resolved in the scope that encloses it. That report's subject is the
+    // programs it REFUSES on that account, none of which this fixture reaches,
+    // and it stays open with its subject intact.
+    //
+    // The direction is the admissible one either way: `unprovableBindings` has
+    // exactly one read site, whose only effect is hit-becomes-withhold, so the
+    // channel can only turn a proof into a deferral and never fabricate an `E`.
+    // Scope-map containment is unaffected — cells u12p / u12pb and the `for`
+    // shape (`let x = 1` then `for x in ["a"] { … }` then `g(x)`, which emits
+    // here too) show the record itself does not leak outward; what leaked was
+    // the MARKING.
     const doc = parse(U13E_ARM_IDENTITY_MARKING);
     expect(
       argRange(doc, "g", 0),
       "PRECONDITION: the argument `x` sits at the top-level call on body line 7",
     ).toEqual(range(7, 11, 7, 12));
     expect(
-      doc.diagnostics,
-      `u13e — the marking channel's identity sharing withholds the outer binding as well; deferral is the admissible direction. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      locatedHits(doc, CODE),
+      `u13e — a mark recorded for \`m\` must not withhold the outer \`x\`, whose own \`let x = 1\` is a proof; TYPE-9 owes the mismatch at the argument node the PRECONDITION above pins. Diagnostics: ${render(doc)}`,
+    ).toEqual([`error ${fnArgMessage("g", 0, "s", "string", "integer")} @${at(range(7, 11, 7, 12))}`]);
   });
 
   it("u13r: a COMPOSITE built from a withheld read keeps its verdict, and renders the sentinel", () => {

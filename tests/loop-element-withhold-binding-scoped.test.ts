@@ -88,16 +88,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // The `let` arm is OUT of scope for that route: it marks whatever
 // `typeOf` returned for the initialiser, which is also a borrowed object for a
-// member read. Row d6 bounds it — measured `[]` today and unmoved by a
-// two-loop-arm fix — and is labelled bug-0194 residual territory rather than an
-// aspiration.
+// member read. Row d6 bounds it, and bug 0199
+// (docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md) is the report
+// that takes that writer as its subject; its §Fix (d)(2) is the authority under
+// which d6 asserts the emission its own control already asserts.
 //
 // ── FIX-PRODUCED EMISSION vs REGRESSION PIN ─────────────────────────────────
 // RED at HEAD, green under the route (the property's failing half):
 //   (a) a1; (b) b1, b2, b3; (c) c1, c2, c3, c4, c5, c6, c7, c8, c9.
+// RED at HEAD, green under bug 0199's fix at the remaining writer: (d) d6.
 // Green at HEAD and green under the route (the property's bound in the other
 // direction — each reds if a fix DELETES the withhold instead of re-keying it):
-//   (a) a2, a3; (b) b4; (c) c3ctl, c4ctl, c9ctl; (d) d1, d2, d3, d4, d5, d6,
+//   (a) a2, a3; (b) b4; (c) c3ctl, c4ctl, c9ctl; (d) d1, d2, d3, d4, d5,
 //   d6ctl; (e) e1, e2, e3ctl, e4ctl.
 // Row d5 is the sharpest of those: an unproven iterand's OWN loop variable is
 // still withheld at the fn-argument sink. A route that removes the marking
@@ -1005,7 +1007,7 @@ describe("bug 0194 (c) — one mark reaches the whole document", () => {
 // red d1. d3 pins the sibling VALUE channel (`containsWithheldBinderType`),
 // which the identity channel does not reach — exactly one registered code is
 // suppressed by this defect, not the nine the loop binding serves. d6 bounds
-// the `let` arm, which the settled route does not touch.
+// the `let` arm, whose own remedy is bug 0199's.
 // ===========================================================================
 
 describe("bug 0194 (d) — the fences: sharing alone is inert, and the withhold itself survives", () => {
@@ -1083,16 +1085,25 @@ describe("bug 0194 (d) — the fences: sharing alone is inert, and the withhold 
     });
   });
 
-  it("PIN d6: the `let` arm's own suppression is UNMOVED by a two-loop-arm fix — bug 0194 residual territory", () => {
-    // A BOUND, not an aspiration. The `let` arm marks whatever `typeOf`
-    // returned for the initialiser, which is the borrowed declared-field object
-    // for a member read, so `let zs = m.xs` suppresses the later `hs(ws)`
-    // verdict by the same mechanism through a different writer. The settled
-    // route touches the two LOOP arms only, so this row is `[]` today and `[]`
-    // after; the report's §Fix records the `let` arm as out of scope and its
-    // live suppression route as a residual.
+  it("RED d6: the `let` arm marks a borrowed object too, and the verdict it withholds is owed — bug 0199", () => {
+    // WHICH ASSERTION MOVED, AND WHY. The `let` arm marks whatever `typeOf`
+    // returned for the initialiser, which for a member read is the declared
+    // field's own object, so `let zs = m.xs` suppresses the later `hs(ws)`
+    // verdict through a different writer over the same set. Bug 0194's route
+    // re-keys the two LOOP arms, and this cell was installed as the BOUND on
+    // exactly the end state at the remaining writer. Bug 0199
+    // (docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md) takes that
+    // writer as its subject and its §Fix (d)(2) is the authority for this flip.
+    //
+    // Gone: the `CLEAN` premise. It inverts into the one located emission
+    // below, byte-equal to the verdict `d6ctl` already asserts on the
+    // delete-control — the same operands, the same argument node, the same
+    // rendered *Message*. The fixture and its binder sites are unchanged, so the
+    // two cells still differ only in whether the poisoning `let` is present,
+    // which is what makes this row's former silence a suppression rather than a
+    // missing check.
     expectRow({
-      label: "d6 [let-arm residual]",
+      label: "d6 [let-arm suppression]",
       src:
         PRE_LET_ARM +
         "fn f(flag: boolean, q: P) {\n" +
@@ -1102,9 +1113,10 @@ describe("bug 0194 (d) — the fences: sharing alone is inert, and the withhold 
         "  let r = hs(ws)\n" +
         TAIL,
       sites: [M_SITE, "let zs@12:3-12:16", "let ws@13:3-13:16", "let r@14:3-14:17"],
-      expected: CLEAN,
+      expected: one(FN_ARG, fnArg("hs", 0, "a", "array<string>", "array<integer>")),
+      located: [`error ${FN_ARG} @14:14-14:16`],
       reason:
-        "measured at HEAD and unmoved by the two-loop-arm route: `provableArgType`'s identity read hits the object `let zs` marked, and the LOOP arms are the only writers the route re-keys. Recorded so the residual has a pin rather than a claim",
+        "`q` is an annotated parameter of a resolved object schema and a declared-field read off it is a proof under bug 0190, so both operands at the `hs(ws)` slot are statically resolvable and type-system.md:50 (TYPE-9) owes the mismatch; the withhold that suppresses it was recorded for `zs`, a different binding",
     });
   });
 

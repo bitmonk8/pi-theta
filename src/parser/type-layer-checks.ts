@@ -964,35 +964,44 @@ class TypeLayerWalk {
    * The type objects recorded for `let` bindings whose initialiser is a
    * `Result` by construction — the bug-0079 §Fix (a) ident provenance channel,
    * keyed by OBJECT IDENTITY (the WHY is at the `let` arm that populates it).
-   * `bindLoopElement` is the channel's second writer, and writes only to
-   * INHERIT a membership onto the twin it records for an unproven loop variable
-   * — never to mint one, so the `let` arm remains the sole judge of what is
-   * `Result`-valued. Per-parse instance state, like `diagnostics`.
+   * The `let` arm is the sole MINTER — only `isCertainResultNode` creates a
+   * membership — but not the sole writer: `bindLoopElement` and the `let`
+   * arm's own unproven branch (bug 0199 §Fix (a)) both INHERIT a membership
+   * onto the private twin they record, by testing the borrowed object before
+   * deciding whether to copy it, so a binding that only ever reads another
+   * `Result`-marked binding keeps that membership across the copy. Per-parse
+   * instance state, like `diagnostics`.
    */
   private readonly resultBindings = new Set<CompatType>();
 
   /**
    * The type objects recorded for a binding whose recorded type is an ERASED
    * read rather than a declared one — the bug-0050 §Fix laundered-binding
-   * channel. FOUR writers: `walkStmt`'s unannotated `let` arm (the
-   * initialiser's own read); the two loop arms — `walkStmt`'s `case "for"` and
-   * `walkExpr`'s `case "par-for"` — through the shared `bindLoopElement` (the
-   * iterand's element read); and `recordWithheldBinders`, for a binder class
-   * this layer cannot type at all (it marks the sentinel it mints). Keyed by
-   * OBJECT IDENTITY for the same reason `resultBindings` above is:
-   * `bindings.get(name)` returns the exact object the recording arm stored, so
-   * identity is the channel back to an erasure a name lookup alone cannot see.
-   * `bindLoopElement` is what keeps that exactness true at the two loop arms:
-   * `unfoldAlias` (./type-compat.ts) hands back a `TypeEnv` alias's element BY
-   * REFERENCE, and `collectTypeEnv`, `collectSchemaFields` and
-   * `paramsFieldBindings` each build exactly one such object per alias
-   * declaration, per declared schema field, or per `params:` field, for the
-   * WHOLE parse — so it marks a fresh twin instead of that borrowed object,
-   * keeping the marked object reachable from exactly one scope entry (bug 0194
-   * §Fix). `walkFn`'s parameter scope feeds nothing here — an author-written
-   * annotation IS a declared type, so it is a proof. `provableArgType`'s
-   * `ident` arm withholds on a hit; a false identity hit only withholds, never
-   * fabricates an emission. Per-parse instance state, like `diagnostics`.
+   * channel. FOUR writers, each marking an object it owns: `walkStmt`'s
+   * unannotated `let` arm (the initialiser's own read); the two loop arms —
+   * `walkStmt`'s `case "for"` and `walkExpr`'s `case "par-for"` — through the
+   * shared `bindLoopElement` (the iterand's element read); and
+   * `recordWithheldBinders`, for a binder class this layer cannot type at all
+   * (it marks the sentinel it mints). Keyed by OBJECT IDENTITY for the same
+   * reason `resultBindings` above is: `bindings.get(name)` returns the exact
+   * object the recording arm stored, so identity is the channel back to an
+   * erasure a name lookup alone cannot see.
+   *
+   * The object a `typeOf` read hands back can be BORROWED rather than minted:
+   * a declared field's own `CompatType` (`collectSchemaFields`, one object per
+   * declared field per parse) or a `TypeEnv` alias's right-hand side
+   * (`unfoldAlias` hands it back BY REFERENCE) is shared by every binding that
+   * records that same field or alias, so marking it directly would withhold
+   * every later reader of it, not only the binding the mark was taken for
+   * (docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md). Each writer
+   * therefore marks a fresh twin instead of the borrowed object wherever that
+   * risk exists — `bindLoopElement` at the two loop arms (bug 0194 §Fix), the
+   * `let` arm at its own unproven branch (bug 0199 §Fix (a)) — keeping the
+   * marked object reachable from exactly one scope entry. `walkFn`'s parameter
+   * scope feeds nothing here — an author-written annotation IS a declared
+   * type, so it is a proof. `provableArgType`'s `ident` arm withholds on a
+   * hit; a false identity hit only withholds, never fabricates an emission.
+   * Per-parse instance state, like `diagnostics`.
    */
   private readonly unprovableBindings = new Set<CompatType>();
 
@@ -1109,10 +1118,13 @@ class TypeLayerWalk {
           // reaches no proof obligation at all.
           const initUnprovable =
             annotation === undefined && this.provableArgType(stmt.init, bindings) === undefined;
-          bindings.set(
-            stmt.name,
-            annotation === undefined ? rhsType : unfoldAlias(annotation, this.env),
-          );
+          const recorded: CompatType =
+            annotation === undefined
+              ? initUnprovable
+                ? { ...rhsType }
+                : rhsType
+              : unfoldAlias(annotation, this.env);
+          bindings.set(stmt.name, recorded);
           if (annotation === undefined && this.isCertainResultNode(stmt.init)) {
             // Bug 0079 §Fix (a) — remember this binding's `Result`-ness by the
             // IDENTITY of the type object recorded above, never by its name.
@@ -1120,6 +1132,17 @@ class TypeLayerWalk {
             // a `named` reference whose name (`Ok` / `Err` / a callee) an enum
             // variant, a field, or a plain `fn` can spell equally well; the
             // object `#typeExpr` minted for THIS initialiser is unique to it.
+            //
+            // The membership is added to `recorded`, not `rhsType`: for a
+            // `call` to a `Result`-returning `fn` this same initialiser can
+            // also be unprovable (`provableArgType`'s `call` arm withholds
+            // unconditionally), in which case `recorded` is the private twin
+            // `unprovableBindings` marks below rather than `rhsType` itself,
+            // and `bindings.get(stmt.name)` will hand back only `recorded` —
+            // so the two channels must agree on which object that is, or a
+            // later read sees the withhold and misses the membership (bug
+            // 0199 §Fix (a)).
+            //
             // `#typeExpr`'s `ident` arm returns the very object `bindings`
             // holds, and each nested scope's `new Map(bindings)` copies the
             // same references, so shadowing and scope exit come out right with
@@ -1129,18 +1152,39 @@ class TypeLayerWalk {
             // recorded type: a written `Result<…>` is caught by the generic-name
             // acceptance instead, and any other annotation is the author
             // declaring a non-`Result`.
-            this.resultBindings.add(rhsType);
+            this.resultBindings.add(recorded);
+          } else if (annotation === undefined && this.resultBindings.has(rhsType)) {
+            // The same channel's INHERITED half: `stmt.init` is not itself
+            // `Result`-certain — typically an `ident` re-reading an
+            // already-`Result` binding — so the membership is not minted
+            // here, it is CARRIED from the object `typeOf` returned for it.
+            // Testing `rhsType`, the object exactly as `typeOf` returned it
+            // before this arm decides whether to copy it, is what lets the
+            // carry see a membership the private twin below would otherwise
+            // start without; adding `recorded` keeps the mint's own
+            // object-agreement above, so a further `let d = c` inherits from
+            // `c`'s own recorded object rather than from `r`'s (bug 0199
+            // §Fix (a)).
+            this.resultBindings.add(recorded);
           }
           if (initUnprovable) {
-            // The laundered-binding hole (bug 0050 §Fix): `rhsType`, already
+            // The laundered-binding hole (bug 0050 §Fix): `recorded`, already
             // bound to `stmt.name` above, is the initialiser's own ERASED
             // read when the initialiser itself is unprovable (an unannotated
             // `let x = flag ? 1 : "a"` records `integer` after discarding the
             // `string` arm). A later `g(x)` must not read that recorded type
-            // as a proof it never was. An ANNOTATED `let` is excluded because
-            // the annotation IS the recorded type and `checkLetRhsCompat`
-            // above already judges its initialiser, so it stays a proof.
-            this.unprovableBindings.add(rhsType);
+            // as a proof it never was. `recorded` rather than `rhsType`,
+            // because `typeOf` can hand back an object this binding does not
+            // own — a declared field's own `CompatType` or a `TypeEnv`
+            // alias's right-hand side, shared with every other binding that
+            // records that same field or alias — and marking that object
+            // directly would withhold every later reader of it, not only this
+            // one (bug 0199 §Fix (a)); `recorded` is that object's own private
+            // twin wherever the sharing risk exists, and the borrowed object
+            // itself otherwise. An ANNOTATED `let` is excluded because the
+            // annotation IS the recorded type and `checkLetRhsCompat` above
+            // already judges its initialiser, so it stays a proof.
+            this.unprovableBindings.add(recorded);
           }
         }
         return;

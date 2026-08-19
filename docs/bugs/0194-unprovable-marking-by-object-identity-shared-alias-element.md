@@ -1050,6 +1050,26 @@ blocks the other.
      the loop arms, extended to the membership a `let` may itself mint. Not
      fixed: §Fix (d) constraint 1 and §Non-goals both scope this report to the
      two loop arms.
+     **Discharged in 0.120.0** by bug
+     [0199](./0199-let-arm-marks-borrowed-object-suppression.md), which takes the
+     `let` arm as its subject and ships route 1 there: the arm resolves one
+     `recorded` object — a `{ ...rhsType }` twin iff the initialiser is not a
+     proof — and records, marks, MINTS and inherits off that one object, so the
+     provenance carry this fix introduced at the loop arms is extended to the
+     membership a `let` mints. **One sentence of this item is corrected by that
+     measurement.** `let r = Ok(1)` / `let c = r` / `` @`x${c}` `` is a PROOF
+     chain, not a marking pair: `provableArgType`'s `result-ctor` arm answers
+     `typeOf`, so neither binding is `initUnprovable`, neither takes a twin, and a
+     copy conditioned on that verdict never reaches the pair. The pair that DOES
+     bind is a `call` to a `Result`-returning `fn` — `fn mk(): Result<integer,
+     QueryError>`, `let r = mk()` / `let c = r` — where `isCertainResultNode`
+     mints and the unconditional `call` withhold marks over ONE object, so a twin
+     that re-points neither drops `theta/parse/interpolated-result` at both
+     bindings and a twin that re-points only the mint drops it at `c`. This item's
+     conclusion is unchanged and strengthened. Item 2 below is NOT discharged: the
+     by-reference deeper source is untouched, and 0199 measures bug 0079's
+     membership still travelling through an array literal and a ternary by
+     reference, which a deep copy would sever.
   2. **`commonType`'s dominating-candidate clause returns its candidate BY
      REFERENCE, which is the deeper source.** It is how an array literal's
      element comes to be the very object a sibling binding recorded, and it is

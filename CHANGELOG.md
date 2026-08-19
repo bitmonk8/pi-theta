@@ -6,6 +6,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.120.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0199 — `walkStmt`'s unannotated `let` arm marked `unprovableBindings`
+  with an object it did not own, so one `let` off an erased receiver silenced a
+  later true `fn-arg-type-mismatch` over the same declared field.**
+  `unprovableBindings` is keyed by JavaScript object identity, and the object
+  `typeOf(stmt.init)` returns for a member read is BORROWED: `collectSchemaFields`
+  builds exactly one `CompatType` per declared field per parse and `#memberType`'s
+  declared branch hands it back by reference, alias-unfolded. Marking it withheld
+  every later binding that recorded the same field — so with
+  `schema L = array<integer>`, `schema P { xs: L }` and `fn hs(a: array<string>)`,
+  a `let zs = m.xs` off an erased ternary receiver followed by `let ws = q.xs`
+  over a proven `q: P` made `hs(ws)` load clean, where deleting the first `let`
+  reported `expected array<string>, got array<integer>`. The suppression was
+  order-dependent, crossed `fn` boundaries and block scopes, reached top-level
+  statements, and was silent on every channel; because an error-severity
+  `theta/parse/*` is what denies registration, the theta registered and the
+  mistyped call was bound unchecked at runtime. `walkStmt`'s `case "let"` now
+  resolves one `recorded` `CompatType` — a private `{ ...rhsType }` twin iff the
+  initialiser is not a proof, the borrowed object itself otherwise, the unfolded
+  annotation when the `let` is annotated — and records, marks, MINTS into
+  `resultBindings` and CARRIES an inherited `resultBindings` membership off that
+  single object, so a withhold recorded for one binding applies to that binding
+  only while bug 0079's provenance survives the copy transitively. The withhold
+  is re-keyed, not removed: a binding taken off an unprovable read is still
+  deferred on its own account. This completes the object-identity marking class
+  at its last writer, after bug 0194 (0.113.0) closed the two loop arms; the two
+  loop arms, the withholding posture and the by-reference return of
+  `#memberType` / `commonType` are untouched. GOV-15 addition arm under the
+  *Diagnostic-registry carve-out*: a registered *Trigger* becomes reachable at a
+  wider input class with the registry byte-unchanged, no code added or renamed and
+  no *Message* reworded. New witness
+  `tests/let-arm-withhold-binding-scoped.test.ts` (32 rows: the suppression and
+  its three controls, the alias / inline / primitive shared-object shapes, the
+  seven reach rows, the seven fences, and the seven `resultBindings` provenance
+  rows); cell `d6` of `tests/loop-element-withhold-binding-scoped.test.ts` and
+  cell `u13e` of `tests/fn-arg-type-mismatch-wired.test.ts` restated as the
+  emissions they bounded; additive registration cell 57 in
+  `tests/live/live-production-acceptance.test.ts`.
+
 ## [0.119.0] - 2026-08-19
 
 ### Fixed

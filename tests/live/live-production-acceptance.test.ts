@@ -9439,3 +9439,194 @@ describe("H8a-T — bug 0202: a typed invoke<T> of a prompt-mode callee whose wi
     }
   });
 });
+
+// ===========================================================================
+// Bug 0199 — `walkStmt`'s unannotated `let` arm marks `unprovableBindings`
+// (src/parser/type-layer-checks.ts:1006 — the identity-keyed withhold set) with
+// the object `typeOf(stmt.init)` returned (`:1187`), and for a member-read
+// initialiser that object is BORROWED: `collectSchemaFields` builds exactly one
+// `CompatType` per declared field per parse (`:830`, `:832`) and `#memberType`'s
+// declared branch hands it back by reference, alias-unfolded
+// (src/parser/static-type-inference.ts:372). The withhold therefore lands on the
+// FIELD rather than on the binding, so one `let zs = m.xs` off an ERASED ternary
+// receiver silences the TRUE `theta/parse/fn-arg-type-mismatch` a later
+// `let ws = q.xs` over a proven `q: P` owes at `hs(ws)`: that later read is
+// itself a proof (bug 0190's `member` arm, `:2121–2123`), but
+// `bindings.get("ws")` returns the marked field object, the set's only read
+// answers `undefined` (`:2053`), and `checkFnCallArgs` skips the argument row
+// (docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md).
+//
+// The refusal is owed. type-system.md:27 lists a function-argument slot among
+// the positions `⊑` governs, TYPE-11 (`:54`) makes `P`'s field `L` its
+// right-hand side `array<integer>`, TYPE-9 (`:50`) routes the static failure to
+// `theta/parse/fn-arg-type-mismatch`, and the registry row
+// (code-registry-parse.md:120) is severity `E` and states that no runtime AJV
+// safety net applies at this position. `type-system.md:48`'s *Unresolvable
+// operands* deferral cannot licence the silence: it conditions on the OPERANDS,
+// and neither operand moves when the earlier `let` is deleted.
+//
+// WHAT THIS CELL ADDS OVER AN OFFLINE ROW. A `parseThetaDocument` row observes
+// the diagnostic array and stops there; it cannot observe the consequence the
+// report's §Why it matters leads with — the suppressed `E` leaves
+// `hasLoadParseError` (src/extension/production-composition.ts:2214–2221) with
+// nothing to act on through the REAL production composition root (session_start
+// → resources_discover → composeExtensionInstance → checkTypeLayer), so the
+// slash command is created and the mistyped call is bound unchecked at runtime.
+// REGISTRATION is the observable this cell asserts, and the only one.
+//
+// THE CONTROL, ASSERTED FIRST. `b199livegood` carries the SAME shape — the same
+// three schema declarations, the same erased ternary receiver, the same
+// unprovable `let zs = m.xs`, the same proven `let ws = q.xs` — and differs in
+// one particular: its sink declares `array<integer>`, so `array<integer> ⊑
+// array<integer>` holds and no diagnostic is owed in either direction. It must
+// stay registered before and after, which is what makes the subject's refusal
+// attributable to the type mismatch rather than to the shape, the schema
+// declarations, or a planting/discovery failure. It is asserted BEFORE the
+// subject so a broken workspace or a dead discovery walk reds on the control
+// instead of being read as the subject's refusal.
+//
+// RED AT 0.119.0 / `ef8c0a43` for the reason the report states: the subject
+// REGISTERS, because the withheld refusal IS the defect. That is an open
+// documented correct-reason red per AGENTS.md §"Expect documented correct-reason
+// reds" — `docs/bugs/0199-let-arm-marks-borrowed-object-suppression.md` is the
+// report whose signature it matches — and it goes green when the withhold stops
+// being keyed by the borrowed object. The in-tree bounds on the same channel are
+// cell `d6` (tests/loop-element-withhold-binding-scoped.test.ts:1088) and its
+// delete-control `d6ctl` (`:1123`), whose fixture preamble (`:625`) supplies the
+// three declarations below.
+//
+// Registration-only: no slash command is invoked, so NO model turn runs and the
+// cell spends zero tokens (the same profile the bug 0050/0126/0136/0185/0190/
+// 0192/0194/0197 cells above claim). No subagent child process is spawned —
+// both fixtures are prompt mode with no `invoke(...)` and no `subagent fn` — so
+// the #subagent-child-pins convention this file's harness otherwise honours does
+// not apply to this cell. ADDITIVE ONLY: this is cell 57; cells 1–56 are
+// unchanged, and this cell adds no assertion to any existing cell in this file.
+// ===========================================================================
+
+/**
+ * The declarations both bug-0199 fixtures open with: the alias, the receiver
+ * schema whose one-`CompatType`-per-parse field `xs` the withhold lands on, and
+ * the second ternary arm that erases the receiver. Content-equal to the first
+ * three lines of the offline witness's `PRE_LET_ARM`
+ * (tests/loop-element-withhold-binding-scoped.test.ts:625), so the live and
+ * offline measurements are of one program; the sink is declared per fixture
+ * because the sink's parameter type is the only axis between them.
+ */
+const B199_PREAMBLE = [
+  "---",
+  "mode: prompt",
+  "---",
+  "schema L = array<integer>",
+  "schema P { xs: L }",
+  "schema B { xs: array<string> }",
+];
+
+/**
+ * The subject — the report's §Reproduction (a) row a1. `hs(ws)` satisfies
+ * `theta/parse/fn-arg-type-mismatch`'s *Trigger* in every particular (`q` is an
+ * annotated parameter of a resolved object schema, so `q.xs` is a proven
+ * declared-field read; TYPE-11 makes `P`'s field `L` into `array<integer>`; `hs`
+ * declares `array<string>`), and the withhold recorded for `zs` off the erased
+ * receiver suppresses it. Measured `[]` at HEAD, so `hasLoadParseError` has
+ * nothing to act on and the theta registers. The trailing `1` supplies the
+ * theta's final value — a prompt-mode theta needs no `@`-query to register.
+ */
+function letArmSuppressedFnArgMismatchTheta(): string {
+  return [
+    ...B199_PREAMBLE,
+    "fn hs(a: array<string>) {",
+    "  1",
+    "}",
+    "fn f(flag: boolean, q: P) {",
+    '  let m = flag ? P { xs: [1] } : B { xs: ["a"] }',
+    "  let zs = m.xs",
+    "  let ws = q.xs",
+    "  hs(ws)",
+    "  1",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The always-registers control: identical to the subject except that the sink
+ * declares the element type the field actually carries, so the judged row is
+ * `array<integer> ⊑ array<integer>` and no diagnostic is owed on either side of
+ * the fix. It isolates the subject's post-fix refusal to the type mismatch
+ * rather than to "an erased receiver plus two member-read `let`s never registers
+ * in this harness".
+ */
+function compatibleFnArgSinkTheta(): string {
+  return [
+    ...B199_PREAMBLE,
+    "fn hi(a: array<integer>) {",
+    "  1",
+    "}",
+    "fn f(flag: boolean, q: P) {",
+    '  let m = flag ? P { xs: [1] } : B { xs: ["a"] }',
+    "  let zs = m.xs",
+    "  let ws = q.xs",
+    "  hi(ws)",
+    "  1",
+    "}",
+    "1",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0199: a withhold recorded for one `let` binding does not suppress a later provable `let`'s fn-arg refusal, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose unprovable member-read let precedes a proven member-read let's mistyped argument, while the same shape with a compatible argument registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The always-registers control, planted first for the same reason it is
+      // asserted first.
+      { source: "project", stem: "b199livegood", text: compatibleFnArgSinkTheta() },
+      // The subject: the same shape whose sink's declared parameter type the
+      // proven read is incompatible with.
+      {
+        source: "project",
+        stem: "b199livebroken",
+        text: letArmSuppressedFnArgMismatchTheta(),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b199livegood"),
+        "the same-shape control with a COMPATIBLE sink argument did not " +
+          "register — an erased ternary receiver plus two member-read `let`s " +
+          "cannot register in this workspace at all, independent of this bug, " +
+          "so the subject's own verdict cannot be attributed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE DEFECT, through the REAL production composition root: the caller
+      // whose proven `let ws = q.xs` hands `hs`'s `array<string>` parameter an
+      // `array<integer>` registers anyway, because `provableArgType`'s `ident`
+      // arm answers `undefined` for `ws` — `unprovableBindings.has` hits the
+      // declared-field object the earlier `let zs = m.xs` marked — so
+      // `checkFnCallArgs` skips the row, `checkFnArgCompat` is never called, and
+      // `hasLoadParseError` sees nothing.
+      expect(
+        handle.command("b199livebroken"),
+        "the caller whose proven member-read `let` passes a provably mistyped " +
+          "argument registered anyway through the live discovery/session_start " +
+          "path — the withhold recorded for the EARLIER `let` off the erased " +
+          "receiver suppressed the true theta/parse/fn-arg-type-mismatch, while " +
+          "the b199livegood control (the same shape with a compatible sink) " +
+          "registered as it must. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b199livebroken");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

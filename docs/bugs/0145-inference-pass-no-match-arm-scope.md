@@ -379,6 +379,39 @@ type is also an outer record by identity all keep the emission, so the leak is
 confined to a shadowing `match` binder. a7 shows the poisoning persists for the
 rest of the walk; a8 shows it starts at the marking statement, not before it.
 
+**Group (a) is DISCHARGED as of 0.120.0 by bug
+[0199](./0199-let-arm-marks-borrowed-object-suppression.md); this report stays
+open on group (b).** 0199's subject is the other end of the same channel —
+`walkStmt`'s `let` arm marked `unprovableBindings` with whatever object `typeOf`
+returned, so a mark recorded for the `match` binding landed on the outer
+binding's own record. Its fix keys the mark to the binding it was recorded for (a
+private `{ ...rhsType }` twin taken iff the initialiser is not a proof), which
+leaves this pass's arm-scope typing exactly as it is and removes the marking
+leak. Measured over this table at 0199's fix:
+
+| row | before | at 0.120.0 |
+|---|---|---|
+| a1 (= cell u13e) | `[]` | `fn-arg-type-mismatch` @7:11 |
+| a2, a3, a5, a6 (controls) | emit | byte-unmoved |
+| a7 | `[]` | emits TWICE (@7:11, @8:12) |
+| a8 | one emission @6:12 | TWO (@6:12, @8:11) |
+
+Cell `u13e` (`tests/fn-arg-type-mismatch-wired.test.ts`) was therefore RESTATED
+rather than deleted, the shape §Fix (d) below prescribes for whoever flips it,
+under 0199's authority and by explicit adjudication because this report reserved
+it. Its comment names 0199 as the authority for the marking-guard flip day and
+this report as the owner of the REMAINING flip day — arm-scope typing, which is
+still open and still this report's.
+
+**Group (b) is BYTE-UNMOVED and remains this report's live subject.** The six
+`E`-severity rows that refuse a spec-legal theta and the three rows of §(c) that
+keep the right code with the wrong `<type>` placeholder were measured unchanged
+across 0199's fix (b1, b2, b3, b5, b7, b9, b11 all byte-identical). Those are
+this report's S2 grounds — the INADMISSIBLE direction, a refusal of a legal
+program — and nothing about them is affected by which object a withhold is keyed
+by. A fix here still owes them, and §Fix's two routes are unchanged; only this
+group's evidence has expired.
+
 ### (b) Six registered rows refusing a spec-legal theta
 
 Each pair differs by one line — the outer `let`, which the refused construct

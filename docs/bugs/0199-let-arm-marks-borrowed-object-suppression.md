@@ -1,10 +1,14 @@
 # Bug 0199 — `walkStmt`'s `let` arm marks `unprovableBindings` with the object `typeOf(stmt.init)` returned (`type-layer-checks.ts:1134–1143`, the `initUnprovable` branch), and for a member-read initialiser that object is BORROWED — the one-per-parse declared-field `CompatType` `collectSchemaFields` builds (`:830`) and bug 0190's `declaredFieldType` hands back by reference (`static-type-inference.ts:372`) — so one `let zs = m.xs` off an ERASED receiver silences the true `theta/parse/fn-arg-type-mismatch` that a LATER `let ws = q.xs` over a proven `q: P` owes at `hs(ws)`: measured `[]`, where deleting the `let zs` line emits `expected array<string>, got array<integer>`; the mark is scope-free, crosses `fn` boundaries into top-level statements, and lands on a primitive declared field as readily as on a whole array
 
-- **Status:** open. §Fix is **not settled** — it is constraint-pinned: three
-  routes are enumerated with their measured costs, and the run adjudicates which
-  object the withhold is keyed by, against one measurement that decides the
-  cheapest route's shape (§Reproduction (e1)). Ordering: nothing blocks this
-  report and it blocks nothing. Bug
+- **Status:** fixed (0.120.0). §Fix was constraint-pinned rather than settled —
+  three routes with their measured costs, the run adjudicating which object the
+  withhold is keyed by against one measurement that decides the cheapest route's
+  shape (§Reproduction (e1)). **Route 1 shipped**; see `## Fix (0.120.0)`.
+  Ordering: this report's own claim that it "blocks nothing" was falsified in the
+  fix run — it shares witness cell `u13e` with open bug
+  [0145](./0145-inference-pass-no-match-arm-scope.md), whose §Fix (d) reserved
+  that cell's restatement, and the fix discharges 0145's §Reproduction group (a);
+  both are recorded in `## Fix (0.120.0)`. Bug
   [0194](./0194-unprovable-marking-by-object-identity-shared-alias-element.md)
   (fixed 0.113.0) already shipped the loop arms' remedy, so the mechanism a fix
   here extends is in the tree (`bindLoopElement`, `type-layer-checks.ts:1330–1346`)
@@ -969,6 +973,237 @@ Recorded for completeness; routes 1 and 2 are the ones the evidence supports.
    §Reproduction (d2) measures that the `let` arm's mark does not reach a loop
    element and (d1) that it does not reach an annotated parameter. A fix at
    `:1134–1144` alone closes it.
+
+## Fix (0.120.0)
+
+- **What shipped**, keyed to §Fix:
+  - **§Fix (a), route 1 — the private twin at the one remaining writer, with the
+    provenance carry extended to the membership the `let` itself MINTS.**
+    `src/parser/type-layer-checks.ts`: `walkStmt`'s `case "let"` resolves one
+    `recorded: CompatType` — `{ ...rhsType }` when the initialiser is not a
+    proof, the object `typeOf` returned when it is, `unfoldAlias(annotation,
+    this.env)` when the `let` is annotated — and records, mints, inherits and
+    marks off that single object. The `resultBindings` MINT
+    (`isCertainResultNode`) moved onto `recorded`; a new `else if (annotation ===
+    undefined && this.resultBindings.has(rhsType))` arm carries an INHERITED
+    membership onto it, testing the pre-copy object because that is where the
+    membership lives and adding the post-copy object because that is what
+    `bindings.get(stmt.name)` will hand back; `unprovableBindings.add(recorded)`
+    replaces the mark on the borrowed object. The marked object is now reachable
+    from exactly one scope entry, which is what both field comments already
+    claimed. Routes 2 and 3 were rejected on measurement: route 2's name-keyed
+    channel was never needed once route 1 measured viable, and route 3 (copy at
+    `#memberType` / `#commonType` / `commonType`) would sever bug 0079's
+    by-reference provenance, which §Reproduction (e4) measures travelling through
+    an array literal and a ternary.
+  - **§Fix (a) obligation 2, the bounded audit, discharged.** `src/` holds
+    exactly two `Set<CompatType>` (the two fields of `TypeLayerWalk`) and no
+    `Map<CompatType, …>`, `WeakMap` or `WeakSet`. All four `.has()` sites — the
+    two decision reads (`provableArgType`'s `ident` arm,
+    `interpolationIsResult`'s `ident` arm) and the two write-side carry tests
+    (`bindLoopElement`'s and this fix's) — test the TOP-LEVEL object only, so the
+    shallow spread is value-equal by construction: `CompatType`
+    (`type-compat.ts:55–65`) is a union of plain `readonly` data objects with no
+    method, prototype state, `Map` or `Set`, and every VALUE-channel reader
+    (`containsWithheldBinderType`, `checkCompatible`, `displayType`) recurses
+    structure. The spread deliberately preserves NESTED references, which
+    §Reproduction (e4) requires: a deep copy would sever the membership riding
+    the array element.
+  - **§Fix (a) obligation 3, the annotated path unmoved.** The `annotation ===
+    undefined ?` short-circuit is byte-equal in effect to the pre-fix expression;
+    an annotated `let` still records `unfoldAlias(annotation, this.env)`, takes no
+    twin, and reaches no proof obligation. Pinned by the witness's rows d1 and d6.
+  - **The four comments the change falsified were re-derived**, not merely left:
+    `unprovableBindings`' field doc (its borrowed-object hazard sentence covered
+    the two loop arms only and now covers all four writers), `resultBindings`'
+    field doc (the `let` arm is the sole MINTER but no longer the sole writer of
+    an inherited membership), the bug-0079 mint comment (why the two channels
+    must agree on which object a binding recorded), and the bug-0050 mark comment
+    (`recorded`, not `rhsType`, and why).
+  - **§Fix (d)(2) — cell `d6` flipped under this report's authority.**
+    `tests/loop-element-withhold-binding-scoped.test.ts` cell `d6` asserts the
+    mismatch its own control `d6ctl` already asserts, located `@14:14-14:16`, with
+    `sites` and fixture byte-identical and `d6ctl`'s verdict byte-equal. No other
+    cell in that 30-cell file changed; groups (a)–(c),(e) and cell `d5` are bug
+    0194's and are green.
+  - **Cell `u13e` restated under this report's authority, citing bug 0145** — a
+    cross-report collision the document did not know about; see *Residuals* item
+    1 and *Discharge notes*. `tests/fn-arg-type-mismatch-wired.test.ts` cell
+    `u13e` asserts `fn 'g' argument 0 ('s') type mismatch: expected string, got
+    integer @7:11-7:12`, its `argRange` PRECONDITION byte-identical, its comment
+    re-derived to name this report as the marking-guard flip authority and bug
+    0145 as the owner of the REMAINING flip day (arm-scope typing). The other 86
+    cells keep byte-identical assertions.
+  - **§Fix (d)(6) — the witness.** New, additive:
+    `tests/let-arm-withhold-binding-scoped.test.ts`, 32 rows over the real
+    `parseThetaDocument` through `parseDoc`, messages sourced from the registry
+    per DIAG-4, one loud PRECONDITION per row over binder AND judged-argument
+    sites. (a) a1, a2 with a3ctl/a4ctl/a5ctl; (b) the alias, inline and primitive
+    field shapes with b2ctl/b3ctl; (c) c1–c7 with c2ctl; (d) the seven fences
+    d1–d7 as regression pins; (e) e1, e1ctl, e2, e3, e3ctl, e4, e4ctl. Twelve
+    rows are fix-produced (a1, a2, b1–b3, c1–c7); the other twenty are green in
+    both directions. It cites `src/` by SYMBOL only, so a later fix that moves
+    `type-layer-checks.ts` line numbers cannot stale it.
+  - **§Fix (d)(4) — GOV-15, addition arm, under the *Diagnostic-registry
+    carve-out*** (`source-language-stability.md:25`). Observable (b) moves: inputs
+    that load cleanly today acquire an error-severity `theta/parse/*` and so stop
+    registering (`hasLoadParseError`). The registry page is byte-unchanged, no
+    code is added, removed or renamed, and no *Message* is reworded (DIAG-2 /
+    DIAG-4); observable (c) is unmoved, because the emissions that appear are the
+    registry's own template rendered over types the binding already carried. This
+    is the strictly-narrower *Trigger*-reachability shape of the 0031 → 0084 →
+    0126 → 0194 chain. **The flip classes, enumerated from the mechanism** — a
+    program flips iff it holds an unannotated `let` whose initialiser is BOTH
+    unprovable and typed by an object `typeOf` borrowed, followed by a judged read
+    of that same object:
+    1. **The declared-field object** — `collectSchemaFields` builds one
+      `CompatType` per declared field per parse, so a member read off an erased
+      receiver and a later read off a proven receiver of the same schema share it
+      (rows a1, a2, b2).
+    2. **The `TypeEnv` alias right-hand side** — `unfoldAlias` hands back
+      `decl.rhs` by reference, so a field declared as an alias shares the alias's
+      own object rather than the field's (row b1). Neither class is confined to
+      array-typed slots: a primitive declared field shares identically (row b3).
+    3. **A composite reduction that returns one of its candidates by
+      reference** — `commonType`'s dominating-candidate clause and `#commonType`'s
+      single-candidate fallback, reached through a ternary or an array literal
+      (row c7).
+    4. **`#commonType`'s single-candidate return where a `match` ARM BODY IS ITS
+      OWN BINDER** — the inference pass types an arm body in the enclosing
+      bindings map, so `typeOf(match)` hands back a same-named OUTER binding's
+      recorded object, the arm-scoped reduction correctly withholds, and the mark
+      lands on the outer binding. This class was **not** enumerated by this
+      document and was found by the fix run's blast-radius sweep; it is what cell
+      `u13e` pins, and the class the parent adjudicated into this arm. Its
+      poisoner needs no schema and no member read at all.
+  - **§Fix (d)(1), (3), (5), (7) — nothing shipped, each verified.** (1) The
+    withhold was RE-KEYED, not deleted: row d7 and cell `L2` of
+    `tests/fn-arg-member-read-proof.test.ts` are green in BOTH directions. (3) All
+    49 cells of `tests/interpolated-result-gate.test.ts` are green and the shape
+    that witness lacks — a binding inheriting its membership from another binding
+    — is carried by this witness's group (e). (5) `committed-fixture-parse-gate`
+    (36 cells) is green, the corpus-wide discharge per `AGENTS.md`. (7) One arm:
+    `bindLoopElement` and both of its call sites are byte-untouched.
+
+- **Gates** (each re-run by the orchestrator, not taken on a nested report's
+  word):
+  - Witness, RED before: `npx vitest run` over the new witness and the two
+    flipped files → `Test Files 3 failed (3)`, 14 failures, every one
+    `actual diagnostics: []: expected [] to deeply equal [ … ]`.
+  - Witness, GREEN after: the same three files → `Test Files 3 passed (3)` /
+    `Tests 149 passed (149)` (32 / 30 / 87 cells).
+  - Full default suite: `npm test` → `Test Files 322 passed (322)` /
+    `Tests 5563 passed (5563)`. Pre-change baseline was 321 / 5531.
+  - `npm run typecheck` → exit 0. `npm run lint` → exit 0.
+  - Live H8a: the additive registration cell 57 of
+    `tests/live/live-production-acceptance.test.ts` → 1 passed, 56 skipped, zero
+    model turns; red-proven in the other direction (subject registers under a
+    neutralised fix).
+  - Live H9a, both files: `tests/live/acceptance/noninteractive-acceptance.test.ts`
+    and `ctor-unresolved-load-refusal.test.ts` → `Test Files 2 passed (2)` /
+    `Tests 11 passed (11)`, permitted-code criterion scored on the real run with
+    **no append** to `tests/fixtures/h7a/permitted-codes.json`.
+
+- **Review**: 1 round plus one bounded polish round. Round 1 (deep) —
+  **CLEAN, no findings**; it re-verified route fidelity against the measured
+  prototype token by token, re-ran the audit, proved the red path itself by
+  reverse-applying the source hunks, and ran the live cell; it returned two
+  non-blocking `prose` residuals. Polish round (light) — one of those two: a
+  one-line fixture doc comment. Comment-only, gates re-run green, so the
+  confirmation review round was skipped by the gate-diff rule.
+
+- **Verification**: SOLID. (1) The tests witness the defect in both directions:
+  with the `recorded` computation neutralised by a targeted byte edit, the whole
+  tree reds `Test Files 3 failed | 319 passed (322)` / `Tests 14 failed | 5549
+  passed (5563)` — exactly the twelve `RED` rows, cell `d6` and cell `u13e`,
+  nothing else — and every PIN/CTL row including d7 and `L2` stays green;
+  restored byte-exact and green again. (2) Full suite 322 / 5563 green. (3) Live:
+  H8a cell 57 passed for real and was proven able to red; H9a 11/11 green across
+  both files with no permitted-code append. (4) `typecheck` and `lint` exit 0.
+  No `git stash` was used at any point; every neutralisation was a targeted byte
+  edit restored and hash-verified.
+
+- **Residuals** (for the PARENT to file; no bug document is created here):
+  1. **This document's coverage census was FALSIFIED, and the miss was a
+     cross-report collision.** §Affected states "Test coverage of this defect:
+     cell `d6` and its control, and nothing else". Measured: cell `u13e` of
+     `tests/fn-arg-type-mismatch-wired.test.ts` covers the same channel and the
+     same writer at a fourth borrowing source (flip class 4 above). The sweep
+     predicate was narrower than the defect — "two unannotated `let`s off one
+     declared field" — and `u13e`'s poisoner is a `match` whose arm body IS its
+     binder, needing no schema at all. The document came one step short of its own
+     conclusion: `tests/fn-arg-type-mismatch-wired.test.ts` is among the seven
+     files its §Affected already names as "the surface a fix re-derives". Because
+     open bug 0145 §Fix (d) reserved that cell's restatement, the fix run stopped
+     at the blast-radius gate and the restatement shipped only under an explicit
+     parent adjudication.
+  2. **This document's ordering claim was FALSIFIED.** §Status said "nothing
+     blocks this report and it blocks nothing". It shares cell `u13e` with open
+     bug 0145. Symmetrically, 0145 §Status's "No ordering dependency blocks it" is
+     now incomplete: this fix discharges 0145's §Reproduction group (a), so 0145
+     inherits a partly-discharged §Reproduction. Neither document's §Related named
+     the other. §Status is corrected above and a coordination note is appended to
+     0145.
+  3. **Bug 0194's §Fix *Residuals* item 1 is discharged AND was corrected.** Its
+     measurement re-derives byte-identically, but its sentence "a twin there
+     withholds `theta/parse/interpolated-result` on `let r = Ok(1)` / `let c = r`"
+     is false: `provableArgType`'s `result-ctor` arm answers `typeOf`, so that
+     pair is a PROOF chain, takes no mark and no twin, and is unreached by a copy
+     conditioned on `initUnprovable` (row e3). The pair that DOES bind is a `call`
+     to a `Result`-returning `fn` (row e1). The residual's conclusion — that a
+     route here needs the provenance carry extended to the membership a `let` may
+     itself mint — is unchanged and strengthened. The discharge note carrying this
+     correction is appended to 0194.
+  4. **Bug 0194's §Fix *Residuals* item 2 stays open** and is recorded there. This
+     fix does not close the by-reference deeper source: rows e4 and e4ctl measure
+     bug 0079's provenance still travelling by reference through an array literal
+     and a ternary, and that aliasing is load-bearing — a deep copy would sever
+     it. §Fix (c) remains that question's territory.
+  5. **Cell `d6ctl`'s title and reason still narrate the pre-fix state** in
+     `tests/loop-element-withhold-binding-scoped.test.ts` ("restores the
+     residual's verdict", "what makes d6's silence a suppression"). Left
+     untouched deliberately: §Fix (d)(2) authorises changing `d6` and no other
+     cell in that file, and the file narrates throughout from its 0194 filing
+     baseline — cell `a1`'s title has been stale in the same way since 0.113.0, so
+     retensing one cell would leave the file inconsistent. Bug 0134's class;
+     needs an explicit authority extension.
+  6. **Pre-existing `path:line` citation drift in
+     `tests/fn-arg-type-mismatch-wired.test.ts`**, found and NOT chased: several
+     citations in cells this run did not touch were already stale at HEAD. Only
+     the citations this change itself invalidated were corrected, and only inside
+     the four files this run owns. Bug 0134's class.
+  7. **Orchestrator self-authorizations, recorded rather than left invisible.**
+     (i) Three comment-only hunks in `tests/loop-element-withhold-binding-scoped.test.ts`
+     beyond cell `d6` — the file header, the FIX-PRODUCED-vs-REGRESSION-PIN list,
+     and the group-(d) header — because flipping `d6` made all three false, and
+     `STYLE.md:28` ("Every claim is testable or is removed") does not permit
+     shipping a file that contradicts itself. No assertion and no executable line
+     is in those hunks. (ii) A bounded citation re-derivation of the ten
+     `path:line` numbers this change moved, confined to the four test files this
+     run already owns; every new number was verified by grep against the finished
+     tree. (iii) One fixture doc comment in
+     `tests/fn-arg-type-mismatch-wired.test.ts` that still called `u13e`'s fixture
+     "the marking-channel deferral" after the cell was restated as the emission —
+     one line, comment-only, the sibling clause about `U13R_NESTED_RENDER` left
+     intact. Each is comment-or-citation-only, bounded to named lines, touches no
+     assertion and no executable line, and each was gated by a full re-run of the
+     default suite, `typecheck` and `lint`.
+
+- **Discharge notes appended**: bug 0194's §Fix *Residuals* item 1 (this report's
+  origin, discharged with its `Ok(1)`-pair correction), and a coordination note on
+  bug 0145 recording that its §Reproduction group (a) is discharged while its
+  group (b) is byte-unmoved. **Neither status was flipped — 0145 stays open**, its
+  S2 subject intact.
+
+- **Pinned dispositions / non-goals**: the two loop arms (bug 0194's, shipped at
+  0.113.0 — `bindLoopElement` is behaviourally untouched); the withholding posture
+  itself (bug 0050's, and correct — row d7 and cell `L2` pin it); bug 0190's
+  receiver-proof obligation (this defect's reachability supplier, untouched);
+  `commonType`'s and `#memberType`'s by-reference return AS A CONTRACT (the deeper
+  source, §Fix (c), whose blast radius is its own question and which bug 0079's
+  provenance depends on); the type-layer codes that read the map by VALUE
+  (measured unmoved, row d6); routes 2 and 3; the arm-scope question (bug 0145's,
+  still open); runtime behaviour (no runtime path is measured or changed).
 
 ## Provenance
 
