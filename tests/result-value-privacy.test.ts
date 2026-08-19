@@ -42,7 +42,7 @@ import {
 //
 // Spec: docs/reference/type-system.md (Result row) — `Result<T, E>` is
 // "internally tagged `Ok`/`Err` with payload; observed only via constructors,
-// `match`, `?`; never lowered to a schema … never crosses the wire".
+// `match`, `?`; never lowered to a schema … crosses the subagent return envelope as its wire form".
 // "Internally tagged" + "observed only via constructors" jointly require the
 // discriminator to be interpreter-PRIVATE: user data must not be able to forge
 // a `Result`, exactly as the enum representation already guarantees with its

@@ -17,7 +17,7 @@
 // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:121`) and its
 // serialisation call, now `stringifyPreservingNegativeZero` (`:123`) where it
 // was plain `JSON.stringify`. THE PARENT IS UNCHANGED: `parseEnvelopeLine`
-// (`:254`), the driver's parse and settle
+// (`:256`), the driver's parse and settle
 // (`src/runtime/subagent-json-driver.ts:118`, `:121`), the envelope schema, the
 // `v` field and every parse behaviour stay exactly as they are, because
 // `JSON.parse` already recovers `-0` at the root, at a field and in an array
@@ -668,22 +668,25 @@ describe("bug 0188 (SEAM) — serializeOkEnvelope emits the -0 form the JSON gra
   });
 
   it("RED (SEAM-RESULT-CARRIER): a -0 inside a nested Result carrier serialises as -0 (red now, green after)", () => {
-    // The one shape where the module's two BOUNDED walks deliberately stop and
-    // `JSON.stringify` does not: neither `firstNonFiniteNumber`
-    // (`src/runtime/subagent-envelope.ts:467`) nor `wireFormExceedsDepthCap`
-    // (`:566`) descends a `Result`, but `JSON.stringify` descends the `makeOk`
-    // carrier's own enumerable `ok` / `value` keys. Route (a) rides
-    // `JSON.stringify`'s traversal rather than a walk of its own, so its reach
-    // INCLUDES this position — which is a property of the route, asserted here
-    // so a later implementation that adds a separate walk cannot silently lose
-    // it. The carrier is built through the SHIPPED constructor `makeOk`
+    // A `Result` carrier position, reached by BOTH of the module's two BOUNDED
+    // walks and by `JSON.stringify`: `firstNonFiniteNumber`
+    // (`src/runtime/subagent-envelope.ts:544`) and `wireFormExceedsDepthCap`
+    // (`:628`) each classify a node through the shared `classifyWireNode`
+    // (`:467`), which answers `record` for a `Result` — the brand is a
+    // non-enumerable symbol, so the descent sees only the `makeOk` carrier's
+    // own enumerable `ok` / `value` keys, exactly the keys `JSON.stringify`
+    // descends (bug 0201 §Fix (a)). Route (a) rides `JSON.stringify`'s
+    // traversal rather than a walk of its own, so its reach INCLUDES this
+    // position — which is a property of the route, asserted here so a later
+    // implementation that adds a separate walk cannot silently lose it. The
+    // carrier is built through the SHIPPED constructor `makeOk`
     // (`src/runtime/value.ts:475`), never a hand-made `{ ok: true, value }`,
     // because only that constructor installs the brand `isResultValue`
     // classifies by.
     expect(
       serializeOkEnvelope([makeOk(-0), 1]),
-      `PRIMARY (bug 0188 §Fix (a)): the encoding rides JSON.stringify's traversal, so it reaches ` +
-        `a -0 the module's two bounded walks do not`,
+      `PRIMARY (bug 0188 §Fix (a)): the encoding rides JSON.stringify's traversal rather than ` +
+        `a walk of its own, so a -0 at a Result-carried position renders sign-intact`,
     ).toBe('{"theta_result":{"v":1,"ok":[{"ok":true,"value":-0},1]}}\n');
   });
 
@@ -719,7 +722,7 @@ describe("bug 0188 (TRIP) — the parent re-reads the sign the child wrote", () 
   it("RED (TRIP-POSITIONS): parseEnvelopeLine(serializeOkEnvelope(x)) recovers Object.is(-0) at every position (red now, green after)", () => {
     // PRIMARY. This is the composition that decides what a subagent-leg caller
     // binds: the child's writer, then the parent's reader
-    // (`src/runtime/subagent-envelope.ts:254`), then the driver's settle
+    // (`src/runtime/subagent-envelope.ts:256`), then the driver's settle
     // (`src/runtime/subagent-json-driver.ts:118`, `:121`). The reader is
     // UNCHANGED by route (a) — the JSON grammar already carries the sign — so
     // every red here is the writer's.
@@ -1161,25 +1164,34 @@ describe("bug 0188 (SENTINEL) — author string data that spells the sentinel su
 
 // ===========================================================================
 // (FENCE-DEPTH) Bug 0187's shipped depth refusal and its sub-check ORDER.
-// GREEN NOW and GREEN AFTER: route (a) changes SERIALISATION, and the DEPTH walk
-// runs before serialisation and is untouched.
+// Bug 0188's route (a) changes only SERIALISATION and leaves the depth
+// refusal's ORDERING in the writer's `terminal.ok` arm unaffected —
+// `FENCE-DEPTH-REFUSAL` and `FENCE-DEPTH-ORDER` below are GREEN NOW and
+// GREEN AFTER for that reason. `FENCE-DEPTH-NESTED-RESULT` is not: bug 0201
+// §Fix (a) makes the depth walk descend a `Result`'s wire form too, so that
+// cell is re-pinned below under bug 0201's authority.
 // ===========================================================================
 
 describe("bug 0188 (FENCE-DEPTH) — bug 0187's depth refusal and its ordering are unaffected", () => {
-  it("CONTROL (FENCE-DEPTH-NESTED-RESULT): mapTooDeepReturnValue over a nested Result stays undefined (green now, green after)", () => {
-    // Bug 0187's `CONTROL (FENCE-NESTED-RESULT)` disposition
-    // (`tests/subagent-return-depth-refusal.test.ts:657`), re-pinned here under
-    // bug 0188's authority because route (a) DOES reach inside a `Result` (the
-    // `SEAM-RESULT-CARRIER` cell above) while `wireFormExceedsDepthCap`
-    // (`src/runtime/subagent-envelope.ts:566`) deliberately does not. The two
-    // are different questions: the DEPTH walk's non-descent of a `Result` is a
-    // statement about what that walk counts, and a change to how a number LEAF
-    // is rendered does not move it. PIC-59 states the bound normatively as its
+  it("CONTROL (FENCE-DEPTH-NESTED-RESULT): mapTooDeepReturnValue over a nested Result now refuses (bug 0201 §Fix (a))", () => {
+    // RE-PINNED under bug 0201 §Fix (a)
+    // (`docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md`),
+    // which owns this cell's authority to move — the same authority that
+    // re-pinned this cell's sibling,
+    // `tests/subagent-return-depth-refusal.test.ts:650`'s
+    // `CONTROL (FENCE-NESTED-RESULT)`. `wireFormExceedsDepthCap`
+    // (`src/runtime/subagent-envelope.ts:628`) now descends a `Result`'s WIRE
+    // FORM as an ordinary record (`classifyWireNode`), so depth contributed
+    // only from inside a nested `Result` counts. This is still a DIFFERENT
+    // question from bug 0188's own: that route changes how a number LEAF
+    // renders, and does not move this walk's verdict — the flip here is
+    // bug 0201's, not bug 0188's. PIC-59 states the bound normatively as its
     // *Result-carriage bound* (`subagent.md:115`).
     expect(
-      mapTooDeepReturnValue([makeOk([[[[[1]]]]]), 1], "./k.theta"),
-      "a payload whose depth is contributed only from inside a nested Result stays admitted",
-    ).toBeUndefined();
+      mapTooDeepReturnValue([makeOk([[[[[1]]]]]), 1], "./k.theta")?.message,
+      "a payload whose depth is contributed only from inside a nested Result now refuses, at " +
+        "the depth its wire document actually has (bug 0201 §Fix (a))",
+    ).toBe(DEPTH_VIOLATION_MESSAGE);
   });
 
   it("CONTROL (FENCE-DEPTH-REFUSAL): a >cap payload is still refused, and the cap and message are still the shipped ones (green now, green after)", () => {
@@ -1233,9 +1245,9 @@ describe("bug 0188 (FENCE-DETECTION) — route (a) does not widen bug 0180's fin
     // later reader does not infer that `-0` was overlooked." STATED PLAINLY:
     // route (a) does NOT widen the predicate, and `-0` was NOT overlooked when
     // bug 0180 shipped this search. The shipped leaf test is
-    // `Number.isFinite(value)` (`src/runtime/subagent-envelope.ts:476`) inside
-    // `firstNonFiniteNumber` (`:467`), consulted by
-    // `mapNonRepresentableReturnValue` (`:684`), and `-0` is finite — correctly,
+    // `Number.isFinite(value)` (`src/runtime/subagent-envelope.ts:553`) inside
+    // `firstNonFiniteNumber` (`:544`), consulted by
+    // `mapNonRepresentableReturnValue` (`:741`), and `-0` is finite — correctly,
     // by that search's own stated class. Route (a) closes this report by
     // PRESERVING the value in the writer, not by teaching the detection to
     // refuse it: a refusal would newly turn a today-succeeding call into an

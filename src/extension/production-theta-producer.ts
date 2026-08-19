@@ -2289,20 +2289,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const terminal = surfaceCalleeFinalValue(execution);
       // PIC-59: emit the single machine-readable envelope for the terminal Result.
       if (terminal.ok) {
-        // PIC-59: refuse before writing the envelope, so no invoke parent ever
-        // binds a value the callee did not produce — JSON has no form for a
-        // non-finite `number`, and `JSON.stringify` would otherwise substitute
-        // `null` for it unnoticed. Depth is the FIRST sub-check (bug 0187
-        // §Fix (b)): OUTSIDE a `Result` carrier a payload past ceiling #4's cap
-        // is refused whatever it carries, so ordering depth first costs the
-        // non-finite search nothing — such a `>cap` payload never reaches that
-        // search at all. Inside a `Result` carrier neither walk descends the
-        // carrier, so neither sub-check reaches past it and the order between
-        // them decides nothing; PIC-59's *Result-carriage bound*
-        // (`docs/spec_topics/pi-integration-contract/subagent.md`,
-        // `#subagent-envelope-result-carriage-bound`) is the normative statement
-        // of that reach. The depth refusal emits NO diagnostic (no registry row
-        // exists for a ceiling-#4 breach at this boundary); 0180's
+        // PIC-59: refuse before writing the envelope, so no invoke parent
+        // ever binds a value the callee did not produce — JSON has no
+        // form for a non-finite `number`, and `JSON.stringify` would
+        // otherwise substitute `null` for it unnoticed. Depth is the FIRST
+        // sub-check (bug 0187 §Fix (b)): a payload past ceiling #4's
+        // cap refuses whatever it carries, so ordering depth first costs
+        // the non-finite search nothing — such a `>cap` payload never
+        // reaches it. Both walks now descend a `Result`'s wire form as a
+        // record (bug 0201 §Fix (a)), so this ordering also decides which
+        // refusal a carrier-nested payload takes. PIC-59's *Result-carriage
+        // bound* (`docs/spec_topics/pi-integration-contract/subagent.md`,
+        // `#subagent-envelope-result-carriage-bound`) states that
+        // reach. The depth refusal emits NO diagnostic (no registry
+        // row exists for a ceiling-#4 breach at this boundary); 0180's
         // non-representability refusal below keeps its own registered code.
         const tooDeep = mapTooDeepReturnValue(terminal.value as unknown, calleePath);
         const nonRepresentable =

@@ -9085,3 +9085,165 @@ describe("H8a-T — bug 0188 (b188): a typed invoke<number> binds the sign-prese
     }
   });
 });
+
+// ===========================================================================
+// Bug 0201 (live) — neither of the subagent envelope writer's two bounded
+// walks (`firstNonFiniteNumber`, `wireFormExceedsDepthCap`,
+// `src/runtime/subagent-envelope.ts`) descended a `Result`, so a non-finite
+// `number` contributed only from INSIDE a nested `Result` crossed the return
+// boundary as a fabricated `null` with an EMPTY diagnostic drain — bug
+// 0180's fabrication class, alive through the one carrier its walk declined
+// to enter.
+// `docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md` §Fix (a):
+// both walks now classify every node through one shared exported classifier,
+// `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`), which answers
+// `record` for a `Result` — the brand is a non-enumerable symbol, so only
+// the carrier's own enumerable `ok` / `value` / `error` keys are visited,
+// exactly as `JSON.stringify` visits them. Neither walk carries a carrier
+// arm of its own any longer.
+//
+// NO EXISTING LIVE CELL DRIVES THIS PATH (checked across all of
+// `tests/live/**` before adding this cell: `classifyWireNode`, a `makeOk`-
+// built `Result` nested inside an array literal, and the fixture body
+// `Ok(1 / 0)` appear nowhere in this file, in `tests/live/acceptance/**`, or
+// in `tests/live/hardening/**`). The two nearest existing cells are the bug
+// 0180 cell above (the SAME non-finite value class, but at a callee whose
+// tail is the bare `1 / 0` — OUTSIDE any `Result`) and the bug 0187 cell
+// above (a `Result`-carried payload, but a FINITE `>cap` nest — the depth
+// half of this report's class, not the non-finite half). This cell drives
+// the one shape neither reaches: bug 0180's own value class, reached through
+// the one carrier that bug's own witness and bug 0187's both left unentered
+// — the report's own headline (§Reproduction row 1).
+//
+// SHAPE, MIRRORED FROM THE BUG 0187 CELL ABOVE. The parent (`mode: prompt`)
+// declares `tools:\n  - ./b201livekid.theta` and its SOLE statement is the
+// bare `.theta`-callable call with `?`, `b201livekid()?` — the UNINFERRED
+// boundary itself (`inferCalleeReturnAnnotation` answers `null` for a bare
+// tail expression), no `let` binding needed at the call site. The kid MUST
+// be `mode: subagent`, for the same load-time reason the bug 0187 kid is (a
+// `tools:` entry naming a `mode: prompt` callee refuses at load,
+// `theta/load/prompt-mode-callable`). The kid's own body IS a `let` chain
+// ending in a pure tail expression — `let r = Ok(1 / 0)` then `[r, 1]`, the
+// bug doc's own §Reproduction row 1 verbatim and this report's unit
+// witness's `WRITER-ROW1` cell's fixture
+// (`tests/subagent-envelope-result-carriage.test.ts`) — so no query is
+// issued anywhere and this cell spends ZERO MODEL TURNS, the same reasoning
+// the bug 0180 and bug 0187 cells' own headers state.
+//
+// A REAL RFC-0006 CHILD PROCESS IS SPAWNED for the `mode: subagent` kid —
+// this file's imported `./harness` sets all three `#subagent-child-pins` at
+// module scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
+// `SUBAGENT_PARENT_PID_ENV = String(process.ppid)`), exactly as every other
+// subagent-spawning cell in this file relies on; nothing new is pinned here.
+//
+// THE OBSERVABLE. Pre-fix the kid's writer answers `undefined` for both
+// sub-checks over its terminal `[Ok(1 / 0), 1]` — `firstNonFiniteNumber`
+// stops at the carrier and never finds the `Infinity` inside it — so
+// `serializeOkEnvelope` descends the carrier's own enumerable `ok` / `value`
+// keys with plain `JSON.stringify` and writes `{"ok":true,"value":null}`
+// where the callee produced `Infinity`. The kid's envelope is therefore an
+// `ok` arm, the parent's `?` UNWRAPS it rather than propagating anything,
+// and the theta terminates `Ok` — runtime-event-channel.md's success-side
+// null-policy fixes that an `Ok(v)` termination emits NO `theta-system-note`,
+// so the pre-fix per-turn `systemNotes` slice is EMPTY, exactly as it is
+// pre-fix in the bug 0180 and bug 0187 cells above. Post-fix
+// `firstNonFiniteNumber` descends the carrier as an ordinary record
+// (`classifyWireNode`), finds the leaf at wire position `/0/value`, and the
+// kid refuses BEFORE the envelope with bug 0180's own named
+// non-representability refusal (`cause: "return_validation"`); the parent's
+// `?` PROPAGATES that `Err` as the whole top-level theta's own termination,
+// and SLSH-3 fires exactly ONE note: absence flips to presence, the
+// strongest discriminator this note channel can give without a query — the
+// same discriminator the bug 0180 and bug 0187 cells above use.
+//
+// Token cost: ZERO. Neither fixture issues an `@`-query; the marshalled
+// `--provider`/`--model` reference (PIC-62) only satisfies the launch argv
+// shape, as the bug 0180 and bug 0187 cells' own headers state.
+//
+// ADDITIVE ONLY: this is cell 55; cells 1–54 are unchanged, and this cell
+// adds no assertion to any existing cell in this file.
+// ===========================================================================
+
+/** The `mode: subagent` kid: a `let` chain ending in a pure tail expression carrying a non-finite `number` inside a nested `Ok` — bug 0201 §Reproduction row 1 verbatim. */
+function b201LiveKidTheta(): string {
+  return ["---", "mode: subagent", "---", "let r = Ok(1 / 0)", "[r, 1]", ""].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: `tools:` names the kid, and the SOLE statement is
+ * the bare `.theta`-callable call with `?` — the UNINFERRED return boundary
+ * itself, with no `let` binding and no `@` query anywhere.
+ */
+function b201LiveParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "tools:",
+    "  - ./b201livekid.theta",
+    "---",
+    "b201livekid()?",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0201: a non-finite number reachable only through a nested Result crosses the uninferred tools: return boundary as a fabricated null instead of refusing by name, live", () => {
+  it("the tools:-routed call's Err propagates through `?` and the slash-dispatch boundary emits the SLSH-3 note naming return_validation, through a REAL spawned subagent child, spending zero model turns", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b201livekid", text: b201LiveKidTheta() },
+      { source: "project", stem: "b201liveparent", text: b201LiveParentTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b201liveparent"),
+        "no bug-0201 parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b201liveparent");
+
+      // Zero model turns: no `@` anywhere in either fixture, so nothing is
+      // sent to the model and no user-visible turn is produced.
+      expect(
+        turn.userTexts,
+        "no `@` query appears anywhere in either fixture; userTexts must stay " +
+          "empty — observed: " + JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+
+      // THE FIXED OBSERVABLE (AGENTS.md §"Assert on real observables" — the
+      // `theta-system-note` channel read off the settled `SessionManager` via
+      // the harness's per-turn `systemNotes`). Pre-fix this slice is EMPTY
+      // (the fabricated-null `ok` envelope crosses the uninferred `tools:`
+      // boundary unrefused, the theta terminates `Ok`, and the success-side
+      // null-policy emits no note). Post-fix the child refuses BEFORE the
+      // envelope, `?` propagates the `Err`, and SLSH-3 fires exactly one note
+      // naming the `return_validation` cause.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        n.startsWith("theta /b201liveparent returned Err:"),
+      );
+      expect(
+        failureNotes,
+        "bug 0201 §Fix (a): a non-finite number reachable only through a " +
+          "nested Result at the tools:-routed uninferred return boundary " +
+          "must refuse by name rather than cross as a fabricated null — no " +
+          "SLSH-3 note fired. systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toHaveLength(1);
+      const note = failureNotes[0] ?? "";
+      expect(
+        note,
+        "the SNK-i template (`err-note-render.ts`) names the cause: " + note,
+      ).toContain("failed (return_validation)");
+      expect(
+        note,
+        "and names the refused callee, the Result-carrying kid: " + note,
+      ).toContain("b201livekid.theta");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

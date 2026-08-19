@@ -1,17 +1,18 @@
 # Bug 0201 — Neither of the subagent envelope writer's two bounded walks descends a `Result`, so a `mode: subagent` callee whose terminal value is `[Ok(1 / 0), 1]` writes `{"theta_result":{"v":1,"ok":[{"ok":true,"value":null},1]}}` with an empty diagnostic drain — bug 0180's fabricated `null` alive through the `Result` vector — and `[Ok([[[[[1]]]]]), 1]` crosses as an `ok` envelope whose wire document is depth 8, where a shallower document outside a carrier (`[[[[[[1]]]]]]`, depth 7) refuses `JSON document depth exceeds 5`
 
-- **Status:** open. §Fix is **constraint-pinned, not settled**: the surface, the
-  mechanism, the reachable spellings and the two shipped fences are fixed and
-  measured, but the descent's shape (one shared carriage-aware walk versus a
-  `Result` arm added to each of the two walks), the refusal's message and
-  pointer form for a position inside a `Result` payload, and whether the writer
-  descends the carrier or refuses to carry it at all are undecided. Each choice
-  moves GOV-15 observable (a)
+- **Status:** fixed (0.118.0). Route **(a)** was adjudicated and shipped: both
+  bounded walks descend the `Result`'s wire form. The three points §Fix left
+  undecided are settled and recorded in `## Fix (0.118.0)` below — the descent's
+  shape (one shared exported classifier both walks consult, with a carrier arm in
+  neither), the refusal's message and pointer form for a position inside a
+  `Result` payload (the wire-form RFC-6901 pointer), and the carriage question
+  itself (the writer descends the carrier rather than declining to carry it).
+  Routes (b) and (c) were rejected. Each choice moved GOV-15 observable (a)
   (`docs/spec_topics/governance/source-language-stability.md:5`) for a different
-  input set, and one of them turns on a shipped sentence this report measures
-  false (`docs/spec_topics/runtime-value-model.md:14`, "so a `Result` value
-  never crosses the wire").
-  Ordering: nothing blocks this report from starting and it blocks nothing.
+  input set, and the landing route turned on the shipped sentence this report
+  measures false (`docs/spec_topics/runtime-value-model.md:14`, "so a `Result`
+  value never crosses the wire"), which it scopes rather than deletes.
+  Ordering: nothing blocked this report from starting and it blocked nothing.
   [0187](./0187-untyped-subagent-return-boundary-no-depth-ceiling.md) is
   **fixed (0.116.0)** and is this report's provenance and the author of the bound
   it disputes; its `CONTROL (FENCE-NESTED-RESULT)` cell
@@ -1022,3 +1023,235 @@ Every `src/`, `tests/`, spec and reference citation above was read at HEAD
 `src/extension/production-theta-producer.ts` (6479 lines) are named by symbol
 beside their line numbers, per
 [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
+
+## Fix (0.118.0)
+
+- **What shipped** — route **(a)**, adjudicated by the operator; routes (b)
+  (decline to carry a `Result`) and (c) (widen the stated bound and close
+  nothing) were rejected.
+  - `src/runtime/subagent-envelope.ts` — §Fix (a): one shared **exported**
+    node-level wire-form classifier `classifyWireNode` returning
+    `WireNode = scalar | array | record`, which `firstNonFiniteNumber` and
+    `wireFormExceedsDepthCap` both consult; the `isResultValue` arm is gone from
+    both walks and the `isResultValue` / `ThetaValue` import is gone from the
+    module. A boxed `String` classifies `scalar` — 0187's deliberate `depthWalk`
+    divergence, preserved — and a `Result` classifies `record` through the same
+    branch a plain object takes, because `RESULT_TAG` is non-enumerable so
+    `Object.entries`, like `JSON.stringify`, never visits it. **No dedicated
+    `Result` branch exists**: once the brand is excluded a carrier's wire form
+    *is* a plain record's, so such a branch would be dead code; the carriage
+    decision lives in the classifier's doc-comment. Both walks keep
+    `level > MAX_JSON_DEPTH` as their literal first statement, so CIO-3 is
+    satisfied with no cap-raising change and no materialised payload copy — the
+    classifier exposes one level's children at a time.
+  - `src/runtime/subagent-envelope.ts` — §Fix (e)(4): the doc-comments that
+    stated the bound moved with the behaviour — both walks', `mapTooDeepReturnValue`'s
+    *BOUND* block, plus **two the doc's own (e)(4) list lacked** because it
+    predates 0188: `stringifyPreservingNegativeZero`'s (its "Those two walks are
+    UNCHANGED" clause is false under route (a)) and `serializeOkEnvelope`'s plus
+    the `EnvelopeOk` interface comment.
+  - `src/extension/production-theta-producer.ts` — §Fix (e)(4): the `terminal.ok`
+    arm's call-site comment only, hand-wrapped to the same line count so no
+    position below it shifted. Zero executable lines; the three consults keep
+    0187's settled order.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — §Fix (e)(1) and
+    (e)(2). The *Result-carriage bound* is rewritten in place by surgical
+    sentence replacement, **keeping the anchor `#subagent-envelope-result-carriage-bound`
+    present** because three sites link to it. It now states that both walks
+    descend a `Result` as part of the wire form, counting the carrier as one
+    level; that a payload contributed only from inside a nested `Result` **IS**
+    refused; that a `Result` past the cap still refuses on its position because
+    the level check precedes the descent; and the **pointer's domain** — "the
+    RFC-6901 position in the JSON document the envelope would have carried" —
+    together with the note that the token is derived from the encoding by the
+    descent, so it moves automatically if the reference encoding changes. All
+    **three** qualification sites moved (`:110` twice, `:114` once — the doc's
+    own list said two and was wrong); `:110`'s bug-0188 **finite-leaves** scoping
+    stays.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — §Fix (e)(3): the
+    *Trigger* parenthetical now says carrier-contributed depth **is** counted,
+    citing the **GOV-15 Diagnostic-registry carve-out**
+    (`source-language-stability.md:25`) same-commit for the inputs newly brought
+    into the code's emission set. The row's "this code's own reach stops at that
+    same depth cap" stays true. **No new diagnostic code was minted.**
+  - `docs/spec_topics/runtime-value-model.md` and `docs/reference/type-system.md`
+    — §Fix (e)(5): "so a `Result` value never crosses the wire" is **scoped** in
+    the spec row and in its reference mirror (the mirror is not named by the doc;
+    it is in scope as a checked mirror), naming the mechanisms that keep it true
+    elsewhere — parse-time schema-position rejection, and bug 0114's containment
+    rule at the interpolation surface — and stating what is now true at this
+    wire.
+  - `tests/subagent-envelope-result-carriage.test.ts` — **new**, 24 cells, this
+    report's own witness (§Fix (d)(8)): a seam tier over `makeOk`/`makeErr`-built
+    carriers only, both arms and both directions, pinning `/0/value`, `/0/error`,
+    `/0/0/value`, `/a/value`, `/1/value`, `/a/0/value` and a 4-token at-cap row;
+    a real-writer tier through `driveSubagentRootRegime`; an integration tier over
+    **real spawned children** via `createProductionSpawnFn` with all three
+    AGENTS.md `#subagent-child-pins` as loud preconditions; the bug-0188 sign
+    rider asserted **positively**; and the prompt-leg zero-flip fence. Zero model
+    turns.
+  - `tests/live/live-production-acceptance.test.ts` — H8a **cell 55**, additive
+    (162 insertions, 0 deletions), on cell 53's shape: a `mode: prompt` parent
+    whose sole statement is `b201livekid()?` through a `tools:`-declared
+    **uninferred** boundary, and a `mode: subagent` kid whose pure tail is
+    `[Ok(1 / 0), 1]` — §Reproduction row 1 verbatim. Asserts the SLSH-3
+    `theta-system-note` read off the settled `SessionManager`. Zero model turns.
+  - **Two protected-witness re-pins, both in place, no additive cells.**
+    `tests/subagent-return-depth-refusal.test.ts`'s `CONTROL (FENCE-NESTED-RESULT)`
+    per §Fix (d)(2) itself, naming bug 0201, comment and file header re-derived,
+    direction 2 (`[[[[[makeOk(1)]]]]]` refusing on position) preserved.
+    `tests/subagent-envelope-negative-zero-fidelity.test.ts`'s
+    `CONTROL (FENCE-DEPTH-NESTED-RESULT)` — bug 0188's witness, created after this
+    report was filed and so absent from (d)(2)'s inventory of *locations*, though
+    inside its enumeration by *disposition*; **ratified on the record** before the
+    edit. Exactly one cell, one `expect`, in each file; `it(` counts unchanged
+    (13 and 28) and every other cell's assertions byte-identical.
+  - `tests/result-value-privacy.test.ts` — one header comment re-derived: it
+    quoted `docs/reference/type-system.md`'s `Result` row **verbatim**, and this
+    commit's (e)(5) mirror edit removed the quoted words.
+
+- **Gates** (each re-run by the orchestrator independently of the agent that
+  reported it): witness `npx vitest run tests/subagent-envelope-result-carriage.test.ts`
+  → `Test Files 1 passed (1)`, `Tests 24 passed (24)`; full default suite
+  `npx vitest run` → `Test Files 320 passed (320)`, `Tests 5509 passed (5509)`
+  (baseline 319 / 5485 at HEAD `2486a514`); `npx tsc --noEmit -p tsconfig.json`
+  → exit 0; `npm run lint` → exit 0. Live: `npx vitest run --config
+  config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`
+  → 55/55 (one documented ~180 s stall on cell 54, bug 0188's live-model-turn
+  cell, ruled out per protocol by an isolated re-run green in 4.4 s);
+  H9a across **both** files → `Test Files 2 passed (2)`, `Tests 11 passed (11)`.
+
+- **Review** — 2 rounds, converged. Round 1 (`bug-fix-reviewer`, deep): three
+  findings, **all `prose`**, zero `correctness` / `fidelity` / `spec` — stale or
+  falsified claims in shipped comments (a `Result` arm named after its removal;
+  two present-tense claims in the new witness; a verbatim doc quote this commit
+  falsified). Round 2 (`bug-fix-reviewer-fast`, confirmation, owed because the
+  fixer-light round touched one assertion-**message** string): **CLEAN**, no
+  escalation, two non-blocking prose residuals. One **pre-review correction
+  round** (citation/comment-only, not a review round) ran before round 1 to
+  re-derive four citations and one falsified premise in the sibling witness that
+  this commit's own line-number shift had invalidated.
+
+- **Verification** (`bug-fix-verifier`) — **SOLID**, four obligations:
+  1. *The witness genuinely reds.* Neutralised by re-adding the carrier arm at
+     `classifyWireNode` — the one choke point both walks now consult, so one
+     edit reproduces both halves. 13 of 24 cells red: every `RED (…)` cell red
+     and every `CONTROL (…)` cell still green, naming the fabricated `null` on
+     the wire, the admitted depth-8 document, the `undefined` seam answer and
+     the `scalar`-instead-of-`record` classification — never an import error.
+     **Both ratified fence re-pins red under the same neutralisation**, so they
+     are load-bearing rather than decorative, while bug 0187's own `UNINFERRED`
+     integration cell stayed green, confining the neutralisation to
+     `Result`-carriage. Restored by targeted byte edit and proved byte-exact:
+     `git hash-object src/runtime/subagent-envelope.ts` →
+     `349e29dee3feee0520c62a3b73fc382c07561ecc`, with zero `NEUTRALISATION`
+     markers left. Green after restore: 65 tests across the three files.
+  2. *The full default suite is green.* 320 files / 5509 tests.
+  3. *A live test exercises the fixed path, run for real.* H8a cell 55 added and
+     proved in **both** directions: green with the fix (1.1–1.4 s, zero model
+     turns), and under the neutralisation red with
+     `no SLSH-3 note fired. systemNotes: []` — the defect itself. The three
+     `#subagent-child-pins` were read out of `tests/live/harness.ts` and
+     verified present rather than assumed. H9a ran across **both** files,
+     11/11.
+  4. *Lint and typecheck.* Both exit 0.
+
+- **permitted-codes decision, taken on the REAL run and not on assumption:**
+  `tests/fixtures/h7a/permitted-codes.json` is **NOT** appended, blob
+  `a4a8da04209f90e13d815edd92c1fc682e2a2236` unchanged. Evidence: every one of
+  the nine H9a area cells calls `assertCodesSubsetOfPermitted`, a hard
+  `expect(outside).toEqual([])` over the codes parsed from the real captured
+  stdout+stderr, and all nine passed — so nothing outside the committed
+  allowlist was emitted on the real run. The mechanism agrees: no H9a fixture
+  constructs a `Result`, so this fix's new refusals are unreachable there.
+
+- **Residuals:**
+  1. **`tests/result-value-privacy.test.ts:518` and `:534`–`:535` restate the
+     invariant unscoped** — a section banner "only genuine Results never cross
+     the wire" and two assertion messages "a genuine Ok/Err never crosses the
+     wire". The assertions themselves are correct and green
+     (`isWireLowerable(makeOk(1))` is `false` at the schema-lowering surface,
+     which this fix does not touch). They were **already imprecise at HEAD** —
+     §Reproduction row 3c measured a `Result` crossing this wire before this
+     fix — so they are not this commit's falsification. Only the header quote at
+     `:45`, whose quoted words this commit's (e)(5) mirror edit deleted, was
+     corrected, keeping the line consistent: this commit corrects what it
+     falsified and records what was already false. **Not filed** (a fix run
+     creates no bug documents).
+  2. **`src/runtime/value.ts:98` and `tests/runtime-value-model.test.ts:19`,
+     `:47`–`:49` restate "never crosses the wire" unqualified.** Same class as
+     residual 1 — false at HEAD, not falsified here — but now contradicted on
+     the record by the scoped `runtime-value-model.md:14`. Outside this fix's
+     owned set; correcting them would widen the diff. **Not filed.**
+  3. **Two prose observations in this report's own witness, ruled non-blocking
+     by review round 2.** `tests/subagent-envelope-result-carriage.test.ts:91`
+     calls step 3 "the ground both carrier arms are argued from" after the arms
+     were removed — the referent is scoped as historical by the file's own
+     header 80 lines earlier, and no surviving code is misdescribed. `:93`–`:94`
+     quotes `runtime-value-model.md:14` truncated at "never crosses the wire",
+     dropping the qualifier this commit's own (e)(5) edit added; the fragment is
+     still a literal substring and the behavioural claim it anchors is
+     separately pinned by `CONTROL (WRITER-ROW3C)`. Both are tense/quotation
+     tightenings, neither affects an assertion.
+  4. **Citations into `src/runtime/subagent-envelope.ts` from files this fix does
+     not own are stale by construction** — the module grew 707 → 764 lines.
+     Named: `tests/subagent-envelope-nonfinite-ok-refusal.test.ts:129`, `:581`,
+     `:879`; `tests/invoke-prompt-cell-enum-return.test.ts:15`;
+     `tests/invoke-return-enum-carrier-projection.test.ts:850`. Bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s do-not-chase
+     class. Every citation in a file this fix **does** own was re-derived and
+     verified, and the two protected witnesses' line counts were held constant
+     so nothing citing *them* moved.
+  5. **This report's own body carries six citations measured at `940206cb`** that
+     are stale at the landing HEAD — disclosed at filing, same 0134 class. The
+     `## Fix` record above is measured at `2486a514`.
+  6. **One documented live flake, not a regression.** H8a cell 54 (bug 0188's
+     live-model-turn cell) hit the ~180 s stall class during the full-file run;
+     `docs/bugs/` carries no open report with a matching signature; the isolated
+     re-run passed in 4.4 s. The function it exercises,
+     `stringifyPreservingNegativeZero`, is not one this fix changes behaviourally.
+
+- **Discharge notes appended:** [0187](./0187-untyped-subagent-return-boundary-no-depth-ceiling.md)'s
+  `## Fix (0.116.0)` §*Residuals* item 1, and
+  [0180](./0180-invoke-return-nonfinite-number-mode-variance.md)'s §*Non-goals*
+  bullet *Other `JSON.stringify` holes at the envelope*. Both appended, neither
+  rewritten. **No note is owed to
+  [0114](./0114-nested-result-in-interpolated-object-leaks-carrier.md)** — it
+  shipped the containment rule at the *interpolation* surface and its record is
+  accurate about that surface; the (e)(5) scoping only makes
+  `query-escapes-stringification.md:33`'s existing cross-reference precise about
+  which wires the sentence speaks for.
+
+- **Pinned dispositions / non-goals:**
+  - **§Fix (d)(6) statement, owed and recorded.** `src/runtime/wire-translation.ts`
+    is byte-frozen and untouched. `projectForValidation`'s `isResultValue` arm
+    **still answers the same question** — "what should AJV's structural gate see
+    at a *typed* return boundary?" — and its answer is unchanged, because no
+    `returnSchema` position can hold a `Result`. The two seams now **diverge
+    deliberately**: that arm reasons about schema-described positions, while
+    `classifyWireNode` answers "what does `JSON.stringify` see at this node?" for
+    a boundary carrying no schema at all. `CONTROL (PROMPT-TYPED)` pins the typed
+    gate's verdict unchanged.
+  - **Ceiling #4 is untouched.** `src/runtime/depth-walk.ts` keeps no carrier arm
+    (§Fix (d)(7)); the per-boundary AJV enforcement-point table is unchanged; the
+    *Five-site list co-edit obligation* stays **unengaged — no co-edit is owed**,
+    keyed as it is to rows of that table, which this seam is not one of. The
+    **Ceiling-set carve-out is not available** and 0187's framing is inherited
+    rather than argued against; what licenses the flips is the same recorded
+    departure toward specified behaviour (INV-5's never-fabricate,
+    `invocation.md:36`).
+  - **GOV-15, addition direction only**, rows i–ix, including the `Err`-carrier
+    growth row and the declared-schema-constructor spelling; the prompt→prompt
+    attach leg is a **zero-flip fence**, asserted rather than assumed.
+    `[Ok(1), 1]` (wire depth 3) **stays admitted** — only rejected route (b)
+    would have flipped §Reproduction row 3c.
+  - **Not reopened:** 0180's within-cap named refusal and 0187's depth refusal
+    outside a carrier — message, pointer rendering, registered code, `cause`
+    reuse, no-code decision and FIRST-sub-check order all byte-stable; the
+    untyped `invoke(...)` discard ([0068](./0068-prompt-callee-invoke-final-value-null.md),
+    **wontfix**); the value of `MAX_JSON_DEPTH`; and the parent-side
+    wire-form/carrier divergence at `enforceInvokeReturnDepth`, which
+    [0202](./0202-parent-depth-walk-counts-carrier-not-wire-depth.md) owns —
+    `src/parser/functions.ts` is byte-identical and
+    `production-theta-producer.ts`'s only change is the comment-only rewrite of
+    the `terminal.ok` arm's header.

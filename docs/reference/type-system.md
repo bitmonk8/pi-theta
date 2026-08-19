@@ -112,7 +112,7 @@ Theta values are native JavaScript values, tagged where type recovery is needed:
 | `array<T>` | JS `Array`, elements following these rules recursively |
 | Object schema (named/anonymous) | JS plain object keyed by **theta-side names**, regardless of wire-name renames |
 | Enum variant | wire string plus an interpreter-private declaring-enum tag; cross-enum equality compares both; `JSON.stringify` yields the bare wire string |
-| `Result<T, E>` | internally tagged `Ok`/`Err` with payload; observed only via constructors, `match`, `?`; never lowered to a schema (`theta/parse/result-in-schema-position`), never crosses the wire |
+| `Result<T, E>` | internally tagged `Ok`/`Err` with payload; observed only via constructors, `match`, `?`; never lowered to a schema (`theta/parse/result-in-schema-position`) or interpolated (containment rule); crosses the subagent return envelope as its wire form, where both fail-closed walks measure through it |
 
 The reference interpreter's concrete shapes (a non-enumerable symbol property
 described for debugging as `__thetaEnum`; `{ ok, value }` / `{ ok, error }` plus

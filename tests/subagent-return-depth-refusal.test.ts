@@ -31,38 +31,31 @@
 // `depthWalk` here would therefore refuse `[[[[Colour.Red]]]]`, whose JSON
 // document is `[[[["red"]]]]` at depth 5 — WITHIN the cap — with a message false
 // of that input. The envelope's verdict is a function of the wire form, so the
-// walk carries `firstNonFiniteNumber`'s already-reviewed carrier arms (a boxed
-// `String` is a scalar, a `Result` is not descended, records by own enumerable
-// string keys only) and the two bounded walks in that module answer the carrier
-// question the same way. `src/runtime/depth-walk.ts` is BYTE-UNTOUCHED: it answers
+// walk classifies every node through the shared `classifyWireNode` (a boxed
+// `String` is a scalar, a `Result` is the record its own enumerable string keys
+// spell, bug 0201 §Fix (a)) — so the two bounded walks in that module answer the
+// carrier question the same way by construction rather than by mirrored arms. `src/runtime/depth-walk.ts` is BYTE-UNTOUCHED: it answers
 // for all five of ceiling #4's AJV enforcement points, four of which are handed
 // already-parsed JSON where a boxed `String` cannot occur, and
 // `tests/invoke-ceiling-depth.test.ts` freezes its behaviour. The
 // `SEAM-ENUM-CARRIER`, `ORDER-ENUM-CARRIER` and row-K cells below fence all three
 // tiers of that distinction.
 //
-// THE LIMIT OF THE ROWS BELOW — THE `Result`-CARRIAGE BOUND, PINNED NOT CLOSED.
-// Neither bounded walk in `src/runtime/subagent-envelope.ts` descends a
-// `Result`: `firstNonFiniteNumber`'s arm is bug 0180's reviewed disposition and
-// `wireFormExceedsDepthCap` inherits it, on the ground `projectForValidation`
-// states at `src/runtime/wire-translation.ts:654` — a `Result` is not a lowerable
-// type form and does not cross this envelope by specification
-// (`docs/spec_topics/runtime-value-model.md`'s `Result<T, E>` row;
-// `docs/spec_topics/schema-subset.md` §"Lowering Algorithm" step 3). But
-// `JSON.stringify` DOES descend one, so depth contributed only from INSIDE a
-// nested `Result` is under-counted and such a payload is admitted: measured,
-// `[Ok([[[[[1]]]]]), 1]` writes `[{"ok":true,"value":[[[[[1]]]]]},1]` at document
-// depth 8 and the seam answers `undefined`. Every row and cell below is
-// therefore about payloads OUTSIDE a `Result` carrier, and PIC-59 states that
-// bound normatively as its *Result-carriage bound*
-// (`docs/spec_topics/pi-integration-contract/subagent.md:115`,
-// `#subagent-envelope-result-carriage-bound`) rather than claiming a reach the
-// walks do not have. `CONTROL (FENCE-NESTED-RESULT)` below pins the disposition
-// in both directions so a later widening cannot happen silently — widening it is
-// bug 0180's settled refusal mechanism
-// (`docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md`
-// §Non-goals, "0180's within-cap refusal"), out of this fix's scope, and recorded
-// rather than widened on the `-0` precedent that became bug 0188.
+// THE `Result`-CARRIAGE BOUND, RE-PINNED UNDER BUG 0201.
+// Both bounded walks in `src/runtime/subagent-envelope.ts` descend a
+// `Result` as its WIRE FORM: `classifyWireNode` classifies the carrier
+// `record`, via `Object.entries`, because the brand is a non-enumerable
+// symbol and only the carrier's own enumerable `ok` / `value` / `error`
+// keys are visited — exactly the fields `JSON.stringify` writes
+// (`docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md` §Fix
+// (a)). So depth contributed only from INSIDE a nested `Result` now counts:
+// `[Ok([[[[[1]]]]]), 1]` writes `[{"ok":true,"value":[[[[[1]]]]]},1]` at
+// document depth 8, and `mapTooDeepReturnValue` now refuses it (`CONTROL
+// (FENCE-NESTED-RESULT)` below, re-pinned under bug 0201's authority). Every
+// OTHER row and cell below is about payloads OUTSIDE a `Result` carrier,
+// and PIC-59 states the carriage bound normatively as its *Result-carriage
+// bound* (`docs/spec_topics/pi-integration-contract/subagent.md:115`,
+// `#subagent-envelope-result-carriage-bound`).
 //
 // CODE IDENTITY, SETTLED: the canonical depth message under the existing
 // `cause: "return_validation"`, with **no registered `theta/*` diagnostic code
@@ -654,29 +647,22 @@ describe("bug 0187 (SEAM) — mapTooDeepReturnValue over a terminal Ok payload",
     ).toBe(true);
   });
 
-  it("CONTROL (FENCE-NESTED-RESULT): depth contributed only from inside a nested Result is NOT refused, and a Result past the cap still is (green now, green after)", async () => {
+  it("CONTROL (FENCE-NESTED-RESULT): depth contributed only from inside a nested Result now refuses too (bug 0201 §Fix (a)), and a Result past the cap still refuses on position", async () => {
     const map = await tooDeepMapper();
 
-    // PINNED BOUND, NOT THIS FIX'S CLASS. `wireFormExceedsDepthCap` does not
-    // descend a `Result`, inheriting `firstNonFiniteNumber`'s reviewed arm on the
-    // ground `projectForValidation` states at
-    // `src/runtime/wire-translation.ts:654`: a `Result` is not a lowerable type
-    // form and does not cross this envelope by specification
-    // (`docs/spec_topics/runtime-value-model.md`'s `Result<T, E>` row;
-    // `docs/spec_topics/schema-subset.md` §"Lowering Algorithm" step 3, which
-    // rejects one in any schema-feeding position at parse time as
-    // `theta/parse/result-in-schema-position`). `JSON.stringify` nevertheless
-    // descends the carrier's own enumerable `ok` / `value` fields, so for a
-    // payload nesting a `Result` the walk's verdict is an UNDER-COUNT of the real
-    // wire depth and the payload is admitted. PIC-59 states that bound rather
-    // than claiming a reach the walk lacks (its *Result-carriage bound*,
-    // `docs/spec_topics/pi-integration-contract/subagent.md:115`), and this cell
-    // pins the disposition so a later widening cannot happen silently. Widening
-    // it is bug 0180's settled refusal mechanism
-    // (`docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md`
-    // §Non-goals, "0180's within-cap refusal") and is out of bug 0187's scope; the
-    // disposition is recorded rather than widened, on the `-0` precedent that
-    // became bug 0188.
+    // RE-PINNED under bug 0201 §Fix (a)
+    // (`docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md`),
+    // which owns this cell's authority to move. `wireFormExceedsDepthCap` now
+    // descends a `Result`'s WIRE FORM as an ordinary record: `classifyWireNode`
+    // classifies the carrier `record` because its brand is a non-enumerable
+    // symbol (`src/runtime/value.ts:88`) and only its own enumerable `ok` /
+    // `value` fields are visited — exactly the fields `JSON.stringify`
+    // descends. So for a payload nesting a `Result` the walk's verdict now
+    // MATCHES the real wire depth, and the payload below refuses. PIC-59
+    // states the bound normatively (its *Result-carriage bound*,
+    // `docs/spec_topics/pi-integration-contract/subagent.md:115`), and this
+    // cell re-pins the disposition in both directions so a later change cannot
+    // happen silently.
     //
     // The `Result` is built through the SHIPPED constructor `makeOk`
     // (`src/runtime/value.ts`) — never a hand-made `{ ok: true, value }` — because
@@ -699,18 +685,18 @@ describe("bug 0187 (SEAM) — mapTooDeepReturnValue over a terminal Ok payload",
     ).toBe(8);
 
     expect(
-      map(nested, UNIT_CALLEE_PATH),
-      `PINNED BOUND (PIC-59 #subagent-envelope-result-carriage-bound): a payload whose depth ` +
-        `is contributed only from inside a nested Result is admitted at document depth ` +
-        `${jsonDepth(wire)}. A red here means the Result arm was widened, which is bug 0180's ` +
-        `settled mechanism and not this fix's to move` +
+      map(nested, UNIT_CALLEE_PATH)?.message,
+      `RE-PINNED under bug 0201 §Fix (a): a payload whose depth is contributed only from inside ` +
+        `a nested Result now refuses at the depth its wire document actually has — document ` +
+        `depth ${jsonDepth(wire)} — because both walks now descend the carrier as an ordinary ` +
+        `record, counted exactly as JSON.stringify's own document has it` +
         refusalDetail(map(nested, UNIT_CALLEE_PATH)),
-    ).toBeUndefined();
+    ).toBe(DEPTH_VIOLATION_MESSAGE);
 
-    // THE OTHER DIRECTION, so the fence BOUNDS the disposition instead of
-    // blessing everything `Result`-shaped: the level check precedes the `Result`
-    // arm, so a carrier sitting at a position that already exceeds the cap is
-    // refused on its POSITION without the arm ever being consulted.
+    // THE OTHER DIRECTION, so the fence BOUNDS the disposition instead of blessing
+    // everything `Result`-shaped: the level check precedes every classifier
+    // consult, so a carrier sitting at a position that already exceeds the cap is
+    // refused on its POSITION before any classifier is ever consulted.
     const pastCap = [[[[[makeOk(1)]]]]];
     expect(
       jsonDepth(JSON.parse(JSON.stringify(pastCap)) as unknown),
@@ -719,7 +705,7 @@ describe("bug 0187 (SEAM) — mapTooDeepReturnValue over a terminal Ok payload",
     expect(
       map(pastCap, UNIT_CALLEE_PATH)?.message,
       `PRIMARY (bug 0187 §Fix (b)): a Result at a position already past the cap is still refused ` +
-        `— the level check precedes the Result arm` +
+        `— the level check precedes every classifier consult` +
         refusalDetail(map(pastCap, UNIT_CALLEE_PATH)),
     ).toBe(DEPTH_VIOLATION_MESSAGE);
   });

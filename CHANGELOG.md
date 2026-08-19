@@ -6,6 +6,49 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0201 — neither of the subagent envelope writer's two bounded walks
+  descended a `Result`, so a payload whose non-finite `number` or whose depth
+  was contributed only from inside a nested carrier crossed unrefused.** A
+  `mode: subagent` callee whose terminal value was `[Ok(1 / 0), 1]` wrote an
+  `ok` envelope carrying `null` where the callee produced `Infinity`, with an
+  empty diagnostic drain — bug 0180's fabrication class alive through the one
+  carrier its walk declined to enter — and `[Ok([[[[[1]]]]]), 1]` crossed as a
+  document of depth 8 where `[[[[[[1]]]]]]` at depth 7 refused
+  `JSON document depth exceeds 5`. The cause was shared: `firstNonFiniteNumber`
+  (bug 0180's search) and `wireFormExceedsDepthCap` (bug 0187's depth walk) each
+  carried an `isResultValue` arm that returned without descending, while
+  `serializeOkEnvelope` reached `JSON.stringify`, which descends the carrier —
+  the brand is a non-enumerable symbol but `ok` and `value` / `error` are own
+  enumerable string keys. Both walks now classify every node through one shared
+  exported wire-form classifier, `classifyWireNode`, and carry no carrier arm of
+  their own: a boxed `String` enum carrier classifies as the scalar its wire
+  form is (the deliberate divergence from `depthWalk`, preserved), and a
+  `Result` classifies as the record its own enumerable keys spell, counted as
+  one level exactly as `JSON.stringify` counts it. A carrier-contributed
+  non-finite `number` now refuses by name with
+  `theta/runtime/subagent-return-value-not-representable` and a wire-form
+  RFC-6901 pointer (`/0/value`, `/0/error`, `/0/0/value`), derived from the
+  encoding by the descent rather than spelled by hand; a carrier-contributed
+  over-cap depth now refuses with ceiling #4's canonical message and no code.
+  Both walks keep their `level > MAX_JSON_DEPTH` fast-fail as the first
+  statement, so CIO-3 holds with no cap-raising change and no materialised copy
+  of the payload. `[Ok(1), 1]` (wire depth 3) still crosses — the walks gained
+  reach, not strictness — and a `Result` at a position already past the cap
+  still refuses on its position. Bug 0188's sign class is unaffected: a
+  `Result`-carried `-0` still round-trips sign-intact, because
+  `stringifyPreservingNegativeZero` owns rendering while these walks decide only
+  refusal. Same-commit: PIC-59's *Result-carriage bound* rewritten in place
+  (anchor kept) and its three qualification sites moved; the registry *Trigger*
+  widened citing the GOV-15 diagnostic-registry carve-out, with no new code and
+  a byte-identical reference mirror; and `runtime-value-model.md`'s "a `Result`
+  value never crosses the wire", with its `type-system.md` mirror, scoped to the
+  wires where it holds. Locked by a new 24-cell witness spanning the seam, the
+  real child-side writer and real spawned children, plus H8a live cell 55.
+
 ## [0.117.0] - 2026-08-19
 
 ### Fixed

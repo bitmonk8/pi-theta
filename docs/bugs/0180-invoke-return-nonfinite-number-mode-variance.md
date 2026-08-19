@@ -916,6 +916,16 @@ result type and shares no file with any route here.
   specification (`runtime-value-model.md`, the `Result` row). Non-finite `number`
   is the one JSON hole a legal theta value can occupy; if a route finds a second,
   it records it rather than widening.
+  **Recorded, then closed at 0.118.0.** The `Result` clause was measured false at
+  the subagent return envelope by
+  [0201](./0201-result-carried-payloads-skip-envelope-walks.md): the carrier's
+  brand is a non-enumerable symbol while `ok` and `value` / `error` are own
+  enumerable string keys, so `JSON.stringify` writes it and a non-finite `number`
+  reachable only through a nested `Result` was substituted as `null` with an empty
+  drain. That report followed this bullet's own instruction — 0187 recorded the
+  hole rather than widening, and 0201 was filed against the record — and its route
+  (a) then widened `firstNonFiniteNumber` deliberately, through one shared
+  wire-form classifier both envelope walks consult.
 
 ## Provenance
 

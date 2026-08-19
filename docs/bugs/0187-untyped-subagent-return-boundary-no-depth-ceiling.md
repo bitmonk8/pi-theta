@@ -1297,6 +1297,14 @@ run is the mechanical corroboration.
      registry *Trigger*, stated in both walks' doc-comments, and pinned in both
      directions by `CONTROL (FENCE-NESTED-RESULT)`. **Not filed** (a fix run creates
      no bug docs).
+     **Discharged at 0.118.0** by
+     [0201](./0201-result-carried-payloads-skip-envelope-walks.md), which was filed
+     against this residual and shipped its route (a): both walks now descend a
+     `Result`'s wire form through one shared classifier, counting the carrier as one
+     level, so both halves refuse — the depth half with ceiling #4's canonical
+     message and the non-finite half with 0180's registered code and a wire-form
+     RFC-6901 pointer. `CONTROL (FENCE-NESTED-RESULT)` was re-pinned in place under
+     0201's authority, as §Fix (d)(2) of that report provides.
   2. **`cause: "return_validation"` now carries three semantically distinct
      failures** — a parent-side AJV mismatch, 0180's child-side non-representability
      refusal, and this child-side depth refusal. The third carries **no** registered
