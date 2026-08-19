@@ -984,6 +984,18 @@ beside their line numbers, per bug 0134's adjudication.
     instead. The clause "never the projection" in the paragraph below is left
     intact and is true on its own terms: the `verdict.ok` arm binds
     `result.value`.
+
+    **The "After" quote above is the 0.98.0 text.** Bug
+    [0202](./0202-parent-depth-walk-counts-carrier-not-wire-depth.md) §Fix (e)(1)
+    restated that paragraph at 0.119.0: the method's ceiling-#4 depth sub-check
+    read the UNPROJECTED value, so "normalised at the gate" was true of the AJV
+    call and false of the method — a typed `invoke<array<array<array<array<T>>>>>`
+    of a prompt-mode callee returning a named-enum variant at document level 5 was
+    refused as too deep while the subagent leg bound `Ok`. The shipped paragraph
+    now names both sub-checks as reading the wire form. The scoping to
+    **named-enum returns** that this record chose is unchanged, and for the same
+    reason: the non-finite mode-variance recorded just above is still live at the
+    attach cell, so the unscoped claim would still be false.
   - `tests/invoke-return-enum-carrier-projection.test.ts` — **§Fix (d)(6) unit
     half**, new, 868 lines / 16 cells. It drives the real in-process
     prompt→prompt attach cell end to end (`parseThetaDocument` →

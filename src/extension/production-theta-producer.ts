@@ -3651,12 +3651,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * holds a value that is not identical to itself (a `NaN`, whose
    * walk-internal `!==` identity test reports "changed" though nothing
    * collapsed): only under both conditions is the projection the payload,
-   * unchanged. Both call sites in `#driveCallee` (the prompt→prompt attach
-   * cell and the subagent spawn cell) route through this one method, and
-   * the method projects the value to its wire form for the AJV call, so the
-   * boxed-`String` representation difference between the two cells is normalised
-   * at the gate: a callee's `mode:` frontmatter cannot change whether a
-   * named-enum return validates, or what the caller binds for one.
+   * unchanged. Both call sites in `#driveCallee` — the prompt→prompt attach
+   * cell and the subagent spawn cell — route through this one method, and it
+   * reads the payload's WIRE FORM at both sub-checks, the depth walk as well
+   * as the AJV call (bug 0202, which moves all three theta-value ceiling-#4
+   * sites to that metric), so a callee's `mode:` frontmatter cannot change
+   * whether a named-enum return validates, or what the caller binds for one.
    *
    * On success the ORIGINAL payload — never the projection — also runs
    * through the inbound translation pass runtime-value-model.md §"Wire-name
@@ -3686,10 +3686,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     }
     const { annotation: returnSchema, declarations } = returnSite;
     // Ceiling #4 (ceilings-3-and-4.md#ceiling-4-table, the `invoke<T>` return-value
-    // row; CIO-3): the theta-owned depth walk is the FIRST sub-check at the
-    // return-value AJV boundary. A depth-6+ `Ok` payload surfaces to the invoke
-    // parent as `Err(InvokeInfraError { cause: "return_validation" })` before AJV
-    // is consulted.
+    // row; CIO-3): the depth walk is the FIRST sub-check at the return-value AJV
+    // boundary, over the payload's WIRE FORM — the JSON document, not the carrier
+    // graph (bug 0202). A depth-6+ document surfaces to the invoke parent as
+    // `Err(InvokeInfraError { cause: "return_validation" })` before AJV is consulted.
     const depthBreach = enforceInvokeReturnDepth(calleePath, result.value as unknown);
     if (depthBreach !== undefined) {
       return depthBreach.result;

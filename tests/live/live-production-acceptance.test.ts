@@ -9247,3 +9247,195 @@ describe("H8a-T — bug 0201: a non-finite number reachable only through a neste
     }
   });
 });
+
+// ===========================================================================
+// Bug 0202 (live) — `#validateInvokeReturn` hands `enforceInvokeReturnDepth`
+// the raw theta value, so `depthWalk` (`src/runtime/depth-walk.ts`) counts the
+// boxed-`String` enum carrier's character indices as a nesting level
+// (`Object.keys(new String("red"))` is `["0","1","2"]`) and a typed
+// `invoke<array<array<array<array<Colour>>>>>` of a prompt-mode callee whose
+// tail is `[[[[Colour.Red]]]]` — wire form `[[[["red"]]]]`, JSON-document
+// depth 5, which ceiling #4's cap admits — binds
+// `Err(InvokeInfraError { cause: "return_validation", message: "JSON document
+// depth exceeds 5" })`, a message false of the value it names.
+// `docs/bugs/0202-parent-depth-walk-counts-carrier-not-wire-depth.md` §Fix:
+// the verdict becomes a function of the payload's WIRE FORM under
+// `docs/spec_topics/schema-subset.md:24–30`'s counting algorithm, computed by a
+// new bounded walk that consults the shared classifier bug 0201 exported,
+// `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`, which answers
+// `scalar` for a boxed `String`). `depth-walk.ts` keeps serving the
+// parsed-JSON sites unchanged.
+//
+// NO EXISTING LIVE CELL DRIVES THIS SHAPE (checked across all of
+// `tests/live/**` before adding this cell). The bug 0174 cell above is the
+// only other prompt→prompt ATTACH cell carrying a named enum, and its payload
+// is a root-position variant — wire document depth 1 — where the depth gate is
+// a no-op; `tests/live/hardening/session-invoke-attach.test.ts` drives the
+// same attach topology with `invoke<number>`, and a plain `number` is never
+// boxed. The bug 0187 cell above is the only live cell whose payload is nested
+// past the cap (`[[[[[[1]]]]]]`), but it is carrier-free, `mode: subagent`,
+// and lands at the UNINFERRED `tools:` boundary rather than at a typed
+// `invoke<T>` annotation. The uncovered cell is the intersection: a carrier at
+// wire document level 5, typed, on the attach cell.
+//
+// BOTH LEGS ARE PROMPT→PROMPT ATTACH, so NO child process is spawned and the
+// `#subagent-child-pins` reasoning does not arise beyond what this file's
+// imported `./harness` already does at module scope; nothing new is pinned
+// here.
+//
+// THE OBSERVABLE, TWO-SIDED. Leg A is the report's own §Reproduction (b) row
+// b1: the invoke Errs pre-fix, the parent's `?` propagates it as the whole
+// top-level theta's termination, and SLSH-3 fires exactly one note
+// (`err-note-render.ts:157` — "invoke of <path> failed (<cause>)"). Post-fix
+// the invoke binds `Ok`, the theta terminates `Ok`, and
+// runtime-event-channel.md's success-side null-policy emits NO note — so the
+// assertion is ZERO fail-closed notes for leg A. An absence assertion is only
+// as good as the proof that the channel was live, which is leg B: kid B's tail
+// is `[[[[[Colour.Red]]]]]` under `invoke<array<array<array<array<array<Colour>
+// >>>>>`, wire document depth 6, refused BEFORE and AFTER, so leg B's note is
+// present in both directions and is asserted in this same cell.
+//
+// Token cost: ZERO. No `@` query appears in any of the four fixtures — every
+// body is a pure tail expression — so `turn.userTexts` is empty for both
+// drives and the marshalled `--provider`/`--model` reference (PIC-62) only
+// satisfies the launch argv shape, as the bug 0180, 0187 and 0201 cells' own
+// headers state.
+//
+// ADDITIVE ONLY: this is cell 56; cells 1–55 are unchanged, and this cell adds
+// no assertion to any existing cell in this file.
+// ===========================================================================
+
+/** The `mode: prompt` kid of leg A: a pure tail whose wire document is `[[[["red"]]]]`, depth 5 — inside ceiling #4's cap. */
+function b202LiveKidATheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Colour { Red = "red" }',
+    "[[[[Colour.Red]]]]",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent of leg A: the SOLE statement is the typed
+ * `invoke<T>` of the prompt-mode kid with `?`, so the boundary `Result` IS the
+ * theta's own termination and no `@` query anywhere can spend a turn. The
+ * annotation is the caller's, so the caller declares the `enum` it names.
+ */
+function b202LiveParentATheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Colour { Red = "red" }',
+    'invoke<array<array<array<array<Colour>>>>>("./b202livekida.theta")?',
+    "",
+  ].join("\n");
+}
+
+/** The `mode: prompt` kid of leg B: one level deeper — wire document depth 6, past the cap. */
+function b202LiveKidBTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Colour { Red = "red" }',
+    "[[[[[Colour.Red]]]]]",
+    "",
+  ].join("\n");
+}
+
+/** The `mode: prompt` parent of leg B: the same form one level deeper, refused before and after. */
+function b202LiveParentBTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'enum Colour { Red = "red" }',
+    'invoke<array<array<array<array<array<Colour>>>>>>("./b202livekidb.theta")?',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0202: a typed invoke<T> of a prompt-mode callee whose wire document is depth 5 is refused with a message false of it, live", () => {
+  it("an enum carrier at wire document level 5 crosses the prompt→prompt attach cell while its level-6 sibling stays refused, spending zero model turns", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b202livekida", text: b202LiveKidATheta() },
+      { source: "project", stem: "b202liveparenta", text: b202LiveParentATheta() },
+      { source: "project", stem: "b202livekidb", text: b202LiveKidBTheta() },
+      { source: "project", stem: "b202liveparentb", text: b202LiveParentBTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: both parent commands must exist before a turn is driven,
+      // so a discovery/parse failure reds with zero tokens.
+      for (const stem of ["b202liveparenta", "b202liveparentb"]) {
+        expect(
+          handle.command(stem),
+          `no bug-0202 parent command /${stem} to invoke — the .theta failed ` +
+            "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+        ).toBeDefined();
+      }
+
+      // LEG B FIRST: the channel-live control. Its note is present before AND
+      // after the fix, so leg A's absence assertion below is an absence against
+      // a channel this same cell has already seen fire.
+      const legB = await driveSlashCaptureTurn(handle, "/b202liveparentb");
+      expect(
+        legB.userTexts,
+        "no `@` query appears in either leg-B fixture; userTexts must stay empty — " +
+          "observed: " + JSON.stringify(legB.userTexts),
+      ).toEqual([]);
+      const legBNotes = legB.systemNotes.filter((n) =>
+        n.startsWith("theta /b202liveparentb returned Err:"),
+      );
+      expect(
+        legBNotes,
+        "ceilings-3-and-4.md:27 — a wire document deeper than the cap must still refuse at " +
+          "the invoke<T> return row, before and after the metric change. systemNotes: " +
+          JSON.stringify(legB.systemNotes),
+      ).toHaveLength(1);
+      const legBNote = legBNotes[0] ?? "";
+      expect(
+        legBNote,
+        "the SNK-i template (`err-note-render.ts:157`) names the cause: " + legBNote,
+      ).toContain("failed (return_validation)");
+      expect(
+        legBNote,
+        "and names the refused callee, the level-6 kid: " + legBNote,
+      ).toContain("b202livekidb.theta");
+
+      // LEG A: THE FIXED OBSERVABLE (AGENTS.md §"Assert on real observables" —
+      // the `theta-system-note` channel read off the settled `SessionManager`
+      // via the harness's per-turn `systemNotes`). Pre-fix the invoke Errs, `?`
+      // propagates, and SLSH-3 fires one note naming `return_validation` about
+      // a document of depth 5. Post-fix the invoke binds Ok, the theta
+      // terminates Ok, and the success-side null-policy emits nothing.
+      const legA = await driveSlashCaptureTurn(handle, "/b202liveparenta");
+      expect(
+        legA.userTexts,
+        "no `@` query appears in either leg-A fixture; userTexts must stay empty — " +
+          "observed: " + JSON.stringify(legA.userTexts),
+      ).toEqual([]);
+      // The regex admits every fail-closed ending of a top-level drive — the
+      // SLSH-3 err note, the cancelled note and the panic framings — so the
+      // absence cannot be bought by the refusal changing shape.
+      const legANotes = legA.systemNotes.filter((n) =>
+        /^theta \/b202liveparenta (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        legANotes,
+        "docs/bugs/0202 — `[[[[Colour.Red]]]]` serialises to `[[[[\"red\"]]]]`, JSON-document " +
+          "depth 5, which schema-subset.md:30's `depth ≤ 5` admits; the typed invoke of a " +
+          "prompt-mode callee returning it must bind Ok rather than refuse with a message " +
+          "false of it. systemNotes: " + JSON.stringify(legA.systemNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

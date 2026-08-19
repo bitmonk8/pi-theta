@@ -1344,5 +1344,17 @@ run is the mechanical corroboration.
   five AJV enforcement points are unmoved. The pre-existing sibling of the
   wire-form/carrier divergence at the **parent-side typed** boundary
   (`enforceInvokeReturnDepth` walks the raw theta value at `#validateInvokeReturn`)
-  is out of scope by §Fix (e)(7) and is recorded here rather than changed. No static
+  is out of scope by §Fix (e)(7) and is recorded here rather than changed.
+  **Discharged at 0.119.0** by
+  [0202](./0202-parent-depth-walk-counts-carrier-not-wire-depth.md), filed against
+  this disposition and against item 2 of `.pi/tmp/fixes/0187-report.md`
+  §*Residuals / notes*: all three of ceiling #4's theta-value enforcement points
+  now measure the payload's wire form through a bounded walk
+  (`src/runtime/wire-form-depth-walk.ts`) consulting the same shared
+  `classifyWireNode` this fix's successor exported, so the two return gates agree
+  about one payload and `depth-walk.ts` — still carrier-free, still byte-frozen —
+  answers only for the parsed-JSON sites. That report also corrected the sentence
+  in `wireFormExceedsDepthCap`'s doc-comment this record shipped: three of the
+  five enforcement points are handed interpreter values, not four handed parsed
+  JSON. No static
   type, no evaluation semantics, and no parser file moved.

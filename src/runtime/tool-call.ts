@@ -67,6 +67,7 @@ import {
   DEPTH_VIOLATION_MESSAGE,
   type DepthViolationIssue,
 } from "./depth-walk";
+import { wireFormDepthWalk } from "./wire-form-depth-walk";
 import type {
   CodeToolCause,
   CodeToolError,
@@ -554,13 +555,19 @@ export function lowerAcceptedThetaCallableReturn(payload: ThetaValue): ResultVal
 // --------------------------------------------------------------------------
 // V14e / V14e-T — ceiling-#4 depth-6 code-driven-tool-args live carrier.
 //
-// The delegated live-carrier witness for `V5e`'s code-driven-tool-args
-// ceiling-#4 routing row (ceilings-3-and-4.md#ceiling-4-table). A depth-6
-// code-driven `<name>(args)` argument trips the theta-owned depth walk (`V5e`,
-// `depthWalk`) *before* AJV runs (CIO-3) and surfaces wrapped as
-// `Err(CodeToolError { cause: "validation", ... })`, building on the `V14a`
-// `CodeToolError` carrier. A within-cap argument produces no depth breach and
-// falls through to the downstream AJV boundary (owned elsewhere).
+// The delegated live-carrier witness for the code-driven-tool-args ceiling-#4
+// routing row (ceilings-3-and-4.md#ceiling-4-table). The `<name>(args)`
+// argument is the interpreter's OWN value, not parsed JSON, so a depth-6
+// code-driven argument trips `wireFormDepthWalk` (`./wire-form-depth-walk.ts`)
+// — the walk over the payload's WIRE FORM, the JSON document `JSON.stringify`
+// writes for it (schema-subset.md:13, :22, :24–30; bug 0202) — before AJV runs
+// (CIO-3), and surfaces wrapped as `Err(CodeToolError { cause: "validation",
+// ... })`, building on the `V14a` `CodeToolError` carrier. A within-cap
+// argument produces no depth breach and falls through to the downstream AJV
+// boundary (owned elsewhere). Its sibling `enforceModelToolArgDepth` below
+// deliberately keeps `depth-walk.ts`'s `depthWalk`: every one of its call
+// sites is handed a model-produced argument document — already-parsed JSON,
+// where a boxed `String` cannot occur.
 // --------------------------------------------------------------------------
 
 /**
@@ -582,15 +589,16 @@ export interface CodeToolArgDepthBreach {
 }
 
 /**
- * Enforce ceiling #4 at the code-driven `<name>(args)` argument boundary: run
- * `V5e`'s theta-owned depth walk over the materialised argument value *before*
- * AJV (CIO-3), and — on a depth-6+ breach — surface it wrapped as
+ * Enforce ceiling #4 at the code-driven `<name>(args)` argument boundary: the
+ * argument is the interpreter's OWN value, so this runs `wireFormDepthWalk`
+ * over its WIRE FORM *before* AJV (CIO-3), and — on a depth-6+ breach —
+ * surface it wrapped as
  * `Err(CodeToolError { cause: "validation", ... })` per the code-driven row of
  * the ceiling-#4 per-boundary table (ceilings-3-and-4.md#ceiling-4-table).
  * Returns `undefined` for a within-cap argument, deferring to the downstream
  * AJV boundary.
  *
- * The depth walk (`V5e`) runs before AJV (CIO-3): a within-cap value yields
+ * The wire-form walk runs before AJV (CIO-3): a within-cap value yields
  * `{ ok: true }` and this returns `undefined`, deferring to the downstream AJV
  * check; a depth-6+ value yields the canonical depth-violation issue
  * (`schema_keyword: "maxDepth"`, message `"JSON document depth exceeds 5"`),
@@ -603,7 +611,7 @@ export function enforceCodeToolArgDepth(
   toolName: string,
   argValue: unknown,
 ): CodeToolArgDepthBreach | undefined {
-  const walk = depthWalk(argValue);
+  const walk = wireFormDepthWalk(argValue);
   if (walk.ok) {
     // Within the depth cap — no ceiling-#4 breach at this site; defer to the
     // downstream AJV boundary (owned elsewhere).

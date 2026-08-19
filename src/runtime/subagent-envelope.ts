@@ -410,11 +410,11 @@ export function mapExitWithoutEnvelope(exitDetail: string, calleePath: string): 
 
 /**
  * The three shapes a JSON document's nodes take, for {@link classifyWireNode}
- * to sort a value into: `scalar` (nothing beneath it to descend into),
- * `array`, or `record`. {@link firstNonFiniteNumber} and
- * {@link wireFormExceedsDepthCap} both consult this classification instead of
- * each testing carrier shapes on its own, so the two walks answer the carrier
- * question identically by construction.
+ * to sort a value into: `scalar` (nothing beneath it to descend into), `array`,
+ * or `record`. {@link firstNonFiniteNumber}, {@link wireFormExceedsDepthCap}
+ * and `wireFormDepthWalk` (`./wire-form-depth-walk.ts`) all consult this
+ * classification instead of each testing carrier shapes on its own, so the
+ * three walks answer the carrier question identically by construction.
  */
 export type WireNode =
   | { readonly kind: "scalar" }
@@ -438,10 +438,10 @@ const SCALAR_WIRE_NODE: WireNode = Object.freeze({ kind: "scalar" });
 /**
  * Classify `value`'s WIRE FORM — what `JSON.stringify` would write for it,
  * not the interpreter's own carrier representation — as a {@link WireNode}.
- * The one answer {@link firstNonFiniteNumber} and
- * {@link wireFormExceedsDepthCap} both consult, so a carrier shape is
- * classified once rather than mirrored by hand across the two walks
- * (`docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md` §Fix (a)).
+ * The one answer {@link firstNonFiniteNumber}, {@link wireFormExceedsDepthCap}
+ * and `wireFormDepthWalk` all consult, so a carrier shape is classified once
+ * rather than mirrored by hand across the three walks (bug 0201 §Fix (a); bug
+ * 0202).
  *
  * A boxed `String` — the enum carrier `makeEnumValue` builds
  * (`src/runtime/value.ts:135`) — classifies `scalar`: its wire form is the
@@ -450,9 +450,9 @@ const SCALAR_WIRE_NODE: WireNode = Object.freeze({ kind: "scalar" });
  * deliberate divergence from `depth-walk.ts`'s `depthWalk`, which counts
  * those indices as children and would refuse `[[[[Colour.Red]]]]` — whose
  * document `[[[["red"]]]]` is depth 5 — with a message false of it;
- * `depthWalk` answers for already-parsed JSON, where a boxed `String` cannot
- * occur, so the divergence costs it nothing, and it is why this
- * classification lives here rather than in `depth-walk.ts`.
+ * `depthWalk` answers only for already-parsed JSON, where a boxed `String`
+ * cannot occur, so the divergence costs it nothing anywhere (bug 0202), and
+ * it is why this classification lives here rather than in `depth-walk.ts`.
  *
  * A `Result` classifies `record`, through the same branch a plain object
  * takes: `RESULT_TAG` (`src/runtime/value.ts:88`) is installed
@@ -593,9 +593,9 @@ function firstNonFiniteNumber(
  * `depthWalk` here would therefore refuse a payload whose JSON document is
  * WITHIN the cap: `[[[[Colour.Red]]]]` serialises to `[[[["red"]]]]`, document
  * depth 5, and a refusal naming depth would be false of it. The carrier arm
- * belongs here rather than in `depth-walk.ts` because that module answers for
- * all five of ceiling #4's AJV enforcement points, and four of them are handed
- * already-parsed JSON where a boxed `String` cannot occur.
+ * stays here rather than in `depth-walk.ts`, which answers only for the
+ * parsed-JSON sites, where a boxed `String` cannot occur; the three theta-value
+ * sites consult `wireFormDepthWalk`, which consults this same classifier.
  *
  * Bounded by construction, so CIO-3's prohibition on unbounded recursion in the
  * envelope writer (bug 0187 §Fix (e)(3)) is satisfied without a cap-raising

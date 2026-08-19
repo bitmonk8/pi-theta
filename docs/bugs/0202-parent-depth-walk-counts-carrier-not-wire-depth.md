@@ -1,6 +1,8 @@
 # Bug 0202 — `#validateInvokeReturn` hands `enforceInvokeReturnDepth` the raw theta value, so `depthWalk` counts the boxed-`String` enum carrier's character indices as a nesting level (`Object.keys(new String("red"))` is `["0","1","2"]`) and a typed `invoke<array<array<array<array<Colour>>>>>` of a prompt-mode callee whose tail is `[[[[Colour.Red]]]]` — wire form `[[[["red"]]]]`, JSON-document depth 5, which the cap admits — binds `Err(InvokeInfraError { cause: "return_validation", message: "JSON document depth exceeds 5" })`, a message false of the value it names, where the byte-identical payload crosses the child-side gate bug 0187 fixed and the same annotation over a plain `string` binds `Ok`
 
-- **Status:** open. §Fix is constraint-pinned rather than settled. The *metric*
+- **Status:** fixed (0.119.0). §Fix was constraint-pinned rather than settled
+  when this report was filed; the placement and the site scope are adjudicated in
+  `## Fix (0.119.0)` below. The *metric*
   is settled — bug 0187's shipped record fixes the verdict as a function of the
   payload's wire form, and states this gate's divergence in its own pinned
   dispositions — but the *placement* of the wire-form walk is not: four
@@ -831,3 +833,336 @@ Every `src/`, `tests/`, spec and reference citation above was read at HEAD
 `src/extension/production-theta-producer.ts` and
 `src/runtime/subagent-envelope.ts` are named by symbol beside their line numbers,
 per [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
+
+## Fix (0.119.0)
+
+- **What shipped** — the metric was settled by §Fix (a); this run adjudicated the
+  PLACEMENT (§Fix (b)) and the SITE SCOPE (§Fix (c)(4)), both recorded here.
+  - `src/runtime/wire-form-depth-walk.ts` — NEW, 117 lines. §Fix (b): one export,
+    `wireFormDepthWalk(value: unknown): DepthWalkResult`, a bounded descent over
+    the payload's WIRE FORM that fast-fails the first node whose level would
+    exceed `MAX_JSON_DEPTH` and accumulates the RFC-6901 pointer to it exactly as
+    `depth-walk.ts`'s `firstTooDeep` does. Every node's shape is decided by
+    `classifyWireNode`, IMPORTED from `src/runtime/subagent-envelope.ts` — the
+    classifier bug 0201 exported one commit earlier — so the carrier decision
+    stays single-sourced in that one function and no second carrier arm exists.
+    The level check is the first statement at every node, ahead of the classifier
+    consult, so CIO-3's prohibition on unbounded recursion holds. `MAX_JSON_DEPTH`,
+    `DEPTH_VIOLATION_MESSAGE`, `DEPTH_VIOLATION_SCHEMA_KEYWORD` and the
+    `DepthWalkResult` / `DepthViolationIssue` shapes are `depth-walk.ts`'s own,
+    imported rather than restated.
+  - **Placement, adjudicated.** The walk is `§Fix (b)(3)`'s mechanism — a third
+    bounded walk consulting the shared classifier — in a SHARED module rather
+    than inside `src/runtime/invoke-ceiling-depth.ts` as (b)(3) words it, because
+    the maximal site scope below has three consumers in TWO modules. (b)(3)'s
+    literal location would have forced either a second copy of the level
+    bookkeeping in `src/runtime/tool-call.ts` — the "three copies of one counting
+    algorithm" cost (b)(3) itself names — or `tool-call.ts` importing a sibling
+    site-owner seam, a dependency direction no runtime seam in the tree takes
+    (measured: `tool-call.ts` imports only shared modules and parser helpers).
+    A shared module beside `depth-walk.ts`, which both site-owner seams already
+    import, is the direction the tree does take. **Dependency direction:** the
+    new module imports `classifyWireNode` from the subagent-envelope module,
+    which (b)(1)'s cost paragraph names — importing the classifier imports
+    neither the PIC-59 wire format nor the module's diagnostic codes, and no
+    cycle is created (`subagent-envelope.ts` imports only `diagnostic`,
+    `depth-walk` and `query-error`). `classifyWireNode` was NOT relocated.
+  - `src/runtime/invoke-ceiling-depth.ts` — the shared `enforceInvokeDepth`
+    consults `wireFormDepthWalk`, so BOTH `enforceInvokeReturnDepth` and
+    `enforceInvokeParamsDepth` move together; import swapped. One executable line
+    plus the import.
+  - `src/runtime/tool-call.ts` — `enforceCodeToolArgDepth` consults
+    `wireFormDepthWalk`; `depthWalk` stays imported and used by
+    `enforceModelToolArgDepth`. One executable line plus the import.
+  - **Site scope, adjudicated: all three theta-value sites move.** §Fix (c)(4)'s
+    maximal scope, for which the §Fix (d) GOV-15 table was computed, so no
+    residual metric divergence is left to record. The two parsed-JSON sites are
+    NOT moved and keep `depthWalk`: `enforceModelToolArgDepth`
+    (`tool-call.ts`) and the typed-query-response gate
+    (`src/runtime/query-tool-loop.ts:647`). Neither can see a carrier — verified
+    by reading all five call sites of the former
+    (`production-theta-producer.ts:2932`, `:5181`, `:5264`, `:5350`,
+    `prompt-tool-loop-governor.ts:189`, every one a model-produced payload) and
+    the latter's parsed forced-respond payload. The `params` point's slash-load
+    ARM (`src/binder/defaulting.ts:146`) also keeps `depthWalk`: its
+    `binderArgs` are parsed and its defaults are wire-projected upstream at
+    `production-theta-producer.ts:1387`
+    (`defaultValue: projectForValidation(evaluated)`).
+  - **The whole `src/` diff carries exactly FOUR executable line changes** — the
+    two walk-call swaps and the two import lines. Everything else under `src/` is
+    comment prose. Measured mechanically by filtering every `+`/`-` line of
+    `git diff -- src/` that is not a comment; the verifier re-derived it
+    independently.
+  - **GOV-15 — the REMOVAL direction, adjudicated on the record.** Inputs that
+    load cleanly and fail today newly succeed, which is observable-(a) drift
+    under `source-language-stability.md:5` on inputs inside the loads-cleanly set
+    (`:9`; both fixture sources measure `[]` diagnostics, established per run by
+    the witness's own `parseTheta` precondition). The route moves NONE of the
+    three operational sub-cases the *Operational definitions* (`:21`) enumerate:
+    `MAX_JSON_DEPTH` stays 5, the five enforcement points stay five and
+    unreordered, and every routing class is unchanged. What changes is the METRIC
+    a ceiling applies, corrected toward the spec's own counting algorithm
+    (`schema-subset.md:13`, `:22`, `:24–30`) — so the flip is a recorded
+    correction toward specified behaviour, not a relaxation of a ceiling, and the
+    already-refused inputs it un-refuses were outside the
+    loads-cleanly-and-succeeds promise. The flip set was MEASURED, not reasoned:
+    across 16 edge vehicles (plain nested scalars, empty `{}`/`[]` past the cap,
+    boxed `Number`, null-prototype records, `-0`, `Infinity`, `NaN`, `Result`
+    both sides of the cap, sparse arrays, the empty-wire-string variant) the two
+    walks agree everywhere; the ONLY divergence is a non-empty boxed `String` at
+    a breaching level — exactly the §Fix (d) table's rows and nothing else.
+    Observables (b) and (c) are unaffected, confirmed by inspection: neither
+    `enforceInvokeDepth` nor `enforceCodeToolArgDepth` emits a diagnostic or
+    carries a `code:` field, the runtime registry's only depth code
+    (`theta/runtime/invoke-depth-exceeded`) belongs to ceiling #1's chain depth,
+    and no `theta-system-note` template names this refusal — the note leg B of
+    the live cell observes is the generic SNK-i invoke-`Err` template
+    (`src/runtime/err-note-render.ts:157`). The real H9a run appended nothing to
+    `tests/fixtures/h7a/permitted-codes.json`.
+  - **Ceiling #4's five-site enumeration does not move** (§Fix (c)(1)): same
+    sites, corrected metric. The *Five-site list co-edit obligation*
+    (`ceiling-invariants-and-audit.md:47`) is triggered only by adding, removing
+    or splitting a row of the ceiling-#4 per-boundary table; no row moved, so it
+    is not triggered. Checked, and no spec or reference page was edited: the spec
+    already fixes the cap over the JSON document, and this fix moves the
+    implementation toward it.
+  - **Same-commit corrections** (§Fix (e)), all comment-only:
+    - (e)(1) `src/extension/production-theta-producer.ts` —
+      `#validateInvokeReturn`'s doc-comment now names BOTH sub-checks (the
+      ceiling-#4 depth walk as well as the AJV call) as reading the payload's
+      wire form, and states that all three theta-value sites do; the depth
+      sub-check's own inline comment names the wire form rather than the carrier
+      graph. The clause stays SCOPED to named-enum returns, which 0174 chose
+      deliberately and 0180 preserved — see residual 3. Exactly line-neutral
+      (6479 lines), so `#validateInvokeReturn` (`:3679`), the depth sub-check
+      (`:3693`) and the AJV call (`:3706`) did not move.
+    - (e)(2) `src/runtime/subagent-envelope.ts` — the §Fix (e)(2) target had
+      MOVED (0201 re-derived those doc-comments; the doc's `:434–435` is now
+      inside `wireFormExceedsDepthCap`'s comment at `:596–598`) but the falsified
+      clause SURVIVED that re-derivation verbatim, so the correction was made:
+      three of the five enforcement points are handed interpreter values and two
+      are handed parsed JSON, and the conclusion is restated on the ground that
+      holds — `depth-walk.ts` stays carrier-free because it answers only for the
+      parsed-JSON sites, and the three theta-value sites consult
+      `wireFormDepthWalk`, which consults this same classifier. Exactly
+      line-neutral (764 lines): `classifyWireNode` `:467`,
+      `wireFormExceedsDepthCap` `:628` and `mapTooDeepReturnValue` `:707` did
+      not move. ZERO executable bytes in this file.
+    - (e)(3) `src/runtime/invoke-ceiling-depth.ts`'s module header states which
+      materialisation each of its two gates measures — the payload's wire form,
+      because both are handed interpreter values — with the
+      `schema-subset.md:13`, `:22`, `:24–30` anchors; the same correction was
+      applied to `tool-call.ts`'s V14e section header and
+      `enforceCodeToolArgDepth`'s doc-comment, where it also states why the
+      sibling `enforceModelToolArgDepth` keeps `depthWalk`.
+    - (e)(4) `src/runtime/depth-walk.ts` is LEFT ALONE and byte-frozen — no
+      second walk lands there, so its "materialised JSON value" domain statement
+      stays accurate for the sites it still serves. Blob hash identical to HEAD.
+  - `tests/invoke-depth-wire-form-metric.test.ts` — NEW, 22 cells, unit tier,
+    offline, zero model turns. §Fix (c)(6)'s witness: RED on b1 (the
+    caller-visible `Ok` through the real prompt→prompt attach cell, driven
+    `parseThetaDocument` → `createProductionProducerDeps({ parseCallee })` →
+    `bindPromptConversation` → `executeBody` with a real `AjvSchemaValidator`),
+    a1, a3, the two sibling theta-value seams, and the arity curve's flip row.
+    GREEN-now-green-after fences: b2, b3 (the discriminator — the
+    byte-identical wire document under a `string` annotation), b4, a2, a4, a5,
+    the arity curve's in-cap and over-cap rows, the wire-depth-6 surface at all
+    three moved gates asserting message, `schema_keyword`, `cause` AND
+    `issue.path` (so the fix cannot be bought by dropping the RFC-6901 pointer
+    — (b)(1)'s cost), the site-scope boundary in both directions, §Reproduction
+    (c)'s cross-gate agreement, and §Non-goals' `Result`-carriage bound. Enum
+    values come from real theta source (`enum Colour { Red = "red" }`) or
+    `makeEnumValue`; no cell hand-builds a box.
+  - `tests/live/live-production-acceptance.test.ts` — H8a cell **56**, additive
+    (`git diff --numstat` `192 0`; cells 1–55 byte-unchanged). Two prompt→prompt
+    attach legs, zero model turns, no child spawned: leg A is §Reproduction (b)
+    row b1 and asserts ZERO fail-closed `theta-system-note`s (its regex admits
+    the err, cancelled and aborted framings, so the absence cannot be bought by
+    the refusal changing shape); leg B is the wire-depth-6 sibling, refused
+    before and after, and asserts exactly one note naming
+    `failed (return_validation)` — the channel-live control that makes leg A's
+    absence meaningful. Both legs assert `userTexts` `[]`.
+- **Gates** (all re-run by the orchestrator, not taken from a subagent's report):
+  - Witness: `npx vitest run tests/invoke-depth-wire-form-metric.test.ts` —
+    `Tests 22 passed (22)`; 6 red / 16 passed at HEAD before the fix.
+  - Default suite: `npm test` — `Test Files 321 passed (321)`,
+    `Tests 5531 passed (5531)` (HEAD baseline 320 / 5509, plus this witness's
+    22).
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - Lint: `npm run lint` — clean.
+  - Live H8a cell 56:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "an enum carrier at wire document level 5"`
+    — `Tests 1 passed | 55 skipped (56)`, 291 ms, zero model turns.
+  - Live H9a acceptance, BOTH files:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/noninteractive-acceptance.test.ts tests/live/acceptance/ctor-unresolved-load-refusal.test.ts`
+    — `Test Files 2 passed (2)`, `Tests 11 passed (11)` (10 + 1). Every area
+    cell's `assertStderrClean` empty-capture gate and
+    `assertCodesSubsetOfPermitted` check passed; no permitted-codes append.
+  - Byte-freeze, by blob hash against HEAD: `src/runtime/depth-walk.ts`,
+    `src/runtime/wire-translation.ts`, `src/binder/defaulting.ts`,
+    `src/runtime/query-tool-loop.ts`, `src/runtime/value.ts` — all identical.
+  - Blast-radius PRE-measurement, before the witness was written: a prototype of
+    this exact route over the full suite produced ZERO existing-test flips (321
+    files / 5511 tests green, the extra 2 being the scratch probe).
+  - Pinned neighbours, re-run individually: `tests/invoke-ceiling-depth.test.ts`
+    5/5 and BYTE-UNTOUCHED (§Fix (c)(3): `DEPTH_5_VALUE` / `DEPTH_6_VALUE` are
+    carrier-free, re-verified);
+    `tests/subagent-envelope-nonfinite-ok-refusal.test.ts` 27/27 with 0180's
+    `CONTROL (FENCE-DEPTH)` byte-untouched and not re-pinned (§Fix (c)(2): both
+    its vehicles are plain nested objects, re-verified carrier-free, so all four
+    assertions are metric-invariant — the cell is at `:823`, one line off the
+    doc's `:824`); `tests/subagent-return-depth-refusal.test.ts` 13/13 (0187);
+    `tests/subagent-envelope-result-carriage.test.ts` 24/24 (0201);
+    `tests/invoke-return-enum-carrier-projection.test.ts` 16/16 and
+    `tests/invoke-prompt-cell-enum-return.test.ts` 1/1 (§Fix (c)(5): 0174's
+    validated-projection / bound-original split and its post-AJV inbound
+    ordering re-derived intact, `wire-translation.ts` byte-frozen);
+    `tests/committed-fixture-parse-gate.test.ts` 36/36, which is what discharges
+    the corpus-wide "no shipped source moves" claim.
+- **Review** — 1 round, plus one prose-polish round and two orchestrator
+  citation corrections.
+  - Round 1 (`bug-fix-reviewer`): **CLEAN** — no `correctness`, `fidelity`,
+    `spec`, `house-rule` or `test` finding. It read the whole diff, re-measured
+    every citation, and proved its claims with a deleted scratch probe: the
+    two walks' 16-vehicle agreement census, the red direction against
+    `git show HEAD:` of both gate files, and the wire-form/`JSON.parse`
+    equivalence on every vehicle. Three `prose` residuals: a stale `V5e` clause
+    in the module header's FIRST paragraph (which §Fix (e)(3) did not name, and
+    which the corrected third paragraph contradicted), five "now" clauses
+    framing the contract against its pre-fix past, and the banned word `just`
+    in the live cell's comment.
+  - Polish round (`bug-fix-fixer-light`): all three applied, comment-only.
+    **Polish verified by gate-diff; confirmation round skipped** — the whole
+    cumulative `src/` diff still carries exactly the four executable line
+    changes (re-measured mechanically), and the witness, full suite, typecheck
+    and lint were re-run green afterwards.
+  - Pre-review correction round (NOT a review round, so round numbering is
+    unaffected): the (e)(3) prose grew `invoke-ceiling-depth.ts` and
+    `tool-call.ts`, shifting the line numbers the NEW witness cites into them.
+    I re-synced those five citations myself (comment-only, zero assertions),
+    once before review and once after the polish round, and re-verified every
+    `path:line` in both new test files against the committed tree by
+    `sed -n`/`grep -n` at the end. Citations in files this fix does not own were
+    deliberately NOT chased — see residual 1.
+- **Verification** (`bug-fix-verifier`, then re-run by the orchestrator):
+  all four obligations discharged with quoted evidence.
+  - Witness genuinely witnesses the bug: neutralised by targeted byte edits
+    (`wireFormDepthWalk` → `depthWalk` at both call sites), giving exactly the
+    six named reds each carrying `"JSON document depth exceeds 5"` against a
+    wire document independently measured at depth 5; restored and proved
+    byte-exact by `git hash-object` against the pre-neutralisation blob hashes;
+    green again. No `git stash` at any point.
+  - Full default suite green at the predicted 321 / 5531.
+  - Live: H8a cell 56 proved in BOTH directions for real — green as shipped,
+    then RED under the same neutralisation with leg A's note present verbatim
+    (`theta /b202liveparenta returned Err: invoke of ./b202livekida.theta failed
+    (return_validation)`) while leg B's three assertions still passed, then
+    restored and green. H9a 11/11 across both files; two earlier attempts hit
+    `3221225794` (`0xC0000142`, the named stochastic child-spawn class) on cells
+    (h) and (i), which passed isolated (4.8 s / 7.9 s) and in the clean
+    third run — neither cell touches any function this fix moves.
+  - Lint and typecheck clean.
+  - One finding (F1), `prose`: two citations in the witness's
+    `CONTROL (SITE-SCOPE-MODEL-DRIVEN)` comment named the
+    `enforceModelToolArgDepth` line while quoting the payload-recovery snippet
+    from the line above it. Fixed comment-only by `bug-fix-fixer-light`, each
+    corrected citation re-proved by `sed -n`; the witness, suite and typecheck
+    re-run green.
+- **Residuals:**
+  1. **The (e)(3) prose shifted symbol positions in two files, leaving
+     symbol-anchored `:NN` citations stale by line.** Measured:
+     `src/runtime/invoke-ceiling-depth.ts` 141 → 151 lines
+     (`InvokeDepthBreach` 64→71, `enforceInvokeParamsDepth` 83→91,
+     `enforceInvokeReturnDepth` 99→108, `enforceInvokeDepth` 121→131, the walk
+     call 126→136) and `src/runtime/tool-call.ts` 807 → 815
+     (`enforceCodeToolArgDepth` 602→610, `enforceModelToolArgDepth` 735→743).
+     The citing sites are `tests/subagent-envelope-nonfinite-ok-refusal.test.ts:834`
+     (a comment citing `:99`, in a PROTECTED witness this fix may not edit) and
+     `docs/bugs/0066`, `0072`, `0174`, `0180`, `0187` and this report's own
+     §Affected. Every one names the SYMBOL beside the line, so each still
+     resolves; chasing them is bug 0134's adjudicated do-not-chase class and
+     would require editing a protected witness. **Not chased, deliberately.**
+     The alternative — cramping the corrected doc-comments to hold the line
+     count — was rejected: correct WHY-prose is a `CLAUDE.md` obligation and
+     line stability is not.
+  2. **`cause: "return_validation"` still carries three semantically distinct
+     failures** (a parent-side AJV mismatch, 0180's child-side
+     non-representability refusal, and 0187's child-side depth refusal), which is
+     0187's own residual 2. This fix adds no fourth and mints no code: the depth
+     breach still carries no registered code, so `.message` remains the sole
+     discriminator. Unchanged, restated for the record.
+  3. **The prompt→prompt attach leg still runs no representability check**, so
+     0180's non-finite mode-variance at the typed return boundary stands exactly
+     as 0174 and 0180 recorded it: under `invoke<number>` a callee returning
+     `n / 0` yields `Infinity`, which the attach cell admits and the subagent leg
+     refuses. Read from source: `#validateInvokeReturn` runs a depth sub-check
+     and an AJV call and nothing else. This is why (e)(1)'s restated clause stays
+     SCOPED to named-enum returns rather than claiming mode-invariance outright
+     — un-scoping it would reproduce the overclaim 0174 §Actual behaviour 5
+     indicts. Out of scope here (this report's subject is the depth metric);
+     **not filed.**
+  4. **Both walks count an `undefined`-valued object member that
+     `JSON.stringify` omits**, so a payload whose only over-cap path runs through
+     one would be refused on a document that does not exist. Measured by the
+     reviewer's probe; it is SHARED with `depthWalk` and therefore pre-existing
+     and unchanged by this fix, and it is unreachable at all three moved gates
+     because `ThetaValue` (`src/runtime/value.ts`) admits no `undefined` member,
+     no function, no symbol key and no `toJSON` carrier. **Not filed.**
+  5. **The pointer a still-refused carrier payload carries can now name a
+     different node** than it did before: where the old walk could point into a
+     carrier's character indices, the new walk points at the true wire position.
+     Measured as unobservable in production — all three sites discard
+     `breach.issue` and neither `InvokeInfraError` nor `CodeToolError` carries a
+     `path` field — and pinned in both directions by the witness's CAP-6 fences.
+- **Discharge notes appended:**
+  - `0187-untyped-subagent-return-boundary-no-depth-ceiling.md` — its
+    `## Fix (0.116.0)` *Pinned dispositions / non-goals* sentence recording the
+    parent-side wire-form/carrier divergence as deliberately unmoved is
+    discharged here. (That divergence is recorded in 0187's PINNED DISPOSITIONS,
+    not in its numbered §Residuals — whose item 2 is the three-`cause` item — so
+    the note was appended there; `.pi/tmp/fixes/0187-report.md` §Residuals item 2
+    is the report-side record of the same finding.)
+  - `0174-typed-invoke-enum-return-validation-prompt-cell.md` — its
+    `## Fix (0.98.0)` record quotes the `#validateInvokeReturn` doc-comment
+    verbatim as what it shipped, and (e)(1) restated that paragraph; a note now
+    marks the quote as the 0.98.0 text and points at this record, and states
+    that the scoping to named-enum returns 0174 chose is unchanged.
+- **Pinned dispositions / non-goals:** the three rejected placements are not
+  reopened by this record — (b)(1) verbatim-export loses the RFC-6901 pointer
+  `InvokeDepthBreach.issue.path` is typed non-optional for; (b)(2) a second entry
+  point in `depth-walk.ts` re-opens the disposition 0187 pinned and 0201 §Fix
+  (d)(7) re-pinned; (b)(4) project-before-walking spends the fast-fail CIO-3
+  requires on an author-controlled nesting depth, under-counts a `Result`, and
+  re-enters 0174's frozen split. `src/runtime/depth-walk.ts` keeps no carrier arm
+  and is byte-frozen; `src/runtime/wire-translation.ts` is byte-frozen (0187 §Fix
+  (e)(7)); `classifyWireNode` was not relocated. `MAX_JSON_DEPTH` stays 5 and the
+  five enforcement points stay five and unreordered, so the *Five-site list
+  co-edit obligation* is not triggered — checked. No diagnostic code was minted,
+  no registry row added, no `theta-system-note` template touched, and no spec or
+  reference page edited. `enforceModelToolArgDepth` and the typed-query-response
+  gate keep the parsed-JSON metric deliberately, with no carrier reachable at
+  either (all five call sites read), and the witness's
+  `CONTROL (SITE-SCOPE-MODEL-DRIVEN)` cell pins that boundary so a route that
+  widened `depthWalk` instead reds. The enum carrier's own representation
+  (`makeEnumValue`) is untouched — 0174 §Non-goals refused that route and
+  `runtime-value-model.md:16` fixes it as non-normative — and
+  `inferCalleeReturnAnnotation` is not widened (0172's residual 1 owns it).
+  Four self-authorizations are on the record, all comment-only with zero
+  executable lines: the (e)(2) extension refreshing `classifyWireNode`'s and
+  `WireNode`'s doc-comments to name their third consumer (authorized by the
+  orchestrator, bounded to comment lines in that file, line-neutral); the
+  implementer's extension of the "materialisation" correction to
+  `invoke-ceiling-depth.ts`'s three function doc-comments, where the same
+  falsified claim stood three more times below the header being corrected; the
+  orchestrator's two citation re-syncs in the new witness; and the
+  orchestrator's restoration of the parenthetical naming the two `#driveCallee`
+  cells in (e)(1)'s paragraph, which the first re-wrap had folded away though
+  0174's fix record quotes it and the mode-invariance claim is precisely about
+  those two cells (bounded to that one 6-line paragraph, 6 lines in and 6 out,
+  file still 6479 lines, gates re-run green).
+- **Two staleness corrections to this report itself:** 0201 is recorded above as
+  **open**; it is **fixed (0.118.0)**, and its §Fix (f) ordering clause bound
+  this run to rebase onto its shipped `classifyWireNode` — which is what the
+  placement above does. And §Fix (e)(2)'s target sentence had moved with 0201's
+  doc-comment re-derivation, but survived it verbatim, so the correction was
+  still owed and was made.

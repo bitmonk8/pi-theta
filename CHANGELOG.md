@@ -6,6 +6,43 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.119.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0202 — ceiling #4's three theta-value enforcement points measured the
+  interpreter's carrier graph instead of the JSON document, so a conformant
+  payload was refused with a message false of it.** `depthWalk` descends by
+  `Object.keys`, and a named-enum variant's carrier is a boxed `String` whose own
+  enumerable keys are its character indices, so a typed
+  `invoke<array<array<array<array<Colour>>>>>` of a prompt-mode callee returning
+  `[[[[Colour.Red]]]]` — whose JSON document is depth 5, which the cap admits —
+  bound `Err(InvokeInfraError { cause: "return_validation", message: "JSON
+  document depth exceeds 5" })`, while the byte-identical payload crossed the
+  child-side gate and the same annotation over a plain `string` bound `Ok`. The
+  callee's `mode:` frontmatter therefore selected the outcome, which
+  `invocation.md:36` gives it no authority to do. A new bounded walk,
+  `wireFormDepthWalk` (`src/runtime/wire-form-depth-walk.ts`), measures the
+  payload's WIRE FORM under `schema-subset.md:24–30`'s counting algorithm,
+  classifying every node through the shared `classifyWireNode` bug 0201 exported
+  so the carrier decision stays single-sourced; it fast-fails at the cap before
+  classifying, so CIO-3's prohibition on unbounded recursion holds, and it
+  accumulates the same RFC-6901 pointer `InvokeDepthBreach.issue.path` is typed
+  for. All three theta-value enforcement points consult it — `invoke<T>` return,
+  `invoke(...)` `params`, and code-driven `<name>(args)` — so the metric is
+  uniform and no divergence remains. The two parsed-JSON points
+  (typed-query response, model-driven tool args) and the slash-load `params` arm
+  keep `depthWalk`, which stays byte-frozen and carrier-free: no carrier is
+  reachable at any of them. `MAX_JSON_DEPTH` stays 5, the five enforcement points
+  stay five and unreordered, and every message, `schema_keyword`, `cause` and
+  destination surface is unchanged — only the metric a ceiling applies is
+  corrected toward the spec's own counting algorithm. Locked by
+  `tests/invoke-depth-wire-form-metric.test.ts` (22 cells over the real
+  prompt→prompt attach cell and the three seams, with wire-depth-6 fences
+  pinning the pointer at every moved gate) and by H8a live cell 56, whose two
+  prompt→prompt legs assert the absence of a fail-closed note for the depth-5
+  payload against its depth-6 sibling's presence.
+
 ## [0.118.0] - 2026-08-19
 
 ### Fixed
