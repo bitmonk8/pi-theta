@@ -65,6 +65,7 @@ import {
 } from "../runtime/subagent-model-guard";
 import {
   mapNonRepresentableReturnValue,
+  mapTooDeepReturnValue,
   serializeErrEnvelope,
   serializeOkEnvelope,
 } from "../runtime/subagent-envelope";
@@ -2291,12 +2292,26 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // PIC-59: refuse before writing the envelope, so no invoke parent ever
         // binds a value the callee did not produce — JSON has no form for a
         // non-finite `number`, and `JSON.stringify` would otherwise substitute
-        // `null` for it unnoticed.
-        const nonRepresentable = mapNonRepresentableReturnValue(
-          terminal.value as unknown,
-          calleePath,
-        );
-        if (nonRepresentable !== undefined) {
+        // `null` for it unnoticed. Depth is the FIRST sub-check (bug 0187
+        // §Fix (b)): OUTSIDE a `Result` carrier a payload past ceiling #4's cap
+        // is refused whatever it carries, so ordering depth first costs the
+        // non-finite search nothing — such a `>cap` payload never reaches that
+        // search at all. Inside a `Result` carrier neither walk descends the
+        // carrier, so neither sub-check reaches past it and the order between
+        // them decides nothing; PIC-59's *Result-carriage bound*
+        // (`docs/spec_topics/pi-integration-contract/subagent.md`,
+        // `#subagent-envelope-result-carriage-bound`) is the normative statement
+        // of that reach. The depth refusal emits NO diagnostic (no registry row
+        // exists for a ceiling-#4 breach at this boundary); 0180's
+        // non-representability refusal below keeps its own registered code.
+        const tooDeep = mapTooDeepReturnValue(terminal.value as unknown, calleePath);
+        const nonRepresentable =
+          tooDeep === undefined
+            ? mapNonRepresentableReturnValue(terminal.value as unknown, calleePath)
+            : undefined;
+        if (tooDeep !== undefined) {
+          emitErr(tooDeep);
+        } else if (nonRepresentable !== undefined) {
           (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
           emitErr(nonRepresentable.error);
         } else {

@@ -6,6 +6,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-08-19
+
+### Fixed
+
+- **bug 0187 — PIC-59's fail-closed MUST said a terminal `Ok` payload carrying a
+  non-finite `number` "anywhere within it" refuses, and the shipped search
+  stopped at `MAX_JSON_DEPTH`, so past the cap a caller bound a value its callee
+  never produced.** `firstNonFiniteNumber` is bounded by the ceiling-#4 cap —
+  deliberately, because unbounded recursion in the envelope writer is forbidden
+  — and the safety argument for that bound leaned on the typed `invoke<T>`
+  return boundary refusing a deeper payload anyway. One boundary has no such
+  gate: a `tools:`-declared `.theta`-callable call whose callee's return type
+  inference names none, where `#validateInvokeReturn` returns before the
+  ceiling-#4 walk. Measured over real spawned children, a `mode: subagent`
+  callee whose tail is `[[[[[[1 / 0]]]]]]` settled
+  `{"ok":true,"value":[[[[[[null]]]]]]}` with `diagnostics: []` at its caller,
+  where the byte-identical value one level shallower refuses by name; and a
+  FINITE payload past the cap crossed the same boundary unchecked. The child now
+  refuses an over-deep terminal `Ok` payload at the envelope writer
+  (`mapTooDeepReturnValue`, `src/runtime/subagent-envelope.ts`), BEFORE the
+  non-representability search and before `serializeOkEnvelope`, carrying ceiling
+  #4's own canonical `JSON document depth exceeds 5` message on the existing
+  `cause: "return_validation"`. Depth is measured over the payload's WIRE FORM by
+  a bounded fast-failing walk that mirrors the non-finite search's carrier arms,
+  so a boxed-`String` enum carrier — whose character indices `JSON.stringify`
+  never writes — does not inflate the count and `[[[[Colour.Red]]]]` still
+  crosses. The refusal happens before the value leaves the child, so it reaches
+  every parent: typed, uninferred, untyped, and a slash-dispatch boundary
+  (one SLSH-3 `theta-system-note` where there was silent success). **No
+  registered diagnostic code is added** — a ceiling-#4 breach carries none at any
+  of its five enforcement points, and PIC-59 already ships a child-side
+  fail-closed class that mints none. The envelope writer validates nothing and
+  compiles no schema, so ceiling #4's five-site AJV table, CIO-3's enumeration
+  and PIC-1's mask-domain table are unchanged. Same-commit corrections: PIC-59's
+  two false bullets, a new *Fail-closed over-deep `Ok` payload* requirement with
+  its anchored *Result-carriage bound*, the
+  `theta/runtime/subagent-return-value-not-representable` registry *Trigger*
+  (whose "crosses it unrefused" clause is now false), the walk's doc-comment
+  (whose scoped-gap paragraph is deleted), and the `return_validation` gloss.
+  `#validateInvokeReturn`, `#resolveReturnSite`, `inferCalleeReturnAnnotation`,
+  `src/runtime/depth-walk.ts`, `src/runtime/invoke-ceiling-depth.ts` and
+  `src/runtime/wire-translation.ts` are byte-untouched, and bug 0180's two
+  witnesses stay green (the 27-cell file changes by comment only, re-pinning its
+  `CONTROL (FENCE-DEPTH)` cell under this report's authority).
+
 ## [0.115.0] - 2026-08-19
 
 ### Fixed

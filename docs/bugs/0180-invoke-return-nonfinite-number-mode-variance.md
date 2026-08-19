@@ -1302,7 +1302,17 @@ census.
      cap was refused (unbounded recursion in the envelope writer). **No committed
      regression witness covers this path** — the depth fence proves the walk's
      bound and the ceiling gate in isolation, not the combined parent+child gap.
-     **Not filed.**
+     **Not filed.** — **Discharged (0.116.0)** by
+     [0187](./0187-untyped-subagent-return-boundary-no-depth-ceiling.md), which
+     filed and fixed this residual by route (b): the child now refuses a terminal
+     `Ok` payload past the ceiling-#4 cap at the envelope writer, one sub-check
+     ahead of this walk, so nothing past the cap reaches any consumer and the
+     cap-is-costless argument holds unconditionally. The two places this run
+     stated the gap rather than hiding it — the registry row's *Trigger* and the
+     walk's doc-comment — are exactly the two 0187 corrected in the same commit,
+     and `tests/subagent-return-depth-refusal.test.ts` is the committed
+     regression witness this item said did not exist. This walk's own bound is
+     unchanged; 0187 left `firstNonFiniteNumber` byte-untouched.
   3. **`cause: "return_validation"` now carries two semantically distinct
      failures** — an actual AJV type mismatch at the parent, and a pre-emptive
      child-side non-representability refusal. Reusing the existing cause was

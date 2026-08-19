@@ -1,6 +1,8 @@
 # Bug 0187 — PIC-59's fail-closed rule (`subagent.md:114`) says a terminal `Ok` payload carrying a non-finite `number` "anywhere within it MUST refuse", and the shipped check stops at `MAX_JSON_DEPTH`: on a `tools:`-declared `.theta`-callable return — the one return boundary that runs no depth walk, because `#validateInvokeReturn` returns at `:3627` before `enforceInvokeReturnDepth` when `inferCalleeReturnAnnotation` names no type — a callee whose tail is `[[[[[[1 / 0]]]]]]` settles `{"ok":true,"value":[[[[[[null]]]]]]}` with `diagnostics: []`, so the caller binds a fabricated `null` at level 7 where the same value at level 5 refuses, and a `>cap` FINITE payload crosses that boundary unchecked too
 
-- **Status:** open. §Fix is constraint-pinned, not settled: four candidates sit
+- **Status:** fixed (0.116.0). §Fix (0.116.0) below records what shipped:
+  route (b), parent-adjudicated before the run. §Fix *as filed* was
+  constraint-pinned rather than settled — four candidates sat
   at three different sites — the parent-side gate, the child-side envelope
   writer, the child-side search cap, and the spec page — and three of the four
   newly refuse a payload that crosses today, which is a GOV-15 question
@@ -895,3 +897,444 @@ Every `src/`, `tests/`, spec and reference citation above was read at HEAD
 `src/extension/production-theta-producer.ts` (6350 lines) are named by symbol
 beside their line numbers, per
 [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
+
+## Fix (0.116.0)
+
+**Route: §Fix (b) — refuse child-side at the envelope writer.** §Fix was
+constraint-pinned across four candidates and the run did not select among them:
+the route was **adjudicated by the parent on the record before the run started**,
+and that adjudication is reproduced here as the route authority.
+
+> **ROUTE (b)** — run the existing bounded fast-failing depth walk over the
+> terminal `Ok` payload in `driveSubagentRootRegime` BEFORE `serializeOkEnvelope`
+> and BEFORE the non-finite search (CIO-3's first-sub-check discipline), mapping a
+> breach to a fail-closed `err` envelope beside `mapNonRepresentableReturnValue`.
+> Grounds: (i) only (b) makes PIC-59's `:110` AND `:114` true for **every**
+> consumer — under (a) the child still EMITS the fabricated `ok` arm (the parent
+> masks it for `invoke` callers only) and the top-level `/name` leg keeps
+> fabricating; (ii) (b) makes the non-finite search's cap genuinely costless
+> (past the cap nothing crosses at all — the doc's own framing); (iii) (b) needs
+> no unbounded recursion (the walk fast-fails — CIO-3 satisfied); (iv) (c) is
+> foreclosed by 0180's recorded prohibition and closes only half; (d) alone
+> leaves the S1 fabrication live; (a) is strictly weaker per (i) and additionally
+> carries the five-site co-edit question. Under (b) `#validateInvokeReturn`,
+> `#resolveReturnSite` and `inferCalleeReturnAnnotation` are all BYTE-UNTOUCHED.
+
+**Premise verification (the adjudication's stop valve, discharged before Phase 1).**
+Every stated ground was measured at HEAD `153eec85`, not assumed. §Reproduction
+(b)'s six rows were re-derived with one scratch probe over real spawned children
+(written, run, deleted) and reproduce **byte-identically** to the doc's
+`bf32ad03` measurement: row A `{"ok":true,"value":[[[[[[null]]]]]]}` diagnostics
+`[]`, row B `subagent return value is not JSON-representable at /0/0/0/0:
+Infinity`, row B2 `[[[[[null]]]]]`, row C `[[[[[[1]]]]]]`, rows D and E
+`JSON document depth exceeds 5`; every child exited `0` / `signal: null` and the
+parent drain was `[]` on all six. Route (b) was then prototyped and the FULL
+default suite run against it: **318 files / 5441 tests green, zero reds** — (b)
+flips nothing in the committed suite, so `CONTROL (FENCE-DEPTH)`'s four
+assertions were measured to survive unchanged and the re-pin is comment-only. The
+prototype was reverted blob-hash-verified (`2d4e849a…`, `151950f1…`) before Phase 1.
+No stated ground was falsified.
+
+**Corpus census, re-run at this HEAD.** 34 committed `.theta` / `.thetalib`;
+`git diff --stat bf32ad03 HEAD -- '*.theta' '*.thetalib'` is empty, so the
+0-of-34 divide/modulo and zero-nested-array-literal counts hold unchanged. Vehicle
+sweep over all 365 committed test files: the only `[[[[` occurrences are the two
+depth-fixture **comments** (`tests/production-live-resolvers.test.ts:348`,
+`tests/tool-arg-runtime-schema-validation.test.ts:472`), neither a vehicle; no
+`DEPTH_6`-bearing test drives a subagent return envelope. H9a fixture census: 2 of
+11 are `mode: subagent` and none nests an array literal. The zero-red prototype
+run is the mechanical corroboration.
+
+- **What shipped:**
+  - `src/runtime/subagent-envelope.ts` — `mapTooDeepReturnValue(value, calleePath)`,
+    returning `InvokeInfraError | undefined`, placed before
+    `mapNonRepresentableReturnValue`; backed by the module-private bounded
+    fast-failing walk `wireFormExceedsDepthCap`. The `(f)(4)` doc-comment
+    correction: the cap-is-costless clause is now unconditional and the scoped-gap
+    paragraph is **deleted**. Module header's fail-closed inventory four → five,
+    explicit that the fifth carries no diagnostic; `EnvelopeOk` and
+    `serializeOkEnvelope` doc-comments now say representability **and** depth are
+    established before the envelope is written.
+  - `src/extension/production-theta-producer.ts` — the call site:
+    `driveSubagentRootRegime`'s `terminal.ok` arm runs the depth refusal FIRST,
+    then 0180's non-representability search, then `serializeOkEnvelope`.
+    `#validateInvokeReturn`, `#resolveReturnSite` and the ceiling-#4 gate are
+    byte-untouched; the file's only two executable hunks are the import and that arm.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — the (f)(1) and (f)(2)
+    corrections plus PIC-59's new **Fail-closed over-deep `Ok` payload**
+    requirement bullet and the anchored *Result-carriage bound*
+    (`#subagent-envelope-result-carriage-bound`).
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — the (f)(3) *Trigger*
+    rewrite. No row added, removed or renamed; no header arithmetic moved.
+  - `docs/spec_topics/errors-and-results/queryerror-variants.md` — the
+    `"return_validation"` gloss's third member. **No enum member added or moved.**
+  - `tests/subagent-return-depth-refusal.test.ts` — the witness, 13 cells.
+  - `tests/subagent-envelope-nonfinite-ok-refusal.test.ts` — **comment-only**: the
+    `CONTROL (FENCE-DEPTH)` re-pin and citation corrections. All 27 assertions
+    byte-identical (`git diff | grep '^[+-]' | grep 'expect('` → 0 lines).
+  - cell 53 of `tests/live/live-production-acceptance.test.ts` — the live witness.
+
+- **Code-identity adjudication (in-run, §Fix (b) bullet 3): the canonical depth
+  message under the existing cause, with NO registered code.** The refusal carries
+  ceiling #4's pinned `JSON document depth exceeds 5` (`schema-subset.md:49`, via
+  `DEPTH_VIOLATION_MESSAGE`, imported not restated) on the existing
+  `cause: "return_validation"`, and emits no diagnostic. Grounds: (1) **zero**
+  registry rows exist for a ceiling-#4 depth breach at any of its five enforcement
+  points — the only row that mentions the cap is
+  `theta/runtime/subagent-return-value-not-representable`, and only to bound its
+  own reach; a code here would make this the sole depth breach in the language
+  carrying one, an asymmetry an operator would read as "different in kind", which
+  it is not. (2) PIC-59 already ships a **child-side** fail-closed envelope class
+  that mints no code — *Marked-root registration refusal* — so "child-side ⇒ needs
+  a code" is false as a general claim. (3) A registry row whose *Message* duplicated
+  a pinned canonical string would create the second-shipped-record-of-one-string
+  defect this report exists to close. (4) `return_validation` already exists in
+  `InvokeInfraCause` and is already the ceiling-#4 `invoke<T>`-return row's cause,
+  so no spec-versioned enum change arises, and GOV-15's diagnostic-registry
+  carve-out is not needed. Operator reach is unimpaired: the `Err` reaches an
+  `invoke` parent unwrapped and a slash surface as an SLSH-3 note.
+  **Honesty analysis for the widening option, which was REFUSED.** Widening
+  `theta/runtime/subagent-return-value-not-representable`'s *Trigger* to cover this
+  class would **misdescribe** it: row C is a FINITE `>cap` payload, which *is*
+  JSON-representable, so the row's name, its Trigger sentence and its `<value>`
+  placeholder — which has no offending value to render for a depth breach — would
+  each be false of the input. The dishonesty is not incidental to the wording; it
+  is the row's identity. Minting a distinct code was likewise refused, per (1)–(3).
+
+- **The `Result`-carriage bound — the in-run discovery, and why it is a stated
+  bound rather than a widening.** Review round 2 measured that neither
+  envelope-writer walk descends a `Result`: `[Ok([[[[[1]]]]]), 1]` serialises to
+  `[{"ok":true,"value":[[[[[1]]]]]},1]`, wire depth **8**, and is not refused;
+  `[Ok(1 / 0), 1]` writes `{"theta_result":{"v":1,"ok":[{"ok":true,"value":null},1]}}`
+  — a fabricated `null`. Both parse with `[]` diagnostics. The **non-finite half
+  is pre-existing at HEAD** in 0180's `firstNonFiniteNumber`, which this fix leaves
+  byte-untouched; this fix neither creates nor worsens it, and the depth half
+  inherits the same disposition by design. Widening either walk was **refused** on
+  three grounds: §Non-goals reserves 0180's mechanism ("settled and are not
+  reopened"); 0180 §Non-goals fixes that a route finding a second hole in the same
+  class "records it rather than widening" (the `-0` precedent, discharged with a
+  fence plus a residual and later filed as 0188); and
+  `src/runtime/wire-translation.ts:654`'s own `isResultValue` arm — the shipped
+  statement that a `Result` is not a lowerable type form and does not cross the
+  wire by specification (`schema-subset.md` §Lowering Algorithm step 3, rejecting
+  one at parse time as `theta/parse/result-in-schema-position`) — is the ground
+  both walks rest on, and that file is byte-frozen by §Fix (e)(7). The authorised
+  remedy is §Expected behaviour's own first bullet — "a normative MUST is true, or
+  it is qualified" — so the bound is stated normatively in PIC-59, deferred to by
+  the registry *Trigger*, stated in both walks' doc-comments and at the call site,
+  and pinned in both directions by `CONTROL (FENCE-NESTED-RESULT)` so a later
+  widening cannot happen silently.
+
+- **A second in-run discovery: the wire form, not the carrier.** Review round 1
+  measured that running the shipped `depthWalk` over the *interpreter's* value
+  refuses payloads whose JSON document is within the cap:
+  `Object.keys(new String("red"))` is `["0","1","2"]`, so `depthWalk` counts an
+  enum carrier's character indices as children, and clean source
+  `enum Colour { Red = "red" }` + tail `[[[[Colour.Red]]]]` — wire form
+  `[[[["red"]]]]`, document depth **5** — was newly refused with a message false of
+  it, prescribed by no requirement. The seam's verdict is therefore computed over
+  the payload's **wire form** by a module-private bounded walk mirroring
+  `firstNonFiniteNumber`'s already-reviewed carrier arms, so this module's two
+  walks answer the carrier question the same way. `src/runtime/depth-walk.ts` is
+  byte-untouched: adding the arm there would move all five AJV enforcement points,
+  four of which are handed already-parsed JSON where a boxed `String` cannot occur.
+
+- **(f) same-commit corrections, all four discharged, plus the new bullet.**
+  1. **PIC-59's fail-closed non-representable bullet** — "anywhere within it" was
+     measured false at levels 6 and 7. It now states what holds and by which
+     mechanism at which site: within the cap the named non-representability
+     refusal; past it the new depth requirement refuses the whole payload before
+     the search is reached — under the *Result-carriage bound*.
+  2. **PIC-59's `Ok`-values bullet** — the same unqualified claim, moved with it.
+  3. **The registry *Trigger*** — the "A return boundary that runs no depth check
+     has no such backstop … crosses it unrefused" clause is **false under (b)** and
+     is rewritten: nothing past the cap *as the envelope writer's walk measures it*
+     crosses there, and that measurement carries PIC-59's bound by reference, so
+     the two records of the rule agree. Verified that
+     `docs/reference/diagnostics.md`'s mirror carries only Code / Sev / Phase /
+     Message and therefore does not move (byte-identical, `4ef71d91…`).
+  4. **The walk's doc-comment** — the cap-is-costless clause is unconditional and
+     the scoped-gap paragraph is **deleted**, not softened: a resolved gap is not
+     described as open.
+  - **New PIC-59 requirement bullet** — *Fail-closed over-deep `Ok` payload*, in
+    the voice of its siblings, stating the carrier, the no-code grounds, the
+    FIRST-sub-check ordering, the subagent-leg confinement, the `invoke`-parent and
+    SLSH-3 destinations, and that the envelope writer is not an AJV boundary so
+    ceiling #4's five-site table is unchanged.
+  - **The five-site co-edit obligation is NOT engaged.**
+    `ceiling-invariants-and-audit.md:47` keys it to rows of the per-boundary table,
+    which "is the canonical enumeration of the **AJV** enforcement points"; the
+    envelope writer validates nothing and compiles no schema. CIO-3's enumeration,
+    PIC-1's mask-domain table, `docs/reference/hard-ceilings.md` and
+    `docs/reference/schema-subset.md` are all byte-identical.
+
+- **(e) constraints, each discharged.** (1) 0180's two witnesses are green and
+  semantically unweakened — the 27-cell file's diff is comment-only with every
+  assertion byte-identical, and `CONTROL (FENCE-NEGATIVE-ZERO)` (0188's) is
+  untouched. (2) GOV-15 — the enumeration and the carve-out adjudication are below.
+  (3) No unbounded recursion: both envelope-writer walks fast-fail the moment a
+  node's level would exceed the cap. (4) `FENCE-DEPTH` — see below. (5) The
+  ceiling-#4 walk is still the first sub-check at the typed boundary and nothing
+  was reordered (`tests/invoke-ceiling-depth.test.ts` 5/5). (6) The derivation is
+  not widened: `src/parser/functions.ts` is byte-identical (`ba7fec82…`) and
+  0172's derivation-floor cells are green and untouched. (7)
+  `src/runtime/wire-translation.ts` is byte-identical (`8196c2d9…`),
+  `#validateInvokeReturn` is untouched, and 0174's two witnesses are green (16/16
+  and 1/1). (8) The witness is integration-tier over real spawned children through
+  `createProductionSpawnFn` with all three `#subagent-child-pins` as loud
+  preconditions, re-driving all six rows plus six enumeration rows; every new
+  assertion is proved both directions.
+
+- **(e)(4) `FENCE-DEPTH` re-pinned under this report's authority — comment-only,
+  zero assertion changes, measured.** All four of the cell's assertions stay TRUE
+  under route (b) and were measured green against the prototype before Phase 1:
+  `MAX_JSON_DEPTH` is 5; a level-7 `Infinity` is still "not this walk's to find"
+  (the non-finite search's bound does not move); `enforceInvokeReturnDepth` still
+  refuses that payload; a level-4 `Infinity` is still within the cap so ceiling #4
+  defers. What changed is the cell's **reason**, and the comment is re-derived to
+  say it: the cell fences the search's own BOUND rather than a GAP, because a
+  `>cap` payload no longer reaches that search at all — `mapTooDeepReturnValue`
+  refuses it one sub-check earlier — so the clause "nothing reaches the parent
+  carrying a substituted null" now holds **unconditionally** instead of only where
+  `enforceInvokeReturnDepth` itself runs. Bug 0187 is named in the cell as the
+  re-pin authority. No additive cells were placed in that protected file; the
+  within-cap control, the `>cap` refusal and the exact cap boundary §Fix (e)(4)
+  contemplates live in this report's own witness instead, so the 27 protected cells
+  receive prose and nothing else.
+
+- **(e)(2) GOV-15 — the flips, enumerated exactly. The parent's pre-run
+  enumeration was INCOMPLETE and pre-measurement plus review grew it; the complete
+  set is below.** Every flip is on the **subagent leg only**, and every one is
+  entailed by the adjudicated route: the child writes the envelope one process away
+  from the caller and cannot see the caller's call form, so no implementation of
+  (b) avoids them.
+  - **(i)** the uninferred `tools:`-declared `.theta`-callable boundary, `>cap`
+    payload, finite or non-finite-carrying: `Ok` → `Err`. Rows A, B2, C —
+    `[[[[[[null]]]]]]`, `[[[[[null]]]]]`, `[[[[[[1]]]]]]` become
+    `Err … JSON document depth exceeds 5`. **The deliberate S1-arm removal.**
+    Observable (a).
+  - **(ii)** the typed `invoke<T>` boundary, `>cap`: already `Err` both sides and
+    the **message and cause are byte-identical** (row D: `JSON document depth
+    exceeds 5` / `return_validation` either side), so observable (a) is unchanged
+    there in message class — **but `callee_path` flips**, from the caller's literal
+    `"./deepfin.theta"` to the child's resolved absolute path (row D2, measured
+    both sides). This is not a new asymmetry: 0180's child-side refusal already
+    spells `callee_path` that way at HEAD (row B3 measures it), so route (b)'s
+    carrier property is merely extended to the depth class.
+  - **(iii)** a slash-dispatch boundary whose terminal is the propagated `Err` —
+    including a top-level `/name` of a `mode: subagent` theta: silent success → one
+    SLSH-3 `theta-system-note`. Observable **(c)**. This is the flip the live cell
+    measures (absence → presence).
+  - **(iv)** **UNTYPED `invoke("./sub.theta")`** of a subagent-mode callee
+    returning `>cap`: `Ok(null)` → `Err` (row F, measured `"OK-DISCARD"` → the
+    depth message). At HEAD the untyped form's `Ok(null)` is the *specified
+    discard* (`invocation.md:28`; 0068 settled the design as wontfix), so that
+    input was not corrupt and it newly refuses. **Structurally entailed** — the
+    child cannot see the call form, so no implementation of (b) can exempt this
+    arm. `invoke_infra` is passed through unwrapped, so the caller observes the
+    refusal directly. Observable (a). This is 0180 flip (iv)'s precedent repeated
+    for the depth class; the registry/spec carve-out statement is that no
+    registered code and no spec surface changes for it — `invocation.md` is
+    byte-untouched and 0068 is not reopened.
+  - **(v)** grandchild chains refuse at **each child's own envelope** and propagate
+    (row H, measured `"OK"` → the depth message): an intermediate uninferred hop
+    does not launder a `>cap` payload.
+  - **(vi)** prompt-mode legs: **ZERO flips**. Rows I (untyped `invoke` of a
+    prompt-mode callee: `"OK-DISCARD"` both sides) and J (typed `invoke<number>`:
+    the parent-side walk's message, unchanged both sides) carry the evidence. Note
+    the `tools:` boundary carries none of it: a `tools:` entry naming a prompt-mode
+    callee is refused at load by `theta/load/prompt-mode-callable`.
+  - **(vii)** the overlap class — a payload BOTH `>cap` AND carrying a within-cap
+    non-finite `number` — changes its `Err` **message class** from 0180's
+    `subagent return value is not JSON-representable at …` to `JSON document depth
+    exceeds 5`, and **0180's registered code is no longer emitted for those
+    inputs**, because the depth refusal pre-empts the search. Already `Err` either
+    side; observables (a)-message and (b). This is the mirror of 0180's own
+    (e)(7)(vii). It is licensed as the same-commit (f)(3) *Trigger* rewrite under
+    DIAG-2's trigger-change disposition — a removal for the inputs taken out of the
+    code's emission set — and is witnessed by `RED (ORDER-BOTH)`.
+  - **(viii)** the enum-carrier class, which route (b) must **not** flip and does
+    not: a payload whose enum carrier sits at level 5 (wire depth 5) still crosses.
+    Fenced by `CONTROL (SEAM-ENUM-CARRIER)`, `CONTROL (ORDER-ENUM-CARRIER)` and
+    integration row K.
+  - **No payload within the cap changes anywhere**, and no `Result`-carried depth
+    changes (the stated bound). The zero-red full-suite prototype run is the
+    corpus-level evidence.
+
+- **(e)(2) Ceiling-set carve-out adjudication (`source-language-stability.md:13`),
+  decided on the record.** **This release performs NO ceiling-set change, so the
+  carve-out is neither triggered nor borrowed.** Grounds: the carve-out is
+  expressly "keyed to ceiling-set changes only", and the four-item ceiling list,
+  ceiling #4's owner pages, the CIO ordering and the five-site AJV table are all
+  byte-identical; the "never having been ceilinged on the other side" phrase — which
+  reads onto rows A and C — sits *inside* the in-scope predicate that scopes a
+  ceiling-set-change release's diff, and with no such change there is nothing for it
+  to scope. The alternative reading — that adding a check at the envelope writer
+  *broadens ceiling #4's enforcement-point surface* — is **rejected on the record**,
+  because §Operational definitions classifies "broaden the enforcement-point
+  surface" as a ***Tighten***, and "Until that suite ships, *Tighten* is forbidden
+  under theta 1.x", with the same paragraph stating that *Tighten*-affected inputs
+  remain bound by the equivalence promise "without any *Tighten*-specific
+  carve-out". Taking that reading would indict the settled route itself. The
+  defensible framing is the one shipped: the envelope writer validates nothing and
+  compiles no schema, so it is not one of ceiling #4's enforcement points and no
+  ceiling-set verb applies; what lands is a **new PIC-59 fail-closed class** beside
+  parse-failure, skew, exit-without-envelope, non-representability and marked-root
+  refusal, reusing the canonical message because `schema-subset.md:49` fixes it for
+  every depth breach. What licenses the flips instead: GOV-15 is a release-process
+  goal, not a verifiable obligation, and the flips are recorded as a **deliberate
+  departure toward specified behaviour** — INV-5's "never a fabricated `Ok`"
+  (`invocation.md:36`) and PIC-59's own fail-closed inventory — under the
+  0172-face-1 / 0180 precedent: *recorded, not blessed*. Because no code is added,
+  no diagnostic-registry carve-out covers the `Ok`→`Err` flips either (it covers
+  only (vii)'s trigger change), so this record's honesty rests entirely on the
+  enumeration above being complete.
+
+- **Gates** (each re-run by the orchestrator, not taken on a worker's word):
+  - Witness, red-before: `tests/subagent-return-depth-refusal.test.ts`
+    `Tests 8 failed | 2 passed (10)` at Phase 1, the integration reds quoting the
+    HEAD column verbatim — `(A) settled {"ok":true,"value":[[[[[[null]]]]]]}`,
+    `(B2) [[[[[null]]]]]`, `(C) [[[[[[1]]]]]]`, `(D2) "./deepfin.theta"`,
+    `(F) "OK-DISCARD"`, `(H) "OK"` — and the ORDER reds quoting the `ok` arm
+    `{"theta_result":{"v":1,"ok":[[[[[[1]]]]]]}}`.
+  - Witness, green-after: `Test Files 1 passed (1)` / `Tests 13 passed (13)`.
+  - Full default suite: `Test Files 318 passed (318)` / `Tests 5453 passed (5453)`
+    (baseline at dispatch 317 / 5440; the witness adds 1 file / 13 tests).
+  - `npm run typecheck` clean; `npm run lint` clean.
+  - Live, run for real:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "bug 0187"`
+    → `Tests 1 passed | 52 skipped (53)`, 1.2 s wall, zero model turns.
+  - H9a, run for real:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/`
+    → `Test Files 2 passed (2)` / `Tests 11 passed (11)`.
+
+- **Review:** 3 rounds, plus one pre-review correction round and one prose polish.
+  - *Pre-review correction round* (not a review round; round numbering unaffected)
+    — the implementation shifted `src/runtime/subagent-envelope.ts` by ~49 lines
+    and `subagent.md` by one, staling citations **inside the two test files this
+    same commit touches**. Corrected, citation/comment-only, seven hunks, every
+    hunk classified, every new number re-derived by `grep -n`; `src/` and `docs/`
+    byte-identical across the round; gates re-run green. Bug 0134's do-not-chase
+    class was deliberately NOT chased.
+  - *Round 1* (`bug-fix-reviewer`) — **DEFECTS FOUND (1 blocker, 2 should-fix,
+    3 nits)**: the depth verdict was computed over the interpreter's carrier
+    representation, so an enum carrier at level 5 was falsely refused
+    (correctness/spec — remedied by the wire-form walk); a redundant
+    `as unknown as QueryError` cast (house-rule); the GOV-15 enumeration additions
+    (fidelity, orchestrator-owned); a `schema_keyword` over-claim, two
+    wider-than-scope sentences, and a bare cleanup `catch {}` ruled acceptable by
+    the 0180-harness precedent. Round 1 also produced the ceiling-set carve-out
+    adjudication recorded above.
+  - *Round 2* (`bug-fix-reviewer-fast`) — **DEFECTS FOUND (1 blocker)** and
+    `recommend-deep-review`: the `Result`-carriage under-count, measured against the
+    real production writer. Remedied by qualification, doc-comments and a fence, per
+    the adjudication above; the code was not widened.
+  - *Round 3* (`bug-fix-reviewer`, deep) — **DEFECTS FOUND (1 blocker, spec)**: the
+    (f)(3) *Trigger* rewrite still claimed a totality PIC-59 had by then qualified
+    away, so the two records did not agree — the fix's own obligation. Remedied by
+    one sentence deferring to the anchored bound, plus the call-site comment. That
+    fixer round was **prose-only** — a comment-stripped projection of
+    `src/extension/production-theta-producer.ts` is identical across it — so per the
+    post-polish rule the confirmation review round was skipped: polish verified by
+    gate-diff (`git diff -U0` shows only the round-1 executable hunks) and by the
+    orchestrator reading the corrected sentence against the measurement.
+    Round 3 also swept for a third walk/wire-form divergence and found none
+    reachable.
+
+- **Verification** (`bug-fix-verifier`): **SOLID**, all four obligations
+  discharged with quoted evidence.
+  1. *The witness genuinely witnesses the bug* — three independent neutralisations,
+     each restored and proved byte-exact by `git hash-object`
+     (`7d8f77bf…`, `ac62d54f…`), with no `git stash` at any point: **N1** bypass the
+     call site → 3 failed / 10 passed, the integration rows reporting the ORIGINAL
+     fabrication signature byte-identically; **N2** `mapTooDeepReturnValue` always
+     `undefined` → 9 failed / 4 passed, the four survivors being exactly the
+     "admitted" control fences; **N3** carrier-blind walk → **exactly** the three
+     carrier fences red and every other row green, which proves the cells
+     discriminate rather than pass together. Under N1 and N2,
+     `tests/subagent-envelope-nonfinite-ok-refusal.test.ts` stayed **27/27** — it
+     never exercises this path, which is why the gap existed.
+  2. *Full default suite green* — 318 / 5453.
+  3. *A live test exercises the fixed path, run for real* — no pre-existing live
+     cell did (verified across all of `tests/live/**`: no match for the cap, the
+     message, or this boundary), so cell 53 was added **additively** (158
+     insertions, 0 deletions): a `mode: prompt` parent whose sole statement is
+     `b187livekid()?` through a `tools:`-declared **uninferred** boundary, and a
+     `mode: subagent` kid whose pure tail is `[[[[[[1]]]]]]` — finite and depth 7,
+     so the cell isolates the DEPTH half. Driven through a REAL spawned RFC-0006
+     child on the harness's three `#subagent-child-pins`, asserting on the
+     `theta-system-note` channel read off the settled `SessionManager` plus empty
+     `userTexts` for the zero-turn claim. Both directions proved: under N1 the cell
+     reds `systemNotes: []: expected [] to have a length of 1` — the defect itself;
+     restored → green.
+  4. *Lint and typecheck* clean.
+  One H9a cell (`(g) imports / invoke across thetas`) hit the documented ~180 s
+  stall class on the first run; `docs/bugs/` carries no open report with a matching
+  signature; isolated re-run passed in 3.5 s and the full directory then passed
+  11/11.
+
+- **permitted-codes decision, taken on the REAL run and not on assumption:**
+  `tests/fixtures/h7a/permitted-codes.json` is **NOT** appended. Evidence, three
+  independent strands: the real H9a run passed 11/11 with the empty-capture stderr
+  gate live and every `permittedCodesSubset` cell's `outside` set empty, so nothing
+  outside the committed allowlist was emitted; this fix registers **no** code at all,
+  so there is nothing to append (`mapTooDeepReturnValue` returns a bare
+  `InvokeInfraError` with no `diagnostic` member); and the H9a fixture census finds
+  no `mode: subagent` callee returning a nested payload of any depth.
+
+- **Residuals:**
+  1. **A `Result` nested inside a compound `Ok` payload is not descended by either
+     envelope-writer walk**, so a payload whose wire depth is contributed only from
+     inside the carrier crosses unrefused. Measured: `[Ok([[[[[1]]]]]), 1]` →
+     `[{"ok":true,"value":[[[[[1]]]]]},1]`, `jsonDepth` **8**, admitted; a `Result`
+     at a position that already exceeds the cap **is** still refused. The
+     **non-finite half is pre-existing at HEAD** in 0180's `firstNonFiniteNumber`:
+     `[Ok(1 / 0), 1]` writes `{"theta_result":{"v":1,"ok":[{"ok":true,"value":null},1]}}`
+     with an empty drain — 0180's own S1 fabrication class, alive through this
+     vector, neither created nor worsened here. Both sources parse with `[]`
+     diagnostics. Widening was refused on 0180's settled-mechanism grounds; the bound
+     is stated normatively (PIC-59's *Result-carriage bound*), deferred to by the
+     registry *Trigger*, stated in both walks' doc-comments, and pinned in both
+     directions by `CONTROL (FENCE-NESTED-RESULT)`. **Not filed** (a fix run creates
+     no bug docs).
+  2. **`cause: "return_validation"` now carries three semantically distinct
+     failures** — a parent-side AJV mismatch, 0180's child-side non-representability
+     refusal, and this child-side depth refusal. The third carries **no** registered
+     code, so `.message` is its sole discriminator; the gloss at
+     `queryerror-variants.md` states all three. This extends 0180's own residual 3.
+  3. **`docs/reference/errors-and-results.md:295`'s `return_validation` gloss still
+     reads "typed invoke: return value failed AJV validation"** — narrower than the
+     spec-topic gloss has been since 0.105.0. That reference page was not touched by
+     0180 either; it is bug 0134's do-not-chase class and 0180's scope decision, not
+     this fix's. **Not filed.**
+  4. **Three pre-existing stale citations were deliberately not chased**:
+     `tests/invoke-prompt-cell-enum-return.test.ts:15` and
+     `tests/invoke-return-enum-carrier-projection.test.ts:850` cite
+     `src/runtime/subagent-envelope.ts:94`/`:149`, already stale before this commit
+     (bug 0174's files); and every `production-theta-producer.ts:NNNN` citation in
+     `docs/bugs/*.md` is 0134's named class. Byte-identity verified for both test
+     files.
+
+- **Discharge notes appended:**
+  `0180-invoke-return-nonfinite-number-mode-variance.md` — its `## Fix (0.105.0)`
+  §*Residuals* item 2, and item 3 of `.pi/tmp/fixes/0180-report.md` §*Residuals /
+  notes*, are discharged by this fix. Its two **stated-not-hidden** records of the
+  gap — the registry row's *Trigger* and the walk's doc-comment — are exactly the
+  two this commit corrected.
+
+- **Pinned dispositions / non-goals:** routes (a), (c) and (d) are **not** taken and
+  are not reopened by this record — (a) is strictly weaker (the child still emits the
+  fabricated `ok` arm and the top-level leg keeps fabricating) and carries the
+  five-site co-edit question; (c) spends 0180's recorded prohibition on unbounded
+  recursion to close only half the report; (d) leaves the S1 fabrication live.
+  `inferCalleeReturnAnnotation` is **not** widened — 0172's residual 1 owns that
+  question and its derivation-floor cells still pin the floor in both directions.
+  0180's within-cap refusal — its mechanism, message, RFC-6901 pointer rendering,
+  registered code and `cause` reuse — is byte-untouched and not reopened. `-0`
+  remains 0188's: `CONTROL (FENCE-NEGATIVE-ZERO)` and the `negOk`/`negVal` rows are
+  byte-untouched. `src/runtime/depth-walk.ts` keeps no carrier arm, so ceiling #4's
+  five AJV enforcement points are unmoved. The pre-existing sibling of the
+  wire-form/carrier divergence at the **parent-side typed** boundary
+  (`enforceInvokeReturnDepth` walks the raw theta value at `#validateInvokeReturn`)
+  is out of scope by §Fix (e)(7) and is recorded here rather than changed. No static
+  type, no evaluation semantics, and no parser file moved.

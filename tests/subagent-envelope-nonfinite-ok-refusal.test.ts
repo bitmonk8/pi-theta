@@ -126,9 +126,9 @@ const REFUSAL_CODE = "theta/runtime/subagent-return-value-not-representable";
 
 /**
  * The refusal mapping shape route (b) adds beside the three existing fail-closed
- * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:242`;
- * `mapEnvelopeSchemaSkew`, `:265`; `mapExitWithoutEnvelope`, `:292`), all three
- * returning `EnvelopeFailureMapping` (`:231`). Declared structurally here rather
+ * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:252`;
+ * `mapEnvelopeSchemaSkew`, `:275`; `mapExitWithoutEnvelope`, `:302`), all three
+ * returning `EnvelopeFailureMapping` (`:241`). Declared structurally here rather
  * than imported so this file type-checks against the tree both before and after
  * the export lands.
  */
@@ -177,7 +177,7 @@ function describeSurface(): string {
     : "mapNonRepresentableReturnValue answered undefined";
 }
 
-/** The code constant route (b) exports beside the three existing envelope codes (`:83`, `:86`, `:89`). */
+/** The code constant route (b) exports beside the three existing envelope codes (`:91`, `:94`, `:97`). */
 function exportedRefusalCode(): unknown {
   return (subagentEnvelope as unknown as Record<string, unknown>)[
     "SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE"
@@ -574,12 +574,15 @@ describe("bug 0180 (EXPORT) — the envelope module carries the route-(b) refusa
   it("RED (EXPORT): mapNonRepresentableReturnValue and its diagnostic code are exported beside the three existing fail-closed mappings", () => {
     // PIC-59's fail-closed inventory (`subagent.md:101`, whose
     // child-exit-without-envelope bullet is `:113` and whose
-    // non-representable-`Ok` bullet is `:114`) has four members — envelope parse
-    // failure, envelope schema skew, exit-without-envelope, and a
-    // non-representable `Ok` payload — each with a code constant
-    // (`src/runtime/subagent-envelope.ts:83`, `:86`, `:89`, `:92`) and a mapping
-    // returning `EnvelopeFailureMapping` (`:231`, built at `:242`, `:265`,
-    // `:292`, `:416`). This cell reads the fourth off the module namespace.
+    // non-representable-`Ok` bullet is `:114`) has five members — envelope parse
+    // failure, envelope schema skew, exit-without-envelope, a non-representable
+    // `Ok` payload, and the over-deep `Ok` payload bug 0187 added as *Fail-closed
+    // over-deep `Ok` payload* (`subagent.md:115`). Four of the five carry a code
+    // constant (`src/runtime/subagent-envelope.ts:91`, `:94`, `:97`, `:100`) and a
+    // mapping returning `EnvelopeFailureMapping` (`:241`, built at `:252`, `:275`,
+    // `:302`, `:593`); bug 0187 gives the fifth neither, deliberately, because no
+    // registry row exists for a ceiling-#4 depth breach to pair it with. This cell
+    // reads the fourth code-carrying class off the module namespace.
     expect(
       typeof refusalEntryPoint(),
       `PRIMARY (bug 0180 §Fix (b)): src/runtime/subagent-envelope.ts must export ` +
@@ -819,12 +822,20 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
   });
 
   it("CONTROL (FENCE-DEPTH): the walk does not descend past MAX_JSON_DEPTH (green now, green after)", () => {
-    // §Fix (e)(3): the ceiling-#4 depth walk stays first, and it refuses a
-    // too-deep `invoke<T>` return payload WHATEVER it carries
-    // (`enforceInvokeReturnDepth`, `src/runtime/invoke-ceiling-depth.ts:99`). A
-    // representability walk that recursed without a bound would be an unbounded
-    // recursion on adversarial input for no observable gain, so it shares the
-    // same cap.
+    // RE-PINNED under bug 0187 §Fix (b)
+    // (docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md),
+    // which owns this cell's authority to move: what the cell fences is the
+    // search's own BOUND, not a GAP. A `tools:`-declared return boundary with
+    // no inferred type runs no depth walk of its own, so this fence alone
+    // cannot stop a too-deep payload from reaching an `invoke` parent
+    // unrefused there; bug 0187 closes that gap at the envelope writer
+    // (`mapTooDeepReturnValue`), one sub-check ahead of this representability
+    // search. `firstNonFiniteNumber` still shares `MAX_JSON_DEPTH` with the
+    // ceiling-#4 walk (`enforceInvokeReturnDepth`,
+    // `src/runtime/invoke-ceiling-depth.ts:99`) and still stops there — an
+    // unbounded recursion in the envelope writer stays forbidden regardless of
+    // what else closes the gap — but a payload past the cap no longer reaches
+    // this search at all.
     expect(MAX_JSON_DEPTH, "the shared cap the walk is bounded by").toBe(5);
 
     // `Infinity` sits at nesting level 7 here — two levels past the cap.
@@ -833,9 +844,14 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
       refusalFor(tooDeep),
       "a non-finite number deeper than the cap is not this walk's to find",
     ).toBeUndefined();
-    // And the payload is refused anyway, one sub-check earlier and on its own
-    // grounds, so nothing reaches the parent carrying a substituted null. The
-    // ordering itself is pinned at `tests/invoke-ceiling-depth.test.ts:105`.
+    // And the payload is refused anyway: ceiling #4's own walk still refuses
+    // it when driven directly, as the typed `invoke<T>` composition
+    // `tests/invoke-ceiling-depth.test.ts:105` pins. That guarantee no longer
+    // depends on which boundary this walk composes with: bug 0187's
+    // `mapTooDeepReturnValue` refuses the same payload in the envelope writer,
+    // one sub-check ahead of any return-site typing question, so "nothing
+    // reaches the parent carrying a substituted null" holds
+    // UNCONDITIONALLY — not only where `enforceInvokeReturnDepth` itself runs.
     const breach = enforceInvokeReturnDepth(CALLEE_PATH, tooDeep);
     expect(
       breach?.issue.message,
@@ -861,8 +877,8 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
 
 describe("bug 0180 (MECHANISM) — what the envelope does with a non-finite Ok today", () => {
   it("MECHANISM: serializeOkEnvelope substitutes null for every non-finite number, at every depth (green now, green after)", () => {
-    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:107`) is
-    // `JSON.stringify` of the payload (`:109`), and its doc-comment (`:98-106`)
+    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:117`) is
+    // `JSON.stringify` of the payload (`:119`), and its doc-comment (`:106-116`)
     // records what that costs: `JSON.stringify` "has no non-finite form and
     // would substitute `null` for a value the callee never produced". That
     // substitution is what these rows measure. Route (b) leaves the serialiser

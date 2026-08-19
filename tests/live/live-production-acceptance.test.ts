@@ -8739,3 +8739,161 @@ describe("H8a-T — bug 0184: a literal ARM of a mixed union enforces the params
     }
   });
 });
+
+// ===========================================================================
+// Bug 0187 (live) — the one subagent return boundary that runs no depth walk
+// lets a `>cap` terminal `Ok` payload cross unrefused.
+// `docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md` §Fix
+// (b): a NEW child-side check (`mapTooDeepReturnValue`,
+// `src/runtime/subagent-envelope.ts`) runs a bounded wire-form depth walk over
+// the terminal `Ok` payload in `driveSubagentRootRegime`'s `terminal.ok` arm,
+// BEFORE 0180's non-representability search and before `serializeOkEnvelope`.
+// A payload whose JSON document exceeds ceiling #4's cap (`depth ≤ 5`) refuses
+// with `Err(InvokeInfraError { cause: "return_validation", message: "JSON
+// document depth exceeds 5" })` instead of crossing with `JSON.stringify`'s own
+// substitution. No `theta/*` code is registered and no diagnostic is emitted —
+// that is settled by the fix, not a gap this cell reports.
+//
+// NO EXISTING LIVE CELL DRIVES THIS PATH (checked across all of
+// `tests/live/**` before adding this cell: `MAX_JSON_DEPTH`,
+// `mapTooDeepReturnValue`, the canonical `"JSON document depth exceeds 5"`
+// message and a six-bracket nested array literal appear nowhere in this file,
+// in `tests/live/acceptance/**`, or in `tests/live/hardening/**`). The
+// closest existing cell is the bug 0180 cell above: it drives a TYPED
+// `invoke<number | null>` of a callee whose tail is `1 / 0` — a NON-FINITE
+// value at a return boundary that already ran ceiling #4's depth walk before
+// this fix and is unaffected by it. This cell drives the boundary bug 0187 is
+// about instead: a `tools:`-declared `.theta`-callable call whose callee's
+// tail names no return type (`inferCalleeReturnAnnotation` answers `null` for
+// a bare tail expression), carrying a FINITE payload past the cap —
+// §Reproduction (b) row C's class, isolated from the non-finite half
+// entirely.
+//
+// SHAPE. The parent (`mode: prompt`) declares `tools:\n  -
+// ./b187livekid.theta` and its SOLE statement is the bare `.theta`-callable
+// call with `?`, `b187livekid()?` — the UNINFERRED boundary itself, no `let`
+// binding needed. The kid MUST be `mode: subagent`: a `tools:` entry naming a
+// `mode: prompt` callee is refused at load (`theta/load/prompt-mode-callable`,
+// `docs/spec_topics/diagnostics/code-registry-load.md:28`), so no `mode:
+// prompt` spelling of the kid is admissible here. The kid's sole statement is
+// the pure tail expression `[[[[[[1]]]]]]` — FINITE, and depth 7 (two levels
+// past the cap), the report's own headline depth (§Reproduction (b) rows A
+// and C). Neither fixture issues an `@` query, so this cell spends ZERO MODEL
+// TURNS: `AgentSession.prompt(text)` returns as soon as
+// `_tryExecuteExtensionCommand` reports handled, without sending anything to
+// the model unless the theta itself calls `pi.sendUserMessage`/`sendMessage`
+// (neither fixture does) — the same reasoning the bug 0180 cell's own header
+// states. Confirmed offline (parse + in-process drive sanity check) before
+// this cell was added, then deleted per scratch policy.
+//
+// A REAL RFC-0006 CHILD PROCESS IS SPAWNED for the `mode: subagent` kid — this
+// file's imported `./harness` sets all three `#subagent-child-pins` at module
+// scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
+// `SUBAGENT_PARENT_PID_ENV = String(process.ppid)`), exactly as every other
+// subagent-spawning cell in this file (bug 0067, bug 0172, bug 0174, bug 0180
+// above) relies on; nothing new is pinned here.
+//
+// THE OBSERVABLE. Pre-fix the child's envelope writer runs no depth check at
+// this boundary (§Fix root cause), so `serializeOkEnvelope` writes
+// `[[[[[[1]]]]]]` through unrefused (the payload is finite, so nothing is even
+// substituted); the parent binds it `Ok`, the theta terminates `Ok`, and
+// runtime-event-channel.md's success-side null-policy fixes that an `Ok(v)`
+// termination emits NO `theta-system-note` — so the pre-fix per-turn
+// `systemNotes` slice is EMPTY. Post-fix the child refuses BEFORE the
+// envelope, `?` propagates the `Err` as the whole top-level theta's own
+// termination (`invoke_infra` is a leaf `QueryError` kind rendered by
+// `src/runtime/err-note-render.ts`'s SNK-i row regardless of call syntax), and
+// SLSH-3 fires exactly ONE note at the slash-dispatch boundary: absence flips
+// to presence, the strongest discriminator this note channel can give without
+// a query.
+//
+// Token cost: ZERO. Neither fixture issues an `@`-query; the marshalled
+// `--provider`/`--model` reference (PIC-62) only satisfies the launch argv
+// shape, as the bug 0180 cell's own header states.
+//
+// ADDITIVE ONLY: this is cell 53; cells 1–52 are unchanged, and this cell adds
+// no assertion to any existing cell in this file.
+// ===========================================================================
+
+/** The `mode: subagent` kid: a pure FINITE tail at depth 7 — §Reproduction (b) row C's own headline payload. */
+function b187LiveKidTheta(): string {
+  return ["---", "mode: subagent", "---", "[[[[[[1]]]]]]", ""].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: `tools:` names the kid, and the SOLE statement is
+ * the bare `.theta`-callable call with `?` — the UNINFERRED return boundary
+ * itself, with no `let` binding and no `@` query anywhere.
+ */
+function b187LiveParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "tools:",
+    "  - ./b187livekid.theta",
+    "---",
+    "b187livekid()?",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0187: a >cap FINITE terminal Ok payload at the uninferred tools: return boundary refuses child-side instead of crossing unchecked, live", () => {
+  it("the tools:-routed call's Err propagates through `?` and the slash-dispatch boundary emits the SLSH-3 note naming return_validation, through a REAL spawned subagent child, spending zero model turns", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b187livekid", text: b187LiveKidTheta() },
+      { source: "project", stem: "b187liveparent", text: b187LiveParentTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b187liveparent"),
+        "no bug-0187 parent command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b187liveparent");
+
+      // Zero model turns: no `@` anywhere in either fixture, so nothing is
+      // sent to the model and no user-visible turn is produced.
+      expect(
+        turn.userTexts,
+        "no `@` query appears anywhere in either fixture; userTexts must stay " +
+          "empty — observed: " + JSON.stringify(turn.userTexts),
+      ).toEqual([]);
+
+      // THE FIXED OBSERVABLE (AGENTS.md §"Assert on real observables" — the
+      // `theta-system-note` channel read off the settled `SessionManager` via
+      // the harness's per-turn `systemNotes`). Pre-fix this slice is EMPTY
+      // (the depth-7 finite payload crosses the uninferred `tools:` boundary
+      // unrefused, the theta terminates `Ok`, and the success-side
+      // null-policy emits no note). Post-fix the child refuses BEFORE the
+      // envelope, `?` propagates the `Err`, and SLSH-3 fires exactly one note
+      // naming the `return_validation` cause.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        n.startsWith("theta /b187liveparent returned Err:"),
+      );
+      expect(
+        failureNotes,
+        "bug 0187 §Fix (b): a >cap FINITE payload at the tools:-routed " +
+          "uninferred return boundary must refuse rather than cross unchecked " +
+          "— no SLSH-3 note fired. systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toHaveLength(1);
+      const note = failureNotes[0] ?? "";
+      expect(
+        note,
+        "the SNK-i template (`err-note-render.ts`) names the cause: " + note,
+      ).toContain("failed (return_validation)");
+      expect(
+        note,
+        "and names the refused callee, the depth-7 kid: " + note,
+      ).toContain("b187livekid.theta");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

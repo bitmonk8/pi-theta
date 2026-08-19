@@ -13,13 +13,19 @@
 //     (`scanStreamForEnvelope`);
 //   - versioning + skew detection (a version the parent does not recognise is
 //     detected, not tolerated);
-//   - the fail-closed mappings for four failure classes, each with its pinned
-//     diagnostic: envelope parse failure, envelope schema skew and child exit
-//     WITHOUT an envelope map to `Err(InvokeInfraError { cause:
+//   - the fail-closed mappings for FIVE failure classes. Four each carry their
+//     own pinned diagnostic: envelope parse failure, envelope schema skew and
+//     child exit WITHOUT an envelope map to `Err(InvokeInfraError { cause:
 //     "internal_error" })`; a terminal `Ok` payload carrying a non-finite
 //     `number` maps to `Err(InvokeInfraError { cause: "return_validation" })`
 //     instead — a DIFFERENT cause, because that payload is refused as
-//     unrepresentable on the wire rather than as an internal defect.
+//     unrepresentable on the wire rather than as an internal defect. The
+//     fifth — a terminal `Ok` payload whose JSON-document depth exceeds
+//     ceiling #4's cap — maps to that SAME `cause: "return_validation"` but
+//     carries NO diagnostic: it reuses ceiling #4's own canonical message and
+//     `InvokeInfraError` carrier rather than minting a registered code, because
+//     no registry row exists for a ceiling-#4 depth breach at any of its five
+//     enforcement points (bug 0187 §Fix (b)).
 //
 // WHY this succeeds the RFC-0005 RPC-drive wire module: under RFC 0006 the
 // child owns its whole interpreter and the parent resolves nothing per-query —
@@ -29,14 +35,16 @@
 // Spec: pi-integration-contract/subagent.md (PIC-59, #subagent-return-envelope,
 // #subagent-error-fidelity, #subagent-cli-wire-pins), invocation.md (INV-5),
 // errors-and-results/queryerror-variants.md (the `err` arm mirrors the
-// `QueryError` union), diagnostics/code-registry-runtime.md
+// `QueryError` union), schema-subset.md (§"Depth Enforcement" — the
+// ceiling-#4 depth cap and its canonical depth-violation message, both reused
+// verbatim by the depth refusal below), diagnostics/code-registry-runtime.md
 // (`theta/runtime/subagent-envelope-parse-failed`,
 // `theta/runtime/subagent-envelope-schema-skew`,
 // `theta/runtime/subagent-exit-without-envelope`,
 // `theta/runtime/subagent-return-value-not-representable`).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { MAX_JSON_DEPTH } from "./depth-walk";
+import { DEPTH_VIOLATION_MESSAGE, MAX_JSON_DEPTH } from "./depth-walk";
 import type { InvokeInfraError, QueryError } from "./query-error";
 import { isResultValue, type ThetaValue } from "./value";
 
@@ -55,7 +63,7 @@ export const THETA_RESULT_KEY = "theta_result";
  */
 export const THETA_ENVELOPE_VERSION = 1;
 
-/** The `ok` arm of the envelope payload: the child's final value, whose representability the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`) rather than assuming it by construction. */
+/** The `ok` arm of the envelope payload: the child's final value, whose representability AND depth the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue`) rather than assuming either by construction. */
 export interface EnvelopeOk {
   readonly v: number;
   readonly ok: unknown;
@@ -98,9 +106,11 @@ export const SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE = "theta/runtime/subag
 /**
  * Serialise the child's `Ok` final value as one JSONL envelope line
  * (`{"theta_result":{"v":<version>,"ok":…}}\n`). The caller establishes
- * `value`'s representability before calling this: a payload carrying a
+ * `value`'s representability AND depth before calling this: a payload whose
+ * JSON-document depth exceeds ceiling #4's cap is refused
+ * (`mapTooDeepReturnValue`), and — within that cap — a payload carrying a
  * non-finite `number` anywhere within it is refused
- * (`mapNonRepresentableReturnValue`) rather than reaching `JSON.stringify`,
+ * (`mapNonRepresentableReturnValue`), rather than reaching `JSON.stringify`,
  * which has no non-finite form and would substitute `null` for a value the
  * callee never produced.
  */
@@ -332,29 +342,36 @@ function escapePointerToken(token: string): string {
  * reference token of pointer accumulated per descent.
  *
  * Bounded by `MAX_JSON_DEPTH`, because unbounded recursion inside the envelope
- * writer is forbidden (CIO-3). The bound costs nothing at a TYPED `invoke<T>`
- * return boundary: there a payload nested deeper than the cap is already
- * refused whatever it carries, by the ceiling-#4 depth walk
- * (`enforceInvokeReturnDepth`, `src/runtime/invoke-ceiling-depth.ts:99`), so
- * descending further here could only re-decide a value that gate refuses.
- *
- * That backstop reaches only a boundary that HAS a return type.
- * `#validateInvokeReturn` (`src/extension/production-theta-producer.ts`, named
- * by symbol per bug 0134's positional-drift adjudication) returns before the
- * depth walk when the site names none, and `inferCalleeReturnAnnotation`
- * (`src/parser/functions.ts`) names one only for a schema-constructor or
- * enum-variant tail — so a `.theta`-callable call through `tools:` whose callee
- * tail is anything else (a `let`-bound identifier, an array literal,
- * arithmetic) runs no depth walk at all. A non-finite `number` nested deeper
- * than the cap crosses THAT boundary unrefused, here and parent-side both.
+ * writer is forbidden (CIO-3). The bound costs nothing at every subagent
+ * return boundary, for every payload OUTSIDE a `Result` carrier: past the cap
+ * nothing such a payload carries crosses the envelope at all, because
+ * `mapTooDeepReturnValue` (this module) runs one sub-check earlier, in
+ * `driveSubagentRootRegime`'s `terminal.ok` arm
+ * (`src/extension/production-theta-producer.ts`), and refuses the whole
+ * payload before this search is ever reached — so descending further here
+ * could only re-decide a value that seam already refused (bug 0187 §Fix (b)).
+ * Inside a `Result` carrier the bound does cost something, stated in the next
+ * paragraph and normatively as PIC-59's *Result-carriage bound*
+ * (`docs/spec_topics/pi-integration-contract/subagent.md`,
+ * `#subagent-envelope-result-carriage-bound`).
  *
  * A boxed `String` (the `makeEnumValue` enum carrier) holds its wire string,
  * never a `number`, and is not descended. A `Result` is not descended either,
  * mirroring `projectForValidation`'s own `isResultValue` arm
  * (`src/runtime/wire-translation.ts:654`): a `Result` is not a lowerable type
- * form and never crosses the wire by specification. Records with
- * `Object.entries` only — own enumerable string keys — so an
- * interpreter-private brand symbol is never visited.
+ * form and never crosses the wire by specification. THE BOUND THAT ARM CARRIES,
+ * PLAINLY: `JSON.stringify` does descend a `Result` — the `makeOk` /
+ * `makeErr` carrier's brand is a non-enumerable symbol but its `ok` and
+ * `value` / `error` fields are own enumerable string keys — so a non-finite
+ * `number` reachable only through a nested `Result` is not found here and
+ * `serializeOkEnvelope` substitutes `null` for it. Measured: `[Ok(1 / 0), 1]`
+ * writes `{"theta_result":{"v":1,"ok":[{"ok":true,"value":null},1]}}`.
+ * Widening this arm is bug 0180's settled refusal mechanism
+ * (`docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md`
+ * §Non-goals, "0180's within-cap refusal") and is out of bug 0187's scope; the
+ * disposition is recorded rather than widened, on the `-0` precedent that
+ * became bug 0188. Records with `Object.entries` only — own enumerable string
+ * keys — so an interpreter-private brand symbol is never visited.
  */
 function firstNonFiniteNumber(
   value: unknown,
@@ -392,6 +409,166 @@ function firstNonFiniteNumber(
     }
   }
   return undefined;
+}
+
+/**
+ * Whether the JSON DOCUMENT `value` serialises to nests deeper than ceiling
+ * #4's cap — the `MAX_JSON_DEPTH` counting algorithm
+ * (`docs/spec_topics/schema-subset.md` §"Depth Enforcement", *Counting
+ * algorithm*: the root sits at level 1, a non-empty object or array adds one
+ * level, a scalar or empty container adds none) evaluated over the payload's
+ * WIRE FORM.
+ *
+ * WHY this is not `depthWalk` (`src/runtime/depth-walk.ts`) itself: that walk
+ * answers a question about ALREADY-PARSED JSON, and this module runs on the
+ * interpreter's own value on its way to `JSON.stringify`. Those two differ on
+ * exactly one shape — the enum carrier `makeEnumValue` (`src/runtime/value.ts`)
+ * builds is a boxed `String`, whose own enumerable keys are its character
+ * indices (`Object.keys(new String("red"))` is `["0","1","2"]`), so
+ * `depthWalk` reads it as a non-empty object and counts a level for it, while
+ * `JSON.stringify` renders it as the bare scalar string it holds. Sharing
+ * `depthWalk` here would therefore refuse a payload whose JSON document is
+ * WITHIN the cap: `[[[[Colour.Red]]]]` serialises to `[[[["red"]]]]`, document
+ * depth 5, and a refusal naming depth would be false of it. The carrier arm
+ * belongs here rather than in `depth-walk.ts` because that module answers for
+ * all five of ceiling #4's AJV enforcement points, and four of them are handed
+ * already-parsed JSON where a boxed `String` cannot occur.
+ *
+ * Bounded by construction, so CIO-3's prohibition on unbounded recursion in the
+ * envelope writer (bug 0187 §Fix (e)(3)) is satisfied without a cap-raising
+ * change anywhere: the first statement fast-fails the moment a node's level
+ * would exceed `MAX_JSON_DEPTH`, exactly as `depthWalk`'s own descent does, so
+ * no input can drive this walk past the cap.
+ *
+ * The carrier arms mirror {@link firstNonFiniteNumber}, this module's other
+ * bounded walk, so the two answer the carrier question the same way:
+ *
+ *   - a boxed `String` is a SCALAR — its wire form is the primitive string it
+ *     holds — and is never descended;
+ *   - a `Result` is not descended, which is that sibling walk's reviewed
+ *     disposition for a value the envelope is not specified to carry (a
+ *     `Result` is not a lowerable type form and never crosses the wire by
+ *     specification). `JSON.stringify` DOES descend one — the `makeOk` /
+ *     `makeErr` carrier's brand is a non-enumerable symbol, but its `ok` and
+ *     `value` / `error` fields are own enumerable string keys — so for a
+ *     payload nesting a `Result` this walk's verdict is an UNDER-COUNT of the
+ *     real wire depth and such a payload is NOT REFUSED. Measured:
+ *     `[Ok([[[[[1]]]]]), 1]` writes `[{"ok":true,"value":[[[[[1]]]]]},1]`,
+ *     whose document depth is 8, and {@link mapTooDeepReturnValue} answers
+ *     `undefined` for it. That is the bound PIC-59's *Result-carriage bound*
+ *     now carries normatively
+ *     (`docs/spec_topics/pi-integration-contract/subagent.md`,
+ *     `#subagent-envelope-result-carriage-bound`), and the level check above
+ *     precedes this arm, so a `Result` at a position already past the cap is
+ *     still refused. Widening the arm is bug 0180's settled refusal mechanism
+ *     and out of bug 0187's scope
+ *     (`docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md`
+ *     §Non-goals); the disposition is pinned as a fence
+ *     (`tests/subagent-return-depth-refusal.test.ts`,
+ *     `CONTROL (FENCE-NESTED-RESULT)`) rather than widened, on the `-0`
+ *     precedent that became bug 0188;
+ *   - records by own enumerable string keys only (`Object.entries`), arrays by
+ *     element, so an interpreter-private brand symbol is never visited and this
+ *     walk agrees with `JSON.stringify` on every shape the envelope IS
+ *     specified to carry.
+ */
+function wireFormExceedsDepthCap(value: unknown, level: number): boolean {
+  if (level > MAX_JSON_DEPTH) {
+    return true;
+  }
+  if (value instanceof String) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    for (const element of value) {
+      if (wireFormExceedsDepthCap(element, level + 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (isResultValue(value as ThetaValue)) {
+    return false;
+  }
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  for (const [, member] of Object.entries(value as Record<string, unknown>)) {
+    if (wireFormExceedsDepthCap(member, level + 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Map a terminal `Ok` payload whose JSON-document depth exceeds ceiling #4's
+ * cap to `Err(InvokeInfraError { cause: "return_validation" })`, run BEFORE
+ * {@link mapNonRepresentableReturnValue} (and before `serializeOkEnvelope`)
+ * in the writer's `terminal.ok` arm — bug 0187 §Fix (b). PIC-59's fail-closed
+ * discipline reaches every depth only if the writer refuses a `>cap` payload
+ * ahead of serialising it; {@link wireFormExceedsDepthCap} fast-fails at the
+ * first node whose level would exceed the cap, so the work this seam does is
+ * bounded by construction — CIO-3's prohibition on unbounded recursion in the
+ * envelope writer is satisfied without widening
+ * {@link firstNonFiniteNumber}'s own bounded search (bug 0187 §Fix (e)(3)).
+ * The verdict is a function of the payload's WIRE FORM rather than of the
+ * interpreter's carrier representation, which is why that walk is
+ * module-private rather than the shipped `depthWalk` — see its own comment.
+ *
+ * BOUND, as shipped and as PIC-59 now states it (that page's
+ * *Result-carriage bound*, `#subagent-envelope-result-carriage-bound`):
+ * {@link wireFormExceedsDepthCap} does not descend a `Result`, so depth
+ * contributed only from INSIDE a nested `Result` is not counted and such a
+ * payload is not refused here even though `JSON.stringify` writes the deeper
+ * document. Measured: `[Ok([[[[[1]]]]]), 1]` serialises to
+ * `[{"ok":true,"value":[[[[[1]]]]]},1]` at document depth 8, and this function
+ * answers `undefined`. A `Result` at a position that already exceeds the cap
+ * IS refused, because the level check precedes that arm. Widening the arm is
+ * bug 0180's settled refusal mechanism and out of bug 0187's scope; the
+ * disposition is pinned instead by
+ * `tests/subagent-return-depth-refusal.test.ts`'s
+ * `CONTROL (FENCE-NESTED-RESULT)` cell.
+ *
+ * `MAX_JSON_DEPTH` and the message are ceiling #4's own pinned canonical
+ * values, imported from `src/runtime/depth-walk.ts`
+ * (`docs/spec_topics/schema-subset.md` §"Error shape") rather than restated as
+ * literals, and `cause` is the one the ceiling-#4 `invoke<T>`-return row
+ * already carries
+ * (`docs/spec_topics/hard-ceilings/ceilings-3-and-4.md#ceiling-4-table`) — so
+ * no `InvokeInfraCause` member and no registry row is added for this refusal.
+ * No `schema_keyword` is carried: `InvokeInfraError` has no such field, which
+ * matches the typed `invoke<T>`-return boundary exactly — there
+ * `#validateInvokeReturn` returns `depthBreach.result` and discards
+ * `depthBreach.issue`, so the caller-visible carrier likewise carries the
+ * message alone.
+ *
+ * The envelope writer validates nothing and compiles no schema, so this is a
+ * NEW PIC-59 fail-closed class, not a sixth row of ceiling #4's per-boundary
+ * table (`docs/spec_topics/hard-ceilings/ceiling-invariants-and-audit.md`
+ * §"Five-site list co-edit obligation" keys that obligation to rows of the AJV
+ * enforcement-point table, and this seam is not one of its boundaries).
+ * Returns `InvokeInfraError` directly rather than {@link EnvelopeFailureMapping}:
+ * there is no diagnostic to pair it with — no registry row exists for a
+ * ceiling-#4 depth breach at any of its five enforcement points, and PIC-59's
+ * *Marked-root registration refusal* is the shipped precedent for a
+ * child-side fail-closed class that mints no code. `undefined` when the
+ * payload sits within the cap, in which case
+ * {@link mapNonRepresentableReturnValue} runs next.
+ */
+export function mapTooDeepReturnValue(
+  value: unknown,
+  calleePath: string,
+): InvokeInfraError | undefined {
+  if (!wireFormExceedsDepthCap(value, 1)) {
+    return undefined;
+  }
+  return {
+    kind: "invoke_infra",
+    message: DEPTH_VIOLATION_MESSAGE,
+    callee_path: calleePath,
+    cause: "return_validation",
+  };
 }
 
 /**
