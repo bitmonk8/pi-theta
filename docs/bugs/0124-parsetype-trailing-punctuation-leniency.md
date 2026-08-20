@@ -1664,6 +1664,20 @@ currently supports it.
   disposition" holds — only its `— open` status label for this report is now
   stale, which is corpus-wide staleness rather than a falsified claim. 0093 and
   0130 need no note: neither claim is falsified (residual 1).
+
+  **Discharged by bug 0203 (fixed, X.Y.Z).** This report's own residual 4
+  ("the `@<T>` capture stays out of frame") is now closed: bug 0203 calls this
+  fix's `annotationSourceIsNotTypeExpression` from `walkExpr`'s `"query"` arm
+  and mints its own sibling registry row
+  (`theta/parse/query-annotation-type-not-expression`) rather than widening
+  `theta/parse/annotation-type-not-expression`'s Trigger, so this row's own
+  three-position scope is unchanged. The witness cells this report authored as
+  the `@<T>` position's fence — `tests/annotation-nontype-text-refusal.test.ts`
+  f5 (`@<Cat-->`) and f6 (`@<Ghost-->`) — moved under bug 0203's authority,
+  exactly as §Non-goals said they would; f7 (the `@<Ghost>` control) is
+  untouched. `isUnspellableTextRefusable`'s doc comment (`src/parser/
+  params.ts`) now records a fourth consumer, closing this report's residual 3
+  in full.
 - **Pinned dispositions / non-goals.** Every §Non-goals boundary held. The two
   schema `Type` positions stay 0061's and are byte-identical here; the `params:`
   position stays 0059's and likewise; the `@<T>` capture stays out of frame

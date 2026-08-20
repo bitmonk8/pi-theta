@@ -211,6 +211,26 @@ export interface QueryExpr extends NodeBase {
   readonly kind: "query";
   /** The explicit `@<Schema>` annotation, when present. */
   readonly schema: string | null;
+  /**
+   * Whether `schema` is the ascription the AUTHOR wrote at this query — the
+   * `@<T>` or bare `@Ident` form — rather than text a LATER pass propagated
+   * onto a query that carried none (bug 0203 §Fix constraint (b)(6)). Two
+   * routes write `schema` on a query whose own capture left it `null`:
+   * `parseLet`'s direct `let x: T = @`…`` propagation, and `resolveQuerySchemas`'
+   * QRY-2 inference; both guard on the query's `schema` already being `null`
+   * and rebuild the node by object spread, so the `false` `parseQuery` wrote
+   * at the schema-less capture survives the rebuild rather than becoming
+   * `true`. The distinction matters because a
+   * PROPAGATED annotation's junk text is the `let` binding's, and
+   * `theta/parse/annotation-type-not-expression` (bug 0124) already refuses it
+   * at the `let` position — a second refusal at the query would double up on
+   * one statement. Optional rather than required: six committed test files
+   * construct a `kind: "query"` literal directly, and a required field would
+   * red their typecheck for no behavioural gain — so `undefined` is reachable
+   * only from such a literal, which is why the refusal site tests `=== true`
+   * rather than truthiness.
+   */
+  readonly ascriptionWritten?: boolean;
   /** The raw template body between the backticks. */
   readonly template: string;
 }
@@ -4712,6 +4732,7 @@ class BodyParser {
     return {
       kind: "query",
       schema,
+      ascriptionWritten: schema !== null,
       template: rawTemplate,
       range: spanRange(at.range, this.prevRange()),
     };
@@ -5321,7 +5342,12 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  * plus the `"query"` case of `walkExpr` (both below — a `schema` body field
  * type and the `@<T>` annotation), and `checkSchemaDeclarationGraph` (the
  * alias/union right-hand side) — all four resolving names through
- * `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `params:`
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `@<T>` position
+ * reaches this builder only for `Ident`-shaped text (grammar.md `NamedType ::=
+ * Ident`) that resolves to no declaration: text that is not an `Ident` is
+ * refused ahead of this resolution, by `theta/parse/query-annotation-type-not-
+ * expression` (bug 0203 §Fix), so this builder never sees it for that
+ * position. The `params:`
  * RHS emits the row's message from its own site (`parseParams`, params.ts):
  * params.ts is UPSTREAM of this module in the import graph (this module imports
  * `splitTopLevel` from it), so that site cannot reach this builder without a
@@ -5483,6 +5509,43 @@ function annotationTypeNotExpressionDiagnostic(
     file,
     range,
     message: `'${name}' declares a type that is not a theta type expression`,
+  };
+}
+
+/**
+ * The registered `theta/parse/query-annotation-type-not-expression` refusal
+ * (bug 0203 §Fix): an AUTHOR-WRITTEN `@<T>` / bare `@Ident` query ascription
+ * whose captured source — `annotationSourceIsNotTypeExpression`
+ * (type-layer-checks.ts) — derives from none of `Type`'s six alternatives
+ * (grammar.md §Type grammar).
+ *
+ * A ROW OF ITS OWN rather than a fourth position on
+ * `annotationTypeNotExpressionDiagnostic` above, for three reasons.
+ * (1) That row's Trigger states its unit as the whole annotation "naming the
+ * annotation's own binder"; THIS position has none — a bare `@<T>`…`` query
+ * STATEMENT declares nothing at all, so there is no identifier for `<name>` to
+ * render. (2) That row's withhold contract (the `?`-scope check, the
+ * Result-certainty channel, the callee parameter table, the binding record,
+ * the `fn` parameter scope, the `subagent fn` FN-6 return boundary) and its
+ * `integer|`-at-the-return-slot capture asymmetry are meaningless, or FALSE,
+ * at an ascription: this capture is delimited by its own closing `>`, so
+ * `@<Ghost|>` captures `Ghost|` whole and absorbs nothing beyond it.
+ * (3) This capture already has a position-specific, placeholder-free sibling
+ * at the same site — `theta/parse/empty-query-annotation` (bug 0014), raised
+ * a few lines above the walk that reaches this builder — and this row matches
+ * its shape rather than the annotation row's `<name>`-bearing one.
+ */
+function queryAnnotationTypeNotExpressionDiagnostic(
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/query-annotation-type-not-expression",
+    file,
+    range,
+    message:
+      "`@<...>` query annotation declares a type that is not a theta type expression",
   };
 }
 
@@ -7194,9 +7257,33 @@ function walkExpr(
           // :60) does not name this position — `"schema-feeding"` here would
           // widen that row's trigger, which bug 0044 §Fix Blast-radius
           // forbids.
-          out.push(
-            ...parseTypeExpression(responseAnnotation, "value", { file, range: e.range }),
-          );
+          const positionRuleDiagnostics = parseTypeExpression(responseAnnotation, "value", {
+            file,
+            range: e.range,
+          });
+          out.push(...positionRuleDiagnostics);
+          // Bug 0203 §Fix (b)(5): an annotation whose own position-rule walk
+          // just drew an error-severity diagnostic (`void`, a generic-arity
+          // mismatch, an empty inline object, a duplicate inline field name)
+          // keeps that diagnostic ALONE — this refusal judges the SAME text a
+          // second time and would double up on one statement if it fired
+          // beside a verdict that text already earned. §Fix (b)(6): fire only
+          // for an ascription the AUTHOR wrote (`ascriptionWritten === true`)
+          // — a PROPAGATED `let` annotation's junk is the `let` binding's own
+          // text and is refused there instead, by
+          // `theta/parse/annotation-type-not-expression` (bug 0124).
+          if (
+            e.ascriptionWritten === true &&
+            !positionRuleDiagnostics.some((d) => d.severity === "error") &&
+            annotationSourceIsNotTypeExpression(responseAnnotation)
+          ) {
+            out.push(queryAnnotationTypeNotExpressionDiagnostic(e.range, file));
+            // The refusal is the annotation's WHOLE disposition (bug 0203
+            // §Fix): text that derives from no `Type` is neither a name nor a
+            // reserved keyword, so the loops below — which resolve `Ident`s
+            // this refused text is not — do not also run.
+            return;
+          }
           const annotationReservedKeywords: string[] = [];
           const annotationUnresolved = collectUnresolvedNamedTypes(
             responseAnnotation,

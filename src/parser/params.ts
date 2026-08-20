@@ -777,12 +777,16 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   }
   // A literal-type atom (string/number literal) or any other form: lower
   // permissively; literal lowering is owned by the schema-subset leaves.
-  // The sink's readers — `parseParams` (`params:`, bug 0059 §Fix) and
+  // The sink's readers — `parseParams` (`params:`, bug 0059 §Fix),
   // `checkSchemaDeclarationGraph` and `walkStatement`'s `schema` arm
-  // (theta-document.ts, bug 0061 §Fix) — decline the literal and
-  // brace-carrying survivors of this arm's legitimate traffic through the
-  // shared `isUnspellableTextRefusable` predicate and raise the text-level
-  // refusal at their own position for what remains.
+  // (theta-document.ts, bug 0061 §Fix), `annotationSourceIsNotTypeExpression`
+  // (type-layer-checks.ts, bug 0124 §Fix, over a `let` annotation, an `fn`
+  // parameter type and an `fn` return type), and `walkExpr`'s `"query"` arm
+  // (theta-document.ts, bug 0203 §Fix, over an author-written `@<T>` / bare
+  // `@Ident` query ascription) — decline the literal and brace-carrying
+  // survivors of this arm's legitimate traffic through the shared
+  // `isUnspellableTextRefusable` predicate and raise the text-level refusal at
+  // their own position for what remains.
   lowerCtx.unspellable?.push(s);
   return {};
 }
@@ -1308,11 +1312,14 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * narrower "brace-rooted" test would refuse both.
  *
  * ONE declined predicate for every position that refuses `unspellable` text —
- * `parseParams` below (`params:`, bug 0059 §Fix) and the two body-position
+ * `parseParams` below (`params:`, bug 0059 §Fix), the two body-position
  * emitters in `theta-document.ts` (a `schema` object-body field type and a
- * `schema X = …` alias/union arm, bug 0061 §Fix) — so narrowing it here
- * narrows every position's refusal at once, and none of the three keeps a
- * private copy of the check.
+ * `schema X = …` alias/union arm, bug 0061 §Fix),
+ * `annotationSourceIsNotTypeExpression` (type-layer-checks.ts, bug 0124 §Fix,
+ * the `let` annotation / `fn` parameter / `fn` return positions), and
+ * `walkExpr`'s `"query"` arm (theta-document.ts, bug 0203 §Fix, the `@<T>`
+ * query ascription) — so narrowing it here narrows every position's refusal
+ * at once, and none of the four keeps a private copy of the check.
  */
 export function isUnspellableTextRefusable(text: string): boolean {
   return parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}");

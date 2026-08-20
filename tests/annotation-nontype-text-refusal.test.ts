@@ -2209,30 +2209,40 @@ describe("bug 0124 (f) — the sibling `Type` positions keep their bytes", () =>
     ).toEqual([line("theta/load/params-type-not-expression", [["<param>", "p"]])]);
   });
 
-  it("GREEN (f5, the `@<T>` capture): `@<Cat-->` stays silent", () => {
+  it("GREEN (f5, the `@<T>` capture): `@<Cat-->` draws bug 0203 refusal, not silence", () => {
     // A SEPARATE capture: `parseQuery`'s own inline depth loop
-    // (src/parser/theta-document.ts:4587–:4598, joining at `:4597`), with its
-    // own registered empty-interior rejection (`:4616`). Bug 0124 §Non-goals
-    // declines it in terms.
+    // (src/parser/theta-document.ts, the `<`-guarded branch of `parseQuery`),
+    // with its own registered empty-interior rejection (bug 0014). Bug 0124
+    // §Non-goals declined this capture's disposition in terms — "the
+    // disposition of that suppression belongs with whoever owns that
+    // capture, not here" — and handed it to bug 0203, which minted
+    // `theta/parse/query-annotation-type-not-expression` at this exact
+    // position. The fixture is byte-identical to what this cell always
+    // pinned; only the claimed disposition changes.
     const doc = parseDoc(
       `${FM}${DECLS}let r = @<Cat-->\`hi\`\nr\n`,
       "bug0124.theta",
     );
     expect(
       diagLines(doc),
-      "f5: the annotation capture is not `parseType`, so a code appearing here is the " +
-        "cross-position blast §Fix constraint 5 forbids",
-    ).toEqual([]);
+      "f5: bug 0124's own `theta/parse/annotation-type-not-expression` still does not fire here " +
+        "— this capture is not `parseType` — but bug 0203's sibling row does, at the `@<T>` " +
+        "position's own registered refusal",
+    ).toEqual([plainLine("theta/parse/query-annotation-type-not-expression")]);
   });
 
-  it("GREEN (f6, the `@<T>` capture): `@<Ghost-->` stays silent", () => {
+  it("GREEN (f6, the `@<T>` capture): `@<Ghost-->` draws bug 0203 refusal, not silence", () => {
+    // Bug 0124 §Non-goals handed this capture's disposition to bug 0203, which
+    // restores the position's registered coverage by REFUSAL rather than by
+    // widening `theta/parse/annotation-type-not-expression`'s own three-position
+    // Trigger — see this file's own comment above naming the honest-identity
+    // rule that forbids that widening.
     const doc = parseDoc(`${FM}let r = @<Ghost-->\`hi\`\nr\n`, "bug0124.theta");
     expect(
       diagLines(doc),
-      "f6: the trailing junk SUPPRESSES `unresolved-named-type` at one of that row's OWN five " +
-        "positions — a defect whose disposition belongs with whoever owns that capture, and " +
-        "which this fix must not silently take over",
-    ).toEqual([]);
+      "f6: the trailing junk no longer SUPPRESSES `unresolved-named-type` at one of that row's " +
+        "OWN five positions without a replacement — bug 0203's row fires in its place",
+    ).toEqual([plainLine("theta/parse/query-annotation-type-not-expression")]);
   });
 
   it("GREEN (f7, control): `@<Ghost>` still draws `unresolved-named-type`", () => {

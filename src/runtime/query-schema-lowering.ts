@@ -44,7 +44,25 @@
 //     `theta/parse/unresolved-named-type` admits them by design. A name
 //     resolving to NO declaration lands on the same arm but is refused from
 //     source (theta-document.ts), making the `{}` for THAT input defence in
-//     depth behind the parse gate rather than reachable behaviour.
+//     depth behind the parse gate rather than reachable behaviour — true of a
+//     clean unresolvable spelling (`Ghost`), and silent about a
+//     JUNK-SUFFIXED one (`Ghost--`), which reaches the TRAILING CATCH-ALL
+//     below rather than this arm (bug 0203). Bug 0203 §Fix closed that gap at
+//     the `@<T>` position from source
+//     (`theta/parse/query-annotation-type-not-expression`, `walkExpr`'s
+//     `"query"` arm, theta-document.ts), and the closure is exactly as wide as
+//     that refusal, no wider: a junk root whose text
+//     `annotationSourceIsNotTypeExpression` (../parser/type-layer-checks)
+//     REFUSES — `Ghost--` and its trailer family — no longer reaches the
+//     trailing catch-all's `{}` from a theta that loads, so the
+//     defence-in-depth reading holds for it as it does for `Ghost` on this
+//     arm. A junk root that recogniser ADMITS still does reach it: text
+//     carrying a `[` or `]`, or carrying BOTH a brace and an angle bracket, is
+//     declined before judgement, so `@<Ghost{>` and `@<Ghost}>` load with no
+//     diagnostic at all and `Ghost{` lowers through the trailing catch-all to
+//     `{}`. That admission is bug 0204's boundary
+//     (docs/bugs/0204-bracket-blind-split-shreds-inline-object-in-generic.md),
+//     left exactly as landed.
 //   - THE NON-`array` GENERIC ARM: a `Result<T, E>` value type `parseLet`
 //     propagates verbatim off a `let r: Result<…> = @`…`` binding (`Result` is
 //     "never lowered to a JSON Schema fragment" — grammar.md

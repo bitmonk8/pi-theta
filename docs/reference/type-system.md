@@ -26,7 +26,8 @@ these forms is refused rather than admitted as a nominal reference:
 `theta/parse/annotation-type-not-expression` at a `let` annotation, an `fn`
 parameter type, or an `fn` return type; `theta/parse/schema-type-not-expression`
 at a schema field or alias/union arm; `theta/load/params-type-not-expression` at
-a `params:` field.
+a `params:` field; `theta/parse/query-annotation-type-not-expression` at an
+author-written `@<T>` explicit query schema.
 
 ## Type compatibility (`⊑`)
 

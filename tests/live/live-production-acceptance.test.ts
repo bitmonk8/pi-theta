@@ -11041,3 +11041,134 @@ describe("H8a-T — bug 0100 (cell 67): a dangling-`as` import specifier is refu
     }
   });
 });
+
+// ===========================================================================
+// Bug 0203 (cell 68) — `parseQuery`'s own `@<T>` annotation capture
+// (src/parser/theta-document.ts) is an inline `<` / `>` depth loop with NO stop
+// set: every token that is not the depth-closing `>` is appended whole, so
+// `@<Cat-->` captures the annotation text `"Cat--"`. `Cat--` is no `Ident` and
+// therefore no `NamedType` (docs/spec_topics/grammar.md:98), so
+// `lowerTypeExpr`'s trailing catch-all (src/parser/params.ts) takes it, nothing
+// lands in the `unresolved` sink, and `walkExpr`'s `"query"` arm reports
+// NOTHING — while `@<Cat>`, the same program with the trailer removed, is a
+// resolvable declared schema. The junk capture then lowers to the
+// accept-anything `{}` and the producer reads a `{}` as TYPED, so the query
+// takes the full structured-respond path with a validator that accepts every
+// payload offered
+// (docs/bugs/0203-query-annotation-junk-suppresses-unresolved-named-type.md).
+//
+// THE FIX refuses it: an AUTHOR-WRITTEN `@<T>` ascription whose captured text
+// derives from none of `Type`'s six alternatives — judged by bug 0124's landed
+// recogniser `annotationSourceIsNotTypeExpression`
+// (src/parser/type-layer-checks.ts) — draws the new registered row
+// `theta/parse/query-annotation-type-not-expression` (E, parse) at the query
+// expression's range, and `hasLoadParseError`
+// (src/extension/production-composition.ts) then denies registration on it, as
+// it does for any error-severity `theta/parse/*` row.
+//
+// WHAT THIS CELL ADDS OVER AN OFFLINE ROW. The offline witness
+// (tests/query-annotation-nontype-text-refusal.test.ts) observes the diagnostic
+// array and stops there; it cannot observe the consequence §Why it matters
+// leads with — the absent `E` leaves `hasLoadParseError` with nothing to act on
+// through the REAL production composition root (session_start →
+// resources_discover → composeExtensionInstance → checkTypeLayer), so the slash
+// command is created and the theta runs with an accept-anything response gate.
+// REGISTRATION is the observable this cell asserts, and the only one.
+//
+// THE CONTROL, ASSERTED FIRST. `b203livegood` is the SAME program with the SAME
+// declared schema, the same binding and the same tail, differing in one
+// particular: its ascription is `@<Cat>` rather than `@<Cat-->`. It must stay
+// registered before and after, which is what makes the subject's refusal
+// attributable to the annotation TEXT rather than to the shape, the
+// frontmatter, or a planting/discovery failure. It is asserted BEFORE the
+// subject so a broken workspace or a dead discovery walk reds on the control
+// instead of being read as the subject's refusal.
+//
+// RED BEFORE THE FIX for the reason the report states: the subject REGISTERS,
+// because the missing refusal IS the defect. That is the red-both-directions
+// proof obligation this cell exists to carry; the fix lands GREEN. The in-tree
+// bound on the same channel is the offline witness's group (a) cell
+// `RED (a2, missing behaviour)`, whose `let r = @<Cat-->\`hi\`` fixture is the
+// same program as the subject below.
+//
+// Registration-only: no slash command is invoked, so NO model turn runs and the
+// cell spends ZERO tokens (the same profile the bug 0050/0124/0140 and other
+// registration-only cells above claim). No subagent child process is spawned —
+// both fixtures are prompt mode with no `invoke(...)` and no `subagent fn` — so
+// the #subagent-child-pins convention this file's harness otherwise honours
+// does not apply to this cell. ADDITIVE ONLY: cells 1–66 are unchanged, and
+// this cell adds no assertion to any existing cell in this file.
+//
+// NOTE (cell 68): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/**
+ * One `mode: prompt` theta declaring `schema Cat` and binding a query whose
+ * explicit ascription is `@<annotation>`. Both bug-0203 fixtures are minted
+ * from this single builder so the ascription text is the only axis between
+ * them; the trailing `r` supplies the theta's final value. The query is never
+ * driven — registration is the whole observable — so no turn is sent.
+ */
+function queryAscriptionTheta(annotation: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Cat { a: string }",
+    `let r = @<${annotation}>\`hi\``,
+    "r",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0203 (cell 68): an `@<T>` query ascription carrying a junk suffix does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose `@<T>` query ascription carries a trailing punctuation suffix, while the same program with the well-formed ascription registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The always-registers control, planted first for the same reason it is
+      // asserted first: `Cat` is declared in the same file, so `@<Cat>` is a
+      // resolvable `NamedType` and the theta loads with an empty diagnostic
+      // list before and after the fix alike.
+      { source: "project", stem: "b203livegood", text: queryAscriptionTheta("Cat") },
+      // The subject: the same program whose ascription carries one trailing
+      // punctuation trailer, which this capture's depth loop joins instead of
+      // ending on.
+      { source: "project", stem: "b203livebroken", text: queryAscriptionTheta("Cat--") },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b203livegood"),
+        "the same program with the WELL-FORMED ascription did not register — an `@<T>`-ascribed " +
+          "query cannot register in this workspace at all, independent of this bug, so the " +
+          "subject's own verdict cannot be attributed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE DEFECT, through the REAL production composition root: the theta
+      // whose ascription derives from no `Type` production registers anyway,
+      // because the capture joined the trailer, the catch-all lowered the text
+      // to the permissive `{}`, the producer read that `{}` as TYPED, and no
+      // component asked whether the author wrote a type — so
+      // `hasLoadParseError` sees nothing.
+      expect(
+        handle.command("b203livebroken"),
+        "the theta whose `@<T>` query ascription carries a trailing `--` registered anyway " +
+          "through the live discovery/session_start path — one punctuation character silently " +
+          "removed the rejection the ascription existed to produce and left the response gate " +
+          "accepting every payload, while the b203livegood control (the same program with " +
+          "`@<Cat>`) registered as it must. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b203livebroken");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

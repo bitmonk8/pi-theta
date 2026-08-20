@@ -1,8 +1,8 @@
 # Bug 0203 — `parseQuery`'s own `@<T>` depth loop joins any trailing junk into the captured annotation, and the junk-suffixed text SUPPRESSES a registered code at one of that code's own Trigger positions: ``let r = @<Ghost>`hi` `` draws `theta/parse/unresolved-named-type 'Ghost'` while ``let r = @<Ghost-->`hi` `` draws NOTHING, 26 of 29 trailers load with zero diagnostics, and every one of them lowers to the accept-anything `{}` that AJV validates every payload against
 
-- **Status:** open. §Fix is not settled: three routes are enumerated below and
-  none is chosen; the registry disposition and the GOV-15 direction are pinned
-  as questions, not answered. Nothing blocks this report from starting.
+- **Status:** fixed (0.135.0). §Fix below is settled: route (b)(1), a NEW
+  registry row (§Fix (c) option two), and the GOV-15 removal-direction
+  question answered in §Fix (d) below.
   [0124](./0124-parsetype-trailing-punctuation-leniency.md) is **fixed
   (0.121.0)**, commit `9eb1290d` — the provenance, the owner of the shared
   recogniser a route here would call, and the owner of the three witness cells
@@ -1038,6 +1038,211 @@ disappears and §Fix (b)(2) here loses its measured false refusal; if it takes
 edits `src/parser/query-schema-resolve.ts` would collide with open bugs 0093
 and 0130 — §Non-goals keeps that file out of scope, so no coordination clause
 applies there.
+
+## Fix (0.135.0)
+
+- **Route taken — §Fix (b)(1), with the (b)(6) carrier.** `walkExpr`'s
+  `"query"` arm calls bug 0124's landed recogniser
+  `annotationSourceIsNotTypeExpression` (`src/parser/type-layer-checks.ts`)
+  against `queryResponseAnnotation(e.schema)`'s peeled output and, when it
+  answers `true`, emits one new error-severity
+  `theta/parse/query-annotation-type-not-expression` at the query expression's
+  range. No second copy of the type-grammar judgement is written: the shared
+  sink, the shared fragment decline and the SHRED decline are inherited
+  verbatim. Routes (b)(2)–(4) were rejected exactly as §Fix argued — (b)(2)
+  would falsely refuse the legal `array<{a, b, c}>` shape bug 0204 now owns;
+  (b)(3) is the wrong side of the load boundary; (b)(4) would reopen bug
+  0044's closed direction.
+  **The carrier §Fix (b)(6) needed.** `QueryExpr` gains an optional
+  `ascriptionWritten?: boolean`, set by `parseQuery` to `schema !== null`. The
+  refusal fires only when `ascriptionWritten === true`, so a `let`-propagated
+  or QRY-2-inferred annotation — whose junk is the `let` binding's own text,
+  already refused there by `theta/parse/annotation-type-not-expression` —
+  never double-refuses at the query. The field is OPTIONAL: six committed test
+  files construct a `kind: "query"` literal directly, and a required field
+  would have redded their typecheck for no behavioural gain.
+- **Precedence (§Fix (b)(5)) and the `Result` peel (§Fix (b)(6)).** The
+  position-rule walk's diagnostics (`parseTypeExpression(responseAnnotation,
+  "value", …)`) are captured into a local BEFORE the refusal is judged; the
+  refusal fires only when none of them is `severity === "error"`, so
+  `@<void-->`, `@<array<string, integer>-->`, `@<{}-->` and
+  `@<{a: string, a: integer}-->` each keep their own row alone. The refusal
+  judges `queryResponseAnnotation(e.schema)`'s output, never the raw
+  `e.schema`, so a `Result<Ghost, QueryError>` ascription is judged on `Ghost`
+  and never misnames the builtin `QueryError`.
+- **The capture-over-run (§Fix (b)(7)).** Stated, not owned: an unterminated
+  `@<Ghost` swallows the file tail into the annotation, the recogniser answers
+  `true` for the swallowed text, and the refusal fires with the query
+  expression's range spanning the tail. The loop's extent mechanics are
+  unchanged.
+- **The whole-disposition rule.** When the refusal fires it is the
+  annotation's WHOLE disposition: the reserved-keyword and unresolved-name
+  loops below it in the same arm do not also run, because text the refusal
+  judges is neither a name nor a reserved keyword.
+- **Registry — a NEW row (§Fix (c) option two), for the reasons §Fix already
+  argued against widening `theta/parse/annotation-type-not-expression`:** the
+  `@<T>` position has no binder of its own, that row's withhold contract and
+  its `integer|`-at-the-return-slot asymmetry are meaningless or false at an
+  ascription, and `theta/parse/empty-query-annotation` is the placeholder-free
+  precedent at this same capture. `theta/parse/query-annotation-type-not-
+  expression` (E, parse) carries a placeholder-free Message — no
+  placeholder-table edit, no GOV-7/GOV-8 exposure. Same-commit spec edits:
+  `docs/spec_topics/type-system.md`, `docs/spec_topics/grammar.md`, and the
+  mirrors `docs/reference/type-system.md`, `docs/reference/grammar.md`,
+  `docs/reference/diagnostics.md` now name this position in their refusal
+  enumerations.
+- **GOV-15 (§Fix (d)), answered as 0124 answered it for its own three
+  positions:** the refusal is IN SCOPE. Of the 34 committed
+  `.theta`/`.thetalib` fixtures, 2 write an `@<…>` annotation and both are
+  well-formed, so `tests/committed-fixture-parse-gate.test.ts` never meets a
+  refused input and no committed source changes disposition.
+- **Same-commit doc-comment corrections (§Fix (e)), all four.**
+  `src/parser/params.ts`'s two stale reader enumerations
+  (`lowerTypeExpr`'s trailing catch-all, and `isUnspellableTextRefusable`) now
+  name the recogniser and this position as a third and fourth consumer;
+  `src/runtime/query-schema-lowering.ts`'s `{}`-origin inventory records that
+  the junk-root route into the trailing catch-all is now closed exactly as
+  wide as this refusal and no wider — text the recogniser REFUSES no longer
+  reaches that `{}` from a theta that loads, while text its shared
+  brace/bracket declines ADMIT (`Ghost{`, `Ghost}` — bug 0204's boundary)
+  still loads and still reaches it; `src/parser/theta-document.ts`'s
+  `unresolvedNamedTypeDiagnostic` doc comment records that the `@<T>` position
+  reaches that builder only for `Ident`-shaped text, since non-`Ident` text is
+  now refused ahead of it. `annotationSourceIsNotTypeExpression`'s own doc
+  comment (`src/parser/type-layer-checks.ts`) now names bug 0203's position
+  alongside bug 0124's three.
+- **The fence flips §Fix (b)(8) enumerates.**
+  `tests/annotation-nontype-text-refusal.test.ts` f5 (`@<Cat-->`) and f6
+  (`@<Ghost-->`) now assert the refusal instead of silence, cited to this bug;
+  f7 (the `@<Ghost>` control) is untouched.
+- <a id="g1-fence-flip"></a>**The fence flip §Fix (b)(8) does NOT enumerate —
+  `tests/schema-body-nontype-text-refusal.test.ts` g1, pending parent
+  ratification.** §Fix (b)(8) names three cells in bug 0124's witness and no
+  others; a FOURTH fence sits at the same `@<T>` position in bug 0061's
+  witness: the cell titled "GREEN (g1, `@<T>` annotation): `@<Cat +>` stays
+  silent", together with its group header sentence "Only the `@<T>` annotation (g1/g2) still
+  threads no sink under either bug and stays silent." Bug 0061 fenced the
+  position without OWNING it, and its own cell comment declines the
+  disposition in terms — "§Fix constraint 2 pins it as measured silent at HEAD
+  and **not claimed**" — exactly as bug 0124 later did at f5/f6. It therefore
+  flips under this bug's authority for the same reason f5 and f6 do: `Cat +`
+  (captured `Cat+`, the interior space dropped) is the absorbed-operator
+  fragment of the same text class at the same position, and it reaches
+  `annotationSourceIsNotTypeExpression` from `walkExpr`'s `"query"` arm rather
+  than through bug 0061's `lowerQueryResponseSchema` seam. **Subject
+  PRESERVED byte-identically** (`@<Cat +>`); the cell's title and comment are
+  re-derived under this bug, and the group header sentence is corrected in the
+  same edit. `g2` (the LOWERING assertion) stays green and untouched, because
+  this fix changes no lowering. This flip is recorded here as a place the bug
+  document turned out to be incomplete and is listed for PARENT RATIFICATION;
+  it is not a self-authorization. No other existing cell moved.
+- **The 0204 boundary (R10), left exactly as landed.** The shared brace
+  decline's admissions — `@<Ghost{>`, `@<Ghost}>`, `@<{}-->`,
+  `@<{a: string, a: integer}-->` — stay silent; this fix inherits
+  `annotationSourceIsNotTypeExpression`'s SHRED and fragment declines verbatim
+  and narrows neither. Narrowing them, in either direction, is
+  [0204](./0204-bracket-blind-split-shreds-inline-object-in-generic.md)'s
+  subject.
+- **What shipped.** `src/parser/theta-document.ts` — the
+  `QueryExpr.ascriptionWritten` carrier, `parseQuery` setting it, the
+  `queryAnnotationTypeNotExpressionDiagnostic` builder, and the guarded
+  emission in `walkExpr`'s `"query"` arm (§Fix (b)(1), (b)(5), (b)(6), (b)(7)).
+  `src/parser/type-layer-checks.ts`, `src/parser/params.ts` (×2),
+  `src/runtime/query-schema-lowering.ts` — the §Fix (e) doc-comment
+  corrections, comment-only. `docs/spec_topics/diagnostics/code-registry-parse.md`
+  — the new row (§Fix (c) option two). `docs/spec_topics/type-system.md`,
+  `docs/spec_topics/grammar.md` and the three `docs/reference/` mirrors — the
+  same-commit refusal-enumeration edits.
+  `tests/query-annotation-nontype-text-refusal.test.ts` — the new 67-cell
+  witness. `tests/live/live-production-acceptance.test.ts` — the H8a
+  registration cell. `tests/annotation-nontype-text-refusal.test.ts`,
+  `tests/schema-body-nontype-text-refusal.test.ts` — the three fence flips.
+- **Gates.** Witness: `tests/query-annotation-nontype-text-refusal.test.ts`
+  `Test Files 1 passed (1)`, `Tests 67 passed (67)`. Full default suite
+  (`npm test`): `Test Files 332 passed (332)`, `Tests 6154 passed (6154)`.
+  `npx tsc --noEmit`: exit 0, no output. `npm run lint`: exit 0, no output.
+  Live (`npm run test:live`): `Test Files 16 passed (16)`,
+  `Tests 101 passed (101)`, 701.90 s — H8a 67 cells (the new registration cell
+  among them) and H9a 11 of 11.
+- **Review.** Two rounds. Round 1 (deep): five findings — the new row's
+  Trigger understated its own refused set (`,`, `)`, `=` and the trailing
+  number literal are refused here and are not in the sibling row's twenty);
+  the lowering header's junk-root claim was falsified by this fix's own
+  bug-0204 boundary cells; three committed comments cited an authority that
+  resolves to nothing in the committed tree; two line citations the change
+  itself wrote were stale after its own edit; the carrier's doc comment stated
+  `undefined` where the value is `false`. All five fixed. Round 2 (fast):
+  CLEAN, with one prose observation adjudicated out of scope
+  (`docs/STYLE.md`'s banned-word list binds the user-facing `docs/` corpus,
+  not `src/` implementation comments).
+- **Verification.** Verdict SOLID. The witness reds by construction: the
+  emission was neutralised on two INDEPENDENT levers — the emission line
+  itself, and the `ascriptionWritten` guard — and each produced
+  `Tests 41 failed | 26 passed (67)` with the reds naming the absent refusal,
+  the bug's own symptom; each restoration was proven byte-exact by blob hash
+  (`eba1b3d7d610ecb01e33c51c1aabb2a290539357`, 7542 lines). The live cell reds
+  in the same direction: neutralised, `Registered:
+  ["b203livebroken","b203livegood"]` against an expected absence; restored, it
+  passes. The full default suite, the live suite, `tsc` and `lint` are as
+  quoted under Gates. No test skips: every reader in the witness fails loudly
+  naming its unmet precondition, and the registry lookups throw rather than
+  fall back to a hard-coded string. `annotationSourceIsNotTypeExpression`'s
+  body, its `[`/`]` decline and its SHRED decline are byte-identical to HEAD.
+- **The cost table [0204](./0204-bracket-blind-split-shreds-inline-object-in-generic.md)
+  will re-derive.** This fix DEPENDS ON 0124's shred-decline boundary and
+  closes none of it. If 0204 widens the split to `"angle-and-brace"`, the
+  shred disappears and the decline can narrow — at which point the `[`/`]` and
+  brace-AND-angle ADMISSIONS this row inherits narrow with it. If 0204 takes
+  its route (b)(2) or (b)(3) instead, the decline's shape moves under this row.
+  Either way the surface 0204 must re-derive is exactly three places: this
+  row's two decline sentences in
+  `docs/spec_topics/diagnostics/code-registry-parse.md`;
+  `annotationSourceIsNotTypeExpression`'s SHRED paragraph in
+  `src/parser/type-layer-checks.ts`; and the silence cells this fix's witness
+  pins as that boundary — group (g)'s `@<Ghost{>` and `@<Ghost}>`, each
+  measured `[]`. Group (d)'s `@<{}-->` and `@<{a: string, a: integer}-->` are
+  admitted by the same brace decline but are pinned by their own position-rule
+  row instead (`theta/parse/empty-schema-body` and
+  `theta/parse/duplicate-inline-field-name`, measured alone), so they move only
+  if that decline narrows AND §Fix (b)(5)'s precedence changes. The
+  shred-decline Trigger sentence itself (`[`/`]`-carrying or brace+angle text
+  ADMITTED because `splitTopLevel` never tracks bracket depth) is left as a
+  BOUNDARY RECORD, unedited. `QueryExpr.ascriptionWritten` is this fix's new
+  surface; 0204 touches no query AST and should not need it.
+- **Residuals.** (1) The `g1` fence flip above is pending PARENT RATIFICATION
+  — evidence: bug 0203 §Fix (b)(8) enumerates three cells and this is a fourth,
+  in bug 0061's witness rather than bug 0124's; bug 0061's own cell comment
+  declines the disposition ("not claimed"); the subject is byte-identical and
+  the flip was measured in the pre-Phase-1 blast-radius premeasure, not
+  discovered late. (2) `theta/parse/let-rhs-type-mismatch` and
+  `theta/parse/explicit-schema-mismatch` are still not restored for a
+  junk-suffixed ascription: the refusal now refuses the input outright, so the
+  theta does not register and the two comparison rows never run. That check
+  lives in `src/parser/query-schema-resolve.ts`, which §Non-goals keeps out of
+  scope because open bugs 0093 and 0130 own it. (3) The `§Reproduction (i)`
+  capture-extent rows are recorded and not owned: the unterminated `@<Ghost`
+  refusal's range spans the swallowed file tail, which is defensible but
+  unlovely; the loop's extent mechanics stay §Non-goals. (4) One
+  `docs/STYLE.md`-banned word ("just") sits in a `src/` comment this change
+  added; round 2 adjudicated STYLE.md's jurisdiction as the user-facing `docs/`
+  corpus, so it was left rather than tidied outside a finding.
+- **Discharge notes appended.**
+  [0124](./0124-parsetype-trailing-punctuation-leniency.md) — its residual 4
+  (the `@<T>` capture out of frame) and its residual 3
+  (`isUnspellableTextRefusable`'s one-short consumer enumeration) are both
+  closed by this fix, and its own three-position Trigger is unchanged. No
+  other sibling doc was touched: 0059, 0061, 0044, 0028 and 0014 keep their
+  claims intact and are measured here only as controls.
+- **Pinned dispositions / non-goals.** Every §Non-goals boundary held. The
+  three positions bug 0124 closed, the two schema positions, the `params:`
+  position and `invoke<T>` are byte-identical. `@<>` / `@<  >` stay bug 0014's
+  alone. Bug 0028's witness — `SILENT (v)`, the `RESULT-LET-BRACE` family — and
+  every legal-annotation control (`@<{a: string, b: integer, c: boolean}>`,
+  `@<array<{a: string, b: integer, c: boolean}>>`, `@<array<Cat>>`,
+  `@<Cat | integer>`, `@<"a" | "b">`, `@<array<string>>`) are still `[]`.
+  `@<Ghost1>` and `@<thisisnotatype>` keep `theta/parse/unresolved-named-type`
+  under bug 0044's `Ident` rule, and the lowering seam is unchanged — no
+  `{}` document moved.
 
 ## Provenance
 

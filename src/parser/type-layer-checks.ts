@@ -897,11 +897,12 @@ export function annotationToCompatType(src: string): CompatType | undefined {
 const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
 
 /**
- * Whether `src` — a captured `let` annotation, `fn` parameter type or `fn`
- * return type — derives from none of `Type`'s six alternatives
- * (grammar.md:90–:95), so no verdict on it is honest at the three positions
- * bug 0124 owns (a `schema` field type and a `schema X = …` alias arm are bug
- * 0061's; a `params:` scalar is bug 0059's).
+ * Whether `src` — a captured `let` annotation, `fn` parameter type, `fn`
+ * return type, or (bug 0203 §Fix) an author-written `@<T>` / bare `@Ident`
+ * query ascription — derives from none of `Type`'s six alternatives
+ * (grammar.md:90–:95), so no verdict on it is honest at the positions bug
+ * 0124 and bug 0203 own (a `schema` field type and a `schema X = …` alias arm
+ * are bug 0061's; a `params:` scalar is bug 0059's).
  *
  * THE ABSENCE INVARIANT, stated here once and relied on everywhere below
  * (bug 0124 §Fix (f)(1)): a refused annotation is ABSENT to every consumer of

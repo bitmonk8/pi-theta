@@ -1133,8 +1133,15 @@ describe("bug 0061 (f) — the controls do not move", () => {
 // sink — none of the three ever reached that function, so this bug's own
 // byte-identical-LOWERING claim stands untouched while their diagnostic
 // SEQUENCE gains bug 0124's row (g3/g4/g5 below, authority: bug 0124 §Fix).
-// Only the `@<T>` annotation (g1/g2) still threads no sink under either bug
-// and stays silent.
+// The `@<T>` annotation (g1) no longer stays silent: bug 0203 fenced the same
+// position from a fourth angle and flips this cell too, pending parent
+// ratification — the record is the `g1-fence-flip` bullet of
+// docs/bugs/0203-query-annotation-junk-suppresses-unresolved-named-type.md's
+// `## Fix` section. `Cat +` is the absorbed-operator fragment of the same text
+// class bug 0203's own witness refuses, at the same position, through bug
+// 0124's landed recogniser rather than through this bug's sink.
+// g2 (the LOWERING assertion) is untouched: this fix changes no lowering, and
+// the seam still threads no refusal sink of its own.
 // ===========================================================================
 
 /** A `mode: prompt` theta carrying `body` after the shared declarations. */
@@ -1143,11 +1150,15 @@ function bodyOnlySrc(body: string): string {
 }
 
 describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and their silence", () => {
-  it("GREEN (g1, `@<T>` annotation): `@<Cat +>` stays silent", () => {
-    // The annotation position reaches the same lowering through
-    // `lowerQueryResponseSchema` (src/runtime/query-schema-lowering.ts:113), so
-    // it is one optional argument away from inheriting the refusal. §Fix
-    // constraint 2 pins it as measured silent at HEAD and not claimed.
+  it("GREEN (g1, `@<T>` annotation): `@<Cat +>` draws bug 0203's refusal, not silence", () => {
+    // Re-derived under bug 0203's authority — that bug's `## Fix` section
+    // records this flip and its subject in its `g1-fence-flip` bullet
+    // (docs/bugs/0203-query-annotation-junk-suppresses-unresolved-named-type.md).
+    // The annotation position reaches `annotationSourceIsNotTypeExpression`
+    // (src/parser/type-layer-checks.ts, bug 0124's landed recogniser) from
+    // `walkExpr`'s `"query"` arm, not from this bug's `lowerQueryResponseSchema`
+    // sink — g2 below pins that seam untouched. `Cat+` (the captured text,
+    // interior space dropped) is one of the trailer-sweep's refused fragments.
     const label = "g1 (@<Cat +>)";
     const doc = parseDoc(bodyOnlySrc("let r = @<Cat +>`hi`\nr\n"), "bug0061.theta");
     expect(
@@ -1157,8 +1168,9 @@ describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and th
     ).toBe(true);
     expect(
       diagLines(doc),
-      `${label}: a code appearing here is the cross-position blast constraint 2 forbids`,
-    ).toEqual([]);
+      `${label}: bug 0203's row now covers this position; it is not this bug's row and not this ` +
+        `bug's sink`,
+    ).toEqual([plainLine("theta/parse/query-annotation-type-not-expression")]);
   });
 
   it("GREEN (g2, `@<T>` annotation): the lowered annotation document is unchanged", () => {

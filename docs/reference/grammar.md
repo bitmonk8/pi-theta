@@ -216,8 +216,9 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
 - Nullability is written `T | null`.
 - Text deriving from none of the six alternatives is `theta/parse/annotation-type-not-expression`
   at a `let` annotation, an `fn` parameter type, or an `fn` return type; a schema field type or
-  alias/union arm has its own row (`theta/parse/schema-type-not-expression`), and a `params:`
-  field has its own (`theta/load/params-type-not-expression`).
+  alias/union arm has its own row (`theta/parse/schema-type-not-expression`), a `params:`
+  field has its own (`theta/load/params-type-not-expression`), and an author-written `@<T>`
+  query ascription has its own (`theta/parse/query-annotation-type-not-expression`).
 
 ## Blocks
 

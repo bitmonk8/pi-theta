@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.135.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0203 — junk `@<T>` query-ascription text now refuses instead of
+  silently suppressing `unresolved-named-type`.** The `@<T>` capture was the
+  last junk-lenient annotation position: non-type text there suppressed the
+  registered refusal at one of its own Trigger positions. The capture now
+  consults bug 0124's landed recogniser and draws the NEW registered code
+  `theta/parse/query-annotation-type-not-expression` (E, parse); registry row,
+  reference mirror, and the type-system/grammar pages amended same commit.
+  Witness: `tests/query-annotation-nontype-text-refusal.test.ts` (67 cells) +
+  H8a cell 68. Fence flips under named authority: 0124's f5/f6 and 0061's g1
+  (parent-ratified; fixture bytes identical, lowering pins untouched).
+
 ## [0.134.0] - 2026-08-26
 
 ### Fixed
