@@ -166,6 +166,7 @@ trigger.
 | `theta/parse/import-unknown-symbol` | E | parse | `imported symbol '<name>' is not declared or re-exported by '<path>'` |
 | `theta/parse/import-reserved-synthesised-name` | E | parse | `imported symbol '<name>' binds a reserved synthesised name` |
 | `theta/parse/import-missing-from-clause` | E | parse | `import / export specifier list requires a 'from' clause with a .thetalib path literal` |
+| `theta/parse/import-malformed-specifier-list` | E | parse | `import / export specifier list must carry at least one specifier, each 'Name' or 'Name as Alias'` |
 | `theta/parse/invoke-arg-type-mismatch` | E | type | `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/tool-arg-type-mismatch` | E | type | `tool '<name>' argument type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/fn-arg-type-mismatch` | E | type | `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` |

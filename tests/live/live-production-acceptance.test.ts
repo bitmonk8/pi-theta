@@ -10869,3 +10869,175 @@ describe("H8a-T — bug 0119 (cell 66): a schema field named `__proto__` survive
     }
   });
 });
+
+// ===========================================================================
+// Bug 0100 (cell 67) — every spelling the closed `ImportDecl` / `ExportDecl` /
+// `ImportSpec` / `ExportSpec` productions exclude (docs/spec_topics/imports.md
+// :37–40) parsed with zero diagnostics: `parseImportExport` guards the whole
+// specifier list with `if (this.isPunct("{"))` and has no else
+// (src/parser/theta-document.ts:3005), the specifier loop has no floor on its
+// iteration count (:3007), and the alias branch consumes `as` and takes the
+// alias only inside a guard with no else (:3018–3029), so a dangling `as`
+// leaves `local = source` and the author's alias binds nothing. The fix raises
+// one new registered code, `theta/parse/import-malformed-specifier-list`, at
+// error severity in `parseImportExport` — statement-ranged when the list is
+// absent or produced zero specifiers (gated on a well-formed trailing clause,
+// so `theta/parse/import-missing-from-clause`'s own Trigger keeps the
+// no-`from` spellings), specifier-ranged for a dangling `as`.
+//
+// No existing live test reaches the malformed-specifier surface: the only
+// import/export statements anywhere under `tests/live/**` are
+// `tests/live/acceptance/fixtures/acc-imports-invoke.theta:7`
+// (`import { tagline } from "./acc-lib.thetalib"`) and
+// `tests/live/hardening/imports-thetalib-fn.test.ts:36`
+// (`import { ask } from "./lib.thetalib"`) — both fully specified, from-bearing
+// and conforming — and this file plants no `.thetalib` at all before this cell.
+// The refused arm therefore had NO live reach, mirroring the bug
+// 0070/0071/0110/0084 H8a additions above.
+//
+// This drives the SAME registration observable those cells use
+// (`handle.command` / `handle.registeredNames()`, read after the real
+// `session_start` → `resources_discover` → `composeExtensionInstance` path
+// settles) through the shipped extension entry against a live host, PLUS the
+// `theta-system-note` channel read directly off the settled `SessionManager`
+// (AGENTS.md §"Assert on real observables"): the refusal is an error-severity
+// `theta/parse/*` diagnostic raised at LOAD time, before any slash is driven,
+// so the full entry list IS the delta — the same channel-and-slice discipline
+// the bug 0084 and bug 0110 cells above use for their own codes.
+//
+// The `.thetalib` is written into `<cwd>/.pi/theta/` AFTER
+// `plantThetaWorkspace` returns and BEFORE `bootShippedExtension`, so it sits
+// BESIDE the planted `.theta` files and `"./b100livelib.thetalib"` resolves
+// against the importing theta's own directory (imports.md:19). A `.thetalib` is
+// never slash-command-discovered (imports.md:15), so planting it adds no
+// registration of its own.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens, the same profile as the bug 0070/0071/0110/0084
+// cells above. ADDITIVE ONLY: no existing cell in this file is weakened,
+// reworded, reordered or deleted.
+//
+// NOTE (cell 67): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/** The new refusal's registered code and its registry page. */
+const MALFORMED_SPECIFIER_LIST_CODE = "theta/parse/import-malformed-specifier-list";
+const MALFORMED_SPECIFIER_LIST_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/import-malformed-specifier-list: <message>` — DIAG-4: the
+ * message half is READ from the registry row, not copied, mirroring this file's
+ * `invokePathEscapeFragment` / `incrementDecrementFragment` helpers. This row's
+ * Message carries NO placeholder (the statement arm has no per-specifier name
+ * to render, and a malformed specifier need not spell a name at all), so the
+ * guard below asserts the template is already fully rendered rather than
+ * substituting anything into it.
+ */
+function malformedSpecifierListFragment(): string {
+  const template = registryMessage(
+    MALFORMED_SPECIFIER_LIST_REGISTRY,
+    MALFORMED_SPECIFIER_LIST_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${MALFORMED_SPECIFIER_LIST_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  expect(
+    template as string,
+    `${MALFORMED_SPECIFIER_LIST_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "this row's Message is placeholder-free, so a placeholder means the " +
+      "registry row's Message template changed shape and this cell is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${MALFORMED_SPECIFIER_LIST_CODE}: ${template as string}`;
+}
+
+/** A subagent-mode theta whose single import statement is `spec`. */
+function importSpecifierTheta(spec: string): string {
+  return ["---", "mode: subagent", "---", spec, "@`hi`", ""].join("\n");
+}
+
+describe("H8a-T — bug 0100 (cell 67): a dangling-`as` import specifier is refused, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose import specifier carries a dangling `as`, while its aliased sibling registers, and the theta-system-note channel carries the refusal, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The load-bearing theta: `a as` with no alias token after the `as` — the
+      // shape imports.md:39 excludes and the parser silently rewrites to
+      // `a as a`.
+      {
+        source: "project",
+        stem: "b100livedangling",
+        text: importSpecifierTheta('import { a as } from "./b100livelib.thetalib"'),
+      },
+      // The precondition control: the SAME import with the alias written. It
+      // must register, so the dangling sibling's absence is attributable to the
+      // refusal rather than to a broken workspace or an unresolvable lib.
+      {
+        source: "project",
+        stem: "b100livealiased",
+        text: importSpecifierTheta('import { a as b } from "./b100livelib.thetalib"'),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    // The imported `.thetalib`, planted BESIDE the discovered `.theta` files so
+    // the relative spec resolves; a `.thetalib` is never slash-discovered, so
+    // this adds no command of its own.
+    writeFileSync(
+      join(workspace.cwd, ".pi", "theta", "b100livelib.thetalib"),
+      "fn a(x: string) { x }\n",
+      "utf8",
+    );
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b100livealiased"),
+        "the conforming aliased-import control did not register — a broken " +
+          "workspace or an unresolvable `.thetalib`, not the check under test, " +
+          "would explain the dangling-`as` theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root (not
+      // the offline `parseThetaDocument` harness the unit witness uses), the
+      // dangling-`as` specifier un-registers its theta at the SAME
+      // hasLoadParseError site the bug 0070/0071/0110/0084 cells above exercise
+      // for their own codes.
+      expect(
+        handle.command("b100livedangling"),
+        "the theta whose import specifier carries a dangling `as` registered " +
+          "anyway through the live discovery/session_start path — " +
+          "theta/parse/import-malformed-specifier-list did not fire. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b100livedangling");
+
+      // The theta-system-note channel: the refusal fires at LOAD time, before
+      // any drive, so the full entry list is the delta (mirrors the bug 0110 /
+      // bug 0084 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = malformedSpecifierListFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the malformed-specifier-list refusal " +
+          "for the dangling-`as` theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -50,8 +50,15 @@ Path literals follow the [Source files](#source-files) forward-slash rule; an
 
 A specifier list with no `from` clause — the bare keyword, an empty list, or a
 `from` clause with no path-literal token after it — is
-`theta/parse/import-missing-from-clause`. A specifier naming a symbol absent
-from the resolved `.thetalib` file's declarations and re-exports is
+`theta/parse/import-missing-from-clause`. Where the `from` clause does carry a
+path-literal token, a specifier list that is absent or produces zero specifiers
+is `theta/parse/import-malformed-specifier-list`, ranged over the whole
+statement. A specifier whose `as` is not followed by an alias is that same code
+ranged over that specifier, and it applies whatever the trailing clause looks
+like: `import { a as }` with no `from` clause draws both codes at once, the
+missing-from-clause one over the statement and the malformed-specifier-list one
+over the specifier. A specifier naming a symbol absent from the resolved
+`.thetalib` file's declarations and re-exports is
 `theta/parse/import-unknown-symbol`.
 
 ## Identifiers
@@ -603,7 +610,9 @@ ToolField ::= Ident ":" Expr
 - Imports and re-exports (`ImportDecl` / `ExportDecl` grammar, binding rules,
   path rule, diagnostic codes): `docs/spec_topics/imports.md`; the from-less-form
   refusal this section documents:
-  `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`.
+  `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`; the
+  malformed-specifier-list refusal (absent/empty specifier list, dangling `as`):
+  `docs/bugs/0100-production-excluded-import-export-spellings-parse-clean.md`.
 - Same-line rule for postfix index access (a line-leading `[` begins a new
   statement): `docs/bugs/0006-leading-bracket-glued-as-index-access.md`
   (fixed 0.13.0, Option 1).

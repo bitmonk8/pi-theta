@@ -35,6 +35,8 @@ import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
 import { validatePathLiteral } from "../lexer/literals";
 import {
+  checkImportDanglingAlias,
+  checkImportMalformedSpecifierList,
   checkImportMissingFromClause,
   checkImportReservedSynthesisedName,
   checkThetaLibTopLevelForm,
@@ -3002,7 +3004,9 @@ class BodyParser {
     // local drives name-collision).
     const specifiers: ImportSpecifier[] = [];
     const symbols: string[] = [];
+    let hasBraces = false;
     if (this.isPunct("{")) {
+      hasBraces = true;
       this.advance();
       while (!this.isPunct("}") && !this.atEnd()) {
         const t = this.peek();
@@ -3014,6 +3018,7 @@ class BodyParser {
           this.advance();
           let local = source;
           let endRange = sourceRange;
+          let aliasConsumedWithNoAlias = false;
           // `Source as Local`: the `as` keyword rebinds to the trailing alias.
           if (this.isKeyword("as")) {
             this.advance(); // `as`
@@ -3025,6 +3030,8 @@ class BodyParser {
               local = aliasTok.text;
               endRange = aliasTok.range;
               this.advance();
+            } else {
+              aliasConsumedWithNoAlias = true;
             }
           }
           const specifierRange = spanRange(sourceRange, endRange);
@@ -3034,6 +3041,18 @@ class BodyParser {
             range: specifierRange,
           });
           symbols.push(local);
+          // bug 0100: a dangling `as` — consumed with no alias token after it —
+          // is a specifier neither `ImportSpec` nor `ExportSpec` admits
+          // (imports.md §"Re-exports"). Emitted straight onto
+          // `this.diagnostics`, exactly like the reserved-name check below, so
+          // `parseThetaDocument` alone witnesses it.
+          const danglingAlias = checkImportDanglingAlias(aliasConsumedWithNoAlias, {
+            file: this.file,
+            range: specifierRange,
+          });
+          if (danglingAlias !== undefined) {
+            this.diagnostics.push(danglingAlias);
+          }
           // Reserve the four synthesised-name forms against the LOCAL binding
           // here, at parse time, rather than only where the `.thetalib` load
           // pass checks a specifier (import-static-checks.ts): that pass sees
@@ -3099,6 +3118,22 @@ class BodyParser {
     });
     if (missingFromClause !== undefined) {
       this.diagnostics.push(missingFromClause);
+    }
+    // bug 0100: an absent or zero-specifier list is a STATEMENT-level fact
+    // distinct from the trailing-clause check above — GATED on a well-formed
+    // `from` clause so the no-`from` bare-keyword / empty-list spellings keep
+    // emitting only `checkImportMissingFromClause`'s code (its registry
+    // Trigger already claims them; co-emitting here would widen that Trigger
+    // and move 0058's whole-list witnesses).
+    const malformedSpecifierList = checkImportMalformedSpecifierList(
+      hasBraces,
+      specifiers.length,
+      hasFromKeyword,
+      hasPathLiteral,
+      { file: this.file, range },
+    );
+    if (malformedSpecifierList !== undefined) {
+      this.diagnostics.push(malformedSpecifierList);
     }
     return {
       kind,

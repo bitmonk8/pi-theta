@@ -379,6 +379,77 @@ export function checkImportMissingFromClause(
   };
 }
 
+// ── theta/parse/import-malformed-specifier-list ────────────────────────────────
+
+export const IMPORT_MALFORMED_SPECIFIER_LIST_CODE =
+  "theta/parse/import-malformed-specifier-list";
+export const IMPORT_MALFORMED_SPECIFIER_LIST_MESSAGE =
+  "import / export specifier list must carry at least one specifier, each 'Name' or 'Name as Alias'";
+
+/**
+ * Check an `import` / `export` statement's specifier list (`parse` phase) for
+ * the shape `ImportDecl` / `ExportDecl` require: `"{" ImportSpec (","
+ * ImportSpec)* ","? "}"` with at least one specifier (imports.md §"Re-exports").
+ * A missing brace or an empty list is a STATEMENT-level fact, so this answers
+ * once for the whole statement — like `checkImportMissingFromClause` above,
+ * not per specifier.
+ *
+ * GATED on a well-formed trailing clause (`hasFromKeyword && hasPathLiteral`):
+ * `checkImportMissingFromClause`'s registry *Trigger* already claims the
+ * degenerate bare-keyword (`import`, `export`) and empty-list (`import {}`,
+ * `export {}`) spellings that have no `from` clause, so those keep emitting
+ * that one code alone — co-emitting here would widen a Trigger the registry
+ * already commits elsewhere and would move 0058's whole-list witnesses and
+ * the reserved-keyword matrix's swallowed-keyword cells.
+ */
+export function checkImportMalformedSpecifierList(
+  hasBraces: boolean,
+  specifierCount: number,
+  hasFromKeyword: boolean,
+  hasPathLiteral: boolean,
+  site: ImportSite,
+): Diagnostic | undefined {
+  if (!hasFromKeyword || !hasPathLiteral) {
+    return undefined;
+  }
+  if (hasBraces && specifierCount > 0) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: IMPORT_MALFORMED_SPECIFIER_LIST_CODE,
+    file: site.file,
+    range: site.range,
+    message: IMPORT_MALFORMED_SPECIFIER_LIST_MESSAGE,
+  };
+}
+
+/**
+ * Check one `import` / `export` specifier (`parse` phase) for a dangling
+ * `as`: the `as` keyword was consumed with no following ident-or-keyword
+ * alias token, a shape neither `ImportSpec` nor `ExportSpec` admits
+ * (imports.md §"Re-exports", `Ident` or `Ident "as" Ident` and nothing else).
+ * A dangling `as` is a SPECIFIER-level fact, so this answers once per
+ * malformed specifier, ranged over that specifier — like bug 0040's
+ * `checkImportReservedSynthesisedName` above. UNGATED: it co-emits with that
+ * check and with `checkImportMissingFromClause` on a from-less list.
+ */
+export function checkImportDanglingAlias(
+  aliasConsumedWithNoAlias: boolean,
+  site: ImportSite,
+): Diagnostic | undefined {
+  if (!aliasConsumedWithNoAlias) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: IMPORT_MALFORMED_SPECIFIER_LIST_CODE,
+    file: site.file,
+    range: site.range,
+    message: IMPORT_MALFORMED_SPECIFIER_LIST_MESSAGE,
+  };
+}
+
 /** A single `import { … }` / `export { … } from` specifier. */
 export interface ImportSpecifier {
   /** The symbol as named in the resolved `.thetalib` file (the source symbol). */

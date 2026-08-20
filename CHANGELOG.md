@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0100 — production-excluded import/export specifier-list spellings now
+  refuse at parse.** Absent lists, zero-specifier lists, and dangling-`as`
+  specifiers loaded silently against the spec's closed `ImportSpec`/
+  `ExportSpec` productions. ONE new registered code
+  `theta/parse/import-malformed-specifier-list` (E, parse): a statement arm
+  gated on a well-formed `from` clause (never co-emits with
+  `import-missing-from-clause`) + an unconditional per-specifier arm.
+  Registry row, reference mirror, `imports.md`, and `grammar.md` amended same
+  commit. Witness: `tests/import-specifier-list-production-required.test.ts`
+  (36 cells) + H8a cell 67 (registration denial, red-proven both directions).
+
 ## [0.133.0] - 2026-08-26
 
 ### Fixed
