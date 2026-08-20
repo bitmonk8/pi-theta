@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.136.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0210 — the remaining prototype-slot record writes now route through
+  `defineRecordField`.** Five measured sites: both producer `params:` records
+  (system-render + marshal) silently dropped `__proto__`-keyed fields; the
+  respond wire's prototype-chain `in` guard fabricated inherited names
+  (`constructor` = `Object` in all 98 sweep rows) — closed with an own-key
+  guard + defining write; and the three schema-node-as-prototype tables
+  (body-type-lowering + params.ts ×2) dropped the field from `properties`
+  while requiring it, with the real AJV compile THROWING on the inherited
+  `type` key. Witness: `tests/proto-named-record-write-sites.test.ts`
+  (17 cells) + H8a cell 69 (real child, `__proto__`-keyed params intake,
+  red-proven both directions). Bug 0119's residuals 1+2 discharged.
+
 ## [0.135.0] - 2026-08-26
 
 ### Fixed

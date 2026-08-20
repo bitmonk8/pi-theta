@@ -1,6 +1,6 @@
 # Bug 0210 — Five record-write sites bug 0119's fix left outside its six-site scope still let an author-controlled key reach the prototype slot or a prototype-chain read forge a guard: the two `params:` records drop a `__proto__`-named param so a subagent child's system prompt renders `[object Object]` and its marshalled params arrive `{}`, the three schema-lowering `properties` writes make the field's own schema node the properties table's prototype so AJV refuses to compile a parse-clean document, and the respond wire's `in`-guarded assignment fabricates a function-valued own key the model never sent
 
-- **Status:** open
+- **Status:** fixed (0.136.0)
 - **Sev/Diff estimate:** S1/D3 — the two `params:` records are reachable
   parse-clean through the single-string binder bypass and produce silent wrong
   values on a production path (a child system prompt reading
@@ -650,6 +650,173 @@ schema-slug and canonical-form witnesses are the ones to check first.
 DIAG-2 (`docs/spec_topics/diagnostics/diagnostic-shape.md:72`) is not engaged. A
 route that instead refuses the name would engage it — and would contradict 0119's
 settled route, per §Non-goals.
+
+## Fix (0.136.0)
+
+- What shipped: `src/extension/production-theta-producer.ts` —
+  `spawnSubagentConversation`'s `system:`-render loop (site a1) and its
+  `paramValues` marshalling loop (site a2) define through `defineRecordField`
+  instead of assigning; `src/runtime/respond-tool-wire.ts` — `coerceNode`'s
+  object arm (site b) guards with `Object.prototype.hasOwnProperty.call(result,
+  key)` in place of the prototype-chain `in` test and writes through
+  `defineRecordField`; `src/parser/body-type-lowering.ts` — `lowerObjectFields`
+  (site c1) defines the lowered node into `properties`; `src/parser/params.ts` —
+  `parseParams` (site c2) and `hoistInlineObjectType` (site c3) do the same.
+  Three new import lines, three `required` writes unchanged, no new helper, no
+  `Object.create(null)`, no registry work. All five sites land in one change, per
+  §Fix "Ordering".
+- Route adjudication (§Fix left the (c) route unsettled and required measurement
+  before choosing; the choice is route 2's end-state — a plain-prototype
+  properties table carrying an own `__proto__` key — reached without the
+  interposed copy, so `defineRecordField` is the single idiom at all five sites):
+  measured offline against `AjvSchemaValidator` with the production `slugOf`
+  (`JSON.stringify`), (i) `Object.create(null)` + assignment and
+  `defineRecordField` over the plain table stringify byte-identically
+  (`{"type":"object","properties":{"__proto__":{"type":"integer"},"a":{"type":"string"}},"required":["__proto__","a"],"additionalProperties":false}`
+  from both), (ii) a null-prototype table's bytes are byte-identical to today's
+  for a schema declaring no `__proto__` field, (iii) `Object.assign`/spread of a
+  null-prototype table loses the key (it assigns), so route 2's literal copy
+  needed a per-key `defineProperty` regardless, and (iv) the null-prototype table
+  would perturb every prototype-sensitive reader of the emitted document for no
+  measured gain. The rider that `defineRecordField` is the write-site idiom and
+  that no second idiom is minted settles the rest.
+- AJV question settled by measurement (§Fix: "Measure what AJV does with such a
+  document before choosing; a route that produces a compilable-but-wrong
+  validator is worse than today's throw"): with an own `__proto__` in
+  `properties`, `Ajv.compile` SUCCEEDS where HEAD threw `schema is invalid:
+  data/properties/type must be object,boolean`. The generated validator does not
+  honour that entry — a payload carrying an own `__proto__` is refused with
+  `keyword: "additionalProperties"`, `params.additionalProperty: "__proto__"`
+  under `additionalProperties: false`, and a payload omitting it validates
+  `ok: true` because `required` reads the data's prototype chain. Both routes
+  produce that identically, so the measurement does not discriminate between
+  them. It is not the harmful "compilable-but-wrong validator" the constraint
+  guards against: no silent wrong bind is introduced, the failure is loud, and
+  the emitted document becomes conformant to `schema-subset.md:8`/`:78` where
+  today it is malformed. The `required`-side half is §Non-goals' measured
+  AJV-reads-the-data's-prototype finding, unchanged by this fix; the
+  `additionalProperties` half is a distinct manifestation §Non-goals does not
+  name, recorded as residual 1.
+- Gates (each re-run by the orchestrator after the last edit): witness
+  `npx vitest run tests/proto-named-record-write-sites.test.ts` — 17 passed (17);
+  pre-fix the same file was 12 failed | 4 passed (16). Full default suite
+  `npm test` — 332 passed (332) files / 6104 passed (6104) tests, against the
+  fork baseline 331/6087 (the delta is exactly this witness file). `npx tsc
+  --noEmit` — clean. `npm run lint` — clean. Blast-radius premeasure, run before
+  the witness was written: the five edits prototyped against the untouched suite
+  produced zero reds (331/6087), so no protected whole-list witness moved —
+  `tests/ctor-proto-named-field.test.ts` (26), `tests/respond-tool-wire.test.ts`
+  (24) and `tests/committed-fixture-parse-gate.test.ts` are byte-unmoved and
+  green.
+- Review: 2 rounds, plus one prose-only polish round.
+  Round 1 (deep) — findings: F1 [test], cells A1/A1-record/A2/A2b drive local
+  copies of the two child-spawning loops, so reverting both production loops left
+  the witness 16/16 green (measured) — no offline red for an (a1)/(a2)
+  regression; F2 [correctness], the fix unmasks two same-idiom writes at sites
+  §Fix does not name (residuals 2 and 3); R1 [prose], a header baseline row named
+  a cell that does not exist under that name. F1 and R1 fixed — a source-text
+  cell `(A-SRC)` anchored on both loops by enclosing symbol, failing loudly when
+  an anchor is absent. F2 refused as an unauthorized scope widening and recorded.
+  Round 2 (deep, routed deep because round 1 raised a correctness finding) —
+  CLEAN; it re-proved `(A-SRC)` reds on each loop independently with hash-exact
+  restores, probed the loud-failure path by removing an anchor, and re-verified
+  round 1's two unmasked-site measurements. Two prose residuals from round 2 — a
+  claim made stale by the new cell, and a missing baseline row — were fixed in a
+  comment-only round whose every hunk is a `//` line; polish verified by
+  gate-diff, confirmation round skipped.
+- Verification: verified. (1) Each of the five sites reverted alone reds its own
+  cells and no others — (a1) and (a2) each red `(A-SRC)` with the site-specific
+  message, (b) reds B1/B2/B4 (`["a","constructor"]`, all seven `Object.prototype`
+  names forged, prototype replaced), (c1) reds C1/C4, (c2) reds C2 and
+  "C2, AJV" (`schema is invalid: data/properties/type must be object,boolean`),
+  (c3) reds C3; every restore proved byte-exact by `git hash-object` against the
+  pre-probe blob. (2) `npm test` re-run by the verifier: 332/6104 green.
+  (3) Live: one additive H8a cell (`cell CELL-A` in
+  `tests/live/live-production-acceptance.test.ts`) drives a real spawned subagent
+  child over §Reproduction site (a)'s own fixture — `mode: subagent`, `system:`
+  interpolating `${__proto__}`, a single non-defaulted `__proto__: string` param,
+  so the single-string bypass is taken — and asserts on the deterministic
+  `userTexts` channel. Red-proven both directions live: post-fix the real child's
+  real intake refusal is `subagent marshalled params failed schema validation:
+  must NOT have additional properties` (the key reached the marshalled payload,
+  which is site (a2)'s claim), pre-fix it is `invoke<string> return value failed
+  validation` (the key never reached it and the child bound an empty params map).
+  The whole H8a file passes 67/67 with the new cell, so no sibling is perturbed;
+  H9a `tests/live/acceptance/` passes 11/11 (one transient 180 s timeout on the
+  H9a (b) named-schema typed query on the first attempt, re-run in isolation
+  green in 11.97 s, no matching open report in `docs/bugs/`, and none of the four
+  touched files is on that test's path). (4) `npx tsc --noEmit` and `npm run
+  lint` clean.
+- Residuals:
+  1. **AJV's generated validator mishandles a declared property literally named
+     `__proto__`, in both directions.** For the document `parseParams` now emits
+     for a single `__proto__: string` field —
+     `{"type":"object","properties":{"__proto__":{"type":"string"}},"required":["__proto__"],"additionalProperties":false}`,
+     which compiles cleanly (cells C2/C4) — `validate({})` is `ok: true` (the
+     `required` check reads the data's prototype chain: §Non-goals' measured
+     finding, unchanged here) and `validate(JSON.parse('{"__proto__":"hello"}'))`
+     is `ok: false` with `keyword: "additionalProperties"`,
+     `params.additionalProperty: "__proto__"` (the `additionalProperties`
+     allow-list does not recognise the declared property — a manifestation
+     §Non-goals does not name). Measured offline with the production Ajv
+     configuration (`src/seams/schema-validator.ts:112`) and live through cell
+     `CELL-A`, whose real spawned child hit exactly that message. Consequence: a
+     `params:` field named `__proto__` cannot bind end to end in a real subagent
+     child today. The change is still an improvement in kind on that route — a
+     silent `{}` marshal and an `intro [object Object] outro` render become a
+     registered loud refusal (`theta/runtime/subagent-params-validation-failed`,
+     `code-registry-runtime.md:31`) — but the surface is not closed. This is the
+     validator seam's own key discipline (an `ownProperties` question), which
+     §Non-goals excludes from this report, so it is not fixed here. No open
+     report covers it (searched `docs/bugs/*.md` for the message and for
+     `__proto__`). Cell `CELL-A`'s asserted message is a pin on this defect: a
+     successor fix must update that cell.
+  2. **`fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`) —
+     `merged[field.wireName] = field.defaultValue`, newly reachable.** Measured
+     by the round-1 reviewer post-fix: for a parse-clean
+     `{ a: string, __proto__: string = "x" }`, `parseParams` now lowers clean and
+     `AjvSchemaValidator.compile` succeeds (pre-fix this route died on the
+     compile throw), and `fillDefaultsAndRevalidate` then returns a `merged`
+     whose own keys are `["a"]` with own `__proto__` false, while reporting
+     `defaultedWireNames: ["__proto__"]` and `validation: {ok:true}` — the
+     default is dropped while being reported as supplied, and an object-valued
+     default would prototype-replace the merged args. Pre-fix that route threw
+     loudly; post-fix it is silent. The site is not named in this report's §Fix,
+     and converting it is an executable behaviour change at an unnamed file, so
+     it was refused rather than self-authorized.
+  3. **`inlineDefsRefs` (`src/binder/binder-inference.ts`) — `copy[key] =
+     inlineDefsRefs(...)`, newly reachable.** Measured by the round-1 reviewer
+     through the real `buildBinderCompleteCall` export: for the post-fix lowered
+     document, the binder tool's model-facing parameters carry
+     `"properties":{"a":{"type":"string"}},"required":["__proto__","a"],"additionalProperties":false`
+     — the own `__proto__` key the (c) fix creates is dropped again one seam
+     later, reinstating the `required`-names-what-`properties`-omits malformation
+     this fix removes. Same disposition as residual 2.
+  4. **Three further same-idiom writes over author-controlled key spaces,
+     reachable at HEAD independently of this fix**, found by the round-1
+     reviewer's sweep and named by no report: `src/runtime/match-result.ts`'s
+     `bindings[pattern.name] = value` and its prototype-chain read
+     `obj[field.name]`, and `production-theta-producer.ts`'s
+     `callableHashes[entry.presentedName] = entry.closureHash`. Unmeasured beyond
+     the idiom match.
+  5. **Comment-citation drift (0119 residual 4's recorded class, deliberately not
+     chased).** This fix adds one import line to each of
+     `src/runtime/respond-tool-wire.ts`, `src/parser/body-type-lowering.ts` and
+     `src/parser/params.ts`, so every `path:line` citation into those files below
+     the import — including this report's own §Affected anchors — drifts by one.
+     Every site in this fix is cited by SYMBOL; the line anchors were fresh at
+     filing and are one line stale below each import.
+- Discharge notes appended: `0119-proto-named-field-silently-dropped.md`
+  §Residuals (its residuals 1 and 2 name these five sites; both are discharged).
+- Pinned dispositions / non-goals: no field-name refusal is proposed and 0119's
+  settled route — a declared field named `__proto__` survives rather than being
+  refused — is unchanged; the three `required` writes are correct under
+  `schema-subset.md:8` and are untouched; no code, row or *Trigger* is minted or
+  widened, so DIAG-2 is not engaged and no registry or spec page changes;
+  `src/seams/schema-validator.ts` is untouched and no `ownProperties` option is
+  added (residual 1); §Non-goals' two excluded findings — the single-string
+  bypass running no AJV validation, and AJV reading the data's prototype chain —
+  remain excluded and unadjudicated.
 
 ## Provenance
 

@@ -36,6 +36,7 @@
 // never rewrites).
 
 import type { LoweredSchema } from "../seams/schema-validator";
+import { defineRecordField } from "./value";
 
 /** The envelope's single property name — the payload's wire position. */
 export const RESPOND_ENVELOPE_KEY = "value";
@@ -306,10 +307,19 @@ function coerceNode(
     const table = properties as Readonly<Record<string, unknown>>;
     const result: Record<string, unknown> = { ...(current as Record<string, unknown>) };
     for (const [key, member] of Object.entries(table)) {
-      if (!(key in result) || member === null || typeof member !== "object" || Array.isArray(member)) {
+      // A declared field name is author-controlled; an `Object.prototype`
+      // member name must not pass this guard on an absent field (see
+      // `defineRecordField`'s doc-comment for the write half of the same
+      // hazard).
+      if (
+        !Object.prototype.hasOwnProperty.call(result, key) ||
+        member === null ||
+        typeof member !== "object" ||
+        Array.isArray(member)
+      ) {
         continue;
       }
-      result[key] = coerceNode(member as SchemaNode, result[key], defs, depth + 1);
+      defineRecordField(result, key, coerceNode(member as SchemaNode, result[key], defs, depth + 1));
     }
     return result;
   }

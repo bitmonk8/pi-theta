@@ -1080,6 +1080,17 @@ are already `Object.create(null)` (`:370`, `:601`, `:666`) from bug 0173
      complete shifted set was enumerated by a scratch sweep, which was deleted, and
      left alone. Every citation inside this fix's own diff was verified against the
      current tree.
+- Discharge note (bug 0210, fixed X.Y.Z): residuals 1 and 2 above are
+  discharged. 0210 measured all five sites at `78a6560c` and converted them in
+  one change — both `params:` records in `spawnSubagentConversation`,
+  `coerceNode`'s `in` guard and write in `src/runtime/respond-tool-wire.ts` (the
+  module residual 2 cites under `src/extension/`), and the three schema-lowering
+  `properties` writes in `lowerObjectFields`, `parseParams` and
+  `hoistInlineObjectType` — all through this fix's exported `defineRecordField`,
+  with no second idiom. 0210 §Fix (X.Y.Z) carries the route adjudication for the
+  lowering sites, whose records are JSON-Schema documents rather than runtime
+  values, and its residuals record what its own landing newly exposed. Residual
+  4's comment-citation-drift class recurs there and is again not chased.
 - Discharge notes appended: none.
 - Pinned dispositions / non-goals: bug 0080's single construction point stays
   single and its declaration-order contract is unchanged (constraints 1, 4); bug

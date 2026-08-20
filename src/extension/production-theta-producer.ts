@@ -1933,7 +1933,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const params: Record<string, ThetaValue> = {};
       if (bindInput.paramBindings !== undefined) {
         for (const [name, value] of bindInput.paramBindings) {
-          params[name] = value;
+          // A bound param name is author-controlled; see `defineRecordField`'s
+          // doc-comment for why this must define rather than assign.
+          defineRecordField(params, name, value);
         }
       }
       const rendered = renderSystemPrompt({ template: systemTemplate, params });
@@ -2055,7 +2057,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const paramValues: Record<string, unknown> = {};
     if (bindInput.paramBindings !== undefined) {
       for (const [name, value] of bindInput.paramBindings) {
-        paramValues[name] = value;
+        // See `defineRecordField`'s doc-comment: a bound param name is
+        // author-controlled and must not be assigned.
+        defineRecordField(paramValues, name, value);
       }
     }
     const marshalled = marshalParams(paramValues, this.#paramsMarshalDeps());

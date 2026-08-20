@@ -22,6 +22,7 @@ import {
   topLevelColon,
   type LowerCtx,
 } from "./params";
+import { defineRecordField } from "../runtime/value";
 // The one-way import bug 0039 §Fix set — this module imports from
 // `params.ts`, never the reverse — is what forces the shared brace predicate
 // and the per-arm union dispatch to live beside `hoistInlineObjectType` in
@@ -129,14 +130,20 @@ export function lowerObjectFields(
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
   for (const field of fields) {
-    properties[field.name] = lowerTypeSource(
-      field.typeSource,
-      bodyTypeMap,
-      defs,
-      unresolved,
-      sinks,
-      reservedKeywords,
-      unspellable,
+    // A declared field name is author-controlled; see `defineRecordField`'s
+    // doc-comment for why the lowered node must be defined, not assigned.
+    defineRecordField(
+      properties,
+      field.name,
+      lowerTypeSource(
+        field.typeSource,
+        bodyTypeMap,
+        defs,
+        unresolved,
+        sinks,
+        reservedKeywords,
+        unspellable,
+      ),
     );
     required.push(field.name);
   }

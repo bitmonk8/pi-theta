@@ -55,6 +55,7 @@ import {
   type LoweredUnionArm,
 } from "./schema-lowering";
 import { parseTypeExpression } from "./type-grammar";
+import { defineRecordField } from "../runtime/value";
 
 /**
  * One `params:` field as written in source, in declaration order.
@@ -213,7 +214,9 @@ export function parseParams(
         range: field.range,
       }),
     );
-    properties[field.name] = lowerParamsFieldType(field.typeSource, lowerCtx);
+    // A `params:` field name is author-controlled; see `defineRecordField`'s
+    // doc-comment for why the lowered node must be defined, not assigned.
+    defineRecordField(properties, field.name, lowerParamsFieldType(field.typeSource, lowerCtx));
     // The sink is append-only and shared, so every slug appended during THIS
     // field's lowering is attributable to THIS field's range — which is the
     // range the collision diagnostic must carry, the site being lowered when the
@@ -965,7 +968,9 @@ export function hoistInlineObjectType(
     if (fieldName.length === 0 || fieldType.length === 0) {
       continue;
     }
-    properties[fieldName] = lowerFieldType(fieldType, lowerCtx);
+    // An inline object field name is author-controlled; see
+    // `defineRecordField`'s doc-comment for why this must define, not assign.
+    defineRecordField(properties, fieldName, lowerFieldType(fieldType, lowerCtx));
     required.push(fieldName);
   }
   if (required.length === 0) {

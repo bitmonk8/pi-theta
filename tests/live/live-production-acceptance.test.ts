@@ -11172,3 +11172,208 @@ describe("H8a-T — bug 0203 (cell 68): an `@<T>` query ascription carrying a ju
     }
   });
 });
+
+// ===========================================================================
+// Bug 0210 (Phase 4 verification, cell cell 69) -- the two `params:`
+// record-write sites in `spawnSubagentConversation`
+// (`production-theta-producer.ts`, sites (a1)/(a2)) reach a REAL spawned
+// subagent child.
+//
+// DELIBERATE TOKEN, NOT A NUMBER: this cell's identifier carries the literal
+// token `cell 69` everywhere a cell number would otherwise go. The parent lane
+// renumbers it at merge time (this worktree is a verification lane over a
+// shared file several sibling lanes are extending concurrently); do not
+// assign it a number here.
+//
+// FIXTURE SHAPE, modelled on 0210 Reproduction site (a)'s own fixture: `mode:
+// subagent`, `system: | intro ${__proto__} outro`, `params: { __proto__:
+// string }` -- a single non-defaulted `string` param, the exact shape the bug
+// document measured. The kid's body is the bare bound identifier `__proto__`
+// as its tail expression (mirroring bug 0188's kid, above), so the kid itself
+// spends ZERO model turns; the only real token spend in this cell is the
+// parent's one `@` query below.
+//
+// REACH CHAIN, traced against the shipped source at HEAD (not assumed): the
+// parent (`b0210cellaliveparent.theta`, `mode: prompt`) calls
+// `invoke<string>("./b0210cellalivekid.theta", "hello")`. `#resolveInvoke` ->
+// `#driveCallee` (`production-theta-producer.ts`) binds the callee's declared
+// param names positionally with a genuine `Map.set` (`paramBindings.set(name,
+// argValues[index] ?? null)`) -- a `Map` key, not a plain-object assignment,
+// so THIS step is unaffected by the prototype hazard regardless of the fix.
+// That `paramBindings` map is then threaded into `spawnSubagentConversation`,
+// whose TWO loops are sites (a1) (the `system:`-render `params` record) and
+// (a2) (the `paramValues` marshalling record) -- both run UNCONDITIONALLY at
+// spawn time, before the child launches, regardless of how `paramBindings`
+// was built. Site (a2)'s output becomes the real child's `PI_THETA_PARAMS`
+// environment variable (PIC-60); the real child process re-validates it
+// against its own `params:` schema and binds it before running its body.
+//
+// WHICH SITE THIS CELL'S ASSERTION DEPENDS ON, determined by tracing the code
+// (not assumed): the kid issues no `@` query, so site (a1)'s rendered
+// `--system-prompt` text is built and handed to the child's launch command
+// line but is NEVER READ by anything the kid's body does -- there is no
+// channel back to this process that could observe it, so a regression at (a1)
+// ALONE cannot flip this cell's verdict. Site (a2) is what this cell's
+// PRIMARY assertion actually exercises, through the marshalled
+// `PI_THETA_PARAMS` channel the real child re-validates and rebinds from.
+//
+// A GENUINE, SEPARATE DEFECT SURFACED WHILE WIRING THIS CELL, NOT FIXED BY
+// 0210 AND NOT PAPERED OVER HERE: the CHILD's own intake step
+// (`#intakeSubagentRootParams`) validates the marshalled JSON against the
+// callee's OWN lowered `params:` document with a REAL `AjvSchemaValidator`
+// (`strict:false, allErrors:true`, byte-identical to production and to 0210's
+// own cell C2/C4 configuration). Measured directly (both offline, with a
+// throwaway node+ajv probe reproducing the exact schema/config, and live, by
+// this cell's own first run): AJV's OWN generated `additionalProperties:
+// false` code refuses a payload whose OWN `__proto__` key IS the declared
+// property -- `must NOT have additional properties` -- even though schema-
+// subset.md:78's emission is correct and 0210's cell C2/C4 already proved the
+// document COMPILES. Symmetrically, AJV's `required` check does the OPPOSITE
+// wrong thing on an EMPTY payload: `{}` against `required:["__proto__"]`
+// validates `ok:true` (a false pass -- exactly the class 0210 Non-goals names:
+// "AJV's own required and properties checks read the DATA's prototype chain").
+// This is a defect in AJV's own generated validator code for a schema
+// property literally named `__proto__`, orthogonal to all five of 0210's
+// record-write sites, undischarged by 0210's fix, and (searched) untracked by
+// any file under `docs/bugs/`. It means a REAL child can never successfully
+// VALIDATE a marshalled `__proto__` param end to end today, whatever site
+// (a1)/(a2) do -- reported to the orchestrator as a finding, not fixed here.
+//
+// HOW THIS CELL STILL PROVES SITES (a1)/(a2), GIVEN THAT DEFECT: the two AJV
+// failure modes above are DIFFERENT, and which one fires is exactly the
+// (a2) observable this cell needs. Pre-fix (a2 assigns instead of defines),
+// the marshalled JSON is `{}` (the key dropped) -- AJV's `required` bug above
+// means intake VALIDATES that empty payload `ok:true`, the child binds an
+// EMPTY params map, and the kid's body then references the declared-but-
+// unbound `__proto__` identifier, which fails the PARENT's `invoke<string>`
+// return-type check (measured: `e.message` is `"invoke<string> return value
+// failed validation"`). Post-fix (a2 defines), the marshalled JSON correctly
+// carries `{"__proto__":"hello"}` -- the key REACHED the child's intake
+// payload, which is exactly what (a2) is responsible for -- and AJV's
+// `additionalProperties` bug above then refuses THAT payload instead
+// (measured: `e.message` is `"subagent marshalled params failed schema
+// validation: must NOT have additional properties"`). The two `e.message`
+// strings are BYTE-DISTINCT and each names its own real cause, so asserting
+// the exact post-fix string is what discriminates "the key reached the
+// child's payload" (post-fix) from "the key never reached it" (pre-fix) --
+// this cell cannot assert full end-to-end BINDING (the AJV defect above
+// blocks that regardless of 0210's fix), so it asserts the strongest true
+// claim available: the marshalled payload's SHAPE changed exactly as (a2)
+// promises, observed through the real child's own real refusal message.
+//
+// OBSERVABLE, per AGENTS.md "Assert on real observables": `turn.userTexts`
+// (deterministic outbound-render channel) carries the parent's own computed
+// `@`-query text, `b0210-marker=${z}`, where `z` is `e.message` off the REAL
+// child's REAL `Err` envelope (the kid never returns `Ok` today, for the
+// orthogonal AJV reason above, on EITHER side of 0210's fix -- so this cell's
+// discriminator is the ERR MESSAGE's content, not Ok-vs-Err). `turn
+// .systemNotes` is also checked for the absence of any fail-closed note
+// naming the PARENT theta (a note there would mean the PARENT itself failed
+// closed, not merely that its bound `z` took the `Err` arm -- the parent's
+// `match` always resolves the `Err` locally and the parent theta itself
+// terminates `Ok` on both sides of the fix).
+//
+// #subagent-child-pins: this file's imported `./harness` already sets all
+// three pins at module scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
+// `SUBAGENT_PARENT_PID_ENV = String(process.ppid)`), exactly as every other
+// subagent-spawning cell in this file relies on; nothing new is pinned here.
+//
+// TOKEN COST: one real model turn (the parent's `@` query; the kid spends
+// none).
+//
+// ADDITIVE ONLY: every cell above this one (1 through 66) is unchanged.
+// ===========================================================================
+
+/**
+ * 0210 Reproduction site (a)'s own fixture, as a `mode: subagent` kid: a
+ * `system:` interpolating `${__proto__}` and a single non-defaulted `string`
+ * `params:` field named `__proto__`, whose bare bound identifier is the tail
+ * expression -- zero model turns of its own.
+ */
+function b0210CellALiveKidTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "system: |",
+    "  intro ${__proto__} outro",
+    "params:",
+    "  __proto__: string",
+    "---",
+    "__proto__",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: `invoke<string>`s the kid with the positional
+ * argument `"hello"`, unwraps the `Result` via `match` (the `Err` arm is a
+ * control fallback whose value discriminates the pre-fix drop), and
+ * interpolates the bound value into the outbound query text behind the
+ * `b0210-marker=` anchor -- the one deterministic channel that can carry the
+ * real child's real bound value.
+ */
+function b0210CellALiveParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let r = invoke<string>("./b0210cellalivekid.theta", "hello")',
+    'let z = match r { Ok(v) => v, Err(e) => e.message }',
+    "@`Reply with the single word OK. b0210-marker=${z}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T -- bug 0210 (cell cell 69): the spawnSubagentConversation params marshalling record-write site (a2) reaches a REAL spawned subagent child, live", () => {
+  it("the marshalled JSON the real child's real intake validates against carries the __proto__ key (an orthogonal AJV additionalProperties defect then refuses it, reported as a finding), spending one real model turn", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b0210cellalivekid", text: b0210CellALiveKidTheta() },
+      { source: "project", stem: "b0210cellaliveparent", text: b0210CellALiveParentTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse failure reds with zero tokens.
+      expect(
+        handle.command("b0210cellaliveparent"),
+        "no bug-0210 cell cell 69 parent command to invoke -- the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b0210cellaliveparent");
+
+      // THE FIXED OBSERVABLE: the real child's real refusal MESSAGE names
+      // "additional properties" (the marshalled payload correctly carries the
+      // key -- site (a2)'s job) rather than the pre-fix "return value failed
+      // validation" (the key never reached the payload at all). See this
+      // cell's header for the full trace and the orthogonal AJV defect that
+      // keeps either side of the fix from returning `Ok`.
+      expect(
+        turn.userTexts,
+        "bug 0210 Fix (site a2, cell cell 69): the real child's real intake " +
+          "refusal must name `additionalProperties` (the __proto__ key REACHED " +
+          "the marshalled payload). Pre-fix, site (a2)'s `paramValues[name] = " +
+          "value` hits the inherited `__proto__` setter, the marshalled JSON is " +
+          "`{}`, and the failure is instead the PARENT's `invoke<string>` " +
+          "return-type refusal (the kid's body referenced an unbound " +
+          "identifier) -- observed userTexts: " + JSON.stringify(turn.userTexts),
+      ).toEqual([
+        "Reply with the single word OK. b0210-marker=subagent marshalled params failed schema validation: must NOT have additional properties",
+      ]);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b0210cellaliveparent (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the PARENT drive itself surfaced fail-closed system note(s), which " +
+          "would mean the parent theta failed rather than merely binding the " +
+          "`Err` control arm: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
