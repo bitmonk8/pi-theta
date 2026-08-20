@@ -6,6 +6,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.142.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0218 — the child `--tools` allowlist now carries HOST-tool names
+  only** (external contribution, PR #2 — Harald Nielsen). The launch contract
+  forwarded `.theta` callable presented names on `--tools`, a HOST
+  tool-registry allowlist — inert on Pi's tolerant argv, fatal on a host that
+  validates it (Oh-My-Pi: child exits 2 before any session starts, so every
+  theta registering a `.theta` callee in `tools:` was unrunnable there,
+  load-clean and silent under `-p`). The argv input is now
+  `hostTools`/`noHostTools` (a theta-only callable set takes `--no-tools`);
+  `inferChildTrust` reads the host half, closing a trust-inflation vector via
+  presented-name collision with a project-local tool. Carrier table split by
+  side in `subagent.md` (+ the new `#subagent-tools-host-names-only` rule)
+  with five restatement pages; session fix-ups re-derived four further corpus
+  sentences to the host-half wording. Witness: retargeted + new cells in
+  `tests/subagent-model-theta-tool.test.ts` + H8a cell 72 (real spawned
+  children, both fixed shapes).
+
 ## [0.141.0] - 2026-08-26
 
 ### Fixed

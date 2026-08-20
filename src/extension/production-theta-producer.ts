@@ -1959,7 +1959,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `--tools` against its registry and exits 2 before any session starts
     // (`Error: Unknown tool in --tools: <name>`), which the parent observes only
     // as a child exit without an envelope, so EVERY theta registering a `.theta`
-    // callee in `tools:` was unrunnable there (bug 0210).
+    // callee in `tools:` was unrunnable there (bug 0218).
     const piToolNames = callableSetPiToolNames(theta);
     const thetaCallableEntries = callableSetThetaEntries(theta);
     const noHostTools = piToolNames.length === 0;
@@ -3199,7 +3199,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           //  - regime active (subagent-root child): PIC-58 bounds the child
           //    session's tools to the callable set's HOST-tool half (the
           //    `--tools` allowlist derived from the same snapshot — `.theta`
-          //    names never enter it, bug 0210), so no undeclared ambient tool
+          //    names never enter it, bug 0218), so no undeclared ambient tool
           //    exists for the host loop to execute — ladder routing cannot
           //    widen reach (an outside-the-allowlist name reads back the
           //    fail-closed isError no-result) and stays the PIC-64 rung-3

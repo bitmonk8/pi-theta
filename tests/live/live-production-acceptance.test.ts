@@ -11681,10 +11681,10 @@ describe("H8a-T — bug 0101 (cell 71): a from-bearing re-export chain delivers 
 
 
 // ===========================================================================
-// Bug 0210 — the RFC-0006 launch contract merged the callable set's two halves
+// Bug 0218 — the RFC-0006 launch contract merged the callable set's two halves
 // into ONE flat list and passed it as the spawned child's `--tools` allowlist
-// (pre-fix `production-theta-producer.ts:1831-1837`: `callableSetPiToolNames`
-// concatenated with every `.theta` entry's `presentedName`, `:1995` passing the
+// (pre-fix `spawnSubagentConversation`'s callableNames block in production-theta-producer.ts: `callableSetPiToolNames`
+// concatenated with every `.theta` entry's `presentedName`, the spawn argv literal passing the
 // merged list as `argv.tools`). `--tools` is a HOST tool-registry allowlist; a
 // `.theta` callable's presented name names NOTHING in that registry — it is
 // theta-side, resolved child-side against the child's own theta registry, and
@@ -11693,7 +11693,7 @@ describe("H8a-T — bug 0101 (cell 71): a from-bearing re-export chain delivers 
 // the child exits 2 before any session starts, so EVERY theta registering a
 // `.theta` callee in `tools:` was unrunnable there — load-clean,
 // diagnostic-free, and silent under `-p`
-// (docs/bugs/0210-theta-callable-names-in-child-tools-allowlist.md). The fix
+// (docs/bugs/0218-theta-callable-names-in-child-tools-allowlist.md). The fix
 // splits the halves: the argv input takes the HOST half only (`hostTools:
 // piToolNames`), `noHostTools` (renamed from `emptyCallableSet`, whose name
 // WAS the misconception) keys the `--no-tools` arm on "no HOST tool in the
@@ -11829,7 +11829,7 @@ function b210LiveDriverTheta(): string {
   ].join("\n");
 }
 
-describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the callable set's HOST half only, and a theta-only callable set takes --no-tools, through REAL spawned subagent children, live", () => {
+describe("H8a-T — bug 0218: the spawned child's --tools allowlist carries the callable set's HOST half only, and a theta-only callable set takes --no-tools, through REAL spawned subagent children, live", () => {
   it("a mixed read + .theta callable set runs end to end with the host half honoured inside the spawned child, and a theta-only callable set still runs its callee through the hash carrier, spending one real model turn", async () => {
     const provider = await requireLiveProvider();
     const thetas: PlantedTheta[] = [
@@ -11846,7 +11846,7 @@ describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the 
       for (const stem of ["b210livekid", "b210livemid", "b210liveonly", "b210livedriver"]) {
         expect(
           handle.command(stem),
-          `no bug-0210 command /${stem} — the .theta failed discovery/parse. ` +
+          `no bug-0218 command /${stem} — the .theta failed discovery/parse. ` +
             "Registered: " + JSON.stringify(handle.registeredNames()),
         ).toBeDefined();
       }
@@ -11865,7 +11865,7 @@ describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the 
       // callee's VALUE crossed both boundaries.
       expect(
         outbound,
-        "bug 0210 §Fix (1): the mixed read + .theta callable set must run end " +
+        "bug 0218 §Fix (1): the mixed read + .theta callable set must run end " +
           "to end with the host half honoured inside the spawned child — the " +
           "host-half anchor did not carry the kid's sentinel. Registered: " +
           JSON.stringify(handle.registeredNames()) +
@@ -11881,7 +11881,7 @@ describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the 
       // arm reds here as `ERR …`.
       expect(
         outbound,
-        "bug 0210 §Fix (2): the theta-only callable set must take the " +
+        "bug 0218 §Fix (2): the theta-only callable set must take the " +
           "--no-tools arm and still run its callee — the theta-only anchor " +
           "did not carry the kid's sentinel. Registered: " +
           JSON.stringify(handle.registeredNames()) +
@@ -11893,7 +11893,7 @@ describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the 
       // results are `match`ed explicitly above (no `?`, no unhandled `Err`),
       // so this theta's own top-level outcome is Success either way — a
       // failure note here would mean the fixture itself is broken, not that
-      // bug 0210 regressed.
+      // bug 0218 regressed.
       const failureNotes = turn.systemNotes.filter((n) =>
         /^theta \/b210livedriver (returned Err|cancelled|aborted)/.test(n),
       );

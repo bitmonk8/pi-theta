@@ -1,6 +1,6 @@
-# Bug 0210 — The subagent launch contract puts `.theta` callable names into the child's `--tools` allowlist, which is a HOST tool-registry allowlist: on a host that validates it (Oh-My-Pi) the child exits 2 before any session starts, so EVERY theta registering a `.theta` callee in `tools:` is unrunnable there — load-clean, diagnostic-free, and silent under `-p`
+# Bug 0218 — The subagent launch contract puts `.theta` callable names into the child's `--tools` allowlist, which is a HOST tool-registry allowlist: on a host that validates it (Oh-My-Pi) the child exits 2 before any session starts, so EVERY theta registering a `.theta` callee in `tools:` is unrunnable there — load-clean, diagnostic-free, and silent under `-p`
 
-- **Status:** fixed (0.132.0) — over pre-fix HEAD `69c78f4`, v0.131.0. Observed
+- **Status:** fixed (0.142.0) — over pre-fix HEAD `69c78f4`, v0.131.0. Observed
   and diagnosed at `7f360d2` (v0.88.0); the defect was byte-identical at both
   HEADs — no intervening commit touched the launch-contract allowlist.
 - **Sev/Diff estimate:** S1/D1 — S1 because the failure is total (no statement of
@@ -170,7 +170,7 @@ and the `as`-rename semantics (`--tools` already carried underlying names).
   real-child-spawn cells refused by the child's PIC-62 model pre-flight
   (`expected 'anthropic/claude-fable-5', child resolved '(unresolved: no
   matching model)'` — this box serves that id through a different provider).
-  Note that the red is itself evidence the child spawns and runs its theta far
+  The red is itself evidence the child spawns and runs its theta far
   enough to emit an envelope under the Pi dialect. Green in this run: the
   retargeted `tests/subagent-model-theta-tool.test.ts`, the four argv-shape
   files whose `SubagentArgvInput` literals were renamed (`host-cli-dialect`,

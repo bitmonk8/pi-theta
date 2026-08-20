@@ -346,7 +346,7 @@ export interface SubagentArgvInput {
    * it — that half of the callable set is theta-side, resolved child-side against
    * the child's own theta registry, and carried by the presented-name + closure-
    * hash env carrier instead. One host validates this list against its registry
-   * and exits 2 on an unknown name (bug 0210), so a theta-side name here is not
+   * and exits 2 on an unknown name (bug 0218), so a theta-side name here is not
    * harmless noise: it kills the child before it starts.
    */
   readonly hostTools: readonly string[];
@@ -390,7 +390,7 @@ export interface SubagentArgvInput {
  * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
  * its own callable set) and carries the callable set's HOST-TOOL names only — a
  * `.theta` callable is theta-side and rides the closure-hash env carrier instead
- * (bug 0210). A callable set with no host tool maps to `--no-tools` (never
+ * (bug 0218). A callable set with no host tool maps to `--no-tools` (never
  * re-enables host defaults by omission). Params ride the marshalled channel
  * (PIC-60), the result rides the stdout envelope (PIC-59) — neither is on argv.
  */
@@ -456,7 +456,7 @@ export function assembleSubagentArgv(
   // omission would re-enable the host's default built-ins); otherwise the
   // comma-joined host-registry allowlist. A `.theta` callable never appears here:
   // it names nothing in the host's registry, and one host rejects such a name
-  // outright (bug 0210).
+  // outright (bug 0218).
   if (input.noHostTools) {
     argv.push("--no-tools");
   } else {
