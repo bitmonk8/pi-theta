@@ -1,10 +1,9 @@
 # Bug 0101 — The from-bearing re-export `export { greet } from "./base.thetalib"` — the one export form imports.md defines and, since bug 0058, the only one its `ExportDecl` production admits — puts its downstream name into the re-exporting lib's export set and materialises no binding: an importing `.theta` passes every static gate (`theta/parse/import-unknown-symbol` admits the specifier, `checkThetaImports` returns an empty `imports` list) and then, at each use position, reads `null`, constructs an unbranded schema value, panics `NullMemberAccessPanic` on an enum variant, or dies in bug 0003's `PiToolArgShapeDefectError` belt — and because `collectImports` never collects an `export`, the re-export's own path is never resolved either, so a re-export naming a symbol its source lib does not declare, or a path that does not exist, is silent too
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two routes are
-  stated (implement forwarding through the re-export chain; refuse or limit the
-  form in spec plus parse) with the constraints each must satisfy. The choice is
-  not made here, and the second route is a GOV-15 adjudication because the form
-  loads cleanly today.
+- **Status:** fixed (0.141.0). §Fix was constraint-pinned, not settled: two routes
+  were stated (implement forwarding through the re-export chain; refuse or limit
+  the form in spec plus parse) with the constraints each must satisfy. §Fix
+  (0.141.0) below records the in-run adjudication — route A — and what shipped.
 - **Sev/Diff estimate:** S1/D3 — a name the static gate admits delivers no
   value and each use position produces a different silent or misattributed
   runtime outcome; the fix needs an in-run route decision across the parser,
@@ -824,3 +823,272 @@ Constraints on either route:
   outputs quoted above, then deleted per scratch policy. No file in the tree
   was written by the probes. `src/`, `tests/` and every other bug doc are
   unmodified by this filing.
+
+
+## Fix (0.141.0)
+
+**Route adjudication (§Fix, decided in-run).** **Route A — resolve the re-export
+chain.** The load pass follows an `export … from` edge as it follows an
+`import … from` edge, so the admission test and the binding walk read one input.
+Route B — withdrawing or narrowing the `ExportDecl` production and refusing what
+the spec no longer defines — was **rejected**: every bullet of §Expected states
+the outcome route A produces ("a name the admission test admits is a name the
+environment binds"; "a re-export resolves to the declaration it names"), route B
+would withdraw the only export spelling the language admits since 0058, and it
+leaves open the governance question §Fix itself poses — whether the GOV-15
+diagnostic-registry carve-out reaches the withdrawal of a published production
+at all, or whether that withdrawal needs its own adjudication. Route A engages
+no such question: it adds no code and no row, and every newly-emitting input is
+inside the carve-out's ADDITION direction.
+
+**Evidence staleness.** Every citation in this document is at `069c0117`
+(0.60.0). §Reproduction was re-derived at the fix baseline `af221903` (0.134.0)
+before any red was pinned: **zero drift** — every row reproduces exactly as
+filed, and none of bug 0100's four new refusals discharges any input class here
+(every fixture is a fully specified from-bearing `export { Name } from
+"./x.thetalib"`, which 0100 pins as explicitly admitted in its
+`f-export-set-control` row). Re-derived line anchors: `computeThetaLibExports`
+`imports.ts:723` (not `:652`), `thetalibLocalBindings` `:741`;
+`collectIdentRoots` `theta-document.ts:4844` (import arm `:4856–4864`),
+`fnImportDecls` `:5719`, `resolvesToPiTool` `:5868`; the pure ident arm
+`production-theta-producer.ts:6342`, `UnknownHostToolError` `:629` / `:3197`;
+the closure walk's export visit `production-composition.ts:2201`;
+`theta-document.ts` is 7490 lines. `import-static-checks.ts`' own anchors held
+at the baseline (`collectImports:77`, `extractThetaLibForms:106`,
+`materializeSymbol:156`, the miss `:187`) and have all moved since.
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — the whole of the mechanism, in
+    three explicit phases inside `checkThetaImports`, all state closure-local.
+    `closeOverReExports` collects the reachable `.thetalib` set and its
+    re-export edges, resolving each `export` STATEMENT's path once through the
+    existing `loadThetaLibImport` seam — IMP-1 on a re-export's own path, sited
+    on the re-exporting lib and ranged over the statement, because the path
+    belongs to the statement and not to each of its specifiers. A `fromPath`
+    not ending in `.thetalib` is skipped, mirroring the import loop's extension
+    skip, so the parse-time `theta/parse/import-non-thetalib-extension` stays
+    the sole answer there and a 0058-refused from-less export's `""` path is
+    untouched. `fixReExportedNames` computes every collected lib's resolved
+    export set as a monotone least fixpoint — seeded at its declaration names,
+    grown by each re-export whose source lib's set already holds its `source`,
+    iterated to stability — which makes the answer a pure function of the
+    `.thetalib` file set, independent of the entry lib and of the order an
+    importing theta names its imports. `diagnoseReExports` then emits one
+    `theta/parse/import-unknown-symbol` per re-export the settled fixpoint
+    refutes, through the existing `checkImportUnknownSymbols`, sited on the
+    re-exporting lib and ranged over the specifier, naming the re-export's own
+    `fromPath`. `materializeChain` follows the same edges to bind an importing
+    specifier to the declaration a chain ultimately names, under the importing
+    specifier's local name, with `materializeSymbol`'s FN-9 subagent
+    session-config re-resolution still applying at the leaf. `walkThetaLib`'s
+    edge set widens to include `export … from` edges, so
+    `theta/load/import-cycle` is the code that fires on a re-export cycle —
+    which is also what brings this walk to the same answer as
+    `collectCallableClosureSources` (§Fix constraint 7).
+  - `src/parser/imports.ts` — **unchanged** (§Fix constraint 1).
+    `computeThetaLibExports` keeps its two admitted sources and its one
+    exclusion, and the importing specifier's own IMP-3 admission still ranges
+    over that syntactic set: a re-export the analysis refutes un-registers the
+    importing theta through the existing registration channel rather than by a
+    second, duplicate diagnostic sited on the importer's specifier.
+    `thetalibLocalBindings` is untouched, so the cka-48 no-local-binding
+    property is untouched (constraint 3).
+  - `docs/spec_topics/imports.md` — §Re-exports states that "creates no local
+    binding" scopes to the re-exporting file's own scope and that resolving a
+    re-export is a separate downstream question, that IMP-1 governs a
+    re-export's path identically to an `import`'s (once per statement, ranged
+    over the statement), and the fixpoint rule with its entry- and
+    order-independence guarantee. §Unknown imported symbol states which file
+    the `export { Foo } from` arm is reported against and that the error fails
+    to register the importing theta. §Cycles names both edge kinds. The four
+    productions are **unchanged** — this fix implements them (constraint 2).
+  - `docs/reference/grammar.md` — the same rules in the user-facing register,
+    same commit, plus a §Provenance entry. Productions unchanged.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — the
+    `theta/load/import-cycle` *Trigger* re-derived to name both edge kinds:
+    "Static walk of the `.thetalib` graph — `import … from` edges and
+    `export … from` re-export edges alike — discovers a cycle." No new code, no
+    new row, no *Message* change, so the closed placeholder category table is
+    untouched and `docs/reference/diagnostics.md`'s mirror row — which carries
+    code, severity, phase and *Message* only, no *Trigger* column — needed no
+    edit (DIAG-2 satisfied by inspection, quoted). The *Triggers* of
+    `theta/parse/import-unknown-symbol` (`code-registry-parse.md:117`) and
+    `theta/load/unresolvable-thetalib-path` (`code-registry-load.md:42`)
+    already name `export { ... } from` specifiers and `export … from` specs by
+    name, so those two arms are the enforcement of published prose, not a
+    widening.
+  - `docs/plan_topics/coverage-matrix.md` — inspected, **unchanged**:
+    `cka-48`'s wording is scoped to the re-export creating no local binding
+    *for the re-exported symbol*, the lib-local property
+    `thetalibLocalBindings` implements. It says nothing about the importing
+    file's binding, so this fix does not falsify it.
+  - `tests/reexport-chain-resolution.test.ts` — new, 22 cells, offline and
+    provider-free, built on the invariant **a re-export delivers exactly what
+    the direct import of the same declaration delivers**: every row measures
+    its direct-import control in the same test, pins the control absolutely
+    first so no equality can pass vacuously, and asserts `materialised` before
+    the runtime value. (a1) the DIAG-2 / DIAG-4 registry anchor for all three
+    codes, read from the sharded pages and failing loudly on an absent row;
+    (a2) the widened `import-cycle` *Trigger*; (b) the chain and its control on
+    `materialised` AND the runtime value; (c) the alias row; (d) the depth-2
+    chain; (e1–e4) the four use positions; (f) the schema-brand pair
+    (`schemaTagOf`); (g1, g2, g3) the unknown-source-symbol, missing-file and
+    wrong-extension rows, the last asserted UNCHANGED at one diagnostic;
+    (g4, g5) the two-specifier statement — one IMP-1 at the statement range,
+    one unknown-symbol at the specifier range; (h) the re-export cycle;
+    (h-cut-order-independence) a cycle member carrying a grounded re-export,
+    asserted in both import orders; (j) the provided 3-cycle, asserted from
+    both entry libs; (i) the `.thetalib`-on-the-importing-side row.
+  - `tests/live/live-production-acceptance.test.ts` — tail-appended H8a cell
+    `CELL-E2`: a real registered theta resolves `greet` through
+    `export { greet } from` to `base.thetalib`'s declaration and renders its
+    call's value on the outbound wire. Additive only; no existing cell edited
+    or renumbered.
+- Gates:
+  - Witness: `npx vitest run tests/reexport-chain-resolution.test.ts` →
+    `Test Files 1 passed (1)`, `Tests 22 passed (22)`. Pre-fix the same file
+    was `Tests 12 failed | 5 passed (17)` at its first pinning, every red
+    naming an absent binding (`expected [] to deeply equal [ 'fn greet' ]` and
+    siblings), an absent diagnostic
+    (`Rendered diagnostics: []: expected +0 to be 1`) or the absent *Trigger*
+    sentence.
+  - Full default suite: `npm test` → `Test Files 334 passed (334)`,
+    `Tests 6152 passed (6152)` (baseline at fork af221903: 333 / 6130).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Test Files 1 passed (1)`,
+    `Tests 68 passed (68)` (baseline 67), `CELL-E2` green.
+  - Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/noninteractive-acceptance.test.ts
+    tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` →
+    `Test Files 2 passed (2)`, `Tests 11 passed (11)` (baseline 11 / 11). No
+    stderr-gate widening was needed; no unpermitted diagnostic code appeared.
+  - GOV-15 census at the fix baseline: 35 committed `.theta` / `.thetalib`
+    files, the only `export` token being the prose word "exported" in a comment
+    at `tests/live/acceptance/fixtures/acc-lib.thetalib:2`, no `export`
+    statement of any form — **zero flips**. Discharged corpus-wide by
+    `tests/committed-fixture-parse-gate.test.ts` (36 cells, green), not by a
+    scratch probe. The three newly-emitting input classes — a re-export whose
+    path does not resolve, a re-export naming a symbol nothing in the reachable
+    set provides, and a re-export cycle — all loaded cleanly before and all sit
+    in the carve-out's ADDITION direction.
+- Review: 3 rounds. Round 1 (`bug-fix-reviewer`) — DEFECTS(3): a
+  cycle-truncated export set was memoised as settled, so the diagnostic set
+  depended on the importing theta's `import`-statement order, with both a false
+  `import-unknown-symbol` against a correct re-export and the silent swallowing
+  of a genuinely broken one; one `export` statement with N specifiers emitted N
+  duplicate `theta/load/unresolvable-thetalib-path` where the import side emits
+  one; and the witness header mixed two baselines in its line citations. Two
+  residuals were actioned in the same round — the banned historical-reference
+  comment prefixes and an overclaiming header sentence. Round 2
+  (`bug-fix-reviewer`, routed deep because round 1 raised correctness) —
+  DEFECTS(1), `correctness`/`spec`: the round-1 taint machinery removed
+  order-dependence but not ENTRY-dependence — when a name flows through the
+  cycle-guard edge, the frame one above reads a truncated set and emits a false
+  `import-unknown-symbol`, proven on a 3-cycle in which every name is genuinely
+  provided; this also contradicted two sentences the fix had just added to
+  imports.md. Remedy chosen by the orchestrator: make the code true rather than
+  weaken the sentence — replace the whole taint apparatus with the monotone
+  fixpoint. Round 3 (`bug-fix-reviewer`, routed deep for the same reason) —
+  CLEAN, after eleven adversarial probes (overlapping SCCs, alias chains through
+  a cycle, mis-keyed hops, unresolvable-only sources, dual reachability,
+  overlapping entry closures, self-re-export, unreadable source, termination),
+  with three non-blocking residuals recorded below. One `bug-fix-fixer-light`
+  polish round followed, for a normative sentence whose grammatical object was
+  wrong; its diff touches one Markdown prose clause and no executable line, so
+  the polish was verified by the gate diff and no confirmation review round was
+  dispatched.
+- Verification: SOLID. (1) The witness reds by arm, each neutralisation restored
+  and blob-hash-verified against the pre-neutralisation working-tree hash
+  (`src/extension/import-static-checks.ts`
+  `dd5cfa4dabcedbe8575f5250f2f2067b9e16889b`,
+  `docs/spec_topics/diagnostics/code-registry-load.md`
+  `9041baff9c53d12c83225f204ed90c529020c3b9`): degenerating `materializeChain`
+  to direct-only reds 11 cells; neutralising `diagnoseReExports` reds exactly
+  g1, g5, h-cycle and h-cut-order-independence; dropping the IMP-1 arm reds
+  exactly g2 and g4; reverting the widened cycle edge reds h-cycle,
+  h-cut-order-independence and both (j) cells; reverting the *Trigger* widening
+  reds exactly a2. No cell failed to red on every arm. (2) Full suite green,
+  334 / 6152. (3) `CELL-E2` red-proven both directions: green, then red under
+  the degenerated `materializeChain` with the signature the bug doc predicts
+  (the ordinary-call throw aborts the drive before the `@`-query renders, so the
+  outbound `userTexts` is empty rather than carrying the delivered value), then
+  restored byte-exact and green. Both H9a files green for real. (4) Typecheck
+  and lint clean. `git diff --numstat` shows only the five files this fix owns;
+  every frozen fence file and `src/parser/*` is byte-identical to HEAD.
+- Residuals:
+  1. **`materializeChain`'s `visited` set is shared across sibling branches, so
+     on error-carrying inputs `materialised` can omit a fixpoint-provided
+     binding and can depend on statement order.** Two shapes were constructed in
+     review: a diamond where a dead first branch pollutes the shared set and
+     cuts a valid second branch through the same node, and a rename bounce-back
+     cycle whose derivation must revisit its entry lib. Unobservable in
+     production — every such input provably carries an error-severity diagnostic
+     (an invalid edge draws `theta/parse/import-unknown-symbol`, a revisit on
+     the current path draws `theta/load/import-cycle`), and
+     `src/extension/production-composition.ts` discards the `imports` list on
+     any error diagnostic, so the divergent output is dead. Bug 0101's
+     clean-gates-no-binding class therefore cannot recur. A per-branch visited
+     set, or materialising off the settled fixpoint, would make the dead output
+     consistent. Unfiled.
+  2. **The analysis runs over the libs reachable from the importing theta's
+     DIRECT imports and their re-export closure, not over libs reached only
+     through a plain `import` inside another lib.** A broken re-export inside a
+     plain-import-reached lib is therefore silent. Consistent with the
+     pre-existing depth of the walk (`walkThetaLib` discards `load.diagnostics`
+     for transitive `import` edges too, and a transitive lib's own import
+     specifiers were never unknown-symbol-checked), and functionally inert
+     because a plain-import local is excluded from export sets and so cannot
+     feed the importer's bindings. Unfiled.
+  3. **A resolved-but-unreadable source lib reads as an empty export set**, so a
+     re-export from it draws `theta/parse/import-unknown-symbol` rather than a
+     read-failure code. Defensible — the file provides nothing — and it mirrors
+     the import side's silent `continue`, but no witness cell pins it. Unfiled.
+  4. **The printed cycle path in `theta/load/import-cycle`'s message rotates
+     with the importing theta's statement order,** because the IMP-5 loop
+     iterates `entryStems` in import order and breaks on the first hit. Measured
+     both ways on the (j) fixture: same code, same severity, same count, only
+     the printed path rotates. Pre-existing HEAD behaviour on the import side,
+     inherited by the widened edge set; the witness asserts containment of each
+     lib name rather than the printed order. Unfiled.
+  5. **Two frozen fence test files carry now-stale
+     `src/extension/import-static-checks.ts:<line>` comment citations** —
+     `tests/import-export-from-clause-required.test.ts` (comments near lines 20,
+     228, 333, 499) and
+     `tests/import-specifier-list-production-required.test.ts` (near 293, 419,
+     872, 889, 926). Some were already stale before this fix (bug 0100 recorded
+     the same class as its residual 4); the rest were exact at `af221903` and
+     this fix's +253 lines in that module shifted them. Both files are frozen —
+     existing tests change only with bug-doc pre-authorization, and there is
+     none — so they were deliberately left byte-identical to HEAD and verified
+     green (250 fence assertions pass; comments do not affect execution).
+     Refreshing them needs a doc-authorized pass.
+  6. **Line-anchor drift in the pages this fix amends.**
+     `docs/spec_topics/imports.md` net **+25** and `docs/reference/grammar.md`
+     net **+19**, so every line citation into those pages below the insertion
+     points is stale by that amount — carriers include bug documents 0058, 0100,
+     this one, 0040, 0118, 0127, 0132, 0138, 0140 and 0191, plus the two frozen
+     fence tests and the new witness.
+     `docs/spec_topics/diagnostics/code-registry-load.md` is net **0** (an
+     in-place one-line *Trigger* rewrite). §Fix constraints 2, 3 and 4 make the
+     re-derivation mandatory, so the drift is inherent to the fix rather than
+     avoidable; no shipped test reads either page by line number (full suite
+     green).
+- Discharge notes appended: none. No sibling document's subject was closed here.
+  Bug 0058's §Fix *Residuals* item (ii) — the observation this report is the
+  filing of — is closed BY this fix, but 0058's record is a shipped historical
+  record and was not amended.
+- Pinned dispositions / non-goals: every §Non-goals item is untouched. The
+  `unresolved` arm's five different consumers keep their dispositions — cell
+  (e3) pins that a bare identifier read is `null` for a MATERIALISED import too
+  (the pure evaluator's `case "ident"` reads `null` for every non-local arm), so
+  the fix delivers the binding without adjudicating that arm. The
+  `PiToolArgShapeDefectError` message text is unchanged, and DIAG-4 defers a
+  *Message* reword regardless. `thetalibLocalBindings` still has no `src/`
+  caller. The `.theta` `export` question is untouched. Cell (i), the
+  `.thetalib`-on-the-importing-side row, is a FENCE rather than a witness, and
+  the reason is measured: its direct-import control throws identically, because
+  a lib's own `import` is never materialised into its importer and `wrap`'s body
+  runs in the caller's environment. That is a distinct, unfiled gap and
+  deliberately out of scope here — materialising a lib's own imports into its
+  importer would flip (i)'s equality assertion.

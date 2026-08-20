@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.141.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0101 — a `from`-bearing re-export now delivers a real binding.** The
+  one defined re-export form resolved at the static gate but materialised
+  nothing at compose — a consumer importing the re-exported name got no
+  binding with zero diagnostics. Route A: `closeOverReExports` +
+  `fixReExportedNames` (monotone least fixpoint) + `diagnoseReExports` +
+  `materializeChain` in `import-static-checks.ts`, with the cycle edge set
+  widened (`import-cycle` Trigger re-derived same commit) and
+  `imports.md`/`grammar.md` amended. Witness:
+  `tests/reexport-chain-resolution.test.ts` (22 cells) + H8a cell 71
+  (red-proven both directions).
+
 ## [0.140.0] - 2026-08-26
 
 ### Fixed

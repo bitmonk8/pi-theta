@@ -44,6 +44,13 @@ of its own; the downstream-visible name is the alias, or the source name when
 unaliased. A plain `import` does not re-export its local: only declarations and
 `export ... from` re-exports are visible to a downstream importer.
 
+"Creates no local binding" scopes to the re-exporting file's own scope; the
+importing file's binding is a separate rule. An `export` resolves through the
+chain of `export ... from` statements to the declaration each ultimately
+names, and an importing specifier naming the downstream alias binds that
+declaration under its local name, exactly as a direct import of the same
+declaration would.
+
 Path literals follow the [Source files](#source-files) forward-slash rule; an
 `import` / `export ... from` path literal additionally must end in
 `.thetalib`, or it is `theta/parse/import-non-thetalib-extension`.
@@ -59,7 +66,15 @@ like: `import { a as }` with no `from` clause draws both codes at once, the
 missing-from-clause one over the statement and the malformed-specifier-list one
 over the specifier. A specifier naming a symbol absent from the resolved
 `.thetalib` file's declarations and re-exports is
-`theta/parse/import-unknown-symbol`.
+`theta/parse/import-unknown-symbol`. For an `export { Foo } from` specifier the
+check is reported against the RE-EXPORTING file, not any later importer of the
+alias, and its `.thetalib` path is subject to
+`theta/load/unresolvable-thetalib-path` (IMP-1) on the same terms as an
+`import`'s; either failure propagates to the re-exporting file's own importers
+through the load-time registration channel. A re-export provides its name when
+the reachable set of `.thetalib` files provides it, so a name that flows round a
+re-export cycle is provided and only a name nothing in that set provides is
+unknown — which file an importer enters the set through never changes the answer.
 
 ## Identifiers
 
@@ -613,7 +628,11 @@ ToolField ::= Ident ":" Expr
   refusal this section documents:
   `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`; the
   malformed-specifier-list refusal (absent/empty specifier list, dangling `as`):
-  `docs/bugs/0100-production-excluded-import-export-spellings-parse-clean.md`.
+  `docs/bugs/0100-production-excluded-import-export-spellings-parse-clean.md`;
+  the re-export chain resolution (a re-export binds the importing specifier to
+  the declaration it names, and its own `.thetalib` path and specifier are
+  checked against the file it names):
+  `docs/bugs/0101-from-bearing-reexport-materialises-nothing.md`.
 - Same-line rule for postfix index access (a line-leading `[` begins a new
   statement): `docs/bugs/0006-leading-bracket-glued-as-index-access.md`
   (fixed 0.13.0, Option 1).

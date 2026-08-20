@@ -11551,3 +11551,128 @@ describe("H8a-T — bug 0204 (cell 70, cell 69): a params: field over an inline 
     }
   });
 });
+
+// ===========================================================================
+// Bug 0101 (cell 71) — an `export { greet } from "./base.thetalib"` re-export
+// consumed through a chain: `mid.thetalib` re-exports `greet` from
+// `base.thetalib`, and `app.theta` imports `greet` from `mid.thetalib`. At the
+// pre-fix baseline (af221903 / 0.134.0) `computeThetaLibExports` admitted the
+// specifier (the name entered `mid`'s export set unconditionally) but
+// `materializeSymbol` searched `mid`'s OWN top-level statements only, found no
+// `fn` / `schema` / `enum` named `greet` there (a re-export statement matches
+// none of those arms) and returned `undefined`, so `checkThetaImports` returned
+// an EMPTY `imports` list: the name resolved to the `unresolved` lexical-scope
+// arm at run time. `greet("x")` — a call whose first argument is not an object
+// literal — then reached `resolveUserFn`, found nothing, and threw
+// `PiToolArgShapeDefectError` inside the production lowering
+// (`src/extension/production-theta-producer.ts`'s 0003 belt), aborting the
+// theta before the query ever rendered — this is bug 0101 §Reproduction's
+// "ordinary call" row, live.
+//
+// Route A's fix (`src/extension/import-static-checks.ts`'s `materializeChain`)
+// follows the `export … from` edge when the resolved lib's own body carries no
+// matching declaration, binding the importing specifier's local name to the
+// declaration the chain ultimately names — here, `base.thetalib`'s own
+// `greet`. Post-fix `greet("x")` runs in-process through `resolveUserFn` and
+// returns `"x"`, which the prompt-mode query then interpolates and sends as
+// the outbound user turn: the DELIVERED value, not just a passing static gate,
+// is the live-observable surface this cell measures (bug 0101 §Expected: "a
+// name the admission test admits is a name the environment binds").
+//
+// The `theta-system-note` channel (AGENTS.md §"Assert on real observables") is
+// the deterministic fail-closed signal: pre-fix, the production-lowering throw
+// surfaces as a `theta /b101livechain aborted…` note and the outbound query
+// never renders (no `userTexts` entry naming the delivered value); post-fix, no
+// such note fires and `turn.userTexts` carries the rendered value. Mirrors the
+// bug 0119 cell immediately above: `driveSlashCaptureTurn`, asserting on the
+// deterministic `turn.userTexts` and `turn.systemNotes` channels, never on
+// `assistantText` or on `prompt()` merely resolving.
+//
+// `base.thetalib` and `mid.thetalib` are written into `<cwd>/.pi/theta/` AFTER
+// `plantThetaWorkspace` returns and BEFORE `bootShippedExtension`, so they sit
+// BESIDE the planted `.theta` files and each relative `.thetalib` spec
+// resolves against its own importing file's directory (imports.md:19). A
+// `.thetalib` is never slash-command-discovered (imports.md:15), so planting
+// them adds no registration of their own — mirrors the bug 0100 cell above.
+//
+// This is NOT registration-only: the whole point under test is that the
+// re-exported binding DELIVERS a value at run time, which requires driving one
+// real model turn (token-bounded — a two-word reply).
+//
+// NOTE (cell 71): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/** `app.theta`: imports `greet` through the re-export chain and calls it. */
+function reexportChainDeliveryTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'import { greet } from "./b101livemid.thetalib"',
+    'let r = greet("x")',
+    '@`VALUE=${r}|END reply with exactly: OK`',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0101 (cell 71): a from-bearing re-export chain delivers its declaration's value, live (Convention: live-host acceptance)", () => {
+  it("resolves `greet` through `export { greet } from` to `base.thetalib`'s declaration and renders its call's value on the outbound wire", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work independently of the
+      // fixture under test.
+      { source: "project", stem: "b101livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b101livechain", text: reexportChainDeliveryTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    writeFileSync(
+      join(workspace.cwd, ".pi", "theta", "b101livebase.thetalib"),
+      "fn greet(x: string) {\n  x\n}\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(workspace.cwd, ".pi", "theta", "b101livemid.thetalib"),
+      'export { greet } from "./b101livebase.thetalib"\n',
+      "utf8",
+    );
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b101livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the fixture under test, would explain the re-export chain fixture's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b101livechain"),
+        "no bug-0101 re-export-chain command to invoke — the .theta or one of " +
+          "its `.thetalib`s failed discovery/parse. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b101livechain");
+      // PRIMARY: the re-exported `greet` must have resolved to `base.thetalib`'s
+      // declaration and run in-process, so the outbound query carries its
+      // returned value. Pre-fix, this text never renders — the call throws
+      // before the `@`-query evaluates.
+      expect(
+        turn.userTexts,
+        "the outbound query text must carry the value the re-exported `greet` " +
+          "returned. Outbound user texts: " + JSON.stringify(turn.userTexts),
+      ).toEqual(["VALUE=x|END reply with exactly: OK"]);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b101livechain (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the re-export-chain drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

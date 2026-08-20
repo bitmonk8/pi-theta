@@ -15,8 +15,33 @@
 //     `.thetalib`-keyed top-level check emits `theta/parse/thetalib-top-level-statement`;
 //     those diagnostics are surfaced here so an illegal `.thetalib` top-level form
 //     un-registers the importing theta.
-//   - IMP-5 — `detectImportCycle` over the per-load-pass static `.thetalib` import
-//     graph (`theta/load/import-cycle`).
+//   - IMP-5 — `detectImportCycle` over the per-load-pass static `.thetalib` graph
+//     (`theta/load/import-cycle`). Its edge set spans `import … from` and
+//     `export … from` edges alike, per imports.md §Cycles and the code's registry
+//     Trigger, so a re-export cycle is diagnosed on the same code as an import
+//     cycle.
+//   - Re-export chain resolution (imports.md §Re-exports, the resolution
+//     paragraph) — three ordered phases over the `export … from` edges reachable
+//     from the resolved entry libs. `closeOverReExports` collects those libs and
+//     their edges, resolving each `export` STATEMENT's path once so
+//     `theta/load/unresolvable-thetalib-path` fires once over the statement's
+//     range, as on the import side. `fixReExportedNames` then computes every
+//     collected lib's resolved export set as the LEAST FIXPOINT of the collected
+//     file set: seeded with each lib's own declaration names, a re-export's
+//     `exported` name is added whenever its source lib's current set carries its
+//     `source` name, iterated to stability. Only then is each edge diagnosed: an
+//     edge whose `source` is absent from that settled set draws one
+//     `theta/parse/import-unknown-symbol` over the SPECIFIER (that code names one
+//     symbol), sited on the re-exporting lib and reaching the importing theta
+//     through the same registration-error arm as IMP-4. Diagnosing only after
+//     the fixpoint settles is what makes the answer a function of the
+//     `.thetalib` file set alone — never of the entry lib or the order an
+//     importing file names its imports — which is the guarantee imports.md
+//     §Re-exports states: a name that genuinely flows round a cycle is provided,
+//     and only a name nothing in the reachable set provides is an unknown symbol.
+//     `materializeChain` follows the same edges to bind the importing specifier's
+//     local name to the declaration a chain ultimately names, bounded by a
+//     visited-path set.
 //
 // The resolved `.thetalib`'s exported declarations are also materialised into the
 // importing theta's runtime environment (imports.md §Visibility): an imported
@@ -28,7 +53,7 @@
 // diagnostics/code-registry-parse.md, diagnostics/code-registry-load.md.
 
 import { posix } from "node:path";
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import {
   RelativeThetaLibResolver,
@@ -320,7 +345,10 @@ export async function checkThetaImports(
 
   // Build the static `.thetalib` import graph transitively from this theta's direct
   // imports (imports.md §Cycles). Nodes are `.thetalib` stems; an edge `A → B`
-  // exists when `A.thetalib` has a resolvable `import … from "./B.thetalib"`.
+  // exists when `A.thetalib` has a resolvable `import … from "./B.thetalib"` OR a
+  // resolvable `export … from "./B.thetalib"` re-export: imports.md §Cycles walks
+  // the `.thetalib` graph over both edge kinds, which is also what
+  // `collectCallableClosureSources` already does.
   const graphEdges = new Map<string, string[]>();
   const walked = new Set<string>();
   const walkThetaLib = async (resolvedPath: string): Promise<void> => {
@@ -332,11 +360,19 @@ export async function checkThetaImports(
     const parsed = await parseThetaLib(resolvedPath);
     const targets: string[] = [];
     if (parsed !== undefined) {
-      for (const decl of collectImports(parsed.document.body)) {
-        await probe.precache(decl.path, normalizePath(resolvedPath));
-        const load = loadThetaLibImport(resolver, decl.path, normalizePath(resolvedPath), {
+      // One edge per STATEMENT (an `export` statement's N specifiers name one
+      // path, so they are one edge), mirroring the `import` side.
+      const edges: Array<{ path: string; range: SourceRange }> = [];
+      for (const stmt of parsed.document.body.statements) {
+        if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
+          edges.push({ path: stmt.path, range: stmt.range });
+        }
+      }
+      for (const edge of edges) {
+        await probe.precache(edge.path, normalizePath(resolvedPath));
+        const load = loadThetaLibImport(resolver, edge.path, normalizePath(resolvedPath), {
           file: resolvedPath,
-          range: decl.range,
+          range: edge.range,
         });
         if (load.registered && load.resolvedPath !== undefined) {
           targets.push(thetalibStem(load.resolvedPath));
@@ -347,8 +383,207 @@ export async function checkThetaImports(
     graphEdges.set(stem, targets);
   };
 
+  /**
+   * One `export { source as exported } from "<specPath>"` specifier, with both
+   * ends already resolved: `fromLib` re-exports `exported`, drawing on
+   * `sourceLib`'s `source`.
+   */
+  interface ReExportEdge {
+    readonly fromLib: string;
+    readonly sourceLib: string;
+    readonly specPath: string;
+    readonly source: string;
+    readonly exported: string;
+    readonly range: SourceRange;
+  }
+
+  /** Each collected lib's own top-level declaration names — the fixpoint's seed. */
+  const libDeclaredNames = new Map<string, readonly string[]>();
+  const reExportEdges: ReExportEdge[] = [];
+  const closedOver = new Set<string>();
+
+  /**
+   * Phase 1 — collect the `.thetalib` files reachable from one resolved entry lib
+   * over `export … from` edges, with their declaration names and their edges.
+   *
+   * Resolution happens here and once per `export` STATEMENT, because the path
+   * belongs to the statement and not to each of its specifiers: that is what
+   * makes `theta/load/unresolvable-thetalib-path` fire once over `stmt.range`,
+   * identically to the import loop below ranging it over `decl.range`. The
+   * per-path guard also bounds a re-export cycle, so no name is admitted or
+   * diagnosed during collection — the answer to "which names does this lib
+   * provide" is not knowable until the fixpoint below settles.
+   */
+  const closeOverReExports = async (resolvedPath: string): Promise<void> => {
+    if (closedOver.has(resolvedPath)) {
+      return;
+    }
+    closedOver.add(resolvedPath);
+    const parsed = await parseThetaLib(resolvedPath);
+    if (parsed === undefined) {
+      libDeclaredNames.set(resolvedPath, []);
+      return;
+    }
+    libDeclaredNames.set(
+      resolvedPath,
+      extractThetaLibForms(parsed.document.body).declarations.map(
+        (declaration) => declaration.name,
+      ),
+    );
+    for (const stmt of parsed.document.body.statements) {
+      if (stmt.kind !== "export") {
+        continue;
+      }
+      // A path not ending in `.thetalib` is SKIPPED, mirroring the import loop's
+      // extension skip below: the parse-time
+      // `theta/parse/import-non-thetalib-extension` is already the answer for
+      // that spelling (and a from-less export's `path: ""` is the same rule), so
+      // this analysis does not double-report it.
+      if (!stmt.path.endsWith(".thetalib")) {
+        continue;
+      }
+      await probe.precache(stmt.path, resolvedPath);
+      const load = loadThetaLibImport(resolver, stmt.path, resolvedPath, {
+        file: resolvedPath,
+        range: stmt.range,
+      });
+      if (!load.registered || load.resolvedPath === undefined) {
+        // IMP-1 on the re-export statement's own path, sited on the re-exporting
+        // lib. An unresolvable source lib contributes no edge, so the specifiers
+        // it names draw no second, unknown-symbol report.
+        diagnostics.push(...load.diagnostics);
+        continue;
+      }
+      for (const specifier of stmt.specifiers) {
+        reExportEdges.push({
+          fromLib: resolvedPath,
+          sourceLib: load.resolvedPath,
+          specPath: stmt.path,
+          source: specifier.source,
+          exported: specifier.local,
+          range: specifier.range,
+        });
+      }
+      await closeOverReExports(load.resolvedPath);
+    }
+  };
+
+  /**
+   * Phase 2 — the least fixpoint of the collected file set: each lib's resolved
+   * export set is its own declaration names plus every re-export whose source lib
+   * provides the name it draws on.
+   *
+   * Iterating to stability rather than recursing down one chain is what makes the
+   * result a pure function of the `.thetalib` file set (imports.md §Re-exports):
+   * a name that genuinely flows round a cycle is reached on a later round instead
+   * of being cut by whichever chain the derivation happened to enter on. The sets
+   * only grow, inside the finite universe of names the collected files spell, so
+   * the loop terminates.
+   */
+  const fixReExportedNames = (): Map<string, Set<string>> => {
+    const provided = new Map<string, Set<string>>();
+    for (const [path, names] of libDeclaredNames) {
+      provided.set(path, new Set(names));
+    }
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const edge of reExportEdges) {
+        const target = provided.get(edge.fromLib);
+        if (target === undefined || target.has(edge.exported)) {
+          continue;
+        }
+        if (provided.get(edge.sourceLib)?.has(edge.source) === true) {
+          target.add(edge.exported);
+          grew = true;
+        }
+      }
+    }
+    return provided;
+  };
+
+  /**
+   * Phase 3 — one `theta/parse/import-unknown-symbol` per re-export whose source
+   * name the settled fixpoint shows nothing provides, sited on the re-exporting
+   * lib and ranged over the specifier (that code names one symbol).
+   */
+  const diagnoseReExports = (provided: Map<string, Set<string>>): void => {
+    for (const edge of reExportEdges) {
+      const sourceExports = provided.get(edge.sourceLib) ?? new Set<string>();
+      if (sourceExports.has(edge.source)) {
+        continue;
+      }
+      diagnostics.push(
+        ...checkImportUnknownSymbols(
+          edge.fromLib,
+          edge.specPath,
+          [{ source: edge.source, local: edge.exported, range: edge.range }],
+          [...sourceExports],
+        ),
+      );
+    }
+  };
+
+  // Materialise an importing specifier by following the
+  // re-export chain (imports.md §Re-exports, the resolution paragraph) when the
+  // resolved lib's own body carries no matching
+  // top-level declaration for the SOURCE name — searching the re-export whose
+  // `exported` equals that source name, at its resolved source lib, binding
+  // under the IMPORTING specifier's LOCAL name throughout. Bounded by a
+  // visited-path set (fresh per top-level specifier) so a re-export cycle
+  // terminates by contributing no binding, matching `resolveLibExports`'
+  // in-progress bound.
+  const materializeChain = async (
+    source: string,
+    local: string,
+    resolvedPath: string,
+    body: ThetaBody,
+    callingFrontmatter: ParsedFrontmatter | null,
+    visited: Set<string>,
+  ): Promise<MaterializedImport | undefined> => {
+    if (visited.has(resolvedPath)) {
+      return undefined;
+    }
+    visited.add(resolvedPath);
+    const direct = materializeSymbol(source, local, body, callingFrontmatter);
+    if (direct !== undefined) {
+      return direct;
+    }
+    for (const reExport of extractThetaLibForms(body).reExports) {
+      if (reExport.exported !== source || !reExport.fromPath.endsWith(".thetalib")) {
+        continue;
+      }
+      await probe.precache(reExport.fromPath, resolvedPath);
+      const load = loadThetaLibImport(resolver, reExport.fromPath, resolvedPath, {
+        file: resolvedPath,
+        range: reExport.range,
+      });
+      if (!load.registered || load.resolvedPath === undefined) {
+        continue;
+      }
+      const sourceParsed = await parseThetaLib(load.resolvedPath);
+      if (sourceParsed === undefined) {
+        continue;
+      }
+      const materialized = await materializeChain(
+        reExport.source,
+        local,
+        load.resolvedPath,
+        sourceParsed.document.body,
+        callingFrontmatter,
+        visited,
+      );
+      if (materialized !== undefined) {
+        return materialized;
+      }
+    }
+    return undefined;
+  };
+
   const localTopLevelNames = collectTopLevelNames(input.body);
   const entryStems: string[] = [];
+  /** Every resolved directly-imported lib, the roots of the re-export closure. */
+  const entryResolvedPaths: string[] = [];
   // The union of every importing `import … from` decl's specifiers, checked once
   // for name collisions after the per-decl loop (imports.md §"Name collisions"):
   // two imports binding the same local name — from two different `.thetalib` files or
@@ -377,6 +612,7 @@ export async function checkThetaImports(
     }
     const resolvedPath = load.resolvedPath;
     entryStems.push(thetalibStem(resolvedPath));
+    entryResolvedPaths.push(resolvedPath);
 
     // IMP-4: parse the resolved `.thetalib`; its `.thetalib`-keyed top-level check
     // (and any nested import extension error) surfaces here so an illegal form
@@ -411,14 +647,17 @@ export async function checkThetaImports(
 
     // IMP-6 / IMP-7: materialise each resolved symbol so an imported `fn` is
     // callable and its query body drives the caller's conversation. The
-    // declaration is found by its source name and bound under its local (`as`)
-    // name.
+    // declaration is found by its source name, following the re-export chain
+    // when the resolved lib's own body carries no matching declaration, and
+    // bound under its local (`as`) name.
     for (const specifier of specifiers) {
-      const materialized = materializeSymbol(
+      const materialized = await materializeChain(
         specifier.source,
         specifier.local,
+        resolvedPath,
         parsed.document.body,
         input.frontmatter,
+        new Set<string>(),
       );
       if (materialized !== undefined) {
         imports.push(materialized);
@@ -428,6 +667,20 @@ export async function checkThetaImports(
     // Seed the cycle graph from this resolved `.thetalib`.
     await walkThetaLib(resolvedPath);
   }
+
+  // Re-export chain resolution, phases 1–3 (imports.md §Re-exports): collect the
+  // `export … from` closure of every resolved entry lib, settle the fixpoint over
+  // the whole collected file set, and only then diagnose. Running it over the
+  // union of the entry libs rather than per entry is what the spec sentence
+  // requires — the resolved export set and the errors reported for it are a
+  // function of the `.thetalib` file set alone — and a re-export that fails it
+  // un-registers the importing theta through the registration-error arm rather
+  // than by a second diagnostic sited on the importer's own specifier, whose
+  // admission stays on the SYNTACTIC set (`computeThetaLibExports`) above.
+  for (const resolvedPath of entryResolvedPaths) {
+    await closeOverReExports(resolvedPath);
+  }
+  diagnoseReExports(fixReExportedNames());
 
   // IMP-3 (name collisions): check the union of every resolved decl's specifiers
   // once, so two imports binding the same local name — across two separate

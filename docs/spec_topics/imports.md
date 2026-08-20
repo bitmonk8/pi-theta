@@ -33,6 +33,31 @@ export { Author } from "./personas.thetalib"
 export { Author as Reviewer } from "./personas.thetalib"
 ```
 
+"Creates no local binding" scopes to the re-exporting `.thetalib` file's own
+scope: `Author`'s source name is not callable inside that file. Resolving a
+re-export is a separate, downstream question — the load pass follows the
+chain of `export … from` statements to the declaration each ultimately
+names, in the source `.thetalib` file's own top-level declarations, and an
+importing specifier naming the re-export's downstream alias binds that
+declaration under its local name, exactly as a direct import of the same
+declaration would (IMP-1 above governs a re-export's own `.thetalib` path
+identically to an `import`'s: an unresolvable path is
+`theta/load/unresolvable-thetalib-path`, sited on the re-exporting file whose
+statement names it, once per `export` statement and ranged over that statement —
+the path belongs to the statement, not to each of its specifiers, so a
+specifier list of any length draws one such error).
+
+A re-export's name is provided when the least fixpoint of the reachable
+`.thetalib` file set provides it: every file's resolved export set starts at its
+own declarations and grows by each re-export whose source file's set already
+carries the name it draws on, until no set grows. A name that genuinely flows
+round a re-export cycle is therefore provided — the cycle itself is
+`theta/load/import-cycle` (§Cycles below) — and only a name nothing in the
+reachable set provides is `theta/parse/import-unknown-symbol`, once per such
+re-export. The resolved export set and the errors reported for it are a function
+of the `.thetalib` file set alone, never of the entry file or of the order an
+importing file names its imports.
+
 ```
 ImportDecl ::= "import" "{" ImportSpec ("," ImportSpec)* ","? "}" "from" STRING
 ExportDecl ::= "export" "{" ExportSpec ("," ExportSpec)* ","? "}" "from" STRING
@@ -63,7 +88,7 @@ local binding is a reserved synthesised name.
 
 A plain `import { Author } from "./personas.thetalib"` does **not** re-export `Author` from the importing file — only declarations and explicit `export ... from` forms are visible to downstream importers.
 
-**Unknown imported symbol.** An `import { Foo }` or `export { Foo } from` specifier — including the `as`-aliased forms `import { Foo as Bar }` and `export { Foo as Bar } from` — that names a symbol `Foo` which is neither a top-level declaration nor a transitive re-export (`export … from`) of the resolved `.thetalib` file is a static error `theta/parse/import-unknown-symbol`. The error names the source symbol (`Foo`), not the alias (`Bar`). The check fires after the resolved `.thetalib` file's own parse completes: the resolved file's set of top-level declarations and `export … from` re-exports must be known before an importing specifier can be matched against it. It participates in the [Diagnostics — Multi-error reporting](./diagnostics.md) batching rule rather than fast-failing — an unknown-symbol error is collected alongside every other parse / type error from the importing file and its transitive `.thetalib` imports, and all are reported in one batch. This error is distinct from `theta/parse/unknown-identifier`, which is scoped to bare identifiers in expression position and is never raised for `import` or `export … from` specifiers.
+**Unknown imported symbol.** An `import { Foo }` or `export { Foo } from` specifier — including the `as`-aliased forms `import { Foo as Bar }` and `export { Foo as Bar } from` — that names a symbol `Foo` which is neither a top-level declaration nor a transitive re-export (`export … from`) of the resolved `.thetalib` file is a static error `theta/parse/import-unknown-symbol`. The error names the source symbol (`Foo`), not the alias (`Bar`). The check fires after the resolved `.thetalib` file's own parse completes: the resolved file's set of top-level declarations and `export … from` re-exports must be known before an importing specifier can be matched against it. It participates in the [Diagnostics — Multi-error reporting](./diagnostics.md) batching rule rather than fast-failing — an unknown-symbol error is collected alongside every other parse / type error from the importing file and its transitive `.thetalib` imports, and all are reported in one batch. This error is distinct from `theta/parse/unknown-identifier`, which is scoped to bare identifiers in expression position and is never raised for `import` or `export … from` specifiers. For an `export { Foo } from` specifier, the check is reported against the RE-EXPORTING `.thetalib` file — the file whose statement names the specifier — not against any downstream file that later imports the re-exported alias; an error there fails to register the importing theta, reaching it through the same load-time registration channel an illegal `.thetalib` top-level form uses.
 
 **Name collisions.** Two imports bringing in the same symbol name is `theta/parse/import-name-collision`. Resolve with `as`-aliasing:
 
@@ -74,4 +99,4 @@ import { Author as AuthorB } from "./team-b.thetalib"
 
 The same `as` form is also available for self-clarity (`import { ReviewScore as Score } from "./scoring.thetalib"`). An imported symbol whose name collides with a top-level declaration in the same file is also `theta/parse/import-name-collision` — no implicit shadowing.
 
-**Cycles.** Import cycles between `.thetalib` files are detected at parse time by walking the static import graph and reported as `theta/load/import-cycle` with the cycle path printed (`"import cycle: a.thetalib → b.thetalib → a.thetalib"`). `.thetalib` files contain only declarations — no top-level statements, no initialisation order — so cycles serve no purpose and only happen by accident.
+**Cycles.** Import cycles between `.thetalib` files are detected at parse time by walking the static `.thetalib` graph — `import … from` edges and `export … from` re-export edges alike — and reported as `theta/load/import-cycle` with the cycle path printed (`"import cycle: a.thetalib → b.thetalib → a.thetalib"`). `.thetalib` files contain only declarations — no top-level statements, no initialisation order — so cycles serve no purpose and only happen by accident.
