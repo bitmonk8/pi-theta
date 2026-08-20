@@ -413,11 +413,15 @@ function renderScalarValue(value: unknown): string {
  * entry per item — a scalar item verbatim, a non-scalar item (`- {a: b}`) its
  * own verbatim YAML source slice via `paramValueSource`, so the closed
  * per-entry grammar in callable-set.ts judges it instead of the item being
- * dropped unexamined (bug 0069 §Fix constraint 3); an absent `tools:` field,
- * and a `tools:` value that is neither a scalar nor a sequence (a YAML
- * mapping, flow or block, or any other unenumerated node kind), both yield
- * `undefined` (no callable set) — the per-item recovery above closes the
- * sequence ITEM, not the whole-field shape. Entries are split ONLY on commas — the
+ * dropped unexamined (bug 0069 §Fix constraint 3). This function is reached
+ * only for the two admitted spellings — the caller (the `tools` arm of the
+ * frontmatter key walk) routes here iff the value node `isScalar` or `isSeq`
+ * and otherwise records a field-level refusal itself
+ * (`theta/load/malformed-tools-field`, bug 0104), because the caller holds the
+ * YAML node and its range and this function does not: downstream, the two
+ * spellings are already collapsed into a plain string array, so a
+ * present-but-unusable shape would be indistinguishable from an absent field,
+ * and the absent field must keep loading silently. Entries are split ONLY on commas — the
  * whitespace split that separates an `as` rename (`grep as g`) happens later in
  * the per-entry grammar, so a single scalar entry with an `as` clause stays one
  * entry. Entries are carried verbatim so the H8b resolvers can classify each as
@@ -893,6 +897,7 @@ export function parseFrontmatter(
   let systemValue: string | undefined;
   let systemRange: SourceRange | undefined;
   let toolsValue: readonly string[] | undefined;
+  let toolsMalformedRange: SourceRange | undefined;
 
   if (map !== undefined) {
     for (const item of map.items) {
@@ -978,8 +983,19 @@ export function parseFrontmatter(
       if (key === "tools") {
         // FRNT-2/FRNT-3 callable set: a scalar (`tools: grep`) or a sequence
         // (`tools:\n  - ./sentiment.theta`) of Pi-tool names / `.theta`-callable
-        // paths. Surfaced verbatim; the H8b resolvers classify each entry.
-        toolsValue = extractToolsList(item.value, block?.yaml ?? "");
+        // paths. Surfaced verbatim; the H8b resolvers classify each entry. A
+        // value that is neither spelling (a mapping, an alias, or no value node
+        // at all) is refused at this layer, where the YAML node and its range
+        // are still in hand (bug 0104) — the same reachability argument that
+        // put `params: null` here rather than in the resolver. The refusal is
+        // ranged on the value node, falling back to the key for a pair that
+        // carries no value node at all, which is the range convention every
+        // other frontmatter-shape refusal here follows.
+        if (isScalar(item.value) || isSeq(item.value)) {
+          toolsValue = extractToolsList(item.value, block?.yaml ?? "");
+        } else {
+          toolsMalformedRange = valueRange ?? keyRange;
+        }
         continue;
       }
       if (key === "system") {
@@ -1168,6 +1184,23 @@ export function parseFrontmatter(
       ...(paramsRange !== undefined ? { range: paramsRange } : {}),
       message:
         "'params: null' is not permitted; omit 'params:' or use 'params: {}'",
+    });
+  }
+
+  // A `tools:` value that is neither of the two admitted spellings (a plain
+  // scalar or a sequence) is refused outright rather than treated as absent
+  // (bug 0104): both the mapping and the absent field would otherwise collapse
+  // onto the same silent empty callable set, and the theta's declared
+  // callable set is the only door for both the model-driven and code-driven
+  // call paths, so an author who mis-shapes the field gets no signal at all.
+  if (toolsMalformedRange !== undefined) {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/load/malformed-tools-field",
+      file,
+      range: toolsMalformedRange,
+      message:
+        "malformed 'tools:' field; expected a comma-separated list of entries or a YAML sequence",
     });
   }
 

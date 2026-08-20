@@ -192,6 +192,7 @@ trigger.
 | `theta/load/unknown-methodology-value` | E | load | `unknown 'respond_repair.methodology:' value '<value>'; expected 'validator_error', 'schema_repeat', or 'none'` |
 | `theta/load/unknown-bind-context-value` | E | load | `unknown 'bind_context:' value '<value>'; expected 'none' or 'session'` |
 | `theta/load/malformed-tool-entry` | E | load | `malformed 'tools:' entry '<value>'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause` |
+| `theta/load/malformed-tools-field` | E | load | `malformed 'tools:' field; expected a comma-separated list of entries or a YAML sequence` |
 | `theta/load/unknown-tool` | E | load | `unknown Pi tool '<name>'` |
 | `theta/load/unresolvable-theta-path` | E | load | `cannot resolve .theta path '<path>'` |
 | `theta/load/prompt-mode-callable` | E | load | `'tools:' entry '<path>' points at a prompt-mode theta; only subagent-mode thetas are permitted` |

@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.127.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0104 — a mapping-valued `tools:` field now refuses at load.**
+  `extractToolsList` treated a YAML mapping under `tools:` (both spellings —
+  `tools: {read: bash}` inline, and `tools:` over an indented mapping) as an
+  ABSENT field: the theta registered with the empty callable set and the
+  failure surfaced later as `theta/parse/unknown-identifier` on a name the
+  author had declared. New registered code `theta/load/malformed-tools-field`
+  (`E`, load), emitted at the frontmatter read, ranged on the value node,
+  un-registering — refusing mappings (incl. `tools: {}`), aliases, and
+  valueless keys while keeping both admitted spellings, the null-scalar
+  spellings, and the entry-level granularity untouched. Registry row +
+  reference mirror + three frontmatter-page sites amended the same commit.
+  Witness: `tests/tools-field-shape-refusal.test.ts` (37 cells) + a standalone
+  live registration cell (red-proven both directions).
+
 ## [0.126.0] - 2026-08-26
 
 ### Fixed
