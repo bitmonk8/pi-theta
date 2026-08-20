@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.130.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0073 — the per-invocation cancelled-by-session-shutdown note is now
+  emitted.** Teardown sub-step 2 stamped `shutdownReason` on every in-flight
+  registry entry, but nothing ever read the stamp: a theta cancelled by
+  `session_shutdown` ended silently. Both per-invocation `finally` bodies now
+  consult the stamp through the 0074 ticket seam and emit the
+  clean-cancel note once per invocation (path-by-path once-only proof over
+  all three finish sites), through the extension's real system-note channel
+  (renderer-gate respected). Witness:
+  `tests/cancelled-by-session-shutdown-note.test.ts` (5 cells, both delivery
+  channels) + H8a cell 64 (a real in-flight drive raced by
+  `session_shutdown`, red-proven both directions).
+
 ## [0.129.0] - 2026-08-26
 
 ### Fixed

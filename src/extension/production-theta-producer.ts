@@ -96,7 +96,12 @@ import type {
   ActiveInvocationRegistry,
   ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
-import type { ForwardingSignalSource } from "./session-shutdown";
+import type { ForwardingSignalSource, EmissionSink } from "./session-shutdown";
+import {
+  emitCancelledBySessionShutdownNote,
+  createProductionEmissionSink,
+} from "./session-shutdown";
+import type { SystemNoteChannelDeps } from "./system-note-channel";
 import type {
   BinderRunInput,
   BinderRunResult,
@@ -517,6 +522,25 @@ export interface ProductionProducerInput {
    * would only add per-turn push/splice churn for no lifetime benefit.
    */
   readonly forwardingSignals?: ForwardingSignalSource[];
+  /**
+   * Bug 0073 test seam: the structured-console `EmissionSink` the per-invocation
+   * clean-cancel note's diagnostic-emission-isolation site class (b) row writes
+   * through. Absent ⇒ the exported production console sink
+   * (`createProductionEmissionSink`, `session-shutdown.ts`).
+   */
+  readonly cleanCancelSink?: EmissionSink;
+  /**
+   * Bug 0073: the extension-instance `theta-system-note` channel — the same
+   * `buildSystemNoteDeps` instance every other system note on this instance
+   * rides, carrying the live `RendererGate` and `SystemNoteChannelHealth`. The
+   * per-invocation clean-cancel note must degrade and latch exactly like every
+   * other note on that channel: on an instance whose
+   * `pi.registerMessageRenderer` failed the gate makes `sendSystemNote` skip
+   * the `pi.sendMessage` arm for a `display: false` note, and a stale-ctx throw
+   * latches the channel dead for every subsequent note rather than only for
+   * this one.
+   */
+  readonly systemNoteChannel?: SystemNoteChannelDeps;
 }
 
 /**
@@ -1545,6 +1569,48 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
+   * Bug 0073: the per-invocation clean-cancel note. Returns immediately unless
+   * `entry.shutdownReason !== undefined` — the predicate is NOT `signal.aborted`
+   * (an Esc also aborts and must draw nothing; §Fix constraint 2). Delivery is
+   * the injected extension-instance channel (`systemNoteChannel`), so the note
+   * observes the same `RendererGate` and `SystemNoteChannelHealth` as every
+   * other note on that instance. The fallback channel is built from seams this
+   * producer already holds: `pi.sendMessage` (adapted to the narrow
+   * `SystemNoteSender`), `emitDiagnostic` (or a no-op), and a `ui` whose
+   * `notify` is unreachable by construction — `sendSystemNote` only calls
+   * `ui.notify` on a `display !== false` note, and this note is always
+   * `display: false`, so the producer needs no real `ctx.ui` seam. A stale-ctx
+   * send error rethrows out of `sendSystemNote` (PIC-67 clause (c)), and this
+   * method does not catch it.
+   */
+  #emitCleanCancelNote(entry: ActiveInvocationEntry): void {
+    if (entry.shutdownReason === undefined) {
+      return;
+    }
+    // The extension-instance channel is the delivery path whenever the
+    // composition root wired one. The pi-built fallback below keeps a
+    // non-production harness that constructs a producer with `pi` alone (the
+    // bug doc's §Reproduction shape) delivering the note at all — it is also
+    // the path the offline witness cells drive.
+    const channel: SystemNoteChannelDeps = this.#input.systemNoteChannel ?? {
+      pi: {
+        sendMessage: (message, options): void => {
+          this.#input.pi.sendMessage(message, options);
+        },
+      },
+      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+      // Unreachable by construction: this note is always `display: false`, and
+      // `sendSystemNote` skips the `ui.notify` arm on both its send-success and
+      // send-throw paths for such a note.
+      ui: {
+        notify: (): void => {},
+      },
+    };
+    const sink = this.#input.cleanCancelSink ?? createProductionEmissionSink();
+    emitCancelledBySessionShutdownNote(entry, { channel, sink });
+  }
+
+  /**
    * Dispatch-site pre-binder entry point (active-invocation-registry.md §"Registry
    * contract" — Insertion "before any awaitable work"). The slash-command
    * dispatch calls this AHEAD OF its awaited binder step and hands the returned
@@ -1597,6 +1663,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         finished = true;
         settleDispose();
         activeInvocations?.remove(entry);
+        // Bug 0073: AFTER the barrier settles and the entry is removed, so a
+        // PIC-67 rethrow out of the note delivery cannot leave a live entry
+        // behind or an unsettled barrier.
+        this.#emitCleanCancelNote(entry);
       },
     };
   }
@@ -2534,6 +2604,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         settleDispose();
         detachForwarding();
         activeInvocations?.remove(entry);
+        // Bug 0073: AFTER the barrier settles and the entry is removed, so a
+        // PIC-67 rethrow out of the note delivery cannot leave a live entry
+        // behind or an unsettled barrier.
+        this.#emitCleanCancelNote(entry);
       },
     };
   }

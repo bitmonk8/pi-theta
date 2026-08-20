@@ -10478,3 +10478,101 @@ describe("H8a-T (cell 63) — bug 0116: a `?`-unwrapped operand behind a `${…}
     }
   });
 });
+
+// ===========================================================================
+// Bug 0073 cell 64 — the per-invocation clean-cancel note
+// `theta/runtime/cancelled-by-session-shutdown` now reaches the wire when a
+// `session_shutdown` races a live in-flight PROMPT-mode drive. Mirrors the
+// bug-0074 cell 61 shape immediately above (dispatch WITHOUT awaiting, fire
+// `session_shutdown` directly through `handle.runner.emit(...)` so the
+// shutdown races the in-flight drive instead of following it via
+// `handle.dispose()`), but drives a plain prompt-mode theta rather than a
+// binder call, and asserts presence of the NEW per-invocation row rather than
+// the binder-cancellation note bug 0074 pins.
+//
+// `docs/bugs/0073-cancelled-by-session-shutdown-never-emitted.md` — the row is
+// registered (`code-registry-runtime.md`, the
+// `theta/runtime/cancelled-by-session-shutdown` row), emitted from the invocation's
+// own `finally` under the predicate `entry.shutdownReason !== undefined`, once
+// per cleanly-cancelled invocation, on `theta-system-note`. This cell is
+// additive only; it does not modify cell 61 or any other existing cell.
+// ===========================================================================
+
+describe("H8a-T — bug 0073 cell 64: a session_shutdown racing a live in-flight prompt-mode drive emits the per-invocation cancelled-by-session-shutdown note", () => {
+  it("cell 64: the clean-cancel row lands on the theta-system-note channel, alongside the independent SLSH-4 cancelled note", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b73livecancel", text: promptTheta("THETA-LIVE-OK") },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b73livecancel"),
+        "the precondition control did not register. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const entriesBefore = handle.sessionManager.getEntries().length;
+
+      // Dispatch WITHOUT awaiting, then fire session_shutdown immediately: a
+      // real live-model call is a genuine network round trip, so the shutdown
+      // lands while the invocation is genuinely in flight, inside sub-step 3's
+      // bounded await once the forwarded `options.signal` aborts the call.
+      const drivePromise = driveSlashCaptureText(handle.session, "/b73livecancel");
+      expect(
+        handle.runner.hasHandlers("session_shutdown"),
+        "the shipped extension registered no session_shutdown handler — the " +
+          "fixed path (sub-step 2's abort) can never be reached by this cell.",
+      ).toBe(true);
+      await handle.runner.emit({ type: "session_shutdown", reason: "reload" });
+
+      // Let the raced drive settle (a fail-closed drive resolves, it never
+      // throws — AGENTS.md §"Assert on real observables").
+      await drivePromise;
+
+      const appended = handle.sessionManager.getEntries().slice(entriesBefore);
+      const notes: string[] = [];
+      for (const entry of appended) {
+        const e = entry as { customType?: string; content?: unknown };
+        if (e.customType !== "theta-system-note") continue;
+        if (typeof e.content === "string") notes.push(e.content);
+        else if (Array.isArray(e.content)) {
+          for (const part of e.content) {
+            const t = (part as { text?: string }).text;
+            if (typeof t === "string") notes.push(t);
+          }
+        }
+      }
+
+      // THE FIXED OBSERVABLE: the per-invocation clean-cancel row, carrying the
+      // handler-captured reason in its message template
+      // (`code-registry-runtime.md`'s `theta /<name> cancelled by session
+      // shutdown (<reason>)`).
+      const cleanCancelNotes = notes.filter((n) =>
+        n.startsWith("theta /b73livecancel cancelled by session shutdown ("),
+      );
+      expect(
+        cleanCancelNotes,
+        "no theta/runtime/cancelled-by-session-shutdown note for a " +
+          "session_shutdown raced against an in-flight prompt-mode drive (bug " +
+          "0073): the per-invocation finally never emitted the row. Notes: " +
+          JSON.stringify(notes),
+      ).not.toEqual([]);
+
+      // Corroborating: the independent SLSH-4 `SNK-f` note is required on this
+      // path too and stays on the wire — it is not a substitute for the row
+      // above, and its absence here would mean the fixture itself never
+      // reached the CANCEL terminal this cell drives toward.
+      const slsh4Notes = notes.filter((n) => n === "theta /b73livecancel cancelled");
+      expect(
+        slsh4Notes,
+        "the fixture never reached the SLSH-4 cancelled terminal — the " +
+          "session_shutdown did not land on this invocation at all, so the " +
+          "row assertion above proves nothing. Notes: " + JSON.stringify(notes),
+      ).not.toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

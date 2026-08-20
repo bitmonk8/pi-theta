@@ -27,6 +27,7 @@ import type { ActiveInvocationEntry, ActiveInvocationRegistry } from "../runtime
 import type { ThetaRegistry } from "./reload-wiring";
 import { SHUTDOWN_AWAIT_CAP_MS } from "./capability-probe";
 import { armSessionSwapTripwireForReason } from "./session-swap-tripwire";
+import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
 
 // The bounded-await cap for sub-step 3 (session-shutdown-semantics.md sub-step 3
 // / `cka-31`) is owned by the single `SHUTDOWN_AWAIT_CAP_MS` declaration site
@@ -232,6 +233,19 @@ export function teardownStepFailedDiagnostic(
 }
 
 /**
+ * The per-invocation `finally`'s `entry.shutdownReason` substitution (PIC-25
+ * *Hoist obligation* single source of truth): an unset field falls back to the
+ * `"<unreadable>"` sentinel per the residual-gap paragraph. Hoisted so
+ * `cancelledBySessionShutdownDiagnostic` and the emission wrap below share the
+ * one byte-identical read instead of each re-deriving it.
+ */
+export function cancelledBySessionShutdownReason(
+  entry: ActiveInvocationEntry,
+): string {
+  return entry.shutdownReason ?? "<unreadable>";
+}
+
+/**
  * Build the per-invocation `theta/runtime/cancelled-by-session-shutdown` (E,
  * runtime) note with `display: false` and the nested
  * `details.event: { reason, theta, invocation_id }` shape
@@ -243,10 +257,9 @@ export function cancelledBySessionShutdownDiagnostic(
   entry: ActiveInvocationEntry,
 ): Diagnostic {
   // The per-invocation `finally` reads `entry.shutdownReason` (stamped by
-  // sub-step 2) rather than re-reading the handler-scoped `event.reason`; an
-  // unset field falls back to the `"<unreadable>"` sentinel per the residual-gap
-  // paragraph. `details.event` is the runtime-constructed nested shape.
-  const reason = entry.shutdownReason ?? "<unreadable>";
+  // sub-step 2) rather than re-reading the handler-scoped `event.reason`.
+  // `details.event` is the runtime-constructed nested shape.
+  const reason = cancelledBySessionShutdownReason(entry);
   return {
     severity: "error",
     code: CANCELLED_BY_SESSION_SHUTDOWN_CODE,
@@ -327,6 +340,31 @@ export function emitTeardownDiagnostic(
   }
 }
 
+/**
+ * The PIC-26 construction-site-throw fallback: emit the three-token
+ * `${code} ${entry.theta} <unreadable>` form when an entry is held (the
+ * per-invocation note), else the two-token `${code} <unreadable>` form —
+ * self-wrapped so an inner `console.error` throw is swallowed with no second
+ * emission (PIC-26/27). The single implementation both `emitNestedShapeDiagnostic`
+ * and `emitCancelledBySessionShutdownNote`'s own construction-throw arm call,
+ * per bug 0073's Fix constraint 6.
+ */
+function emitConstructionSiteFallback(
+  sink: EmissionSink,
+  code: NestedShapeEmission["code"],
+  entry: ActiveInvocationEntry | undefined,
+): void {
+  const fallback =
+    entry !== undefined
+      ? `${code} ${entry.theta} <unreadable>`
+      : `${code} <unreadable>`;
+  try {
+    sink.emit(fallback);
+  } catch (fallbackError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/diagnostic-emission-isolation.md
+    void fallbackError;
+  }
+}
+
 /** The nested-shape emission's `details.event` reason + optional `entry`. */
 export interface NestedShapeEmission {
   readonly code:
@@ -364,25 +402,16 @@ export function emitNestedShapeDiagnostic(
   // Construction-site wrap (PIC-26): the `details.event` construction and the
   // `detailsEventReason` hoist run *before* the serialisation-and-emission wrap
   // and are therefore not defended by it. A throw here skips the structured
-  // sequence and emits a per-code fallback — the three-token
-  // `${code} ${entry.theta} <unreadable>` form for the per-invocation note, else
-  // the two-token `${code} <unreadable>` form — self-wrapped so an inner
-  // `console.error` throw is swallowed with no second emission (PIC-26/27).
+  // sequence and emits a per-code fallback via the single shared fallback
+  // builder (bug 0073 — one implementation of the fallback forms, not a second
+  // parallel one).
   try {
     if (forceConstructionThrow === true) {
       throw new Error("session-shutdown payload construction failed");
     }
   } catch (constructionError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/diagnostic-emission-isolation.md
     void constructionError;
-    const fallback =
-      entry !== undefined
-        ? `${code} ${entry.theta} <unreadable>`
-        : `${code} <unreadable>`;
-    try {
-      sink.emit(fallback);
-    } catch (fallbackError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/diagnostic-emission-isolation.md
-      void fallbackError;
-    }
+    emitConstructionSiteFallback(sink, code, entry);
     return;
   }
 
@@ -406,6 +435,86 @@ export function emitNestedShapeDiagnostic(
       }
     }
   }
+}
+
+/**
+ * The dependencies `emitCancelledBySessionShutdownNote` needs to deliver the
+ * per-invocation note: the `sendSystemNote` channel deps (bug 0073's producer
+ * caller supplies its own `pi` / `emitDiagnostic` / no-op `ui` adapter) and the
+ * structured-console `EmissionSink` `emitNestedShapeDiagnostic` writes through.
+ */
+export interface CancelledBySessionShutdownDeps {
+  readonly channel: SystemNoteChannelDeps;
+  readonly sink: EmissionSink;
+}
+
+/**
+ * Emit the per-invocation `theta/runtime/cancelled-by-session-shutdown` row on
+ * BOTH channels the spec requires (session-shutdown-semantics.md §"Per-invocation
+ * operator visibility (clean-cancel path)"): the structured console row through
+ * `emitNestedShapeDiagnostic` (diagnostic-emission-isolation.md site class (b)),
+ * then the `theta-system-note` through `sendSystemNote`. This is the single
+ * production caller of `cancelledBySessionShutdownDiagnostic` /
+ * `emitNestedShapeDiagnostic` (bug 0073).
+ *
+ * The construction wrap (PIC-25/26) runs first: on a throw building the
+ * diagnostic or hoisting `detailsEventReason`, delegate to the SAME fallback
+ * builder `emitNestedShapeDiagnostic` uses (Fix constraint 6 — one
+ * implementation of the fallback forms) and return without attempting either
+ * delivery.
+ *
+ * Order is deliberate: the console row is fully self-wrapped and cannot unwind
+ * this call, while the note MAY rethrow on an invalidated runtime (PIC-67
+ * clause (c) via `sendSystemNote`) — running the console row first guarantees
+ * it lands even when the note's rethrow propagates out of the caller's
+ * `finally`.
+ */
+export function emitCancelledBySessionShutdownNote(
+  entry: ActiveInvocationEntry,
+  deps: CancelledBySessionShutdownDeps,
+): void {
+  let diagnostic: Diagnostic;
+  let detailsEventReason: string;
+  try {
+    diagnostic = cancelledBySessionShutdownDiagnostic(entry);
+    detailsEventReason = cancelledBySessionShutdownReason(entry);
+  } catch (constructionError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/diagnostic-emission-isolation.md
+    void constructionError;
+    emitConstructionSiteFallback(deps.sink, CANCELLED_BY_SESSION_SHUTDOWN_CODE, entry);
+    return;
+  }
+
+  emitNestedShapeDiagnostic(deps.sink, {
+    code: CANCELLED_BY_SESSION_SHUTDOWN_CODE,
+    diagnostic,
+    detailsEventReason,
+    entry,
+  });
+
+  // `details.event` is read off the builder's OWN diagnostic — never re-derived,
+  // never spread — so the builder stays the single construction site
+  // (diagnostic-shape.md Runtime construction obligation). The one cast is safe:
+  // `cancelledBySessionShutdownDiagnostic` always nests `details.event`.
+  const details = diagnostic.details as { readonly event: Record<string, unknown> };
+  sendSystemNote(
+    { content: diagnostic.message, display: false, details },
+    deps.channel,
+  );
+}
+
+/**
+ * The production teardown-time `console.error` sink factory (bug 0073): a
+ * plain `EmissionSink` over `console.error` / `JSON.stringify`, so the
+ * producer INJECTS this rather than inlining an equivalent literal at each of
+ * its two call sites.
+ */
+export function createProductionEmissionSink(): EmissionSink {
+  return {
+    emit: (line: unknown): void => {
+      console.error(line);
+    },
+    serialise: (diagnostic: Diagnostic): string => JSON.stringify(diagnostic),
+  };
 }
 
 /**

@@ -1,6 +1,6 @@
 # Bug 0073 — The per-invocation clean-cancel note `theta/runtime/cancelled-by-session-shutdown` is constructed by a function with no production caller: a `session_shutdown` that cancels an in-flight theta emits nothing on the per-invocation channel, and the operator's only signal is the generic SLSH-4 `theta /<name> cancelled` note
 
-- **Status:** open.
+- **Status:** fixed (0.130.0).
 - **Kind:** defect — a diagnostic the spec makes mandatory on a reachable path
   is never emitted. `cancelledBySessionShutdownDiagnostic`
   (`src/extension/session-shutdown.ts:242`) builds the pinned row (code,
@@ -347,3 +347,160 @@ Not yet decided in detail; the constraints any fix must satisfy are pinned:
   driving the real producer bind through the real DRIVE seam and the real
   `runSessionShutdown`; observed sink transcript quoted verbatim in
   §Reproduction.
+
+## Fix (0.130.0)
+
+- What shipped:
+  - `src/extension/session-shutdown.ts` — the emission the row never had:
+    `emitCancelledBySessionShutdownNote(entry, { channel, sink })` builds the row
+    through the pre-existing `cancelledBySessionShutdownDiagnostic` (§Fix
+    constraint 5 — still the single `details.event` construction site, static
+    property names, no spread), emits the structured console row through the
+    pre-existing `emitNestedShapeDiagnostic` (§Fix constraint 6 —
+    diagnostic-emission-isolation.md site class (b), no second parallel wrap),
+    then delivers the `display: false` `theta-system-note` through
+    `sendSystemNote` (§Fix constraint 4; the PIC-67 clause (c) rethrow is left
+    untouched and uncaught). The `entry.shutdownReason ?? "<unreadable>"`
+    substitution is hoisted into `cancelledBySessionShutdownReason` (PIC-25
+    *Hoist obligation* single source of truth), and
+    `emitNestedShapeDiagnostic`'s construction-throw arm is extracted into the
+    shared `emitConstructionSiteFallback` so the two- and three-token PIC-26
+    forms have ONE implementation. `createProductionEmissionSink` is the
+    injected `console.error` / `JSON.stringify` sink.
+  - `src/extension/production-theta-producer.ts` — `#emitCleanCancelNote`, called
+    from BOTH per-invocation `finally` bodies (`#openInvocationTicket`'s `finish`
+    closure, which after bug 0074 is the single slash/bind entry, and
+    `#spawnSubagentFnSession`'s `dispose`), INSIDE the existing `finished`
+    once-only guard (§Fix constraint 3) and after `settleDispose()` +
+    `activeInvocations?.remove(entry)` so a PIC-67 rethrow can strand neither an
+    unsettled barrier nor a live entry. The predicate is
+    `entry.shutdownReason !== undefined`, never `signal.aborted` (§Fix
+    constraint 2). Two new optional input members: `systemNoteChannel` (the
+    extension-instance channel, so the note degrades and latches like every
+    other system note) and `cleanCancelSink` (the class-(b) sink test seam).
+    `ActiveInvocationEntry` keeps its five fields; `ActiveInvocationTicket` is
+    unwidened.
+  - `src/extension/production-composition.ts` — one property:
+    `systemNoteChannel: systemNote` on the existing
+    `createProductionProducerDeps({…})` call, passing the SAME
+    `buildSystemNoteDeps` instance the rest of the pass uses.
+  - `tests/cancelled-by-session-shutdown-note.test.ts` (new) — the five offline
+    witness cells.
+  - `tests/live/live-production-acceptance.test.ts` — ONE additive H8a cell
+    (token `CELL-A2`); no existing cell touched.
+- Gates:
+  - Witness: `npx vitest run tests/cancelled-by-session-shutdown-note.test.ts` —
+    `Test Files 1 passed (1) / Tests 5 passed (5)`. RED before the fix with the
+    bug's own symptom on cells (a), (c), (d) and (e) ("session_shutdown
+    cancelled an in-flight theta but no
+    theta/runtime/cancelled-by-session-shutdown note reached the wire; the only
+    rows are: {customType:theta-system-note content:"theta /demo cancelled"
+    display:true} …: expected +0 to be 1").
+  - Full suite: `npm test` — `Test Files 327 passed (327) / Tests 5957 passed
+    (5957)` (the 326/5952 fork baseline plus the new file's five cells). A
+    prototype of this design was measured against the full suite BEFORE the
+    witness was written and flipped no existing cell.
+  - `npm run typecheck` — clean, no output. `npm run lint` — clean, no output.
+  - Live: `tests/live/acceptance/` — `Test Files 2 passed (2) / Tests 11 passed
+    (11)` (the 11/11 fork baseline), every `assertStderrClean` empty-capture gate
+    green. `tests/live/live-production-acceptance.test.ts -t "CELL-A2"` —
+    `1 passed | 61 skipped`, the run printing the real structured row
+    `{"severity":"error","code":"theta/runtime/cancelled-by-session-shutdown",
+    "message":"theta /b73livecancel cancelled by session shutdown (reload)",
+    "details":{"event":{"reason":"reload","theta":"b73livecancel",
+    "invocation_id":"63487e23-fd1b-4563-a8d7-d12e158099fd"}}}`.
+- Review: 2 rounds.
+  - Round 1 (`bug-fix-reviewer`): two findings. F1 `spec` — the post-deadline
+    dual-surface case (residual 1 below), disposed as an accepted residual
+    because the only remedy needs a deadline signal the spec-pinned five-field
+    entry cannot carry and any window check would contradict §Fix constraint 2;
+    code unchanged. F2 `fidelity` — the producer built its own
+    `SystemNoteChannelDeps` and so bypassed the instance `RendererGate`, which
+    IS observable for a `display: false` note on a renderer-degraded instance;
+    fixed. Plus two non-blocking residuals (3 and 4 below). Every other
+    constraint walk came back clean, including a path-by-path once-only proof
+    over bug 0074's `bound === false` short-circuit and child-regime arms.
+  - Round 2 (`bug-fix-reviewer-fast`): CLEAN, no finding, no
+    `recommend-deep-review`; one non-blocking test residual (4 below).
+- Verification: SOLID.
+  - Witness reds for the right reason: neutralised by deleting the single
+    `this.#emitCleanCancelNote(entry)` call in `#openInvocationTicket`'s
+    `finish`; 4/5 RED with the symptom messages (cell (b), the Esc negative
+    control, correctly stayed green), restored byte-exact (`git hash-object`
+    `8f2adc13b927b5bf7d911b7da88900bde93e3884` before and after, on both
+    neutralisation passes), 5/5 GREEN.
+  - Full default suite green (327 files / 5957 tests).
+  - Live coverage of the fixed path: both H9a acceptance files green (11/11) and
+    `CELL-A2` red-proven in both directions under the same neutralisation (RED:
+    "no theta/runtime/cancelled-by-session-shutdown note for a session_shutdown
+    raced against an in-flight prompt-mode drive (bug 0073) … Notes:
+    ["theta /b73livecancel cancelled"]").
+  - Lint and typecheck clean.
+- Residuals:
+  1. **Post-deadline dual surface.** Sub-step 2 stamps every in-flight entry, so
+     an entry still in flight at the `SHUTDOWN_AWAIT_CAP_MS` deadline is named in
+     the `theta/runtime/reload-teardown-timeout` `<list>` AND, when its own
+     `finally` later runs, draws this row — the "never both" clause of
+     session-shutdown-semantics.md §"Per-invocation operator visibility" and of
+     the code-registry row's mutual-exclusion clause carve this out only for the
+     stamp-throw residual gap, whose discriminator semantics this path therefore
+     spoofs. Not fixable inside §Fix constraint 2 (the predicate is pinned) and
+     not fixable without a deadline signal the spec-pinned five-field
+     `ActiveInvocationEntry` cannot carry. No evidence it is reachable in the
+     default suite or in an ordinary `pi -p` run (checked at verification).
+     Recorded, not chased: a fix needs either a spec carve-out for the
+     post-deadline-settle-of-a-stamped-entry case or a sanctioned deadline
+     channel.
+  2. **Two delivery channels.** `#emitCleanCancelNote` prefers the injected
+     `systemNoteChannel` (production, wired at the composition root) and falls
+     back to a channel built from `#input.pi` + `#input.emitDiagnostic` with an
+     unreachable-by-construction no-op `ui.notify` for a `pi`-only harness — the
+     bug doc's own §Reproduction shape, and the path witness cells (a)–(d)
+     drive. The fallback carries no `RendererGate` and no
+     `SystemNoteChannelHealth`, so on a fallback-wired instance a stale-ctx
+     throw does not latch the channel dead for later notes (PIC-67 clause (c)'s
+     rethrow still fires). Both paths are witnessed — cell (e) pins that
+     production rides the injected channel and never the fallback.
+  3. **Witness stderr noise.** Cells (a)–(c) leave `cleanCancelSink` absent, so
+     they exercise the production default `createProductionEmissionSink` and
+     write real structured rows to stderr during `npm test` (as does bug 0074's
+     protected binder-window cell, which is untouchable). Deliberate: it keeps
+     the default sink path witnessed. No assertion depends on stderr in the
+     default suite.
+  4. **Inert trap in cell (e).** Its `channel.ui.notify` throws by design, but
+     `sendSystemNote` reaches that arm only after a `pi.sendMessage` throw or a
+     degraded gate, neither of which the cell's mock produces — the trap is
+     inert rather than load-bearing. The cell's real guards (`display === false`,
+     the exact injected-channel / producer-`pi` partition, and the loud SLSH-4
+     precondition) are independent and non-vacuous.
+  5. **The second emission site has no offline witness.**
+     `#spawnSubagentFnSession`'s `dispose` shares `#emitCleanCancelNote` with the
+     ticket path, but reaching it needs a real child-spawn seam, which the
+     offline tier cannot deliver; it is covered by call-site symmetry and by the
+     shared helper, not by a cell of its own.
+  6. **Stale `path:line` citations.** Every `path:line` citation in the sections
+     above this record was already stale at this HEAD (bug 0074 moved all three
+     files again), and this fix shifts `session-shutdown.ts`,
+     `production-theta-producer.ts` and `production-composition.ts` further.
+     Disclosed, not chased — bug 0134 owns corpus-wide stale-citation drift.
+     Every citation this fix ADDS names a symbol.
+  7. **`CELL-A2` is a merge token, not a cell number.** The additive H8a cell
+     carries the literal token `CELL-A2` in its title and header comment for the
+     parent to renumber at merge.
+  8. **No permitted-codes edit.** The real H9a run captured empty stderr on every
+     spawn (the new `console.error` row fires only when a `session_shutdown`
+     stamps an in-flight entry, which no H9a fixture does), so
+     `tests/fixtures/h7a/permitted-codes.json` is unchanged and needed no row —
+     decided by the real run, as required.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Non-goals is unchanged and was respected —
+  sub-step 2's stamp-then-abort ordering and synthesised CNCL-4 reason,
+  `reload-teardown-timeout`, `session-shutdown-teardown-step-failed`, the SLSH-4
+  `SNK-f` `theta /<name> cancelled` note (cell (a) asserts it stays on the wire),
+  the `session-swap-instance-survived` tripwire, and the stamp-throw residual arm
+  are all untouched. No diagnostic code, registry row or `Trigger` was added or
+  widened — `theta/runtime/cancelled-by-session-shutdown` was already registered
+  — so the DIAG-2 closed-registry obligation required no spec or
+  `docs/reference/` edit. One bounded self-authorisation is on the record: the
+  additive live cell's spec citation was rewritten from `path:line` to the row
+  name (comment-only, zero assertions).

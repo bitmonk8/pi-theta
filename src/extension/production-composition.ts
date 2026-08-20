@@ -661,6 +661,11 @@ async function runComposePass(
     // producer's bind choke points push invocation-scoped forwarding sources the
     // factory's `session_shutdown` sub-step 5 detaches.
     forwardingSignals,
+    // Bug 0073: the per-invocation clean-cancel note rides the SAME
+    // extension-instance `theta-system-note` channel every other note rides, so
+    // it observes this instance's renderer gate and delivery-health latch
+    // instead of a freshly-built channel that carries neither.
+    systemNoteChannel: systemNote,
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
