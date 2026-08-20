@@ -1,9 +1,10 @@
 # Bug 0099 — `respondSchemaSlug` hashes `JSON.stringify(lowered)` where schema-subset.md §Canonical schema hash step 2 pins a keys-sorted canonical form, so every name it mints (`__theta_respond_<slug>`, `__theta_bind_<slug>`) reads insertion-order keys and JS number syntax: one lowered fragment carries two slugs in one build — `81e7d0e308042785` at the respond mint, `abb2fcd8521f6115` at the `__inline_` mint, which does implement the recipe — while the production AJV validator-cache key is the whole JSON string with no digest at all
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two routes are
-  stated (move the implementation to the recipe; move the recipe to the
-  implementation), with the constraints each must satisfy. The choice is not
-  made here.
+- **Status:** fixed (0.140.0). §Fix was constraint-pinned, not settled: two
+  routes were stated (move the implementation to the recipe; move the recipe to
+  the implementation), with the constraints each must satisfy. **Route A** was
+  settled at fix time and is recorded in §Fix (0.140.0) below, with the rejected
+  route and the ground for the choice.
 - **Kind:** defect, three elements on one recipe. schema-subset.md `:98–107`
   defines one canonical schema hash — input the lowered fragment, canonical
   form with object keys sorted by Unicode code point and numeric `const` /
@@ -743,3 +744,208 @@ Whichever lands second inherits the other's decision without re-litigating it.
   `[0-9a-f]{16}` and for `__theta_respond_<hex>` / `__theta_bind_<hex>` /
   `__inline_<hex>` name literals produced the two constant lists under
   **Affected**.
+
+## Fix (0.140.0)
+
+**Route settled: A — implement the canonical form.** §Fix enumerated two routes
+and chose neither. Route A is settled on §Expected behaviour, which pins the
+Route-A values as the expected output (`1aae0990d53b3485`, `9fdc8409b8f563c6`,
+`abb2fcd8521f6115` at *both* mints) — a document stating the canonical slug is
+the expected slug has already rejected redefining the recipe. Route B is
+**rejected**: it would rewrite `docs/spec_topics/schema-subset.md:99–105` and
+`:110` (whose subject, hash-independence from emission order, becomes false),
+make object key order normative for every fragment shape (an emission-table
+clause the spec does not have), and re-derive every `__inline_<hex>` in fifteen
+bug documents plus the spec — a strictly larger blast radius, taken in the
+direction away from the recipe. Both `schema-subset.md` files are untouched.
+
+- What shipped:
+  - `src/parser/schema-lowering.ts` — the plain-object → `LoweredJsonValue`
+    bridge `toLoweredJsonValue` moved here from `src/parser/params.ts` and is
+    exported, so ONE bridge and ONE serialiser feed every mint (§Fix constraint
+    1). Appended at end of file so no pre-existing line citation into this
+    module shifts. It resolves the JSON data model as `JSON.stringify` does —
+    `undefined`/function/symbol omitted as a property and `null` as an array
+    element, non-finite doubles `null` in every position, array holes `null`,
+    `TypeError` for a `bigint` or a non-object root.
+  - `src/runtime/typed-query-validation.ts` — `respondSchemaSlug` is
+    `schemaSlug(toLoweredJsonValue(lowered))`; the `node:crypto` import is gone.
+    Element 1.
+  - `src/extension/production-theta-producer.ts` — the PIC-44 respond-mint entry
+    stores `canonicalForm(toLoweredJsonValue(lowered))`, so the byte-equality
+    check compares the artefact the slug is defined over. Element 2.
+  - `src/extension/production-composition.ts` — the anonymous `slugOf` closure
+    became the exported `productionSchemaSlugOf`, returning
+    `{ slug: schemaSlug(v), canonicalBytes: canonicalForm(v) }` — a 16-hex slug,
+    not the serialisation — after normalising its FOREIGN argument through
+    `JSON.parse(JSON.stringify(schema))`. Element 3; the export exists so the
+    witness is behavioural rather than a source-text gate.
+  - `src/binder/binder-inference.ts`, `src/parser/params.ts` — the doc comments
+    §Fix names, corrected. The 0055/0056 `type`-first key order stays
+    contractual as EMITTED BYTES (`schema-subset.md:80`; those are the bytes the
+    model is shown) and is no longer slug-bearing, because every mint hashes the
+    code-point-sorted canonical form: `type`-first and `enum`-first collapse onto
+    one slug whatever the emission order. The emission itself is unchanged
+    (§Non-goals).
+
+- The numeric-kind obligation §Fix raises is discharged by proof, not by
+  threading a discriminator. The bridge derives `integer`/`number` from
+  `Number.isInteger` where BNDR-4 / BNDR-5 select on the DECLARED kind, but
+  `renderCanonicalNumber` (`src/render/canonical-number.ts`) routes BOTH switch
+  arms through the same `canonicalDecimal`, so the discriminator cannot change
+  one emitted byte for any finite input. Threading a declared kind would change
+  which rule is *named*, never which bytes are hashed.
+
+- Consumer enumeration (defining module → consumers, all verified by symbol at
+  fix time; the bug document's line citations were 0.59.0-era and every one had
+  drifted):
+
+  | symbol | defining module | consumers |
+  | --- | --- | --- |
+  | `toLoweredJsonValue` | `src/parser/schema-lowering.ts:849` | `params.ts:986` (the `__inline_` mint), `typed-query-validation.ts:348`, `production-theta-producer.ts:2976`, `production-composition.ts:2755` |
+  | `canonicalForm` | `src/parser/schema-lowering.ts:70` | `params.ts:987`, `production-theta-producer.ts:2976`, `production-composition.ts:2756`, `canonicalHash` `:128`, `dedupInlineSchemas` |
+  | `schemaSlug` | `src/parser/schema-lowering.ts:136` | `params.ts:988`, `typed-query-validation.ts:348`, `production-composition.ts:2756` |
+  | `respondSchemaSlug` | `src/runtime/typed-query-validation.ts:347` | `typed-query-validation.ts:194` (the `__theta_respond_` default name), `production-theta-producer.ts:847` (binder envelope → `binderToolName`), `:2973` (respond mint), import at `:243` |
+
+  All four synthesised-name forms now derive from one chain. `__theta_callee_`
+  still has no production mint (`rg '"callee"' src/` finds only the type and the
+  branch), so it carries no bytes either way (§Non-goals).
+
+- Re-mint cost, premeasured BEFORE Phase 1 (apply the change, bucket every red,
+  revert byte-exact): 30 reds across 9 files, every one an oracle or a pin
+  encoding the stringify recipe. All re-derived under this report's authority;
+  subjects, cell ids and cell counts preserved.
+
+  | file | cells | old → new |
+  | --- | --- | --- |
+  | `generic-argument-literal-lowering` (71, protected) | 7 — group (g) g1–g7 | `388269b1b7511ff9`→`a7d74de2d8fc1757`, `8b76e3f7c438bcab`→`cc58bf21610ce4d2`, `3be50e8182e073b6`→`a4b596b42873b61f`, `4a0fc287cc49feed`→`9d5d2205830a748f`, `385632267acdaf09`→`24a96f1bdc633015`, `a071736572415d6c`→`7af84c2d1f40d1c9`, g7 control `fb500505b0a56925`→`990d039a39f513dd` |
+  | `union-arm-literal-const-lowering` (81, protected) | 3 — group (g3) | `ecfad44b0c4ba51b`→`2f6a943fe0766f32`, `6d204979b1ba5867`→`6db7e67da9bce9ec`, control `4d64eb5d58b6cca8`→`88b2d582a7bdd4e6` |
+  | `union-generic-arm-lowering` (74) | 2 — f1, f2 | local `slugOf` re-pointed at the canonical form; `MIS_SLICED_ARRAY_SLUG` `4718677af1cfaad3`→`5483e69d7515873a`. `PERMISSIVE_SLUG` `44136fa355b3678a` does NOT move (`{}` has no keys) |
+  | `literal-union-string-enum-emission` (23) | 1 — b2 | `SEV_SLUG` `16d4106209c9ee70`→`1aae0990d53b3485` |
+  | `annotation-root-brace-union-lowering` (33) | 1 — a8 | `MISPARSED_ROOT_SLUG` `81e7d0e308042785`→`abb2fcd8521f6115` |
+  | `off-session-two-phase` | 11 | inline `createHash(JSON.stringify(lowered))` oracle → derives through `respondSchemaSlug`, as its own comment already claimed |
+  | `typed-repair-two-phase` | 3 | same |
+  | `off-session-transport-classification` | 1 | same |
+  | `typed-two-phase-live` | 1 | same |
+
+  `params-literal-sublanguage-lowering` (47, protected) carries an independent
+  `node:crypto` canonical-form oracle, already conformant: it stayed GREEN and is
+  byte-untouched — that obligation is discharged by measurement, not assertion.
+
+- Where the bug document was wrong. It was filed at 0.59.0; HEAD is 0.132.0. It
+  lists `off-session-two-phase`, `off-session-transport-classification`,
+  `typed-repair-two-phase` and `binder-forced-tool-dispatch` as files that
+  "derive the name from the function rather than pinning it, and so stay green
+  under either route". Three of the four do NOT — each re-implements the recipe
+  inline with `node:crypto` over `JSON.stringify(lowered)`, and they account for
+  15 of the 30 reds. Its §Affected line citations had all drifted. Its four
+  §Expected hex values reproduce exactly at HEAD.
+
+- Gates (verbatim, re-run by the orchestrator):
+  - Witness `tests/schema-slug-canonical-form-mints.test.ts` —
+    `Tests 30 passed (30)`; RED before the fix at
+    `Tests 9 failed | 8 passed (17)`.
+  - Full default suite — `Test Files 332 passed (332)` /
+    `Tests 6117 passed (6117)`.
+  - `npx tsc --noEmit` clean; `npm run lint` clean.
+  - H8a live `tests/live/typed-query-wire-shapes.test.ts` —
+    `Tests 3 passed (3)`, including the canonical-slug live cell.
+  - H9a live `tests/live/acceptance/` (both files) —
+    `Test Files 2 passed (2)` / `Tests 11 passed (11)`, the 11/11 baseline
+    preserved.
+
+- Review: 4 rounds, plus one pre-review correction round and one comment-only
+  polish round.
+  - Correction round (not a review round; numbering unaffected): reverted a
+    55-file partial `path:line` citation sweep byte-exact, then minimised the
+    self-inflicted line shift.
+  - Round 1 (deep) — 3 defects. The bridge threw on an `undefined`-valued
+    property via `Object.entries(undefined)`, reachable from PIC-11's foreign
+    `PiToolDispatch.parameters`; a false canonical-form claim in
+    `union-generic-arm-lowering`'s constant comment; a stale `:734` citation.
+  - Round 2 (fast) — 1 defect. No finiteness test, so `Infinity` / `NaN` reached
+    `renderCanonicalNumber` and emitted bare `Infinity` / `NaN` tokens — a
+    "canonical form" that is not JSON. Fixed to `null` in every position, which
+    is `JSON.stringify`'s answer; the reviewer's `TypeError` proposal was
+    overridden because `JSON.stringify({a:NaN})` is `{"a":null}` and one rule
+    must govern the bridge.
+  - Round 3 (deep) — 3 defects. Array HOLES rendered non-JSON `[1,,3]`;
+    `toJSON`-bearing and boxed-primitive values collapsed two distinct documents
+    onto ONE slug AND ONE `canonicalBytes`, so PIC-11's byte-verify passed and
+    the wrong compiled validator would be served with no
+    `validator-cache-collision`; a circular host object gave `RangeError` stack
+    exhaustion where `JSON.stringify` gave a clean `TypeError`. Remedied at the
+    boundary with `JSON.parse(JSON.stringify(schema))` — the JSON data model by
+    construction, rather than a second implementation of `SerializeJSONProperty`
+    inside a hash function.
+  - Round 4 (deep) — CLEAN. Four non-blocking prose residuals, all actioned in a
+    comment-only polish round (verified comment-only by gate-diff; confirmation
+    round skipped).
+
+- Verification: all four obligations discharged.
+  - The witness genuinely witnesses, per element, by neutralise/restore with
+    `git hash-object` proving byte-exact restoration — element 1 reds 8 cells,
+    element 3 reds 10 cells, element 2 initially red NOTHING and is closed by
+    cell `4c` (Residual 1).
+  - Full default suite green (6117).
+  - End-to-end live, red-proven in BOTH directions against a real provider: with
+    the fix the model invokes `__theta_respond_1aae0990d53b3485`; with
+    `respondSchemaSlug` neutralised to the stringify recipe the same drive
+    observes `tool_execution_start` `["__theta_respond_16d4106209c9ee70"]` and
+    the cell reds on `toContain`. The expected name comes from an independent
+    `node:crypto` oracle over the hand-written canonical bytes
+    `{"enum":["low","high"],"type":"string"}`, never from `respondSchemaSlug`.
+  - Lint and typecheck clean.
+
+- Residuals:
+  1. Element 2 is proven by a source-shape gate (cell `4c`), not behaviourally,
+     and that is the ceiling rather than a shortfall. `canonicalFormBytes` is
+     read at exactly one place — `src/runtime/tool-registration.ts:281`,
+     `existing.canonicalFormBytes === entry.canonicalFormBytes` — reached only
+     when two entries share a slug. Two distinct schemas sharing a 16-hex slug
+     is a 64-bit collision, which §Non-goals excludes and which cannot be
+     constructed; and one schema yields equal bytes under either recipe, so
+     dedup behaviour is identical either way. No producer input can discriminate
+     the two recipes. Cell `4c` locates `#registerRespondTool` by SYMBOL,
+     asserting region uniqueness and non-emptiness first so a missed slice cannot
+     pass, and reds when the line is reverted (confirmed). Cells `4a` / `4b` pin
+     the PIC-44 contract behaviourally over the exported `registerToolInCache`.
+     A read seam was considered and rejected: it would assert a value no
+     production behaviour depends on.
+  2. `path:line` citation drift — 1349 citations across ~219 files — is bug 0134's
+     subject (`docs/bugs/0134-params-shift-induced-stale-citations.md`), not this
+     fix's. An audit at fix time found 1901 citations into the six changed src
+     files must shift; an implementer pass had renumbered 55 files, covering 246
+     (12.9%) and leaving 1655 stale across 180 files, 145+ of them
+     `docs/bugs/*.md` owned by other open reports. All 55 were reverted
+     byte-exact (`git hash-object` verified) on 0134's own recorded precedent:
+     "the 0102 orchestrator reverted its implementer's partial correction rather
+     than ship half a sweep". The remaining shift was then minimised and is now
+     uniform and mechanically derivable: `production-theta-producer.ts` +1 from
+     line 238, `production-composition.ts` +1 from line 127, `params.ts` −36
+     below line 1483 (one citation repo-wide, corrected).
+     `binder-inference.ts` (484 lines) and `typed-query-validation.ts` (349) are
+     line-count neutral. Each +1 is one unavoidable import line.
+  3. A non-finite or exotic value in a FOREIGN host tool schema is resolved, not
+     diagnosed. `productionSchemaSlugOf` normalises through
+     `JSON.parse(JSON.stringify(...))`, so `{maximum: Infinity}` keys the cache
+     under `{"maximum":null}` exactly as the serialisation it replaced did. That
+     is byte-agreement, chosen deliberately over a new diagnostic; a circular
+     structure or a `bigint` still throws a `TypeError`, and a root whose
+     `toJSON` yields no document throws a `SyntaxError` — both loud, neither
+     worse than the prior behaviour.
+  4. Bug 0098's numeric-emission gap is untouched. Which bytes a union of
+     non-string literals emits is 0098's subject; this fix hashes whatever it
+     emits. §Expected's `9ddfc87c59f526ab` row depends on that emission and is
+     deliberately not pinned by the witness, whose oracle refuses numeric leaves
+     loudly rather than guessing.
+
+- Discharge notes appended: `docs/bugs/0055-…md` §Fix *Residuals* (iv) and (v) —
+  the report that recorded this subject and left it unfiled.
+
+- Pinned dispositions / non-goals: the emitted fragment's key order is unchanged
+  (`body-type-lowering.ts` untouched); the 64-bit truncation and the collision
+  posture built on it are out of scope; `__theta_callee_` gains no mint; bug
+  0054's dedup-at-`$defs`-merge behaviour is untouched and its merge-site
+  comparison inherits these bytes; bug 0054's hash-collision disposition is
+  adjacent and was neither closed nor reopened.

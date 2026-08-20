@@ -441,22 +441,25 @@ const M_ARRAY_STRING_CANONICAL =
 const M_ARRAY_STRING_INLINE = inlineDefName(M_ARRAY_STRING_CANONICAL);
 
 /**
- * The `@<T>` respond-tool documents. `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts:347) hashes `JSON.stringify(lowered)`
- * — the EMITTED key order, not the key-sorted canonical form (bug 0055
- * §Non-goals records that divergence, and it is why emission key order matters
- * at all) — so each expected name is hashed from the whole lowered DOCUMENT's
- * expected bytes, asserted separately against `JSON.stringify` of the real
- * lowering in group (g).
+ * The `@<T>` respond-tool documents. Under bug 0099 route A,
+ * `respondSchemaSlug` (src/runtime/typed-query-validation.ts) hashes the
+ * CANONICAL form (schema-subset.md §Canonical schema hash step 2: object keys
+ * sorted by Unicode code point), not the emitted serialisation — so each
+ * row carries BOTH the EMITTED bytes (still `JSON.stringify(lowered)`,
+ * asserted against the real lowering in group (g), unmoved by bug 0099) and
+ * the CANONICAL bytes the slug is now digested over.
  *
- * `[cell, annotation, AFTER bytes, HEAD slug, why]`. A HEAD slug of `""` marks
- * an UNCHANGED control.
+ * `[cell, annotation, AFTER emitted bytes, canonical bytes, HEAD slug, why]`.
+ * A HEAD slug of `""` marks a control unaffected by bug 0164's own subject
+ * (the argument's bytes); its slug still re-derives under bug 0099 whenever
+ * its canonical form differs from its emission (`g7`).
  */
-const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, string]> = [
+const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, string, string]> = [
   [
     "g1",
     'array<"x" | "y">',
     '{"type":"array","items":{"type":"string","enum":["x","y"]}}',
+    '{"items":{"enum":["x","y"],"type":"string"},"type":"array"}',
     "375e24c5c87417d8",
     "the string-literal union argument: schema-subset.md:80's emission inside :77's `items`",
   ],
@@ -464,6 +467,7 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g2",
     'array<"x">',
     '{"type":"array","items":{"const":"x"}}',
+    '{"items":{"const":"x"},"type":"array"}',
     "4718677af1cfaad3",
     "the single-literal argument: :79's `const` inside :77's `items`",
   ],
@@ -471,6 +475,7 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g3",
     "array<1 | 2>",
     '{"type":"array","items":{"enum":[1,2]}}',
+    '{"items":{"enum":[1,2]},"type":"array"}',
     "375e24c5c87417d8",
     "the number-literal union argument. Its HEAD slug is IDENTICAL to `g1`'s because both " +
       "arguments lower to the same information-free `{\"anyOf\":[{},{}]}` — two declarations " +
@@ -481,6 +486,7 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g4",
     'array<"x" | null>',
     '{"type":"array","items":{"enum":["x",null]}}',
+    '{"items":{"enum":["x",null]},"type":"array"}',
     "dfff68c6e0ed2d78",
     "the mixed-kind all-literal union: `null` is a `LiteralType` (grammar.md:102) and bug 0056 " +
       "§Fix constraint 2 settled it as one for lowering purposes, so the whole argument reaches " +
@@ -491,6 +497,7 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g5",
     "array<null>",
     '{"type":"array","items":{"const":null}}',
+    '{"items":{"const":null},"type":"array"}',
     "65404ea87ccac5b0",
     "a bare `null` argument: at HEAD `lowerTypeExpr`'s `PRIMITIVE_TYPES` test claims it and " +
       "emits `{\"type\":\"null\"}`; the two fragments accept exactly `null`, so this row diverges " +
@@ -500,6 +507,7 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g6",
     "array<true | false>",
     '{"type":"array","items":{"enum":[true,false]}}',
+    '{"items":{"enum":[true,false]},"type":"array"}',
     "1a105bdd080709e5",
     "the all-boolean union: bug 0044's atom arm (src/parser/params.ts:723-727) already gave each " +
       "ARM its `const`, so this row is the one literal kind that already constrains at this " +
@@ -509,9 +517,11 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     "g7",
     "array<Sev>",
     '{"type":"array","items":{"$ref":"#/$defs/Sev"},"$defs":{"Sev":{"type":"string","enum":["x","y"]}}}',
+    '{"$defs":{"Sev":{"enum":["x","y"],"type":"string"}},"items":{"$ref":"#/$defs/Sev"},"type":"array"}',
     "",
-    "UNCHANGED — `parseLiteralArm` declines `Sev`, so the identifier arm keeps resolving the " +
-      "name whole-file and emitting the pointer, and the registered tool keeps its name",
+    "UNCHANGED emission — `parseLiteralArm` declines `Sev`, so the identifier arm keeps " +
+      "resolving the name whole-file and emitting the pointer. The SLUG still re-derives under " +
+      "bug 0099: the root's emitted `type`, `items`, `$defs` order is not its sorted order",
   ],
 ];
 
@@ -1078,7 +1088,7 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       "d6",
       'array<{m: "x" | "y"}>',
       { type: "array", items: { anyOf: [{}, {}] } },
-      "the sharpest brace row: `splitTopLevel`'s angle-only default (src/parser/params.ts:1607) " +
+      "the sharpest brace row: `splitTopLevel`'s angle-only default (src/parser/params.ts:1571) " +
         "cuts the brace group into `{m: \"x\"` and `\"y\"}`, so this `anyOf` arrives from the " +
         "argument SPLIT rather than from the literal check — a fragment that LOOKS like a1's " +
         "HEAD bytes and must not move with them",
@@ -1365,23 +1375,22 @@ describe("bug 0164 (g) — the respond tool's name moves with the lowered annota
     return lowered;
   }
 
-  for (const [cell, annotation, expectedBytes, headSlug, why] of RESPOND_ROWS) {
+  for (const [cell, annotation, expectedBytes, canonicalBytes, headSlug, why] of RESPOND_ROWS) {
     const disposition = headSlug === "" ? "CONTROL" : "RED";
-    it(`${disposition} (${cell}, @<${annotation}>): the respond tool is named __theta_respond_${slugOfBytes(expectedBytes)}`, () => {
+    it(`${disposition} (${cell}, @<${annotation}>): the respond tool is named __theta_respond_${slugOfBytes(canonicalBytes)}`, () => {
       const lowered = loweredAnnotation(cell, annotation);
       expect(
         JSON.stringify(lowered),
-        `${cell}: ${why}. The slug hashes these exact bytes, key order included, so the document ` +
-          `is pinned BEFORE the name is${headSlug === "" ? "" : ` (HEAD names this tool __theta_respond_${headSlug})`}; ` +
+        `${cell}: ${why}. schema-subset.md:76–:85 fixes this emission independent of bug 0099, ` +
+          "so the document is pinned BEFORE the name is; " +
           `observed ${JSON.stringify(lowered)}`,
       ).toBe(expectedBytes);
       expect(
         `__theta_respond_${respondSchemaSlug(lowered)}`,
-        `${cell}: the 16-hex truncation of the SHA-256 of the document bytes above ` +
-          `(schema-subset.md:106, :107). The hash is taken over \`JSON.stringify\` rather than ` +
-          `over the key-sorted canonical form, which bug 0055 §Non-goals records and which is ` +
-          `why emission key order matters at all`,
-      ).toBe(`__theta_respond_${slugOfBytes(expectedBytes)}`);
+        `${cell}: bug 0099 route A — the 16-hex truncation of the SHA-256 of the CANONICAL form ` +
+          `${canonicalBytes} (schema-subset.md:99–:107), not of the emitted bytes ` +
+          `${expectedBytes}`,
+      ).toBe(`__theta_respond_${slugOfBytes(canonicalBytes)}`);
     });
   }
 

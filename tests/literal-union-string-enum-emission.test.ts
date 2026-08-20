@@ -92,9 +92,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   alias   schema X = "x" | "y"                 {"enum":["x","y"]}
 //   inline  lowerInlineObject('b: "x" | "y"')    properties.b = {"enum":["x","y"]}
 //   enum Sev { Low = "low", High = "high" }      {"type":"string","enum":["low","high"]}
-//                                                respondSchemaSlug 16d4106209c9ee70
+//                                                respondSchemaSlug 1aae0990d53b3485
+//                                                (the slug of the canonical form
+//                                                {"enum":["low","high"],"type":"string"};
+//                                                bug 0099 route A is the authority)
 //   schema Sev = "low" | "high"                  {"enum":["low","high"]}
 //                                                respondSchemaSlug 3738bdf57eb9ee93
+//                                                (unmoved: one key, so its canonical form
+//                                                equals its emission)
 //   AJV over both spellings                      identical verdict on 13 payloads;
 //                                                a non-string payload's issue list is
 //                                                one `enum` entry for the bare form and
@@ -455,14 +460,17 @@ describe("bug 0055 (a) — a string-literal union emits `{type:string, enum:[…
 // ===========================================================================
 // (b) TWO SPELLINGS, ONE EMISSION — the named `enum` and the alias union are
 // one rule at `:80`, so they are one fragment, one slug, one registration.
-// RED at HEAD: the alias lowers `{"enum":["low","high"]}` and mints
-// `3738bdf57eb9ee93` where the `enum` declaration mints `16d4106209c9ee70`.
+// Bug 0099 route A makes `respondSchemaSlug` the canonical-form slug
+// (schema-subset.md §Canonical schema hash), which is WHY the two spellings
+// collapse onto one slug regardless of key order — bug 0055's own `type`-first
+// choice (body-type-lowering.ts:111) stays the emitted bytes but is not
+// slug-bearing (bug 0099 §Fix retires that contract).
 // ===========================================================================
 
 const SEV_ENUM_BODY = 'enum Sev { Low = "low", High = "high" }';
 const SEV_ALIAS_BODY = 'schema Sev = "low" | "high"';
-/** The spelled fragment's `respondSchemaSlug`, hashed from `JSON.stringify`. */
-const SEV_SLUG = "16d4106209c9ee70";
+/** The spelled fragment's `respondSchemaSlug` — the canonical-form slug (bug 0099 route A). */
+const SEV_SLUG = "1aae0990d53b3485";
 
 describe("bug 0055 (b) — one declared value set lowers to one fragment and one slug", () => {
   it("RED (b1): `enum Sev {…}` and `schema Sev = \"low\" | \"high\"` lower to IDENTICAL bytes", () => {
@@ -488,17 +496,16 @@ describe("bug 0055 (b) — one declared value set lowers to one fragment and one
     const aliasSlug = respondSchemaSlug(fromAlias);
     expect(
       aliasSlug,
-      `\`respondSchemaSlug\` (typed-query-validation.ts:347–348) hashes ` +
-        `\`JSON.stringify\`, so it is sensitive to the presence AND position of ` +
-        `\`type\`; two slugs for one declared value set are two permanent ` +
-        `\`__theta_respond_<slug>\` registrations and two PIC-44 cache entries. ` +
-        `enum=__theta_respond_${enumSlug} alias=__theta_respond_${aliasSlug}`,
+      `\`respondSchemaSlug\` (typed-query-validation.ts) hashes the CANONICAL form ` +
+        `(bug 0099 route A), so the two source spellings — which lower to the SAME set of ` +
+        `keys regardless of emission order — collapse onto one registration whatever their ` +
+        `key order. enum=__theta_respond_${enumSlug} alias=__theta_respond_${aliasSlug}`,
     ).toBe(enumSlug);
     expect(
       aliasSlug,
-      `the collapsed slug is the one the spelled bytes ` +
-        `\`{"type":"string","enum":["low","high"]}\` hash to; observed ${aliasSlug} over ` +
-        `${JSON.stringify(fromAlias)}`,
+      `the collapsed slug is the CANONICAL-FORM slug of ` +
+        `\`{"type":"string","enum":["low","high"]}\` (bug 0099 route A); observed ${aliasSlug} ` +
+        `over ${JSON.stringify(fromAlias)}`,
     ).toBe(SEV_SLUG);
   });
 

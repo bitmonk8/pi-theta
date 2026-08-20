@@ -48,6 +48,7 @@
 // and reach no child launch, but the pins are inherited rather than bypassed.
 // A missing live provider fails loudly through `requireLiveProvider`.
 
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import {
@@ -303,6 +304,161 @@ describe("bug 0028 (live) — a nested named-schema `$ref` is conveyable and the
           `is reached by member access through the \`$ref\` field; observed ` +
           `${JSON.stringify(echoed[0])}`,
       ).toMatch(new RegExp(`${sentinel} <<dog>>`));
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// canonical-slug cell — bug 0099 (Route A). The lowered fragment for `@<"low" | "high">` is
+// `{"type":"string","enum":["low","high"]}`; schema-subset.md:99–:105's
+// canonical form sorts its keys `enum` (U+0065) before `type` (U+0074):
+// `{"enum":["low","high"],"type":"string"}`. The registered respond-tool name
+// is `__theta_respond_<slug>` of THAT canonical form, not of the emitted
+// serialisation — the two differ (bug 0099 §Reproduction: canonical
+// `1aae0990d53b3485` vs stringify `16d4106209c9ee70` for this exact fragment).
+//
+// THE ORACLE IS INDEPENDENT. The expected slug below is a `node:crypto`
+// SHA-256 over a HAND-WRITTEN canonical byte string, not a call to
+// `respondSchemaSlug`/`schemaSlug`/`canonicalForm` — a cell that derived its
+// expectation from the function under test would be a tautology.
+//
+// THE OBSERVABLE IS THE WIRE, END TO END: the QRY-12/QRY-15 templates instruct
+// the model to call `__theta_respond_<slug>`, so this cell asserts (a) that
+// name is what got REGISTERED (via the real `tool_execution_start` event
+// carrying the tool the model actually invoked) and (b) the drive reached a
+// success terminal with the bound wire value echoed back — never on `prompt()`
+// merely resolving.
+//
+// SUBAGENT CHILD PINS: this fixture is `mode: prompt` with no `tools:`/subagent
+// dispatch, so the drive never reaches the RFC-0006 child-process launch. The
+// harness's module-scope pins (`#subagent-child-pins`, ./harness.ts) are
+// inherited, not exercised, by this cell.
+
+/** SHA-256 of the canonical-form bytes, first 16 lowercase hex (schema-subset.md:106–:107). */
+function independentCanonicalSlug(canonicalBytes: string): string {
+  return createHash("sha256").update(canonicalBytes, "utf8").digest("hex").slice(0, 16);
+}
+
+/**
+ * Drive a slash invocation while ALSO capturing the real `tool_execution_start`
+ * events the live session fires — the tool name(s) the model actually invoked,
+ * independent of `turn.userTexts`/`systemNotes`. Subscribes for the same
+ * window `driveSlashCaptureTurn` drives and unsubscribes before returning.
+ */
+async function driveCapturingToolCalls(
+  handle: LiveExtensionHandle,
+  slashInvocation: string,
+): Promise<{ turn: DrivenTurn; toolNames: readonly string[] }> {
+  const toolNames: string[] = [];
+  const unsubscribe = handle.session.subscribe((event) => {
+    if (event.type === "tool_execution_start") {
+      toolNames.push(event.toolName);
+    }
+  });
+  try {
+    const turn = await driveSlashCaptureTurn(handle, slashInvocation);
+    return { turn, toolNames };
+  } finally {
+    unsubscribe();
+  }
+}
+
+describe("bug 0099 (live) — canonical-slug cell: the respond tool binds under the CANONICAL-form slug end to end", () => {
+  it("canonical-slug cell drives @<\"low\" | \"high\"> end to end: the model calls __theta_respond_<canonical slug>, not the stringify slug", async () => {
+    // The hand-written canonical form of `{"type":"string","enum":["low","high"]}`
+    // — keys sorted by Unicode code point, no insignificant whitespace
+    // (schema-subset.md:99–:105). Written here, not computed by any shipped
+    // function, so this cell's expectation cannot move with a regression in the
+    // recipe it is checking.
+    const CANONICAL_BYTES = '{"enum":["low","high"],"type":"string"}';
+    const expectedSlug = independentCanonicalSlug(CANONICAL_BYTES);
+    const expectedToolName = `__theta_respond_${expectedSlug}`;
+
+    const provider = await requireLiveProvider();
+    const sentinel = "THETA-canonical-slug cell-CANON";
+    const workspace = plantThetaWorkspace([
+      {
+        source: "project",
+        stem: "celld",
+        text: wireShapeTheta({
+          decls: [],
+          annotation: '"low" | "high"',
+          ask:
+            "A production database was permanently deleted with no backup and the " +
+            "service is fully down. Classify the severity as either low or high.",
+          sentinel,
+          echo: "bound",
+        }),
+      },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("celld"),
+        "no command to invoke — discovery or registration regressed for the " +
+          "planted theta. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `the /celld drive (canonical-slug cell, canonical respond-tool slug) did not terminate ` +
+                `within ${DRIVE_DEADLINE_MS}ms — the bug-0028 conveyance-hang signature, ` +
+                `unrelated to bug 0099's slug recipe. Do not raise this bound`,
+            ),
+          );
+        }, DRIVE_DEADLINE_MS);
+        timer.unref?.();
+      });
+      let driven: { turn: DrivenTurn; toolNames: readonly string[] };
+      // The deadline rejection propagates: vitest reports it as a loud failure
+      // carrying the `Error` above, which already names the bound and the
+      // bug-0028 hang signature.
+      try {
+        driven = await Promise.race([driveCapturingToolCalls(handle, "/celld"), deadline]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      const { turn, toolNames } = driven;
+
+      expect(
+        failClosedNotes(turn, "celld"),
+        "the drive must reach a success terminal; a fail-closed note means the " +
+          "typed query never bound a validated literal-union value: " +
+          JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
+
+      // THE WIRE OBSERVABLE: the model was FORCED to call the registered
+      // respond tool, and that tool's real, invoked name must be the
+      // CANONICAL-form slug — not `__theta_respond_16d4106209c9ee70`, the
+      // stringify-recipe slug bug 0099 names for this exact fragment.
+      expect(
+        toolNames,
+        `canonical-slug cell: the model must invoke the respond tool under its CANONICAL-form ` +
+          `name (schema-subset.md:99–:107 over ${CANONICAL_BYTES}); observed real ` +
+          `tool_execution_start names ${JSON.stringify(toolNames)}`,
+      ).toContain(expectedToolName);
+
+      // The positive binding observable: theta CODE rendered this text from
+      // the value the respond tool call above delivered, so its presence (and
+      // its wire value) proves the canonical-slug-named tool's argument
+      // actually validated and bound.
+      const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
+      expect(
+        echoed.length,
+        `exactly one rendered follow-up query must carry the sentinel; observed ` +
+          `userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBe(1);
+      expect(
+        echoed[0],
+        `the bound value must be one of the literal union's two wire values ` +
+          `("low"/"high"); observed ${JSON.stringify(echoed[0])}`,
+      ).toMatch(new RegExp(`${sentinel} <<(low|high)>>`));
     } finally {
       await handle.dispose();
       workspace.dispose();

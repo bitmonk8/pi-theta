@@ -559,33 +559,39 @@ const A_INTEGER_CANONICAL =
 const A_INTEGER_INLINE = inlineDefName(A_INTEGER_CANONICAL);
 
 /**
- * The `@<T>` respond-tool names. `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts:347) hashes `JSON.stringify(lowered)`
- * — the emitted key order, NOT the key-sorted canonical form (bug 0055
- * §Non-goals records that divergence, and it is why emission key order matters
- * at all) — so each expected name below is hashed from the whole lowered
- * DOCUMENT's expected bytes, asserted separately against `JSON.stringify` of
- * the real lowering in group (g).
+ * The `@<T>` respond-tool names. Under bug 0099 route A, `respondSchemaSlug`
+ * (src/runtime/typed-query-validation.ts) hashes the CANONICAL form
+ * (schema-subset.md §Canonical schema hash step 2), not the emitted
+ * serialisation — so each row below carries both the EMITTED bytes (still
+ * `JSON.stringify(lowered)`, asserted against the real lowering in group (g))
+ * and the CANONICAL bytes the slug is now digested over.
  */
-const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string]> = [
+const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string]> = [
   [
     'Sev | "high"',
     '{"anyOf":[{"$ref":"#/$defs/Sev"},{"const":"high"}],"$defs":{"Sev":{"type":"string",' +
       '"enum":["high","low"]}}}',
+    '{"$defs":{"Sev":{"enum":["high","low"],"type":"string"}},"anyOf":[{"$ref":"#/$defs/Sev"},' +
+      '{"const":"high"}]}',
     "MOVES — the arm's bytes are the hash's input, so the registered tool renames",
   ],
   [
     '"high" | Sev',
     '{"anyOf":[{"const":"high"},{"$ref":"#/$defs/Sev"}],"$defs":{"Sev":{"type":"string",' +
       '"enum":["high","low"]}}}',
+    '{"$defs":{"Sev":{"enum":["high","low"],"type":"string"}},"anyOf":[{"const":"high"},' +
+      '{"$ref":"#/$defs/Sev"}]}',
     "MOVES — the reversed arm order is a different byte sequence and a different name",
   ],
   [
     "Sev | null",
     '{"anyOf":[{"$ref":"#/$defs/Sev"},{"type":"null"}],"$defs":{"Sev":{"type":"string",' +
       '"enum":["high","low"]}}}',
-    "UNCHANGED — §Fix constraint 5 keeps a `null` arm on `{\"type\":\"null\"}`, so neither the " +
-      "bytes nor the name move",
+    '{"$defs":{"Sev":{"enum":["high","low"],"type":"string"}},"anyOf":[{"$ref":"#/$defs/Sev"},' +
+      '{"type":"null"}]}',
+    "UNCHANGED EMISSION — §Fix constraint 5 keeps a `null` arm on `{\"type\":\"null\"}`, so the " +
+      "bytes do not move; the SLUG still re-derives under bug 0099, because the root's emitted " +
+      "`anyOf`, `$defs` order is not its sorted order",
   ],
 ];
 
@@ -1647,30 +1653,29 @@ describe("bug 0184 (g) — the content-addressed names move with the arm", () =>
     }
   });
 
-  for (const [annotation, expectedBytes, disposition] of RESPOND_ROWS) {
+  for (const [annotation, expectedBytes, canonicalBytes, disposition] of RESPOND_ROWS) {
     const label = disposition.startsWith("UNCHANGED") ? "CONTROL" : "RED";
-    it(`${label} (g3, @<${annotation}>): the respond tool is named __theta_respond_${slugOfBytes(expectedBytes)}`, () => {
-      // `respondSchemaSlug` (typed-query-validation.ts:347) names the registered
+    it(`${label} (g3, @<${annotation}>): the respond tool is named __theta_respond_${slugOfBytes(canonicalBytes)}`, () => {
+      // `respondSchemaSlug` (typed-query-validation.ts) names the registered
       // `__theta_respond_<slug>` tool AND the QRY-12 / QRY-15 template
       // references, and `renderTypedAwareQueryText`
-      // (production-theta-producer.ts:5368-5382) interpolates the fragment
+      // (production-theta-producer.ts:5495) interpolates the fragment
       // itself into the instruction at `:5380`. So the arm's bytes are both what
       // the model is grammar-constrained by and part of a registered tool's
       // name (§Fix constraint 8).
       const boundary = annotationBoundary(annotation);
       expect(
         JSON.stringify(boundary.lowered),
-        `g3 [${annotation}]: ${disposition}. The slug hashes these exact bytes, key order ` +
-          `included, so the document is pinned before the name is; observed ` +
+        `g3 [${annotation}]: ${disposition}. schema-subset.md:76–:85 fixes this emission ` +
+          `independent of bug 0099, so the document is pinned before the name is; observed ` +
           `${JSON.stringify(boundary.lowered)}`,
       ).toBe(expectedBytes);
       expect(
         `__theta_respond_${respondSchemaSlug(boundary.lowered as LoweredSchema)}`,
-        `g3 [${annotation}]: the 16-hex slug of the SHA-256 of the document bytes above ` +
-          `(schema-subset.md:106, :107; the hash is taken over \`JSON.stringify\` rather than ` +
-          `over the key-sorted canonical form, which bug 0055 §Non-goals records and which is ` +
-          `why emission key order matters at all)`,
-      ).toBe(`__theta_respond_${slugOfBytes(expectedBytes)}`);
+        `g3 [${annotation}]: bug 0099 route A — the 16-hex slug of the SHA-256 of the CANONICAL ` +
+          `form ${canonicalBytes} (schema-subset.md:99–:107), not of the emitted bytes ` +
+          `${expectedBytes}`,
+      ).toBe(`__theta_respond_${slugOfBytes(canonicalBytes)}`);
     });
   }
 });

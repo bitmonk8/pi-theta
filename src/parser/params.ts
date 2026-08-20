@@ -49,8 +49,8 @@ import {
   canonicalForm,
   lowerUnion,
   schemaSlug,
+  toLoweredJsonValue,
   type LoweredJsonValue,
-  type LoweredObjectEntry,
   type LoweredPrimitiveType,
   type LoweredUnionArm,
 } from "./schema-lowering";
@@ -1123,7 +1123,7 @@ export function hoistInlineObjectType(
   // re-serialisation. `canonicalForm` is called here rather than the bytes being
   // reconstructed from `schemaSlug`'s internals, which keeps the hash recipe
   // (§Canonical schema hash steps 2–4) owned by schema-lowering.ts.
-  const lowered = toLoweredJsonValue(fragment);
+  const lowered: LoweredJsonValue = toLoweredJsonValue(fragment);
   const canonical = canonicalForm(lowered);
   const slug = schemaSlug(lowered);
   const defName = `__inline_${slug}`;
@@ -1505,11 +1505,11 @@ export function isUnspellableTextRefusable(text: string): boolean {
  * otherwise. The union form's KEY ORDER is CONTRACTUAL, not cosmetic: `type`
  * first when every value is a string (schema-subset.md:80), the bare `enum`
  * otherwise (`:81` scopes SUBS-1's own primitive-union rule away from
- * `LiteralType` arms) — `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts) and the `__inline_<slug>` mint both
- * hash `JSON.stringify` of this fragment, so the order is what collapses a
- * string-literal union declared at two positions onto one slug (bug 0055
- * §Fix; bug 0056 §Fix *Ordering*). The ternary is bug 0055's landed one,
+ * `LiteralType` arms). That order is contractual as EMITTED BYTES — the bytes
+ * schema-subset.md:80 spells, and the bytes the model is shown — but it is not
+ * slug-bearing: every mint hashes the canonical form, whose keys are code-point
+ * sorted, so `type`-first and `enum`-first collapse onto one slug (bug 0055 §Fix;
+ * bug 0056 §Fix *Ordering*; bug 0099 §Fix route A). The ternary is bug 0055's landed one,
  * moved here verbatim rather than re-spelled.
  */
 export function lowerLiteralSublanguage(source: string): Record<string, unknown> | undefined {
@@ -1601,42 +1601,6 @@ export function lowerParamsFieldType(
     return armUnion;
   }
   return lowerTypeExpr(s, lowerCtx);
-}
-
-/**
- * Convert a lowered-schema JSON value (as `lowerParamsFieldType` builds it —
- * nested objects, arrays, strings, booleans) to the `LoweredJsonValue` the
- * canonical-hash recipe (`schemaSlug`) requires. Total over that domain: an
- * integer-valued number renders `"integer"`, any other number `"number"` — a
- * `params:` inline object field carrying an integer or decimal literal
- * (`p: '{m: 42}'`) reaches this arm through `lowerLiteralSublanguage`'s
- * `const` emission (bug 0056 §Fix), so the number-kind split is EXERCISED by
- * a reachable input, not defensive against a shape no caller produces. Object
- * entries are walked in insertion order; `canonicalForm` sorts them by
- * Unicode code point before hashing.
- */
-function toLoweredJsonValue(value: unknown): LoweredJsonValue {
-  if (typeof value === "string") {
-    return { kind: "string", value };
-  }
-  if (typeof value === "boolean") {
-    return { kind: "boolean", value };
-  }
-  if (typeof value === "number") {
-    return Number.isInteger(value)
-      ? { kind: "integer", value }
-      : { kind: "number", value };
-  }
-  if (value === null) {
-    return { kind: "null" };
-  }
-  if (Array.isArray(value)) {
-    return { kind: "array", items: value.map(toLoweredJsonValue) };
-  }
-  const entries: LoweredObjectEntry[] = Object.entries(
-    value as Record<string, unknown>,
-  ).map(([key, entryValue]) => ({ key, value: toLoweredJsonValue(entryValue) }));
-  return { kind: "object", entries };
 }
 
 /** Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}` nesting. */

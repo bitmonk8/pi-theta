@@ -235,6 +235,7 @@ import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema, SchemaValidator } from "../seams/schema-validator";
 import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
+import { canonicalForm, toLoweredJsonValue } from "../parser/schema-lowering";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
   buildTypedQueryValidation,
@@ -2963,9 +2964,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * Bug 0010 (PIC-44): register the synthesised one-shot respond tool for a
    * lowered response schema through the producer's registration cache. The
    * slug is `respondSchemaSlug` — the SAME recipe that names the QRY-12/QRY-15
-   * template references — and the canonical-form bytes are
-   * `JSON.stringify(lowered)`, so a byte-equal schema re-uses the registration
-   * and a slug collision registers under a disambiguated name. NOTE the cache's
+   * template references — and the stored bytes are the CANONICAL form (bug
+   * 0099), so a byte-equal schema re-uses the registration and a slug
+   * collision registers under a disambiguated name. NOTE the cache's
    * `registerTool` callback receives the MINTED name (base or disambiguated) —
    * the `ToolDefinition` is built with that name.
    */
@@ -2976,7 +2977,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const slug = respondSchemaSlug(lowered);
     const toolName = registerToolInCache(
       this.#respondRegistrationCache,
-      { kind: "respond", slug, canonicalFormBytes: JSON.stringify(lowered) },
+      { kind: "respond", slug, canonicalFormBytes: canonicalForm(toLoweredJsonValue(lowered)) },
       {
         registerTool: (name) =>
           this.#input.pi.registerTool(this.#buildRespondToolDefinition(name, lowered)),

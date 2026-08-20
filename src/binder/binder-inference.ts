@@ -102,10 +102,10 @@ export const BINDER_TOOL_DESCRIPTION =
 
 /**
  * The binder structured-output tool `name` (binder-inference.md): `__theta_bind_`
- * followed by the schema slug of the lowered binder envelope schema (the same
- * canonical-schema-hash recipe the typed-query `__theta_respond_<slug>` tool
- * name uses) — the slug of the envelope schema DOCUMENT, not of its object
- * attachment wrapper.
+ * followed by the schema slug of the lowered binder envelope schema: the schema-subset.md
+ * §Canonical schema hash of the canonical form (keys code-point sorted, BNDR-4/BNDR-5
+ * numerics), the same function `__theta_respond_<slug>` and `__inline_<slug>` mint through,
+ * of the envelope schema DOCUMENT, not of its object attachment wrapper.
  */
 export function binderToolName(slug: string): string {
   return `__theta_bind_${slug}`;

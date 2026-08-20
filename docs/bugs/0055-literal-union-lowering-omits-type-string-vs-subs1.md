@@ -285,6 +285,23 @@ key orders were computed during review (`type`-first `16d4106209c9ee70`,
 `enum`-first `1aae0990d53b3485`), so the cell reds on reversal; accepted as
 written.
 
+**Discharged (iv) and (v) — bug
+[0099](./0099-schema-slug-hashes-stringify-not-canonical-form.md) §Fix (X.Y.Z),
+route A.** Every mint now hashes the key-sorted canonical form, so residual (iv)
+is closed at its root: `respondSchemaSlug` is
+`schemaSlug(toLoweredJsonValue(lowered))`. Two consequences for this record. The
+`type`-before-`enum` order this fix made contractual remains contractual as
+EMITTED BYTES (`schema-subset.md:80` spells them, and they are the bytes the
+model is shown) but is no longer slug-bearing — under the recipe both spellings
+collapse onto one slug whatever the emission order, which is the constraint (iv)
+predicted would disappear. And this record's `16d4106209c9ee70` — including
+`__theta_respond_16d4106209c9ee70` — is superseded: the fragment
+`{"type":"string","enum":["low","high"]}` has canonical form
+`{"enum":["low","high"],"type":"string"}` and slug `1aae0990d53b3485`, the value
+(v) recorded as the `enum`-first half of its pair. Residual (v)'s hex literal is
+now derived from a canonical-form oracle in the witness rather than pinned by
+hand.
+
 ## Summary
 
 `docs/spec_topics/schema-subset.md:80` states one emission rule covering two

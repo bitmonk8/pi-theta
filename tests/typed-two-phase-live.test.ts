@@ -96,7 +96,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
@@ -124,6 +123,7 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 
@@ -341,9 +341,9 @@ const TYPED_LIVE_THETA_SEAM_BASE = [
 /**
  * The lowered `Verdict` response schema, its slug, the respond tool name, and
  * the QRY-15 template body — computed through the SAME production collaborators
- * the runtime uses (`lowerQueryResponseSchema` + the sha256-first-16-hex slug
- * recipe of src/runtime/typed-query-validation.ts `schemaSlug`), so the pins
- * below are byte-exact against the contract, not against copied constants.
+ * the runtime uses (`lowerQueryResponseSchema` + `respondSchemaSlug`,
+ * src/runtime/typed-query-validation.ts), so the pins below are byte-exact
+ * against the contract, not against copied constants.
  */
 interface RespondFixture {
   readonly lowered: LoweredSchema;
@@ -365,13 +365,10 @@ function respondFixture(): RespondFixture {
   if (lowered === undefined) {
     throw new Error("fixture defect: the Verdict schema annotation must lower");
   }
-  // The slug recipe pinned by the design (bug 0010): sha256 over
-  // JSON.stringify(lowered), first 16 hex chars — shared by registration,
+  // The slug recipe (bug 0010 design; bug 0099 route A): the canonical-form
+  // slug (schema-subset.md §Canonical schema hash) — shared by registration,
   // QRY-15, and QRY-12 so tool name ↔ template references stay byte-equal.
-  const slug = createHash("sha256")
-    .update(JSON.stringify(lowered))
-    .digest("hex")
-    .slice(0, 16);
+  const slug = respondSchemaSlug(lowered);
   cachedRespondFixture = {
     lowered,
     slug,

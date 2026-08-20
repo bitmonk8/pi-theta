@@ -108,7 +108,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import { createHash } from "node:crypto";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -134,6 +133,7 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import {
   synthesizeForcedRespondIssue,
@@ -224,9 +224,9 @@ const ROUNDS2_REPAIR1_THETA = [
 /**
  * The lowered `Verdict` response schema, its slug, and the respond tool name —
  * computed through the SAME production collaborators the runtime uses
- * (`lowerQueryResponseSchema` + the sha256-first-16-hex slug recipe of
- * src/runtime/typed-query-validation.ts `respondSchemaSlug`), so the pins below
- * are byte-exact against the contract, not against copied constants.
+ * (`lowerQueryResponseSchema` + `respondSchemaSlug`,
+ * src/runtime/typed-query-validation.ts), so the pins below are byte-exact
+ * against the contract, not against copied constants.
  */
 interface RespondFixture {
   readonly lowered: LoweredSchema;
@@ -248,10 +248,7 @@ function respondFixture(): RespondFixture {
   if (lowered === undefined) {
     throw new Error("fixture defect: the Verdict schema annotation must lower");
   }
-  const slug = createHash("sha256")
-    .update(JSON.stringify(lowered))
-    .digest("hex")
-    .slice(0, 16);
+  const slug = respondSchemaSlug(lowered);
   cachedRespondFixture = {
     lowered,
     slug,

@@ -104,7 +104,7 @@ import {
   renderDiagnosticLine,
   type Diagnostic,
 } from "../diagnostics/diagnostic";
-import type { LoweredSchema } from "../seams/schema-validator";
+import type { LoweredSchema, SchemaSlug } from "../seams/schema-validator";
 import {
   discoverThetas,
   type DiscoveredTheta,
@@ -124,6 +124,7 @@ import {
   type CallableSetSnapshot,
 } from "../parser/callable-set";
 import { checkCalleeHasErrors } from "../parser/invoke-diagnostics";
+import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import {
   buildInvokeGraph,
@@ -330,10 +331,10 @@ function buildRuntimeRoot(
   const fileSystem = new PiFileSystem(ctx.cwd);
   const schemaValidator = new AjvSchemaValidator({
     emit: emitDiagnostic,
-    slugOf: (schema: LoweredSchema) => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
+    // PIC-11 (host-interfaces-services.md:46) keys the per-query validator cache
+    // by the lowered document's schema slug and gates a hit on canonical-form
+    // byte-equality, so slug and bytes must come from one recipe (bug 0099).
+    slugOf: productionSchemaSlugOf,
   });
   return createRuntimeRoot({
     checkpoint: new ProductionCheckpoint(clock),
@@ -2713,4 +2714,44 @@ function emitBootstrapTerminal(diagnostic: Diagnostic): void {
   } catch (consoleError: unknown) { // allow-broad-catch: PIC-54 — runtime-event-channel.md#pic-54
     void consoleError;
   }
+}
+
+/**
+ * PIC-11 (host-interfaces-services.md:46) keys the per-query validator cache
+ * by the schema slug of the lowered per-query schema document, per the
+ * canonical schema hash (schema-subset.md §Canonical schema hash). Exported
+ * (not an inline closure) so the byte comparison the seam performs — the
+ * 64-bit-collision arm at src/seams/schema-validator.ts:126-136 — is a
+ * property of THIS function under test, not of a source-text pattern over the
+ * module that happens to contain it.
+ */
+export function productionSchemaSlugOf(schema: LoweredSchema): SchemaSlug {
+  // The argument is FOREIGN: the pre-dispatch AJV safety net drives this over
+  // `PiToolDispatch.parameters` from the host tool registry, admitted behind
+  // only an object/non-null/non-array guard. Round-tripping it through the
+  // serialiser whose semantics the canonical form is defined against resolves
+  // the JSON data model BY CONSTRUCTION rather than by a second
+  // implementation of it: `toJSON` is invoked, boxed `Number`/`String`/
+  // `Boolean` are unwrapped, array holes and non-finite numbers become `null`,
+  // `undefined`/function/symbol properties are omitted, and a circular
+  // structure or a `bigint` is refused with a `TypeError` — every one of them
+  // exactly as the serialisation this recipe replaced resolved it, which is
+  // what keeps a host schema's slug from moving for any shape a cached
+  // artefact or a replayed provider payload can carry
+  // (schema-subset.md:94). Hand-rolling those rules inside the hash function
+  // would be the divergent second implementation the recipe exists to remove.
+  // The refusals propagate untouched: a circular structure or a `bigint`
+  // throws a `TypeError` from `JSON.stringify` before parsing is reached; a
+  // root whose `toJSON` yields no JSON document at all (`JSON.stringify`
+  // returning `undefined`) throws a `SyntaxError` from `JSON.parse(undefined)`
+  // instead. Both are LOUD failures, and neither is worse than the
+  // serialisation this replaced, which silently keyed the cache on the string
+  // `undefined`, collapsing every such schema onto one validator.
+  const document: unknown = JSON.parse(JSON.stringify(schema));
+  // The internal callers (`respondSchemaSlug`, the binder envelope slug, the
+  // PIC-44 stored bytes) hand the bridge lowering-constructed plain objects,
+  // so they are deliberately left without this round trip: it would be cost
+  // against no defect.
+  const value = toLoweredJsonValue(document);
+  return { slug: schemaSlug(value), canonicalBytes: canonicalForm(value) };
 }

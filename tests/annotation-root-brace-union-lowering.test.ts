@@ -102,7 +102,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   AJV over P1   {"a":1} ok · {"b":1} REFUSED · {"a":null} ok ·
 //                 {"a":"not an integer"} ok · {"a":{"deep":true}} ok ·
 //                 {"a":1,"b":1} REFUSED · {"c":3} REFUSED
-//   respondToolWireSchema(P1) :: P1 verbatim   respondSchemaSlug(P1) :: 81e7d0e308042785
+//   respondToolWireSchema(P1) :: P1 verbatim   respondSchemaSlug(P1) :: abb2fcd8521f6115
+//     (the canonical-form slug of P1; bug 0099 route A is the authority for the
+//     value)
 //   W  {a: integer} | {b: Ghost}   :: []       W  integer | {b: Ghost}  :: ["Ghost"]
 //   @<{a: integer} | {b: Ghost}>   diags []    schema X = {a: integer} | {b: Ghost}  diags []
 //   P8  {a: integer, b: string}                two typed fields, object root
@@ -411,6 +413,10 @@ const GHOST_UNION_DOCUMENT = {
  * The bytes `respondSchemaSlug` names the respond tool from today, hashed from
  * a HAND-WRITTEN fragment rather than from the lowerer, so group (d)'s
  * inequality assertion cannot be satisfied by a change to the slug recipe.
+ * Under bug 0099 route A the slug is the CANONICAL-FORM slug
+ * (schema-subset.md §Canonical schema hash); this is the same fragment the bug
+ * doc's “one fragment two mints” demonstration hashes, where it agrees with
+ * the `__inline_<slug>` mint over the same bytes.
  */
 const MISPARSED_ROOT_FRAGMENT: LoweredSchema = {
   type: "object",
@@ -418,7 +424,7 @@ const MISPARSED_ROOT_FRAGMENT: LoweredSchema = {
   required: ["a"],
   additionalProperties: false,
 };
-const MISPARSED_ROOT_SLUG = "81e7d0e308042785";
+const MISPARSED_ROOT_SLUG = "abb2fcd8521f6115";
 
 // ===========================================================================
 // Fixtures and load helpers. Loud on every unexpected disposition.
@@ -852,14 +858,15 @@ describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte, and
     ).toEqual([]);
   });
 
-  it("CONTROL (a8): the slug recipe names the CURRENT root fragment `81e7d0e308042785`", () => {
+  it("CONTROL (a8): the slug recipe names the CURRENT root fragment `abb2fcd8521f6115`", () => {
     // Hashed from a hand-written fragment rather than from the lowerer, so
     // group (d)'s inequality assertion stays a claim about the LOWERING and
     // cannot be satisfied by a change to `respondSchemaSlug`.
     const slug = respondSchemaSlug(MISPARSED_ROOT_FRAGMENT);
     expect(
       slug,
-      `src/runtime/typed-query-validation.ts:347 over the fragment the naive dispatch mints; observed ${slug}`,
+      `src/runtime/typed-query-validation.ts over the CANONICAL form of the fragment the naive ` +
+        `dispatch mints (bug 0099 route A); observed ${slug}`,
     ).toBe(MISPARSED_ROOT_SLUG);
   });
 });

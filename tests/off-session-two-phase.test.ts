@@ -122,7 +122,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
@@ -153,6 +152,7 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import type { ValidationIssue } from "../src/runtime/query-error";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -325,11 +325,11 @@ const UNTYPED_FN_THETA = [
 /**
  * The lowered `Verdict` response schema, its slug, and the respond tool name —
  * computed through the SAME production collaborators the runtime uses
- * (`lowerQueryResponseSchema` + the sha256-first-16-hex slug recipe of
- * src/runtime/typed-query-validation.ts `respondSchemaSlug`), so the pins
- * below are byte-exact against the contract, not against copied constants.
- * Computing it from THIS suite's subagent-fn fixture also verifies the named
- * top-level schema lowers for a query INSIDE a `subagent fn` body.
+ * (`lowerQueryResponseSchema` + `respondSchemaSlug`,
+ * src/runtime/typed-query-validation.ts), so the pins below are byte-exact
+ * against the contract, not against copied constants. Computing it from THIS
+ * suite's subagent-fn fixture also verifies the named top-level schema lowers
+ * for a query INSIDE a `subagent fn` body.
  */
 interface RespondFixture {
   readonly lowered: LoweredSchema;
@@ -353,10 +353,7 @@ function respondFixture(): RespondFixture {
       "fixture defect: the top-level Verdict schema must lower for the subagent-fn body query",
     );
   }
-  const slug = createHash("sha256")
-    .update(JSON.stringify(lowered))
-    .digest("hex")
-    .slice(0, 16);
+  const slug = respondSchemaSlug(lowered);
   cachedRespondFixture = {
     lowered,
     slug,

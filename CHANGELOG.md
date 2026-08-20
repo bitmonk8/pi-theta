@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.140.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0099 — schema slugs now mint from the canonical keys-sorted form.**
+  `respondSchemaSlug` hashed the emitted-bytes serialization, so two
+  documents lowering to the same schema could mint different slugs (and the
+  same schema different slugs across emission-order changes) against the
+  spec's canonical-form sentence. Route A: the shared `toLoweredJsonValue`
+  bridge canonicalizes the slug input; `params.ts`'s type-first key order
+  becomes an emitted-bytes-only contract (byte-identical output —
+  `params-literal-sublanguage-lowering` untouched). Witness:
+  `tests/schema-slug-canonical-form-mints.test.ts` (30 cells) + a
+  canonical-slug live cell in `typed-query-wire-shapes` (red-proven live —
+  the model called the neutralised mint vs the fixed mint). 30 oracle
+  constants across 8 witness files re-derived under 0099's authority.
+
 ## [0.139.0] - 2026-08-26
 
 ### Fixed

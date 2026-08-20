@@ -117,7 +117,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import { createHash } from "node:crypto";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -140,6 +139,7 @@ import {
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
@@ -231,9 +231,8 @@ function reply(fields: {
 /**
  * Bug 0010 increment D: the `Verdict` respond-tool name, derived through the
  * SAME production collaborators the runtime uses (`lowerQueryResponseSchema`
- * + the sha256-first-16-hex slug recipe of `respondSchemaSlug`), so the (b)
- * green control scripts its forced respond ToolCall against the contract, not
- * a copied constant.
+ * + `respondSchemaSlug`), so the (b) green control scripts its forced respond
+ * ToolCall against the contract, not a copied constant.
  */
 function respondToolName(): string {
   const doc = parse(TYPED_THETA);
@@ -244,11 +243,7 @@ function respondToolName(): string {
   if (lowered === undefined) {
     throw new Error("fixture defect: the Verdict schema annotation must lower");
   }
-  const slug = createHash("sha256")
-    .update(JSON.stringify(lowered))
-    .digest("hex")
-    .slice(0, 16);
-  return `__theta_respond_${slug}`;
+  return `__theta_respond_${respondSchemaSlug(lowered)}`;
 }
 
 // --- The driven thetas ---------------------------------------------------------

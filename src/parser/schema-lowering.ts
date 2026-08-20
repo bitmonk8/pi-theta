@@ -756,3 +756,141 @@ export function dedupInlineSchemas(
   }
   return { entries, diagnostics };
 }
+
+// --- The plain-object → `LoweredJsonValue` bridge (shared by every mint) ---
+
+/**
+ * The values JSON has no representation for, and whose disposition therefore
+ * depends on the POSITION they occupy rather than on the value itself: an
+ * object property holding one is omitted, an array element holding one becomes
+ * `null` (both per `JSON.stringify`).
+ */
+function isJsonUnrepresentable(value: unknown): boolean {
+  return value === undefined || typeof value === "function" || typeof value === "symbol";
+}
+
+/**
+ * Convert a JSON-ish value — nested objects, arrays, strings, numbers,
+ * booleans, `null` — to the `LoweredJsonValue` the canonical-hash recipe
+ * ({@link canonicalForm} / {@link schemaSlug}) reads.
+ *
+ * THE DOMAIN IS PLAIN JSON. The one caller rooted in a foreign value —
+ * PIC-11's per-query validator cache key, which the pre-dispatch AJV safety
+ * net drives over `PiToolDispatch.parameters` from the host tool registry —
+ * normalises its argument to plain JSON in `productionSchemaSlugOf` before
+ * this function sees it, so the exotic JS shapes (`toJSON` bearers, boxed
+ * primitives, circular structures) are resolved by the serialiser the
+ * canonical form is defined against rather than re-derived here.
+ *
+ * The arms below nevertheless keep the bridge a TOTAL function over PLAIN
+ * JSON: every plain-object, array, string, number, boolean and `null` shape
+ * has a defined answer, with no arm left unreached. Resolving an exotic JS
+ * shape (a `toJSON` bearer, a boxed primitive, a sparse array, a circular
+ * structure) into that domain is the NORMALISING CALLER's obligation, not
+ * this bridge's — discharged for the one foreign-rooted caller by
+ * `productionSchemaSlugOf` above. Each arm answers as `JSON.stringify` does
+ * over the domain it is total on, because the canonical
+ * form (step 2, schema-subset.md:99–:105) is a digest of the fragment AS A
+ * JSON DOCUMENT: a value JSON cannot represent is not in that document at all,
+ * so the bridge must not render one.
+ * - An object property whose value is `undefined`, a function, or a symbol is
+ *   OMITTED from the entry list — `JSON.stringify` writes no such key, so the
+ *   key is absent from the document being digested.
+ * - An ARRAY position holding `undefined`, a function, a symbol, or nothing at
+ *   all (an elided element) becomes `null` — `JSON.stringify` writes `null`
+ *   there, because an array's length is part of its value, so every index
+ *   below it is visited whether or not the array has an own property for it.
+ * - A `bigint` is REFUSED with a `TypeError`, the one disposition
+ *   `JSON.stringify` itself gives it ("Do not know how to serialize a
+ *   BigInt"). Refusing at the bridge rather than falling through is what keeps
+ *   the outcome no worse than the serialisation this replaced: the fall-through
+ *   arm would read `Object.entries(1n)` as `[]` and mint the slug of `{}`,
+ *   silently digesting a document the value is not. No rendering is invented
+ *   because the recipe pins none, and inventing one would fix a wire format by
+ *   accident.
+ * - A NON-FINITE number (`NaN`, `Infinity`, `-Infinity`) becomes `null` in
+ *   EVERY position, property and array element alike, which is the disposition
+ *   `JSON.stringify` gives it (`{"a":null}`, `[null]`): it is neither omitted
+ *   like `undefined` nor refused like a `bigint`, so no positional
+ *   special-casing arises. Two properties follow. ONE rule governs the whole
+ *   bridge — the JSON data model as `JSON.stringify` resolves it — rather than
+ *   two a reader must hold apart. And byte-agreement with the serialisation the
+ *   PIC-44 stored bytes and any replayed provider payload were produced from is
+ *   preserved, since a non-finite value hashes as `null` on both sides, so no
+ *   cached artefact moves for that shape. Rendering the value instead would put
+ *   a bare `Infinity` / `NaN` token in the digested bytes — text that is not a
+ *   JSON document and that no other implementation can reproduce, the exact
+ *   failure the recipe exists to prevent (schema-subset.md:94, :110).
+ * - `undefined`, a function or a symbol AT THE ROOT is likewise refused: those
+ *   positions have no JSON document (`JSON.stringify` returns `undefined`, not
+ *   a string), hence nothing to digest. Every production caller guards the root
+ *   to a non-null non-array object, so the arm is a total-function boundary
+ *   rather than a reachable path.
+ *
+ * WHY it lives beside the recipe rather than beside any one caller: every
+ * synthesised name schema-subset.md:108 mints (`__inline_`,
+ * `__theta_respond_`, `__theta_bind_`, and `__theta_callee_` when it gains a
+ * production mint) must be a function of the fragment alone, so all of them
+ * serialise through ONE bridge and ONE serialiser rather than through per-site
+ * re-implementations that can disagree about one fragment.
+ *
+ * The `integer` / `number` split is taken from the value's integrality where
+ * the recipe selects BNDR-4 / BNDR-5 on the DECLARED kind. That is not a byte
+ * difference: `renderCanonicalNumber` (src/render/canonical-number.ts) routes
+ * both of its switch arms through the same `canonicalDecimal` computation, so
+ * the two rules emit identical bytes for every finite input and the
+ * discriminator cannot move a slug. Threading a declared kind through the
+ * lowering would change which arm is named, never which bytes are hashed.
+ *
+ * Object entries are walked in insertion order; `canonicalForm` sorts them by
+ * Unicode code point before hashing, so the emitted fragment's key order and
+ * the digest are independent (schema-subset.md:110).
+ */
+export function toLoweredJsonValue(value: unknown): LoweredJsonValue {
+  if (typeof value === "string") {
+    return { kind: "string", value };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean", value };
+  }
+  if (typeof value === "number") {
+    // `Number.isFinite` and not the global `isFinite`: the global coerces its
+    // argument, and only the three non-finite doubles are meant here.
+    return !Number.isFinite(value)
+      ? { kind: "null" }
+      : Number.isInteger(value)
+        ? { kind: "integer", value }
+        : { kind: "number", value };
+  }
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (typeof value === "bigint") {
+    throw new TypeError(
+      "schema-slug canonical form: a bigint has no JSON representation, so the lowered " +
+        "fragment has no canonical form to digest (schema-subset.md:98-:107)",
+    );
+  }
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      // `Array.from` visits every index in `[0, length)`; `Array.prototype.map`
+      // skips holes and preserves them, which would leave a hole in `items`
+      // for `canonicalForm`'s `join` to render as empty text rather than as
+      // the `null` a hole's JSON representation is.
+      items: Array.from(value as readonly unknown[], (item) =>
+        isJsonUnrepresentable(item) ? { kind: "null" } : toLoweredJsonValue(item),
+      ),
+    };
+  }
+  if (typeof value !== "object") {
+    throw new TypeError(
+      `schema-slug canonical form: a root value of type ${typeof value} has no JSON ` +
+        "representation, so there is no document to digest (schema-subset.md:98-:107)",
+    );
+  }
+  const entries: LoweredObjectEntry[] = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => !isJsonUnrepresentable(entryValue))
+    .map(([key, entryValue]) => ({ key, value: toLoweredJsonValue(entryValue) }));
+  return { kind: "object", entries };
+}

@@ -84,7 +84,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   K2  {"p":3} under `array<string> | integer | array<boolean>`  REJECTED,
 //       while {"p":[{"junk":1}]} is ACCEPTED
 //   G1  respondSchemaSlug(@<integer | array<integer>>)       44136fa355b3678a
-//   G2  respondSchemaSlug(@<array<string> | array<integer>>) 4718677af1cfaad3
+//   G2  respondSchemaSlug(@<array<string> | array<integer>>) 5483e69d7515873a
+//       (bug 0099 route A moved G2 to the canonical-form slug; G1 is unmoved
+//       because `{}` has no keys to sort)
 //
 // WHERE §Reproduction IS STALE AT HEAD (bug 0039 landed in 0.49.0 between):
 //   (i)  `{a: integer} | array<integer>` no longer lowers `{}` everywhere.
@@ -883,25 +885,76 @@ describe("bug 0043 (e) — a name in ANY arm of ANY spelling raises unresolved-n
 });
 
 // ===========================================================================
-// (f) THE RESPOND-TOOL SLUG. `respondSchemaSlug`
-// (src/runtime/typed-query-validation.ts) hashes `JSON.stringify(lowered)` and
-// names the registered `__theta_respond_<slug>` tool, so every annotation that
-// lowers `{}` registers under ONE name.
-// The expected slugs are recomputed here from the expected FRAGMENTS with
-// `node:crypto` rather than read off the implementation, so the cell states the
-// recipe as well as the value.
-// RED at HEAD: (f1) hashes 44136fa355b3678a, (f2) hashes 4718677af1cfaad3.
+// (f) THE RESPOND-TOOL SLUG. Under bug 0099 route A, `respondSchemaSlug`
+// (src/runtime/typed-query-validation.ts) hashes the CANONICAL form
+// (schema-subset.md §Canonical schema hash step 2), not the emitted
+// serialisation, and names the registered `__theta_respond_<slug>` tool, so
+// every annotation that lowers `{}` registers under ONE name.
+// The expected slugs are recomputed here from the expected FRAGMENTS' own
+// CANONICAL forms with `node:crypto` rather than read off the implementation,
+// so the cell states the recipe as well as the value.
+// `PERMISSIVE_SLUG` does not move: `{}` has no keys to sort, so its canonical
+// form equals its emission. `MIS_SLICED_ARRAY_SLUG` re-derives under bug 0099:
+// the collapsed fragment is `{"type":"array","items":{}}`, whose canonical form
+// sorts `items` (U+0069) before `type` (U+0074).
+// RED at HEAD: (f1) hashes 44136fa355b3678a, (f2) hashes 5483e69d7515873a.
 // ===========================================================================
 
 describe("bug 0043 (f) — an affected annotation stops colliding on the permissive-`{}` slug", () => {
-  /** The slug every `{}`-lowering annotation collapses onto today. */
+  /** The slug every `{}`-lowering annotation collapses onto today; `{}` has no keys to sort. */
   const PERMISSIVE_SLUG = "44136fa355b3678a";
-  /** The slug every `{"type":"array","items":{}}`-lowering annotation collapses onto today. */
-  const MIS_SLICED_ARRAY_SLUG = "4718677af1cfaad3";
+  /**
+   * The slug every `{"type":"array","items":{}}`-lowering annotation collapses
+   * onto today, under bug 0099's canonical-form recipe: canonical form
+   * `{"items":{},"type":"array"}` (`items` sorts before `type`), SHA-256
+   * truncated to 16 hex.
+   */
+  const MIS_SLICED_ARRAY_SLUG = "5483e69d7515873a";
 
-  /** The registered-tool slug recipe: SHA-256 of the JSON form, first 16 hex. */
+  /**
+   * Compare by Unicode CODE POINT, as schema-subset.md:100 pins — `<` compares
+   * UTF-16 code units, which diverges from code-point order across the
+   * surrogate range. Implemented locally, not imported, so this stays an oracle
+   * independent of the implementation it checks.
+   */
+  function compareCodePointLocal(a: string, b: string): number {
+    const ap = [...a];
+    const bp = [...b];
+    for (let i = 0; i < Math.min(ap.length, bp.length); i += 1) {
+      const x = ap[i]?.codePointAt(0) ?? 0;
+      const y = bp[i]?.codePointAt(0) ?? 0;
+      if (x !== y) {
+        return x - y;
+      }
+    }
+    return ap.length - bp.length;
+  }
+
+  /**
+   * A local keys-sorted, whitespace-free serialiser over the plain-object
+   * domain these fragments inhabit (schema-subset.md:99–:105's non-numeric
+   * clauses; no fragment here carries a numeric `const`/`enum`). Written here
+   * rather than imported so a change to the implementation cannot move the
+   * oracle with it (bug 0099 route A).
+   */
+  function canonicalSerialise(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map(canonicalSerialise).join(",")}]`;
+    }
+    if (typeof value === "object" && value !== null) {
+      const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+        compareCodePointLocal(a, b),
+      );
+      return `{${entries
+        .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalSerialise(entryValue)}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  /** The registered-tool slug recipe: SHA-256 of the CANONICAL form, first 16 hex (bug 0099). */
   function slugOf(fragment: unknown): string {
-    return createHash("sha256").update(JSON.stringify(fragment)).digest("hex").slice(0, 16);
+    return createHash("sha256").update(canonicalSerialise(fragment)).digest("hex").slice(0, 16);
   }
 
   const rows: ReadonlyArray<readonly [string, string, Record<string, unknown>, string]> = [

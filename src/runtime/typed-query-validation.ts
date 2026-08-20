@@ -13,7 +13,7 @@
 // repair), schema-subset.md (SUBS-1 lowering), errors-and-results/queryerror-
 // variants.md (ValidationError shape).
 
-import { createHash } from "node:crypto";
+import { schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import type {
   TypedQuerySchemaValidation,
   TypedQueryValidationResult,
@@ -334,9 +334,9 @@ function validateAgainst(
 }
 
 /**
- * The lowered response schema's slug — the first 16 hex chars of the SHA-256
- * of the schema's JSON form (the same canonical-hash spirit as the schema-subset
- * slug; `createHash` is the schema-hash primitive, not a banned ambient).
+ * The lowered response schema's slug: schema-subset.md §Canonical schema hash of the canonical form — keys
+ * code-point sorted, BNDR-4/BNDR-5 numerics — not of an emitted serialisation. Same function as the
+ * `__inline_<slug>` mint, so all four synthesised-name forms (schema-subset.md:108) agree on one fragment.
  *
  * WHY exported (bug 0010): this ONE recipe names the registered
  * `__theta_respond_<slug>` respond tool (the PIC-44 registration-cache entry)
@@ -345,5 +345,5 @@ function validateAgainst(
  * to call stay byte-equal by construction — three consumers, one function.
  */
 export function respondSchemaSlug(lowered: LoweredSchema): string {
-  return createHash("sha256").update(JSON.stringify(lowered)).digest("hex").slice(0, 16);
+  return schemaSlug(toLoweredJsonValue(lowered));
 }
