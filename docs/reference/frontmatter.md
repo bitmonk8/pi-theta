@@ -179,7 +179,10 @@ theta's **model** — in prompt mode the callable set is installed as the
 session's active tools for each query window (PIC-17) and the user's host
 session executes the call; in subagent mode the invocation runs the whole
 callee in a child `pi` process that loads the same extensions and receives the
-callable-set names as its active-tool allowlist (`tools: []` → no tools) — and
+callable set's **host-tool** names as its active-tool allowlist (no host tool in
+the set — including `tools: []` — → no tools; a `.theta` callable's name is
+theta-side and never enters the allowlist, since it names nothing in the host's
+tool registry) — and
 by theta **code**: a code-side `<name>(...)` call routes through host-loop
 dispatch (PIC-64) — the child's host agent loop in subagent mode, the user's
 live host session in prompt mode — running deterministically with the

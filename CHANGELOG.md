@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.132.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0210 — the subagent child's `--tools` allowlist now carries the
+  callable set's HOST-tool half only; a `.theta` callable's presented name
+  never enters it.** `spawnSubagentConversation` concatenated
+  `callableSetPiToolNames(theta)` with every `.theta` entry's presented name
+  and passed the merged list as the child's `--tools` value. `--tools` is a
+  HOST tool-registry allowlist, and a `.theta` callable's presented name names
+  nothing in that registry — it is theta-side, resolved child-side against the
+  child's own theta registry, and already carried by the launch contract's
+  presented-name + marshalled-closure-hash channel. The merge was inert on Pi,
+  which tolerates an unresolvable name, and fatal on Oh-My-Pi, which VALIDATES
+  the list and exits 2 before any session starts (`Error: Unknown tool in
+  --tools: <name>`) — the parent observed only a child exit without an
+  envelope (`Err(InvokeInfraError { cause: "internal_error" })`), so EVERY
+  theta registering a `.theta` callee in `tools:` was unrunnable on that host,
+  load-clean and diagnostic-free. `SubagentArgvInput.tools` /
+  `.emptyCallableSet` are renamed `hostTools` / `noHostTools` (the old name was
+  the misconception: the `--no-tools` arm is chosen by "does the callable set
+  hold a HOST tool", not "is the callable set empty"), a callable set holding
+  only `.theta` callables now takes `--no-tools`, and `inferChildTrust` reads
+  the host half only — a `.theta` presented name colliding with a
+  project-local extension tool's name can no longer inflate the child's
+  project-local file-trust verdict. Spec: `subagent.md`'s carrier table splits
+  the callable-set row by side and a new `#subagent-tools-host-names-only`
+  subsection carries the rule; `frontmatter.md`, `invocation.md`,
+  `tool-registration-lifetime.md`, `guide.md` and the subagent-extension-tool
+  how-to and example follow.
+
 ## [0.131.0] - 2026-08-26
 
 ### Fixed

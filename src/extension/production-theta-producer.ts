@@ -1941,25 +1941,35 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
     }
 
-    // PIC-58 launch contract: the theta's callable set becomes the child's
-    // `--tools` allowlist (defence-in-depth; the child theta enforces its own
-    // callable set regardless). `tools: []` maps to `--no-tools` (empty ≠
-    // omission — omission would re-enable Pi's default built-ins).
+    // PIC-58 launch contract: the callable set's HOST-TOOL half becomes the
+    // child's `--tools` allowlist (defence-in-depth; the child theta enforces its
+    // own callable set regardless). No host tool in the set maps to `--no-tools`
+    // (empty ≠ omission — omission would re-enable the host's default built-ins).
+    //
+    // `.theta` callables are deliberately NOT in the allowlist. `--tools` is a
+    // HOST tool-registry allowlist, and a `.theta` callable name names nothing in
+    // that registry: it is theta-side, resolved child-side against the child's own
+    // theta registry, and it already has its own carrier in the launch contract
+    // (the presented name + marshalled closure hash). Forwarding it too was a
+    // duplication only a host with a lenient argv tolerated — Oh-My-Pi VALIDATES
+    // `--tools` against its registry and exits 2 before any session starts
+    // (`Error: Unknown tool in --tools: <name>`), which the parent observes only
+    // as a child exit without an envelope, so EVERY theta registering a `.theta`
+    // callee in `tools:` was unrunnable there (bug 0210).
     const piToolNames = callableSetPiToolNames(theta);
     const thetaCallableEntries = callableSetThetaEntries(theta);
-    const callableNames = [
-      ...piToolNames,
-      ...thetaCallableEntries.map((entry) => entry.presentedName),
-    ];
-    const emptyCallableSet = callableNames.length === 0;
+    const noHostTools = piToolNames.length === 0;
 
     // #subagent-isolation-and-trust: grant the child PROJECT-LOCAL trust iff the
     // callable set holds a project-local tool (the operator already trusted its
-    // extension in the parent session), else withhold it (least privilege). The
-    // flags that spell either arm are the host dialect's, not this seam's — see
-    // `HostCliDialect` — one host cannot express this intent at all.
+    // extension in the parent session), else withhold it (least privilege). Read
+    // over the HOST-tool names for the same reason the allowlist is: only a host
+    // tool can carry a host source scope, so a `.theta` presented name that
+    // happens to collide with a project-local tool's name cannot inflate the
+    // verdict. The flags that spell either arm are the host dialect's, not this
+    // seam's — see `HostCliDialect` — one host cannot express this intent at all.
     const allTools = this.#input.getAllTools?.() ?? [];
-    const projectTrust = inferChildTrust(callableNames, allTools);
+    const projectTrust = inferChildTrust(piToolNames, allTools);
 
     // §Resolution snapshot (widened): marshal each `.theta` callable's
     // transitive-closure content hash captured AT LOAD on the frozen callable-set
@@ -2098,8 +2108,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           slug: theta.slashName,
           thetaDirs: this.#input.activeRoots ?? [],
           systemPrompt: systemPrompt ?? "",
-          tools: callableNames,
-          emptyCallableSet,
+          hostTools: piToolNames,
+          noHostTools,
           provider: String(model.provider),
           model: model.id,
           projectTrust,
@@ -3181,13 +3191,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           //    ambient tool the theta never declared, so the QTL-2 rejection
           //    stands.
           //  - regime active (subagent-root child): PIC-58 bounds the child
-          //    session's tools to the theta's OWN callable set (the `--tools`
-          //    allowlist derived from the same snapshot), so no undeclared
-          //    ambient tool exists for the host loop to execute — ladder
-          //    routing cannot widen reach (an outside-the-allowlist name reads
-          //    back the fail-closed isError no-result) and stays the PIC-64
-          //    rung-3 fail-closed floor the child-leg wiring suites drive,
-          //    never a fabricated value.
+          //    session's tools to the callable set's HOST-tool half (the
+          //    `--tools` allowlist derived from the same snapshot — `.theta`
+          //    names never enter it, bug 0210), so no undeclared ambient tool
+          //    exists for the host loop to execute — ladder routing cannot
+          //    widen reach (an outside-the-allowlist name reads back the
+          //    fail-closed isError no-result) and stays the PIC-64 rung-3
+          //    fail-closed floor the child-leg wiring suites drive, never a
+          //    fabricated value.
           const regime = this.#input.subagentRootRegime ?? { active: false as const };
           if (regime.active) {
             return this.#dispatchExtensionToolViaLadder(toolName, params, signal);

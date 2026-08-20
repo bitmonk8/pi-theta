@@ -23,8 +23,9 @@ In subagent mode an extension tool is reachable **two ways**:
 - The theta's **model** can call it during a query's tool loop. The invocation
   runs the whole callee — the interpreter included — in a spawned child `pi`
   process that performs Pi's normal extension discovery, so the tool is
-  registered in the child; the callable-set names become the child's
-  active-tool allowlist.
+  registered in the child; the callable set's host-tool names become the
+  child's active-tool allowlist (a `.theta` callable is resolved child-side by
+  name and never allowlisted).
 - Theta **code** can dispatch it too (since 0.10.0). A code-side `<name>(...)`
   call is routed through the child's own host agent loop (PIC-64 rung 2 —
   *host-loop dispatch*): the runtime registers a theta-controlled provider that
@@ -106,7 +107,8 @@ params:
 let check = finding_store({ op: "validate", findingsDir: findings_dir })?
 
 // Model-facing reach: the MODEL may also call `finding_store` during this
-// query's tool loop — the callable set is the child's active-tool allowlist.
+// query's tool loop — the callable set's host-tool names are the child's
+// active-tool allowlist.
 @`Using the store under ${findings_dir} (schema check: ${check}), list the
 findings with finding_store, read any file it references, and report how many
 findings are still open in one sentence.`

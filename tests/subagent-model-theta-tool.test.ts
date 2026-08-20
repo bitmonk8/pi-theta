@@ -1,6 +1,7 @@
 // SUBAG-2 (model-callable `.theta`) under RFC-0005 — the callable set crosses the
-// process boundary as the child's `--tools` allowlist + a marshalled content
-// hash, not as an in-process `customTools` `defineTool`.
+// process boundary SPLIT BY SIDE: its host tools as the child's `--tools`
+// allowlist, its `.theta` callables as presented name + marshalled content hash.
+// Neither half crosses as an in-process `customTools` `defineTool`.
 //
 // This file pins two halves:
 //
@@ -12,14 +13,21 @@
 //       remains a pure, deterministic seam (the code-side `.theta`-callable
 //       lowering) independent of the process boundary.
 //   (B) the RFC-0005 launch contract through the REAL `spawnSubagentConversation`
-//       over a fake process launcher: the `.theta` callable name appears in the
-//       child's `--tools` allowlist (subagent.md #subagent-tools-allowlist-
-//       suppression) and its transitive-closure content hash is marshalled to
-//       the child via the `PI_THETA_SUBAGENT_CALLABLE_HASHES` env carrier
-//       (#subagent-theta-callable-hash). No executable customTool crosses the
-//       boundary; the former model `tool_use`-through-`#driveCallee` parent-side
-//       dispatch is retired — the child's own model owns those tool calls
-//       (PIC-42).
+//       over a fake process launcher: the callable set's HOST tools appear in the
+//       child's `--tools` allowlist and its `.theta` callables do NOT (bug 0210 —
+//       `--tools` is a host tool-registry allowlist, and one host exits 2 on a name
+//       it cannot resolve, killing the child before it starts); each `.theta`
+//       callable's transitive-closure content hash is marshalled to the child via
+//       the `PI_THETA_SUBAGENT_CALLABLE_HASHES` env carrier
+//       (#subagent-theta-callable-hash, #subagent-tools-allowlist-suppression). No
+//       executable customTool crosses the boundary; the former model
+//       `tool_use`-through-`#driveCallee` parent-side dispatch is retired — the
+//       child's own model owns those tool calls (PIC-42).
+//       The same host/theta split governs the child's trust verdict: the
+//       #subagent-isolation-and-trust inference (`inferChildTrust`) reads the
+//       callable set's HOST half only, so a `.theta` callable's presented name
+//       colliding with a project-local extension tool's name cannot inflate the
+//       child's project-local trust flags (bug 0210, third leg).
 //
 // Spec: tool-calls.md (SHARED callable set; :30 setup-throw), hard-ceilings
 // ceiling #4 (model-driven row), pi-integration-contract/subagent.md
@@ -29,9 +37,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // RFC-0005 re-base: the subagent bind spawns a child `pi` process, so the (B)
 // integration suite drives the REAL `launchSubagentChild` over a fake process
-// launcher and asserts the LAUNCH CONTRACT — the `--tools` allowlist entry for
-// the `.theta` callable + the marshalled content-hash env carrier
-// (`PI_THETA_SUBAGENT_CALLABLE_HASHES`) — in place of the retired in-process
+// launcher and asserts the LAUNCH CONTRACT — the host-tool `--tools` allowlist and
+// the marshalled content-hash env carrier (`PI_THETA_SUBAGENT_CALLABLE_HASHES`)
+// for the `.theta` callable — in place of the retired in-process
 // `customTools`-on-`createAgentSession` mechanism (subagent.md
 // #subagent-launch-contract / #subagent-theta-callable-hash).
 import {
@@ -62,6 +70,7 @@ import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runti
 import { HostFatal } from "../src/runtime/runtime-panics";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
+import type { HostToolSnapshotEntry } from "../src/seams/host-tool-snapshot";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -256,11 +265,14 @@ function toolCallReply(name: string, id: string, args: Record<string, unknown>):
 }
 
 /**
- * A parent subagent theta whose callable set exposes one `.theta` callee. Defaults
- * to a bare-basename `child` → `./child.theta`; pass `presentedName` / `calleePath`
- * to model a renamed (`as foo`) or hyphenated (`./my-tool.theta` → `my_tool`)
- * entry (Gap-2). The frozen entry carries the authoritative `calleePath` exactly
- * as `resolveCallableSet` records it from the `tools:` `spec`.
+ * A parent subagent theta whose callable set exposes one host tool (`read`) and
+ * one `.theta` callee. Defaults to a bare-basename `child` → `./child.theta`; pass
+ * `presentedName` / `calleePath` to model a renamed (`as foo`) or hyphenated
+ * (`./my-tool.theta` → `my_tool`) entry (Gap-2). The frozen entry carries the
+ * authoritative `calleePath` exactly as `resolveCallableSet` records it from the
+ * `tools:` `spec`. The host tool is present so the launch-contract assertions can
+ * witness BOTH halves of the split: the host name reaches `--tools`, the
+ * theta-side name never does (bug 0210).
  */
 function parentTheta(
   body: ThetaBody,
@@ -268,7 +280,8 @@ function parentTheta(
 ): ThetaCompositionInput {
   const presentedName = opts?.presentedName ?? "child";
   const calleePath = opts?.calleePath ?? "./child.theta";
-  const entries = new Map([
+  const entries = new Map<string, unknown>([
+    ["read", { kind: "pi-tool" as const, toolDefinition: { toolName: "read" } }],
     [
       presentedName,
       {
@@ -284,10 +297,13 @@ function parentTheta(
       },
     ],
   ]);
-  const callableSet: CallableSetSnapshot = { entries };
+  const callableSet = { entries } as unknown as CallableSetSnapshot;
   const frontmatter = {
     mode: "subagent",
-    tools: [calleePath === `./${presentedName}.theta` ? calleePath : `${calleePath} as ${presentedName}`],
+    tools: [
+      "read",
+      calleePath === `./${presentedName}.theta` ? calleePath : `${calleePath} as ${presentedName}`,
+    ],
   } as unknown as ParsedFrontmatter;
   return {
     slashName: "parent",
@@ -351,6 +367,7 @@ function makeParentDeps(
     readonly checkpoint?: Checkpoint;
     readonly childTailSource?: string;
     readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
+    readonly getAllTools?: () => readonly HostToolSnapshotEntry[];
   },
 ): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeJsonChildLauncher> } {
   const launcher = makeFakeJsonChildLauncher();
@@ -371,6 +388,7 @@ function makeParentDeps(
     subagentParentEnv: {},
     subagentParentPid: 4242,
     ...(opts?.emitDiagnostic !== undefined ? { emitDiagnostic: opts.emitDiagnostic } : {}),
+    ...(opts?.getAllTools !== undefined ? { getAllTools: opts.getAllTools } : {}),
   });
   return { deps, launcher };
 }
@@ -401,23 +419,62 @@ function marshalledHashes(env: Record<string, string | undefined>): Record<strin
   return raw === undefined ? {} : (JSON.parse(raw) as Record<string, string>);
 }
 
-describe("SUBAG-2 (B) — RFC-0005 launch contract: `.theta` callable → `--tools` allowlist + marshalled hash", () => {
+describe("SUBAG-2 (B) — RFC-0005 launch contract: host tools → `--tools`, `.theta` callable → marshalled hash", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("the `.theta` callable appears in the child's `--tools` allowlist (no executable customTool crosses the boundary)", async () => {
+  it("carries the callable set's HOST tools in `--tools` and never a `.theta` callable name (bug 0210)", async () => {
     const { deps, launcher } = makeParentDeps({ calls: [] });
     await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
 
     // subagent.md #subagent-launch-contract / #subagent-tools-allowlist-suppression:
-    // exactly one child spawned, with the `.theta` callable name in `--tools`.
+    // exactly one child spawned; `--tools` is a HOST tool-registry allowlist, so it
+    // carries `read` and NOT the theta-side `child` — which names nothing in any
+    // host registry and which one host rejects outright, killing the child before
+    // it starts. The `.theta` callee reaches the child by name + closure hash on
+    // the env carrier (next test) and is resolved against the child's OWN theta
+    // registry; no `customTools` / `defineTool` executable crosses the boundary.
     expect(launcher.spawns).toHaveLength(1);
     const spawn = launcher.spawns[0]!;
-    expect(toolsAllowlist(spawn.args)).toContain("child");
-    // The child resolves the `.theta` by name against its OWN registry; no
-    // `customTools` / `defineTool` executable definition crosses the boundary.
+    expect(toolsAllowlist(spawn.args)).toEqual(["read"]);
+    expect(toolsAllowlist(spawn.args)).not.toContain("child");
     expect(spawn.args).not.toContain("--no-tools");
+  });
+
+  it("a callable set of ONLY `.theta` callables maps to `--no-tools` (no host tool ⇒ empty active set, not omission)", async () => {
+    const { deps, launcher } = makeParentDeps({ calls: [] });
+    const entries = new Map<string, unknown>([
+      [
+        "child",
+        {
+          kind: "theta" as const,
+          mode: "subagent" as const,
+          calleePath: "./child.theta",
+          callee: undefined,
+          closureHash: "sha256:./child.theta",
+        },
+      ],
+    ]);
+    const theta = {
+      slashName: "onlytheta",
+      sourcePath: "/theta/onlytheta.theta",
+      frontmatter: { mode: "subagent", tools: ["./child.theta"] },
+      body: queryBody(),
+      callableSet: { entries },
+    } as unknown as ThetaCompositionInput;
+    await deps.spawnSubagentConversation(parentBindInput(theta));
+
+    // The child's host session needs no host tool to run a `.theta` callee (the
+    // theta runtime spawns its own grandchild), so the honest allowlist is empty —
+    // and empty MUST be spelled `--no-tools`, never omission (which would re-enable
+    // the host's default built-ins).
+    const spawn = launcher.spawns[0]!;
+    expect(spawn.args).toContain("--no-tools");
+    expect(spawn.args).not.toContain("--tools");
+    // The callee still crosses on the hash carrier — dropping it from `--tools`
+    // does not drop it from the launch.
+    expect(marshalledHashes(spawn.env)["child"]).toBe("sha256:./child.theta");
   });
 
   it("marshals the `.theta` callable's transitive-closure content hash via the env carrier (not argv)", async () => {
@@ -450,36 +507,89 @@ describe("SUBAG-2 (B) — RFC-0005 launch contract: `.theta` callable → `--too
   });
 });
 
+describe("#subagent-isolation-and-trust (B) — the trust verdict reads the callable set's HOST half only (bug 0210)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a `.theta` callable's presented name colliding with a project-local tool's name does NOT inflate the child's trust", async () => {
+    // The registry snapshot holds a PROJECT-scoped tool named `child` — the same
+    // name the parent's `.theta` callee presents — while the callable set's host
+    // half is only the non-project `read`. The inference at
+    // production-theta-producer's spawn site reads `inferChildTrust(piToolNames,
+    // allTools)` — the HOST half — for the same reason the `--tools` allowlist
+    // does (bug 0210): only a host tool can carry a host source scope, so the
+    // theta-side `child` (resolved against the child's OWN theta registry, never
+    // this snapshot) must not launder the project tool's trust into the child.
+    // Pre-fix, the merged host+theta name list made this collision grant
+    // `--approve`.
+    const { deps, launcher } = makeParentDeps(
+      { calls: [] },
+      {
+        getAllTools: () => [
+          { name: "read" },
+          { name: "child", sourceInfo: { scope: "project" } },
+        ],
+      },
+    );
+    await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
+
+    // Pi dialect (fakeExecutableHost carries no `.omp` configDirName): a false
+    // verdict is spelled `--no-approve`, never omission and never `--approve`.
+    expect(launcher.spawns).toHaveLength(1);
+    const spawn = launcher.spawns[0]!;
+    expect(spawn.args).toContain("--no-approve");
+    expect(spawn.args).not.toContain("--approve");
+  });
+
+  it("a project-scoped HOST tool in the callable set still earns the child `--approve` (control)", async () => {
+    // Control for the cell above: when the snapshot marks `read` — a name in the
+    // callable set's HOST half — project-scoped, the operator already trusted
+    // that extension in the parent session, so the verdict legitimately flows
+    // through to the child as `--approve` (#subagent-isolation-and-trust).
+    const { deps, launcher } = makeParentDeps(
+      { calls: [] },
+      { getAllTools: () => [{ name: "read", sourceInfo: { scope: "project" } }] },
+    );
+    await deps.spawnSubagentConversation(parentBindInput(parentTheta(queryBody())));
+
+    const spawn = launcher.spawns[0]!;
+    expect(spawn.args).toContain("--approve");
+    expect(spawn.args).not.toContain("--no-approve");
+  });
+});
+
 describe("Gap-2 (B) — renamed / hyphenated `.theta` callees carry their real path into the launch contract", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("a RENAMED entry `./child.theta as helper` is allowlisted as `helper` and hash-keyed by its presented name", async () => {
+  it("a RENAMED entry `./child.theta as helper` is hash-keyed by its presented name (and stays out of `--tools`)", async () => {
     const parseCalleeSpy = { calls: [] as string[] };
     const { deps, launcher } = makeParentDeps(parseCalleeSpy);
     const theta = parentTheta(queryBody(), { presentedName: "helper", calleePath: "./child.theta" });
     await deps.spawnSubagentConversation(parentBindInput(theta));
 
-    // Presented under the renamed name in `--tools`, dispatchable to the REAL
-    // callee path (`./child.theta`), never `./helper.theta`.
-    expect(toolsAllowlist(launcher.spawns[0]!.args)).toContain("helper");
     // The hash is keyed by the presented name but computed over the REAL callee
     // path (`./child.theta`), never a `./helper.theta` basename re-derivation.
     expect(marshalledHashes(launcher.spawns[0]!.env)["helper"]).toBe("sha256:./child.theta");
+    // The presented name is a THETA-side name: it addresses the child's own theta
+    // registry, so it never enters the host `--tools` allowlist (bug 0210) — which
+    // carries only the callable set's host half.
+    expect(toolsAllowlist(launcher.spawns[0]!.args)).toEqual(["read"]);
     void parseCalleeSpy;
   });
 
-  it("a HYPHENATED entry `./my-tool.theta` is allowlisted as `my_tool` and hash-keyed by its presented name", async () => {
+  it("a HYPHENATED entry `./my-tool.theta` is hash-keyed as `my_tool` (and stays out of `--tools`)", async () => {
     const parseCalleeSpy = { calls: [] as string[] };
     const { deps, launcher } = makeParentDeps(parseCalleeSpy);
     const theta = parentTheta(queryBody(), { presentedName: "my_tool", calleePath: "./my-tool.theta" });
     await deps.spawnSubagentConversation(parentBindInput(theta));
 
-    expect(toolsAllowlist(launcher.spawns[0]!.args)).toContain("my_tool");
     // The hyphenated real path is read from the snapshot's `calleePath`, NOT the
     // basename re-derivation `./my_tool.theta`.
     expect(marshalledHashes(launcher.spawns[0]!.env)["my_tool"]).toBe("sha256:./my-tool.theta");
+    expect(toolsAllowlist(launcher.spawns[0]!.args)).toEqual(["read"]);
     void parseCalleeSpy;
   });
 });

@@ -238,8 +238,9 @@ set afterwards; the user's host session, which holds the tool's
 implementation, executes the call. In subagent mode the invocation runs the
 whole callee — the interpreter included — in a spawned child `pi` process that
 performs Pi's normal extension discovery, so the same extension tools are
-registered there; the callable-set names become the child's active-tool
-allowlist. (The callee's `params:` are marshalled into the child structurally
+registered there; the callable set's host-tool names become the child's
+active-tool allowlist (a `.theta` callable is resolved child-side by name and
+never allowlisted). (The callee's `params:` are marshalled into the child structurally
 and its typed final value returns as a single `theta_result` line on the
 child's stdout — mechanics you never write by hand; see [How to return a typed
 value across a subagent boundary](./how-to/return-a-typed-value-across-a-subagent-boundary.md).)

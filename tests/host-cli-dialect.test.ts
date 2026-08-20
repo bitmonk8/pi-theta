@@ -32,8 +32,8 @@ function baseInput(overrides: Partial<SubagentArgvInput> = {}): SubagentArgvInpu
     slug: "reviewer",
     thetaDirs: ["/repo/.pi/theta"],
     systemPrompt: "you are a reviewer",
-    tools: ["read", "grep"],
-    emptyCallableSet: false,
+    hostTools: ["read", "grep"],
+    noHostTools: false,
     provider: "anthropic",
     model: "claude-sonnet-4",
     projectTrust: false,
@@ -194,7 +194,7 @@ describe("B1 — assembleSubagentArgv under the Oh-My-Pi dialect", () => {
 
   it("maps an empty callable set to --no-tools on omp too (empty is not omission)", () => {
     const argv = assembleSubagentArgv(
-      baseInput({ tools: [], emptyCallableSet: true }),
+      baseInput({ hostTools: [], noHostTools: true }),
       OMP_CLI_DIALECT,
     );
     expect(argv).toContain("--no-tools");
