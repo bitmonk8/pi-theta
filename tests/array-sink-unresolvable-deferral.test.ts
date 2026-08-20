@@ -143,7 +143,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // early-returns and no branch is conditional on the tree's state.
 //
 // SCOPE. The `fn`-argument sink's separate proof gate (`provableArgType`,
-// src/parser/type-layer-checks.ts:1671) is why row 17 is admitted today; §Fix
+// src/parser/type-layer-checks.ts:1701) is why row 17 is admitted today; §Fix
 // constraint 6 scopes that asymmetry out, so e5 pins the row as an invariant
 // rather than as something this contract changes. The TYPE-8 inline-object arm
 // (src/parser/type-compat.ts:231–256) has the same shape and is scoped out by
@@ -527,7 +527,7 @@ describe("bug 0179 (b) — every nominal placeholder shape defers at the constru
 describe("bug 0179 (c) — the deferral lands at the typed-`let` and array-literal-element sinks too", () => {
   it("RED c1 (row 9): `let ks: array<string> = p.keys()` loads clean and binds [\"a\",\"b\"]", async () => {
     // The typed-`let` sink reads the same `typeOf` the constructor field does
-    // (src/parser/type-layer-checks.ts:970 and :1559), so it refuses the same
+    // (src/parser/type-layer-checks.ts:971 and :1559), so it refuses the same
     // value one position over. Hoisting does not help either: an untyped `let`
     // records the same nominal type, and the sink is still `array<string>`.
     await expectDeferred(ROW9, {
@@ -653,7 +653,7 @@ describe("bug 0179 (e) — the same nominal value is admitted everywhere except 
 
   it("e5 (row 17): `g(p.keys())` against an `array<string>` PARAMETER answers 2", async () => {
     // The `fn`-argument sink admits what the other two refuse because it
-    // consults `provableArgType` (src/parser/type-layer-checks.ts:1671) and
+    // consults `provableArgType` (src/parser/type-layer-checks.ts:1701) and
     // skips the check for an expression whose read is not a proof of the
     // runtime value type. §Fix constraint 6 leaves that asymmetry in place, so
     // this row is an invariant of the change rather than a consequence of it.
@@ -689,7 +689,7 @@ describe("bug 0179 (f) — a type declared incompatible with itself", () => {
     // annotation text onto the query, `#typeExpr`'s `query` arm
     // (src/parser/static-type-inference.ts:255–256) answers
     // `named "array<string>"` — the text verbatim, unresolvable in the TypeEnv
-    // — while `annotationToCompatType` (src/parser/type-layer-checks.ts:810)
+    // — while `annotationToCompatType` (src/parser/type-layer-checks.ts:811)
     // parses the same text into an `array` sup. That is exactly the pair the
     // array arm short-circuits, so the deferral cures it: a sink cannot refuse
     // a value whose rendered type is its own.

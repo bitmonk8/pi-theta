@@ -1,12 +1,11 @@
 # Bug 0115 — `docs/spec_topics/bindings.md:12` requires a reassignment's RHS to be compatible with the binding's declared or inferred type, and no check anywhere in the tree evaluates that relation: `let mut n: integer = 1` / `n = "hi"` parses with `[]`, every compound form is equally silent, the runtime write accepts on mutability alone, and the diagnostics registry carries no row for the position — the mirror of bug 0050's family, so the fix needs a DIAG-2 adjudication before any code
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two DIAG-2 routes are
-  stated with their consequences and constraints, and the choice is not made
-  here. Ordering dependency —
-  [0090](./0090-let-mut-reassignment-type-rederivation-unspecified.md) (open)
-  adjudicates whether a reassignment re-derives the binding's recorded type, and
-  its disposition 2 deletes this report's obligation rather than implementing it.
-  **0090's adjudication precedes this fix.**
+- **Status:** fixed (0.138.0). §Fix was constraint-pinned; the DIAG-2 choice is
+  made in `## Fix (0.138.0)` below — **route 1, mint a row**. The ordering
+  dependency is satisfied:
+  [0090](./0090-let-mut-reassignment-type-rederivation-unspecified.md) is
+  **fixed** and its disposition 1 is landed, so this report's obligation
+  survives rather than being deleted.
 - **Sev/Diff estimate:** S1/D3 — a declared constraint is enforced nowhere in
   either phase, so a `string` writes into an `integer`-annotated binding with no
   diagnostic of any severity and the recorded type keeps asserting the
@@ -822,3 +821,205 @@ describing the ORIGINAL initialiser, so `let mut x = 1` / `x = "a"` /
 `let-rhs` sibling misjudges the identical read today (0050's fix record,
 residual 10). Whatever disposition this report's adjudication takes (ordered
 behind bug 0090), it now owes the fn-argument sink the same answer.
+## Fix (0.138.0)
+
+**The DIAG-2 adjudication.** §Fix **route 1 — mint a row**, on §Fix (b)'s own
+decisive ground: route 2 would ship
+`let binding '<name>' initialiser type mismatch: …` at a position that has no
+initialiser, and DIAG-4 (`diagnostic-shape.md:74`) makes the *Message* normative
+and defers the reword to theta 2.0, so that route misdescribes its own trigger
+for the lifetime of theta 1.x; it would also have to drop both axes of the
+current *Trigger* scoping. The minted row is
+`theta/parse/reassign-rhs-type-mismatch` (Sev `E`, phase `type`), Message
+`reassignment of '<name>' type mismatch: expected <expected>, got <actual>`.
+The placeholder surface stays closed with **no** closure edit, reusing named
+sub-rules rather than coining: `<name>` is admitted by
+`placeholder-rendering-b.md` §5 *Source-derived placeholders*, `<expected>` and
+`<actual>` by `placeholder-rendering-a.md` §1 *Static-type placeholders* — the
+check bug 0031's record performs for its own row. GOV-15
+(`source-language-stability.md:25`) disposes it as a code **addition**, in-scope
+in a theta 1.x minor for inputs that did not previously emit it, which is every
+row of §Reproduction. §Fix (c)'s narrowing sub-case routes to the
+already-registered `theta/parse/integer-narrowing` (`code-registry-parse.md:24`),
+which is not position-scoped, so no second row and no *Trigger* question. §Fix's
+open question about an immutable target is settled as **both codes**, measured
+and stated in the *Trigger*: the mutability row is phase `parse` and this one
+phase `type`, and neither *Trigger* excludes the other.
+
+**§Fix (d) is closed by 0090's landed adjudication, not re-derived here.**
+`docs/spec_topics/bindings.md` §Reassignment, anchor `#reassignment-binding-type`
+— "A reassignment does not change the binding's type: every later reference
+resolves the type the binding was declared or inferred with, for the whole of the
+binding's scope." So this report's premise survives, the target's recorded type is
+what the RHS is judged against, and the check does **not** re-record it (writing
+the map is 0090's rejected disposition 2). §Fix (e)'s `bindings.md` collision
+worry is discharged: the page is still 36 lines and this fix edits line 12 in
+place.
+
+- **What shipped:**
+  - `src/parser/type-compat.ts` — `checkReassignRhsCompat`, shaped on its two
+    neighbours `checkLetRhsCompat` / `checkParamsDefaultCompat`: `"compatible"`
+    and `"unknown"` defer (the Unresolvable-operands paragraph), an
+    `"integer-narrowing"` failure routes to the registered narrowing row, and an
+    incompatible pair emits the minted row. Appended, so no existing line moves.
+  - `src/parser/type-layer-checks.ts` — the type phase's `case "reassign"` arm
+    now reads the target's recorded type (`bindings.get`), resolves the RHS
+    (`this.typeOf`), gates **both** sides on `containsWithheldBinderType` (the
+    file's ninth such gate pair), emits at `stmt.range`, and keeps the existing
+    walk of the assigned value. It never writes `bindings`. The structural-parse
+    site (`bindings.ts`, `buildReassign`) and the runtime (`writeBinding`) are
+    untouched — both are §Non-goals — so `theta/parse/immutable-rebinding` keeps
+    firing from where it fired.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the minted row, with
+    the resolvability qualifier rows `:46` / `:56` carry, the plain form and all
+    five compound forms named, and the immutable-target both-codes disposition
+    stated.
+  - `docs/reference/diagnostics.md` — the user-facing mirror (Code / Sev / Phase /
+    Message only, per that page's `:3–9` statement).
+  - `docs/spec_topics/type-system.md` — the reassignment RHS added to `:27`'s `⊑`
+    position enumeration (closing the one-directional cross-link §Why it matters
+    names) and to TYPE-9 (`:50`), whose count moved **Four → Five**; page still
+    55 lines.
+  - `docs/reference/type-system.md` — the TYPE-9 mirror, same site and code.
+  - `docs/spec_topics/bindings.md` — the obligation clause at `:12` now names the
+    code it routes to, edited in place; page still **36 lines**, 0090's anchor
+    defined exactly once, and the inbound `:25` / `:36` citations unmoved.
+  - `tests/reassign-rhs-type-compat.test.ts` (new, 42 cells) — the witness.
+  - `tests/live/reassign-rhs-type-mismatch-live-cell.test.ts` (new, H8a)
+    — the live registration cell, carrying the literal token **the standalone live cell** in
+    place of a numeric H8a id.
+  - `tests/reassignment-binding-type-governs.test.ts` (b1, c5) and
+    `tests/type-name-as-value-refusal.test.ts` (a8) — the three pre-authorized
+    existing-cell flips, subjects preserved (see *Pre-authorized flips* below).
+  - Twelve further files (ten `tests/**`, `src/runtime/wire-translation.ts`,
+    `tests/let-annotation-recorded-binding-type.test.ts`) — **comment-only**
+    re-derivation of `src/parser/type-layer-checks.ts:N` line citations the
+    wiring shifted (+1 at/after old `:68`, +30 at/after old `:1317`). Every hunk
+    touches zero executable line and zero assertion, and every one of those files
+    keeps its own line count, so the shift does not cascade.
+- **Gates:** witness `npx vitest run tests/reassign-rhs-type-compat.test.ts` →
+  42 passed; full default suite `npx vitest run` → **333 files / 6136 tests
+  passed** (baseline at `769164b8` is 332 / 6094; the delta is exactly this fix's
+  one new default-suite file); `npm run typecheck` clean; `npm run lint` clean;
+  `tests/committed-fixture-parse-gate.test.ts` → 36 cells green, the corpus-wide
+  discharge that no shipped `.theta` moves; `wc -l` 36 (`bindings.md`), 55
+  (`type-system.md`), 343 (`tests/let-annotation-recorded-binding-type.test.ts`,
+  pin block still `:328–343`). Live: the new H8a **the standalone live cell** cell green through
+  the real production load path and red-proven in both directions; H9a acceptance
+  both files **11/11** through the real `pi -p`, with the empty-capture stderr
+  gate holding on all ten spawns.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — two findings: (1)
+  *correctness*, the new arm's WHY-comment claimed `buildReassign` refuses an
+  unknown target and that the `undefined` branch is unreachable; both are false
+  (`buildReassign` calls `checkReassignment` only for a known-**immutable**
+  target, and an undeclared reassignment target measures `[]`); (2) *test*, the
+  witness's two withheld-binder cells could not red on removal of the new gate
+  pair, because a top-level withheld record is an unresolvable `named` that the
+  emitter's own `"unknown"` arm defers anyway — so the ledger's red-provability
+  claim was false and the gate pair was unpinned against `AGENTS.md` §"Verify
+  both directions". Plus one prose residual (a banned word). The round-1 fixer
+  (`bug-fix-fixer`) corrected the comment length-neutrally (no citation moved)
+  and added four cells — `g6` / `g7` pin the RHS-side and target-side gates with
+  a withheld binder **inside a composite**, where the kind mismatch is decided
+  before the element resolves so only the arm gate defers, each with an emitting
+  twin — with a two-direction red proof and a blob-hash-verified restore. Round 2
+  (`bug-fix-reviewer-fast`) — **CLEAN**, both findings reproduced rather than
+  trusted. One **pre-review citation correction** ran before round 1 (not a review
+  round; numbering unaffected): the implementation had grown
+  `tests/let-annotation-recorded-binding-type.test.ts` to 344 lines, drifting the
+  `:328–343` citations this report (×4), 0090 (×4) and two witness files carry;
+  the pin's comment was re-wrapped at equal length, the file is back to 343 lines,
+  comment-only, 19/19 green.
+- **Verification:** PASS. (i) The witness genuinely witnesses: with the
+  `checkReassignRhsCompat` push deleted so the arm is again a walk plus a return
+  (blob `535e867e81b55abf6a10ae5cd734a56781148f03`), 31 cells red — 28 in the new
+  witness plus the three pre-authorized flips b1 / c5 / a8 — each for the right
+  reason (the expected code absent, or the list one code short), while every
+  deferral cell stayed green; restored blob-hash-verified to
+  `cf8f7f6cc3d58311a33e2236530b56ed1207312c` and re-run 111/111 green. (ii) Full
+  default suite green at the expected delta. (iii) Live: the H8a the standalone live cell cell reds
+  under the same neutralisation (the mismatched theta **registers**) and passes
+  restored, and H9a is 11/11 with an empty stderr capture on every spawn; no live
+  red needed attribution. (iv) Lint and typecheck clean. Spot-checks: the emitted
+  Message is placeholder-for-placeholder identical to the registry *Message*
+  column (DIAG-4), no placeholder-rendering page is in the diff, and the one
+  `scratch` hit inside the diff is pre-existing methodology prose.
+- **Pre-authorized flips, re-derived under this report's authority and listed for
+  ratification:**
+  1. `tests/reassignment-binding-type-governs.test.ts` **b1** — `[]` →
+     `["theta/parse/integer-narrowing"]`. Authority: 0090's fix record residual 2
+     ("Two witness cells assert an absence 0115 will legitimately move"), in
+     exactly the named direction. That residual's second-order warning is
+     honoured: b1's new code list is list-identical to the rejected disposition-2
+     signature it was red-proven against, so b1 now also **pins the diagnostic's
+     position** (the reassignment statement, not the later reference), which is
+     what restores its discrimination. The rule it locks is unchanged.
+  2. same file, **c5** — `[]` → `["theta/parse/reassign-rhs-type-mismatch"]`. Same
+     authority; c5 is the cell 0090's residual names as the one that keeps
+     discriminating by code alone (disposition 2's code there is
+     `theta/parse/non-string-array-join`).
+  3. `tests/type-name-as-value-refusal.test.ts` **a8** —
+     `["theta/parse/type-as-value"]` →
+     `["theta/parse/reassign-rhs-type-mismatch", "theta/parse/type-as-value"]`.
+     Bucketed against three independent doc authorities: that file's own group (c)
+     already pins the identical co-firing at the two sibling wired sinks (c2,
+     `let out: string = P` → `[let-rhs-type-mismatch, type-as-value]`, and the
+     constructor-field row), GOV-15's addition direction, and §Expected, which
+     carves out no type-name RHS. The cell keeps its group-(a) subject and its
+     `registers(doc) === false` assertion.
+- **Where this report turned out to be wrong.** §Fix's witness list asks the (d)
+  rows to pin that the consequence "stops surfacing as `unknown-method`". Under
+  0090's landed rule the recorded type does not move, so it does not stop:
+  measured `let mut n: number = 1` / `n = "x"` / `n.length()` →
+  `["theta/parse/reassign-rhs-type-mismatch", "theta/parse/unknown-method"]`. The
+  new row is an **addition** at the offending statement and the method row remains
+  correct; the witness pins the addition. §Affected's line citations are likewise
+  0.69.0-era throughout and were re-verified by symbol, not by line — the reassign
+  arm is at `:1315–1345` after this fix, `let-rhs-type-mismatch`'s registry row at
+  `:56`, and TYPE-9 named four sites before this fix rather than the three the
+  report describes.
+- **The 0050 coordination note is answered.** That note states this adjudication
+  "owes the fn-argument sink the same answer". Measured after this fix,
+  `fn g(s: string)` / `let mut x = 1` / `x = "a"` / `g(x)` reports
+  `theta/parse/reassign-rhs-type-mismatch` at the reassignment **and** the
+  pre-existing `theta/parse/fn-arg-type-mismatch` at the call, so the write is
+  refused at the statement the spec makes illegal and 0050's residual-10 stale
+  read is never a program's only diagnostic. The stale-read mechanism itself is
+  0050's subject and is untouched.
+- **Residuals:**
+  1. **Inbound line citations in `docs/bugs/` are shifted by this fix and were
+     deliberately not re-pinned** — every one lives in another report's document,
+     which this lane may not edit. Measured unique citations affected: 42 ×
+     `code-registry-parse.md:N` for N ≥ 57 (+1), 46 ×
+     `reference/diagnostics.md:N` for N ≥ 103 (+1), the `reference/type-system.md`
+     TYPE-9 mirror (+3, 202 → 205), 71 × `type-layer-checks.ts:N` for N ≥ 1317
+     (+30) and a further 195 × `type-layer-checks.ts:N` for 68 ≤ N < 1317 (+1). No
+     citation outside `docs/bugs/` is affected: a `grep -rlE` over `docs/`
+     excluding `docs/bugs/` returns nothing. This is the ordinary consequence of a
+     DIAG-2 mint plus a `src/` edit, the species 0090's record carries as its own
+     residual 4.
+  2. **Three in-tree citations were already stale before this fix and were left
+     alone** — two in `tests/live/live-production-acceptance.test.ts` (`:1237`,
+     `:1006`) and one further spot: shifting an already-wrong number produces a
+     differently-wrong number, not a fix. Out of remit.
+  3. **An immutable reassignment target still draws no mutability diagnostic in
+     two shapes** — a `for` loop variable and a `fn` parameter. Measured:
+     `for x in [1, 2] { x = "b" }` and `fn g(s: integer) { s = "a" }` each draw the
+     new **type** row alone and no `theta/parse/immutable-rebinding`. This fix adds
+     only the type verdict; the mutability silence is bug 0126's PIN e2 observation
+     and is not this report's subject. Witness cells `f2` / `f3` state it in place.
+  4. **A compound write's own operand rule is unchanged.** The check judges the RHS
+     expression against the target's type, which is what `bindings.md:12` states
+     for the plain and compound forms alike; `applyCompound`'s numeric coercion
+     (`statement-executor.ts`) remains a §Non-goal.
+- **Discharge notes appended:**
+  [0090](./0090-let-mut-reassignment-type-rederivation-unspecified.md) — its
+  residual 2 (the two pre-authorized witness cells) is discharged by this fix.
+- **Pinned dispositions / non-goals:** route 2 (widen
+  `theta/parse/let-rhs-type-mismatch`'s *Trigger*) is **rejected**, and its DIAG-4
+  wording cost is the recorded reason. Out of scope and unchanged: what type a
+  binding carries after a reassignment (0090, landed and cited here); the
+  `fn`-argument position's stale read (0050); a runtime check at `writeBinding`;
+  `applyCompound`'s coercion; `theta/parse/immutable-rebinding`'s own behaviour and
+  the two shapes where it does not fire (residual 3); 0079's adjudicated
+  interpolation disposition, measured unmoved in both directions.

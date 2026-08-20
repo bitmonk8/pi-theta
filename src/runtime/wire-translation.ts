@@ -350,7 +350,7 @@ function rebuildInbound(
   }
 
   // Null-prototype for the same class of hazard `collectTypeEnv`'s design
-  // note (`../parser/type-layer-checks.ts:316`) states for a `NamedType`
+  // note (`../parser/type-layer-checks.ts:317`) states for a `NamedType`
   // reference: `thetaKey` below is a string this walk did not mint — a
   // payload's own key, or an author's rename-map target — so it may spell
   // an `Object.prototype` own property (`__proto__` among them) verbatim,

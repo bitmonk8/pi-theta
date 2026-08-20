@@ -1008,7 +1008,7 @@ describe("bug 0079 (d) — the registry row is the oracle for both halves", () =
 // `Result` carries `RESULT_TAG` rather than `SCHEMA_TAG`, so no schema resolves
 // and the carrier's own enumerable `ok` / `value` / `error` keys are copied
 // through unchanged. The static half never descends either —
-// `interpolationIsResult` (src/parser/type-layer-checks.ts:2218) switches on the
+// `interpolationIsResult` (src/parser/type-layer-checks.ts:2248) switches on the
 // top-level node kind and answers `false` for an `array` or `object` literal, so
 // the sole emission site (:2184, driven from `checkQueryInterpolationResults` at
 // :2164) never fires. Twelve sources therefore load with `diagnostics` exactly
@@ -1427,7 +1427,7 @@ describe("bug 0114 (e) — a nested `Result` takes QRY-18's `Result` row: contai
   });
 
   it("RED (e6 / L05): the sharpest row — the author WRITES `array<Result<integer, QueryError>>` and it still loads and leaks", async () => {
-    // `interpolationIsResult` (src/parser/type-layer-checks.ts:2218) reaches
+    // `interpolationIsResult` (src/parser/type-layer-checks.ts:2248) reaches
     // `isResultGenericType` (:2269) only for an `ident` or an `index` whose own
     // type spells `Result<…>`. An `array<Result<…>>` type is an array, so the
     // author has said the word `Result` in the source and the gate that exists for
@@ -1645,7 +1645,7 @@ describe("bug 0114 (g) — the covered positions stay covered: a nested fix must
 
   it("CONTROL (g5 / P05): bug 0031's route — `S { n: Ok(1) }` under `n: integer` still draws object-field-type-mismatch", () => {
     // `checkObjectFieldCompat`'s `forceIncompatible` (src/parser/type-compat.ts,
-    // driven from src/parser/type-layer-checks.ts:1572) decides a `result-ctor`
+    // driven from src/parser/type-layer-checks.ts:1602) decides a `result-ctor`
     // FIELD VALUE incompatible outright. Its array-element neighbour has no
     // counterpart, which is why (e9)/L08 leaks one line away in the same schema.
     const doc = parseOnly(

@@ -6,7 +6,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Bug 0083 — a `let` binding's declared annotation is discarded after the
 // initialiser check: `walkStmt`'s `case "let"` records `bindings.set(stmt.name,
 // rhsType)` — the report's pinned citation,
-// src/parser/type-layer-checks.ts:572 at `d06daae3` — so every later reference
+// src/parser/type-layer-checks.ts:573 at `d06daae3` — so every later reference
 // resolves the INITIALISER's inferred type instead of the declared one
 // (docs/bugs/0083-let-annotation-discarded-from-recorded-binding-type.md).
 // Line citations elsewhere in this file target the tree carrying the fix.
@@ -38,7 +38,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     element type.
 //
 // THE SETTLED FIX (§Fix option 1): the `let` arm records the DECLARED type
-// (src/parser/type-layer-checks.ts:591–594). The initialiser has already been
+// (src/parser/type-layer-checks.ts:592–595). The initialiser has already been
 // checked against the annotation by `checkLetRhsCompat` (:559–567), so
 // recording the declared type admits no unchecked value. Both directions are
 // the same line; group (a) locks the permissive half and group (b) the
@@ -187,7 +187,7 @@ describe("0083 (b) — a `let` annotation narrower than its initialiser is what 
 
   it("s12: the join inside a nested block loads too (the block inherits whatever the enclosing `let` recorded)", () => {
     // `walkStmt`'s `if` arm walks `then` with `new Map(bindings)`
-    // (src/parser/type-layer-checks.ts:604), so the nested check reads a copy
+    // (src/parser/type-layer-checks.ts:605), so the nested check reads a copy
     // of whatever the enclosing `let` recorded. Fixing the record fixes the
     // copy; this row proves the fix reaches nested scopes and is not confined
     // to the statement list that declared the binding.
@@ -222,7 +222,7 @@ describe("0083 (d) — an alias-schema annotation is recorded in its TYPE-11-tra
     // unchanged" — and CTRL-4 (control-flow.md:76) makes `par for` legal in a
     // prompt-mode theta, so this body is source-reachable. The arm calls
     // `checkForIterand` from its own site
-    // (src/parser/type-layer-checks.ts:1084–1087) over a type read from the
+    // (src/parser/type-layer-checks.ts:1085–1088) over a type read from the
     // same binding map, so it needs its own row rather than inheriting d1's.
     expect(
       codesOf([
@@ -237,7 +237,7 @@ describe("0083 (d) — an alias-schema annotation is recorded in its TYPE-11-tra
   it("d3: an alias of a NON-string array still reports the non-string join element type", () => {
     // The true positive the transparency must not swallow. The join gate tests
     // `targetType.kind === "array"` directly
-    // (src/parser/type-layer-checks.ts:1222), so recording an opaque `named L`
+    // (src/parser/type-layer-checks.ts:1223), so recording an opaque `named L`
     // would skip `checkArrayJoin` entirely and admit the call that
     // expressions.md:108 prescribes rejecting. Unfolding restores the check
     // AND its reason: the element type is the declared `integer`.
@@ -327,15 +327,15 @@ describe("0083 — an unresolvable annotation keeps falling back to the initiali
 
 describe("0083 — a `let mut` reassignment does not re-derive the recorded binding type", () => {
   it("pin: `let mut n: number = 1` / `n = 2` / `let m: integer = n` narrows — the declared type governs after reassignment", () => {
-    // `case "reassign"` (src/parser/type-layer-checks.ts:1314–1316) walks
-    // `stmt.value` for nested checks and never calls `bindings.set` again, so
-    // the type recorded at the `let` — here the `number` annotation — is what
-    // every later reference sees for the rest of `n`'s scope: `m: integer = n`
-    // still narrows exactly as it does without the reassignment (a1). Bug 0090
-    // made that rule NORMATIVE: docs/spec_topics/bindings.md §Reassignment
-    // (anchor #reassignment-binding-type) states directly that a reassignment
-    // does not change the binding's type, so this pin is that sentence's
-    // witness rather than a standalone observation.
+    // `case "reassign"` (src/parser/type-layer-checks.ts:1315–1345, wired by
+    // bug 0115 to also judge the RHS against the target's recorded type) still
+    // never calls `bindings.set`, so the type recorded at the `let` — here the
+    // `number` annotation — is what every later reference sees for the rest of
+    // `n`'s scope: `m: integer = n` still narrows exactly as it does without
+    // the reassignment (a1). Bug 0090 made that rule NORMATIVE:
+    // docs/spec_topics/bindings.md §Reassignment (anchor
+    // #reassignment-binding-type) states directly that a reassignment does not
+    // change the binding's type, so this pin is that sentence's witness.
     expect(
       codesOf(["let mut n: number = 1", "n = 2", "let m: integer = n", "1"]),
     ).toEqual(["theta/parse/integer-narrowing"]);

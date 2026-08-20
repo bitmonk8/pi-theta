@@ -15,7 +15,7 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //
 // THE ROUTE UNDER TEST — the bug's §Fix disposition 1, "wire the caller", and
 // not one step wider. One emission site is added at `TypeLayerWalk.walkExpr`'s
-// `call` arm (src/parser/type-layer-checks.ts:2003–2008), which at this HEAD
+// `call` arm (src/parser/type-layer-checks.ts:2033–2038), which at this HEAD
 // walks the argument expressions and relates none of them to the callee's
 // declared parameter types. `invoke` shares that arm's label and is deliberately NOT
 // swept in: it carries its own registry row and its own separately-unwired
@@ -949,7 +949,7 @@ const U13PH_OBJECT_INDEX_PROVEN_KEY =
  * The two sinks whose verdict the withhold DECIDES: an `array.join` element and
  * a primitive-annotated `let` RHS, each fed a withheld read from INSIDE a
  * composite. The binder is an unannotated `fn` parameter — `walkFn`'s withheld
- * class (`recordWithheldBinders` at src/parser/type-layer-checks.ts:1596) — so
+ * class (`recordWithheldBinders` at src/parser/type-layer-checks.ts:1626) — so
  * the read stays withheld independently of how a plain `for` variable binds. The
  * composite is load-bearing: with the read as the WHOLE operand each sink's own
  * unresolvable-`named` handling answers first and the gate is never what
@@ -1183,7 +1183,7 @@ describe("bug 0050 — a compatible argument keeps loading clean", () => {
 describe("bug 0050 — an unresolvable parameter type defers", () => {
   it("d1: an UNANNOTATED parameter `fn g(n)` called `g(\"s\")` emits nothing", () => {
     // `FnParam.type` is the empty string, `annotationToCompatType`
-    // (src/parser/type-layer-checks.ts:810) yields no type, and
+    // (src/parser/type-layer-checks.ts:811) yields no type, and
     // `checkCompatible` answers `"unknown"`. Inferring a parameter type from
     // the body or from call sites is a §Non-goal of both dispositions.
     const doc = parse(D1);
@@ -1219,7 +1219,7 @@ describe("bug 0050 — an unresolvable parameter type defers", () => {
 describe("bug 0050 — the excluded callee kinds stay outside the check", () => {
   it("x1: `invoke(\"./child.theta\", 3)` draws no fn-arg-type-mismatch", () => {
     // `invoke` shares the switch label with `call` at
-    // src/parser/type-layer-checks.ts:2003, :2009 and must not be swept in: it
+    // src/parser/type-layer-checks.ts:2033, :2039 and must not be swept in: it
     // carries its own registry row (`theta/parse/invoke-arg-type-mismatch`)
     // and its own separately-unwired emitter, which is a distinct defect this
     // route does not fix.
@@ -1544,7 +1544,7 @@ describe("bug 0050 — a FABRICATED field-name argument read is not a proof and 
 // recording arms mark in `unprovableBindings` — the array type is — so an
 // erased target laundered its erasure through the narrowing, past the identity
 // channel `provableArgType`'s `ident` arm reads
-// (src/parser/type-layer-checks.ts:1819). The guard puts the proof obligation
+// (src/parser/type-layer-checks.ts:1849). The guard puts the proof obligation
 // on the target (:1872–1882), mirroring the `try` arm's recursion, and keeps
 // the element narrowing from `typeOf`.
 //
@@ -1735,7 +1735,7 @@ describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and
 // bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md), which is why
 // that cell emits off the record rather than off the spelling.
 // `collectLocalBinderNames`'s doc comment
-// (src/parser/type-layer-checks.ts:494–499) names the two ways the other three
+// (src/parser/type-layer-checks.ts:495–500) names the two ways the other three
 // arrive: a frontmatter `params:` field never reaches the map at all, and the
 // binder classes this layer cannot type — a match-arm binding, an unannotated
 // `fn` parameter, a loop variable whose iterand is not an `array<T>` — are
@@ -1821,7 +1821,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
 
   it("u9c: an UNANNOTATED `fn` parameter spelled like a declared schema draws no fn-arg-type-mismatch", () => {
     // `walkFn` seeds its body scope with a JUDGED type for the ANNOTATED
-    // parameters only (src/parser/type-layer-checks.ts:1235–1246, gated on
+    // parameters only (src/parser/type-layer-checks.ts:1236–1247, gated on
     // `p.type.length > 0`); an unannotated one is recorded WITHHELD (group u12),
     // so no proof of its type exists inside the body. The runtime
     // binds it positionally regardless
@@ -1875,7 +1875,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
   it("u9p: a `par for` variable spelled like a declared schema still fires, on the PROVEN element type", () => {
     // The positive differentiator, and the asymmetry that makes the four cells
     // above real rather than a blanket withholding. `walkExpr`'s `par for` arm
-    // DOES record the loop variable (src/parser/type-layer-checks.ts:2069),
+    // DOES record the loop variable (src/parser/type-layer-checks.ts:2099),
     // and `[1, 2]` is a proven `array<integer>`, so `P` carries a recorded
     // `integer` and `x: Q` is a genuine TYPE-10 mismatch — note the message
     // says `got integer`, not `got P`: the recorded type wins over the
@@ -2281,7 +2281,7 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 // THE SHAPE OF THE RECORD, and which rows it moves: each binder goes into the
 // INNER scope only (the walk's `new Map(bindings)` idiom), bound to a type
 // object whose name is the unspellable `WITHHELD_BINDER_TYPE_NAME`
-// (src/parser/type-layer-checks.ts:387) and marked in `unprovableBindings`. The
+// (src/parser/type-layer-checks.ts:388) and marked in `unprovableBindings`. The
 // identity channel the `ident` arm reads turns the hit into a withhold, which
 // is what these four cells measure. The SIBLING rows — every other consumer of
 // `typeOf` — move too, and only in the DEFERRAL direction: an in-scope read of
@@ -2310,7 +2310,7 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in the runtime's own scope", () => {
   it('u12: `let x = 1` then `for x in ["a"] { let r = g(x) }` draws nothing', () => {
     // The `for` variable class. `walkStmt`'s `for` arm
-    // (src/parser/type-layer-checks.ts:1071–1105) copies `bindings` for the body
+    // (src/parser/type-layer-checks.ts:1072–1106) copies `bindings` for the body
     // and recorded nothing for `stmt.variable`, so `g(x)` resolved `x` to the
     // outer `let x = 1`. The runtime's only iteration binds the element `"a"`,
     // so the argument's runtime value is that string and `s: string` accepts
@@ -2330,7 +2330,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
   it('u12b: `let x = 1` then `let m = match "hi" { x => g(x) }` draws nothing', () => {
     // The `match` pattern-binding class, reached through the WALK: the arm body
     // is walked, and `walkExpr`'s `match` arm
-    // (src/parser/type-layer-checks.ts:1975–1991) walked it with the outer map.
+    // (src/parser/type-layer-checks.ts:2005–2021) walked it with the outer map.
     // The arm's `x` is the scrutinee `"hi"` at runtime, so `g` receives that
     // string.
     const doc = parse(U12_MATCH_ARM_SHADOW);
@@ -2347,7 +2347,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
   it('u12c: `let x = 1` then `let r = g(match "hi" { x => x })` draws nothing', () => {
     // The same binder class reached through the REDUCTION instead: the `match`
     // sits at the argument position, so `provableArgType`'s own `match` arm
-    // (src/parser/type-layer-checks.ts:1688–1707) proves the composite over its
+    // (src/parser/type-layer-checks.ts:1718–1737) proves the composite over its
     // arm bodies. Proving those bodies in the outer scope while the walk
     // resolves them in the arm scope is the scope disagreement this group
     // closes. The match's runtime value is the scrutinee `"hi"`, which
@@ -2365,7 +2365,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 
   it('u12d: `let x = 1` then `fn h(x): number { g(x) }` called `h("a")` draws nothing', () => {
     // The unannotated-parameter class. `walkFn`
-    // (src/parser/type-layer-checks.ts:1233–1246) recorded ANNOTATED parameters
+    // (src/parser/type-layer-checks.ts:1234–1247) recorded ANNOTATED parameters
     // only, so an unannotated one left the same-named outer `let` visible
     // inside the body — a binding the runtime does not even provide there,
     // since a `fn` activation is a scope boundary and theta 1.0 has no
@@ -2386,7 +2386,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 
   it("u12e: `for x in [3] { g(x) }` over a PROVEN iterand fires, under bug 0126", () => {
     // The `par for` arm records the iterand's ELEMENT type
-    // (src/parser/type-layer-checks.ts:2069, the record cell u9p rides), and
+    // (src/parser/type-layer-checks.ts:2099, the record cell u9p rides), and
     // bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) settles
     // that the plain `for` arm records the same element for a PROVEN iterand.
     // `[3]` is a proven `array<integer>`, so `x` carries a genuine `integer`
@@ -2494,7 +2494,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 
   it("u12pe: a `par for` variable's ELEMENT record still wins over a same-named outer binding", () => {
     // The second recorded-binder differentiator, over the arm this fix does not
-    // touch (src/parser/type-layer-checks.ts:2069). The outer `let x = "a"` is a
+    // touch (src/parser/type-layer-checks.ts:2099). The outer `let x = "a"` is a
     // proven `string`; the iterand `[3]` is a proven `array<integer>`, so the
     // recorded element type is `integer` and the runtime hands `g` the integer
     // `3`. Resolve the body's `x` to the outer record and the argument reads
@@ -2534,11 +2534,11 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // `mixed-plus-operands` `P and integer`, a `non-orderable-operands`, an
 // `unknown-method 'frobnicate' on type P`, a `non-string-object-index`, a
 // `match-arm-type-mismatch`. So the entry carries a SENTINEL name
-// (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-layer-checks.ts:387) that no
+// (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-layer-checks.ts:388) that no
 // `.theta` text can declare: a `TypeEnv` key is exactly one token's text
 // (`parseSchema` takes the declaration name with a single `advance().text`,
 // src/parser/theta-document.ts:2355, and `collectTypeEnv` keys the env by it,
-// src/parser/type-layer-checks.ts:345, :350), and no token text equals a
+// src/parser/type-layer-checks.ts:346, :351), and no token text equals a
 // ten-character run that starts with `<` — an `ident` / `keyword` is
 // `[A-Za-z_][A-Za-z0-9_]*` (src/lexer/lexer.ts:666–682), a `punct` is one
 // character or a two-character operator from a fixed table (:704–714), a
@@ -2566,7 +2566,7 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 //     recursion carries that into a composite BUILT from a withheld read
 //     (`[x]` against `array<array<integer>>` rests entirely on `x`).
 // The walk therefore withholds the verdict at those sinks
-// (`containsWithheldBinderType`, src/parser/type-layer-checks.ts:409–423) —
+// (`containsWithheldBinderType`, src/parser/type-layer-checks.ts:410–424) —
 // the discipline the fn-arg row already applies through `provableArgType`'s
 // identity channel, at the four relation sinks and the two iterand sites that
 // read the map raw. The rows left alone defer by construction: their verdict on
@@ -2884,7 +2884,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // The join sink's withheld-fed cell. The receiver is an array BUILT from the
     // read, so `checkMethodCall`'s `join` branch IS entered
     // (`e.method === "join" && unfoldedTarget.kind === "array"`,
-    // src/parser/type-layer-checks.ts:2762) and the element carries the
+    // src/parser/type-layer-checks.ts:2792) and the element carries the
     // sentinel. `checkArrayJoin` (src/runtime/stdlib-array.ts:100) admits a
     // `string` element and refuses every other one, an unresolvable name
     // included, so it cannot defer on this element by itself: the explicit
@@ -2911,7 +2911,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // name earns elsewhere is unavailable here and the withheld part is the
     // whole basis of the answer. The explicit gate
     // (`annotation !== undefined && !containsWithheldBinderType(rhsType)`,
-    // src/parser/type-layer-checks.ts:1188) is therefore what keeps this list
+    // src/parser/type-layer-checks.ts:1189) is therefore what keeps this list
     // empty; the declared type is still recorded below it, so nothing
     // downstream loses the author's own claim about the position. Cell u13p is
     // the same sink over a non-withheld operand pair and reports, so the
@@ -3056,7 +3056,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // independent conditions could flip this cell and this comment named both.
     // ONE IS NOW TAKEN. The `let` arm's marking guard adds the object
     // `typeOf(stmt.init)` returned to `unprovableBindings` by IDENTITY
-    // (`walkStmt`'s `case "let"`, src/parser/type-layer-checks.ts:1187, read at
+    // (`walkStmt`'s `case "let"`, src/parser/type-layer-checks.ts:1188, read at
     // `provableArgType`'s `ident` arm, :2053). Here that object is the outer
     // `x`'s: the inference pass types an arm body in the ENCLOSING bindings map
     // (`#typeExpr`'s `case "match"`, src/parser/static-type-inference.ts:261–265),

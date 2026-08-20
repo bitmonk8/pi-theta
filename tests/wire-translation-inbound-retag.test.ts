@@ -303,9 +303,9 @@ describe("translateInbound — re-tag and re-brand end state (runtime-value-mode
 //
 // The end state below is §Fix (a): both records built with `Object.create(null)`,
 // the rule this corpus already applies at five sites
-// (`src/parser/type-layer-checks.ts:329`, `:792`, `src/parser/params.ts:337`,
+// (`src/parser/type-layer-checks.ts:330`, `:792`, `src/parser/params.ts:337`,
 // `src/extension/invoke-static-checks.ts:886`, `:999`, the design note at
-// `type-layer-checks.ts:316`). A key spelled `__proto__` is then an ordinary
+// `type-layer-checks.ts:317`). A key spelled `__proto__` is then an ordinary
 // own enumerable key: `Object.keys` reports it, `JSON.stringify` emits it, and
 // the record's prototype stays `null`. Bug 0038's witness states the same
 // three-part observable for the `TypeEnv`

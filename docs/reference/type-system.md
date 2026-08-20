@@ -67,14 +67,17 @@ inferred binding depending on a Pi-tool call whose schema is not parse-time
 visible; an `invoke` against a callee that produced `theta/load/callee-has-errors`),
 the parse-time check is skipped and the runtime AJV check is the safety net.
 
-- **TYPE-9.** Four sites report their own parse-time diagnostic on a static
+- **TYPE-9.** Five sites report their own parse-time diagnostic on a static
   failure: `let x: T = expr` → `theta/parse/let-rhs-type-mismatch`; a plain
   top-level `fn` argument → `theta/parse/fn-arg-type-mismatch`; a ternary →
   through the array/ternary common-type machinery
   (`theta/parse/array-element-type-mismatch` against a sink, else
   `theta/parse/array-no-common-type`); a `params:` default →
   `theta/parse/params-default-type-mismatch` (or `theta/parse/integer-narrowing`
-  for `number`-under-`integer`).
+  for `number`-under-`integer`); a reassignment RHS (the plain form and the five
+  compound forms) against the target binding's declared or inferred type →
+  `theta/parse/reassign-rhs-type-mismatch` (or `theta/parse/integer-narrowing`
+  for the same one-way narrowing case).
 - **TYPE-10.** Object-schema named types are **nominal** — participate in `⊑`
   only via TYPE-1, TYPE-4, TYPE-5/6. A named-schema value is not `⊑` an inline
   object of the same shape, and vice versa; two distinct named schemas with

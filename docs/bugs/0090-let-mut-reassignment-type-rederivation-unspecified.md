@@ -504,3 +504,29 @@ chosen route.
   `lexical-environment.ts` accepts on mutability alone, and `integer` / `number`
   are one JS value, so no executed value moves); 0079's adjudicated
   interpolation disposition.
+### Discharge note — residual 2 discharged by bug 0115 (X.Y.Z)
+
+Appended by the bug 0115 fix; nothing above is altered and this record stays as
+it was written.
+
+Residual 2 above pre-authorized the movement of two witness cells in
+`tests/reassignment-binding-type-governs.test.ts` once
+[0115](./0115-reassignment-type-compat-unchecked-no-registry-row.md) wired a
+reassignment-RHS compatibility check. 0115 shipped that check (route 1 — the
+minted `theta/parse/reassign-rhs-type-mismatch`) and both cells moved in exactly
+the direction this residual names, with the rule each locks unchanged:
+
+- **b1** `[]` → `["theta/parse/integer-narrowing"]` — 0115 §Fix (c) routes the
+  reassignment narrowing sub-case to the existing registered row, so this is the
+  list-identity this residual's second-order note predicted. The remedy this
+  residual recommends was taken: b1 now also pins the diagnostic's **position**
+  (the reassignment statement, not the later reference), which is what restores
+  its discrimination between declared-governs-plus-RHS-check and the rejected
+  disposition 2.
+- **c5** `[]` → `["theta/parse/reassign-rhs-type-mismatch"]` — the cell this
+  residual names as the one that keeps discriminating by code alone, since
+  disposition 2's code at that position is
+  `theta/parse/non-string-array-join`.
+
+Residual 1 (the recorded type as a normative contract nothing enforces) is
+likewise discharged by 0115's check. Residuals 3 and 4 are untouched.

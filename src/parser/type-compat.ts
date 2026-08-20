@@ -823,3 +823,59 @@ export function checkParamsDefaultCompat(opts: {
     },
   ];
 }
+
+/**
+ * TYPE-9 — the RHS of a reassignment statement (`x = e`, and the five compound
+ * forms `+=`, `-=`, `*=`, `/=`, `%=`; bindings.md §Reassignment), judged
+ * against the TARGET binding's declared-or-inferred type. `bindings.md`'s
+ * `#reassignment-binding-type` adjudication (bug 0090) is why `declared` is
+ * fixed at the binding's recorded type rather than re-derived from the write:
+ * a reassignment does not change what a binding's later references resolve
+ * to, so the RHS is judged against that unchanged type, not against itself.
+ * Reports `theta/parse/reassign-rhs-type-mismatch` when the RHS static type is
+ * not `⊑` the target's type (both statically resolvable), or
+ * `theta/parse/integer-narrowing` when the failure is specifically a `number`
+ * RHS under an `integer` target (TYPE-2's one-way widening) — the ALREADY-
+ * REGISTERED row `checkLetRhsCompat` and `checkParamsDefaultCompat` route the
+ * same narrowing outcome to, since it is not position-scoped (bug 0115 §Fix
+ * (c)). Returns no diagnostic when the relation holds or is statically
+ * unresolvable.
+ */
+export function checkReassignRhsCompat(opts: {
+  readonly name: string;
+  readonly declared: CompatType;
+  readonly value: CompatType;
+  readonly env: TypeEnv;
+  readonly site: CompatSite;
+}): Diagnostic[] {
+  const { name, declared, value, env, site } = opts;
+  const r = checkCompatible(value, declared, env);
+  if (r === "compatible" || r === "unknown") {
+    return [];
+  }
+  if (r === "integer-narrowing") {
+    // TYPE-2 — a `number` RHS under an `integer`-typed target. Message from
+    // diagnostics/code-registry-parse.md.
+    return [
+      {
+        severity: "error",
+        code: "theta/parse/integer-narrowing",
+        file: site.file,
+        range: site.range,
+        message: "cannot narrow number to integer",
+      },
+    ];
+  }
+  // Incompatible reassignment RHS. Message from diagnostics/code-registry-parse.md.
+  return [
+    {
+      severity: "error",
+      code: "theta/parse/reassign-rhs-type-mismatch",
+      file: site.file,
+      range: site.range,
+      message: `reassignment of '${name}' type mismatch: expected ${displayType(
+        declared,
+      )}, got ${displayType(value)}`,
+    },
+  ];
+}

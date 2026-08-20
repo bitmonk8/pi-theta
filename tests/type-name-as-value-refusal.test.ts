@@ -113,10 +113,23 @@ import { parseDoc } from "./helpers/e2e-s1";
 // otherwise silently rot. The `theta-document.ts` line cites in the doc are
 // stale by ~170 lines and are re-derived here against HEAD.
 //
+// POST-0115 UPDATE (this file, this commit). Bug 0115 wires a compatibility
+// check at the reassignment statement itself, judged against the target's
+// declared-or-inferred type. Group (a) row a8 (`z = P` on an inferred-`integer`
+// `z`) now co-fires `theta/parse/reassign-rhs-type-mismatch` ahead of this
+// file's own `theta/parse/type-as-value` — the same statement-ranged-before-
+// ident-ranged ordering c2 already exhibits for `let out: string = P`
+// (`theta/parse/let-rhs-type-mismatch`). a8's SUBJECT is unmoved: it still
+// locks the value-position refusal and `registers(doc) === false`; the new row
+// is an ADDITION, not a replacement (GOV-15, source-language-stability.md:25).
+//
 // WHAT IS RED HERE, AND WHY. Each cell's title carries its colour:
 //   - RED (missing behaviour) — every row of group (a) except the two undeclared
 //     controls, group (c)'s twelve rows, group (d)'s two rows, and group (e)'s e1 /
 //     e3 / e5. Each loads with NO diagnostic naming the identifier today.
+//     (a8 is RED for the pre-existing `type-as-value` refusal; the co-firing
+//     `reassign-rhs-type-mismatch` this commit adds is bug 0115's, not this
+//     file's own subject.)
 //   - GREEN at HEAD and required to stay green — group (r) (the registry row,
 //     which the fix's DIAG-2 spec edit already carries), all of group (b), all of
 //     group (g), group (e)'s e6 control, and group (f). Groups (b) and (g) are
@@ -157,6 +170,8 @@ const FUNCTION_AS_VALUE = "theta/parse/function-as-value";
 /** The five type-layer rows group (c) measures, and group (b)'s variant control. */
 const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
+/** Bug 0115's minted row — the sibling wired sink a8 now co-fires with. */
+const REASSIGN_RHS_TYPE_MISMATCH = "theta/parse/reassign-rhs-type-mismatch";
 const MIXED_PLUS = "theta/parse/mixed-plus-operands";
 const UNKNOWN_METHOD = "theta/parse/unknown-method";
 const NON_STRING_OBJECT_INDEX = "theta/parse/non-string-object-index";
@@ -530,9 +545,22 @@ const A_ROWS: readonly Row[] = [
   {
     id: "a8 (`let mut` reassignment RHS)",
     body: "schema P { a: number }\nlet mut z = 1\nz = P\nz\n",
-    codes: [TYPE_AS_VALUE],
-    lines: [typeAsValueLine("P")],
-    why: "§Summary measures this row rebinding `z` to `null` at run time",
+    // POST-0115: this cell now co-fires with `theta/parse/reassign-rhs-type-mismatch`
+    // (bug 0115), on the same statement and ahead of this row — the ordering
+    // c2 below already explains for its own sibling pair (the compatibility
+    // sink fires before the value-position refusal). `z` is inferred `integer`
+    // from `let mut z = 1`; `P` used as a value types as the nominal `named`
+    // schema reference `checkCompatible` resolves through `TypeEnv` (TYPE-10),
+    // which is `⋢ integer`, so 0115's check reports first. This cell keeps its
+    // group-(a) SUBJECT — the value-position refusal, and `registers(doc) ===
+    // false` — the compatibility row is an ADDITION beside it, not a
+    // replacement.
+    codes: [REASSIGN_RHS_TYPE_MISMATCH, TYPE_AS_VALUE],
+    lines: [errLine(REASSIGN_RHS_TYPE_MISMATCH, [["<name>", "z"], ["<expected>", "integer"], ["<actual>", "P"]]), typeAsValueLine("P")],
+    why:
+      "§Summary measures this row rebinding `z` to `null` at run time; 0115 now judges the " +
+      "write itself, ahead of the value-position refusal, the same ordering c2's own `why` " +
+      "already explains for `let out: string = P`",
   },
   {
     id: "a9 (array element)",

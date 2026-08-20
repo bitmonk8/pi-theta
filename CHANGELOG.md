@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.138.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0115 — the declared binding type is now enforced at reassignment.**
+  A `let mut` reassignment whose RHS is incompatible with the binding's
+  declared/inferred type was accepted silently; bug 0090's adjudicated rule
+  (`#reassignment-binding-type`) had no enforcement. NEW registered code
+  `theta/parse/reassign-rhs-type-mismatch` (E, type); the integer-narrowing
+  sub-case routes to the existing `theta/parse/integer-narrowing` at the
+  reassignment site. Registry row, reference mirrors, `type-system.md`, and
+  `bindings.md` amended same commit. Witness:
+  `tests/reassign-rhs-type-compat.test.ts` (42 cells) + a standalone live
+  registration cell. Flips parent-ratified under 0090's and 0140's named
+  authority (b1/c5 location-discriminating; a8 ordered-pair).
+
 ## [0.137.0] - 2026-08-26
 
 ### Fixed

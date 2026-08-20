@@ -65,6 +65,7 @@ import {
   checkFnArgCompat,
   checkLetRhsCompat,
   checkObjectFieldCompat,
+  checkReassignRhsCompat,
   displayType,
   resolveNamed,
   unfoldAlias,
@@ -1312,9 +1313,38 @@ class TypeLayerWalk {
         }
         return;
       }
-      case "reassign":
+      case "reassign": {
+        // bindings.md:12 §Reassignment — the RHS must be compatible with the
+        // TARGET's declared or inferred type (TYPE-9, bug 0115). The target's
+        // recorded type is read, never re-derived: bug 0090's landed
+        // `#reassignment-binding-type` rule is that a reassignment does not
+        // change what the binding's later references resolve to, so this arm
+        // must not write `bindings` — doing so would re-record the target's
+        // type and red 0090's witness. `undefined` is an UNDECLARED target,
+        // which draws no diagnostic anywhere today (`buildReassign`'s check
+        // fires only for a known-immutable target), and this arm defers on it
+        // rather than manufacture a verdict over a name it cannot type.
+        const declared = bindings.get(stmt.target);
+        if (declared !== undefined) {
+          const rhsType = this.typeOf(stmt.value, bindings);
+          // A WITHHELD binder on either side is a spelling, not a proven
+          // type (see the `let` arm above), so judging against it would
+          // manufacture a verdict the position never supported.
+          if (!containsWithheldBinderType(declared) && !containsWithheldBinderType(rhsType)) {
+            this.diagnostics.push(
+              ...checkReassignRhsCompat({
+                name: stmt.target,
+                declared,
+                value: rhsType,
+                env: this.env,
+                site: { file: this.file, range: stmt.range },
+              }),
+            );
+          }
+        }
         this.walkExpr(stmt.value, bindings, flow);
         return;
+      }
       case "if":
         this.checkBoolean(stmt.condition, "if", bindings);
         this.walkExpr(stmt.condition, bindings, flow);

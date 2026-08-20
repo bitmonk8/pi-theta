@@ -64,7 +64,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // OVER-REACH TRIPWIRES. c1 and c2 red if enforcement widens past the parameter.
 // lexical.md:16's list contains no `for` / `par for` variable and no `match`
 // pattern binder, and `WITHHELD_BINDER_TYPE_NAME`'s doc comment
-// (src/parser/type-layer-checks.ts:380–386) argues from exactly that exclusion
+// (src/parser/type-layer-checks.ts:381–387) argues from exactly that exclusion
 // when it rejects a casing rule as a source of unspellable binder names. A fix
 // that reaches those binders contradicts the spec sentence and breaks that
 // premise.
@@ -494,7 +494,7 @@ describe("0139 (c) — a `for` variable and a `match` binder stay outside the ru
   // names; a `for` / `par for` variable and a `match` pattern binder are absent
   // from it, so an uppercase spelling at either position is conformant.
   // `WITHHELD_BINDER_TYPE_NAME`'s doc comment
-  // (src/parser/type-layer-checks.ts:380–386) reasons from exactly that
+  // (src/parser/type-layer-checks.ts:381–387) reasons from exactly that
   // exclusion, so a fix that widens into these positions both contradicts the
   // spec sentence and invalidates the withheld-binder premise. A later reader
   // finding these rows red should widen the fix's scope question, not the

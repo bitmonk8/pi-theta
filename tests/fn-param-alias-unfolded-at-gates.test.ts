@@ -230,7 +230,7 @@ describe("0089 (a) — an alias-of-array `fn` parameter is a legal `for` iterand
 
   it("a3: the same alias through a `let` binding loads (control — the `let` route)", () => {
     // The `let` arm records the annotation in TYPE-11-transparent form
-    // (src/parser/type-layer-checks.ts:640–643), so the gate already sees
+    // (src/parser/type-layer-checks.ts:641–644), so the gate already sees
     // `array<string>` on this route. The two routes must agree: an author's
     // choice between a parameter and a binding is not a typing question.
     expect(
@@ -537,7 +537,7 @@ describe("0089 (b cont.) — the `array.join` element predicate decides on the u
 describe("0089 (c) — the four TYPE-11-applying classifiers over the same `fn` parameter record", () => {
   it("c1: `classifyReceiver` resolves the alias and the message keeps the DECLARED type", () => {
     // Two obligations in one row. `classifyReceiver`
-    // (src/parser/type-layer-checks.ts:166, recursing :186) resolves `L` to an
+    // (src/parser/type-layer-checks.ts:167, recursing :187) resolves `L` to an
     // array and the stdlib allow-list rejects the call, which establishes that
     // the parameter type resolves and so isolates a group (a) or (b) red to the
     // gate itself. `pushUnknownMethod` renders the receiver type its caller
@@ -564,7 +564,7 @@ describe("0089 (c) — the four TYPE-11-applying classifiers over the same `fn` 
   });
 
   it("c2: `classifyOperand` resolves the alias at the `+` operand check", () => {
-    // `classifyOperand` (src/parser/type-layer-checks.ts:119, recursing :144)
+    // `classifyOperand` (src/parser/type-layer-checks.ts:120, recursing :145)
     // resolves `L` to an array, which pairs with `integer` as a mixed operand.
     const diags = diagsOf([
       "schema L = array<string>",
@@ -763,7 +763,7 @@ describe("0089 (e) — the unresolvable, nominal and cyclic boundaries of the un
   });
 
   it("e5: a cycle participant behaves as an unresolvable name at gate 1", () => {
-    // `collectTypeEnv` (src/parser/type-layer-checks.ts:302) omits a
+    // `collectTypeEnv` (src/parser/type-layer-checks.ts:303) omits a
     // cycle-participating declaration from the `TypeEnv`, which is what bounds
     // `unfoldAlias`'s walk
     // (src/parser/type-compat.ts:155–172, the loop's stated guarantee). An

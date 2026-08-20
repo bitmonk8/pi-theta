@@ -100,6 +100,7 @@ trigger.
 | `theta/parse/tool-arg-schema-conflict` | E | type | `Pi tool '<name>' argument field '<field>' type is provably disjoint from the input schema: expected <expected>, got <actual>` |
 | `theta/parse/let-without-initialiser` | E | parse | `let binding '<name>' has no initialiser` |
 | `theta/parse/let-rhs-type-mismatch` | E | type | `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` |
+| `theta/parse/reassign-rhs-type-mismatch` | E | type | `reassignment of '<name>' type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/statement-in-arm-body` | E | parse | `match arm body must be an expression; wrap statements in a block expression { ... }` |
 | `theta/parse/by-on-object-schema` | E | parse | `the 'by' clause applies only to discriminated-union schemas (schema X by f = A \| B \| …)` |
 | `theta/parse/doc-comment-misplaced` | E | parse | `'///' doc comment is not legal above this production` |

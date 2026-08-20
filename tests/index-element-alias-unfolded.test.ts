@@ -14,7 +14,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 // (src/parser/static-type-inference.ts:245–250) binds the target's type at `:248`
 // and answers `target.kind === "array" ? target.element : { kind: "named", name:
 // "index" }` at `:249`. A type-alias schema `schema L = array<string>` records as
-// `named L` on a `fn` parameter (`walkFn`, src/parser/type-layer-checks.ts:739),
+// `named L` on a `fn` parameter (`walkFn`, src/parser/type-layer-checks.ts:740),
 // so a `kind` test on that record alone answers the sentinel — a name no
 // `TypeEnv` resolves — where TYPE-11 makes the element type available.
 //
@@ -103,7 +103,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //     d10, d12 establish that each checker fires at all on this harness, so a
 //     red in its alias twin is the alias, not an absent check;
 //   - a3 and g1 are the `let` route, recorded in TYPE-11-transparent form
-//     (type-layer-checks.ts:642), which already reaches the element type — the
+//     (type-layer-checks.ts:643), which already reaches the element type — the
 //     two routes must agree;
 //   - group (b) is the receiver path, which already unfolds and which this fix
 //     does not touch; a neutralisation that reds (b) means the receiver path was
@@ -111,7 +111,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //   - d1–d8 and d13–d16 are the dispositions the unfolding must not move —
 //     TYPE-10 nominal, unresolvable, cyclic, the object-index key check, and the
 //     sentinel/schema-name collision;
-//   - group (f) is the three sink-routing siblings (type-layer-checks.ts:620,
+//   - group (f) is the three sink-routing siblings (type-layer-checks.ts:621,
 //     `:958`, `:1050`), which test a raw `CompatType` too and diverge under an
 //     alias annotation. They are a SEPARATE open report (0125 §Non-goals,
 //     §Fix (d)); neutralising THIS line moves their raw-vs-unfolded divergence
@@ -303,7 +303,7 @@ describe("0125 (a) — an index read on an alias-typed array narrows to the alia
 
   it("a3: the same alias through a `let` binding reports it (control — the `let` route)", () => {
     // `walkStmt`'s `case "let"` records the annotation in TYPE-11-transparent
-    // form (src/parser/type-layer-checks.ts:642), so the index read already sees
+    // form (src/parser/type-layer-checks.ts:643), so the index read already sees
     // `array<string>` on this route. The two routes must agree: an author's
     // choice between a parameter and a binding is not a typing question.
     const diags = diagsOf([
@@ -352,7 +352,7 @@ describe("0125 (a) — an index read on an alias-typed array narrows to the alia
     // a1 reads the element through a recorded binding type; a5 reads it straight
     // out of `#typeExpr`. Both reach the same seam
     // (`typeOf`, src/parser/static-type-inference.ts:182–188, which
-    // src/parser/type-layer-checks.ts:573–575 delegates to), so both must move
+    // src/parser/type-layer-checks.ts:574–576 delegates to), so both must move
     // together — a fix that repaired only the binding record would leave this
     // row red.
     const diags = diagsOf(["schema L = array<string>", ...DIRECT_METHOD("L")]);
@@ -491,7 +491,7 @@ describe("0125 (c) — the six error-severity codes that must fire on an alias-t
 
   it("c3: `schema L = array<array<integer>>` joins its element and reports the non-string element type", () => {
     // Bug 0089 unfolded the `join` guard's input
-    // (src/parser/type-layer-checks.ts:1444–1445), which cannot help when the
+    // (src/parser/type-layer-checks.ts:1474–1475), which cannot help when the
     // input is a fabricated name rather than an alias: `unfoldAlias` returns the
     // sentinel unchanged, so `checkArrayJoin` is never reached. Under TYPE-11
     // the element is `array<integer>`, which expressions.md:108 rejects.
@@ -694,7 +694,7 @@ describe("0125 (c) — the six error-severity codes that must fire on an alias-t
 
   it("c13: an alias ELEMENT under an alias array reports and names the DECLARED element", () => {
     // This fix unfolds the TARGET, not the element. The element handed on is
-    // `named E`, and `classifyReceiver` (src/parser/type-layer-checks.ts:166,
+    // `named E`, and `classifyReceiver` (src/parser/type-layer-checks.ts:167,
     // recursing on the alias right-hand side at `:186`) unfolds it internally
     // while `pushUnknownMethod` (`:1485`, called at `:1457`) renders the raw
     // type — so the message names `E`, as the c14 control already measures.
@@ -1031,7 +1031,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration drives real chec
 // ===========================================================================
 // (f) The three sink-routing siblings — a SEPARATE open report (0125
 //     §Non-goals, §Fix (d)). f1/f3/f5 still take the sink-less path
-//     `type-layer-checks.ts:981`/`:1576` route them onto (a raw, un-unfolded
+//     `type-layer-checks.ts:982`/`:1606` route them onto (a raw, un-unfolded
 //     `CompatType` skipping the element-sink call), unmoved by bug 0081 — but
 //     bug 0081's union arm changed what that sink-less path itself answers for
 //     two primitive branches, so the CODES these rows draw moved too: a false
@@ -1048,7 +1048,7 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     // does not gate it), and `checkLetRhsCompat` resolves `U`'s own alias RHS
     // — the same union, in the same declared order — through TYPE-11 then
     // TYPE-6, so `string | integer ⊑ string | integer` holds and nothing
-    // fires. `type-layer-checks.ts:981`'s routing defect is unmoved: this row
+    // fires. `type-layer-checks.ts:982`'s routing defect is unmoved: this row
     // still takes the sink-less path, which no longer refuses on it.
     expect(
       codesOf(["schema U = array<string | integer>", 'let xs: U = ["a", 1]']),
@@ -1071,7 +1071,7 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     // `array<string | integer> ⊭ array<string>` (TYPE-6 across the arms,
     // since the `integer` arm alone already fails), so the outer check now
     // reports the mismatch the annotation always implied.
-    // `type-layer-checks.ts:981`'s routing defect is unmoved — this is still
+    // `type-layer-checks.ts:982`'s routing defect is unmoved — this is still
     // the sink-less path, relabelled because it no longer has anything of its
     // own to refuse.
     expect(
@@ -1126,7 +1126,7 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     // raw `named(U)` declared type through the same alias unfolding
     // `checkCompatible` always applies, reaching the identical
     // `array<string | integer> ⊭ array<string>` mismatch f3 reaches through
-    // the `let`-RHS check. `type-layer-checks.ts:1576`'s routing defect
+    // the `let`-RHS check. `type-layer-checks.ts:1606`'s routing defect
     // (testing the field's raw `kind` before the sink call at `:1577`) is
     // unmoved.
     expect(
@@ -1208,7 +1208,7 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
 describe("0125 (g) — the `let` route is closed and the `fn`-return route is out of reach", () => {
   it("g1: the `let` route already narrows an alias-typed array's element", () => {
     // Bug 0083 closed this route by recording the annotation in
-    // TYPE-11-transparent form (src/parser/type-layer-checks.ts:642). This row
+    // TYPE-11-transparent form (src/parser/type-layer-checks.ts:643). This row
     // re-asserts it from this report's side, so the parameter route and the
     // binding route reach the same answer by different means — as they do for
     // the iterand and `join` gates after bug 0089.

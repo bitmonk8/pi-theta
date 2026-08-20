@@ -29,9 +29,17 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     declared-governs reading. ENFORCING that clause at the reassignment is
 //     bug 0115's subject
 //     (docs/bugs/0115-reassignment-type-compat-unchecked-no-registry-row.md
-//     §Fix (d): "0090's adjudication lands first") and is OUT OF SCOPE here —
-//     every cell below is measured with that check absent, which is why the
-//     incompatible writes in c5 are silent.
+//     §Fix (d): "0090's adjudication lands first"), and 0115 has now landed:
+//     `theta/parse/reassign-rhs-type-mismatch` fires AT THE REASSIGNMENT
+//     STATEMENT (or the already-registered `theta/parse/integer-narrowing` for
+//     the one-way `number`-under-`integer` case), never at the later reference
+//     this file's own subject is about. That is a DIFFERENT position from the
+//     later-reference codes this file locks, so b1 and c5 below gain the new
+//     row's code IN ADDITION TO what they already asserted, and are re-pinned
+//     by POSITION as well as by code so the two checks (declared-governs at
+//     the reference; RHS-compatibility at the write) stay distinguishable at
+//     `codesOf` granularity (0115's premeasure, residual 2 of 0090's fix
+//     record).
 //   - docs/spec_topics/type-system.md:36 TYPE-2 — `integer ⊑ number`, one-way.
 //   - docs/spec_topics/lexical.md:28 §"Number literals" — "`integer` widens
 //     implicitly to `number` in arithmetic and assignment positions; the
@@ -44,38 +52,71 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     (docs/spec_topics/diagnostics/code-registry-parse.md:24),
 //     `theta/parse/non-string-array-join` (`:43`).
 //
-// WHAT IN `src/` REALISES THE RULE. `TypeLayerWalk.walkStmt`'s `case
-// "reassign"` (src/parser/type-layer-checks.ts:1314–1316) is exactly
-// `this.walkExpr(stmt.value, bindings, flow); return;` — it walks the assigned
-// value for nested checks and never calls `bindings.set`. The `CompatType` map
-// every later `typeOf` consults is written at declaration sites only; the `let`
-// arm's write is `bindings.set(stmt.name, recorded)` (`:1249`), where
+// WHAT IN `src/` REALISES THE RULE (at pre-0115 HEAD 769164b8).
+// `TypeLayerWalk.walkStmt`'s `case "reassign"` (then
+// src/parser/type-layer-checks.ts:1314–1316, now wired at :1315–1345 by this
+// commit's fix) was exactly `this.walkExpr(stmt.value, bindings, flow);
+// return;` — it walked the assigned value for nested checks and never called
+// `bindings.set`; bug 0115's fix reads the target's recorded type and pushes a
+// compatibility diagnostic, but still never calls `bindings.set` — the
+// property this file locks is unmoved. The `CompatType` map every later
+// `typeOf` consults is written at declaration sites only; the `let` arm's
+// write is `bindings.set(stmt.name, recorded)` (`:1250`), where
 // `recorded` is the declared annotation in its TYPE-11-transparent form when
 // one is present and the initialiser's inferred type otherwise (bug 0083's
 // fix, 0.55.0). Declared type in, no re-derivation out.
 //
-// RED / GREEN LEDGER. The adjudication ratifies HEAD, so every cell is GREEN at
-// HEAD by construction and the file is red-proven by NEUTRALISATION against the
-// REJECTED §Fix disposition 2 (each reassignment re-derives the recorded type
-// from the assigned value). Neutralisation applied: in `case "reassign"`
-// (`:1314–1316`), resolve the assigned value's type and
+// RED / GREEN LEDGER. The adjudication ratifies HEAD, so every cell was GREEN
+// at pre-0115 HEAD by construction, and the file was red-proven by
+// NEUTRALISATION against the REJECTED §Fix disposition 2 (each reassignment
+// re-derives the recorded type from the assigned value). Neutralisation
+// applied to the PRE-0115 tree: in `case "reassign"` (then `:1314–1316`,
+// `this.walkExpr(stmt.value, bindings, flow); return;` with no compatibility
+// check at all), resolve the assigned value's type and
 // `bindings.set(stmt.target, <that type>)` before returning — the three-line
 // edit disposition 2 prescribes. Under it:
 //   - a1 reds: `["theta/parse/integer-narrowing"]` → `[]` (the `n = 2`
 //     re-record replaces the declared `number` with the literal's `integer`,
 //     so the later `let m: integer = n` no longer narrows);
 //   - b1 reds: `[]` → `["theta/parse/integer-narrowing"]` (the `n = 1.5`
-//     re-record replaces the inferred `integer` with `number`);
+//     re-record replaces the inferred `integer` with `number`, so the LATER
+//     `let m: integer = n` narrows — at that statement's line, not the
+//     reassignment's);
 //   - c5 reds: `[]` → `["theta/parse/non-string-array-join"]` (the `xs = [1]`
 //     re-record replaces the declared `array<string>` with `array<integer>`,
 //     so the join precondition refuses the receiver).
 // Those three flips are exactly the ones bug 0090 §Fix disposition 2
-// predicts. a2, a3, b2 and c6 hold under BOTH dispositions and stay green
-// through the neutralisation: they are the controls that make each red
-// attributable to the reassignment alone rather than to a checker that stopped
-// firing. a2/a3 isolate the reassignment against the same source without it and
-// without `mut`; b2 does the same on the inferred side; c6 is the positive
-// control proving the join precondition fires at all on this harness.
+// predicts, against the PRE-0115 tree. a2, a3, b2 and c6 hold under BOTH
+// dispositions and stay green through the neutralisation: they are the
+// controls that make each red attributable to the reassignment alone rather
+// than to a checker that stopped firing. a2/a3 isolate the reassignment
+// against the same source without it and without `mut`; b2 does the same on
+// the inferred side; c6 is the positive control proving the join precondition
+// fires at all on this harness.
+//
+// POST-0115 UPDATE (this file, this commit). Bug 0115 wires a compatibility
+// check AT THE REASSIGNMENT itself, judged against the target's recorded
+// type — the very type this file's rule fixes for the whole scope, per 0090's
+// fix record residual 2 ("Two witness cells assert an absence 0115 will
+// legitimately move"). b1 and c5 are exactly those two cells:
+//   - b1: `n = 1.5` writes a `number` under an inferred `integer` target, so
+//     0115's check now reports `theta/parse/integer-narrowing` AT THE
+//     REASSIGNMENT (body line 2). The list is code-identical to the
+//     REJECTED-disposition-2 neutralisation above, which reports the SAME
+//     code at the LATER `let m: integer = n` (body line 3) — so `codesOf`
+//     alone no longer discriminates declared-governs-plus-RHS-check from
+//     re-derive, and the position pin below is what restores it.
+//   - c5: `xs = [1]` writes an `array<integer>` under a declared
+//     `array<string>` target, so 0115's check now reports
+//     `theta/parse/reassign-rhs-type-mismatch` AT THE REASSIGNMENT. This code
+//     differs from the REJECTED disposition's `theta/parse/non-string-array-join`
+//     (fired at the later `.join(",")` instead), so c5 keeps discriminating
+//     the two dispositions by code alone, and is the cell 0090's fix record
+//     names as such.
+// Neither cell's SUBJECT changes: both still lock that the LATER reference
+// (`let m: integer = n` in b1, `xs.join(",")` in c5) resolves the DECLARED-OR-
+// INFERRED type, not a re-derived one — the new reassignment-line diagnostic
+// is an ADDITION ahead of that reference, not a replacement of it.
 //
 // ANTI-VACUITY. Five of the seven cells expect a NON-empty code list, so a
 // harness that stopped reaching the type layer (a frontmatter refusal, an
@@ -111,6 +152,17 @@ function codesOf(body: readonly string[]): string[] {
   return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics.map(
     (d: Diagnostic) => d.code,
   );
+}
+
+/**
+ * The start line of the FIRST diagnostic the production parse reports for
+ * `body` — bug 0115's post-fix pin for b1/c5, restoring discrimination
+ * `codesOf` alone lost: the reassignment-line row and a later-reference row
+ * can share a code, but never a line.
+ */
+function firstDiagnosticLine(body: readonly string[]): number | undefined {
+  return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics[0]?.range
+    ?.start.line;
 }
 
 // ===========================================================================
@@ -167,9 +219,19 @@ describe("0090 (b) — an inferred binding type survives a reassignment on the s
     // a diagnostic at the reassignment. Under the REJECTED disposition 2 the
     // re-record would make `n` a `number` and this list would be
     // `["theta/parse/integer-narrowing"]`.
+    //
+    // POST-0115: this cell now gains `theta/parse/integer-narrowing` at the
+    // REASSIGNMENT itself (`n = 1.5` is a `number` write under the inferred
+    // `integer` target) — the same code the REJECTED disposition-2
+    // neutralisation produces at the LATER `let m: integer = n` instead. The
+    // code list alone no longer discriminates the two; the position does
+    // (body line 2, the reassignment, not body line 3, the later reference).
+    const body = ["let mut n = 1", "n = 1.5", "let m: integer = n", "1"];
+    expect(codesOf(body)).toEqual(["theta/parse/integer-narrowing"]);
     expect(
-      codesOf(["let mut n = 1", "n = 1.5", "let m: integer = n", "1"]),
-    ).toEqual([]);
+      firstDiagnosticLine(body),
+      "b1 — the narrowing fires at the REASSIGNMENT (0115), not at the later `let m: integer = n` a re-derived type would fire it at",
+    ).toBe(5);
   });
 
   it("b2: an inferred `number` narrows when copied into an `integer` slot (control — the narrowing check fires on inferred types on this harness) (#reassignment-binding-type)", () => {
@@ -198,9 +260,20 @@ describe("0090 (c) — a declared composite type also governs the whole scope", 
     // (bug 0115), not this cell's subject. Under the REJECTED disposition 2 the
     // re-record would make the receiver `array<integer>` and this list would be
     // `["theta/parse/non-string-array-join"]`.
+    //
+    // POST-0115: this cell now gains `theta/parse/reassign-rhs-type-mismatch`
+    // at the REASSIGNMENT itself (`xs = [1]` is an `array<integer>` write
+    // under the declared `array<string>` target). This code differs from the
+    // REJECTED disposition's `theta/parse/non-string-array-join` (which would
+    // fire at the later `.join(",")`), so this cell keeps discriminating the
+    // two dispositions by code alone — the cell 0090's fix record names as
+    // such.
+    const body = ["let mut xs: array<string> = []", "xs = [1]", 'xs.join(",")'];
+    expect(codesOf(body)).toEqual(["theta/parse/reassign-rhs-type-mismatch"]);
     expect(
-      codesOf(["let mut xs: array<string> = []", "xs = [1]", 'xs.join(",")']),
-    ).toEqual([]);
+      firstDiagnosticLine(body),
+      "c5 — the mismatch fires at the REASSIGNMENT (0115), not at the later `xs.join(\",\")` a re-derived type would refuse",
+    ).toBe(5);
   });
 
   it("c6: a declared `array<integer>` receiver refuses the join (control — the element-type precondition fires at all here) (#reassignment-binding-type)", () => {
