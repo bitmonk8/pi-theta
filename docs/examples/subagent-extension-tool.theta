@@ -24,8 +24,8 @@ params:
 let check = finding_store({ op: "validate", findingsDir: findings_dir })?
 
 // Model-facing reach: the MODEL may also call `finding_store` during the
-// query's tool loop below — the callable-set names become the child session's
-// active-tool allowlist.
+// query's tool loop below — the callable set's host-tool names become the
+// child session's active-tool allowlist (a `.theta` callable never enters it).
 //
 // Code-side dispatch is fail-closed only where NO rung is establishable — a
 // host missing the required Pi surfaces or backing host session; there the

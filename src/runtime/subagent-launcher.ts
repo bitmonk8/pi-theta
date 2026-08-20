@@ -339,10 +339,25 @@ export interface SubagentArgvInput {
   readonly thetaDirs: readonly string[];
   /** Resolved-and-interpolated frontmatter `system:` → `--system-prompt`. */
   readonly systemPrompt: string;
-  /** The theta's callable set → `--tools <name1,name2,…>` (defence-in-depth, PIC-58). */
-  readonly tools: readonly string[];
-  /** `true` when the callable set is empty → `--no-tools` (empty ≠ omission). */
-  readonly emptyCallableSet: boolean;
+  /**
+   * The callable set's HOST-TOOL names → `--tools <name1,name2,…>`
+   * (defence-in-depth, PIC-58). Host-registry names ONLY: `--tools` is a HOST
+   * tool allowlist, so a `.theta` callable's presented name has no business in
+   * it — that half of the callable set is theta-side, resolved child-side against
+   * the child's own theta registry, and carried by the presented-name + closure-
+   * hash env carrier instead. One host validates this list against its registry
+   * and exits 2 on an unknown name (bug 0210), so a theta-side name here is not
+   * harmless noise: it kills the child before it starts.
+   */
+  readonly hostTools: readonly string[];
+  /**
+   * `true` when the callable set holds NO host tool → `--no-tools` (empty ≠
+   * omission: omission would re-enable the host's default built-ins). True for a
+   * `tools: []` theta AND for one whose callable set is all `.theta` callables —
+   * the child's host session needs no host tool to run those, because the theta
+   * runtime spawns their own children.
+   */
+  readonly noHostTools: boolean;
   /** Resolved model provider → `--provider <p>`. */
   readonly provider: string;
   /** Resolved model id → `--model <id>`. */
@@ -373,9 +388,11 @@ export interface SubagentArgvInput {
  * extension string flag to its last occurrence).
  * The child runs the WHOLE callee: interpreter, extension discovery, and its own
  * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
- * its own callable set); `tools: []` maps to `--no-tools` (never re-enables host
- * defaults by omission). Params ride the marshalled channel (PIC-60), the result
- * rides the stdout envelope (PIC-59) — neither is on argv.
+ * its own callable set) and carries the callable set's HOST-TOOL names only — a
+ * `.theta` callable is theta-side and rides the closure-hash env carrier instead
+ * (bug 0210). A callable set with no host tool maps to `--no-tools` (never
+ * re-enables host defaults by omission). Params ride the marshalled channel
+ * (PIC-60), the result rides the stdout envelope (PIC-59) — neither is on argv.
  */
 export function assembleSubagentArgv(
   input: SubagentArgvInput,
@@ -435,12 +452,15 @@ export function assembleSubagentArgv(
     "--system-prompt",
     input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`,
   );
-  // `--no-tools` for the empty callable set (empty ≠ omission — omission would
-  // re-enable Pi's default built-ins); otherwise the comma-joined allowlist.
-  if (input.emptyCallableSet) {
+  // `--no-tools` when the callable set holds no HOST tool (empty ≠ omission —
+  // omission would re-enable the host's default built-ins); otherwise the
+  // comma-joined host-registry allowlist. A `.theta` callable never appears here:
+  // it names nothing in the host's registry, and one host rejects such a name
+  // outright (bug 0210).
+  if (input.noHostTools) {
     argv.push("--no-tools");
   } else {
-    argv.push("--tools", input.tools.join(","));
+    argv.push("--tools", input.hostTools.join(","));
   }
   argv.push("--provider", input.provider, "--model", input.model);
   argv.push(...dialect.ambientIsolation);

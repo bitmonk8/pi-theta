@@ -11676,3 +11676,235 @@ describe("H8a-T — bug 0101 (cell 71): a from-bearing re-export chain delivers 
     }
   });
 });
+
+
+
+
+// ===========================================================================
+// Bug 0210 — the RFC-0006 launch contract merged the callable set's two halves
+// into ONE flat list and passed it as the spawned child's `--tools` allowlist
+// (pre-fix `production-theta-producer.ts:1831-1837`: `callableSetPiToolNames`
+// concatenated with every `.theta` entry's `presentedName`, `:1995` passing the
+// merged list as `argv.tools`). `--tools` is a HOST tool-registry allowlist; a
+// `.theta` callable's presented name names NOTHING in that registry — it is
+// theta-side, resolved child-side against the child's own theta registry, and
+// the launch contract already carries it separately (the presented name plus
+// the marshalled closure hash). On a host that VALIDATES the list (Oh-My-Pi)
+// the child exits 2 before any session starts, so EVERY theta registering a
+// `.theta` callee in `tools:` was unrunnable there — load-clean,
+// diagnostic-free, and silent under `-p`
+// (docs/bugs/0210-theta-callable-names-in-child-tools-allowlist.md). The fix
+// splits the halves: the argv input takes the HOST half only (`hostTools:
+// piToolNames`), `noHostTools` (renamed from `emptyCallableSet`, whose name
+// WAS the misconception) keys the `--no-tools` arm on "no HOST tool in the
+// set" rather than "set empty", and `inferChildTrust` reads the host half only
+// (production-theta-producer.ts:1826-1856, subagent-launcher.ts:342-345).
+//
+// NO EXISTING LIVE CELL SPAWNS EITHER FIXED SHAPE (checked across all of
+// `tests/live/**` before adding this cell). Every callable set a live cell
+// actually SPAWNS a real child for is either EMPTY (`subrun`, `forgedchild`,
+// `b188livekid`, `b201livekid`, `b164livechild`, … — the pre-rename
+// `emptyCallableSet` arm) or HOST-ONLY (`tools: read`, the
+// tests/live/hardening/session-subagent-toolloop.test.ts probes). The cells
+// that DO declare a `.theta` `tools:` entry on a subagent-mode theta (bug
+// 0070/0071/0110 above) are registration-only and never drive a spawn; the
+// bug 0201 parent above declares a theta-only set but is `mode: prompt` —
+// in-process, never spawned (its SPAWNED kid's set is empty). The MIXED
+// host+theta callable set (the exit-2 shape) and the NON-EMPTY theta-only
+// callable set (the newly-routed `--no-tools` arm) had NO live spawn before
+// this cell.
+//
+// WHAT THIS CELL PINS, AND ON WHICH HOST. This harness spawns the Pi CLI
+// child (`./harness` #subagent-child-pins), whose argv dialect is LENIENT —
+// it tolerates a `--tools` name it cannot resolve — so the bug's own exit-2
+// red arm belongs to the Oh-My-Pi host (bug doc §Summary) and the argv-byte
+// red direction is pinned OFFLINE by the three retargeted allowlist cells
+// (tests/subagent-model-theta-tool.test.ts; bug doc §Verification "Red
+// direction proven"). What is live-observable HERE is the fix's own
+// regression surface — the bug doc's §Verification live checklist, run
+// through this file's harness instead of a hand-driven `omp`:
+//   (a) the HOST half SURVIVES the split — the mixed-set mid below launches
+//       with `--tools read` and its FIRST statement is a code-side
+//       `read({...})?` INSIDE the spawned child (the §Reproduction parent's
+//       own shape, its `bash` spelled as this suite's one proven host tool,
+//       `read`): a fix that dropped the host half (e.g. answered
+//       `--no-tools` whenever a `.theta` entry exists) fails that call
+//       child-side, the mid's `?` propagates, and the anchor below reads
+//       `ERR …` instead of the kid's sentinel;
+//   (b) the THETA-ONLY set takes the `--no-tools` arm and the callee STILL
+//       runs — empty stays distinguishable from omission while the
+//       presented-name + closure-hash carrier (untouched by the fix, bug doc
+//       "Not changed") still resolves and spawns the callee.
+// Both arms return the CALLEE's value end to end (kid tail → mid tail →
+// typed `invoke<string>` → QRY-18 interpolation), so the assertion channel is
+// `turn.userTexts` — "the exact text the theta CODE computed and sent,
+// independent of the model's reply" (`./harness`'s own doc) — behind the
+// `b210-…=` anchors. On this lenient dialect the pre-fix MERGED list was
+// tolerated too, so this cell is the fix's non-regression witness live (it
+// reds on a fix that over-corrects either arm), not the exit-2 witness.
+//
+// REAL RFC-0006 CHILD PROCESSES ARE SPAWNED — four of them: the two
+// subagent-mode mids (one per arm) and, under each, the shared kid as a
+// grandchild (a `.theta` callable call is a countable INV-4 frame; depth 2 of
+// the 32 cap). The #subagent-child-pins hazards in ./harness.ts apply.
+//
+// TOKEN COST: ONE real model turn — the driver's ~20-token closing prompt and
+// a one-word reply. The kid and both mids are pure code (no `@` anywhere), so
+// neither spawned conversation issues a query of its own.
+//
+// ADDITIVE ONLY: this is cell 72; cells 1-71 are unchanged, and this cell
+// adds no assertion to any existing cell in this file.
+// ===========================================================================
+
+/** The shared `mode: subagent` kid both mids register in `tools:` and call by name: a pure tail expression returning a deterministic sentinel string, zero model turns of its own. */
+function b210LiveKidTheta(): string {
+  return ["---", "mode: subagent", "---", '"B210-KID-RAN"', ""].join("\n");
+}
+
+/**
+ * The MIXED-callable-set mid — the bug doc §Reproduction parent's own shape
+ * (host tool registered first, `.theta` callee second; its `bash` spelled as
+ * `read`, this suite's one proven host tool). Pre-fix its spawn argv was the
+ * merged `--tools read,b210livekid` (exit 2 on a validating host — the FIRST
+ * statement never ran); post-fix it is `--tools read`. The first statement
+ * calls the host tool code-side INSIDE the spawned child — the read path is
+ * cwd-relative, and the launcher forwards the parent's cwd (the planted
+ * workspace root), so the mid reads its own planted source — and the tail
+ * returns the callee's value unchanged.
+ */
+function b210LiveMixedMidTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "tools:",
+    "  - read",
+    "  - ./b210livekid.theta",
+    "---",
+    'let contents = read({ path: ".pi/theta/b210livemid.theta" })?',
+    "let r = b210livekid()?",
+    "r",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The THETA-ONLY-callable-set mid — bug doc §Fix (2)'s new arm: NO host tool
+ * in the set, so post-fix the launch takes `--no-tools` (empty ≠ omission;
+ * omission would re-enable the host's default built-ins) while the callee's
+ * presented-name + closure-hash carrier still crosses and the kid still runs.
+ */
+function b210LiveThetaOnlyMidTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "tools:",
+    "  - ./b210livekid.theta",
+    "---",
+    "let r = b210livekid()?",
+    "r",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The prompt-mode driver: binds each mid's value through a typed
+ * `invoke<string>`, `match`es each `Result` EXPLICITLY into a plain string
+ * (no `?`, no unhandled `Err` — the bug 0164 cell's construction, so the
+ * driver's own drive succeeds either way and a broken arm renders as a
+ * diagnosable `ERR <cause>` marker instead of killing the turn), and
+ * interpolates both outcomes behind the `b210-…=` anchors of the ONE closing
+ * query — the deterministic `turn.userTexts` channel.
+ */
+function b210LiveDriverTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let midResult = invoke<string>("./b210livemid.theta")',
+    'let onlyResult = invoke<string>("./b210liveonly.theta")',
+    'let midOutcome = match midResult { Ok(v) => v, Err(e) => "ERR " + e.cause }',
+    'let onlyOutcome = match onlyResult { Ok(v) => v, Err(e) => "ERR " + e.cause }',
+    "@`Reply with the single word OK. b210-host-half=${midOutcome} b210-theta-only=${onlyOutcome}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0210: the spawned child's --tools allowlist carries the callable set's HOST half only, and a theta-only callable set takes --no-tools, through REAL spawned subagent children, live", () => {
+  it("a mixed read + .theta callable set runs end to end with the host half honoured inside the spawned child, and a theta-only callable set still runs its callee through the hash carrier, spending one real model turn", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b210livekid", text: b210LiveKidTheta() },
+      { source: "project", stem: "b210livemid", text: b210LiveMixedMidTheta() },
+      { source: "project", stem: "b210liveonly", text: b210LiveThetaOnlyMidTheta() },
+      { source: "project", stem: "b210livedriver", text: b210LiveDriverTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: all four commands must exist before a turn is driven, so
+      // a discovery/parse failure reds with zero tokens (and zero spawns).
+      for (const stem of ["b210livekid", "b210livemid", "b210liveonly", "b210livedriver"]) {
+        expect(
+          handle.command(stem),
+          `no bug-0210 command /${stem} — the .theta failed discovery/parse. ` +
+            "Registered: " + JSON.stringify(handle.registeredNames()),
+        ).toBeDefined();
+      }
+
+      const turn = await driveSlashCaptureTurn(handle, "/b210livedriver");
+      const outbound = turn.userTexts.join("\n");
+
+      // Arm (a) — the MIXED callable set (bug doc §Fix (1) + §Verification
+      // live row 1). The kid's sentinel behind the host-half anchor proves the
+      // whole chain: the mid SPAWNED and ran its first statement (pre-fix on a
+      // validating host it exits 2 before any session), its code-side
+      // `read({...})?` dispatched against the child host's registry (the host
+      // half of the allowlist survived the split — a fix that dropped it reds
+      // here as `ERR …`), the `.theta` callee resolved through the
+      // presented-name + closure-hash carrier, the grandchild ran, and the
+      // callee's VALUE crossed both boundaries.
+      expect(
+        outbound,
+        "bug 0210 §Fix (1): the mixed read + .theta callable set must run end " +
+          "to end with the host half honoured inside the spawned child — the " +
+          "host-half anchor did not carry the kid's sentinel. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts) +
+          "; systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toContain("b210-host-half=B210-KID-RAN");
+
+      // Arm (b) — the THETA-ONLY callable set (bug doc §Fix (2) +
+      // §Verification live row 2). A callable set with NO host tool now takes
+      // the `--no-tools` arm; the callee must still resolve and run through
+      // its own carrier, and its value must still cross — a fix that broke
+      // the empty-vs-omission distinction or starved the hash carrier on this
+      // arm reds here as `ERR …`.
+      expect(
+        outbound,
+        "bug 0210 §Fix (2): the theta-only callable set must take the " +
+          "--no-tools arm and still run its callee — the theta-only anchor " +
+          "did not carry the kid's sentinel. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts) +
+          "; systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toContain("b210-theta-only=B210-KID-RAN");
+
+      // No fail-closed ending of the DRIVER's own drive: both `invoke(...)`
+      // results are `match`ed explicitly above (no `?`, no unhandled `Err`),
+      // so this theta's own top-level outcome is Success either way — a
+      // failure note here would mean the fixture itself is broken, not that
+      // bug 0210 regressed.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b210livedriver (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the driver's own drive surfaced fail-closed system note(s) — the " +
+          "fixture itself is broken: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
