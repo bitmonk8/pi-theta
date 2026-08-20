@@ -1,6 +1,6 @@
 # Bug 0207 — twenty-four comment and title sites in fourteen `tests/**` files still call `discoverAndComposeFixtures` "the shipped composition root" after bug 0183 corrected the same false attribution at its ten enumerated sites: at HEAD `rg -n 'discoverAndComposeFixtures' src/ extensions/` returns one declaration (`src/extension/production-composition.ts:366`) and three comments and no caller, while the shipped `session_start` root is `composeExtensionInstance` (`:1214`), wired `extensions/index.ts:13` → `src/extension/factory.ts:1146`
 
-- **Status:** open
+- **Status:** fixed (0.137.0)
 - **Sev/Diff estimate:** S4/D1 — a record that misdescribes a surface whose
   behaviour is correct (the bug 0112 class, and 0183's own class and estimate):
   no author-visible behaviour, no runtime path and no test outcome depends on
@@ -531,3 +531,207 @@ live run is owed — the corrected surface is prose and two reporter strings.
   boundary).
 - No probe was written, no file outside this document was touched, and no test
   was run to establish the finding.
+
+## Fix (0.137.0)
+
+- **What shipped** — the twenty-four-site sweep of §Fix, in 0183 §Fix item 4's
+  vocabulary (*production compose helper* = `discoverAndComposeFixtures`),
+  register preserved per site (SHOUTED sites shout the replacement):
+  - `tests/ctor-unresolved-schema-name.test.ts` — `:79`, `:506` comment prose;
+    `:510` `describe` title renamed (authorized executable hunk 1 of 2).
+  - `tests/typeenv-prototype-names.test.ts` — `:135`, `:642`, `:656`.
+  - `tests/invoke-arg-type-mismatch-wired.test.ts` — `:43–44` parenthetical
+    identity; `:421` docstring, which gained the `(returned fixtures)`
+    parenthetical the other six already carried, per §Fix.
+  - `tests/conformance/production-conformance.test.ts` — `:73`, completing 0183
+    §Fix item 1's uncorrected fourth downstream repetition; now agrees with
+    that fix's `:47–52` header.
+  - `tests/production-tools-load-resolution.test.ts` — `:23–24`, `:810`.
+  - `tests/tools-field-shape-refusal.test.ts` — `:130`, `:656–657`, `:668`.
+  - `tests/e2e-s5-package-discovery-composition-root.test.ts` — `:43`.
+  - `tests/empty-query-annotation.test.ts` — `:1032`.
+  - `tests/prompt-mode-extension-tool-reach-e2e.test.ts` — `:77`; `:230`
+    `describe` title renamed (authorized executable hunk 2 of 2).
+  - `tests/subagent-fn-extension-tool-dispatch-e2e.test.ts` — `:124`, `:239`.
+  - `tests/theta-callable-call-arity.test.ts` — `:420` (protected witness,
+    comment bytes only).
+  - `tests/tools-derived-name-shape.test.ts` — `:299`.
+  - `tests/tools-entry-containment.test.ts` — `:190` (protected witness,
+    comment bytes only).
+  - `tests/tools-entry-closed-grammar.test.ts` — `:286`.
+
+  The seven `LoadOutcome.registered` docstrings took one byte-identical
+  wording, `/** Slash names the production compose helper returned (returned
+  fixtures). */`, which no longer attributes registration to a helper that
+  registers nothing. The `it` titles at `ctor-unresolved-schema-name.test.ts:511`
+  and `empty-query-annotation.test.ts:1028` already named the symbol and were
+  not touched. Diffstat: `14 files changed, 26 insertions(+), 26 deletions(-)`.
+- **Evidence re-verified at the fix HEAD**, not at the filing HEAD (`5a92a36c`,
+  v0.129.0): all twenty-four sites were byte-exact at `1c8c0fa4` / v0.132.0
+  with **zero line drift**, so §Affected's site list needed no relocation. Three
+  *ground-truth* citations in §Affected/§Provenance had drifted and are recorded
+  here rather than edited above (§Non-goals keeps bug documents as records of
+  their own HEAD): `composeExtensionInstance` is `production-composition.ts:1219`
+  (§Affected says `:1214`), the third helper comment is `:1019` (§Affected says
+  `:1014`), and §Provenance's `factory.ts:50` import is now `:54`. Unchanged and
+  re-confirmed: `production-composition.ts:366`, `:404`, `:433`, `:470`;
+  `factory.ts:591`, `:1104`, `:1146`; `extensions/index.ts:13`.
+- **Gates** (verbatim):
+  - Witness: none exists and none was manufactured. §Fix's premise — "no gate
+    reads `tests/**` comment prose" — was re-established independently rather
+    than assumed: `npm run lint` globs `src/**/*.ts` only; the one gate that
+    does read every `tests/**/*.ts` byte
+    (`tools/closing-gate/live-corpus.js:151`, consumed by
+    `tests/warn-only-canary.test.ts` and `tests/live-corpus-release-gate.test.ts`)
+    reads it through three token grammars — `/theta\/[a-z0-9/_-]+/g`,
+    `/\b[A-Z]{2,4}-[1-9][0-9]*\b/g` and `citesTokenInline`'s spec-supplied
+    facet tokens — and **0 of the 27 changed lines** carries a token any of
+    them can see; nothing in `tests/` reads its own reporter output, so the two
+    `describe` renames are unobservable to any assertion.
+  - Full suite: `npm test` → `Test Files 331 passed (331)`,
+    `Tests 6087 passed (6087)` — identical to the fork baseline.
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0.
+  - Lint: `npm run lint` → exit 0 (scoped to `src/**/*.ts`; it does not reach
+    `tests/**`, so it was treated as no cover for the prose, which was reviewed
+    by reading).
+  - No live run was owed or performed: the corrected surface is comment prose
+    plus two reporter strings, and no `tests/live/**` byte changed.
+- **Comment-only proof, per file.** Method: a parser-based emit projection —
+  `ts.transpileModule(text, { removeComments: true })` over each file, digested,
+  with HEAD's side regenerated from `git show HEAD:<path>` and every
+  transpile asserted diagnostic-free. Of the fourteen files, **twelve are
+  emit-byte-identical to HEAD** (`production-conformance` `7eab7d0dcf1432c5`,
+  `typeenv-prototype-names` `4ee78ed3e5a258f1`, `invoke-arg-type-mismatch-wired`
+  `2685827f2bc89163`, `production-tools-load-resolution` `af4decd5a1dcb36c`,
+  `tools-field-shape-refusal` `47fe6592862e370d`, `e2e-s5-package-discovery-composition-root`
+  `27b4baf79b6eea2e`, `empty-query-annotation` `03ba40dbf63ccdbb`,
+  `subagent-fn-extension-tool-dispatch-e2e` `ef093bd26db4a224`,
+  `theta-callable-call-arity` `42f2efa11c22bb18`, `tools-derived-name-shape`
+  `7c5d8399bc3d0755`, `tools-entry-containment` `14d46f94ea9c5c45`,
+  `tools-entry-closed-grammar` `e206ba6ee9af4de3`) — that is the comment-only
+  proof for each. The two that differ are exactly the two authorized ones, each
+  localising to a single changed emit line, its `describe` title:
+  `ctor-unresolved-schema-name` `0a02c89f0e9455da`→`3861d4366ad8659b`
+  (15134→15135 emit bytes) and `prompt-mode-extension-tool-reach-e2e`
+  `f690184114ec0db5`→`14445b451638fb75` (6750→6751). §Fix's own filter,
+  `git diff -- tests/ | grep -E '^[+-]' | grep -vE '^[+-]{3}' | grep -vE '^[+-]\s*(//|\*|/\*\*)'`,
+  independently returns only those two title lines. A regex- or
+  scanner-based comment stripper was tried and **rejected as unsound on this
+  corpus**: a bare scan loop cannot resume a template literal after `${…}`, so
+  it swallows following comments into one token and falsely reports executable
+  changes in four extra files. Additionally, per-file `wc -l` is identical to
+  HEAD for all fourteen files (646, 580, 130, 1103, 1087, 1689, 273, 538, 1063,
+  701, 664, 909, 943, 1228), so no citing document's line numbers shift, and all
+  fourteen remain LF-only (`tr -d -c '\r' | wc -c` = 0 each).
+- **0183 §Fix item-5 greps, re-run after the sweep** (its `## Fix (0.129.0)`
+  records them), plus this report's §Fix Verification greps:
+
+  ```
+  $ rg -n 'discoverAndComposeFixtures' src/ extensions/
+  src/extension/production-composition.ts:366:export async function discoverAndComposeFixtures(
+  src/extension/production-composition.ts:404: * Factored out of `discoverAndComposeFixtures` so `composeExtensionInstance`
+  src/extension/production-composition.ts:470:  // the same gate; the reload-less `discoverAndComposeFixtures` helper holds no
+  src/extension/production-composition.ts:1019:    // discoverAndComposeFixtures) — both flow through this pass.
+  ```
+  One declaration and three comments; still **no caller**, so the premise of
+  0183 and 0207 holds at this HEAD.
+
+  ```
+  $ rg -n -i 'composition root' tests/ -g '*.ts' -A2 | rg 'discoverAndComposeFixtures'
+  tests/e2e-s5-package-discovery-composition-root.test.ts-6-// (package-discovery.ts) inside `discoverAndComposeFixtures`
+  tests/live/live-production-acceptance.test.ts-2994-      // (not the offline `discoverAndComposeFixtures` harness the unit
+  ```
+  Down from five pairings to two, and **only legitimate pairings remain**:
+  `e2e-s5:6` names the composition-root *merge stage* and is followed two lines
+  below by the corrected "production compose helper" attribution;
+  `live-production-acceptance:2994` explicitly contrasts the real root *against*
+  the offline helper. Neither asserts the shipped-root identity.
+
+  ```
+  $ rg -n 'Slash names the shipped composition root' tests/ -g '*.ts'
+  (no output, exit 1)
+  ```
+  A clean 7→0 flip on the docstring family.
+
+  `rg -n -i 'shipped composition root' tests/ -g '*.ts'` goes 41 → 19 lines,
+  and each of the 19 was judged legitimate: thirteen are the "JSON.stringify
+  content-addressing the shipped composition root uses" family, which is a
+  **true** claim — `buildRuntimeRoot` (`production-composition.ts:324`, the
+  `JSON.stringify` slug at `:334`) is called both from the helper (`:371`) and
+  from `composeExtensionInstance` (`:1304`), and none of those thirteen files
+  mentions the helper at all — and six are `tests/live/**`, which drive the real
+  root through a live host and name it correctly. Correcting any of the 19 would
+  replace a true claim with a false one.
+- **Review**: 2 rounds. Round 1 (`bug-fix-reviewer`) — DEFECTS-FOUND, one
+  `prose` finding: the `:239` banner in
+  `tests/subagent-fn-extension-tool-dispatch-e2e.test.ts` had its trailing dash
+  rule shortened to 78 chars, below the file's 81-char modal banner width;
+  it also adjudicated the two questions put to it, holding that fidelity to
+  §Fix's mandated docstring wording is correct (see residual 1) and that the
+  two rewrapped comment paragraphs are not a style defect, since no reflow
+  confined to the changed lines exists under §Fix's "no other byte" clause.
+  Round 2 (`bug-fix-fixer-light`) — restored the rule to eight dashes (81
+  chars), one comment line, line count held at 538. Per the post-polish rule
+  that round's diff was inspected directly: every hunk was comment-only and the
+  gate re-run was green, so polish was verified by gate-diff and the
+  confirmation review round was skipped.
+- **Verification**: SOLID, no findings. Premise — re-established independently
+  from the three closing-gate extractors, verdict not witnessable, so no red was
+  manufactured. Fidelity — all 24 sites enumerated against the diff, 24/24
+  present and none extra, and each new sentence confirmed **true** by locating
+  the file's actual load call (`ctor:548`, `typeenv:693`, `invoke-arg:469`,
+  `conformance:262`, `production-tools:839`, `tools-field:726`, `e2e-s5:60`,
+  `empty-query:1074`, `prompt-mode:222`, `subagent-fn:251`,
+  `theta-callable:449`, `tools-derived:328`, `tools-entry-containment:227`,
+  `tools-entry-closed:315`); `subagent-fn`'s `composeExtensionInstance` call at
+  `:511` is the child leg, not the parent leg `:124`/`:239` describe, so those
+  two comments stay true. Scope — only comments changed bar the two authorized
+  titles, proved by the parser projection regenerated from HEAD. Gates — suite
+  331/6087, `tsc` exit 0, `lint` exit 0. Protected witnesses — each of
+  `tools-entry-containment.test.ts` and `theta-callable-call-arity.test.ts`
+  shows a single one-line JSDoc hunk and an emit digest identical to HEAD, i.e.
+  zero executable bytes. Live — none owed, none run, no `tests/live/**` byte
+  changed.
+- **Residuals**:
+  1. **The unified docstring stutters**: "…helper returned (returned
+     fixtures)". This is verbatim fidelity, not an oversight — §Fix mandates
+     both halves independently (the wording "the slash names the production
+     compose helper returned", and the retention of the `(returned fixtures)`
+     parenthetical that `:421` "lacks and gains"). `docs/STYLE.md` carries no
+     anti-repetition rule and the claim is true, so de-stuttering would have
+     been a silent amendment of a settled §Fix. If the operator wants it clean,
+     it is a one-line amendment plus a seven-site follow-up sweep; the wording
+     offered at review was `/** Slash names off the production compose helper's
+     returned fixtures. */`.
+  2. **Two further same-class sites, found mid-sweep and deliberately NOT
+     swept** — §Fix fixes the inventory at twenty-four and forbids any other
+     byte, and the 0183→0207 lesson is that the parent, not the sweep, decides
+     an inventory extension. Both were confirmed untouched by hunk-offset
+     inspection. (a) `tests/tools-field-shape-refusal.test.ts:157–159` claims
+     the (D3)/(D4) half "proves the frontmatter-layer refusal reaches the
+     shipped `session_start` registration verdict" — false twice, on exactly
+     this report's grounds (wrong function; the helper performs no
+     registration, `pi.registerCommand` is `factory.ts:591` on the shipped path
+     only), and it now sits in a file whose `:130`, `:656–657` and `:668` were
+     corrected, so that file remains internally inconsistent in the way §Why it
+     matters complains about. Review judged this the stronger of the two.
+     (b) `tests/prompt-mode-extension-tool-reach-e2e.test.ts:16–18`: "wired by
+     the composition root" is the loose class 0183 §Non-goals dispositions, but
+     "the whole load→register→dispatch chain is the shipped one" is a false
+     claim of this report's class — the load at `:222` is the helper and the
+     register is the fake host's double.
+  3. **Three drifted ground-truth citations inside this document**, recorded
+     above and not edited, per §Non-goals: `:1214`→`:1219`, `:1014`→`:1019`,
+     `factory.ts:50`→`:54`. 0134's class.
+- **Discharge notes appended**: none. §Non-goals rules `docs/bugs/**` prose out
+  of scope, "0183 included", so although `production-conformance.test.ts:73`
+  completes 0183 §Fix item 1, no note was added to 0183's document and its
+  overstated "four downstream repetitions" claim is left standing as the
+  evidence §Why it matters quotes it as.
+- **Pinned dispositions / non-goals**: `discoverAndComposeFixtures` is not
+  renamed, moved or consolidated; the loose `composition root` mentions that
+  name no symbol are left alone; the thirteen-file "content-addressing" family
+  and every `tests/live/**` mention are left alone as true claims about the real
+  root; `tests/e2e-s5-package-discovery-composition-root.test.ts` is not
+  renamed; the coverage gap these suites do not reach is not asserted as a
+  defect; neighbouring 0134-class line drift was not swept.

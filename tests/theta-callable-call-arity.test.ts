@@ -417,7 +417,7 @@ const THETAS: readonly PlantedTheta[] = [
 // --- Fake host `pi` / `ctx` for the load path ------------------------------
 
 interface LoadOutcome {
-  /** Slash names the shipped composition root registered (returned fixtures). */
+  /** Slash names the production compose helper returned (returned fixtures). */
   readonly registered: readonly string[];
   /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
   readonly notifications: readonly string[];

@@ -40,7 +40,7 @@ import type { PrimitiveName } from "../src/parser/type-compat";
 // (`type-system.md` §"Unresolvable operands").
 //
 // THE TWO PRODUCTION OBSERVABLES, both read off ONE load of ONE planted
-// `.pi/theta/` workspace through the shipped composition root
+// `.pi/theta/` workspace through the production compose helper
 // (`discoverAndComposeFixtures`): which slash names registered, and which
 // error-severity messages reached `ctx.ui.notify`. A third channel is captured
 // because the row's *Message* carries NO callee and no caller name, so the
@@ -418,7 +418,7 @@ const THETAS: readonly PlantedTheta[] = [
 // ===========================================================================
 
 interface LoadOutcome {
-  /** Slash names the shipped composition root registered. */
+  /** Slash names the production compose helper returned (returned fixtures). */
   readonly registered: readonly string[];
   /** Error-severity messages surfaced through `ctx.ui.notify`. */
   readonly notifications: readonly string[];

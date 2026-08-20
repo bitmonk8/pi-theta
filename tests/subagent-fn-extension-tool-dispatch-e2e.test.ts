@@ -121,7 +121,7 @@ const MY_TOOL_SCHEMA = {
 // --- Fake parent host (parent leg; mirrors prompt-mode-extension-tool-reach-e2e) --
 
 /**
- * The fake PARENT host: serves the shipped composition root's load pass (the
+ * The fake PARENT host: serves the production compose helper's load pass (the
  * discovery/admission `pi` + `ctx` surfaces) AND simulates the user session's
  * host agent loop for the composition-built host-loop dispatch — the shared
  * fabricated-turn core (`FakeHostLoopHost`), with only the parent-leg load-pass
@@ -236,7 +236,7 @@ class FakeParentHost {
   }
 }
 
-// --- Parent leg: load + dispatch through the shipped composition root ---------
+// --- Parent leg: load + dispatch through the production compose helper --------
 
 let parentDir: string;
 let parentHost: FakeParentHost;

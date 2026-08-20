@@ -76,7 +76,7 @@ import { codes, errors, parseDoc } from "./helpers/e2e-s1";
 //       `theta/parse/unknown-identifier` is NOT widened — `let a = Mystery` (no
 //       brace) keeps its own row.
 //   (5) No runtime change: the input never loads, so the unbranded plain object
-//       is never constructed. Cell LOAD drives the shipped composition root.
+//       is never constructed. Cell LOAD drives the production compose helper.
 //
 // Scope: constructor field-VALUE typing (`Point { x: "not a number" }`) is bug
 // 0031 and is not pinned here.
@@ -503,11 +503,11 @@ describe("bug 0025 controls — the existing constructor gates are unchanged", (
 // ===========================================================================
 // (5) Load consequence — the input never reaches evaluation, so the unbranded
 // plain object (`schemaTagOf` undefined, keys rendered verbatim) is never
-// constructed. Drives the SHIPPED composition root over a temp discovery root.
+// constructed. Drives the PRODUCTION COMPOSE HELPER over a temp discovery root.
 // RED at HEAD: the theta registers as a runnable slash command.
 // ===========================================================================
 
-describe("bug 0025 (5) load consequence — the shipped composition root refuses the theta", () => {
+describe("bug 0025 (5) load consequence — the production compose helper refuses the theta", () => {
   it("RED LOAD: discoverAndComposeFixtures drops the `Mystery { … }` theta and surfaces the registered message", async () => {
     const source = FM + "let m = Mystery { r: Ok(1) }\nm\n";
     const workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0025-"));

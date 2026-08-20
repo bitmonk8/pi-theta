@@ -451,6 +451,16 @@ Not yet decided in detail; the constraints any fix must satisfy are pinned:
      Recorded, not chased: a fix needs either a spec carve-out for the
      post-deadline-settle-of-a-stamped-entry case or a sanctioned deadline
      channel.
+     **Discharged in X.Y.Z by [bug 0208](./0208-post-deadline-dual-surface-clean-cancel-and-teardown-timeout.md)**,
+     which took the spec-carve-out route: the never-both EXCEPT arm now covers
+     any post-deadline settle of an entry sub-step 2 processed, and the
+     stamp-throw discriminator is re-pinned off the dual surface onto
+     `details.event.reason === "<unreadable>"` plus the absence of both
+     `"<unreadable>"`-reporting `theta/host/*` rows. No `src/` change; this
+     fix's code, predicate and five-field entry are untouched, and
+     `tests/cancelled-by-session-shutdown-note.test.ts` is unmodified. The
+     post-deadline arm is now locked by
+     `tests/post-deadline-dual-surface.test.ts`.
   2. **Two delivery channels.** `#emitCleanCancelNote` prefers the injected
      `systemNoteChannel` (production, wired at the composition root) and falls
      back to a channel built from `#input.pi` + `#input.emitDiagnostic` with an

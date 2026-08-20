@@ -70,7 +70,7 @@ import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
 // unlanded-gap red is available; the full-surface production drive is now GREEN.
 // The suite is authored as the deterministic (no-live-model) production-path
 // regression net — every documented behaviour the Tests bullets enumerate is
-// reachable through the shipped composition root / the production runtime host /
+// reachable through the production compose helper / the production runtime host /
 // the real parser WITHOUT a provider turn — so it doubles as the green standing
 // net the paired V20g leaf's Ships-when targets and runs in CI with no live
 // precondition to be silently skipped.

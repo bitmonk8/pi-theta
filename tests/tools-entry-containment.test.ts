@@ -187,7 +187,7 @@ const OUT_OF_ROOT_SUBAGENT_CALLEES = [
 ] as const;
 
 interface LoadOutcome {
-  /** Slash names the shipped composition root registered (returned fixtures). */
+  /** Slash names the production compose helper returned (returned fixtures). */
   readonly registered: readonly string[];
   /** Diagnostic messages surfaced via `ctx.ui.notify`. */
   readonly notifications: readonly string[];

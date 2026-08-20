@@ -1029,7 +1029,7 @@ describe("bug 0014 (d) runtime consequence — a `@<>` theta is refused before a
     // The end-to-end realisation of the refusal the two cells above mirror:
     // plant the fixture on disk under a project `.pi/theta/` discovery source
     // (the tests/production-tools-load-resolution.test.ts harness), run the
-    // SHIPPED composition root, and require the theta to be dropped with its
+    // PRODUCTION COMPOSE HELPER, and require the theta to be dropped with its
     // diagnostic surfaced through ctx.ui.notify (makeLoadEmit routes
     // error-severity drops there). AT HEAD the parse is silent, so the theta
     // REGISTERS as a runnable slash command.

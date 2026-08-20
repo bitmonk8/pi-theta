@@ -40,7 +40,7 @@ function plant(path: string, text: string): void {
 }
 
 /**
- * Drive the SHIPPED composition root over a real on-disk workspace with an
+ * Drive the PRODUCTION COMPOSE HELPER over a real on-disk workspace with an
  * empty model registry (no live model). Returns the registered slash names.
  */
 async function runProductionLoad(cwd: string): Promise<readonly string[]> {

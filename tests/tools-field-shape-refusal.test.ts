@@ -127,7 +127,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //   sequence `- read` / `tools: []` / absent              tools=["read"] / undefined / undefined diags=[]
 //   sequence item `- {a: b}`                              tools=["{a: b}"] diags=[]
 //   bare `tools:` / `tools: null`                         tools=["null"] diags=[]
-// Through the shipped composition root, one theta per planted workspace:
+// Through the production compose helper, one theta per planted workspace:
 // every mapping row registers with ZERO notifications; the code-side mapping
 // rows do not register and notify `unknown identifier 'read'` plus
 // `bare object literal not permitted…`; `- {a: b}` notifies
@@ -653,8 +653,8 @@ describe("bug 0104 (D7) — the two null spellings take the scalar arm unchanged
 });
 
 // ===========================================================================
-// (D3) / (D4) THE PRODUCTION LOAD PATH — the shipped `session_start`
-// composition root over a real on-disk `.pi/theta/` discovery workspace, ONE
+// (D3) / (D4) THE PRODUCTION LOAD PATH — the production compose helper over
+// a real on-disk `.pi/theta/` discovery workspace, ONE
 // theta per workspace.
 //
 // WHY one theta per workspace: the refusal's Message carries no `<value>`, so
@@ -665,7 +665,7 @@ describe("bug 0104 (D7) — the two null spellings take the scalar arm unchanged
 // ===========================================================================
 
 interface LoadOutcome {
-  /** Slash names the shipped composition root registered (returned fixtures). */
+  /** Slash names the production compose helper returned (returned fixtures). */
   readonly registered: readonly string[];
   /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
   readonly notifications: readonly string[];

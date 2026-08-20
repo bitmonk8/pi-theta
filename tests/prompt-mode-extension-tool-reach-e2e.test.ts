@@ -74,7 +74,7 @@ const MY_TOOL_SCHEMA = {
 // --- Fake parent host --------------------------------------------------------
 
 /**
- * The fake PARENT host: serves the shipped composition root's load pass (the
+ * The fake PARENT host: serves the production compose helper's load pass (the
  * discovery/admission `pi` + `ctx` surfaces) AND simulates the user session's
  * host agent loop for the composition-built host-loop dispatch — the SAME
  * shared fabricated-turn core production-host-loop-dispatch.test.ts drives
@@ -227,7 +227,7 @@ afterAll(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
-describe("bug 0001 e2e — prompt-mode code-side extension-tool reach through the shipped composition root", () => {
+describe("bug 0001 e2e — prompt-mode code-side extension-tool reach through the production compose helper", () => {
   it("the prompt-mode code-calling theta REGISTERS (admission + parent host-loop rung), with no unknown-tool and no extension-tool-unreachable refusal", () => {
     expect(fixtures.map((f) => f.slashName)).toContain("codecall");
     expect(host.notifications.join("\n")).not.toContain("unknown Pi tool 'my_tool'");

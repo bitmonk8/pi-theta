@@ -132,7 +132,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // TIER — UNIT, offline, provider-free. The whole fix is witnessable at the
 // `parseThetaDocument` boundary (groups a/b/c/e), at three exported engine
 // entry points (group f), at the exported `collectTypeEnv` (group g), and
-// through one in-process drive of the shipped composition root over a
+// through one in-process drive of the production compose helper over a
 // `mkdtemp` discovery root (group d). Nothing on this
 // path crosses a provider, a model, a child process, or the network, so no
 // integration test and no live test applies — the bug's §Fix says so in the
@@ -639,7 +639,7 @@ describe("bug 0038 (c) — the parse reports; it does not throw", () => {
 });
 
 // ===========================================================================
-// (d) L1 — the load consequence, through the SHIPPED composition root over a
+// (d) L1 — the load consequence, through the PRODUCTION COMPOSE HELPER over a
 // `mkdtemp` discovery root. RED at this HEAD: the `TypeError` escapes
 // `discoverAndComposeFixtures`, so the clean theta that sorts AHEAD of the
 // crasher never reaches its `sink.emitGroup` and the one that sorts after is
@@ -653,7 +653,7 @@ interface LoadProbe {
 }
 
 /**
- * Drive the shipped composition root over a throwaway discovery root holding
+ * Drive the production compose helper over a throwaway discovery root holding
  * `actl.theta` (clean), `mcrash.theta` (the row under test) and `zctl.theta`
  * (clean). The two clean thetas bracket the crasher alphabetically, so a
  * registration list missing either one distinguishes "the pass aborted" from

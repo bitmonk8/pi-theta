@@ -20,8 +20,8 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // Bucket A — implemented-not-wired: `resolveCallableSet`
 // (src/parser/callable-set.ts) exists and is exercised in isolation by
 // tests/callable-set.test.ts, but it is never called on the PRODUCTION load /
-// discovery path. `discoverAndComposeFixtures` (the shipped `session_start`
-// composition root) parses each discovered `.theta` and composes it into a
+// discovery path. `discoverAndComposeFixtures` (the production compose
+// helper) parses each discovered `.theta` and composes it into a
 // runnable fixture WITHOUT resolving its `tools:` callable set, so no
 // `tools:`-resolution diagnostic ever fires against the shipped extension and a
 // theta whose `tools:` is malformed is registered anyway.
@@ -807,7 +807,7 @@ const THETAS: readonly PlantedTheta[] = [
 // --- Fake host `pi` / `ctx` for the load path ------------------------------
 
 interface LoadOutcome {
-  /** Slash names the shipped composition root registered (returned fixtures). */
+  /** Slash names the production compose helper returned (returned fixtures). */
   readonly registered: readonly string[];
   /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
   readonly notifications: readonly string[];

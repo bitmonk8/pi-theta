@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-08-26
+
+### Fixed
+
+- **Bugs 0207 + 0208 — docs batch.** 0207: twenty-four witness-comment sites
+  (plus two describe titles) misattributed load behaviour to the shipped
+  composition root where the production compose helper is the actor — swept
+  to bug 0183's settled vocabulary verbatim, comment-only proven per file.
+  0208: the clean-cancel / teardown-timeout "never both" clause now carries
+  the measured post-deadline carve-out (both surfaces, one event, fully
+  stamped reason), and the `"<unreadable>"` sentinel — not the dual
+  appearance — is re-pinned as the stamp-throw discriminator across the four
+  governing pages. NEW offline conformance lock
+  `tests/post-deadline-dual-surface.test.ts`. Bug 0073's residual 1
+  discharged.
+
 ## [0.136.0] - 2026-08-26
 
 ### Fixed

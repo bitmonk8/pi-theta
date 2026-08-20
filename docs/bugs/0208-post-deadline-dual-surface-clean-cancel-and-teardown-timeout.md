@@ -1,6 +1,6 @@
 # Bug 0208 — An invocation still in flight at the sub-step-3 `SHUTDOWN_AWAIT_CAP_MS` deadline is named in the `theta/runtime/reload-teardown-timeout` `<list>` AND later draws `theta/runtime/cancelled-by-session-shutdown` from its own `finally` with a fully stamped reason, so the "never both" mutual-exclusion clause — whose only carve-out is the sub-step-2 stamp-throw residual gap — is violated and that carve-out's `"<unreadable>"` discriminator is spoofed
 
-- **Status:** open.
+- **Status:** fixed (0.137.0).
 - **Sev/Diff estimate:** S4/D3 — both emitted rows are individually
   conforming and the open question is which side of the spec's never-both
   clause moves, but deciding it needs in-run adjudication against a
@@ -312,3 +312,143 @@ Constraints on either route:
   the body stayed parked. Both surfaces quoted verbatim in §Reproduction.
 - Origin: bug 0073's fix record §Fix (0.130.0), review round 1 finding F1 /
   residual 1 (*Post-deadline dual surface*).
+
+## Fix (0.137.0)
+
+- Route chosen: **§Fix route 1 (spec carve-out)**, prose-only, no `src/` change.
+  Route 2 (sanctioned deadline channel) is rejected: it is new runtime channel
+  work, the five-field `ActiveInvocationEntry` is spec-pinned against a sixth
+  field (bug 0074), the emission predicate is pinned by bug 0073 §Fix constraint
+  2, and `sendSystemNote` MUST NOT be invoked from the teardown handler — so
+  route 2 needs a spec change to a pinned structure. The implementation is
+  correct as measured (both rows individually conforming, cancellation
+  unaffected); the never-both prose was over-tight.
+- What shipped:
+  - `session-shutdown-semantics.md` §Per-invocation operator visibility — the
+    opening precondition's post-deadline arm widens to any entry sub-step 2
+    processed, with the stamp-throw case retained as a named sub-arm; the
+    single `"<unreadable>"`-sentinel claim splits into two arms (ordinary
+    post-deadline settle carries the handler-captured reason, only the
+    stamp-throw sub-arm carries the sentinel); the never-both EXCEPT arm widens.
+  - `code-registry-runtime.md` `cancelled-by-session-shutdown` row — Trigger
+    scope widens to a settle inside *or* after the `SHUTDOWN_AWAIT_CAP_MS`
+    window; the three-`"<unreadable>"`-cause discriminator re-pins off the dual
+    surface onto the co-emitted host row *and the value that row reports*; the
+    `<a id="cancelled-by-session-shutdown-mutual-exclusion">` clause widens and
+    its consumer guidance is corrected.
+  - `code-registry-runtime.md` `reload-teardown-timeout` row — the restated
+    EXCEPT arm widens; consumer guidance corrected identically.
+  - `placeholder-rendering-b.md` `<reason>` bullet — the same discriminator
+    re-pin. No placeholder added or removed; the table stays closed.
+  - `session-only-degraded-state.md` residual-gap paragraph — the `<list>`
+    appearance is not exclusive to the gap; the composite
+    (`details.event.reason === "<unreadable>"` + absence of both
+    `"<unreadable>"`-reporting `theta/host/*` rows) is stated as *sufficient
+    evidence*, not a necessary signature.
+  - `tests/post-deadline-dual-surface.test.ts` — new conformance lock on the
+    post-deadline arm (bug 0073's five cells never advance their `FakeClock`,
+    so none reaches it). Bug 0073's witness is untouched.
+- Discriminator re-pin, precisely: the throwing-access cause co-emits
+  `theta/host/session-shutdown-reason-unknown` whose `details.observed` is
+  itself `"<unreadable>"`; the snapshot-failure cause co-emits
+  `theta/host/session-shutdown-pinned-constant-unreadable`; the sub-step-2
+  stamp-throw cause is the arm whose per-invocation row carries the sentinel
+  while neither of those two sentinel-reporting rows is co-emitted. A
+  `reason-unknown` row carrying any other observed value does not disqualify
+  the stamp-throw arm — the event-level classification and the per-entry write
+  failure are independent axes. Where they coincide the stamp throw is not
+  operator-distinguishable; that is recorded in-corpus as an accepted theta 1.0
+  residual on the same footing as the residual gap itself.
+- Gates: witness `tests/post-deadline-dual-surface.test.ts` — `Test Files 1
+  passed (1) / Tests 1 passed (1)`, green on arrival (a conformance lock
+  re-deriving §Reproduction at HEAD, byte-identical including the `5000ms`
+  *elapsed* value). Full default suite — `Test Files 332 passed (332) / Tests
+  6088 passed (6088)`, run clean twice by the orchestrator (the 0207 comment
+  sweep rides along). `npm run typecheck` — clean, no output. `npm run lint` —
+  clean, no output. `wc -l` unchanged on all four amended spec files
+  (44 / 138 / 29 / 33); line endings preserved (`session-shutdown-semantics.md`
+  CRLF, the other three LF). `git status --porcelain src/` empty.
+- Review: 3 rounds.
+  - Round 1 (`bug-fix-reviewer`): four findings. F1 `spec` blocking — the first
+    re-pin asserted the stamp-throw cause "co-emits **neither** host row", which
+    is falsifiable because `session-shutdown-reason-unknown` also fires for an
+    unknown-but-*readable* reason; fixed by keying on the row's reported value
+    and recording the compound-case residual. F2 `prose` — five new occurrences
+    of the STYLE-banned `simply`; removed. F3 `prose` — edit-history narration
+    in normative prose; de-narrated. F4 `prose` — a duplicated parenthetical;
+    de-duplicated.
+  - Round 2 (`bug-fix-reviewer-fast`): two findings, `recommend-deep-review`.
+    F1 `correctness` — `classifyShutdownReason` and both `theta/host/*` rows are
+    unwired in production; dispositioned as a pre-existing out-of-lane src
+    defect (residual 1 below), no prose change. F2 `spec` — two cross-reference
+    labels named "the disambiguation paragraph" for an anchor marking the
+    mutual-exclusion clause; relabelled, no new anchor.
+  - Round 3 (`bug-fix-reviewer`, deep per the fast round's escalation): CLEAN.
+    It audited and upheld the round-2 F1 disposition on all four grounds, and
+    enumerated the discriminator's reachable states to show the three arms
+    partition them. Two non-blocking prose residuals (2 and 3 below).
+- Verification: SOLID.
+  - The witness is not vacuous: prose-only, so nothing to revert — instead all
+    three signals it asserts were neutralised in `src/` and each red for its own
+    reason (surface 2 via `#emitCleanCancelNote`'s call in
+    `#openInvocationTicket`'s `finish`; surface 1 via the
+    `reloadTeardownTimeoutDiagnostic` emission in `runBoundedDisposeAwait`; the
+    discriminator via sub-step 2's stamp), each restored byte-exactly
+    (`production-theta-producer.ts` `f9e44c35…`, `session-shutdown.ts`
+    `c46d4559…`, both matching `git rev-parse HEAD:<path>`), `git status
+    --porcelain src/` empty, witness re-run GREEN.
+  - Full default suite green (332 / 6088).
+  - Live: none owed — the fix alters no runtime observable (`src/` clean). The
+    DIAG-4 check is discharged by inspection: neither row's Message-template
+    column changed (both byte-identical), and `tests/code-registry.test.ts`
+    sources expectations through `registryMessage`, which reads `row.message`
+    only and never the Trigger column. DIAG-2 mirror: `docs/reference/
+    diagnostics.md` renders these rows as `Code | Sev | Phase | Message
+    template` and states that Trigger columns "live on the spec registry pages
+    and are not restated here", so no same-commit mirror edit is owed;
+    `git diff -- docs/reference/` is empty.
+  - Lint and typecheck clean.
+- Residuals:
+  1. **Both `"<unreadable>"`-reporting host rows are unwired in production.**
+     `classifyShutdownReason` (`src/extension/unknown-reason-rule.ts`) has zero
+     callers outside its defining module; `SessionShutdownDeps.inventory`
+     (`src/extension/session-shutdown.ts`) is declared and never read;
+     `src/extension/factory.ts` passes `inventory: undefined`. So
+     `theta/host/session-shutdown-reason-unknown` and
+     `theta/host/session-shutdown-pinned-constant-unreadable` cannot fire in the
+     shipped extension, and two of the discriminator's three arms are vacuous
+     against current `src/`. Pre-existing, unrelated to this fix, and out of
+     this lane's scope (docs-only). The pre-fix prose already hung those two
+     causes on the same rows (`git show HEAD:` of both files confirms), so this
+     fix introduces no new reliance on unreachable behaviour, and it moves the
+     stamp-throw cause off a *wired but spec-incorrect* signal onto a
+     spec-correct one. Needs its own bug report against the wiring.
+  2. **"widened" as a relative qualifier** — the amended prose names the clause
+     "the widened … EXCEPT clause" at all four sites. The term predates this
+     change in the corpus (it already appeared in
+     `session-shutdown-semantics.md`'s "widened opening precondition") and it
+     serves as the cross-site name for the clause, but it is meaningful only
+     relative to the narrower prior form. Follow-up prose material.
+  3. **"That discriminator is co-emission of a `theta/host/*` row…"** —
+     `code-registry-runtime.md`, the swallow-loss passage. For the stamp-throw
+     arm the discriminating signal is the *absence* of co-emission, so the
+     phrasing is loose; the load-bearing conclusion (a swallowed write costs
+     disambiguation between all three causes uniformly) is correct.
+  4. **Full-suite load flakes.** Under the verifier's full-suite run
+     `tests/production-tools-load-resolution.test.ts` failed with `Hook timed
+     out in 10000ms` and `tests/inbound-union-arm-dispatch.test.ts` with a
+     child-process `{ code: 1 }` vs `{ code: 0 }`; both passed in isolation
+     (50/50 and 19/19) and both of the orchestrator's own full-suite runs were
+     332/6088 fully green. Neither file is touched by this fix.
+- Discharge notes appended: `docs/bugs/0073-cancelled-by-session-shutdown-never-emitted.md`
+  (under residual 1, *Post-deadline dual surface* — the accepted residual this
+  bug closes).
+- Pinned dispositions / non-goals: the five-field `ActiveInvocationEntry` stays
+  unwidened; the emission predicate stays `entry.shutdownReason !== undefined`
+  (bug 0073 §Fix constraint 2); no elapsed-time or window test is added at
+  `#emitCleanCancelNote`; no new diagnostic code and no new placeholder — the
+  DIAG-2 registry and the placeholder table stay closed; `docs/bugs/**` prose
+  quoting the pre-fix clause is left as filed (bug reports are historical
+  records). Per this lane's instruction, `package.json`, `CHANGELOG.md` and
+  `docs/bugs/README.md` are untouched and the version reads `0.137.0` until the
+  batch merges as one version.
