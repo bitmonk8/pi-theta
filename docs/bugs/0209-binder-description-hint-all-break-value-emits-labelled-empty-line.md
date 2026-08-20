@@ -1,6 +1,10 @@
 # Bug 0209 — A `description:` or `argument-hint:` whose whole value is line breaks (`"\n"`, `"  \n  "`, `"\r\n"`, `"\t\n\t"`) passes item 2's and item 3's raw non-emptiness guard, collapses to the empty string under 0.131.0's `normalisePromptTextLineBreaks`, and emits the bare labelled line `Description: ` / `Argument hint: ` — the token the spec's own omission clause forbids ("no `Description:` token with an empty value"), where an absent or empty field emits no line at all
 
-- **Status:** open
+- **Status:** fixed (0.143.0). §Fix was constraint-pinned, not settled: two
+  routes reached the same rendered prompt. Route 1 shipped — the collapsed
+  value is tested for emptiness at the two emission sites — and route 2 (the
+  load-time refusal at DIAG-2 cost) was not taken, so no `theta/*` code is
+  added or removed and DIAG-2 is not reached.
 - **Sev/Diff estimate:** S4/D1 — the prompt gains one labelled empty line and no
   structural line is forged, no diagnostic sequence moves and no corpus file
   reaches the shape (34 files, 21 recorded values, zero all-whitespace); D1
@@ -521,3 +525,116 @@ line in the prompt for any theta that registers past a `W`.
   then deleted per scratch policy. No file in the tree was written by the
   probes; `src/`, `tests/`, `docs/bugs/README.md` and every other bug doc are
   unmodified by this filing.
+
+## Fix (0.143.0)
+
+- **What shipped:**
+  - `src/binder/binder-system-prompt.ts` — item 2's and item 3's emission sites
+    each compute `normalisePromptTextLineBreaks(...)` once into a block-scoped
+    local and emit the labelled line only when that collapsed-and-trimmed
+    result is non-empty (§Fix route 1). The guard now tests the same string the
+    template hole receives, so the two can no longer disagree. The raw `!== ""`
+    arm is subsumed: a `""` value takes the transform's fast path, returns
+    `""`, and is omitted exactly as before. `normalisePromptTextLineBreaks`'s
+    body is byte-unmodified (§Non-goals), so the fast path keeps every
+    break-free value byte-identical, and the seam stayed inside
+    `buildBinderSystemPrompt` rather than moving to the caller (§Fix
+    constraint 3).
+  - `src/binder/binder-system-prompt.ts` (prose) — the module header's items 2
+    and 3, the transform's doc comment (which stated nothing about a result
+    that is empty), and the two `BuildBinderSystemPromptInput` field contracts
+    (which told a caller only about an absent or empty *field*) now all state
+    that "non-empty" is measured on the collapsed value.
+  - `docs/spec_topics/binder/binder-bypass-and-envelope.md` — item 2 and item 3
+    each gain the one-clause amendment settling that "non-empty" is measured
+    after the collapse-and-trim, so a value that collapses to nothing is
+    omitted exactly as an absent or already-empty one is. This is the
+    disposition §Fix route 1 required be recorded in the same change as the
+    code. The edit is line-count-neutral, so the `:115` / `:116` anchors other
+    documents cite are unmoved.
+  - `docs/reference/frontmatter.md` — the `description` and `argument-hint`
+    rows gain the mirrored user-facing clause. Line-count-neutral, so `:45` and
+    `:46` are unmoved. The banned word "simply" was dropped from the
+    `argument-hint` row, whose physical line this change rewrote.
+- **Gates:**
+  - Witness: `npx vitest run tests/binder-prompt-all-break-description-hint-empty-line.test.ts`
+    — `Tests 7 failed | 6 passed (13)` before, `Tests 13 passed (13)` after.
+  - Full suite: `npm test` — `Test Files 340 passed (340)`,
+    `Tests 6435 passed (6435)`, zero failures (baseline 339 / 6422; +1 file,
+    +13 cells).
+  - Typecheck: `npx tsc --noEmit` — clean, no output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    — clean, no output.
+  - Live: H9a `tests/live/acceptance/**` — `Tests 11 passed (11)`, matching the
+    recorded baseline.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned one blocking
+  `prose` finding and two `prose` residuals, no `correctness`, `fidelity` or
+  `spec` finding: the witness's header narrated the defect in the present tense
+  as this tree's behaviour and carried line citations the fix had shifted; an
+  inline comment narrated the change; and the banned word "simply" sat on a
+  rewritten line. All three were repaired by one `bug-fix-fixer-light` round
+  (comment and prose hunks only, zero assertions, zero executable lines), and
+  the polish was verified by gate-diff — no executable line touched, gates
+  re-run green — so the confirmation review round was skipped.
+- **Verification:** SOLID.
+  - The witness genuinely witnesses: with only the two emission-site guards
+    reverted to the raw-value form, exactly the 7 predicted cells red (D-nl,
+    D-wsnl, D-crlf, D-tabnl, H-nl, H-wsnl, BOTH-nl) on the label-presence
+    assertion — a present `Description: ` / `Argument hint: ` with an empty
+    value — and never on a parse failure, a `theta/load/missing-mode` or a null
+    frontmatter. The restore is byte-exact: `git hash-object` returned
+    `c56fc16715047a642b3409fbcfd2e6c9a3fd5f21` both before the neutralisation
+    and after the restore, and the witness returned to 13/13.
+  - Default suite green, typecheck and lint clean (quoted above).
+  - Live coverage is discharged by constraint, not by a cell, per §Fix
+    constraint 5. The harness channel inventory (`tests/live/harness.ts`,
+    `tests/live/hardening/probe-harness.ts`,
+    `tests/live/acceptance/harness.ts`) carries `theta-system-note`,
+    `userTexts`, `toolCalls`, `assistantText`, registration names and
+    diagnostics — none of which carries the binder system-prompt bytes, because
+    the binder reply is runtime-internal and never appended to the session
+    transcript (`src/extension/production-theta-producer.ts` §"No user-session
+    turn, no transcript card — the reply is runtime-internal (BND-3)"). No live
+    cell can red on this rendering, so none was minted. The H8a cell nearest
+    the seam — bug 0103's "a forged structural line inside a multi-line
+    `description:` does not corrupt a real binder pass" — passed.
+- **Residuals:**
+  1. **An unrelated H8a live cell reds, provably not from this change.**
+     `tests/live/live-production-acceptance.test.ts` reported
+     `Tests 1 failed | 69 passed (70)`: the bug-0165 cell's well-formed-default
+     sibling declined to bind, reproducing across three runs
+     (`theta /b165livewf: argument binding needs more info`). Both of that
+     cell's fixtures declare only `mode:`, `bind_model:` and `params:` — no
+     `description:` and no `argument-hint:` — so both fields reach the builder
+     as `undefined` and the old and the new guard both omit both lines: the
+     rendered prompt is byte-identical under this fix, which therefore cannot
+     be the cause. The surface is `params:` default-literal binding under
+     `bind_model: anthropic/claude-haiku-4-5`. No open `docs/bugs/` report
+     carries a matching pinned signature. The assertion was not weakened. For
+     the parent to adjudicate.
+  2. **Line citations into `src/binder/binder-system-prompt.ts` shifted.** The
+     file grew 425 → 442 lines, so citations below the edit points moved. Every
+     citing document is a `docs/bugs/*.md`, and those citations were already
+     stale at this baseline from the 0103-era churn (bug 0060 cites
+     `:151–164` for `renderBinderParamLine`, which stood at `:241` before this
+     change). No spec or reference anchor moved — both prose edits are
+     line-count-neutral. For the parent to adjudicate as a corpus-wide
+     citation-refresh question rather than one this fix can settle.
+- **Discharge notes appended:** none. No sibling document lies inside this
+  subject.
+- **Pinned dispositions / non-goals:**
+  - Break-free values stay byte-identical, including all-space ones:
+    `description: "   "` renders `Description:    ` with its three trailing
+    spaces before and after, pinned by the witness's `D-spaces` cell. Whether a
+    break-free all-space value should also be treated as empty remains the
+    §Non-goal this report declined to measure.
+  - `normalisePromptTextLineBreaks`'s collapse-and-trim mapping is unchanged
+    for every value that retains content, and bug 0103's witness
+    (`tests/binder-prompt-description-hint-line-forgery.test.ts`, 15 cells)
+    stays green and unmodified — no cell flipped, so no doc authority for a
+    flip was needed.
+  - Route 2 was not taken: no `theta/*` code is added or removed, DIAG-2 is not
+    reached, and the `theta/load/argument-hint-not-displayed` advisory's raw
+    non-empty test (`src/parser/frontmatter.ts:1079–1091`) is untouched — so
+    BOTH-nl still emits no advisory, as measured. The parser's recording and the
+    U+2028 / U+2029 question are unchanged §Non-goals.

@@ -8,14 +8,16 @@
 //
 //   1. Theta identity line — `Theta: /<name>` (exactly one).
 //   2. Description line — `Description: <description>` iff frontmatter
-//      `description:` is non-empty; omitted entirely otherwise. The
-//      interpolated scalar's line breaks, together with adjoining horizontal
-//      whitespace, collapse to one U+0020, and the result's leading/trailing
-//      U+0020 is trimmed, so the line never spans more than the one physical
-//      line the item requires; a break-free value renders unchanged.
+//      `description:` is non-empty after its line breaks (together with
+//      adjoining horizontal whitespace) collapse to one U+0020 and the
+//      result's leading/trailing U+0020 is trimmed; omitted entirely
+//      otherwise (a raw value that collapses to nothing is treated as empty,
+//      the same as an absent or already-empty value). A break-free value
+//      renders unchanged.
 //   3. Argument-hint line — `Argument hint: <value>` iff `argument-hint:` is
-//      non-empty; omitted entirely otherwise. The same collapse-and-trim rule
-//      as item 2 governs the interpolated scalar's line breaks.
+//      non-empty by the same post-collapse test as item 2; omitted entirely
+//      otherwise. The same collapse-and-trim rule as item 2 governs the
+//      interpolated scalar's line breaks.
 //   4. Parameters block — a `Parameters:` header (unindented) plus one per-field
 //      line per declared field in declaration order, each indented with exactly
 //      two U+0020 SPACE, matching `<wire-name> (<type>) <requirement>[ — <desc>]`;
@@ -88,7 +90,11 @@ import { trimSlashArgumentWhitespace } from "./binder-envelope";
  * never touched by either the collapse or the trim. Text carrying no CR and
  * no LF is returned unchanged (the fast path), which is what keeps every
  * break-free corpus value and the item-2/item-3 assertions in
- * `tests/binder-system-prompt.test.ts` byte-identical.
+ * `tests/binder-system-prompt.test.ts` byte-identical. A value made only of
+ * U+0020 / U+0009 / U+000D / U+000A collapses and trims to `""`; the two
+ * call sites test this function's result for emptiness (not the raw
+ * argument) so that value omits the line exactly as an absent or already-
+ * empty field does, per item 2's and item 3's omission clauses.
  */
 function normalisePromptTextLineBreaks(text: string): string {
   if (!/[\r\n]/.test(text)) {
@@ -191,13 +197,17 @@ export interface BuildBinderSystemPromptInput {
   /** The bare slash command name (no leading `/`) — item 1. */
   readonly name: string;
   /**
-   * The theta's frontmatter `description:`. When absent or empty the Description
-   * line (item 2) is omitted entirely.
+   * The theta's frontmatter `description:`. The Description line (item 2) is
+   * omitted entirely when this is absent, `""`, or non-empty but collapses to
+   * `""` under `normalisePromptTextLineBreaks` (a value made only of line
+   * breaks and horizontal whitespace) — "non-empty" for item 2's condition is
+   * measured on the collapsed-and-trimmed value, not the raw scalar.
    */
   readonly description?: string;
   /**
-   * The theta's frontmatter `argument-hint:`. When absent or empty the
-   * Argument-hint line (item 3) is omitted entirely.
+   * The theta's frontmatter `argument-hint:`. The Argument-hint line (item 3)
+   * is omitted entirely under the same absent/empty/collapses-to-empty test
+   * as `description` above.
    */
   readonly argumentHint?: string;
   /**
@@ -370,18 +380,25 @@ export function buildBinderSystemPrompt(input: BuildBinderSystemPromptInput): st
   // Item 1 — Theta identity line (exactly one).
   line(`Theta: /${input.name}`);
 
-  // Item 2 — Description line (only when non-empty). The interpolated
-  // frontmatter scalar's line breaks are collapsed first (§"System-prompt
-  // structure (normative)" item 2) so a break inside it cannot forge a
-  // further structural line.
-  if (input.description !== undefined && input.description !== "") {
-    line(`Description: ${normalisePromptTextLineBreaks(input.description)}`);
+  // Item 2 — Description line (only when non-empty). "Non-empty" is measured
+  // on the collapsed-and-trimmed value, not the raw frontmatter scalar: a
+  // value made only of line breaks and horizontal whitespace collapses to "",
+  // and item 2's omission clause forbids a `Description:` token with an empty
+  // value, so that value must render exactly as an absent field does.
+  if (input.description !== undefined) {
+    const collapsedDescription = normalisePromptTextLineBreaks(input.description);
+    if (collapsedDescription !== "") {
+      line(`Description: ${collapsedDescription}`);
+    }
   }
 
-  // Item 3 — Argument-hint line (only when non-empty). Same collapse as item 2
-  // (item 3's own line-break sentence).
-  if (input.argumentHint !== undefined && input.argumentHint !== "") {
-    line(`Argument hint: ${normalisePromptTextLineBreaks(input.argumentHint)}`);
+  // Item 3 — Argument-hint line. Same collapsed-value emptiness test as item 2,
+  // for the same reason (item 3's omission clause).
+  if (input.argumentHint !== undefined) {
+    const collapsedArgumentHint = normalisePromptTextLineBreaks(input.argumentHint);
+    if (collapsedArgumentHint !== "") {
+      line(`Argument hint: ${collapsedArgumentHint}`);
+    }
   }
 
   // Item 4 — Parameters block (only when ≥1 field), in declaration order.

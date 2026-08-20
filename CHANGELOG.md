@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.143.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0209 — an all-line-break `description:`/`argument-hint:` no longer
+  emits a bare labelled line into the binder system prompt.** The item-2/
+  item-3 emission sites now compute the collapsed value once and emit the
+  labelled line only when it is non-empty, so an all-break value renders as
+  an absent field (matching the absent/`""`/empty-block controls). Spec
+  items 2/3 gained the post-collapse clause; `reference/frontmatter.md`
+  mirrored. Witness:
+  `tests/binder-prompt-all-break-description-hint-empty-line.test.ts`
+  (13 cells — the report's measured table); bug 0103's 15-cell witness
+  untouched.
+
 ## [0.142.0] - 2026-08-26
 
 ### Fixed
