@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.124.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0193 — the two withheld-binder gates are pinned again.** Bug 0126's
+  u-group re-derivation (0.107.0) left the typed-`let` RHS sink and the
+  `array.join` element sink with no cell that reds when their
+  `containsWithheldBinderType` gate is removed. Two additive absence cells
+  (`u13mh`, `u13mi`) in `tests/fn-arg-type-mismatch-wired.test.ts` restore the
+  pins: neutering either gate now reds exactly its own cell with the
+  `got array<<withheld>>` signature. Tests-only; no `src/**` byte moves
+  (hash-verified). Discharges bug 0126's §Residuals item 1.
+
 ## [0.123.0] - 2026-08-20
 
 ### Fixed

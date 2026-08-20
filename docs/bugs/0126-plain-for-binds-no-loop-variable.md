@@ -1333,7 +1333,12 @@ this report named as the flip condition.
      fixtures exist and were measured — `fn h(x) { let s = [x].join(",") }` and
      `fn h(x) { let s: integer = [x] }` are `[]` as shipped and emit
      `… got array<<withheld>>` with the gate neutered. Filing candidate against
-     bug 0050's witness.
+     bug 0050's witness. **Discharged** by bug
+     [0193](./0193-withheld-binder-gates-lost-last-pinning-cells.md), whose fix
+     adds cells `u13mh` (the `array.join` element sink) and `u13mi` (the
+     typed-`let` RHS sink) to `tests/fn-arg-type-mismatch-wired.test.ts`. Each
+     gate was neutered independently against the full suite and reds exactly
+     its own cell with the `… got array<<withheld>>` signature measured here.
   2. **Line-citation drift into `src/parser/type-layer-checks.ts`.** The file
      grows by 17 lines, so citations at line ≥1106 shift. The six citations in
      the three test files this change touches were re-derived and verified

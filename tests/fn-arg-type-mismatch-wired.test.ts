@@ -106,10 +106,14 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //   u13md,      read a plain `for` variable, which carries the iterand's PROVEN
 //   u13me,      element (bug 0126), so each sink judges that element — it
 //   u13mf,      satisfies the sink at u13m / u13md / u13mf / u13mg and
-//   u13mg       disagrees with it at u13me, which fires u12e's species for
-//               real. u13mf and u13mg are the two stdlib preconditions that
-//               refuse an unresolvable type rather than deferring on it
-//               (`array.join`'s element, the object-index key).
+//   u13mg,      disagrees with it at u13me, which fires u12e's species for
+//   u13mh,      real. u13mf and u13mg are the two stdlib preconditions that
+//   u13mi       refuse an unresolvable type rather than deferring on it
+//               (`array.join`'s element, the object-index key). u13mh and u13mi
+//               are the withheld-fed cells of the two sinks whose verdict the
+//               withhold DECIDES: the read sits inside a composite, so the
+//               `array.join` element precondition and the primitive-annotated
+//               `let` RHS each have a structure to judge and a hole in it.
 //   u13p,       the differentiators for that group, one per withheld sink: a
 //   u13pb,      typed `let`, both iterand call sites, an object-field value, an
 //   u13pc,      array element, a `subagent fn` return annotation, a `join`
@@ -940,6 +944,19 @@ const U13MG_OBJECT_INDEX_FOR_KEY =
 const U13PH_OBJECT_INDEX_PROVEN_KEY =
   FM +
   'schema Q { b: string }\nlet q: Q = Q { b: "s" }\nlet k = 3\nfor w in [1] { let v = q[k] }\n"t"\n';
+
+/**
+ * The two sinks whose verdict the withhold DECIDES: an `array.join` element and
+ * a primitive-annotated `let` RHS, each fed a withheld read from INSIDE a
+ * composite. The binder is an unannotated `fn` parameter — `walkFn`'s withheld
+ * class (`recordWithheldBinders` at src/parser/type-layer-checks.ts:1596) — so
+ * the read stays withheld independently of how a plain `for` variable binds. The
+ * composite is load-bearing: with the read as the WHOLE operand each sink's own
+ * unresolvable-`named` handling answers first and the gate is never what
+ * silences it.
+ */
+const U13MH_JOIN_WITHHELD_ELEMENT = FM + 'fn h(x) { let s = [x].join(",") }\n1\n';
+const U13MI_LET_ANNOT_WITHHELD_ELEMENT = FM + "fn h(x) { let s: integer = [x] }\n1\n";
 
 /** The marking channel's true positive when an arm body IS its binder, and the render residual. */
 const U13E_ARM_IDENTITY_MARKING =
@@ -2575,14 +2592,15 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // — so u13me fires; see that cell's own comment.
 //
 // WHICH CELLS CARRY THE WITHHELD SUBJECT, and which rest on a proven element:
-// u13c and u13mb (object-field value), u13d and u13mc (`par for` iterand), u13e
-// (the fn-arg identity channel) and u13r (the composite render) read a
-// `match`-arm binder or an unannotated `fn` parameter, the classes bug 0126
-// leaves withheld, so those four sinks are where the group's own subject is
-// measured; u13, u13b, u13m, u13md, u13mf and u13mg read a plain `for` variable
-// and rest on its proven element, where what they discriminate is the sink's
-// channel — the RECORDED element type, never the binder's spelling — which is
-// the same soundness property one mechanism further in.
+// u13c and u13mb (object-field value), u13d and u13mc (`par for` iterand),
+// u13e (the fn-arg identity channel), u13r (the composite render), u13mh (the
+// `array.join` element) and u13mi (the typed-`let` RHS) read a `match`-arm
+// binder or an unannotated `fn` parameter, the classes bug 0126 leaves
+// withheld, so those six sinks are where the group's own subject is measured;
+// u13, u13b, u13m, u13md, u13mf and u13mg read a plain `for` variable and rest
+// on its proven element, where what they discriminate is the sink's channel —
+// the RECORDED element type, never the binder's spelling — which is the same
+// soundness property one mechanism further in.
 //
 // WHAT STILL RENDERS THE SENTINEL (cell u13r): a composite BUILT from a
 // withheld read, at a row whose verdict its outer kind decides — `if [x]` is
@@ -2859,6 +2877,53 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     expect(
       doc.diagnostics,
       `u13mg — the key's recorded type is what the check reads, and a proven \`string\` key is admitted. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mh: the `array.join` element precondition over a WITHHELD element draws nothing", () => {
+    // The join sink's withheld-fed cell. The receiver is an array BUILT from the
+    // read, so `checkMethodCall`'s `join` branch IS entered
+    // (`e.method === "join" && unfoldedTarget.kind === "array"`,
+    // src/parser/type-layer-checks.ts:2762) and the element carries the
+    // sentinel. `checkArrayJoin` (src/runtime/stdlib-array.ts:100) admits a
+    // `string` element and refuses every other one, an unresolvable name
+    // included, so it cannot defer on this element by itself: the explicit
+    // withhold in front of it (:2779) is what keeps this list empty, and the
+    // runtime element is whatever the caller passes — possibly the `string` the
+    // method requires. Cell u13pg is the same position over a proven `integer`
+    // element and reports, so the silence here is a withhold and not an
+    // unreached check.
+    const doc = parse(U13MH_JOIN_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the `join` call sits in the `let s` initialiser inside `h`'s body on body line 4; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(4, 11, 4, 32));
+    expect(
+      doc.diagnostics,
+      `u13mh — an element read out of a withheld binder supports no verdict at a precondition that refuses every unresolvable element. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mi: a PRIMITIVE-annotated `let` over a RHS built from a WITHHELD read draws nothing", () => {
+    // The typed-`let` sink's withheld-fed cell. `decide` answers a primitive
+    // annotation against an `array` RHS structurally under TYPE-7 / TYPE-8,
+    // before either `resolveNamed` arm runs, so the deferral an unresolvable
+    // name earns elsewhere is unavailable here and the withheld part is the
+    // whole basis of the answer. The explicit gate
+    // (`annotation !== undefined && !containsWithheldBinderType(rhsType)`,
+    // src/parser/type-layer-checks.ts:1188) is therefore what keeps this list
+    // empty; the declared type is still recorded below it, so nothing
+    // downstream loses the author's own claim about the position. Cell u13p is
+    // the same sink over a non-withheld operand pair and reports, so the
+    // silence here is a withhold and not an unreached check.
+    const doc = parse(U13MI_LET_ANNOT_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "s"),
+      "PRECONDITION: the annotated `let s` sink sits inside `h`'s body on body line 4; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(4, 11, 4, 31));
+    expect(
+      doc.diagnostics,
+      `u13mi — a structurally decided annotation over a composite whose element is withheld supports no verdict. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
