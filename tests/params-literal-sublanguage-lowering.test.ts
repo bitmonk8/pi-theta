@@ -120,16 +120,25 @@ import { parseDoc } from "./helpers/e2e-s1";
 // over-reaching into §Non-goals — a mixed union, a literal union inside a
 // generic argument, `T | null` for non-literal `T`, and every primitive, named
 // type, `array<T>` and non-literal inline object.
-// TWO OF GROUP (d)'s ROWS LATER MOVED UNDER ANOTHER REPORT: bug 0184 §Fix routes
-// the union-ARM recursion through this same literal sublanguage (gated to the
-// MIXED arm set), so the mixed-union rows `d4` (`"x" | integer`) and `d5`
-// (`"x" | Triage`) are re-derived onto their `{"const":…}` arm under that
-// report's authority. Bug 0056 §Non-goals' own reading — that the WHOLE-SOURCE
-// check declines a mixed union — is unchanged and is still why those rows exist;
-// what moved is the ARM's disposition. `d1`–`d3` (the `null` idiom, which bug
-// 0184 §Fix constraint 5 protects by testing `PRIMITIVE_TYPES` first) and `d6`
-// (`array<"x" | "y">`, bug 0164's face, which bug 0184's mixed-arm-set gate
-// leaves alone) stay byte-frozen.
+// THREE OF GROUP (d)'s ROWS LATER MOVED UNDER LATER REPORTS, each keeping its
+// subject and its four-position scope while its pinned bytes were re-derived:
+//   - `d4` (`"x" | integer`) and `d5` (`"x" | Triage`) under bug 0184 §Fix,
+//     which routes the union-ARM recursion through this same literal
+//     sublanguage (gated to the MIXED arm set), so each literal ARM lowers
+//     `{"const":…}`. Bug 0056 §Non-goals' own reading — that the WHOLE-SOURCE
+//     check declines a mixed union — is unchanged and is still why those rows
+//     exist; what moved is the ARM's disposition.
+//   - `d6` (`array<"x" | "y">`) under bug 0164 §Fix (v0.123.0), which routes
+//     `lowerTypeExpr`'s GENERIC-ARGUMENT recursion through the same
+//     sublanguage, so the argument reaches schema-subset.md:80's emission
+//     inside :77's `items`. Bug 0056 §Non-goals' reading of THIS row — that
+//     `lowerTypeExpr` recurses a generic's argument through itself, so the
+//     element type reaches no literal check anywhere — is what that fix
+//     changed: the MECHANISM this row's message described is the mechanism
+//     bug 0164 §Fix removed, at the argument and at every position at once.
+// `d1`–`d3` (the `null` idiom, which bug 0184 §Fix constraint 5 protects by
+// testing `PRIMITIVE_TYPES` first) and `d7`–`d9` (a primitive, `array<string>`
+// and a named type — all three declined by the recogniser) stay byte-frozen.
 //
 // THE SLUG ORACLE IS INDEPENDENT. `schemaSlug` (src/parser/schema-lowering.ts)
 // is deliberately NOT imported: an oracle taken from the implementation under
@@ -900,7 +909,7 @@ describe("bug 0056 (c) — the production validator over the lowered `params:` d
 // these are what keeps the fix from over-reaching.
 // ===========================================================================
 
-describe("bug 0056 (d) — every source the literal recogniser declines keeps its bytes, except d4/d5 (bug 0184 §Fix)", () => {
+describe("bug 0056 (d) — every source the literal recogniser declines keeps its bytes, except d4/d5 (bug 0184 §Fix) and d6 (bug 0164 §Fix)", () => {
   /** Each control, its pinned fragment, and the positions it is comparable at. */
   const CONTROLS: ReadonlyArray<readonly [string, string, unknown, readonly Position[], string]> = [
     [
@@ -945,11 +954,17 @@ describe("bug 0056 (d) — every source the literal recogniser declines keeps it
     [
       "d6",
       'array<"x" | "y">',
-      { type: "array", items: { anyOf: [{}, {}] } },
+      { type: "array", items: { type: "string", enum: ["x", "y"] } },
       POSITIONS,
-      "bug 0056 §Non-goals — `lowerTypeExpr` recurses a generic's argument through ITSELF at " +
-        "every position, so the element type reaches no literal check anywhere; routing it back " +
-        "is a change to that recursion and is not this fix",
+      "bug 0056 §Non-goals read this row as `lowerTypeExpr` recursing a generic's argument " +
+        "through ITSELF at every position, so the element type reached no literal check " +
+        "anywhere — and stated that routing it back was a change to that recursion and not this " +
+        "fix. THAT MECHANISM IS WHAT CHANGED: bug 0164 §Fix (v0.123.0) routes the " +
+        "generic-argument recursion through the same `lowerLiteralSublanguage` this file's " +
+        "`params:` position consults at the top of a type source, so the argument reaches " +
+        "schema-subset.md:80's `{\"type\":\"string\",\"enum\":[…]}` inside :77's `items`. Bug 0164 " +
+        "§Fix is the authority that moved these bytes; this cell keeps its subject, the " +
+        "four-position parity of a literal union nested one generic deep",
     ],
     ["d7", "string", { type: "string" }, POSITIONS, "schema-subset.md:75 — a primitive"],
     [

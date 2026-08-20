@@ -9945,3 +9945,175 @@ describe("H8a-T — bug 0140: a bare declared-schema reference at a value positi
     }
   });
 });
+
+/**
+ * ADDITIVE ONLY: this is cell 60; cells 1-59 are unchanged, and this cell
+ * adds no assertion to any existing cell in this file.
+ *
+ * Bug 0164 — a literal GENERIC ARGUMENT (`array<"x" | "y">`) now lowers
+ * schema-subset.md:80's enforcing `{"type":"string","enum":[...]}` inside
+ * `items` at the `params:` position, instead of the pre-fix permissive
+ * `{"anyOf":[{},{}]}` that admits every JSON array element. This is the SAME
+ * mechanism the bug 0056 cell above pins one level up (a bare literal union
+ * at the `params:` TOP), moved one generic-argument DEPTH down; no existing
+ * H8a cell drives an `invoke(...)` argument against a declared `array<...>`
+ * of literals, so this cell is the first live witness of the fixed depth.
+ *
+ * WHY NO STATIC CHECK CAN CONFOUND IT: both `invoke(...)` call sites below
+ * bind their argument to a plain identifier (`good` / `bad`), so
+ * `collectProvableArgTypes`'s `"ident"` withholding keeps both calls off the
+ * static invoke-arg-type-mismatch checker's plate — the same reason the bug
+ * 0056 fixture states for its own two calls, mirrored verbatim here. The
+ * runtime AJV net at the child's params intake (RFC-0006 marshalled-params)
+ * is the only judge of either argument, live.
+ *
+ * TOKEN PROFILE: one live turn against the parent (`mode: prompt`), spending
+ * on the order of the bug 0056 cell above (no live turn on the callee itself
+ * — its body is a bare tail expression returning `p`, so the callee's own
+ * spawned child issues no query).
+ */
+function literalArrayParamsChildTheta(): string {
+  return [
+    "---",
+    "mode: subagent",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    '  p: \'array<"x" | "y">\'',
+    "---",
+    "p",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The load-bearing parent: TWO `invoke(...)` calls against the SAME callee —
+ * one argument an array the declaration admits (`[\"x\"]`), one whose sole
+ * element NO declared arm admits (`[\"zzz\"]`) — each bound to a plain
+ * identifier (`good` / `bad`) so `collectProvableArgTypes`'s `"ident"`
+ * withholding keeps BOTH calls off the static invoke-arg-type-mismatch
+ * checker's plate. Each `Result` is `match`ed EXPLICITLY into a plain string
+ * — `"ACCEPTED"` for `Ok`, `"REJECTED " + <the wire cause>` for `Err` — so
+ * nothing here is an unhandled `Err` (no `?`, no panic path), and the ONE
+ * closing query renders both outcomes the way theta CODE computed them,
+ * independent of anything the model says back.
+ */
+function literalArrayParamsInvokeCheckTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let good = ["x"]',
+    'let bad = ["zzz"]',
+    'let okResult = invoke("./b164livechild.theta", good)',
+    'let badResult = invoke("./b164livechild.theta", bad)',
+    "let okOutcome = match okResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "let badOutcome = match badResult {",
+    '  Ok(_) => "ACCEPTED",',
+    '  Err(e) => "REJECTED " + e.cause,',
+    "}",
+    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0164: an invoke(...) argument outside a declared array<literal-union>'s admitted elements is refused at the child's params intake, live (Convention: live-host acceptance)", () => {
+  it("accepts an invoke(...) array argument the declared array<\"x\" | \"y\"> element type admits and refuses one whose element it does not, through the real RFC-0006 marshalled-params AJV intake", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // invoke() outcome below could be (wrongly) attributed to a broken
+      // workspace instead of the generic-argument literal lowering under
+      // test.
+      { source: "project", stem: "b164livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b164livechild", text: literalArrayParamsChildTheta() },
+      { source: "project", stem: "b164livecheck", text: literalArrayParamsInvokeCheckTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b164livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the generic-argument literal lowering under test, would explain " +
+          "either invoke() outcome below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b164livechild"),
+        "the array<literal-union>-typed-params callee did not register — its " +
+          "bind_model: chain failed to resolve (a workspace/registry problem, " +
+          "not the lowering under test). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b164livecheck"),
+        "the invoking parent did not register — precondition unmet before any " +
+          "live turn is driven. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b164livecheck");
+      const outbound = turn.userTexts.join("\n");
+
+      // THE CONTROL — the array whose sole element is a declared arm is
+      // accepted at BOTH the permissive and the enforcing lowering (an empty
+      // `items` schema admits everything; the enforcing `items` admits its
+      // own declared arm), isolating the fixed observable below to the
+      // out-of-declared-arms argument specifically rather than to "invoke()
+      // to this callee never succeeds in this harness".
+      expect(
+        outbound,
+        "the in-declared-arm invoke() array argument was not accepted — " +
+          "Registered: " + JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("GOOD=ACCEPTED");
+
+      // THE FIXED OBSERVABLE. Pre-fix `array<"x" | "y">` lowers the
+      // permissive `items: {"anyOf":[{},{}]}` (each variant an empty schema
+      // admitting every JSON value), so an array whose element matches NEITHER
+      // declared arm is silently ACCEPTED at the child's params intake too —
+      // `BAD=ACCEPTED`. Post-fix it lowers the enforcing
+      // `items: {"type":"string","enum":["x","y"]}` (schema-subset.md:80,
+      // reached through `lowerGenericArgument`, bug 0164 §Fix), so the SAME
+      // argument is refused with `InvokeInfraError { cause: "validation" }`
+      // (`refuseParams`, src/runtime/subagent-params.ts) — `BAD=REJECTED
+      // validation`, rendered by theta CODE from the real `Result` the real
+      // RFC-0006 child intake returned, never asserted on `prompt()` merely
+      // resolving.
+      expect(
+        outbound,
+        "the out-of-declared-arms invoke() array argument was not refused — " +
+          "the array<literal-union> element type did not enforce at the " +
+          "child's params intake (bug 0164 did not fire, or fired with an " +
+          "unexpected cause). Registered: " + JSON.stringify(handle.registeredNames()) +
+          "; outbound: " + JSON.stringify(turn.userTexts),
+      ).toContain("BAD=REJECTED validation");
+      expect(
+        outbound,
+        "the out-of-declared-arms invoke() array argument was accepted — the " +
+          "pre-fix permissive generic-argument lowering's own failure " +
+          "signature. outbound: " + JSON.stringify(turn.userTexts),
+      ).not.toContain("BAD=ACCEPTED");
+
+      // No fail-closed ending of the PARENT's own drive: both `invoke(...)`
+      // results are `match`ed explicitly above (no `?`, no unhandled `Err`),
+      // so this theta's own top-level outcome is Success either way — a
+      // failure note here would mean the fixture itself is broken, not that
+      // bug 0164 fired.
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b164livecheck (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the invoking parent's own drive surfaced fail-closed system note(s) " +
+          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

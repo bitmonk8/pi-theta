@@ -786,6 +786,21 @@ unreached positions are byte-identical to HEAD.
   `{"type":"array","items":{"anyOf":[{},{}]}}` because `lowerTypeExpr`'s `array`
   branch recurses into itself (`src/parser/params.ts:392–395`). Same family as
   the previous bullet.
+  **Moved at 0.123.0, and it was NOT the same family.** Bug
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix is the
+  authority: `array<"x" | "y">` lowers
+  `{"type":"array","items":{"type":"string","enum":["x","y"]}}` at all four
+  positions, because the `array` branch's argument recursion now consults
+  `lowerLiteralSublanguage` first (route (i), *at the argument*). This bullet's
+  attribution to the mixed-union family was the reading 0164 §Provenance
+  corrects: the two shapes share the trailing catch-all as a MECHANISM but not
+  as a disposition — the mixed union moved separately, one release earlier,
+  under bug [0184](./0184-union-arm-literal-lowers-empty-schema.md) §Fix, whose
+  per-arm consult is GATED to a mixed arm set precisely so it would not shadow
+  the whole-source emission an all-literal argument now reaches. Cell `e2` and
+  the header signature-table row for the same source were re-derived under 0164
+  §Fix constraint 3; cell `e3` (this file's mixed-union fence) stays at its
+  post-0184 bytes, untouched.
 - **Non-string literal unions.** `1 | 2`, `true | false`, `"x" | null` keep the
   bare `{ enum: [...] }`. The subset admits `enum` as a validation keyword
   (`docs/spec_topics/schema-subset.md:7`), so the fragment is inside the subset;

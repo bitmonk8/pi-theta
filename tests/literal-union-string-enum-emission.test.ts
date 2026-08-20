@@ -101,6 +101,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //                                                `type` then `enum` for the spelled one
 //   params  p: "x" | "y"                         {"anyOf":[{},{}]}
 //   generic array<"x" | "y">                     {"type":"array","items":{"anyOf":[{},{}]}}
+//                                                (bug 0164 §Fix moves this row to
+//                                                {"type":"array","items":{"type":"string",
+//                                                "enum":["x","y"]}}: the generic ARGUMENT
+//                                                recursion consults the same sublanguage
+//                                                this file's arm owns at the whole source)
 //   mixed   "x" | string                         {"anyOf":[{},{"type":"string"}]}
 //                                                (bug 0184 §Fix moves this row to
 //                                                {"anyOf":[{"const":"x"},{"type":"string"}]}:
@@ -119,12 +124,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 // guard in its REFUSING direction) and group (e)'s e2 / e3 / e4 (the generic
 // argument and mixed union bug 0056 §Non-goals leaves permissive, plus the
 // SUBS-1 control) are green now and must stay green
-// byte-for-byte: they are what keeps the fix from over-reaching. ONE EXCEPTION,
-// LIFTED LATER BY ITS OWN REPORT: bug 0184 §Fix routes the union-ARM recursion
-// through this same literal sublanguage, so `e3`'s mixed union `"x" | string`
-// is re-derived onto `{"anyOf":[{"const":"x"},{"type":"string"}]}` under that
-// report's authority — `e2` (the generic argument, bug 0164's face) and `e4`
-// (the SUBS-1 control) stay byte-frozen. `1 | 2`,
+// byte-for-byte: they are what keeps the fix from over-reaching. TWO EXCEPTIONS,
+// EACH LIFTED LATER BY ITS OWN REPORT, both keeping their subject and their
+// one-position scope while their pinned bytes were re-derived: bug 0184 §Fix
+// routes the union-ARM recursion through this same literal sublanguage, so
+// `e3`'s mixed union `"x" | string` is re-derived onto
+// `{"anyOf":[{"const":"x"},{"type":"string"}]}`; and bug 0164 §Fix (v0.123.0)
+// routes the generic-ARGUMENT recursion through it, so `e2`'s
+// `array<"x" | "y">` is re-derived onto
+// `{"type":"array","items":{"type":"string","enum":["x","y"]}}`. In both cases
+// the MECHANISM the old message described — a recursion that re-enters
+// `lowerTypeExpr` and reaches no literal rule — is exactly what the later fix
+// removed. `e4` (the SUBS-1 control) stays byte-frozen. `1 | 2`,
 // `"x" | 1`, `true | false` and `"x" | null` keep the bare `enum` because `:80`
 // spells the emission for an enum or a STRING-literal union only, and
 // `{"type":"string","enum":[1,2]}` would refuse every value `1 | 2` declares.
@@ -666,11 +677,14 @@ describe("bug 0055 (d) — a non-string literal form keeps its current fragment"
 });
 
 // ===========================================================================
-// (e) THE POSITIONS THE ARM DID NOT REACH — e2, e3 and e4 lower a permissive
-// fragment through `lowerTypeExpr`, which owns no literal sublanguage; those
-// asymmetries are filed elsewhere (bug 0043 §Non-goals, bug 0056 §Non-goals)
-// and stay green byte-for-byte. e1 is the one row bug 0056 §Fix constraint 1
-// moves: the `params:` position joins the other three on 0055's emission.
+// (e) THE POSITIONS THE ARM DID NOT REACH — e1 is the row bug 0056 §Fix
+// constraint 1 moved (the `params:` position joins the other three on 0055's
+// emission), e2 the row bug 0164 §Fix moved (the generic ARGUMENT), e3 the row
+// bug 0184 §Fix moved (the MIXED union's literal arm). Each of the three
+// asymmetries was filed as its own report because each is a different recursion
+// into `lowerTypeExpr`, and each cell keeps its subject with its bytes
+// re-derived under the report that lifted it. e4 is the SUBS-1 control and stays
+// green byte-for-byte.
 // ===========================================================================
 
 describe("bug 0055 (e) — the position bug 0056 reaches, and the three that stay unreached", () => {
@@ -701,14 +715,19 @@ describe("bug 0055 (e) — the position bug 0056 reaches, and the three that sta
     });
   });
 
-  it("CONTROL (e2, GENERIC ARGUMENT): `array<\"x\" | \"y\">` keeps its permissive `items`", () => {
+  it("CONTROL (e2, GENERIC ARGUMENT): `array<\"x\" | \"y\">` carries the spelled fragment inside `items`", () => {
     const lowered = lowerSource("e2", 'array<"x" | "y">');
     expect(
       lowered,
-      `bug 0055 §Non-goals — \`lowerTypeExpr\`'s \`array\` branch recurses into ITSELF, ` +
-        `never back into \`lowerTypeSource\`, so the element type never reaches the arm; ` +
-        `observed ${JSON.stringify(lowered)}`,
-    ).toEqual({ type: "array", items: { anyOf: [{}, {}] } });
+      `bug 0055 §Non-goals — \`lowerTypeExpr\`'s \`array\` branch recursed into ITSELF, never ` +
+        `back into \`lowerTypeSource\`, so the element type never reached the arm. THAT ` +
+        `MECHANISM IS WHAT CHANGED: bug 0164 §Fix (v0.123.0) routes the generic-ARGUMENT ` +
+        `recursion through the same \`lowerLiteralSublanguage\` this file's arm reaches at the ` +
+        `whole source, so \`items\` now carries schema-subset.md:80's emission verbatim — ` +
+        `\`type\` first — from ONE helper, which is why the two depths cannot drift. Bug 0164 ` +
+        `§Fix is the authority that moved these bytes; the cell keeps its subject, this ` +
+        `emission at the generic-argument position; observed ${JSON.stringify(lowered)}`,
+    ).toEqual({ type: "array", items: { type: "string", enum: ["x", "y"] } });
   });
 
   it("CONTROL (e3, MIXED UNION): `\"x\" | string` keeps `{\"anyOf\":[{\"const\":\"x\"},{\"type\":\"string\"}]}`", () => {

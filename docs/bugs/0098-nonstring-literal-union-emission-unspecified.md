@@ -563,6 +563,22 @@ text.
   — and their bytes are still unspecified, so this report stays OPEN with its
   subject intact. `array<1 | 2>` is byte-unchanged and stays
   [0164](./0164-generic-argument-literal-lowers-permissive.md)'s.
+  **Coordination note (0.123.0) — THIS REPORT'S SUBJECT GAINED A DEPTH.** Bug
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix landed route
+  (i), routing `lowerTypeExpr`'s generic-ARGUMENT recursion through
+  `lowerLiteralSublanguage`. A non-string all-literal generic argument therefore
+  now REACHES the bare-`enum` branch this report owns, where before it never
+  did: `array<1 | 2>` lowers `{"type":"array","items":{"enum":[1,2]}}`,
+  `array<"x" | null>` lowers `items: {"enum":["x",null]}` and
+  `array<true | false>` lowers `items: {"enum":[true,false]}`, at all four `Type`
+  positions and at every nesting depth. That fix DECIDED NONE OF THOSE BYTES:
+  each is byte-identical to what the same argument text has emitted at depth 0
+  since 0.85.0, so 0164 propagated an existing emission to a new position rather
+  than choosing one. **This report's subject is unchanged and its status is
+  untouched** — the question of which bytes the branch OWES is still open, and
+  the answer now governs one more position than it did. Whichever future work
+  moves those bytes re-derives 0164's rows, per 0164 §Fix constraint 6; 0164's
+  own `## Fix (0.123.0)` records the reciprocal obligation.
 - **The string-literal-union emission.** `:80` spells it and
   [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md) landed it
   (0.59.0). The ternary's true side, the byte-identity between

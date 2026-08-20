@@ -57,9 +57,14 @@
 //     arm does not match and the generic arm takes it.
 //   - THE TRAILING CATCH-ALL, which a brace-rooted source still reaches
 //     through recursions that never re-enter `lowerTypeSource` and so never
-//     meet its inline-object arm. A GENERIC ARGUMENT: `array<{a: string}>`
-//     recurses its element type through `lowerTypeExpr` directly —
-//     `items: {}`. A UNION ARM whose SEGMENT SET IS SHREDDED — a nested `|`
+//     meet its inline-object arm. A GENERIC ARGUMENT the literal sublanguage
+//     DECLINES — `array<{a: string}>`'s brace-rooted element, a named type,
+//     or any other non-literal shape — recurses its element type through
+//     `lowerTypeExpr` directly: `items: {}`. (An argument the literal
+//     sublanguage ACCEPTS is consulted before that recursion ever runs —
+//     `lowerGenericArgument`, params.ts, bug 0164 §Fix — and reaches the
+//     whole-source emission below instead; see the paragraph after this
+//     list.) A UNION ARM whose SEGMENT SET IS SHREDDED — a nested `|`
 //     the angle-only split cut through a brace group, so `isBraceBalanced`
 //     (params.ts) declines at least one segment — still lands here at every
 //     position alike: `{ a: string | null } | Cat` presents as the three arms
@@ -82,13 +87,20 @@
 //     where the annotation itself IS one enclosing brace group, a
 //     restriction bug 0053 §Fix places on the one position where the
 //     fragment is the document root rather than a field or an arm.
-//     Separately, an ALL-literal union reached through a GENERIC ARGUMENT
-//     still lowers `{}` per arm here, because the per-arm literal consult
-//     (params.ts, bug 0184 §Fix) is gated to a MIXED arm set and leaves that
-//     one to this same catch-all: `array<"x" | "y">` → `items:
-//     {"anyOf":[{},{}]}` (bug 0164's face). A MIXED union's own literal arm
-//     left this family under bug 0184 §Fix: `"a" | Triage` now lowers
-//     `anyOf: [{"const":"a"}, {"$ref": …}]`, not `{}`.
+//     Separately, an ALL-literal union reached through a GENERIC ARGUMENT no
+//     longer lowers `{}` per arm here: bug 0164 §Fix consults
+//     `lowerLiteralSublanguage` on the argument BEFORE `lowerTypeExpr`
+//     recurses into it — at both the arity-1 `array` argument and the
+//     best-effort loop over every other constructor's arguments — so
+//     `array<"x" | "y">` reaches the SAME whole-source emission `array<Sev>`'s
+//     alias RHS reaches, `items: {"type":"string","enum":["x","y"]}`, instead
+//     of this catch-all's `{}` per arm. The MIXED-arm-set gate
+//     (`isMixedLiteralArmSet`, params.ts, bug 0184 §Fix) is unrelated and
+//     unmoved — it governs a union's OWN per-arm recursion inside
+//     `lowerTypeExpr`, not the generic-argument recursion this paragraph
+//     describes — so a MIXED union's own literal arm still leaves this family
+//     under bug 0184 §Fix alone: `"a" | Triage` still lowers `anyOf:
+//     [{"const":"a"}, {"$ref": …}]`, not `{}`.
 //
 // Spec: schema-subset.md (SUBS-1 lowering), query/query-failure-and-repair.md
 // (QRY-22).

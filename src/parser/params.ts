@@ -699,12 +699,12 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     const args = splitTopLevel(s.slice(lt + 1, s.length - 1), ",");
     if (ctor === "array" && args.length === 1) {
       const first = args[0] ?? "";
-      return { type: "array", items: lowerTypeExpr(first, lowerCtx) };
+      return { type: "array", items: lowerGenericArgument(first, lowerCtx) };
     }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
     for (const arg of args) {
-      lowerTypeExpr(arg, lowerCtx);
+      lowerGenericArgument(arg, lowerCtx);
     }
     return {};
   }
@@ -821,13 +821,18 @@ export function classifyLoweredUnionArm(lowered: Record<string, unknown>): Lower
  * An arm set that is WHOLLY literal is already owned, as a whole source, by
  * `lowerLiteralSublanguage`: schema-subset.md:80's `{"type":"string","enum":
  * […]}` for the all-string case and its bare-`enum` sibling otherwise, neither
- * of which an arm-by-arm `anyOf` reproduces. Consulting per arm there would
- * shadow that emission with `{"anyOf":[{"const":"x"},{"const":"y"}]}` — a
- * third value no step-3 row states — wherever an all-literal union reaches
- * `lowerTypeExpr` rather than one of the two whole-source callers, which is
- * the generic-argument recursion that bug 0164 owns. So the consult is gated
- * to the MIXED set, and an all-literal set keeps the bytes that recursion
- * produces for it today (bug 0184 §Fix constraint 2).
+ * of which an arm-by-arm `anyOf` reproduces. Consulting per arm would shadow
+ * that emission with `{"anyOf":[{"const":"x"},{"const":"y"}]}` — a third
+ * value no step-3 row states — wherever an all-literal union reached
+ * `lowerTypeExpr` rather than one of the whole-source callers. That reach
+ * used to be the generic-argument recursion; bug 0164 §Fix consults the
+ * sublanguage AT THE ARGUMENT (`lowerGenericArgument`, below), before it can
+ * recurse there, so an all-literal generic argument now reaches the
+ * whole-source emission through that re-routed recursion and never reaches
+ * this function's own union split at all. The gate on the per-arm consult
+ * stays regardless: it is what keeps a per-ARM consult from shadowing the
+ * whole-source emission on the day some other caller hands this function an
+ * all-literal set directly.
  */
 function isMixedLiteralArmSet(arms: readonly string[]): boolean {
   return arms.some((arm) => parseLiteralArm(arm) === undefined);
@@ -856,6 +861,43 @@ function lowerLiteralUnionArm(arm: string): Record<string, unknown> | undefined 
     return undefined;
   }
   return lowerLiteralSublanguage(s);
+}
+
+/**
+ * Consult the literal sublanguage for a generic type ARGUMENT before
+ * recursing it through `lowerTypeExpr`, so `array<"x">` and `array<"x" |
+ * "y">` reach schema-subset.md's `const` / enum emission exactly as every
+ * other type-annotation position does, instead of the trailing catch-all
+ * (bug 0164 §Fix, route (i)).
+ *
+ * AT THE ARGUMENT, NOT AT THE HEAD OF `lowerTypeExpr`. The rejected
+ * placement — a consult at the top of this function, before the union split
+ * — would run on every recursion, including the per-arm union recursion
+ * `isMixedLiteralArmSet` gates (above): an all-literal arm set would then be
+ * consulted per arm too, wherever a union is written directly rather than
+ * through a generic argument, re-opening bug 0184 §Fix's own disposition (an
+ * all-literal set stays a WHOLE-SOURCE emission, never a per-arm `anyOf`) as
+ * a side effect of a report that does not touch it. Consulting only here
+ * reaches exactly the shape this report measures and leaves every other
+ * recursion — the union split included — untouched.
+ *
+ * SHARED BY BOTH GENERIC-ARGUMENT CALL SITES: the arity-1 `array` argument,
+ * whose result becomes `items`, and the best-effort loop over every other
+ * constructor's arguments. The loop's own return is always discarded — it is
+ * a name-resolution walk over an unlowerable generic (`Result<T, E>`), never
+ * an emission — so consulting here changes which literal arms and named
+ * types the walk RESOLVES (registering a `$ref`, recording an `unresolved`
+ * name) and never what it returns.
+ *
+ * `null` needs no special case anywhere: `lowerLiteralSublanguage` accepts it
+ * (`parseLiteralArm` treats `null` as a `LiteralType`) and this consult runs
+ * BEFORE `lowerTypeExpr`'s own `PRIMITIVE_TYPES` atom arm ever sees the
+ * argument, so `array<null>` reaches `{"const":null}` structurally — the same
+ * means bug 0056 §Fix constraint 2 used to move every other position off the
+ * primitive `{"type":"null"}` reading.
+ */
+function lowerGenericArgument(arg: string, lowerCtx: LowerCtx): Record<string, unknown> {
+  return lowerLiteralSublanguage(arg) ?? lowerTypeExpr(arg, lowerCtx);
 }
 
 /**
@@ -1220,10 +1262,11 @@ export function lowerBraceGroupUnionArms(
  *
  * Exported, and living here rather than in `body-type-lowering.ts`: that
  * module imports from this one and not the reverse (bug 0039 §Fix), and
- * `lowerLiteralSublanguage` (below) — the one emission both
- * `lowerParamsFieldType` and `lowerTypeSource` (body-type-lowering.ts) call —
- * needs this recogniser on the side of that boundary either caller can reach
- * (bug 0056 §Fix).
+ * `lowerLiteralSublanguage` (below) — the one emission every caller sharing
+ * this recogniser eventually reaches, `lowerParamsFieldType` and
+ * `lowerTypeSource` (body-type-lowering.ts) among them — needs this
+ * recogniser on the side of that boundary either caller can reach (bug 0056
+ * §Fix).
  */
 export function parseLiteralArm(source: string): { readonly value: unknown } | undefined {
   const s = source.trim();
@@ -1290,11 +1333,14 @@ export function isUnspellableTextRefusable(text: string): boolean {
  * ALL-literal set still lowers whole through this function, unshadowed (bug
  * 0184 §Fix constraint 2).
  *
- * The one emission `lowerParamsFieldType` (below) and `lowerTypeSource`
- * (body-type-lowering.ts) both call, so the `params:` position agrees with
- * the other three type-annotation positions on a literal source's bytes by
+ * The one emission FOUR call sites now share, not two: `lowerParamsFieldType`
+ * (below) and `lowerTypeSource` (body-type-lowering.ts) each call it at the
+ * TOP of a type source, so the `params:` position agrees with the other
+ * three type-annotation positions on a literal source's bytes by
  * construction (bug 0056 §Fix) rather than by two call sites kept in sync by
- * hand. More than one arm returns the union form only when EVERY arm is
+ * hand; `lowerLiteralUnionArm` (above) calls it per MIXED-union ARM (bug 0184
+ * §Fix); `lowerGenericArgument` (above) calls it per generic ARGUMENT (bug
+ * 0164 §Fix). More than one arm returns the union form only when EVERY arm is
  * accepted — one declined arm declines the whole union; exactly one arm
  * returns schema-subset.md:79's `const` when accepted, and declines
  * otherwise. The union form's KEY ORDER is CONTRACTUAL, not cosmetic: `type`

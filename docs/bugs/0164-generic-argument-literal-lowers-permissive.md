@@ -1,11 +1,13 @@
 # Bug 0164 — `lowerTypeExpr` recurses a generic's argument through ITSELF and never through the literal sublanguage, so `array<"x" | "y">` lowers `{"type":"array","items":{"anyOf":[{},{}]}}` at all four `Type` positions and `array<"x">` lowers `items: {}`: the declared element type enforces nothing, a real `AjvSchemaValidator` admits `[7, null, {}]` for an array the author closed to two strings, and the byte-identical declaration spelled `schema Sev = "x" | "y"` plus `array<Sev>` refuses all three — with no diagnostic distinguishing them
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the change is a
-  route for `lowerTypeExpr`'s generic-argument recursion, and the disposition
-  is left to the run because the recursion is shared by every position and is
-  governed by the argument-split nesting rule (`TypeSplitNesting`,
-  `src/parser/params.ts:971`), which forbids the widening the obvious route
-  invites. Ordering: nothing blocks this report from starting.
+- **Status:** fixed (0.123.0). §Fix was constraint-pinned, not settled: the
+  change is a route for `lowerTypeExpr`'s generic-argument recursion, and the
+  disposition was left to the run because the recursion is shared by every
+  position and is governed by the argument-split nesting rule
+  (`TypeSplitNesting`, `src/parser/params.ts:971`), which forbids the widening
+  the obvious route invites. Route (i) — *at the argument* — was taken; see
+  `## Fix (0.123.0)` below. Ordering: nothing blocked this report from
+  starting.
   [0098](./0098-nonstring-literal-union-emission-unspecified.md) is the one
   report whose resolution interacts — it fixes WHICH BYTES a non-string literal
   union carries where it is lowered at all, and this report makes
@@ -847,3 +849,301 @@ Constraints on any implementation:
   `lowerTypeExpr` calls isolating the brace-group split. The ten load-bearing
   sources were re-run against a working tree byte-identical to HEAD, with
   identical output; then deleted per scratch policy and the deletion swept.
+
+## Fix (0.123.0)
+
+Route **(i) — at the argument**, of §Fix's two candidates. The rejected second
+candidate (a consult at the head of `lowerTypeExpr`) reaches the mixed union's
+literal arm in the same change, re-opening a disposition bug 0043 §Non-goals,
+bug 0055's cell `e3` and bug 0056's cells `d4`/`d5` pin — and bug 0184's own
+`## Fix (0.115.0)` had already rejected it for that reason. Nothing in the
+measurement forced it.
+
+- **What shipped:**
+  - `src/parser/params.ts` — `lowerTypeExpr`'s generic-application arm routes
+    BOTH the arity-1 `array` argument (`:702`) and the best-effort loop's
+    arguments (`:707`) through one new module-private helper,
+    `lowerGenericArgument` (`:899`) = `lowerLiteralSublanguage(arg) ??
+    lowerTypeExpr(arg, lowerCtx)`. Four executable lines; the whole rest of the
+    diff is comments and tests. The per-arm union recursion (`:681`, bug 0184's
+    mixed-gated `lowerLiteralUnionArm`) is byte-untouched, so a literal arm of a
+    MIXED union keeps its landed disposition, and §Fix constraint 1's angle-only
+    argument split is unmoved (`:699`, still the two-argument
+    `splitTopLevel(…, ",")`). No `null` special case exists anywhere: the `null`
+    row moves to `{"const":null}` purely because the consult precedes the
+    `PRIMITIVE_TYPES` atom arm — the structural means bug 0056 §Fix constraint 2
+    used at the other three positions.
+  - `src/runtime/query-schema-lowering.ts` — the permissive-`{}` inventory
+    (`:25–110`) re-derived. The trailing-catch-all item's generic-argument
+    sentence now scopes to an argument the literal sublanguage DECLINES (the
+    brace-rooted origin `array<{a: string}>` → `items: {}` SURVIVES and is still
+    stated), and the "Separately, an ALL-literal union reached through a GENERIC
+    ARGUMENT still lowers `{}` per arm here" paragraph is the inventory member
+    this fix removes. The "exactly four origins" arithmetic was checked and is
+    unchanged — the fix removes an EXAMPLE of the catch-all origin, not the
+    origin.
+  - `src/parser/params.ts` doc comments re-derived where the change falsified
+    them: `isMixedLiteralArmSet` (the gate's rationale survives — it prevents
+    shadowing the whole-source emission with a per-arm `anyOf`; the consequence
+    sentence naming this recursion as permanently permissive does not),
+    `lowerLiteralSublanguage` and `parseLiteralArm` (their two-caller sentences
+    now under-counted; four call sites share the recogniser), and the new
+    helper's own comment states the rejected placement, why one call covers the
+    discarded-return best-effort loop, and why `null` needs no special case.
+    `src/parser/body-type-lowering.ts` was inspected and needed no edit:
+    `lowerTypeSource`'s field-recursion statement is about a field's OWN union
+    type, not a generic argument, and is still true.
+  - **§Fix constraint 2's class table, as measured at HEAD `3ef7e086` before AND
+    after — byte-identical at all four `Type` positions, zero diagnostics at
+    every one, both directions.** Declarations `schema Sev = "x" | "y"`,
+    `schema Triage { urgent: boolean }`:
+
+    ```
+    MOVED                     BEFORE                                              AFTER
+    array<"x" | "y">          {"type":"array","items":{"anyOf":[{},{}]}}           {"type":"array","items":{"type":"string","enum":["x","y"]}}
+    array<"x">                {"type":"array","items":{}}                          {"type":"array","items":{"const":"x"}}
+    array<7>                  {"type":"array","items":{}}                          {"type":"array","items":{"const":7}}
+    array<"a" | "b" | "c">    {"type":"array","items":{"anyOf":[{},{},{}]}}        {"type":"array","items":{"type":"string","enum":["a","b","c"]}}
+    array<1 | 2>              {"type":"array","items":{"anyOf":[{},{}]}}           {"type":"array","items":{"enum":[1,2]}}
+    array<1.5 | -2>           {"type":"array","items":{"anyOf":[{},{}]}}           {"type":"array","items":{"enum":[1.5,-2]}}
+    array<"x" | 1>            {"type":"array","items":{"anyOf":[{},{}]}}           {"type":"array","items":{"enum":["x",1]}}
+    array<"x" | null>         {"type":"array","items":{"anyOf":[{},{"type":"null"}]}}                 {"type":"array","items":{"enum":["x",null]}}
+    array<null>               {"type":"array","items":{"type":"null"}}             {"type":"array","items":{"const":null}}
+    array<true | false>       {"type":"array","items":{"anyOf":[{"const":true},{"const":false}]}}     {"type":"array","items":{"enum":[true,false]}}
+    array<array<"x" | "y">>   nested `anyOf`                                       {"type":"array","items":{"type":"array","items":{"type":"string","enum":["x","y"]}}}
+    array<array<"x">>         {"type":"array","items":{"type":"array","items":{}}}                    {"type":"array","items":{"type":"array","items":{"const":"x"}}}
+
+    UNMOVED (controls, measured not assumed)
+    array<true>               {"type":"array","items":{"const":true}}              bug 0044's arm; the ROUTE moved, the bytes did not
+    array<false>              {"type":"array","items":{"const":false}}             the same
+    array<string>             {"type":"array","items":{"type":"string"}}
+    array<Sev>                {"type":"array","items":{"$ref":"#/$defs/Sev"}}
+    array<Triage>             {"type":"array","items":{"$ref":"#/$defs/Triage"}}
+    array<"x" | integer>      {"type":"array","items":{"anyOf":[{"const":"x"},{"type":"integer"}]}}   bug 0184's landed mixed-gating
+    array<{m: "x"}>           {"type":"array","items":{}}
+    array<{m: "x" | "y"}>     {"type":"array","items":{"anyOf":[{},{}]}}
+    array<{m: "x", n: "y"}>   {}
+    map<"x" | "y">            {}
+    Result<"x" | "y", string> refused at params/field/alias, `{}` at the @<T> root
+    ```
+
+    The `array<"x" | integer>` row is why the report's own §Reproduction (g) is
+    STALE: it was measured at 0.85.0 and quotes the pre-0184
+    `{"anyOf":[{},{"type":"integer"}]}`. Bug 0184 §Fix (0.115.0) moved the
+    literal ARM to `:79`'s `const`, and this fix preserves that value exactly —
+    route (i) touches the per-arm recursion not at all.
+  - **The emission question §Fix constraint 6 flagged is answered by
+    propagation, not by choice.** Every moved row's `items` is BYTE-IDENTICAL to
+    what the SAME argument text lowers to at depth 0, and the depth-0 value is
+    unchanged by this fix. `1 | 2` has emitted the bare `{"enum":[1,2]}` at all
+    four positions since 0.85.0; this fix makes the generic-argument depth a
+    position where that already-shipped emission is reached. **No emission in
+    this change is a value no landed branch produced before** — measured, and
+    asserted cell by cell as a comparison of two OBSERVATIONS (witness group
+    `(dp)`, 9 cells), never as a restated literal. `array<1.5 | -2>` is
+    deliberately absent from that group and the omission is recorded there as
+    measured: bare `1.5 | -2` at depth 0 draws `theta/parse/empty-schema-body`
+    at the `schema`-body field position and `theta/parse/malformed-alias-rhs` at
+    the alias position (bug 0056 §Fix residual 4's still-open `-` parse-layer
+    gap), so no four-position depth-0 twin exists for it. Inside the angle
+    brackets it loads clean at all four.
+  - **§Fix constraint 4 — the minted names moved at all three hoisting positions
+    together, and did not split.** `{m: array<"x" | "y">}`
+    `__inline_bf7d6fbea15638b6` → `__inline_9dd1f359f0ef05f8`;
+    `{m: array<"x">}` `__inline_4f092d3f28fd90b7` → `__inline_81666e1f0dfc6a75`;
+    `{m: array<string>}` `__inline_f6742b8db79cc0a2` UNCHANGED, the control. The
+    `@<T>` registered-tool names moved with their bytes: `@<array<"x" | "y">>`
+    `375e24c5c87417d8` → `388269b1b7511ff9`; `@<array<"x">>`
+    `4718677af1cfaad3`, `@<array<"x" | null>>` `dfff68c6e0ed2d78`,
+    `@<array<null>>` `65404ea87ccac5b0` and `@<array<true | false>>`
+    `1a105bdd080709e5` all moved; `@<array<1 | 2>>` COLLIDED with
+    `@<array<"x" | "y">>` on `375e24c5c87417d8` at HEAD because both lowered the
+    same permissive bytes, and the witness asserts they must now DIFFER;
+    `@<array<Sev>>` `fb500505b0a56925` UNCHANGED, the control. Every slug is
+    derived in the witness from a hand-written canonical / `JSON.stringify` byte
+    string hashed with `node:crypto` — `schemaSlug` is not imported as an oracle
+    — and a group-(0) honesty check proves each hand-written string parses back
+    to the fragment it claims to serialise, carries no insignificant whitespace
+    and is key-sorted by code point.
+  - **§Fix constraint 5 — the GOV-15 addition direction, enumerated.** Exactly
+    constraint 2's moved rows above newly refuse mistyped element values at all
+    three AJV consumers of the lowered `params:` document (the binder envelope,
+    the post-default-merge compile, the subagent child's params intake), and the
+    `@<T>` position's registered tool name changes with its bytes. Census:
+    **zero committed `.theta`/`.thetalib` fixtures declare a literal or
+    literal-union generic argument** — re-verified at HEAD by sweeping every
+    tracked fixture (the only `array<…>` sites remain
+    `docs/examples/summarise-doc.theta:10`'s `array<string>` and a comment in
+    `docs/examples/fan-out-reviews.theta:16`), and discharged corpus-wide by
+    `tests/committed-fixture-parse-gate.test.ts` (green), not by a scratch probe.
+  - **§Fix constraint 7 — no new diagnostic, no registry edit, no new permissive
+    `{}`.** Verified by inspection over the whole diff: no registry file is
+    touched and no diagnostic code is added
+    ([DIAG-2](../spec_topics/diagnostics/diagnostic-shape.md#diag-2) — the
+    registry is closed). The helper adds no `{}` return; an argument the
+    recogniser declines takes exactly its old route.
+- **Gates** (every one re-run independently of the nested workers):
+  - Witness RED before / GREEN after, by neutralising exactly the two call sites
+    (`:702`, `:707`) back to `lowerTypeExpr`: `Tests 56 failed | 260 passed
+    (316)`; restored by edit (blob `e909a2557629f8a42c9194c0c56d09cdef591a66`,
+    matching the pre-neutralisation hash): `Tests 316 passed (316)`.
+  - Full default suite: `Test Files 325 passed (325)` / `Tests 5947 passed
+    (5947)` — from 324 files / 5876 tests at HEAD `3ef7e086`; the +1 file and
+    +71 cells are this report's witness.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    clean, no output.
+  - LIVE H8a additive cell 60, run for real, BOTH directions: green with the fix
+    (`✓ … 6337ms`), RED under the same two-line neutralisation with the exact
+    pre-fix signature (`outbound: ["Reply with exactly: GOOD=ACCEPTED
+    BAD=ACCEPTED"]`), green again after restoration (`✓ … 13616ms`).
+  - LIVE H9a, BOTH files, run for real: `Tests 11 passed (11)` (10 + 1). Every
+    "no-error exit and permitted codes only" cell passed, so the `@<T>` slug
+    movement surfaced NO new stderr and needed NO permitted-code append —
+    established by the real run, not by reasoning.
+  - Remaining H8a files (`typed-query-wire-shapes`,
+    `off-session-overflow-classification`, `provider-error-revalidation-gate`,
+    `double-session-start-live`): `Tests 8 passed (8)`. Hardening probes: 8/8
+    files green — `session-convdrive` red on the first pass with the
+    sentinel-refusal stochastic class AGENTS.md names (the model declined to echo
+    an embedded sentinel as suspected prompt injection); no `docs/bugs/` report
+    matches that signature and its surface is prompt/subagent conversation
+    drive, unrelated to `array<literal>` param lowering; green on the single
+    authorized re-run.
+- **Review:** 2 rounds, both CLEAN.
+  - Round 1 (`bug-fix-reviewer`, deep): CLEAN, quoting the executable hunk, the
+    constraint-1 split line, `isUnspellableTextRefusable`, a group-(a) cell, a
+    group-(d) control, a group-(e) mint assertion and bug 0059's silence
+    assertion. Two non-blockers: R1 (pre-existing citation drift — Residuals 1)
+    and R2 (constraint 2's "single string OR NUMBER literal" row was witnessed at
+    the string half only — Residuals 4). Its own analysis of the subtlest
+    question in the change — whether skipping `lowerTypeExpr` for a wholly-literal
+    argument in the BEST-EFFORT LOOP drops anything observable from `lowerCtx`'s
+    sinks — concluded inert, with the mechanism: every `unspellable` entry that
+    stops being fed is exactly one `parseLiteralArm` accepts, and all four
+    readers of that sink filter through `isUnspellableTextRefusable`, whose first
+    conjunct declines precisely those texts. `parseLiteralArm` never accepts an
+    identifier, so no name-resolution walk is skipped and `unresolved` / `defs` /
+    `reservedKeywords` are unaffected. The loop's return is discarded, so the
+    emission is unchanged — pinned by the `map<"x" | "y">` and `Result<…>`
+    controls.
+  - Fixer round 1 (`bug-fix-fixer-light`) closed R2: one group-(a) row `a12`
+    (`array<7>` → `items: {"const":7}`) and one depth-parity row `dp9`, both
+    APPENDED rather than inserted — renumbering a cell id another document may
+    cite is forbidden. 68 → 71 cells.
+  - Round 2 (`bug-fix-reviewer-fast`, confirmation, dispatched because the fixer
+    round touched executable test-data lines): CLEAN, no escalation.
+  - A PRE-REVIEW CORRECTION ROUND ran before round 1. It is not a review round
+    and round numbering is unaffected; see Residuals 2.
+- **Verification** (`bug-fix-verifier`): SOLID, all four obligations discharged
+  with quoted evidence.
+  1. The witness genuinely witnesses the bug — neutralise / RED / restore /
+     GREEN, with pre- and post-neutralisation blob hashes quoted and matching.
+     Under neutralisation bug 0059's tripwire cells red on the BYTE pin only:
+     the `.toEqual([])` silence assertion precedes it in each cell and passed.
+  2. Full default suite green, 325 files / 5947 tests.
+  3. Live end-to-end coverage of the fixed path exists, is NEW (H8a cell 60),
+     and was run for real in both directions; H9a both files 11/11 for real; the
+     rest of the live suite and the hardening probes run and accounted for.
+  4. Typecheck and lint clean.
+- **Residuals** (each with its evidence; the parent files any that warrant a
+  report — this fix creates none):
+  1. **This fix's +46-line shift in `src/parser/params.ts` drifted three
+     PRE-EXISTING citations in a file it otherwise edits** —
+     `tests/union-arm-literal-const-lowering.test.ts:213`, `:765` and `:1459`
+     (`params.ts:1274` ×2 and `:1188`, now `:1317` and `:1230`) — beside three
+     already-drifted ones in `tests/params-scalar-nontype-text-refusal.test.ts`
+     (`:693–:702` at line 15, `:1159` at line 748, `:421–:510` at line 751,
+     drifted by EARLIER fixes). Deliberately NOT swept: this is bug 0134's
+     recorded class, and bug 0184 §Fix *Residuals* item 2 fixes the policy —
+     only citations THIS run wrote were repaired, and all of them were (verified:
+     every `params.ts:NNN` written in this diff resolves to the symbol it names
+     in the post-fix file).
+  2. **One orchestrator self-authorization, citation/comment-only.** A PRE-REVIEW
+     CORRECTION ROUND repaired 16 `params.ts:NNN` citations this run's own
+     writing had made stale via the +46-line shift — 13 in the untracked witness
+     (every citation in it was written this run, so no pre-existing citation was
+     at risk) and 3 in `tests/params-scalar-nontype-text-refusal.test.ts`, all
+     three on lines this run ADDED, verified by `git diff -U0`. The question that
+     would have been asked: *may I repair citations my own change made stale,
+     rather than ship a witness whose citations for one symbol mix repaired and
+     stale numbering?* Evidence: `git status --short` proves the witness is
+     untracked; the correction-round mandate names exactly this hazard ("rather
+     than letting stale citations propagate into review and into the shipped
+     record"); each target line was read out of the post-fix source and quoted;
+     and the fixer's independent re-derivation agreed line for line on all 13
+     symbol positions. Bound: citation digits inside comments and
+     failure-message-string interiors only — zero executable lines, zero
+     assertion predicates, zero expected values, zero fixture texts, zero `it(`
+     titles — and both files' line counts UNCHANGED (1387, 1428). STOP valve: any
+     red, or any repair reaching an executable line, stops the round; neither
+     occurred and the gates re-ran green after.
+  3. **§Fix constraint 3's artefact census was STALE, and a SIXTH artefact of the
+     identical class moved.** Constraint 3 states "exactly three in-tree
+     artefacts pin the current bytes", measured at 0.85.0. The blast-radius
+     pre-measurement at HEAD (prototype, full suite, every red enumerated and
+     bucketed) found SIX: `d6` (bug 0056), `e2` plus the `:103` header
+     signature-table row (bug 0055), `d7`/`d8` (bug 0184's protected 81-cell
+     witness, which the doc did not know about), and FOUR cells of bug 0059's
+     protected witness — `d1`, `d2`, `d3` and `d3-body` of
+     `tests/params-scalar-nontype-text-refusal.test.ts`, named in that file as
+     *the 0164 tripwire*. `d3` and `d3-body` are slug assertions carrying a
+     re-minted name. `d1` and `d2` are byte pins on this report's exact subject
+     texts (`array<"x" | "y">`, `array<1 | 2>`): their reds are MECHANICALLY
+     FORCED by the settled constraint-2 table — no compliant implementation
+     avoids them — and the RULE that governs them (constraint 3: the pins move in
+     lock-step under this report's §Fix as the authority that lifts them, subject
+     preserved) was already settled. Only the MEMBERSHIP LIST was stale, and
+     re-deriving it is the measurement §Evidence-staleness required. All four
+     cells keep their SUBJECT: bug 0059 §Fix constraint 3's SILENCE claim, the
+     `.toEqual([])` assertion, is untouched and green — verified to still pass
+     UNDER neutralisation, where those cells red on the byte pin alone. The file
+     stays 94 cells (`it(` count 25 before and after; no row added or removed —
+     and the "93" in the dispatch was itself a stale figure). The file's own
+     precedent for this treatment is its `d7`/`d8` rows, re-derived in place under
+     bug 0184 §Fix with their silence preserved. **Flagged for the parent as the
+     one item that widens the operator's enumerated authorized set.**
+  4. **A single-NUMBER generic argument had no witness anywhere before this run.**
+     Constraint 2's first row says "a single string **or number** literal"; review
+     round 1 found the number half unpinned in the whole of `tests/`. Closed
+     in-run by cells `a12` / `dp9`. Recorded because the gap existed in §Fix
+     constraint 8's own witness list too, which names the twice-nested form and
+     the mint but not the number atom.
+  5. **`array<{m: "x" | "y"}>` still lowers `items: {"anyOf":[{},{}]}`** and
+     `array<{m: "x", n: "y"}>` still lowers `{}` — both from the angle-only
+     argument split shredding the brace group, not from the missing literal rule,
+     and both held outside by §Non-goals and bug 0043 §Non-goals
+     `:736–742`/`:760–763`. Pinned as controls (`d6`, `d7` of the new witness;
+     `d4`, `d9`, `d13` of bug 0059's). Unmoved, by design.
+- **Discharge notes appended** (append-only, nothing deleted):
+  [0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md)
+  §Non-goals' generic-argument bullet, its §Reproduction control reading, and
+  its `## Fix (0.85.0)` *Residuals* item 3 — this report's filing origin,
+  discharged here;
+  [0055](./0055-literal-union-lowering-omits-type-string-vs-subs1.md)
+  §Non-goals' `array<"x" | "y">` sentence and its `e2` fence sentence;
+  [0184](./0184-union-arm-literal-lowers-empty-schema.md)'s `## Fix (0.115.0)`
+  *Pinned dispositions* — its `d7`/`d8` preservation statement anticipated this
+  fix by name ("0164's fix is what lifts that") and is marked lifted here; and a
+  COORDINATION note on
+  [0098](./0098-nonstring-literal-union-emission-unspecified.md) §Non-goals
+  stating the new reach, its status untouched.
+  [0043](./0043-union-nonprimitive-arm-lowers-permissive.md) §Non-goals takes NO
+  note under route (i) — the mixed union did not move, which is exactly what §Fix
+  constraint 3 says of the first route.
+- **Pinned dispositions / non-goals:** the mixed union's literal arm stays where
+  bug 0184 §Fix put it and where bug 0043 §Non-goals holds the class (route (i)
+  touches the per-arm recursion not at all). `splitTopLevel`'s angle-only default
+  argument split is unmoved (§Fix constraint 1), so the brace-rooted and
+  shredded-argument shapes keep their permissive fragments — and bug 0204's
+  subject, a falsified clause of `theta-document.ts`'s governance sentence for
+  that same rule, was neither touched nor chased.
+  [0098](./0098-nonstring-literal-union-emission-unspecified.md) stays OPEN with
+  its subject intact: this fix decides none of the bare-`enum` branch's bytes, it
+  only makes the generic-argument depth a position where that branch is reached,
+  so 0098's subject INHERITS the new depth and whichever future work moves those
+  bytes re-derives this report's rows per §Fix constraint 6.
+  [0028](./0028-unresolved-annotation-silent-permissive-lowering.md) keeps the
+  remaining permissive-`{}` inventory, one member lighter and its in-tree comment
+  re-derived. Whether `respondSchemaSlug` should hash the canonical form rather
+  than `JSON.stringify` is still unfiled and untouched (§Non-goals).

@@ -6,6 +6,50 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.123.0] - 2026-08-20
+
+### Fixed
+
+- **Bug 0164 — a literal or literal-union generic argument now lowers its
+  step-3 emission instead of a permissive fragment.** `lowerTypeExpr`'s
+  generic-application arm recursed the argument through ITSELF and never
+  through the literal sublanguage, so `array<"x" | "y">` lowered
+  `{"type":"array","items":{"anyOf":[{},{}]}}` and `array<"x">` lowered
+  `items: {}` at all four `Type` positions — the `params:` field, a `schema`-body
+  field, an alias right-hand side and the `@<T>` annotation root — with zero
+  diagnostics. `items` of `{"anyOf":[{},{}]}` is two variants AJV satisfies with
+  any JSON value, so the declared element type enforced nothing: real AJV over
+  the lowered `params:` document accepted `["zzz"]`, `[7]`, `[null]`, `[{}]` and
+  `[7, null, {}]` for a param the author had closed to two strings, and the
+  byte-identical declaration spelled `schema Sev = "x" | "y"` plus
+  `p: array<Sev>` refused all of them. Nothing at load, in the recorded
+  `BypassParamsField.type` or in the rendered `Parameters:` line distinguished
+  the two spellings. The fix routes both the arity-1 `array` argument and the
+  best-effort loop's arguments through the exported `lowerLiteralSublanguage`
+  before recursing, so `array<"x" | "y">` lowers
+  `items: {"type":"string","enum":["x","y"]}` (`schema-subset.md:80`),
+  `array<"x">` and `array<7>` lower `items: {"const":<value>}` (`:79`),
+  `array<null>` lowers `items: {"const":null}` and `array<1 | 2>` /
+  `array<true | false>` lower the bare `items: {"enum":[…]}` — every one of them
+  byte-identical to what the same argument text has lowered to at depth 0 since
+  0.85.0, at every nesting depth and at all four positions. The argument split's
+  angle-only nesting is unchanged, so a brace-rooted or comma-carrying argument
+  keeps its exact current disposition, and a literal arm of a MIXED union stays
+  where bug 0184's mixed-gated per-arm consult put it. No new diagnostic and no
+  registry change.
+
+  Validation outcomes change for thetas that load unchanged: mistyped generic-
+  argument element values are newly refused at all three AJV consumers of the
+  lowered `params:` document (the binder envelope, the post-default-merge
+  compile and the subagent child's params intake), the model-facing binder
+  envelope now carries the enforcing `items`, and the minted content-addressed
+  names move with the bytes — `{m: array<"x" | "y">}` remints
+  `__inline_bf7d6fbea15638b6` → `__inline_9dd1f359f0ef05f8` at all three
+  hoisting positions together, and an `@<T>` annotation carrying a literal
+  argument renames its `__theta_respond_<slug>` tool. No committed `.theta` or
+  `.thetalib` in the repository declares a literal or literal-union generic
+  argument, so no shipped source moves.
+
 ## [0.122.0] - 2026-08-20
 
 ### Fixed

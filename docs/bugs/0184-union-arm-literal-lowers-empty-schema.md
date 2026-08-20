@@ -1385,7 +1385,25 @@ Constraints on any implementation:
 - **Pinned dispositions / non-goals:** 0164 stays OPEN with its subject
   BYTE-INTACT — `array<"x" | "y">` and `array<"x">` are pinned unchanged by
   this report's own witness, its `d6` / `e2` cells are green and byte-untouched,
-  and its doc took NO edit. 0098 stays OPEN: a single non-string literal ARM
+  and its doc took NO edit.
+  **LIFTED AT 0.123.0.** Bug
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix landed route
+  (i) — *at the argument*, the placement this record predicted — so
+  `array<"x" | "y">` now lowers
+  `{"type":"array","items":{"type":"string","enum":["x","y"]}}` and
+  `array<"x">` `items: {"const":"x"}`. Cells `d7` and `d8` of this report's
+  witness were re-derived under 0164 §Fix constraint 3, subjects preserved; the
+  other 79 cells are byte-untouched and green, which is the measurement that
+  THIS report's mixed-arm-set gate is still doing its own work. The gate's
+  rationale is unchanged and is now load-bearing in the other direction too: an
+  ALL-literal arm set must NOT take the per-arm consult, because it is owned as a
+  WHOLE SOURCE by `lowerLiteralSublanguage` — which is exactly the emission
+  0164's re-routed argument recursion now reaches. Had the gate been absent,
+  0164's subject would have landed on
+  `{"anyOf":[{"const":"x"},{"const":"y"}]}`, the third value §Reproduction (h)
+  measured and no step-3 row states. The rejection of OPTION (i) recorded above
+  therefore held: the generic-ARGUMENT face was closed by its own report, under
+  its own authority, with the mixed union unmoved. 0098 stays OPEN: a single non-string literal ARM
   now lands on `:79`'s `const` and never reaches its bare-`enum` branch, so
   this fix narrowed its reachable inputs (`1 | 2`, `"x" | null` still reach it
   whole) without answering which bytes that branch owes; its status is

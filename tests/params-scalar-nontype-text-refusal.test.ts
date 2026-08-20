@@ -80,14 +80,21 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   4. Grammar-admitted traffic that legitimately reaches the same catch-all
 //      keeps its bytes: a brace-rooted arm nested in a generic argument or a
 //      union arm, a mixed-union literal arm, and the all-literal union arms of
-//      `array<"x" | "y">` (constraint 3, group (d)). TWO OF THOSE ROWS' BYTES
-//      LATER MOVED UNDER ANOTHER REPORT: bug 0184 §Fix routes the union-ARM
-//      recursion through the literal sublanguage (gated to the MIXED arm set),
-//      so the mixed-union literal arm lowers schema-subset.md:79's
-//      `{ "const": <value> }` at rows d7 and d8. Constraint 3's own claim — that
-//      this traffic stays SILENT — is untouched and is what those rows still
-//      assert; the `array<"x" | "y">` rows (d1/d2/d3, bug 0164's face) stay
-//      byte-frozen because the mixed-gating leaves an ALL-literal arm set alone.
+//      `array<"x" | "y">` (constraint 3, group (d)). SIX OF THOSE ROWS' BYTES
+//      LATER MOVED UNDER TWO LATER REPORTS, and in both cases what moved is the
+//      MECHANISM the row's own comment described — a recursion that re-enters
+//      `lowerTypeExpr` and reaches no literal rule — never constraint 3's claim:
+//        • bug 0184 §Fix routes the union-ARM recursion through the literal
+//          sublanguage (gated to the MIXED arm set), so the mixed-union literal
+//          arm lowers schema-subset.md:79's `{ "const": <value> }` at rows d7
+//          and d8.
+//        • bug 0164 §Fix (v0.123.0) routes the generic-ARGUMENT recursion
+//          through the same sublanguage, so rows d1 / d2 / d3 lower their
+//          argument's step-3 emission inside :77's `items` and d3's mint moves
+//          with those bytes.
+//      Constraint 3's own claim — that this traffic stays SILENT — is untouched
+//      and is what all six rows still assert; their `.toEqual([])` diagnostic
+//      assertions are the point of the tripwire and stay green.
 //
 // THE TWO AUTHORIZED BOUNDARY SENTENCES, quoted rather than re-derived:
 //   - Widened brace decline — "the brace frame (`lowerParamsFieldType`'s
@@ -137,11 +144,20 @@ import { parseDoc } from "./helpers/e2e-s1";
 // later: d7 (`"x" | integer`) and d8 (`string | "x"`) are bug-0184-MOVED rows —
 // their literal ARM lowers schema-subset.md:79's `const` rather than the
 // permissive `{}` — re-derived in place inside (d)'s loop under bug 0184 §Fix's
-// authority, with their SILENCE unchanged and still their subject. Group (d)'s
-// `array<"x" | "y">` row is the sharpest of the tripwires — its union arms DO
-// reach the catch-all and land in the sink, so
-// only the caller's literal decline keeps them silent (bug 0164), and bug 0184's
-// mixed-arm-set gate is what leaves it there.
+// authority, with their SILENCE unchanged and still their subject. A THIRD came
+// later still: d1 (`array<"x" | "y">`), d2 (`array<1 | 2>`) and d3
+// (`{m: array<"x" | "y">}`, plus its `d3-body` mint) are bug-0164-MOVED rows,
+// re-derived in place under bug 0164 §Fix (v0.123.0) with their SILENCE
+// unchanged and still their subject: at HEAD their argument arms reached
+// `lowerTypeExpr`'s catch-all and landed in the sink, so only the caller's
+// literal decline kept them silent — and that decline is unchanged, because
+// `isUnspellableTextRefusable` (src/parser/params.ts:1317) is what withholds the
+// refusal and bug 0164 §Fix constraint 7 registers no diagnostic. What that fix
+// changed is where the argument text GOES, so the sink is no longer even fed for
+// these three. The remaining sharpest tripwires are d4 (`array<{a: string}>`)
+// and d13 (`array<{a: ???}>`): a BRACE-ROOTED argument, which the literal
+// recogniser declines, so both keep `{"type":"array","items":{}}` and are the
+// proof bug 0164's fix reaches only what that recogniser accepts.
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles inside
 // one `parseThetaDocument` call over a string (`parseDoc`, tests/helpers/e2e-s1.ts
@@ -810,16 +826,26 @@ function inlineDefName(canonical: string): string {
   return `__inline_${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)}`;
 }
 
-/** `{m: array<"x" | "y">}` — the 0164 tripwire one level down, and its canonical form. */
+/**
+ * `{m: array<"x" | "y">}` — the 0164 tripwire one level down, and its canonical
+ * form. RE-DERIVED UNDER BUG 0164 §Fix (v0.123.0): that report re-routes
+ * `lowerTypeExpr`'s generic-ARGUMENT recursion through
+ * `lowerLiteralSublanguage`, so the hoisted `m` carries schema-subset.md:80's
+ * emission inside :77's `items` where it carried the trailing catch-all's
+ * `{"anyOf":[{},{}]}` — and the mint, a function of the LOWERED fragment (:73,
+ * :98), moves with it. THE SUBJECT OF THE d1/d2/d3 ROWS IS SILENCE, NOT BYTES:
+ * bug 0059 §Fix constraint 3's claim is that this grammar-admitted traffic draws
+ * no `params-type-not-expression`, and that claim is untouched.
+ */
 const M_ARRAY_XY_FRAGMENT = {
   type: "object",
-  properties: { m: { type: "array", items: { anyOf: [{}, {}] } } },
+  properties: { m: { type: "array", items: { type: "string", enum: ["x", "y"] } } },
   required: ["m"],
   additionalProperties: false,
 };
 const M_ARRAY_XY_CANONICAL =
-  '{"additionalProperties":false,"properties":{"m":{"items":{"anyOf":[{},{}]},"type":"array"}},' +
-  '"required":["m"],"type":"object"}';
+  '{"additionalProperties":false,"properties":{"m":{"items":{"enum":["x","y"],"type":"string"},' +
+  '"type":"array"}},"required":["m"],"type":"object"}';
 const M_ARRAY_XY_INLINE = inlineDefName(M_ARRAY_XY_CANONICAL);
 
 /** `{a: array<{m: integer}>}` — constraint 3's nested brace-rooted arm, hoisted. */
@@ -899,10 +925,14 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  * fragment it lowers at `params:` today. Three families sit here:
  *
  *   - the 0164 tripwire (`array<"x" | "y">`, `array<1 | 2>` and their nested
- *     form): the union arms DO reach the catch-all and land in the sink, so
- *     only the caller's literal decline via `parseLiteralArm`
- *     (src/parser/params.ts:883) keeps them silent. These are the sharpest
- *     over-refusal detectors in the file.
+ *     form): at HEAD their argument arms reached the catch-all and landed in
+ *     the sink, so only the caller's literal decline via `parseLiteralArm`
+ *     (src/parser/params.ts:1271, reached from `lowerParamsFieldType`'s call to
+ *     `lowerLiteralSublanguage` at `:1433`) kept them silent. Bug 0164 §Fix
+ *     (v0.123.0) re-routed the generic-ARGUMENT recursion through that same
+ *     sublanguage, so their bytes were re-derived here — while the decline that
+ *     withholds the refusal, `isUnspellableTextRefusable` (`:1317`), is
+ *     unchanged and their silence is still what these rows assert.
  *   - constraint 3's grammar-admitted brace-rooted and mixed-union traffic.
  *   - the authorized under-refusal (operator grant, HEAD 948b7814): "the brace
  *     frame (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, bugs
@@ -932,13 +962,13 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
   [
     "d1 (0164 tripwire, string-literal union arms)",
     'array<"x" | "y">',
-    { type: "array", items: { anyOf: [{}, {}] } },
+    { type: "array", items: { type: "string", enum: ["x", "y"] } },
     [],
   ],
   [
     "d2 (0164 tripwire, number-literal union arms)",
     "array<1 | 2>",
-    { type: "array", items: { anyOf: [{}, {}] } },
+    { type: "array", items: { enum: [1, 2] } },
     [],
   ],
   [
@@ -959,6 +989,20 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
     { $ref: `#/$defs/${A_ARRAY_INLINE_INLINE}` },
     [A_ARRAY_INLINE_INLINE],
   ],
+  // d1 / d2 / d3 are bug-0164-MOVED rows: `lowerTypeExpr`'s generic-ARGUMENT
+  // recursion consults the literal sublanguage since bug 0164 §Fix (v0.123.0),
+  // so an argument the recogniser accepts WHOLE lowers its step-3 emission
+  // inside schema-subset.md:77's `items` — :80's
+  // `{"type":"string","enum":[…]}` for the string-literal union, the bare
+  // `{"enum":[…]}` for the number-literal one — and d3's mint moves with those
+  // bytes. Before that fix each argument arm was the permissive `{}` from the
+  // trailing catch-all, which is the MECHANISM this family's comment described
+  // and the mechanism that fix removed. Their SILENCE — bug 0059 §Fix
+  // constraint 3's claim, that grammar-admitted traffic reaching the catch-all
+  // draws no `params-type-not-expression` — is unchanged and is still the whole
+  // reason these rows exist; only the pinned bytes and slug moved, under bug
+  // 0164 §Fix's authority.
+  //
   // d7 / d8 are bug-0184-MOVED rows: the literal ARM of a MIXED union lowers
   // schema-subset.md:79's `{ "const": <value> }` because bug 0184 §Fix routes
   // `lowerTypeExpr`'s per-arm recursion through the literal sublanguage. Before
@@ -1002,9 +1046,12 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
       expect(
         fragmentAtP(label, doc),
         `${label}: the lowered bytes at the field. The table is the source of truth for these ` +
-          `bytes; rows \`d7\` and \`d8\` were re-derived under bug 0184 §Fix (a literal ARM of a ` +
-          `MIXED union lowers schema-subset.md:79's \`const\`, not the permissive \`{}\`), and ` +
-          `every other row's are bug 0059 §Fix constraint 3's own`,
+          `bytes; rows \`d1\`, \`d2\` and \`d3\` were re-derived under bug 0164 §Fix (a literal ` +
+          `GENERIC ARGUMENT lowers its step-3 emission inside schema-subset.md:77's \`items\`, ` +
+          `not the permissive \`{}\`), rows \`d7\` and \`d8\` under bug 0184 §Fix (a literal ARM ` +
+          `of a MIXED union lowers schema-subset.md:79's \`const\`), and every other row's are ` +
+          `bug 0059 §Fix constraint 3's own. WHAT THIS CELL IS FOR IS THE SILENCE ASSERTED ` +
+          `ABOVE, which no report moved`,
       ).toEqual(fragment);
       expect(
         Object.keys(defsOf(label, doc)),
@@ -1047,7 +1094,14 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
     // dangles. Asserting the body as well as the name is what makes the slug
     // oracle a check on the lowering rather than on itself.
     const doc = paramsDoc('{m: array<"x" | "y">}');
-    expect(defsOf("d3-body", doc)[M_ARRAY_XY_INLINE]).toEqual(M_ARRAY_XY_FRAGMENT);
+    expect(
+      defsOf("d3-body", doc)[M_ARRAY_XY_INLINE],
+      `d3-body: re-derived under bug 0164 §Fix (v0.123.0) — the hoisted \`m\` carries the ` +
+        `generic argument's step-3 emission inside schema-subset.md:77's \`items\`, so the mint ` +
+        `(a function of the LOWERED fragment, :73/:98) moves with it. The cell's subject is ` +
+        `unchanged: the \`$ref\` and the mint must agree or the enclosing \`$defs\` closure ` +
+        `dangles; observed \`$defs\` keys ${JSON.stringify(Object.keys(defsOf("d3-body", doc)))}`,
+    ).toEqual(M_ARRAY_XY_FRAGMENT);
   });
 
   it("GREEN (d6-body): `{a: array<{m: integer}>}` hoists the fragment its slug names", () => {

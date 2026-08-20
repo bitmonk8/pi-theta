@@ -386,6 +386,14 @@ Reading the controls:
   `array<"x" | "y">` lowers `items: {"anyOf":[{},{}]}` at all four positions,
   because `lowerTypeExpr` recurses a generic's argument through itself
   everywhere.
+  **Moved at 0.123.0.** Bug
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix is the
+  authority: the argument recursion now consults the same literal sublanguage
+  first, so `array<"x" | "y">` lowers
+  `items: {"type":"string","enum":["x","y"]}` at all four positions. The
+  SYMMETRY this bullet records is unchanged — the four positions still agree,
+  because they still share the one function below the top of a type source; what
+  moved is what that function returns for a wholly-literal argument.
 - **Primitives, named types, `array<T>` and inline objects are unaffected** —
   they have arms in `lowerTypeExpr`, which is why the `params:` position lowers
   them correctly today.
@@ -720,6 +728,18 @@ Constraints on any implementation:
   routing generic arguments back through the literal check is a change to
   `lowerTypeExpr`'s recursion, which the argument-split nesting rule
   (`TypeSplitNesting`, `params.ts`) governs.
+  **Moved at 0.123.0.** Bug
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix is the
+  authority, and it made exactly the change this bullet names: route (i) — *at
+  the argument* — has `lowerTypeExpr`'s arity-1 `array` arm and its best-effort
+  loop consult `lowerLiteralSublanguage` before recursing, so
+  `array<"x" | "y">` lowers `items: {"type":"string","enum":["x","y"]}` and
+  `array<"x">` lowers `items: {"const":"x"}` at all four positions. THE NESTING
+  RULE THIS BULLET DEFERRED TO WAS HONOURED, not lifted: the argument split is
+  still `splitTopLevel`'s angle-only default, so a remedy changed where the
+  argument text GOES and never what the split hands it. This report's cell `d6`
+  was re-derived under 0164 §Fix constraint 3; `d1`–`d3`, `d7`–`d9` stay
+  byte-frozen.
 - **Negative numeric literals.** `p: '-1 | 1'` lowers `{"anyOf":[{},{}]}`, but
   the contrast is not available: `schema S { a: -1 | 1 }` raises
   `theta/parse/empty-schema-body` — the field is lost before lowering — and
@@ -1059,6 +1079,17 @@ Constraints on any implementation:
      `lowerTypeExpr`'s recursion, which `TypeSplitNesting` governs) and pins it
      as a control. Named in passing by 0055 §Non-goals and 0098, OWNED by
      neither — unfiled. Bug 0043 owns the MIXED union, not this.
+     **FILED AND DISCHARGED (0.123.0).** This residual is bug
+     [0164](./0164-generic-argument-literal-lowers-permissive.md)'s filing
+     origin — its §Provenance cites this item — and 0164 §Fix closed it at
+     0.123.0 by route (i), the change this item predicted. `array<"x" | "y">`
+     now lowers `items: {"type":"string","enum":["x","y"]}` and `array<"x">`
+     `items: {"const":"x"}` at all four positions, and `array<null>` takes THIS
+     report's own constraint-2 `{"const":null}` settlement at that depth too,
+     applied by the same structural means (the consult precedes the primitive
+     atom arm; no `null` special case). Cell `d6` was re-derived under 0164 §Fix
+     constraint 3, subject preserved. Residuals 1, 2 and 4 above are untouched
+     and still open.
   4. **The `-` parse layer still splits the four positions for negative
      numerics.** `p: '-1 | 1'` and `@<-1 | 1>` now agree on `{"enum":[-1,1]}`,
      but `schema S { a: -1 | 1 }` is still lost to

@@ -144,8 +144,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   "x" | "y"                {"type":"string","enum":["x","y"]}            UNCHANGED
 //   {a: integer} | Triage    {"anyOf":[{"$ref":…__inline_df817b794ef788ce},{"$ref":…Triage}]}  UNCHANGED
 //   array<Sev> | null        {"anyOf":[{"type":"array","items":{"$ref":…Sev}},{"type":"null"}]} UNCHANGED
-//   array<"x" | "y">         {"type":"array","items":{"anyOf":[{},{}]}}    UNCHANGED (bug 0164's)
-//   array<"x">               {"type":"array","items":{}}                   UNCHANGED (bug 0164's)
+//   array<"x" | "y">         {"type":"array","items":{"anyOf":[{},{}]}}    UNCHANGED BY THIS FIX
+//   array<"x">               {"type":"array","items":{}}                   UNCHANGED BY THIS FIX
+//     — both later moved by bug 0164 §Fix (v0.123.0), which re-routes the
+//       GENERIC-ARGUMENT recursion these two reach: `items` becomes
+//       {"type":"string","enum":["x","y"]} and {"const":"x"} respectively.
+//       Cells `d7` / `d8` carry the re-derived bytes; this file's per-ARM gate
+//       is still what keeps the arm-level consult off an all-literal arm set.
 //
 //   AJV over the lowered `params:` document for `sev: 'Sev | "high"'` at HEAD:
 //   all nine probed payloads ACCEPTED, `"zzz"` / `7` / `true` / `null` / `[]` /
@@ -180,9 +185,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 // already owned as a WHOLE SOURCE by `lowerLiteralSublanguage` (:80's enum
 // form), so gating to the mixed set is what keeps `array<"x" | "y">` — bug
 // 0164's exact subject, reached through `lowerTypeExpr`'s generic-argument
-// recursion rather than through either whole-source caller — byte-unchanged
-// instead of shadowed by `{"anyOf":[{"const":"x"},{"const":"y"}]}`, a third
-// value no step-3 row states (§Fix constraint 2). Group (d) pins that.
+// recursion rather than through either whole-source caller — OUT OF THE PER-ARM
+// CONSULT'S REACH, instead of shadowed by
+// `{"anyOf":[{"const":"x"},{"const":"y"}]}`, a third value no step-3 row states
+// (§Fix constraint 2). Group (d) pins that gate. What those two rows' `items`
+// now CARRY is bug 0164 §Fix's (v0.123.0), reached through the whole-source
+// `lowerLiteralSublanguage` once that report re-routed the argument recursion.
 //
 // WHAT IS RED HERE — 30 cells, all in groups (a), (b), (c), (f) and (g), each
 // one a cell whose subject is the moved arm: (a)'s eight moving rows and their
@@ -196,8 +204,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `a10` (the four-position parity, which holds today over the WRONG answer and
 // is §Fix constraint 7's tripwire), `b2` (the enforcing contrast), (c)'s four
 // `…-high` / `c1-…-low` rows (whose readings the fix does not change), the whole
-// of (d) — the no-op control set that keeps the fix from over-reaching, bug
-// 0164's `array<"x" | "y">` and `array<"x">` among them — the whole of (e), `f2`
+// of (d) — the no-op control set that keeps THIS fix from over-reaching, bug
+// 0164's `array<"x" | "y">` and `array<"x">` among them, whose bytes were later
+// re-derived under bug 0164 §Fix while their subject (the per-ARM gate declining
+// an all-literal arm set) stayed exactly what it was — the whole of (e), `f2`
 // (the surface-type `Parameters:` line) and `g3`'s `Sev | null` row. NO new
 // diagnostic is asserted anywhere in this file, because
 // `isUnspellableTextRefusable` (src/parser/params.ts:1274) and all three of its
@@ -1297,22 +1307,30 @@ describe("bug 0184 (d) — every arm the consult declines keeps its bytes", () =
     [
       "d7",
       'array<"x" | "y">',
-      { type: "array", items: { anyOf: [{}, {}] } },
+      { type: "array", items: { type: "string", enum: ["x", "y"] } },
       "BUG 0164's SUBJECT, and the placement adjudication's own control. This ALL-literal union " +
         "is reached through `lowerTypeExpr`'s GENERIC-ARGUMENT recursion (params.ts:702), not " +
-        "through either whole-source caller, so no `:80` emission is in front of it. Gating the " +
-        "per-arm consult to the MIXED arm set (§Fix constraint 2) is what leaves these bytes " +
-        "byte-UNCHANGED — bug 0164 owns this face and its remedy re-routes that recursion, not " +
-        "this one. A per-arm consult with no gate would lower it " +
-        "`{\"anyOf\":[{\"const\":\"x\"},{\"const\":\"y\"}]}`, a value neither report specifies",
+        "through either whole-source caller. BUG 0164 §Fix (v0.123.0) HAS NOW DONE EXACTLY WHAT " +
+        "THIS CELL SAID ITS REMEDY WOULD: it re-routes that argument recursion through " +
+        "`lowerLiteralSublanguage`, so these bytes are the WHOLE-SOURCE `:80` emission reached " +
+        "through the re-routed generic-argument recursion — not a per-arm product. THIS FILE's " +
+        "gate is still what keeps the per-ARM consult off an all-literal arm set (§Fix " +
+        "constraint 2): without it the argument's union split would lower " +
+        "`{\"anyOf\":[{\"const\":\"x\"},{\"const\":\"y\"}]}`, a third value no step-3 row states and " +
+        "neither report specifies. Bug 0164 §Fix is the authority that moved these bytes; the " +
+        "cell keeps its subject, the four-position disposition of an all-literal arm set reached " +
+        "through the argument",
     ],
     [
       "d8",
       'array<"x">',
-      { type: "array", items: {} },
-      "bug 0164's subject at ONE arm: a single literal generic argument is not a union at all, " +
-        "so `lowerTypeExpr`'s union split never runs and the per-arm consult is never reached. " +
-        "Left intact by the mixed-gating exactly as `d7` is",
+      { type: "array", items: { const: "x" } },
+      "bug 0164's subject at ONE atom: a single literal generic argument is not a union at all, " +
+        "so `lowerTypeExpr`'s union split never runs and THIS file's per-arm consult is never " +
+        "reached — unchanged, and still why the row is here. What moved is bug 0164 §Fix's own " +
+        "half: the re-routed argument recursion reaches `lowerLiteralSublanguage`'s single-atom " +
+        "branch, so `items` carries schema-subset.md:79's `{\"const\":\"x\"}` where it carried the " +
+        "trailing catch-all's `{}`. Bug 0164 §Fix is the authority that moved these bytes",
     ],
   ];
 
