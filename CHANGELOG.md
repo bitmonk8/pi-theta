@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.133.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0090 — the type a `let mut` binding carries after reassignment is now
+  specified.** Adjudicated disposition 1: a reassignment does not change the
+  binding's type — every later reference resolves the type the binding was
+  declared or inferred with, for the whole of the binding's scope
+  (`docs/spec_topics/bindings.md` §Reassignment, anchor
+  `#reassignment-binding-type`; mirrored in `docs/reference/grammar.md`).
+  Read-side adjudication only — zero code changed; bug 0115's enforcement
+  premise survives untouched. Witness:
+  `tests/reassignment-binding-type-governs.test.ts` (7 cells).
+
 ## [0.132.0] - 2026-08-26
 
 ### Fixed

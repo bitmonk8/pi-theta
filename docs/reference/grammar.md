@@ -507,12 +507,12 @@ statement, not an expression.
 Immutable-by-default. `let x` is immutable (rebinding is
 `theta/parse/immutable-rebinding`); `let mut x` is reassignable. Reassignment is a
 statement (`theta/parse/assignment-as-expression` in expression position); RHS must
-be compatible with the binding's type. Mutability is **binding-level only** —
-`obj.field = ...` / `arr[i] = ...` is `theta/parse/assignment-to-member-or-index`;
-rebind the whole value. Always-immutable contexts (`mut` →
-`theta/parse/mut-on-immutable-context`): function parameters, `for` iteration
-variables, `match` pattern bindings, the discard `let _` (also
-`theta/parse/mut-on-discard`).
+be compatible with the binding's type. A reassignment does not retype the binding;
+later reads keep its type. Mutability is **binding-level only** — `obj.field = ...`
+/ `arr[i] = ...` is `theta/parse/assignment-to-member-or-index`; rebind the whole
+value. Always-immutable contexts (`mut` → `theta/parse/mut-on-immutable-context`):
+function parameters, `for` iteration variables, `match` pattern bindings, the
+discard `let _` (also `theta/parse/mut-on-discard`).
 
 <a id="theta-literal-sublanguage"></a>
 

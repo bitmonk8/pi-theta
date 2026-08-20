@@ -1,9 +1,9 @@
 # Bug 0090 — No spec sentence says what type a `let mut` binding carries after a reassignment: since 0.55.0 the declared annotation governs the binding's whole scope, so `let mut n: number = 1` / `n = 2` / `let m: integer = n` reports `theta/parse/integer-narrowing` on a test pin with no normative sentence behind it
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The decision this
-  report asks for is the adjudication between two dispositions — the declared
-  or inferred type governs the binding's whole scope, or each reassignment
-  re-derives the recorded type — not the wording of one of them.
+- **Status:** fixed (0.133.0). §Fix was constraint-pinned; the adjudication it
+  asked for — between the declared or inferred type governing the binding's
+  whole scope and each reassignment re-deriving the recorded type — is settled
+  as **disposition 1** and recorded in `## Fix (0.133.0)` below.
 - **Kind:** spec gap. Two normative sentences reach a `let mut` reassignment
   and neither answers the question: `docs/spec_topics/bindings.md:12`
   constrains the RHS against "the binding's declared or inferred type", and
@@ -370,3 +370,137 @@ and pinned it as an attribution row (witness cell `e2`,
 `tests/plain-for-loop-variable-element-type.test.ts`) citing this report and
 [0115](./0115-reassignment-type-compat-unchecked-no-registry-row.md), so the
 silence stays attributed here and not to the `for` arm.
+
+## Fix (0.133.0)
+
+**The adjudication.** §Fix **disposition 1**, on §Fix's own recommendation and
+its three verified grounds. Stated normatively, and citable in this form by
+[0115](./0115-reassignment-type-compat-unchecked-no-registry-row.md):
+
+> `docs/spec_topics/bindings.md` §Reassignment, anchor
+> `#reassignment-binding-type` — "A reassignment does not change the binding's
+> type: every later reference resolves the type the binding was declared or
+> inferred with, for the whole of the binding's scope."
+
+The rule is the read-side half only. It ratifies the behaviour at HEAD, so the
+resolution changes **zero code**; the write-side obligation already on
+`bindings.md:12` stands unedited and unenforced, which is 0115's subject. Under
+this adjudication 0115's premise **survives**: its §Fix (d) branch "0090's
+disposition 2 deletes this report's obligation" is closed as not taken, and its
+route choice (mint a row versus widen `let-rhs-type-mismatch`'s *Trigger*) is
+untouched by this fix. Nothing here adds the reassignment RHS to
+`type-system.md:27`'s `⊑` position enumeration or to TYPE-9 (`:50`), and no
+diagnostic code, *Trigger* or *Message* moved — those edits belong to 0115's
+chosen route.
+
+- **What shipped:**
+  - `docs/spec_topics/bindings.md` — the adjudicating sentence above, appended
+    in place to the existing **Reassignment** paragraph (line 12) behind an
+    inline `<a id="reassignment-binding-type"></a>`, the anchor convention
+    `type-system.md`'s `<a id="type-9"></a>` uses. Appended in place, not
+    inserted as a paragraph, so the page stays 36 lines and §Fix constraint 6's
+    inbound `:25` / `:36` citations do not shift.
+  - `docs/reference/grammar.md` — the same-commit user-facing mirror in
+    §"Bindings & mutability": "A reassignment does not retype the binding; later
+    reads keep its type." Added by re-wrapping the existing 507–515 paragraph so
+    the page stays 623 lines; hundreds of inbound line citations point into this
+    page, some below `:515`.
+  - `tests/reassignment-binding-type-governs.test.ts` (new) — seven parse-level
+    cells locking the adjudicated rule as observables, so it stops existing only
+    as a comment inside 0083's regression file.
+  - `tests/let-annotation-recorded-binding-type.test.ts` — 0083's pin
+    re-anchored to the new sentence per §Fix constraint 3, comment text only
+    (assertion byte-identical), and its stale `type-layer-checks.ts:598–600`
+    citation corrected to the measured `:1314–1316`. Rewritten at equal length,
+    so the file stays 343 lines and the `:328–343` citations in this report, in
+    0115, in 0130 and in the new witness file stay accurate.
+  - `src/` — untouched. `git diff --stat -- src/` empty; the reassign arm is
+    byte-exact to HEAD (`1fc5f76443e6ea7f0b20270eed648ca42f6b187c`).
+- **Gates:** witness `npx vitest run tests/reassignment-binding-type-governs.test.ts`
+  → 7 passed; `npx vitest run tests/let-annotation-recorded-binding-type.test.ts`
+  → 19 passed; full default suite `npx vitest run` → 332 files / 6094 tests
+  passed (fork baseline 331 / 6087; the delta is exactly this fix's one new
+  file); `npm run typecheck` clean; `npm run lint` clean; `wc -l` 36 / 623 / 343
+  as required. Live: H9a both files 11/11 green through the real `pi -p`
+  (`tests/live/acceptance/`), H8a 6 files / 75 tests green. No H8a cell was
+  minted: the fix has no behavioural delta, so no theta's registration verdict
+  moves and a new cell would assert nothing this adjudication changed.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings, with a
+  per-constraint sweep of §Fix 1–6, the anchor's uniqueness and house
+  conformance, the H5e un-anchored-`MUST` gate check on the amended paragraph, a
+  clause-by-clause diff of the re-wrapped mirror, and one non-blocking residual
+  (R1, recorded as residual 2 below). One **pre-review citation correction
+  round** ran before it (not a review round; numbering unaffected): the
+  re-anchor had been appended as seven extra comment lines, drifting the
+  `:328–343` citations in this report, in 0115 and in 0130; the comment was
+  rewritten at equal length and the stale src citation fixed in the same pass.
+  Comment-only, zero assertions touched, gates re-run green.
+- **Verification:** PASS (SOLID). The witness genuinely witnesses: the rejected
+  disposition 2 was applied at `type-layer-checks.ts:1314–1316`
+  (`bindings.set(stmt.target, this.typeOf(stmt.value, bindings))` before the
+  `return`) and reds exactly a1, b1 and c5 with the flips §Fix disposition 2
+  predicts, while the four controls a2/a3/b2/c6 stay green; 0083's pin reds
+  under the same neutralisation, confirming the two files witness one rule. The
+  neutralisation was restored byte-exact (`git hash-object` equal to
+  `git rev-parse HEAD:src/parser/type-layer-checks.ts`,
+  `1fc5f76443e6ea7f0b20270eed648ca42f6b187c`) and both files re-run green.
+  Default suite green. Lint and typecheck clean. Line counts and the two inbound
+  `bindings.md` citations spot-checked against the sentences 0049 and 0084
+  describe. The anchor is defined exactly once and spelled identically at every
+  citation. `tests/committed-fixture-parse-gate.test.ts` green, 36 cells, so no
+  shipped `.theta` moved.
+- **Residuals:**
+  1. **The recorded type is now a normative contract that nothing enforces.**
+     §Fix disposition 1 attaches this obligation explicitly ("blessing the
+     reading without it leaves a declared type any write can contradict
+     silently"), and it is discharged by
+     [0115](./0115-reassignment-type-compat-unchecked-no-registry-row.md), not
+     here — operator-set boundary. Evidence, re-measured at this HEAD through
+     `parseThetaDocument`: `let mut n: integer = 1` / `n = 1.5` → `[]`;
+     `let mut n: number = 1` / `n = "x"` → `[]`;
+     `let mut n: integer = 1` / `n += 1.5` / `let m: integer = n` → `[]`;
+     `let mut xs: array<string> = []` / `xs = [1]` / `xs.join(",")` → `[]`;
+     `let mut n: number = 1` / `n = "x"` / `n.length()` →
+     `["theta/parse/unknown-method"]` (§Reproduction rows (c) 1–5, unchanged).
+  2. **Two witness cells assert an absence 0115 will legitimately move.** Cells
+     b1 (`[]`) and c5 (`[]`) in `tests/reassignment-binding-type-governs.test.ts`
+     are silent *because* the reassignment-RHS check is absent; when 0115 wires
+     one, both expectations gain a code at the reassignment statement while the
+     rule they lock (which type a later reference resolves) is unaffected. Both
+     cells' comments say so and name 0115. Second-order, from review round 1:
+     0115 §Fix (c) routes the reassignment narrowing sub-case to the existing
+     `theta/parse/integer-narrowing`, so b1's post-0115 expectation becomes
+     list-identical to the disposition-2 signature it was red-proven against —
+     `codesOf` drops positions, so at code-list granularity b1 will stop
+     distinguishing "declared-governs + RHS check" from "re-derive". c5's
+     post-0115 code differs from its disposition-2 code, so the file as a whole
+     keeps discriminating; 0115's implementer should lean on c5, or pin
+     positions in b1, when updating them.
+  3. **One first H8a run reported two reds that did not reproduce.** The clean
+     re-run of the same six files was 75/75 green, and the identity of the two
+     initial reds was not captured. Not attributable to this fix: the diff
+     touches no `src/` byte (`git hash-object src/parser/type-layer-checks.ts`
+     equal to HEAD's blob) and the H8a axis is stochastic. Recorded rather than
+     dismissed.
+  4. **A pre-existing stale citation, out of remit.**
+     `docs/bugs/0165-empty-params-default-literal-admitted-and-never-bound.md:1039`
+     cites `docs/reference/grammar.md:513` as the is-literal check; at this HEAD
+     `:513` falls inside §"Bindings & mutability", not the literal-sublanguage
+     section. The drift predates this fix (this fix's mirror hunk is
+     line-count-neutral, `@@ -507,12 +507,12 @@`) and 0165 is another report's
+     document.
+- **Discharge notes appended:** none. 0115's and 0130's documents were left
+  untouched by operator boundary; the rule 0115 needs is stated citably at the
+  top of this record.
+- **Pinned dispositions / non-goals:** disposition 2 (each reassignment
+  re-derives the recorded type) is **rejected**, and is now witnessed as
+  rejected — it is the neutralisation the witness file reds against. Its two
+  attached obligations (a nested-block join rule the corpus does not state; a
+  TYPE-11-transparency re-proof at the reassignment) are therefore moot and are
+  not carried forward. Out of scope and unchanged: the reassignment-RHS
+  compatibility check and its DIAG-2 route (0115); `type-system.md:27`'s `⊑`
+  position enumeration and TYPE-9 (`:50`); the `fn`-argument position (0050);
+  the constructor-field position (0031); runtime behaviour (`writeBinding` in
+  `lexical-environment.ts` accepts on mutability alone, and `integer` / `number`
+  are one JS value, so no executed value moves); 0079's adjudicated
+  interpolation disposition.

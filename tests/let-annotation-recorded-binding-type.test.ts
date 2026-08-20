@@ -327,15 +327,15 @@ describe("0083 — an unresolvable annotation keeps falling back to the initiali
 
 describe("0083 — a `let mut` reassignment does not re-derive the recorded binding type", () => {
   it("pin: `let mut n: number = 1` / `n = 2` / `let m: integer = n` narrows — the declared type governs after reassignment", () => {
-    // §Non-goals leaves reassignment re-derivation unaddressed and asks only
-    // that a fix CHECK whether `case "reassign"` re-derives the binding type
-    // from the assigned value. It does not: `case "reassign"`
-    // (src/parser/type-layer-checks.ts:598–600) walks `stmt.value` for nested
-    // checks and never calls `bindings.set` again, so the type this fix
-    // records at the `let` — here, the `number` annotation — is what every
-    // later reference sees for the rest of `n`'s scope, unmoved by the
-    // reassignment to `2`. `m: integer = n` therefore still narrows, exactly
-    // as it does without the reassignment (a1).
+    // `case "reassign"` (src/parser/type-layer-checks.ts:1314–1316) walks
+    // `stmt.value` for nested checks and never calls `bindings.set` again, so
+    // the type recorded at the `let` — here the `number` annotation — is what
+    // every later reference sees for the rest of `n`'s scope: `m: integer = n`
+    // still narrows exactly as it does without the reassignment (a1). Bug 0090
+    // made that rule NORMATIVE: docs/spec_topics/bindings.md §Reassignment
+    // (anchor #reassignment-binding-type) states directly that a reassignment
+    // does not change the binding's type, so this pin is that sentence's
+    // witness rather than a standalone observation.
     expect(
       codesOf(["let mut n: number = 1", "n = 2", "let m: integer = n", "1"]),
     ).toEqual(["theta/parse/integer-narrowing"]);
