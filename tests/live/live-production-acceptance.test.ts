@@ -10117,3 +10117,124 @@ describe("H8a-T — bug 0164: an invoke(...) argument outside a declared array<l
     }
   });
 });
+
+// ===========================================================================
+// Bug 0074 (cell 61) — the ActiveInvocationRegistry entry now spans the awaited
+// binder window, so a `session_shutdown` landing while a non-bypass `params:`
+// theta is mid-binder-call actually cancels it, live.
+// `docs/bugs/0074-registry-insertion-after-binder-await.md` §Fix: insertion
+// moved to the slash-dispatch entry point (`beginInvocation`), ahead of the
+// `await deps.runBinder(...)` step. Pre-fix the registry held no entry during
+// that window, so `session_shutdown` sub-step 2 aborted nothing, the binder
+// call ran to completion, and the theta's `bind_echo` success note landed
+// AFTER a completed teardown (the post-teardown continuation this bug names).
+// Post-fix the entry exists, sub-step 2 aborts THIS invocation's `thetaAbort`,
+// `runBinderCallWithCancellation` (binder-cancellation.ts) observes the
+// forwarded signal and surfaces the `cancelled` binder note instead, and the
+// theta never runs.
+//
+// Mirrors the bug-0064 cell immediately above for the fixture shape (a real
+// off-session binder call against the live suite's own rule-resolved model)
+// and `tests/live/double-session-start-live.test.ts` for firing
+// `session_shutdown` directly through `handle.runner.emit(...)` rather than
+// through `handle.dispose()`, so the shutdown can be raced against the
+// in-flight binder call instead of always following the drive.
+// ===========================================================================
+
+describe("H8a-T — bug 0074 cell 61: session_shutdown racing a live off-session binder call cancels it instead of letting it complete post-teardown", () => {
+  it("a session_shutdown fired immediately after dispatch lands the cancelled-binder note, never the bind_echo success note", async () => {
+    const provider = await requireLiveProvider();
+    const providerId = (provider.model as { provider?: string }).provider ?? "";
+    if (providerId === "") {
+      failLoudly(
+        "live-host precondition unmet: the resolved live model carries no " +
+          "`provider` field, so `bind_model:` cannot be provider-qualified " +
+          `(resolved model id '${provider.modelId}').`,
+      );
+    }
+    const bindModel = `${providerId}/${provider.modelId}`;
+
+    const thetas: PlantedTheta[] = [
+      { source: "project", stem: "b74livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b74livebinder", text: b64BinderParamsTheta(bindModel) },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b74livectl"),
+        "the precondition control did not register — a broken workspace would " +
+          "explain the assertions below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b74livebinder"),
+        `the non-bypass params: theta did not register against bind_model: ` +
+          `'${bindModel}'. Registered: ` + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const entriesBefore = handle.sessionManager.getEntries().length;
+
+      // Dispatch WITHOUT awaiting, then fire session_shutdown immediately: the
+      // real off-session binder call is a genuine network round trip (~2.5s
+      // per the bug-0064 cell above), so the shutdown lands well inside the
+      // binder window this bug's fix now spans with a live registry entry.
+      const drivePromise = driveSlashCaptureText(
+        handle.session,
+        "/b74livebinder summarise the three most recent commits",
+      );
+      expect(
+        handle.runner.hasHandlers("session_shutdown"),
+        "the shipped extension registered no session_shutdown handler — the " +
+          "fixed path (sub-step 2's abort) can never be reached by this cell.",
+      ).toBe(true);
+      await handle.runner.emit({ type: "session_shutdown", reason: "reload" });
+
+      // Let the raced drive settle (a fail-closed binder resolves, it never
+      // throws — AGENTS.md §"Assert on real observables").
+      await drivePromise;
+
+      const appended = handle.sessionManager.getEntries().slice(entriesBefore);
+      const notes: string[] = [];
+      for (const entry of appended) {
+        const e = entry as { customType?: string; content?: unknown };
+        if (e.customType !== "theta-system-note") continue;
+        if (typeof e.content === "string") notes.push(e.content);
+        else if (Array.isArray(e.content)) {
+          for (const part of e.content) {
+            const t = (part as { text?: string }).text;
+            if (typeof t === "string") notes.push(t);
+          }
+        }
+      }
+
+      // THE FIXED OBSERVABLE: the invocation was cancelled INSIDE its binder
+      // window, not left to complete post-teardown.
+      const cancelledNotes = notes.filter((n) =>
+        n.includes("theta /b74livebinder: argument binding cancelled"),
+      );
+      expect(
+        cancelledNotes,
+        "no cancelled-binder note for a session_shutdown raced against the " +
+          "in-flight binder call: the registry entry did not span the binder " +
+          "window (bug 0074), so sub-step 2 aborted nothing and the binder ran " +
+          "to completion instead. Notes: " + JSON.stringify(notes),
+      ).not.toEqual([]);
+
+      // Corroborating negative: the theta never actually ran (no bind_echo
+      // success echo) — the bug's own "post-teardown continuation" signature
+      // would be this note appearing anyway.
+      const successNotes = notes.filter((n) => n.startsWith("Running /b74livebinder"));
+      expect(
+        successNotes,
+        "the theta ran to a successful bind (`Running /b74livebinder …`) " +
+          "despite a session_shutdown racing its binder call: the cancelled " +
+          "invocation completed post-teardown instead of being aborted in " +
+          "its binder window (bug 0074). Notes: " + JSON.stringify(notes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

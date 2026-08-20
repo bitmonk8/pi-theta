@@ -54,6 +54,7 @@ import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
+import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import {
   HostFatal,
   isThetaPanic,
@@ -193,6 +194,15 @@ export interface ConversationBindInput {
    */
   readonly parentSignal?: AbortSignal;
   /**
+   * The `ActiveInvocationRegistry` insertion the dispatch entry already
+   * performed for this invocation (active-invocation-registry.md §"Registry
+   * contract": insertion happens at handler entry, before any awaitable
+   * work). When present the bind REUSES it rather than adding a second entry;
+   * when absent (an `invoke` spawn site, a child-side bind, an in-memory
+   * harness) the bind opens its own.
+   */
+  readonly invocationTicket?: ActiveInvocationTicket;
+  /**
    * INV-4 / ceiling #1 (invocation.md §"Invocation depth bound"): the per-chain
    * invoke-depth counter carried into this binding. Present only when this
    * binding drives a nested `invoke(...)` callee (the parent pushes a countable
@@ -273,6 +283,24 @@ export interface ConversationBinding {
 export interface ThetaProducerDeps {
   /** `V11a` frontmatter binder — bind `args` before the interpreter (when applicable). */
   runBinder(input: BinderRunInput): Promise<BinderRunResult>;
+  /**
+   * Insert this invocation's `ActiveInvocationRegistry` entry at slash-command
+   * handler entry, BEFORE the awaited binder step
+   * (active-invocation-registry.md §"Registry contract" — Insertion "before
+   * any awaitable work"). The insertion stays producer-side: the entry's
+   * `invocationId` is minted through the producer's PIC-20 `IdSource` seam and
+   * the registry itself is threaded into the producer, not into this layer.
+   * The returned ticket is handed to the bind (which reuses it instead of
+   * inserting again) and finished by the dispatch `finally`, so the entry
+   * spans the binder window as well as the body window and a
+   * `session_shutdown` landing inside the binder call finds it. Absent on
+   * in-memory harnesses that register nothing — a `?.()` caller then leaves the
+   * pre-existing bind-side insertion as the only one.
+   */
+  beginInvocation?(input: {
+    readonly theta: ThetaCompositionInput;
+    readonly thetaAbort: AbortController;
+  }): ActiveInvocationTicket;
   /** Prompt-mode (`V12a`/`V9c`): bind `V19d`'s executor to the user session. */
   bindPromptConversation(input: ConversationBindInput): ConversationBinding;
   /**
@@ -375,8 +403,39 @@ export function composeThetaFixture(
       // `thetaAbort.abort(ctx.signal.reason)` (CNCL-4). The one-shot listener is
       // auto-removed on fire; `ctx.signal` is a per-turn transient object, so
       // no long-lived controller leaks across the Pi session.
-      const thetaAbort = createThetaAbort();
-      forwardSlashCommandCancel(thetaAbort, ctx.signal);
+      //
+      // Dispatch-site setup wrap (active-invocation-registry.md §"Registry
+      // contract"): the four setup steps — the `thetaAbort` controller, the
+      // `disposeBarrier` resolvers, the registry insertion (both inside
+      // `beginInvocation`), and the forwarding-listener attach — are ONE block in
+      // a `try`/`catch` that routes a setup throw through the runtime-defect
+      // surface. The insertion sits here, ahead of the awaited binder step below,
+      // so a `session_shutdown` delivered while the binder's LLM call is in
+      // flight (up to three round trips under HC3-d) still finds the entry and
+      // aborts it; inserting only inside the bind (which runs after the binder
+      // resolves) would leave that whole window invisible to the teardown
+      // handler.
+      let thetaAbort: AbortController | undefined;
+      let invocationTicket: ActiveInvocationTicket | undefined;
+      try {
+        thetaAbort = createThetaAbort();
+        invocationTicket = deps.beginInvocation?.({ theta, thetaAbort });
+        forwardSlashCommandCancel(thetaAbort, ctx.signal);
+      } catch (setupThrown) { // allow-broad-catch: dispatch-site setup wrap — active-invocation-registry.md#active-invocation-registry
+        // The cleanup abort of a half-constructed entry MUST NOT mask the
+        // original setup throw, so its own throw is dropped by a nested catch
+        // before the captured throw is routed on unchanged.
+        try {
+          thetaAbort?.abort();
+        } catch { // allow-broad-catch: cleanup abort must not mask the setup throw — active-invocation-registry.md#active-invocation-registry
+          // Dropped deliberately.
+        }
+        // A throw before the insertion completes leaks no entry (nothing to
+        // remove); a throw after it is removed by this ticket's `finish`.
+        invocationTicket?.finish();
+        surfaceDispatchDefect(setupThrown, theta, deps);
+        return;
+      }
       // RFC-0006 (PIC-58): child-side subagent-root drive. When THIS process is
       // the spawned subagent-root child for this theta, the binder is BYPASSED
       // (params were marshalled structurally, PIC-60) and the callee is driven
@@ -388,7 +447,17 @@ export function composeThetaFixture(
         deps.driveSubagentRootRegime !== undefined &&
         deps.isSubagentRootFor?.(theta) === true
       ) {
-        await deps.driveSubagentRootRegime({ theta, args, ctx, thetaAbort });
+        try {
+          await deps.driveSubagentRootRegime({
+            theta,
+            args,
+            ctx,
+            thetaAbort,
+            ...(invocationTicket !== undefined ? { invocationTicket } : {}),
+          });
+        } finally {
+          invocationTicket?.finish();
+        }
         return;
       }
       // TOP-LEVEL runtime-defect / panic surface (error-model.md §"Runtime
@@ -415,20 +484,28 @@ export function composeThetaFixture(
         //    binder's bound `params:` object is threaded into the executor
         //    environment as `paramBindings` so top-level `params:` reach body scope.
         const paramBindings = paramBindingsFrom(theta, binderResult.args, deps.schemaValidator);
-        const bindInput: ConversationBindInput = { theta, args, ctx, thetaAbort, ...(paramBindings !== undefined ? { paramBindings } : {}) };
+        const bindInput: ConversationBindInput = {
+          theta,
+          args,
+          ctx,
+          thetaAbort,
+          ...(paramBindings !== undefined ? { paramBindings } : {}),
+          ...(invocationTicket !== undefined ? { invocationTicket } : {}),
+        };
         const binding: ConversationBinding =
           theta.frontmatter.mode === "subagent"
             ? await deps.spawnSubagentConversation(bindInput)
             : deps.bindPromptConversation(bindInput);
         // 3. Drive `V19d`'s effectful executor against the bound conversation and
         //    surface the mode's return value. Decision 6 / Increment B1: the
-        //    ActiveInvocationRegistry entry the bind registered SPANS this body
-        //    window — `binding.finishInvocation?.()` in the `finally` settles the
-        //    entry's `disposeBarrier` + removes it AFTER `executeBody` + `surface`
-        //    (and the err-note), so a genuinely in-flight invocation is present in
-        //    the registry when `session_shutdown` fires. The binder short-circuit
-        //    above returns BEFORE `binding` exists, so no entry was added — nothing
-        //    to finish on that path.
+        //    ActiveInvocationRegistry entry SPANS this body window —
+        //    `binding.finishInvocation?.()` in the `finally` settles the entry's
+        //    `disposeBarrier` + removes it AFTER `executeBody` + `surface` (and the
+        //    err-note), so a genuinely in-flight invocation is present in the
+        //    registry when `session_shutdown` fires. The entry the bind reuses is
+        //    the one the setup wrap inserted above, so the binder short-circuit
+        //    above (which returns before `binding` exists) still leaves a live
+        //    entry — the outer `finally` below finishes it on that path.
         try {
           // RFC-0006 (PIC-59): the parent-side subagent-mode binding resolves its
           // `Result` through a self-contained `drive()` (launch child → await
@@ -465,55 +542,79 @@ export function composeThetaFixture(
         // A top-level runtime defect (a `ThetaPanic` from the closed six-source
         // set, a `ToolReturnShapeDefectError`, or any other catchable
         // interpreter / adapter throw incl. `RangeError`) is caught here and
-        // surfaced as ONE framed `theta-system-note` (details:{diagnostics},
-        // display:true, triggerTurn:false, session NOT torn down) instead of
-        // escaping uncaught to the Pi host. Cancellation and normal Ok/Err are
-        // VALUES on the drive path above, so they never reach this catch.
-        if (thrown instanceof HostFatal) {
-          // NOCEIL-3 (hard-ceilings): a host fatal is the ONLY thing that
-          // propagates — re-raise it (fail-fast); it never reaches `emitPanicNote`.
-          throw thrown;
-        }
-        const site = { file: theta.sourcePath ?? theta.slashName, range: ZERO_BODY_RANGE };
-        if (isThetaPanic(thrown)) {
-          // ThetaPanic framing (error-model.md §"Runtime panics"): a bare panic
-          // carries no SourceRange, so synthesize the zero body range. The
-          // registered panic message rides both the diagnostic and the framing.
-          const diagnostic: Diagnostic = {
-            severity: "error",
-            code: thrown.code,
-            file: site.file,
-            range: site.range,
-            message: thrown.message,
-          };
-          deps.emitPanicNote(`theta /${theta.slashName} aborted: ${thrown.message}`, diagnostic);
-          return;
-        }
-        // internal-error framing: a `ToolReturnShapeDefectError` already carries a
-        // precise-site `theta/runtime/internal-error` diagnostic (prefer it);
-        // otherwise `surfaceUnexpectedThrow` builds one for the generic throw.
-        // Both stamp the `internal error: <msg>` prefix onto the diagnostic
-        // message; the framing (code-registry-runtime.md `theta/runtime/
-        // internal-error`) carries the BARE `<error.message>`, so the prefix is
-        // stripped before composing `… aborted with internal error: <msg>`.
-        const diagnostic =
-          thrown instanceof ToolReturnShapeDefectError
-            ? thrown.diagnostic
-            : surfaceUnexpectedThrow(thrown, site);
-        if (diagnostic === undefined) {
-          // Defensive (unreachable): `surfaceUnexpectedThrow` returns `undefined`
-          // only for a `ThetaPanic` / `HostFatal`, both handled above. Re-raise
-          // rather than fabricate a note, preserving fail-fast.
-          throw thrown;
-        }
-        const detail = diagnostic.message.startsWith(INTERNAL_ERROR_PREFIX)
-          ? diagnostic.message.slice(INTERNAL_ERROR_PREFIX.length)
-          : diagnostic.message;
-        deps.emitPanicNote(
-          `theta /${theta.slashName} aborted with internal error: ${detail}`,
-          diagnostic,
-        );
+        // surfaced as ONE framed `theta-system-note` instead of escaping uncaught
+        // to the Pi host. Cancellation and normal Ok/Err are VALUES on the drive
+        // path above, so they never reach this catch.
+        surfaceDispatchDefect(thrown, theta, deps);
+      } finally {
+        // The setup wrap inserted the registry entry before the binder await, so
+        // EVERY exit of the dispatch — including the binder short-circuit, which
+        // returns before a binding exists — must finish it. `finishInvocation`
+        // (called by the inner `finally` above) finishes the same ticket, and both
+        // are idempotent, so the normal path settles at its documented moment and
+        // this is a no-op after it.
+        invocationTicket?.finish();
       }
     },
   };
+}
+
+/**
+ * Surface a runtime defect thrown at slash dispatch as ONE framed
+ * `theta-system-note` (error-model.md §"Runtime panics"): `details:
+ * { diagnostics: [Diagnostic] }`, `display: true`, `triggerTurn: false`, session
+ * NOT torn down. Shared by the dispatch-site setup wrap's catch and the
+ * top-level drive catch so both routes to the runtime-defect surface frame the
+ * note identically. `HostFatal` propagates (NOCEIL-3 fail-fast) and never
+ * reaches `emitPanicNote`.
+ */
+function surfaceDispatchDefect(
+  thrown: unknown,
+  theta: ThetaCompositionInput,
+  deps: ThetaProducerDeps,
+): void {
+  if (thrown instanceof HostFatal) {
+    // NOCEIL-3 (hard-ceilings): a host fatal is the ONLY thing that propagates —
+    // re-raise it (fail-fast); it never reaches `emitPanicNote`.
+    throw thrown;
+  }
+  const site = { file: theta.sourcePath ?? theta.slashName, range: ZERO_BODY_RANGE };
+  if (isThetaPanic(thrown)) {
+    // ThetaPanic framing (error-model.md §"Runtime panics"): a bare panic carries
+    // no SourceRange, so synthesize the zero body range. The registered panic
+    // message rides both the diagnostic and the framing.
+    const diagnostic: Diagnostic = {
+      severity: "error",
+      code: thrown.code,
+      file: site.file,
+      range: site.range,
+      message: thrown.message,
+    };
+    deps.emitPanicNote(`theta /${theta.slashName} aborted: ${thrown.message}`, diagnostic);
+    return;
+  }
+  // internal-error framing: a `ToolReturnShapeDefectError` already carries a
+  // precise-site `theta/runtime/internal-error` diagnostic (prefer it);
+  // otherwise `surfaceUnexpectedThrow` builds one for the generic throw. Both
+  // stamp the `internal error: <msg>` prefix onto the diagnostic message; the
+  // framing (code-registry-runtime.md `theta/runtime/internal-error`) carries
+  // the BARE `<error.message>`, so the prefix is stripped before composing
+  // `… aborted with internal error: <msg>`.
+  const diagnostic =
+    thrown instanceof ToolReturnShapeDefectError
+      ? thrown.diagnostic
+      : surfaceUnexpectedThrow(thrown, site);
+  if (diagnostic === undefined) {
+    // Defensive (unreachable): `surfaceUnexpectedThrow` returns `undefined` only
+    // for a `ThetaPanic` / `HostFatal`, both handled above. Re-raise rather than
+    // fabricate a note, preserving fail-fast.
+    throw thrown;
+  }
+  const detail = diagnostic.message.startsWith(INTERNAL_ERROR_PREFIX)
+    ? diagnostic.message.slice(INTERNAL_ERROR_PREFIX.length)
+    : diagnostic.message;
+  deps.emitPanicNote(
+    `theta /${theta.slashName} aborted with internal error: ${detail}`,
+    diagnostic,
+  );
 }

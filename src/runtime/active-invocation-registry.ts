@@ -36,6 +36,28 @@ export interface ActiveInvocationEntry {
 }
 
 /**
+ * A registry insertion already performed at a dispatch site, handed down to the
+ * conversation bind that continues the same invocation
+ * (active-invocation-registry.md §"Registry contract" — Insertion "before any
+ * awaitable work"). The slash path's setup wrap runs ahead of the awaited
+ * binder step, while the bind that constructs the invocation's `Result`
+ * surface runs only after the binder resolves; the ticket is what lets the bind
+ * REUSE the entry the setup wrap already inserted instead of adding a second
+ * one (constraint: no double-insert).
+ */
+export interface ActiveInvocationTicket {
+  /**
+   * Settle the entry's `disposeBarrier` without removing the entry.
+   * Subagent-mode teardown settles the barrier on observed child-process exit
+   * (RFC-0005), a different moment from the per-invocation `finally`'s removal,
+   * so the two are exposed separately.
+   */
+  readonly settleDisposeBarrier: () => void;
+  /** Idempotent: settle `disposeBarrier` (if not already settled) and remove the entry. */
+  readonly finish: () => void;
+}
+
+/**
  * The extension-instance-scoped registry of in-flight invocations. Backed by a
  * `Set` whose iteration is insertion order; `size()` is the entry-count probe
  * seam tests assert on (the registry name itself is internal).

@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0074 — the slash-dispatch registry entry now spans the binder window.**
+  The `ActiveInvocationRegistry` insertion happened after the awaited binder
+  step, so a `session_shutdown` delivered while a non-bypass `params:` theta
+  was inside its binder LLM call found no entry: teardown's sub-step 2 had
+  nothing to abort and the theta body ran to completion after a completed
+  five-sub-step teardown. The entry is now minted at handler entry
+  (`beginInvocation` / `ActiveInvocationTicket`, one mint site), ahead of the
+  binder await; both binds reuse the ticket and the binder-short-circuit path
+  finishes it. Witness: `tests/active-invocation-binder-window.test.ts` (parked
+  binder, 3 cells) + H8a cell 61 (live `session_shutdown` racing a real binder
+  call, red-proven both directions).
+
 ## [0.124.0] - 2026-08-26
 
 ### Fixed

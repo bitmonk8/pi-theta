@@ -1,6 +1,6 @@
 # Bug 0074 — The `ActiveInvocationRegistry` entry is inserted after the awaited binder step, not at slash-command handler entry: a `session_shutdown` landing inside the binder window finds no entry, so sub-step 2 never aborts that invocation, sub-step 3 never awaits it, and the theta proceeds into its body after the whole five-sub-step teardown has returned
 
-- **Status:** open.
+- **Status:** fixed (0.125.0).
 - **Kind:** defect — insertion-site placement diverges from the registry
   contract's explicit "before any awaitable work". The slash-dispatch entry
   point creates `thetaAbort` and attaches the `ctx.signal` forwarding listener
@@ -329,3 +329,117 @@ Not yet decided. Constraints any fix must satisfy:
 - Mechanical repro: scratch vitest
   (`tests/scratch-cancel-lifecycle.test.ts`, run at `d06daae3` and deleted);
   observed values quoted verbatim in §Reproduction.
+
+## Fix (0.125.0)
+
+- What shipped:
+  - `src/runtime/active-invocation-registry.ts` — new exported
+    `ActiveInvocationTicket` (`settleDisposeBarrier`, idempotent `finish`): the
+    handle a completed dispatch-site insertion hands to the bind that continues
+    the same invocation, so the bind reuses the entry instead of adding a second
+    one (§Fix constraint 5).
+  - `src/extension/production-theta-producer.ts` — `#openInvocationTicket`
+    performs the registry-side setup steps (the `disposeBarrier` resolvers, the
+    five-field entry with its `invocationId` minted through the PIC-20 `IdSource`
+    seam, the `Set.add`) and returns the ticket; the new public
+    `beginInvocation({ theta, thetaAbort })` is the pre-binder entry point
+    §Fix constraint 4's second option names, keeping both the mint seam and the
+    registry handle producer-side. `bindPromptConversation` and
+    `spawnSubagentConversation` now take `bindInput.invocationTicket ??
+    this.#openInvocationTicket(...)` and compose `finishInvocation` as
+    `detachForwarding(); ticket.finish();`; the subagent teardown's
+    `settleDisposeBarrier` is the ticket's. `#spawnSubagentFnSession` keeps its
+    own insertion (out of scope).
+  - `src/extension/theta-composition-producer.ts` — `composeThetaFixture.run`
+    wraps the four setup steps as ONE block in its own `try`/`catch`
+    (§Fix constraint 2): `createThetaAbort()` → `deps.beginInvocation?.(...)` →
+    `forwardSlashCommandCancel(...)`, ahead of `await deps.runBinder(...)`
+    (§Fix constraint 1). The catch runs the cleanup `thetaAbort?.abort()` inside
+    a nested `try`/`catch` that drops its throw, finishes the ticket, then routes
+    the originally captured throw to the runtime-defect surface. That surface is
+    the newly extracted module-local `surfaceDispatchDefect`, the pre-existing
+    top-level drive catch body moved verbatim so both routes frame one identical
+    note. The ticket is threaded into the bind input and into the
+    `driveSubagentRootRegime` input (whose `rootBindInput` spread makes the
+    child-side bind reuse it). An outer `finally { invocationTicket?.finish(); }`
+    finishes the moved entry on the binder-short-circuit and outer-catch paths
+    (§Fix constraint 3); `finish` is idempotent, so the normal path still settles
+    at `binding.finishInvocation()`'s documented moment and the `finally` is then
+    a no-op. Removal stays where it was.
+  - `tests/active-invocation-binder-window.test.ts` (new) — §Fix constraint 6's
+    regression cells.
+  - `tests/live/live-production-acceptance.test.ts` — one additive H8a cell
+    (`CELL-A`), no existing assertion touched.
+- Gates:
+  - Witness: `npx vitest run tests/active-invocation-binder-window.test.ts` —
+    `Test Files 1 passed (1) / Tests 3 passed (3)`. RED at HEAD before the fix
+    with the three symptom messages ("holds no registry entry … iterates an
+    empty snapshot: expected +0 to be 1"; "returned without aborting the
+    invocation parked in its binder window: expected false to be true"; "the
+    theta body executed after the completed session_shutdown teardown: expected
+    1 to be +0").
+  - Full suite: `npm test` — `Test Files 326 passed (326) / Tests 5950 passed
+    (5950)` (the 325/5947 fork baseline plus the three new cells).
+  - `npm run typecheck` — clean, no output. `npm run lint` — clean, no output.
+  - Live: `tests/live/acceptance/` — `Test Files 2 passed (2) / Tests 11 passed
+    (11)` (the 11/11 fork baseline). `tests/live/live-production-acceptance.test.ts`
+    — 61/61 including `CELL-A`; `-t "CELL-A"` alone `1 passed | 60 skipped`.
+- Review: 1 round — `bug-fix-reviewer`: CLEAN, no finding in any category.
+  Verdicts quoted per §Fix constraint, a walked double-insertion/leak proof over
+  all nine dispatch paths, an arm-by-arm behaviour-preservation proof of the
+  `surfaceDispatchDefect` extraction, and §Non-goals confirmed untouched. Its two
+  residuals are recorded below.
+- Verification: SOLID.
+  - Witness reds for the right reason: neutralised by deleting the single
+    `invocationTicket = deps.beginInvocation?.(...)` line (restoring the pre-fix
+    ordering); 3/3 RED with the symptom messages, restored byte-exact
+    (`git hash-object` `e1100ebaa723a95aa77bb77ee93de077ea443a16` before and
+    after), 3/3 GREEN.
+  - Full default suite green (326/5950).
+  - Live coverage of the fixed path: both H9a acceptance files green (11/11);
+    `CELL-A` red-proven in both directions under the same neutralisation (RED
+    carried only the `bind_echo` success note, "the binder ran to completion
+    instead").
+  - Lint and typecheck clean.
+- Residuals:
+  1. The local `thetaAbort` in `composeThetaFixture.run` widened from
+     `const thetaAbort = createThetaAbort()` to `let thetaAbort:
+     AbortController | undefined`, because step 1 of the setup sequence now sits
+     inside the wrap. `undefined` is unreachable past the wrap (the assignment is
+     the wrap's first statement and every throw path returns), and the downstream
+     optionality it relies on pre-dates this fix (`BinderRunInput.thetaAbort?`
+     and `ConversationBindInput.thetaAbort?` are both optional at HEAD), but a
+     future edit that made `undefined` reachable would let a bind mint a fresh
+     controller against CANCEL-2's one-controller rule. Test cell (a) pins the
+     invariant (`registry.snapshot()[0]?.thetaAbort === thetaAbortSeen()`), so
+     such a regression reds rather than passing silently. The reviewer's named
+     remedy, if a later change wants it tightened: extract the wrap into a
+     module-local `openDispatchSetup(...)` returning
+     `{ thetaAbort; invocationTicket? } | undefined`, then `if (setup ===
+     undefined) return;` — non-optional past the wrap, no interface change.
+  2. Insertion moved for the SLASH path only. The `tool.execute(...)` adapter and
+     the `invoke` spawn site keep their bind-time insertion; §Fix constraint 1
+     names the slash path concretely and §Affected / §Reproduction diagnose only
+     the binder window. The nested-invoke pre-bind window is materially covered
+     by the parent's own entry: a child's `thetaAbort` is derived downward from
+     `parentSignal` (`deriveChildThetaAbort`), so a sub-step-2 abort of the
+     parent cascades into a child whose entry does not yet exist.
+  3. `CELL-A` completes in ~1.2 s, i.e. the forwarded abort lands at the
+     pre-call `binder-call` checkpoint rather than mid-round-trip. It still
+     discriminates the defect (its neutralised run went red with the binder
+     having run to completion); the genuinely mid-await window is what the
+     offline witness parks on.
+  4. Stale `path:line` citations: this fix shifts line numbers inside
+     `src/extension/theta-composition-producer.ts` and
+     `src/extension/production-theta-producer.ts`, so pre-existing `path:line`
+     citations into them (in `docs/bugs/*.md` and several committed test
+     headers) drift. Disclosed, not chased — bug 0134 owns corpus-wide
+     stale-citation drift. Every citation this fix ADDS names a symbol.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Non-goals is unchanged and was respected —
+  the entry shape, the id minting, the removal site, sub-step 2's
+  snapshot-then-iterate shape, `factory.ts`'s PIC-29/30/31 drain routing, and
+  the binder's own cancellation plumbing are all untouched. No diagnostic code,
+  registry row or `Trigger` was added or widened, so the DIAG-2 closed-registry
+  obligation and H9a's empty-capture stderr gate need no edit (confirmed by the
+  real H9a run: `tests/fixtures/h7a/permitted-codes.json` unchanged).

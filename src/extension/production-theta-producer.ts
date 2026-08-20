@@ -94,6 +94,7 @@ import type { RuntimeRoot } from "../runtime-root";
 import type {
   ActiveInvocationEntry,
   ActiveInvocationRegistry,
+  ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 import type {
@@ -1540,6 +1541,63 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
   }
 
+  /**
+   * Dispatch-site pre-binder entry point (active-invocation-registry.md §"Registry
+   * contract" — Insertion "before any awaitable work"). The slash-command
+   * dispatch calls this AHEAD OF its awaited binder step and hands the returned
+   * ticket to the bind, so the entry's span covers the binder window too, not
+   * only the body window the bind used to open on its own. Delegates to
+   * `#openInvocationTicket`, which stays the single place the registry-side
+   * setup runs so `invocationId` keeps minting through the producer's PIC-20
+   * `IdSource` seam.
+   */
+  beginInvocation(input: {
+    readonly theta: ThetaCompositionInput;
+    readonly thetaAbort: AbortController;
+  }): ActiveInvocationTicket {
+    return this.#openInvocationTicket(input.theta.slashName, input.thetaAbort);
+  }
+
+  /**
+   * The registry-side half of the dispatch-site setup sequence
+   * (active-invocation-registry.md §"Registry contract"): the
+   * `Promise.withResolvers()` construction, the five-field entry (its
+   * `invocationId` minted through the PIC-20 `IdSource` seam), and the
+   * `Set.add`. Shared by `beginInvocation` (the pre-binder slash entry point)
+   * and the bind methods below, whose own insertion becomes a no-op reuse of an
+   * already-open ticket once one was handed in via `bindInput.invocationTicket`.
+   * `finish` is idempotent so a dispatch `finally` and a bind's own
+   * `finishInvocation` can both call it without double-removal;
+   * `settleDisposeBarrier` is exposed separately because subagent-mode teardown
+   * settles the barrier on observed child exit, a different moment from entry
+   * removal.
+   */
+  #openInvocationTicket(theta: string, thetaAbort: AbortController): ActiveInvocationTicket {
+    const activeInvocations = this.#input.activeInvocations;
+    let settleDispose: () => void = (): void => {};
+    const disposeBarrier = new Promise<void>((resolve) => {
+      settleDispose = resolve;
+    });
+    const entry: ActiveInvocationEntry = {
+      thetaAbort,
+      disposeBarrier,
+      shutdownReason: undefined,
+      theta,
+      invocationId: this.#input.root.idSource.newInvocationId(),
+    };
+    activeInvocations?.add(entry);
+    let finished = false;
+    return {
+      settleDisposeBarrier: settleDispose,
+      finish: (): void => {
+        if (finished) return;
+        finished = true;
+        settleDispose();
+        activeInvocations?.remove(entry);
+      },
+    };
+  }
+
   bindPromptConversation(bindInput: ConversationBindInput): ConversationBinding {
     const { pi, root } = this.#input;
     const { theta, ctx } = bindInput;
@@ -1661,31 +1719,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
 
     // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
-    // invocation registry"): register this invocation in the shared registry
-    // the factory's `session_shutdown` teardown reads, so sub-step 2 (cancel
-    // in-flight) can abort THIS `thetaAbort` and sub-step 3 (await dispose) can
-    // await its `disposeBarrier`. The per-invocation `thetaAbort` above is reused
-    // verbatim (never a fresh controller). `invocationId` is minted through the
-    // PIC-20 `IdSource` seam and `theta` is the canonical slash name (no leading
-    // `/`). The entry is added LAST — this method is synchronous and cannot
-    // throw between here and the return — and its removal is deferred to
-    // `finishInvocation`, which the DRIVE seam calls in a `finally` AFTER the
-    // body runs, so the entry SPANS the real in-flight window. Prompt mode has
-    // no `AgentSession.dispose()` analogue, so the barrier settles immediately
-    // at finish.
-    const activeInvocations = this.#input.activeInvocations;
-    let settleDispose: () => void = (): void => {};
-    const disposeBarrier = new Promise<void>((resolve) => {
-      settleDispose = resolve;
-    });
-    const entry: ActiveInvocationEntry = {
-      thetaAbort,
-      disposeBarrier,
-      shutdownReason: undefined,
-      theta: theta.slashName,
-      invocationId: root.idSource.newInvocationId(),
-    };
-    activeInvocations?.add(entry);
+    // invocation registry"): the invocation's registry entry, keyed by THIS
+    // `thetaAbort` so sub-step 2 (cancel in-flight) and sub-step 3 (await
+    // dispose) reach it. The slash dispatch entry point already opened the
+    // entry ahead of the binder await (`beginInvocation`); this bind REUSES that
+    // ticket via `bindInput.invocationTicket` rather than adding a second entry.
+    // A bind reached with no ticket (an `invoke` spawn site, the child-side
+    // regime, or an in-memory harness) opens its own here. Prompt mode has no
+    // `AgentSession.dispose()` analogue, so the barrier settles immediately at
+    // finish.
+    const ticket =
+      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     // Publish the invocation-scoped forwarding sources onto the shared sink LAST
     // (this method is synchronous and cannot throw between here and the return),
     // so a normal settle removes them via `finishInvocation` and only a
@@ -1694,13 +1738,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     let finished = false;
     // Idempotent: the DRIVE `finally` calls this once; a defensive caller may
     // call again with no effect. A NORMAL settle detaches the forwarding
-    // listeners and splices them off the shared sink (no accumulation).
+    // listeners and splices them off the shared sink (no accumulation), then
+    // finishes the (possibly shared) ticket.
     const finishInvocation = (): void => {
       if (finished) return;
       finished = true;
       detachForwarding();
-      settleDispose();
-      activeInvocations?.remove(entry);
+      ticket.finish();
     };
 
     return {
@@ -1908,31 +1952,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       file: theta.slashName,
     };
 
-    // Decision 6 / Increment B1: register this invocation in the shared registry
-    // the factory's `session_shutdown` teardown reads. Registered here (before
-    // the lazy child launch inside `drive()`), so the entry SPANS the real
-    // in-flight window; removal is deferred to `finishInvocation`.
-    const activeInvocations = this.#input.activeInvocations;
-    let settleDispose: () => void = (): void => {};
-    const disposeBarrier = new Promise<void>((resolve) => {
-      settleDispose = resolve;
-    });
-    const entry: ActiveInvocationEntry = {
-      thetaAbort,
-      disposeBarrier,
-      shutdownReason: undefined,
-      theta: theta.slashName,
-      invocationId: root.idSource.newInvocationId(),
-    };
-    activeInvocations?.add(entry);
+    // Decision 6 / Increment B1: the invocation's registry entry, opened before
+    // the lazy child launch below so the entry SPANS the real in-flight window;
+    // removal is deferred to `finishInvocation`. The slash dispatch entry
+    // point's pre-binder ticket is REUSED when present (`bindInput.invocationTicket`),
+    // so the entry also spans the binder window and no second entry is added.
+    const ticket =
+      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
     let finished = false;
     const finishInvocation = (): void => {
       if (finished) return;
       finished = true;
       detachForwarding();
-      settleDispose();
-      activeInvocations?.remove(entry);
+      ticket.finish();
     };
 
     // ---- EAGER child-process launch (PIC-65 / PIC-58 / PIC-60 / PIC-66) ----
@@ -2074,7 +2107,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       await runSubagentChildTeardown(child, {
         emitDiagnostic,
         detachAbortListener: cancellation.detach,
-        settleDisposeBarrier: settleDispose,
+        settleDisposeBarrier: ticket.settleDisposeBarrier,
         clock: root.clock,
       });
     };
