@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.139.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0204 — the bracket-blind generic-argument shred no longer falsely
+  refuses inline objects.** `splitTopLevel` never tracked bracket depth, so
+  `array<{a: integer, b: string, c: boolean}>` (and kin) shredded into
+  segments that drew refusals on input the grammar derives.
+  `lowerTypeExpr`'s generic arm now classifies its argument list per segment
+  (`classifyGenericArgumentSegments`) and recurses non-whole segments with
+  the `unspellable` sink dropped — no split widened, no decline narrowed,
+  zero lowered bytes moved; 0164's d6/d7 and every landed TRUE refusal
+  byte-intact. Three registry Trigger cells re-derived same commit. Witness:
+  `tests/generic-argument-shredded-group-refusal.test.ts` (135 cells) + H8a
+  cell 70 (red-proven both directions).
+
 ## [0.138.0] - 2026-08-26
 
 ### Fixed

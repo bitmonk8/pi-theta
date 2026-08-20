@@ -699,15 +699,32 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
   const lt = s.indexOf("<");
   if (lt > 0 && s.endsWith(">")) {
     const ctor = s.slice(0, lt).trim();
-    const args = splitTopLevel(s.slice(lt + 1, s.length - 1), ",");
+    const interior = s.slice(lt + 1, s.length - 1);
+    const args = splitTopLevel(interior, ",");
+    // Bug 0204 §Fix (b)(3): `args`' SEGMENT COUNT and every lowered byte stay
+    // exactly what the angle-only `splitTopLevel` above produces — widening
+    // that split is §Fix (b)(1), whose cost is landed lowered bytes. What
+    // changes is which `LowerCtx` each SEGMENT recurses under, decided per
+    // segment and never for the list as a whole:
+    // `classifyGenericArgumentSegments` (below) reproduces this same split's
+    // cut points and marks the segments that are not whole in the source, and
+    // only those recurse without `unspellable`, so a fragment the split
+    // manufactured can never reach `isUnspellableTextRefusable` while a whole
+    // argument of the same list keeps its judgement.
+    const segments = classifyGenericArgumentSegments(interior);
+    // A segment index the classification does not cover cannot arise — the
+    // scan reproduces this split's cut points, trim and non-empty filter — and
+    // judging is the direction that adds no silent suppression if it ever did.
+    const ctxFor = (index: number): LowerCtx =>
+      segments[index]?.whole === false ? withoutUnspellableSink(lowerCtx) : lowerCtx;
     if (ctor === "array" && args.length === 1) {
       const first = args[0] ?? "";
-      return { type: "array", items: lowerGenericArgument(first, lowerCtx) };
+      return { type: "array", items: lowerGenericArgument(first, ctxFor(0)) };
     }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
-    for (const arg of args) {
-      lowerGenericArgument(arg, lowerCtx);
+    for (const [index, arg] of args.entries()) {
+      lowerGenericArgument(arg, ctxFor(index));
     }
     return {};
   }
@@ -905,6 +922,120 @@ function lowerLiteralUnionArm(arm: string): Record<string, unknown> | undefined 
  */
 function lowerGenericArgument(arg: string, lowerCtx: LowerCtx): Record<string, unknown> {
   return lowerLiteralSublanguage(arg) ?? lowerTypeExpr(arg, lowerCtx);
+}
+
+/** One segment of a generic argument list, with whether the SOURCE spells it. */
+export interface ClassifiedArgumentSegment {
+  /** The trimmed segment text — byte-identical to `splitTopLevel`'s entry. */
+  readonly text: string;
+  /** Whole in the source: both delimiting commas at group depth 0, and balanced. */
+  readonly whole: boolean;
+}
+
+/**
+ * `lowerTypeExpr`'s generic-argument list, cut exactly where its angle-only
+ * `splitTopLevel` cuts it, with each segment marked whole-in-the-source or not
+ * (bug 0204 §Fix (b)(3)). A segment is WHOLE iff every comma boundary that
+ * delimits it sat at `{…}`/`[…]` depth 0 — the start and end of the interior
+ * count as such boundaries — and the segment's own groups balance. Anything
+ * else is a piece the split cut out of a group the author wrote as one unit,
+ * and only those pieces recurse without the refusal sink.
+ *
+ * `array<{a: string, b: integer, c: boolean}, ???>`'s interior is why the
+ * decision is per SEGMENT and not per list: three of its four segments are
+ * pieces of the cut `{…}` group, and the fourth, `???`, is a whole argument
+ * the source spells and keeps its judgement.
+ *
+ * The scan reproduces `splitTopLevelSegments`' `"angle"` idiom byte for byte —
+ * the same angle-depth counter, the same quote/escape handling, the same trim,
+ * and `splitTopLevel`'s non-empty filter — so `text` in order equals
+ * `splitTopLevel(interior, ",")` and the classification indexes that array
+ * directly. It adds one counter the split does not keep, `{}`/`[]` depth, and
+ * changes no cut point: widening the split itself is §Fix (b)(1), whose cost
+ * is landed lowered bytes (bug 0164's `d6`/`d7` pin the unwidened shape as
+ * deliberate), and sharing bug 0124's position-level decline over the whole
+ * captured source is §Fix (b)(2), which drops TRUE refusals
+ * (`{a: array<Cat +>}` and its siblings) that carry both a brace and an angle
+ * bracket. Classifying leaves the split, its segment count and every lowered
+ * byte untouched; only a manufactured piece's access to the refusal sink
+ * changes.
+ */
+export function classifyGenericArgumentSegments(interior: string): ClassifiedArgumentSegment[] {
+  const segments: ClassifiedArgumentSegment[] = [];
+  let angle = 0;
+  let group = 0;
+  let quote: string | undefined;
+  let current = "";
+  // The interior's start is a boundary at group depth 0 by construction.
+  let leftBoundaryWhole = true;
+  let segmentGroup = 0;
+  let segmentUnbalanced = false;
+  const push = (rightBoundaryWhole: boolean): void => {
+    const text = current.trim();
+    if (text.length > 0) {
+      segments.push({
+        text,
+        whole:
+          leftBoundaryWhole && rightBoundaryWhole && segmentGroup === 0 && !segmentUnbalanced,
+      });
+    }
+    current = "";
+    segmentGroup = 0;
+    segmentUnbalanced = false;
+    leftBoundaryWhole = rightBoundaryWhole;
+  };
+  for (let i = 0; i < interior.length; i += 1) {
+    const c = interior[i] ?? "";
+    if (quote !== undefined) {
+      current += c;
+      if (c === "\\" && i + 1 < interior.length) {
+        current += interior[i + 1] ?? "";
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "<") {
+      angle += 1;
+    } else if (c === ">") {
+      angle -= 1;
+    } else if (c === "{" || c === "[") {
+      group += 1;
+      segmentGroup += 1;
+    } else if (c === "}" || c === "]") {
+      group -= 1;
+      segmentGroup -= 1;
+      if (segmentGroup < 0) {
+        segmentUnbalanced = true;
+      }
+    } else if (c === "," && angle === 0) {
+      push(group === 0);
+      continue;
+    }
+    current += c;
+  }
+  // The interior's end is a boundary at group depth 0 whenever the whole
+  // interior balances; an unbalanced tail is itself a piece, not an argument.
+  push(group === 0);
+  return segments;
+}
+
+/**
+ * A `LowerCtx` copy carrying no `unspellable` sink — every other member's
+ * identity (`unresolved`, `reservedKeywords`, `defs`, `bodyTypeMap`,
+ * `inlineFragments`, etc.) is untouched, so name resolution and the
+ * `$defs` mint proceed exactly as they do under the caller's own context
+ * (bug 0204 §Fix (b)(3): only the refusal-sink field is what a
+ * split-manufactured shard must never reach). `unspellable` is `LowerCtx`'s
+ * one optional array member a caller may thread or omit (see its own doc,
+ * above); omitting it here is that same contract, not a new one.
+ */
+function withoutUnspellableSink(lowerCtx: LowerCtx): LowerCtx {
+  const { unspellable: _unspellable, ...rest } = lowerCtx;
+  return rest;
 }
 
 /**
@@ -1316,6 +1447,22 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * `{x: integer` and `y: string}`), and neither half is brace-ROOTED, so a
  * narrower "brace-rooted" test would refuse both.
  *
+ * THE EXEMPTION STILL OWNS ONLY BRACE-CARRYING FRAGMENTS. A THIRD OR LATER
+ * interior field of a shredded brace group (`array<{a: string, b: integer,
+ * c: boolean}>`'s middle shard, `b: integer`) carries neither `{` nor `}`
+ * and this predicate alone would still call it refusable — that shard no
+ * longer reaches this function from the generic-argument recursion (bug 0204
+ * §Fix (b)(3), `classifyGenericArgumentSegments` below
+ * `lowerGenericArgument`): it is filtered out before the `unspellable` sink
+ * this predicate reads ever collects it, not by widening what this predicate
+ * declines. The filter is per SEGMENT of that split, so a WHOLE argument of
+ * the same list still arrives here and is still judged
+ * (`array<{a: string, b: integer, c: boolean}, ???>` reaches this predicate
+ * with `???` and nothing else), while junk the author wrote INSIDE a
+ * manufactured shard is under-refused (`array<{a: Cat +, b: integer,
+ * c: boolean}>` reaches this predicate with nothing at all) — the class bug
+ * 0059's cell d13 already carries.
+ *
  * ONE declined predicate for every position that refuses `unspellable` text —
  * `parseParams` below (`params:`, bug 0059 §Fix), the two body-position
  * emitters in `theta-document.ts` (a `schema` object-body field type and a
@@ -1525,7 +1672,16 @@ export function topLevelColon(entry: string): number {
  *     fragments they lower: `array<{a: string, b: integer}>` would present as one
  *     argument and take the `array` arm, emitting a fragment that asserts
  *     arrayness while dropping the element shape, and `{a: 1 | 2}` would stop
- *     splitting into arms at all.
+ *     splitting into arms at all. The GENERIC ARGUMENT split can still cut a
+ *     `{…}`/`[…]` group the author wrote as one unit — the segment count and
+ *     every lowered byte are exactly what this mode always produced — but the
+ *     pieces of such a cut are no longer JUDGED: bug 0204 §Fix (b)(3) marks
+ *     each segment whole-in-the-source or not
+ *     (`classifyGenericArgumentSegments`, `withoutUnspellableSink`, both
+ *     defined below `lowerGenericArgument`) and recurses only the pieces
+ *     under a `LowerCtx` carrying no `unspellable` sink, so a piece can never
+ *     reach `isUnspellableTextRefusable`'s decline while a whole argument
+ *     beside it still can.
  *   - `"angle-and-brace"` — `<…>` and `{…}`. This is what the `Type` grammar
  *     requires wherever a comma separates items whose own `Type` may be an
  *     `ObjectType`: grammar.md §"Type grammar" makes `ObjectType` a `Type` and

@@ -1138,6 +1138,14 @@ measurement forced it.
   shredded-argument shapes keep their permissive fragments — and bug 0204's
   subject, a falsified clause of `theta-document.ts`'s governance sentence for
   that same rule, was neither touched nor chased.
+
+  **Read back by bug 0204 (fixed, X.Y.Z).** 0204 corrected that clause and left
+  the split alone: it rejected widening precisely because this fix's `d6`/`d7`
+  controls pin the two shredded-argument shapes as landed bytes, and instead
+  stopped a MANUFACTURED shard from being judged. So `array<{m: "x" | "y"}>`
+  still lowers `items: {"anyOf":[{},{}]}` and `array<{m: "x", n: "y"}>` still
+  lowers `{}` — *Residuals* 5 above holds unchanged, now witnessed from the
+  refusal side as well — and `lowerGenericArgument`'s body is byte-identical.
   [0098](./0098-nonstring-literal-union-emission-unspecified.md) stays OPEN with
   its subject intact: this fix decides none of the bare-`enum` branch's bytes, it
   only makes the generic-argument depth a position where that branch is reached,

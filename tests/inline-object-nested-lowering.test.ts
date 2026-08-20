@@ -943,9 +943,21 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
 
   it("CONTROL (a8, fixtures G3/G4/G5): the permissive dispositions bug 0039 §Expected leaves unchanged", () => {
     // `array<{…}>`'s `{}` is load-bearing: the generic ARGUMENT split stays
-    // angle-only (params.ts:591–612), so a two-field element type presents as
-    // two arguments and the `array` arm does not match at all. Widening it
-    // would break `theta/parse/generic-arity-mismatch` agreement.
+    // angle-only (`TypeSplitNesting`, params.ts), so a two-OR-MORE-field
+    // element type presents as that many arguments and the `array` arm does
+    // not match at all — widening the split would not repair
+    // `generic-arity-mismatch` agreement (angle-only is already the mode
+    // that DISAGREES with that parser); the reason to keep it is the honesty
+    // one instead — widening would make a multi-field argument present as
+    // ONE, so the `array` arm would run and the FIELD would lower to
+    // `{"type":"array","items":{}}`, whose own `items` slot is `{}`:
+    // arrayness asserted while the element shape the source spells is
+    // dropped. This fixture's own argument, `{p: integer}`, has only one
+    // field, so it is never split either way and reaches `items: {}` the
+    // same route before
+    // and after bug 0204 §Fix (b)(3), which leaves the split and its lowered
+    // bytes untouched and only changes whether a shard the split CUTS FROM A
+    // GROUP is judged — a question this one-field argument never raises.
     const generic = loweredAnnotation("G3", "{a: array<{p: integer}>}");
     expect(
       generic,

@@ -1678,6 +1678,20 @@ currently supports it.
   untouched. `isUnspellableTextRefusable`'s doc comment (`src/parser/
   params.ts`) now records a fourth consumer, closing this report's residual 3
   in full.
+
+  **Discharged by bug 0204 (fixed, X.Y.Z).** This report's own residual 5 — the
+  pre-existing FALSE refusal at bugs 0061's and 0059's landed positions, which
+  this fix measured, declined and did not repair — is closed: 0204 stops
+  `lowerTypeExpr`'s generic-argument recursion from JUDGING a fragment the
+  angle-only split manufactured by cutting a `{…}`/`[…]` group, so
+  `array<{a: string, b: integer, c: boolean}>` and its kin load clean at the
+  `schema` field type, the alias arm and `params:` alike. This report's own
+  three positions are unaffected: the SHRED decline's two bracket tests are
+  byte-identical and NOT narrowed, and cells `s4`, `p1`, `p2` are green. Only
+  the decline's stated REASON was re-derived, from measurement: with both
+  declines neutralised the generic-argument half of the shred hazard now yields
+  an EMPTY refusable set, so the sentence's consequence is narrower than it
+  states and the UNION-split half is the half this decline still bears alone.
 - **Pinned dispositions / non-goals.** Every §Non-goals boundary held. The two
   schema `Type` positions stay 0061's and are byte-identical here; the `params:`
   position stays 0059's and likewise; the `@<T>` capture stays out of frame

@@ -91,7 +91,16 @@ anchors, and prose ("binder model").
   block-scalar-spelled, and wherever the fragment sits: at the top level, in a
   union arm at any depth, in a generic type argument (`array<a: Triage>`), or
   in an inline object type's field type at any depth (`{a: ???}`, `{a: {b:
-  ???}}`). Literal-shaped text is exempt, and so is a fragment that reaches the
+  ???}}`). "Fragment" ranges over text the source itself spells; a fragment the
+  generic-argument split MANUFACTURES by cutting a `{...}`/`[...]` group the
+  author wrote as one unit (`array<{a: string, b: integer, c: boolean}>`'s
+  middle shard, `b: integer`) is excluded and reaches no judgement. The
+  exclusion is per SEGMENT of that split: a whole argument of the same list
+  keeps its judgement (`array<{a: string, b: integer, c: boolean}, ???>` refuses
+  on `???`), and junk the author wrote INSIDE a manufactured shard is admitted
+  — an under-refusal, deliberate: `array<{a: Cat +, b: integer, c: boolean}>`
+  and `array<{a: string, b: integer, c: boolean} | Cat +>` draw nothing.
+  Literal-shaped text is exempt, and so is a fragment that reaches the
   check carrying a `{` or `}` — `{junk}`, the unterminated `{a: string`,
   `array<{a: ???}>` and `string | {a: ???}` keep their own lowering, which the
   brace frame owns; a brace-free fragment inside a hoisted inline object does

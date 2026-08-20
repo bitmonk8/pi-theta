@@ -1,7 +1,8 @@
 # Bug 0204 — `lowerTypeExpr`'s generic-argument split tracks angle depth alone, so the derivable annotation `array<{a: string, b: integer, c: boolean}>` shreds into `{a: string` / `b: integer` / `c: boolean}` and the brace-free middle shard — text no author wrote — draws `theta/parse/schema-type-not-expression` at a `schema` field type and at an alias arm and `theta/load/params-type-not-expression` at a `params:` field, one refusal per interior field past the second, with the theta unregistered, while the grammar's own argument parser counts ONE argument (no `generic-arity-mismatch`) and the byte-identical text at bug 0124's three positions is admitted by that fix's SHRED decline
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three routes are
-  enumerated below with their measured costs, and the choice is left to the run
+- **Status:** fixed (0.139.0). §Fix was constraint-pinned, not settled: three
+  routes are
+  enumerated below with their measured costs, and the choice was left to the run
   because the shredding split sits in the one lowering function every `Type`
   position reaches, and because each route pays in a different currency — route
   (b)(1) moves lowered bytes a landed cell pins
@@ -989,3 +990,301 @@ measured here:
   not mention the clause, and an open report
   ([0164](./0164-generic-argument-literal-lowers-permissive.md) §Fix constraint
   1) quotes it as governing.
+
+## Fix (0.139.0)
+
+Route **§Fix (b)(3)** — "mark the shards instead of judging them" — taken in the
+parenthetical's second form, *the traversal suppresses*. The two rejected routes
+and the ground for each rejection are recorded below, because §Fix left the
+mechanism to the run.
+
+- **What shipped:**
+  - `src/parser/params.ts` — `lowerTypeExpr`'s generic-application arm keeps
+    `splitTopLevel(interior, ",")` (the `"angle"` default) byte-untouched, and
+    classifies that same argument list PER SEGMENT with one new
+    `classifyGenericArgumentSegments`: a segment is *whole in the source* iff
+    both delimiting comma boundaries sat at `{…}`/`[…]` group depth 0 and the
+    segment's own groups balance. A non-whole segment — a piece the split cut
+    out of a group the author wrote as one unit — recurses through
+    `withoutUnspellableSink`, a `LowerCtx` copy carrying no `unspellable` sink,
+    so a fragment the split MANUFACTURED can never reach
+    `isUnspellableTextRefusable` and no position can refuse it. Every other
+    `LowerCtx` member keeps its identity, so name resolution, the reserved-word
+    sink and the `$defs` mint are untouched. The classifier reproduces
+    `splitTopLevelSegments`'s `"angle"` cut points, quote handling, escape
+    handling, trimming and non-empty filter exactly — asserted byte-for-byte
+    against the shipped `splitTopLevel` over 14 interiors (witness cell `l3`)
+    rather than argued.
+  - `src/parser/params.ts` comments re-derived where the change reached them:
+    `TypeSplitNesting`'s `"angle"` bullet (the split's segment count and lowered
+    bytes are unmoved; what changed is that its manufactured shards are no
+    longer JUDGED) and `isUnspellableTextRefusable`'s two-field-shred paragraph
+    (its brace exemption still owns brace-carrying fragments; a ≥3-field group's
+    brace-free interior shard no longer reaches the predicate from the
+    generic-argument recursion).
+  - **§Fix (c)(5) — the false clause corrected wherever repeated.**
+    `src/parser/theta-document.ts` said the argument split "stays angle-only
+    because widening it would disagree with
+    `theta/parse/generic-arity-mismatch`"; measured, angle-only is the mode that
+    DISAGREES (three arguments where `parseGeneric` counts one). The corrected
+    text converges on `TypeSplitNesting`'s wording and keeps the comment's
+    SECOND reason, which survives measurement: widening would make a multi-field
+    argument present as ONE and lower a fragment asserting arrayness while
+    dropping the element shape. The same clause restated in
+    `tests/inline-object-nested-lowering.test.ts`'s CONTROL `a8` comment is
+    corrected too — COMMENT ONLY, every changed line in that file is a `//`
+    line (`git diff -U0`), no assertion, fixture, title or expected value moved.
+  - **§Fix (c)(4) — DIAG-2, same commit.** Both refusing rows' *Trigger* text
+    fixed the judged unit as "a single brace-free FRAGMENT … the exemption is
+    the fragment's own, not its enclosure's", which licenses refusing a shard.
+    `docs/spec_topics/diagnostics/code-registry-parse.md`
+    (`theta/parse/schema-type-not-expression`) and `code-registry-load.md`
+    (`theta/load/params-type-not-expression`) now range the unit over fragments
+    the source spells and state the exclusion per SEGMENT, in both directions: a
+    whole argument of the same cut list KEEPS its judgement
+    (`array<{a: string, b: integer, c: boolean}, ???>` refuses exactly once, on
+    `???`), and junk carried INSIDE a manufactured shard is admitted, named as a
+    deliberate under-refusal of 0059 `d13`'s class. Mirrors edited where the
+    clause actually appears: `docs/reference/frontmatter.md` and
+    `docs/spec_topics/frontmatter/frontmatter-fields-a.md`. **The bug document's
+    mirror list is wider than the tree:** `docs/reference/grammar.md`,
+    `docs/reference/type-system.md` and `docs/reference/schema-subset.md` name
+    the two codes but carry no judged-unit clause (verified by grep for the
+    clause and by reading each cited neighbourhood), so they were left unedited
+    rather than mirrored into. `docs/reference/diagnostics.md` was re-verified
+    Trigger-less (code / severity / message columns only) and not edited. No
+    code, severity, Message, placeholder set or range changed; the placeholder
+    table stays CLOSED and no diagnostic code was added or removed.
+  - **The 0124 SHRED premise, re-derived same-commit and from measurement.**
+    0124's decline is grounded on "the shared traversal's generic-argument and
+    union splits track angle-bracket depth … but never bracket depth, so such
+    text can otherwise be split into a SHARD of a group the author wrote as one
+    unit", and bug 0203's row inherited the sentence verbatim. Post-fix no
+    split's bytes move and neither decline is narrowed, but the sentence's
+    CONSEQUENCE is narrower. Measured by neutralising both declines in a scratch
+    copy of the predicate (never the shipped one) and comparing the pre-fix and
+    post-fix traversals:
+
+    | source, both declines neutralised | pre-fix refusable set | post-fix |
+    | --- | --- | --- |
+    | `array<{a: string, b: integer, c: boolean}>` | `["b: integer"]` | `[]` |
+    | `Result<{a: string, b: integer, c: boolean}, QueryError>` | `["b: integer"]` | `[]` |
+    | `array<enum["a", "b"]>` | two bracket shards | `[]` |
+
+    So the GENERIC-ARGUMENT half of the hazard is discharged at its source and
+    the decline no longer bears it; the UNION-split half is untouched by this
+    fix and the decline still bears it alone. Written into
+    `src/parser/type-layer-checks.ts`'s `annotationSourceIsNotTypeExpression`
+    doc and into both inheriting registry rows
+    (`theta/parse/annotation-type-not-expression`,
+    `theta/parse/query-annotation-type-not-expression`) — as a re-derivation of
+    the reason, not a narrowing of either decline (§Non-goals: 0124's immune
+    positions are not narrowed, and its cells `s4`, `p1`, `p2` plus 0028's
+    `RESULT-LET-BRACE` rows are green and byte-unchanged).
+  - **`tests/generic-argument-shredded-group-refusal.test.ts` — new, 135 cells,
+    offline, provider-free** (groups (a)–(l)). 33 cells were RED at the fork
+    baseline; group (l) was appended in review round 1 for the per-segment
+    boundary. It drives the REAL `parseThetaDocument` over the §Reproduction (b)
+    fixture matrix at all three positions plus the shipped seams
+    (`splitTopLevel` in BOTH nesting modes, `isUnspellableTextRefusable`,
+    `lowerTypeExpr`). DIAG-4: every expected message is rendered from the
+    registry at runtime, with a loud failure if the row or a placeholder is
+    absent.
+  - **`tests/live/live-production-acceptance.test.ts` — one additive H8a cell,
+    token `CELL-B2`** (minted as cell 69 in this lane; the parent renumbers at
+    merge): a theta whose `params:` field is
+    `array<{a: string, b: integer, c: boolean}>` REGISTERS and binds through the
+    real discovery→registration path, with a plain control and a TRUE-refusal
+    control (`array<{a: string | ??? | boolean}>`) beside it so the admission is
+    not vacuous. No existing cell renumbered or modified.
+- **Gates** (each re-run independently by the orchestrator, not taken from a
+  nested report):
+  - Witness RED before / GREEN after, on TWO independent neutralisation levers
+    (`ctxFor` always returning the caller's context; the classifier marking
+    every segment whole): `Tests 40 failed | 95 passed (135)` and
+    `Tests 41 failed | 94 passed (135)`, the reds naming the bug's own symptom
+    (`theta/parse/schema-type-not-expression` /
+    `theta/load/params-type-not-expression` reappearing, and the `params:`
+    frontmatter withheld again); restored by editing, blob
+    `b667958e87625bb03f45b5caf3c6bd8e37186f16` before and after each lever;
+    `Tests 135 passed (135)`.
+  - Full default suite: `Test Files 335 passed (335)` / `Tests 6332 passed
+    (6332)` — from 334 files / 6197 tests at the fork baseline `4a26e795`; the
+    +1 file and +135 cells are this report's witness.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    clean, no output.
+  - LIVE H8a `CELL-B2`, run for real, BOTH directions: green with the fix
+    (`Tests 1 passed | 68 skipped (69)`), RED under neutralisation lever 1 with
+    the pre-fix signature (`did not register … Registered: ["b204livectl"]`),
+    green again after restoration.
+  - LIVE H9a, BOTH files, run for real: `Test Files 2 passed (2)` /
+    `Tests 11 passed (11)`. The empty-capture stderr gate and the permitted-code
+    subset are asserted inside the harness on every scenario; no new stderr code
+    surfaced, established by the real run.
+  - The §Fix (c)(1)/(c)(2) lock files re-run together: `Test Files 7 passed (7)`
+    / `Tests 655 passed (655)` — 0059's witness (`d9`, `d13` and the
+    0164-TRIPWIRE cells `d1`/`d2`/`d3`/`d3-body`), 0061's (`a19`–`a25`, `b2`,
+    `e1`, `g1`/`g2`), 0164's (`d6`/`d7`), 0124's (`s4`, `p1`, `p2`), 0203's
+    67-cell witness, 0028's `RESULT-LET-BRACE`, and
+    `tests/committed-fixture-parse-gate.test.ts`, which is what discharges the
+    corpus-wide "no shipped source moves" claim.
+- **Review:** 2 rounds.
+  - Round 1 (`bug-fix-reviewer`, deep) — 5 findings, one of them a blocker.
+    F1 [correctness]: the first implementation flipped ONE boolean per argument
+    LIST, so every shard of a cut list recursed sink-less and
+    `array<{a: string, b: integer, c: boolean}, ???>` lost the TRUE refusal for
+    `???` — a whole argument the source spells — against §Expected's last
+    bullet and against §Fix (b)(3)'s own "an ENTRY came from a group the split
+    cut". F2 [spec]: both restated Triggers therefore claimed a narrower
+    exclusion than the code performed. F3 [house-rule]: two `src/` comments
+    cited the run's git-ignored decisions file. F4 [prose]: the corrected `a8`
+    comment pinned the widened bytes to the wrong slot. F5 [prose]: banned
+    filler. Round 1 also confirmed with quoted evidence that the probe's
+    quote/escape idiom matches `splitTopLevelSegments`, that
+    `withoutUnspellableSink` OMITS the key under `exactOptionalPropertyTypes`
+    rather than setting `undefined` and preserves every other member's
+    identity, that both declines and both emitters are byte-identical, and that
+    the mirror census is correct.
+  - Fixer round 1 (`bug-fix-fixer`) closed all five: the suppression became
+    per-SEGMENT via `classifyGenericArgumentSegments`, witness group (l) was
+    APPENDED (10 cells, 125 → 135; no existing cell renumbered) pinning the kept
+    refusal, the classifier/split alignment, and the under-refusal with its
+    reason, and the remedy's own red direction was proved once.
+  - Round 2 (`bug-fix-reviewer-fast`) — **CLEAN**, with a 29-interior
+    adversarial alignment probe of its own (empty interior, leading / trailing /
+    doubled commas, quoted and escaped commas, unbalanced `}` / `]`, a stray
+    `>`, interleaved `[`/`{`, nested generics carrying commas, whitespace-only
+    segments), a column-by-column check that only *Trigger* prose moved in the
+    registry rows, and confirmation that `lowerGenericArgument`'s body and bug
+    0175's `ExprParser` surfaces are untouched.
+- **Verification** (`bug-fix-verifier`): **SOLID**, all four obligations
+  discharged with quoted evidence — the two-lever neutralise / RED / restore /
+  GREEN with matching blob hashes, the full suite, the live H8a cell in both
+  directions plus H9a 11/11 for real, and typecheck / lint. Also established:
+  no `.skip`/`.todo`/`.only` and no vacuous cell; no existing test's assertions,
+  fixtures, titles or expected values changed anywhere; the lane deltas hold
+  (`package.json`, `CHANGELOG.md`, `docs/bugs/README.md` untouched, tip still
+  `4a26e795`, nothing outside this worktree modified).
+- **§Fix (d) — GOV-15, the direction and the flip table, measured.** This fix
+  only REMOVES refusals; nothing newly refuses anywhere, measured (the zero-red
+  blast-radius premeasure at HEAD, the neutralised-decline table above, and the
+  full-suite run). The flips:
+
+  | spelling | before | after |
+  | --- | --- | --- |
+  | `array<{…}>` over an inline object with ≥3 fields, at a `schema` field type / alias arm | 1–3 × `theta/parse/schema-type-not-expression`, unregistered | loads, no diagnostic |
+  | the same at a `params:` field | 1 × `theta/load/params-type-not-expression`, frontmatter withheld | loads, `params:` lowered, `properties.f` = `{}` |
+  | the same nested (`array<array<{…}>>`, `{a: array<{…}>}`, union arm) | 1 × refusal | loads |
+  | an inline `enum[…]` inside a generic argument | 2 × `schema-type-not-expression` at the schema positions, 1 × `params-type-not-expression` | **nothing** — residual 1 |
+  | junk INSIDE a group the split cut (`array<{a: Cat +, b: integer, c: boolean}>`) | 1 × refusal, raised on the manufactured `b: integer` and never on the author's `Cat +` | admitted — residual 2 |
+  | a whole junk argument BESIDE a cut group (`array<{a,b,c}, ???>`) | 1 × refusal | 1 × refusal, unchanged |
+  | `{a: array<Cat +>}`, `{a: array<Cat +>, b: string}`, `string \| {a: array<Cat +>}` | 1 × refusal | unchanged — route (b)(2)'s three losses are NOT paid |
+  | every 0061 / 0059 refused row, and `array<integer, integer>`'s arity row | its refusal | unchanged |
+  | every lowered fragment in §Reproduction (a), and 0059 `d9`/`d13`, 0061 `e1`, 0039 `a8`, 0164 `d6`/`d7` | its bytes | byte-identical |
+
+- **Rejected routes, on this run's own measurements at HEAD.**
+  - **(b)(1), widen the split to `"angle-and-brace"`** — rejected because it
+    moves landed bytes at cells this document could not enumerate: 0164 landed
+    at 0.123.0 AFTER this report was filed, and its witness
+    `tests/generic-argument-literal-lowering.test.ts` cells `d6`/`d7` pin
+    exactly the two shredded-argument shapes as deliberate controls, stated
+    "Unmoved, by design" in 0164 `## Fix (0.123.0)` *Residuals* 5 and *Pinned
+    dispositions*. Widening reds them, and an existing assertion may move only
+    under pre-authorization this document cannot have granted.
+  - **(b)(2), share bug 0124's position-level decline** — rejected because it
+    drops the three TRUE refusals §Reproduction (f) measures
+    (`{a: array<Cat +>}`, `{a: array<Cat +>, b: string}`,
+    `string | {a: array<Cat +>}`, each re-measured refusing at HEAD at all three
+    positions), which §Expected's last bullet forbids in terms.
+  - **The cost this route DOES pay** is §Fix (b)(3)'s own, stated there and
+    accepted here: the element-1 argument-count disagreement stands, so
+    `array<{a: string, b: integer}>` keeps lowering `{}` for a shape the grammar
+    derives (residual 3). §Fix (b)(3)'s OTHER stated cost — a shared-type edit
+    to the sink's contract — is not paid at all: `LowerCtx`'s shape, the sink's
+    element type, all four readers of `isUnspellableTextRefusable` and both
+    emitters are byte-untouched.
+- **Residuals** (each with its evidence; the parent files any that warrant a
+  report):
+  1. **A nested inline `enum[…]` now draws NOTHING, at every position.**
+     Measured: `array<enum["a", "b"]>` and `array<enum["a", "b", "c"]>` draw `[]`
+     at the `schema` field type, the alias arm and `params:`, where HEAD drew
+     two `theta/parse/schema-type-not-expression` at the schema positions and
+     one `theta/load/params-type-not-expression`. The input is illegal at every
+     position (`enum` is top-level only; `grammar.md`'s `Type` set carries no
+     bracket form), so this is a lost diagnostic for illegal input, not a false
+     refusal repaired. §Fix (d)'s table admits the disposition
+     ("route-dependent: `theta/parse/inline-enum`, or nothing — stated either
+     way") and §Non-goals reserves the alternative to that row: whether
+     `checkInlineEnumForm`'s anchored match should also fire at depth is
+     `theta/parse/inline-enum`'s own question. It is untouched here, and the
+     bare spelling keeps its row (witness cells g1/g2). **Filing candidate:**
+     "an inline `enum[…]` inside a generic argument draws no diagnostic at any
+     position".
+  2. **Junk the author wrote INSIDE a group the split cut stays admitted** —
+     `array<{a: Cat +, b: integer, c: boolean}>` and
+     `array<{a: string, b: integer, c: boolean} | Cat +>` load clean at all
+     three positions (witness cells h1, l4, measured in both directions). This
+     is 0059 `d13`'s already-authorized under-refusal class (`array<{a: ???}>`
+     is admitted at HEAD for the same reason) widened from the 1–2-field case to
+     every field count: the fragment carrying the junk is not text the source
+     spells on its own, so this fix declines to judge it. Stated in both rows'
+     *Trigger* text as a deliberate under-refusal rather than left silent.
+     Repairing it means judging a group's fields as fields — the brace frame's
+     business (bugs 0035 / 0045 / 0052), not a split's.
+  3. **The argument-count disagreement of element 1 stands.** The lowering's
+     angle-only split still counts three arguments where `parseGeneric` counts
+     one, so `array<{a: string, b: integer}>` and the ≥3-field spellings keep
+     lowering `{}` — asserting nothing — rather than
+     `{"type":"array","items":{}}`. §Fix (b)(3) names this as the route's cost
+     and §Non-goals holds the bytes outside
+     ([0164](./0164-generic-argument-literal-lowers-permissive.md),
+     [0039](./0039-inline-object-annotation-root-phantom-fields-and-silent-nested-walk.md),
+     [0184](./0184-union-arm-literal-lowers-empty-schema.md)). §Expected's third
+     bullet ("One argument list, one argument count") is therefore satisfied in
+     its normative consequence — no refusal — and NOT at the mechanism level.
+     Whoever moves those bytes re-derives this report's rows.
+  4. **This document's §Fix (c)(4) mirror list is wider than the tree.**
+     `docs/reference/grammar.md`, `docs/reference/type-system.md` and
+     `docs/reference/schema-subset.md` are cited as carrying the judged-unit
+     clause; grepped at HEAD, they carry only the code names. Not edited, and
+     recorded here rather than chased.
+  5. **This fix's line growth in `src/parser/params.ts` and
+     `src/parser/type-layer-checks.ts` stales pre-existing `path:line`
+     citations in documents this change does not own** — bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s recorded
+     do-not-chase class. Only citations this run WROTE were verified, and all of
+     them are by symbol.
+  6. **One H8a live cell is stochastically flaky, and it is not this fix's.**
+     `H8a-T — typed-query lowering, bounded` failed once in four runs with a
+     DIFFERENT signature each time (sentinel absent; malformed JSON) on a
+     fixture the fix cannot reach — a two-field inline object at a `let`
+     annotation, carrying no `<`/`>`, so `lowerTypeExpr`'s generic-application
+     arm never runs for it. No open `docs/bugs/` report matches the signature.
+     Recorded for the parent as a live-suite flake, not a correct-reason red.
+- **Discharge notes appended** (append-only, nothing deleted):
+  [0124](./0124-parsetype-trailing-punctuation-leniency.md) — its `## Fix
+  (0.121.0)` *Residuals* item 5, this report's filing origin, discharged, and
+  its SHRED-decline premise re-derived rather than narrowed;
+  [0203](./0203-query-annotation-junk-suppresses-unresolved-named-type.md) — its
+  *Residuals* item 5 cost table, re-derived at HEAD on all three of its named
+  surfaces (its row's decline sentences, the
+  `annotationSourceIsNotTypeExpression` SHRED paragraph, and the witness cells
+  pinning the boundary: its group (g) `@<Ghost{>` / `@<Ghost}>` stay silent and
+  its group (d) rows keep their own position-rule codes, all measured green);
+  [0164](./0164-generic-argument-literal-lowers-permissive.md) — its *Pinned
+  dispositions* sentence about this report's subject, and its own `d6`/`d7`
+  controls, both preserved and now witnessed from this side.
+- **Pinned dispositions / non-goals:** every §Non-goals boundary held. Bug
+  0124's immune positions keep their SHRED decline unnarrowed and their cells
+  green; the brace frame's ownership of balanced-brace text is untouched
+  (`isUnspellableTextRefusable`'s body is byte-identical); what an admitted
+  generic argument lowers to stays 0164's / 0039's / 0184's, and every pinned
+  byte set is byte-identical; the arity rule and the closed constructor set are
+  untouched (`array` stays arity 1, cell `b2` green); the `@<T>` position still
+  threads no `unspellable` sink (bug 0061 §Fix constraint 2's byte-freeze) and
+  this fix threads none; `theta/parse/inline-enum`'s wording and its anchored
+  match are untouched (residual 1); bug 0175's subject — `ExprParser`'s
+  end-of-input trailing tokens — is not reached, and `lowerGenericArgument`'s
+  body is byte-identical, so 0164's landed literal-sublanguage consult is
+  unmoved.

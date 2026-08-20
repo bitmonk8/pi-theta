@@ -11377,3 +11377,177 @@ describe("H8a-T -- bug 0210 (cell cell 69): the spawnSubagentConversation params
     }
   });
 });
+
+// ===========================================================================
+// cell 70 — bug 0204 (cell 69): `lowerTypeExpr`'s generic-application arm
+// (src/parser/params.ts) reads a `GenericType` argument list with
+// `splitTopLevel`'s `"angle"` default, which counts `<`/`>` and never
+// `{`/`}` (`splitTopLevelSegments`' `tracksBraces` gate). A `params:` field
+// declaring `array<{a: string, b: integer, c: boolean}>` — an `ObjectType`
+// with THREE OR MORE fields, derivable by grammar.md:99–:101 and :109 — is
+// therefore cut into `{a: string` / `b: integer` / `c: boolean}`; the
+// brace-free middle shard survives the shared decline
+// (`isUnspellableTextRefusable`) and refuses the whole field with
+// `theta/load/params-type-not-expression`, withholding the WHOLE
+// frontmatter (`frontmatter === null`) so the theta is absent from the
+// registry rather than degraded
+// (docs/bugs/0204-bracket-blind-split-shreds-inline-object-in-generic.md).
+//
+// THE FIX (§Fix (b)(3), traversal suppression): `classifyGenericArgumentSegments`
+// marks each segment of that same split whole-in-the-source or not, and only
+// the non-whole ones recurse under a `LowerCtx` with `unspellable` dropped
+// (`withoutUnspellableSink`), so the manufactured `b: integer` shard can
+// never reach the sink this refusal reads. No split byte, no decline verdict
+// and no lowered byte moves.
+//
+// THIS CELL IS AN ADMISSION CELL, NOT A DENIAL — the same inversion bug
+// 0081's `b81livegood` cell above states for itself. `b204liveshredded`'s
+// REGISTRATION, not its absence, is the fixed observable: pre-fix the field
+// refuses and the frontmatter is withheld; post-fix the theta registers
+// through the REAL production composition root (session_start →
+// resources_discover → composeExtensionInstance → checkTypeLayer), never
+// exercised live before this addition. `b204livectl` proves the workspace
+// and discovery walk both work independent of this bug, and
+// `b204livebroken` — a union arm carrying junk the AUTHOR wrote
+// (`array<{a: string | ??? | boolean}>`, the unit witness's cell i3) — is
+// the refusal CONTROL: it must NOT register before or after the fix, proving
+// the admission above is not "the harness registers every params: field
+// now". `bind_model:` is pinned on every `params:`-declaring theta here
+// because none of the three fields is `classifyBinderBypass`'s
+// single-string-bypass shape (an `array<{…}>` or union field, never a bare
+// `string`), so all three would otherwise draw
+// `theta/load/binder-model-unresolved` at registration independent of this
+// bug (mirroring the bug 0059/0102 cells above).
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends zero tokens (the same profile the bug 0081/0059/0102 cells
+// above claim). ADDITIVE ONLY: cells 1–68 are unchanged, and this cell adds
+// no assertion to any existing cell in this file.
+//
+// NOTE (cell 70 / cell 69): the parent renumbers cells at merge; a
+// tail-append rebase conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/**
+ * A `params:` theta with ONE field of the declared type, and a resolvable
+ * `bind_model:` — every field here is a `binder`-kind shape
+ * (`classifyBinderBypass`), so registration reaches the binder-model
+ * resolution guard regardless of this bug, and the pin isolates each
+ * theta's verdict to the type-text refusal alone. The pure-literal final
+ * value (no query) matches this file's other registration-only params
+ * cells: registration is the only observable read.
+ */
+function cellB2ParamsTheta(fieldType: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    `  f: '${fieldType}'`,
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0204 (cell 70, cell 69): a params: field over an inline object with 3+ fields under a generic argument registers, live (Convention: live-host acceptance)", () => {
+  it("registers a theta whose params: field declares array<{…}> over a THREE-field inline object, while a union arm carrying author-written junk still does not register, through the real discovery\u2192registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // sibling's status could be (wrongly) attributed to a broken workspace
+      // instead of the generic-argument shred-suppression fix under test.
+      { source: "project", stem: "b204livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The load-bearing ADMITTED theta: a `params:` field declaring
+      // `array<{a: string, b: integer, c: boolean}>` — the unit witness's T3,
+      // the first interior-field count whose middle shard is brace-free.
+      // THIS is the fixed observable — its REGISTRATION, not its absence.
+      {
+        source: "project",
+        stem: "b204liveshredded",
+        text: cellB2ParamsTheta("array<{a: string, b: integer, c: boolean}>"),
+      },
+      // The refusal CONTROL: a union arm carrying junk the AUTHOR wrote (the
+      // unit witness's cell i3). Must NOT register before or after the fix,
+      // proving the admission above is not "every params: field registers
+      // now" — the split cut no group here (the argument-list interior
+      // carries no top-level comma), so the suppression does not apply and
+      // the refusal the author earned stands.
+      {
+        source: "project",
+        stem: "b204livebroken",
+        text: cellB2ParamsTheta("array<{a: string | ??? | boolean}>"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b204livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the generic-argument shred-suppression fix under test, would explain " +
+          "either sibling's status too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE — the admission. Through the REAL production
+      // composition root (not the offline parseThetaDocument harness the
+      // unit witness uses), a `params:` field declaring a derivable
+      // three-field `array<{…}>` now registers: `classifyGenericArgumentSegments`
+      // marks the split's cut pieces of the `{…}` group as not whole in the
+      // source, they recurse under a `LowerCtx` with no `unspellable` sink,
+      // and `theta/load/params-type-not-expression` never fires — so
+      // `hasLoadParseError` (production-composition.ts) sees nothing to
+      // un-register on and the frontmatter is no longer withheld. Pre-fix
+      // this theta would NOT have registered (this is the cell whose
+      // registration, not its absence, is the fix's own proof — the same
+      // inversion the bug 0081 `b81livegood` cell above states for itself).
+      expect(
+        handle.command("b204liveshredded"),
+        "the params: field declaring `array<{a: string, b: integer, c: " +
+          "boolean}>` did not register through the live discovery/session_start " +
+          "path — the generic-argument split's manufactured middle shard `b: " +
+          "integer` still reached the refusal sink and " +
+          "theta/load/params-type-not-expression still fired on a spec-legal " +
+          "source, withholding the whole frontmatter. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE CONTROL — a TRUE refusal survives. `???` is a union arm the
+      // author wrote (no group cut, so the suppression never applies), so
+      // this theta must NOT register, proving the admission above is not a
+      // vacuous "every params: field registers now" pass.
+      expect(
+        handle.command("b204livebroken"),
+        "the union-arm control (`array<{a: string | ??? | boolean}>`, junk the " +
+          "author wrote, no group cut) registered anyway through the live " +
+          "discovery/session_start path — theta/load/params-type-not-expression " +
+          "did not fire, so the admission above would prove nothing (a harness " +
+          "or a regressed fix that admits every params: field would pass " +
+          "b204liveshredded the same way). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b204livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager`
+      // rather than off racy events: the diagnostic fires at LOAD time,
+      // before any drive, so the full entry list is the delta (mirrors the
+      // bug 0059/0102/0081 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = paramsTypeNotExpressionFragment("f");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the params-type-not-expression " +
+          "rejection for the union-arm control. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

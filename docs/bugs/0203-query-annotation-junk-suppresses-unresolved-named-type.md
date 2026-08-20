@@ -1209,6 +1209,22 @@ applies there.
   ADMITTED because `splitTopLevel` never tracks bracket depth) is left as a
   BOUNDARY RECORD, unedited. `QueryExpr.ascriptionWritten` is this fix's new
   surface; 0204 touches no query AST and should not need it.
+
+  **Re-derived by bug 0204 (fixed, X.Y.Z).** 0204 took its route (b)(3)
+  (traversal suppression), so no split widened and neither decline narrowed:
+  this row's two decline sentences keep their predicate and this row's inherited
+  ADMISSIONS are unchanged — `@<Ghost{>` and `@<Ghost}>` stay silent, and group
+  (d)'s `@<{}-->` / `@<{a: string, a: integer}-->` keep their own position-rule
+  codes, all measured green in 0204's gate run. What DID move is the decline's
+  stated REASON: 0204 measured that the GENERIC-ARGUMENT half of the shred
+  hazard no longer reaches judgement at all (with both declines neutralised,
+  `array<{a: string, b: integer, c: boolean}>` and
+  `Result<{a: string, b: integer, c: boolean}, QueryError>` yield an EMPTY
+  refusable set post-fix where they yielded `["b: integer"]` pre-fix), so this
+  row's Trigger and `annotationSourceIsNotTypeExpression`'s doc now say the
+  decline still bears the UNION-split half alone. The third surface named here —
+  the witness cells pinning the boundary — needed no edit. `QueryExpr.
+  ascriptionWritten` was not touched.
 - **Residuals.** (1) The `g1` fence flip above is pending PARENT RATIFICATION
   — evidence: bug 0203 §Fix (b)(8) enumerates three cells and this is a fourth,
   in bug 0061's witness rather than bug 0124's; bug 0061's own cell comment

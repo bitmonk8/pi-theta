@@ -5388,9 +5388,16 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
  *   - a brace group inside a GENERIC ARGUMENT. `{a: array<{x: Tirage}>}`
  *     raises no unresolved-named-type at any position: `lowerTypeExpr`
  *     recurses an argument
- *     through itself, and the argument split stays angle-only because
- *     widening it would disagree with `theta/parse/generic-arity-mismatch`
- *     (params.ts, `TypeSplitNesting`).
+ *     through itself, and the argument split stays angle-only — not because
+ *     widening it would disagree with `theta/parse/generic-arity-mismatch`;
+ *     measured, angle-only is the mode that DISAGREES with that parser (an
+ *     angle-only split counts three arguments where `parseGeneric` counts
+ *     one). `TypeSplitNesting`'s own doc (params.ts) states the relation
+ *     correctly. The reason angle-only stands is the honesty one below: a
+ *     brace-under-generic argument that widened would present as one
+ *     argument and lower `{"type":"array","items":{}}`, asserting arrayness
+ *     while dropping the element shape the source spells — bug 0204 keeps
+ *     those bytes.
  *   - a brace group whose OWN interior `|` sits beside another arm.
  *     `{ a: Tirage | null } | Cat` raises none anywhere either: the angle-only
  *     `|` split SHREDS the group into `{ a: Tirage` and `null }`, and

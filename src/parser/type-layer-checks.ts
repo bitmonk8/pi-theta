@@ -939,17 +939,32 @@ const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
  *
  * THE SHRED DECLINE — mandatory, and sound in only one direction: it can
  * refuse LESS than the sink otherwise would, never more. `splitTopLevel`'s
- * generic-argument and union splits (./params) track angle-bracket depth,
- * and inside an inline object brace depth, but never bracket depth, so a
- * source combining a brace group with an angle bracket can hand the sink a
- * SHARD of a group the author wrote as one unit: `Result<{a: string, b:
- * integer, c: boolean}, QueryError>` shreds to `["{a: string", "b: integer",
- * "c: boolean}"]`, and the brace-free middle shard is refusable entirely on
- * its own. Declining any source carrying a `[` or `]`, or carrying BOTH a
- * brace and an angle bracket, before the sink ever runs is what keeps that
- * shard from reaching judgement — without it this recogniser falsely refuses
- * a LEGAL annotation and reds bug 0028's witness
- * (tests/unresolved-annotation-lowering.test.ts, RESULT-LET-BRACE).
+ * generic-argument and union splits (./params) still never track bracket
+ * depth, so a source combining a brace group with an angle bracket COULD
+ * hand the sink a SHARD of a group the author wrote as one unit:
+ * `Result<{a: string, b: integer, c: boolean}, QueryError>` used to shred to
+ * `["{a: string", "b: integer", "c: boolean}"]`, with the brace-free middle
+ * shard refusable entirely on its own. Declining any source carrying a `[`
+ * or `]`, or carrying BOTH a brace and an angle bracket, before the sink
+ * ever runs is what keeps that shard from reaching judgement — without it
+ * this recogniser falsely refuses a LEGAL annotation and reds bug 0028's
+ * witness (tests/unresolved-annotation-lowering.test.ts, RESULT-LET-BRACE).
+ *
+ * POST-BUG-0204, THIS DECLINE'S OWN CONSEQUENCE IS NARROWER THAN THE
+ * PARAGRAPH ABOVE STATES, measured (not reasoned) by neutralising both
+ * declines in a scratch copy of this function and comparing the pre-0204 and
+ * post-0204 traversal: the GENERIC-ARGUMENT half of the hazard — the
+ * `Result<{...}, QueryError>` example above, and `array<{a: string, b:
+ * integer, c: boolean}>` — now yields an EMPTY refusable set with the
+ * decline removed, where the identical probe against the pre-0204 traversal
+ * yielded `["b: integer"]`: `lowerTypeExpr`'s generic-application arm
+ * (params.ts, bug 0204 §Fix (b)(3)) already stops a shard the split cuts
+ * from a `{...}`/`[...]` group before it can reach the sink this decline
+ * guards, so this decline no longer has that half of the hazard to protect
+ * against. The decline itself is NOT narrowed — both bracket tests stay
+ * exactly as written — because the UNION-split half (a brace group whose own
+ * top-level `|` a union split can shred) is untouched by bug 0204's fix and
+ * this decline still bears it alone.
  */
 export function annotationSourceIsNotTypeExpression(src: string): boolean {
   const text = src.trim();
