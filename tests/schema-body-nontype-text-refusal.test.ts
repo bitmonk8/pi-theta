@@ -1121,9 +1121,20 @@ describe("bug 0061 (f) — the controls do not move", () => {
 });
 
 // ===========================================================================
-// (g) CONSTRAINT 2 — the three OTHER `Type` positions are over-refusal
-// tripwires: byte-identical lowered documents AND byte-identical diagnostic
-// sequences across the change. GREEN at HEAD and required to stay green.
+// (g) CONSTRAINT 2 — the OTHER `Type` positions are over-refusal tripwires:
+// byte-identical lowered documents AND byte-identical diagnostic sequences
+// across THIS bug's change. GREEN at HEAD and required to stay green. THE
+// `value` POSITION (`let` annotations, `fn` parameter types) AND THE `return`
+// POSITION ARE NO LONGER FENCED SILENT HERE: bug 0124 §Fix threads its OWN
+// refusal at those three positions (`theta/parse/annotation-type-not-expression`,
+// `annotationSourceIsNotTypeExpression` in src/parser/type-layer-checks.ts,
+// consulted from `walkStatement`'s `let` and `fn` arms in
+// src/parser/theta-document.ts), independent of this bug's `lowerTypeSource`
+// sink — none of the three ever reached that function, so this bug's own
+// byte-identical-LOWERING claim stands untouched while their diagnostic
+// SEQUENCE gains bug 0124's row (g3/g4/g5 below, authority: bug 0124 §Fix).
+// Only the `@<T>` annotation (g1/g2) still threads no sink under either bug
+// and stays silent.
 // ===========================================================================
 
 /** A `mode: prompt` theta carrying `body` after the shared declarations. */
@@ -1165,11 +1176,14 @@ describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and th
     ).toEqual(PERMISSIVE);
   });
 
-  it("GREEN (g3, `value` position): `let x: Cat + = 1` stays silent", () => {
-    // The `value` position reaches `parseTypeExpression`
-    // (src/parser/theta-document.ts:6231) but never `lowerTypeSource`, so a
-    // recogniser placed at the type-grammar seam would move it and a
-    // lowering-side one cannot.
+  it("GREEN (g3, `value` position): `let x: Cat + = 1` is refused now by bug 0124", () => {
+    // MOVED (authority: bug 0124 §Fix). The `value` position reaches
+    // `parseTypeExpression` but never `lowerTypeSource`, so this bug's own
+    // sink cannot be what refuses it — bug 0124 threads a SEPARATE recogniser
+    // (`annotationSourceIsNotTypeExpression`, src/parser/type-layer-checks.ts)
+    // consulted directly from `walkStatement`'s `let` arm, independent of this
+    // bug's `lowerTypeExpr` catch-all. The lowered bytes claim this group
+    // makes is untouched — this position never lowers at all.
     const label = "g3 (let annotation)";
     const doc = parseDoc(bodyOnlySrc("let x: Cat + = 1\nx\n"), "bug0061.theta");
     const lets = doc.body.statements.filter((s): s is LetStmt => s.kind === "let");
@@ -1178,10 +1192,16 @@ describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and th
       `${label}: precondition — the junk was captured into the annotation, so this position was ` +
         `actually handed the text`,
     ).toEqual(["Cat+"]);
-    expect(diagLines(doc), `${label}: outside this fix's reach (§Fix constraint 2)`).toEqual([]);
+    expect(
+      diagLines(doc),
+      `${label}: bug 0124's own refusal now covers this position; it is not this bug's row and ` +
+        `not this bug's sink`,
+    ).toEqual([line("theta/parse/annotation-type-not-expression", "<name>", "x")]);
   });
 
-  it("GREEN (g4, `value` position): `fn f(p: Cat +): integer { 1 }` stays silent", () => {
+  it("GREEN (g4, `value` position): `fn f(p: Cat +): integer { 1 }` is refused now by bug 0124", () => {
+    // MOVED (authority: bug 0124 §Fix) — the parameter-type twin of g3, same
+    // recogniser, same independence from this bug's own sink.
     const label = "g4 (fn parameter type)";
     const doc = parseDoc(
       bodyOnlySrc("fn f(p: Cat +): integer { 1 }\nlet inert = 1\ninert\n"),
@@ -1192,16 +1212,21 @@ describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and th
       fns.flatMap((f) => f.params.map((p) => `${p.name}: ${p.type}`)),
       `${label}: precondition — the junk was captured into the parameter type`,
     ).toEqual(["p: Cat+"]);
-    expect(diagLines(doc), `${label}: outside this fix's reach (§Fix constraint 2)`).toEqual([]);
+    expect(
+      diagLines(doc),
+      `${label}: bug 0124's own refusal now covers this position; it is not this bug's row and ` +
+        `not this bug's sink`,
+    ).toEqual([line("theta/parse/annotation-type-not-expression", "<name>", "p")]);
   });
 
-  it("GREEN (g5, `return` position): `fn f(): Cat + { 1 }` keeps its measured disposition", () => {
-    // MEASURED AT HEAD, not assumed: the return position is silent here, with
-    // the junk captured whole as the return type. The property constraint 2
-    // pins is that this is UNCHANGED by the fix, so the cell asserts the
-    // measurement rather than a desired posture — `ReturnType` is a different
-    // production from `Type` (grammar.md:89), and refusing it is nobody's
-    // claim in this report.
+  it("GREEN (g5, `return` position): `fn f(): Cat + { 1 }` is refused now by bug 0124", () => {
+    // MOVED (authority: bug 0124 §Fix). MEASURED, not assumed: the `return`
+    // position still reaches `parseTypeExpression` and never `lowerTypeSource`
+    // — `ReturnType` is a different production from `Type` (grammar.md:89),
+    // and this bug's own lowering-side claim is untouched. Bug 0124 threads
+    // its recogniser at this position too, straight from `walkStatement`'s
+    // `fn` arm, so the position now draws bug 0124's refusal without this
+    // bug's sink moving at all.
     const label = "g5 (fn return type)";
     const doc = parseDoc(
       bodyOnlySrc("fn f(): Cat + { 1 }\nlet inert = 1\ninert\n"),
@@ -1215,10 +1240,9 @@ describe("bug 0061 (g) — the adjacent `Type` positions keep their bytes and th
     ).toEqual(["Cat+"]);
     expect(
       diagLines(doc),
-      `${label}: the \`return\` position reaches \`parseTypeExpression\` ` +
-        `(src/parser/theta-document.ts:6312) and never \`lowerTypeSource\`; a code appearing here ` +
-        `is the cross-position blast constraint 2 forbids`,
-    ).toEqual([]);
+      `${label}: bug 0124's own refusal now covers this position; it is not this bug's row and ` +
+        `not this bug's sink`,
+    ).toEqual([line("theta/parse/annotation-type-not-expression", "<name>", "f")]);
   });
 
   it("GREEN (g6, control): `@<Ghost>` still draws `unresolved-named-type`", () => {

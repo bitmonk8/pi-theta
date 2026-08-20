@@ -79,6 +79,8 @@ import {
   checkIndexReceiver,
 } from "../runtime/expression-evaluator";
 import { checkForIterand } from "./control-flow";
+import { collectUnresolvedNamedTypes } from "./body-type-lowering";
+import { isUnspellableTextRefusable } from "./params";
 import { STRING_MEMBERS } from "../runtime/stdlib-string";
 import { ARRAY_MEMBERS } from "../runtime/stdlib-array";
 import { OBJECT_MEMBERS } from "../runtime/stdlib-object";
@@ -464,11 +466,27 @@ function containsWithheldBinderType(type: CompatType): boolean {
  * annotated `fn`'s `Result<…>` return is otherwise invisible past the call
  * site. Top-level only, mirroring `collectFns` (query-schema-resolve.ts): a
  * nested `fn`'s return annotation is not this gate's concern.
+ *
+ * An annotation deriving from none of `Type`'s six alternatives is OMITTED —
+ * the invariant bug 0124 §Fix (f)(1) rests on is established HERE, at the point
+ * the value enters this layer, so a refused annotation is structurally absent
+ * to every present and future reader of this table instead of each reader
+ * having to re-test the text. The distinction matters because the table's text
+ * is read by PREFIX (`isResultAnnotation`'s `/^Result\b/`, whose `\b` matches
+ * between a word character and punctuation), so a present `Result--` entry
+ * would GRANT `Result`-ness to a `fn` returning a plain string and draw a
+ * `theta/parse/interpolated-result` no author earned. Withholding here loses
+ * nothing a well-formed annotation would have earned: a well-formed annotation
+ * is never refused, and the refused theta does not register either way.
  */
 function collectFnReturnAnnotations(statements: readonly Stmt[]): ReadonlyMap<string, string> {
   const fnReturns = new Map<string, string>();
   for (const stmt of statements) {
-    if (stmt.kind === "fn" && stmt.returnType !== null) {
+    if (
+      stmt.kind === "fn" &&
+      stmt.returnType !== null &&
+      !annotationSourceIsNotTypeExpression(stmt.returnType)
+    ) {
       fnReturns.set(stmt.name, stmt.returnType);
     }
   }
@@ -868,6 +886,88 @@ export function annotationToCompatType(src: string): CompatType | undefined {
 }
 
 /**
+ * The empty declared-name set `annotationSourceIsNotTypeExpression` below asks
+ * the sink to resolve against. Every identifier-shaped atom in a recognised
+ * source is therefore UNRESOLVED by construction — but `lowerTypeExpr`'s
+ * `IDENTIFIER` arm (./params) returns on any resolution outcome before it
+ * ever reaches its trailing catch-all, so no name can land in `unspellable`
+ * regardless of what this set holds, and `Cat` / `Ghost` / `thisisnotatype`
+ * are unaffected by it.
+ */
+const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
+
+/**
+ * Whether `src` — a captured `let` annotation, `fn` parameter type or `fn`
+ * return type — derives from none of `Type`'s six alternatives
+ * (grammar.md:90–:95), so no verdict on it is honest at the three positions
+ * bug 0124 owns (a `schema` field type and a `schema X = …` alias arm are bug
+ * 0061's; a `params:` scalar is bug 0059's).
+ *
+ * THE ABSENCE INVARIANT, stated here once and relied on everywhere below
+ * (bug 0124 §Fix (f)(1)): a refused annotation is ABSENT to every consumer of
+ * the declared type it stands in for, and that absence is established at the
+ * point the text ENTERS this layer rather than re-tested at each reader. The
+ * entry points are exactly this layer's derived carriers of a declared type —
+ * the `fnReturns` build (`collectFnReturnAnnotations`), the `fnScope` seed
+ * (`walkFn`'s parameter loop) and the `let` arm's binding record — plus
+ * `walkFn`'s own `EnclosingReturnScope` computation and the two boundary
+ * readers that consult an annotation directly without a carrier in between
+ * (`checkSubagentReturnAnnotation`, `checkFnCallArgs`). Seeding the carriers
+ * absent is what makes the property hold for readers NOT YET WRITTEN: a
+ * reader of a carrier inherits the absence from the carrier and cannot
+ * reintroduce a verdict by omitting a guard, whereas a per-reader guard holds
+ * only for the readers someone remembered to visit. Withholding costs no
+ * legitimate emission — a well-formed annotation is never refused, and a
+ * refused one blocks registration either way — and the direction is the
+ * withhold machinery's own: a withheld read DEFERS, it never reports. The
+ * observable consequences are enumerated once, in the registry row's Trigger.
+ *
+ * Reuses bug 0059's / 0061's landed sink rather than a private copy of the
+ * type-grammar judgement: `collectUnresolvedNamedTypes` (./body-type-lowering)
+ * threads its fourth optional out-parameter `unspellable` against the empty
+ * declared set above, and the collected text is filtered through the ONE
+ * shared decline `isUnspellableTextRefusable` (./params) — so narrowing that
+ * decline narrows this refusal along with bug 0059's and bug 0061's landed
+ * ones, rather than drifting against a second copy of the same judgement.
+ *
+ * The empty source declines defensively: every call site below already
+ * guards on `length > 0`, so this only protects a future caller that omits
+ * that guard (bug 0124 §Fix constraint 3 — the empty annotation is a separate
+ * answer this function does not give).
+ *
+ * THE SHRED DECLINE — mandatory, and sound in only one direction: it can
+ * refuse LESS than the sink otherwise would, never more. `splitTopLevel`'s
+ * generic-argument and union splits (./params) track angle-bracket depth,
+ * and inside an inline object brace depth, but never bracket depth, so a
+ * source combining a brace group with an angle bracket can hand the sink a
+ * SHARD of a group the author wrote as one unit: `Result<{a: string, b:
+ * integer, c: boolean}, QueryError>` shreds to `["{a: string", "b: integer",
+ * "c: boolean}"]`, and the brace-free middle shard is refusable entirely on
+ * its own. Declining any source carrying a `[` or `]`, or carrying BOTH a
+ * brace and an angle bracket, before the sink ever runs is what keeps that
+ * shard from reaching judgement — without it this recogniser falsely refuses
+ * a LEGAL annotation and reds bug 0028's witness
+ * (tests/unresolved-annotation-lowering.test.ts, RESULT-LET-BRACE).
+ */
+export function annotationSourceIsNotTypeExpression(src: string): boolean {
+  const text = src.trim();
+  if (text.length === 0) {
+    return false;
+  }
+  if (text.includes("[") || text.includes("]")) {
+    return false;
+  }
+  const hasBrace = text.includes("{") || text.includes("}");
+  const hasAngle = text.includes("<") || text.includes(">");
+  if (hasBrace && hasAngle) {
+    return false;
+  }
+  const unspellable: string[] = [];
+  collectUnresolvedNamedTypes(text, NO_DECLARED_TYPE_NAMES, undefined, unspellable);
+  return unspellable.some(isUnspellableTextRefusable);
+}
+
+/**
  * Build the root `bindings` map `checkTypeLayer`'s top-level walk starts from
  * (bug 0192 §Fix): one entry per frontmatter `params:` field, projecting its
  * declared type source onto a `CompatType` through THIS module's own
@@ -1045,6 +1145,28 @@ class TypeLayerWalk {
       case "let": {
         if (stmt.init !== null) {
           const rhsType = this.typeOf(stmt.init, bindings);
+          // A source that derives from none of `Type`'s six alternatives
+          // (bug 0124 §Fix) supports no verdict at this position: the RHS
+          // narrowing check below and the array-element sink are bypassed
+          // for it exactly as for an unannotated `let`, but the binding is
+          // recorded WITHHELD rather than adopting the initialiser's
+          // inferred type — the withhold is what keeps a LATER read of this
+          // binding (a method call, a condition, a further annotated `let`)
+          // from being judged against text that names no type, rather than
+          // merely an unresolvable one. Driven by the recogniser alone, not
+          // by whether the annotation's own `parseTypeExpression` walk
+          // already drew a diagnostic — that guard decides only whether
+          // theta-document.ts EMITS the refusal, and "this text supports no
+          // type verdict" is a property of the text either way.
+          if (
+            stmt.annotation !== null &&
+            stmt.annotation.length > 0 &&
+            annotationSourceIsNotTypeExpression(stmt.annotation)
+          ) {
+            this.walkExpr(stmt.init, bindings, flow, null);
+            this.recordWithheldBinders(bindings, [stmt.name]);
+            return;
+          }
           // Resolved once, ahead of both uses below: the initialiser
           // compatibility check and the recorded binding type. An
           // unresolvable source (`annotationToCompatType` → `undefined`)
@@ -1460,14 +1582,17 @@ class TypeLayerWalk {
   private walkFn(fn: FnDecl, bindings: Map<string, CompatType>): void {
     const fnScope = new Map(bindings);
     for (const p of fn.params) {
-      if (p.type.length > 0) {
+      if (p.type.length > 0 && !annotationSourceIsNotTypeExpression(p.type)) {
         fnScope.set(p.name, annotationToCompatType(p.type) ?? { kind: "named", name: p.type });
       } else {
-        // An unannotated parameter carries no declared type, and it still BINDS
-        // its name in the activation scope the body executes in
+        // An unannotated parameter carries no declared type, and a parameter
+        // whose annotation derives from none of `Type`'s six alternatives
+        // (bug 0124 §Fix) carries no verdict-supporting one — both still BIND
+        // the name in the activation scope the body executes in
         // (`evalUserFnCall`). theta 1.0 has no closures, so a same-named
         // enclosing binding is not readable inside the body at all — recording
-        // the parameter withheld keeps a body read from resolving to it.
+        // the parameter withheld keeps a body read from resolving to it OR
+        // from a judgement the refused text does not support.
         this.recordWithheldBinders(fnScope, [p.name]);
       }
     }
@@ -1479,8 +1604,25 @@ class TypeLayerWalk {
     // plain return type — so the body is a Result scope for the `?` check
     // regardless of annotation, and only a plain `fn`'s annotation gates `?`
     // on Result-compatibility.
+    //
+    // A return annotation deriving from none of `Type`'s six alternatives
+    // (bug 0124 §Fix) is ABSENT to this computation — the same neutral
+    // `{ kind: "inferred" }` an annotation-less `fn` gets, and the same
+    // absent-treatment the parameter loop above gives a refused parameter
+    // type. Reading it either way is a verdict derived from text that names
+    // no type: `isResultAnnotation`'s `/^Result\b/` GRANTS Result
+    // compatibility to `Result--`, and treating the refused text as a
+    // declared non-`Result` return type makes `?` in the body draw
+    // `question-outside-result-fn` BESIDE the refusal — the refusal plus a
+    // sibling verdict derived from the junk that §Fix (f)(1) forbids, whose
+    // own paradigm case (`let a: integer-- = 3` with `for x in a` drawing
+    // both the refusal and the false `non-array-iterand`) is this same shape.
+    // The withhold's direction stays closed: a withheld read defers, it never
+    // reports.
     const returnScope: EnclosingReturnScope =
-      fn.returnType === null || fn.subagent
+      fn.returnType === null ||
+      fn.subagent ||
+      annotationSourceIsNotTypeExpression(fn.returnType)
         ? { kind: "inferred" }
         : { kind: "annotated", resultCompatible: isResultAnnotation(fn.returnType) };
 
@@ -1527,6 +1669,16 @@ class TypeLayerWalk {
     returnType: string,
     fnScope: ReadonlyMap<string, CompatType>,
   ): void {
+    if (annotationSourceIsNotTypeExpression(returnType)) {
+      // Text deriving from none of `Type`'s six alternatives supports no
+      // boundary verdict. This slot reads an annotation DIRECTLY, with no
+      // derived carrier between it and the text, so the absence invariant
+      // (`annotationSourceIsNotTypeExpression`) has to be established here
+      // rather than inherited — and before the conversion rather than after
+      // it, since the return slot has no unannotated form whose branch the
+      // refused text could take instead.
+      return;
+    }
     const annotation = annotationToCompatType(returnType);
     if (annotation === undefined) {
       return;
@@ -1842,6 +1994,16 @@ class TypeLayerWalk {
     const matchedCount = Math.min(e.args.length, fn.params.length);
     for (let i = 0; i < matchedCount; i += 1) {
       const p = fn.params[i] as FnParam;
+      if (p.type.length > 0 && annotationSourceIsNotTypeExpression(p.type)) {
+        // The callee's own parameter annotation derives from none of `Type`'s
+        // six alternatives, so it supports no verdict — treated as absent
+        // rather than as an opaque nominal reading of the junk text. This
+        // reads the callee's `FnParam` list out of `fnDecls`, which carries
+        // the declaration verbatim rather than a projected type, so the
+        // absence invariant (`annotationSourceIsNotTypeExpression`) is
+        // established here; a reader of `fnScope` inherits it instead.
+        continue;
+      }
       const paramType = annotationToCompatType(p.type);
       if (paramType === undefined) {
         // An unannotated parameter (`p.type` is the empty string) has no
@@ -2524,6 +2686,12 @@ class TypeLayerWalk {
    * `Result`. `this.fnReturns` is the only source for the latter — `TypeEnv`
    * carries schema declarations only, and a `call` types as its callee's bare
    * NAME, so an annotated `Result` return is invisible past the call site.
+   *
+   * The prefix match below is safe against text that names no type WITHOUT a
+   * guard here, because the table it reads was seeded absent of such text
+   * (`collectFnReturnAnnotations`, and the absence invariant at
+   * `annotationSourceIsNotTypeExpression`) — which is what keeps `/^Result\b/`
+   * from granting `Result`-ness to a `Result`-prefixed junk annotation.
    */
   private isCertainResultNode(e: Expr): boolean {
     if (e.kind === "result-ctor") {

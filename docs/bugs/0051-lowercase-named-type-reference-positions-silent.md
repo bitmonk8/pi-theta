@@ -708,3 +708,38 @@ a preference:
   from the tree. `grammar.md` is 223 lines and `lexical.md` is 28; the inbound
   `grammar.md:98` citation sweep over `src/`, `tests/`, `tools/` and `docs/`
   returns the five sites listed in §Fix constraint 3.
+
+### Discharge note — bug 0124's fix (0.121.0)
+
+Appended by bug [0124](./0124-parsetype-trailing-punctuation-leniency.md)'s fix.
+**This report is NOT closed and its subject is untouched** — `let a: nope = 3`
+still draws nothing, measured at 0.121.0, and the case question over a
+well-formed lowercase `NamedType` reference is exactly as this report leaves it.
+Two of the shared facts it rests on have moved, and one has not.
+
+1. **§Affected's `annotationToCompatType` sentence stays TRUE, and is no longer
+   the whole story at three positions.** The fallback still "returns
+   `{ kind: "named", name: text }` for any annotation text that is not a
+   primitive, a top-level union, or `array<T>` — no case test and no
+   resolvability test", and that function is byte-unchanged by bug 0124: it adds
+   neither test, which is why this report's disposition question survives intact.
+   What changed is upstream of it. A `let` annotation, an `fn` parameter type and
+   an `fn` return type now pass a DERIVABILITY test before the converter sees
+   them, so text deriving from no `Type` production no longer reaches the
+   fallback at those three positions — it draws
+   `theta/parse/annotation-type-not-expression` and the theta does not register.
+   The fallback's remaining traffic there is exactly what this report is about: a
+   well-formed `NamedType`, of either case, whose resolution is deferred.
+2. **`Cat--` is no longer silent.** Bug 0124's §Related recorded
+   `let a: Cat-- = 3` as "measured silent here and stays silent under either of
+   0051's dispositions"; `Cat--` is not an `Ident`, so it falls in 0124's refused
+   class and now draws that refusal, whether or not `Cat` is declared. This does
+   not touch either of this report's two dispositions: both are about text that
+   IS an `Ident`, and the refusal is a derivability judgement, not a case one.
+3. **The reason this report gives for why these positions have "no name walk to
+   lose" is unchanged.** `unresolvedNamedTypeDiagnostic`'s closed five-position
+   list still excludes a `let` annotation and an `fn` parameter type, and bug
+   0124 deliberately did not widen it — its §Fix records the prose spelling
+   `thisisnotatype` and the trailer `integer1` as NOT refused precisely because
+   each is an `Ident`, so refusing them would need a resolvability test at these
+   positions, which is this report's and that row's territory rather than 0124's.

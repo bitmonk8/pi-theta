@@ -21,7 +21,12 @@ compatibility.
 
 The same type grammar applies in every annotation position: schema fields,
 `params:`, `let x: T`, function parameters, `@<T>`...`` explicit query schemas;
-the return position additionally admits `void`.
+the return position additionally admits `void`. Text deriving from none of
+these forms is refused rather than admitted as a nominal reference:
+`theta/parse/annotation-type-not-expression` at a `let` annotation, an `fn`
+parameter type, or an `fn` return type; `theta/parse/schema-type-not-expression`
+at a schema field or alias/union arm; `theta/load/params-type-not-expression` at
+a `params:` field.
 
 ## Type compatibility (`⊑`)
 

@@ -9630,3 +9630,119 @@ describe("H8a-T — bug 0199: a withhold recorded for one `let` binding does not
     }
   });
 });
+
+// ===========================================================================
+// Bug 0124 — `parseType` (src/parser/theta-document.ts) answers *where does
+// this annotation end*, not *is this annotation a type*. It joins the current
+// token's text unconditionally (`:3240`) and breaks only on a closed stop set
+// that, at a `let` annotation (`parseLet`'s `parseType()` call) and at an `fn`
+// parameter type or return type (`parseFn`'s parameter loop and its return
+// slot), contains `stmt-sep`, a depth-0 `,` / `)` / `{` / `}` / `=`, and (return
+// slot only) a depth-0 `with`. Every arithmetic, comparison, logical, ternary,
+// member-access and stray punctuation token is outside that set, so
+// `let a: integer-- = 3` records the annotation `"integer--"`,
+// `annotationToCompatType` (src/parser/type-layer-checks.ts) maps it to an opaque
+// `{kind:"named", name:"integer--"}` through its final arm, and eight registered
+// error-severity rows stop firing
+// (docs/bugs/0124-parsetype-trailing-punctuation-leniency.md).
+//
+// The refusal is owed. grammar.md:90–:95 closes the `Type` production set,
+// `:98` is `NamedType ::= Ident` (so `integer--` is no `NamedType`), `:105`
+// names `let` annotations among the bare-`Type` positions and adds "The grammar
+// is otherwise identical in every position", and type-system.md:15 binds every
+// annotation position to that one grammar. No spec sentence says what a `let`
+// annotation carrying `integer--` MEANS, so silence-plus-an-opaque-name is the
+// third possibility no page contemplates.
+//
+// WHAT THIS CELL ADDS OVER AN OFFLINE ROW. The offline witness
+// (tests/annotation-nontype-text-refusal.test.ts) observes the diagnostic array
+// and stops there; it cannot observe the consequence the report's §Why it
+// matters leads with — the absent `E` leaves `hasLoadParseError`
+// (src/extension/production-composition.ts:2214) with nothing to act on through
+// the REAL production composition root (session_start → resources_discover →
+// composeExtensionInstance → checkTypeLayer), so the slash command is created
+// and the theta runs with its declared constraint unenforced. REGISTRATION is
+// the observable this cell asserts, and the only one.
+//
+// THE CONTROL, ASSERTED FIRST. `b124livegood` is the SAME program with the
+// SAME binding, the same initialiser and the same tail, differing in one
+// particular: its annotation is `integer` rather than `integer--`. It must stay
+// registered before and after, which is what makes the subject's refusal
+// attributable to the annotation TEXT rather than to the shape, the frontmatter,
+// or a planting/discovery failure. It is asserted BEFORE the subject so a broken
+// workspace or a dead discovery walk reds on the control instead of being read
+// as the subject's refusal.
+//
+// RED AT 0.120.0 / `dcff3f43` for the reason the report states: the subject
+// REGISTERS, because the missing refusal IS the defect. That is an open
+// documented correct-reason red per AGENTS.md §"Expect documented correct-reason
+// reds" — `docs/bugs/0124-parsetype-trailing-punctuation-leniency.md` is the
+// report whose signature it matches — and it goes green when the three
+// annotation walks refuse text no `Type` production spells. The in-tree bound on
+// the same channel is the offline witness's group (a) (`RED (a1, let)`), whose
+// `let a: integer-- = 3` fixture is the same program as the subject below.
+//
+// Registration-only: no slash command is invoked, so NO model turn runs and the
+// cell spends zero tokens (the same profile the bug 0050/0126/0136/0185/0190/
+// 0192/0194/0197/0199 cells above claim). No subagent child process is spawned —
+// both fixtures are prompt mode with no `invoke(...)` and no `subagent fn` — so
+// the #subagent-child-pins convention this file's harness otherwise honours does
+// not apply to this cell. ADDITIVE ONLY: this is cell 58; cells 1–57 are
+// unchanged, and this cell adds no assertion to any existing cell in this file.
+// ===========================================================================
+
+/**
+ * One `mode: prompt` theta whose sole `let` carries `annotation`. Both bug-0124
+ * fixtures are minted from this single builder so the annotation text is the
+ * only axis between them; the trailing `a` supplies the theta's final value — a
+ * prompt-mode theta needs no `@`-query to register.
+ */
+function annotatedLetTheta(annotation: string): string {
+  return ["---", "mode: prompt", "---", `let a: ${annotation} = 3`, "a", ""].join("\n");
+}
+
+describe("H8a-T — bug 0124: a `let` annotation carrying a junk suffix does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose `let` annotation carries a trailing punctuation suffix, while the same program with the well-formed annotation registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The always-registers control, planted first for the same reason it is
+      // asserted first.
+      { source: "project", stem: "b124livegood", text: annotatedLetTheta("integer") },
+      // The subject: the same program whose annotation carries one trailing
+      // punctuation trailer, which `parseType`'s stop set does not end.
+      { source: "project", stem: "b124livebroken", text: annotatedLetTheta("integer--") },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b124livegood"),
+        "the same program with the WELL-FORMED annotation did not register — an annotated " +
+          "`let` cannot register in this workspace at all, independent of this bug, so the " +
+          "subject's own verdict cannot be attributed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE DEFECT, through the REAL production composition root: the theta
+      // whose annotation derives from no `Type` production registers anyway,
+      // because the capture recorded the text, the converter turned it into a
+      // nominal reference the `⊑` engine defers on, and no component asked
+      // whether the author wrote a type — so `hasLoadParseError` sees nothing.
+      expect(
+        handle.command("b124livebroken"),
+        "the theta whose `let` annotation carries a trailing `--` registered anyway through the " +
+          "live discovery/session_start path — one punctuation character silently removed the " +
+          "rejection the annotation existed to produce, while the b124livegood control (the same " +
+          "program with `integer`) registered as it must. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b124livebroken");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

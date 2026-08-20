@@ -6,6 +6,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.121.0] - 2026-08-19
+
+### Fixed
+
+- **Bug 0124 — a type annotation carrying text that spells no type is refused at
+  the three `Type` positions outside a schema.** A `let` annotation, an `fn`
+  parameter type and an `fn` return type each captured any trailing punctuation
+  into the annotation string, `annotationToCompatType` mapped the result to an
+  opaque nominal reference, and eight registered error-severity rows stopped
+  firing while `theta/parse/non-array-iterand` fired falsely with the captured
+  junk rendered into its message. One trailing character removed the rejection
+  the annotation existed to produce, and the theta registered and ran with its
+  declared constraints unenforced. Each such annotation now draws one
+  error-severity `theta/parse/annotation-type-not-expression` at the
+  declaration's range and the theta does not register.
+
+  The judgement reuses the sink and the single shared decline bugs 0059 and 0061
+  landed, so the `params:` field, the `schema` field, the alias arm and these
+  three positions agree on a fragment's disposition by construction rather than
+  by coincidence; `annotationToCompatType` itself is byte-unchanged. A refused
+  annotation is then absent to the six consumers of the declared type it stood
+  in for, so the refusal fires alone rather than cascading: the `?`-scope check,
+  the Result-certainty channel, the callee's parameter table, the binding record,
+  the `fn` parameter scope and the `subagent fn` return boundary. An independent
+  fault in the same declaration keeps its own diagnostic.
+
+  New registry row (DIAG-2, same commit): `theta/parse/annotation-type-not-expression`,
+  `E`, phase `parse`, message `'<name>' declares a type that is not a theta type
+  expression`. Widening `theta/parse/schema-type-not-expression` was rejected on
+  the bug 0044 honest-identity precedent — its slug and trigger name schema
+  positions, and a `let` annotation is neither.
+
 ## [0.120.0] - 2026-08-19
 
 ### Fixed

@@ -138,6 +138,7 @@ trigger.
 | `theta/parse/duplicate-inline-field-name` | E | parse | `duplicate field name '<field>' within one inline object type` |
 | `theta/parse/malformed-alias-rhs` | E | parse | `'<X>' has a malformed right-hand side; write a single type, or arms separated by single '\|', and nothing else on the declaration's line` |
 | `theta/parse/schema-type-not-expression` | E | parse | `'<X>' declares a type that is not a theta type expression` |
+| `theta/parse/annotation-type-not-expression` | E | parse | `'<name>' declares a type that is not a theta type expression` |
 | `theta/parse/empty-enum-body` | E | parse | `'<X>' has no variants; an empty enum cannot be validated.` |
 | `theta/parse/unknown-variant` | E | parse | `unknown variant '<variant>' on enum '<enum>'` |
 | `theta/parse/unresolved-named-type` | E | parse | `unresolved named type '<name>'` |

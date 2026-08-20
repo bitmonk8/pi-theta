@@ -207,6 +207,10 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   nested inline object is its own list; the rule skips generic arguments. Lowered
   into `$defs` as `__inline_<slug>` ([Schema subset](./schema-subset.md)).
 - Nullability is written `T | null`.
+- Text deriving from none of the six alternatives is `theta/parse/annotation-type-not-expression`
+  at a `let` annotation, an `fn` parameter type, or an `fn` return type; a schema field type or
+  alias/union arm has its own row (`theta/parse/schema-type-not-expression`), and a `params:`
+  field has its own (`theta/load/params-type-not-expression`).
 
 ## Blocks
 

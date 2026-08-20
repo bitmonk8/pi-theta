@@ -84,7 +84,7 @@ import {
 } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
-import { checkTypeLayer } from "./type-layer-checks";
+import { annotationSourceIsNotTypeExpression, checkTypeLayer } from "./type-layer-checks";
 import { resolveQuerySchemas } from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
@@ -5278,6 +5278,33 @@ function schemaTypeNotExpressionDiagnostic(
   };
 }
 
+/**
+ * The registered `theta/parse/annotation-type-not-expression` refusal (bug
+ * 0124 §Fix): a `let` annotation, an `fn` parameter type, or an `fn` return
+ * type whose captured source — `annotationSourceIsNotTypeExpression`
+ * (type-layer-checks.ts) — derives from none of `Type`'s six alternatives
+ * (grammar.md:90–:95). Sibling to `schemaTypeNotExpressionDiagnostic` above,
+ * with one difference in what `<name>` renders: THIS position always has a
+ * binder of its own — the `let` binding name, the `fn` parameter name, or the
+ * `fn` name — so the message names THAT identifier rather than the enclosing
+ * declaration's, unlike the schema position's field-less `SchemaFieldSource`
+ * and arm string, which carry no name to render and fall back to `<X>`, the
+ * declaration's own.
+ */
+function annotationTypeNotExpressionDiagnostic(
+  name: string,
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/annotation-type-not-expression",
+    file,
+    range,
+    message: `'${name}' declares a type that is not a theta type expression`,
+  };
+}
+
 /** A `Result<Ok, Err>` application, captured as its two type arguments. */
 const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
 
@@ -6476,9 +6503,19 @@ function walkStatement(
         ),
       );
       if (s.annotation !== null && s.annotation.length > 0) {
+        const annotationDiagStart = out.length;
         out.push(
           ...parseTypeExpression(s.annotation, "value", { file, range: s.range }),
         );
+        // bug 0124 §Fix, guard 1 (bug 0061's landed guard 1, PER-ANNOTATION
+        // window): an annotation whose own walk above already drew an
+        // error-severity diagnostic keeps that diagnostic ALONE.
+        if (
+          !out.slice(annotationDiagStart).some((d) => d.severity === "error") &&
+          annotationSourceIsNotTypeExpression(s.annotation)
+        ) {
+          out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
+        }
       }
       if (s.init !== null) {
         walkExpr(s.init, refs, file, out);
@@ -6551,18 +6588,35 @@ function walkStatement(
       );
       for (const p of s.params) {
         if (p.type.length > 0) {
+          const paramDiagStart = out.length;
           out.push(
             ...parseTypeExpression(p.type, "value", { file, range: s.range }),
           );
+          // bug 0124 §Fix, guard 1: this PARAMETER's own walk above, not the
+          // parameter list's collectively.
+          if (
+            !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
+            annotationSourceIsNotTypeExpression(p.type)
+          ) {
+            out.push(annotationTypeNotExpressionDiagnostic(p.name, s.range, file));
+          }
         }
       }
       if (s.returnType !== null && s.returnType.length > 0) {
+        const returnDiagStart = out.length;
         out.push(
           ...parseTypeExpression(s.returnType, "return", {
             file,
             range: s.range,
           }),
         );
+        // bug 0124 §Fix, guard 1: the return slot's own walk above.
+        if (
+          !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
+          annotationSourceIsNotTypeExpression(s.returnType)
+        ) {
+          out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
+        }
       }
       walkBlock(
         s.body,

@@ -242,6 +242,23 @@ unaddressed. Citations are by symbol.
   `integer-`: generic pre-existing `parseType` leniency toward trailing punct
   in the captured annotation string, not specific to this pair. All four are
   surfaced for filing by the operator; none is created or worsened here.
+  **Residual (iv) is now discharged in full, across two fixes.** It was filed as
+  bug [0124](./0124-parsetype-trailing-punctuation-leniency.md), which widened it
+  from `--` to the whole accepted-terminator class this residual already
+  suspected ("generic pre-existing `parseType` leniency toward trailing punct").
+  The schema-field form the residual names went first, as bug
+  [0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md) (fixed
+  0.87.0, `theta/parse/schema-type-not-expression`); the `fn f(n: integer--)`
+  and return-type forms it names, and the `let` annotation it does not, went as
+  bug 0124 (fixed 0.121.0, `theta/parse/annotation-type-not-expression`). This
+  residual's own reading was vindicated rather than overturned: nothing about the
+  increment/decrement pair explains the silence, the class is the terminator set,
+  and neither fix reaches this fix's expression-walk hooks or the lexer's
+  `twoCharOperators` — `tests/increment-decrement-wiring.test.ts` is green and
+  byte-unchanged through both, s5–s7 included. Residuals (ii) and (iii) were
+  filed as bugs [0122](./0122-template-interpolation-diagnostics-discarded.md)
+  and [0123](./0123-match-pattern-decrement-draws-neighbouring-codes.md) and are
+  both still open.
 - **Discharge notes appended:** 0063 (the `<construct>` population loses `++`,
   which no longer reaches that emission site), 0062 (the continuation-trigger
   table is byte-unchanged by this fix), 0050 and 0072 (the dead-enforcement

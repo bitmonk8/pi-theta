@@ -1,8 +1,13 @@
 # Bug 0124 — `parseType` joins any trailing punctuation into the captured annotation string, so at the three `Type` positions outside a schema — a `let` annotation, an `fn` parameter type, an `fn` return type — `integer--`, `integer%`, `integer-`, `integer~` and eighteen further spellings load with zero diagnostics, `annotationToCompatType` maps each to an opaque `{kind:"named"}` type, and seven registered type-layer codes stop firing while `theta/parse/non-array-iterand` fires falsely with the junk text rendered into its message
 
-- **Status:** open. §Fix is not settled: this report exists to pin the emission
-  point and the registry disposition before any code lands. Two ordering
-  constraints — [0089](./0089-fn-param-alias-not-unfolded-iterand-join.md)
+- **Status:** fixed (0.121.0). The emission point is adjudicated to route
+  (b)(2) — a recogniser beside `annotationToCompatType`, reusing bug 0059's /
+  0061's landed sink and their ONE shared decline — and the registry
+  disposition to a NEW row, `theta/parse/annotation-type-not-expression`. See
+  §Fix (0.121.0). Both ordering constraints resolved before this fix landed:
+  0089 is fixed (0.72.0) and 0061 is fixed (0.87.0), so this fix extends 0061's
+  judgement to the three unguarded positions rather than re-deriving it. The
+  original framing of the two constraints — [0089](./0089-fn-param-alias-not-unfolded-iterand-join.md)
   (open, §Fix settled, landing in this tree at the time of writing) changes the
   signature of one of the two gates measured below, and
   [0061](./0061-nonparams-type-positions-keep-junk-arm-text-silent.md) (open)
@@ -1296,3 +1301,383 @@ currently supports it.
   `invoke<T>` rows and 0050's call-site pair; and a `git ls-files` census over
   every committed `.theta` / `.thetalib` parsed through the same load path. Run
   on the outputs quoted above, then deleted per scratch policy.
+
+## Fix (0.121.0)
+
+- **What shipped, keyed to §Fix.** Text at the three `Type` positions outside a
+  schema — a `let` annotation, an `fn` parameter type, an `fn` return type —
+  that derives from no `Type` production is refused with one error-severity
+  `theta/parse/annotation-type-not-expression` at the declaration's range, and
+  the theta does not register.
+  **Emission point — the first disposition §Fix left open — adjudicated as route
+  (b)(2), the converter surface.** `src/parser/type-layer-checks.ts` gains one
+  exported recogniser `annotationSourceIsNotTypeExpression` BESIDE
+  `annotationToCompatType`, which is itself byte-unchanged: it asks bug 0059's /
+  0061's landed sink (`collectUnresolvedNamedTypes`'s fourth out-parameter over
+  an empty declared-name set) and filters through the ONE shared decline
+  `isUnspellableTextRefusable`, so narrowing that decline narrows all four
+  positions at once and no private copy of the type-grammar judgement exists.
+  Route (a) (tightening `parseType`'s stop set) was rejected on the shared
+  capture: the same function serves 0061's two landed positions and would carry
+  the blast there plus the group (e) `<` / `>` question. Route (b)(1)
+  (de-tolerating `parseTypeExpression`) was rejected because its blast radius is
+  every caller, including the `@<T>` position this report does not own — the
+  same measurement on which bug 0061 rejected it.
+  `src/parser/theta-document.ts` gains one emitter builder
+  `annotationTypeNotExpressionDiagnostic` beside the sibling
+  `schemaTypeNotExpressionDiagnostic`, and three emission sites in
+  `walkStatement` (the `let` arm; the `fn` arm's parameter loop and return
+  slot), each guarded by bug 0061's landed guard 1 in a PER-ANNOTATION window.
+  **The distinguished refusal answer §Fix (b)(2) said the route actually needs**
+  is threaded to SIX consumption sites, because plain `undefined` is
+  insufficient exactly as §Fix predicted: the `let` arm records the binding
+  WITHHELD through the existing `recordWithheldBinders` instead of adopting the
+  initialiser's type; `walkFn`'s parameter loop takes its unannotated-parameter
+  withhold branch; `walkFn`'s `returnScope` takes `{ kind: "inferred" }`;
+  `collectFnReturnAnnotations` OMITS the entry from `fnReturns` at map-build
+  time so every reader of that table inherits the absence from one place;
+  `checkSubagentReturnAnnotation` and `checkFnCallArgs` each return / continue.
+  The last four were found by the review loop, not by the plan — see *Consumer
+  census* below.
+  Registry: a NEW `theta/parse/*` row (DIAG-2, same commit as the sites it is
+  raised from), `E`, phase `parse`, *Message*
+  `'<name>' declares a type that is not a theta type expression`, with the
+  *Trigger* authored as the GOV-15 post-hoc in-scope set. Same-commit spec
+  edits: the bare-`Type` position-list sentence in `docs/spec_topics/grammar.md`
+  and the one-grammar sentence in `docs/spec_topics/type-system.md` now name the
+  refusal at these three positions and point at the two sibling rows for the
+  others; mirrors `docs/reference/grammar.md` (§Type grammar),
+  `docs/reference/type-system.md`, and `docs/reference/diagnostics.md` (the
+  Message mirror — re-verified Trigger-less, Code | Sev | Phase | Message only).
+- **Registry disposition — the second disposition §Fix left open — adjudicated
+  as a NEW ROW, not a widened *Trigger*.** Widening
+  `theta/parse/schema-type-not-expression` was rejected on the bug 0044
+  honest-identity precedent: that row's slug and *Trigger* name a `schema`
+  object-body field type and a `schema X = …` alias arm, and a `let` annotation
+  is neither — firing it here would report a code whose own subject excludes the
+  input, which is exactly the overreach 0044's fix removed at 0.54.0. The family
+  now reads as one judgement at four positions under three honest slugs:
+  `theta/load/params-type-not-expression` (0059),
+  `theta/parse/schema-type-not-expression` (0061),
+  `theta/parse/annotation-type-not-expression` (this fix). `<name>` is category
+  5's identifier-shaped placeholder (`placeholder-rendering-b.md` §5) — a `let`
+  binding name, an `fn` parameter name and an `fn` name are all
+  identifier-shaped, the template supplies the quotes, and NO placeholder-table
+  edit is needed, so the GOV-7 / GOV-8 exposure §Fix raises against
+  `unsupported-feature`'s closed `<construct>` table is not incurred. The
+  placeholder set is pinned as exactly `["<name>"]` by witness cell r2.
+- **The SHRED decline — a position-level decline this fix had to add, and why it
+  is mandatory.** Before consulting the sink, the recogniser admits any source
+  carrying a `[` or `]`, or carrying BOTH a brace and an angle bracket.
+  `splitTopLevel`'s generic-argument and union splits track angle depth (and,
+  inside an inline object, brace depth) but never bracket depth, so such a
+  source can hand the sink a SHARD of a group the author wrote as one unit:
+  `Result<{a: string, b: integer, c: boolean}, QueryError>` shreds to
+  `["{a: string", "b: integer", "c: boolean}"]` and the brace-free middle shard
+  is refusable on its own. Without the decline the fix falsely refuses that
+  LEGAL annotation and reds bug 0028's witness
+  (`tests/unresolved-annotation-lowering.test.ts`, RESULT-LET-BRACE "three
+  fields"). The decline can only ever refuse LESS than the sibling rows would,
+  never more, and it is stated in the *Trigger* as this position's own with its
+  reason — the sibling rows keep their fragment-level exemption unchanged.
+- **Consumer census — §Fix (b)(2)'s "those consumption sites change with the
+  recogniser", measured.** The plan opened with four; the review loop found four
+  more, three closed and one recorded. Six sites now establish the absence,
+  which is exactly the set of `annotationSourceIsNotTypeExpression` call sites
+  in `type-layer-checks.ts` (the three in `theta-document.ts` are the emission
+  guards): the binding record, the `fn` parameter scope, the `?`-scope
+  computation, the Result-certainty channel (`fnReturns`), the `subagent fn`
+  return boundary, and the callee's parameter table. The mechanism differs by
+  consumer and the *Trigger* says so: three read the position exactly as an
+  unannotated one would, two seed the binding WITHHELD so later structural reads
+  defer, and the `subagent fn` boundary is equivalent to neither (a refusal is
+  SUPPLIED text, so FN-6 validates rather than FN-3 inferring — the refusal
+  skips both the inference that can draw `theta/parse/return-no-common-type` and
+  the boundary check).
+- **§Fix (f), the nine constraints, each answered.**
+  1. *Exactly one diagnostic per offending annotation, no cascade* — the
+     per-annotation guard plus the withhold. Measured BYTE-IDENTICAL to the
+     pre-fix baseline: `let a: void-- = 3` keeps `void-in-non-return-position`
+     ALONE and `let a: array<integer, integer>-- = [1]` keeps
+     `generic-arity-mismatch` ALONE (cells q1–q4), so those inputs gain zero
+     rather than one. `let a: integer-- = 3` + `for x in a { 1 }` draws the
+     refusal alone (i4).
+  2. *The refused set, enumerated in the Trigger* — the twenty punctuation
+     trailers, the string-literal trailer, and the leading / interior / doubled /
+     spaced / bare spellings, each also one level down inside a `GenericType`
+     argument, a union arm and a single-enclosing inline `ObjectType` field, at
+     the `.theta` and `.thetalib` spellings and through the `subagent fn` /
+     `with` form. **Two corrections to §Fix (f)(2) itself, both measured** — see
+     *Where this report was wrong* below: the prose spelling `thisisnotatype`
+     and the bare number-literal trailer `integer1` are NOT refused (each is an
+     `Ident`, hence a `NamedType`, hence derivable), and the `|` trailer is
+     refused at the `let` and parameter positions but NOT at the `fn` return
+     slot, where the trailing `|` opens a union arm so the capture absorbs the
+     body (`fn f(): integer| { 1 }` captures `integer|{1}`) and the SHARED brace
+     decline exempts it.
+  3. *The empty annotation* — **LEFT AS IT IS**, and stated in the *Trigger*.
+     `let a: = 3` captures `""` and stays silent, byte-identical to the baseline
+     (cell h1). All three call sites already guard on `length > 0`, and the
+     recogniser declines the empty source defensively so no future caller can
+     flip it silently (cell s3).
+  4. *Controls keep their bytes* — 23 group (g) cells at all three positions,
+     `let a: Ghost = 3` → `[]` included.
+  5. *Per-position blast radius, stated and measured* — the two schema
+     positions, the `params:` scalar AND block forms, `@<T>` (including the
+     `@<Ghost>` control that proves the absence assertions can red) and
+     `invoke<T>` are byte-identical. Verified twice: by the 12 group (f) fence
+     cells, and independently by verification against a real `git worktree` run
+     at the pre-fix commit — all 12 sibling-position fixtures byte-identical,
+     only the three positions this report owns moved.
+  6. *The `<` / `>` disposition, STATED not silently changed* — the capture
+     mechanics do NOT move (the over-run still absorbs the body and the
+     following statement; the statement list and the null return type are
+     unchanged). The SILENCE moves only where the absorbed capture is brace-free,
+     and it splits on the SHARED brace decline rather than on anything this fix
+     adds: `fn f(n: integer<): integer { 1 }` (capture `integer<):integer`) now
+     draws one refusal, while `fn f(n: integer>): integer { 1 }` (capture
+     `integer>):integer{1}`) and `fn f(): integer< { 1 }` (capture
+     `integer<{1}`) stay silent as before. Cells e1 / e2 pin one row per
+     direction. The over-run itself remains unfiled and out of frame.
+  7. *The false message* — closed by construction. The refusal denies
+     registration AND the withhold makes `checkForIterand` defer, so
+     `got array<string>--` and `got integer--` are unreachable for these inputs;
+     no `displayType` render of unparsed source survives at these positions.
+     Pinned in both directions (i1–i4).
+  8. *GOV-15 and the H9a gates* — the addition direction, under the
+     diagnostic-registry carve-out, with the *Trigger* prose as the post-hoc
+     in-scope set. Census re-derived at the fix baseline rather than assumed:
+     34 committed files (32 `.theta`, 2 `.thetalib`) declaring 10 `let`
+     annotations, 3 `fn` parameter types and 2 `fn` return types, and **zero**
+     offenders — so no committed fixture changes disposition, and the
+     corpus-wide claim is discharged by `tests/committed-fixture-parse-gate.test.ts`
+     (36 cells green), not by a scratch probe. `tests/fixtures/h7a/permitted-codes.json`
+     stays byte-unchanged (blob `a4a8da04209f90e13d815edd92c1fc682e2a2236`, 11
+     entries, no `theta/parse/*`), decided by the REAL H9a run and never
+     populated reactively; the empty-capture stderr allowlist stays EMPTY and
+     all ten `assertStderrClean` calls passed, so the new code reaches stderr on
+     no H9a spawn.
+  9. *Test witness* — `tests/annotation-nontype-text-refusal.test.ts`, 251
+     cells, offline, deterministic, provider-free, every expected message read
+     from the registry at runtime (DIAG-4).
+- **Where this report was wrong, measured at the fix baseline.**
+  1. **§Kind and §Fix (f)(2) both call `thisisnotatype` "derivable from none of
+     the six alternatives". It is derivable from `NamedType`.** The capture drops
+     the interior spaces, leaving one `Ident`; `grammar.md`'s `NamedType ::=
+     Ident` admits it. Refusing it would need a resolvability test at these
+     positions, which would also refuse every legal forward reference and is
+     `theta/parse/unresolved-named-type`'s closed five-position list's question —
+     bug 0051's adjacent territory, which this report's own §Non-goals already
+     hands to 0051. Same for the bare number-literal trailer `integer1`, which
+     this report's own group (f) already records as `Ident`-shaped at the schema
+     position. Both are pinned SILENT with that reason (group (n)); a
+     non-`Ident`-shaped number trailer (`integer1.5`) IS refused (cell a35).
+  2. **§Related's claim that `let a: Cat-- = 3` "is measured silent here and
+     stays silent under either of 0051's dispositions" no longer holds.**
+     `Cat--` is not an `Ident`, so it is in this fix's refused class and now
+     draws the refusal, declared or undeclared. 0051's own lowercase-`Ident`
+     subject (`let a: nope = 3` → `[]`) is untouched.
+  3. **§Related's account of bug 0050 ("`checkFnArgCompat` has no `src/`
+     caller") is stale — 0050 is fixed (0.77.0), and there is an EIGHTH loss
+     class the report could not measure.** `fn f(n: integer): integer { 1 }` +
+     `f("x")` draws `theta/parse/fn-arg-type-mismatch` at the baseline, and the
+     junk-suffixed twin draws nothing. Pinned as loss pair l8.
+  4. **The `## Affected` line citations are fifty minors stale** —
+     `annotationToCompatType` is cited at `:482–504` and sits far below that;
+     `type-layer-checks.ts` is 2824 lines at the fix baseline and
+     `theta-document.ts` 7255. Everything was re-anchored BY SYMBOL. The
+     converter also has ten callers in `src/parser` rather than the three the
+     report describes.
+- **Gates**, verbatim.
+  Witness: `npx vitest run tests/annotation-nontype-text-refusal.test.ts` →
+  `Test Files  1 passed (1)` / `Tests  251 passed (251)`.
+  Full default suite: `npx vitest run` →
+  `Test Files  323 passed (323)` / `Tests  5814 passed (5814)`
+  (baseline 322 / 5563; the delta is exactly this witness's one file and 251
+  cells, nothing else moved).
+  Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0, no output.
+  Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+  → exit 0, no output.
+  Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/live-production-acceptance.test.ts` → `Tests  58 passed (58)`,
+  additive cell 58 green in 413 ms with zero model turns, and proved RED in the
+  other direction under a neutralised recogniser (`Registered:
+  ["b124livebroken","b124livegood"]`).
+  Live H9a, the REAL run, both files: `Test Files  2 passed (2)` /
+  `Tests  11 passed (11)` (noninteractive-acceptance 10 + ctor-unresolved-load-refusal
+  1), first attempt, no stochastic red.
+- **Review**: five rounds, all dispatched to the named phase agents.
+  Round 1 (deep) — FINDINGS: `walkFn`'s `returnScope` derived a `?`-scope
+  verdict from refused text (a cascade §Fix (f)(1) forbids); the new *Trigger*
+  called both declines SHARED while naming one "this position's own"; plus two
+  prose residuals (an unreachable `result-in-schema-position` example, an
+  over-claiming number-literal clause). All four closed.
+  Round 2 (fast) — FINDINGS, `recommend-deep-review`: a SIXTH consumer —
+  `collectFnReturnAnnotations` built `fnReturns` from raw text and
+  `isResultAnnotation`'s `/^Result\b/` matched `Result--`, so a plain-string
+  callee drew a FALSE `theta/parse/interpolated-result` beside the refusal.
+  Closed at MAP-BUILD time so every reader inherits the absence from one place.
+  Round 3 (deep) — FINDINGS: an EIGHTH consumer, `checkLetMismatch`, ruled OUT
+  OF SCOPE (residual 1 below); plus two stale witness citations.
+  Round 4 (deep, confirmation) — FINDINGS, both `spec`: the narrowed absence
+  claim named five consumers where the code establishes six, and one clause
+  ("reads the position exactly as an unannotated one would") was measurably
+  false at the binding record. Both closed, plus a `test` residual — the
+  `subagent fn` boundary guard had no red-direction witness, since bare
+  `integer--` defers with or without it. Closed by loss pair l7b
+  (`subagent fn g(): array<integer--> { "x" }`), proved red twice by
+  neutralising the guard.
+  Round 5 (deep, final) — **CLEAN**, one non-blocking `house-rule` residual
+  (residual 3 below).
+  A pre-review citation-only correction round ran before round 1 (not a review
+  round, numbering unaffected): the Phase-2 line insertions staled 15
+  `path:line` citations inside this fix's own two test surfaces, re-anchored to
+  symbols rather than corrected numbers, since symbol anchors do not drift.
+- **Verification**: **SOLID**, all four obligations with quoted evidence.
+  (i) *The witness genuinely reds* — proved in THREE independent slices so a
+  blunt revert could not mask a partially dead witness: neutralising the
+  recogniser reds 129 of 251; neutralising only the three emission guards reds
+  128, and in every withhold-only cell the received value is `[]` rather than
+  the wrong code, which proves the withhold is an independent mechanism from the
+  emission; neutralising only the `let`-arm withhold reds exactly one cell (i4)
+  with the genuine two-diagnostic cascade, while i2 (the same class at the `fn`
+  parameter position, a different withhold site) stays green. Every restoration
+  hash-verified (`1fc5f764…`, `58a0828e…`).
+  (ii) *Full default suite green*, delta accounted for exactly.
+  (iii) *Live coverage run for real* — H8a cell 58 green and red-proven both
+  directions; the REAL H9a run 11/11 across both files, with all ten
+  `assertStderrClean` calls passing and `permitted-codes.json` byte-unchanged
+  before and after.
+  (iv) *Lint and typecheck clean*, both confirmed as the gates `package.json`
+  defines.
+  Verification additionally re-derived the census independently, confirmed the
+  three authorized cells moved with the file still at 96, and checked §Fix
+  (f)(5) against a real pre-fix `git worktree` run rather than only against this
+  fix's own assertions.
+- **The authorized fixture move.** `tests/schema-body-nontype-text-refusal.test.ts`
+  (bug 0061's witness) group (g) cells g3 / g4 / g5 — `let x: Cat + = 1`,
+  `fn f(p: Cat +): integer { 1 }`, `fn f(): Cat + { 1 }` — moved from `[]` to
+  one `theta/parse/annotation-type-not-expression` each. Authority: **this
+  report's own §Fix**. Those three cells are 0061's over-refusal tripwires at
+  the three positions this report owns; 0061 §Fix constraint 2 declines them in
+  terms and 0061's fix record pins them as "the `value` … and `return` … —
+  none, they never reach `lowerTypeSource`". §Fix (f)(2) requires exactly these
+  positions refused, so the tripwires fire as designed. Each moved cell is
+  marked inline with bug 0124 as its authority (the idiom 0059's and 0061's own
+  moved cells use) and the group header is re-derived; the file's cell count is
+  unchanged at 96 and nothing else in it moved. This is the ONLY fixture move
+  in the change — the full-suite blast radius was pre-measured with a throwaway
+  prototype before Phase 1 and was exactly these three cells in this one file.
+- **Residuals.**
+  1. **An EIGHTH consumer of refused annotation text survives, at a site two
+     open reports own.** `checkLetMismatch`
+     (`src/parser/query-schema-resolve.ts`, the QRY-4 explicit-schema check)
+     reads `stmt.annotation` directly and converts it, so a refusal whose junk
+     sits one level down under a well-formed outer constructor still draws
+     `theta/parse/explicit-schema-mismatch` (W) beside it. Measured:
+     ``let a: array<integer--> = @<integer>`x` `` → the refusal AND the warning;
+     ``let a: array<integer--> | boolean = @<string>`x` `` → the same;
+     ``let a = @<integer>`x` `` (annotation ABSENT) → `[]`, which is what makes
+     the verdict junk-derived rather than independent; ``let a: string =
+     @<integer>`x` `` → the warning alone (the channel is live); ``let a:
+     integer-- = @<string>`x` `` → the refusal alone (a bare unresolvable name
+     defers). Mechanism: `checkCompatible` decides on the converted OUTER kind
+     before the junk argument is inspected. **Not fixed here, deliberately.**
+     `checkLetMismatch` is owned by bug
+     [0093](./0093-let-annotation-query-position-double-emission.md) — open,
+     §Fix constraint-pinned with no route selected, and its subject is exactly
+     this site's double-emission topology — and by bug
+     [0130](./0130-let-rhs-type-mismatch-declines-object-union.md) — open,
+     unsettled, which cites `query-schema-resolve.ts:470–491`
+     (`checkLetMismatch`) among the checks its own conversion change moves and
+     names this report as a coordination point that leaves its disposition
+     question intact. Editing it would decide two other reports' open questions.
+     Pinned in both directions as group (o), whose cell messages name 0093 and
+     0130 as the owners, and stated as a labelled exception in the new row's
+     *Trigger* so the row does not over-claim. Neither owner's claim is
+     falsified: 0130's input class and disposition question are intact because
+     the conversion is untouched, and 0093's subject is a DUPLICATE of one code
+     rather than two different codes.
+  2. **Bug 0093's duplication topology does not reach the new code, and that is
+     unpinned.** Measured: ``let r: integer-- = @`hi` `` and
+     ``let r: integer-- = @<integer>`hi` `` each draw exactly ONE
+     `annotation-type-not-expression`, while 0093's own control
+     ``let r: {} = @`hi` `` draws `theta/parse/empty-schema-body` TWICE — so the
+     duplication channel is live and this fix's emitter, which lives only in
+     `walkStatement`'s `let` and `fn` arms and not in the query arm, is outside
+     it. Measured after the review loop closed and therefore recorded rather
+     than pinned by a cell; a future emitter added to the query arm would
+     silently enter 0093's class.
+  3. **`isUnspellableTextRefusable`'s consumer enumeration is one short.** Its
+     doc comment (`src/parser/params.ts`, above the export) reads "ONE declined
+     predicate for every position that refuses `unspellable` text — `parseParams`
+     below … and the two body-position emitters in `theta-document.ts` … none of
+     the three keeps a private copy." This fix's recogniser is a fourth
+     consumer, and it relies on precisely the narrowing-propagates property that
+     sentence states. The head claim stays true; only the count is stale.
+     `src/parser/params.ts` is outside this fix's touch surface and was not
+     edited: a one-word enumeration change there is a comment-only edit in a
+     file this change otherwise never opens, and in a shared working tree
+     committing it risks carrying a sibling's uncommitted work.
+  4. **The `@<T>` capture's junk-suppression disposition stays unfiled.** This
+     report's group (f) records that `@<Ghost-->` SUPPRESSES
+     `theta/parse/unresolved-named-type` at one of that row's own five
+     positions; §Non-goals hands the disposition to whoever owns that capture
+     (`theta-document.ts`'s inline `@<T>` depth loop, not `parseType`). Measured
+     byte-identical across this change (`@<Cat-->` → `[]`, `@<Ghost>` →
+     `unresolved-named-type`, `@<Ghost-->` → `[]`, pinned as fence cells) and
+     still unfiled.
+  5. **A pre-existing FALSE refusal at bug 0061's and 0059's landed positions,
+     which this fix does not inherit and does not repair.** The legal annotation
+     `array<{a: string, b: integer, c: boolean}>` draws
+     `theta/parse/schema-type-not-expression` at a `schema` object-body field
+     type AND at a `schema X = …` alias arm, and
+     `theta/load/params-type-not-expression` at a `params:` field — measured at
+     the fix baseline with this fix absent from those paths — because the
+     angle-only generic-argument split shreds the three-field brace group and
+     the brace-free middle shard `b: integer` is refusable under the shared
+     decline. The same hazard reaches any depth
+     (`{a: array<{x: string, y: integer, z: boolean}>}`) and through an
+     `enum[…]` list of two or more items, since no split tracks bracket depth.
+     This fix's own three positions are immune by the SHRED decline above.
+     Repairing the sibling positions would move two landed rows and is not this
+     report's to decide.
+  6. **A shipped-fix line shift staled `path:line` citations in documents this
+     change does not own.** `type-layer-checks.ts` grew by 93 lines and
+     `theta-document.ts` by 54, all below `annotationToCompatType` and
+     `schemaTypeNotExpressionDiagnostic` respectively, so citations at or past
+     those points have moved — roughly 22 `docs/bugs/*.md` files plus about a
+     dozen test files. Not chased: this is bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s already-filed
+     class (open, four routes, none chosen), and its §Fix explicitly records
+     that a partial sweep is worse than none.
+- **Discharge notes appended:** 0061 (its three over-refusal tripwire cells
+  moved under this report's authority, and its per-position sink-threading map
+  now has three more threaded positions), 0084 (residual (iv), this report's
+  filing origin, is now discharged in full across two fixes), 0051 (its cited
+  `annotationToCompatType` fallback sentence stays true but is no longer reached
+  for non-derivable text at these three positions, and `Cat--` now refuses).
+  0122 and 0123, the two sibling filings from the same 0084 residual list, were
+  checked and are untouched: their code sites (`parseExpressionSource` and the
+  two interpolation walks; `parsePattern`) are disjoint from this fix's, and
+  0122's substantive claim that "none of the three depends on another's
+  disposition" holds — only its `— open` status label for this report is now
+  stale, which is corpus-wide staleness rather than a falsified claim. 0093 and
+  0130 need no note: neither claim is falsified (residual 1).
+- **Pinned dispositions / non-goals.** Every §Non-goals boundary held. The two
+  schema `Type` positions stay 0061's and are byte-identical here; the `params:`
+  position stays 0059's and likewise; the `@<T>` capture stays out of frame
+  (residual 4); case at a reference position stays bug 0051's, and this fix
+  adds no case test and no resolvability test — `annotationToCompatType` is
+  byte-unchanged; how a recorded parameter type is consumed at the iterand and
+  join gates stays bug 0089's, whose fix is in and whose `TypeEnv`-taking
+  `checkForIterand` this fix cites post-fix; the `<` / `>` capture over-run
+  stays unfiled (§Fix (f)(6) disposition above); the silently-accepted junk
+  parameter name and the admitted trailing comma stay as recorded; the unwired
+  ordinary-`fn` return-type check stays a separate question; `checkFnArgCompat`
+  is 0050's and is fixed, which is what exposed the eighth loss class; whether
+  `{}` should ever be a lowering stays bug 0028's and is not reopened — indeed
+  0028's witness is what forced the SHRED decline. Bug 0084's 25-cell witness
+  is green and byte-unchanged: none of its cells is in type position, and this
+  fix reaches neither the lexer's `twoCharOperators` nor any expression-walk
+  hook, so s5–s7 do not move.

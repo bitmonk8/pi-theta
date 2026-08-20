@@ -1251,3 +1251,53 @@ Constraints on any implementation:
   token after a completed capture stays bug 0042's, its five contrast fixtures
   each keeping exactly one `malformed-alias-rhs`; and the capture over-run
   through `<` / `>` (`schema X = Cat >`) remains unfiled and out of frame.
+
+### Discharge note — bug 0124's fix (0.121.0)
+
+Appended by bug [0124](./0124-parsetype-trailing-punctuation-leniency.md)'s fix.
+Two statements of this record are now superseded, both in the direction this
+record anticipated.
+
+1. **Three of the five over-refusal tripwires have fired, as designed.** The
+   *Per-position sink-threading map* pins `let x: Cat + = 1`,
+   `fn f(p: Cat +): integer { 1 }` and `fn f(): Cat + { 1 }` as `[]` with the
+   `value` and `return` positions "unthreaded", against the day a change
+   over-refused into positions this report declines in terms (§Fix constraint 2:
+   "not claimed here"). Bug 0124 owns exactly those three positions and its §Fix
+   requires them refused, so cells `g3` / `g4` / `g5` of
+   `tests/schema-body-nontype-text-refusal.test.ts` now expect one
+   `theta/parse/annotation-type-not-expression` each, marked inline with bug
+   0124 as their authority. The file's cell count is unchanged at 96 and nothing
+   else in it moved. The remaining two tripwires — `@<Cat +>` → `[]` and
+   `lowerQueryResponseSchema("Cat +", …)` → `{}` — are byte-identical across
+   that change and still guard the `@<T>` position, which stays unthreaded.
+2. **The map's "none" entries for `value` and `return` are superseded, and the
+   threading point is NOT this report's sink.** Bug 0124 reaches those three
+   positions through a recogniser beside `annotationToCompatType`
+   (`src/parser/type-layer-checks.ts`) that calls
+   `collectUnresolvedNamedTypes`'s fourth out-parameter — this report's own sink
+   — and filters through the ONE shared decline `isUnspellableTextRefusable`, so
+   the four positions agree on a fragment's disposition by construction rather
+   than by coincidence, and narrowing that decline still narrows all four at
+   once. `lowerTypeSource` is not reached at those positions and no lowering
+   byte moves. Its refusal is a separate registered row,
+   `theta/parse/annotation-type-not-expression`, minted rather than a widening
+   of this row's *Trigger*: this row's slug and *Trigger* name a `schema`
+   object-body field type and an alias arm, and a `let` annotation is neither —
+   widening would be the bug 0044 honest-identity overreach. This row's
+   *Trigger*, Message, guards and count rule are byte-unchanged.
+
+One defect in this fix's landed refusal was measured while 0124 was in flight
+and is NOT repaired: the angle-only generic-argument split shreds a brace group
+of three or more fields, so the brace-free middle shard reaches the judgement
+and a LEGAL annotation is falsely refused —
+`schema S { a: array<{a: string, b: integer, c: boolean}> }` and
+`schema X = array<{a: string, b: integer, c: boolean}>` each draw
+`theta/parse/schema-type-not-expression`, and the `params:` spelling draws
+`theta/load/params-type-not-expression`. The hazard reaches any depth
+(`{a: array<{x: string, y: integer, z: boolean}>}`) and any `enum[…]` list of
+two or more items, since no split tracks bracket depth. Bug 0124's three
+positions are immune because its recogniser declines a source carrying a
+bracket, or carrying both a brace and an angle bracket, before consulting the
+shared sink; repairing this row would move landed behaviour and belongs to
+whoever files it.
