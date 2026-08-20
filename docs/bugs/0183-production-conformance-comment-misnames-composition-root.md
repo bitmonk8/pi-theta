@@ -641,3 +641,5 @@ in scope.
   boundary).
 - No probe was written, no file outside this document was touched, and no test
   was run to establish the finding.
+
+> **Correction (at bug 0207's filing):** the `## Fix (0.129.0)` record above states the file's four downstream repetitions were corrected; the shipped commit corrected three (`:192–193`, the `:282` describe title, `:311`). The fourth — doc-cited `:67`, at `:73` post-fix — still carries the false clause and is bug 0207's site 9. 0207 also inventories twenty-three further sites of the same class its sweep found beyond this report's enumeration.
