@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0103 — binder `description:` / `argument-hint:` lines are no longer
+  forgeable by embedded newlines.** The binder system prompt renders author
+  text line-positionally, so a value carrying `\n` could impersonate a
+  different line of the prompt (injection-adjacent). The item-2/item-3 render
+  sites now collapse embedded line breaks and trim (module-local
+  `normalisePromptTextLineBreaks`); break-free values stay byte-identical.
+  Normative collapse-and-trim sentences landed in
+  `binder-bypass-and-envelope.md` + the `reference/frontmatter.md` rows the
+  same commit; no diagnostics touched. Witness:
+  `tests/binder-prompt-description-hint-line-forgery.test.ts` (15 cells) +
+  H8a cell 65 (fixed-path coverage — the doc's own constraint records that
+  live cannot witness an off-session `complete()`).
+
 ## [0.130.0] - 2026-08-26
 
 ### Fixed

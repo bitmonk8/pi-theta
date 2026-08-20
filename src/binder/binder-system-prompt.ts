@@ -8,9 +8,14 @@
 //
 //   1. Theta identity line — `Theta: /<name>` (exactly one).
 //   2. Description line — `Description: <description>` iff frontmatter
-//      `description:` is non-empty; omitted entirely otherwise.
+//      `description:` is non-empty; omitted entirely otherwise. The
+//      interpolated scalar's line breaks, together with adjoining horizontal
+//      whitespace, collapse to one U+0020, and the result's leading/trailing
+//      U+0020 is trimmed, so the line never spans more than the one physical
+//      line the item requires; a break-free value renders unchanged.
 //   3. Argument-hint line — `Argument hint: <value>` iff `argument-hint:` is
-//      non-empty; omitted entirely otherwise.
+//      non-empty; omitted entirely otherwise. The same collapse-and-trim rule
+//      as item 2 governs the interpolated scalar's line breaks.
 //   4. Parameters block — a `Parameters:` header (unindented) plus one per-field
 //      line per declared field in declaration order, each indented with exactly
 //      two U+0020 SPACE, matching `<wire-name> (<type>) <requirement>[ — <desc>]`;
@@ -56,6 +61,74 @@
 // by V11i (cka-39) — both are inputs to this builder, not its responsibility.
 
 import { trimSlashArgumentWhitespace } from "./binder-envelope";
+
+/**
+ * Collapse the line breaks out of an interpolated frontmatter scalar before it
+ * is folded into item 2's or item 3's line (Description / Argument-hint):
+ * `description:` and `argument-hint:` are prose, not a `Type` and not a
+ * `Literal` (docs/spec_topics/binder/binder-bypass-and-envelope.md
+ * §"System-prompt structure (normative)" items 2, 3), so no
+ * sublanguage escape denotes anything inside either value. Unlike *Type
+ * display* / *Default-literal rendering* (item 4), there is therefore no
+ * string-literal arm here: running one over prose would render an ordinary
+ * apostrophe's adjacent break as a literal backslash-n the reader cannot tell
+ * apart from the author's own text, defeating the value the line exists to
+ * convey. Every maximal run of U+0020 SPACE, U+0009 TAB, U+000D CR and
+ * U+000A LF that contains at least one CR or LF collapses, with the whole
+ * run, to one U+0020; a run containing no break is preserved verbatim. This
+ * collapse arm duplicates `normaliseParamLineBreaks`'s non-literal arm in
+ * shape rather than calling it: the two answer different spec sentences —
+ * item 4's `<type>` / `<literal>` tokens there, items 2 and 3's whole
+ * interpolated value here — and may move independently under a future
+ * adjudication, so no shared helper is factored out. The leading/trailing
+ * trim (U+0020 only) discharges the item-2/item-3 sentences above for a YAML
+ * block scalar's clip-retained trailing newline: without it, `description: |`
+ * collapses that trailing break to a U+0020 and the rendered line still
+ * carries trailing whitespace the item list does not authorise. U+00A0 is
+ * never touched by either the collapse or the trim. Text carrying no CR and
+ * no LF is returned unchanged (the fast path), which is what keeps every
+ * break-free corpus value and the item-2/item-3 assertions in
+ * `tests/binder-system-prompt.test.ts` byte-identical.
+ */
+function normalisePromptTextLineBreaks(text: string): string {
+  if (!/[\r\n]/.test(text)) {
+    return text;
+  }
+  const n = text.length;
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const c = text[i] ?? "";
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+      let j = i;
+      let sawBreak = false;
+      while (j < n) {
+        const wc = text[j] ?? "";
+        if (wc !== " " && wc !== "\t" && wc !== "\r" && wc !== "\n") {
+          break;
+        }
+        if (wc === "\r" || wc === "\n") {
+          sawBreak = true;
+        }
+        j += 1;
+      }
+      out += sawBreak ? " " : text.slice(i, j);
+      i = j;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  let start = 0;
+  let end = out.length;
+  while (start < end && out[start] === " ") {
+    start += 1;
+  }
+  while (end > start && out[end - 1] === " ") {
+    end -= 1;
+  }
+  return out.slice(start, end);
+}
 
 // --- per-field descriptor ---------------------------------------------------
 
@@ -297,14 +370,18 @@ export function buildBinderSystemPrompt(input: BuildBinderSystemPromptInput): st
   // Item 1 — Theta identity line (exactly one).
   line(`Theta: /${input.name}`);
 
-  // Item 2 — Description line (only when non-empty).
+  // Item 2 — Description line (only when non-empty). The interpolated
+  // frontmatter scalar's line breaks are collapsed first (§"System-prompt
+  // structure (normative)" item 2) so a break inside it cannot forge a
+  // further structural line.
   if (input.description !== undefined && input.description !== "") {
-    line(`Description: ${input.description}`);
+    line(`Description: ${normalisePromptTextLineBreaks(input.description)}`);
   }
 
-  // Item 3 — Argument-hint line (only when non-empty).
+  // Item 3 — Argument-hint line (only when non-empty). Same collapse as item 2
+  // (item 3's own line-break sentence).
   if (input.argumentHint !== undefined && input.argumentHint !== "") {
-    line(`Argument hint: ${input.argumentHint}`);
+    line(`Argument hint: ${normalisePromptTextLineBreaks(input.argumentHint)}`);
   }
 
   // Item 4 — Parameters block (only when ≥1 field), in declaration order.
