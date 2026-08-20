@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0113 — glob-universe enumeration failures now warn instead of
+  silently shrinking discovery.** Both `listTree` copies swallowed every
+  `readdir` rejection, so a denied subtree (or denied static-prefix root)
+  under a settings `thetaPaths` glob or a package `pi.theta` universe
+  silently dropped every `.theta` beneath it. The walk now returns its
+  failures and the caller emits `theta/load/unreadable-source` (warning)
+  naming the lowest-index settings entry or the package descriptor — no new
+  registry code, no Trigger widening (bug 0076's precedent). Spec silence
+  closed in `discovery-sources.md` the same commit. Witness:
+  `tests/discovery-glob-universe-enumeration-failure.test.ts` (19 cells) +
+  H8a cell 62 (real discovery→registration path, red-proven both directions).
+
 ## [0.125.0] - 2026-08-26
 
 ### Fixed

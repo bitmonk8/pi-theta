@@ -309,14 +309,42 @@ interface TreeEntry {
   readonly isFile: boolean;
 }
 
+/** One package-universe enumeration: the entries found, plus the paths whose
+ *  own enumeration failed reportably. A shrunken universe is a well-formed
+ *  value, so the failures travel out with it rather than being dropped. */
+interface TreeWalk {
+  readonly entries: TreeEntry[];
+  readonly unreadable: string[];
+}
+
 /** Recursively enumerate every file/dir under the package root (the universe
- *  the `pi.theta` patterns are matched against). Symlinks are not followed. */
-async function listTree(fs: FileSystem, root: string): Promise<TreeEntry[]> {
+ *  the `pi.theta` patterns are matched against). Symlinks are not followed. A
+ *  failure to enumerate any directory in that walk is a traversal failure
+ *  inside a root that exists — an unreadable source, not silence
+ *  (discovery-sources.md:69) — so the rejection is carried out to
+ *  `resolvePiThetas`, which owns the `pi.theta` descriptor.
+ *
+ *  An `ENOENT` needs no discovery-sources.md:68 ancestor walk here, for the
+ *  reason `thetasInDirectory` states: this walk's every ancestor is already
+ *  proven enterable (the package root's `package.json` was read successfully,
+ *  and a subtree's parent was just `readdir`ed), so the walk could only ever
+ *  answer "clean" — *missing*, which leaves the pattern resolving to no path
+ *  there and stays silent per package-and-settings.md:29. */
+async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
   const out: TreeEntry[] = [];
+  const unreadable: string[] = [];
   const walk = async (dir: string, relBase: string): Promise<void> => {
-    const names = await readdirOr(fs, dir);
-    if (names === undefined) return;
-    for (const name of names) {
+    const outcome = await fs.readdir(dir).then(
+      (names) => ({ ok: true as const, names }),
+      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
+    );
+    if (!outcome.ok) {
+      if (outcome.code !== "ENOENT") {
+        unreadable.push(dir);
+      }
+      return;
+    }
+    for (const name of outcome.names) {
       const abs = joinPosix(dir, name);
       const rel = relBase === "" ? name : `${relBase}/${name}`;
       const stat = await fs.lstat(abs).then(
@@ -331,7 +359,7 @@ async function listTree(fs: FileSystem, root: string): Promise<TreeEntry[]> {
     }
   };
   await walk(root, "");
-  return out;
+  return { entries: out, unreadable };
 }
 
 /** Match one glob against an entry's package-root-relative path, its basename,
@@ -395,7 +423,7 @@ async function resolvePiThetas(
     else plain.push(operand);
   }
 
-  const universe = await listTree(fs, pkgRoot);
+  const { entries: universe, unreadable } = await listTree(fs, pkgRoot);
 
   // (1) plain includes select the starting set (every path when none present).
   const selected = new Set<string>();
@@ -446,6 +474,26 @@ async function resolvePiThetas(
       }
     }
     // any other file type (non-`.theta` file, symlink) is filtered silently
+  }
+
+  // The universe walk's own traversal failures, reported once the per-match
+  // reports are in: a path `thetasInDirectory` already reported is left to that
+  // report, because rule 2 (discovery-sources.md:63) pairs one offending path
+  // with one descriptor and the universe walk is the coarser observer of the
+  // same rejection.
+  for (const dir of unreadable) {
+    const alreadyReported = diagnostics.some(
+      (diagnostic) =>
+        diagnostic.file === dir &&
+        (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
+    );
+    if (alreadyReported) continue;
+    diagnostics.push({
+      severity: "warning",
+      code: UNREADABLE_SOURCE,
+      file: dir,
+      message: `discovery source is unreadable: package \`${pkgName}\` (pi.theta)`,
+    });
   }
   return thetas;
 }

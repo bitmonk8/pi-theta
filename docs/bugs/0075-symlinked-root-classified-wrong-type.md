@@ -239,3 +239,4 @@ from the test.
   `tests/helpers/fake-file-system.ts` (`symlinks` option), deleted after the run.
 - Spec: `docs/spec_topics/discovery/discovery-sources.md:49`, `:57–64`, `:60`,
   `:66`, `:67`; `docs/reference/discovery-cli.md:40–59`.
+> **Coordination note (at bug 0113's fix, 0.126.0):** both `listTree` copies moved — the return type now carries the readdir failures, `treeFor` takes a second `descriptor` argument, and `resolveSettingsSource` ends with an `emitUniverseFailures` call. This report's subject (per-entry `lstat`/link classification) is untouched; the per-entry `lstat` swallow stays a 0113 §Non-goal. Line citations into `src/discovery/discovery-walk.ts` / `src/discovery/package-discovery.ts` below `listTree` drifted — re-anchor by symbol at pick.

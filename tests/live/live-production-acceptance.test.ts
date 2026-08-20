@@ -1185,6 +1185,125 @@ describe("H8a-T — bug 0077: a settings thetaPaths glob reaches only its own di
 });
 
 // ===========================================================================
+// cell 62 — bug 0113: both `listTree` copies swallowed every `readdir`
+// rejection, so a denied subtree (or a denied static-prefix ROOT) under a
+// settings `thetaPaths` glob's universe silently shrank that universe with no
+// diagnostic on any channel (docs/bugs/0113-listtree-glob-universe-swallow-
+// silent.md). The fix carries the universe walk's own `readdir` rejections out
+// of `listTree` as a `TreeWalk.unreadable` list and reports each — once per
+// denied path per pass, deduped against any per-match report that already
+// covered the same path — as a `theta/load/unreadable-source` WARNING naming
+// the triggering `thetaPaths` entry (discovery-sources.md:69, :57).
+//
+// This cell mirrors the bug 0077 cell immediately above: it writes
+// `<cwd>/.pi/settings.json` itself after `plantThetaWorkspace` returns, before
+// `bootShippedExtension` fires `session_start`'s real discovery walk. Unlike
+// bug 0077, this cell needs a `readdir` REJECTION on the glob's static-prefix
+// root, and this live harness cannot inject the `ReaddirDenied` seam the
+// offline witness (tests/discovery-glob-universe-enumeration-failure.test.ts)
+// uses — `bootShippedExtension` builds its own real `PiFileSystem`. The
+// platform-neutral, ACL-free provocation the offline witness's cell E1 already
+// uses instead: plant a REGULAR FILE at the exact path the static-prefix root
+// would occupy. The real `fs.readdir` then rejects `ENOTDIR` — one of the
+// three codes discovery-sources.md:68 classifies as *unreadable* — with no ACL
+// manipulation and no platform branch. A glob entry never reaches
+// `classifyPath`, so no wrong-type arm sees this path either.
+//
+// The warning fires at LOAD time (inside `bootShippedExtension`'s
+// `session.bindExtensions({})`), through the SAME `sink.emitGroup(walk.
+// diagnostics)` → `emitLoadNoteGroup` delivery surface the bug 0110 cell's
+// error-severity diagnostic uses (production-composition.ts:539, :1269) —
+// `emitLoadNoteGroup`'s warning arm selects on `severity === "warning"` with
+// no code allow-list, so this is the same channel, a different severity arm.
+// No slash command is invoked, so this cell spends zero tokens, the same
+// profile as the bug 0070/0071/0077/0079(a)/0084/0110 registration-only cells.
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted; the title and this leading comment both carry the
+// literal token cell 62 (the parent renumbers at merge).
+// ===========================================================================
+
+/** `theta/load/unreadable-source`'s registered Message (DIAG-4) — reused from
+ *  `INVOKE_PATH_ESCAPE_REGISTRY` above, the same code-registry-load.md page. */
+const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
+
+/**
+ * `theta/load/unreadable-source: discovery source is unreadable: <descriptor>`
+ * with `<descriptor>` substituted — DIAG-4: the message half is read from the
+ * registry row, not copied, mirroring this file's `invokePathEscapeFragment`.
+ */
+function unreadableSourceFragment(descriptor: string): string {
+  const template = registryMessage(
+    INVOKE_PATH_ESCAPE_REGISTRY,
+    UNREADABLE_SOURCE_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${UNREADABLE_SOURCE_CODE} has no registry row — the code this cell ` +
+      "asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<descriptor>", descriptor);
+  expect(
+    message,
+    `${UNREADABLE_SOURCE_CODE}: an unsubstituted <…> placeholder remains — ` +
+      "the registry row's Message template changed shape and this cell's " +
+      "substitution is stale",
+  ).not.toMatch(/<[a-z-]+>/);
+  return `${UNREADABLE_SOURCE_CODE}: ${message}`;
+}
+
+describe("H8a-T — cell 62 (bug 0113): a settings thetaPaths glob whose static-prefix root cannot be enumerated warns on the theta-system-note channel (Convention: live-host acceptance)", () => {
+  it("cell 62: registers the precondition control, and the theta-system-note channel carries the glob-universe unreadable-source warning naming settings entry index 0, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      // Precondition control: an ordinary theta in the SAME workspace,
+      // proving the workspace and discovery walk both work — without this,
+      // the missing warning could be (wrongly) attributed to a broken
+      // workspace instead of the universe-walk swallow bug 0113 names.
+      { source: "project", stem: "b113livectl", text: subagentTheta() },
+    ]);
+    // The glob's static-prefix root, planted as a REGULAR FILE (not a
+    // directory) — the real `fs.readdir("<cwd>/.pi/g")` then rejects ENOTDIR.
+    writeFileSync(join(workspace.cwd, ".pi", "g"), "not a directory\n", "utf8");
+    writeFileSync(
+      join(workspace.cwd, ".pi", "settings.json"),
+      JSON.stringify({ thetaPaths: ["g/**/*.theta"] }),
+      "utf8",
+    );
+
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the control must register before the warning's absence
+      // could be (wrongly) attributed to a broken workspace.
+      expect(
+        handle.command("b113livectl"),
+        "the precondition control did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline scratch harness the bug doc used, and not the
+      // offline witness's fake-filesystem seam), the glob's static-prefix
+      // root cannot be `readdir`ed, and discovery-sources.md:69 forbids
+      // silence for a traversal failure inside a root that exists. The
+      // warning fires at LOAD time, before any drive, so the full entry list
+      // is the delta (mirrors the bug 0110 / bug 0084 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unreadableSourceFragment("settings entry index 0");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the glob-universe unreadable-source " +
+          "warning for the denied static-prefix root — AT HEAD (pre-bug-0113-fix) " +
+          "listTree drops the readdir rejection in silence and nothing is ever " +
+          "emitted. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
 // Bug 0079 — `theta/parse/interpolated-result` had no emitter: a
 // `Result`-valued `${…}` interpolation rendered the interpreter-private
 // `{"ok":…,"value":…}` encoding into the prompt text sent to the model

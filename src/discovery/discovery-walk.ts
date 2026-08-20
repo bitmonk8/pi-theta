@@ -550,18 +550,40 @@ interface TreeEntry {
   readonly isFile: boolean;
 }
 
+/** One glob-universe enumeration: the entries found, plus the paths whose own
+ *  enumeration failed reportably. A shrunken universe is a well-formed value,
+ *  so the failures travel out with it — the walk observes the rejection but
+ *  only the caller knows which `thetaPaths` entry's universe it shrank
+ *  (discovery-sources.md:63 wants that entry's descriptor). */
+interface TreeWalk {
+  readonly entries: TreeEntry[];
+  /** Directories that exist and could not be enumerated. A clean-leaf `ENOENT`
+   *  is absent instead: there the pattern resolves to no path, which
+   *  package-and-settings.md:29 keeps silent. */
+  readonly unreadable: string[];
+}
+
 /** Recursively enumerate every file/dir under `root` (symlinks not followed);
- *  the universe glob patterns are matched against. A non-existent / unreadable
- *  root yields the empty universe. */
-async function listTree(fs: FileSystem, root: string): Promise<TreeEntry[]> {
+ *  the universe glob patterns are matched against. A failure to enumerate any
+ *  directory in that walk — the static-prefix root itself or a subtree below
+ *  it — is a traversal failure inside a root that exists, an unreadable source
+ *  and not silence (discovery-sources.md:69), so the rejection is classified by
+ *  the :68 clean-leaf rule and carried out rather than dropped. */
+async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
   const out: TreeEntry[] = [];
+  const unreadable: string[] = [];
   const walk = async (dir: string): Promise<void> => {
-    const names = await fs.readdir(dir).then(
-      (n) => n,
-      () => undefined,
+    const outcome = await fs.readdir(dir).then(
+      (n) => ({ ok: true as const, names: n }),
+      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
     );
-    if (names === undefined) return;
-    for (const name of names) {
+    if (!outcome.ok) {
+      if (!(outcome.code === "ENOENT" && (await ancestorsClean(fs, dir)))) {
+        unreadable.push(dir);
+      }
+      return;
+    }
+    for (const name of outcome.names) {
       const abs = joinPosix(dir, name);
       const stat = await lstatOutcome(fs, abs);
       if (!stat.ok) continue;
@@ -572,7 +594,31 @@ async function listTree(fs: FileSystem, root: string): Promise<TreeEntry[]> {
     }
   };
   await walk(root);
-  return out;
+  return { entries: out, unreadable };
+}
+
+/** Report each glob-universe traversal failure at the source's *Unreadable
+ *  path* severity, once the pass's per-match reports are in. A path a
+ *  per-match enumeration already reported is left to that report: rule 2
+ *  (discovery-sources.md:63) pairs one offending path with one descriptor, and
+ *  the universe walk is the coarser observer of the same rejection — with
+ *  pattern `g/*` both walks cross the denied directory, and the author is owed
+ *  one diagnostic for it, not two. */
+function emitUniverseFailures(
+  failures: ReadonlyMap<string, string>,
+  severity: Severity,
+  diagnostics: Diagnostic[],
+): void {
+  for (const [path, descriptor] of failures) {
+    const file = normalizePath(path);
+    const alreadyReported = diagnostics.some(
+      (diagnostic) =>
+        diagnostic.file === file &&
+        (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
+    );
+    if (alreadyReported) continue;
+    emitSourceFailure(severity, UNREADABLE_SOURCE, descriptor, path, diagnostics, "unreadable");
+  }
 }
 
 /** The longest leading path segment run containing no glob metacharacter — the
@@ -693,13 +739,22 @@ async function resolveSettingsSource(
   // `selected` is keyed by the candidate `.theta` file's absolute path (dedup by
   // resolved absolute path); dir entries have already been expanded to files.
   const selected = new Map<string, RawCandidate>();
-  const treeCache = new Map<string, TreeEntry[]>();
-  const treeFor = async (root: string): Promise<TreeEntry[]> => {
+  const treeCache = new Map<string, TreeWalk>();
+  // A universe failure is attributed to the entry whose glob first triggered
+  // the walk that observed it: `treeCache` shares one universe across every
+  // entry with the same static prefix, so at the point of observation no single
+  // index owns the rejection, and the first (lowest-index) consumer is the
+  // deterministic choice.
+  const universeFailures = new Map<string, string>();
+  const treeFor = async (root: string, descriptor: string): Promise<TreeEntry[]> => {
     const cached = treeCache.get(root);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return cached.entries;
     const tree = await listTree(fs, root);
     treeCache.set(root, tree);
-    return tree;
+    for (const path of tree.unreadable) {
+      if (!universeFailures.has(path)) universeFailures.set(path, descriptor);
+    }
+    return tree.entries;
   };
 
   const addDir = async (dir: string, descriptor: string): Promise<void> => {
@@ -749,7 +804,10 @@ async function resolveSettingsSource(
   // A glob entry enumerates the universe under its static-prefix root and
   // contributes per match (file → register, dir → non-recursive scan).
   const addGlob = async (entry: ParsedSettingsEntry): Promise<void> => {
-    const tree = await treeFor(staticPrefixRoot(entry.abs));
+    const tree = await treeFor(
+      staticPrefixRoot(entry.abs),
+      `settings entry index ${entry.index}`,
+    );
     for (const universeEntry of tree) {
       if (!globMatches(universeEntry, entry.abs, entry.operand, baseDir)) continue;
       if (universeEntry.isDir) {
@@ -790,6 +848,8 @@ async function resolveSettingsSource(
       if (key === entry.abs || dirnameOf(key) === entry.abs) selected.delete(key);
     }
   }
+
+  emitUniverseFailures(universeFailures, SETTINGS_MODES.unreadable, diagnostics);
 
   return [...selected.values()];
 }

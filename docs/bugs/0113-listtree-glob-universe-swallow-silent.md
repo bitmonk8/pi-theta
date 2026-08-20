@@ -1,7 +1,10 @@
 # Bug 0113 — Both `listTree` copies swallow every `readdir` rejection, so a denied subtree under a settings `thetaPaths` glob's or a `pi.theta` pattern's static prefix silently shrinks the universe the pattern is matched against: every `.theta` the pattern would have selected is absent, no diagnostic is emitted on any channel, and the observed state is indistinguishable from a genuinely empty subtree — the residual bug 0076's §Fix deferred, because no spec sentence names a source descriptor for a subtree that no entry names
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition before any code lands. Ordering dependency —
+- **Status:** fixed (0.126.0). §Fix was not settled at filing: this report existed
+  to pin the spec disposition before any code landed. The disposition is
+  adjudicated in [`## Fix (0.126.0)`](#fix-xyz) at the end of this document
+  (Reading A governs; the closure sentence landed in the same change).
+  Ordering dependency —
   [0077](./0077-settings-glob-matches-pattern-basename.md) (open) owns
   `globMatches`, the predicate deciding which universe entries reach a caller,
   so either 0077 lands first or this fix re-derives its universe against 0077's.
@@ -896,3 +899,121 @@ beneath it. Cite symbols; every `discovery-walk.ts:N` above was taken at
 
 0077's fix record documents the change from its own side, including the route it
 took for the `TreeEntry`-shaped view the `!` step needs.
+
+<a id="fix-xyz"></a>
+
+## Fix (0.126.0)
+
+**Adjudication (the deliverable this report was filed for).** §Expected
+behaviour's **Reading A governs**: a `readdir` failure inside a glob universe is
+a traversal failure inside a root that exists, so `discovery-sources.md`'s
+"not silence" bullet forbids the swallow. The six §Fix questions resolve as:
+(a) descriptor answer **1** — the matching `thetaPaths` entry
+(`settings entry index N`) and `` package `<name>` (pi.theta) ``, both existing
+spec vocabulary, no mint; attribution moves to the caller by returning the
+outcome from `listTree`, and where one cached universe serves several entries
+the **lowest-index** entry that triggered the walk owns the rejection.
+(b) **warning** at the row's *Unreadable path* severity for both reachable rows,
+not silence-by-design. (c) **no DIAG-2 widening owed** — the
+`theta/load/unreadable-source` *Trigger* ("a discovery source's path exists but
+cannot be read") already admits it on bug 0076's own precedent, since
+`thetasInDirectory` emits it for a *pattern-contributed* directory rather than a
+literally-named source path; no new code, no registry row, no *Message* reword
+(DIAG-4). (d) discharged — 0077 landed first (0.68.0); the universe was
+re-derived at HEAD `2f56cb0a` against the four-argument `globMatches`.
+(e) both copies moved together. (f) every silence control preserved, and the
+*missing* arm is silent by construction: a universe walk never emits
+`theta/load/missing-source`, because a clean-leaf `ENOENT` under the prefix
+leaves the pattern resolving to zero paths, which `package-and-settings.md:29`
+keeps silent.
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `listTree` returns a `TreeWalk`
+    (`entries` + `unreadable`) instead of a bare array: the `readdir` rejection
+    is captured with `nodeErrorCode`, classified by the clean-leaf-`ENOENT`
+    ancestor walk (`ancestorsClean`), and carried out to the caller; `treeFor`
+    records the first (lowest-index) `settings entry index N` observer per
+    denied path; new `emitUniverseFailures` reports each once at
+    `SETTINGS_MODES.unreadable` through the existing `emitSourceFailure`,
+    skipping any path a per-match enumeration already reported (§Fix (a), (b),
+    (e), and the emission-count constraint).
+  - `src/discovery/package-discovery.ts` — the same shape for the `pi.theta`
+    universe, emitting the `` package `<name>` (pi.theta) `` descriptor at
+    `warning`. Its `ENOENT` needs no ancestor walk, for the reason
+    `thetasInDirectory` already states (its ancestors are pre-proven enterable),
+    so every `ENOENT` there is *missing* and silent. `readdirOr` is unchanged
+    and `enumerateRoot`'s DISC-6 roots stay silent by design (§Non-goals).
+  - `docs/spec_topics/discovery/discovery-sources.md` — the one clarifying
+    sentence group §Expected behaviour says is owed, appended in-line to the
+    existing traversal-failure bullet (`:69`): the glob universe is a walk of
+    the pattern's static-prefix root in that same sense; a clean-leaf `ENOENT`
+    under the prefix stays silent; the universe walk contributes at most one
+    diagnostic per denied path per pass and none where a per-match or
+    per-source enumeration earlier in the pass already reported that path;
+    sources are not deduplicated against each other. Appended in-line and the
+    file's line count is unchanged (106), so no citation into this file moved.
+- Gates: witness `tests/discovery-glob-universe-enumeration-failure.test.ts`
+  19/19 (10 cells RED before the fix, `Observed diagnostics=[]`); full default
+  suite `326 files / 5966 tests passed` (fork baseline 325/5947 — delta is
+  exactly this witness); `npx tsc -p . --noEmit` clean; `npm run lint` clean;
+  H9a both acceptance files 11/11 real-run; H8a `CELL-D` green, red-proven both
+  directions.
+- Review: 2 rounds. Round 1 (deep) returned one `spec` blocker — the added
+  spec sentence claimed one diagnostic per denied path *per pass*, which the
+  code cannot honour when a source resolving later in the pass (e.g. the
+  conventional project root, when a glob's static-prefix root coincides with
+  it) reports the same path under its own descriptor — plus two prose residuals
+  (four stale `:61/:66/:67/:27` citations in the new comments, and the banned
+  word `simply`). One fixer round rescoped the sentence and corrected every
+  citation against HEAD; the round touched no executable line (gate-diff
+  verified: the code hunks are byte-identical to the pre-measured prototype).
+  Round 2 (fast) CLEAN, no escalation.
+- Verification: SOLID. (A) The witness reds on revert, proven three ways with
+  byte-exact restoration (working-tree blob hashes re-verified after each):
+  neutralising the settings-side emission reds S1–S8 and E1; neutralising the
+  package-side loop reds P1; neutralising the dedupe alone reds exactly S7 and
+  P2, so the double-report guards can genuinely fail. (B) `npm test` 326/5966.
+  (C) `npm run lint` and `npm run typecheck` clean. (D) Live: both H9a
+  acceptance files run for real, 11/11, no permitted-code allow-list needed
+  changing (neither fixture crosses a denied glob path, so the code is not
+  newly emitted there); one additive H8a cell `CELL-D` witnesses the warning
+  arriving on the `theta-system-note` channel through the real composition
+  root, provoked ACL-free and platform-neutrally by planting a regular file
+  where the glob's static-prefix root would be (`fs.readdir` rejects
+  `ENOTDIR`), red-proven by neutralising the emission and restored byte-exact.
+  No stochastic class was observed.
+- Residuals:
+  1. **The per-entry `lstat` swallow inside both `listTree` copies is
+     untouched** (§Non-goals): an entry whose `lstat` fails is still skipped
+     with `continue`, losing one path rather than one subtree. Evidence: both
+     copies retain that arm verbatim; the offline witness asserts nothing about
+     it. Whether it owes a diagnostic overlaps bug 0075's classification
+     question and the per-file `theta/load/unreadable` warning at
+     `validateAndRead` — a separate adjudication, as this report states.
+  2. **`docs/reference/discovery-cli.md` was deliberately not edited.** The
+     mirror check was run and found no contradiction: no new code, no severity
+     change, no *Message* change and no *Trigger* widening, so its DISC-2 table,
+     code list and empty-directory sentence remain accurate as written.
+     Editing it was measured to shift its line numbering by +2, which would
+     stale `docs/reference/discovery-cli.md:NNN` citations in four **open** bug
+     documents (0088:219, 0111:230–236, 0146:240–241, 0147:240–241) and four
+     closed ones (0024, 0110, 0137, 0178). A future editor of that file should
+     add the mirror sentence in the same pass that re-derives those citations.
+  3. **Cross-source duplication for one denied path is by design and now
+     stated.** A `thetaPaths` glob whose static-prefix root coincides with the
+     conventional project or global root yields two warnings for that path, one
+     per source descriptor, because the sources are not deduplicated against
+     each other. Measured during review (`settings entry index 0` and
+     `project .pi/theta/`). The spec sentence says so explicitly; no test pins
+     it.
+- Discharge notes appended: none. Bug 0076's residual 1 ("a denied subtree
+  under a glob's static prefix still shrinks the universe silently … needs a
+  spec disposition before it is coded") is the residual this fix discharges,
+  but 0076 is closed and its record is left untouched.
+- Pinned dispositions / non-goals: `globMatches`' selection (bug 0077, landed);
+  `classifyPath`'s link-typed candidates (bug 0075, open); the per-entry `lstat`
+  swallow (residual 1); `enumerateRoot`'s DISC-6 root swallow; the DISC-6
+  bounds; the non-recursion rule's scope. None was touched. Bugs 0075 and 0078
+  remain open and share these two files; this change touches neither's subject
+  lines (`classifyPath`, and the CLI entry schema's route through
+  `collectFromEntries`).

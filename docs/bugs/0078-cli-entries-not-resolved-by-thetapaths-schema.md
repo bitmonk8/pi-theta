@@ -246,3 +246,4 @@ route is taken:
   `ParsedSettingsEntry` `:644`, the prefix parse inside `resolveSettingsSource`'s
   `entries.map`, glob detection at `isGlobPattern` (`:216`), and the four ordered
   steps run from `:774` to the end of that function. Cite the symbols.
+> **Coordination note (at bug 0113's fix, 0.126.0):** `emitUniverseFailures` (new in both discovery files) takes the row severity as a parameter — if this report gives the CLI row the `thetaPaths` schema, the third DISC-2 row that emission serves arrives as a call-site change only (severity via `CLI_MODES`). `listTree`'s signature and return type changed in both files; re-anchor by symbol at pick.
