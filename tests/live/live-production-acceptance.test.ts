@@ -11908,3 +11908,174 @@ describe("H8a-T — bug 0218: the spawned child's --tools allowlist carries the 
     }
   });
 });
+
+
+// ===========================================================================
+// cell 73 — bug 0175: a `params:` default whose parse leaves tokens
+// unconsumed does not register, live (Convention: live-host acceptance).
+//
+// The route is §Fix (a) (docs/bugs/0175-literal-sublanguage-parser-ignores-
+// trailing-tokens.md): `checkLiteralSublanguage`'s `default-not-literal` arm
+// now widens to name the RESIDUE — the text from the first token
+// `ExprParser.parse()` left unconsumed through the end of source, trimmed —
+// so `integer = 1 2` (pre-fix: loads clean, registers, and BINDS `1` through
+// the real binder) is refused at LOAD time instead. This is the SAME
+// per-field default loop / `hasLoadParseError` site the bug 0102/0110/0125/
+// 0166 cells above exercise for their own codes, and the same registered
+// code (`theta/parse/default-not-literal`) the bug 0166 cell above already
+// drives live — this cell's new observable is the WIDENED *Trigger*: a
+// residue that is itself a second literal (no operator at all), which bug
+// 0166's fix left unwitnessed.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and
+// the cell spends ZERO tokens, the same profile as the bug 0102/0110/0125/
+// 0166/0204 cells above. A `bind_model:` pin (`anthropic/claude-haiku-4-5`,
+// the same pin the committed `acc-params-binder.theta` fixture and the bug
+// 0102/0166 cells above use) is carried by every `params:`-declaring theta
+// below: a DEFAULTED `params:` field is never `single-string-bypass`-
+// eligible (`classifyBinderBypass`, src/binder/binder-envelope.ts, requires NO
+// default — the bug 0102 cell's own file-header note), so it always routes to
+// `binder` kind and would otherwise depend on this ephemeral workspace's
+// absent ambient settings for a resolvable model — a LOAD-TIME, static
+// registry lookup only (no dispatched turn, so still zero tokens). The
+// refusal fires at PARSE phase, upstream of any binder pass, so this cell's
+// registration-only shape is sufficient to witness the fixed path: a theta
+// that does not register never reaches the binder at all.
+//
+// The conformant control mirrors the committed `acc-params-binder.theta`
+// shape exactly — `count: number = 3`, the ONE `params:` default the whole
+// corpus census (docs/bugs/0175-…, §Affected) found anywhere in the tree —
+// so this cell reds in BOTH directions: a fix that over-refuses (every
+// defaulted `params:` field refused) would fail the control, and a fix that
+// does nothing (§Fix unapplied) would fail the refusal.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) declares a
+// `params:` default carrying a second literal with no operator between them
+// — confirmed by the bug doc's own corpus census (34 committed `.theta`/
+// `.thetalib` files, 17 declaring `params:`, exactly one default anywhere,
+// carrying no residue) — so the widened *Trigger* had NO live reach before
+// this cell, mirroring the bug 0084/0089/0095/0102 cells' own "no existing
+// live fixture reaches this arm" finding. ADDITIVE ONLY: no existing cell in
+// this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/**
+ * A `params:` theta with ONE declared `integer` field whose default RHS
+ * carries a trailing residue that is itself a second literal — the bug doc's
+ * own `1 2` spelling, measured pre-fix to load clean, register, and BIND `1`
+ * through the real binder (§Reproduction (e), row `integer = 1 2`). A
+ * resolvable `bind_model:` is carried because a default disqualifies the
+ * `single-string-bypass` shape (file-header note above), and the final value
+ * is a pure literal — registration is the only observable this cell reads.
+ */
+function cellB3ResidueDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  p: 'integer = 1 2'",
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+/**
+ * The conformant control: `count: number = 3`, byte-identical to the
+ * `params:` field the committed `acc-params-binder.theta` fixture declares —
+ * the whole corpus's one occurrence of a `params:` default, and it carries no
+ * residue at all. Must keep registering under the widened *Trigger*, proving
+ * the refusal below is targeted rather than a blanket over-refusal of every
+ * defaulted `params:` field.
+ */
+function cellB3ConformantDefaultTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    "  count: number = 3",
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0175 cell 73: a params: default whose parse leaves a second literal unconsumed does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose params: default is `integer = 1 2`, while its conformant `count: number = 3` sibling still registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // sibling's status below could be (wrongly) attributed to a broken
+      // workspace instead of the widened is-literal check under test.
+      { source: "project", stem: "b175livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The load-bearing caller: `integer = 1 2`, refused post-fix (pre-fix:
+      // registers and binds `1` through a real binder pass, §Reproduction (e)).
+      { source: "project", stem: "b175liverefused", text: cellB3ResidueDefaultTheta() },
+      // The over-fire fence: `count: number = 3`, the corpus's one committed
+      // `params:` default, byte-shape-identical to acc-params-binder.theta.
+      { source: "project", stem: "b175livegood", text: cellB3ConformantDefaultTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b175livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the widened is-literal check under test, would explain either " +
+          "sibling's status below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The over-fire fence must register too, BEFORE the refusal is
+      // asserted: isolating the refusal below to the residue-carrying default
+      // specifically, not to "no defaulted params: theta ever registers in
+      // this harness".
+      expect(
+        handle.command("b175livegood"),
+        "the conformant `count: number = 3` sibling did not register — " +
+          "precondition unmet (the corpus's one committed params: default " +
+          "must keep registering; over-refusal here would hide the refusal " +
+          "below inside a broken control rather than a targeted fix). " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // the caller whose params: default is `integer = 1 2` does not register
+      // — `theta/parse/default-not-literal` now fires, naming the residue `2`,
+      // from the SAME per-field default loop the bug 0102/0110/0125/0166
+      // cells above exercise for their own codes.
+      expect(
+        handle.command("b175liverefused"),
+        "the caller whose params: default is `integer = 1 2` registered anyway " +
+          "through the live discovery/session_start path — " +
+          "theta/parse/default-not-literal did not fire for a residue that is a " +
+          "second literal. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b175liverefused");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug
+      // 0102/0110/0125/0166/0204 cells above).
+      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = defaultNotLiteralFragment("2");
+      expect(
+        loadNotes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the default-not-literal rejection, " +
+          "residue `2`, for the second-literal default. Notes: " +
+          JSON.stringify(loadNotes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

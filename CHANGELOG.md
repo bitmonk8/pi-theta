@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.144.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0175 — trailing tokens after a parsed default literal now refuse.**
+  The literal-sublanguage expression parser stopped at the first complete
+  expression and silently discarded the residue, so spellings like
+  `integer = 1 2` bound `1` with zero diagnostics. One shared `residueOf`
+  helper makes both default-position readers require end of input
+  (`ExprParser.parse()` itself untouched); the existing
+  `theta/parse/default-not-literal` row's Trigger widened (Message unmoved)
+  same commit. Witness:
+  `tests/params-default-trailing-residue-refusal.test.ts` (100 cells, 87 red
+  pre-fix) + H8a cell 73 (red-proven both directions). Bug 0166's residual 2
+  discharged.
+
 ## [0.143.0] - 2026-08-26
 
 ### Fixed

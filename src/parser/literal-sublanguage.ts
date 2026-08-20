@@ -63,10 +63,18 @@ export function checkLiteralSublanguage(
     return [];
   }
   const offending = firstNonLiteral(node, source);
-  if (offending === undefined) {
+  // Bug 0059 cell f2 (`string = totally junk`) pins the message at the
+  // LEADING offence alone (`totally`), so a residue-carrying source whose
+  // leading node is already outside the sublanguage must keep faulting that
+  // node and never reach the residue check below — this ordering, not the
+  // reverse, is what the committed message continues to interpolate.
+  const expr =
+    offending !== undefined
+      ? source.slice(offending.start, offending.end).trim()
+      : residueOf(parser, source);
+  if (expr === undefined) {
     return [];
   }
-  const expr = source.slice(offending.start, offending.end).trim();
   return [
     {
       severity: "error",
@@ -280,6 +288,18 @@ class ExprParser {
       return undefined;
     }
     return this.parseTernary();
+  }
+
+  /**
+   * The char offset of the first token `parse()` left unconsumed, or
+   * `undefined` when the cursor reached the end. Bug 0175: every descent loop
+   * below `parse()` breaks on a token it cannot use rather than reporting it,
+   * so the cursor `pos` already tracks — never read until now — is the one
+   * fact both default-position callers need to turn "a node" into "the WHOLE
+   * RHS".
+   */
+  residualStart(): number | undefined {
+    return this.peek()?.start;
   }
 
   private parseTernary(): ExprNode {
@@ -499,6 +519,19 @@ function isNumericLiteralOperand(operand: ExprNode, source: string): boolean {
 }
 
 /**
+ * The residue span after a parse — the source text from the first unconsumed
+ * token's start to end of source, trimmed — or `undefined` when the parse
+ * consumed every token. SHARED by `checkLiteralSublanguage` and
+ * `defaultLiteralStaticType` (§Fix (e)(2)'s mirror contract, bug 0056's
+ * mandate) rather than copied, the shape `isNumericLiteralOperand` takes for
+ * the same reason.
+ */
+function residueOf(parser: ExprParser, source: string): string | undefined {
+  const start = parser.residualStart();
+  return start === undefined ? undefined : source.slice(start).trim();
+}
+
+/**
  * Pre-order walk returning the first sub-expression outside the literal
  * sublanguage, or `undefined` when the whole expression is a literal. Admitted
  * container literals (array, bare/named object) recurse into their members; an
@@ -675,6 +708,13 @@ export function defaultLiteralStaticType(source: string): CompatType | undefined
   const parser = new ExprParser(tokens, source);
   const node = parser.parse();
   if (node === undefined) {
+    return undefined;
+  }
+  // §Fix (e)(2) mirror contract: this reader and `checkLiteralSublanguage`
+  // share `residueOf` so they can never disagree about a form the is-literal
+  // check refuses — a residue check landing only in the other function would
+  // leave this one typing a form the check has already refused.
+  if (residueOf(parser, source) !== undefined) {
     return undefined;
   }
   const primitive = primitiveLiteralType(node, source);

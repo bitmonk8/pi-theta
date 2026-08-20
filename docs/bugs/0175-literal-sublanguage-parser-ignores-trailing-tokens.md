@@ -1,6 +1,6 @@
 # Bug 0175 — The literal sublanguage's `ExprParser.parse()` requires no end of input, so a `params:` default whose LEADING expression is a literal is admitted with everything after it discarded: `integer = 1 2` binds `1`, `string = "a" "b"` binds `"a"`, `array<integer> = [1] x` binds `[1]`, `S = { a: 1 } x` binds `{a: 1}` and `integer = 0x10` binds `16` — a hex form `lexical.md` refuses as `theta/parse/unsupported-feature` — each on a theta that loads with zero diagnostics, behind a `default=1 2` prompt token and a `p=1 (default)` success echo, while `integer = -1x`, `integer = 1x` and `integer = 1_000` recover `NaN` and are refused by the post-default-merge AJV hook one binder model call late
 
-- **Status:** open. Residual 2 of the bug 0166 fix (0.91.0, commit `b4b96503`),
+- **Status:** fixed (0.144.0). Residual 2 of the bug 0166 fix (0.91.0, commit `b4b96503`),
   recorded there as `## Fix (0.91.0)` *Residuals* item 2 and in that fix's own
   report (`.pi/tmp/fixes/0166-report.md:297–302`), where the round-1 reviewer
   probed `integer = -1x` and found it loading clean and typing `integer`. §Fix
@@ -1013,3 +1013,234 @@ against the tree at HEAD `b4b96503`; the volatile positions in
 `src/extension/production-theta-producer.ts` (6165 lines) and
 `src/parser/theta-document.ts` (7006 lines) are named by symbol beside their line
 numbers, per bug 0134's adjudication.
+
+## Fix (0.144.0)
+
+Route **§Fix (a)** — require end of input at the two default-position entry
+points. §Fix left the mechanism to the run, so the three rejected routes and the
+ground for each rejection are recorded below, and so is the §Fix (e)(1) DIAG-2
+answer and the span choice §Fix (a) left open.
+
+- **What shipped:**
+  - `src/parser/literal-sublanguage.ts` — one new `ExprParser.residualStart()`
+    reads the cursor `pos` the parser already tracked and never consulted,
+    returning the char offset of the first token `parse()` left unconsumed. One
+    new module-local `residueOf(parser, source)` turns that offset into the
+    trimmed residue span, or `undefined` when the parse consumed every token.
+    Both default-position readers call that ONE helper — `checkLiteralSublanguage`
+    emits the existing `theta/parse/default-not-literal` naming the residue,
+    `defaultLiteralStaticType` returns `undefined` before it computes any
+    primitive or array type. `ExprParser.parse()`, `isBareObjectLiteral` and
+    `tokeniseExpr` are byte-untouched.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the *Trigger* of the
+    EXISTING `theta/parse/default-not-literal` row gains a *Same-line residue*
+    clause modelled on `theta/parse/malformed-alias-rhs`'s own (bug 0042's
+    registered precedent, one position over), enumerating the newly-refused set,
+    the leading-offence precedence, the residue-naming rule, and the disposition
+    of the numeric forms `lexical.md` assigns to
+    `theta/parse/unsupported-feature`. No new code, no new row, no new
+    placeholder; the *Message*, *Remedy*, *Sev*, *Phase* and *Spec* columns are
+    byte-identical (DIAG-4).
+  - `src/parser/params.ts` — **not edited.** §Fix (e)(3) is discharged by
+    construction rather than by a new guard: the refusal enters through the
+    existing `checkLiteralSublanguage` call, which already sits behind bug 0059's
+    type-half suppression and already feeds the error slice that `continue`s
+    ahead of the compat pairing. Verified by reading the unedited per-field loop
+    and witnessed by cell d8.
+- **The §Fix (a) open question, answered.** The diagnostic's `<expr>` renders
+  **the residue** — the source from the first unconsumed token's start to end of
+  source, trimmed — not the whole RHS and not the first residual token alone.
+  It is what the position's other residue row already does (`malformed-alias-rhs`
+  names the boundary token), and it is the only rendering that names text no
+  reader examined: `-1x` → `x`, `0x10` → `x10`, `1 2` → `2`, `[1] x` → `x`,
+  `"a" junk here` → `junk here`, `-5 # trailing` → `# trailing`. The ordering is
+  load-bearing and is commented as such: the residue test runs only where
+  `firstNonLiteral` found no leading offence, so a source whose LEADING node is
+  already non-literal keeps its own span — bug 0059 cell f2's `totally` and the
+  four committed spans `a + b`, `a.b.c`, `{ a: 1 } + 1`, `f(x)` are unmoved.
+- **The §Fix (e)(1) DIAG-2 answer.** The *Trigger* parenthetical is widened, not
+  partitioned, and route (c) is declined: for `-1x`, `0x10`, `[1] x`, `1 foo(2)`,
+  `1 ${x}` and `` 1 @`q` `` the row already claimed the input, so a dedicated row
+  would either duplicate a row that already describes the defect or split one
+  class by what its residue happens to be. Widening reuses the registered code
+  and leaves the *Message* column alone, which is the addition direction
+  `source-language-stability.md` dispositions for the registry carve-out.
+- **Gates** (each re-run independently by the orchestrator, not taken from a
+  nested report):
+  - Witness RED before / GREEN after: `Tests 87 failed | 13 passed (100)` under
+    full neutralisation of both guard sites, the 13 greens being exactly the
+    declared GREEN set (the registry-row cell, group B's two object-leading
+    cells, the nine group-D fence cells, the group-E control); reds naming this
+    bug's own symptom (`expected [] to deeply equal [ … "offending
+    sub-expression: o17" ]`, `expected { kind: 'literal', typesAs: 'integer' } to
+    be undefined`, `expected 'registered and driven; bound=true; p=1; binder
+    calls=1' to be 'refused at load'`). Restored blob-exact,
+    `aaeec259c3ad35c0599fdda7325ac2f1c847bfe3` before and after; then
+    `Tests 100 passed (100)`.
+  - The §Fix (e)(2) mirror contract proved in isolation: neutralising
+    `defaultLiteralStaticType`'s arm ALONE reds group B alone and nothing else
+    (`Tests 24 failed | 76 passed (100)`, all 24 in group B), so the two readers
+    cannot narrow apart silently — the invariant bug 0166 made witnessed.
+  - Full default suite: `Test Files 339 passed (339)` / `Tests 6492 passed
+    (6492)` — from 338 files / 6392 tests at the lane baseline `e5d760bd`; the
+    +1 file and +100 cells are this report's witness.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean, exit 0, no
+    output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    clean, no output.
+  - LIVE H8a `CELL-B3`, run for real, BOTH directions: green with the fix
+    (`Tests 1 passed | 70 skipped (71)`); RED under the fix's neutralisation with
+    the pre-fix signature (`b175liverefused` registering — the residue-carrying
+    default admitted, `theta/parse/default-not-literal did not fire`); RED in the
+    OVER-refusal direction too, by making `residueOf` report residue for a parse
+    that consumed everything, which fails the conformant `count: number = 3`
+    sibling's precondition loudly (`the conformant \`count: number = 3\` sibling
+    did not register`); green again after restoration, blob
+    `aaeec259c3ad35c0599fdda7325ac2f1c847bfe3`. A cell that can red in only one
+    direction would hide an over-refusal inside a passing control.
+  - LIVE H9a, BOTH files, run for real: `Tests 1 passed (1)` and
+    `Tests 10 passed (10)` — 11/11, the lane baseline. The empty-capture stderr
+    gate and the permitted-code subset are asserted inside the harness on every
+    scenario; no new stderr code surfaced, established by the real run.
+  - The §Fix (e)(4) fence and the shared-guard chains re-run together by the
+    round-1 reviewer: 9 files / 370 tests green — 0166's witness, 0102's
+    `isBareObjectLiteral` group, 0059's cells f1/f2, `params-default-type-compat`
+    cell b2, `e2e-s1-grammar-literal-sublang`, `type-grammar`, `tool-calls`,
+    `binder-param-line-newline-normalisation`, and
+    `tests/committed-fixture-parse-gate.test.ts`, which is what discharges the
+    corpus-wide "no shipped source moves" claim.
+- **Review:** 2 rounds, plus one charter-sanctioned pre-review correction round.
+  - Correction round (comment-only, NOT a review round, round numbering
+    unaffected): the implementation had chased shifted line-number citations into
+    `src/binder/binder-system-prompt.ts`,
+    `tests/params-default-unary-minus-non-numeric-refusal.test.ts` and
+    `tests/params-default-unresolvable-enum-variant.test.ts`. Bug 0134 is the
+    adjudicated DO-NOT-CHASE class for positional drift, and the edits also added
+    the phrase "re-derived post-bug-0175" — a historical reference `CLAUDE.md`
+    forbids in comments. All three restored byte-exact to HEAD, blobs
+    `55a38463`, `81159268`, `e861c2b7` verified identical, and the gates re-run
+    green afterwards.
+  - Round 1 (`bug-fix-reviewer`, deep) — 3 findings, NO correctness, fidelity or
+    spec blocker. F1 [house-rule]: `residueOf`'s block had been inserted between
+    `isNumericLiteralOperand`'s doc-comment and its `function` line, orphaning
+    the design note §Fix (e)(2) treats as the mirror-contract record, and its own
+    comment said "above" of a function below it. F2 [house-rule]: historical
+    references in the new test file's comments ("re-derived post-fix" ×15,
+    "Before the fix:", "HEAD-after-fix", "today"). F3 [prose]: a working-tree
+    census clause embedded in the normative *Trigger* cell — repository state at
+    one commit, silently false as soon as any fixture gains a `params:` default.
+    Round 1 also positively established, with quoted evidence, the residue-span
+    correctness across every descent path (including `parseArray` /
+    `parseObjectBody` leaving their own closing bracket unconsumed, so `[1 2]`
+    reports `2]` and `{ a: 1 2 }` reports `2 }`), that `peek()` undefined ⇿ every
+    token consumed so no skipped-yet-unreported token exists, that a residue can
+    never trim to `""`, and that `docs/reference/diagnostics.md:94` needs no edit
+    because that page's tables carry no *Trigger* column.
+  - Fixer round 1 (`bug-fix-fixer-light`) closed all three and refused none:
+    `residueOf` relocated below `isNumericLiteralOperand` as a pure move
+    (signature and body byte-identical, both call sites untouched), the
+    historical framing stripped without touching an assertion, an expected value,
+    a cell name or a test title, and the census clause deleted while the GOV-15
+    disposition sentence §Fix (e)(5) requires stands.
+  - Round 2 (`bug-fix-reviewer-fast`) — **CLEAN**, no escalation, with its own
+    `git hash-object` re-verification of the three do-not-chase files, a
+    column-by-column check that only *Trigger* prose moved, and confirmation that
+    the relocation crossed no use-before-declaration boundary (the module's
+    existing convention is call-before-declare for its local helpers).
+- **Verification** (`bug-fix-verifier` plus the orchestrator's own re-runs):
+  **SOLID**, every obligation discharged with quoted evidence — the neutralise /
+  RED / restore / GREEN cycle with matching blob hashes on the full lever and on
+  the mirror-contract lever alone, the full default suite, the live H8a cell in
+  BOTH directions and H9a 11/11 run for real, and typecheck / lint. Also
+  established: no `.skip` / `.todo` / `.only` and no vacuous cell; the DIAG-4
+  messages are read from the live registry pages through `parseRegistry` /
+  `registryMessage` rather than restated, with a loud throw on a missing row; no
+  existing test's assertions, fixtures, titles or expected values changed
+  anywhere.
+- **GOV-15 — the direction and the flip table, measured.** This fix only ADDS
+  refusals; nothing newly loads. The premeasure at the lane baseline found no
+  drift from §Reproduction (b): all twenty-four spellings were still admitted at
+  `e5d760bd`, so no row of this report was discharged by the intervening churn.
+  The corpus census re-run at the same commit: 34 committed `.theta` /
+  `.thetalib` files, exactly ONE `params:` default anywhere —
+  `count: number = 3` at `tests/live/acceptance/fixtures/acc-params-binder.theta`,
+  carrying no residue — so `tests/committed-fixture-parse-gate.test.ts` never
+  meets a newly-refused input. The flips:
+
+  | spelling | before | after |
+  | --- | --- | --- |
+  | residue after a complete literal (`1 2`, `"a" "b"`, `true false`, `null null`) | loads clean, binds the leading literal | 1 × `default-not-literal` naming the residue, unregistered |
+  | residue that is a named forbidden form (`-1x`, `1x`, `[1] x`, `1 foo(2)`, `1 ${x}`, `` 1 @`q` ``) | loads clean | 1 × `default-not-literal`, unregistered |
+  | a numeric tail this module's scanner splits off (`0x10`, `0b101`, `0o17`, `1_000`, `1.5x`) | loads clean, recovers `16` / `5` / `NaN` through a second tokeniser | 1 × `default-not-literal`, unregistered |
+  | stray punctuation or a comment-like tail (`1;`, `-1)`, `-1]`, `-5 # trailing`) | loads clean | 1 × `default-not-literal`, unregistered |
+  | residue nested in a container (`array<integer> = [1 2]`, `S = { a: 1 2 }`) | loads clean | 1 × `default-not-literal`, naming `2]` / `2 }` |
+  | `string = 1x` | 1 × `params-default-type-mismatch` (`expected string, got integer`) | 1 × `default-not-literal` — the ordering `code-registry-parse.md`'s second precedence rule prescribes |
+  | `integer = null null` | 1 × `params-default-type-mismatch` (`expected integer, got null`) | 1 × `default-not-literal` |
+  | a deferring declared half over residue (`Count = -1x`, `Sev = 1x`, `S = { a: 1 } x`) | loads clean, `$ref` lowered | 1 × `default-not-literal`, unregistered |
+  | `integer = -1`, `number = -1.5`, `integer = -1.5`, `-5`, `[1, 2]`, `{ a: 1 }`, `Severity.High` | its current verdict | unchanged |
+  | `a + b`, `a.b.c`, `{ a: 1 } + 1`, `{ k: f(x) }`, `string = totally junk` | its refusal and its span | span byte-identical |
+  | `isBareObjectLiteral("{ a: 1 } x")` | `true` | `true` — unmoved by construction |
+
+- **Rejected routes, on this run's own measurements.**
+  - **(b), require end of input inside `ExprParser.parse()`** — rejected on a
+    re-measured fact, not on the report's forecast. §Fix (b)(f) gated the route on
+    bug 0165 closing `checkLiteralSublanguage`'s `node === undefined` fail-open
+    arm. 0165 is now **fixed (0.92.0)**, but it closed the hole from ABOVE: the
+    empty-default refusal became `theta/parse/default-without-literal` in
+    `parseParams`, and the module's own `if (node === undefined) { return []; }`
+    arm is still there and still fail-open. So a residue signalled as `undefined`
+    would refuse nothing today, exactly as §Fix (b) warned. The route also moves
+    `isBareObjectLiteral`'s verdict on `{ a: 1 } x` from `true` to `false`, and
+    witness cell d7 pins that verdict precisely so the route cannot be taken by
+    accident.
+  - **(c), register a dedicated residue code** — rejected on the partition
+    §Fix (c) itself raises: the existing *Trigger* already claims the majority of
+    the class, so a new row would take `1 2`, `"a" "b"`, `true false` and
+    `null null` and leave the rest, splitting one defect across two codes by what
+    its residue happens to be.
+  - **(d), align this module's numeric scan with the theta lexer's** — rejected
+    as covering 6 of the 24 rows and touching a shared surface bug 0102 pinned
+    "CALLED, never edited" in its own doc-comment. Route (a) subsumes its whole
+    family for free: the split tail IS residue, so `0x10` refuses without
+    `tokeniseExpr` moving a byte.
+- **Residuals** (each with its evidence; the parent files any that warrant a
+  report):
+  1. **The refusal reports a sublanguage violation for a form the lexical spec
+     assigns to `theta/parse/unsupported-feature`.** `integer = 0x10`,
+     `= 0b101`, `= 0o17` and `= 1_000` now draw `default-not-literal` naming
+     `x10` / `b101` / `o17` / `_000`, while `lexical.md` assigns those forms to
+     `theta/parse/unsupported-feature` and body position still draws exactly
+     that (measured, §Reproduction (f), unchanged by this fix). The theta no
+     longer loads either way, so the S1 bind is gone; what remains is that the
+     same bytes draw two different codes in two positions. §Fix (d) named this as
+     a *Trigger*-scope question and the widened *Trigger* now states the
+     disposition explicitly rather than leaving it to be discovered. Closing it
+     properly means route (d) plus a decision about emitting
+     `unsupported-feature` from this position — a separate blast radius over a
+     shared tokeniser.
+  2. **The invocation-time recovery still discards its lexer diagnostics.**
+     `parseExpressionSource`'s inert `emitDiagnostic` is untouched, so the
+     mechanism that turned `0x10` into `16` is intact for any default that
+     reaches it. This fix removes every input that reached it via residue, but
+     §Non-goals reserves the general question (every `parseExpressionSource`
+     caller), and bug 0084 already records the discard.
+  3. **`isBareObjectLiteral` remains residue-tolerant.**
+     `isBareObjectLiteral("{ a: 1 } x")` is still `true`, deliberately — cell d7
+     pins it. §Affected established the tolerance is latent, not live: the Pi-tool
+     shape arm it feeds is gated on an `argumentSource` no `src/` caller of
+     `checkToolCallArguments` supplies, and the whole-document walk keeps its own
+     AST-based shape test. Re-verified unmoved by this fix. If that arm ever
+     acquires a live caller, the tolerance becomes a defect there.
+- **Discharge notes appended:** bug **0166** — its `## Fix (0.91.0)` *Residuals*
+  item 2 is this report's filing origin, and now carries the discharge with the
+  note that the class covers twenty-two spellings that residual did not name, and
+  that its "neighbours bug 0165's fail-open territory" framing is superseded by
+  the disjointness this report measured.
+- **Pinned dispositions / non-goals.** `ExprParser.parse()`'s signature and the
+  `node === undefined` fail-open arm are unmoved — route (b) is rejected on the
+  record, and 0165 owns that arm. `tokeniseExpr` stays "CALLED, never edited"
+  (bug 0102). `isBareObjectLiteral`'s four committed verdicts plus `{ a: 1 } x`
+  → `true` are pinned by cell d7. `src/parser/params.ts` is unedited and bug
+  0059's suppression guard keeps suppressing, witnessed by cell d8. The
+  *Message* column of `theta/parse/default-not-literal` does not move (DIAG-4),
+  and no new diagnostic code, registry row or placeholder was minted.

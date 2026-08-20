@@ -1109,6 +1109,13 @@ touches one predicate.
      The operand is numeric, so the row is outside this report's class; it
      neighbours bug 0165's fail-open territory. Evidence: the probe returns
      `check []`, `staticType {kind:"literal",typesAs:"integer"}`.
+     **Discharged** by [0175](./0175-literal-sublanguage-parser-ignores-trailing-tokens.md)
+     (fixed X.Y.Z), which this residual filed: a shared `residueOf` helper makes
+     both default-position readers require end of input, so `-1x` and `1x` — and
+     the further twenty-two spellings that residual did not name — draw
+     `theta/parse/default-not-literal` naming the residue and establish no static
+     type. The framing correction that report records is upheld: the class is
+     disjoint from 0165's on a measured observable rather than neighbouring it.
   3. **Two doc-side inaccuracies in this report, confirmed by the reviewer.**
      §Fix (e)(1) prescribes landing the *Trigger* edit "with the
      `docs/reference/diagnostics.md:94` mirror", and §Affected lists
