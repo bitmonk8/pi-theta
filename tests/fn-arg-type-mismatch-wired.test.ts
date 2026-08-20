@@ -1733,9 +1733,16 @@ describe("bug 0050 — a FABRICATED callee-name argument read is not a proof and
 // :2052): u9p rides that record and MUST keep emitting.
 //
 // Every u9 fixture shares one prelude, so each differs only in how `P` reaches
-// the argument position, and none of them draws any other diagnostic at this
-// HEAD — each loaded cleanly before the guard, which is what makes the four
-// cells GOV-15 measurements rather than error-list reshuffles.
+// the argument position. u9, u9b, u9c and u9p draw no other diagnostic at this
+// HEAD — each loaded cleanly before the guard, which is what makes those cells
+// GOV-15 measurements rather than error-list reshuffles. u9d is the exception:
+// bug 0140's fix
+// (docs/bugs/0140-bare-schema-reference-value-position-silent.md) makes a bare
+// declared-schema reference at a value position draw `theta/parse/type-as-value`,
+// so u9d's fixture now carries that code beside the withheld fn-arg one.
+// `expectNoFnArgMismatch` filters to `CODE` alone, so the cell stays green
+// either way — the argument-type judgement stays withheld, and a different
+// pass answers the identifier-resolution question this group never claimed.
 // ===========================================================================
 
 describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof and is not judged", () => {
@@ -1821,15 +1828,21 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
   });
 
   it("u9d: a bare declared-schema reference at an argument position draws no fn-arg-type-mismatch", () => {
-    // The route with no binder at all. `checkUnknownIdentifiers`
-    // (src/parser/theta-document.ts:4680) folds every declared `schema` name
-    // into its root scope, so a bare `P` at a value position draws no
-    // `theta/parse/unknown-identifier` — measured: this fixture's only
-    // diagnostic before the guard was the fn-arg code itself. Whether such a
-    // reference should draw a diagnostic of its own is bug 0051's territory;
-    // what this cell forbids is answering it with a TYPE MISMATCH, which
-    // asserts the argument IS a `P` value — something no phase established,
-    // since the type layer holds no recorded type for the name at all.
+    // The route with no binder at all: `P` reaches the argument position as a
+    // bare declared-schema reference. `checkUnknownIdentifiers`
+    // (src/parser/theta-document.ts:4950) seeds its walk from the roots every
+    // NON-declaration source contributes, so a name only a `schema`
+    // declaration introduces matches no arm of expressions.md's four-arm
+    // resolution list and draws `theta/parse/type-as-value` at this value
+    // position. That code answers the identifier-resolution question, which
+    // bug 0140 (docs/bugs/0140-bare-schema-reference-value-position-silent.md)
+    // owns and this group does not. The argument-type judgement this cell owns
+    // stays WITHHELD on 0050's ground: the minted read is the identifier's
+    // spelling and proves nothing about what the position holds, so a TYPE
+    // MISMATCH here would assert the argument IS a `P` value — something no
+    // phase establishes, since the type layer holds no recorded type for the
+    // name at all. `expectNoFnArgMismatch` filters to `CODE`, so the co-firing
+    // resolution diagnostic leaves this cell's verdict unchanged.
     const doc = parse(U9_BARE_SCHEMA_REF);
     const argument = argRange(doc, "g", 0);
     expect(

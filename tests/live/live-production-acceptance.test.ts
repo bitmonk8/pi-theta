@@ -9746,3 +9746,202 @@ describe("H8a-T — bug 0124: a `let` annotation carrying a junk suffix does not
     }
   });
 });
+
+// ===========================================================================
+// Bug 0140 — `collectIdentRoots` (src/parser/theta-document.ts) folded every
+// declared `schema` / `enum` name into the whole-file identifier root scope
+// through one fall-through `switch` arm, so `checkUnknownIdentifiers`'s walk
+// resolved a bare declaration name at a VALUE position exactly as it resolves a
+// `let` binding — no diagnostic named the identifier, `hasLoadParseError`
+// (src/extension/production-composition.ts) had nothing to act on, and the
+// theta registered and ran with the runtime resolver (which implements only the
+// four-arm list `expressions.md` §"Identifier resolution" states) substituting
+// `null` at the position instead
+// (docs/bugs/0140-bare-schema-reference-value-position-silent.md).
+//
+// THE FIX mints `theta/parse/type-as-value` — a sibling of
+// `theta/parse/function-as-value` — inside `checkUnknownIdentifiers`'s own walk:
+// a name only a `schema` / `enum` declaration introduces (not also claimed by a
+// `let`, a parameter, an import, a `params:` field, or a resolved `tools:`
+// callable) now refuses at a VALUE position and denies registration through the
+// same `hasLoadParseError` gate every other H8a-T registration-denial cell in
+// this file exercises. The call position (`Schema()`) keeps
+// `theta/parse/unknown-identifier` unchanged — the doc's own "third
+// arrangement" — and is not this cell's subject.
+//
+// THE SUBJECT is the bug doc's own §Reproduction row a1, verbatim: a `schema`
+// declared, an `fn` taking a `string` parameter, and the schema's bare name
+// passed as the call argument — `let out = g(P)`.
+//
+// THE CONTROL, ASSERTED FIRST. `b140livegood` is the SAME schema-plus-fn
+// program, differing in one particular: the argument is a genuine `string`
+// literal rather than the bare schema name, so no identifier read of `P` occurs
+// anywhere in the body. It must stay registered before and after the fix, which
+// is what makes the subject's refusal attributable to the bare value-position
+// reference rather than to the shape, the frontmatter, or a planting/discovery
+// failure. It is asserted BEFORE the subject so a broken workspace or a dead
+// discovery walk reds on the control instead of being read as the subject's
+// refusal.
+//
+// THE CODE-SPECIFIC OBSERVABLE. `hasLoadParseError`
+// (production-composition.ts:2214) is severity-and-namespace-only — it denies
+// registration for ANY error-severity `theta/parse/*` diagnostic, not for this
+// one specifically. A bare registration-boolean assertion alone therefore
+// cannot attribute the subject's refusal to `theta/parse/type-as-value` rather
+// than to some other, unrelated parse error the fixture might accidentally also
+// draw. This cell closes that gap the same way the bug 0084/0110/0139/0149
+// cells above do: it additionally asserts the `theta-system-note` channel
+// (AGENTS.md §"Assert on real observables") carries this diagnostic's own
+// DIAG-4 registry message, read live from the registry through
+// `typeAsValueFragment` rather than restated, so a reworded row reds this cell
+// by naming the row rather than by silently comparing against stale text.
+//
+// RED BEFORE THE FIX for the reason the report states: the subject REGISTERS,
+// because the missing refusal IS the defect (the theta then runs `g(P)` with
+// `s` bound to a substituted `null`, per §Reproduction (e1)). That is the
+// red-both-directions proof obligation this cell exists to carry; the fix
+// lands GREEN.
+//
+// Registration-only: no slash command is invoked, so NO model turn runs and the
+// cell spends zero tokens (the same profile the bug 0050/0126/0136/0185/0190/
+// 0192/0194/0197/0199/0124 cells above claim). No subagent child process is
+// spawned — both fixtures are prompt mode with no `invoke(...)` and no
+// `subagent fn` — so the #subagent-child-pins convention this file's harness
+// otherwise honours does not apply to this cell. ADDITIVE ONLY: this is cell
+// 59; cells 1–58 are unchanged, and this cell adds no assertion to any existing
+// cell in this file.
+// ===========================================================================
+
+/** The bug's own §Reproduction row a1, verbatim: a bare declared-schema reference at a value position (the call argument). */
+function bareSchemaRefAtValueArgTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { a: number }",
+    "fn g(s: string): number { 1 }",
+    "let out = g(P)",
+    "out",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The same-shape SIBLING with the SAME `schema` and `fn` declared, the argument
+ * a genuine `string` literal instead of the bare schema name — must still
+ * register, isolating the broken theta's refusal to the value-position
+ * reference rather than to "a theta declaring an unused schema never registers
+ * here".
+ */
+function compatibleFnArgStringLiteralTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema P { a: number }",
+    "fn g(s: string): number { 1 }",
+    'let out = g("ok")',
+    "out",
+    "",
+  ].join("\n");
+}
+
+/** `theta/parse/type-as-value`'s registered code and registry page. */
+const TYPE_AS_VALUE_CODE = "theta/parse/type-as-value";
+const TYPE_AS_VALUE_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/type-as-value: type '<name>' used as a value; a schema or enum
+ * declaration names a type, not a value` with `<name>` substituted — DIAG-4:
+ * the message half is read from the registry row, not copied, mirroring this
+ * file's existing `nonArrayIterandFragment` / `bindingCaseMismatchFragment`
+ * helpers.
+ */
+function typeAsValueFragment(name: string): string {
+  const template = registryMessage(
+    TYPE_AS_VALUE_REGISTRY,
+    TYPE_AS_VALUE_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${TYPE_AS_VALUE_CODE} has no registry row — the code this cell asserts is not registered ` +
+      "(DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<name>", name);
+  expect(
+    message,
+    `${TYPE_AS_VALUE_CODE}: an unsubstituted <…> placeholder remains — the registry row's ` +
+      "Message template changed shape and this cell's substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${TYPE_AS_VALUE_CODE}: ${message}`;
+}
+
+describe("H8a-T — bug 0140: a bare declared-schema reference at a value position does not register, live (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose call argument is a bare declared-schema reference, while its same-shape string-argument sibling registers, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The always-registers control, planted first for the same reason it is
+      // asserted first.
+      { source: "project", stem: "b140livegood", text: compatibleFnArgStringLiteralTheta() },
+      // The subject: the bug doc's own §Reproduction row a1 spelling.
+      { source: "project", stem: "b140livebroken", text: bareSchemaRefAtValueArgTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b140livegood"),
+        "the same schema-plus-fn program with a genuine string argument did not register — a " +
+          "theta declaring an unused schema cannot register in this workspace at all, " +
+          "independent of this bug, so the subject's own verdict cannot be attributed. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE, through the REAL production composition root:
+      // the theta whose call argument is a bare declared-schema reference no
+      // longer registers — `checkUnknownIdentifiers`'s walk now refuses the
+      // name at this value position with `theta/parse/type-as-value`, and
+      // `hasLoadParseError` un-registers this theta at the SAME site every
+      // other registration-denial cell in this file exercises for its own
+      // code.
+      expect(
+        handle.command("b140livebroken"),
+        "the theta whose call argument is a bare declared-schema reference registered anyway " +
+          "through the live discovery/session_start path — theta/parse/type-as-value did not " +
+          "fire. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b140livebroken");
+
+      // THE CODE-SPECIFIC PIN (AGENTS.md §"Assert on real observables"): the
+      // diagnostic fires at LOAD time, before any drive, so the whole
+      // in-memory entry list carries it — the same shape the bug
+      // 0084/0110/0139/0149 cells above read. This is what attributes the
+      // refusal to theta/parse/type-as-value specifically, since
+      // hasLoadParseError alone (the assertions above) would equally deny
+      // registration for ANY error-severity theta/parse/* code.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = typeAsValueFragment("P");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the theta/parse/type-as-value rejection for the broken " +
+          "theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

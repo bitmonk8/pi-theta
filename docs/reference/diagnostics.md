@@ -132,6 +132,7 @@ trigger.
 | `theta/parse/unreachable-code` | W | parse | `unreachable code after return` |
 | `theta/parse/nested-fn` | E | parse | `nested 'fn' declarations are not supported in theta 1.0` |
 | `theta/parse/function-as-value` | E | parse | `function '<name>' used outside call position; functions are not first-class in theta 1.0` |
+| `theta/parse/type-as-value` | E | parse | `type '<name>' used as a value; a schema or enum declaration names a type, not a value` |
 | `theta/parse/redundant-wire-name` | W | parse | `redundant 'as' clause: wire name '<name>' equals the theta-side name` |
 | `theta/parse/wire-name-collision` | E | parse | `wire name '<name>' collides with another field on schema '<schema>'` |
 | `theta/parse/empty-schema-body` | E | parse | `'<X>' has no fields; an empty schema cannot be validated.` |

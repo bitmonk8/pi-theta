@@ -654,6 +654,17 @@ must apply the transparency itself.
   0145's root); pre-existing position-only citation drift (bug 0134's class).
 - Discharge notes appended: 0031, 0072, 0081, 0084, 0102, 0115, 0126, 0131,
   0136.
+- Discharge note appended by bug 0140 (0.122.0): this record's residual "bare
+  schema reference at value position" — the filing origin of bug 0140 — is
+  DISCHARGED. A bare `schema` / `enum` declaration name at a value position now
+  draws `theta/parse/type-as-value` and the theta does not register. Cell u9d is
+  unaffected: `expectNoFnArgMismatch` filters to `theta/parse/fn-arg-type-mismatch`
+  alone, so the withheld argument-type judgement this report settled stays
+  withheld, and the fixture's new companion diagnostic answers the
+  identifier-resolution question u9d never claimed. Only the u9 group comment
+  moved — its "none of them draws any other diagnostic at this HEAD" sentence
+  became false for u9d and now names u9d as the exception, the update bug 0140
+  §Fix (e) authorized, with every assertion in the file byte-identical.
 - Pinned dispositions / non-goals: disposition 2 (retire the row) rejected by
   the operator. `checkFnArgCompat` unchanged — its `"unknown"` deferral is the
   spec's. No `unfoldAlias` at this sink (`checkCompatible` unfolds both

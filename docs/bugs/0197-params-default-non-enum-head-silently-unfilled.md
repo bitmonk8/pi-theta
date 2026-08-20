@@ -1210,6 +1210,25 @@ the fixture, the range oracle and the three fences). Rows owed:
 - Discharge notes appended: 0185's doc (its `## Fix (0.109.0)` residual 2 —
   the "not re-filed" disposition was overridden by the parent at 0197's
   filing and the defect is now fixed here).
+- Discharge note appended by bug 0140 (0.122.0) — **this gate's verdicts are
+  preserved BY CONSTRUCTION.** 0140 minted `theta/parse/type-as-value` for a
+  bare `schema` / `enum` name at a value position, and its §Fix weighed a route
+  that would have stopped folding declaration names into `collectIdentRoots`.
+  That route was REJECTED here on measurement: `checkParamsDefaultNames`'s third
+  arm tests `roots.has(head)` over `collectIdentRoots`'s output, so removing the
+  fold would flip a resolving non-enum head from
+  `theta/parse/default-not-literal` to `theta/parse/unknown-identifier` — the
+  misdescription this adjudication rejected — and reds six cells of
+  `tests/params-default-unresolvable-enum-variant.test.ts` (measured at
+  0.121.0). 0140 instead left `collectIdentRoots`'s executable body
+  BYTE-UNCHANGED and its unfiltered output still feeding this gate, calling the
+  same function a second time over a declaration-free statement list for the
+  identifier walk's own narrower question. No row of this report's witness moves
+  (28 cells green at 0.122.0), and the code-identity precedent this report set
+  is followed rather than overridden: 0140 minted a sibling code rather than
+  reusing `unknown-identifier` at a value position, and left the CALL position
+  — where `expressions.md:44`/`:51` assign `unknown-identifier` by their own
+  sentence — to that row unchanged.
 - Pinned dispositions / non-goals: the recovery's `isThetaPanic` absorption
   and its three best-effort arms keep their end state (only their ECHO
   stopped over-claiming); defaulted fields STAY OUT of the lowered schema's

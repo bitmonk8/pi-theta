@@ -1,11 +1,12 @@
 # Bug 0140 — `collectIdentRoots` folds every declared `schema` / `enum` name into the identifier root scope (`theta-document.ts:4611–4614`), so a bare schema reference at a value position resolves for the parse gate and for nothing else: `let out = g(P)` draws no `theta/parse/unknown-identifier` against a four-arm resolution list that names no declaration form, the theta registers, and the runtime's own resolver (`lexical-environment.ts:405`) answers `unresolved` and hands the position `null` — measured as `1` returned out of a `string`-annotated parameter, `"nullx"` out of a `string`-annotated return, and a `theta/runtime/null-member-access` panic on the first field read
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two routes are
-  enumerated with their consequences, and the code-identity question (reuse
-  `theta/parse/unknown-identifier` or mint a sibling of
-  `theta/parse/function-as-value`) plus the spec silence §Expected behaviour
-  records are the adjudication this report asks for. No ordering dependency
-  blocks it; the coordination constraints are in §Fix (e).
+- **Status:** fixed (0.122.0). §Fix's two open questions are adjudicated in
+  §Fix (0.122.0) below: the code identity is a minted sibling of
+  `theta/parse/function-as-value` (`theta/parse/type-as-value`), and the spec
+  silence is closed on `expressions.md` §Identifier resolution. The route's
+  emission site moved within route (a)(2) — to the identifier-resolution walk
+  itself rather than the structural walk — on measured evidence; the §Fix
+  record states it.
 - **Sev/Diff estimate:** S1/D3 — a theta naming no value at a value position
   loads cleanly, registers, and runs, and the runtime substitutes `null`
   silently (measured: `1` returned out of a `string`-annotated parameter,
@@ -901,3 +902,135 @@ observable is determined inside one parse plus one in-process execution.
   group comment), `:1656–1676` (cell u9d);
   `tests/e2e-s1-expr-diagnostics.test.ts:16–23` (the REQ-EXPR-7 coverage);
   `tests/non-object-receiver-gate.test.ts:198–292` (the executor harness shape).
+
+## Fix (0.122.0)
+
+- What shipped, keyed to §Fix:
+  - **§Fix (a) route 2 — a minted sibling of `theta/parse/function-as-value`.**
+    `theta/parse/type-as-value` (`E`, phase `parse`) refuses a bare `schema` /
+    `enum` declaration name at a VALUE position, message
+    `type '<name>' used as a value; a schema or enum declaration names a type,
+    not a value`. Route 1 (reuse `unknown-identifier`) was rejected: it
+    misdescribes a name the author declared, and it is the ground bug 0197's
+    landed adjudication itself rejected.
+  - **§Fix (a)'s third arrangement, taken explicitly.** The CALL position keeps
+    `theta/parse/unknown-identifier` — the code `expressions.md:44`+`:51`
+    already assign there and whose registered *Trigger* already reads "call or
+    value position resolves to nothing in scope", so that row is BYTE-UNCHANGED
+    and §Reproduction (d)'s two rows now report it instead of `[]`. e9's
+    dispatch-a-schema-name-as-a-host-tool route is thereby unreachable, so
+    group (d) is closed rather than deferred.
+  - **Emission site — the identifier-resolution walk, not the structural walk.**
+    The doc's route 2 named the structural walk's `case "ident"` arm (beside
+    `function-as-value`). Measured: that arm carries no scope tracking and reds
+    26 tests across 7 files, four of them protected witnesses, including two
+    LANDED adjudications — bug 0126 group (d) ("a declaration sharing the loop
+    variable's spelling changes nothing", §Fix (e) posture 1) and bug 0050's
+    u13b/u13c — which pin a `for` variable / `match` binder spelled like a
+    declaration as a LOCAL. The shipped judgement therefore lands in
+    `checkUnknownIdentifiers`'s own walk, whose exact lexical scope makes those
+    verdicts free: `collectIdentRoots` is called a SECOND time over the
+    `schema`/`enum`-free statement list, so the walk seeds from the roots every
+    value-binding source contributes, and `typeOnlyNames` is every declared
+    name no such source also claims. `emitUnknownIdentifier` now judges three
+    ways on an `IdentSite` — `"value"` → the new code, `"discarded"` → silent,
+    `"call"` → the unchanged `unknown-identifier` — with its shadow early
+    return untouched, which is what preserves every local-binder verdict.
+  - **§Fix (b), each constraint measured:** `Enum.Variant` keeps resolving (the
+    `member` arm licenses a declared-enum receiver — b3 green, b4's
+    `unknown-variant` control unmoved); the constructor head is untouched (it
+    is no `ident` node — b2); type annotations are untouched (b5);
+    `function-as-value` is untouched at its own site (b1); the undeclared
+    controls keep code AND message (a2/a4); the corpus stays clean (34 tracked
+    `.theta`/`.thetalib`, zero hits — and post-0132 the committed-fixture parse
+    gate walks `.thetalib`, so the gate is now the standing discharge).
+  - **The no-op statement class stays silent.** A bare declared name as a
+    DISCARDED expression statement draws nothing (`"discarded"`), which is the
+    disposition bugs 0033 (n11 CONTROL) and 0042 (e1) pinned — "silent wherever
+    it is written". An UNDECLARED name at that same position still draws
+    `unknown-identifier`, so the licence is code-specific, not a position-wide
+    exemption; the block/theta TAIL is not discarded and is inside the row.
+  - **Spec, same commit (§Fix (c)):** `docs/spec_topics/expressions.md`
+    §Identifier resolution gains the sentence closing §Kind element 2's
+    silence, parallel to `functions.md:20`'s FN-1 sentence, folded ONTO the
+    existing `:51` line so the file's line count does not move (~190 citations
+    elsewhere in the tree point at `expressions.md:52+`).
+    `docs/spec_topics/diagnostics/code-registry-parse.md` gains the DIAG-2 row
+    beside `function-as-value`, with an exhaustive position enumeration and its
+    exclusions, and `docs/reference/diagnostics.md` the *Message* mirror. No
+    existing *Message* is edited, so DIAG-4 is not engaged.
+- Gates: witness `tests/type-name-as-value-refusal.test.ts` 62/62 (25 RED at
+  HEAD before the fix, right-reason); full default suite 324 files / 5876 tests
+  passed; `tsc -p tsconfig.json --noEmit` clean; `eslint "src/**/*.ts"` clean.
+  Live: H8a `tests/live/live-production-acceptance.test.ts` 59/59 real run
+  (additive cell 59, zero model turns); real H9a both files 11/11
+  (noninteractive-acceptance 10 + ctor-unresolved-load-refusal 1) with
+  `tests/fixtures/h7a/permitted-codes.json` BYTE-UNCHANGED, decided on the real
+  run (no fixture names a declaration at a value position — verified statically
+  over all nine feature fixtures and empirically through each area's
+  `assertCodesSubsetOfPermitted`).
+- Review: 3 rounds. Round 1 (deep) — one blocking `spec` finding: the new row's
+  Trigger enumerated its emission set as a closed disjunction that omitted four
+  positions the code fires at; plus a prose residual on a stale u9d cell
+  comment. Round 2 (fast) — clean; two residuals (four Trigger-named positions
+  unwitnessed; the Trigger's `par for` clause overstated the mechanism).
+  Round 3 (fast) — clean; two prose residuals (a stale group count, an
+  imprecise line citation), closed by a comment-only polish pass whose diff
+  touched no executable line (polish verified by gate-diff; confirmation round
+  skipped).
+- Verification: SOLID. (1) Both directions proven — with the `"value"` branch
+  neutralised 39 of 62 cells red and the 23 that stay green are the fences
+  (groups (r)/(b)/(g)/(f), e6) plus the four rows that arm cannot reach
+  (a2/a4/d1/d2); restored blob-hash-verified byte-exact
+  (`2ce669e66bdb9d8a60d8559e1eeac4f02032d18c`). (2) Full suite green. (3) The
+  live cell was proven code-specific, not merely registration-shaped: because
+  `hasLoadParseError` is severity-and-namespace-only, a registration boolean
+  cannot tell this refusal from any other `theta/parse/*` error, so cell 59
+  additionally asserts the `theta-system-note` channel carries this row's own
+  DIAG-4 message, and was re-red-proven against the neutralisation. (4) Lint
+  and typecheck clean.
+- Residuals (each measured, none filed by this report):
+  1. **A `${…}` template interpolation naming a declaration stays silent.**
+     `checkUnknownIdentifiers`'s own doc comment states interpolations are not
+     identifier-resolution sites in this walk; measured `[]` before and after,
+     pinned by witness row g8 so a later widening is deliberate.
+  2. **`par for` is outside the walk's REACH entirely.** Measured:
+     `par for x in [1] { Zzz }` → `[]` where the plain-`for` control draws
+     `unknown-identifier`; the iterand and the `max` operand escape too. That
+     is bug 0118's subject (the same absent `par for` arm on the structural
+     walk) and is pre-existing — this fix neither introduces nor widens it.
+     Pinned by witness row g9 and stated in the registry row as a REACH fact,
+     not as a rule this row makes.
+  3. **An imported `schema` / `enum` symbol at a value position stays silent.**
+     An imported symbol is resolution arm (3) — a genuine value — so
+     `bodyTypes.imports` is deliberately outside `typeOnlyNames`; measured `[]`,
+     pinned by row g7.
+  4. **A callable-set or `params:`-field name colliding with a declaration stays
+     silent at a value position** (row g6). The binder claims the name, which
+     is `expressions.md:53`'s own shadow reading; whether a bare callable name
+     at a value position is itself a defect is not this report's question.
+  5. **Citation drift (bug 0134's class).** The +146-line growth of
+     `src/parser/theta-document.ts` shifts `theta-document.ts:NNNN` citations in
+     thirteen bug documents and three test files, and the registry insertion
+     shifts `code-registry-parse.md:86+` / `reference/diagnostics.md:135+`
+     citations by one — the same drift bug 0124's own landed row produced, and
+     not swept here (a sweep into unowned files is out of this report's remit).
+     `expressions.md` was deliberately kept line-count-stable to avoid adding a
+     third class.
+- Discharge notes appended: 0050's doc (§Residuals "bare schema reference at
+  value position" — the filing origin, discharged); 0197's doc (the must-agree
+  statement: its params-gate verdicts are preserved BY CONSTRUCTION);
+  0191's doc (its shadow question stays NOT decided).
+- Pinned dispositions / non-goals: `collectIdentRoots`'s executable body is
+  BYTE-UNCHANGED and bug 0197's `checkParamsDefaultNames` still reads its
+  unfiltered output, so that gate's verdicts do not move — the route-1
+  alternative was measured to red six of its 28 witness cells and was rejected
+  on that ground. No evaluator arm was touched (bug 0185's rejected route 2).
+  `hoistEnumVariants` and the enum-vs-schema resolution order are untouched, so
+  bug 0191's shadow question stays open: the new arm fires for a name declared
+  as EITHER kind without adjudicating which declaration wins. The argument-type
+  judgement stays withheld (bug 0050's u9d; `expectNoFnArgMismatch` filters to
+  one code and the cell is unaffected — only its group comment moved, as
+  §Fix (e) authorized). `#typeExpr`'s `ident` arm is unchanged (bug 0136 /
+  0126's substrate); group (c)'s type-layer messages now arrive BESIDE the
+  refusal rather than alone, which is what witness rows c1–c6 pin.

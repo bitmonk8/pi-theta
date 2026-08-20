@@ -909,11 +909,36 @@ describe("0149 (e) — an uppercase-first `params:` key is a parse error", () =>
     // binding and a `schema` of the same name coexisting. lexical.md:18
     // reserves the uppercase-first reading of a body identifier for "an
     // existing schema, enum, or constructor in scope".
+    //
+    // The SECOND diagnostic is not this fix's either, and it arrives for the
+    // same reason b1's companion does. `parseFrontmatter`'s `registered` gate
+    // returns NO frontmatter object once a frontmatter diagnostic is
+    // error-severity, so no `params:` field claims the name `Topic` as a value
+    // binding — the only declaration left holding it is `schema Topic`, and the
+    // trailing `Topic` is the theta's TAIL, i.e. its final value rather than a
+    // discarded statement. A `schema` declaration introduces a named type
+    // (docs/spec_topics/schemas.md:3) and matches no arm of the four-arm
+    // resolution list (docs/spec_topics/expressions.md:46–49), so the tail
+    // draws `theta/parse/type-as-value` — bug 0140's value-position refusal,
+    // whose own witness pins this exact position as row a7
+    // (tests/type-name-as-value-refusal.test.ts). Following b1's convention, the
+    // whole-list assertion carries the companion rather than filtering it, so a
+    // fix that suppressed or duplicated it reds here.
     const doc = withParams("  Topic: string\n", "schema Topic { a: string }\nTopic\n");
     expect(
       rendered(doc),
       "the params key is the ill-cased declaration; the schema name is conformant under lexical.md:15",
-    ).toEqual([bcm(4, 3, 8)]);
+    ).toEqual([
+      bcm(4, 3, 8),
+      diag(
+        "error",
+        "theta/parse/type-as-value",
+        msg("theta/parse/type-as-value", [["<name>", "Topic"]]),
+        7,
+        1,
+        6,
+      ),
+    ]);
   });
 
   it("b5: `let Topic = 1` reports binding-case-mismatch (control)", () => {

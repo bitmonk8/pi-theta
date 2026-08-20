@@ -6,6 +6,46 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.122.0] - 2026-08-20
+
+### Fixed
+
+- **Bug 0140 — a bare `schema` / `enum` declaration name at a value position is
+  refused.** `collectIdentRoots` folded every declared `schema` and `enum` name
+  into the whole-file identifier root scope through one fall-through `switch`
+  arm, so `checkUnknownIdentifiers` resolved a bare declaration name at a value
+  position exactly as it resolves a `let` binding: `schema P { a: number }` plus
+  `fn g(s: string): number { 1 }` plus `let out = g(P)` emitted no diagnostic at
+  any severity, the theta registered, and the runtime resolver — which
+  implements only the four resolution arms `expressions.md` §Identifier
+  resolution states — answered `unresolved` and let the pure host substitute
+  `null` at the position. Measured consequences: `1` returned out of a
+  `string`-annotated parameter, `"nullx"` out of a `string`-annotated return,
+  `null` bound by a `let mut` reassignment, and `theta/runtime/null-member-access`
+  aborting the theta on the first field read. Such a reference now draws
+  `theta/parse/type-as-value` and the theta does not register.
+
+  The judgement lands in the identifier-resolution walk itself, which already
+  tracks exact lexical scope: `collectIdentRoots` is byte-unchanged and is
+  called a second time over the declaration-free statement list, so a name a
+  `let`, a parameter, a `for` / `par for` variable, a `match` binding, a
+  `params:` field, an imported symbol or a callable-set entry also introduces is
+  read as that binding and draws nothing. `Enum.Variant` keeps resolving, the
+  constructor head and every `Type` position are untouched, a bare declared name
+  as a discarded expression statement stays the silent no-op class, and the call
+  position (`Schema()`) keeps `theta/parse/unknown-identifier`, the code
+  `expressions.md:44`/`:51` assign there.
+
+  New registry row (DIAG-2, same commit): `theta/parse/type-as-value`, `E`,
+  phase `parse`, message `type '<name>' used as a value; a schema or enum
+  declaration names a type, not a value`. Reusing
+  `theta/parse/unknown-identifier` at the value position was rejected — it
+  misdescribes a name the author declared three lines up, the ground on which
+  `theta/parse/function-as-value` was minted and bug 0197's landed adjudication
+  refused the same reuse. `expressions.md` §Identifier resolution now states the
+  disposition, closing a spec silence: no page had assigned a bare schema or
+  enum reference a static type or a runtime value.
+
 ## [0.121.0] - 2026-08-19
 
 ### Fixed

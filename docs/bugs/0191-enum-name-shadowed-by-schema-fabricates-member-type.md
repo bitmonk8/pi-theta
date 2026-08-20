@@ -666,6 +666,18 @@ skipped with no diagnostic and no panic.
 
 ## Fix
 
+**Note appended by bug 0140 (0.122.0) — this report's question stays NOT
+decided.** 0140 minted `theta/parse/type-as-value` for a bare `schema` / `enum`
+declaration name at a value position. Its new arm fires for a name declared as
+EITHER kind and does not ask which declaration wins, so it adjudicates nothing
+here: `hoistEnumVariants`, the enum-vs-schema resolution order, and every arm
+this report measures are untouched, and a same-file `enum X` / `schema X` pair
+still loads with the disposition measured below (0140 re-measured
+`enum C { Red }` + `schema C { a: number }` + `let out = C.Red` at 0.121.0 and
+at 0.122.0: `[]` both times). The one interaction: `C.Red`'s receiver is
+licensed at the identifier walk's `member` arm by C being a declared ENUM, so a
+shadowed pair keeps that licence whichever declaration a later fix decides wins.
+
 **Not settled.** Five routes, and the choice turns on one adjudication this
 report asks for rather than makes: **does a same-file `enum X` / `schema X` pair
 stay legal?** Route 4 answers "no" and removes the input class; routes 1, 2, 3
