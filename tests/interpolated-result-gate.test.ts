@@ -18,7 +18,7 @@ import {
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { isThetaPanic } from "../src/runtime/runtime-panics";
+import { isThetaPanic, QuestionOperandDefectError } from "../src/runtime/runtime-panics";
 import { isResultValue } from "../src/runtime/value";
 import { INTERPOLATED_RESULT_CODE, INTERPOLATED_RESULT_MESSAGE } from "../src/render/query-render";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -111,8 +111,11 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 //          { Ok(1) } / let r = mk()
 //   laundered  fn mk() { Ok(1) } / let r = mk() → sends  x{"ok":true,"value":1}
 //   laundered, discarded (`let _ =`)            → sends  x{"ok":true,"value":1}
-//   `${r?}` over a `Result`-typed `r`           → sends  xnull (the pure-host
-//                                                 safety net; no diagnostic)
+//   `${r?}` over a `Result`-typed `r`           → sends  x1 (renders the
+//                                                 unwrapped `Ok` payload; an
+//                                                 `Err` operand aborts with
+//                                                 theta/parse/interpolated-result,
+//                                                 bug 0116)
 //   Fake { ok: true, label: "x" }               → sends  x{"ok":true,"label":"x"}
 //   Fake2 { ok: false, error: "boom" }          → sends  x{"ok":false,"error":"boom"}
 // A panic raised during interpolation ALREADY propagates out of `executeBody`
@@ -658,9 +661,10 @@ describe("bug 0079 (a) — controls: non-`Result` interpolations keep loading", 
     // hypothetical: `StaticTypeInferencePass.typeOf` types a `try` node as its
     // OPERAND's type, so an implementation that reads `typeOf` on the
     // interpolation without accounting for `try` sees the operand's `Result` and
-    // fires. (At HEAD the runtime renders `xnull` here — the pure host has no
-    // `try` arm and takes the expressions.md safety net — which is why this
-    // control is parse-level only.)
+    // fires. (The pure host now HAS a `try` arm and renders the unwrapped
+    // payload — bug 0116 — so this control staying parse-level only reflects
+    // the 0079 gate's deliberate silence on the form, not a missing render:
+    // the render itself is asserted by the bug-0116 cells.)
     assertGateSilent(
       FM + ROW1 + "@`x${r?}`\n",
       "an interpolation whose expression unwraps with `?`",
@@ -1675,5 +1679,781 @@ describe("bug 0114 (g) — the covered positions stay covered: a nested fix must
       "error theta/parse/result-in-schema-position",
       "error theta/parse/unresolved-named-type",
     ]);
+  });
+});
+
+// ===========================================================================
+// BUG 0116 — an interpolation of a `?`-UNWRAPPED operand renders `null`.
+//
+// Bug 0079 (groups (a)–(d)) closed the top-level `Result` interpolation and bug
+// 0114 (groups (e)–(g)) the nested one. This group is the OPPOSITE input class:
+// the author unwrapped correctly, so nothing here is a `Result` any more, and
+// the render is silently wrong. `stringifyInterpolation` parses the `${…}` source
+// and hands the node straight to `evaluatePureExpression`, whose expression-kind
+// switch has arms for `number`, `string`/`bool`, `null`, `ident`, `array`,
+// `object`, `member`, `index`, `call`, `result-ctor`, `method-call`, `binary` and
+// `ternary` — and NO `try` arm. A `?` node therefore reaches `default: return
+// null`, `interpolationTypeOf` classifies that invented `null` as QRY-18's
+// `null` row, and the render emits the literal text `null` — a conformant render
+// of a value the evaluator made up. The statement executor's `evalExpr`
+// intercepts `try` and `evalTry` applies the real semantics, so ONE operand gets
+// two answers on one HEAD depending only on position.
+// (docs/bugs/0116-question-unwrapped-interpolation-renders-null.md)
+//
+// SPEC ANCHORS.
+//   - docs/spec_topics/expressions.md:3 — "The same grammar applies wherever an
+//     expression is expected: the RHS of `let`, `if` / `match` scrutinees,
+//     function arguments, and inside `${...}` template interpolations." One
+//     grammar, so one evaluation semantics.
+//   - :17 — postfix `expr?` is a supported form; :19 — `${...}` "takes any
+//     expression listed above"; :40 — the only two forms excluded from that
+//     position are a nested `@`-query and `match`, and `?` is not among them.
+//     The parse layer already agrees: every `Ok`-operand row below carries
+//     `diagnostics` exactly `[]`.
+//   - :186 — "`?` operator — unwraps `Ok` to the inner value; on `Err`,
+//     *early-returns* the `Err` from the enclosing function (or top-level
+//     theta)." Both halves; neither is positional.
+//   - docs/spec_topics/query/query-escapes-stringification.md:16 (QRY-18) — the
+//     interpolation renders "by the **Theta static type** of the expression",
+//     which for `r?` is the operand's success type
+//     (`StaticTypeInferencePass`'s `try` arm: "`operand?` propagates the
+//     operand's success type statically"). Rows: :20 `string`, :21 `integer`
+//     (BNDR-4 canonical decimal), :23 `boolean`, :24 `null`, :27 the
+//     Schema-typed object.
+//   - :59 (QRY-21) — "Panics arise during evaluation of the RHS and propagate
+//     before the `let _ =` binding completes; the discard form does not contain
+//     them." Cell (r2) is that cell for this disposition.
+//
+// SETTLED DISPOSITION pinned by this group (bug 0116 §Fix (c) READING 2, realised
+// by REUSING bug 0079's ONE existing raise — zero new registry codes, zero new
+// raise sites, zero new emission sites):
+//   1. an `Ok` operand — the added `try` arm returns the unwrapped payload and
+//      the render is QRY-18-by-static-type (`x1`, `xhi`, `xtrue`, `x{"a":1}`,
+//      and `x2` for `${r? + 1}`);
+//   2. a non-`Result` operand (§Fix (b)) — bug 0019's `isResultValue` guard
+//      travels with the shared `evaluateQuestion` primitive, so the same
+//      `QuestionOperandDefectError` class `evalTry` throws aborts the render.
+//      §Reproduction row h2 therefore becomes a LOUD abort instead of `xnull`,
+//      which is bug 0019's intended disposition for that operand;
+//   3. an `Err` operand — the `try` arm RAISES directly, through the one
+//      factored `raiseInterpolatedResult` helper `stringifyInterpolation`'s
+//      `Result`-row branch also calls, firing the EXISTING single
+//      `InterpolatedResultPanic`. The carrier is never returned into the
+//      interpolation slot: a pure operator arm consuming it as a VALUE would
+//      coerce it with JS before any classification runs. Net observables:
+//      NO query text is sent, the theta does NOT report success, and the abort is
+//      a `ThetaPanic` so QRY-21 holds for the `let _ =` twin.
+//
+// HEAD MEASUREMENTS (0.123.0, offline, provider-free, deterministic, through the
+// same groups-(b)/(c) production-composition harness; `diags` is the parse's
+// whole UNFILTERED array, `sent` every text handed to `pi.sendUserMessage`):
+//   a1..a4  Ok(1) / Ok("hi") / Ok(true) / Ok(S { a: 1 })   diags=[] sent=["xnull"] outcome=success
+//   a5      Ok(null)                                        diags=[] sent=["xnull"] outcome=success  ← ALREADY CORRECT
+//   b1..b6  every operand shape                             diags=[] sent=["xnull"] outcome=success
+//   b7      sibling slots `a${s}b${r?}c`                    diags=[] sent=["asbnullc"]
+//   arith   `${r? + 1}`                                     diags=[] sent=["x1"]    outcome=success
+//   err     `Err` operand, tail query                       diags=[] sent=["xnull"] outcome=success
+//   err/_   `Err` operand, `let _ =` twin                   diags=[] sent=["xnull"] outcome=success
+//   g1/g2   body position, Ok(1)                            sent=[] outcome=success value 1
+//   g3      body position, `Err`                            sent=[] outcome=fail error {"m":"boom"}
+//   h1      `let v = o.r?`                                  THROWS QuestionOperandDefectError
+//   h2      `@`x${o.r?}``                                   diags=[] sent=["xnull"] outcome=success
+//   k1/k3   the two working routes                          sent=["x1"]
+//   k2      `let v = r?` then `${v}`                        REFUSED theta/parse/interpolated-result
+//   k4      `${match …}`                                    REFUSED theta/parse/unsupported-feature
+//   k5      `${r}`                                          REFUSED + InterpolatedResultPanic, sent=[]
+//
+// DRIFT from the bug document's §Reproduction (measured at a410f727 / 0.69.0):
+// row h1 now ALSO draws a parse diagnostic, `theta/parse/question-on-non-result`,
+// where the report records only the runtime throw. The ERR-18 static operand gate
+// reaches a member operand in body position at this HEAD. It changes nothing this
+// group asserts — h1's runtime throw is unchanged and h2's interpolation still
+// parses clean, so the two-evaluator divergence the pair witnesses is intact —
+// but cell (t3) drives h1 through {@link driveRefusedSource} rather than
+// {@link drive} for it, and pins BOTH dispositions so a later widening of that
+// gate to the interpolation position is visible here.
+//
+// HARNESS NOTES.
+//   - Nothing above this banner is modified: §Fix's Witness paragraph asks for
+//     these rows in the harness that already exists. `parseOnly`, `drive`,
+//     `driveRefusedSource`, `FM`, `ROW1`, `ROW2`, `ROW3`, `LAUNDERED`,
+//     `TAIL_QUERY`, `showDiagnostics`, `gateDiagnostics`,
+//     `interpolatedResultMessage` and `LiveSessionDouble.sentQueryTexts` are all
+//     reused as-is.
+//   - Cells (a7), (a14) and (a15) stay GREEN through this fix — the bug-0079
+//     static gate's silence on `${r?}`, `${r? + 1}` and `${c ? r? : 0}` remains
+//     correct, because `?` consumed the `Result`. Their PROSE is what becomes
+//     false: (a7)'s parenthetical and this file's header inventory both record
+//     today's `xnull` as the current signature. §Fix (e) assigns that correction
+//     to the fixing commit.
+//   - Both directions are reachable for both helpers below: cell (t1) is green at
+//     HEAD through {@link assertUnwrapRenders} (it is §Reproduction a5, whose
+//     `xnull` is the CORRECT render of `Ok(null)`), and cell (t8) is green
+//     through {@link assertUnwrapAborts} (it is §Reproduction k5, bug 0079's
+//     already-closed position), so neither helper is a one-way assertion.
+// ===========================================================================
+
+/** One bug-0116 §Reproduction row: the source, HEAD's render, and QRY-18's. */
+interface UnwrapRow {
+  /** The §Reproduction row id, so a red names the measured row it came from. */
+  readonly id: string;
+  /** What the row is, in the failure message's own voice. */
+  readonly what: string;
+  /** The whole theta source, frontmatter included. */
+  readonly src: string;
+  /** Every text HEAD hands to `pi.sendUserMessage` for this row. */
+  readonly headSent: readonly string[];
+  /** The single text QRY-18 requires, once the `try` arm exists. */
+  readonly expected: string;
+  /** The QRY-18 row that fixes {@link expected}, for the failure message. */
+  readonly qry18Row: string;
+}
+
+/** The §Reproduction payload, operand-shape and arithmetic rows, as one table. */
+const UNWRAP_ROWS: readonly UnwrapRow[] = [
+  {
+    id: "a1",
+    what: "`let r = Ok(1)` unwrapped in place — the report's headline measurement",
+    src: FM + ROW1 + "@`x${r?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21, the `integer` row (BNDR-4 canonical decimal)",
+  },
+  {
+    id: "a2",
+    what: "a `string` payload",
+    src: FM + 'let r = Ok("hi")\n@`x${r?}`\n',
+    headSent: ["xnull"],
+    expected: "xhi",
+    qry18Row: ":20, the `string` row (the value itself, no quoting)",
+  },
+  {
+    id: "a3",
+    what: "a `boolean` payload",
+    src: FM + "let r = Ok(true)\n@`x${r?}`\n",
+    headSent: ["xnull"],
+    expected: "xtrue",
+    qry18Row: ":23, the `boolean` row",
+  },
+  {
+    id: "a4",
+    what: "a Schema-typed object payload",
+    src: FM + "schema S { a: integer }\nlet r = Ok(S { a: 1 })\n@`x${r?}`\n",
+    headSent: ["xnull"],
+    expected: 'x{"a":1}',
+    qry18Row: ":27, the Schema-typed object row (compact JSON, wire-name translation)",
+  },
+  {
+    id: "b1",
+    what: "a PARENTHESISED operand — `${(r)?}`",
+    src: FM + ROW1 + "@`x${(r)?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b2",
+    what: "an INLINE constructor operand, no binding at all — `${Ok(1)?}`",
+    src: FM + "@`x${Ok(1)?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b3",
+    what: "an operand laundered through an UNANNOTATED `fn` return, invisible to the static layer",
+    src: FM + LAUNDERED + "@`x${r?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b4",
+    what:
+      "an operand behind a WRITTEN `Result<integer, QueryError>` return annotation — the most statically resolvable form there is",
+    src: FM + ROW3 + "@`x${r?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b5",
+    what: "an INDEX operand — `${xs[0]?}`",
+    src: FM + "let xs = [Ok(1)]\n@`x${xs[0]?}`\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b6",
+    what: "the same unwrap INSIDE a `fn` body, reached through `let out = f()?`",
+    src:
+      FM + "fn f() {\n  let r = Ok(1)\n  let s = @`x${r?}`?\n  s\n}\nlet out = f()?\nout\n",
+    headSent: ["xnull"],
+    expected: "x1",
+    qry18Row: ":21",
+  },
+  {
+    id: "b7",
+    what:
+      "a SIBLING-SLOT template — `a${s}b${r?}c` — where the `string` slot renders correctly beside the broken one",
+    src: FM + ROW1 + 'let s = "s"\n@`a${s}b${r?}c`\n',
+    headSent: ["asbnullc"],
+    expected: "asb1c",
+    qry18Row: ":20 for the `s` slot and :21 for the `r?` slot, in one template",
+  },
+  {
+    id: "arith",
+    what:
+      "ARITHMETIC over the unwrapped operand — `${r? + 1}`, where the invented `null` contributes as an addend and the sum renders as a plausible wrong number",
+    src: FM + ROW1 + "@`x${r? + 1}`\n",
+    headSent: ["x1"],
+    expected: "x2",
+    qry18Row: ":21 — `evaluateBinaryExpression` recurses into the same evaluator per operand",
+  },
+];
+
+/**
+ * The §Reproduction row named `id`. A missing id is a harness defect and fails
+ * LOUDLY — a cell silently asserting nothing is worse than a red.
+ */
+function unwrapRow(id: string): UnwrapRow {
+  const row = UNWRAP_ROWS.find((r) => r.id === id);
+  if (row === undefined) {
+    throw new Error(
+      `harness: bug 0116 has no §Reproduction row \`${id}\` in UNWRAP_ROWS — the table is this group's only fixture source, so a missing id is a harness failure, never a skip`,
+    );
+  }
+  return row;
+}
+
+/**
+ * The bug-0116 fixed contract for an `Ok` operand, in two directions:
+ *
+ *   0. the PARSE layer is untouched — `diagnostics` stays exactly `[]`.
+ *      `expressions.md:19` / `:40` admit `?` in interpolation position and bug
+ *      0079's static gate skips a `try` node by construction, so a row that
+ *      started drawing a diagnostic would mean the fix REFUSED a conformant
+ *      theta rather than rendering it;
+ *   1. the ONE text handed to `pi.sendUserMessage` is QRY-18's render of the
+ *      UNWRAPPED payload — a whole-list `toEqual`, so a fix that renders
+ *      correctly but sends twice reds too.
+ *
+ * A throw is a harness-level failure here and says so: this class of row must
+ * RENDER, and confusing an abort with a wrong render would hide the difference
+ * between §Fix's `Ok` arm and its `Err` arm.
+ */
+async function assertUnwrapRenders(row: UnwrapRow): Promise<void> {
+  const doc = parseOnly(row.src);
+  expect(
+    doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+    `bug 0116 (expressions.md:19, :40): \`?\` is a supported interpolation form, so ${row.id} keeps loading with an empty diagnostics array — the fix renders this theta, it does not refuse it. Observed: ${showDiagnostics(doc)}`,
+  ).toEqual([]);
+
+  const outcome = await drive(row.src);
+  if (outcome.kind === "threw") {
+    throw new Error(
+      `bug 0116 ${row.id} (${row.what}) must RENDER the unwrapped payload, not abort — expressions.md:186 unwraps an \`Ok\` to the inner value. The drive threw ${String(outcome.thrown)}`,
+    );
+  }
+  expect(
+    outcome.session.sentQueryTexts,
+    `PRIMARY (bug 0116 §Expected behaviour): ${row.id} — ${row.what} — must send ${JSON.stringify(row.expected)} under QRY-18 ${row.qry18Row}, because \`?\` unwraps the \`Ok\` (expressions.md:186) and the interpolation renders by the resulting static type (QRY-18, :16). At HEAD it sends ${JSON.stringify(row.headSent)}: \`evaluatePureExpression\` has no \`try\` arm, so the node takes \`default: return null\` and \`interpolationTypeOf\` renders QRY-18's :24 \`null\` row over an invented value`,
+  ).toEqual([row.expected]);
+}
+
+/**
+ * The bug-0116 fixed contract for an `Err` operand — §Fix (c) reading 2's three
+ * NON-NEGOTIABLES, each a settled observable of the finished drive:
+ *
+ *   1. NO query text was sent (the sent-text list is empty);
+ *   2. the theta does NOT report `success` — the drive aborts, so there is no
+ *      `BodyExecution` at all;
+ *   3. the abort is `InterpolatedResultPanic`: `isThetaPanic` (which is what
+ *      makes QRY-21 hold for it), the registered
+ *      `theta/parse/interpolated-result` code, and the registry's Message read
+ *      through {@link interpolatedResultMessage} (DIAG-4), never copied prose.
+ *
+ * The route is bug 0079's EXISTING single raise, reached because the `try` arm
+ * RAISES directly through the one factored `raiseInterpolatedResult` helper
+ * (never returns the operand's `Err` carrier into the interpolation slot — a
+ * pure operator arm consuming it as a VALUE would coerce it with JS first).
+ * No new registry code, no new raise site, no new emission site. {@link driveRefusedSource}
+ * rather than {@link drive}, so the same helper can serve cell (t8), whose
+ * fixture bug 0079 already refuses at load.
+ */
+async function assertUnwrapAborts(
+  src: string,
+  what: string,
+  headSent: readonly string[],
+): Promise<void> {
+  const outcome = await driveRefusedSource(src);
+
+  // NON-NEGOTIABLE 1 first, so a red names the exact bytes the model receives.
+  expect(
+    outcome.session.sentQueryTexts,
+    `NON-NEGOTIABLE 1 (bug 0116 §Fix (c)): ${what} — no query text is sent on the \`Err\` path. expressions.md:186 early-returns the \`Err\` from the enclosing theta, and the query is a statement whose rendered text is still being built, so the abort precedes any dispatch. At HEAD the render discards the \`Err\` and sends ${JSON.stringify(headSent)}`,
+  ).toEqual([]);
+
+  if (outcome.kind === "value") {
+    expect(
+      `outcome ${outcome.execution.outcome}, sent ${JSON.stringify(outcome.session.sentQueryTexts)}`,
+      `NON-NEGOTIABLE 2 (bug 0116 §Fix (c)): ${what} — the theta must NOT report success. At HEAD the \`Err\` is dropped outright (\`evaluatePureExpression\` returns \`ThetaValue\`, which has no channel for \`evalTry\`'s \`propagate\` flow), the query goes out, and the drive reports success with no error on any surface`,
+    ).toBe(`panic ${INTERPOLATED_RESULT_CODE}`);
+    throw new Error("unreachable: the assertion above always fails on a value disposition");
+  }
+
+  const { thrown } = outcome;
+  expect(
+    isThetaPanic(thrown),
+    `NON-NEGOTIABLE 3 (bug 0116 §Fix (c) reading 2): the abort is \`InterpolatedResultPanic\` (src/render/query-render.ts), a \`ThetaPanic\` subclass expressly so QRY-21 (:59) holds — a panic during interpolation is not contained by \`let _ =\`. Thrown: ${String(thrown)}`,
+  ).toBe(true);
+  expect(
+    (thrown as { readonly code: string }).code,
+    `NON-NEGOTIABLE 3 (bug 0116 §Fix (d)): the EXISTING registered ${INTERPOLATED_RESULT_CODE} and bug 0079's one runtime raise — no new code, no second raise site. Thrown: ${String(thrown)}`,
+  ).toBe(INTERPOLATED_RESULT_CODE);
+  expect(
+    (thrown as Error).message,
+    "DIAG-4: the expected message is READ from the registry Message column, never copied prose",
+  ).toBe(interpolatedResultMessage());
+}
+
+// ===========================================================================
+// (p) THE PAYLOAD MATRIX — §Reproduction a1–a4. Every payload type reaches the
+// missing arm; a5 is cell (t1), where the wrong render collides with the right
+// one.
+// ===========================================================================
+
+describe("bug 0116 (p) — the payload matrix: `${r?}` renders the UNWRAPPED payload", () => {
+  it("RED (p1, PRIMARY / a1): `let r = Ok(1)` sends `x1`, not `xnull`", async () => {
+    await assertUnwrapRenders(unwrapRow("a1"));
+  });
+
+  it("RED (p2 / a2): a `string` payload sends `xhi`", async () => {
+    await assertUnwrapRenders(unwrapRow("a2"));
+  });
+
+  it("RED (p3 / a3): a `boolean` payload sends `xtrue`", async () => {
+    await assertUnwrapRenders(unwrapRow("a3"));
+  });
+
+  it("RED (p4 / a4): a Schema-typed object payload sends its compact JSON", async () => {
+    await assertUnwrapRenders(unwrapRow("a4"));
+  });
+});
+
+// ===========================================================================
+// (q) THE OPERAND SHAPES — §Reproduction b1–b7 and the arithmetic row. The skip
+// is by node KIND, so no operand spelling escapes it and no annotation helps.
+// ===========================================================================
+
+describe("bug 0116 (q) — the operand shape does not matter: every `?` spelling renders `null`", () => {
+  it("RED (q1 / b1): a parenthesised operand", async () => {
+    await assertUnwrapRenders(unwrapRow("b1"));
+  });
+
+  it("RED (q2 / b2): an inline constructor operand, with no binding at all", async () => {
+    await assertUnwrapRenders(unwrapRow("b2"));
+  });
+
+  it("RED (q3 / b3): an operand laundered through an unannotated `fn` return", async () => {
+    // The same laundering group (b) uses for its runtime arm: `typeOf` of a
+    // `call` is the callee NAME, so the static layer sees nothing. Here it
+    // changes nothing either way — the defect is a missing runtime arm, not a
+    // missing type.
+    await assertUnwrapRenders(unwrapRow("b3"));
+  });
+
+  it("RED (q4 / b4): a WRITTEN `Result<integer, QueryError>` return annotation changes nothing", async () => {
+    // The sharpest operand row: the author spelled the type out, which is the
+    // form QRY-18's static note singles out as resolvable, and the render is
+    // identical — because `evaluatePureExpression` dispatches on the node kind
+    // and never consults a type at all.
+    await assertUnwrapRenders(unwrapRow("b4"));
+  });
+
+  it("RED (q5 / b5): an index operand — `${xs[0]?}`", async () => {
+    await assertUnwrapRenders(unwrapRow("b5"));
+  });
+
+  it("RED (q6 / b6): the defect is not top-level-only — a query inside a `fn` body renders identically", async () => {
+    await assertUnwrapRenders(unwrapRow("b6"));
+  });
+
+  it("RED (q7 / b7): only the `?` slot is affected — the sibling `string` slot renders correctly in the same template", async () => {
+    await assertUnwrapRenders(unwrapRow("b7"));
+  });
+
+  it("RED (q8): `${r? + 1}` renders `x2` — arithmetic over the unwrapped operand", async () => {
+    // `evaluateBinaryExpression` recurses into the same evaluator per operand, so
+    // the invented `null` arrives as an addend and the sum renders as a
+    // well-formed integer that is wrong by the payload. This is cell (a14)'s
+    // fixture, which asserts the parse silence; §Fix (e) notes that the fix has a
+    // RENDER assertion to add where (a14) stops — this is it.
+    await assertUnwrapRenders(unwrapRow("arith"));
+  });
+});
+
+// ===========================================================================
+// (r) THE `Err` OPERAND — today the early-return is dropped, the query is SENT,
+// and the theta reports success. §Fix (c) reading 2's three non-negotiables.
+// ===========================================================================
+
+describe("bug 0116 (r) — an `Err` operand aborts the theta and sends nothing", () => {
+  it("RED (r1, PRIMARY): the tail-query form — nothing sent, no success, `InterpolatedResultPanic`", async () => {
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${r?}`\n",
+      "an `Err` operand unwrapped inside a tail `@`-query's interpolation",
+      ["xnull"],
+    );
+  });
+
+  it("RED (r2, QRY-21): the `let _ =` twin — the discard form does not contain the abort", async () => {
+    // QRY-21 (:59): "Panics arise during evaluation of the RHS and propagate
+    // before the `let _ =` binding completes; the discard form does not contain
+    // them." Today there is nothing for QRY-21 to be about on this path — no
+    // panic and no propagation arises, so the discard contains nothing and sends
+    // the same `xnull` the bare form does. Reading 2's disposition is a
+    // `ThetaPanic` precisely so this cell holds without new plumbing.
+    await assertUnwrapAborts(
+      FM + ROW2 + "let _ = @`x${r?}`\n",
+      "an `Err` operand unwrapped inside a DISCARDED query's interpolation",
+      ["xnull"],
+    );
+  });
+});
+
+// ===========================================================================
+// (s) THE TWO-EVALUATOR DIVERGENCE — §Reproduction g1–g3. The executor side of
+// the identical operands, so one file carries both answers. Green now, green
+// after: this group is what the interpolation side must converge ON.
+// ===========================================================================
+
+describe("bug 0116 (s) — the executor's `?` on the identical operands, for contrast", () => {
+  it("CONTROL (s1 / g1): a tail `r?` over `Ok(1)` yields `1`, sends nothing", async () => {
+    // `evalExpr` intercepts `expr.kind === "try"` before the pure fall-through and
+    // `evalTry` applies `evaluateQuestion` (src/runtime/runtime-panics.ts) — the
+    // shared synchronous primitive §Fix (a) requires the render to reuse rather
+    // than reimplement.
+    const outcome = await drive(FM + ROW1 + "r?\n");
+    if (outcome.kind === "threw") {
+      throw new Error(
+        `CONTROL BROKEN — the executor's \`?\` on \`Ok(1)\` must yield the payload; the drive threw ${String(outcome.thrown)}`,
+      );
+    }
+    expect(
+      `${outcome.execution.outcome} ${JSON.stringify(outcome.execution.result)}`,
+      "the body position's answer for the operand cell (p1) interpolates — the divergence is positional, not value-shaped",
+    ).toBe('success {"present":true,"value":1}');
+    expect(
+      outcome.session.sentQueryTexts,
+      "no query in this fixture, so nothing reaches the wire",
+    ).toEqual([]);
+  });
+
+  it("CONTROL (s2 / g2): `let v = r?` then a tail `v` yields `1`", async () => {
+    const outcome = await drive(FM + ROW1 + "let v = r?\nv\n");
+    if (outcome.kind === "threw") {
+      throw new Error(`CONTROL BROKEN — ${String(outcome.thrown)}`);
+    }
+    expect(
+      `${outcome.execution.outcome} ${JSON.stringify(outcome.execution.result)}`,
+      "the hoisted form of (s1): the unwrap binds the payload",
+    ).toBe('success {"present":true,"value":1}');
+  });
+
+  it("CONTROL (s3 / g3): an `Err` operand in body position reports `fail` and carries the payload", async () => {
+    // The other half of the divergence: expressions.md:186's early-return,
+    // working — against cell (r1), where the identical operand is discarded and
+    // the theta reports success. One HEAD, one operand, opposite answers.
+    const outcome = await drive(FM + ROW2 + "let v = r?\nv\n");
+    if (outcome.kind === "threw") {
+      throw new Error(`CONTROL BROKEN — ${String(outcome.thrown)}`);
+    }
+    expect(
+      `${outcome.execution.outcome} ${JSON.stringify(outcome.execution.error)}`,
+      "expressions.md:186's early-return, observed on the path that implements it",
+    ).toBe('fail {"m":"boom"}');
+    expect(
+      outcome.session.sentQueryTexts,
+      "no query in this fixture, so nothing reaches the wire",
+    ).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// (t) THE BUG-0019 POSITION AND §Fix (f)'s CONTROLS. h1/h2 are the ERR-18
+// operand on both paths; the rest are every control §Fix (f) names, each
+// measured at HEAD and required unchanged after.
+// ===========================================================================
+
+describe("bug 0116 (t) — the ERR-18 operand on both paths, and every §Fix (f) control", () => {
+  it("CONTROL (t1 / a5): `Ok(null)` still renders `xnull` — the collision that makes the defect signature-less", async () => {
+    // §Fix (f): after the fix this is the ONLY input that may render `null` in
+    // this position, and QRY-18 :24 is why. It is also the GREEN-DIRECTION PROOF
+    // for {@link assertUnwrapRenders} — this row already satisfies every
+    // assertion that helper makes, so the helper is proven able to pass as well
+    // as to fail.
+    await assertUnwrapRenders({
+      id: "a5",
+      what: "`Ok(null)` unwrapped — the correct render is the literal text `null`",
+      src: FM + "let r = Ok(null)\n@`x${r?}`\n",
+      headSent: ["xnull"],
+      expected: "xnull",
+      qry18Row: ":24, the `null` row (the literal text `null`)",
+    });
+  });
+
+  it("RED (t2 / h2): the ERR-18 operand in INTERPOLATION position aborts with `QuestionOperandDefectError`", async () => {
+    // §Fix (b): bug 0019's `isResultValue` brand guard travels with the shared
+    // `evaluateQuestion` primitive, so the interpolation position throws the SAME
+    // defect class `evalTry` throws. The report states the consequence outright —
+    // "h2 changes from a silent `xnull` to a loud defect abort, which is 0019's
+    // intended disposition for that operand". At HEAD the operand's type is never
+    // examined, so no guard can fire and the site is indistinguishable from (p1).
+    const src = FM + "schema S { r: integer }\nlet o = S { r: 1 }\n@`x${o.r?}`\n";
+    const doc = parseOnly(src);
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `bug 0116 §Reproduction h2: the interpolation position parses clean — ERR-18's static operand gate does not reach it, which is why the runtime guard is the only thing that can. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([]);
+
+    const outcome = await driveRefusedSource(src);
+    expect(
+      outcome.session.sentQueryTexts,
+      'bug 0116 §Fix (b): a defect abort precedes the dispatch, so no query text reaches the model. At HEAD this row sends ["xnull"] and reports success',
+    ).toEqual([]);
+    if (outcome.kind === "value") {
+      expect(
+        `outcome ${outcome.execution.outcome}, sent ${JSON.stringify(outcome.session.sentQueryTexts)}`,
+        "PRIMARY (bug 0116 §Fix (b)): an ERR-18-violating operand reaching the unwrap is a `QuestionOperandDefectError` (bug 0019's defect class), never a rendered `null`",
+      ).toBe("QuestionOperandDefectError");
+      throw new Error("unreachable: the assertion above always fails on a value disposition");
+    }
+    expect(
+      outcome.thrown instanceof QuestionOperandDefectError,
+      `bug 0116 §Fix (b): the guard and the defect class are already decided by bug 0019 — reuse both, so the interpolation position throws the same class \`evalTry\` throws. Thrown: ${String(outcome.thrown)}`,
+    ).toBe(true);
+  });
+
+  it("CONTROL (t3 / h1): the same operand in BODY position still throws that defect, and is refused at load", async () => {
+    // Bug 0019's fix working, and the contrast (t2) needs. DRIFT from the bug
+    // document, recorded: §Reproduction h1 lists only the runtime throw, and at
+    // this HEAD the source ALSO draws `theta/parse/question-on-non-result` — the
+    // ERR-18 static operand gate reaches a member operand in body position now.
+    // Both dispositions are pinned here, so a later widening of that gate to the
+    // interpolation position (which would make (t2) unreachable) is visible in
+    // this file.
+    const src = FM + "schema S { r: integer }\nlet o = S { r: 1 }\nlet v = o.r?\nv\n";
+    const doc = parseOnly(src);
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `bug 0116 §Reproduction h1, re-measured: the ERR-18 static operand gate refuses a member operand in body position. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual(["error theta/parse/question-on-non-result"]);
+
+    const outcome = await driveRefusedSource(src);
+    if (outcome.kind === "value") {
+      throw new Error(
+        `CONTROL BROKEN — bug 0019's runtime brand guard must still throw on this operand; the drive completed with outcome ${outcome.execution.outcome}`,
+      );
+    }
+    expect(
+      outcome.thrown instanceof QuestionOperandDefectError,
+      `CONTROL (bug 0019): \`evalTry\`'s \`isResultValue\` guard throws before the unwrap. Thrown: ${String(outcome.thrown)}`,
+    ).toBe(true);
+  });
+
+  it("CONTROL (t4 / k1): `let v = Ok(1)?` then `${v}` still renders `x1`", async () => {
+    // §Fix (f). The route that already works: the unwrap is hoisted to a `let`
+    // whose recorded type object is freshly minted, so bug 0079's identity-keyed
+    // `resultBindings` does not contain it. It proves the render is CAPABLE of the
+    // value cell (p1) demands.
+    const outcome = await drive(FM + "let v = Ok(1)?\n@`x${v}`\n");
+    if (outcome.kind === "threw") {
+      throw new Error(`CONTROL BROKEN — ${String(outcome.thrown)}`);
+    }
+    expect(
+      outcome.session.sentQueryTexts,
+      "CONTROL (bug 0116 §Fix (f)): the inline-constructor hoist renders the payload before and after",
+    ).toEqual(["x1"]);
+  });
+
+  it("CONTROL (t5 / k3): the `match` hoist still renders `x1`", async () => {
+    // §Fix (f). The other working route, and the one the registry row's *Fix*
+    // column actually reaches: "unwrap with `?` or `match` before interpolating",
+    // applied by hoisting the `match` into a `let`.
+    const outcome = await drive(
+      FM + ROW1 + "let v = match r { Ok(v) => v, Err(e) => 0 }\n@`x${v}`\n",
+    );
+    if (outcome.kind === "threw") {
+      throw new Error(`CONTROL BROKEN — ${String(outcome.thrown)}`);
+    }
+    expect(
+      outcome.session.sentQueryTexts,
+      "CONTROL (bug 0116 §Fix (f)): the `match` hoist renders the payload before and after",
+    ).toEqual(["x1"]);
+  });
+
+  it("CONTROL (t6 / k4): `${match …}` in place is still refused `theta/parse/unsupported-feature`", () => {
+    // §Fix (f), and `expressions.md:40` doing its job: a nested `match` is one of
+    // exactly two forms removed from interpolation position. Adding the `try` arm
+    // must not widen that set — the whole diagnostics array is pinned, so a fix
+    // that admitted `match` here reds.
+    const doc = parseOnly(FM + ROW1 + "@`x${match r { Ok(v) => v, Err(e) => 0 }}`\n");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `CONTROL (bug 0116 §Fix (f)): \`match\` inside \`\${…}\` stays refused (expressions.md:40). Observed: ${showDiagnostics(doc)}`,
+    ).toEqual(["error theta/parse/unsupported-feature"]);
+  });
+
+  it("CONTROL (t7 / k2): the `let v = r?` hoist is still REFUSED, unchanged — the separate defect stays fenced", () => {
+    // §Fix (f) and §Non-goals: k2's refusal is a DIFFERENT defect (a valid theta
+    // refused, because `StaticTypeInferencePass`'s `try` arm propagates the
+    // operand's `CompatType` OBJECT verbatim and bug 0079's `resultBindings` is
+    // keyed by object identity). It needs its own report and its own
+    // adjudication, so "a fix here that silently changes it has changed something
+    // it did not adjudicate". This cell is the pin: the refusal SURVIVES, code and
+    // whole-array shape unchanged.
+    const doc = parseOnly(FM + ROW1 + "let v = r?\n@`x${v}`\n");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `CONTROL (bug 0116 §Non-goals): the \`?\`-hoist false positive is out of scope and must be observably unchanged. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([`error ${INTERPOLATED_RESULT_CODE}`]);
+    expect(
+      gateDiagnostics(doc).map((d) => d.message),
+      "DIAG-4: the registry Message column, read not copied",
+    ).toEqual([interpolatedResultMessage()]);
+  });
+
+  it("CONTROL (t8 / k5): `${r}` — no `?` at all — is still refused AND still panics, sending nothing", async () => {
+    // §Fix (f): bug 0079's gate is untouched by this report. Also the
+    // GREEN-DIRECTION PROOF for {@link assertUnwrapAborts} — this row already
+    // satisfies every assertion that helper makes (an empty `sentQueryTexts`, an
+    // `isThetaPanic` carrying the registered code and the registry Message),
+    // which is exactly the post-fix shape of cells (r1)/(r2), so the helper is
+    // proven able to pass as well as to fail.
+    const doc = parseOnly(FM + ROW1 + TAIL_QUERY);
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `CONTROL (bug 0116 §Fix (f)): bug 0079's static gate still refuses a \`Result\`-typed interpolation. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([`error ${INTERPOLATED_RESULT_CODE}`]);
+    await assertUnwrapAborts(
+      FM + ROW1 + TAIL_QUERY,
+      "a `Result`-typed interpolation with no `?` at all — bug 0079's own position",
+      [],
+    );
+  });
+
+  it("CONTROL (t9): an ordinary object carrying a boolean `ok` field still renders through the object arm", async () => {
+    // §Fix (f) and bug 0017: `interpolationTypeOf` keeps classifying a `Result` by
+    // the non-enumerable symbol brand and an ordinary boolean-`ok` object by the
+    // object arm. The `Err` disposition of cells (r1)/(r2) routes THROUGH that
+    // brand arm, so a fix that reached it by key presence instead reds here.
+    const outcome = await drive(
+      FM +
+        "schema Fake { ok: boolean, label: string }\n" +
+        'let o = Fake { ok: true, label: "x" }\n' +
+        "@`x${o}`\n",
+    );
+    if (outcome.kind === "threw") {
+      throw new Error(
+        `CONTROL BROKEN — an ordinary object carrying a boolean \`ok\` field must still render; the runtime threw ${String(outcome.thrown)}`,
+      );
+    }
+    expect(
+      outcome.session.sentQueryTexts,
+      "CONTROL (bug 0116 §Fix (f), bug 0017): QRY-18 :27's compact JSON, unchanged",
+    ).toEqual(['x{"ok":true,"label":"x"}']);
+  });
+});
+
+// ===========================================================================
+// (u) THE `Err` OPERAND NESTED INSIDE A PURE OPERATOR — the class group (r)
+// does not reach. Group (r) drives the `try` node as the WHOLE interpolation, so
+// whatever the `try` arm yields survives to `interpolationTypeOf`. When the
+// `try` is an OPERAND of a binary / comparison / logical operator, or a ternary
+// CONDITION, `evaluateBinaryExpression` (or the ternary's truthiness test)
+// consumes that value first with JS coercion, so any disposition the `try` arm
+// expresses as a RETURNED VALUE is silently eaten and the three §Fix (c)
+// non-negotiables all fail: the query is sent, the theta reports success, and on
+// `+` the interpreter-private `Result` carrier is coerced into the model-visible
+// prompt as `[object Object]` — the leak class bugs 0079 and 0114 closed.
+//
+// So the propagate arm must RAISE, not return: only a raise is positional-
+// invariant. These cells are that invariance, one per operator position, plus
+// the two positions that were already correct as controls.
+//
+// The three non-negotiables are asserted as REAL observables through the same
+// {@link assertUnwrapAborts} helper groups (r)/(t8) use: the sent-text list is
+// EMPTY, the drive does not reach a `success` outcome, and the abort carries the
+// registered `theta/parse/interpolated-result` with its Message read from the
+// registry (DIAG-4) rather than copied prose.
+// ===========================================================================
+
+/** The `Err`-operand prologue every group-(u) row shares, plus a `boolean`. */
+const ERR_AND_COND = ROW2 + "let c = true\n";
+
+describe("bug 0116 (u) — the `Err` operand nested in a pure operator aborts too: the disposition is positional-invariant", () => {
+  it("RED (u1, PRIMARY): binary `+` — `${r? + 1}`, where a returned carrier coerces to `[object Object]` on the wire", async () => {
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${r? + 1}`\n",
+      "an `Err` operand unwrapped as the LEFT ADDEND of a binary `+`",
+      ["x[object Object]1"],
+    );
+  });
+
+  it("RED (u2): comparison `==` — `${r? == 1}`", async () => {
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${r? == 1}`\n",
+      "an `Err` operand unwrapped as the LEFT side of a comparison",
+      ["xfalse"],
+    );
+  });
+
+  it("RED (u3): logical `&&` — `${r? && true}`", async () => {
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${r? && true}`\n",
+      "an `Err` operand unwrapped as the LEFT side of a logical `&&`",
+      ["xfalse"],
+    );
+  });
+
+  it("RED (u4): the ternary CONDITION — `${r? == 1 ? 1 : 0}`", async () => {
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${r? == 1 ? 1 : 0}`\n",
+      "an `Err` operand unwrapped inside a ternary's CONDITION, where the truthiness test consumes it",
+      ["x0"],
+    );
+  });
+
+  it("RED (u5): string concatenation with the `try` on the RIGHT — `${\"a\" + r?}`", async () => {
+    // The mirrored operand slot, and the sharpest leak: `+` over a string left
+    // operand stringifies the carrier object directly into the prompt text.
+    await assertUnwrapAborts(
+      FM + ROW2 + '@`x${"a" + r?}`\n',
+      "an `Err` operand unwrapped as the RIGHT operand of a string concatenation",
+      ["xa[object Object]"],
+    );
+  });
+
+  it("CONTROL (u6): the ternary ARM — `${c ? r? : 0}` — aborts before and after", async () => {
+    // The selected arm's value IS the interpolation's value, so it survives to
+    // `interpolationTypeOf` unconsumed. Pinned so the change from a returned
+    // carrier to a raise does not alter this position's observables.
+    await assertUnwrapAborts(
+      FM + ERR_AND_COND + "@`x${c ? r? : 0}`\n",
+      "an `Err` operand unwrapped inside a ternary's selected ARM",
+      [],
+    );
+  });
+
+  it("CONTROL (u7): an ARRAY ELEMENT — `${[r?]}` — aborts before and after", async () => {
+    // Containment routes through bug 0114's nested-reach branch rather than the
+    // top-level brand arm, and both branches must reach the same one raise.
+    await assertUnwrapAborts(
+      FM + ROW2 + "@`x${[r?]}`\n",
+      "an `Err` operand unwrapped as an ARRAY ELEMENT inside the interpolation",
+      [],
+    );
   });
 });

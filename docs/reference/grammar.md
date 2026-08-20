@@ -416,7 +416,10 @@ a sink: `for x in []` with no other sink is `theta/parse/array-no-common-type`.
 ### `?` operator
 
 Unwraps `Ok` to the inner value; on `Err`, early-returns the `Err` from the
-enclosing function or top-level theta. The operand must have static type
+enclosing function or top-level theta. Inside a `${...}` query-template
+interpolation the render is synchronous and has no early-return channel, so an
+`Err` operand there instead aborts the theta with QRY-18's runtime-fallback
+panic (`theta/parse/interpolated-result`). The operand must have static type
 `Result<T, QueryError>` for some `T` — otherwise `theta/parse/question-on-non-result`
 (a static, load-fail check). The enclosing scope's return type must be compatible
 with `Result<U, QueryError>` — otherwise `theta/parse/question-outside-result-fn`.

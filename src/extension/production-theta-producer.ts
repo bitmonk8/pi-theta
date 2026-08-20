@@ -247,9 +247,11 @@ import {
 import {
   evaluateIndexAccess,
   evaluateMemberAccess,
+  evaluateQuestion,
   HostFatal,
   isThetaPanic,
   nonObjectReceiverRejection,
+  QuestionOperandDefectError,
 } from "../runtime/runtime-panics";
 import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
 import {
@@ -259,6 +261,7 @@ import {
 } from "../runtime/tool-registration";
 import {
   InterpolatedResultPanic,
+  INTERPOLATED_RESULT_MESSAGE,
   lexQueryTemplate,
   renderEmptyShortCircuit,
   renderTemplateText,
@@ -6015,10 +6018,10 @@ function splitParamDefaultSource(raw: string): string | undefined {
  * runtime value by the QRY-18 rule, and apply the QRY-7 newline-trim → dedent
  * normalisation. An interpolation whose source does not parse, or that has no
  * pure runtime value (an effectful `fn` body / tool-call), yields the inert
- * `null` render (the expressions.md safety net) rather than a throw; a
- * `Result`-valued interpolation the static type-layer gate could not prove
- * instead aborts the theta with QRY-18's runtime-fallback panic (see
- * `stringifyInterpolation`).
+ * `null` render — this render's own fallback, not a rule expressions.md states
+ * (bug 0116) — rather than a throw; a `Result`-valued interpolation the static
+ * type-layer gate could not prove instead aborts the theta with QRY-18's
+ * runtime-fallback panic (see `stringifyInterpolation`).
  */
 function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
   const lexed = lexQueryTemplate(expr.template);
@@ -6055,7 +6058,8 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
   const parsed = parseExpressionSource(source);
   if (parsed === null) {
     // An unparseable interpolation has no value; render the inert `null` rather
-    // than throwing out of the render path (the expressions.md safety net).
+    // than throwing out of the render path — this render's own fallback, not a
+    // rule expressions.md states (bug 0116).
     return "null";
   }
   const value = evaluatePureExpression(parsed, env);
@@ -6084,9 +6088,21 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
     // inside a container, at any depth — is one the static gate left unproven,
     // so it aborts the theta with the same registered code rather than
     // rendering the carrier. The sole runtime raise, for both positions.
-    throw new InterpolatedResultPanic(rendered.diagnostic.message);
+    raiseInterpolatedResult(rendered.diagnostic.message);
   }
   return rendered.text;
+}
+
+/**
+ * The single runtime raise of `theta/parse/interpolated-result` in `src/` (bug
+ * 0079 §Fix, preserved as a structural constraint). Factored so the `try` arm's
+ * propagate branch and this render's `Result`-row branch reach ONE construction
+ * site: two `throw` statements are two dispositions free to drift, which is the
+ * drift the one-raise rule exists to prevent. `never`, so every caller's
+ * control flow narrows past it.
+ */
+function raiseInterpolatedResult(message: string): never {
+  throw new InterpolatedResultPanic(message);
 }
 
 /**
@@ -6227,8 +6243,9 @@ function interpolationTypeOf(value: ThetaValue): InterpolationType {
  * The shipped test thetas' pure sub-expressions are literal / identifier reads;
  * an identifier that resolves to a local binding yields its value, any other
  * resolution arm (a bare `fn` / callable name, or an unresolved name) has no
- * first-class readable value and yields `null` (the expressions.md runtime
- * safety net) rather than throwing out of the executor.
+ * first-class readable value and yields `null` — this evaluator's own inert
+ * fallback (bug 0116: no such rule is stated in expressions.md) — rather than
+ * throwing out of the executor.
  */
 function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue {
   switch (expr.kind) {
@@ -6309,6 +6326,36 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       const args = expr.args.map((arg) => evaluatePureExpression(arg, env));
       return evaluateStdlibMethod(receiver, expr.method, args);
     }
+    case "try": {
+      // §Fix (a) (bug 0116) — the `Ok`/`Err` discrimination is NOT
+      // reimplemented here: `evaluateQuestion` is the shared synchronous V4b
+      // primitive `evalTry` (statement-executor.ts) also calls, so this host
+      // and the executor cannot drift apart on `?` (bug 0027's lockstep rule
+      // for this exact pair).
+      const operand = evaluatePureExpression(expr.operand, env);
+      // §Fix (b) — the ERR-18 brand guard travels with the primitive, exactly
+      // as `evalTry` guards before unwrapping; reusing bug 0019's defect class
+      // rather than minting a new one.
+      if (!isResultValue(operand)) {
+        throw new QuestionOperandDefectError(operand);
+      }
+      const q = evaluateQuestion(() => operand);
+      if (q.kind === "value") {
+        return q.value;
+      }
+      // §Fix (c) — `evaluatePureExpression` returns `ThetaValue`, which has no
+      // channel for `evalTry`'s `propagate` flow (the render is synchronous, so
+      // `evalExpr`'s re-route strategy is unavailable). Yielding the `Err`
+      // carrier as a VALUE would be unsound rather than merely lossy: a pure
+      // operator arm — a binary / comparison / logical operand, or a ternary
+      // CONDITION — consumes it with JS coercion before any classification
+      // runs, sending the interpreter-private carrier to the model as
+      // `[object Object]`. So the propagate arm RAISES, through the one factored
+      // raise, which is positional-invariant: nothing is sent, the theta does
+      // not report success, and the disposition is a `ThetaPanic` so QRY-21
+      // holds and `let _ =` cannot contain it.
+      raiseInterpolatedResult(INTERPOLATED_RESULT_MESSAGE);
+    }
     case "binary":
       return evaluateBinaryExpression(expr.op, expr.left, expr.right, env);
     case "ternary": {
@@ -6319,9 +6366,10 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
         : evaluatePureExpression(expr.alternate, env);
     }
     default:
-      // `try` / `match` / effect forms are driven by the executor (not the pure
-      // host); a query / tool-call / invoke expression reaching here has no pure
-      // value and yields the inert `null` (the expressions.md safety net).
+      // `match` / effect forms are driven by the executor (not the pure host);
+      // a query / tool-call / invoke expression reaching here has no pure
+      // value and yields the inert `null` — this evaluator's own fallback, not
+      // a rule stated anywhere in expressions.md (bug 0116).
       return null;
   }
 }

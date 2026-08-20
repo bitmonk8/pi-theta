@@ -1,8 +1,11 @@
 # Bug 0116 — An interpolation of a `?`-unwrapped operand renders `null`: `evaluatePureExpression` has no `try` arm, so `${r?}` over `r = Ok(1)` sends `xnull` to the model while the statement executor's `?` on the identical operand yields `1` — and an `Err` operand's early-return is dropped outright, the query is sent, and the theta reports success
 
-- **Status:** open. §Fix is not settled: the `Ok` arm is mechanical (reuse the
-  executor's own `evaluateQuestion` + brand guard), but the `Err` operand's
-  disposition inside a synchronous render is an adjudication —
+- **Status:** fixed (0.128.0). §Fix was constraint-pinned, not settled: the `Ok`
+  arm was mechanical (reuse the executor's own `evaluateQuestion` + brand
+  guard), and the `Err` operand's disposition inside a synchronous render was an
+  adjudication, settled in-run inside this report's own constraints and recorded
+  in §Fix (0.128.0) — reading 2 (panic), realised through one factored raise. The
+  open question was:
   `expressions.md:186` makes `?` on `Err` early-return the `Err` from the
   enclosing theta, and `evaluatePureExpression` returns `ThetaValue` with no
   channel for a propagate flow. No ordering dependency:
@@ -792,3 +795,190 @@ DIAG-4, as that file already does.
   drive harness of `tests/interpolated-result-gate.test.ts` groups (b)/(c),
   written, run at `a410f727`, and deleted. All rows offline and deterministic;
   no live model, no provider.
+
+## Fix (0.128.0)
+
+**The adjudication this report owed (§Fix (c)).** **Reading 2 (panic)** governs,
+realised as a raise from the `try` arm itself through a **single factored raise
+helper**. Reading 1 (propagate) was declined on one measurable ground: giving the
+render a channel for `evalTry`'s `propagate` flow means widening
+`EffectfulStatementHostDeps.resolveQuery`'s return type — a shared runtime host
+interface the whole test-double corpus implements — and `renderQueryText`'s
+`string` return at its three call sites. Returning the flow as a query `Err`
+instead is not reading 1: `let _ =` would discard it, failing §Fix (c)'s third
+non-negotiable. Reading 2 satisfies all three non-negotiables with existing
+mechanism and costs one sentence of spec text, which §Fix (c) pre-authorised.
+
+**Inside reading 2, the realisation §Fix (d) permits without minting a code —
+"it reuses the one raise", read as returning the operand's `Err` carrier into the
+interpolation slot — was implemented, measured, and abandoned as UNSOUND.** A
+`try` node's value only reaches `interpolationTypeOf` when nothing consumes it
+first. A pure operator arm does consume it: `evaluateBinaryExpression` coerces
+the carrier with JS before any classification runs. Measured over
+`let r = Err(E { m: "boom" })`: `${r? + 1}` sent `x[object Object]1` — the
+interpreter-private carrier serialised into the model-visible prompt, *worse*
+than the pre-fix `x1`, and the exact leak class bugs 0079 and 0114 closed;
+`${r? == 1}` sent `xfalse`, `${r? && true}` `xfalse`, `${r? == 1 ? 1 : 0}` `x0`,
+`` ${"a" + r?} `` `xa[object Object]`. All three of §Fix (c)'s non-negotiables
+failed in that class. Only the ternary-ARM and array-element positions, which
+carry the value to the slot, aborted correctly.
+
+So the disposition raises from the propagate arm. §Fix (d)'s "must not become a
+second raise of the same code from a second site" is read as preserving the
+grep-provable **one-raise-statement** property bug 0079 established, satisfied by
+one factored helper with two call sites — the same "one definition point, N call
+sites" idiom bug 0027's §Fix established and which §Fix (a) itself invokes for
+`evaluateQuestion`. The alternative readings were both closed: a second `throw`
+statement is what (d) forbids, and minting a code would decide whether
+`error-model.md`'s closed panic-source list is edited, which (d) hands to
+[0117](./0117-error-model-omits-parse-coded-interpolation-panic.md).
+
+**What shipped.**
+
+- `src/extension/production-theta-producer.ts` — `evaluatePureExpression` gained
+  a `case "try":` arm: the operand is pure-evaluated, brand-guarded with
+  `isResultValue` (§Fix (b) — a non-`Result` operand throws bug 0019's existing
+  `QuestionOperandDefectError`, so §Reproduction h2 becomes a loud defect abort),
+  then discriminated by the shared synchronous `evaluateQuestion` primitive
+  `evalTry` also calls (§Fix (a) — one definition point, no second `result.ok`
+  test on this path, so the two hosts cannot drift on `?`, bug 0027's lockstep
+  rule for this exact pair). `kind === "value"` returns the unwrapped payload;
+  `kind === "propagate"` raises. The raise is `raiseInterpolatedResult`, a new
+  module-local `never`-returning helper holding the one
+  `throw new InterpolatedResultPanic` statement in `src/`, extracted from
+  `stringifyInterpolation`'s `Result`-row branch and called from both — that
+  branch's message (`rendered.diagnostic.message`) and bug 0114's
+  `NestedResultReach` route through it byte-identically.
+- `src/extension/production-theta-producer.ts` (comment-only) — the four
+  attributions of the inert `null` render to "the expressions.md safety net"
+  (`renderQueryText`'s docstring, `stringifyInterpolation`'s unparseable-source
+  comment, `evaluatePureExpression`'s docstring, the `default:` arm) now
+  attribute it to the render/evaluator itself: `grep -c "safety net"
+  docs/spec_topics/expressions.md` is `0`, so the arm implemented no spec text.
+  The `default:` arm's comment no longer claims `try` is executor-only.
+- `docs/spec_topics/expressions.md` — the one sentence §Fix (c) pre-authorised,
+  extended in place at the `?` semantics site (`:186`): inside a `${...}`
+  query-template interpolation the render is synchronous and has no early-return
+  channel, so an `Err` operand aborts with QRY-18's runtime-fallback panic
+  instead of early-returning. File length unchanged at 240 lines, so no citation
+  into it moved.
+- `docs/reference/grammar.md` — the same sentence mirrored at its `?`-operator
+  section, which carried the identical unqualified claim.
+- `tests/interpolated-result-gate.test.ts` — 33 additive cells in six new groups
+  (p/q/r/s/t/u), 49 → 82, plus the two comment corrections §Fix (e) authorises
+  (the header inventory and cell (a7)'s parenthetical, both of which recorded
+  `xnull` as the current signature). No pre-existing assertion, cell title or
+  cell body touched; (a7)/(a14)/(a15) green with unchanged assertions.
+- `tests/live/live-production-acceptance.test.ts` — one additive H8a cell
+  (CELL-B) driving both directions through a real model turn, H8a 60 → 61; plus
+  one comment-only citation re-derivation (`interpolationTypeOf`) this diff
+  moved.
+
+**No registry or spec-list edit was needed.** Zero new diagnostic codes, zero new
+error classes, zero registry-row edits. `theta/parse/interpolated-result` keeps
+exactly one static emission site (`checkQueryInterpolationResults`,
+`src/parser/type-layer-checks.ts`, untouched) and exactly one runtime raise
+statement (grep-proven, `production-theta-producer.ts`), and
+`InterpolatedResultPanic` stays a `ThetaPanic` so QRY-21 holds.
+`docs/spec_topics/errors-and-results/error-model.md`'s closed panic-source list
+is untouched: this fix adds no panic source, and the silence 0117 records covers
+this raise exactly as §Fix (d) says.
+
+**Re-derived pre-fix baseline** (fork HEAD `2f56cb0a` / 0.123.0; the report
+measured `a410f727` / 0.69.0, and `src/extension/production-theta-producer.ts`
+has churned to 6479 lines since). Every §Reproduction row reproduces byte for
+byte — a1–a4 `xnull`, a5 `xnull` (correct), b1–b6 `xnull`, b7 `asbnullc`,
+`${r? + 1}` → `x1`, the `Err` row and its `let _ =` twin `sent ["xnull"]` /
+`outcome success` / no `error`, g1/g2 `value 1`, g3 `fail {"m":"boom"}`, h2
+`diags []` / `["xnull"]` / `success`, k1 `["x1"]`, k2 refused
+`theta/parse/interpolated-result`, k3 `["x1"]`, k4 refused
+`theta/parse/unsupported-feature`, k5 refused + `InterpolatedResultPanic`.
+**One drift**, recorded and pinned by cell (t3): §Reproduction h1
+(`let v = o.r?` over a `schema`-typed member) now ALSO draws a parse diagnostic,
+`theta/parse/question-on-non-result` — ERR-18's static operand gate reaches a
+member operand in body position at this HEAD. The runtime throw is unchanged and
+h2's interpolation still parses clean, so the h1/h2 divergence the pair witnesses
+is intact.
+
+**Blast radius, pre-measured before the witness was written.** The arm was
+prototyped at fork HEAD and the full default suite ran 325 files / 5947 tests
+green with `tsc` and `lint` clean — zero flips, authorised or otherwise. The
+prototype was reverted blob-hash-verified before Phase 1.
+
+- What shipped: `src/extension/production-theta-producer.ts` — the `case "try":`
+  arm (§Fix (a)/(b)/(c)) plus the factored `raiseInterpolatedResult` (§Fix (d))
+  and four corrected comment attributions;
+  `docs/spec_topics/expressions.md` — the one pre-authorised sentence at `:186`;
+  `docs/reference/grammar.md` — its mirror;
+  `tests/interpolated-result-gate.test.ts` — 33 additive cells and §Fix (e)'s two
+  comment corrections; `tests/live/live-production-acceptance.test.ts` — the
+  additive H8a cell (CELL-B) and one citation re-derivation.
+- Gates: witness `npx vitest run tests/interpolated-result-gate.test.ts` → **82
+  passed (82)**; full default suite `npm test` → **325 files / 5980 tests
+  passed**; `npm run typecheck` → clean; `npm run lint` → clean. Live: H8a
+  CELL-B green against a real model inside the live-lock window, both directions
+  proven.
+- Review: 2 rounds. Round 1 (deep) — **defects found**: F1 `correctness`, the
+  carrier-return realisation leaking `x[object Object]1` in the operator-nested
+  `Err` class; F2 `spec`, the added sentence over-claiming while F1 stood; F3
+  `test`, no witness for that class. One fixer round landed the factored raise
+  and group (u); one comment-only polish round corrected two prose sites inside
+  this diff's own new test content that still described the abandoned route.
+  Round 2 (deep) — **clean**, `recommend-deep-review: no`, one non-blocking
+  `prose` residual (a citation this diff moved twice), fixed by the orchestrator.
+- Verification: **SOLID**. (1) Both fix arms red-proven independently: deleting
+  the whole `case "try":` arm reds 22 of the 82 cells with the documented
+  pre-fix observables; reverting only the propagate branch to `return operand`
+  reds exactly group (u)'s five operator-nested cells with the leak texts, while
+  (r)/(u6)/(u7) stay green. Both neutralisations restored and blob-hash-verified
+  against the pre-neutralisation baseline `47e85eab`. (2) Full default suite
+  green, zero reds. (3) H8a CELL-B run for real under the live-lock, red-proven
+  by the same arm deletion (`sent ["xnull"]`, expected `["x1"]`) and green after
+  restoration; it asserts `userTexts` / `systemNotes` read off the settled
+  `SessionManager`, never `prompt()` resolving. (4) `npm run lint` and
+  `npm run typecheck` clean, scripts read from `package.json`.
+- Residuals:
+  1. **The `Err`-arm panic Message is imprecise for this input class.**
+     `theta/parse/interpolated-result` carries the registry Message "Result value
+     cannot be interpolated; unwrap with ? or match first" — but on this path the
+     author *did* unwrap with `?`, and the `Err` payload does not reach the
+     message. Pinned deliberately: a precise message needs its own code, and
+     minting one would decide whether `error-model.md`'s closed panic-source list
+     is edited — which §Fix (d) hands to
+     [0117](./0117-error-model-omits-parse-coded-interpolation-panic.md), not to
+     this fix. Evidence: `INTERPOLATED_RESULT_MESSAGE`,
+     `src/render/query-render.ts`;
+     `docs/spec_topics/diagnostics/code-registry-runtime.md` ("exactly six panic
+     sources — the closed panic-source list").
+  2. **`docs/reference/grammar.md` grew 620 → 623 lines**, so citations into that
+     file above `:419` are off by three. Twelve distinct cited line numbers are
+     affected, carried by sibling bug docs this lane may not edit (e.g.
+     `docs/bugs/0037-…md:132` cites `docs/reference/grammar.md:501`). Accepted
+     rather than corrected: the mirror is normative user-facing documentation and
+     leaving its `?` sentence unqualified would contradict both the spec and the
+     implementation, and the affected class is ordinary citation drift.
+     `docs/spec_topics/expressions.md` is unchanged in length, so the spec-side
+     citation surface did not move.
+  3. **§Reproduction h1 drift**, recorded above and pinned by cell (t3): ERR-18's
+     static operand gate now also refuses `let v = o.r?` at parse time
+     (`theta/parse/question-on-non-result`). Not caused by this fix; measured as
+     the pre-fix baseline.
+  4. **One verification-run count anomaly, resolved.** The verifier's `npm test`
+     reported 326 files / 5984 tests where the orchestrator measured 325 / 5980
+     immediately before and after; all green either way. Re-measured on a clean
+     tree with `git status --untracked-files=all` showing no untracked file:
+     **325 files / 5980 tests**. The extra file was a transient scratch probe
+     present during that run and since deleted; the sweep is clean.
+- Discharge notes appended: none. Bugs 0079's and 0114's controls are pinned
+  inside the witness this fix extends (cells t1/t8/t9 and group (r)) and stayed
+  green throughout, so no sibling doc needed a note.
+- Pinned dispositions / non-goals: reading 1 (the propagate plumbing) declined,
+  reasons above. Minting a diagnostic code declined, reasons above and in
+  residual 1. §Non-goals held unchanged and each is pinned by a cell: k2's hoist
+  false positive still refused `theta/parse/interpolated-result` (t7); the
+  `match`-in-interpolation refusal unchanged (t6); `Ok(null)` still the only
+  input that renders `null` (t1); bug 0017's boolean-`ok` object still through
+  the object arm (t9); `${r}` still refused and still panicking (t8). Bug 0196's
+  declined static-refusal upgrade is not implemented. `src/runtime/**`,
+  `src/parser/**` and `src/render/**` are untouched, so bug 0119's
+  statement-executor surface and bugs 0079/0117's parser surfaces are unmoved.

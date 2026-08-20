@@ -9070,7 +9070,7 @@ describe("H8a-T — bug 0187: a >cap FINITE terminal Ok payload at the uninferre
 // (`src/parser/static-type-inference.ts:407` — "expressions.md §'Other
 // arithmetic': `/` always produces `number`, whatever the operands"); query-
 // string interpolation derives its `InterpolationType` from the RUNTIME value
-// instead (`interpolationTypeOf`, `production-theta-producer.ts:6166` —
+// instead (`interpolationTypeOf`, `production-theta-producer.ts:6215` —
 // `typeof value === "number"` → `{ kind: "number" }`, for every JS number,
 // unconditionally, ahead of any static type); and the `"number"` arm of
 // `stringifyInterpolatedValue` (`src/render/query-render.ts:406`) renders
@@ -10354,6 +10354,127 @@ describe("H8a-T — bug 0074 cell 61: session_shutdown racing a live off-session
     } finally {
       await handle.dispose();
       workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0116 (cell 63) — the runtime query-render read path: `evaluatePureExpression`
+// gained a `case "try"` arm so a `?`-unwrapped operand behind a `${…}` query-
+// template interpolation renders the UNWRAPPED payload, and an `Err` operand
+// there aborts the theta (through the ONE factored `raiseInterpolatedResult`
+// raise, `theta/parse/interpolated-result`) instead of silently sending
+// `xnull` and reporting success. No existing H8a cell drives a `?` inside a
+// `${…}` interpolation — checked: every cell above that touches
+// `INTERPOLATED_RESULT_CODE` (bug 0079/0114) interpolates a bare `Result`
+// (`${r}`), never a `try` node (`${r?}`); grep for `?}` against a `${` prefix
+// in this file's fixtures before this addition returns nothing.
+//
+// Two directions, one cell, mirroring the bug 0079 (a)/(b) pair above:
+//   Ok  — `let r = Ok(1)` / `` @`x${r?}` `` — registers unconditionally (the
+//         static gate's `checkQueryInterpolationResults` skips a `try` node by
+//         design, bug 0079's own control a7), so the fixed observable is the
+//         REAL rendered turn: `turn.userTexts` must carry the unwrapped
+//         payload `"x1"`, never `"xnull"`, and `turn.systemNotes` must be empty
+//         (no fail-closed ending). This drive spends one real model turn.
+//   Err — `let r = Err(E { m: "boom" })` / `` @`x${r?}` `` — the propagate arm
+//         raises `InterpolatedResultPanic` INSIDE `renderQueryText`, strictly
+//         before any provider dispatch (the same QRY-6 render-before-dispatch
+//         precedent bug 0079 (b) cites above), so `turn.userTexts` must stay
+//         EMPTY and `turn.systemNotes` must carry the panic framing — this
+//         drive spends ZERO tokens regardless of the fix.
+// Neither assertion is `prompt()` merely resolving (AGENTS.md §"Assert on real
+// observables"): both read the settled in-memory `SessionManager`'s
+// `userTexts` / `systemNotes` channels. No tool-call surface is exercised by a
+// query render, so `toolCalls` is not applicable to this fixed path.
+// ===========================================================================
+
+/** cell 63, Ok half — the payload matrix's headline row (bug 0116 §Reproduction a1). */
+function questionUnwrapOkTheta(): string {
+  return ["---", "mode: prompt", "---", "let r = Ok(1)", "@`x${r?}`", ""].join("\n");
+}
+
+/** cell 63, Err half — the dropped early-return (bug 0116 §Reproduction, the `Err` row). */
+function questionUnwrapErrTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema E { m: string }",
+    'let r = Err(E { m: "boom" })',
+    "@`x${r?}`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T (cell 63) — bug 0116: a `?`-unwrapped operand behind a `${…}` query-template interpolation (Convention: live-host acceptance)", () => {
+  it("renders the unwrapped Ok payload in the real outbound query text, and aborts before dispatch on the dropped Err early-return", async () => {
+    const provider = await requireLiveProvider();
+
+    // --- Ok half: the fixed render, one real model turn. ---
+    const okWorkspace = plantThetaWorkspace([
+      { source: "project", stem: "b116liveok", text: questionUnwrapOkTheta() },
+    ]);
+    const okHandle = await bootShippedExtension({ workspace: okWorkspace, provider });
+    try {
+      expect(
+        okHandle.command("b116liveok"),
+        "no command to invoke — discovery or registration regressed for the " +
+          "planted theta (the static gate skips a `try` node by design, so this " +
+          "must register unconditionally). Registered: " +
+          JSON.stringify(okHandle.registeredNames()),
+      ).toBeDefined();
+
+      const okTurn = await driveSlashCaptureTurn(okHandle, "/b116liveok");
+      expect(
+        okTurn.userTexts,
+        "PRIMARY (bug 0116 §Fix (a)/(b)): the real outbound query text must carry " +
+          "the UNWRAPPED payload \"x1\" under QRY-18's integer row, not the " +
+          "pre-fix `evaluatePureExpression` `default` arm's invented \"xnull\". " +
+          "Sent: " + JSON.stringify(okTurn.userTexts),
+      ).toEqual(["x1"]);
+      expect(
+        okTurn.systemNotes,
+        "the Ok-payload drive must not surface any fail-closed " +
+          "`theta-system-note` — no SLSH-3 err note, no cancellation, no panic " +
+          "framing. System notes: " + JSON.stringify(okTurn.systemNotes),
+      ).toEqual([]);
+    } finally {
+      await okHandle.dispose();
+      okWorkspace.dispose();
+    }
+
+    // --- Err half: the dropped early-return, zero tokens. ---
+    const errWorkspace = plantThetaWorkspace([
+      { source: "project", stem: "b116liveerr", text: questionUnwrapErrTheta() },
+    ]);
+    const errHandle = await bootShippedExtension({ workspace: errWorkspace, provider });
+    try {
+      expect(
+        errHandle.command("b116liveerr"),
+        "no command to invoke — discovery or registration regressed for the " +
+          "planted theta. Registered: " + JSON.stringify(errHandle.registeredNames()),
+      ).toBeDefined();
+
+      const errTurn = await driveSlashCaptureTurn(errHandle, "/b116liveerr");
+      expect(
+        errTurn.userTexts,
+        "PRIMARY (bug 0116 §Fix (c)): an `Err` operand's early-return must abort " +
+          "BEFORE any provider dispatch — no query text may reach the model. At " +
+          "HEAD (pre-fix) this row sent [\"xnull\"] and reported success. Sent: " +
+          JSON.stringify(errTurn.userTexts),
+      ).toEqual([]);
+      expect(
+        errTurn.systemNotes,
+        "PRIMARY (bug 0116 §Fix (c)): the abort must be framed on the " +
+          "`theta-system-note` channel carrying the registered " +
+          INTERPOLATED_RESULT_CODE + " code's Message (DIAG-4, read from " +
+          "code-registry-parse.md, never copied prose). System notes: " +
+          JSON.stringify(errTurn.systemNotes),
+      ).toEqual([interpolatedResultAbortedNote("b116liveerr")]);
+    } finally {
+      await errHandle.dispose();
+      errWorkspace.dispose();
     }
   });
 });

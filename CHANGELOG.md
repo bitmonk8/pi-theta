@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.128.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0116 — `${r?}` in a query template renders the unwrapped payload; an
+  `Err` operand aborts.** `evaluatePureExpression` had no `try` arm, so a
+  `?`-unwrap behind a query-string interpolation fell into the expressions.md
+  safety net and rendered `null` into the prompt text — silently, reporting
+  success — for both `Ok` and `Err` operands. The pure host now discriminates
+  through the shared `evaluateQuestion` primitive: payload on `value`,
+  `InterpolatedResultPanic` on `propagate` (the one raise STATEMENT factored
+  into a module-local helper shared with `stringifyInterpolation` — bug 0079's
+  grep-provable one-raise property preserved). Witness:
+  `tests/interpolated-result-gate.test.ts` 49→82 (33 additive cells) + H8a
+  cell 63 (Ok and Err halves through a real dispatched turn, red-proven both
+  directions).
+
 ## [0.127.0] - 2026-08-26
 
 ### Fixed
