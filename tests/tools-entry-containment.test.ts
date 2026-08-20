@@ -46,7 +46,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // entry that survived the first reached bug 0071's arity loop, which then
 // un-registered the caller on the wrong rule.
 //
-// Every cell drives the SHIPPED composition root (`discoverAndComposeFixtures`)
+// Every cell drives the production compose helper (`discoverAndComposeFixtures`)
 // over a planted `.pi/theta/` workspace and asserts on the two production
 // observables bug 0071's witness uses (`tests/theta-callable-call-arity.test.ts`):
 // which slash names registered, and which messages reached `ctx.ui.notify`. No

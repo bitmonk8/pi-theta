@@ -21,8 +21,8 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // `checkInvokeStaticResolution` over a callee's STATICALLY-RESOLVED `params:`,
 // which only the compose pass reaches. This file therefore copies the
 // fixture-load harness SHAPE from `tests/invoke-arg-type-mismatch-wired.test.ts`
-// (read, not modified): a planted `.pi/theta/` workspace, the shipped
-// composition root (`discoverAndComposeFixtures`), and the same two production
+// (read, not modified): a planted `.pi/theta/` workspace, the production
+// compose helper (`discoverAndComposeFixtures`), and the same two production
 // observables — which slash names registered, and which error-severity
 // messages reached `ctx.ui.notify` — plus the no-UI stderr mirror, the only
 // channel that can attribute this row's callee-less, caller-less *Message* to

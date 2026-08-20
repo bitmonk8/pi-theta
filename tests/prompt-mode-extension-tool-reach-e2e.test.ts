@@ -1,5 +1,5 @@
 // Bug 0001 / PIC-64 — PROMPT-mode extension-tool reach END-TO-END through the
-// SHIPPED composition root (`discoverAndComposeFixtures`): a prompt-mode theta
+// production compose helper (`discoverAndComposeFixtures`): a prompt-mode theta
 // discovered on disk, whose `tools:` names an extension-registered tool and
 // whose CODE calls it, (a) REGISTERS (mode-independent admission +
 // parent-established host-loop rung) and (b) at dispatch drives the tool

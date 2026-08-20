@@ -634,7 +634,7 @@ describe("H8a-T — forged __thetaEnum wire ingress binds as a plain object, liv
 // This drives the SAME registration observable the "discovery →
 // registration" bullet above uses (`handle.command` / `handle.registeredNames()`,
 // read after the real `session_start` → `resources_discover` →
-// `composeExtensionInstance` → `discoverAndComposeFixtures` →
+// `composeExtensionInstance` →
 // `resolveCallableSet` path settles) through the shipped extension entry
 // against a live host — never through the offline stubbed-`ctx` harness the
 // unit witnesses use. Registration-only: no slash command is invoked, so no
@@ -747,7 +747,7 @@ describe("H8a-T — bug 0070: a .theta tools: entry's unvalidated derived name (
 // This drives the SAME registration observable the bug 0070 cell above uses
 // (`handle.command` / `handle.registeredNames()`, read after the real
 // `session_start` → `resources_discover` → `composeExtensionInstance` →
-// `discoverAndComposeFixtures` → `checkInvokeStaticResolution` path settles)
+// `checkInvokeStaticResolution` path settles)
 // through the shipped extension entry against a live host — never through the
 // offline stubbed-`ctx` harness the unit witnesses use. Registration-only: no
 // slash command is invoked, so no model turn runs and the cell spends zero
@@ -883,7 +883,7 @@ describe("H8a-T — bug 0071: a .theta-callable call at wrong arity (Convention:
 // This drives the SAME registration observable those two cells use
 // (`handle.command` / `handle.registeredNames()`, read after the real
 // `session_start` → `resources_discover` → `composeExtensionInstance` →
-// `discoverAndComposeFixtures` → `resolveThetaToolsAtLoad` path settles)
+// `resolveThetaToolsAtLoad` path settles)
 // through the shipped extension entry against a live host, PLUS the
 // `theta-system-note` channel (AGENTS.md §"Assert on real observables"): the
 // shipped path's `loadSink` (`composeExtensionInstance`,

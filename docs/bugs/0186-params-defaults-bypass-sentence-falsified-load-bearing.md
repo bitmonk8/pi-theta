@@ -1,6 +1,6 @@
 # Bug 0186 — `docs/spec_topics/runtime-value-model.md:37` states that frontmatter `params:` defaults "bypass the inbound translation pass", and at HEAD every filled default goes THROUGH it: since bug 0172 face 1 (0.97.0) the merged `args` — defaulted fields included — are exactly what `paramBindingsFrom` hands `bindParamsInbound`, and since bug 0181 (0.103.0) an `Enum.Variant` default is deliberately projected to WIRE form at recovery so that the pass the sentence denies is the mechanism that re-establishes its enum tag, which makes the same section's own worked example (`frontmatter-fields-a.md:67`, `severity: Severity = Severity.Medium`) bind tagged only because the bypass does not happen — the falsehood is mirrored verbatim at `docs/reference/type-system.md:162`, restated in three test-file comments, and named as a divergence "whose reconciliation is a separate report" by two shipped code comments that this report is the referent of
 
-- **Status:** open. §Fix is settled in shape: `runtime-value-model.md:37`'s
+- **Status:** fixed (0.129.0). §Fix was settled in shape: `runtime-value-model.md:37`'s
   bypass clause is rewritten to state the shipped mechanism, its
   `docs/reference/type-system.md:162–164` mirror moves in the same commit,
   `frontmatter-fields-a.md:71`'s "without a separate restoration pass" is
@@ -704,3 +704,186 @@ Prose only. No executable byte, assertion, fixture, diagnostic or gate changes;
   `docs/bugs/0120-inbound-rebuild-ignores-declaration-order-and-brand.md`
   (`:242–251`, `:538–549`);
   `docs/bugs/README.md` rows for 0112, 0117, 0120, 0134, 0163, 0172, 0174, 0181.
+
+## Fix (0.129.0)
+
+- **What shipped** (prose and comment bytes only; zero executable lines, all
+  eight files LF-only before and after):
+  - `docs/spec_topics/runtime-value-model.md:37` — §Fix item 1. The bypass
+    clause is replaced by the shipped mechanism: a default is parsed as an
+    ordinary Theta value at frontmatter-parse time, projected to wire form when
+    a slash invocation omits the positional argument, merged into binder `args`
+    for the omitted field, and the merged record — defaulted fields included —
+    crosses the binder-`args` inbound boundary "the rule above already covers",
+    where a named-enum position is retagged and a schema-typed one rebranded
+    exactly as for a binder-supplied value. The word "bypass" is gone; the
+    paragraph's second sentence (the author-visible indistinguishability
+    guarantee) survives BYTE-IDENTICAL; `:34`'s four-boundary enumeration is
+    BYTE-IDENTICAL and no fifth boundary was minted. Page still 53 lines; the
+    `equality` / `javascript-engine-assumptions` / `effects` anchors still at
+    `:18` / `:41` / `:49`. No implementation identifier or `src/` path entered
+    the spec prose.
+  - `docs/reference/type-system.md:167–172` — §Fix item 3, same batch. The
+    condensed mirror restates the same mechanism in the page's own register
+    (~80-col wrapped), pointing at "the binder-`args` inbound boundary above",
+    which resolves: the inbound bullet immediately above names binder `args`.
+    The four-boundary rule above it is untouched. Page 199 → 202 lines; the
+    growth stales nothing — the highest `docs/reference/type-system.md:<line>`
+    citation anywhere in the corpus is `:153` (bug 0184), verified corpus-wide.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md:71` — §Fix item 2,
+    resolved by QUALIFY-IN-PLACE (the section offered drop-or-qualify and
+    required one be picked and stated plainly). "without a separate restoration
+    pass" becomes "no *separate* restoration pass exists, and the tag is
+    re-established by the binder-`args` inbound boundary the runtime already
+    runs on every inbound record". Qualify was chosen over drop because
+    `tests/params-default-enum-access-merge.test.ts:743` — a protected witness
+    this report may not move — carries an assertion message citing `:71` for the
+    author guarantee; dropping the clause outright risked a dangling citation in
+    a file out of scope. `:60` and the `:62–69` worked example are untouched.
+  - `src/runtime/inbound-boundary.ts:129–132` and
+    `src/runtime/wire-translation.ts:40–43` — §Fix item 4. Each file's closing
+    sentence naming `runtime-value-model.md:37` as still divergent and deferring
+    to "a separate report" is replaced by agreement text: the spec sentence now
+    states the same mechanism these comments state. The preceding statements ("A
+    filled default DOES arrive here", "defaults DO reach this pass") stay. Bug
+    numbers are gone from both paragraphs (STYLE: no historical references in
+    comments). Both files reflowed four-lines-out / four-lines-in, so the
+    anchor-stability constraint holds exactly: `inbound-boundary.ts` = **174**
+    lines, `wire-translation.ts` = **675**.
+  - `tests/inbound-boundary-binder-args.test.ts:278–280` and
+    `tests/inbound-union-arm-dispatch.test.ts:1215–1217` — §Fix item 5. The
+    fixture-justification comment states the true reason (these cells isolate a
+    binder-supplied value at this boundary; the defaulted-field case is owned by
+    the ten-cell witness `params-default-enum-access-merge.test.ts`) instead of
+    the bypass. `defaults: []` is the fixture and stays.
+  - `tests/wire-name-translation.test.ts` — §Fix item 5. The file header
+    (`:20–21`), the `describe` title (`:137`), the `it` title (`:138`) and the
+    cell's own comments are retitled to what the cell MEASURES: a translated
+    model-output value equals a locally constructed variant — the same value a
+    default reaches the body as. Both assertions BYTE-IDENTICAL; six cells.
+- **Gates** (parent's own re-runs, not the workers' word):
+  - `npm test` → `Test Files 325 passed (325)` / `Tests 5947 passed (5947)` —
+    exactly the pre-change baseline, as §Fix item 7 requires of a comment-only
+    change in `tests/`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean, no output.
+  - `npm run lint` (`eslint "src/**/*.ts"`) → clean, no output.
+  - `npx vitest run tests/params-default-enum-access-merge.test.ts` →
+    `Tests 10 passed (10)`, the behavioural lock unchanged and unmodified
+    (`git diff --stat` on it empty).
+  - `rg -n -i 'bypass(ing)? the inbound' docs/spec_topics/ docs/reference/ src/
+    tests/` → nothing. `rg -n 'separate report' src/runtime/` → nothing. Both
+    §Fix item 7 greps satisfied. The one restatement neither grep could catch —
+    `inbound-boundary.ts` split "bypass the / inbound translation pass" across
+    two lines — was removed by content, not by sweep.
+  - No witness run is quotable and none is owed: §Non-goals forbids adding a
+    test, and no red is constructible for a false sentence. The
+    "no executable byte moved" claim is discharged mechanically instead (below).
+  - No live run owed or taken: no executable path changed.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) → **CLEAN**, no findings, no
+  residuals. It re-derived the mechanism independently rather than accepting the
+  report's account: it read `projectForValidation` in full and settled the
+  over-claim question the parent posed — for a plain scalar default the
+  projection is identity, but identity *is* that value's wire form, so "the
+  runtime projects that value to its wire form" claims projection, not mutation,
+  and does not over-claim. It also enumerated every branch of
+  `bindParamsInbound` and confirmed none can partition a defaulted key out, and
+  confirmed both "above"/"the rule above" back-references resolve on their own
+  pages. No fixer round was needed.
+- **Verification** (`bug-fix-verifier`) → **VERIFIED**:
+  - *Suite* — met. 325 files / 5947 tests, exact baseline.
+  - *Typecheck and lint* — met. Both clean.
+  - *Witness reds when the fix is reverted* — **inapplicable**, on §Non-goals'
+    own terms ("A prose fix that adds a test would be adding a second assertion
+    of what cell 1 already asserts"); a revert probe on prose proves nothing and
+    none was attempted. Discharged instead by the mechanical proof below.
+  - *Live end-to-end* — **inapplicable / not owed**: no executable path changed.
+  - *Comment-only / prose-only, PROVEN not asserted* — met. Per-hunk
+    classification over all eight files: three PROSE, one DOC-COMMENT, four
+    COMMENT, zero EXECUTABLE. For the two `src/*.ts` files, executable identity
+    was proven by a mechanical per-line check over `git diff -U0` asserting every
+    changed line begins with `//` or ` *` — exit 0 on both, no non-comment line
+    found. In the three test files every changed line is a `//` comment except
+    exactly the two title strings, plus one trailing comment whose executable
+    prefix (`const defaultSeverity = makeEnumValue("Severity", "high"); `) was
+    byte-compared against HEAD and is identical.
+  - *Anchor and citation stability* — met. Both `src/runtime/` line counts exact
+    (174 / 675); `runtime-value-model.md:34` byte-identical to HEAD by `diff`;
+    `:37`'s second sentence byte-identical to HEAD; all eight files still
+    LF-only (`tr -cd '\r'` → 0 each). Every self-citation in the two edited
+    `src/runtime/` files re-resolved against its anchor line: six HIT, one MISS
+    (residual 1).
+- **Protected witnesses.** All three edited test files are protected witnesses;
+  none was disturbed. `wire-name-translation.test.ts` 6 cells (0120/0121's pin),
+  `inbound-union-arm-dispatch.test.ts` 19 (0172's), and
+  `inbound-boundary-binder-args.test.ts` 5 — all unchanged; 0184's pinned cell
+  title `RED (first-match-wins)` untouched; no assertion byte and no fixture
+  value moved anywhere. The two retitled strings are cited by no fix record and
+  no `-t` selector (swept corpus-wide) — the only hits are this document quoting
+  them as the defect.
+- **Mirror sweep.** The bypass phrase was swept corpus-wide before and after.
+  Outside this document's named sites the only surviving restatements are in
+  `docs/bugs/**` — `0172:956`, `0174:787`, `0181:236`/`:768`/`:926`/`:1128` —
+  each a record of its own HEAD and explicitly out of scope per §Non-goals
+  (*Bug-document prose*). `docs/reference/frontmatter.md` was re-verified to
+  carry no bypass claim and needed no edit, confirming bug 0181's residual-2
+  note. No other reference mirror restates the sentence.
+- **Citation drift corrected while reading** (§Non-goals permits correcting a
+  number inside a sentence already being rewritten; it obliges no sweep). Two of
+  this document's own §Affected citations had moved between v0.103.0 and
+  v0.123.0 and were re-derived by content before editing: the
+  `docs/reference/type-system.md` mirror `:162–164` → **`:167–169`** (its
+  four-boundary rule `:156–158` → `:161–163`, its §Provenance hook `:193–194` →
+  `:198–199`), and `tests/inbound-union-arm-dispatch.test.ts:1164–1166` →
+  **`:1215–1217`**. Sites that did NOT move: `runtime-value-model.md:37`,
+  `frontmatter-fields-a.md:71`, `inbound-boundary.ts:129–132`,
+  `wire-translation.ts:40–43`, `wire-name-translation.test.ts:20–21`/`:137`/
+  `:138`, `inbound-boundary-binder-args.test.ts:278–280`.
+- **Residuals:**
+  1. **A stale self-citation inside one of the edited files, not on an edited
+     line.** `src/runtime/wire-translation.ts:352` cites
+     `../parser/type-layer-checks.ts:316` for `collectTypeEnv`'s null-prototype
+     design note. At HEAD `type-layer-checks.ts:316` reads "An alias that
+     PARTICIPATES IN A CYCLE …", unrelated prose; the cited note actually begins
+     at `type-layer-checks.ts:351` ("Null-prototype (`Object.create(null)`)
+     because a `NamedType` reference …"). Surfaced by §Fix item 4's obligation to
+     re-resolve every self-citation in the edited files, and NAMED here rather
+     than silently left. Not corrected: it is pre-existing drift on a line this
+     fix does not touch (the diff in that file is confined to `:40–43`), and
+     §Non-goals routes exactly this to
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class — "A fix here may correct a number inside a sentence it
+     is already rewriting; it is not obliged to sweep." One-token fix (`316` →
+     `351`) for whoever next edits that paragraph.
+  2. **A stale historical claim in a file this fix edited, out of its scope.**
+     `tests/wire-name-translation.test.ts:23–27` still reads "These tests red
+     because the V2e theta-side rebuild and enum-tag reattach are absent:
+     `translateInbound` / `translateOutbound` are inert identity stubs". The
+     stubs are long gone and the file is green (6/6). §Fix item 5 licenses only
+     the bypass-restating tokens in that header, so this was left. It is a
+     STYLE-level historical reference in a test comment, not a bypass
+     restatement, and it misleads no fixture author about the inbound pass.
+  3. **A flaky red observed once during verification, not attributable to this
+     change.** One `npm test` run reddened
+     `tests/inbound-union-arm-dispatch.test.ts` on a real-child-process spawn
+     exit-code race (`expected {code:1} to equal {code:0}`); the file alone then
+     ran `19 passed (19)` and the full-suite rerun was clean at exact baseline.
+     This fix changes three comment lines in that file and no executable byte
+     (proven mechanically), so it cannot be the cause. Recorded so a sibling
+     seeing the same signature does not attribute it here.
+- **Discharge notes appended:** none. The two shipped code comments that
+  deferred to "a separate report" ARE this fix's surface — they were rewritten in
+  place, so no sibling document carries a deferral needing a note. `0172`,
+  `0174`, `0181` and `0120` restate or reason from the bypass in their own
+  §Non-goals / argument text and are records of their own HEAD; §Non-goals
+  forbids rewriting them and no note is owed.
+- **Pinned dispositions / non-goals:** the bypass was NOT made true (partitioning
+  defaulted keys out of the merged record before the inbound pass would reopen
+  0181 at a union arm, where cell 5's second premise measures the untagged
+  outcome). Bug 0181's projection route at `#recoverDeclaredDefaults` was not
+  reopened. No registry row, REQ-ID or plan leaf was engaged; GOV-15's three
+  observables are unaffected and DIAG-2 is not in play, both because the change
+  is prose only. `runtime-value-model.md:34` was not edited. The `invoke(...)` /
+  `.theta`-callable argument paths remain untouched — they compute arity from
+  `hasDefault` and construct no default value, so 0181 §Non-goals' open question
+  about what they bind for an omitted defaulted argument stays open and
+  unanswered here.

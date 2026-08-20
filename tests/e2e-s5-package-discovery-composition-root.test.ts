@@ -8,9 +8,9 @@
 // not already claimed by a higher-priority (CLI/settings/project) or
 // lower-priority (global) walk theta. `tests/package-discovery.test.ts` drives
 // `discoverPackageThetas` in ISOLATION over a FakeFileSystem — it never exercises
-// the composition-root MERGE. This test drives the shipped composition root
-// (`discoverAndComposeFixtures`, the same entry `extensions/index.ts` wires) over
-// a real on-disk temp workspace, so the two-stage merge is actually observed.
+// the composition-root MERGE. This test drives the production compose helper
+// (`discoverAndComposeFixtures`) over a real on-disk temp workspace, so the
+// two-stage merge is actually observed.
 //
 // Covers: REQ-DISC-1 (packages are one of the five discovery sources),
 // REQ-DISC-25 (a `pi.theta` manifest wins over the `theta/` fallback), and the

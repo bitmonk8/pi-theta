@@ -275,9 +275,9 @@ async function driveAndCapture(args: Record<string, unknown>): Promise<Capture> 
     runBinder(_input: BinderRunInput): Promise<BinderRunResult> {
       const merged = fillDefaultsAndRevalidate({
         binderArgs: args,
-        // The fixture declares no `= <literal>` defaults: frontmatter defaults
-        // bypass the inbound pass by specification, so a defaulted field would
-        // arrive already theta-side and could not witness this boundary.
+        // The fixture declares no `= <literal>` defaults: these cells isolate a
+        // binder-supplied value at this boundary; the defaulted-field case is
+        // owned by the ten-cell witness params-default-enum-access-merge.test.ts.
         defaults: [],
         validator: realAjv().compile(loweredParams()),
       });

@@ -1,9 +1,11 @@
 # Bug 0189 — `placeholder-rendering-a.md` §Closure makes the eight categories the whole admitted `<…>` vocabulary of the registry's *Message* column and closes it under GOV-7 / GOV-8, but nine shipped rows interpolate seven tokens no category and no carve-out clause names (`<teardown error first line>`, `<exit detail>`, `<line summary>`, `<detail>`, `<resolved>`, `<N>`, `<binder>`), while category 6 still enumerates `<dispose error first line>` — the pre-rename name the commit that renamed it left behind; no sentence in either artifact says which one moves, four of the seven are host- or run-variable tails that GOV-15 therefore promises byte-identical, and the closure's own "enforced at build time" clause has no gate
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition. One of the three candidate routes is foreclosed by measurement
+- **Status:** fixed (0.129.0). §Fix was not settled at filing: this report existed
+  to pin the spec disposition, and §Fix (0.129.0) below records the adjudication
+  that settled it. One of the three candidate routes was foreclosed by
+  measurement
   (DIAG-4 defers *Message* rewording to theta 2.0), and the choice between the
-  two that remain is an operator decision under the GOV-7 / GOV-8 posture
+  two that remained was an operator decision under the GOV-7 / GOV-8 posture
   `placeholder-rendering-a.md:5` and `:7` assign this surface. No code change is
   proposed — every rendered byte is what the registry rows and the
   implementation agree on. No ordering dependency: nothing blocks this and it
@@ -811,3 +813,158 @@ test that fails when a row gains an unadmitted token.
   split, and the eight *Placeholders* lists are transcribed from the two pages
   as cited. R6 is `git show`. No file in the tree was written other than this
   report.
+
+## Fix (0.129.0)
+
+- **Adjudication (the decision this report existed to pin).** Disposition **A +
+  B together**, settled inside §Fix's Constraints 1–8 and §Expected behaviour.
+  The **winner rule** is stated as normative prose in the §Closure block of
+  `placeholder-rendering-a.md` — the surface `a.md:5` / `:7` assign: *when the
+  closure paragraph and a shipped registry row disagree about whether a `<…>`
+  placeholder is admitted, the registry row governs the fact and the closure
+  paragraph is the defect* (DIAG-4 makes each row's *Message* normative and
+  defers wording changes to theta 2.0, so a shipped template cannot move within
+  theta 1.x). The closure is closed against **coining** a placeholder, not
+  against **describing** one the registry already renders; and a registry row
+  that introduces a placeholder MUST land its category assignment or admission
+  clause in this subsection's category lists and closure clauses in the same
+  commit as the row — DIAG-2's same-commit discipline extended to the placeholder
+  vocabulary. The GOV-7 / GOV-8 reading Constraint 4 demands is stated, not
+  assumed: codifying a placeholder the registry has already rendered since a
+  shipped release is a **pure rewording** under GOV-8's boundary (it leaves every
+  rendered byte, every code and every severity identical and changes only the
+  paragraph's description of a pre-existing fact), while coining, retiring or
+  re-categorising remains the spec-versioned breaking change GOV-7 / GOV-8
+  already govern. Neither page carries a `**DIAG-N.**` paragraph, so no REQ-ID
+  retires.
+- **What shipped** (three spec pages; no implementation byte, no test byte, no
+  *Message*-column byte, no `docs/reference/` byte):
+  - `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — §Closure
+    re-quantified over **placeholders** rather than over every `<…>` token
+    (element 4); new clause **(g)** admitting the bespoke `<binder>` of
+    `theta/parse/shadowed-callable-call` against its row's own *Trigger*-prose
+    rendering rule, in the shape clause (f) uses for `<read>`; the false
+    "enforced at build time" claim struck and replaced by the true statement
+    (same-commit discipline, enforced by review); new **Winner rule**, **Literal
+    source-grammar spellings** and **Admitted-but-unrendered names** paragraphs;
+    `<N>` added to category 4's *Placeholders* line; new per-site scope note for
+    `theta/parse/generic-arity-mismatch`'s `<expected>` / `<actual>` (integer
+    counts — category 4 governs, not category 1), in the shape of `a.md:81`.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — category 6's
+    *Placeholders* line and *Underlying-error coercion* sentence renamed to
+    `<teardown error first line>`, completing the half-rename `fda23a4b` left
+    behind (element 2, Constraint 5); `<resolved>` added to category 7's
+    *Placeholders* line and identifier-shaped sub-rule alongside `<model>` /
+    `<provider>`; `<exit detail>`, `<line summary>` and `<detail>` added to
+    category 8's *Placeholders* line with a new paragraph naming the five rows,
+    stating prefix-only anchoring and stating their membership of GOV-15
+    observable (c)'s category-8 normalisation class; new per-site scope note for
+    `theta/runtime/subagent-model-preflight-mismatch`'s `<expected>` (a
+    provider/model reference — §7's `<model>` sub-rule governs); the *Category 8
+    prefix/suffix anchoring* edge case's identical false build-time-enforcement
+    claim struck with its prohibition preserved undiluted, and the dangling
+    adjective dropped from the three other cross-references naming that absent
+    gate.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — one hunk, the
+    line-9 table-**preamble** sentence, same rename. No table row and no
+    *Message* cell touched.
+- **Why `<teardown error first line>` is category 6 and not §8.** Its row carries
+  a full-string strict-equality DIAG-4 witness
+  (`tests/subagent-isolation.test.ts:219`, `toBe("subagent teardown failed:
+  stdin close exploded")`). Classifying the token into §8 would make that shipped
+  test non-conformant under the *Category 8 prefix/suffix anchoring* prohibition,
+  i.e. it would demand the Constraint-7 re-shaping. Category 6 is also where the
+  token already sat: `code-registry-runtime.md`'s preamble already asserted the
+  §6 caught-throw coercion for that row, using the pre-rename name. So this is a
+  naming correction, not a re-categorisation, and no witness moves. The three
+  tokens that did move into §8 carry no strict-equality witness (verified by `rg`
+  over `tests/` for all five affected rows: two `//`-comment mentions, no
+  assertion).
+- **Constraint discharge.** C1 — no *Message* byte moved (mechanical proof
+  below). C2 — all nine rows plus the reverse-direction name in one change. C3 —
+  no `docs/reference/` obligation: `rg` for the three category headings, the
+  closure sentence and the filename `placeholder-rendering` over all of
+  `docs/reference/` is empty, and `docs/reference/diagnostics.md`'s own
+  Provenance names the four registry pages and `diagnostic-shape.md`, no
+  placeholder-rendering page. C4 — stated above. C5 — `b.md`'s category-6 list
+  and `runtime.md`'s preamble both renamed; `<file>` / `<uuid>` disposed of by
+  the new *Admitted-but-unrendered names* paragraph rather than left to
+  inference; the implementation comment is residual 1 below. C6 — every touched
+  token's GOV-15 observable-(c) class is derivable from its category:
+  `<exit detail>` / `<line summary>` / `<detail>` are normalised category-8
+  host-derived tails; `<N>`, `<resolved>` and `<binder>` are byte-identical;
+  `<teardown error first line>` sits in category 6 exactly where
+  `<error.message>` and `<original content first line>` already sit, its status
+  unchanged by the correction. `source-language-stability.md` untouched. C7 — no
+  witness edited or deleted; none needed editing. C8 — bug 0180's control row is
+  byte-unchanged and cited nowhere as a subject.
+- **Gates:** `npm test` → `Test Files 325 passed (325)`, `Tests 5947 passed
+  (5947)`; `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+  `npm run lint` (`eslint "src/**/*.ts"`) clean. No witness test exists — this is
+  a spec-prose fix and Phase 1 was verify-and-record; no test file was created.
+  No live run owed.
+- **Review:** 2 rounds. Round 1 (deep) — findings: two `spec` (the *Literal
+  source-grammar spellings* paragraph named three codes that do not exist; the
+  Winner rule's same-commit obligation said "on this page" while categories 5–8
+  live on `-b.md`) and one `prose` (a cross-reference to an "enumeration" the
+  same change had struck). All three fixed and independently re-verified: the
+  five registered codes now resolve to rows that actually carry the spelling
+  attributed to them (`theta/parse/non-indexable-receiver`,
+  `non-array-iterand`, `explicit-schema-mismatch`, `empty-query-annotation`,
+  `invoke-return-type-mismatch`). Round 2 (deep) — **clean**, with one
+  non-blocking `prose` residual (three cross-references still calling the §8
+  prohibition "build-time" after the page had denied that gate exists). That
+  residual was closed by a bounded prose round; polish verified by gate-diff
+  (three adjective deletions in one spec page, zero executable lines, gates
+  re-run green) and the confirmation review round skipped on that basis.
+- **Verification:** verified. Suite/typecheck/lint green as above. Zero non-docs
+  hunks in the delta: `git status --short` lists 23 modified files = these three
+  plus the twenty files of the two sibling bugs sharing this batch's working
+  tree; `git diff --stat` over `docs/spec_topics/governance/`,
+  `docs/reference/diagnostics.md` and `docs/bugs/README.md` is empty. DIAG-4:
+  `git diff -- docs/spec_topics/diagnostics/ | grep -E '^[+-]\| `theta/'` returns
+  **zero** lines — not one registered *Message* byte moved, and the sole
+  `code-registry-*.md` hunk is the line-9 preamble prose. The report's R5
+  two-way set difference re-run post-fix returns `A only = ['<Schema>', '<T>']`
+  (the literal source-grammar spellings the new paragraph places outside the
+  closure) and `B only = ['<file>', '<invocation-id>', '<message>',
+  '<slash-name>', '<uuid>']` — `<dispose error first line>` is gone, `<file>` /
+  `<uuid>` are the admitted-but-unrendered names, and the remaining three are
+  reachable through *Trigger*-prose templates and clause (c)'s `<list>`
+  decomposition rather than through a *Message* cell, which the closure's
+  quantifier does not range over. All six §Expected-behaviour observables
+  re-checked against the shipped bytes and satisfied.
+- **Residuals:**
+  1. `src/diagnostics/placeholder.ts`'s category-6 comment still spells
+     `<dispose error first line>` — after this change the sole remaining site in
+     the tree carrying that name. Out of lane (this fix ships no implementation
+     byte); Constraint 5's third citation is undischarged and needs a
+     comment-only sweep.
+  2. No build-time gate enumerates the *Message* column against clauses (a)–(g).
+     Reproduction R7 still holds; the resolution was to **strike** the false
+     enforcement claim rather than to build the gate (`tools/` + a test is out of
+     lane). The closure is now honest about being review-enforced. A gate
+     remains the durable remedy and is unfiled.
+  3. Citation drift: `placeholder-rendering-a.md` grew 86 → 94 lines and `-b.md`
+     134 → 138, so line-number citations into those pages from roughly 35 bug
+     documents (~224 citations) are now off by up to eight lines. Bug 0134 owns
+     that class; not chased here.
+  4. Mirror completeness, unfiled and pre-existing: `docs/reference/diagnostics.md`
+     carries the three `theta/parse/par-*` rows the spec shards do not (bug 0200)
+     and lacks a row for `theta/runtime/non-object-receiver`, so the mirror's
+     reverse-direction residue is eight names rather than six. Measured, out of
+     scope, unchanged by this fix.
+  5. Pre-existing and deliberately not opened: whether category 6's own members
+     are correctly outside GOV-15 observable (c)'s normalisation list. This fix
+     names an existing membership; it does not widen the promise.
+- **Discharge notes appended:** one coordination note to
+  [0200](./0200-par-codes-missing-from-sharded-registry.md) — the Winner rule's
+  same-commit discipline reaches 0200's fix, and the obligation is discharged in
+  advance because both tokens its three rows carry are already admitted.
+- **Pinned dispositions / non-goals:** every §Non-goal of this report stands. No
+  *Message* was reworded (Constraint 1); the diagnostic taxonomy is untouched;
+  0180's row is the control, not a subject; 0086's absent emitter is out of scope
+  and its row's `<line summary>` is classified regardless; the extra
+  ` at <errorPath>` segment on the params-validation message and
+  `theta/runtime/custom-type-unsafe`'s `<value>` remain recorded-as-measured, not
+  findings.

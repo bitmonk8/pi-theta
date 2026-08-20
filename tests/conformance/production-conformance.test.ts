@@ -44,8 +44,14 @@ import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
 // V20g-T — Production-path language-surface conformance suite.
 //
 // A standing acceptance suite that drives the FULL documented language surface
-// THROUGH the production composition — the shipped `session_start` composition
-// root (`discoverAndComposeFixtures`, re-exported by `extensions/index.ts`), the
+// THROUGH the production composition — the reload-less production compose
+// helper `discoverAndComposeFixtures`
+// (`src/extension/production-composition.ts:366`), which runs the same
+// `runComposePass` (`:433`) the shipped `session_start` composition root
+// `composeExtensionInstance` (`:1214`, wired by `extensions/index.ts` →
+// `src/extension/factory.ts:1146`) re-runs per pass, but without its
+// registration, `theta-system-note` load routing, hot reload, PIC-69
+// own-registration ledger, or PIC-59 envelope writer, the
 // production `ThetaProducerDeps` (`createProductionProducerDeps` + `executeBody`),
 // and the real whole-file parser (`parseThetaDocument`) — rather than through the
 // isolated per-module seams. It is the regression net for the meta-failure the
@@ -186,7 +192,7 @@ function asResult(value: ThetaValue | undefined): ResultValue {
 }
 
 // ===========================================================================
-// Load-time surface — driven through the SHIPPED composition root
+// Load-time surface — driven through the production compose helper
 // (`discoverAndComposeFixtures`) over a real on-disk project discovery source.
 // ===========================================================================
 
@@ -273,7 +279,7 @@ afterAll(() => {
   }
 });
 
-describe("V20g-T conformance — load-time surface through the shipped composition root", () => {
+describe("V20g-T conformance — load-time surface through the production compose helper", () => {
   it("the clean control theta registers (the discovery walk found the workspace)", () => {
     expect(
       loadOutcome.registered,
@@ -302,7 +308,7 @@ describe("V20g-T conformance — load-time surface through the shipped compositi
 
   it("frontmatter/param load-time validation: an unresolved `params:` named type un-registers the theta", () => {
     // theta/parse/unresolved-named-type — an error-severity load/parse diagnostic
-    // blocks registration through the shipped composition root.
+    // blocks registration through the production compose helper.
     expect(
       loadOutcome.registered,
       "the theta whose `params:` names an unresolved type must not register. Registered: " +

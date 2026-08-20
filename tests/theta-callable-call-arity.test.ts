@@ -36,7 +36,7 @@ import {
 // rules as a literal `invoke(...)` — including inside a `par for` body, whose
 // statements reach the walk through the same arm list (cells B11-B15).
 //
-// Every B cell drives the SHIPPED composition root (`discoverAndComposeFixtures`,
+// Every B cell drives the production compose helper (`discoverAndComposeFixtures`,
 // `src/extension/production-composition.ts`) over a planted `.pi/theta/`
 // discovery workspace, and asserts on the two production observables: which
 // slash names registered, and which error-severity messages reached

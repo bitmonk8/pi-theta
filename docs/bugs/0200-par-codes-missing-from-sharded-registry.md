@@ -732,3 +732,21 @@ asserting unchanged bytes; confirm `git diff -- src/` empty; default suite,
   `tools/closing-gate/` machinery — with no file written to the tree. R6 is one
   `npx vitest run`. No file in the tree was created or modified other than this
   report.
+
+## Coordination note from bug 0189's fix
+
+[0189](./0189-registry-placeholders-outside-closed-categories.md)'s fix settled
+the closure-versus-registry adjudication on
+`docs/spec_topics/diagnostics/placeholder-rendering-a.md` and, in doing so, added
+a same-commit obligation that reaches any future fix landing a registry row: a
+row that introduces a `<…>` **placeholder** MUST land that placeholder's category
+assignment or admission clause in the placeholder-rendering subsection's category
+lists and closure clauses in the same commit as the row — DIAG-2's discipline
+extended to the placeholder vocabulary.
+
+That obligation is **discharged in advance for the three `theta/parse/par-*`
+rows**. Their *Message* templates interpolate exactly two placeholders,
+`<name>` and `<keyword>`, and both are already enumerated on category 5's
+*Placeholders* line, so sharding the rows into `code-registry-parse.md` admits no
+new placeholder and requires no placeholder-rendering edit. Recorded so a fix for
+this report does not have to re-derive it.

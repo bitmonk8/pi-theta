@@ -126,10 +126,10 @@ export interface ParamsBindingInput {
  * (`src/extension/theta-composition-producer.ts:99`) hands this function,
  * defaulted fields included, and for a value in WIRE form this pass is what
  * re-tags a named-enum position / re-brands a schema-typed one.
- * `runtime-value-model.md:37` still states that `params:` defaults "bypass the
- * inbound translation pass" — a divergence that pre-dates bug 0181's fix (a
- * bare-wire-string default is already re-tagged here, per bug 0181 §Reproduction
- * (e)) and whose reconciliation is a separate report (bug 0181 §Non-goals).
+ * `runtime-value-model.md:37` states the same mechanism: a default projected
+ * to wire form crosses the binder-`args` inbound boundary like any other
+ * validated value, so a named-enum position is retagged and a schema-typed
+ * one rebranded here rather than arriving pre-tagged from frontmatter.
  */
 export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaValue> {
   const { params, lowered, body, schemaValidator } = input;

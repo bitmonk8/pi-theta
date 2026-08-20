@@ -17,8 +17,8 @@ import {
 // theta code never sees wire names, and (b) reattaches each named-enum position's
 // declaring-enum tag (V2c representation) so the result compares equal to a
 // locally constructed variant; anonymous string-literal-union positions are
-// absent from the sidecar and receive no tag. Frontmatter `params:` defaults
-// BYPASS the inbound pass — they arrive already branded and theta-side-named.
+// absent from the sidecar and receive no tag. A frontmatter `params:` default
+// reaches the body through this same pass, once projected to wire form.
 //
 // These tests red because the V2e theta-side rebuild and enum-tag reattach are
 // absent: `translateInbound` / `translateOutbound` are inert identity stubs, so
@@ -134,27 +134,27 @@ describe("V2e-T — inbound wire-name translation (runtime-value-model.md §Wire
   });
 });
 
-describe("V2e-T — defaults bypass inbound translation (runtime-value-model.md §Wire-name translation)", () => {
-  it("a frontmatter default arrives already branded and theta-side-named, bypassing the inbound pass", () => {
+describe("V2e-T — translated model output equals a locally constructed variant (runtime-value-model.md §Wire-name translation)", () => {
+  it("a translated model-output value equals a locally constructed variant — the same value a default reaches the body as", () => {
     // RVM §Wire-name translation, defaults clause: a default authored as
-    // `Severity.High` is parsed as an ordinary Theta value and arrives already
-    // branded (V2c `makeEnumValue`) and theta-side-named — it does NOT pass
-    // through `translateInbound`. Proof of the bypass: the same wire string
-    // arriving as *model output* needs the inbound pass to brand it into a value
-    // equal to the default; the default (built with no translation) is already
-    // in that branded form.
-    const defaultSeverity = makeEnumValue("Severity", "high"); // defaults path: no translation
+    // `Severity.High` is parsed as an ordinary Theta value; when a slash
+    // invocation omits the field, the runtime projects the recovered default to
+    // wire form and the merged binder `args` cross the same inbound pass this
+    // suite exercises above, which reattaches the enum tag. This cell builds
+    // the reference value directly, the way a default resolves at recovery,
+    // and checks it against the pass's own output.
+    const defaultSeverity = makeEnumValue("Severity", "high"); // reference value: a locally constructed variant
     const translated = translateInbound({
       validated: { severity: "high" },
       sidecars: externalUserSidecar(),
       rootDef: "ExternalUser",
     }) as { readonly severity: ThetaValue };
 
-    // Model output, once translated, equals the default — so the default's
-    // untranslated branded value is exactly what the inbound pass produces,
-    // confirming defaults legitimately skip the pass.
+    // Model output, once translated, equals the locally constructed variant —
+    // the same equality a defaulted field's re-tagged value satisfies once it
+    // has crossed this pass.
     expect(valuesEqual(translated.severity, defaultSeverity)).toBe(true);
-    // And the default needs no translation to serialise to its bare wire string.
+    // The tag never appears in JSON output, for either construction route.
     expect(JSON.stringify(defaultSeverity)).toBe('"high"');
   });
 });

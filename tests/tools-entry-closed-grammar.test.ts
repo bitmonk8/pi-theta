@@ -92,7 +92,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // cell.
 //
 // TIER: unit, offline, provider-free, deterministic — in two halves. Group (B)
-// drives the shipped `session_start` composition root
+// drives the production compose helper
 // (`discoverAndComposeFixtures`) over a real on-disk `.pi/theta/` discovery
 // workspace, which is what makes the witness a production-load witness rather
 // than a resolver-only one: the frontmatter layer's non-scalar drop

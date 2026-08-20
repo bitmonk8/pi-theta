@@ -16,7 +16,7 @@
 //   1. (load, parent) a `mode: prompt` theta whose code-side extension-tool
 //      call sits INSIDE a `subagent fn` inline body REGISTERS with zero
 //      diagnostics when the host-loop surfaces are present — through the
-//      SHIPPED composition root (`discoverAndComposeFixtures`);
+//      production compose helper (`discoverAndComposeFixtures`);
 //   2. (dispatch, parent leg) driving that theta lands the dispatch in the
 //      PARENT's backing host session — the ops sequence (install [tool] →
 //      switch to the bridge → send with settled armed → settled → restore) and

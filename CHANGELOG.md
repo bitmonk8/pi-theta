@@ -6,6 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.129.0] - 2026-08-26
+
+### Fixed
+
+- **Bugs 0183, 0186, 0189 — spec-prose corrections (docs batch).** 0183: the
+  conformance suite's comments (and eight further files + three H8a chain
+  comments) called the test-only production compose helper
+  (`discoverAndComposeFixtures`) "the shipped `session_start` composition
+  root" — the shipped root is `composeExtensionInstance` via
+  `extensions/index.ts` → `factory.ts`; all enumerated sites corrected. 0186:
+  `runtime-value-model.md:37` claimed `params:` defaults "bypass the inbound
+  translation pass" — false since 0172 face 1 / 0181; sentence rewritten to
+  the shipped mechanism, mirror + worked-example page + five comment sites
+  brought into line. 0189: the placeholder closure-vs-registry inconsistency
+  adjudicated — the registry row governs; seven placeholders across nine
+  rows dispositioned into the closed categories (one new clause (g)); the
+  false build-time-enforcement claim struck; zero registered `Message` bytes
+  moved.
+
 ## [0.128.0] - 2026-08-26
 
 ### Fixed

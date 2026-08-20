@@ -37,10 +37,10 @@
 //   fields included, are exactly what the binder-`args` inbound boundary
 //   (`bindParamsInbound`, `inbound-boundary.ts`) translates, so a default in WIRE
 //   form is re-tagged / re-branded here exactly as any other validated value is.
-//   `runtime-value-model.md:37` still states that defaults "bypass the inbound
-//   translation pass" — a divergence that pre-dates bug 0181's fix (a
-//   bare-wire-string default is already re-tagged here, per bug 0181 §Reproduction
-//   (e)) and whose reconciliation is a separate report (bug 0181 §Non-goals).
+//   `runtime-value-model.md:37` states the same mechanism: a default projected
+//   to wire form crosses the binder-`args` inbound boundary like any other
+//   validated value, so a named-enum position is re-tagged and a schema-typed
+//   one re-branded here rather than arriving pre-tagged from frontmatter.
 //
 // **The positions this pass reaches.** The sidecar is keyed by JSON Pointer
 // into the lowered schema fragment, so the pass applies exactly where a pointer

@@ -164,9 +164,12 @@ Happens in exactly two places:
 - *Outbound* (theta value → JSON): the runtime walks the theta-side value and
   produces wire-named JSON before AJV validation.
 
-Frontmatter `params:` defaults bypass the inbound pass — defaults are written in
-the [literal sublanguage](./grammar.md#theta-literal-sublanguage), parsed as
-ordinary Theta values, and arrive already branded and theta-side-named.
+A frontmatter `params:` default is written in the
+[literal sublanguage](./grammar.md#theta-literal-sublanguage) and parsed as an
+ordinary Theta value. When a slash invocation omits the argument, the runtime
+projects the value to wire form, merges it into binder `args`, and the merged
+record crosses the binder-`args` inbound boundary above like any other value —
+a named-enum position is retagged, a schema-typed one rebranded.
 
 Theta code never sees wire names; tools, the model, and external consumers never
 see theta-side names.

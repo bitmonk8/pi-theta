@@ -1,11 +1,14 @@
 # Bug 0183 — `tests/conformance/production-conformance.test.ts:47–48` calls `discoverAndComposeFixtures` "the shipped `session_start` composition root … re-exported by `extensions/index.ts`" and both halves are false at HEAD: `extensions/index.ts:13` re-exports `src/extension/factory`'s default, whose `session_start` handler composes through `composeExtensionInstance` (`production-composition.ts:1214`), and `discoverAndComposeFixtures` (`:366`) has no caller in `src/**` or `extensions/**` at all — the helper's own docstring states the correct rule nine lines above the function the comment misnames, and the wiring half has been false since the comment was written
 
-- **Status:** open. §Fix is settled: one comment clause rewritten in
-  `tests/conformance/production-conformance.test.ts`, and the same false
-  attribution corrected at the nine further sites §Actual behaviour inventories.
-  No executable line moves, no assertion changes, no fixture changes, no
-  runtime observable moves. Ordering: nothing blocks this report from starting
-  and it blocks nothing.
+- **Status:** fixed (0.129.0). §Fix items 1–3 shipped in full: the false clause
+  in `tests/conformance/production-conformance.test.ts` is rewritten, the same
+  file's four downstream repetitions are corrected, §Fix item 2's eight further
+  files take the same substitution, and §Fix item 3's three false call chains
+  in `tests/live/live-production-acceptance.test.ts` drop the
+  `→ discoverAndComposeFixtures` hop. No executable line moves except the one
+  `describe` title §Fix item 1 explicitly authorizes, no assertion changes, no
+  fixture changes, no runtime observable moves. Ordering: nothing blocks this
+  report from starting and it blocks nothing.
   [0178](./0178-subagent-callee-nonbypass-params-unregistered-in-child.md) is
   **fixed (0.101.0)**, commit `acea6749` — the tree this report measures and
   the run that found the defect.
@@ -141,6 +144,116 @@
   session's uncommitted edits to four `src/**` files, none of them a file this
   report cites. No probe was written and no test was run to establish the
   finding — it is settled by the absence of a caller, which `rg` decides.
+
+## Fix (0.129.0)
+
+- **What shipped:** `tests/conformance/production-conformance.test.ts` — the
+  header clause that called `discoverAndComposeFixtures` "the shipped
+  `session_start` composition root (… re-exported by `extensions/index.ts`)"
+  now names it the reload-less production compose helper
+  (`src/extension/production-composition.ts:366`), states that it runs the same
+  `runComposePass` (`:433`) the shipped root `composeExtensionInstance`
+  (`:1214`, wired `extensions/index.ts` → `src/extension/factory.ts:1146`)
+  re-runs per pass, and names the five seams the helper path does not carry
+  (registration, the `theta-system-note` load routing, hot reload, the PIC-69
+  own-registration ledger, the PIC-59 envelope writer). §Fix item 4's
+  vocabulary is used. The rest of the sentence (the production
+  `ThetaProducerDeps` and the real whole-file parser) is byte-identical. The
+  same file's four downstream repetitions (`:195–196`, the `describe` title,
+  `:311` at HEAD; drifted from the doc's `:67`, `:189–190`, `:276`, `:305`
+  citations) take the same substitution, naming the helper the production
+  compose helper instead of the shipped composition root; the `describe` title
+  is the one executable-line hunk §Fix item 1 authorizes ("moves reporter
+  output and nothing else"). §Fix item 2's eight further files
+  (`tests/division-result-type-number-invoke.test.ts`,
+  `tests/e2e-s5-package-discovery-composition-root.test.ts` — also dropping
+  "the same entry `extensions/index.ts` wires", the file name unchanged —
+  `tests/prompt-mode-extension-tool-reach-e2e.test.ts`,
+  `tests/subagent-fn-extension-tool-dispatch-e2e.test.ts`,
+  `tests/theta-callable-call-arity.test.ts`, `tests/tools-derived-name-shape.test.ts`,
+  `tests/tools-entry-closed-grammar.test.ts`, `tests/tools-entry-containment.test.ts`)
+  take the same substitution, comment bytes only. §Fix item 3's three chain
+  comments in `tests/live/live-production-acceptance.test.ts` (`:636–638`,
+  `:749–750`, `:885–886`) drop the `→ discoverAndComposeFixtures` hop, leaving
+  `session_start → resources_discover → composeExtensionInstance →` followed
+  by the named resolver, matching the correct model already at that file's
+  `:12–14`.
+- **Comment-only:** one hunk, 8 insertions / 2 deletions, every `+`/`-` line a
+  `//` line — `git diff -- <file> | grep -E '^[+-]' | grep -vE '^[+-]{3}' |
+  grep -vE '^[+-]\s*//'` returns nothing (exit 1), and the file's
+  comment-stripped form is byte-identical to `git show HEAD:<file>`'s. Zero
+  executable bytes change.
+- **No red/green flip is possible.** A false comment cannot be witnessed by a
+  red test: no gate reads `tests/**` comment prose, so `npm test` is green with
+  the claim in place and green when it is corrected. Phase 1 was therefore
+  verify-and-record (the old bytes and the true referent, re-derived at HEAD by
+  three parties — orchestrator, reviewer, verifier) rather than a test. No test
+  file was added. No live run is owed: the corrected surface is comment prose.
+- **Gates:** `npm test` → `Test Files 325 passed (325)`, `Tests 5947 passed
+  (5947)` (baseline unchanged, as a comment-only edit requires);
+  `tsc -p tsconfig.json --noEmit` → clean, exit 0; `npm run lint` → clean,
+  exit 0 (its glob is `src/**/*.ts`, so it does not reach the edited file —
+  stated, not relied on). Re-run independently by the orchestrator.
+- **Claim now true, re-derived at HEAD:** `rg -n 'discoverAndComposeFixtures'
+  src/ extensions/` returns one declaration (`production-composition.ts:366`)
+  and three comments (`:404`, `:470`, `:1014`) — no call site, none in
+  `extensions/`; `extensions/index.ts:13` is `export { default } from
+  "../src/extension/factory";` and is the file's only export;
+  `factory.ts:1146` passes `composeExtensionInstance(pi, ctx, undefined,
+  rendererGate, ownRegisteredNames)`; `pi.registerCommand` fires only at
+  `factory.ts:591`; `runComposePass` (`:433`) is called by the helper at `:375`
+  and by `composeExtensionInstance` at `:1327` and `:1371`; each of the five
+  named seams is absent on the helper path and present on the shipped path
+  (`makeLoadEmit` vs. the note channel; no `installHotReload`; `undefined` vs.
+  the forwarded ledger; the pinned no-op writer vs. `:606`'s selection). Both
+  halves of the old clause are false, as filed.
+- **Review:** 1 round, `bug-fix-reviewer`, verdict clean — fidelity re-derived
+  independently, comment-only proven, STYLE.md banned-word sweep clean, two
+  non-blocking prose residuals raised (4–5 below).
+- **Verification:** PASS — suite green; typecheck and lint green; the claim
+  true by independent re-derivation; the diff comment-only by two methods
+  (per-line `//` check and comment-stripped byte-identity). Red/green flip
+  declared inapplicable on the record. No scratch file exists
+  (case-insensitive sweep, one pass, empty).
+- **Residuals** (each with evidence; the parent files them):
+  1. **Shipped.** The same file's four downstream repetitions of the
+     attribution — doc-cited `:67`, `:189–190`, `:276` (a `describe` title),
+     `:305`, found by content at HEAD's `:195–196`, `:282`, `:311` — now name
+     the production compose helper instead of the shipped composition root.
+     The `describe` title is the one authorized executable-line hunk. §Fix
+     item 1's remainder shipped in full.
+  2. **Shipped.** §Fix item 2's eight further sites in eight other files
+     (`tests/division-result-type-number-invoke.test.ts:24–25`,
+     `tests/e2e-s5-package-discovery-composition-root.test.ts:11–12`,
+     `tests/prompt-mode-extension-tool-reach-e2e.test.ts:2`,
+     `tests/subagent-fn-extension-tool-dispatch-e2e.test.ts:19`,
+     `tests/theta-callable-call-arity.test.ts:39`,
+     `tests/tools-derived-name-shape.test.ts:110–111`,
+     `tests/tools-entry-closed-grammar.test.ts:95–96`,
+     `tests/tools-entry-containment.test.ts:49`) take the same substitution,
+     comment bytes only; the `e2e-s5` site also drops "the same entry
+     `extensions/index.ts` wires" per §Fix item 2, file name unchanged.
+  3. **Shipped.** §Fix item 3's three false call chains in
+     `tests/live/live-production-acceptance.test.ts` (`:636–638`, `:749–750`,
+     `:885–886`) drop the `→ discoverAndComposeFixtures` hop, matching the
+     correct model at that file's `:12–14`. This file is a protected witness;
+     the edit is comment bytes only, zero assertion or title changes.
+  4. The shipped clause adds four positional citations (`:366`, `:433`,
+     `:1214`, `factory.ts:1146`) to an ungated `tests/**` comment. All four
+     resolve exactly at HEAD; they are the citations §Fix item 1 prescribes.
+     They will rot as those files grow — [0134](./0134-params-shift-induced-stale-citations.md)'s
+     mechanism. Disclosed, not chased.
+  5. The rewritten clause nests a relative clause inside the sentence's
+     three-item em-dash list, which is dense to scan. Content is accurate;
+     the reviewer judged it non-blocking, and splitting the seam inventory
+     into its own sentence is the cheap remedy if a later pass touches the
+     block.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** §Non-goals stands unchanged — the
+  helper is not renamed, the loose `composition root` mentions that name no
+  symbol are untouched, the suite's coverage gap is not closed, no citation
+  sweep is performed, and no `docs/bugs/**` prose about the helper is
+  rewritten.
 
 ## Summary
 

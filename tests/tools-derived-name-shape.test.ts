@@ -107,7 +107,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // `theta/load/invalid-tool-rename` without acquiring the new code.
 //
 // TIER: unit, offline, provider-free, deterministic — in two halves. Group (B)
-// drives the shipped `session_start` composition root
+// drives the production compose helper
 // (`discoverAndComposeFixtures`) over a real on-disk `.pi/theta/` discovery
 // workspace, which is what makes this a production-load witness: the reachable
 // input class is bounded by what the discovery stem regex admits, and only the
