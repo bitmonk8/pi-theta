@@ -1,7 +1,7 @@
 # Bug 0119 — A declared schema field literally named `__proto__` is silently dropped at construction: `obj[field.name] = value` reaches `Object.prototype`'s inherited `__proto__` accessor, so no own property is created and no diagnostic is emitted on any channel, while expressions.md §"Object construction" forces every in-language construction to write the field — the residual bug 0080 pinned green rather than fixed, because both candidate remedies change the prototype or the property descriptor of every object-schema runtime value
 
-- **Status:** open. §Fix is not settled: this report exists to pin the route and
-  its scope before any code lands. No ordering dependency on another open
+- **Status:** fixed (0.132.0). §Fix was filed unsettled; §Fix (0.132.0) below records
+  the route adjudication, the scope adjudication, what shipped and the residuals. No ordering dependency on another open
   report — [0080](./0080-keys-values-construction-order-not-declaration-order.md)
   (**fixed 0.70.0**) already landed the single construction point
   `buildObjectSchemaValue` this fix edits, and
@@ -948,3 +948,144 @@ per DIAG-4, as that file already does through its `assertRegistered` oracle.
   deleted. No file in the tree was written by the probe. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Fix (0.132.0)
+
+**Route adjudication (§Fix was filed unsettled).** Route **(b)**, per-field
+`Object.defineProperty`, over routes (a), (c) and (d). Grounds, all from this
+document: §Reproduction P16 measures route (b)'s descriptor as byte-identical to
+an assignment's, so no descriptor, prototype or brand observable moves and cell F's
+prototype-identity and `schemaTagOf` assertions stay green unedited; route (a)
+(`Object.create(null)`) would contradict `runtime-value-model.md:12`'s "JS plain
+object" representation, perturbs primitive coercion (P15), and §Fix makes an
+open-ended coercion-site sweep a precondition of taking it; route (a) would also
+split `buildObjectSchemaValue`'s four arms, three of which return a caller-built
+record, which is the condition §Fix constraint 5 forbids. Routes (c) and (d) are
+refused by §Expected behaviour: the behaviour is decided by `expressions.md:209`
+and `runtime-value-model.md:12` — the field must survive — and a refusal route
+would need spec text and a registry code that do not exist. DIAG-2 is therefore
+**not engaged**: no code minted, no *Trigger* widened, no spec page and no
+`docs/reference/` mirror edited (§Fix constraint 6).
+
+**Scope adjudication.** Six write sites, all converted, verified by symbol at the
+fix commit (this document's `bb5206a6` line anchors had drifted): the executor
+constructor arm (`statement-executor.ts:667`) and its `preEvaluateToolArgs`
+Pi-tool argument record (`:352`); the pure host's inline-constructor arm
+(`production-theta-producer.ts:6284`) and its `lowerToolCallParams` twin
+(`:4016`); `buildObjectSchemaValue`'s two rebuild writes (`value.ts:403`, `:408`);
+and the QRY-18 outbound wire-name write in `translateInterpolationOutbound`
+(`production-theta-producer.ts:6195`). The last is a scope extension adjudicated
+in-run against §Expected behaviour's second in-scope-and-unsatisfied clause
+(`query-escapes-stringification.md:27` with `schemas.md:30`/`:39`/`:43`: a field
+renamed `as "__proto__"` must appear in the rendered JSON under that wire name)
+and against §Non-goals' deconfliction from
+[0121](./0121-integer-like-wire-rename-escapes-order-guarantee.md), which owns
+that write's key *order* and not field survival; `Object.defineProperty` leaves
+integer-like own-key ordering exactly where assignment does, and the full suite
+reds nothing pre-existing with that site converted. §Affected's disposition for
+`src/runtime/wire-translation.ts` is stale: that module's three record builders
+are already `Object.create(null)` (`:370`, `:601`, `:666`) from bug 0173
+(**fixed 0.96.0**), and
+[0120](./0120-inbound-rebuild-ignores-declaration-order-and-brand.md) is **fixed
+(0.97.0)**, so neither the inbound rebuild nor the outbound lowering needed work.
+
+- What shipped:
+  - `src/runtime/value.ts` — new exported `defineRecordField(record, name, value)`
+    at the module tail, so no pre-existing line in the module moves: one
+    `Object.defineProperty` with all three attributes `true`, the 0031/0038
+    hazard-class remedy applied at the runtime record-building sites. Both
+    `buildObjectSchemaValue` rebuild writes (`:403`, `:408`) define instead of
+    assign, satisfying §Fix constraint 5's "move together"; the docstring sentence
+    naming the drop a pre-existing out-of-scope defect is replaced by the settled
+    disposition at the same line count.
+  - `src/runtime/statement-executor.ts` — the constructor arm (`:667`) and the
+    Pi-tool argument record (`:352`) define instead of assign.
+  - `src/extension/production-theta-producer.ts` — the pure host's
+    inline-constructor arm (`:6284`), its Pi-tool argument lowering (`:4016`) and
+    the QRY-18 outbound wire-name write (`:6195`, with a WHY comment in the
+    vocabulary of `schemas.md:43` and `query-escapes-stringification.md:27`)
+    define instead of assign.
+  - `tests/ctor-proto-named-field.test.ts` — new, 26 cells: the §Witness matrix
+    (measurement, admission, descriptor / key set / prototype / brand, the whole
+    read path, the QRY-18 render, both equality rows, all four
+    `buildObjectSchemaValue` arms including both drop points, the object-valued
+    row, both Pi-tool argument seams, the wire-rename row, the sibling-name
+    controls, and the DIAG-4 registry-sourced omission control).
+  - `tests/ctor-declaration-order.test.ts` — cell F re-pinned (the one
+    pre-authorized existing-test edit, §Fix constraint 8): its ordering assertion
+    flipped to `[["__proto__","a"],[7,"x"]]`, while its prototype-identity and
+    `schemaTagOf` assertions stay green unedited as the route's non-extent; the
+    header row-F baseline and disposition block are re-derived. Bug 0080's other
+    fifteen cells are byte-identical.
+  - `tests/live/live-production-acceptance.test.ts` — one appended H8a cell
+    (CELL-B2) driving both construction sites' `__proto__` field through the
+    QRY-18 render into the outbound turn text.
+- Gates: witness `npx vitest run tests/ctor-proto-named-field.test.ts
+  tests/ctor-declaration-order.test.ts` → `Test Files 2 passed (2) / Tests 42
+  passed (42)`; before the fix the same pair was `16 failed | 23 passed`. Full
+  default suite `npm test` → `Test Files 329 passed (329) / Tests 6067 passed
+  (6067)`. `npm run typecheck` → clean. `npm run lint` → clean. Live H8a
+  `tests/live/live-production-acceptance.test.ts` → `64 passed (64)` (baseline 63
+  cells plus CELL-B2). Live H9a `tests/live/acceptance/` → `11 passed (11)` across
+  two files, matching baseline.
+- Review: 2 rounds. Round 1 (deep) — FINDINGS ×5: three of the six write sites had
+  no witness able to red (`:6284`, `:4016`, `value.ts:408`); four wrong `path:line`
+  citations and four false present-tense comment claims; the witness header's
+  out-of-scope statement misattributed ownership (0120/0173 above); two banned-word
+  occurrences (`STYLE.md:22`); plus one deferred `correctness` finding, recorded as
+  residual 2. Round 2 (fast) — CLEAN, no findings, no `recommend-deep-review`.
+- Verification: SOLID. (i) The witness reds — per-site neutralisation re-derived
+  independently of the fixer's matrix, every site carrying at least one cell that
+  reds naming the short-key symptom (`:352` → I1, I2; `:667` → 13 cells and cell F;
+  `value.ts:403` → 7 cells; `:408` → G5; `:4016` → I3; `:6195` → D, K, L; `:6284` →
+  L), every restore blob-verified identical. (ii) The full default suite is green,
+  run twice. (iii) Live coverage: CELL-B2 red-proven both directions under the live
+  lock — green, then `:6195`/`:6284` neutralised gives
+  `SITE1=J{"a":"x"}|SITE2=J{"a":"x"}` against the expected
+  `SITE1=J{"__proto__":7,"a":"x"}|SITE2=J{"__proto__":7,"a":"x"}`, then restored
+  blob-verified and green again — followed by the whole H8a file and both H9a files
+  green. (iv) Typecheck and lint clean, re-run after the live cell landed.
+- Residuals:
+  1. **The two `params:` records** — `production-theta-producer.ts:1866` (the
+     `system:`-render params record) and `:1988` (the subagent `paramValues`
+     marshalling record) still assign. Both are keyed by author-written `params:`
+     field names, which `code-registry-parse.md:19`'s case rule admits with a `_`
+     lead. Unmeasured at filing and unmeasured here; no report owns them (verified:
+     `grep -rn "params\[name\] = value\|paramValues\[name\] = value"
+     docs/bugs/*.md` is empty). §Fix constraint 7 requires the scope be stated;
+     this is the stated remainder.
+  2. **Three further same-idiom siblings over author-controlled key spaces**, found
+     by the round-1 reviewer's sweep and named by no report:
+     `src/extension/respond-tool-wire.ts:308`/`:312` — the guard is a
+     prototype-chain `in` rather than an own-key test and the write is an
+     assignment, so a `__proto__` key that is not an own key passes the guard
+     through the inherited accessor and the assignment **replaces the record's
+     prototype** (probed by the reviewer: own keys `['a']`, prototype replaced
+     `true`); `src/parser/body-type-lowering.ts:132` and `src/parser/params.ts:216`
+     — `properties[field.name] = <lowered type node>` over an object value, so a
+     `__proto__`-named field's schema node becomes the lowered properties table's
+     prototype and is absent from the emitted JSON schema. Out of this fix's
+     adjudicated scope: a different surface, no witness, and widening again would
+     be unbounded.
+  3. **`value.ts:408`'s arm is unreachable from theta source** — an own key absent
+     from the declaration is `theta/parse/extra-object-field`. Cell G5 pins it as a
+     direct unit row because the function is exported and its two writes must obey
+     one rule; no source-level witness exists or is claimed.
+  4. **Comment-citation drift (the known 0134 class, deliberately not chased).**
+     This fix adds one import line to each of `statement-executor.ts` and
+     `production-theta-producer.ts` and a six-line comment at
+     `production-theta-producer.ts:6185`, so roughly a hundred pre-existing
+     `path:line` citations in unrelated test comments drift by one to seven lines.
+     Chasing them would edit protected witness files for comment-only reasons; the
+     complete shifted set was enumerated by a scratch sweep, which was deleted, and
+     left alone. Every citation inside this fix's own diff was verified against the
+     current tree.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: bug 0080's single construction point stays
+  single and its declaration-order contract is unchanged (constraints 1, 4); bug
+  0026's `__thetaSchema` shape and the non-enumerable own-symbol brand recovered by
+  `schemaTagOf` are untouched (constraints 2, 3); the read surfaces' dispositions
+  for a key that genuinely is absent (`has` → `false`, and
+  `theta/runtime/missing-object-key` on both read spellings) are unchanged; bug
+  0121's question — whether the outbound record's key *order* is guaranteed for
+  integer-like wire names — is untouched and unadjudicated here.

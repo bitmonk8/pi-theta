@@ -76,6 +76,7 @@ import {
 } from "./terminal-outcomes";
 import {
   buildObjectSchemaValue,
+  defineRecordField,
   isObjectValue,
   isResultValue,
   makeErr,
@@ -348,7 +349,7 @@ async function preEvaluateToolArgs(
     if (evaluated.flow !== "value") {
       return { ok: false, flow: evaluated };
     }
-    args[field.name] = evaluated.value;
+    defineRecordField(args, field.name, evaluated.value);
   }
   return { ok: true, args };
 }
@@ -663,7 +664,7 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
       if (evaluated.flow !== "value") {
         return evaluated;
       }
-      obj[field.name] = evaluated.value;
+      defineRecordField(obj, field.name, evaluated.value);
     }
     // Reorder into the declaring schema's DECLARATION order and brand, so
     // QRY-18 interpolation can recover the schema for outbound wire-name

@@ -10751,3 +10751,121 @@ describe("H8a-T — cell 65 (bug 0103): a forged structural line inside a multi-
     }
   });
 });
+
+// ===========================================================================
+// Bug 0119 (cell 66) — a schema field literally named `__proto__` was
+// silently dropped at construction: `obj[field.name] = value` (both
+// construction sites) invokes `Object.prototype`'s inherited `__proto__`
+// ACCESSOR instead of defining an own property, so the field never lands and
+// no diagnostic fires on any channel. Route (b) (the settled fix) replaces
+// every field write on the construction path with
+// `defineRecordField` (`Object.defineProperty(rec, name, { value,
+// enumerable: true, writable: true, configurable: true })`,
+// src/runtime/value.ts), an assignment-identical descriptor that makes
+// `__proto__` an ordinary own enumerable data property instead of reaching
+// the accessor.
+//
+// This cell is the live-observable surface QRY-18 exposes: a schema
+// declaring `__proto__`, constructed and interpolated into a query, must
+// render `{"__proto__":…,…}` into the text the model actually receives —
+// pre-fix the render was short one field
+// (`docs/bugs/0119-proto-named-field-silently-dropped.md` §Reproduction row
+// D: `J{"a":"x"}`, the declared `__proto__` field absent). Mirrors the bug
+// 0080 cell immediately above: `driveSlashCaptureTurn`, asserting on the
+// deterministic `turn.userTexts` channel, never on `assistantText` or on
+// `prompt()` merely resolving. One query drives BOTH construction sites so
+// one turn witnesses both (token-bounded), the same lockstep obligation the
+// bug 0080 cell states:
+//   - SITE 1 — `evalExpr`'s `if (expr.kind === "object")` arm
+//     (src/runtime/statement-executor.ts:667): the `let`-bound value `q`.
+//   - SITE 2 — `evaluatePureExpression`'s `case "object"` arm
+//     (src/extension/production-theta-producer.ts:6284), reached only when a
+//     constructor is written INLINE inside a `${…}` interpolation.
+// The outbound wire-name write (production-theta-producer.ts:6195,
+// `translateInterpolationOutbound`) is exercised by both sites' render, since
+// QRY-18 walks the constructed value's own keys to build the wire JSON.
+//
+// No shipped live fixture (H8a, H9a, or the hardening probes) declares a
+// schema field named `__proto__` anywhere before this addition — the wire
+// bytes below are byte-identical whether the field is present or dropped in
+// every OTHER regard, so only a fixture naming the field this way can witness
+// bug 0119's fix live.
+//
+// NOTE (cell 66): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/**
+ * Schema `Q` declares `__proto__` before `a`. Both interpolations construct
+ * it with `__proto__` written explicitly (the presence rule forces this —
+ * there is no conforming spelling that omits it). `SITE1=`/`SITE2=`/`|END`
+ * mark the two rendered segments so the assertion below reads exactly the
+ * bytes each construction site produced; the trailing instruction keeps the
+ * model's reply short (the reply itself is unchecked — the observable is the
+ * outbound render, not the reply).
+ */
+function ctorProtoNamedFieldTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Q { __proto__: integer, a: string }",
+    'let q = Q { a: "x", __proto__: 7 }',
+    '@`SITE1=J${q}|SITE2=J${Q { a: "x", __proto__: 7 }}|END reply with exactly: OK`',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0119 (cell 66): a schema field named `__proto__` survives construction and renders on the wire, live (Convention: live-host acceptance)", () => {
+  it("renders both construction sites' `__proto__` field in the outbound query text instead of dropping it", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work independently of the
+      // fixture under test.
+      { source: "project", stem: "b119livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b119liveproto", text: ctorProtoNamedFieldTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b119livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the fixture under test, would explain the proto-field fixture's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b119liveproto"),
+        "no bug-0119 proto-field command to invoke — the .theta failed " +
+          "discovery/parse. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b119liveproto");
+      // PRIMARY: the exact outbound text both construction sites rendered.
+      // `q` (SITE 1) and the inline `Q { a: "x", __proto__: 7 }` (SITE 2) are
+      // the SAME shape constructed twice; the declared `__proto__` field must
+      // appear at both, in declaration order — pre-fix each site rendered
+      // J{"a":"x"} (the field silently dropped, no diagnostic on any
+      // channel).
+      expect(
+        turn.userTexts,
+        "the outbound query text must carry both construction sites' " +
+          "declared `__proto__` field. Outbound user texts: " +
+          JSON.stringify(turn.userTexts),
+      ).toEqual([
+        'SITE1=J{"__proto__":7,"a":"x"}|SITE2=J{"__proto__":7,"a":"x"}|END reply with exactly: OK',
+      ]);
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b119liveproto (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the proto-field drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

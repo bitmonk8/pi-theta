@@ -200,6 +200,7 @@ import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handle
 import type { CheckpointSite } from "../seams/checkpoint";
 import {
   buildObjectSchemaValue,
+  defineRecordField,
   isEnumValue,
   isObjectValue,
   isResultValue,
@@ -4086,7 +4087,7 @@ function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<st
   }
   const params: Record<string, unknown> = {};
   for (const field of first.fields) {
-    params[field.name] = evaluatePureExpression(field.value, env) as unknown;
+    defineRecordField(params, field.name, evaluatePureExpression(field.value, env) as unknown);
   }
   return params;
 }
@@ -6255,11 +6256,17 @@ function translateInterpolationOutbound(
     }
   }
 
+  // The wire key is as author-controlled as the theta-side name: a rename is
+  // constrained to a non-empty string literal and nothing more (schemas.md:43),
+  // so the inherited-accessor hazard reaches this write too. Defining the key
+  // keeps the QRY-18 render `JSON.stringify` of the value with wire-name
+  // translation applied (query-escapes-stringification.md:27) for every
+  // admitted wire name, the prototype-accessor spelling included.
   const result: Record<string, unknown> = {};
   for (const [thetaKey, fieldValue] of Object.entries(value)) {
     const field = fields.get(thetaKey);
     const wireKey = field?.wire ?? thetaKey;
-    result[wireKey] = translateInterpolationOutbound(fieldValue, env, reach, field?.type);
+    defineRecordField(result, wireKey, translateInterpolationOutbound(fieldValue, env, reach, field?.type));
   }
   return result;
 }
@@ -6348,7 +6355,7 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       // bug 0027 records for its four read entry points.
       const obj: Record<string, ThetaValue> = {};
       for (const field of expr.fields) {
-        obj[field.name] = evaluatePureExpression(field.value, env);
+        defineRecordField(obj, field.name, evaluatePureExpression(field.value, env));
       }
       return buildObjectSchemaValue(obj, expr.typeName, (name) => env.resolveSchema(name));
     }

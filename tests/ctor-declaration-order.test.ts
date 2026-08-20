@@ -101,7 +101,7 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 //   D   nested Outer { o: Inner { j: 2, i: 1 } }         → J{"o":{"j":2,"i":1}}
 //   L   @`J${P { a: "x", b: 1 }}` (INLINE ctor)          → J{"a":"x","b":1}
 //   O   renamed field `b as "B"`                         → J{"a":"x","B":1}
-//   F   `__proto__`-named field                          → [["a"],["x"]]
+//   F   `__proto__`-named field                          → [["__proto__","a"],[7,"x"]] (bug 0119)
 //   F2  `constructor` / `toString`-named fields          → [["toString","constructor"],["x",7],true]
 //   G   `__thetaSchema`-named field                      → [["z","__thetaSchema"],[1,"mine"]]
 //   J   an extra ctor field                              → parse ["error theta/parse/extra-object-field"]
@@ -109,15 +109,21 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 //   E   p == q over the two ctor orders                  → true
 //   N   a bare Pi-tool argument object                   → received keys ["a","b"] (source order), unbranded
 //
-// RESIDUAL, pinned rather than fixed (row F). A field literally named
-// `__proto__` is SILENTLY DROPPED at construction with no diagnostic:
-// `obj[field.name] = value` invokes the inherited `__proto__` setter, which
-// ignores a non-object value, so the record ends up with the other fields only
-// and its prototype intact. That is a pre-existing defect of the record-building
-// idiom, reported separately; row F pins HEAD's behaviour so this fix neither
-// worsens it nor corrupts the record while reordering. Should the implementer
-// null-prototype the record (the 0031/0038 hazard-class remedy), row F is the one
-// cell to update, against that report — not this one.
+// ROW F IS BUG 0119'S CONTRACT, NOT BUG 0080'S BASELINE. A field literally named
+// `__proto__` was dropped at construction because `obj[field.name] = value`
+// reaches `Object.prototype`'s inherited `__proto__` accessor instead of
+// defining an own property. Bug 0119 settles that on route (b): every field write
+// on the construction path defines the property
+// (`{ value, enumerable: true, writable: true, configurable: true }`, a
+// descriptor identical to an assignment's), so the declared field is an ordinary
+// own enumerable data property in its declared position, the record keeps
+// `Object.prototype` (the null-prototype route is NOT taken) and the brand stays
+// a non-enumerable own symbol. Row F's ordering expectation therefore states the
+// same declaration-order contract as every other row in this file; its
+// prototype-identity and brand assertions are unchanged and stay green under that
+// route. The witness matrix for the field's survival across every read surface,
+// both host boundaries and all four arms of `buildObjectSchemaValue` is
+// tests/ctor-proto-named-field.test.ts.
 //
 // HARNESS. The drive is the shape bug 0079's witness established
 // (tests/interpolated-result-gate.test.ts): `LiveSessionDouble` records every
@@ -676,18 +682,23 @@ describe("bug 0080 (F2) — fields named after `Object.prototype` members reorde
   });
 });
 
-describe("bug 0080 (F) — the `__proto__`-named field: a pinned residual, not a fix target", () => {
-  it("CONTROL (F): the `__proto__` field stays silently dropped, and the record's prototype stays intact", async () => {
-    // WHY PINNED RATHER THAN FIXED: `obj[field.name] = value` in both constructor
-    // arms invokes `Object.prototype`'s inherited `__proto__` SETTER, which
-    // ignores a non-object value — so the field never becomes an own key and no
-    // diagnostic is emitted. That drop is a pre-existing defect of the
-    // record-building idiom (the 0031/0038 null-prototype hazard class), reported
-    // separately from bug 0080 as a residual; this fix must neither worsen it nor
-    // corrupt the record while reordering. Reordering the assignments cannot
-    // change the outcome, so this cell is green on both sides. Should the
-    // implementer null-prototype the record, THIS cell is the one to update —
-    // against the residual report, not against bug 0080.
+describe("bug 0080 (F) — the `__proto__`-named field reorders like any other, and stays a plain branded object", () => {
+  it("RED (F): the `__proto__` field takes its declared position", async () => {
+    // WHY THIS CELL ASSERTS BUG 0119'S CONTRACT: the cell's ordering expectation
+    // is not bug 0080's to choose. The field name collides with
+    // `Object.prototype`'s inherited `__proto__` accessor, so an assignment-built
+    // record never carries it; bug 0119 settles that on route (b) — every field
+    // write on the construction path DEFINES the property with an
+    // assignment-identical descriptor — which makes `__proto__` an ordinary own
+    // enumerable data property that this file's declaration-order contract then
+    // governs like any other name.
+    //
+    // The two assertions below the ordering one are the fix's NON-extent, green
+    // on both sides and unchanged by this re-pin: route (b) does not
+    // null-prototype the record, so `Object.prototype` stays the prototype, and
+    // the brand stays a non-enumerable own symbol `schemaTagOf` recovers. The
+    // full witness matrix for the field's survival lives in
+    // tests/ctor-proto-named-field.test.ts.
     const value = await finalValue(
       FM +
         "schema Q { __proto__: integer, a: string }\n" +
@@ -697,8 +708,11 @@ describe("bug 0080 (F) — the `__proto__`-named field: a pinned residual, not a
     );
     expect(
       value,
-      'CONTROL (bug 0080, row F — pinned residual): HEAD parses this source with NO diagnostic and observes [["a"],["x"]] — the `__proto__` field is silently dropped by the inherited setter. The bug-0080 reorder must leave that unchanged',
-    ).toEqual([["a"], ["x"]]);
+      'PRIMARY (bug 0080 row F / bug 0119): this source parses with NO diagnostic, and the declared field must be present in its declared position — [["__proto__","a"],[7,"x"]]. Before bug 0119\'s fix the constructor\'s assignment reaches the inherited `__proto__` setter, which ignores a non-object value, so the record is short and this reads [["a"],["x"]]',
+    ).toEqual([
+      ["__proto__", "a"],
+      [7, "x"],
+    ]);
     const record = await finalValue(
       FM +
         "schema Q { __proto__: integer, a: string }\n" +
@@ -708,7 +722,7 @@ describe("bug 0080 (F) — the `__proto__`-named field: a pinned residual, not a
     );
     expect(
       Object.getPrototypeOf(record as object) === Object.prototype,
-      "bug 0080 §Fix constraint (must not corrupt the record): the dropped `__proto__` assignment left the record an ordinary plain object, and the reorder must keep it one",
+      "bug 0080 §Fix constraint (must not corrupt the record) / bug 0119 §Fix route (b): the record is an ordinary plain object — the field becomes an own key by `defineProperty`, not by removing the prototype",
     ).toBe(true);
     expect(
       schemaTagOf(record),

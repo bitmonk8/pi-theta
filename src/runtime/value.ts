@@ -375,12 +375,12 @@ export interface SchemaFieldOrder {
  * declared name is invented and no constructed key is dropped or
  * duplicated (bug 0026's `__thetaSchema`-named-field case: the brand
  * install still targets a value whose STRING keys are exactly the declared
- * theta-side names). A field literally named `__proto__` is never an own
- * key of `constructedFields` — the inherited `__proto__` setter drops a
- * non-object assignment before this function ever sees it, a pre-existing
- * defect out of this fix's scope — so the own-key guard skips it exactly as
- * it would skip any other genuinely-absent declared field, with no special
- * case needed.
+ * theta-side names). Callers build `constructedFields` with
+ * {@link defineRecordField} rather than by assignment, so a declared field
+ * named `__proto__` IS an own key of that record: the own-key guard below
+ * classifies it exactly like any other declared name. The rebuild defines
+ * each surviving field the same way, so the inherited `__proto__` accessor
+ * cannot re-drop it here (bug 0119).
  */
 export function buildObjectSchemaValue(
   constructedFields: Record<string, ThetaValue>,
@@ -400,12 +400,12 @@ export function buildObjectSchemaValue(
   const ordered: Record<string, ThetaValue> = {};
   for (const field of decl.fields) {
     if (Object.prototype.hasOwnProperty.call(constructedFields, field.name)) {
-      ordered[field.name] = constructedFields[field.name] as ThetaValue;
+      defineRecordField(ordered, field.name, constructedFields[field.name] as ThetaValue);
     }
   }
   for (const key of Object.keys(constructedFields)) {
     if (!Object.prototype.hasOwnProperty.call(ordered, key)) {
-      ordered[key] = constructedFields[key] as ThetaValue;
+      defineRecordField(ordered, key, constructedFields[key] as ThetaValue);
     }
   }
   return brandSchemaValue(ordered, typeName);
@@ -576,4 +576,23 @@ export function valuesEqual(a: ThetaValue, b: ThetaValue): boolean {
  */
 export function isWireLowerable(value: ThetaValue): boolean {
   return !isResultValue(value);
+}
+
+/**
+ * Define `name` as an own enumerable data property of `record`, instead of
+ * assigning it. Every field name on the record-building path is
+ * author-controlled (a declared schema field, a Pi-tool argument name, a
+ * declared wire name), and `__proto__` is not an ordinary string key on a
+ * plain object — it is an accessor `record` inherits from `Object.prototype` —
+ * so a plain assignment either no-ops (a non-object value) or replaces
+ * `record`'s prototype (an object value) instead of creating an own property.
+ * This is the 0031/0038 null-prototype-or-own-key-guard hazard class, applied
+ * at the runtime record-building sites rather than at the type layer.
+ * `defineProperty` is preferred over a null-prototype record so
+ * `Object.prototype` and every own-key-only read surface stay unperturbed: the
+ * descriptor below is byte-identical to what an assignment produces, so no
+ * consumer of the record observes a difference.
+ */
+export function defineRecordField<T>(record: Record<string, T>, name: string, value: T): void {
+  Object.defineProperty(record, name, { value, enumerable: true, writable: true, configurable: true });
 }

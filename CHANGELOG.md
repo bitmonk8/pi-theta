@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.132.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0119 — a schema field named `__proto__` now survives construction.**
+  The record writes used plain assignment, so a declared `__proto__` field's
+  evaluated value was silently discarded (the assignment wrote the prototype
+  slot) while the parse layer forced the field to be written and type-checked
+  its value. All six record write sites now go through the new exported
+  `defineRecordField` (per-field `Object.defineProperty`); the null-prototype
+  route was rejected (it contradicts `runtime-value-model.md:12` and perturbs
+  coercion). Witness: `tests/ctor-proto-named-field.test.ts` (26 cells) +
+  cell F of `ctor-declaration-order` re-pinned under its own named authority
+  + H8a cell 66 (red-proven both directions).
+
 ## [0.131.0] - 2026-08-26
 
 ### Fixed
