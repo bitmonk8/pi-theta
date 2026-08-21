@@ -136,7 +136,7 @@ function line(code: string, message: string): string {
  * `theta/parse/nested-discriminator` rendered for `field` on `schema`
  * (code-registry-parse.md:98). This is the whole observable surface of the
  * misclassification: the only reader of `anyNested`
- * (src/parser/schema-declarations.ts:620) emits exactly this.
+ * (src/parser/schema-declarations.ts:625) emits exactly this.
  */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";
@@ -154,6 +154,19 @@ function nestedDiscriminatorLine(field: string, schema: string): string {
 function missingDiscriminatorLine(schema: string): string {
   const code = "theta/parse/missing-discriminator";
   return line(code, messageTemplate(code).replace("<X>", schema));
+}
+
+/**
+ * `theta/parse/non-literal-discriminator` rendered for `field` on `schema`
+ * (code-registry-parse.md). A field that resolves in every variant of a `by`
+ * clause but is not a single literal — including a union of `ObjectType`
+ * arms, bug 0128's class 2 — is refused under this code rather than loading
+ * clean (bug 0128 §Fix; docs/spec_topics/schemas.md §Discriminated unions'
+ * sentence binding a named field to detection rule 2).
+ */
+function nonLiteralDiscriminatorLine(field: string, schema: string): string {
+  const code = "theta/parse/non-literal-discriminator";
+  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
 }
 
 /**
@@ -516,22 +529,26 @@ function seamLines(catKind: FieldClassification, by: string | undefined): string
 
 describe("bug 0096 item 2 — what each classification costs at the discriminator seam", () => {
   it("the explicit `by kind` path distinguishes the two classifications, and only there", () => {
-    // The defect's whole reach, both directions in one cell: the wrong answer
-    // refuses the declaration, the right answer raises nothing. `{}` is what
-    // `{a: X} | {b: Y}` is owed (grammar.md:94 over `:101`; schemas.md:104),
-    // and under it `checkExplicitDiscriminator`'s three gates are all vacuous.
+    // The defect's whole reach, both directions in one cell: a nested
+    // classification refuses the declaration, and `{}` — what
+    // `{a: X} | {b: Y}` is owed (grammar.md:94 over `:101`; schemas.md:104) —
+    // is REFUSED TOO, under `theta/parse/non-literal-discriminator` rather than
+    // loading clean. bug 0096 §Non-goals deferred this class's disposition;
+    // bug 0128 settles it: a `by` field that resolves in every variant but is
+    // not a single literal is refused the same way a nested one is, under
+    // a different code (bug 0128 §Fix; schemas.md §Discriminated unions).
     expect(seamLines({ nested: true }, "kind")).toEqual([
       nestedDiscriminatorLine("kind", "Animal"),
     ]);
     expect(
       seamLines({}, "kind"),
-      "a union-typed `by` field is not a discriminator candidate, so no gate fires and the declaration loads clean",
-    ).toEqual([]);
+      "a union-typed `by` field resolves in every variant but is not a single literal, so it draws the same refusal a nested field does, under theta/parse/non-literal-discriminator (bug 0128)",
+    ).toEqual([nonLiteralDiscriminatorLine("kind", "Animal")]);
   });
 
   it("the implicit path's output is identical under both classifications", () => {
     // The downstream mask, pinned. `detectImplicitDiscriminator` filters on
-    // `presentInAll && allLiteral` (src/parser/schema-declarations.ts:541) and
+    // `presentInAll && allLiteral` (src/parser/schema-declarations.ts:543) and
     // reads no other property of a non-literal field, so both classifications
     // land on the same terminal branch. Pinning the two lists EQUAL to each
     // other, and not merely equal to the expected bytes, is what stops a later
@@ -895,9 +912,12 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     // `objectFields` carries `Cat` and `buildUnionVariantSchemas` resolves the
     // union. `classifyDiscriminatorFieldType` classifies
     // `{a:integer}|{b:string}` as `{}` (0096's structural predicate declines
-    // to call two brace ARMS one nested object), so `by kind` loads clean and
-    // implicit detection falls through to `missing-discriminator` the same
-    // way the literal-union row below it already does. These two rows are the
+    // to call two brace ARMS one nested object) — the same `{}` the
+    // literal-union row below it already carries. Bug 0128 settles what `{}`
+    // is owed under an explicit `by`: `theta/parse/non-literal-discriminator`,
+    // not a clean load, since the field resolves in every variant but is not a
+    // single literal. Implicit detection is unaffected by that disposition and
+    // still falls through to `missing-discriminator`. These two rows are the
     // first that genuinely feed `classifyDiscriminatorFieldType` a
     // brace-rooted union — §Fix's witness item 4, inherited from bug 0096.
     const observed: readonly LoadRow[] = [
@@ -916,7 +936,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     expect(observed).toEqual([
       {
         label: "D — union arms, by kind",
-        diagnostics: [],
+        diagnostics: [nonLiteralDiscriminatorLine("kind", "Animal")],
         schemas: catDogAnimal("{a:integer}|{b:string}"),
       },
       {
@@ -946,10 +966,12 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
       },
       {
         // The parity control: the literal-union spelling of the same shape
-        // loads clean under an explicit `by`, which is the disposition §Fix
-        // brings the object-union spelling to once the field survives capture.
+        // draws the same refusal the object-union spelling above draws, once
+        // both reach the classifier's `{}` answer:
+        // `theta/parse/non-literal-discriminator` (bug 0128 §Fix; schemas.md
+        // §Discriminated unions).
         label: "D — literal union, by kind",
-        diagnostics: [],
+        diagnostics: [nonLiteralDiscriminatorLine("kind", "Animal")],
         schemas: catDogAnimal('"a"|"b"'),
       },
       {

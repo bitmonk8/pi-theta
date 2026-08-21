@@ -1038,3 +1038,16 @@ this fix landing first.
   now `git ls-files '*.theta' '*.thetalib'` and both committed libraries are
   scored cells, so the corpus-wide claim is re-derivable by running the default
   suite rather than by re-writing an oracle. Status unchanged.
+
+## Discharge note — bug 0128 (X.Y.Z)
+
+The witness cell this report inherited from bug 0096 item 4 —
+`tests/brace-rooted-union-arm-capture.test.ts`, the `by kind` union over
+`kind: {a: integer} | {b: string}` — asserted a **clean load**. Bug 0128 §Fix
+(d) reserved that cell for whichever report landed second; 0095 landed first, so
+0128 rewrote it: the same input now draws
+`theta/parse/non-literal-discriminator`, and the parity row `kind: "a" | "b"`
+draws the same code. The relief this report shipped is unchanged — the
+misattributed `theta/parse/empty-schema-body` is still removed and the field
+list still survives capture; only what the exposed field then draws at the
+discriminator checker moved. Status unchanged.

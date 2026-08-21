@@ -94,7 +94,11 @@ discriminators are rejected (`theta/parse/non-string-discriminator`). Exactly on
 qualifying field is the discriminator; multiple →
 `theta/parse/ambiguous-discriminator`; none → `theta/parse/missing-discriminator`.
 Explicit form `schema Animal by species = Cat | Dog | Lizard` overrides detection
-(`by` on an object body is `theta/parse/by-on-object-schema`). Duplicate
+(`by` on an object body is `theta/parse/by-on-object-schema`). Where the named
+field resolves in every variant, it must still be a single string literal per
+variant; a resolved field that is not a single literal is
+`theta/parse/non-literal-discriminator`, while a single literal whose type is
+not `string` keeps `theta/parse/non-string-discriminator`. Duplicate
 discriminator values: `theta/parse/duplicate-discriminator-value`; a
 non-top-level discriminator: `theta/parse/nested-discriminator`. Mixed unions
 (`string | Author`, `Author | null`) are not discriminated — they lower as plain

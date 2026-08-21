@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.157.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0128 — a non-literal `by`-field discriminator now refuses at
+  parse** (`schema Animal by kind = Cat | Dog` with a non-literal `kind`
+  loaded silently). NEW registered `theta/parse/non-literal-discriminator`
+  (E, parse) gated on `presentInAll && !allLiteral`; registry row +
+  `schemas.md` sentence + both reference mirrors same commit. Witness:
+  `tests/non-literal-by-field-refusal.test.ts` (12 cells) + H8a cell 78 +
+  a NEW H9a acceptance file, all red-proven both directions. Four
+  authorized pin rewrites under §Fix (d)/(e). 0095 discharged; 0046
+  carries the candidate-4 scoping note.
+
 ## [0.156.0] - 2026-08-26
 
 ### Fixed

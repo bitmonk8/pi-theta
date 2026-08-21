@@ -811,3 +811,13 @@ no variant declares, and a `by` over a two-or-more-arm union whose arms are not 
 object schemas. 0095 §Non-goals places everything below the parse seam out of
 scope, and `git diff --stat -- docs/` was empty for the whole change, so no spec
 sentence about `by` was written or relied on.
+
+### Coordination note (2026-08-26, at bug 0128's fix, v0.157.0)
+
+Bug 0128 minted `theta/parse/non-literal-discriminator` (E, parse), gated
+on `presentInAll && !allLiteral` at the by-clause discriminator read. Any
+settlement of this report's §Fix candidate 4 must scope its wording to a
+field that does NOT resolve — unscoped, candidate 4 would re-settle
+0128's now-closed class by side effect. 0128's witness
+`tests/non-literal-by-field-refusal.test.ts` (12 cells) is the lock on
+that boundary.

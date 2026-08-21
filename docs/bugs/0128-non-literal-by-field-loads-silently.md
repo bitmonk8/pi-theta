@@ -1,13 +1,12 @@
 # Bug 0128 — An explicit `by <field>` clause whose field resolves in every variant to a type that is not a single literal loads with zero diagnostics, while the identical variants without the clause are refused `theta/parse/missing-discriminator`: no registered code's *Trigger* describes the explicit-path input, `schemas.md:104`'s not-a-literal-union rule is stated over detection alone, and bug 0096's corrected classifier routes a second input class — a field typed `{a: X} | {b: Y}` — into the same silence the moment bug 0095 widens the schema-field capture — the residual bug 0096 §Non-goals declined to settle
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition before any code lands. Coordination —
-  [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) (open) is in
-  flight and owes the witness cell bug 0096 assigned to it, a `parseDoc` cell
-  asserting a **clean load** for exactly this report's second input class. Either
-  this disposition is settled first and 0095 writes that cell to it, or 0095
-  lands first and this fix rewrites it. 0095's own three elements do not depend
-  on this adjudication and must not be held for it.
+- **Status:** fixed (0.157.0). The disposition this report asked for is settled in
+  §Fix (0.157.0) below: Reading A, refusal, under a newly minted
+  `theta/parse/non-literal-discriminator`. The §Fix section above is the
+  candidate analysis the adjudication was made from and is left as filed.
+  Coordination — [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md)
+  landed first (0.74.0), so, per §Fix (d), this fix rewrote the witness cell it
+  inherited from bug 0096 item 4.
 - **Sev/Diff estimate:** S1/D3 — measured, `schema Animal by kind = Cat | Dog`
   over `kind: string` in both variants loads with zero diagnostics and lowers
   `Cat` and `Dog` to byte-identical `$defs` under one `anyOf`, which is the
@@ -1055,6 +1054,143 @@ admitted state is degenerate; and the F1 row (`by name` over `name: string` whil
 `kind` is a valid discriminator), which is the sub-case that decides (b)'s
 candidate 3. Class 2's rows B1–B5 travel with whichever change carries 0095's
 widened capture, as bug 0096 §Fix item 4 already assigns them.
+
+## Fix (0.157.0)
+
+- What shipped:
+  - `src/parser/schema-declarations.ts` — §Fix (a) Reading A, §Fix (b)
+    candidate 1: `checkExplicitDiscriminator` gains a fourth gate
+    (`:645`, `evaluation.presentInAll && !evaluation.allLiteral`) emitting
+    `theta/parse/non-literal-discriminator` through a `nonLiteralDiagnostic`
+    helper (`:668`) at the declaration's own range (DIAG-1). Placed after the
+    `anyNested` gate, so a nested occurrence keeps its more specific code, and
+    before the non-string gate, which presupposes a literal this evaluation does
+    not have. `evaluateOccurrences`, `FieldEvaluation`,
+    `detectImplicitDiscriminator` and `checkByClause` are byte-unchanged (§Fix
+    (f)); `theta-document.ts` is untouched, so the classifier stays
+    module-private.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md:109` — the DIAG-2
+    same-commit registry row (E, parse). Its *Trigger* enumerates the emission
+    set — a literal-union, a bare `string`, an `enum` name, `integer`,
+    `array<string>`, `"cat" | null`, a named object schema, a brace-rooted union
+    of `ObjectType` arms — and excludes bug 0046's absent-field class by name.
+  - `docs/spec_topics/schemas.md` §Discriminated unions — the one sentence §Fix
+    (a) owes, placed beside the explicit form and scoped to a field that
+    **resolves in every variant**, so bug 0046's two classes stay unsettled.
+  - `docs/reference/diagnostics.md`, `docs/reference/schema-subset.md` — the
+    user-facing mirrors, identical *Message* bytes. `docs/reference/grammar.md`
+    verified unaffected (it mirrors only the `by` grammar alternative).
+  - Placeholder surface untouched and closed: the *Message* reuses `<field>`
+    (placeholder-rendering-b.md §5, source-derived identifier sub-rule) and
+    `<X>` (§7, identifier-shaped sub-rule). No new placeholder, no closed-enum
+    table widened.
+- Route settled on measurement, not preference. §Fix (b) candidate 2 (widening
+  `non-string-discriminator`'s *Trigger*) is ruled out: that row's `<kind>` is a
+  closed value table — `string`, `integer`, `number`, `boolean`, `null`, "the
+  type-kind of the offending literal" (`placeholder-rendering-b.md` §7) — and
+  this class carries no literal, so the widened set cannot render `<kind>`;
+  extending a category-7 closed table is a GOV-7 / GOV-8 breaking change to the
+  rendering surface even where the row is unchanged (§7's *Category 7 closed-enum
+  closure*). Candidate 3 stays rejected on the *Message*, and the F1 row (`by
+  name` over `name: string` while `kind` is a valid discriminator) is the witness
+  cell that scores it. What remains is candidate 1.
+- Gates: witness `npx vitest run tests/non-literal-by-field-refusal.test.ts` →
+  `Test Files 1 passed (1) / Tests 12 passed (12)`; default suite `npm test` →
+  `Test Files 350 passed (350) / Tests 6982 passed (6982)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+  `npm run lint` (`eslint "src/**/*.ts"`) clean. Live, run for real and
+  re-run independently after the review loop: H8a
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/live-production-acceptance.test.ts -t "cell 78"` → 1 passed;
+  H9a `… tests/live/acceptance/non-literal-discriminator-live.test.ts` →
+  1 passed.
+- Blast radius, premeasured before the witness was written: a prototype gate over
+  the whole default suite reddened exactly four cells in two files, every one of
+  them authorized by name — the two bug 0096 silence pins (§Fix (e)) and bug
+  0095's inherited item-4 cell (§Fix (d)). No unauthorized flip, and no protected
+  witness moved.
+- Review: 2 rounds. Round 1 (deep) — six findings, none on the gate: one mirror
+  sentence that cut on "not a single **string** literal" and so wrongly claimed
+  the `kind: 1` case, a stale exhaustive enumeration on `checkDiscriminatedUnion`,
+  two historical-narrative test comments, three stale line citations in the
+  witness, one banned word, one orphaned source line. Round 2 (fast) — CLEAN, with
+  every finding re-verified and the emitted / registry / mirror *Message* bytes
+  re-compared independently.
+- Verification: VERIFIED. (i) The witness reds without the fix — the gate
+  neutralised in place, nine cells across the three affected files reading
+  "expected `[theta/parse/non-literal-discriminator]`, observed `[]`", then the
+  file restored by writing the original bytes back and the restore proved by
+  `git hash-object` against the pre-edit capture. (ii) Default suite green,
+  350/6982. (iii) Live coverage exists on both halves and was red-proven in both
+  directions under the same neutralisation. (iv) Lint and typecheck clean.
+  (v) The DIAG-2 closed-set reconciliation (`tests/code-registry.test.ts`, and
+  the corpus-wide closing gate `tests/live-corpus-release-gate.test.ts` inside
+  `npm test`) is green with the new row, so the row has an asserting test and the
+  asserting tests have a row.
+- Tests that lock it:
+  - `tests/non-literal-by-field-refusal.test.ts` (new, 12 cells) — class 1 rows
+    A1–A10 with their no-clause column, the `.thetalib` spelling, the four
+    controls A11–A14 (A11/A12 keep `nested-discriminator`, A13 stays clean, A14
+    keeps `non-string-discriminator`), the eight-row `typeSource` capture table,
+    F1, class-2 rows B1–B5 with the post-0095 reachability asserted as a
+    precondition, the A13 lowering, and three seam cells over the exported
+    `checkDiscriminatedUnion` — including the **bug 0046 boundary**: an absent
+    `by` field (`presentInAll === false`) still returns `[]`.
+  - `tests/discriminator-field-classifier-brace-group.test.ts` — the two §Fix (e)
+    pins rewritten in place, never deleted, each keeping its in-cell statement
+    and now citing what decides it. Item 1's predicate table, item 2's
+    implicit-path equality cell and item 3's `typeSource` columns are unchanged.
+  - `tests/brace-rooted-union-arm-capture.test.ts` — bug 0095's inherited
+    item-4 cell rewritten per §Fix (d); its describe/cell titles no longer claim
+    "loads clean".
+  - `tests/live/live-production-acceptance.test.ts` (H8a, cell `cell 78`) — the
+    bad spelling does not register and the `theta-system-note` channel carries
+    the registry-sourced fragment; the valid-discriminator sibling under the
+    identical `by kind` clause registers **and drives** a real turn to a pinned
+    sentinel with zero system notes.
+  - `tests/live/acceptance/non-literal-discriminator-live.test.ts` (H9a,
+    `cell 78`) — the same two spellings through the real `pi -p` binary.
+- GOV-15 (§Fix (g)): the refusing direction moves inputs out of the
+  [loads-cleanly set](../spec_topics/governance/source-language-stability.md#gov-15-loads-cleanly)
+  and relies on the
+  [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out).
+  The moved set, enumerated rather than left to inference: class 1 rows A1–A10 —
+  a `by` field typed `"a" | "b"`, `"a" | "b"` / `"c" | "d"`, `string`,
+  `string` / `string`, a declared `enum` name, `integer`, `array<string>`, the
+  three-arm spelling, `"cat" | null`, and the wire-renamed `kind as "Kind"`
+  spelling — the `.thetalib` spelling of each, the F1 arrangement (`by name`
+  over `name: string` while a valid `kind` exists), a `by` field typed as a
+  named object schema, and class 2 rows B1–B3 and B5 (`{a: X} | {b: Y}`,
+  `{ type: "x" } | "cat"`, `{a: X} | null`, and the `"a" | "b"` parity row).
+  A11, A12, A14 and B4 were already outside the set and keep their codes.
+- H9a and committed-fixture surfaces, measured rather than inferred: the H9a
+  probe run's combined stdout+stderr was scanned with the same
+  `parseSystemNoteCodes` regex the nine-area manifest scores, for
+  `theta/parse/non-literal-discriminator` — observed empty, because a load
+  diagnostic lands on the private `theta-system-note` channel and never on
+  `pi -p` print-mode output. `tests/fixtures/h7a/permitted-codes.json` is
+  therefore **unchanged** and still carries no `theta/parse/*` code. No
+  committed `.theta` or `.thetalib` carries a `by` clause, so
+  `tests/committed-fixture-parse-gate.test.ts` witnesses neither class and stays
+  green over the shipped corpus.
+- A12's disposition, stated explicitly as §Fix (c) requires: a mixed arrangement
+  with one nested occurrence keeps `theta/parse/nested-discriminator`, because
+  the `anyNested` gate is still asked first. This fix does not touch
+  `evaluateOccurrences`' `.some`, so bug 0046 §Fix constraint 2 still owns that
+  asymmetry; if it later becomes an `.every`, A12 moves into this row's emission
+  set rather than into silence.
+- Residuals: see `.pi/tmp/fixes/0128-report.md` §Residuals — the bug 0046
+  coordination note this fix owes but did not write (0046 is open and owned
+  elsewhere), the substituted lowering witness element, and one comment citation
+  in a third file that this change's `docs/reference/schema-subset.md` rewrap
+  shifted by four lines and that was deliberately not chased.
+- Discharge notes appended: `0095` (its inherited item-4 cell moved here).
+- Pinned dispositions / non-goals: bug 0046's two classes stay unsettled and
+  their pins (`tests/schema-alias-union-decl.test.ts` i2, n22, and h1/h2/h3, i1,
+  i3) are untouched; `{}` as a field type keeps both of its lines (bug 0129);
+  `evaluateOccurrences`' `.some`/`.every` asymmetry is unchanged; the lowering of
+  a literal-union or `enum`-typed field is unchanged; `nested-discriminator`'s
+  and `non-string-discriminator`'s rows are not reworded (DIAG-4).
 
 ## Provenance
 

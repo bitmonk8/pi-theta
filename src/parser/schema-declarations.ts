@@ -342,6 +342,8 @@ export function checkVariantAccess(
 //   - `theta/parse/duplicate-discriminator-value`— two variants share a value.
 //   - `theta/parse/nested-discriminator`         — the discriminator field's
 //     value is a nested object, not a top-level literal.
+//   - `theta/parse/non-literal-discriminator`    — an explicit `by` field
+//     resolves in every variant but its type is not a single string literal.
 //   - `theta/parse/by-on-object-schema`          — a `by` clause on an object
 //     body, or on a right-hand side of fewer than two arms.
 //   - `theta/parse/type-alias-cycle`             — a pure-alias cycle (a cycle
@@ -385,9 +387,9 @@ export interface DiscriminatedUnionDecl {
 
 /**
  * Check a discriminated-union declaration, returning every diagnostic raised in
- * source order (`theta/parse/non-string-discriminator`,
- * `theta/parse/ambiguous-discriminator`, `theta/parse/missing-discriminator`,
- * `theta/parse/duplicate-discriminator-value`, `theta/parse/nested-discriminator`).
+ * source order (`theta/parse/non-string-discriminator`, `theta/parse/ambiguous-discriminator`,
+ * `theta/parse/missing-discriminator`, `theta/parse/duplicate-discriminator-value`,
+ * `theta/parse/nested-discriminator`, `theta/parse/non-literal-discriminator`).
  */
 export function checkDiscriminatedUnion(
   decl: DiscriminatedUnionDecl,
@@ -604,12 +606,15 @@ function checkExplicitDiscriminator(
   // constraints below then bind that field's VALUE.
   //
   // A `by` naming NO theta-side field of the variants resolves to nothing, so
-  // every constraint below is vacuous and this function returns clean. That
-  // disposition is UNDECIDED by the specification: schemas.md §Discriminated
-  // unions prescribes a code for a discriminator that is nested, non-string or
-  // non-unique, and `missing-discriminator` for an IMPLICIT detection that
-  // finds no candidate, but says nothing about an explicit `by` naming a field
-  // no variant declares. No code is invented for it here.
+  // `presentInAll` is false and every constraint below is vacuous — this
+  // function returns clean. That disposition is UNDECIDED by the
+  // specification: schemas.md §Discriminated unions prescribes a code for a
+  // discriminator that is nested, non-string or non-unique, and
+  // `missing-discriminator` for an IMPLICIT detection that finds no candidate,
+  // but says nothing about an explicit `by` naming a field no variant
+  // declares. No code is invented for it here. A field that DOES resolve in
+  // every variant but is not a single literal is DECIDED (bug 0128): the gate
+  // below refuses it.
   const evaluation = evaluateOccurrences(
     field,
     decl.variants.map((v) => thetaNamedFieldInVariant(v, field)),
@@ -629,6 +634,18 @@ function checkExplicitDiscriminator(
     ];
   }
 
+  // A named field that resolves in every variant but is not a single literal
+  // (a literal-union, a bare `string`, an `enum` name, `integer`, an `array`,
+  // a nullable literal, or a named/brace-rooted union of object schemas) is
+  // refused: detection rule 2 (schemas.md §Discriminated unions) binds a named
+  // field the same way the top-level rule and the uniqueness rule already do
+  // (bug 0128). Checked after `anyNested` — a nested occurrence is more
+  // specific and keeps its own code — and before the non-string gate, which
+  // presupposes a literal this evaluation does not have.
+  if (evaluation.presentInAll && !evaluation.allLiteral) {
+    return [nonLiteralDiagnostic(decl.name, field, site)];
+  }
+
   // The string-literal constraint applies equally to the explicit form
   // (schemas.md §Discriminated unions).
   if (evaluation.allLiteral && !evaluation.allString && evaluation.firstNonStringKind !== undefined) {
@@ -645,6 +662,21 @@ function checkExplicitDiscriminator(
   }
 
   return [];
+}
+
+/** The shared `theta/parse/non-literal-discriminator` diagnostic. */
+function nonLiteralDiagnostic(
+  schemaName: string,
+  field: string,
+  site: SchemaDeclSite,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/non-literal-discriminator",
+    file: site.file,
+    range: site.range,
+    message: `discriminator '${field}' on ${schemaName} must be a single string-literal type in every variant`,
+  };
 }
 
 /** The shared `theta/parse/non-string-discriminator` diagnostic. */

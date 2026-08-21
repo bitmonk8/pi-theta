@@ -114,7 +114,7 @@ The explicit form overrides detection:
 schema Animal by species = Cat | Dog | Lizard
 ```
 
-The `by <field>` clause is admitted **only** on the union form (the alternative beginning with `=`). A `schema X by f { ... }` declaration with an object body is `theta/parse/by-on-object-schema`: object schemas have one variant by definition and the discriminator concept does not apply. The full grammar for the schema declaration shapes that admit `by` lives in [Grammar Appendix — `schema X by <field>`](./grammar.md#schema-x-by-field).
+Where the named field resolves in every variant, its type must satisfy property 2 above — a single string literal per variant, not a literal-union — the same way the top-level rule and the uniqueness rule already bind a named field; a resolved field that is not a single literal is `theta/parse/non-literal-discriminator`. The `by <field>` clause is admitted **only** on the union form (the alternative beginning with `=`). A `schema X by f { ... }` declaration with an object body is `theta/parse/by-on-object-schema`: object schemas have one variant by definition and the discriminator concept does not apply. The full grammar for the schema declaration shapes that admit `by` lives in [Grammar Appendix — `schema X by <field>`](./grammar.md#schema-x-by-field).
 
 Duplicate discriminator values across variants are `theta/parse/duplicate-discriminator-value`. The discriminator field must live at the **top level** of each variant; nested discriminators (`kind: { type: "x" }`) are `theta/parse/nested-discriminator`.
 

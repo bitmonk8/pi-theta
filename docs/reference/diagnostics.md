@@ -155,6 +155,7 @@ trigger.
 | `theta/parse/duplicate-discriminator-value` | E | parse | `duplicate discriminator value '<value>' across variants of <X>` |
 | `theta/parse/nested-discriminator` | E | parse | `discriminator field '<field>' must be at the top level of each variant of <X>` |
 | `theta/parse/non-string-discriminator` | E | parse | `discriminator '<field>' on <X> must be a string-literal type; got <kind>` |
+| `theta/parse/non-literal-discriminator` | E | parse | `discriminator '<field>' on <X> must be a single string-literal type in every variant` |
 | `theta/parse/type-alias-cycle` | E | parse | `type-alias cycle: <path>` |
 | `theta/parse/system-on-prompt-mode` | E | parse | `'system:' is not permitted on a mode: prompt theta` |
 | `theta/parse/system-interp-not-path` | E | parse | `'system:' interpolation body must be a bare identifier path` |

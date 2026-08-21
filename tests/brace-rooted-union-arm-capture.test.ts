@@ -127,6 +127,7 @@ const REGISTRY = parseRegistry(
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const UNSUPPORTED = "theta/parse/unsupported-feature";
 const NESTED_DISC = "theta/parse/nested-discriminator";
+const NON_LITERAL_DISC = "theta/parse/non-literal-discriminator";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -175,6 +176,23 @@ function nestedDiscriminatorLine(field: string, schema: string): string {
   return line(
     NESTED_DISC,
     msg(NESTED_DISC, [
+      ["<field>", field],
+      ["<X>", schema],
+    ]),
+  );
+}
+
+/**
+ * `non-literal-discriminator` for one field of one union schema — the
+ * disposition bug 0128 settles for a `by` field that resolves in every
+ * variant but is not a single literal, including a brace-rooted union of
+ * `ObjectType` arms (bug 0128 §Fix; docs/spec_topics/schemas.md
+ * §Discriminated unions).
+ */
+function nonLiteralDiscriminatorLine(field: string, schema: string): string {
+  return line(
+    NON_LITERAL_DISC,
+    msg(NON_LITERAL_DISC, [
       ["<field>", field],
       ["<X>", schema],
     ]),
@@ -1099,18 +1117,23 @@ function animalSrc(catKind: string): string {
   );
 }
 
-describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator union loads clean", () => {
-  it("RED 6a: `Cat { kind: {a: integer} | {b: string}, … }` under `by kind` loads with NO diagnostics", () => {
-    // The whole-list equality is what pins BOTH absences at once: the
-    // `empty-schema-body` line this fix removes, and the
-    // `nested-discriminator` line 0096's predicate keeps from replacing it.
+describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator union reaches the discriminator checker", () => {
+  it("6a: `Cat { kind: {a: integer} | {b: string}, … }` under `by kind` draws `non-literal-discriminator`, not `empty-schema-body`", () => {
+    // The whole-list equality is what pins two things at once: the
+    // `empty-schema-body` line this fix removes (the field list survives
+    // capture, so `Cat` is not empty), and the DISPOSITION bug 0128 settles
+    // for the field the capture then exposes — `{a:integer}|{b:string}`
+    // resolves in every variant but is not a single literal, so 0096's
+    // structural predicate classifies it `{}` (not nested) and bug 0128's gate
+    // refuses it under `theta/parse/non-literal-discriminator`.
     expect(
       observeSchema(animalSrc("{a: integer} | {b: string}")),
       "6a — `{a:integer}|{b:string}` is not a single enclosing brace group, so 0096's " +
         "structural predicate declines to classify it nested; the discriminator IS at the top " +
-        "level of `Cat`, so neither the nesting refusal nor the field-less refusal has a subject",
+        "level of `Cat`, so the field-less refusal has no subject, but the field resolves in " +
+        "every variant and is not a single literal, so bug 0128's gate refuses it",
     ).toEqual({
-      diagnostics: [],
+      diagnostics: [nonLiteralDiscriminatorLine("kind", "Animal")],
       shape: [
         {
           name: "Cat",
@@ -1133,16 +1156,19 @@ describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator un
     });
   });
 
-  it("CONTROL 6b: the same declaration with `kind: \"a\" | \"b\"` is byte-unchanged", () => {
+  it("CONTROL 6b: the same declaration with `kind: \"a\" | \"b\"` draws the same `non-literal-discriminator`", () => {
     // The parity control: a literal union in the same slot already reaches the
-    // classifier today and already loads clean, so it fixes what 6a's target
-    // disposition is rather than leaving it inferred.
+    // classifier today and carries no brace group at all, so it fixes what 6a's
+    // target disposition is rather than leaving it inferred. Bug 0128 settled
+    // that disposition as a refusal, not the clean load this cell pinned
+    // before that report was decided — 6a and 6b now agree on the same code.
     expect(
       observeSchema(animalSrc('"a" | "b"')),
       "6b — a discriminator field whose type is a literal union carries no brace group at all, " +
-        "so it is the position's already-correct neighbour",
+        "so it is the position's already-correct neighbour, and bug 0128 refuses it the same way " +
+        "6a's exposed field is refused",
     ).toEqual({
-      diagnostics: [],
+      diagnostics: [nonLiteralDiscriminatorLine("kind", "Animal")],
       shape: [
         {
           name: "Cat",

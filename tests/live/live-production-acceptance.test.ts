@@ -12598,3 +12598,189 @@ describe("H8a-T — bug 0216 cell 75 (cell 77): the shipped session_shutdown han
     }
   });
 });
+
+// ===========================================================================
+// cell 78 (bug 0128) — an explicit `by <field>` clause whose named field
+// RESOLVES in every variant but is not a single literal is refused, live,
+// through the real discovery→registration path, and the VALID-discriminator
+// spelling of the same `by kind` clause still registers and drives.
+//
+// Pre-fix, `checkExplicitDiscriminator` (src/parser/schema-declarations.ts)
+// tested three gates that all presuppose a literal — `anyNested`,
+// `allLiteral && !allString`, `allLiteral && allString && duplicate` — so a
+// resolved non-literal field (`kind: string` in every variant) fell through
+// every gate and the declaration loaded with ZERO diagnostics, registering
+// exactly like a correct one. The fix adds a `presentInAll && !allLiteral`
+// gate that refuses it under the newly minted `theta/parse/non-literal-
+// discriminator` (E, parse). This cell 78 cell is the live, real-composition-
+// root witness of that disposition: the unit witness
+// (tests/non-literal-by-field-refusal.test.ts) proves the diagnostic bytes at
+// the parse boundary; this cell proves the same input un-registers a live
+// slash command and lands the fragment on the `theta-system-note` channel
+// (AGENTS.md §"Assert on real observables"), and that the GOOD spelling under
+// the identical `by kind` clause is unaffected — the fix's good-path
+// non-regression the bug doc's §Expected behaviour requires.
+//
+// Registration-only for the bad spelling (no slash command invoked — zero
+// tokens, the same profile as the bug 0070/0071/0077/0079(a)/0110/0084/0089/
+// 0095 cells above); the good spelling IS driven (one live turn) so the
+// "still drives" half of the claim is a real model round trip, not merely a
+// registration check. ADDITIVE ONLY: no existing cell in this file is
+// weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+/** `theta/parse/non-literal-discriminator`'s registered code and registry page (bug 0128 §Fix; code-registry-parse.md). */
+const NON_LITERAL_DISCRIMINATOR_CODE = "theta/parse/non-literal-discriminator";
+const NON_LITERAL_DISCRIMINATOR_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/non-literal-discriminator: discriminator '<field>' on <X> must
+ * be a single string-literal type in every variant` with both placeholders
+ * substituted — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's existing `defaultWithoutLiteralFragment` /
+ * `emptySchemaBodyFragment` helpers.
+ */
+function nonLiteralDiscriminatorFragment(field: string, schema: string): string {
+  const template = registryMessage(
+    NON_LITERAL_DISCRIMINATOR_REGISTRY,
+    NON_LITERAL_DISCRIMINATOR_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `cell 78: ${NON_LITERAL_DISCRIMINATOR_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<field>", field).replaceAll("<X>", schema);
+  expect(
+    message,
+    `cell 78: ${NON_LITERAL_DISCRIMINATOR_CODE}: an unsubstituted placeholder remains — the registry row's Message template changed shape and this cell's substitution is stale`,
+  ).not.toMatch(/<[a-z]+>/);
+  return `${NON_LITERAL_DISCRIMINATOR_CODE}: ${message}`;
+}
+
+/**
+ * The BAD spelling (bug 0128 class 1, row A4): `kind: string` in both
+ * variants of a `by kind` union — resolves in every variant, is not a single
+ * literal, drew ZERO diagnostics pre-fix.
+ */
+function nonLiteralByFieldTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Cat { kind: string, name: string }",
+    "schema Dog { kind: string, name: string }",
+    "schema Animal by kind = Cat | Dog",
+    "let a = 1",
+    "a",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The GOOD spelling under the identical `by kind` clause: a single string
+ * literal per variant (`kind: "cat"` / `kind: "dog"`) — the good path the fix
+ * must not disturb. Drives a real turn so "still loads AND still drives" is
+ * proven end to end, not merely by registration.
+ */
+function literalByFieldTheta(sentinel: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'schema Cat { kind: "cat", name: string }',
+    'schema Dog { kind: "dog", name: string }',
+    "schema Animal by kind = Cat | Dog",
+    "@`Reply with exactly the token " + sentinel + " and nothing else.`",
+    "",
+  ].join("\n");
+}
+
+describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal field is refused live, and the valid-discriminator spelling still registers and drives (Convention: live-host acceptance)", () => {
+  it('cell 78: does not register schema Animal by kind = Cat | Dog over kind: string, the theta-system-note channel carries non-literal-discriminator, and the kind: "cat"/kind: "dog" sibling under the same clause registers and drives to the live sentinel', async () => {
+    const provider = await requireLiveProvider();
+    const sentinel = "cell 78 LIVE SENTINEL";
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a
+      // regressed fix (the bad-spelling caller failing to register FOR THE
+      // WRONG REASON, e.g. a broken workspace) could be misattributed.
+      { source: "project", stem: "b128livectl", text: promptTheta("cell 78 CONTROL") },
+      { source: "project", stem: "b128livebad", text: nonLiteralByFieldTheta() },
+      { source: "project", stem: "b128livegood", text: literalByFieldTheta(sentinel) },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b128livectl"),
+        "cell 78: the precondition control did not register — a broken workspace, not the fixed gate, would explain the bad-spelling caller's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: a `by kind` clause whose named field resolves in
+      // every variant (`kind: string`) but is not a single literal is refused
+      // — the caller must NOT register.
+      expect(
+        handle.command("b128livebad"),
+        "cell 78: schema Animal by kind = Cat | Dog over kind: string registered — pre-fix, every gate in checkExplicitDiscriminator presupposed a literal and this class fell through all of them with zero diagnostics. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "cell 78 Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b128livebad");
+
+      // The good path is unaffected by the fix: the identical `by kind` clause
+      // over a genuine single-literal-per-variant field still registers.
+      expect(
+        handle.command("b128livegood"),
+        'cell 78: schema Animal by kind = Cat | Dog over kind: "cat" / kind: "dog" failed to register — the fix must not disturb the valid-discriminator good path. Registered: ' +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic, when it fires, fires at LOAD
+      // time, before any drive, so the full entry list is the delta (mirrors
+      // the bug 0102/0095/0110/0084/0089 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = nonLiteralDiscriminatorFragment("kind", "Animal");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "cell 78: no theta-system-note entry named " +
+          NON_LITERAL_DISCRIMINATOR_CODE +
+          " for the bad-spelling declaration — the fixed gate did not fire. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+
+      // "still drives": one real live turn against the good spelling, proving
+      // the schema declaration does not merely register but the theta runs to
+      // completion against a live model — the good-path non-regression end to
+      // end, not just at load time.
+      const driven = await driveSlashCaptureTurn(handle, "/b128livegood");
+      expect(
+        driven.text,
+        "cell 78: the live model reply for the valid-discriminator sibling did not contain the deterministic sentinel. Reply: " +
+          JSON.stringify(driven.text),
+      ).toContain(sentinel);
+      expect(
+        driven.systemNotes,
+        "cell 78: the driven turn over the valid-discriminator sibling appended a theta-system-note (a fail-closed ending) — the good path must drive clean. Notes: " +
+          JSON.stringify(driven.systemNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
