@@ -1111,3 +1111,24 @@ wiring it at this position is implementation conformance (bug 0084's posture).
   0123's subject — is byte-identical, and its `--y` input still draws exactly
   the two codes that report measures, so nothing here strands its subject. Row
   b5's enum-vs-string-literal equality is unchanged and remains unclaimed.
+
+### Discharge note — bug 0219 (X.Y.Z)
+
+The *Residuals* item above reading "`Result { a: 1 }` in pattern position — a
+reserved keyword as an *object*-pattern head — is still silent" is **closed**.
+Bug [0219](./0219-reserved-keyword-object-pattern-head-parses-clean.md) added a
+reserved-word guard to `parsePattern`'s `{`-gated object / schema pattern arm,
+so a `keyword`-kind head there now draws
+`theta/parse/reserved-keyword-as-identifier` — the same builder, arguments and
+range as the tail-arm emission this record landed. The row's *Trigger* was not
+edited and no code was minted; this route's own refusals keep their codes,
+counts and ranges, with `tests/capitalised-bare-match-pattern-refusal.test.ts`
+green as written at 45/45 and unedited.
+
+Two consequences for this record's citations, appended rather than swept: bug
+0219 inserts 11 lines at the object arm, so the tail-arm
+`reservedKeywordAsIdentifierDiagnostic` emission is now `:4314` and
+`capitalisedPatternHeadDiagnostic` `:4321`; and the row
+`theta/parse/capitalised-pattern-head` was deliberately NOT widened to the
+braced head, so its *Trigger* clause "it is not followed by `{`" remains true
+of the implementation.

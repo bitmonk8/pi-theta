@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.156.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0219 — a reserved-keyword object-pattern head now refuses at
+  parse** instead of parsing clean and firing the WRONG match arm
+  (`Err {}` matched `Ok(1)`). Reserved-word guard in `parsePattern`'s
+  `{`-gated object-pattern arm; no registry edit. Witness:
+  `tests/reserved-keyword-object-pattern-head-refusal.test.ts` (54 cells)
+  + a standalone live cell. Element 2 narrowed (only a non-reserved
+  undeclared `R { a: 1 }` head survives — residual filed), element 3
+  (nested positions) recorded.
+
 ## [0.155.0] - 2026-08-26
 
 ### Fixed

@@ -4280,8 +4280,19 @@ class BodyParser {
         }
         return { kind: "constructor", ctor: t.text, inner };
       }
-      // `Ident { field: p, … }` object / schema pattern.
+      // `Ident { field: p, … }` object / schema pattern. Unlike the `Ok(`/`Err(`
+      // constructor arm above, this arm's gate is the following `{` alone —
+      // no spelling restriction — so without a guard here one character of
+      // lookahead decides whether `lexical.md:20`'s reserved-word sentence is
+      // enforced at pattern-head position (bug 0141's refusal at the tail arm's
+      // `reservedKeywordAsIdentifierDiagnostic` emission below is never reached,
+      // since that arm sits below this one). The node is still built from
+      // `t.text` below: the refusal is carried by the diagnostic alone, so the
+      // field binders still reach `collectPatternBindings`'s arm-body scope.
       if (this.isPunct("{")) {
+        if (t.kind === "keyword") {
+          this.diagnostics.push(reservedKeywordAsIdentifierDiagnostic(t.text, t.range, this.file));
+        }
         this.advance();
         const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
         while (!this.isPunct("}") && !this.atEnd()) {
