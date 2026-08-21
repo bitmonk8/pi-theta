@@ -1,7 +1,10 @@
 # Bug 0122 — Every parse- and type-phase diagnostic raised for the expression inside a `@`-query `${…}` interpolation is discarded: the whole-document parser never parses the interpolation, `parseExpressionSource` returns `Expr | null` and drops its `BodyParser`'s `diagnostics` array, and the load-time interpolation walk reports only `match` and a nested `@`-query — so eight registered codes cannot fire inside `${…}`, and the interpolation instead renders a silently truncated expression into the prompt or panics at runtime under an uncoded `Error`; lex-phase codes are unaffected
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  disposition and the emission site before any code lands. No ordering
+- **Status:** fixed (0.149.0). §Fix was not settled in this report: it existed to
+  pin the disposition and the emission site before any code landed, and the
+  route was settled in-run inside its constraints (§Fix (0.149.0) below — route 1,
+  emission at the parse-layer walk, residue by parity with the `let`-RHS
+  position; routes 2 and 3 declined on measurement). No ordering
   dependency —
   [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) is
   **fixed (0.69.0)** and owns the one load-time route a fix would host
@@ -980,3 +983,207 @@ registry's *Message* column per DIAG-4, as both sibling witnesses already do.
   Run on the outputs quoted above, then deleted. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Fix (0.149.0)
+
+§Fix was deliberately unsettled. Route **(a) 1** governs — surface the
+`BodyParser`'s own diagnostics for the interpolation source and report them at
+the existing parse-layer walk — realised under one rule that also answers the
+"what happens to a source that does not parse whole" clause §Fix (a) left open:
+
+> An expression inside a `@`-query `${…}` draws exactly the
+> parse-**parser**-phase diagnostics the same text draws at `let`-RHS level,
+> relocated to the enclosing `@`-query's range.
+
+The residue half of that rule is realised by **draining the unconsumed tokens
+through the shipped `parseForms` statement loop**, not by a bespoke
+"first unconsumed token" scan. Parity is then by construction, and the choice is
+forced by this report's own control: `c - -` parses to `ident c` leaving `- -`
+unconsumed, so a bespoke scan would invent a diagnostic the `let`-RHS position
+never draws and red §Fix's required `${c - -}` control. One production is the
+judge, not two — the principle
+[0175](./0175-literal-sublanguage-parser-ignores-trailing-tokens.md)'s §Fix
+record states for the sibling position (the `params:` default RHS).
+
+- **What shipped** (one file, three region-local additions, no other `src/`
+  file and no `docs/spec_topics` or `docs/reference` file on the diff):
+  - `src/parser/theta-document.ts` — `parseInterpolationSource`, a new
+    module-local helper beside `parseExpressionSource`, returning
+    `{ expr: Expr | null; diagnostics: readonly Diagnostic[] }` over the same
+    lex seam (real `lexTheta`, inline no-op channel, the `<interpolation>`
+    path) and the same `BodyParser` construction. **`parseExpressionSource`
+    keeps its exact signature and body**, so its four other call sites — the
+    `params:` default RHS (bug [0102](./0102-params-default-string-literal-raw-newline-admitted.md)'s
+    surface), the type layer's `checkQueryInterpolationResults` (bug 0079's ONE
+    emission site) and the production render's `stringifyInterpolation` — are
+    byte-untouched. §Fix (d)'s three-subsystem typecheck cost is therefore not
+    incurred at all rather than discharged.
+  - `src/parser/theta-document.ts` — `BodyParser.parseSingleExpressionWithResidue`,
+    a new public method beside `parseSingleExpression`: parse one expression,
+    then, when the cursor is not at end of input, drain the residue through
+    `parseForms(() => this.atEnd())`. `parseSingleExpression`,
+    `parseExpression`, `parseForms` and `parsePostfix` are byte-untouched, so
+    the whole-document parse is unchanged.
+  - `src/parser/theta-document.ts` — `checkQueryTemplateInterpolations` drives
+    the new helper and relocates each collected diagnostic to
+    `{ ...d, file, range: e.range }`, preserving `severity`, `code`, `message`
+    and every other field. **Leading-offence precedence** is load-bearing and
+    now witnessed: the forbidden-form / forbidden-token check runs first and
+    `continue`s, so `match` and a nested `@`-query stay at exactly one
+    interpolation-attributed diagnostic.
+  - `tests/interpolation-parse-diagnostics.test.ts` (new, 41 cells, offline and
+    provider-free) — the witness, extending `tests/helpers/e2e-s1.ts`'s
+    `parseDoc` and reproducing
+    `tests/interpolated-result-gate.test.ts`'s prompt-mode drive over the
+    session double, exactly the two mechanisms §Fix's witness paragraph names.
+  - `tests/live/live-production-acceptance.test.ts` — one additive H8a cell
+    (registration-level refusal of a theta whose untyped `@`-query interpolates
+    `c--`, against a control theta that registers), driven through the real
+    discovery→registration path. No existing cell renumbered or edited.
+- **§Fix (b), answered.** The diagnostic carries the enclosing `@`-query
+  expression's range and the document's `file`. `QueryTemplatePart` still
+  carries no per-interpolation offsets and `QueryExpr` still carries only
+  `template` plus the whole `range`, so this is the only locatable site — bug
+  0079's constraint, inherited unchanged, and per-interpolation offsets were
+  not taken (§Non-goals fences them). The count question is answered **two, not
+  one**: one diagnostic per offence, in template order, both at the same range
+  (witness cell (e3) over `@`${c--} and ${c++}``).
+- **§Fix (c) DIAG-2, answered: no widening owed, no registry edit.** Each row
+  was read as written, the method bug
+  [0084](./0084-increment-decrement-check-dead.md) used for its own positions.
+  `theta/parse/increment-decrement`'s *Trigger* is "`++` or `--` operator
+  used." — position-neutral. `theta/parse/unsupported-feature`'s is an open set
+  ("a theta 1.0-deferred or non-Theta syntactic construct (arrow function,
+  spread, optional chaining, `===`, bitwise op, comma op, nested template,
+  etc.) appears in source"), and every newly-refused interpolation contains a
+  member of it; the `stray '<t>' in statement position` rendering of
+  `<construct>` is the shipped `let`-RHS one, unchanged. Zero new codes, zero
+  row edits, no *Message* touched (DIAG-4), and `docs/reference/` needs no
+  mirror edit.
+- **§Fix (d) GOV-15, discharged by run.** Every newly-refused input loaded
+  cleanly before — the diagnostic-registry carve-out disposition bugs 0031 /
+  0084 / 0114 / 0175 established. The drain only runs where an interpolation
+  leaves tokens unconsumed, and no committed interpolation does:
+  `tests/committed-fixture-parse-gate.test.ts` 36/36 green unchanged, plus the
+  witness's own census gate (group (g), hard-pinned at 31 `.theta` + 2
+  `.thetalib`, 38 templates, 37 interpolations, 0 unparsable / 0 truncated / 0
+  in a rejected token class). `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged — the way bugs 0079 and 0084 decided it — and
+  `ACCEPTANCE_STDERR_ALLOWLIST`'s empty-capture gate held through a real H9a
+  run (11/11), so it needed no re-recorded baseline.
+- **§Fix (e), 0079's ONE emission site is still one.**
+  `tests/interpolated-result-gate.test.ts` is **off this diff** and green at
+  82/82 with unchanged assertions: every group-(a)/(p)–(u) fixture interpolates
+  an expression that parses whole, so the drain never runs and no fixture's
+  `diagnostics` array grows. `src/parser/type-layer-checks.ts` is untouched, so
+  no second site raises `theta/parse/interpolated-result`. Bug 0084's witness
+  (25/25) and its cell s5 (`--` in template **prose**) are unchanged, as §Fix
+  (e) predicted.
+- **The controls §Fix requires, all green:** `${c - -}`, a legal ternary,
+  `${[...a]}`, `\${x}`, `--`/`++` in template prose, in a `//` comment inside
+  `${…}` and inside string literals, and all 37 committed interpolations. The
+  three lex-phase rows still fire from inside `${…}` at the same code and count,
+  and the two walk members still fire at exactly one interpolation-attributed
+  diagnostic each.
+- **Gates** (each re-run by the orchestrator, not taken from a nested report):
+  - Witness RED before / GREEN after: with
+    `checkQueryTemplateInterpolations` pointed back at `parseExpressionSource`
+    and the relocation loop removed, `Tests 12 failed | 28 passed (40)`, the
+    reds being exactly the twelve cells the file marks `RED` (a1–a6, e1–e3,
+    f1–f3) and each failing on this bug's own symptom — `expected [] to deeply
+    equal [ { severity: 'error', code: 'theta/parse/increment-decrement', … } ]`
+    and `expected 'RENDERED ["x 5"]' to be 'REFUSED AT LOAD — no turn
+    rendered'`. Restored byte-exactly and green at 41/41.
+  - Two further neutralisations, each red-proved and restored: removing the
+    forbidden-form `continue` reds cell (c3) (the array grows by the residue
+    row), and making the unparsable arm push what the drain collected reds cell
+    (a18).
+  - Default suite `npm test`: **343 files / 6601 tests passed** (baseline
+    342 / 6560; the delta is this witness's one file and 41 cells).
+  - `npx tsc -p tsconfig.json --noEmit` clean. `npm run lint` clean.
+  - Live: H8a `tests/live/live-production-acceptance.test.ts` **74/74**,
+    including the new cell, which was red-proved in a real run (with the fix
+    neutralised the refused theta registered anyway) and green on restore; H9a
+    `tests/live/acceptance/` **11/11**, `assertStderrClean` never failing. No
+    stochastic red of any known class was observed.
+- **Review:** three rounds. Round 1 (deep) — three findings, none behavioural:
+  the unparsable-arm docstring asserted, falsely, that a null parse has nothing
+  to drain (it does: `${= 1}` drains and collects `stray '='`, and the arm's
+  `continue` drops it by design); cell (a17) could not distinguish "collected
+  and dropped" from "nothing to drop"; one banned word. All three fixed
+  comment-only / additively. Round 2 (fast) — clean. Round 3 (fast, over the
+  two additive test surfaces) — clean.
+- **Verification:** all four obligations discharged with quoted evidence. Its
+  one finding was a `test` finding against the verification script rather than
+  the code — cells (c1)/(c2) do **not** witness the leading-offence-precedence
+  `continue`, because both their sources parse whole and collect nothing. Closed
+  by additive cell (c3) (`${match c { _ => 1 } = 2}` — a forbidden form that
+  also leaves residue), red-proved.
+- **Residuals** (each measured, none created here):
+  - The four **type**-phase codes (`theta/parse/mixed-plus-operands`,
+    `non-indexable-receiver`, `question-on-non-result`, `unknown-method`) and the
+    two scope-aware **parse** codes (`unknown-identifier`, `unknown-method`)
+    still do not fire inside `${…}`. Measured: none of them is in
+    `BodyParser.diagnostics` at all — they are computed by later scope-aware /
+    type-aware walks over the whole-document AST against a `bindings` map, so
+    they need §Fix (a) **route 3**, whose precondition this report itself leaves
+    unsettled ("the type layer's checks are written against a `bindings` map for
+    the enclosing scope, and an interpolation's scope is the enclosing
+    statement's — this needs stating, not assuming") and which carries 0079's
+    ONE-emission-site cost. Route 3 is declined here and the six rows are
+    pinned silent, cell by cell, in witness group (a) (cells a7–a16) so the gap
+    is stated rather than latent. Separate adjudication.
+  - Consequently the three `THREW` rows of §Reproduction are unchanged:
+    `${s.frobnicate()}` and `${a.map(v => v)}` still abort a drive under an
+    uncoded `Error`, `${o[0]}` under `NonObjectReceiverError`, and `${1 + "a"}`
+    still renders `x 1a` against QRY-18. Witness cell (f4) pins all four
+    dispositions and is the cell to update deliberately if route 3 is ever taken.
+  - The **unparsable arm** (`parseExpressionSource` → `null`) keeps its pre-fix
+    disposition exactly: the token scan is its sole reporter and any diagnostic
+    the drain collected is dropped. This is a stated parity exception to the
+    rule above, not an empty set — `${= 1}` collects `stray '='` and has it
+    dropped (cell (a18)) — and choosing a disposition for a source that parses
+    to nothing at all would be a DIAG-2 adjudication this report does not open.
+  - `?.` and `=>` are still silently rewritten inside an interpolation
+    (`${a?.b}` → `a.b`, `${a.map(v => v)}` → a two-argument `map`). Measured,
+    both consume their whole source, and the `let`-RHS control draws no
+    `unsupported-feature` for either — so the rewrite is **position-independent**
+    and outside this report's class, the same fence §Non-goals applies to spread.
+  - §Non-goals' two `lexQueryTemplate` rows
+    (`theta/parse/illegal-template-escape`, `theta/parse/unterminated-template`)
+    are untouched, as are the `terminated`-is-always-false call convention and
+    bug [0085](./0085-empty-template-warning-dead.md)'s family.
+- **Doc-was-wrong (measured at the fix HEAD, 0.144.0):**
+  - §Reproduction's inventory records `c = 1`'s `let`-RHS control as
+    `theta/parse/assignment-as-expression`. It is
+    `theta/parse/unsupported-feature` — `unsupported syntactic feature: stray
+    '=' in statement position`. §Expected behaviour's criterion ("the same
+    registered code its `let`-RHS control draws") therefore selects
+    `unsupported-feature` for that row, and no `assignment-as-expression`
+    emission is owed at the interpolation position.
+  - The corpus census is **33** committed files (31 `.theta` + 2 `.thetalib`),
+    not 34, carrying 38 `@`-templates and 37 interpolations. The interpolation
+    count, and the 0-flagged / 0-truncated result, reproduce exactly.
+  - `c ?? 1` is **not** a residue row: both `?` are consumed as a nested unwrap,
+    leaving only ` 1`, which heads a legal statement and drains silently. Its
+    `let`-RHS control agrees — `question-on-non-result` twice and no stray row —
+    so it belongs to the type-phase residual, not to the reached set.
+  - `5 >> 1`'s residue token is `'>'` and `1 === 1`'s is `'='` (single, not
+    `'>>'` / `'=='`): the comparison and equality parses each consume the first
+    operator of the pair.
+  - A nested `@`-query inside `${…}` cannot be asserted at array length 1: the
+    whole-file lexer terminates the OUTER template at the nested backtick, so
+    `let _ = @`x ${@`y`}`` draws three diagnostics in total. Cell (c2) asserts
+    exactly one *interpolation-attributed* diagnostic and pins the measured
+    three-row array, which is why
+    `tests/e2e-s1-expr-diagnostics.test.ts:123` only ever used `hasCode`.
+- **Discharge notes appended:** none. Bug 0084's residual (ii) — this report's
+  origin — is discharged by this fix for its own `${c--}` observable, and cell
+  (a1) is that residual's witness.
+- **Pinned dispositions / non-goals:** route 2 (extending
+  `firstForbiddenInterpolationToken`'s token set) is declined for good: it
+  re-implements a token approximation of a grammar the shipped parser already
+  decides, collapses eight registered codes onto one, and would re-open the
+  string-literal false-positive hazard the current two-member set is
+  deliberately free of (`match` is a keyword and `@` a punct; `=` and `-` have
+  no such property). Per-interpolation source ranges remain a §Non-goal.

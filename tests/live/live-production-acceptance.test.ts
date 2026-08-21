@@ -1504,6 +1504,109 @@ describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instea
   });
 });
 
+// ===========================================================================
+// cell 75 — bug 0122: a `@`-query `${…}` interpolation whose expression is a
+// form the expression sublanguage refuses (`--`, `===`, …) discards every
+// parse-parser-phase diagnostic and loads clean, on a production path, with
+// zero diagnostics (docs/bugs/0122-template-interpolation-diagnostics-discarded.md).
+// The settled fix (§Fix (a) route 1, .pi/tmp/fixes/0122-route-brief.md) makes
+// `checkQueryTemplateInterpolations` (src/parser/theta-document.ts:7398)
+// relocate the interpolation's own parse-parser diagnostics to the enclosing
+// `@`-query's range, so the SAME `hasLoadParseError` site the bug
+// 0070/0071/0079(a)/0110/0084 cells above exercise for their own codes now
+// also fires for `theta/parse/increment-decrement` raised INSIDE `${…}` — a
+// registration-level refusal, exactly like bug 0079 (a) above, and this is
+// the same fixture shape mirrored onto bug 0122's own code. No shipped live
+// fixture interpolates a rejected form (the bug doc's own corpus census: 0 of
+// 37 committed interpolations), so no existing live cell reaches this arm.
+// ADDITIVE ONLY: no existing cell in this file is renumbered or edited.
+// ===========================================================================
+
+/** `theta/parse/increment-decrement`'s registered Message — DIAG-4, read not copied. */
+const B0122_INCREMENT_DECREMENT_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/** The fixed observable's registered code — src/parser/bindings.ts's emitter. */
+const B0122_INCREMENT_DECREMENT_CODE = "theta/parse/increment-decrement";
+
+/**
+ * A `${c--}` interpolation — bug 0122's own origin row (bug 0084's residual
+ * (ii)). At `let`-RHS level this same source draws
+ * `theta/parse/increment-decrement`; pre-fix, inside `${…}` it drew nothing
+ * and the theta registered and rendered the value of `c` into the prompt
+ * (measured in the bug doc's §Reproduction).
+ */
+function interpolationRejectedFormTheta(): string {
+  return ["---", "mode: prompt", "---", "let c = 5", "@`x${c--}`", ""].join("\n");
+}
+
+describe("H8a-T cell 75 — bug 0122: a rejected form inside a `@`-query `${…}` interpolation refuses to register (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose untyped `${…}` interpolates `c--`, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // refused theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the fix.
+      { source: "project", stem: "b122livectl", text: promptTheta("THETA-LIVE-OK") },
+      { source: "project", stem: "b122liverefused", text: interpolationRejectedFormTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b122livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the fix, would explain the refused theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root,
+      // `theta/parse/increment-decrement` — relocated by
+      // `checkQueryTemplateInterpolations` to the enclosing `@`-query's range —
+      // now fires for a `${c--}` interpolation, and `hasLoadParseError`
+      // un-registers the caller at the SAME site the bug 0070/0071/0079(a)/
+      // 0110/0084 cells above exercise for their own codes.
+      expect(
+        handle.command("b122liverefused"),
+        "the caller whose `${…}` interpolates `c--` registered anyway through " +
+          "the live discovery/session_start path — " +
+          "theta/parse/increment-decrement did not fire inside the " +
+          "interpolation. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b122liverefused");
+
+      // DIAG-4 sanity: the registered code this cell relies on carries the
+      // Message the registry pins, read not copied — a guard against a
+      // registry-page rename silently degrading the cell's own narrative.
+      const message = registryMessage(
+        B0122_INCREMENT_DECREMENT_REGISTRY,
+        B0122_INCREMENT_DECREMENT_CODE,
+      ) as string | undefined;
+      expect(
+        message,
+        `${B0122_INCREMENT_DECREMENT_CODE} has no registry row — the code this cell ` +
+          "asserts is not registered (DIAG-2)",
+      ).toBeTypeOf("string");
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
 /**
  * Bug 0114's PRIMARY shape (docs/bugs/0114-nested-result-in-interpolated-object-leaks-carrier.md):
  * a `par for` value is `array<Result<T, QueryError>>` (control-flow.md:74,

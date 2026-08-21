@@ -1285,6 +1285,36 @@ export function parseExpressionSource(source: string): Expr | null {
 }
 
 /**
+ * Parse a `@`...`` template's `${…}` interpolation source, returning the
+ * parsed expression (or `null` when it does not parse at all) ALONGSIDE the
+ * `BodyParser`'s own parse-phase diagnostics — the settled route for bug 0122:
+ * an expression inside an interpolation draws exactly the parse-*parser*-phase
+ * diagnostics the same text draws at `let`-RHS level. Same lex seam as
+ * `parseExpressionSource` (real `lexTheta`, inline no-op channel, the
+ * `<interpolation>` path) and the same `BodyParser` construction; the only
+ * difference is driving `parseSingleExpressionWithResidue()` so a residue after
+ * the expression — not only the expression's own emitters — has a chance to
+ * draw a diagnostic before it is discarded. `parseExpressionSource` itself is
+ * untouched: its other four call sites do not want the residue drain.
+ */
+function parseInterpolationSource(source: string): {
+  readonly expr: Expr | null;
+  readonly diagnostics: readonly Diagnostic[];
+} {
+  const lex = lexTheta(
+    { path: "<interpolation>", bytes: encodeSource(source) },
+    {
+      pi: { sendMessage: () => {} },
+      ui: { notify: () => {} },
+      emitDiagnostic: () => {},
+    },
+  );
+  const parser = new BodyParser(lex.tokens, "<interpolation>", source);
+  const expr = parser.parseSingleExpressionWithResidue();
+  return { expr, diagnostics: parser.diagnostics };
+}
+
+/**
  * Collect the whole-file named-type set the frontmatter `params:` / `system:`
  * value-validations resolve a `NamedType` against: body `schema` declarations
  * (with their object field sources when present), body `enum` declarations, and
@@ -3366,6 +3396,26 @@ class BodyParser {
    */
   public parseSingleExpression(): Expr | null {
     return this.parseExpression();
+  }
+
+  /**
+   * Parse one expression, then drain any residue through the SAME `parseForms`
+   * statement loop the whole-file body drives (`this.diagnostics` is the sink
+   * either way), rather than a bespoke "first unconsumed token" scan. Parity
+   * with the `let`-RHS position is by CONSTRUCTION under that choice: a
+   * residue that itself heads a legal statement (`c - -`, `typeof 1`) stays
+   * silent exactly as it does at `let`-RHS level, while a residue headed by a
+   * stray punct draws the identical `stray '<t>' in statement position` row
+   * the statement loop already emits above. A bespoke scan has no such parity
+   * guarantee and would red bug 0084's `${c - -}` control by inventing a
+   * diagnostic the `let`-RHS position never draws.
+   */
+  public parseSingleExpressionWithResidue(): Expr | null {
+    const expr = this.parseExpression();
+    if (!this.atEnd()) {
+      this.parseForms(() => this.atEnd());
+    }
+    return expr;
   }
 
   /**
@@ -7360,15 +7410,34 @@ function walkExpr(
 }
 
 /**
- * Reject the interpolation forms expressions.md §"Not supported" forbids inside
- * a `@`-query `${…}` — a nested `match` expression or a nested `@`-query
- * template — with `theta/parse/unsupported-feature`. Both are admitted only at
- * statement / `let`-RHS level so template evaluation stays code-only and never
- * silently fires a model turn. Each `${…}` interpolation source is re-lexed
- * (`lexQueryTemplate`) and parsed as a full expression (`parseExpressionSource`,
- * the same entry the render path drives), then its subtree is scanned for a
- * forbidden node. The whole `@`-query range locates the diagnostic — the
- * verbatim template carries no per-interpolation token span.
+ * Reject the interpolation forms expressions.md §"Not supported" forbids
+ * inside a `@`-query `${…}`, and — the settled route for bug 0122 — surface
+ * every OTHER parse-*parser*-phase diagnostic the same interpolation source
+ * would draw at `let`-RHS level, relocated to the enclosing `@`-query's range
+ * (`file` = this walk's `file` parameter, `range` = `e.range`).
+ * `QueryTemplatePart` carries no per-interpolation offsets (bug 0079's
+ * constraint), so the enclosing query's range is the only locatable site; two
+ * interpolations in one template therefore draw two diagnostics at the SAME
+ * range, one per offence, never collapsed into one.
+ *
+ * Leading-offence precedence, load-bearing: the forbidden-form / forbidden-
+ * token check below runs FIRST. When it fires for a part, that one diagnostic
+ * is the ONLY thing pushed for that part and the parser's own collected
+ * diagnostics for it are dropped (`continue`) — this is what keeps `match` and
+ * a nested `@`-query at exactly one interpolation-attributed diagnostic each
+ * (mirrors bug 0175's landed ordering rule for the sibling position).
+ *
+ * The unparsable arm (`expr === null`) is UNCHANGED from before this fix: run
+ * the token scan, push its diagnostic if it fires, and otherwise push NOTHING
+ * and `continue`. The drain can still collect on this path — `${= 1}` parses
+ * to `null` and drains the whole statement loop's
+ * `theta/parse/unsupported-feature` verdict for the stray `=` — but the
+ * `continue` deliberately drops whatever was collected so the unparsable
+ * arm's disposition stays byte-identical to its pre-fix disposition (route
+ * settlement), leaving the token scan as this arm's sole reporter. A STATED
+ * parity exception to the one-sentence rule, not an empty set (bug doc §Fix
+ * (a): "what happens to an interpolation that does not parse" must be
+ * stated).
  */
 function checkQueryTemplateInterpolations(
   e: QueryExpr,
@@ -7379,7 +7448,7 @@ function checkQueryTemplateInterpolations(
     if (part.kind !== "interp") {
       continue;
     }
-    const parsed = parseExpressionSource(part.exprSource);
+    const { expr: parsed, diagnostics: collected } = parseInterpolationSource(part.exprSource);
     if (parsed === null) {
       // A malformed interpolation must still not silently smuggle a forbidden
       // `match` / nested `@`-query past the AST walk (which is unavailable when
@@ -7413,6 +7482,10 @@ function checkQueryTemplateInterpolations(
           forbidden +
           " inside ${...} interpolation",
       });
+      continue;
+    }
+    for (const d of collected) {
+      out.push({ ...d, file, range: e.range });
     }
   }
 }

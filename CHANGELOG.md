@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.149.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0122 — parse diagnostics inside a `@`-template `${…}` interpolation
+  are no longer discarded.** `parseInterpolationSource` +
+  `BodyParser.parseSingleExpressionWithResidue` emit at the parse-layer
+  walk, draining residue through the shipped `parseForms` loop (let-RHS
+  parity by construction). No registry edit — the DIAG-2 Triggers admit as
+  written. Witness: `tests/interpolation-parse-diagnostics.test.ts`
+  (41 cells, 12 red pre-fix) + H8a cell 75 (red-proven both directions).
+  Type-phase and scope-aware codes inside `${…}` remain route 3 (pinned
+  a7–a16, recorded).
+
 ## [0.148.0] - 2026-08-26
 
 ### Fixed
