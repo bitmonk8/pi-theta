@@ -12079,3 +12079,162 @@ describe("H8a-T — bug 0175 cell 73: a params: default whose parse leaves a sec
     }
   });
 });
+
+// ===========================================================================
+// cell 74 — bug 0217: a `params:` field whose right-hand side carries an inline
+// `enum[…]` inside a generic argument does not register, live.
+//
+// `schemas.md:93` states the rule with no depth qualifier — `enum` is
+// "**top-level only** — there is no inline `enum["a", "b"]` form
+// (`theta/parse/inline-enum`)" — and `grammar.md:90–:102` closes `Type` over six
+// alternatives, none of which is a bracket form. At the pre-fix baseline
+// (e5d760bd / 0.139.0, the fix commit for bug 0204) `array<enum["a", "b"]>` at a
+// `params:` field drew NO diagnostic: the angle-only argument split
+// (`lowerTypeExpr`'s generic arm, src/parser/params.ts) cut the `[…]` group at
+// its top-level comma, both manufactured pieces recursed through
+// `withoutUnspellableSink`, and the sink
+// `theta/load/params-type-not-expression` reads stayed empty — so the theta
+// REGISTERED with `properties.f = {}`, a fragment that validates every value.
+// Bug 0217's route (its §Fix (b)(2)) pushes the SOURCE TEXT of that cut bracket
+// group into the sink once, as a last resort, so the refusal fires and
+// `hasLoadParseError` (src/extension/production-composition.ts) withholds
+// registration.
+//
+// THIS CELL IS A DENIAL CELL: `d217livenested`'s ABSENCE from the registry is
+// the fixed observable, reached through the REAL production composition root
+// (session_start → resources_discover → composeExtensionInstance →
+// checkTypeLayer) that the offline `parseThetaDocument` witness
+// (tests/nested-inline-enum-generic-argument-refusal.test.ts) never touches.
+// Two controls make the denial non-vacuous:
+//   - `d217livectl`, a plain prompt theta in the SAME workspace, proves the
+//     workspace and the discovery walk both work, so the denial cannot be
+//     attributed to a broken workspace.
+//   - `d217livelegal`, a `params:` field declaring `array<"a" | "b">` — the
+//     literal-union spelling `schemas.md:93` points authors AT — proves the
+//     refusal is targeted rather than "no `params:` theta registers in this
+//     harness", and that the fix is a redirection rather than a loss of
+//     expressiveness.
+// `bind_model:` is pinned on both `params:`-declaring thetas because neither
+// field is `classifyBinderBypass`'s single-string-bypass shape (both are
+// `array<…>`), so both would otherwise draw
+// `theta/load/binder-model-unresolved` at registration independent of this bug
+// (mirroring the bug 0059/0102/0175/0204 cells above).
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens (the same profile the bug 0204 / 0175 cells above
+// claim). ADDITIVE ONLY: every existing cell in this file is unchanged and this
+// cell adds no assertion to any of them.
+//
+// NOTE (cell 74): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+/**
+ * A `params:` theta with ONE field of the declared type and a resolvable
+ * `bind_model:` — every field cell 74 plants is an `array<…>` shape, so
+ * registration reaches the binder-model resolution guard regardless of this
+ * bug and the pin isolates each theta's verdict to the type-text refusal
+ * alone. The pure-literal final value (no query) matches this file's other
+ * registration-only `params:` cells: registration is the only observable read.
+ */
+function cellDParamsTheta(fieldType: string): string {
+  return [
+    "---",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    `  f: '${fieldType}'`,
+    "---",
+    '"ok"',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0217 cell 74: a params: field carrying an inline enum[…] inside a generic argument does not register, live (Convention: live-host acceptance)", () => {
+  it('does not register a theta whose params: field declares array<enum["a", "b"]>, while its legal array<"a" | "b"> sibling still registers, through the real discovery\u2192registration path', async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // sibling's status below could be (wrongly) attributed to a broken
+      // workspace instead of the nested-inline-enum refusal under test.
+      { source: "project", stem: "d217livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The over-refusal fence: the literal-union spelling schemas.md:93 points
+      // authors AT. It must keep registering, so the denial below is targeted
+      // rather than "no params: theta registers in this harness".
+      {
+        source: "project",
+        stem: "d217livelegal",
+        text: cellDParamsTheta('array<"a" | "b">'),
+      },
+      // The load-bearing DENIAL: an inline `enum[…]` inside a generic argument.
+      // Pre-fix this registers with `properties.f = {}`.
+      {
+        source: "project",
+        stem: "d217livenested",
+        text: cellDParamsTheta('array<enum["a", "b"]>'),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("d217livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the nested-inline-enum refusal under test, would explain either " +
+          "sibling's status below too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The over-refusal fence must register BEFORE the denial is asserted,
+      // isolating the denial to the inline `enum[…]` specifically.
+      expect(
+        handle.command("d217livelegal"),
+        'the legal `array<"a" | "b">` sibling did not register — precondition ' +
+          "unmet (schemas.md:93 points authors at exactly this spelling, so it " +
+          "must keep loading; over-refusal here would hide the denial below " +
+          "inside a broken control rather than a targeted fix). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: through the REAL production composition root (not
+      // the offline `parseThetaDocument` harness the unit witness uses), the
+      // theta whose `params:` field declares `array<enum["a", "b"]>` does not
+      // register — the cut `[…]` group reaches `LowerCtx.unspellable`,
+      // `theta/load/params-type-not-expression` fires, and `hasLoadParseError`
+      // withholds the whole frontmatter.
+      expect(
+        handle.command("d217livenested"),
+        'the params: field declaring `array<enum["a", "b"]>` registered anyway ' +
+          "through the live discovery/session_start path — " +
+          "theta/load/params-type-not-expression did not fire for an inline " +
+          "enum[…] inside a generic argument, so the field lowered to the " +
+          "assert-nothing `{}` and a value the author declared as an " +
+          "enumeration is validated against nothing (schemas.md:93 refuses the " +
+          "construct with no depth qualifier). Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("d217livenested");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug
+      // 0059/0102/0175/0204 cells above).
+      const loadNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = paramsTypeNotExpressionFragment("f");
+      expect(
+        loadNotes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the params-type-not-expression " +
+          "rejection for the nested inline enum. Notes: " +
+          JSON.stringify(loadNotes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

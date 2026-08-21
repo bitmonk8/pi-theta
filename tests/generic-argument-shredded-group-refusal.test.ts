@@ -76,13 +76,21 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      every lowered byte stay byte-identical — group (a), GREEN in both
 //      directions, and the sharpest fence in the file.
 //   3. An inline `enum[…]` inside a generic argument stops drawing two
-//      `schema-type-not-expression` naming the enclosure — group (g), RED. The
-//      chosen route leaves the nested spelling drawing NOTHING rather than
-//      `theta/parse/inline-enum`: §Fix (d)'s table permits either branch
-//      "stated either way", §Non-goals reserves the anchored-match question
-//      (`checkInlineEnumForm`) to that row, and this file states the branch on
-//      the record. The BARE spelling keeps `theta/parse/inline-enum` (group (g)
-//      g1/g2), which is the fence proving the anchored match was not touched.
+//      `schema-type-not-expression` naming the enclosure — group (g). Bug 0204's
+//      own fix left the nested spelling drawing NOTHING (its §Fix (d) table
+//      permitted either branch "stated either way"), and that silence was filed
+//      as **bug 0217**
+//      (docs/bugs/0217-nested-inline-enum-in-generic-argument-draws-nothing.md)
+//      from bug 0204 §Fix *Residuals* item 1. Bug 0217's route — its §Fix
+//      (b)(2), a refusal threaded for a recursed segment whose ENCLOSING cut
+//      group derives from no `Type` alternative — restores ONE refusal per
+//      position in that position's own registered code, so cells g3/g4 now
+//      assert that one refusal rather than the count of two the shred produced
+//      or the silence bug 0204 landed. The BARE spelling still keeps
+//      `theta/parse/inline-enum` (group (g) g1/g2): bug 0217 does NOT extend
+//      `checkInlineEnumForm`'s anchored match to depth, so that pair remains
+//      the fence proving the anchored match was not touched. Bug 0217's own
+//      witness is tests/nested-inline-enum-generic-argument-refusal.test.ts.
 //   4. The refusals that stand, stand (§Expected bullet 5, §Fix (c)(1)): all six
 //      §Reproduction (f) rows keep their code, count and position — group (f),
 //      GREEN in both directions, and the reason bug 0204 §Fix (b)(2) (sharing
@@ -738,12 +746,32 @@ describe("bug 0204 (f) — the refusals that stand, stand", () => {
 // is untouched, §Non-goals) and the `params:` position keeps refusing the whole
 // text the author wrote, which no split manufactured.
 //
-// g3/g4 are RED: the NESTED spelling draws two `schema-type-not-expression`
-// naming the enclosing declaration today, which is neither row's code nor
-// either row's count. The route settled here leaves it drawing NOTHING rather
-// than `inline-enum` — §Fix (d)'s table permits either branch "stated either
-// way", and this is the statement: the anchored match is not extended to depth,
-// that being the `inline-enum` row's own question (§Non-goals).
+// g3/g4 are the cells bug 0204 landed as silence and **bug 0217** moves
+// deliberately (docs/bugs/0217-nested-inline-enum-in-generic-argument-draws-nothing.md,
+// its §Fix (c)(4): "The pinned silence is moved deliberately, not discovered").
+// Bug 0204's pre-fix behaviour was two `schema-type-not-expression` naming the
+// enclosing declaration — neither registered row's code nor either row's count
+// — and its §Fix (d) table permitted either "`theta/parse/inline-enum`, or
+// nothing — stated either way", so bug 0204 chose nothing. That choice made
+// input `schemas.md:93` refuses in terms ("`enum` is **top-level only** — there
+// is no inline `enum["a", "b"]` form") load clean, lower `{}` and REGISTER,
+// which bug 0204 §Fix *Residuals* item 1 named and bug 0217 filed.
+//
+// Bug 0217's route is its §Fix (b)(2): keep bug 0204's split, segment count,
+// per-segment suppression and every lowered byte exactly as they are, and push
+// the SOURCE TEXT of the innermost `[…]` group the angle-only split CUT into
+// the caller's `unspellable` sink — as a LAST RESORT, only when this argument
+// list's own segment recursion contributed nothing — where the shared decline
+// `isUnspellableTextRefusable` finds it refusable and each position emits its
+// own registered row (bug 0059's sink idiom). A `[…]` group derives from none
+// of grammar.md:90–:102's six `Type` alternatives; a `{…}` group IS one of them
+// (`ObjectType`, :101/:109), which is why bug 0204's admissions in groups (b),
+// (c), (h) and (l) are untouched. So g3/g4 assert ONE refusal per position in
+// that position's own code — `theta/parse/schema-type-not-expression` at the
+// two schema positions and `theta/load/params-type-not-expression` at `params:`
+// — and `checkInlineEnumForm`'s anchored match is still NOT extended to depth,
+// which is what keeps g1/g2 above on `theta/parse/inline-enum` and keeps this
+// pair off it.
 // ===========================================================================
 
 describe("bug 0204 (g) — the inline-enum spellings", () => {
@@ -777,20 +805,33 @@ describe("bug 0204 (g) — the inline-enum spellings", () => {
 
   for (const [id, typeSource] of NESTED) {
     for (const position of POSITIONS) {
-      it(`RED (${id}, ${position}): nested \`${typeSource}\` stops drawing the enclosure's refusal`, () => {
+      it(`RED (${id}, ${position}): nested \`${typeSource}\` draws this position's ONE refusal`, () => {
         const label = `${id} (${position}, ${typeSource})`;
         const r = read(label, position, typeSource);
+        const expected =
+          position === "params" ? [paramsRefusal("f")] : [schemaRefusal(DECL_NAME[position])];
         expect(
           r.lines,
-          `${label}: HEAD draws two \`${SCHEMA_REFUSAL}\` at the schema positions — one per ` +
-            `refusable shard of the shredded bracket list, the shards being the ` +
-            `\`enum["a"\`-shaped head and the \`"…"]\`-shaped tail while any interior item is a ` +
-            `\`LiteralType\` the shared decline exempts — and one \`${PARAMS_REFUSAL}\` at ` +
-            `\`params:\` — a code and a count neither registered row states for this input ` +
-            `(§Expected bullet 4). Under the settled route the shards are no longer judged, so ` +
-            `the nested spelling draws NOTHING; the anchored match is not extended to depth ` +
-            `(§Fix (d)'s route-dependent row, stated here). Observed: ${JSON.stringify(r.lines)}`,
-        ).toEqual([]);
+          `${label}: bug 0204's own pre-fix behaviour was TWO \`${SCHEMA_REFUSAL}\` at the ` +
+            `schema positions — one per refusable shard of the shredded bracket list, the ` +
+            `shards being the \`enum["a"\`-shaped head and the \`"…"]\`-shaped tail while any ` +
+            `interior item is a \`LiteralType\` the shared decline exempts — and one ` +
+            `\`${PARAMS_REFUSAL}\` at \`params:\`: a code and a count neither registered row ` +
+            `states for this input (bug 0204 §Expected bullet 4). Bug 0204's fix removed the ` +
+            `shard judgement and, under its §Fix (d) "stated either way" licence, left this ` +
+            `input drawing NOTHING — which made a construct \`schemas.md:93\` refuses in terms ` +
+            `load clean, lower \`{}\` and REGISTER. That silence is **bug 0217** ` +
+            `(docs/bugs/0217-nested-inline-enum-in-generic-argument-draws-nothing.md), filed ` +
+            `from bug 0204 §Fix *Residuals* item 1, and its §Fix (b)(2) route restores exactly ` +
+            `ONE refusal here in this position's own registered code: the innermost \`[…]\` ` +
+            `group the angle-only split CUT is pushed once into \`LowerCtx.unspellable\` (a ` +
+            `\`[…]\` group derives from none of grammar.md:90–:102's six \`Type\` ` +
+            `alternatives, unlike the \`{…}\` group bug 0204's own rows carry) and this ` +
+            `position emits its row. \`checkInlineEnumForm\`'s anchored match is NOT extended ` +
+            `to depth, so this pair stays off \`theta/parse/inline-enum\` while g1/g2 above ` +
+            `keep it. RED with \`[]\` is bug 0217's symptom; RED with TWO refusals is bug ` +
+            `0204's own defect returning. Observed: ${JSON.stringify(r.lines)}`,
+        ).toEqual(expected);
       });
     }
   }

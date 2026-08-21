@@ -723,9 +723,21 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
+    const beforeLoop = lowerCtx.unspellable?.length ?? 0;
     for (const [index, arg] of args.entries()) {
       lowerGenericArgument(arg, ctxFor(index));
     }
+    // Bug 0217 §Fix (b)(2): a segment this split cut out of a `[…]` group
+    // derives from no `Type` alternative (schemas.md:93, grammar.md:90–:102)
+    // and is illegal for the same reason the bare spelling is — but every
+    // piece of that group has recursed sink-less (`ctxFor`, above), so
+    // nothing above this line can ever refuse it. Push the group the author
+    // actually wrote, once, as a last resort: only when this list's own
+    // recursion earned NO REFUSAL of its own — measured through the shared
+    // decline, not the sink's length — so a whole segment beside the group
+    // (`???`, `Cat +`) keeps owning the construct's one refusal (§Fix (c)(2))
+    // instead of gaining a second for the group beside it.
+    pushCutBracketGroupAsLastResort(interior, lowerCtx, beforeLoop);
     return {};
   }
 
@@ -1036,6 +1048,168 @@ export function classifyGenericArgumentSegments(interior: string): ClassifiedArg
 function withoutUnspellableSink(lowerCtx: LowerCtx): LowerCtx {
   const { unspellable: _unspellable, ...rest } = lowerCtx;
   return rest;
+}
+
+/**
+ * For a generic-argument-list `interior`, the source text of the innermost
+ * `[…]` group that the angle-only comma split (`splitTopLevel`,
+ * `classifyGenericArgumentSegments`, above) CUTS — the group enclosing a cut
+ * comma (angle depth 0, `{}`/`[]` group depth ≥ 1) whose innermost currently
+ * open group is bracket-rooted — extended LEFT over the immediately
+ * preceding identifier run and through the matching `]`, or `undefined` when
+ * the split cuts no such group (bug 0217 §Fix (b)(2)).
+ *
+ * A `{…}` group is `ObjectType` (grammar.md:101, :109) — one of `Type`'s six
+ * alternatives (grammar.md:90–:102) — so a cut `{…}` group is exactly what
+ * bug 0204's per-segment suppression protects and this helper never returns
+ * it: only a group whose innermost open frame at the cut is `[` is a
+ * candidate, because `enum[…]` and every other `[…]` spelling derive from
+ * none of `Type`'s six alternatives at any depth (schemas.md:93, stated with
+ * no depth qualifier). `array<{a: enum["a", "b"]}>`'s interior is why the
+ * frame stack — not a bare brace/bracket depth counter — is what decides it:
+ * the comma inside `enum["a", "b"]` sits under an OPEN `{` too, but the
+ * innermost open frame at that comma is the `[`, so this returns the `enum`
+ * spelling and never the enclosing derivable object.
+ *
+ * The scan reproduces `classifyGenericArgumentSegments`' idiom byte for byte
+ * — the same angle counter, the same `{}`/`[]` depth tracking, the same
+ * quote/escape handling — so the cut point this finds is the SAME cut point
+ * that scan already marks non-whole. This is a sibling read of that scan, not
+ * a second splitter: it never changes `splitTopLevel`'s cut points or
+ * `classifyGenericArgumentSegments`' `text`/`whole` vectors (bug 0204 cell
+ * l3's lock, restated over bug 0217's interiors in
+ * tests/nested-inline-enum-generic-argument-refusal.test.ts group (a)).
+ *
+ * The returned text is the construct the AUTHOR wrote, not the bracket pair
+ * alone — `enum["a", "b"]`, never the bare `["a", "b"]` and never either
+ * manufactured piece (`enum["a`, `"b"]`) — so the sink entry a caller pushes
+ * (`pushCutBracketGroupAsLastResort`, below) names the illegal spelling
+ * itself, matching what the bare `enum["a", "b"]` already carries into this
+ * same sink at depth 0.
+ *
+ * When more than one bracket group is cut (nested brackets), the innermost
+ * one is returned by construction: its closing bracket is reached, and its
+ * frame popped, before any enclosing bracket frame's own closing bracket is,
+ * so the first frame recorded here is already the innermost.
+ *
+ * The matching `]` is REQUIRED: a group the source never closes
+ * (`array<enum["a", "b">`) leaves its frame open at the end of the scan, no
+ * frame is ever recorded, and this returns `undefined` — so such an input
+ * draws whatever the positions' other rows draw for it and nothing from this
+ * helper. That is an AUTHORIZED under-refusal, stated here rather than left
+ * to be discovered: the returned text is the construct the author wrote, and
+ * there is no such construct to name when its extent is unknown — an
+ * unclosed group's end could be any byte to the interior's end. §Fix names
+ * two routes for a CUT, CLOSED bracket group and neither addresses malformed
+ * bracket nesting, so an unclosed group stays outside bug 0217's reach and
+ * with the positions' own capture-level rows (measured: the alias arm refuses
+ * it, the `schema` field type and `params:` admit it, and the `let` position
+ * draws its own `let-without-initialiser` — fence cell (h1) in
+ * tests/nested-inline-enum-generic-argument-refusal.test.ts).
+ */
+export function findCutBracketGroupText(interior: string): string | undefined {
+  interface BracketFrame {
+    readonly opener: "{" | "[";
+    readonly start: number;
+    cut: boolean;
+  }
+  const stack: BracketFrame[] = [];
+  let angle = 0;
+  let quote: string | undefined;
+  let found: { readonly start: number; readonly end: number } | undefined;
+  for (let i = 0; i < interior.length; i += 1) {
+    const c = interior[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < interior.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "<") {
+      angle += 1;
+    } else if (c === ">") {
+      angle -= 1;
+    } else if (c === "{" || c === "[") {
+      stack.push({ opener: c, start: i, cut: false });
+    } else if (c === "}" || c === "]") {
+      const frame = stack.pop();
+      if (frame !== undefined && frame.cut && frame.opener === "[" && found === undefined) {
+        found = { start: frame.start, end: i };
+      }
+    } else if (c === "," && angle === 0 && stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top !== undefined && top.opener === "[") {
+        top.cut = true;
+      }
+    }
+  }
+  if (found === undefined) {
+    return undefined;
+  }
+  let left = found.start;
+  while (left > 0 && /[A-Za-z0-9_]/.test(interior[left - 1] ?? "")) {
+    left -= 1;
+  }
+  return interior.slice(left, found.end + 1);
+}
+
+/**
+ * Bug 0217 §Fix (b)(2), LAST RESORT: push `interior`'s cut bracket group
+ * (`findCutBracketGroupText`, above) into `lowerCtx.unspellable` iff the
+ * argument recursion the caller has run earned NO REFUSAL there —
+ * `beforeLength` is the sink's length snapshotted before that recursion ran,
+ * so `slice(beforeLength)` is exactly what that recursion contributed.
+ *
+ * The unit of "already earned" is what the SHARED DECLINE admits
+ * (`isUnspellableTextRefusable`, below), not what the sink holds: the
+ * property being preserved is one refusal per construct (§Fix (c)(2)) — a
+ * segment beside the group that already earned a refusal keeps owning it
+ * (`array<enum["a", "b"], ???>`, bug 0204 cell l2; `array<enum["a", "b"],
+ * Cat +>`) — and a construct is refused only where every position's own
+ * emission consults that predicate. A raw length test would count an entry
+ * the decline REJECTS (any brace-carrying whole argument, e.g.
+ * `pair<{a: string}, enum["x", "y"]>`'s `{a: string}`) as a contribution and
+ * suppress the group's refusal while the sibling earned none, which is bug
+ * 0217's own symptom surviving beside the fix.
+ *
+ * The suppression is otherwise an authorized under-refusal of bug 0204
+ * residual 2's own class (a segment's own recursion can itself under-refuse
+ * junk it carries, e.g. `array<{a: Cat +, b: integer, c: boolean}>`'s
+ * `Cat +`) applied here to the group text instead: stated in this comment
+ * rather than discovered by a reviewer.
+ *
+ * Called from the ONE generic-arm return point that can carry a cut group —
+ * the best-effort loop over every other constructor's arguments. The arity-1
+ * `array` branch above cannot: a cut bracket group forces TWO OR MORE
+ * segments, because the split cuts at exactly the angle-depth-0 commas this
+ * helper's group must enclose, and such a comma leaves the group's `[` behind
+ * it and its matching `]` ahead of it, so both sides are non-empty and
+ * survive `splitTopLevel`'s non-empty filter — `args.length === 1` and a cut
+ * bracket group are mutually exclusive.
+ *
+ * A no-op when `lowerCtx.unspellable` is absent (the sink is `LowerCtx`'s one
+ * optional array member; a caller threading none gets no push, matching every
+ * other reader of it).
+ */
+function pushCutBracketGroupAsLastResort(
+  interior: string,
+  lowerCtx: LowerCtx,
+  beforeLength: number,
+): void {
+  if (
+    lowerCtx.unspellable === undefined ||
+    lowerCtx.unspellable.slice(beforeLength).some(isUnspellableTextRefusable)
+  ) {
+    return;
+  }
+  const group = findCutBracketGroupText(interior);
+  if (group !== undefined) {
+    lowerCtx.unspellable.push(group);
+  }
 }
 
 /**

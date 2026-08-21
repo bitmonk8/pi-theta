@@ -1,10 +1,8 @@
 # Bug 0217 — An inline `enum[…]` written inside a generic argument draws no diagnostic at any position: `array<enum["a", "b"]>` loads clean at a `schema` field type, an alias arm and a `params:` field, lowers to `{}` and registers, where the bare `enum["a", "b"]` draws `theta/parse/inline-enum` at the two schema positions and `theta/load/params-type-not-expression` at `params:`, and where the comma-free `array<enum["a"]>` still draws `theta/parse/schema-type-not-expression` — so a top-level comma inside the bracket list decides whether input the spec refuses is refused
 
-- **Status:** open. §Fix is constraint-pinned: the verdict is settled (a nested
-  inline `enum[…]` is illegal input and must draw a diagnostic) and the
-  mechanism is not — two routes are named below with the cost each pays, and one
-  of them moves landed assertions bug 0204's fix wrote. Ordering: nothing blocks
-  this report from starting and it blocks nothing.
+- **Status:** fixed (0.148.0). Route §Fix (b)(2) landed; see `## Fix (0.148.0)` at the
+  end of this report. §Fix below is the pre-fix constraint-pinned section and is
+  kept verbatim as the specification the fix was measured against.
 - **Sev/Diff estimate:** S1/D3 — S1 because input the spec refuses in terms is
   accepted with no diagnostic and a declared constraint is not enforced:
   `schemas.md:93` states `enum` is "**top-level only** — there is no inline
@@ -601,3 +599,152 @@ Also measured and not in the residual: `array<enum["a", "b"], integer>` draws no
 `theta/parse/generic-arity-mismatch` at any position, and
 `array<{a: enum["a", "b"]}>` and `array<array<enum["a", "b"]>>` are silent while
 `{a: enum["a", "b"]}` refuses.
+
+## Fix (0.148.0)
+
+- **What shipped** (route §Fix (b)(2); route (b)(1) not taken —
+  `src/parser/schema-declarations.ts`, `checkInlineEnumForm`'s anchored match and
+  `theta/parse/inline-enum`'s reach are byte-untouched, and so is bug 0124's
+  `annotationSourceIsNotTypeExpression`):
+  - `src/parser/params.ts` — `findCutBracketGroupText` (new, exported): for a
+    generic-argument-list interior, the source text of the innermost CLOSED
+    `[…]` group the angle-only comma split cuts, extended left over the
+    preceding identifier run through the matching `]`, so the unit is the
+    construct the author wrote (`enum["a", "b"]`) and never a piece the split
+    manufactured. A cut `{…}` group is `ObjectType` (`grammar.md:101`, `:109`) —
+    derivable, and exactly what bug 0204's per-segment suppression protects — so
+    it is never returned; a `[…]` group derives from none of `grammar.md:90–:102`'s
+    six `Type` alternatives at any depth (`schemas.md:93`, stated with no depth
+    qualifier). The scan reproduces `classifyGenericArgumentSegments`' idiom and
+    is a sibling read of it, not a second splitter.
+  - `src/parser/params.ts` — `pushCutBracketGroupAsLastResort` (new): pushes that
+    text into `LowerCtx.unspellable` exactly once, and only when nothing the
+    argument list's own segment recursion contributed to that sink is itself
+    refusable to the shared decline `isUnspellableTextRefusable`. The gate is
+    measured against the REFUSAL, not the sink's length: that is what keeps §Fix
+    (c)(2)'s one-refusal-per-construct property (`array<enum["a", "b"], ???>`,
+    bug 0204 cell l2, and `array<enum["a", "b"], Cat +>` keep their single
+    refusal on the whole segment beside the group) while a whole brace-carrying
+    argument beside the group — text the fragment-level brace exemption declines,
+    which earns no refusal — suppresses none either
+    (`pair<{a: string}, enum["x", "y"]>` refuses on `enum["x", "y"]`).
+  - `src/parser/params.ts` — wired at the ONE generic-arm return point that can
+    carry this class, the best-effort loop over every non-`array` constructor's
+    arguments. The arity-1 `array` branch cannot: a cut bracket group requires a
+    comma at angle depth 0 inside it, which is exactly where `splitTopLevel`
+    cuts, so both sides survive the non-empty filter and `args.length ≥ 2`. No
+    new diagnostic code and no new emitter: bug 0059's sink idiom holds, and
+    `params.ts`' `params:` refusal and `theta-document.ts`' alias-arm and field
+    emitters refuse from their own registered rows unchanged.
+  - The split, its segment count, `classifyGenericArgumentSegments`' `text` and
+    `whole` vectors, `ctxFor`'s per-segment suppression and every lowered byte
+    are unmoved (§Fix (c)(1)): `array<enum["a", "b"]>` still lowers `{}` (bug
+    0204 cell a24).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md`
+    (`theta/parse/schema-type-not-expression`) and
+    `docs/spec_topics/diagnostics/code-registry-load.md`
+    (`theta/load/params-type-not-expression`) — *Trigger* text mirrored (DIAG-2,
+    §Fix (c)(4)): the per-segment exclusion is stated to hold for a DERIVABLE cut
+    group only, the last-resort push and its refusal-measured gate are stated,
+    and the unclosed-bracket-group under-refusal is stated. Nothing else in
+    either row moved — no severity, no message, no placeholder set, no link.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md`
+    (`theta/parse/inline-enum`) — *Trigger* text narrowed to the row's TRUE reach
+    (`checkInlineEnumForm`'s anchored match over a whole alias arm or a whole
+    field type, at depth 0, at the two schema positions), naming the row that
+    answers a nested spelling. The row's behaviour is unchanged; this repairs the
+    overstatement §Why it matters records.
+  - `docs/reference/diagnostics.md:151` and `docs/reference/schema-subset.md:80`
+    — read, no edit: both are Trigger-less mirrors and neither was made false.
+- **Gates** (each re-run independently by the orchestrator, not taken from a
+  nested report):
+  - Witness RED before / GREEN after: `Tests 41 failed | 6692 passed (6733)` at
+    the fork baseline, every red observing `[]` or a zero gate count — bug 0217's
+    own diagnostic-absence-and-registers-anyway symptom. After the fix,
+    `Test Files 343 passed (343)` / `Tests 6750 passed (6750)`.
+  - Full default suite: `Test Files 343 passed (343)` / `Tests 6750 passed
+    (6750)`, including `tests/committed-fixture-parse-gate.test.ts` over every
+    committed `.theta`/`.thetalib` (the corpus-wide claim's discharge).
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    clean, no output.
+  - Live H8a `CELL-D`, run for real, BOTH directions: green
+    (`Tests 1 passed | 73 skipped (74)`), RED under neutralisation with the
+    pre-fix signature (`Registered: ["d217livectl","d217livelegal","d217livenested"]`
+    — the nested-`enum[…]` theta registers), green again after exact restoration.
+  - Live H9a, both files, run for real: `Test Files 2 passed (2)` /
+    `Tests 11 passed (11)`.
+- **Review**: 2 rounds. Round 1 (deep) — 3 findings: the last-resort gate read a
+  raw sink length so a non-refusable brace-carrying sibling entry silently
+  suppressed the refusal (`pair<{a: string}, enum["x", "y"]>` loaded clean and
+  registered) [correctness]; three comments cited a nonexistent `§Fix (b)(4)`
+  anchor [house-rule]; the arity-1 `array` branch's snapshot and push were
+  provably dead and their comment asserted a false scenario [house-rule]. All
+  three fixed, with cells b17/b18/c9/c10 and group (h)'s h1 added and the two
+  *Trigger* sentences restated. Round 2 (fast) — CLEAN, with the round-1 defect
+  re-proven necessary and sufficient by mutating the gate back (exactly 5 cells
+  red) and restoring byte-exactly.
+- **Verification**: SOLID on all four obligations. (i) The witness reds on TWO
+  independent neutralisation levers — `pushCutBracketGroupAsLastResort` a no-op
+  (`Tests 46 failed | 279 passed (325)`) and `findCutBracketGroupText` always
+  `undefined` (`Tests 50 failed | 275 passed (325)`) — the reds naming this
+  report's symptom, restored by editing with
+  `git hash-object src/parser/params.ts` = `b17bb3e1…` matching before and after
+  each lever. (ii) Default suite green, no stochastic-red class hit. (iii) Live
+  `CELL-D` red-proven in both directions under the live lock, plus H9a 11/11 for
+  real. (iv) `typecheck` and `lint` clean. The verifier's own finding was the
+  absence of this section, which is this section.
+- **Residuals** (unnumbered — the parent assigns numbers at merge):
+  - **An UNCLOSED cut bracket group stays under-refused.**
+    `findCutBracketGroupText` requires the matching `]`, because without it no
+    source text names the group's extent. Measured: `array<enum["a", "b">` draws
+    `theta/parse/schema-type-not-expression` at the alias arm and
+    `theta/parse/let-without-initialiser` at `let`, and is SILENT at the field
+    type, `params:` (which registers with `properties.f = {}`), the `fn`
+    parameter, the `fn` return and `@<T>`. Authorized and stated, not
+    discovered: `findCutBracketGroupText`'s register, fence cell h1 of the
+    witness, and both mirrored *Trigger* sentences say so. Malformed bracket
+    nesting is outside every route §Fix names.
+  - **The four annotation-side positions stay silent for every in-class
+    spelling** — §Fix (c)(5): bug 0124's `annotationSourceIsNotTypeExpression`
+    admits any source carrying a `[` before it consults the sink, so the `let`,
+    `fn` parameter, `fn` return and `@<T>` columns of §Reproduction (a) are
+    unmoved. The witness's group (f) is the 69-cell blast-radius fence proving
+    it.
+  - **`array<{a: string}, enum["x", "y"]>` keeps `theta/parse/generic-arity-mismatch`
+    alone.** An arity-1 constructor applied to two arguments is answered by that
+    position's own walk first, and both refusing rows' precedence rule keeps
+    that diagnostic alone.
+    The sink DOES carry the group for it (witness cell b18), so the gate change
+    is observable; only the position-level verdict is unchanged (witness cell
+    c10, a precedence fence).
+  - **Bug 0204 residual 2's authorized under-refusal is untouched.**
+    `array<{a: Cat +, b: integer, c: boolean}>` and
+    `array<{a: string, b: integer, c: boolean} | Cat +>` stay admitted (its
+    cells h1/l4), because the cut group there IS derivable.
+  - **Section Reproduction's `params` fixture cannot produce the rows it records
+    for a `T` carrying apostrophes.** The stated fixture single-quotes the YAML
+    scalar, so `array<enum['a', 'b', 'c']>` substituted into it yields invalid
+    YAML and draws `theta/load/missing-mode`, not the recorded empty set. With a
+    double-quoted scalar the recorded values reproduce exactly. The witness's
+    `paramsScalar()` picks the quote form per row and throws loudly for a `T`
+    carrying both, so a quoting diagnostic can never be silently attributed to
+    this class.
+  - **Provenance-label drift, not a citation error.** This report states HEAD
+    `e5d760bd` / v0.139.0; the lane it was fixed in is at v0.144.0. Every source
+    and spec citation was re-derived correctly against that tree. Per bug 0134's
+    adjudicated do-not-chase class no positional sweep was performed, and
+    `src/parser/params.ts` grew by about 150 lines, so `params.ts:N` citations in
+    other documents drifted further and were deliberately not chased.
+- **Discharge notes appended**: none. Bug 0204's own report is not edited; its
+  `## Fix (0.139.0)` *Residuals* item 1 named this class as a filing candidate
+  and this report is that filing.
+- **Pinned dispositions / non-goals**: Section Non-goals holds — what an admitted
+  generic argument lowers to (bugs 0164 / 0039 / 0184), bug 0124's bracket
+  decline, the angle-only split's argument-count disagreement with `parseGeneric`
+  (bug 0204 residual 3), junk the author wrote inside a derivable cut group, and
+  the brace frame (bugs 0035 / 0045 / 0052) are all untouched. The pre-authorized
+  assertion flip was used for exactly its named surface: bug 0204's witness cells
+  g3/g4, six assertions across three positions, subjects preserved, reasons
+  restated in the same change. No other cell of that file, or of any other test
+  file, moved.

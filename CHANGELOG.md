@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.148.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0217 — a nested inline `enum[…]` with a top-level comma inside a
+  generic argument now refuses at all three sink positions** instead of
+  registering with an empty lowered field. `findCutBracketGroupText` +
+  `pushCutBracketGroupAsLastResort` at the non-`array` generic-arm return
+  point; the comma is the discriminator (`array<enum["a"]>` control
+  unchanged); both registry Triggers mirrored. Witness:
+  `tests/nested-inline-enum-generic-argument-refusal.test.ts` (190 cells,
+  41 red pre-fix) + H8a cell 74 (red-proven). Six g3/g4 flips in 0204's
+  witness ratified under 0217 §Fix (c)(4); 0204's zero-lowered-bytes-moved
+  property held.
+
 ## [0.147.0] - 2026-08-26
 
 ### Fixed
