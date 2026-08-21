@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.176.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0226 — a resolved object-pattern head's field list is now checked**
+  (the declared-head half 0221 left): a listed field the resolved schema does
+  not declare, and a listed field whose literal is incompatible with the
+  declared field type (both directions), now REFUSE at parse instead of
+  loading `[]`, registering, and firing the wrong arm; subset field lists
+  stay legal (B2), and 0221 §Fix (c)(5)'s field-compatible interchangeability
+  boundary did not move. Registry row + expressions.md same commit. Witness
+  `tests/object-pattern-head-field-set-refusal.test.ts` (32 cells) + a
+  standalone live registration cell.
+
+>>>>>>> 2558493b (fix(bug-0226): a resolved object-pattern head's field list is checked at parse — v0.176.0)
+
 ## [0.175.0] - 2026-08-27
 
 ### Fixed

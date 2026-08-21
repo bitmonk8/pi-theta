@@ -818,10 +818,21 @@ describe("0219 (v) — the S1 headline row no longer registers", () => {
     // this fix the residual narrows to NON-reserved heads only — this cell is
     // that boundary, so a route that made it refuse would be fixing element 2
     // by accident (§Fix (b)(3)).
+    //
+    // WHY `R` declares `a: integer` (bug 0226 and its §Fix (c)(5) boundary,
+    // per bug 0221 §Fix (c)(5)): the original fixture (`schema R { b: integer
+    // }`) is bug 0226's own class — `R`'s listed field `a` is undeclared —
+    // and now draws `theta/parse/extra-object-field`, which would break this
+    // cell's SUBJECT (nominal dispatch stays unfixed: a declared, non-reserved
+    // head still selects its arm over an unrelated value). Making the sibling
+    // FIELD-COMPATIBLE (`R` declares the same field `Q` does, with a
+    // compatible type) keeps the field list carryable — the interchangeability
+    // boundary bug 0221 §Fix (c)(5) draws and bug 0226 does not claim — so
+    // element 2's residual is preserved at its own, disjoint boundary.
     const doc = expectDiagnostics(
       [
         "schema Q { a: integer }",
-        "schema R { b: integer }",
+        "schema R { a: integer }",
         "let d = Q { a: 1 }",
         'let r = match d { R { a: 1 } => "r-arm", _ => "other" }',
         "r",

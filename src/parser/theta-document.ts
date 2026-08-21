@@ -307,6 +307,16 @@ export type PatternNode =
       readonly kind: "object";
       readonly typeName: string | null;
       readonly fields: readonly { readonly name: string; readonly pattern: PatternNode }[];
+      /**
+       * The WHOLE pattern's span — the head token through the closing `}`
+       * (or, for the bare `{ … }` form, `{` through `}`). The object variant
+       * is the ONLY `PatternNode` shape carrying a range: it is the site
+       * `checkPatternObjectFields` (bug 0226 §Fix) reports its field-name and
+       * field-type verdicts at, mirroring the constructor position's
+       * `theta/parse/extra-object-field`, which likewise names the whole
+       * object literal's range rather than a per-field one.
+       */
+      readonly range: SourceRange;
     }
   | { readonly kind: "array"; readonly elements: readonly PatternNode[] };
 
@@ -4441,7 +4451,7 @@ class BodyParser {
         if (this.isPunct("}")) {
           this.advance();
         }
-        return { kind: "object", typeName: t.text, fields };
+        return { kind: "object", typeName: t.text, fields, range: spanRange(t.range, this.prevRange()) };
       }
       // A bare `_` wildcard, else an identifier binding pattern.
       if (t.text === "_") {
@@ -4504,7 +4514,7 @@ class BodyParser {
       if (this.isPunct("}")) {
         this.advance();
       }
-      return { kind: "object", typeName: null, fields };
+      return { kind: "object", typeName: null, fields, range: spanRange(t.range, this.prevRange()) };
     }
     // A pattern-position `++` / `--` (bug 0123 §Fix route (a)). Row `:34`'s
     // *Trigger* ("`++` or `--` operator used.") carries no position
@@ -7562,6 +7572,96 @@ function checkObjectExpr(
   );
 }
 
+/**
+ * The declared field-name set a `match` object-pattern head resolves to, for
+ * `checkPatternObjectFields`'s field-name check (bug 0226 §Fix). Mirrors
+ * `checkObjectExpr`'s constructor-position classification (`:7505–:7520`)
+ * over the SAME three sources — `StructuralRefs.schemas` first, then the
+ * whole-file `bodyTypes` universe — but with one deliberate divergence at the
+ * alias/union branch: the constructor position refuses an alias/union name
+ * outright (`theta/parse/unresolved-named-type`, since it carries no
+ * brace-constructible requirement), while a pattern head admits that same
+ * name (bug 0221's registered pattern-head clause on that code) and so needs
+ * a FIELD SET to judge its listed fields against — `undefined` here means
+ * DEFER (no same-file object body to check against: an imported symbol, an
+ * `enum`, a builtin, or no declaration at all), and an empty set means the
+ * declaration IS same-file but carries no fields (a same-file alias/union or a
+ * head-only `schema`), so every listed field is reported as unsatisfiable
+ * (row A5's settled disposition).
+ */
+function resolvePatternDeclaredFieldSet(
+  typeName: string,
+  refs: StructuralRefs,
+): ReadonlySet<string> | undefined {
+  const declared = refs.schemas.get(typeName);
+  if (declared !== undefined) {
+    return new Set(declared);
+  }
+  const { imports, enums, schemas: bodySchemas } = refs.bodyTypes;
+  if (!imports.has(typeName) && !enums.has(typeName) && bodySchemas.has(typeName)) {
+    return new Set();
+  }
+  return undefined;
+}
+
+/**
+ * The field-NAME half of bug 0226 §Fix: a `match` object-pattern head that
+ * resolves to a same-file declaration has its LISTED field names checked
+ * against that declaration, with the verdict `checkObjectExpr` (above) already
+ * applies at the constructor position — `theta/parse/extra-object-field`,
+ * reported at the whole PATTERN's range (the object `PatternNode`'s new
+ * `range` field), since no per-field range exists. Recurses into object field
+ * sub-patterns, array elements and constructor inners so a nested head (bug
+ * 0226 row A6) is reached too; wildcard, identifier and literal sub-patterns
+ * bind or match nothing and are no-ops. `theta/parse/missing-object-field` is
+ * deliberately NOT emitted here: a pattern lists a SUBSET of the declared
+ * fields by design (expressions.md:171, "unlisted fields are ignored"), so an
+ * omitted declared field stays legal at a pattern head (§Non-goals, cell b2).
+ */
+function checkPatternObjectFields(
+  pattern: PatternNode,
+  refs: StructuralRefs,
+  file: string,
+  out: Diagnostic[],
+): void {
+  switch (pattern.kind) {
+    case "wildcard":
+    case "identifier":
+    case "literal":
+      return;
+    case "constructor":
+      checkPatternObjectFields(pattern.inner, refs, file, out);
+      return;
+    case "array":
+      for (const element of pattern.elements) {
+        checkPatternObjectFields(element, refs, file, out);
+      }
+      return;
+    case "object": {
+      if (pattern.typeName !== null) {
+        const declaredSet = resolvePatternDeclaredFieldSet(pattern.typeName, refs);
+        if (declaredSet !== undefined) {
+          for (const field of pattern.fields) {
+            if (!declaredSet.has(field.name)) {
+              out.push({
+                severity: "error",
+                code: "theta/parse/extra-object-field",
+                file,
+                range: pattern.range,
+                message: `extra field '${field.name}' on schema '${pattern.typeName}'`,
+              });
+            }
+          }
+        }
+      }
+      for (const field of pattern.fields) {
+        checkPatternObjectFields(field.pattern, refs, file, out);
+      }
+      return;
+    }
+  }
+}
+
 function walkExpr(
   e: Expr,
   scope: WalkCtx,
@@ -7677,6 +7777,11 @@ function walkExpr(
     case "match":
       walkExpr(e.scrutinee, scope, refs, file, out);
       for (const arm of e.arms) {
+        // The field-NAME half (bug 0226 §Fix) runs against the head's
+        // declaration before the body is walked, so a refused head's arm
+        // still reaches its binder scope below without a diagnostic-order
+        // dependency on the body's own checks.
+        checkPatternObjectFields(arm.pattern, refs, file, out);
         walkExpr(arm.body, scope, refs, file, out);
       }
       return;

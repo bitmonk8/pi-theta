@@ -1234,6 +1234,33 @@ function isResultGenericTypeName(name: string): boolean {
 }
 
 /**
+ * The static type a LITERAL match-pattern sub-pattern (`R { a: 1 }`'s `1`)
+ * types as, for `checkPatternFieldTypes` (bug 0226 §Fix) to judge through
+ * `checkObjectFieldCompat` — the same relation the constructor position
+ * already decides at `checkObjectField` above. Unlike an EXPRESSION literal
+ * (`static-type-inference.ts`'s `case "literal"`, which reads the lexed
+ * `node.numericType` to tell `1` from `1.0`), a `PatternNode` literal carries
+ * only the parsed JS value — no lexed numeric spelling — so an integral
+ * number types `"integer"` and a non-integral one types `"number"`; reading
+ * every numeric pattern literal as `"number"` would turn every integral
+ * literal under an `integer`-declared field into a spurious narrowing
+ * verdict, which element (4) deliberately drops at the pattern position
+ * (cell x4).
+ */
+function patternLiteralType(value: string | number | boolean | null): CompatType {
+  if (typeof value === "string") {
+    return { kind: "literal", typesAs: "string" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "literal", typesAs: "boolean" };
+  }
+  if (value === null) {
+    return { kind: "literal", typesAs: "null" };
+  }
+  return { kind: "literal", typesAs: Number.isInteger(value) ? "integer" : "number" };
+}
+
+/**
  * A per-parse walk feeding the wired `type`-phase checkers. Holds only per-parse
  * state (the injected pass, the type env, the file, the callee-resolution
  * tables, the accumulated diagnostics) — no module-level mutable state.
@@ -2133,6 +2160,79 @@ class TypeLayerWalk {
   }
 
   /**
+   * The field-TYPE half of bug 0226 §Fix: a `match` object-pattern head's
+   * LISTED literal sub-patterns are judged against the head's declared field
+   * types, through the SAME `checkObjectFieldCompat` relation
+   * `checkObjectField` above routes at the constructor position. Recurses
+   * into object field sub-patterns, array elements and constructor inners
+   * (mirroring the field-NAME half's recursion, `checkPatternObjectFields`,
+   * theta-document.ts), so a nested head is reached too.
+   *
+   * Only `sub.kind === "literal"` fields are judged: a shorthand or
+   * identifier binder carries no literal to compare, and a nested object /
+   * array / constructor sub-pattern is reached by the recursion, not by this
+   * check. The result is FILTERED to `theta/parse/object-field-type-mismatch`
+   * alone — `checkObjectFieldCompat` can also answer TYPE-2's
+   * `theta/parse/integer-narrowing` for a `number` value under an
+   * `integer`-declared field, and that outcome is a PINNED DEFERRAL at the
+   * pattern position (cell x4): a pattern literal carries no lexed numeric
+   * type (`patternLiteralType`'s doc above), so `1.5` under `a: integer`
+   * types as plain `number` and would otherwise draw a narrowing verdict the
+   * constructor position's own literal-vs-declaration reading does not apply
+   * the same way to a pattern's runtime field-shape test.
+   */
+  private checkPatternFieldTypes(pattern: PatternNode): void {
+    switch (pattern.kind) {
+      case "wildcard":
+      case "identifier":
+      case "literal":
+        return;
+      case "constructor":
+        this.checkPatternFieldTypes(pattern.inner);
+        return;
+      case "array":
+        for (const element of pattern.elements) {
+          this.checkPatternFieldTypes(element);
+        }
+        return;
+      case "object": {
+        const typeName = pattern.typeName;
+        const declaredFields = typeName === null ? undefined : this.declaredFieldsOf(typeName);
+        if (typeName !== null && declaredFields !== undefined) {
+          for (const field of pattern.fields) {
+            const sub = field.pattern;
+            if (sub.kind !== "literal") {
+              continue;
+            }
+            // Own-key lookup (same reason `checkObjectFields` above states): a
+            // theta field name may collide with an `Object.prototype` member,
+            // and the record must never answer through the prototype chain.
+            const declared =
+              Object.hasOwn(declaredFields, field.name) ? declaredFields[field.name] : undefined;
+            if (declared === undefined) {
+              continue;
+            }
+            this.diagnostics.push(
+              ...checkObjectFieldCompat({
+                schema: typeName,
+                field: field.name,
+                declared,
+                value: patternLiteralType(sub.value),
+                env: this.env,
+                site: { file: this.file, range: pattern.range },
+              }).filter((d) => d.code === "theta/parse/object-field-type-mismatch"),
+            );
+          }
+        }
+        for (const field of pattern.fields) {
+          this.checkPatternFieldTypes(field.pattern);
+        }
+        return;
+      }
+    }
+  }
+
+  /**
    * One constructor field's value against its declared type. A `result-ctor`
    * value (`Ok(...)` / `Err(...)`) is rejected outright — every declared
    * field type is lowerable (`theta/parse/result-in-schema-position` makes a
@@ -2656,6 +2756,13 @@ class TypeLayerWalk {
         );
         this.walkExpr(e.scrutinee, bindings, flow);
         for (const arm of e.arms) {
+          // The field-TYPE half (bug 0226 §Fix) judges the head's LISTED
+          // literal fields before the body walk, the same ordering the
+          // parse-phase field-NAME half uses (theta-document.ts's `case
+          // "match"`) — neither reads the body's scope, so ordering has no
+          // observable effect beyond keeping the two halves' call sites
+          // parallel to read.
+          this.checkPatternFieldTypes(arm.pattern);
           // Each body is walked in ITS OWN arm scope: the runtime installs that
           // arm's pattern bindings before the body runs, so a same-named
           // enclosing record is not what the body reads.

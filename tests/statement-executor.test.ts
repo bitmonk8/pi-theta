@@ -790,6 +790,7 @@ describe("core-exec — `?` (try) dispatch-through and unwrap/propagate", () => 
             kind: "object",
             typeName: "QueryError",
             fields: [{ name: "cause", pattern: { kind: "literal", value: "schema_validation" } }],
+            range: span(),
           },
         },
         body: objectExpr([{ name: "recovered", value: boolExpr(true) }]),

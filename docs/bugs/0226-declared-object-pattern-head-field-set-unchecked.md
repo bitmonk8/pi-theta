@@ -1,6 +1,6 @@
 # Bug 0226 — A `match` object-pattern head that RESOLVES is admitted with any field list at all: `R { a: 1 }` where `schema R { b: integer }`, `R { a: 1 }` where `R` declares `a: string`, and `Animal { a: 1 }` where `Animal` is an alias/union with no object body each draw `[]`, register, and select their arm on a value of an unrelated schema — while the same three field lists in the VALUE position draw `theta/parse/extra-object-field`, `theta/parse/object-field-type-mismatch` and `theta/parse/unresolved-named-type`
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.176.0). Filed as bug
   [0221](./0221-object-pattern-head-name-unchecked-fires-wrong-arm.md)'s
   `## Fix (0.167.0)` *Residuals* item 1 (`:603`): "§Expected behaviour 3 (row
   A1) is NOT closed … Unclaimed by any report." Re-measured at HEAD for this
@@ -615,3 +615,152 @@ outcome.
   `diags` and `value` cell is that run's output verbatim, through the real
   `parseThetaDocument` and the real `executeBody` over the shipped production
   producer deps.
+
+## Fix (0.176.0)
+
+**The three questions §Fix left open are settled as follows.** The RANGE is
+carried on the AST: the object variant of `PatternNode` gains a single
+`readonly range: SourceRange` holding the WHOLE pattern's span (head token
+through closing `}`; `{` through `}` for the bare form), because the two passes
+that hold the declaration data run after the parse and the memoised token scan
+(`patternHeadTypeNames`) cannot supply field bodies to `parsePattern`
+(constraint 1). One range, not a per-field one: the constructor position's own
+`theta/parse/extra-object-field` likewise names the whole object literal's
+range (§Reproduction V1, `@5:9-5:19`), so a per-field range would have invented
+a precision the sibling verdict does not have. The CODE disposition is REUSE of
+the two rows §Fix constraint 6 names — `theta/parse/extra-object-field` for the
+field-NAME half and `theta/parse/object-field-type-mismatch` for the field-TYPE
+half — as a *Trigger* widening of both rows, minting nothing:
+`tests/fixtures/h7a/permitted-codes.json` is byte-untouched and no H9a
+reachability run is owed. `theta/parse/missing-object-field` stays ruled out
+(row B2). And the field-TYPE half DOES land in this change, in the pass that
+holds the declared field types.
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — the object `PatternNode` variant (`:307`)
+    gains `readonly range: SourceRange`, populated at both `parsePattern`
+    object return sites with the existing `spanRange(t.range, this.prevRange())`
+    helper; the runtime shape is untouched (constraint 2). New module function
+    `resolvePatternDeclaredFieldSet` classifies a head against the same three
+    sources `checkObjectExpr` uses (`StructuralRefs.schemas`, then `bodyTypes`'s
+    `imports` / `enums` / `schemas`), answering `undefined` for DEFER and an
+    EMPTY set for a same-file fieldless declaration. New module function
+    `checkPatternObjectFields` walks an arm pattern — object fields, array
+    elements, constructor inners — and pushes
+    `theta/parse/extra-object-field` at `pattern.range` for each listed field
+    the resolved declaration does not declare. `walkExpr`'s `case "match"`
+    calls it per arm.
+  - `src/parser/type-layer-checks.ts` — new module function
+    `patternLiteralType` types a literal sub-pattern (integral numbers as
+    `integer`, since a pattern carries no lexed numeric spelling), and new
+    private method `TypeLayerWalk.checkPatternFieldTypes` judges LITERAL field
+    sub-patterns through the existing `checkObjectFieldCompat`, filtered to
+    `theta/parse/object-field-type-mismatch`. Its `case "match"` calls it per
+    arm.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — *Trigger* widening
+    of `theta/parse/extra-object-field` (`:47`) and
+    `theta/parse/object-field-type-mismatch` (`:49`) to the `match`
+    object-pattern head position, naming the pattern-position deferrals, the
+    fieldless alias/union-or-head-only disposition, the pattern range, and (on
+    the type row) the `integer-narrowing` deferral, each with the GOV-15
+    sentence the neighbouring widened rows carry. DIAG-4 *Message* renderings
+    are byte-identical, so the message-only mirror
+    `docs/reference/diagnostics.md` (`:93`, `:95`) needs no edit — that page
+    transcribes Code/Sev/Phase/Message only, and no whole-registry mirror gate
+    exists for these two rows.
+  - `docs/spec_topics/expressions.md` — one normative paragraph beside the
+    disambiguation sentence bug 0221 extended (`:174`): the field-name and
+    field-literal-type rules, the fieldless-alias disposition, omission staying
+    legal, and the three deferrals.
+  - `tests/statement-executor.test.ts` — `range: span()` on one hand-built
+    object `PatternNode` (mechanical type conformance; no assertion moved).
+- **Gates:** witness
+  `npx vitest run tests/object-pattern-head-field-set-refusal.test.ts` →
+  `Tests 32 passed (32)` (RED before the fix: `Tests 10 failed | 20 passed
+  (30)` at the 30-cell first cut, every red `actual diagnostics: []` with the
+  wrong arm answered). Locks together → `97 passed (97)`. Full default suite
+  `npm test` → `Test Files 367 passed (367)` / `Tests 7522 passed (7522)`
+  (baseline at HEAD: 366 / 7490). `npm run typecheck` → clean. `npm run lint` →
+  clean. Live H8a
+  `tests/live/object-pattern-head-field-set-live-cell-CELL-B.test.ts` →
+  `Tests 1 passed (1)`; bug 0221's and bug 0219's live cells re-run green
+  alongside it.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — CLEAN, four
+  non-blocking residuals (no witness cell for the constructor-inner recursion;
+  two avoidable `as` casts; a banned word in two test comments; the widened
+  Trigger's enumeration omitting the head-only `schema` form), all four fixed
+  in one `bug-fix-fixer-light` round. Round 2 (`bug-fix-reviewer-fast`,
+  confirmation for the one executable hunk) — CLEAN, no new findings, with the
+  new cells' red direction proved by deleting each `case "constructor"` branch
+  in turn and restoring hash-verified.
+- **Verification:** VERIFIED. (1) The witness reds without the fix in BOTH
+  halves independently: neutralising the field-NAME call reds 7 cells (`a1`,
+  `a2`, `a5`, `a6`, `a7`, `x3`, `x7`), neutralising the field-TYPE call reds 5
+  (`a3`, `a4`, `b8b`, `x6`, `x8`), each with `actual diagnostics: []` and the
+  bug's own wrong-arm value; both files restored and hash-verified
+  (`40502d38…`, `05c63c58…`), 32/32 green after. (2) Full default suite green,
+  367 files / 7522 tests. (3) Live: the new H8a cell plus bug 0221's and bug
+  0219's cells all green on the first run, under the shared live lock. (4)
+  `npm run typecheck` and `npm run lint` clean. Constraint checks: no diff
+  under `src/runtime/`; `tests/fixtures/h7a/permitted-codes.json` untouched;
+  the corpus census re-derives at 34 files with every object-pattern head
+  `QueryError`, and `tests/committed-fixture-parse-gate.test.ts` green — no
+  committed fixture is newly refused.
+- **Residuals:**
+  1. **`theta/parse/integer-narrowing` is a pinned DEFERRAL at the pattern
+     position.** A non-integral literal under an `integer`-declared field
+     (`Q { a: 1.5 }` where `Q` declares `a: integer`) stays silent, where the
+     constructor position narrows. Evidence: witness cell `x4` (`[]`,
+     `"other"`), and the `.filter` in `checkPatternFieldTypes`. Cause: a
+     `PatternNode` literal carries the parsed JS value and no lexed numeric
+     spelling, so `1` and `1.0` are indistinguishable at this position; typing
+     every numeric pattern literal as `number` would refuse every integral
+     literal under an `integer` field. The refusal that IS owed here is
+     unclaimed by any report.
+  2. **Only LITERAL field sub-patterns are type-judged.** A shorthand binder
+     (`R { a }`) and a nested object / array sub-pattern carry no literal to
+     compare, so the field-TYPE half says nothing about them; a nested head is
+     judged by its own declaration one level down (cells `a6`, `x2`).
+     Structural judgement of a nested sub-pattern against a declared
+     inline-object or `array<T>` field type is not attempted.
+  3. **Row B8 of §Reproduction (C) is listed among the must-not-move
+     boundaries and cannot be one.** Its spelling (`schema R { a: string }` /
+     `match Ok(1) { R { a: 1 } … }`) is itself an instance of §Expected
+     behaviour 2 — a declared field with an incompatible literal — so it
+     refuses under any route that closes A3 and A4. Its SUBJECT (the listed
+     field must be present in the value for the wrong arm to fire) is
+     preserved field-compatibly in witness cell `b8a`
+     (`schema R { a: integer }` → `[]`, `"ok-arm"`), and the document's literal
+     spelling is pinned as a refused member of the class in cell `b8b`.
+     §Expected behaviour 5's own enumeration of what must not move does not
+     list B8, so this is a §Reproduction (C) labelling error, not a route
+     conflict.
+  4. **Two rows the document does not enumerate move, and are pinned in their
+     moved form.** An array ELEMENT's head (`[Q { zz: 1 }]`, cell `x3`) and a
+     `null` literal under a `boolean`-declared field (cell `x6`) are members of
+     the class by §Expected behaviour 1 and 2 and were not measured in
+     §Reproduction; both now refuse, and both are asserted with the reason
+     stated in the cell.
+  5. **The comment at `src/parser/theta-document.ts:6494`** ("a pattern node
+     carries no range") is now imprecise for the object variant specifically.
+     Its own point — that `walkCallSiteExpr` uses the arm body's start line
+     uniformly across every pattern kind — still holds, and it governs no code
+     this fix touches, so it was left byte-identical rather than widening the
+     diff.
+- **Discharge notes appended:** bug
+  [0221](./0221-object-pattern-head-name-unchecked-fires-wrong-arm.md)'s
+  `## Fix (0.167.0)` *Residuals* item 1 (the field-set half of its §Expected
+  behaviour 3) is DISCHARGED here; its witness cell `a1`
+  (`tests/object-pattern-head-unresolved-refusal.test.ts`) is flipped to the
+  refusal and re-cited to this report. Bug 0219's cell `v6` keeps its element-2
+  subject at a field-COMPATIBLE spelling. No sibling bug document's prose was
+  edited by this fix.
+- **Pinned dispositions / non-goals:** nominal dispatch stays unimplemented —
+  bug 0221 §Fix (c)(5)'s interchangeability boundary does not move (cell `a5`
+  there, cell `b1` here), and the empty-braced declared head still captures an
+  unrelated value exactly as the bare `{ }` pattern does (cells `b4`, `b5`,
+  `x1`). The `enum` head, the imported head and the builtin `QueryError` head
+  stay deferrals (cells `b6`, `b7`). `theta/parse/missing-object-field` does
+  not follow the field-name check into pattern position (cell `b2`). Bug 0123's
+  `parsePattern` recovery tail is byte-identical, and bug 0134's
+  positional-drift class was not chased.

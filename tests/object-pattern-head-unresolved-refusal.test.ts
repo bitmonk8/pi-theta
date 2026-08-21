@@ -126,6 +126,13 @@ const UNRESOLVED = "theta/parse/unresolved-named-type";
 /** Bug 0219's landed row, which a `keyword`-kind head keeps alone. */
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 
+/**
+ * Bug 0226's field-NAME verdict (code-registry-parse.md:47), which cell `a1`
+ * below now draws: the flip that report's §Fix constraint 5 authorises on
+ * this file, discharging bug 0221's residual on this class.
+ */
+const EXTRA_FIELD = "theta/parse/extra-object-field";
+
 /** Bug 0141's row, which a braced head never reaches (its *Trigger* says so). */
 const CAP = "theta/parse/capitalised-pattern-head";
 
@@ -141,6 +148,30 @@ function unresolvedMessage(name: string): string {
 
 function reservedMessage(keyword: string): string {
   return `reserved keyword '${keyword}' cannot be used as an identifier`;
+}
+
+function extraFieldMessage(field: string, schema: string): string {
+  return `extra field '${field}' on schema '${schema}'`;
+}
+
+/** Bug 0226's field-NAME refusal, at the WHOLE PATTERN's range. */
+function extraField(field: string, schema: string, at: SourceRange): DiagShape {
+  return {
+    severity: "error",
+    code: EXTRA_FIELD,
+    file: FILE,
+    range: at,
+    message: extraFieldMessage(field, schema),
+  };
+}
+
+/**
+ * The pattern's span, from its source spelling alone (bug 0226 element (1)):
+ * head token through closing `}`. `start + text.length` because the range's
+ * end column is exclusive.
+ */
+function patternRange(line: number, column: number, pattern: string): SourceRange {
+  return range(line, column, line, column + pattern.length);
 }
 
 // ===========================================================================
@@ -482,16 +513,25 @@ async function expectRefusedWrongArm(
 // ===========================================================================
 
 describe("0221 (a) — an undeclared non-reserved head is refused at the head's range", () => {
-  it("a1 [RESIDUAL, measured]: a DECLARED head whose field set cannot carry the listed fields stays silent and takes the value", async () => {
-    // §Expected behaviour 3 asks for this row and this route does NOT close
-    // it: the check lands in `parsePattern` (src/parser/theta-document.ts:4284),
-    // which holds no schema field bodies, so a resolved head is admitted
-    // whatever fields the pattern lists. `R` declares `{ b }`, the pattern
-    // lists `a`, and the arm still selects over a `Q`-constructed value. Pinned
-    // as this fix's RECORDED RESIDUAL — not as expected-correct behaviour — so
-    // a later route that closes the field-set half reds here and reads this
-    // comment.
-    const doc = expectDiagnostics(
+  it("a1 [DISCHARGED by bug 0226]: a DECLARED head whose field set cannot carry the listed fields is now refused", async () => {
+    // §Expected behaviour 3 asked for this row and bug 0221's fix did NOT
+    // close it: the check landed in `parsePattern`
+    // (src/parser/theta-document.ts:4284), which held no schema field bodies,
+    // so a resolved head was admitted whatever fields the pattern listed —
+    // pinned here as bug 0221's RECORDED RESIDUAL (`[]` and `"r-arm"`).
+    //
+    // DISCHARGED by bug 0226 §Fix, the report that named this residual its
+    // origin: `R` resolves to a same-file object-form `schema` declaring
+    // `{ b }` alone, `checkPatternObjectFields`
+    // (src/parser/theta-document.ts, called from `walkExpr`'s `case "match"`)
+    // judges the pattern's listed field `a` against that declaration, and the
+    // undeclared field draws `theta/parse/extra-object-field` at the WHOLE
+    // pattern's range (the object `PatternNode`'s new `range` field) — this
+    // is bug 0226's own cell `a1`
+    // (tests/object-pattern-head-field-set-refusal.test.ts), re-measured
+    // here as the single authorised flip (§Fix constraint 5) on THIS file's
+    // lock. Pattern `R { a: 1 }` is 10 characters at column 19 of line 7.
+    await expectRefusedWrongArm(
       [
         "schema Q { a: integer }",
         "schema R { b: integer }",
@@ -499,13 +539,8 @@ describe("0221 (a) — an undeclared non-reserved head is refused at the head's 
         'let r = match d { R { a: 1 } => "r-arm", Q { a: 1 } => "q-arm", _ => "other" }',
         "r",
       ].join("\n") + "\n",
-      [],
-      "the field-set half of §Expected behaviour 3 is out of this route's reach: both heads resolve, so the name check admits the arm",
-    );
-    await expectValue(
-      doc,
-      "r-arm",
-      "a1: the residual is a wrong-arm answer that survives this fix, because dispatch stays a field-shape test (expressions.md:171)",
+      [extraField("a", "R", patternRange(7, HEAD_COLUMN, "R { a: 1 }"))],
+      "bug 0226 §Fix discharges bug 0221's recorded residual: a resolved head's listed fields are now judged against its declaration, so the wrong arm never reaches a registered theta",
     );
   });
 
@@ -594,8 +629,22 @@ describe("0221 (b) — the refusal fires at every depth the pattern grammar recu
     // whole-list assertion also pins that the check does not fire on a
     // resolved outer head. Columns on line 5: `Q`=19, `{`=21, `f`=23, `:`=24,
     // inner head=26.
+    //
+    // WHY the fixture declares `f` (bug 0226): under the settled route, `Q`'s
+    // listed field `f` is judged against `Q`'s own declaration
+    // (`checkPatternObjectFields`) — the original fixture declared `Q { a:
+    // integer }`, which does NOT declare `f`, so this cell would draw a
+    // SECOND code (`theta/parse/extra-object-field` on the outer `Q`) and
+    // break its subject (exactly one code, on the inner unresolved head, with
+    // the resolved outer head silent). Declaring `f: integer` on `Q` keeps
+    // the outer head's field list carryable — `f`'s sub-pattern is the
+    // nested object pattern `Zed { a: 1 }`, not a literal, so the field-TYPE
+    // half (which judges literal sub-patterns only) has nothing to say about
+    // it either — so the outer head stays silent exactly as before, and the
+    // inner unresolved head's range is unchanged (the fixture's schema line
+    // does not touch the arm body's columns).
     expectDiagnostics(
-      "schema Q { a: integer }\n" + armBody("Q { f: Zed { a: 1 } }"),
+      "schema Q { f: integer }\n" + armBody("Q { f: Zed { a: 1 } }"),
       [unresolved("Zed", headRange("Zed", 5, 26))],
       "the field-value position recurses through `parsePattern` too; exactly one code, on the inner unresolved head, with the resolved outer head silent",
     );
