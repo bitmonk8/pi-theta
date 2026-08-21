@@ -652,3 +652,20 @@ all 10 cells pass, verified by `git hash-object` against the fix baseline:
 propagate the annotation onto a query that carried no ascription and
 `checkLetMismatch` returns at its `query.schema === null` test. Status
 unchanged (**fixed (0.155.0)**).
+## Coordination note (0.169.0) — bug 0220 fixed *Residuals* item (i)
+
+Append-only; the landed §Fix (0.155.0) record above is not edited. *Residuals*
+item (i) — the false `void-in-non-return-position` at a QRY-2 `fn`-return sink,
+recorded there as "unchanged and still unfiled" — is filed as
+[0220](./0220-fn-return-void-sink-false-void-diagnostic.md) and fixed at 0.169.0.
+The repair is at the sink adapter, not at the marker: `SchemaSinkRewriter`'s
+`fn` arm treats a root `void` return annotation as supplying no sink, so
+`QueryExpr.schema` stays null for the tail query and the query arm's walk is
+never reached. `QueryExpr.schemaFromLetAnnotation` and its documented scoping to
+`parseLet`'s direct propagation are untouched, and groups (a)–(e) and (g) of
+`tests/let-annotation-query-double-emission.test.ts` are byte-identical. Under
+0220 §Fix's "Pins that move with the fix", group (f) cells f1 and f2 flipped:
+the `fn-returns-void` row now asserts an empty diagnostic list, that fixture's
+`QueryExpr.schema` is `null` rather than `"void"`, and both cell titles carry
+the `RED` prefix this file reserves for a cell that reds before the fix owning
+it. The other two rows of each cell are unchanged.

@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.169.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0220 — a root `void` `fn`-return annotation supplies no QRY-2
+  sink**: `SchemaSinkRewriter`'s `fn` arm leaves `QueryExpr.schema` null
+  for a root `void` return annotation (the untyped fallback), so
+  `fn f(): void { @\`hi\` }` registers and drives — previously refused
+  with a false void-in-non-return-position diagnostic. Witness:
+  `tests/fn-return-void-query-sink.test.ts` (7 cells) + H8a cell 84.
+  Flips f1/f2 of `tests/let-annotation-query-double-emission.test.ts`
+  ratified at merge (doc-authorized flip-day pins). Bug 0093 coordination
+  note appended (its residual (i)).
+
 ## [0.168.0] - 2026-08-27
 
 ### Fixed

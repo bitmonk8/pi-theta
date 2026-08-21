@@ -13683,3 +13683,161 @@ describe("H8a-T — bug 0222: the QRY-4 explicit-schema check withholds a refuse
     }
   });
 });
+
+
+// ===========================================================================
+// bug 0220: a root `void` `fn`-return annotation now supplies NO QRY-2 sink, so
+// a bare `@`-query in that fn's tail position registers and drives instead of
+// refusing at load with a query-ranged `theta/parse/void-in-non-return-position`
+// for a `void` the author wrote only at the return position (grammar.md:89).
+//
+// WHAT THIS COVERS THAT THE OFFLINE WITNESSES DO NOT.
+// `tests/fn-return-void-query-sink.test.ts` and the group-(f) pin flip in
+// `tests/let-annotation-query-double-emission.test.ts` pin the diagnostic list
+// and `QueryExpr.schema` at the `parseThetaDocument` boundary; this cell drives
+// the same input through the SHIPPED `createAgentSession` composition (real
+// discovery, real `session.bindExtensions({})`, the real registration gate),
+// and then drives a REAL model turn on the surviving document, so the
+// post-fix path is exercised end to end, not just at the parse boundary.
+//
+// The fn under test is declared but never called: `SchemaSinkRewriter`'s `fn`
+// arm resolves the sink at PARSE time regardless of call sites (bug 0220
+// §Reproduction), so the refusal (pre-fix) or its absence (post-fix) is fully
+// decided before any slash is driven, and the one model turn this cell spends
+// belongs to the document's own top-level sentinel query, not to the
+// never-called `f`.
+// ===========================================================================
+
+/** `theta/parse/void-in-non-return-position`'s registered code (bug 0220 Fix; code-registry-parse.md). */
+const VOID_IN_NON_RETURN_CODE_CELL_B2 = "theta/parse/void-in-non-return-position";
+const VOID_IN_NON_RETURN_REGISTRY_CELL_B2 = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/void-in-non-return-position: 'void' is only permitted as a
+ * function or theta return type` -- DIAG-4: the message half is read from the
+ * registry row, not transcribed, mirroring this file's `nestedFnFragmentCellB2`
+ * and `unknownIdentFragmentCellB` helpers above.
+ */
+function voidInNonReturnFragmentCellB2(): string {
+  const message = registryMessage(
+    VOID_IN_NON_RETURN_REGISTRY_CELL_B2,
+    VOID_IN_NON_RETURN_CODE_CELL_B2,
+  ) as string | undefined;
+  expect(
+    message,
+    `${VOID_IN_NON_RETURN_CODE_CELL_B2} has no registry row -- the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  return `${VOID_IN_NON_RETURN_CODE_CELL_B2}: ${message as string}`;
+}
+
+/** The sentinel a successful drive of the subject theta must echo verbatim. */
+const VOID_SINK_SENTINEL_CELL_B2 = "VOIDSINKQUERY-DONE";
+
+/**
+ * The subject (bug 0220 §Reproduction v1): a root `void`-returning `fn` whose
+ * tail is a bare `@`-query, plus a top-level sentinel query so a successful
+ * registration can actually be DRIVEN. `f` is declared, never called: the sink
+ * resolution that decides the refusal runs at parse time over the declaration
+ * alone.
+ */
+const VOID_RETURN_QUERY_TAIL_CELL_B2 = [
+  "---",
+  "mode: prompt",
+  "---",
+  "fn f(): void {",
+  "  @`hi`",
+  "}",
+  "@`Reply with exactly the token " + VOID_SINK_SENTINEL_CELL_B2 + " and nothing else.`",
+  "",
+].join("\n");
+
+describe("cell 84 (bug 0220): a root `void` fn-return sink supplies no QRY-2 sink, so the tail query registers and drives (Convention: live-host acceptance)", () => {
+  it("registers and drives to normal completion with no void-in-non-return-position refusal note, where pre-fix the same document refused to register", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work -- mirrors cell 81/82's
+      // precondition control above.
+      {
+        source: "project",
+        stem: "cellb2livectl",
+        text: promptTheta("VOIDSINKQUERY-CONTROL"),
+      },
+      {
+        source: "project",
+        stem: "cellb2livesubj",
+        text: VOID_RETURN_QUERY_TAIL_CELL_B2,
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("cellb2livectl"),
+        "the precondition control did not register -- a broken workspace, not the fixed arm, would explain the subject's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          "",
+      ).toBeDefined();
+
+      // The fixed observable: a root `void` fn-return sink no longer draws a
+      // diagnostic, so the subject REGISTERS (pre-fix it did not: the arm's
+      // guard admitted the propagated "void" text and the query-ranged
+      // `void-in-non-return-position` blocked the registration gate).
+      expect(
+        handle.command("cellb2livesubj"),
+        "the root-`void` fn-return subject did not register -- pre-fix, `SchemaSinkRewriter`'s `fn` arm supplied a sink frame for the root `void` annotation, `resolveQuery` wrote \"void\" into `QueryExpr.schema`, and `walkExpr`'s `query` arm re-walked it at `\"value\"`, refusing the load. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          "",
+      ).toBeDefined();
+
+      // Drive the subject for real: the top-level sentinel query is the ONLY
+      // query that spends a model turn (`f` is never called), so this is the
+      // minimal live exercise of the surviving, now-loadable document.
+      const turn = await driveSlashCaptureTurn(handle, "/cellb2livesubj");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"): the fixed observable is the ABSENCE of the refusal
+      // note, read off the settled in-memory `SessionManager` -- not merely
+      // `prompt()` resolving, which a fail-closed drive would do too.
+      const expectedFragment = voidInNonReturnFragmentCellB2();
+      expect(
+        turn.systemNotes.some((note) => note.includes(expectedFragment)),
+        "a theta-system-note entry named " +
+          VOID_IN_NON_RETURN_CODE_CELL_B2 +
+          " was present on the drive -- the query-ranged refusal fired even though the document " +
+          "registered. Notes: " +
+          JSON.stringify(turn.systemNotes) +
+          "",
+      ).toBe(false);
+      expect(
+        turn.systemNotes,
+        "the drive carried a theta-system-note entry of some other kind -- not a normal " +
+          "completion. Notes: " +
+          JSON.stringify(turn.systemNotes) +
+          "",
+      ).toEqual([]);
+
+      // The drive's normal completion: the streamed assistant text carries the
+      // sentinel the top-level query asked for verbatim.
+      expect(
+        turn.text.includes(VOID_SINK_SENTINEL_CELL_B2),
+        "the drive did not complete normally -- streamed text: " +
+          JSON.stringify(turn.text) +
+          "",
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

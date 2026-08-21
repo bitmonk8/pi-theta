@@ -1,6 +1,8 @@
 # Bug 0220 — A `void`-returning `fn` whose tail expression is a bare `@`-query draws `theta/parse/void-in-non-return-position` at the query's range, where the same body with any non-query tail is silent: QRY-2's `fn`-return sink serialises the return annotation `void` into `QueryExpr.schema`, and `walkExpr`'s `query` arm re-walks that text at position `"value"`, so `fn f(): void { @`hi` }` is refused for a `void` the author wrote only at the one position `grammar.md:89` admits it
 
-- **Status:** open. Recorded as bug
+- **Status:** fixed (0.169.0). §Fix was constraint-pinned with two candidate
+  sites and no route selected; the sink-adapter route was selected and shipped,
+  recorded in §Fix (0.169.0) below. Originally recorded as bug
   [0093](./0093-let-annotation-query-position-double-emission.md) §Non-goals
   ("The false `void-in-non-return-position` at a QRY-2 `fn`-return sink") and
   left unfiled by that report's landed §Fix (0.155.0) *Residuals* item (i).
@@ -470,6 +472,128 @@ schema slot reds on the `string`-return row.
   `annotationToCompatType` conversion beyond citing where `void` lands in it.
   No claim is made on 0130's surface, and no ordering dependency exists in
   either direction.
+
+## Fix (0.169.0)
+
+- **What shipped** (the sink-adapter site of §Fix's two candidates, keyed to
+  that section's constraint list):
+  - `src/parser/query-schema-resolve.ts` — `SchemaSinkRewriter`'s `fn` arm
+    treats a ROOT `void` return annotation (`stmt.returnType.trim() ===
+    "void"`) as supplying no sink: the frame is `{ kind: "fn-return" }` with no
+    `returnType`, exactly as the undeclared / `.theta` return already is. The
+    query in tail or `return`-operand position therefore falls to
+    `query-forms.md:35`'s untyped fallback — `QueryExpr.schema` stays `null` →
+    `string` — and `walkExpr`'s `query` arm is never reached with the text
+    `"void"`, so no `theta/parse/void-in-non-return-position` is pushed at the
+    query's range.
+  - **Route grounds** (§Fix left the choice open; this is the settled
+    decision). `grammar.md:89` admits `void` at the return position and nowhere
+    else, and FN-4 (`functions.md:36`) says a `void` return DISCARDS the tail
+    value rather than typing it: a discarded value is not a value type, so a
+    `void` return supplies no QRY-2 sink at all. §Expected behaviour states the
+    same outcome directly ("the `void` return type serves as no sink, so the
+    query is untyped exactly as in v7 and v11"), which settles the
+    `QueryExpr.schema` clause of §Fix in favour of `null`. The alternative —
+    withholding at the query arm in bug 0093's route-2 marker shape — was
+    rejected because it leaves `"void"`, a response-schema name no schema
+    declaration can carry, in a field lowering and typed dispatch read (§Why it
+    matters, item 4), and would require generalising a marker whose documented
+    scoping is deliberately confined to `parseLet`.
+  - **Root-only by construction.** The guard reads the written return-type text
+    rather than narrowing `annotationToInferred`, `compatToInferred` or
+    `PRIMITIVE_NAMES`, because those adapters are shared with the `let` and
+    call-argument sinks: a nested `void` (`array<void>`) or a `void` parameter
+    type is illegal at its own written site, and §Non-goals keeps both of the
+    lines those rows carry today.
+  - No registry edit and no `docs/reference/diagnostics.md` edit:
+    `code-registry-parse.md`'s *Trigger* for
+    `theta/parse/void-in-non-return-position` is a closed position list that
+    already excludes the return position, so no code is added, removed or
+    re-triggered and GOV-15's carve-out is not engaged. One input moves from
+    not-loading to loading — the subject.
+  - `tests/fn-return-void-query-sink.test.ts` (new, 7 cells) — the witness of
+    §Fix's "Test witness" paragraph: whole-ordered-list equality on
+    `doc.diagnostics` and on the parsed body's `QueryExpr.schema` values across
+    all §Reproduction rows, plus a provenance-flag cell. Subject rows (v1, v10,
+    v14 and the `return`-operand spelling) at zero diagnostics and `null`
+    schema; the `Ghost` row reds any wholesale-silencing route; the
+    `string`-return row reds any schema-starving route.
+  - `tests/let-annotation-query-double-emission.test.ts` — group (f) only, per
+    §Fix's "Pins that move with the fix": f1's `fn-returns-void` row → `[]`,
+    f2's entry → `[null]`, both cell titles re-prefixed `RED` with the repair
+    named, f1's comment and the group banner rewritten to the post-fix truth.
+    Groups (a)–(e) and (g) byte-identical; the file stays at 10 cells.
+  - `tests/live/live-production-acceptance.test.ts` — new cell 83 (`CELL-B2`),
+    H8a: the subject document registers through the shipped composition and
+    drives a real turn, asserted on the `theta-system-note` channel (absence of
+    the refusal note, whole-list equality) and the sentinel in the streamed
+    text, not on `prompt()` resolving. `tests/live/permitted-codes.json`
+    byte-untouched — the fix removes an emission and adds no code.
+- **Gates:** witness `npx vitest run tests/fn-return-void-query-sink.test.ts
+  tests/let-annotation-query-double-emission.test.ts` → `Test Files 2 passed
+  (2) / Tests 17 passed (17)`. Full default suite `npx vitest run` → `Test
+  Files 358 passed (358) / Tests 7322 passed (7322)` (baseline 357/7315 plus
+  this fix's 7-cell witness file). `npx tsc --noEmit` → clean. `npm run lint`
+  (`eslint … "src/**/*.ts"`) → clean. Live `npx vitest run --config
+  config/vitest/vitest.live.config.ts
+  tests/live/live-production-acceptance.test.ts -t "CELL-B2"` → `Tests 1
+  passed`, run under the shared live lock.
+- **Blast radius, premeasured before the witness was written.** The route was
+  prototyped and the FULL suite run: exactly two reds, both the group-(f) pins
+  §Fix authorizes (f1's `void` row, f2's `"void"` entry). No other cell in 357
+  files moved, so no unauthorized flip exists to ratify.
+- **Review:** 1 round. Round 1 (deep): two findings, both `prose` — (F1) the
+  coordination note §Fix promises in report 0093 was absent; (F2) group (f)'s
+  banner still claimed "GREEN at HEAD and after" and f2's body comment still
+  said both sinks reach the arm. F2 fixed in one comment-only polish round;
+  polish verified by gate-diff (every hunk a comment line, gates re-run green),
+  so the confirmation review round was skipped. F1 discharged here (see
+  *Discharge notes appended*). No `correctness`, `fidelity` or `spec` finding
+  was raised in any round.
+- **Verification:** PASS. (1) The witness genuinely reds: with the fix
+  neutralised by writing `HEAD`'s file content back (never `git
+  checkout`/`restore`), the four `RED`-titled cells fail on the query-ranged
+  `void-in-non-return-position` (`5:3-5:8`, `5:10-5:15`, `6:5-6:10`,
+  `8:5-8:10`) and on `schema === "void"`, while every GREEN control cell stays
+  green in both states; restored byte-exact (`git hash-object`
+  `6416f0838d0122c25ed3f27c17be8139b0adf38a` before and after every cycle) and
+  green again. (2) Full default suite green, 358/7322. (3) Live cell 83 green
+  post-fix and red pre-fix with the deterministic non-registration signature
+  (the control theta registers, the subject does not), red-proved in both
+  directions under the live lock; no stochastic class was hit. (4) `npx tsc
+  --noEmit` and `npm run lint` clean. (5) §Non-goals spot checks by scratch
+  probe, all unmoved: `array<void>` two lines (`4:1-6:2`, `5:3-5:8`), the
+  `void` parameter two (`4:1-6:2`, `8:5-8:10`), ``let r: void = @`hi` `` one
+  (`4:1-4:20`) with `schemaFromLetAnnotation === true`, ``@<void>`hi` `` one
+  (`5:3-5:14`), and the propagated `Ghost` one `unresolved-named-type`.
+- **Pins flipped:** `tests/let-annotation-query-double-emission.test.ts` group
+  (f) cells f1 and f2 only, both authorized by §Fix's "Pins that move with the
+  fix" and both naming this report in-file. Nothing else in the tree flipped
+  (see *Blast radius* above).
+- **Residuals:** (i) The guard adds sixteen net lines at the `fn` arm in
+  `src/parser/query-schema-resolve.ts` (a spec-citing WHY comment plus the
+  widened condition), so every `path:line` citation into that file below the
+  arm is off by sixteen — this report's own §Affected rows, and the citations
+  in 0014, 0093, 0097, 0124, 0130, 0150, 0191 and 0222 (measured by grep for
+  `query-schema-resolve.ts:` line references at or past the arm). Disclosed,
+  not chased: a repo-wide renumbering sweep is 0134's class. (ii)
+  The duplicate second line at a nested or parameter `void` (§Non-goals,
+  §Reproduction (c) v12, v17) is unchanged; it is bug 0093's duplication
+  mechanism at the inference route, over a `void` that is genuinely illegal at
+  its own site. (iii) A `void` return type reaching the `let` and
+  call-argument sink adapters is untouched by design (the root-only clause
+  above); no report is filed for it because those rows duplicate a true
+  own-site verdict rather than inventing one.
+- **Discharge notes appended:** 0093 (fixed; its *Residuals* item (i) named
+  this defect as unfiled — an append-only coordination note now records the
+  filing and the repair, with the landed §Fix (0.155.0) record itself
+  untouched).
+- **Pinned dispositions / non-goals:** whether a `void` return type should be a
+  QRY-2 sink at all is settled here as "no" on FN-4 and `query-forms.md:35`
+  grounds, with no spec edit; the `InferredSchema` model's object / union /
+  `Result<…>` coverage limit, `let-rhs-type-mismatch` at an object or union
+  annotation (0130), and the `TypePosition` at the query arm staying `"value"`
+  (bug 0044's blast-radius clause) are all unmoved.
 
 ## Provenance
 

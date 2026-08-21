@@ -169,8 +169,24 @@ class QuerySchemaResolveWalk {
       case "fn": {
         // A declared return type is the sink for the fn's tail expression and
         // its `return` operands; a `.theta`/undeclared return supplies none.
+        // A ROOT `void` return type supplies none either: `grammar.md:89` admits
+        // `void` at the return position only (nowhere else), and FN-4
+        // (`functions.md`) says a `void` return DISCARDS the tail value rather
+        // than typing it — a discarded value is not a value type, so `void`
+        // here is not a QRY-2 sink and the query falls to `query-forms.md:35`'s
+        // untyped fallback (`schema` stays null → `string`), exactly as the
+        // undeclared-return case just above. This check is ROOT-only and reads
+        // the written source text directly (not through `annotationToInferred`)
+        // on purpose: a nested `void` (`array<void>`) or a `void` parameter type
+        // is illegal at its own written site, and that site's own diagnostic is
+        // the one true verdict for it (bug 0220 §Non-goals / §Reproduction (c)
+        // v12, v17) — narrowing `annotationToInferred`, `compatToInferred` or
+        // `PRIMITIVE_NAMES` would also blind the `let` and call-argument sinks
+        // those adapters share, which is not this bug's fix.
         const returnType =
-          stmt.returnType === null || stmt.returnType.length === 0
+          stmt.returnType === null ||
+          stmt.returnType.length === 0 ||
+          stmt.returnType.trim() === "void"
             ? undefined
             : annotationToInferred(stmt.returnType);
         // `exactOptionalPropertyTypes`: omit `returnType` when undefined so the

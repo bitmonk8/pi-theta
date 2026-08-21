@@ -385,9 +385,10 @@ describe("bug 0093 (e) — the second site keeps its name resolution", () => {
 // (f) THE QRY-2 INDIRECT SINKS — §Non-goals. An `fn`-return sink routes through
 // the `InferredSchema` adapters, which decline the shapes that would witness
 // the doubling (`QueryExpr.schema` stays null and the arm's guard skips the
-// walk) or rewrite the text. These rows are the blast-radius bound: a repair
-// wider than the `parseLet` propagation moves them, and this group reds.
-// GREEN at HEAD and after.
+// walk) or rewrite the text. Bug 0220 moved the `void` row: a root `void`
+// return supplies no QRY-2 sink, so cells f1 and f2 are RED-titled to record
+// that repair. The group's other rows remain the blast-radius bound — a
+// repair wider than `parseLet`'s propagation moves them, and this group reds.
 // ===========================================================================
 
 describe("bug 0093 (f) — the indirect sinks are untouched", () => {
@@ -395,15 +396,16 @@ describe("bug 0093 (f) — the indirect sinks are untouched", () => {
   const voidSink = blockBody(["fn f(): void {", "  @`hi`", "}"]);
   const ghostSink = blockBody(["fn f(): Ghost {", "  @`hi`", "}"]);
 
-  it("GREEN f1: each `fn`-return sink emits exactly once, unchanged", () => {
-    // The `void` row is a FALSE emission rather than a duplicate (§Non-goals):
-    // the inference writes `"void"` into `QueryExpr.schema` and the arm walks
-    // it at `"value"`. Unfiled, and asserted here so a repair that reaches it
-    // reds rather than passing silently.
+  it("RED f1: a root `void` fn-return sink now supplies no sink, so its query is untyped (bug 0220)", () => {
+    // The `void` row was a FALSE emission rather than a duplicate (§Non-goals):
+    // the inference wrote `"void"` into `QueryExpr.schema` and the arm walked it
+    // at `"value"`. Bug 0220 owns and repairs that emission — a root `void`
+    // return annotation supplies no sink — so the row now asserts an EMPTY list,
+    // and the fixture stays here to keep the repair pinned in both directions.
     expectTable(
       [
         ["fn-returns-empty-object", emptySink, [at(EMPTY_BODY, "4:1-6:2")]],
-        ["fn-returns-void", voidSink, [at(VOID_POS, "5:3-5:8")]],
+        ["fn-returns-void", voidSink, []],
         ["fn-returns-unresolvable-name", ghostSink, [at(UNRESOLVED, "5:3-5:8")]],
       ],
       "f1 — a red here means the repair reached beyond `parseLet`'s propagation into the " +
@@ -411,10 +413,11 @@ describe("bug 0093 (f) — the indirect sinks are untouched", () => {
     );
   });
 
-  it("GREEN f2: the sinks' `QueryExpr.schema` values are unchanged", () => {
+  it("RED f2: the root-`void` sink's `QueryExpr.schema` is now null, not `\"void\"` (bug 0220)", () => {
     // The declining sink leaves the field null, so the second site's guard
     // skips it entirely — the reason the doubling is confined to the direct
-    // propagation. The two that reach the arm carry their rewritten text.
+    // propagation. Only the `Ghost` sink now reaches the arm carrying text;
+    // the `void` sink declines and its schema is null.
     expect(
       {
         "fn-returns-empty-object": querySchemas(emptySink),
@@ -426,7 +429,7 @@ describe("bug 0093 (f) — the indirect sinks are untouched", () => {
         "direct-let propagation",
     ).toEqual({
       "fn-returns-empty-object": [null],
-      "fn-returns-void": ["void"],
+      "fn-returns-void": [null],
       "fn-returns-unresolvable-name": ["Ghost"],
     });
   });
