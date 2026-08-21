@@ -1,7 +1,8 @@
 # Bug 0093 — A `let` annotation over a bare-query initialiser is type-checked at two sites: `parseLet` copies the annotation text into `QueryExpr.schema`, and both the `let` arm (`theta-document.ts:5911`) and the query arm (`:6372`) run `parseTypeExpression` over it, so ``let r: {} = @`hi` `` emits `theta/parse/empty-schema-body` twice for one written `{}` — rule-independently, for every check the walk owns at that position
 
-- **Status:** open. §Fix is constraint-pinned: three candidate routes with the
-  constraints each has to satisfy, no route selected.
+- **Status:** fixed (0.155.0). §Fix was constraint-pinned — three candidate routes
+  with the constraints each has to satisfy, no route selected; route 2 was
+  selected and shipped, recorded in §Fix (0.155.0) below.
 - **Kind:** defect — spurious duplicate diagnostics. One occurrence in source,
   two entries in the document's diagnostic list. The duplication is a property
   of the check-site topology, not of any one rule: every check the type-grammar
@@ -513,3 +514,110 @@ The doubling this report owns is therefore unchanged and its 2-against-1
 contrast is now carried by the arity rule alone — a cleaner proxy, since both
 recorded lines belong to the untouched rule. §Reproduction's tables still list
 the removed line; read them as measured at 0.57.0. Status unchanged (**open**).
+
+## Fix (0.155.0)
+
+- **What shipped** (route 2 of §Fix, "skip the second walk for propagated
+  text"; keyed to that route's clause list):
+  - `src/parser/theta-document.ts` — `QueryExpr` gains an optional provenance
+    field `schemaFromLetAnnotation?: boolean`, documented beside
+    `ascriptionWritten` whose optionality it mirrors (test files construct
+    `kind: "query"` literals directly, so consumers test `=== true` rather than
+    truthiness). Its doc comment scopes the marker to `parseLet`'s DIRECT
+    propagation and states why `resolveQuerySchemas`' QRY-2 inference must stay
+    unmarked (§Non-goals' `fn`-return `void` sink).
+  - `src/parser/theta-document.ts` — `parseLet` sets the marker `true` at BOTH
+    propagation sites: the direct `init.kind === "query"` spread and the
+    `?`-form's `try` inner-operand spread, discharging §Fix's "the `?` form is
+    covered" constraint.
+  - `src/parser/theta-document.ts` — `walkExpr`'s `query` arm withholds ONLY its
+    `parseTypeExpression(responseAnnotation, "value", …)` call when the marker is
+    `true`; `positionRuleDiagnostics` is the empty list there. The arm's
+    `TypePosition` stays `"value"` (0044's blast-radius clause), the bug-0124 /
+    0203 `annotation-type-not-expression` refusal is unreached for propagated
+    text because it gates on `ascriptionWritten === true`, and the
+    name-resolution and reserved-keyword loops keep running, so
+    ``let r: Ghost = @`hi` `` keeps its single `unresolved-named-type` from this
+    arm alone. The withhold is keyed on the propagation site rather than on any
+    one rule, so the count settles for every rule the shared walk owns at that
+    position at once. The surviving line is the statement-ranged one, because
+    `walkStatement`'s `let` arm pushes before descending into the initialiser.
+  - No registry edit, as §Fix requires: no code added, removed or re-triggered;
+    each row's *Trigger* is a source condition satisfied once and only the
+    implementation's report count changed. `QueryExpr.schema` keeps its value,
+    so lowering and typed dispatch are unmoved (verified by read-back).
+- **Gates:** witness `npx vitest run
+  tests/let-annotation-query-double-emission.test.ts` → `Test Files 1 passed
+  (1) / Tests 10 passed (10)`. Full default suite `npx vitest run` → `Test
+  Files 350 passed (350) / Tests 6980 passed (6980)`. `npx tsc --noEmit` →
+  clean. `npm run lint` (`eslint … "src/**/*.ts"`) → clean.
+- **Review:** 1 round. Round 1 (deep): two findings, both `prose` — (F1) the
+  new witness file's `src/parser/theta-document.ts:<line>` citations were the
+  pre-fix numbers this change's own insertions invalidated; (F2) the rewritten
+  0045 g3 comment claimed `result-in-schema-position` "stops doubling at this
+  position", a rule that requires `"schema-feeding"` and never fired there at
+  all. Both fixed in one comment-only polish round; polish verified by
+  gate-diff (every hunk a `//` comment, gates re-run green), so the
+  confirmation review round was skipped. No `correctness`, `fidelity` or
+  `spec` finding was raised in any round.
+- **Verification:** PASS. (1) Witness genuinely reds: with the query-arm
+  withhold neutralised, cells a1/a2/b1/b2 red on the extra expression-ranged
+  duplicate (`empty-schema-body @ 4:13-4:18` on top of `@ 4:1-4:18`;
+  `generic-arity-mismatch @ 4:33-4:38` on top of `@ 4:1-4:38`); restored
+  byte-exact (`git hash-object` re-confirmed after every neutralisation) and
+  green again. The two controls were proved non-vacuous by mutation, not by
+  assertion: dropping `parseLet`'s `init.schema === null` guard reds d1
+  (``let r: {} = @<{}>`hi` `` collapses to one line), and withholding the whole
+  arm instead of its type-grammar call reds e1 (the propagated `Ghost` loses its
+  `unresolved-named-type`). (2) Full default suite green, 350/6980. (3) Live
+  H8a cell `` green post-fix and red pre-fix with the pinned signature
+  `expected 2 to be 1` over the two delivered
+  `theta/parse/empty-schema-body` note lines — red-proved in both directions
+  under the live lock. (3b) The H9a acceptance half ran green in full (2 files,
+  11 tests, all nine `H9a-T` cells), with no stochastic red of the named
+  classes. (4) `npx tsc --noEmit` and `npm run lint` clean. (5) §Non-goals spot
+  checks by scratch probe, all unchanged: ``fn f(): void { @`hi` } `` still
+  emits its one `void-in-non-return-position` at the query's range,
+  ``let r: {} = @<{}>`hi` `` still two lines, ``let r: Ghost = @`hi` `` still
+  one `unresolved-named-type`, `let r: array<string, integer> = 1` unchanged,
+  and `QueryExpr.schema` still `"{}"` for the subject and its `?` form.
+- **Pins flipped, each under this report's authority and each naming this
+  report in-file before the flip:**
+  1. `tests/inline-empty-object-type.test.ts` g3 — the two-line rows for
+     ``let r: {} = @`hi` `` and the arity proxy become one-line rows; the three
+     single-emission rows and the non-query arity control are byte-identical.
+     The cell's prefix moved `RECORDED` → `RED` (the file reserves `RECORDED`
+     for "observed, not repaired") and its header now records the repair.
+  2. `tests/inline-object-duplicate-field-name.test.ts` group (h) h1 — row 1's
+     compound spelling goes from two lines to one; rows 2 and 3 byte-identical.
+     Authorized by that group's own header, which said "0093's fix will flip
+     this cell knowingly".
+  3. The same file's group (i) `CONTROL i1` — the `"compound let + query"`
+     row's line count 2 → 1; all fifteen other rows and the `.thetalib` row
+     unchanged.
+- **Measured NOT to flip:** `tests/annotation-nontype-text-refusal.test.ts`
+  group (o), the QRY-4 co-fire pinned in both directions naming this report and
+  [0130](./0130-let-rhs-type-mismatch-declines-object-union.md), stayed GREEN
+  under this fix (all 251 cells pass). The reason is structural: group (o)'s
+  subjects carry an explicit `@<Schema>` ascription, so `parseLet`'s
+  `init.schema === null` guard never propagates and the marker is never set.
+  The QRY-4 explicit-schema channel is untouched by this repair, and the
+  residual it records stays open with 0130.
+- **Residuals:** (i) The false `void-in-non-return-position` at a QRY-2
+  `fn`-return sink (``fn f(): void { @`hi` } ``) is unchanged and still
+  unfiled — §Non-goals; a marker set by `parseLet` alone does not reach text
+  that arrives from `resolveQuerySchemas`. (ii) 0045 §Fix (0.57.0)
+  *Multiplicity* (`:212`) and *Residuals* item (i) (`:291`) still read as
+  written at 0.57.0; rather than editing a landed fix record, this repair
+  appends a coordination note to that report pointing here. (iii)
+  `docs/bugs/0052-…md:338` links this report by a filename it does not carry
+  (`0093-let-annotation-over-query-double-emission.md`); disclosed, not chased
+  (0134's class), and the coordination note appended there uses the correct
+  path.
+- **Discharge notes appended:** 0045, 0052 (both fixed; their pinned cells
+  flipped here), and 0130 (open; append-only, status unchanged).
+- **Pinned dispositions / non-goals:** the self-identical
+  `let-rhs-type-mismatch` (0028 residual (iii), and already absent from the
+  arity proxies since 0179 — see the coordination note above); the `let`
+  annotation running no name-resolution walk; the brace-rooted union-arm
+  capture defect; which site should own the rule set. All unmoved.

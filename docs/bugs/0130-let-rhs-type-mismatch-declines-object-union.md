@@ -1096,3 +1096,37 @@ Two further constraints on any implementation:
   gates (9 cells). Run on the outputs quoted above, then deleted. No file in
   `src/`, `tests/`, `docs/bugs/README.md` or any other bug document was modified
   by this filing.
+
+## Coordination note — bug 0093 landed (X.Y.Z)
+
+The other half of the QRY-4 pair this report shares with
+[0093](./0093-let-annotation-query-position-double-emission.md) has shipped.
+0093 §Fix (X.Y.Z) took its route 2: `parseLet` marks a query whose `schema`
+arrived by its own direct `let x: T = @`…`` (or `?`-wrapped) propagation with
+`QueryExpr.schemaFromLetAnnotation`, and `walkExpr`'s query arm withholds ONLY
+its `parseTypeExpression(responseAnnotation, "value", …)` call for a marked
+query. No other observable at that arm moved: the `TypePosition` stays
+`"value"`, name resolution and the reserved-keyword loop keep running, the
+bug-0124 / 0203 `annotation-type-not-expression` refusal is unreached for
+propagated text because it gates on `ascriptionWritten === true`, and
+`QueryExpr.schema` keeps its value for the lowering and typed-dispatch readers.
+
+**The observable delta this leaves for this report.** The QRY-4
+explicit-schema channel is untouched, and
+`tests/annotation-nontype-text-refusal.test.ts` group (o) — which pins the
+QRY-4 co-fire in BOTH directions and names 0093 and this report by number —
+stayed GREEN through 0093's fix, all 251 cells of the file passing. The reason
+is structural rather than incidental: group (o)'s subjects carry an explicit
+`@<Schema>` ascription, so `parseLet`'s `init.schema === null` guard declines
+to propagate and 0093's marker is never set on those queries. The residual that
+group records — the QRY-4 check converting refused annotation source directly
+rather than through the `annotation-type-not-expression` withhold — is
+therefore entirely this report's to settle, and its direction remains witnessed
+by the unflipped group (o) cells.
+
+One narrowing is worth carrying into this report's route selection: the
+`annotationToCompatType` conversion this report owns
+(`src/parser/type-layer-checks.ts`) was not touched by 0093, and 0093's marker
+lives on `QueryExpr`, not on the `let` statement, so a route here that keys on
+the annotation's own source text does not collide with it. Status unchanged
+(**open**).

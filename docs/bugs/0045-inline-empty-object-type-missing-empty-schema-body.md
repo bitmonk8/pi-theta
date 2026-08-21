@@ -890,3 +890,23 @@ capture defects, unfiled and unchanged". Both are fixed, together with a third
 element 0045 did not record — a `fn` signature corrupted with no diagnostic at
 all — which 0095 re-derived and pinned. This report's §Non-goals fence is spent;
 nothing in its own §Fix moved.
+
+## Coordination note — bug 0093 landed (X.Y.Z)
+
+§Fix (0.57.0) *Multiplicity* (`:212`) settled "one diagnostic per occurrence,
+in source order, no dedup" for `theta/parse/empty-schema-body` and named the
+compound `let`-annotation-over-query position as the exception, recorded rather
+than repaired; *Residuals* item (i) (`:291`) left that exception unfiled. Both
+sentences stand as written at 0.57.0 — the exception is now closed by
+[0093](./0093-let-annotation-query-position-double-emission.md) §Fix (X.Y.Z),
+which marks a query whose schema arrived by `parseLet`'s direct propagation and
+withholds the query arm's own type-grammar re-walk for it. The *Multiplicity*
+contract therefore now holds at that position too, for this rule and for the
+three others the shared walk owns there.
+
+This report's own witness moved with it: cell `RECORDED g3` is now `RED g3`,
+its two-line rows for ``let r: {} = @`hi` `` and the arity proxy are one-line
+rows, and its three single-emission rows and non-query arity control are
+byte-identical. Nothing in the rule 0045 shipped changed; what changed is how
+many times the implementation reports it at one position. Status unchanged
+(**fixed (0.57.0)**).

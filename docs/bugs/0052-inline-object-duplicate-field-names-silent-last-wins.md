@@ -813,3 +813,23 @@ runs.
   `params:` `loweredSchema` read-backs, `respondToolWireSchema`, and real
   `AjvSchemaValidator` compiles over every lowered document — run on the
   outputs quoted above, then deleted per scratch policy.
+
+## Coordination note — bug 0093 landed (X.Y.Z)
+
+This report's §Fix residual 4, *The compound position emits per check-site*, is
+closed by [0093](./0093-let-annotation-query-position-double-emission.md) §Fix
+(X.Y.Z) — the repair it anticipated when it pinned h1 "so that fix flips it
+knowingly". `parseLet` now marks a query whose schema arrived by its own direct
+propagation, and the query arm withholds its type-grammar re-walk for a marked
+query, so the statement-ranged verdict from the `let` arm survives alone.
+
+Two cells flipped, both under 0093's authority and neither changing a subject:
+group (h) `RED h1`'s compound row goes from two lines to one, with rows 2 and 3
+byte-identical, and group (i) `CONTROL i1`'s `"compound let + query"` row goes
+from two lines to one, with its fifteen sibling rows and the `.thetalib` row
+unchanged. The rule this report shipped is unedited; the doubling was the
+position's, as h1's contrast against rows 2–3 already established.
+
+The link to 0093 in §Fix residual 4 (`:338`) spells a filename that report does
+not carry; the correct path is the one used above. Disclosed, not chased
+(0134's class). Status unchanged (**fixed**).

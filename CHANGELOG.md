@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.155.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0093 — a `let`-propagated annotation now emits once at the query
+  position** instead of twice (the QRY-4 double). Route 2:
+  `QueryExpr.schemaFromLetAnnotation` provenance marker set at both
+  `parseLet` propagation sites; the query arm withholds only its own
+  value-position re-walk. Witness:
+  `tests/let-annotation-query-double-emission.test.ts` (10 cells) + a
+  standalone live cell. Group (o) of the annotation witness never fired
+  (explicit `@<Schema>` subjects never propagate) — 0130's direction is
+  fully intact. Ratified pin flips: g3 (inline-empty-object-type), h1/i1
+  (inline-object-duplicate-field-name — h1 named 0093 as its flip day).
+
 ## [0.154.0] - 2026-08-26
 
 ### Fixed

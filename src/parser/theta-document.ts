@@ -232,6 +232,28 @@ export interface QueryExpr extends NodeBase {
    * rather than truthiness.
    */
   readonly ascriptionWritten?: boolean;
+  /**
+   * Whether `schema` arrived by `parseLet`'s DIRECT propagation of a `let`
+   * annotation onto this query's own `init` slot (bug 0093 §Fix route 2) —
+   * `let x: T = @`…`` or its `?`-wrapped `let x: T = @`…`?` form. One written
+   * annotation is otherwise checked at two walk arms: `walkStatement`'s `let`
+   * arm walks `s.annotation`, and this query's own arm walks the same text
+   * again off `e.schema`, doubling every rule the shared type-grammar walk
+   * owns at position `"value"`. This marker lets the query arm withhold its
+   * own `parseTypeExpression` pass for exactly that text, leaving the `let`
+   * arm's statement-ranged verdict as the one that survives. Optional rather
+   * than required, for the same reason as `ascriptionWritten`: test files
+   * construct a `kind: "query"` literal directly, so a required field would
+   * red their typecheck for no behavioural gain — `undefined` is reachable
+   * only from such a literal, which is why the withhold tests `=== true`
+   * rather than truthiness. Marks ONLY `parseLet`'s direct propagation, NOT
+   * `resolveQuerySchemas`' QRY-2 inference (`fn` return, call argument,
+   * constructor field): that route's false `void-in-non-return-position` at
+   * an `fn`-return sink is a different, unfiled defect (bug 0093 §Non-goals)
+   * and must keep firing, so a marker set by `parseLet` alone must not reach
+   * it.
+   */
+  readonly schemaFromLetAnnotation?: boolean;
   /** The raw template body between the backticks. */
   readonly template: string;
 }
@@ -2133,13 +2155,16 @@ class BodyParser {
     // annotation propagates onto the try's inner query operand.
     if (init !== null && annotation !== null && annotation.length > 0) {
       if (init.kind === "query" && init.schema === null) {
-        init = { ...init, schema: annotation };
+        init = { ...init, schema: annotation, schemaFromLetAnnotation: true };
       } else if (
         init.kind === "try" &&
         init.operand.kind === "query" &&
         init.operand.schema === null
       ) {
-        init = { ...init, operand: { ...init.operand, schema: annotation } };
+        init = {
+          ...init,
+          operand: { ...init.operand, schema: annotation, schemaFromLetAnnotation: true },
+        };
       }
     }
     this.bindings.set(name, mutable);
@@ -7465,10 +7490,31 @@ function walkExpr(
           // :60) does not name this position — `"schema-feeding"` here would
           // widen that row's trigger, which bug 0044 §Fix Blast-radius
           // forbids.
-          const positionRuleDiagnostics = parseTypeExpression(responseAnnotation, "value", {
-            file,
-            range: e.range,
-          });
+          // Bug 0093 §Fix route 2: a `let x: T = @`…`` (or its `?`-wrapped
+          // form) propagation puts the SAME annotation text here that
+          // `walkStatement`'s `let` arm already walked at the statement's own
+          // range (`parseTypeExpression(s.annotation, "value", …)`, which
+          // runs and pushes FIRST since the statement's diagnostics precede
+          // its initialiser walk). Re-walking it here would double every rule
+          // this shared type-grammar pass owns at position `"value"` —
+          // `empty-schema-body`, `generic-arity-mismatch`,
+          // `void-in-non-return-position` today, and any rule later added to
+          // `walkType` or `"inline-object-shape"` — for one written
+          // occurrence. Withholding only this call, not the arm, keeps the
+          // surviving line at the statement's (wider) range and leaves
+          // `TypePosition` at `"value"` unchanged; it does not reach the
+          // `annotationSourceIsNotTypeExpression` refusal below (that refusal
+          // already gates on `ascriptionWritten === true`, which propagated
+          // text never sets) or the name-resolution loops after it, which
+          // still run for the propagated text (this arm is `Ghost`'s SOLE
+          // emitter — bug 0093 §Reproduction).
+          const positionRuleDiagnostics =
+            e.schemaFromLetAnnotation === true
+              ? []
+              : parseTypeExpression(responseAnnotation, "value", {
+                  file,
+                  range: e.range,
+                });
           out.push(...positionRuleDiagnostics);
           // Bug 0203 §Fix (b)(5): an annotation whose own position-rule walk
           // just drew an error-severity diagnostic (`void`, a generic-arity

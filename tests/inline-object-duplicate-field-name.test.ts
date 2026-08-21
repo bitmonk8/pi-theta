@@ -1059,23 +1059,26 @@ describe("bug 0052 (g) — a refused document reaches no lowering and no compile
 });
 
 // ===========================================================================
-// (h) THE COMPOUND POSITION — RECORDED, not repaired. A `let` annotation over a
-// query initialiser is checked at TWO sites: the annotation walk, and the query
-// arm, which re-walks the same text after the annotation is propagated into the
-// query's schema. Every rule on this walk emits twice there — group (i)'s
-// compound row shows the sibling rule doing exactly the same, so the doubling
-// is the position's and not this rule's. Bug 0093 owns it; this fix neither
-// creates nor repairs it, and 0093's fix will flip this cell knowingly.
-// RED at HEAD: `[]` for all three rows.
+// (h) THE COMPOUND POSITION — bug 0093's fix flipped this cell. A `let`
+// annotation over a query initialiser used to be checked at TWO sites: the
+// annotation walk, and the query arm, which re-walked the same text after the
+// annotation was propagated into the query's schema. Every rule on this walk
+// used to emit twice there — group (i)'s compound row shows the sibling rule
+// having doubled identically before the fix, which is why the doubling
+// belonged to the POSITION and not to this rule. `parseLet` now marks a
+// propagated query with `schemaFromLetAnnotation`, and the query arm
+// withholds its own re-walk for a marked query, so the statement-ranged
+// verdict from the `let` arm is the only one that survives.
+// GREEN now: `[dupLine("a")]` for row 1 too.
 // ===========================================================================
 
-describe("bug 0052 (h) — the compound annotation-plus-query position emits per check site", () => {
-  it("RED h1: the compound position doubles, and each single-site spelling emits once", () => {
+describe("bug 0052 (h) — the compound annotation-plus-query position emits once per occurrence", () => {
+  it("RED h1: the compound position emits once, matching each single-site spelling", () => {
     // A three-row table rather than three cells: the claim is the CONTRAST
     // between the compound row and the two single-site rows, and separate
     // assertions would stop at the first divergence and hide it.
     const cells: ReadonlyArray<readonly [string, string[]]> = [
-      [`let r: ${DUP} = @\`hi\``, [dupLine("a"), dupLine("a")]],
+      [`let r: ${DUP} = @\`hi\``, [dupLine("a")]],
       [`let r: ${DUP} = 1`, [dupLine("a")]],
       ["let r = @<" + DUP + ">`hi`", [dupLine("a")]],
     ];
@@ -1087,10 +1090,9 @@ describe("bug 0052 (h) — the compound annotation-plus-query position emits per
     }
     expect(
       actual,
-      "h1 — the rule emits once per occurrence wherever one check site sees the type (rows 2 " +
-        "and 3). Row 1's annotation is checked twice, which doubles every walk rule reaching " +
-        "that position; the doubling belongs to the annotation-propagation mechanism (bug " +
-        "0093), so it is pinned as measured rather than repaired here",
+      "h1 — the rule now emits once per occurrence at every one of the three rows, including " +
+        "the compound row (row 1): bug 0093's fix withholds the query arm's re-walk for a " +
+        "propagated annotation, so only the statement-ranged verdict from the `let` arm survives",
     ).toEqual(expected);
   });
 });
@@ -1133,7 +1135,7 @@ describe("bug 0052 (i) — the walk reaches every asserted position today", () =
       ["alias union arm", body("schema Cat { n: string }\nschema T = {} | Cat"), 1],
       ["annotation union arm", annotSrc("{} | null"), 1],
       ["generic argument", body("schema S { p: array<{}> }"), 1],
-      ["compound let + query", body("let r: {} = @`hi`"), 2],
+      ["compound let + query", body("let r: {} = @`hi`"), 1],
     ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
@@ -1144,8 +1146,9 @@ describe("bug 0052 (i) — the walk reaches every asserted position today", () =
     expect(
       actual,
       "i1 — every position groups (a), (b), (d) and (h) assert over already runs the " +
-        `"inline-object-shape" rule set, and the compound row already doubles for a rule this ` +
-        "fix does not touch; so a missing line above is a missing rule, and the `.thetalib` " +
+        `"inline-object-shape" rule set, and the compound row now emits once, matching every ` +
+        "other row (bug 0093's fix withholds the query arm's re-walk for a propagated " +
+        "annotation); so a missing line above is a missing rule, and the `.thetalib` " +
         "row of a10 is the one file-kind variant the set does not vary by",
     ).toEqual(expected);
     expect(

@@ -873,22 +873,23 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
     );
   });
 
-  it("RECORDED g3: the compound `let r: {} = @…` position emits per CHECK SITE", () => {
-    // §Fix's one-per-occurrence sentence holds for THIS rule: each of the three
-    // single-emission controls below writes one empty inline object and draws
-    // one line. The compound spelling draws two, and the second line is not
-    // this rule's doing. A `let` annotation over a query initialiser is checked
-    // at two sites: the annotation walk, and the query arm, which re-walks the
-    // same text after `parseLet` propagates the annotation into the query's
-    // schema. EVERY walk rule therefore emits twice at that one position.
+  it("RED g3: the compound `let r: {} = @…` position emits ONCE per occurrence (bug 0093)", () => {
+    // §Fix's one-per-occurrence sentence now holds at this position too, not just
+    // for the three single-emission controls below. A `let` annotation over a
+    // query initialiser used to be checked at two sites: the annotation walk,
+    // and the query arm, which re-walked the same text after `parseLet`
+    // propagated the annotation into the query's schema — every walk rule
+    // doubled at that one position (bug 0093). The query arm now withholds its
+    // own `parseTypeExpression` pass when `QueryExpr.schemaFromLetAnnotation`
+    // is `true` (`parseLet`'s marker for exactly this propagation), so the
+    // statement-ranged verdict from the `let` arm survives alone.
     //
-    // The arity proxy is the control that places the doubling: a rule this fix
-    // does not touch doubles identically in the compound spelling and emits
-    // once with a non-query initialiser. Repairing it means moving the
-    // propagated-annotation re-walk, which would move `generic-arity-mismatch`,
-    // `void-in-non-return-position` and `result-in-schema-position` at that
-    // position at once — §Non-goals. So the two-line list is RECORDED as
-    // observed, not repaired.
+    // The arity proxy is the control that places the repair: a rule bug 0093
+    // does not target (`generic-arity-mismatch`) collapses to one line here
+    // identically to the empty-schema-body row, because the withhold is keyed
+    // on the propagation site, not on any one rule — it silences the whole
+    // re-walk, so `generic-arity-mismatch`, `void-in-non-return-position` and
+    // `empty-schema-body` all stop doubling at this position at once.
     const ARITY = "theta/parse/generic-arity-mismatch";
     const LET_RHS = "theta/parse/let-rhs-type-mismatch";
     const arityLine = line(
@@ -913,7 +914,7 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
         ]),
       );
     const cells: ReadonlyArray<readonly [string, string[]]> = [
-      ["let r: {} = @`hi`", [inlineLine(), inlineLine()]],
+      ["let r: {} = @`hi`", [inlineLine()]],
       [
         // The initialiser types as a `named` reference to the annotation text
         // itself: `parseLet` propagates the annotation onto the query, and
@@ -924,10 +925,10 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
         // sub (type-system.md §"Unresolvable operands") rather than comparing
         // it, because comparing it would read `expected array<string,integer>,
         // got array<string,integer>` — a type declared incompatible with
-        // itself. The two arity lines are a separate, untouched proxy; their
-        // doubling is unrelated to the array sink and survives here unchanged.
+        // itself. Bug 0093's withhold applies here too: `generic-arity-mismatch`
+        // now emits once, from the `let` arm alone.
         "let r: array<string, integer> = @`hi`",
-        [arityLine, arityLine],
+        [arityLine],
       ],
       ["let r: array<string, integer> = 1", [arityLine, letRhsLine("integer")]],
       ["let r: {} = 1", [inlineLine()]],
@@ -942,11 +943,9 @@ describe("bug 0045 (g) — one diagnostic per occurrence", () => {
     }
     expect(
       actual,
-      "g3 — the rule emits once per occurrence wherever one check site sees the type " +
-        "(the last three rows). The compound annotation-plus-query position is checked twice " +
-        "and doubles every walk rule that reaches it, the untouched arity rule included " +
-        "(row 2 against row 3); that doubling belongs to the annotation-propagation " +
-        "mechanism, and moving it is §Non-goals",
+      "g3 — the rule emits once per occurrence at every position, including the compound " +
+        "annotation-plus-query position (row 1) and the untouched arity rule at that same " +
+        "position (row 2 against row 3, bug 0093's fix)",
     ).toEqual(expected);
   });
 });
