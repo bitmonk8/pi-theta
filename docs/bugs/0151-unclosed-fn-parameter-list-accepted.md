@@ -1,13 +1,11 @@
 # Bug 0151 — An unclosed `fn` parameter list draws no structural diagnostic: `parseFn`'s parameter loop (`theta-document.ts:2171`) exits only on `)` or EOF and the lexer swallows every `stmt-sep` while bracket depth is open (`lexer.ts:766`), so `fn h(p: string { 1 }` loads with ZERO diagnostics and registers with the body's `{`, `1` and `}` recorded as three further parameters and an empty `FnBody`, `fn h(a: string,` + newline + `let x = 1` + newline + `) { 1 }` deletes the `let` statement and takes `h`'s arity from 1 to 5 with no diagnostic on any channel, and the only code an uppercase spelling draws is `theta/parse/binding-case-mismatch` — twice at one range when the swallowed text is a `let X`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: four decisions are
-  enumerated with the constraints each has to satisfy — where the emission
-  goes, where the parser resynchronises, whether an existing registered row is
-  reused or a new one is added under DIAG-2, and whether the parameter loop's
-  case test skips tokens the lexer's `let` adjacency has already judged. No
-  route is selected. No ordering dependency in either direction: every surface
-  named here is wired at HEAD and every measurement below is stable under any
-  route's code being written first.
+- **Status:** fixed (0.163.0). §Fix enumerated four decisions and selected no
+  route; the run adjudicated them and §Fix (0.163.0) below records which arm of
+  each was taken, what it leaves silent, and the drift the doc's measurements
+  carried (bug 0148's reserved-keyword arm landed between the filing and the
+  fix, so §Reproduction (c) c3/c4/c5 and (d) d1/d3/d4 already refused at the
+  fix's HEAD).
 - **Sev/Diff estimate:** S1/D3 — the grammar's `FnDecl` production carries the
   parentheses around `FnParams?` and makes the closing `)` a required terminal
   (`docs/spec_topics/grammar.md:138`, `docs/reference/grammar.md:247`; the
@@ -1168,3 +1166,106 @@ settles inside one parse.
   neighbours), `docs/bugs/0150-…md` (open, filed in this round, the third
   leniency in the same loop), `docs/bugs/0148-…md` (open, filed in this round,
   the reserved-keyword arm of the same parameter position).
+
+## Fix (0.163.0)
+
+- **Route adjudicated** (§Fix selected none; this is the run's decision, taken
+  against a re-measured HEAD, not against the filed tables):
+  - **Decision 1 — both arms, one emission.** `parseFn` captures the opening
+    `(`; a `{` at a parameter-name position ends the list (a block-open brace
+    derives from no `FnParam`, and a `)` before it would already have exited
+    the loop), and the loop's EOF exit is now distinguished from its `)` exit.
+    Both mark the list unclosed and exactly one diagnostic is pushed after the
+    loop, ranged on the opening `(`.
+  - **Decision 2 — resync at the body brace / EOF.** The `{` break leaves the
+    cursor ON the brace, so `parseBlock` takes it as the `FnBody` the author
+    wrote and the statements that followed return to the top-level statement
+    list (§Reproduction (a) a5/a6, (c) c8).
+  - **Decision 3 — a new registered row**, not a twelfth off-table
+    `<construct>` tail: `theta/parse/fn-param-list-unclosed` (E, parse),
+    scoped to `fn` parameter lists alone, message placeholder-free
+    (`fn parameter list is not closed by ')'`), so
+    `placeholder-rendering-a.md`'s closed table is not engaged and bug 0063's
+    open surface is not widened. Bug 0042's precedent.
+  - **Decision 4 — do nothing.** Measured: the resync collapses the duplicate
+    to one where the swallowed `let X` is no longer a parameter (c8: one
+    `binding-case-mismatch`, where HEAD emits two); it persists unchanged on
+    the foreign-`)` rows (d1), which this route does not reach.
+  - **Withhold (this route's own boundary).** When a parameter type capture
+    consumed strictly more punct `)` tokens than punct `(` tokens — bug 0124's
+    unfloored `<` / `>` over-run swallowing the list's own closer — both the
+    verdict and the recovery are withheld and the input keeps its previous
+    disposition byte-for-byte. The predicate is token-level, so a `)` inside a
+    string token or a balanced `(…)` in the author's own type does not withhold.
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parseFn`: the captured open paren, the
+    `unclosed` / `closeParenAbsorbed` state, the `{` break, the epilogue's
+    else-arm, and the single emission; plus the private
+    `unmatchedCloseParens(from, to)` helper beside the cursor helpers.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 row,
+    stating the trigger, the withhold (with its string-token / balanced-pair
+    carve-out) and the recovery.
+  - `docs/reference/diagnostics.md` — the Code/Sev/Phase/Message mirror row.
+  - `docs/spec_topics/grammar.md`, `docs/reference/grammar.md` — one clause
+    each naming the code beside the parenthesisation prose, matching each
+    page's existing convention of naming a sibling rule's code inline.
+  - `tests/fn-param-list-unclosed.test.ts` — 35 cells (new).
+  - `tests/live/fn-param-list-unclosed-live-cell.test.ts` — one live
+    registration cell (new).
+- **Gates:** witness `35 passed (35)`; full default suite
+  `Test Files 353 passed (353) / Tests 7085 passed (7085)`; `npx tsc --noEmit`
+  clean; `npm run lint` clean; `tests/code-registry.test.ts` `5 passed (5)`
+  (DIAG-2 closed-set reconciliation, both directions).
+- **Review:** 2 rounds. Round 1 (deep) — one `correctness` finding: the
+  withhold predicate was a character test over the captured type text, so a
+  `)` inside a string token withheld the verdict and
+  `fn h(p: enum["a)"] { 1 }` stayed silent and REGISTERED; one `spec` finding
+  (the registry Trigger then diverged from the emission); one `house-rule`
+  finding (bare self-references in the new comments). Round 2 (fast) — clean,
+  no escalation, adversarial token-level probes reported per shape.
+- **Verification:** SOLID. Witness reds on a neutralised fix
+  (`18 failed | 17 passed (35)`, root row `diagnostics=[]`) and greens restored
+  (`git hash-object` identical before and after, `ad3b4db9…`); default suite
+  green; live run for real under the shared lock — the new cell red-proven in
+  BOTH directions live, H8a `93 passed` with one documented ~180s stall on an
+  unrelated bug-0210 cell that greened on isolated re-run, and all three
+  `tests/live/acceptance/**` files green (12 passed); lint and typecheck clean;
+  GOV-15 sweep over all 34 committed `.theta` / `.thetalib` files (walked
+  explicitly, bug 0132) — 4 `fn` declarations, 0 offenders, 0 emissions of the
+  new code. `tests/fixtures/h7a/permitted-codes.json` left untouched: the code
+  is not reachable from the H9a stderr EMPTY-CAPTURE gate (every
+  `permittedCodesSubset` area passed unmodified, and no committed fixture
+  carries the trigger).
+- **Residuals:**
+  1. **The foreign-`)` class stays silent, and one member of it still
+     registers.** A swallowed region that ends at a `)` belonging to something
+     else exits the loop as a closed list, so this route says nothing about it.
+     Measured at the fix's HEAD: `fn h(a: string,` + `x = 1` + `) { 1 }` →
+     `[]` diagnostics, four parameters (`a`, `x`, `=`, `1`), the `x = 1`
+     statement absent, `registered=TRUE`; same for `42` in place of `x = 1`.
+     §Reproduction (c) c3/c4/c5 and (d) d1/d3/d4 are in this class too but are
+     refused by bug 0148's reserved-keyword arm, which landed after the filing.
+     Closing this needs §Fix Decision 1's other sub-arm — a non-derivable-token
+     test at every parameter-name position, not only at `{` — which reaches
+     bug 0148's and bug 0150's rows and is therefore not taken here.
+  2. **Bug 0124's declined `<` / `>` row changes disposition where no `)` was
+     absorbed.** `fn h(p: array<string { 1 }` (§Reproduction (e) e4) now draws
+     the new code and no longer registers; the capture is still
+     `array<string{1}`, so 0124's counter is untouched. The three committed
+     withhold cells (`integer<`, `integer>`, `array<enum["a", "b">`) are
+     byte-identical.
+  3. **Citation drift.** The parser edit inserts inside `parseFn` and shifts
+     every `src/parser/theta-document.ts` citation below it — bug 0134's
+     adjudicated class. Disclosed, not chased. Three stale citations found in
+     `tests/` predate this fix and were left alone.
+- **Discharge notes appended:** none. Bug 0124's and bug 0139's docs are open
+  siblings; residuals 1–3 are reported for the parent to file rather than
+  written into another report's file from this lane.
+- **Pinned dispositions / non-goals:** `parseType`'s terminator set and its
+  `<` / `>` counter (bug 0124), `parseSchemaObjectBody`'s recovery (bug 0133),
+  the unclosed call paren in expression position (§Reproduction (f) f5), the
+  in-document arity check (bug 0131), the `<construct>` table's over-statement
+  (bug 0063), the reserved-keyword and optional-annotation arms of the same
+  loop (bugs 0148, 0150) — all unmoved. The missing-`(` tail
+  (`tests/reserved-keyword-type-position.test.ts:483`) and the
+  `fn h(mut: string)` boundary keep their exact diagnostics.

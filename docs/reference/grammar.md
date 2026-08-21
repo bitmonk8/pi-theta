@@ -302,7 +302,8 @@ FnParam    ::= Ident ":" Type
 ```
 
 Top-level only (nested is `theta/parse/nested-fn`). Parameter list always
-parenthesised (`fn f()`, never `fn f`); trailing comma admitted. `fn` parameters
+parenthesised (`fn f()`, never `fn f`); trailing comma admitted; a list not
+closed by a matching `)` is `theta/parse/fn-param-list-unclosed`. `fn` parameters
 carry no default and are immutable — `mut` on one is
 `theta/parse/mut-on-immutable-context`. Functions are not first-class; a name used
 outside call position is `theta/parse/function-as-value`. `: ReturnType` optional;

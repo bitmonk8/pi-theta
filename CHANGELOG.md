@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.163.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0151 — an unclosed `fn` parameter list now refuses at parse** (the
+  grammar's parenthesised `FnDecl` list was accepted unclosed). One
+  diagnostic ranged on the opening `(`, resync at the body `{`; NEW
+  registered `theta/parse/fn-param-list-unclosed` (registry + mirror + one
+  grammar clause each side, same commit); withheld when a type capture
+  consumed an unmatched `)`. Witness:
+  `tests/fn-param-list-unclosed.test.ts` (35 cells) + a standalone live
+  cell. `fn h(p: array<string { 1 }` (0124's declined e4 row) now refuses.
+
 ## [0.162.0] - 2026-08-26
 
 ### Fixed

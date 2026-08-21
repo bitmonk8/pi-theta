@@ -1888,6 +1888,28 @@ class BodyParser {
     return t.kind === "keyword" && t.text === text;
   }
 
+  /**
+   * How many punct `)` tokens the half-open span `[from, to)` consumed beyond
+   * its own punct `(` tokens — i.e. how many closers it swallowed that were not
+   * its own. Only `punct` tokens count, so a `)` character inside a string or
+   * template token's text is excluded by construction.
+   */
+  private unmatchedCloseParens(from: number, to: number): number {
+    let net = 0;
+    for (let i = from; i < to; i += 1) {
+      const t = this.tokens[i];
+      if (t?.kind !== "punct") {
+        continue;
+      }
+      if (t.text === "(") {
+        net -= 1;
+      } else if (t.text === ")") {
+        net += 1;
+      }
+    }
+    return net;
+  }
+
   // --- body / block -------------------------------------------------------
 
   public parseBody(): Block {
@@ -2340,7 +2362,24 @@ class BodyParser {
       });
     }
     if (this.isPunct("(")) {
-      this.advance();
+      const openTok = this.advance();
+      // The closing `)` is a required terminal of `FnDecl`, and nothing else in
+      // this function asks whether it arrived: the loop below exits on `)` OR on
+      // EOF and the epilogue's `)` consume is conditional, so the two exits are
+      // indistinguishable. The lexer removes the other boundary that would have
+      // stopped the list — an unmatched `(` suppresses every following
+      // `stmt-sep` (grammar.md §"Newline continuation", the open-bracket
+      // trigger), so the rest of the file joins the parameter list.
+      let unclosed = false;
+      // A parameter TYPE capture that consumed MORE punct `)` tokens than punct
+      // `(` tokens took a closer that was not its own — the list's, under the
+      // unfloored `<` / `>` depth counter in `parseType` (bug 0124
+      // §Reproduction (e)). Reporting the list as unclosed would then name a
+      // token that IS present, so the verdict is withheld and the capture-level
+      // rows keep the input. The withhold covers the recovery below as well as
+      // the verdict: such an input keeps the parameters, the statement
+      // absorption and the diagnostics it had before.
+      let closeParenAbsorbed = false;
       // `atParamStart` is true only where the author could have written a
       // parameter name. `mut`'s modifier check below can leave the loop
       // re-entering on a recovery artefact instead: consuming `mut` shifts
@@ -2351,6 +2390,15 @@ class BodyParser {
       // 0148 §Fix (d)).
       let atParamStart = true;
       while (!this.isPunct(")") && !this.atEnd()) {
+        // A block-open `{` derives from no `FnParam` position, and a `)` before
+        // it would already have exited the loop — so the list is unclosed and
+        // the brace is the author's body. Break with the cursor ON it, so
+        // `parseBlock` below takes it as the `FnBody` the author wrote instead
+        // of recording it (and the body's own tokens) as parameters.
+        if (this.isPunct("{") && !closeParenAbsorbed) {
+          unclosed = true;
+          break;
+        }
         if (this.isKeyword("mut")) {
           // A `mut` modifier on a function parameter is an always-immutable
           // context (bindings.md §Immutable contexts).
@@ -2403,7 +2451,11 @@ class BodyParser {
         let pType = "";
         if (this.isPunct(":")) {
           this.advance();
+          const typeStart = this.pos;
           pType = this.parseType();
+          if (this.unmatchedCloseParens(typeStart, this.pos) > 0) {
+            closeParenAbsorbed = true;
+          }
         }
         params.push({ name: pTok.text, type: pType });
         if (this.isPunct(",")) {
@@ -2415,6 +2467,17 @@ class BodyParser {
       }
       if (this.isPunct(")")) {
         this.advance();
+      } else {
+        unclosed = true;
+      }
+      if (unclosed && !closeParenAbsorbed) {
+        this.diagnostics.push({
+          severity: "error",
+          code: "theta/parse/fn-param-list-unclosed",
+          file: this.file,
+          range: openTok.range,
+          message: "fn parameter list is not closed by ')'",
+        });
       }
     }
     let returnType: string | null = null;
