@@ -305,15 +305,19 @@ WithField  ::= WithKey ":" WithValue
 WithKey    ::= "system" | "model" | "tools" | "tool_loop" | "respond_repair"
 WithValue  ::= <value matching the like-named frontmatter field's shape/validation>
 FnParams   ::= FnParam ("," FnParam)* ","?
-FnParam    ::= Ident ":" Type
+FnParam    ::= Ident (":" Type)?
 ```
 
 Top-level only (nested is `theta/parse/nested-fn`). Parameter list always
 parenthesised (`fn f()`, never `fn f`); trailing comma admitted; a list not
 closed by a matching `)` is `theta/parse/fn-param-list-unclosed`; a closed list
 holding a name-position token the `Ident` half derives from no reading is
-`theta/parse/fn-param-not-identifier`. `fn` parameters
-carry no default and are immutable — `mut` on one is
+`theta/parse/fn-param-not-identifier`. The `Ident` name is mandatory and the
+parameter type annotation is optional, admitting an ABSENT annotation only —
+not a `:` written with no `Type` behind it, a distinct capture this optional
+tail does not derive. An unannotated parameter's argument goes unchecked at
+both phases (see [Type system](./type-system.md)). `fn` parameters carry no
+default and are immutable — `mut` on one is
 `theta/parse/mut-on-immutable-context`. Functions are not first-class; a name used
 outside call position is `theta/parse/function-as-value`. `: ReturnType` optional;
 absent → return type inferred (see [Type system](./type-system.md)).

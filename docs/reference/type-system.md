@@ -67,6 +67,13 @@ inferred binding depending on a Pi-tool call whose schema is not parse-time
 visible; an `invoke` against a callee that produced `theta/load/callee-has-errors`),
 the parse-time check is skipped and the runtime AJV check is the safety net.
 
+**Absent operands.** An unannotated `fn` parameter is a different case: its
+argument is not past the parser's static view — the parameter has no declared
+type to compare against — so an unannotated `fn` parameter's argument is checked
+at neither phase. No runtime AJV safety net applies either — a top-level `fn`
+declaration is hoisted and always statically resolvable, so a call to one never
+falls into the unresolvable-callee case a runtime check would cover.
+
 - **TYPE-9.** Five sites take a compatibility check, and four of them report
   their own parse-time diagnostic on a static failure: `let x: T = expr` →
   `theta/parse/let-rhs-type-mismatch`; a plain top-level `fn` argument →

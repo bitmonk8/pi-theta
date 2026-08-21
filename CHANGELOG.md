@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.177.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0150 — the fn-parameter annotation's optionality is adjudicated INTO
+  the grammar** (route 2, settled in-run: route 1's mandatory-annotation
+  refusal premeasured 63 reds across 13 files including 31 cells of 0151's
+  and 0225's landed witnesses — the parameter-list family deliberately built
+  on optional annotations): `FnParam ::= Ident (":" Type)?` lands in both
+  grammar pages with the absent-only clause, and type-system.md (+ reference
+  mirror) gains the Absent-operands typing rule. Zero `src/` bytes, zero
+  registry rows, zero cell flips. Witness
+  `tests/fn-param-annotation-optional.test.ts` (26 cells) + a standalone live
+  cell (`fn-param-annotation-optional-live-cell`).
+
+>>>>>>> 10b1b6e9 (fix(bug-0150): fn-parameter annotation optionality adjudicated into the grammar — v0.177.0)
+
 ## [0.176.0] - 2026-08-27
 
 ### Fixed

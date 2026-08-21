@@ -1,6 +1,8 @@
 # Bug 0150 — Both normative grammar mirrors write `FnParam ::= Ident ":" Type` (`docs/reference/grammar.md:254`, `docs/spec_topics/grammar.md:140`, restated in prose at `:143`), yet `parseFn`'s parameter loop guards the annotation read behind `if (this.isPunct(":"))` (`src/parser/theta-document.ts:2204–2208`) so `fn h(p)` parses with zero diagnostics, registers and runs with `type: ""` on the `FnParam` — and that empty annotation is the switch that turns off four measured type-layer sinks, including `theta/parse/fn-arg-type-mismatch`, whose registered *Trigger* judges an argument against "the matched parameter's **declared type**" and whose row states no runtime AJV safety net applies
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
+- **Status:** fixed (0.177.0) — **route 2**, adjudicated in-run against a
+  measured route-1 prototype (see `## Fix (0.177.0)`). Filed with §Fix unsettled:
+  the report existed to pin the
   adjudication between enforcing the written production (route 1 — a structural
   refusal, whose code choice engages DIAG-2 or the closed `<construct>` table)
   and relaxing both mirrors to match the implementation (route 2 — a normative
@@ -933,3 +935,185 @@ runtime rows, which use the offline production-executor harness
   `tests/committed-fixture-parse-gate.test.ts:55` (the `.theta`-only filter bug
   0132 owns). No test asserts whether a `fn` parameter's type annotation is
   required.
+
+## Fix (0.177.0)
+
+- **Route adjudicated in-run — ROUTE 2** (§Fix selected neither route; this is
+  the run's decision, taken against a re-measured HEAD and a full-suite
+  route-1 prototype, not against the filed tables):
+  - **Decision 1 — the implementation governs; both normative mirrors move.**
+    `FnParam ::= Ident (":" Type)?` on both pages, both prose paragraphs
+    restated, and the typing rule the admitted shape lacked supplied on both
+    `type-system` pages. Zero `src/` bytes, zero registry rows, zero existing
+    test bytes.
+  - **Decision 2 — route 1 is unexecutable in this lane, measured not
+    argued.** Prototype: an `error`-severity emission where `pType.length === 0`
+    in `parseFn`'s parameter loop. Full default suite under it:
+    `63 failed | 7428 passed`, **13 files** — against §Reproduction (E)'s
+    derived estimate of 12 cells over 5 files. The excess is the 0151 / 0225
+    substrate this filing predates: **20 of the 24 cells of
+    `tests/fn-param-not-identifier.test.ts`** (bug 0225's witness) and **11 of
+    the 35 cells of `tests/fn-param-list-unclosed.test.ts`** (bug 0151's
+    witness) red, because those witnesses' fixtures swallow annotation-less
+    `Ident` parameters (`a: string, x, =, 1`) that a `p.type.length === 0`
+    predicate reaches; plus six further files §Reproduction (E) never
+    enumerated (`annotation-nontype-text-refusal`, `fn-arg-member-read-proof`,
+    `plain-for-loop-variable-element-type`, `reassign-rhs-type-compat`,
+    `nested-inline-enum-generic-argument-refusal`,
+    `fn-param-name-reserved-keyword`). §Fix shared constraint 6 requires
+    operator authorisation naming any flipped cell, and no such channel exists
+    in this run. The prototype was reverted by writing the file's content back:
+    `git hash-object src/parser/theta-document.ts` =
+    `60f0f5d6bfced421cde9beaf6da83dffae1b5869` = `HEAD:` for that path, before
+    Phase 1 and at exit.
+  - **Decision 3 — the typing rule is PROSE, not a *Trigger* clause.** §Fix
+    route 2 offers both; the prose form engages neither DIAG-2 nor DIAG-4
+    (`diagnostic-shape.md:72`, `:74`), so
+    `docs/spec_topics/diagnostics/code-registry-parse.md` and
+    `docs/reference/diagnostics.md` are byte-untouched and
+    `theta/parse/fn-arg-type-mismatch`'s row keeps its *Trigger* and its "no
+    runtime AJV safety net applies" sentence, which the new paragraph cites
+    rather than restates. The same discipline as 0225's Decision 3: a row is not
+    widened where its own text already carries the fact.
+  - **Decision 4 — the relaxation is ABSENT-only.** `Ident (":" Type)?` derives
+    neither `fn h(p:)` (a `:` with no `Type`; bug 0124's shipped
+    `## Fix (0.121.0)` decision 3 leaves the empty capture as it is and states
+    it in a *Trigger*) nor `fn h(3)` (not an `Ident`; refused at HEAD by
+    `theta/parse/fn-param-not-identifier`). Both mirrors say so in one clause,
+    so the next reader cannot take the relaxation as covering everything
+    §Reproduction (A) measures silent.
+  - **Decision 5 — the `FnDecl` parenthesisation refusal keeps its grammar
+    derivation.** `"(" FnParams? ")"` is untouched in both fences, so
+    `parseFn`'s missing-`(` emission (`theta-document.ts:2354–2363`) remains
+    grammar-derived and its comment needed no edit. Nothing in `src/` was
+    touched to say this.
+- **What shipped:**
+  - `docs/reference/grammar.md` — the `FnParam` production relaxed (`:308`);
+    the `fn`-declarations prose gained the mandatory-`Ident` /
+    optional-annotation statement, the absent-only clause, and the
+    both-phases-unchecked pointer into the type-system page.
+  - `docs/spec_topics/grammar.md` — the production relaxed (`:140`); the prose
+    sentence "Each `FnParam` is an `Ident \":\" Type` pair" replaced by the
+    optionality statement with the same absent-only clause, with 0151's
+    `fn-param-list-unclosed` and 0225's `fn-param-not-identifier` clauses left
+    intact around it.
+  - `docs/spec_topics/type-system.md` — a new **Absent operands** paragraph
+    beside *Unresolvable operands*: an unannotated `fn` parameter's argument is
+    checked at neither phase, and why the usual net is absent.
+  - `docs/reference/type-system.md` — the mirror paragraph.
+  - `tests/fn-param-annotation-optional.test.ts` — 26 cells (new): five
+    documentation cells (this fix's red direction), sixteen behaviour locks
+    (A1–A16, whole ordered unfiltered diagnostic lists plus the recorded
+    `params` and a replicated `hasLoadParseError` registration verdict) and
+    five type-layer cells (B1/B2, B3, B8/B9).
+  - `tests/live/fn-param-annotation-optional-live-cell.test.ts` — one live H8a
+    cell (new), tagged `CELL-C`: the blessed shape registers, drives, and lands
+    no `theta-system-note`, with a planted `binding-case-mismatch` theta proving
+    the note channel is live so the absence cannot pass vacuously.
+- **Gates:** witness `26 passed (26)`; 0151's witness `35 passed (35)` and
+  0225's `24 passed (24)`, both files byte-identical to HEAD
+  (`2724100a150aca85606559f30bb224fd588b7141`,
+  `7d204039e21b6ae6f56594073af0774cd8a90a09`); full default suite
+  `Test Files 367 passed (367) / Tests 7516 passed (7516)` (fork baseline
+  366 / 7490); `npx tsc --noEmit` clean; `npm run lint` clean;
+  `tests/code-registry.test.ts` `5 passed (5)` and
+  `tests/committed-fixture-parse-gate.test.ts` `36 passed (36)`, with
+  `git diff --stat -- src/ docs/spec_topics/diagnostics/
+  docs/reference/diagnostics.md` EMPTY.
+- **Review:** 2 rounds plus one comment-only polish. Round 1 (deep) — four
+  findings: a dangling `./type-system.md#type-compatibility` fragment into a
+  page carrying no anchors (`spec`); a FALSE claim on the reference mirror,
+  which predicated "not past the parser's static view" of the PARAMETER where
+  `walkFn` records it withheld and body sinks defer on it, the narrow true
+  claim being the call-site argument's (`spec`); an edit-relative clause "and
+  whose disposition is unaffected" (`prose`); and pre-fix present-tense
+  comments with stale citations in the new witness (`house-rule`). All four
+  fixed; a flagged caps inconsistency ("ABSENT") was adjudicated NOT a finding,
+  both pages using caps emphasis already. Round 2 (deep, routed deep because
+  round 1 raised `spec` findings) — one `test` finding: six
+  `type-layer-checks.ts` / `type-compat.ts` / `statement-executor.ts`
+  citations in the two new files were 0.79.0 coordinates copied from this
+  document, one naming the wrong FILE, under headers claiming v0.173.0
+  currency. Polish round (comment-only) corrected all six, grep-proven at HEAD;
+  verified by gate-diff — every hunk a `//` comment, gates re-run green — so
+  the confirmation review round was skipped.
+- **Verification:** SOLID. Red-proof in both directions: all four pages
+  neutralised to HEAD content by writing it back (never `git checkout` /
+  `git restore`), hash-verified against `HEAD:<path>`, witness
+  `5 failed | 21 passed (26)` with exactly a1–a5 red and every behaviour lock
+  green — the asymmetry proving the locks are independent of the doc edit —
+  then restored with all four `git hash-object` values matching their
+  pre-neutralisation captures and `26 passed (26)`. Per-site falsifiability
+  proven for a1, a2 and a5 individually (`1 failed | 25 passed (26)` each, only
+  the perturbed cell red, hash-verified restore between each). Default suite,
+  typecheck and lint green, re-run independently by the orchestrator. Live run
+  for real under the shared lock: the new cell `1 passed`, then red-proven live
+  in the other direction by perturbing its own fixture to a shape the parser
+  genuinely refuses (`fn h(3)` — `theta/parse/fn-param-not-identifier`), which
+  failed on the registration observable (`Registered: []`); fixture restored
+  hash-identical (`fa367449c9235c3bd1015027d4a3a414b01e7a0c`) and green again.
+  No stochastic class engaged. H9a not run and not owed: no code was added, so
+  the H9a stderr EMPTY-CAPTURE gate is not engaged and
+  `tests/fixtures/h7a/permitted-codes.json` is byte-untouched. GOV-15 sweep
+  over all 34 committed `.theta` / `.thetalib` files (both extensions walked,
+  bug 0132): 4 `fn` declarations, 3 parameter-bearing, **0** unannotated
+  parameters — route 2 is observably inert, no input's diagnostics, values or
+  note content move, so GOV-15's three observables
+  (`source-language-stability.md:5`) are untouched and no carve-out is engaged;
+  the corpus-wide claim is discharged by the shipped
+  `tests/committed-fixture-parse-gate.test.ts`, not by the probe.
+- **Residuals:**
+  1. **The S1 band is retired by adjudication, not by enforcement.** Under
+     route 2 `fn h(p)` is conformant, so the defect was two normative sentences
+     and the band re-scores to S4 exactly as §Sev/Diff anticipated. Everything
+     §Reproduction (B) and (C) measure still happens: `fn g(x): string { x }`
+     called `g(1)` reports nothing and returns the integer `1` out of a
+     `string`-declared function. That is now documented behaviour — the new
+     **Absent operands** paragraphs state it — not a defect. Anyone wanting the
+     check must add a rule, not a fix.
+  2. **The four §Reproduction (E) green-but-stale cells stay live and correct.**
+     d1, sh2, u9c and u12pd of `tests/fn-arg-type-mismatch-wired.test.ts` keep
+     asserting a reachable class, so route 1's "asserting an unreachable class"
+     cost is not incurred; `walkFn`'s withheld arm and `checkFnCallArgs`'s skip
+     stay reachable from theta source.
+  3. **Two LOCKED sibling witnesses now carry stale production citations.**
+     `tests/fn-param-not-identifier.test.ts:15` and
+     `tests/fn-param-list-unclosed.test.ts:18` quote
+     `FnParam ::= Ident ":" Type` in header comments, the latter also citing
+     `grammar.md:140`, which now reads the relaxed form. Both files are locked
+     byte-identical this lane and the comments feed no assertion; bug 0134's
+     adjudicated drift class. Disclosed, not chased.
+  4. **The "not past the parser's static view" rationale over-claims one
+     corner, on both mirrors.** An argument can itself be past the static view
+     (`let a = pi_tool(…)` then `g(a)` with `g`'s parameter unannotated). The
+     operative rule — checked at neither phase — holds there too, because
+     `checkFnCallArgs` skips the slot before reading the argument, so the
+     sentence's conclusion is right and only its contrastive rationale is
+     narrow. Reported for a later prose pass.
+  5. **Group (c)'s title over-states its coverage.** The witness pins B1/B2, B3
+     and B8/B9 but not §Reproduction (B)'s B4/B5 (`let-rhs-type-mismatch`) and
+     B6/B7 (`non-array-iterand`) pairs. §Fix constraint 3 is discharged in
+     substance — zero `src/` bytes moved, hash-proven — and both omitted codes
+     are exercised elsewhere in the suite.
+  6. **`fn h(p:)` and `fn h(3)` remain undisposed by this fix, deliberately.**
+     Decision 4 states the relaxation does not reach them: the first is bug
+     0124's shipped decision 3, the second is refused today by bug 0225's row.
+  7. **No in-lane version or release-notes surface.** `package.json`,
+     `CHANGELOG.md` and `docs/bugs/README.md` are out of bounds in this lane
+     and nothing is committed, so this record carries the literal `0.177.0`
+     placeholder. Route 2 adds no code, so
+     `source-language-stability.md:25`'s addition arm is not engaged — there is
+     no new input class for the release notes to name.
+- **Discharge notes appended:** none. Bug 0151's and 0225's records already
+  draw the boundary with this report and both state its subject untouched by
+  them; those statements remain accurate, this fix having moved no code and no
+  cell of either witness. Residual 3 is reported for the parent to file rather
+  than written into a locked file from this lane.
+- **Pinned dispositions / non-goals:** bug 0139's `binding-case-mismatch` on
+  the parameter NAME (A2, A11 — unchanged in code, message and range); bug
+  0124's empty-capture decision; bug 0225's non-derivable-token row and bug
+  0151's unclosed-list row, including both pages' prose clauses naming them;
+  bug 0131's in-document arity check (B3 still silent); bug 0138's imported
+  `.thetalib` route; bug 0063's `<construct>` table (no tail coined, no code
+  added); bug 0050's withheld-binder design and its five fixtures; and the
+  `params:` frontmatter field's type requirement — all unmoved.
