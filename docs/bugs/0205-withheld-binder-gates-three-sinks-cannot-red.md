@@ -711,3 +711,13 @@ one of the ten deletions is comment text inside the two prose blocks §Fix item
   beside them, not over them, and only the block-level narrative was corrected.
   §Fix item 5's optional `match`-binder twins, the citation sweeps of residuals
   3 and 4, and the pin status of residual 2's ninth site all stay out.
+
+### Residual 2 measured (parent note, 2026-08-26, at 202b6f81)
+
+The ninth `containsWithheldBinderType` gate is PINNED — no filing made.
+A reproduce-first writer neutered it (`if (true)`) and got exactly two
+reds: `tests/reassign-rhs-type-compat.test.ts` g6 (:821, RHS-side gate
+pin) and g7 (:853, target-side gate pin); restore hash-verified
+(`94522f67…`). Correction: the site is the `walkStmt` `case "reassign"`
+arm gating `checkReassignRhsCompat` — the residual's "let-arm" label was
+wrong (the in-source comment merely points at the let arm above it).
