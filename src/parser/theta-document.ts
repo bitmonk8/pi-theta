@@ -39,6 +39,7 @@ import {
   checkImportMalformedSpecifierList,
   checkImportMissingFromClause,
   checkImportReservedSynthesisedName,
+  checkImportSeparatorDegenerateSpecifierList,
   checkThetaLibTopLevelForm,
   type ImportSpecifier,
   type ThetaLibTopLevelForm,
@@ -3055,6 +3056,23 @@ class BodyParser {
     const specifiers: ImportSpecifier[] = [];
     const symbols: string[] = [];
     let hasBraces = false;
+    // bug 0211: `ImportDecl` / `ExportDecl` spell the list as `"{" ImportSpec
+    // ("," ImportSpec)* ","? "}"` (imports.md §"Re-exports") — a `,` BETWEEN
+    // two specifiers, never before the first and never doubled. `sawSpecifier`
+    // / `separatorSeen` track the two half-states a conforming list
+    // alternates through (specifier, then separator, then specifier, …) so
+    // the loop below can tell a missing or stray `,` from a written one;
+    // `hasSeparatorDegeneracy` is STICKY for the statement because the
+    // registry disposition (bug 0211 §Fix constraint 2; granularity carried
+    // in `docs/spec_topics/diagnostics/code-registry-parse.md:122`'s
+    // partition sentence) is one diagnostic per statement, not per offending
+    // position. Declared outside the brace block: with no
+    // braces at all these stay at their initial values, which is correct —
+    // that shape is `checkImportMalformedSpecifierList`'s own subject.
+    let sawSpecifier = false;
+    let separatorSeen = false;
+    let hasSeparatorDegeneracy = false;
+    let anyDanglingAlias = false;
     if (this.isPunct("{")) {
       hasBraces = true;
       this.advance();
@@ -3063,6 +3081,12 @@ class BodyParser {
         const isSymbolToken =
           (t.kind === "ident" || t.kind === "keyword") && t.text !== "as";
         if (isSymbolToken) {
+          // A specifier token with a specifier already pending and no `,`
+          // consumed since it is the missing-separator shape: `{ a b }`
+          // re-enters here with no separator between `a` and `b`.
+          if (sawSpecifier && !separatorSeen) {
+            hasSeparatorDegeneracy = true;
+          }
           const source = t.text;
           const sourceRange = t.range;
           this.advance();
@@ -3091,6 +3115,15 @@ class BodyParser {
             range: specifierRange,
           });
           symbols.push(local);
+          // A pushed specifier closes the missing-separator window and opens a
+          // fresh one for the next token; `anyDanglingAlias` stays sticky for
+          // the whole list so the new separator-degeneracy arm below can defer
+          // to `checkImportDanglingAlias`'s own subject (bug 0211 §Fix
+          // constraint 2, carried in `code-registry-parse.md:122`'s
+          // partition sentence).
+          sawSpecifier = true;
+          separatorSeen = false;
+          anyDanglingAlias = anyDanglingAlias || aliasConsumedWithNoAlias;
           // bug 0100: a dangling `as` — consumed with no alias token after it —
           // is a specifier neither `ImportSpec` nor `ExportSpec` admits
           // (imports.md §"Re-exports"). Emitted straight onto
@@ -3121,8 +3154,20 @@ class BodyParser {
             this.diagnostics.push(reserved);
           }
         } else if (t.kind === "punct" && t.text === ",") {
+          // A `,` with no specifier before it, or with a `,` already pending
+          // since the last specifier, is the stray-separator shape: `{ , a }`,
+          // `{ a, , b }`. `","?` (imports.md §"Re-exports") admits exactly one
+          // trailing comma, so the first `,` after a specifier is never stray.
+          if (!sawSpecifier || separatorSeen) {
+            hasSeparatorDegeneracy = true;
+          }
           this.advance();
+          separatorSeen = true;
         } else {
+          // The catch-all: a token `ImportSpec` / `ExportSpec` never admits
+          // (`42`, `"x"`, `:`, a second `as`) is discarded rather than
+          // reported, which is itself the production violation (bug 0211).
+          hasSeparatorDegeneracy = true;
           this.advance();
         }
       }
@@ -3184,6 +3229,28 @@ class BodyParser {
     );
     if (malformedSpecifierList !== undefined) {
       this.diagnostics.push(malformedSpecifierList);
+    }
+    // bug 0211: a separator-degenerate list — a missing `,` between two
+    // specifiers, a stray `,`, or a discarded catch-all token — is a THIRD
+    // STATEMENT-level fact under the same code, alongside the absent/empty
+    // list above. Same gate as that arm (bug 0211 §Fix constraint 3; registry
+    // disposition at `code-registry-parse.md:122`'s statement-arm gate), and
+    // suppressed on an empty recovered list or a dangling `as` so the three
+    // arms of this code partition and at most one statement-ranged
+    // diagnostic fires (bug 0211 §Fix constraint 2, carried in
+    // `code-registry-parse.md:122`'s partition sentence) —
+    // `specifierCount === 0` already excludes this arm from ever co-firing
+    // with the one above.
+    const separatorDegenerateSpecifierList = checkImportSeparatorDegenerateSpecifierList(
+      hasSeparatorDegeneracy,
+      specifiers.length,
+      anyDanglingAlias,
+      hasFromKeyword,
+      hasPathLiteral,
+      { file: this.file, range },
+    );
+    if (separatorDegenerateSpecifierList !== undefined) {
+      this.diagnostics.push(separatorDegenerateSpecifierList);
     }
     return {
       kind,

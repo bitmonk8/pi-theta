@@ -72,19 +72,39 @@ clause — the bare keyword (`import`, `export`), an empty list (`import {}`,
 
 A statement whose trailing clause is well-formed — the `from` keyword present
 with a `string` token after it — can still violate `ImportSpec` /
-`ExportSpec`. A specifier list that is absent (no braces at all) or that
-produces zero specifiers — fired once per statement, ranged over the whole
-statement — and a specifier whose `as` keyword is consumed with no following
-`Ident` alias — fired once per malformed specifier, ranged over that
-specifier — are both `theta/parse/import-malformed-specifier-list`. The two
-arms differ in how they meet `theta/parse/import-missing-from-clause`. The
-statement arm is confined to the complement of that code: the bare-keyword and
-empty-list spellings stay inside its Trigger and draw only it. The specifier
-arm is unconditional, so a dangling `as` on a from-less list emits both codes —
-the missing-from-clause diagnostic ranged over the statement, this one over the
-malformed specifier. A dangling `as` also co-emits with
+`ExportSpec`. Three shapes are `theta/parse/import-malformed-specifier-list`:
+a specifier list that is absent (no braces at all) or that produces zero
+specifiers; a list whose separators do not conform to `("," ImportSpec)*
+","?` — a specifier adjacent to another with no `,` consumed between them, a
+`,` where no specifier precedes it, a second `,` before the next specifier, a
+second trailing `,` beyond the one `","?` licenses, or a token the specifier
+loop discarded because neither production admits it (`{ a b }`, `{ , a }`,
+`{ a, , b }`, `{ a: b }`); and a specifier whose `as` keyword is consumed with
+no following `Ident` alias (`{ a as }`). The first two shapes are STATEMENT-
+level facts, fired once per statement and ranged over the whole statement; the
+third is a SPECIFIER-level fact, fired once per malformed specifier and ranged
+over that specifier. The separator shape is silent when the recovered list is
+empty (the absent/zero-specifier shape's own subject) or when any specifier in
+it carried a dangling `as` (the third shape's own subject), so the three
+shapes partition and at most one statement-ranged diagnostic of this code
+fires per statement — `{ a as as b }`'s discarded second `as` does not add a
+second diagnostic beside the dangling-`as` one, and a bare comma recovered
+into an empty list (`{ , }`) draws only the absent/zero-specifier shape.
+
+The three shapes differ in how they meet `theta/parse/import-missing-from-clause`.
+The two statement-level shapes are confined to the complement of that code: the
+bare-keyword and empty-list spellings stay inside its Trigger and draw only it,
+and a from-less separator-degenerate list (`import { a b }` with no `from`
+clause) likewise draws only the missing-from-clause code. The specifier-level
+shape is unconditional, so a dangling `as` on a from-less list emits both
+codes — the missing-from-clause diagnostic ranged over the statement, this one
+over the malformed specifier. A dangling `as` also co-emits with
 `theta/parse/import-reserved-synthesised-name` when the malformed specifier's
-local binding is a reserved synthesised name.
+local binding is a reserved synthesised name, and a separator shape whose
+missing separator invents a specifier the author did not write co-emits with
+that same code when the invented specifier's local binding is reserved. The
+separator shape also co-emits with `theta/parse/import-non-thetalib-extension`
+when the statement's path literal does not name a `.thetalib`.
 
 A plain `import { Author } from "./personas.thetalib"` does **not** re-export `Author` from the importing file — only declarations and explicit `export ... from` forms are visible to downstream importers.
 

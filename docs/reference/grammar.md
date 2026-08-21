@@ -58,14 +58,26 @@ Path literals follow the [Source files](#source-files) forward-slash rule; an
 A specifier list with no `from` clause — the bare keyword, an empty list, or a
 `from` clause with no path-literal token after it — is
 `theta/parse/import-missing-from-clause`. Where the `from` clause does carry a
-path-literal token, a specifier list that is absent or produces zero specifiers
-is `theta/parse/import-malformed-specifier-list`, ranged over the whole
-statement. A specifier whose `as` is not followed by an alias is that same code
-ranged over that specifier, and it applies whatever the trailing clause looks
-like: `import { a as }` with no `from` clause draws both codes at once, the
-missing-from-clause one over the statement and the malformed-specifier-list one
-over the specifier. A specifier naming a symbol absent from the resolved
-`.thetalib` file's declarations and re-exports is
+path-literal token, two STATEMENT-level shapes are
+`theta/parse/import-malformed-specifier-list`, ranged over the whole
+statement: a specifier list that is absent or produces zero specifiers; and a
+list whose `,` separators do not conform — a specifier with no `,` consumed
+before it since the last specifier, a `,` with no specifier before it or a
+second `,` before the next specifier, or a token the loop cannot classify
+(`{ a b }`, `{ , a }`, `{ a, , b }`, `{ a: b }`). The separator shape is silent
+when the recovered list is empty or any specifier in it has a dangling `as`,
+so at most one statement-ranged `import-malformed-specifier-list` fires per
+statement. A missing separator can also invent a specifier whose local
+binding is a reserved synthesised name, drawing
+`theta/parse/import-reserved-synthesised-name` alongside it, and a
+separator-degenerate list whose path literal does not name a `.thetalib`
+draws `theta/parse/import-non-thetalib-extension` alongside it too. The
+specifier-level shape — a specifier whose `as` is not followed by an alias,
+ranged over the malformed specifier — is UNCONDITIONAL: it fires whatever the
+trailing clause looks like, so `import { a as }` with no `from` clause draws
+both codes at once, the missing-from-clause one over the statement and the
+malformed-specifier-list one over the specifier. A specifier naming a symbol
+absent from the resolved `.thetalib` file's declarations and re-exports is
 `theta/parse/import-unknown-symbol`. For an `export { Foo } from` specifier the
 check is reported against the RE-EXPORTING file, not any later importer of the
 alias, and its `.thetalib` path is subject to
@@ -629,6 +641,9 @@ ToolField ::= Ident ":" Expr
   `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`; the
   malformed-specifier-list refusal (absent/empty specifier list, dangling `as`):
   `docs/bugs/0100-production-excluded-import-export-spellings-parse-clean.md`;
+  the same code's separator-degenerate-list refusal (a missing or stray `,`
+  between specifiers, or a discarded non-specifier token):
+  `docs/bugs/0211-separator-degenerate-specifier-lists-parse-clean.md`;
   the re-export chain resolution (a re-export binds the importing specifier to
   the declaration it names, and its own `.thetalib` path and specifier are
   checked against the file it names):

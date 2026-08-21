@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.150.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0211 — separator-degenerate import/export specifier lists now
+  refuse** instead of parsing clean with phantom `(c→c)` specifiers, comma
+  runs, missing-comma runs, and a discarded second `as`.
+  `checkImportSeparatorDegenerateSpecifierList` wired region-local in
+  `parseImportExport`; the existing `import-malformed-specifier-list`
+  Trigger widened in place (no new row — Message/severity/phase
+  byte-identical). Witness:
+  `tests/import-specifier-separator-production-required.test.ts` (68 cells,
+  39 red pre-fix) + H8a cell 76 (red-proven). 0100's 36-cell and 0101's
+  22-cell locks byte-identical.
+
 ## [0.149.0] - 2026-08-26
 
 ### Fixed

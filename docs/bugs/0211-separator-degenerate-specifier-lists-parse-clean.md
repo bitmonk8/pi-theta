@@ -1,6 +1,6 @@
 # Bug 0211 — Separator-degenerate `import` / `export` specifier lists parse with zero diagnostics on both keywords: `{ a, , b }`, `{ , a }`, `{ a b }` and `{ a as b c }` are production-excluded by `ImportSpec` / `ExportSpec`, and the specifier loop's comma arm and catch-all `advance()` recover each of them into a non-empty specifier list that no arm of bug 0100's refusal has a subject for — so a missing comma binds exactly what a written comma binds, and a name run after an `as` becomes its own specifier that draws `theta/parse/import-unknown-symbol` on a name the author's spelling would never have named
 
-- **Status:** open. §Fix is constraint-pinned: the mechanism to extend is the one
+- **Status:** fixed (0.150.0). §Fix was constraint-pinned: the mechanism to extend is the one
   [0100](./0100-production-excluded-import-export-spellings-parse-clean.md)
   shipped in 0.134.0, and one disposition is left to the run — whether
   `theta/parse/import-malformed-specifier-list`'s *Trigger* widens or a new row
@@ -702,3 +702,284 @@ Constraints on any implementation:
   (materialisation, the phantom specifier's refusals, the reserved-name row, and
   the re-export publication rows). Run on the outputs quoted above, then
   deleted. No file in the tree was written by the probes.
+
+## Fix (0.150.0)
+
+**Route adjudication (§Fix constraint 3, decided in-run).** **WIDEN
+`theta/parse/import-malformed-specifier-list`'s *Trigger*** — no new code, no new
+row. Grounds: (i) the landed *Message* (`import / export specifier list must
+carry at least one specifier, each 'Name' or 'Name as Alias'`) renders truthfully
+on every spelling in the class read as the production reads the list, as
+separator-delimited elements each of which must be an `ImportSpec` — `{ a b }`'s
+body element is neither a `Name` nor a `Name as Alias`, `{ a, , b }`'s middle
+element is empty, `{ , a }`'s first is empty, `{ a, 42 }`'s second is `42`,
+`{ a: b }`'s is `a: b`, `{ a as b c }`'s is `a as b c` — which §Fix constraint 3
+pre-adjudicates for `{ a b }`, so no DIAG-4 reword is engaged and the *Message*
+ships byte-identical; (ii) 0100's registry anchor
+(`tests/import-specifier-list-production-required.test.ts` group (a0)) asserts
+that row's *Message*, severity, phase and placeholder-freedom and explicitly NOT
+its *Trigger*, so the widening keeps the 36-cell lock green unedited; (iii)
+`governance/source-language-stability.md` disposes a DIAG-2 *Trigger* change "as
+an addition for inputs newly brought into the code's emission set", which is this
+edit's direction exactly; (iv) a new row costs a second code on one production —
+the cost §Fix constraint 3 names — and buys nothing where one sentence already
+renders truthfully. `docs/reference/diagnostics.md`'s mirror row carries code,
+severity, phase and *Message* only — no *Trigger* column — and all four are
+unchanged, so DIAG-2 is satisfied by inspection with NO mirror edit, as bug 0101
+recorded for its `theta/load/import-cycle` *Trigger* re-derivation.
+
+**Granularity adjudication (§Fix constraint 2, decided in-run).** STATEMENT-level,
+one diagnostic per statement ranged over the statement. The fact is a property of
+the LIST's token sequence, not of any one specifier: `{ a b }` has no offending
+specifier — both are well-formed `Ident`s — what fails is the sequence between
+them. The statement range is the one 0100's statement arm already uses for the
+other list-level facts, so the code keeps exactly two granularities rather than
+gaining a third. A per-offending-token arm was rejected: it would emit three
+diagnostics on `{ a b c d }`, which no landed arm does.
+
+**Gate adjudication (not in §Fix; decided in-run, and load-bearing).** The new arm
+carries the same trailing-clause gate as 0100's statement arm
+(`hasFromKeyword && hasPathLiteral`). It IS a statement arm carrying the same code
+at the same granularity, and §Fix constraint 1's enumerated refused set is
+from-bearing throughout (§Reproduction drove every row with
+`from "./m.thetalib"`), so the gate keeps the newly-refused input set exactly that
+enumeration — nothing inferred — and keeps the landed *Trigger*'s "the statement
+arm never co-emits with `theta/parse/import-missing-from-clause`" true. No
+admission is lost: a from-less degenerate list is already refused at error
+severity by that code. Measured under a deliberate un-gating, then restored: only
+this fix's own two gate-fence cells red, and NO other shipped test file moves
+(full suite under the un-gating: 2 failed / 6626 passed) — unlike 0100's own
+un-gating, which moved three shipped cells.
+
+**Suppression adjudication (§Fix constraint 1, decided in-run).** The arm is silent
+when the recovered list is EMPTY (0100's zero-specifier arm's subject) or when ANY
+specifier in it carried a dangling `as` (0100's specifier arm's subject).
+Constraint 1 requires `{}`, `{ , }`, `{ as }`, `{ a as }`, `{ a as , b }` and
+`{ a as as b }` to keep exactly their current code lists, and `{ , }` / `{ as }` (a
+stray token recovered into an empty list) and `{ a as as b }` (a discarded second
+`as` followed by an unseparated `b`) would otherwise gain a second
+statement-ranged diagnostic. Consequence: the three arms of this one code
+partition, and at most one statement-ranged diagnostic fires per statement.
+
+**Evidence staleness.** Every citation in this document is at `af221903` (0.134.0).
+Re-derived at the fix baseline `fdcb0835` (0.144.0) before any red was pinned:
+`parseImportExport` is at `src/parser/theta-document.ts:3016`, its loop head
+`:3031`, its comma arm `:3093–3094` and its catch-all `:3095–3097` — all holding
+at the baseline and moving under this fix; `src/parser/imports.ts` is 746 lines
+with `checkImportMalformedSpecifierList` at `:405–425` and
+`checkImportDanglingAlias` at `:437–451`; the registry row is
+`code-registry-parse.md:122` (not `:121`, which is `import-missing-from-clause`),
+mirrored at `docs/reference/diagnostics.md:171`; `import-static-checks.ts`'
+`isRegistrationError` is at `:216`. §Reproduction was re-probed at the baseline:
+**zero drift** — every row reproduces exactly as filed, so bug 0101's re-export
+fixpoint (0.141.0) discharged no input class here.
+
+- What shipped:
+  - `src/parser/imports.ts` — one new pure predicate,
+    `checkImportSeparatorDegenerateSpecifierList`, appended immediately after
+    `checkImportDanglingAlias` in that function's exact shape (facts first,
+    `site: ImportSite` last, `Diagnostic | undefined`), so no pre-existing line in
+    the module moves. It reuses `IMPORT_MALFORMED_SPECIFIER_LIST_CODE` /
+    `_MESSAGE` — no new constants — and carries the gate and the suppression, so
+    both are testable off the parser.
+  - `src/parser/theta-document.ts` — region-local inside `parseImportExport`: four
+    facts recorded in the existing specifier `while` loop (`sawSpecifier` /
+    `separatorSeen` tracking the two half-states a conforming list alternates
+    through, sticky `hasSeparatorDegeneracy`, sticky `anyDanglingAlias`), set at
+    the three branch sites — a specifier token with a specifier already pending
+    and no `,` consumed since it (missing separator), a `,` with no specifier
+    before it or with a `,` already pending (stray, doubled, or a second trailing
+    comma beyond the one `","?` licenses), and the catch-all (discarded token) —
+    and one gated emission beside the existing statement-arm call. No line outside
+    `parseImportExport` and its import block is touched: `parsePattern` and the
+    interpolation re-lex are byte-identical.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the row's *Trigger*
+    widened in place to a fourth shape, stating the refused sequence, the
+    per-statement granularity, the gate (so the statement arm still never
+    co-emits with `import-missing-from-clause`), the suppression and the
+    partition, and every co-emission the arm produces — with
+    `theta/parse/import-non-thetalib-extension` on a path the extension rule
+    refuses and with `theta/parse/import-reserved-synthesised-name` when a missing
+    separator invents a specifier whose local binding is reserved. The *Message*,
+    severity and phase are byte-identical (DIAG-4).
+  - `docs/spec_topics/imports.md` — §Re-exports' refusal prose re-derived per §Fix
+    constraint 4: three shapes, their two granularities, the suppression and the
+    partition, and how each meets `import-missing-from-clause`. The four
+    productions are unchanged — this fix enforces them.
+  - `docs/reference/grammar.md` — the mirrored refusal sentence re-derived in the
+    user-facing register, with the two statement-level shapes under the
+    from-bearing gate and the dangling-`as` shape's unconditionality in its own
+    clause, plus a §Provenance entry. Productions unchanged.
+  - `tests/import-specifier-separator-production-required.test.ts` — new, 68
+    cells: (a0) the DIAG-2 / DIAG-4 registry anchor read from the four sharded
+    pages, failing loudly on an absent row and requiring the widened *Trigger* to
+    name the separator and discarded-token shapes and the per-statement
+    granularity; (a) the 16 refused spellings × both keywords, each asserted at
+    exactly ONE diagnostic of the code ranged over the STATEMENT (which is what
+    pins constraint 2) with the node shape asserted unchanged; (b) the five
+    production-admitted spellings × both keywords with the WHOLE diagnostic list
+    empty, including the `","?` form `{ a, }`; (c) the constraint-1 fence — 0100's
+    six refused spellings × both keywords at their exact current code list AND
+    their exact arm, proven by the statement-vs-specifier range split; (c-gate)
+    the gate fence, including `import { a b }` / `export { a b }` with no `from`
+    keeping only `import-missing-from-clause`; (d) the two co-emissions with both
+    ranges; (e) the load-pass rows through the real `checkThetaImports` — the
+    refused missing-separator list, its conforming control materialising `fn a` /
+    `fn b`, and the `as`-run phantom's `import-unknown-symbol` on `c` pinned as
+    the consequence the refusal makes unreachable.
+  - `tests/live/live-production-acceptance.test.ts` — tail-appended H8a cell
+    `CELL-C`: a `.theta` whose import specifier list is missing a separator
+    against a resolvable planted `.thetalib` does not register, its
+    comma-separated sibling does, and the `theta-system-note` channel carries
+    `<code>: <message>` with the message read from the registry.
+    Registration-only, zero model turns. Additive only — no existing cell edited,
+    reworded, reordered or renumbered.
+- Gates:
+  - Witness: `npx vitest run
+    tests/import-specifier-separator-production-required.test.ts` →
+    `Test Files 1 passed (1)`, `Tests 68 passed (68)`. Pre-fix the same file was
+    `Tests 39 failed | 29 passed (68)`, every red naming the filed symptom
+    (`expected exactly one theta/parse/import-malformed-specifier-list … Rendered
+    diagnostics: []: expected +0 to be 1`) or the un-widened *Trigger*.
+  - Full default suite: `npm test` → `Test Files 343 passed (343)`,
+    `Tests 6628 passed (6628)` (baseline at fork `fdcb0835`: 342 / 6560; the delta
+    is exactly this fix's one new file and its 68 cells).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live H8a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts` → `Tests 1 failed | 73 passed
+    (74)`; `CELL-C` green in 363 ms, and every import / export cell in the file
+    green (bug 0100's cell 67, bug 0101's cell 71). The one red is the
+    `H8a-T — typed-query lowering, bounded` cell, failing on the
+    `LIVE TYPED RESULT` sentinel absent from the transcript (the model answered in
+    prose: "Recorded: the sky is blue …"). Not attributable to this change: that
+    cell's fixture (`typedQueryTheta`) carries no `import` and no `export`
+    statement, so `parseImportExport` — the only function this fix modifies — is
+    unreachable for it. Reproduced in isolation twice; a model-behaviour
+    sentinel-refusal.
+  - Live H9a: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/noninteractive-acceptance.test.ts
+    tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` →
+    `Test Files 2 passed (2)`, `Tests 11 passed (11)`.
+  - GOV-15 census re-run at the fix baseline: 34 committed `.theta` / `.thetalib`
+    files, two `import` statements (`docs/examples/import-thetalib.theta:7`,
+    `tests/live/acceptance/fixtures/acc-imports-invoke.theta:7`), both fully
+    specified and comma-separated, no `export` statement of any form — **zero
+    flips**. Discharged corpus-wide by
+    `tests/committed-fixture-parse-gate.test.ts` (36 cells, green), not by a
+    scratch probe. The TypeScript-string-literal sweep constraint 5 demands found
+    the newly-refused spellings only in this fix's own two test files.
+  - Newly-refused spelling classes, enumerated from the shipped mechanism rather
+    than from this document: on a statement whose trailing clause is well-formed,
+    a braced list that yields at least one specifier, carries no dangling `as`,
+    and in which (i) a specifier begins with no `,` consumed since the previous
+    one, (ii) a `,` sits where no specifier precedes it or where a `,` is already
+    pending, or (iii) the specifier loop's catch-all discarded a token. Every
+    class is production-excluded, every one loaded cleanly before, so all sit in
+    the addition carve-out.
+- Review: 2 rounds plus one polish. Round 1 (`bug-fix-reviewer`, deep) —
+  DEFECTS(3), none touching correctness: six shipped comments and the new
+  witness's header cited the run's scratch route file, which is never committed
+  (`house-rule`); seven `path:line` citations inside the new witness were stale,
+  including one wrong at the baseline (`import-static-checks.ts:191`, actually
+  `:216`) (`test`); and the re-derived `docs/reference/grammar.md` paragraph gated
+  the dangling-`as` shape on a from-bearing clause — false, the specifier arm is
+  unconditional — and then contradicted itself (`prose`). The round verified the
+  state machine, the constraint-1 fence, both co-emissions, the gate, the node
+  shape and the registry byte-identity by its own scratch probes (37 inputs ×
+  both keywords). Round 2 (`bug-fix-reviewer-fast`, routed per the round-≥2 rule
+  since round 1 raised no correctness / fidelity / spec finding) — DEFECTS(2),
+  both bounded: three of the corrected line ranges did not bound the executable
+  bodies they named (`test`), and the re-scoped `grammar.md` paragraph had
+  re-attached the SEPARATOR shape's two co-emissions to the specifier-level
+  shape's sentence (`prose`). Both remediated in a second `bug-fix-fixer-light`
+  round; that round's diff touches only comments, assertion-message strings and
+  Markdown prose — every executable line in `git diff src/` is byte-identical to
+  the round-1-reviewed set — so the polish was verified by the gate diff and no
+  confirmation review round was dispatched. One 101-character line left by the
+  prose reflow was rewrapped by the orchestrator (whitespace only,
+  `docs/reference/grammar.md`).
+- Verification: SOLID. (1) The witness reds arm by arm, each neutralisation
+  restored and blob-hash-verified against its pre-neutralisation working-tree hash
+  (`src/parser/imports.ts` `2d92f1b6bfe87aeec4e739cb9ed5f380531f841b`,
+  `docs/spec_topics/diagnostics/code-registry-parse.md`
+  `97cf5dd1e314fd8f3ac308db86e49141958c7017`, independently confirmed against the
+  orchestrator's own pre-verification `git diff` index line `19c79dfe..97cf5dd1`):
+  neutralising the predicate reds exactly the 32 group-(a) cells, the four (d)
+  co-emission cells and the two (e) refusal cells, with (b), (c) and (c-gate)
+  green; dropping the suppression reds exactly the `{ , }`, `{ as }` and
+  `{ a as as b }` fence cells on both keywords, each on a second co-emitted
+  diagnostic; dropping the gate reds exactly the two (c-gate) cells and nothing
+  else in the tree (full suite under the un-gating: 2 failed / 6626 passed);
+  reverting the *Trigger* widening reds exactly (a0). No cell is
+  never-load-bearing. (2) Full suite green, 343 / 6628, with both locks
+  (`tests/import-specifier-list-production-required.test.ts` 36 cells,
+  `tests/reexport-chain-resolution.test.ts` 22 cells) byte-identical to HEAD
+  (`git diff --stat` empty) and green. (3) The live path is exercised end to end
+  by `CELL-C`, run for real, plus both H9a files. (4) Typecheck and lint clean.
+  `git diff --stat src/extension/` is empty, so §Fix constraint 7 holds
+  mechanically.
+- Residuals:
+  - **Keywords are still admitted as specifier names.** `import { let } from
+    "./m.thetalib"` and `import { a as let } from "./m.thetalib"` parse with zero
+    diagnostics, because the specifier loop's `isSymbolToken` admits any `keyword`
+    token other than `as` as a specifier name where `ImportSpec` / `ExportSpec`
+    spell `Ident`. Measured in review. Pre-existing parser tolerance, outside §Fix
+    constraint 1's enumeration and outside this fix's GOV-15 refused set — the
+    same defect shape one level across. Unfiled.
+  - **`import {} from "…"` is not load-bearing for the suppression arm.** Dropping
+    the suppression reds `{ , }`, `{ as }` and `{ a as as b }` but not `{}`,
+    because an empty brace body runs zero loop iterations and so can never set the
+    degeneracy fact. Mechanical, not a gap in the fence: the cell is load-bearing
+    for the predicate arm and for the registry arm.
+  - **The `docs/reference/diagnostics.md` mirror still has no automated
+    reconciliation.** 0100 residual 2: `tests/code-registry.test.ts` reconciles
+    the four sharded `spec_topics` pages and nothing machine-checks the
+    user-facing mirror. This fix needs no mirror edit (no *Trigger* column, and
+    code / severity / phase / *Message* unchanged), verified by inspection.
+  - **Line-anchor drift in the pages and modules this fix amends.**
+    `docs/spec_topics/imports.md` net **+20**, `docs/reference/grammar.md` net
+    **+15**, `src/parser/imports.ts` net **+57** (everything after
+    `checkImportDanglingAlias` moves down by 57, so `checkImportUnknownSymbols` is
+    at `:539` and `checkImportNameCollisions` at `:572`),
+    `src/parser/theta-document.ts` net **+67** (inside `parseImportExport` only),
+    `tests/live/live-production-acceptance.test.ts` net **+117** (tail append,
+    nothing above it moves), `code-registry-parse.md` net **0** (an in-place
+    one-line *Trigger* rewrite). Carriers of stale citations into these files
+    include bug documents 0058, 0100, 0101, 0040, 0118, 0127, 0132, 0138, 0140,
+    0191 and this one, plus the two frozen fence tests 0101 residual 5 names.
+    §Fix constraint 4 makes the prose re-derivation mandatory, so the drift is
+    inherent; no citation sweep was performed and none is owed here (0134's
+    class). No shipped test reads any of these pages by line number (full suite
+    green).
+  - **One live cell reds in this session, unrelated.** `H8a-T — typed-query
+    lowering, bounded` fails on an absent `LIVE TYPED RESULT` sentinel, twice in
+    isolation. Its fixture carries no `import` / `export`, so this fix's only
+    modified function is unreachable for it; the failure is a model-behaviour
+    sentinel-refusal, not a regression. A sibling orchestrator seeing the same
+    signature should not attribute it to this change.
+  - **Process incident during verification.** The verifier restored one scratch
+    neutralisation with `git checkout --` on
+    `docs/spec_topics/diagnostics/code-registry-parse.md`, which discarded this
+    fix's own uncommitted *Trigger* widening; it reconstructed the line and the
+    file's blob hash then matched the pre-neutralisation hash `97cf5dd1…`, which
+    the orchestrator independently confirmed against its own earlier `git diff`
+    index line. No other file was affected and no work was lost, but the
+    shared-tree hazard is worth recording.
+- Discharge notes appended: none. No sibling document's subject was closed here.
+- Pinned dispositions / non-goals: every §Non-goals item is untouched — the
+  from-bearing re-export's materialisation gap is bug 0101's, already fixed in
+  0.141.0 and neither extended nor narrowed here; the recovery shape is
+  byte-for-byte what it was (`symbols` for `{ a as b c }` is still `["b","c"]` and
+  its specifiers still `[["a","b"],["c","c"]]`, asserted in groups (a) and (e));
+  whether `.theta` may carry an `export` at all is unchanged;
+  `thetalibLocalBindings` still has no `src/` caller. §Fix constraint 7 is
+  honoured: no invariant is asserted at any reader and
+  `src/extension/import-static-checks.ts` is unmodified, so a refused-but-parsed
+  `.thetalib` still reaches `extractThetaLibForms`.
+- **Locks: no flips.** `tests/import-specifier-list-production-required.test.ts`
+  (0100's 36 cells) and `tests/reexport-chain-resolution.test.ts` (0101's 22
+  cells) are byte-identical to HEAD and green;
+  `tests/import-export-from-clause-required.test.ts` (0058),
+  `tests/reserved-keyword-type-position.test.ts`, `tests/code-registry.test.ts`
+  and `tests/committed-fixture-parse-gate.test.ts` likewise. Nothing was weakened,
+  and there is no flip to ratify.

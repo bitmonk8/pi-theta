@@ -450,6 +450,63 @@ export function checkImportDanglingAlias(
   };
 }
 
+/**
+ * Check an `import` / `export` specifier list (`parse` phase) for a
+ * SEPARATOR-degenerate list: two specifiers adjacent with no `,` between
+ * them, a `,` with no specifier before it or with a `,` already pending, or a
+ * token the specifier loop's catch-all discarded. `ImportDecl` / `ExportDecl`
+ * spell the list as `"{" ImportSpec ("," ImportSpec)* ","? "}"` (imports.md
+ * §"Re-exports", :62–:65 at this HEAD) — one specifier between separators and
+ * exactly one optional trailing comma — so each of those three shapes is
+ * outside the production even though the recovered list is non-empty and
+ * alias-complete, which is why neither `checkImportMalformedSpecifierList`
+ * above (subject: an absent or zero-specifier list) nor `checkImportDanglingAlias`
+ * above (subject: a dangling `as`) has a subject for it (bug 0211).
+ *
+ * GATED like `checkImportMalformedSpecifierList`'s statement arm
+ * (`hasFromKeyword && hasPathLiteral`): this is a third arm of the same
+ * STATEMENT-level fact family, so it stays inside the same trailing-clause
+ * fence rather than widen `checkImportMissingFromClause`'s registry *Trigger*
+ * (bug 0211 §Fix constraint 3; registry disposition at
+ * `docs/spec_topics/diagnostics/code-registry-parse.md:122`'s statement-arm
+ * gate) — a from-less degenerate list already draws that one code alone, and
+ * un-gating this arm would co-emit a second statement-ranged diagnostic
+ * there.
+ *
+ * SUPPRESSED on an empty recovered list (`specifierCount === 0`, the
+ * zero-specifier arm's own subject above) or when any specifier in the list
+ * carried a dangling `as` (`anyDanglingAlias`, the dangling-alias arm's own
+ * subject above): the three arms of this one code must partition the
+ * recovered list so at most one statement-ranged diagnostic fires per
+ * statement (bug 0211 §Fix constraint 2's granularity, carried in
+ * `code-registry-parse.md:122`'s partition sentence) — without the
+ * suppression, `{ , }` (a stray leading comma into an empty list) and
+ * `{ a as as b }` (a discarded second `as` beside a dangling first one)
+ * would each draw a second, redundant diagnostic of the same code.
+ */
+export function checkImportSeparatorDegenerateSpecifierList(
+  hasSeparatorDegeneracy: boolean,
+  specifierCount: number,
+  anyDanglingAlias: boolean,
+  hasFromKeyword: boolean,
+  hasPathLiteral: boolean,
+  site: ImportSite,
+): Diagnostic | undefined {
+  if (!hasFromKeyword || !hasPathLiteral) {
+    return undefined;
+  }
+  if (!hasSeparatorDegeneracy || specifierCount === 0 || anyDanglingAlias) {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: IMPORT_MALFORMED_SPECIFIER_LIST_CODE,
+    file: site.file,
+    range: site.range,
+    message: IMPORT_MALFORMED_SPECIFIER_LIST_MESSAGE,
+  };
+}
+
 /** A single `import { … }` / `export { … } from` specifier. */
 export interface ImportSpecifier {
   /** The symbol as named in the resolved `.thetalib` file (the source symbol). */

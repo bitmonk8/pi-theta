@@ -12341,3 +12341,121 @@ describe("H8a-T — bug 0217 cell 74: a params: field carrying an inline enum[�
     }
   });
 });
+
+
+// ===========================================================================
+// Bug 0211 (cell 76) — a separator-degenerate `import { a b }` specifier list
+// (imports.md §"Re-exports" :62–65, `"{" ImportSpec ("," ImportSpec)* ","? "}"`
+// requires a `,` between two specifiers) is silently recovered into the SAME
+// specifier list `{ a, b }` produces (src/parser/theta-document.ts's specifier
+// loop, `parseImportExport`), so a missing separator delivered a working import
+// with zero diagnostics. The fix extends bug 0100's mechanism with a third arm
+// of `theta/parse/import-malformed-specifier-list` (`checkImportSeparatorDegenerateSpecifierList`,
+// src/parser/imports.ts), gated on the same well-formed trailing clause and
+// suppressed on an empty recovered list or a dangling `as`, so it fires
+// exactly once per statement, ranged over the statement, on a separator
+// degeneracy the other two arms leave admitted.
+//
+// No existing live test reaches this surface: the only import statements
+// anywhere under `tests/live/**` before this cell are fully specified and
+// comma-separated (bug 0100's cell 67 above plants its own `.thetalib` for the
+// SAME reason this cell does), and this file plants no fixture spelling a
+// missing-separator list before now.
+//
+// This drives the SAME registration observable bug 0100's cell 67 uses
+// (`handle.command` / `handle.registeredNames()`, read after the real
+// `session_start` → `resources_discover` → `composeExtensionInstance` path
+// settles) through the shipped extension entry against a live host, PLUS the
+// `theta-system-note` channel read directly off the settled `SessionManager`
+// (AGENTS.md §"Assert on real observables"): the refusal is an error-severity
+// `theta/parse/*` diagnostic raised at LOAD time, before any slash is driven,
+// so the full entry list IS the delta.
+//
+// The `.thetalib` is planted BESIDE the discovered `.theta` files (imports.md
+// :19), written into `<cwd>/.pi/theta/` AFTER `plantThetaWorkspace` returns and
+// BEFORE `bootShippedExtension`, mirroring cell 67 exactly. A `.thetalib` is
+// never slash-command-discovered (imports.md:15), so planting it adds no
+// registration of its own.
+//
+// Registration-only: no slash command is invoked, so no model turn runs and the
+// cell spends zero tokens, the same profile as cell 67. ADDITIVE ONLY: no
+// existing cell in this file is weakened, reworded, reordered or deleted.
+//
+// NOTE (cell 76): the parent renumbers cells at merge; a tail-append rebase
+// conflict at this site is expected and mechanical.
+// ===========================================================================
+
+describe("H8a-T — bug 0211 (cell 76): a separator-degenerate import specifier list is refused, live (Convention: live-host acceptance)", () => {
+  it("does not register a theta whose import specifier list is missing a separator, while its comma-separated sibling registers, and the theta-system-note channel carries the refusal, through the real discovery\u2192registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // The load-bearing theta: `a b` with no `,` between the two specifiers —
+      // the shape imports.md §"Re-exports" excludes and the specifier loop
+      // silently recovers into `{ a, b }`'s own list.
+      {
+        source: "project",
+        stem: "b211livemissing",
+        text: importSpecifierTheta('import { a b } from "./b211livelib.thetalib"'),
+      },
+      // The precondition control: the SAME import with the comma written. It
+      // must register, so the missing-separator sibling's absence is
+      // attributable to the refusal rather than to a broken workspace or an
+      // unresolvable lib.
+      {
+        source: "project",
+        stem: "b211livectl",
+        text: importSpecifierTheta('import { a, b } from "./b211livelib.thetalib"'),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    // The imported `.thetalib`, planted BESIDE the discovered `.theta` files so
+    // the relative spec resolves; a `.thetalib` is never slash-discovered, so
+    // this adds no command of its own.
+    writeFileSync(
+      join(workspace.cwd, ".pi", "theta", "b211livelib.thetalib"),
+      "fn a(x: string) { x }\nfn b(x: string) { x }\n",
+      "utf8",
+    );
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b211livectl"),
+        "the conforming comma-separated control did not register — a broken " +
+          "workspace or an unresolvable `.thetalib`, not the check under test, " +
+          "would explain the missing-separator theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses),
+      // the missing-separator specifier list un-registers its theta at the
+      // SAME hasLoadParseError site cell 67 exercises for the dangling-`as`
+      // shape.
+      expect(
+        handle.command("b211livemissing"),
+        "the theta whose import specifier list is missing a separator " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/import-malformed-specifier-list did not fire for the " +
+          "separator-degenerate shape. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b211livemissing");
+
+      // The theta-system-note channel: the refusal fires at LOAD time, before
+      // any drive, so the full entry list is the delta (mirrors cell 67).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = malformedSpecifierListFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the malformed-specifier-list refusal " +
+          "for the missing-separator theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
