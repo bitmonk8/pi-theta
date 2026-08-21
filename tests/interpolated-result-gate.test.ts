@@ -999,7 +999,7 @@ describe("bug 0079 (d) — the registry row is the oracle for both halves", () =
 // ===========================================================================
 
 describe("bug 0118 — the two-nested-`fn` shape is refused by FN-1, not by this gate", () => {
-  it("(h1): both nested `fn`s draw theta/parse/nested-fn, and theta/parse/interpolated-result stays ABSENT", () => {
+  it("(h1): both nested `fn`s draw theta/parse/nested-fn (plus bug 0224's two unknown-identifier entries), and theta/parse/interpolated-result stays ABSENT", () => {
     // The one shape that could hold a `Result`-typed interpolation the gate
     // cannot see hides the `@`-query inside a `fn` nested in a `par for` body:
     // CTRL-4's own body scan does not descend into a `fn` declaration
@@ -1011,6 +1011,17 @@ describe("bug 0118 — the two-nested-`fn` shape is refused by FN-1, not by this
     // `fn`'s return annotation is out of `collectFnReturnAnnotations`'s reach by
     // design (§Fix (e) keeps the collectors top-level-only), so the absence below
     // is the CORRECT outcome and not a coverage gap in bug 0079's static half.
+    //
+    // Bug 0224 (docs/bugs/0224-identifier-walk-never-descends-par-for.md §Fix
+    // (d)2's mechanism, §Fix (e)) adds TWO further entries and moves nothing
+    // else: the identifier-resolution walk `walkIdentExpr`
+    // (src/parser/theta-document.ts:5434) gained the `par-for` arm this file's
+    // fixture had been silent under, so the body IS walked, and `mk` / `use` are
+    // declared only by declarations FN-1 refuses — `collectFns` stays
+    // top-level-only — so both call sites resolve through no arm of
+    // expressions.md:44–:49. The cell's PRIMARY subject is unmoved: both nested
+    // declarations still draw one `theta/parse/nested-fn` each, and
+    // `theta/parse/interpolated-result` is still ABSENT.
     const src = `${FM}let xs = par for i in [1, 2] {
   fn mk(): Result<integer, QueryError> {
     Ok(1)
@@ -1026,8 +1037,13 @@ describe("bug 0118 — the two-nested-`fn` shape is refused by FN-1, not by this
     const doc = parseOnly(src);
     expect(
       doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
-      `PRIMARY (bug 0118 finding (2)): FN-1 refuses BOTH nested declarations — one diagnostic each — so this shape does not load. Observed: ${showDiagnostics(doc)}`,
-    ).toEqual(["error theta/parse/nested-fn", "error theta/parse/nested-fn"]);
+      `PRIMARY (bug 0118 finding (2)): FN-1 refuses BOTH nested declarations — one diagnostic each — so this shape does not load. The two trailing entries are bug 0224's: with the identifier walk's \`par-for\` arm landed, the calls of the FN-1-refused \`mk\` and \`use\` resolve to nothing. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([
+      "error theta/parse/nested-fn",
+      "error theta/parse/nested-fn",
+      "error theta/parse/unknown-identifier",
+      "error theta/parse/unknown-identifier",
+    ]);
     expect(
       doc.diagnostics.filter((d) => d.code === "theta/parse/nested-fn").map((d) => d.message),
       "DIAG-4: the expected message is READ from the registry's Message column, never copied prose",

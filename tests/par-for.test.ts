@@ -392,9 +392,16 @@ describe("RFC-0003 par-for — body restrictions (CTRL-4)", () => {
 // twin) would be factually FALSE of a `break` in that body, which CTRL-4
 // already refuses as `theta/parse/par-break-continue`.
 //
-// `walkIdentExpr` (:5371) and `checkUnknownIdentifiers` carry no `par-for` arm,
-// so no identifier-resolution code is drawn in this subtree (§Fix (c) keeps
-// that omission as a scoped residual); cell (r2) pins that absence.
+// The SECOND walk over this subtree is the scope-tracking identifier-resolution
+// walk — `walkIdentExpr` (symbol at src/parser/theta-document.ts:5434), driven
+// by `checkUnknownIdentifiers` (`:5279`) through `walkIdentBlock` (`:5339`) and
+// `walkIdentStmt` (`:5354`). Bug 0118 §Fix (c) took arrangement 2 ("the
+// structural walk alone"), so at that fix no `par-for` arm existed there and no
+// identifier-resolution code was drawn in this subtree. Bug 0224 owes that arm:
+// its iterand / `max` / body traversal makes both of the walk's refusals
+// (`theta/parse/unknown-identifier`, `theta/parse/type-as-value`) reachable
+// inside a `par for`, so cell (r2) below asserts BOTH codes and the bug-0224
+// group pins every newly-reached emission.
 //
 // Each newly-reachable family below is paired with a TOP-LEVEL real-parse
 // CONTROL: the control proves the code belongs to the check, so the body cell's
@@ -434,6 +441,19 @@ const BARE_OBJECT_LITERAL = "theta/parse/bare-object-literal";
 const UNKNOWN_VARIANT = "theta/parse/unknown-variant";
 const UNSUPPORTED_FEATURE = "theta/parse/unsupported-feature";
 const BARE_RETURN_IN_NON_VOID = "theta/parse/bare-return-in-non-void";
+/**
+ * The two refusals the scope-tracking identifier-resolution walk owns
+ * (`emitUnknownIdentifier`, src/parser/theta-document.ts:5303 — the single
+ * sink). Bug 0224 gives `walkIdentExpr` (`:5434`) its `par-for` arm, which is
+ * what brings them into this subtree at all; before that arm both were silent
+ * everywhere inside a `par for`.
+ */
+const UNKNOWN_IDENTIFIER = "theta/parse/unknown-identifier";
+const TYPE_AS_VALUE = "theta/parse/type-as-value";
+/** The two codes bug 0224's H3 row requires to stay UNCHANGED, with their counts. */
+const SHADOWED_CALLABLE_CALL = "theta/parse/shadowed-callable-call";
+/** The TYPE layer's own iterand verdict, which reaches a `par for` by another traversal. */
+const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 
 /**
  * The registered Message for `code` (DIAG-4), with each `<placeholder>` key of
@@ -503,10 +523,18 @@ describe("bug 0118 — FN-1 reaches a `fn` declared under a `par for` (structura
     ).toEqual([registryMessageFor(NESTED_FN)]);
   });
 
-  it("(r2) FN-1: calling the nested `fn` in the body adds no second code — the ident walk has no `par-for` arm", () => {
-    // §Fix (c): `walkIdentExpr` / `checkUnknownIdentifiers` carry no `par-for`
-    // arm, so the call draws no `theta/parse/unknown-identifier`; the
-    // declaration's refusal alone blocks registration.
+  it("(r2) FN-1: calling the nested `fn` in the body ALSO draws unknown-identifier (bug 0224)", () => {
+    // Bug 0118 §Fix (c) stated the choice in its own words: "Either widen both
+    // in one commit with both sets of counts pinned, or widen the structural
+    // walk alone and record the ident walk's omission as a scoped residual". It
+    // took the second, and its *Residuals* item 2 recorded the omission. Bug
+    // 0224 is that residual's repair: with `walkIdentExpr`
+    // (src/parser/theta-document.ts:5434) carrying a `par-for` arm, the body
+    // block IS walked, and `mk` is declared only by a declaration FN-1 refuses
+    // — `collectFns` stays top-level-only (bug 0118 §Fix (d)/(e)) — so the
+    // callee resolves through no arm of expressions.md:44–:49 and draws
+    // `theta/parse/unknown-identifier` beside the refusal. The SECOND code is
+    // owed, not incidental.
     const src = [
       "let xs = par for i in [1, 2] {",
       "  fn mk(): integer { 1 }",
@@ -517,15 +545,15 @@ describe("bug 0118 — FN-1 reaches a `fn` declared under a `par for` (structura
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118 §Fix (a) + (c)): exactly ONE refusal for the declaration, and no identifier-resolution code for the call. Observed: ${showDiags(src)}`,
-    ).toEqual([`error ${NESTED_FN}`]);
+      `PRIMARY (bug 0118 §Fix (a) + bug 0224 §Fix (d)2): ONE refusal for the declaration, and the identifier-resolution code for the call the identifier walk now reaches. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`, `error ${UNKNOWN_IDENTIFIER}`]);
     expect(
-      diagShapeOf(src),
-      "§Fix (c): the identifier walk has no `par-for` arm, so no unknown-identifier is claimed for a name only a nested (refused) `fn` declares",
-    ).not.toContain("error theta/parse/unknown-identifier");
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: the expected message is READ from the registry's Message column, with `<name>` bound to the refused nested `fn`",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "mk" })]);
   });
 
-  it("(r3) §Fix (b): a body `@`-query keeps exactly ONE par-query-in-body beside the refusal", () => {
+  it("(r3) §Fix (b): a body `@`-query keeps exactly ONE par-query-in-body beside the refusals", () => {
     // The walk's `query` arm reaches this template and CTRL-4's own scan
     // (theta-document.ts:4593–4601) also refuses it, so the pair must not become
     // a double emission of the same code.
@@ -540,8 +568,16 @@ describe("bug 0118 — FN-1 reaches a `fn` declared under a `par for` (structura
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118 §Fix (a)/(b)): the refusal is added, CTRL-4's query refusal stays single. Observed: ${showDiags(src)}`,
-    ).toEqual([`error ${NESTED_FN}`, `error ${PAR_QUERY_IN_BODY}`]);
+      `PRIMARY (bug 0118 §Fix (a)/(b)): the refusal is added, CTRL-4's query refusal stays SINGLE. The middle entry is bug 0224's — the same mechanism as (r2): the widened identifier walk reaches the call of the FN-1-refused \`mk\`. Observed: ${showDiags(src)}`,
+    ).toEqual([
+      `error ${NESTED_FN}`,
+      `error ${UNKNOWN_IDENTIFIER}`,
+      `error ${PAR_QUERY_IN_BODY}`,
+    ]);
+    expect(
+      diagShapeOf(src).filter((s) => s === `error ${PAR_QUERY_IN_BODY}`),
+      "(r3)'s PRIMARY subject is unmoved: CTRL-4's own body scan and the structural walk's `query` arm still yield exactly ONE par-query-in-body, not a double emission",
+    ).toHaveLength(1);
   });
 
   it("(r4) FN-1: a `fn` in a plain `for` block INSIDE the `par for` body is refused", () => {
@@ -1181,6 +1217,513 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
       diagShapeOf(src),
       `PRIMARY (bug 0118): the non-void twin of (r27) — the valued form is silent in both enclosing shapes. Observed: ${showDiags(src)}`,
     ).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// PARSER — identifier resolution DESCENDS a `par for` (bug 0224)
+// ===========================================================================
+//
+// RULE: `walkIdentExpr` (symbol at src/parser/theta-document.ts:5434), the
+// recursion `checkUnknownIdentifiers` (`:5279`) drives through
+// `walkIdentBlock` (`:5339`) and `walkIdentStmt` (`:5354`), has a `par-for`
+// arm, so a `par for`'s iterand, its `max` width operand and its whole body
+// are visited and BOTH refusals that walk owns —
+// `theta/parse/unknown-identifier` and `theta/parse/type-as-value`, both pushed
+// by the single sink `emitUnknownIdentifier` (`:5303`) — judge that subtree on
+// the same terms as any other block.
+//
+// WHY: docs/spec_topics/expressions.md:44–:49 states identifier resolution as
+// FOUR arms and `:51` states the two refusals for a name matching none of them,
+// with no exemption for any construct; the registered *Trigger* for
+// `theta/parse/unknown-identifier`
+// (docs/spec_topics/diagnostics/code-registry-parse.md:66) is positional —
+// "Bare identifier in call or value position resolves to nothing in scope" —
+// and a `par for` body, its iterand and its `max` operand are such positions.
+// Before bug 0224 the node fell into `walkIdentExpr`'s `default` arm
+// (`:5518–:5520`), whose own comment enumerates "number / string / bool / null
+// / query", so the drop happened AT THE NODE and no deeper mechanism of the
+// walk ran — which is why a nested plain `for`, a `match` arm and a nested
+// `par for` inside the body were silent too
+// (docs/bugs/0224-identifier-walk-never-descends-par-for.md §Reproduction).
+//
+// SCOPE: the iterand and the `max` operand are walked in the ENCLOSING scope;
+// the body is walked with a copy of that scope carrying the per-iteration
+// variable — the shape `walkIdentStmt`'s `case "for"` (`:5389–:5395`) and
+// `walkCallSiteExpr`'s `case "par-for"` (`:6353–:6364`, binding at `:6362`)
+// already use, and what CTRL-4 (docs/spec_topics/control-flow.md:76) states
+// ("Outer bindings and the loop variable are readable"). A `par for` body is
+// NOT closure-free, so `walkIdentStmt`'s `fn` reseeding from the roots
+// (`:5396–:5405`) is deliberately not the model.
+//
+// Every cell pins the WHOLE unfiltered `doc.diagnostics` array as an ordered
+// `severity code` list, so neither an extra diagnostic, nor a missing one, nor
+// a right diagnostic in the wrong order can hide inside a containment check;
+// each family is paired with a real-parse CONTROL at a position the walk
+// already reached before bug 0224 (top level, or the plain-`for` spelling),
+// which is what attributes a body cell's verdict to the arm's reach rather
+// than to the check. Emission ORDER is load-bearing (iterand, then `max`, then
+// body) and is asserted by (q-order).
+
+/**
+ * Every diagnostic as `code @ startLine:startCol-endLine:endCol`, in report
+ * order. A range-less diagnostic fails LOUDLY naming the code: this helper's
+ * whole purpose is the range, so an absent one is a harness failure rather than
+ * a row that silently degrades to a code-only comparison.
+ */
+function diagRangesOf(src: string): string[] {
+  return parse(src).diagnostics.map((d: Diagnostic) => {
+    const range = d.range;
+    if (range === undefined) {
+      throw new Error(
+        `harness: diagnostic ${d.code} carries no range, but this assertion is ABOUT the range (bug 0224 §Expected behaviour: "at the identifier's own range")`,
+      );
+    }
+    return `${d.code} @ ${range.start.line}:${range.start.column}-${range.end.line}:${range.end.column}`;
+  });
+}
+
+describe("bug 0224 — the identifier walk descends a `par for` (unknown-identifier)", () => {
+  it("(q-A1) an undeclared name as the `par for` body's tail draws unknown-identifier ONCE, at its own range", () => {
+    // §Reproduction row A1, the in-class row: one word of difference from the
+    // plain-`for` control below, and before bug 0224 that word was the whole
+    // reach gap.
+    const src = "let a = par for i in [1, 2] { Zzz }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction A1): the body is a block and a name matching no resolution arm is refused there as anywhere else. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: the expected message is READ from the registry's Message column, never copied prose",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" })]);
+    expect(
+      diagRangesOf(src),
+      "§Expected behaviour: the diagnostic is ranged at the IDENTIFIER, not at the enclosing `par for` or `let`",
+    ).toEqual([`${UNKNOWN_IDENTIFIER} @ 1:31-1:34`]);
+  });
+
+  it("(q-A1-control) CONTROL: the same body under a plain `for`, and the same name at the TOP LEVEL", () => {
+    // §Reproduction rows A2 and A3. The check itself is correct and total over
+    // its input at both already-reached positions, so (q-A1)'s verdict is
+    // attributable to the arm's reach and to nothing else.
+    const plainFor = "for i in [1, 2] { Zzz }\n1";
+    expect(
+      diagShapeOf(plainFor),
+      `CONTROL (§Reproduction A2): \`walkIdentStmt\`'s \`case "for"\` already descends the body. Observed: ${showDiags(plainFor)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    const topLevel = "let a = Zzz\na";
+    expect(
+      diagShapeOf(topLevel),
+      `CONTROL (§Reproduction A3): the top-level \`let\` initialiser is a position the walk has always reached. Observed: ${showDiags(topLevel)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      [...messagesFor(plainFor, UNKNOWN_IDENTIFIER), ...messagesFor(topLevel, UNKNOWN_IDENTIFIER)],
+      "DIAG-4: both controls carry the registry's own Message, so (q-A1) is compared against a live oracle",
+    ).toEqual([
+      registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" }),
+      registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" }),
+    ]);
+  });
+
+  it("(q-C1) an undeclared CALLEE in the body draws unknown-identifier", () => {
+    // §Reproduction row C1. The `call` arm passes site `"call"`, which is the
+    // position `theta/parse/unknown-identifier`'s *Trigger* names first; before
+    // bug 0224 this became an `Err(invoke_infra, cause:"internal_error")` at run
+    // whose message blamed bug 0003's parse-time shape gate (§Reproduction R3).
+    const src = "let a = par for i in [1, 2] { zzz(1) }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction C1): the callee resolves through no arm of expressions.md:44–:49. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "zzz" })]);
+  });
+
+  it("(q-C1-control) CONTROL: the identical undeclared call at the TOP LEVEL already fires", () => {
+    // §Reproduction row C2.
+    const src = "let a = zzz(1)\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL (§Reproduction C2): the call position is already refused outside the loop. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+
+  it("(q-H4) a MEMBER receiver in the body draws unknown-identifier for the receiver", () => {
+    // §Reproduction row H4. The receiver is a resolution site; `.f` is not.
+    // Before the arm this became that element's `Err(invoke_infra,
+    // cause:"panic")` "null member access: .f" — a message naming the access
+    // and not the receiver's spelling (§Reproduction R6).
+    const src = "let a = par for i in [1, 2] { Zzz.f }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H4). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column — the RECEIVER's name, not the field's",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" })]);
+  });
+
+  it("(q-H4-control) CONTROL: the identical member read at the TOP LEVEL already fires", () => {
+    const src = "let a = Zzz.f\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the member arm already judges a receiver outside the loop. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+
+  it("(q-H5) a METHOD receiver in the body draws unknown-identifier for the receiver", () => {
+    // §Reproduction row H5.
+    const src = "let a = par for i in [1, 2] { Zzz.len() }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H5). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" })]);
+  });
+
+  it("(q-H5-control) CONTROL: the identical method receiver at the TOP LEVEL already fires", () => {
+    const src = "let a = Zzz.len()\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the method-call arm already judges a receiver outside the loop. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+
+  it("(q-H6) a nested plain `for` INSIDE the body is judged too", () => {
+    // §Reproduction row H6, and the reason §Actual behaviour calls the absence
+    // TOTAL rather than partial: the drop happened at the `par-for` node, so an
+    // inner block form the walk already covered was unreached while its `par
+    // for` ancestor was.
+    const src = [
+      "let a = par for i in [1, 2] {",
+      "  for j in [1] { Zzz }",
+      "  1",
+      "}",
+      "a",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H6): the hole was the \`par-for\` node itself, not the depth. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      diagRangesOf(src),
+      "the diagnostic is ranged at the identifier inside the NESTED block",
+    ).toEqual([`${UNKNOWN_IDENTIFIER} @ 2:18-2:21`]);
+  });
+
+  it("(q-H7) a `match` ARM inside the body is judged too", () => {
+    // §Reproduction row H7.
+    const src = "let a = par for i in [1, 2] { match i { _ => Zzz } }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H7). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" })]);
+  });
+
+  it("(q-H7-control) CONTROL: the identical `match` arm at the TOP LEVEL already fires", () => {
+    const src = "let a = match 1 { _ => Zzz }\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL: a \`match\` arm is a position the walk already reached. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+
+  it("(q-H12) a `par for` NESTED in a `par for` body is judged too", () => {
+    // §Reproduction row H12: the arm is recursive through `walkIdentExpr`, so
+    // the inner construct is reached by the same case that reaches the outer.
+    const src = "let a = par for i in [1] { par for j in [1] { Zzz } }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H12). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+
+  it("(q-H10) the `max` WIDTH OPERAND is judged in the enclosing scope", () => {
+    // §Reproduction row H10. The `max` operand is the arm's second limb and is
+    // walked in the ENCLOSING scope, so the per-iteration variable does not
+    // cover it.
+    const src = "let a = par for i in [1, 2] max Yyy { i }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H10). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Yyy" })]);
+  });
+
+  it("(q-H11) an ITERAND ELEMENT is judged in the enclosing scope", () => {
+    // §Reproduction row H11 — the arm's first limb, walked before the body.
+    const src = "let a = par for i in [Zzz] { i }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction H11). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Zzz" })]);
+  });
+
+  it("(q-order) EMISSION ORDER is load-bearing: iterand, then `max`, then body", () => {
+    // §Fix (a): "Order is load-bearing and asserted: iterand, then `max`, then
+    // body, matching `walkExpr`'s arm". Three undeclared names, one per limb,
+    // so the ordered message list IS the traversal order.
+    const src = "let a = par for i in [Aaa] max Bbb { Ccc }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Fix (a)): one refusal per limb, three in all. Observed: ${showDiags(src)}`,
+    ).toEqual([
+      `error ${UNKNOWN_IDENTIFIER}`,
+      `error ${UNKNOWN_IDENTIFIER}`,
+      `error ${UNKNOWN_IDENTIFIER}`,
+    ]);
+    expect(
+      messagesFor(src, UNKNOWN_IDENTIFIER),
+      "the ORDER is the arm's traversal order: iterand (`Aaa`), then `max` (`Bbb`), then body (`Ccc`) — a body-first or max-first arm reds here",
+    ).toEqual([
+      registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Aaa" }),
+      registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Bbb" }),
+      registryMessageFor(UNKNOWN_IDENTIFIER, { "<name>": "Ccc" }),
+    ]);
+  });
+});
+
+describe("bug 0224 — the identifier walk descends a `par for` (type-as-value)", () => {
+  it("(q-B1) a declared `schema` name as the body's TAIL is theta/parse/type-as-value", () => {
+    // §Reproduction row B1. Bug 0140's own three-way rule decides this at
+    // `emitUnknownIdentifier` (src/parser/theta-document.ts:5303): a name in
+    // `typeOnlyNames` at a `"value"` site is `theta/parse/type-as-value`. No
+    // new emitter and no new code — bug 0224 adds reach only.
+    const src = "schema P { a: number }\nlet a = par for i in [1, 2] { P }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction B1). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${TYPE_AS_VALUE}`]);
+    expect(
+      messagesFor(src, TYPE_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column, `<name>` bound to the declaration",
+    ).toEqual([registryMessageFor(TYPE_AS_VALUE, { "<name>": "P" })]);
+  });
+
+  it("(q-B1-control) CONTROL: the same declared name at the TOP LEVEL and under a plain `for`", () => {
+    // §Reproduction rows B2 and B3.
+    const topLevel = "schema P { a: number }\nlet a = P\na";
+    expect(
+      diagShapeOf(topLevel),
+      `CONTROL (§Reproduction B2). Observed: ${showDiags(topLevel)}`,
+    ).toEqual([`error ${TYPE_AS_VALUE}`]);
+    const plainFor = "schema P { a: number }\nfor i in [1, 2] { P }\n1";
+    expect(
+      diagShapeOf(plainFor),
+      `CONTROL (§Reproduction B3): the plain-\`for\` spelling of the same body. Observed: ${showDiags(plainFor)}`,
+    ).toEqual([`error ${TYPE_AS_VALUE}`]);
+  });
+
+  it("(q-B4) a declared `enum` name in the body is theta/parse/type-as-value", () => {
+    // §Reproduction row B4: the silence was symmetric across BOTH codes,
+    // because both are pushed by the one sink the arm never reached.
+    const src = "enum E { A }\nlet a = par for i in [1, 2] { E }\na";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction B4). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${TYPE_AS_VALUE}`]);
+    expect(
+      messagesFor(src, TYPE_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(TYPE_AS_VALUE, { "<name>": "E" })]);
+  });
+
+  it("(q-discarded) the `discarded` site kind holds inside the body, BOTH ways", () => {
+    // §Fix (b) requires this MEASURED, not assumed. `emitUnknownIdentifier`'s
+    // `site` parameter leaves a `typeOnlyNames` name silent at a DISCARDED
+    // expression-statement position (the no-op class of bugs 0033 / 0042,
+    // pinned by bug 0140's cell g5) — and `walkIdentStmt`'s `case "expr"`
+    // (src/parser/theta-document.ts:5425) is the only site that passes
+    // `"discarded"`. A `par for` body's TAIL is not discarded: it is the element
+    // value CTRL-3 collects (docs/spec_topics/control-flow.md:74), and
+    // `walkIdentBlock` (`:5350`) walks a tail with the default `"value"` site.
+    // MEASURED: the tail refuses, the non-tail statement stays silent.
+    const tail = "schema P { a: number }\nlet a = par for i in [1, 2] { P }\na";
+    expect(
+      diagShapeOf(tail),
+      `TAIL is the element value CTRL-3 collects, so it is a VALUE site and refuses. Observed: ${showDiags(tail)}`,
+    ).toEqual([`error ${TYPE_AS_VALUE}`]);
+    const nonTail = [
+      "schema P { a: number }",
+      "let a = par for i in [1, 2] {",
+      "  P",
+      "  1",
+      "}",
+      "a",
+    ].join("\n");
+    expect(
+      diagShapeOf(nonTail),
+      `NON-TAIL: the same bare declared name as a discarded expression STATEMENT of the body stays silent — bug 0140's g5 licence is position-shaped and carries into the newly-reached block unchanged, which is what keeps this fix reach-only. Observed: ${showDiags(nonTail)}`,
+    ).toEqual([]);
+    const undeclaredNonTail = [
+      "let a = par for i in [1, 2] {",
+      "  Zzz",
+      "  1",
+      "}",
+      "a",
+    ].join("\n");
+    expect(
+      diagShapeOf(undeclaredNonTail),
+      `CONTRAST: the licence is CODE-specific, not a position-wide exemption — an UNDECLARED name at the same discarded position is still refused. Observed: ${showDiags(undeclaredNonTail)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`]);
+  });
+});
+
+describe("bug 0224 — nothing else in the `par for` subtree moves", () => {
+  it("(q-H8) CONTROL: the per-iteration VARIABLE keeps resolving — the body stays `[]`", () => {
+    // §Reproduction row H8, the control that constrains the fix. The loop
+    // variable is resolution arm (1) (expressions.md:46, and `:53` names the
+    // `par for` variable among the locals it binds), so the body scope must be
+    // a COPY of the enclosing scope with the variable ADDED — an arm that
+    // reseeded from `walkCtx.roots` (the `fn` shape) would red here.
+    const src = "let a = par for i in [1, 2] { i }\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL (bug 0224 §Reproduction H8): reading the per-iteration variable draws nothing. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+
+  it("(q-scope) CONTROL: a body `let` resolves for later reads, and a `match` binder inside its arm", () => {
+    // §Expected behaviour: "A name a `let` inside the body binds resolves for
+    // the reads that follow it, and a `match` pattern binding resolves inside
+    // its arm — the same block-local accumulation
+    // `checkUnknownIdentifiers`' doc comment states for every other block".
+    const bodyLet = [
+      "let a = par for i in [1, 2] {",
+      "  let n = i",
+      "  n",
+      "}",
+      "a",
+    ].join("\n");
+    expect(
+      diagShapeOf(bodyLet),
+      `CONTROL: \`walkIdentStmt\`'s \`let\` arm accumulates into the body's own scope copy. Observed: ${showDiags(bodyLet)}`,
+    ).toEqual([]);
+    const matchBinder = "let a = par for i in [1, 2] { match i { n => n } }\na";
+    expect(
+      diagShapeOf(matchBinder),
+      `CONTROL: \`collectPatternBindings\` seeds the arm scope inside the newly-reached body. Observed: ${showDiags(matchBinder)}`,
+    ).toEqual([]);
+  });
+
+  it("(q-H1) UNCHANGED: a `fn` name in the body stays EXACTLY ONE function-as-value", () => {
+    // §Reproduction row H1 / §Expected behaviour: bug 0118's landed structural
+    // arm already judges this name in this position, and the widened identifier
+    // walk must not add a second verdict — a `fn` name is in
+    // `IdentWalkContext.roots`, so `emitUnknownIdentifier`'s scope test answers
+    // for it before either refusal can.
+    const src = "fn f(): number { 1 }\nlet a = par for i in [1, 2] { f }\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL (bug 0224 §Reproduction H1): count is EXACTLY one, and the code is the structural walk's. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${FUNCTION_AS_VALUE}`]);
+    expect(
+      messagesFor(src, FUNCTION_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column, unmoved",
+    ).toEqual([registryMessageFor(FUNCTION_AS_VALUE, { "<name>": "f" })]);
+  });
+
+  it("(q-H2) UNCHANGED: `Enum.Zz` in the body stays EXACTLY ONE unknown-variant", () => {
+    // §Reproduction row H2. The identifier walk's `member` arm LICENSES a
+    // declared-enum receiver (`IdentWalkContext.declaredEnums`, bug 0140's
+    // landed shape), so the newly-reached receiver draws no `type-as-value`
+    // beside the variant verdict.
+    const src = "enum E { A }\nlet a = par for i in [1, 2] { E.Zz }\na";
+    expect(
+      diagShapeOf(src),
+      `CONTROL (bug 0224 §Reproduction H2): the \`Enum.Variant\` receiver licence carries into the newly-reached body. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_VARIANT}`]);
+    expect(
+      messagesFor(src, UNKNOWN_VARIANT),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([
+      registryMessageFor(UNKNOWN_VARIANT, { "<variant>": "Zz", "<enum>": "E" }),
+    ]);
+  });
+
+  it("(q-H3) UNCHANGED: the shadowed-callable pair keeps its codes, counts and ranges — no `(code, range)` doubles", () => {
+    // §Reproduction row H3 and §Fix (b)'s named question: "State per code whether
+    // a newly-reached position produces one diagnostic or two for the same
+    // `(code, range)` pair — H3's `shadowed-callable-call` is the row to check
+    // first, since its own walk already judges the same name in the same
+    // position".
+    //
+    // MEASURED ANSWER: NO pair doubles. `walkCallSiteExpr`'s own `par-for` arm
+    // (src/parser/theta-document.ts:6353–:6364) binds the per-iteration
+    // variable at `:6362` and emits the shadow verdict; the identifier walk's
+    // newly-reached arm binds the SAME variable into the body scope, so
+    // `emitUnknownIdentifier`'s unconditional scope test (`:5312`) returns
+    // before either of its refusals can push. The two walks therefore judge the
+    // same name to different ends without colliding.
+    const src = [
+      "---",
+      "mode: prompt",
+      "tools:",
+      "  - read",
+      "---",
+      'let a = par for read in [1, 2] { read({ path: "x" }) }',
+      "a",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL (bug 0224 §Reproduction H3): exactly the two codes the call-site walk already drew. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${SHADOWED_CALLABLE_CALL}`, `error ${BARE_OBJECT_LITERAL}`]);
+    const ranges = diagRangesOf(src);
+    expect(
+      new Set(ranges).size,
+      `§Fix (b)'s doubling question, asserted: every \`(code, range)\` pair is DISTINCT, so no newly-reached position produced a second copy of a code its own walk already emitted. Observed: ${JSON.stringify(ranges)}`,
+    ).toBe(ranges.length);
+  });
+
+  it("(q-H3-control) CONTROL: the plain-`for` spelling draws the identical pair", () => {
+    const src = [
+      "---",
+      "mode: prompt",
+      "tools:",
+      "  - read",
+      "---",
+      'for read in [1, 2] { read({ path: "x" }) }',
+      "1",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the call-site walk's \`for\` arm draws the same pair, so (q-H3)'s counts belong to that check and not to the identifier walk. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${SHADOWED_CALLABLE_CALL}`, `error ${BARE_OBJECT_LITERAL}`]);
+  });
+
+  it("(q-iterand) the TYPE layer's non-array-iterand SURVIVES, beside the identifier refusal, in that order", () => {
+    // §Reproduction (B)'s closing row: the one code that already crossed the
+    // boundary from another traversal (`type-layer-checks.ts`'s own iterand
+    // verdict on a name identifier resolution never judged). Bug 0224 adds the
+    // identifier verdict AHEAD of it and removes nothing — the same
+    // parse-before-type ordering bug 0140's group (c) already pins.
+    const src = "let c = par for z in Zzz { z }\nc";
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0224 §Reproduction, iterand row): both verdicts, identifier refusal FIRST. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_IDENTIFIER}`, `error ${NON_ARRAY_ITERAND}`]);
+    expect(
+      messagesFor(src, NON_ARRAY_ITERAND),
+      "DIAG-4: the type layer's row is unmoved, message read from the registry's Message column",
+    ).toEqual([registryMessageFor(NON_ARRAY_ITERAND, { "<type>": "Zzz" })]);
   });
 });
 

@@ -1,6 +1,6 @@
 # Bug 0224 — `checkUnknownIdentifiers`' scope-tracking walk carries no `par-for` arm, so every identifier a `par for` spells — its iterand, its `max` operand and everything in its body — is judged by nothing: `par for i in [1, 2] { Zzz }` loads with zero diagnostics and yields `[Ok(null), Ok(null)]` at run, where the plain-`for` spelling of the same body draws `theta/parse/unknown-identifier`
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.164.0). Filed as bug
   [0118](./0118-nested-fn-result-return-defers-to-runtime-panic.md)'s §Fix
   (0.162.0) *Residuals* item 2, which records the omission after that fix took
   its §Fix (c) arrangement 2 — the structural walk alone — and states that
@@ -559,3 +559,203 @@ may be papered over by narrowing the arm.
   the outputs quoted above, then deleted. Protected witnesses confirmed green
   and unmodified during the filing: `tests/type-name-as-value-refusal.test.ts`
   62/62, `tests/par-for.test.ts` 69/69.
+
+## Fix (0.164.0)
+
+- What shipped:
+  - **§Fix (a) — `src/parser/theta-document.ts`:** `walkIdentExpr` gains
+    `case "par-for"` (one 16-line hunk, inside the identifier walk's own
+    region). It walks `e.iterand`, then `e.max` when non-null, in the passed
+    ENCLOSING scope, then the body through `walkIdentBlock` with
+    `const inner = new Set(scope); inner.add(e.variable)`. Traversal order
+    (iterand → `max` → body) mirrors `walkCallSiteExpr`'s and `walkExpr`'s
+    landed `par-for` arms and is asserted, not assumed. The body inherits a
+    COPY of the enclosing scope rather than reseeding from `walkCtx.roots`,
+    because CTRL-4 (`docs/spec_topics/control-flow.md:76`, verified verbatim at
+    HEAD: "Outer bindings and the loop variable are readable") makes a `par for`
+    body a non-closure-free block — the `fn` arm's whole-file reseeding is
+    deliberately not the model. `IdentWalkContext` threads UNCHANGED;
+    `emitUnknownIdentifier` stays the single sink; no new emitter, no minted
+    code, no registry row added or removed. `collectIdentRoots` and both of its
+    call sites are byte-identical, per §Non-goals.
+  - **§Fix (b) — `tests/par-for.test.ts`:** an additive bug-0224 group of 26
+    cells, each asserting the exact pass-wide unfiltered `doc.diagnostics` and
+    each reading its expected Message from the registry at runtime (DIAG-4),
+    with a top-level real-parse control per family: A1, C1, H4, H5, H6, H7,
+    H10, H11, H12 for `theta/parse/unknown-identifier`; B1 and B4 for
+    `theta/parse/type-as-value`; the emission-ORDER cell; the surviving
+    `non-array-iterand` beside the new refusal, in measured order; and the
+    unchanged-count controls H1 (`function-as-value`), H2 (`unknown-variant`),
+    H3 (`shadowed-callable-call` + `bare-object-literal`), H8 (the loop
+    variable stays `[]`) and the body-`let` / `match`-binder accumulation
+    fences. The stale group comment at `:395` (which cited `walkIdentExpr` as
+    `:5371`) is corrected in the same change, symbol-named.
+  - **The two open questions §Fix (b) asked, MEASURED:** (i) no `(code, range)`
+    pair doubles for H3 — the pair is `shadowed-callable-call @ 6:34-6:53` and
+    `bare-object-literal @ 6:39-6:52`, distinct ranges, and the widened arm adds
+    nothing because it binds the SAME per-iteration variable
+    `walkCallSiteExpr`'s arm binds, so `emitUnknownIdentifier`'s unconditional
+    scope test returns first; the cell asserts range-distinctness mechanically.
+    (ii) a `par for` body's TAIL is a VALUE site, not `discarded`: a bare
+    declared `schema` name as the tail draws `type-as-value`, the same name as a
+    non-tail statement of the body stays silent, and an UNDECLARED name at that
+    same non-tail position still draws `unknown-identifier` — so bug 0140's
+    code-specific `discarded` licence carries into the newly-reached block
+    unchanged, matching CTRL-3 (`control-flow.md:74`).
+  - **§Fix (c) — `docs/spec_topics/diagnostics/code-registry-parse.md`:** the
+    same-commit DIAG-2 *Trigger* edit on `theta/parse/type-as-value`. The
+    "at every entry on this list but `par for`" exception loses its exception,
+    and the whole reach-gap sentence group ("One construct sits outside this
+    row's REACH … under a new exception to it.") is removed. The two positions
+    the widened arm newly judges — a `par for` iterand and its `max` operand —
+    are named in the EXPRESSION-level enumeration (not the statement-level one:
+    CTRL-1, `control-flow.md:70`, states "Unlike `for`, `par for` is an
+    expression"), because the row declares its own list exhaustive. One row,
+    one line, file line count unchanged at 132. No *Message* changes, so DIAG-4
+    is not engaged and `docs/reference/diagnostics.md` is BYTE-UNCHANGED
+    (verified: it mirrors the Message column only). `code-registry-parse.md:66`
+    (`unknown-identifier`) and `docs/spec_topics/expressions.md` are
+    BYTE-UNCHANGED — `:44–:53` already state the rule this fix implements.
+  - **§Fix (d)1 — `tests/type-name-as-value-refusal.test.ts` cell g9 RESTATED,
+    never deleted.** It keeps its four-line fixture and its plain-`for` control
+    and now asserts, in the MEASURED order, `type-as-value` for the declared
+    body name `P`, `unknown-identifier` for the undeclared body name, the
+    surviving `non-array-iterand` interleaved between `let c`'s own refusal and
+    `let d`'s, and `unknown-identifier` for the `Yyy` width operand. Its
+    comment is rewritten to record the reach gap as CLOSED and by which report.
+    Three header sentences that asserted the now-false claim were updated: the
+    group banner, the header sentence, and the `describe` title. g1–g8 are
+    BYTE-IDENTICAL.
+  - **§Fix (d)2 — `tests/par-for.test.ts` (r2) and (r3) flipped.** (r2)'s
+    `not.toContain("error theta/parse/unknown-identifier")` inverts: the call to
+    the FN-1-refused nested `fn` now draws the second code, which bug 0118
+    §Fix (c) itself admitted would be owed. (r3) gains the same entry in its
+    measured position while keeping its PRIMARY subject (CTRL-4's query refusal
+    stays SINGLE).
+  - **§Fix (d)3 — append-only discharge note** at the end of
+    `docs/bugs/0118-…md`, recording *Residuals* item 2 and its §Fix (c)
+    arrangement-2 standing charge as DISCHARGED by this report. Verified
+    append-only (`@@ -999,3 +999,13 @@`, ten additions, zero deletions): no
+    existing line moved and 0118's Status is unchanged.
+  - **Live coverage — `tests/live/live-production-acceptance.test.ts` cell 82,
+    additive at the file's end.** H8a, mirroring cell 81 (bug 0118's live cell)
+    exactly: the shipped `createAgentSession` composition, real discovery, real
+    `session.bindExtensions({})`, the registration gate, and the assertion on
+    the `theta-system-note` MESSAGE read off the settled in-memory
+    `SessionManager` with the message half read from the registry (DIAG-4). A
+    `par for` body spelling an undeclared name fails to register; the
+    loop-variable-only sibling registers; a precondition control in the same
+    workspace proves the workspace and the discovery walk. Registration-only,
+    so zero model turns; a missing provider fails loudly through
+    `requireLiveProvider`, never skips.
+  - **The doc's runtime measurements, for the record.** They are the reason this
+    is S1 rather than a cosmetic reach gap and they are now unreachable through
+    a parse-clean program: `Ok(null)` per iteration for an un-refused name (R1,
+    R2), `Zzz + 1` → `Ok(1)` (R5), `Err(invoke_infra, cause:"panic")` "null
+    member access: .f" for a member read (R6), and
+    `Err(invoke_infra, cause:"internal_error")` blaming bug 0003's
+    `theta/parse/tool-arg-not-object-literal` for an undeclared callee (R3).
+    The evaluator's silent `null` arm
+    (`src/extension/production-theta-producer.ts`, `evaluatePureExpression`'s
+    `ident` arm) is UNTOUCHED — §Non-goals scopes it out, and after this fix no
+    parse-clean program reaches it with an unbound name through a `par for`.
+- Gates (verbatim):
+  - Witness RED before the fix: `npx vitest run tests/par-for.test.ts
+    tests/type-name-as-value-refusal.test.ts
+    tests/interpolated-result-gate.test.ts` → `Test Files 3 failed (3)` /
+    `Tests 18 failed | 222 passed (240)`, every red reporting
+    `Observed: [] (NO DIAGNOSTIC OF ANY SEVERITY — the source loads clean)`.
+    GREEN after: `Tests 240 passed (240)` (par-for 95/95,
+    type-name-as-value-refusal 62/62, interpolated-result-gate 83/83).
+  - Full default suite: `Test Files 357 passed (357)` / `Tests 7315 passed
+    (7315)` (fork baseline 357 / 7289 + 26 added cells).
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, no output.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`, no
+    output.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts -t "cell 82"` →
+    `Tests 1 passed | 81 skipped (82)`, real provider engaged, zero model turns.
+    `tests/fixtures/h7a/permitted-codes.json` BYTE-UNTOUCHED (no H9a run
+    claimed it reachable; the fixed path is a load-time parse refusal).
+  - Corpus: `tests/committed-fixture-parse-gate.test.ts` 36/36 —
+    `docs/examples/fan-out-reviews.theta`, the corpus's one committed
+    `par for`, stays clean, and that gate (not a scratch probe) is the standing
+    discharge.
+- Review: 2 rounds. Round 1 (deep) — one blocking `spec` finding: the *Trigger*
+  addition placed the `par for` iterand and `max` positions in the
+  statement-level enumeration, contradicting CTRL-1's "`par for` is an
+  expression"; plus one accepted non-blocking `prose` residual. Round 2 (fast)
+  — CLEAN, with the F1 remedy verified word-by-word, the statement-level
+  sentence confirmed byte-identical to HEAD, and the six-file scope confirmed.
+- Verification: SOLID. (1) Witness reds on neutralisation — the arm's body
+  replaced by a bare `return;` per §Fix (f) reds exactly the 18 cells (14
+  bug-0224 positives + the four authorized flips) and leaves all 222 control
+  cells GREEN, proving the drop is total rather than partial; restore proved
+  byte-exact by `git hash-object` (`71de00c0…` before and after). (2) Full
+  default suite 357 files / 7315 tests. (3) The live cell was proven in BOTH
+  directions per AGENTS.md: with the arm neutralised, cell 82 REDS for the
+  right reason (the offender `cellblivebad` registers, at the
+  `toBeUndefined()` assertion); with the arm restored it passes. (4) typecheck
+  and lint clean.
+- **Authorized flips, enumerated for parent ratification (four cells):**
+  1. `tests/type-name-as-value-refusal.test.ts` g9 — the doc's §Fix (d)1 named
+     authority. RESTATED (fixture + plain-`for` control preserved), not
+     deleted.
+  2. `tests/par-for.test.ts` (r2) — the doc's §Fix (d)2 named authority; the
+     `not.toContain` clause inverts.
+  3. `tests/par-for.test.ts` (r3) — NOT named individually by the doc. Same
+     mechanism as (r2): its fixture calls a nested `fn` `mk` declared in the
+     `par for` body; the declaration is FN-1-refused and `collectFns` is
+     top-level-only, so `mk()` resolves through no arm of
+     `expressions.md:44–:49` and now draws `unknown-identifier`. Authorized by
+     §Fix (e) ("any `par for` in `tests/**` whose body spells a name the walk
+     now judges reds … Neither may be papered over by narrowing the arm") plus
+     §Fix (d)2's restatement shape. PRIMARY subject preserved.
+  4. `tests/interpolated-result-gate.test.ts` (h1) — same mechanism, two
+     nested `fn`s (`mk`, `use`), so two added entries. Authorized on the same
+     ground. Its other 82 cells are byte-green and no other line of that file
+     moved.
+
+  Blast-radius premeasurement (a prototype arm run against the FULL suite
+  BEFORE any cell was written, per §Fix (e)) found EXACTLY these four reds and
+  no others — zero unauthorized flips, zero collateral.
+- Residuals:
+  1. **One historical citation inside an edited file, accepted.** The new
+     bug-0224 group comment in `tests/par-for.test.ts` and g9's rewritten
+     comment both cite the PRE-fix coordinates of `walkIdentExpr`'s `default`
+     arm (`:5518–:5520`), which the 16-line insertion moved to ~`:5534`. The
+     claims are explicitly framed as the pre-fix measurement and are
+     symbol-anchored, so a reader recovers; bug 0134's do-not-chase
+     adjudication covers drift-by-insertion. Evidence: round-1 review residual
+     R1, re-confirmed clean in round 2.
+  2. **One stale citation left in place deliberately.** `tests/par-for.test.ts`
+     (the comment block above the bug-0118 group) cites `walkExpr` as
+     `src/parser/theta-document.ts:7350`; the symbol is at `:7413` at HEAD and
+     its `par-for` arm at `:7653` after this insertion. It sits outside the
+     `:395` correction this fix owed and chasing it would be bug 0134's
+     forbidden sweep. Flagged for whoever next edits that comment block.
+  3. **`registryMessageFor` cannot render `theta/parse/shadowed-callable-call`.**
+     The helper uses a single `String.replace` and that row's Message carries
+     `'<name>'` twice, so cell H3 asserts code + count + `(code, range)`
+     distinctness instead of the rendered message. Every other new cell reads
+     its Message from the registry. Evidence: the helper's body and the
+     registry row at `code-registry-parse.md:67`; round-1 review judged the
+     substitute adequate.
+  4. **Line-number drift OUTSIDE the edited files.** The 16-line insertion at
+     `walkIdentExpr` shifts every `src/parser/theta-document.ts:<line>`
+     citation at or below it — bug 0134's adjudicated do-not-chase class, and
+     bug 0118's *Residuals* item 5 already records the same class from its own
+     insertion. Not chased.
+- Discharge notes appended: `docs/bugs/0118-nested-fn-result-return-defers-to-runtime-panic.md`
+  (its *Residuals* item 2 and its §Fix (c) arrangement-2 standing charge,
+  append-only, Status unchanged).
+- Pinned dispositions / non-goals: `collectIdentRoots` and its two call sites
+  byte-identical; nothing changed about what the walk does with a name it
+  REACHES (bug 0140's three-way rule, the unconditional scope-shadow test, the
+  `discarded` silence, the `Enum.Variant` receiver licence — g1–g8
+  byte-identical); the `${…}` interpolation non-site untouched; CTRL-4's own
+  scan not descending into a `fn` declaration (bug 0118 *Residuals* item 3)
+  untouched; a `par for` body's `return` regime (bug 0118 *Residuals* item 1)
+  untouched — no `return` judgement added; the runtime's silent `null` for an
+  unbound name untouched; bug 0114's `array<Result<…>>` interpolation panic
+  untouched.

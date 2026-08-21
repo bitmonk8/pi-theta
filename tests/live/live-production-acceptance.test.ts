@@ -13331,3 +13331,165 @@ describe("cell 81 (bug 0118): a `fn` under a `par for` body is theta/parse/neste
     }
   });
 });
+
+// ===========================================================================
+// cell 82 (bug 0224): the identifier walk now DESCENDS a `par for`, so an
+// undeclared name spelled anywhere in its body draws theta/parse/unknown-
+// identifier at load through the real discovery->registration path, and the
+// clean sibling that reads only its own loop variable still registers. Ends
+//
+// WHAT THIS COVERS THAT THE OFFLINE WITNESSES DO NOT. `tests/par-for.test.ts`
+// (the bug 0224 (q-*) group) and `tests/type-name-as-value-refusal.test.ts`
+// (g9) pin the diagnostic bytes at the `parseThetaDocument` boundary; this
+// cell drives the same input through the SHIPPED `createAgentSession`
+// composition (real discovery, real `session.bindExtensions({})`, the real
+// registration gate `hasLoadParseError` reads) exactly as cell 81 above does
+// for bug 0118's sibling arm, so this cell closes the same gap for the
+// identifier-walk arm itself. A registration boolean alone cannot tell this
+// refusal from any other `theta/parse/*` error blocking the same gate, so the
+// assertion is the theta-system-note MESSAGE, exactly as cell 81 and bug
+// 0140's cell 59 do.
+//
+// Registration-only: the diagnostic fires at LOAD time (inside
+// `session.bindExtensions({})` inside `bootShippedExtension`), before any
+// slash is driven, so this cell spends zero model turns -- the same profile
+// as cell 81 above. A live provider is still REQUIRED and its absence fails
+// loudly through `requireLiveProvider`, never skips. ADDITIVE ONLY: no
+// existing cell in this file is renumbered, reworded, weakened or deleted.
+// ===========================================================================
+
+/** `theta/parse/unknown-identifier`'s registered code and registry page (bug 0224 Fix (a); code-registry-parse.md). */
+const UNKNOWN_IDENT_CODE_CELL_B = "theta/parse/unknown-identifier";
+const UNKNOWN_IDENT_REGISTRY_CELL_B = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/unknown-identifier: unknown identifier '<name>'` -- DIAG-4:
+ * the message half is read from the registry row, not copied, mirroring this
+ * file's existing `nestedFnFragmentCellB2` helper for cell 81.
+ */
+function unknownIdentFragmentCellB(name: string): string {
+  const template = registryMessage(
+    UNKNOWN_IDENT_REGISTRY_CELL_B,
+    UNKNOWN_IDENT_CODE_CELL_B,
+  ) as string | undefined;
+  expect(
+    template,
+    `${UNKNOWN_IDENT_CODE_CELL_B} has no registry row -- the code this cell asserts is not registered (DIAG-2) (cell 82)`,
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  const message = withSlot.replace("<name>", name);
+  return `${UNKNOWN_IDENT_CODE_CELL_B}: ${message}`;
+}
+
+/** The offending theta (bug 0224 §Reproduction A1): an undeclared name spelled as the `par for` body's tail. */
+const UNDECLARED_NAME_UNDER_PAR_FOR_CELL_B = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let xs = par for i in [1, 2] {",
+  "  Zzz",
+  "}",
+  "@`Reply with exactly the token PARFORUNKNOWNIDENT-UNREACHED and nothing else.`",
+  "",
+].join("\n");
+
+/** The CLEAN sibling: a `par for` body that reads only its own loop variable -- resolution arm (1), so nothing is refused. */
+const CLEAN_PAR_FOR_LOOP_VAR_ONLY_CELL_B = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let xs = par for i in [1, 2] { i }",
+  "@`Reply with exactly the token PARFORUNKNOWNIDENT-CLEAN and nothing else.`",
+  "",
+].join("\n");
+
+describe("cell 82 (bug 0224): an undeclared name spelled inside a `par for` body is theta/parse/unknown-identifier live, and the loop-variable-only sibling still registers (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose `par for` body spells an undeclared name, the theta-system-note channel carries theta/parse/unknown-identifier's registered message, and the sibling reading only its loop variable registers (cell 82)", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work -- without this, a
+      // regressed fix (the offender failing to register FOR THE WRONG REASON,
+      // e.g. a broken workspace) could be misattributed (mirrors cell 81's
+      // precondition control above).
+      {
+        source: "project",
+        stem: "cellblivectl",
+        text: promptTheta("PARFORUNKNOWNIDENT-CONTROL"),
+      },
+      {
+        source: "project",
+        stem: "cellblivebad",
+        text: UNDECLARED_NAME_UNDER_PAR_FOR_CELL_B,
+      },
+      {
+        source: "project",
+        stem: "cellblivegood",
+        text: CLEAN_PAR_FOR_LOOP_VAR_ONLY_CELL_B,
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("cellblivectl"),
+        "the precondition control did not register -- a broken workspace, not the fixed arm, would explain the offender's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 82)",
+      ).toBeDefined();
+
+      // The fixed observable: an undeclared name spelled inside a `par for`
+      // body is refused (bug 0224 §Fix (a), `walkIdentExpr`'s new `par-for`
+      // arm), so the caller must NOT register.
+      expect(
+        handle.command("cellblivebad"),
+        "an undeclared name spelled inside a `par for` body registered -- pre-fix, `walkIdentExpr` had no `par-for` arm and the node fell into the `default` arm, so the body was never visited. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 82)",
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()) + " (cell 82)",
+      ).not.toContain("cellblivebad");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager`: a
+      // registration boolean alone cannot distinguish this refusal from any
+      // other `theta/parse/*` error blocking the same gate, so the MESSAGE is
+      // the assertion, exactly as cell 81 and bug 0140's cell 59 do.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unknownIdentFragmentCellB("Zzz");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named " +
+          UNKNOWN_IDENT_CODE_CELL_B +
+          " for the undeclared name inside the `par for` body -- the fixed arm did not fire. Notes: " +
+          JSON.stringify(notes) +
+          " (cell 82)",
+      ).toBe(true);
+
+      // The CLEAN sibling: a `par for` body that reads only its own loop
+      // variable -- resolution arm (1) -- DOES register. Pairs with the
+      // refusal above so this cell is not merely "nothing registered".
+      expect(
+        handle.command("cellblivegood"),
+        "the loop-variable-only sibling failed to register -- the fix must not disturb the `par for` variable's own binding. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 82)",
+      ).toBeDefined();
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

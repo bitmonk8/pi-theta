@@ -999,3 +999,13 @@ once by neutralising the new arm.
   registry *Trigger* is widened; `theta/parse/break-outside-loop` and
   `theta/parse/continue-outside-loop` are deliberately NOT drawn in a `par for`
   body; the three `theta/parse/par-*` codes' registry home is untouched.
+
+## Discharge note (bug 0224)
+
+*Residuals* item 2 above — the identifier walk's `par for` omission — is
+DISCHARGED by bug
+[0224](./0224-identifier-walk-never-descends-par-for.md): `walkIdentExpr`
+gained a `case "par-for"` mirroring `walkCallSiteExpr`'s and `walkExpr`'s
+arms. This report's §Fix (c) arrangement-2 standing charge ("the identifier
+walk's omission survives … and needs its own measurements") is discharged by
+that report's own measurements; this Status stays unchanged.

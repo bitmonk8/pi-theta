@@ -5515,6 +5515,22 @@ function walkIdentExpr(
         walkIdentExpr(arm.body, armScope, walkCtx, file, out);
       }
       return;
+    case "par-for": {
+      // The body inherits a COPY of the enclosing scope, not `walkCtx.roots`:
+      // CTRL-4 (control-flow.md:76) states outer bindings and the loop
+      // variable are both readable inside a `par for` body, so the `fn`
+      // arm's whole-file reseeding above is not the model here. Traversal
+      // order (iterand, then `max`, then body) mirrors `walkCallSiteExpr`'s
+      // `case "par-for"` and `walkExpr`'s `case "par-for"`.
+      walkIdentExpr(e.iterand, scope, walkCtx, file, out);
+      if (e.max !== null) {
+        walkIdentExpr(e.max, scope, walkCtx, file, out);
+      }
+      const inner = new Set(scope);
+      inner.add(e.variable);
+      walkIdentBlock(e.body, inner, walkCtx, file, out);
+      return;
+    }
     default:
       // number / string / bool / null / query — no identifier sites.
       return;

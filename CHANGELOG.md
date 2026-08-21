@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.164.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0224 — the identifier walk now descends `par for` bodies**:
+  `walkIdentExpr` gains a `par-for` arm (iterand → max → body with scope
+  tracking), so `theta/parse/unknown-identifier` and
+  `theta/parse/type-as-value` fire inside `par for` as everywhere else
+  (both were silent there). The `type-as-value` registry Trigger's par-for
+  subtraction is removed same-commit. Witness: 26 additive cells in
+  `tests/par-for.test.ts` (95 total) + H8a cell 82; g9 of
+  `tests/type-name-as-value-refusal.test.ts` restated under bug 0224's own
+  authority; entailed flips (r2)/(r3)/(h1) ratified at merge. Bug 0118's
+  residual 2 (arrangement-2 standing charge) discharged.
+
 ## [0.163.0] - 2026-08-26
 
 ### Fixed

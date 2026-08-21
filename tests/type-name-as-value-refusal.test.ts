@@ -1530,9 +1530,10 @@ describe("bug 0140 (f) — no committed theta source is affected (GOV-15 sweep)"
 });
 
 // ===========================================================================
-// (g) THE DESIGN LOCKS — nine rows the fix must keep SILENT.
-// GREEN at HEAD, GREEN after, and each one reds if the implementation drifts to
-// a SCOPE-BLIND or NAME-FENCED shape.
+// (g) THE DESIGN LOCKS — nine rows, eight of which the fix must keep SILENT.
+// g1–g8 are GREEN at HEAD, GREEN after, and each one reds if the implementation
+// drifts to a SCOPE-BLIND or NAME-FENCED shape. g9 is the one row that has since
+// FLIPPED, under bug 0224's authority (see its own comment).
 // ===========================================================================
 //
 // This group is the reason the judgement belongs in the scope-tracking
@@ -1551,10 +1552,17 @@ describe("bug 0140 (f) — no committed theta source is affected (GOV-15 sweep)"
 // u9b / u13 family (tests/fn-arg-type-mismatch-wired.test.ts:1774–1796 and
 // :880–891). g5–g7 are the other three claimants on a name; g8 is the
 // interpolation the walk's own doc comment (theta-document.ts:4847–4848)
-// excludes as an identifier-resolution site. g9 is the one construct the walk
-// never DESCENDS at all rather than a position it reaches and declines — a
-// distinction the registered *Trigger* now draws in terms, because the two are
-// not interchangeable.
+// excludes as an identifier-resolution site. g9 WAS the one construct the walk
+// never DESCENDED at all rather than a position it reaches and declines — a
+// distinction the registered *Trigger* drew in terms, because the two are not
+// interchangeable. That reach gap is CLOSED: bug 0224
+// (docs/bugs/0224-identifier-walk-never-descends-par-for.md) gave
+// `walkIdentExpr` (src/parser/theta-document.ts:5434) its `par-for` arm, so a
+// `par for`'s iterand, `max` operand and body are now ordinary positions of the
+// enumeration this row makes, and g9 asserts the refusals it once asserted
+// absent. The distinction between reach and rule still matters to g1–g8, which
+// are about what the walk does with a name it REACHES and are untouched by that
+// widening.
 //
 // MEASURED SCOPE-BLIND COST, for the record: an arm minted at the structural
 // walk's `case "ident"` reds 26 tests across 7 files, including the bug 0126 and
@@ -1563,7 +1571,7 @@ describe("bug 0140 (f) — no committed theta source is affected (GOV-15 sweep)"
 // — is not a licence to copy it: the language has since settled the opposite
 // posture for declaration names.
 
-describe("bug 0140 (g) — the design locks: nine positions that stay silent", () => {
+describe("bug 0140 (g) — the design locks: eight positions that stay silent, and one reach gap since closed", () => {
   it("GREEN (g1): a `for` variable spelled like a declared schema draws nothing", () => {
     // Bug 0126 group (d) §Fix (e) posture 1. The loop variable is a LOCAL, and
     // `walkIdentStmt`'s `for` arm adds it to the block scope before descending
@@ -1730,29 +1738,34 @@ describe("bug 0140 (g) — the design locks: nine positions that stay silent", (
     );
   });
 
-  it("GREEN (g9): identifier resolution never descends a `par for`, so nothing inside one is judged", () => {
-    // A PRE-EXISTING GAP IN THE WALK'S REACH, pinned so a later widening is
-    // DELIBERATE rather than incidental. This fix neither introduces nor widens
-    // it: what changed is what `emitUnknownIdentifier` does with a name the walk
-    // REACHES, not which nodes the walk reaches.
+  it("(g9): identifier resolution DESCENDS a `par for`, so everything inside one is judged (reach gap closed — bug 0224)", () => {
+    // THE REACH GAP IS CLOSED, and this cell records by which report so a future
+    // reader does not re-derive it: bug 0224
+    // (docs/bugs/0224-identifier-walk-never-descends-par-for.md), whose §Fix (d)1
+    // flips this cell under its own authority and requires the SUBJECT to be
+    // restated rather than deleted. The fixture and the plain-`for` control below
+    // are unchanged from the version that pinned the silence; only the
+    // expectations moved.
     //
-    // It is NOT the mechanism g1 pins for a plain `for`. There the loop variable
-    // enters the block scope before the body is walked (`walkIdentStmt`'s
-    // `case "for"`, theta-document.ts:5060–:5066), so the binding wins the
-    // scope test. A `par for` is an EXPRESSION and `walkIdentExpr` carries no
-    // `par-for` arm at all: the node falls into the `default` arm
-    // (theta-document.ts:5189–:5191), whose own comment names "number / string /
-    // bool / null / query" and not `par-for`, so the construct's iterand, its
-    // `max` width operand and its whole body are never visited. Bug 0118 owns
-    // that gap — its §Kind finding 2 files the same absent `par-for` arm on the
-    // parse-phase structural walk, and its §Non-goals records "the identifier
-    // walk's own `par-for` omission", measuring only that this walk does not
-    // arrive.
+    // What the gap was: a `par for` is an EXPRESSION, and `walkIdentExpr`
+    // (theta-document.ts:5434) carried no `par-for` arm, so the node fell into
+    // its `default` arm (`:5518–:5520`) — whose own comment enumerates "number /
+    // string / bool / null / query" — and the construct's iterand, its `max`
+    // width operand and its whole body were never visited. Both of this walk's
+    // refusals were therefore silent throughout the construct, because both are
+    // pushed by the one sink (`emitUnknownIdentifier`, `:5303`) the arm never
+    // reached. Bug 0118 measured the same absent arm on the parse-phase
+    // STRUCTURAL walk and its §Fix (0.162.0) took arrangement 2 — that walk
+    // alone — leaving this one as its *Residuals* item 2; bug 0224 supplied the
+    // measurements that residual asked for and landed the arm.
     //
-    // The registered *Trigger* is written to match: it keeps the `par for`
-    // variable in the binder enumeration (mirroring `expressions.md`'s own
-    // binder list) and states the reach gap SEPARATELY, so the row does not
-    // claim the in-scope-binding mechanism covers a construct it never reaches.
+    // It is not the mechanism g1 pins for a plain `for`, and it never was: there
+    // the loop variable enters the block scope before the body is walked
+    // (`walkIdentStmt`'s `case "for"`, theta-document.ts:5389–:5395) and the
+    // binding wins the scope test, while the undeclared name beside it is still
+    // refused. The `par for` arm now does exactly that — iterand and `max` in the
+    // enclosing scope, body in a copy carrying the per-iteration variable — which
+    // is why the four names below are judged and the loop variables are not.
     const doc = parse(
       "schema P { a: number }\n" +
         "let a = par for x in [1] { P }\n" +
@@ -1762,32 +1775,42 @@ describe("bug 0140 (g) — the design locks: nine positions that stay silent", (
         "1\n",
     );
     expectCodes(
-      "g9 (par for non-reach)",
+      "g9 (par for reach, closed by bug 0224)",
       doc,
-      [NON_ARRAY_ITERAND],
-      "a DECLARED name in the body (`P`), an UNDECLARED name in the body (`Zzz`), an UNDECLARED " +
-        "iterand (`Zzz`) and an UNDECLARED width operand (`Yyy`) each draw NO " +
-        "identifier-resolution diagnostic — neither this row's code nor " +
-        "`theta/parse/unknown-identifier`. The one surviving code is the TYPE layer's own " +
-        "iterand verdict, which reaches the `par for` through a different traversal",
+      [TYPE_AS_VALUE, UNKNOWN_IDENT, UNKNOWN_IDENT, NON_ARRAY_ITERAND, UNKNOWN_IDENT],
+      "a DECLARED name in the body (`P`) is this row's own code; an UNDECLARED name in the body " +
+        "(`Zzz`), an UNDECLARED iterand (`Zzz`) and an UNDECLARED width operand (`Yyy`) are " +
+        "`theta/parse/unknown-identifier`. The TYPE layer's `non-array-iterand` SURVIVES beside " +
+        "the iterand's identifier verdict — bug 0224 adds reach and removes nothing. The MEASURED " +
+        "order is the report order the two passes produce: the body/iterand verdicts of `let a` " +
+        "and `let b`, then `let c`'s identifier refusal ahead of the type layer's row for the " +
+        "same range, then `let d`'s width operand",
     );
     expectLines(
-      "g9 (par for non-reach)",
+      "g9 (par for reach, closed by bug 0224)",
       doc,
-      [errLine(NON_ARRAY_ITERAND, [["<type>", "Zzz"]])],
-      "DIAG-4 — and the surviving diagnostic is the iterand row, unmoved",
+      [
+        typeAsValueLine("P"),
+        unknownIdentLine("Zzz"),
+        unknownIdentLine("Zzz"),
+        errLine(NON_ARRAY_ITERAND, [["<type>", "Zzz"]]),
+        unknownIdentLine("Yyy"),
+      ],
+      "DIAG-4 — every message is read from the registry, and the iterand row is unmoved",
     );
 
-    // THE CONTROL, and it is what keeps the row non-vacuous: the plain-`for`
-    // spelling of the same body DOES refuse the undeclared name, so the silence
-    // above belongs to the `par for` construct and not to the fixture.
+    // THE CONTROL, PRESERVED: the plain-`for` spelling of the same body refuses
+    // the undeclared name, as it always did. It kept this cell non-vacuous while
+    // the gap was open and it now fixes the target the `par for` spelling must
+    // match — one word of difference between the two fixtures, and it is no
+    // longer any difference in verdict.
     const plainFor = parse("schema P { a: number }\nfor y in [1] { Zzz }\n1\n");
     expectCodes(
       "g9 (CONTROL — the plain-`for` spelling)",
       plainFor,
       [UNKNOWN_IDENT],
       "`walkIdentStmt`'s `case \"for\"` descends the body, so the undeclared name is refused " +
-        "there — one word of difference between the two fixtures, and it is the whole reach gap",
+        "there — the verdict the `par for` spelling above now matches",
     );
     expectLines(
       "g9 (CONTROL)",
