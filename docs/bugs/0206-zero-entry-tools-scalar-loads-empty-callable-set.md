@@ -1,6 +1,6 @@
 # Bug 0206 — A `tools:` scalar whose comma split yields zero entries (`tools: ""`, `tools: " , "`) registers the theta with the empty callable set and no diagnostic, byte-identically to an absent field
 
-- **Status:** open.
+- **Status:** fixed (0.159.0).
 - **Sev/Diff estimate:** S4/D2 — zero occurrences in the 35 committed
   `.theta` / `.thetalib` files and the misdeclaration is visible in the author's
   own file (the field names no entry), but settling it needs either a DIAG-2
@@ -351,3 +351,115 @@ explicitly.
   `docs/reference/diagnostics.md:195` (the Message mirror).
 - Corpus census: 35 committed `.theta` / `.thetalib` files, zero carrying a
   `tools:` scalar that spells no entry.
+
+## Fix (0.159.0)
+
+- **The adjudication** — §Fix offered two routes and this run took **Route A**:
+  a `tools:` scalar whose comma split yields no entry is `present-but-bad` and is
+  refused, on the frame `frontmatter-fields-a.md:36` / `:39` / `:41` state three
+  times for the neighbouring fields and 0104 applied to `tools: {}`. Route B
+  (admit-and-document) was not taken. The DIAG-2 question — widen 0104's
+  existing `theta/load/malformed-tools-field` *Trigger* versus mint a new row —
+  was settled as **widen**, on three independent grounds: the shipped *Message*
+  (`malformed 'tools:' field; expected a comma-separated list of entries or a
+  YAML sequence`) is already true of a scalar that spells no entry, so no
+  reword is needed and DIAG-4 (`diagnostic-shape.md:74`) is not engaged; the
+  *Message* carries no placeholder, so the closed placeholder tables
+  (`placeholder-rendering-b.md`) need no edit and no `<value>` sub-rule is
+  reused; and the granularity is the same one 0104's row already owns (the
+  FIELD's value shape, ranged on the value node), so a second row would report
+  one granularity twice. `docs/reference/diagnostics.md` mirrors only the
+  *Message* and is therefore byte-unchanged.
+- **What shipped**
+  - `src/parser/frontmatter.ts` — the `tools` arm of the frontmatter key walk
+    splits into separate `isScalar` / `isSeq` branches; the scalar branch
+    records `toolsMalformedRange = valueRange ?? keyRange` when
+    `extractToolsList` answers `undefined`, reusing 0104's single refusal push
+    so exactly one diagnostic issues. Keyed on the ARM, not on the return
+    value: the sequence arm answers `undefined` for `tools: []` too, which the
+    spec declares equivalent to an absent field and which stays silent by
+    construction. `extractToolsList`'s doc comment now states that its
+    `undefined` return is ambiguous by design and is not the refusal signal;
+    the `ParsedFrontmatter.tools?` doc drops its "iff … non-empty" overclaim.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — the DIAG-2 *Trigger*
+    widening on the `theta/load/malformed-tools-field` row, in the same change
+    as the enforcement. Refused now names the zero-entry scalar in whatever
+    YAML style; Not refused states the two genuinely-excluded plain spellings.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` (the `tools`
+    field-contract row and §`tools`),
+    `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`
+    (§YAML-shape), `docs/reference/frontmatter.md` (the field-contract row and
+    the three equivalence restatements) — §Fix constraint (c): the decision is
+    recorded where the author reads, not only in the registry.
+  - `tests/tools-field-zero-entry-scalar-refusal.test.ts` — **new**, 51 cells,
+    this report's witness, mirroring 0104's two-harness shape. (E1) sources the
+    normative *Message* from the registry; (E2) is the 13-row `parseFrontmatter`
+    matrix (the eight §Reproduction subject rows plus five tagged/anchored
+    spellings) asserting per row exactly one error-severity
+    `malformed-tools-field`, the exact `SourceRange`, `registered === false` and
+    a withheld frontmatter; (E3) pins the eleven silent controls; (E4) pins the
+    out-of-class YAML-parse-error rows; (E5) is the production half over
+    `discoverAndComposeFixtures` with a non-vacuity precondition cell.
+  - `tests/live/tools-field-zero-entry-scalar-refusal-live-cell.test.ts` —
+    **new**, one standalone additive live cell carrying the literal token
+    `` in its title, header and assertion strings (the parent renumbers
+    at merge). Registration-only observable off the settled `ExtensionRunner`
+    after the real `session_start` → `pi.registerCommand` step; zero model
+    turns, 0104's live-cell shape.
+- **Gates**: witness run `Tests 51 passed (51)`; 0104's witness
+  `Tests 37 passed (37)` with both its lock files byte-identical to HEAD; full
+  default suite `Test Files 350 passed (350)` / `Tests 7025 passed (7025)`;
+  `npx tsc --noEmit` clean; `npm run lint` clean; live cell
+  `Tests 1 passed (1)`; H9a acceptance `Tests 10 passed (10)`.
+- **Review**: 2 rounds, plus one pre-review correction round. Correction round
+  (citation/comment-only, no assertion and no behaviour touched): the
+  implementer had rewritten stale `src/parser/frontmatter.ts:<line>` citations in
+  16 unrelated files, which this lane's brief forbids; all 16 were restored
+  byte-exact to HEAD (`git hash-object` == `git rev-parse HEAD:<path>` for each)
+  and gates re-run green. Round 1 (deep): one `spec` finding — the new prose
+  asserted the falsifiable universal "a plain scalar cannot spell this", which a
+  tag-forced empty plain scalar (`tools: !!str` → `PLAIN`, value `""`, refused)
+  disproves; the eight prose sites were reworded to state the refused class as
+  its predicate, and seven locking cells were appended. Round 2 (fast): CLEAN,
+  no deep review recommended, one non-blocking `prose` residual.
+- **Verification**: PASS. Witness reds without the fix — inverting the key-walk
+  arm reds 30 of 51 cells (all 13 (E2) rows × 2 plus the four (E5) subject
+  assertions) and leaves exactly the 21 control/anchor cells green; the source
+  was restored byte-exact (`1c2043d9…` before and after). Full default suite
+  green. The live cell was run for real under the shared live lock and proven
+  red in the same inverted tree for the right reason (`cellf2empty` registered)
+  and green after restoration. Lint and typecheck clean. The H9a stderr gate is
+  unaffected, established by a real H9a acceptance run rather than by
+  assumption: no acceptance fixture declares a zero-entry `tools:` scalar, this
+  fix emits no NEW code, and `tests/fixtures/h7a/permitted-codes.json` was
+  neither edited nor needed editing.
+- **Residuals**
+  1. **Line-citation drift, left as the pre-fix baseline.** The `+33` shift in
+     `src/parser/frontmatter.ts` stales `frontmatter.ts:<line>` comment
+     citations in `src/parser/theta-document.ts` and 15 `tests/*.ts` files
+     (including bug 0104's two protected lock files). No refresh was made: this
+     surface's churn convention is symbols-not-lines (0149 `+45`, 0059 `+10`,
+     0185 `+9`, 0104 `+33` all landed on it without a refresh pass, recorded in
+     0104's own residual 3), and this report's §Fix authorizes no such pass. The
+     bug document's own `src/` citations also drifted before this fix
+     (`production-composition.ts` `EMPTY_CALLABLE_SET` measured at `:1596` not
+     `:1590`, `resolveThetaToolsAtLoad` at `:1609` not `:1603`, its early return
+     at `:1629–1638` not `:1622–1631`; the `tools?` doc at `:151` not
+     `:149–156`) — measured, recorded, not chased.
+  2. **A redundant equivalence restatement** in `docs/reference/frontmatter.md`
+     (the `tools: []`/absent equivalence is stated twice in adjacent sentences,
+     one new and one pre-existing). Round 2 raised it as non-blocking prose and
+     it was left: correct content, no ambiguity.
+  3. **The non-map `params:` value** (`params: read`, `params: [a]`) stays
+     uncovered and unfiled, as §Non-goals leaves it — same shape, different
+     field.
+- **Discharge notes appended**: `docs/bugs/0104-tools-field-nonscalar-value-loads-empty-callable-set.md`
+  — its residual 2 is discharged and its registry row's *Trigger* boundary moved.
+- **Pinned dispositions / non-goals**: §Non-goals holds as written. The node-KIND
+  refusal is 0104's and is untouched; the two null spellings keep
+  `theta/load/unknown-tool` (they yield the one entry `"null"`, so the scalar
+  arm's new check never fires — verified, not special-cased); the entry grammar
+  (`parseToolsEntry`) is never reached; `tools: []` and the absent field stay
+  byte-identically silent; `src/extension/production-composition.ts` is
+  untouched, the input no longer reaching `resolveThetaToolsAtLoad`'s early
+  return.

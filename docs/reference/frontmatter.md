@@ -48,7 +48,7 @@ still loads and registers in both cases.
 | `bind_model` | no | `theta.binderModel` setting (no further fallback) | Slash-command argument binding uses the fallback model. When neither `bind_model:` nor `theta.binderModel` resolves and the theta is not bypass-eligible, load fails with `theta/load/binder-model-unresolved`. The configured string is matched to a model per the binder-model parse rule. The resolved model is then run through the three-valued strict-capability requirement: an explicit `false` strict-capability indicator fails the load with `theta/load/binder-model-not-strict-capable` (E), while an absent indicator (absent on every Pi-supplied `Model<Api>` under the theta 1.0 Pi-SDK pin) emits `theta/load/binder-model-strict-capability-unknown` (W) and the theta still registers. The load-time refusal does not apply to the marked root theta of a spawned subagent child (the subagent-root exemption). |
 | `bind_context` | no | `none` | The binder runs with no caller-session context. A present value other than `none` or `session` (including non-string scalars) is the separate `theta/load/unknown-bind-context-value` load-time error and the theta is not registered — mirroring the `mode:` recognised-key / unrecognised-value split. |
 | `bind_echo` | no | `true` | Bound args are echoed before execution, except auto-suppressed on the binder bypass. |
-| `tools` | no | empty callable set | The model cannot make tool calls and theta code has no `<name>(...)` callables. `tools: []` and absent `tools:` are equivalent. A value outside the two admitted spellings (a mapping, an alias, or a key with no value node — only `? tools` and a flow-mapping `{tools}` carry no value node; a bare `tools:` parses as a null scalar and keeps `theta/load/unknown-tool`) is `theta/load/malformed-tools-field`; the theta does not register. |
+| `tools` | no | empty callable set | The model cannot make tool calls and theta code has no `<name>(...)` callables. `tools: []` and absent `tools:` are equivalent. A value outside the two admitted spellings (a mapping, an alias, or a key with no value node — only `? tools` and a flow-mapping `{tools}` carry no value node; a bare `tools:` parses as a null scalar and keeps `theta/load/unknown-tool`) is `theta/load/malformed-tools-field`; the theta does not register. So is a scalar whose comma split yields no entry, in whatever YAML style (`tools: ""`, `tools: " , "`, a block scalar, or a tagged plain scalar such as `tools: !!str`) — an untagged empty or whitespace-only plain scalar is a null scalar and keeps `theta/load/unknown-tool` instead. |
 | `system` | no | no system prompt (the spawned conversation runs under the model's training defaults) | Subagent-mode only; presence on a `mode: prompt` theta is `theta/parse/system-on-prompt-mode`. |
 | `respond_repair` | no | `{ attempts: 3, methodology: validator_error }` | Typed queries get the default respond-repair budget. `respond_repair: {}` (block present, sub-keys absent) is equivalent to omitting `respond_repair:` entirely; the defaults apply. |
 | `tool_loop` | no | `{ max_rounds: 25 }` | Every query (untyped, typed, and any respond-repair follow-up) runs its tool-call loop under the default cap. `tool_loop: {}` (block present, `max_rounds` absent) is equivalent to omitting `tool_loop:` entirely; the default `25` applies. |
@@ -137,7 +137,12 @@ paths, callable from the model (during a query's tool loop) and from theta code
 are equivalent. The Pi session's ambient tools are **not** inherited. A `tools:`
 value that is present but is neither of the two admitted spellings — a mapping,
 an alias, or a key carrying no value node at all — is `theta/load/malformed-tools-field`;
-the theta does not register.
+the theta does not register. So is a scalar that IS the comma-separated short
+form but whose comma split yields no entry, in whatever YAML style: the quoted
+spellings, a block scalar, or a plain scalar an explicit tag carries to the
+empty string (`tools: !!str`). An UNTAGGED plain scalar stays outside the rule
+— a comma-leading one fails YAML parsing, and an empty or whitespace-only one
+is a null scalar that keeps `theta/load/unknown-tool` instead.
 
 - **FRNT-2** (callable-set terminology): use `callable set`; avoid `tool set`,
   `theta's tools`, `available tools`.
@@ -172,8 +177,15 @@ Two entry kinds:
   neither the comma-separated short form nor a YAML sequence — a mapping (flow
   or block, including the empty flow mapping `tools: {}`), an alias, or a key
   carrying no value node at all — is `theta/load/malformed-tools-field`; the
-  theta does not register. `tools: []` and an absent field stay equivalent,
-  both declaring the empty callable set silently.
+  theta does not register. So is a scalar whose comma split yields no entry, in
+  whatever YAML style (the quoted spellings, a block scalar, or a tagged plain
+  scalar such as `tools: !!str`) — a declared field naming nothing, distinct
+  from `tools: []` or an absent field. An UNTAGGED plain scalar stays outside
+  the rule: a comma-leading one is a YAML parse error, and an empty or
+  whitespace-only one is a null scalar that keeps `theta/load/unknown-tool`.
+  `tools: []` and an
+  absent field stay equivalent, both declaring the empty callable set
+  silently.
 
 **Extension-registered Pi tools.** “Pi's tool registry” is the *full* registry:
 the built-ins plus any tool an installed Pi extension contributes (e.g.
@@ -223,7 +235,12 @@ templates — is inherited. See
 **YAML shape.** `tools:` accepts a comma-separated short form and a YAML list
 form, both parsed by the same per-entry grammar. `.theta` paths and `as` renames
 are legal in either form. A value outside those two spellings is
-`theta/load/malformed-tools-field` and the theta does not register; `tools: []`
+`theta/load/malformed-tools-field` and the theta does not register — so is a
+comma-form scalar whose comma split yields no entry, in whatever YAML style
+(the quoted spellings, a block scalar, or a tagged plain scalar such as
+`tools: !!str`); an untagged empty or whitespace-only plain scalar is instead a
+null scalar that keeps `theta/load/unknown-tool`, and a comma-leading plain
+scalar is a YAML parse error; `tools: []`
 and an absent field are equivalent, both declaring the empty callable set
 silently.
 

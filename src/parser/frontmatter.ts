@@ -148,8 +148,11 @@ export interface ParsedFrontmatter {
   /**
    * The theta's callable set (`tools:` field, FRNT-2/FRNT-3). Each entry is
    * either a Pi-tool name (`grep`) or a `.theta`-callable path
-   * (`./sentiment.theta`). Present iff the theta declares a non-empty `tools:`
-   * field. Consumed by the `H8b` live tool-call / invoke resolvers to route a
+   * (`./sentiment.theta`). Present iff the theta declares a `tools:` field that
+   * yields at least one entry: an absent field and `tools: []` both leave this
+   * property undefined, and so does a scalar or sequence whose value node the
+   * frontmatter layer refused before this result was built (bugs 0104, 0206).
+   * Consumed by the `H8b` live tool-call / invoke resolvers to route a
    * `<name>(args)` call to the Pi-tool `execute` dispatch or the `.theta`
    * spawn-and-drive invoke path.
    */
@@ -421,7 +424,16 @@ function renderScalarValue(value: unknown): string {
  * YAML node and its range and this function does not: downstream, the two
  * spellings are already collapsed into a plain string array, so a
  * present-but-unusable shape would be indistinguishable from an absent field,
- * and the absent field must keep loading silently. Entries are split ONLY on commas — the
+ * and the absent field must keep loading silently.
+ *
+ * This function's `undefined` return is therefore ambiguous by design and is
+ * NOT itself the refusal signal for a zero-entry scalar (bug 0206): the scalar
+ * arm and the sequence arm both answer `undefined` for zero entries, but only
+ * the scalar's zero-entry outcome is present-but-bad — `tools: []` (the
+ * sequence arm's zero-entry input) is the one spelling the spec declares
+ * equivalent to an absent field and must keep loading silently. The caller
+ * disambiguates by testing which arm it dispatched to, not by testing this
+ * return value alone. Entries are split ONLY on commas — the
  * whitespace split that separates an `as` rename (`grep as g`) happens later in
  * the per-entry grammar, so a single scalar entry with an `as` clause stays one
  * entry. Entries are carried verbatim so the H8b resolvers can classify each as
@@ -987,11 +999,27 @@ export function parseFrontmatter(
         // value that is neither spelling (a mapping, an alias, or no value node
         // at all) is refused at this layer, where the YAML node and its range
         // are still in hand (bug 0104) — the same reachability argument that
-        // put `params: null` here rather than in the resolver. The refusal is
-        // ranged on the value node, falling back to the key for a pair that
-        // carries no value node at all, which is the range convention every
-        // other frontmatter-shape refusal here follows.
-        if (isScalar(item.value) || isSeq(item.value)) {
+        // put `params: null` here rather than in the resolver.
+        //
+        // The scalar arm is checked separately from the sequence arm (rather
+        // than testing `extractToolsList`'s return value once) because a
+        // zero-entry SCALAR (a quoted or block spelling whose comma split
+        // yields no entry, e.g. `tools: ""`) is present-but-bad and must be
+        // refused under this same code (bug 0206), while a zero-entry SEQUENCE
+        // (`tools: []`) collapses to the identical `undefined` return and MUST
+        // stay silent — it is the one spelling the spec declares equivalent to
+        // an absent field. Keying on the return value alone cannot tell the two
+        // apart; keying on the arm can, because the arm already knows which
+        // spelling produced it. The refusal is ranged on the value node,
+        // falling back to the key for a pair that carries no value node at
+        // all, which is the range convention every other frontmatter-shape
+        // refusal here follows.
+        if (isScalar(item.value)) {
+          toolsValue = extractToolsList(item.value, block?.yaml ?? "");
+          if (toolsValue === undefined) {
+            toolsMalformedRange = valueRange ?? keyRange;
+          }
+        } else if (isSeq(item.value)) {
           toolsValue = extractToolsList(item.value, block?.yaml ?? "");
         } else {
           toolsMalformedRange = valueRange ?? keyRange;
@@ -1189,10 +1217,15 @@ export function parseFrontmatter(
 
   // A `tools:` value that is neither of the two admitted spellings (a plain
   // scalar or a sequence) is refused outright rather than treated as absent
-  // (bug 0104): both the mapping and the absent field would otherwise collapse
-  // onto the same silent empty callable set, and the theta's declared
-  // callable set is the only door for both the model-driven and code-driven
-  // call paths, so an author who mis-shapes the field gets no signal at all.
+  // (bug 0104), and so is an admitted SCALAR whose comma split yields zero
+  // entries (bug 0206, e.g. `tools: ""`): both would otherwise collapse onto
+  // the same silent empty callable set as the genuinely absent field, and the
+  // theta's declared callable set is the only door for both the model-driven
+  // and code-driven call paths, so an author who mis-shapes or empties the
+  // field gets no signal at all. `tools: []` is excluded by construction — its
+  // zero-entry outcome comes from the sequence arm, which never sets this
+  // range — so the one spelling the spec declares equivalent to absent stays
+  // silent.
   if (toolsMalformedRange !== undefined) {
     diagnostics.push({
       severity: "error",

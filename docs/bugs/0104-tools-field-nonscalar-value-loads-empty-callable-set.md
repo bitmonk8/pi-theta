@@ -1103,3 +1103,25 @@ Constraints on any implementation:
   `docs/spec_topics/diagnostics/placeholder-rendering-b.md` is deliberately
   untouched and the new code deliberately does NOT join its `<value>`
   enumeration, because the *Message* interpolates nothing.
+
+## Coordination note — bug 0206 (X.Y.Z), append-only
+
+Bug [0206](./0206-zero-entry-tools-scalar-loads-empty-callable-set.md) discharged
+this report's **residual 2** and moved this report's registry row's *Trigger*
+boundary. Two facts a reader of the `## Fix (0.127.0)` record above now needs:
+
+- `theta/load/malformed-tools-field` no longer refuses node KINDS only. Its
+  *Trigger* in `docs/spec_topics/diagnostics/code-registry-load.md` was widened
+  (DIAG-2, same commit as the enforcement) to also refuse a `tools:` **scalar**
+  whose comma split yields no entry — the quoted short form (`tools: ""`,
+  `tools: " , "`), a block scalar over commas or blank content, and a plain
+  scalar an explicit tag carries to the empty string (`tools: !!str`). The
+  *Message* is byte-unchanged and DIAG-4 was not engaged; no new row was minted.
+- Every outcome this report's §Fix constraints pinned is unchanged. `tools: []`,
+  an absent field, `tools: read`, the comma short form, a sequence, 0069's
+  non-scalar sequence ITEM, and the two null spellings (a bare `tools:` key and
+  `tools: null`, which yield the one entry `"null"` and keep
+  `theta/load/unknown-tool`) all keep their outcomes byte-identically. This
+  report's witness `tests/tools-field-shape-refusal.test.ts` (37 cells) and its
+  live cell are byte-unchanged and green; bug 0206's own witness is a separate
+  file.

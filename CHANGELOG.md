@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.159.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0206 — a zero-entry `tools:` scalar now refuses under
+  `theta/load/malformed-tools-field`** instead of registering silently
+  with an empty callable set (0104's admitted-spelling edge). Scalar-arm
+  refusal in `frontmatter.ts`; the row's Trigger widened (registry +
+  frontmatter pages + reference mirror same commit). Witness:
+  `tests/tools-field-zero-entry-scalar-refusal.test.ts` (51 cells, 20 red
+  pre-fix) + a standalone live cell. Tagged plain scalars (`!!str`)
+  measured in-class — the doc's contrary claim corrected. 0104 residual 2
+  discharged.
+
 ## [0.158.0] - 2026-08-26
 
 ### Fixed
