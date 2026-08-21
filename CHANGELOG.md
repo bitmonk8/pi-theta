@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.151.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0123 — `--y`/`++y` in a match pattern now draws its own registered
+  row** (`theta/parse/increment-decrement`) instead of a two-code
+  neighbouring cascade. `parsePattern` emits before the fall-through,
+  consumes the operator, and recurses for the operand when it can begin a
+  pattern (else wildcard). Zero spec/reference edits — implementation
+  conformance. Witness: `tests/match-pattern-increment-decrement.test.ts`
+  (28 cells, 13 red pre-fix) + a standalone live cell. 0141's witness and
+  its five re-pinned siblings (375 lock cells) byte-unchanged.
+
 ## [0.150.0] - 2026-08-26
 
 ### Fixed

@@ -1,10 +1,9 @@
 # Bug 0123 — A `--` in `match` pattern position never draws the registered `theta/parse/increment-decrement`: `parsePattern`'s one-token wildcard recovery consumes the operator token as a wildcard, so `match x { --y => 1, _ => 2 }` is refused under `theta/parse/statement-in-arm-body` **plus** a cascading `theta/parse/match-arm-type-mismatch` about a null-bodied phantom arm the parser itself invented, while the same recovery admits `[--y]`, `{ a: --y }` and a bare `--` pattern with zero diagnostics — bug 0084 wired the operator at two *expression*-walk hooks, and a pattern is not an expression
 
-- **Status:** open. §Fix is not settled: three routes are enumerated with their
-  consequences and the constraints are pinned; nothing is decided here. The
-  crux — whether a pattern-position `--` falls inside the registered row's
-  *Trigger* — is argued in §Expected behaviour, and that adjudication is this
-  report's deliverable.
+- **Status:** fixed (0.151.0). The adjudication this report was filed to deliver
+  is recorded in §Fix (0.151.0): §Expected behaviour (1) resolves to Reading A
+  and route (a) shipped. The three routes and the constraints below are left as
+  filed — they are the reasoning the record decides against, not stale prose.
 - **Sev/Diff estimate:** S2/D3 — the primary input fails loudly at `E` under
   the wrong code with a spurious second diagnostic, which is the S2 band
   verbatim ("wrong diagnostic code/text, spurious duplicate diagnostics"); D3
@@ -896,3 +895,162 @@ DIAG-4, as `tests/increment-decrement-wiring.test.ts` already does through
   Run on the outputs quoted above, then deleted. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Fix (0.151.0)
+
+**Adjudication.** §Expected behaviour (1) resolves to **Reading A**: a
+pattern-position `++` / `--` is inside row
+`docs/spec_topics/diagnostics/code-registry-parse.md:34`'s *Trigger*. Reasons,
+in the order they carry: the *Trigger* ("`++` or `--` operator used.") states no
+position while the table states position wherever position is load-bearing
+(`:30` `assignment-as-expression` scopes itself to "expression position", `:32`
+`mut-on-immutable-context` enumerates "`match` pattern binding"); `:32` proves
+`match` pattern position is inside the registry's reach and `parsePattern`
+already emits it (the `mut` arm); the row's *Spec rule* target
+(`bindings.md:36`) is equally unqualified. Reading B's strongest point — that
+the row's *Hint* prescribes an assignment no pattern position admits — is an
+argument about the *Hint*, not about whether the operator was used, and is
+carried as residual (1) rather than acted on. Route **(a)** therefore ships and
+this is **implementation conformance, not a DIAG-2 change**: no *Trigger*, no
+*Hint*, no row addition, no `docs/` edit of any kind (bug 0084's posture, and
+bug 0141 half 2's). Route (b) is declined: it is a component rather than a fix
+by §Fix's own account, and the phantom-arm cascade dies here without touching
+`type-layer-checks.ts` or `match-result.ts` because the recovery stops leaving a
+leftover token. Route (c) is unavailable once Reading A holds.
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — one new arm at the tail of `parsePattern`,
+    after every pre-existing arm (so `tryConsumeRestPattern`, the `mut` arm, the
+    literal / array / constructor / object arms and bug 0141's two refusals all
+    still run first) and immediately before the unrecognised-token fall-through.
+    It guards on the existing `incrementDecrementOp()`, emits the registered
+    `theta/parse/increment-decrement` through the existing
+    `checkIncrementDecrement` **unchanged** (registry *Message* and *Hint*
+    verbatim) at the operator token's range, consumes the operator, and then
+    parses the **operand as the pattern** by recursing into `parsePattern` when
+    the next token can begin a pattern (kind `number` / `string` / `ident` /
+    `keyword`, or a `punct` `[` or `{`) — otherwise returning
+    `{ kind: "wildcard" }`.
+  - §Fix route (a) open question 1 is answered by that recursion: it keeps the
+    arity the author wrote (`[--y]` stays a one-slot exact-length array pattern,
+    `{ a: --y }` stays one field, `Ok(--y)` keeps its operand inside the
+    parens), it preserves bug 0141's capitalised-head refusal on the operand
+    (`--Y` draws both rows, column-ordered) where discarding the operand would
+    have suppressed it, and it leaves no token for `parseMatch`'s `=>` test to
+    misread — which is what manufactured the phantom arm and both cascade codes.
+    The wildcard branch exists because a bare `--` has no operand: recursing
+    there would consume the `=` of the arrow and rebuild the same cascade.
+    Progress is guaranteed on every input because the operator token is always
+    consumed before any recursion.
+  - Nothing else. `src/lexer/lexer.ts`, `incrementDecrementOp`, bug 0084's two
+    expression-walk hooks, `src/parser/type-layer-checks.ts`,
+    `src/parser/match-result.ts` and every `docs/` file are byte-unchanged, and
+    no line-citation sweep was performed anywhere (0134's class, forbidden this
+    run — citations elsewhere that shift by the +37 insertion are an accepted,
+    recorded consequence).
+  - Observables this moves, all inside the diagnostic-registry carve-out
+    (`source-language-stability.md:25`) as an **addition**: `--y` / `++y` in
+    pattern position go from `match-arm-type-mismatch` +
+    `statement-in-arm-body` over 3 arms to the single registered row over 2;
+    the three formerly-silent spellings (`-- => 1`, `[--y]`, `{ a: --y }`) go
+    from zero diagnostics to one, with honest arities; `Ok(--y)` goes from
+    `unknown-identifier` on the operand to the registered row over `Ok(y)`;
+    `--Y` and `[--Y]` gain the registered row beside bug 0141's
+    `capitalised-pattern-head`. The GOV-15 corpus blast radius is empty,
+    re-derived at this HEAD over `git ls-files -- '*.theta' '*.thetalib'` (34
+    files; the only post-frontmatter `--` is the `--theta` CLI flag inside a
+    `//` comment in `tests/live/acceptance/fixtures/acc-multi-source.theta:4`),
+    and cell j1 parses all 34 and asserts zero emissions.
+- **Gates:** witness `npx vitest run tests/match-pattern-increment-decrement.test.ts`
+  → `Tests 28 passed (28)` (RED before the fix: `13 failed | 15 passed (28)`).
+  Full default suite `npm test` → `Test Files 345 passed (345)`,
+  `Tests 6642 passed (6642)`, no stochastic red observed. `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) clean. `npm run lint`
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) clean. Live:
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/match-pattern-increment-decrement-live-cell.test.ts` →
+  `1 passed`, and proven red-capable in the live direction (see Verification).
+- **Review:** 1 round, deep. Round 1 — CLEAN, zero blocking findings, with
+  three non-blocking residuals: two neighbouring-code control messages pinned
+  as literals rather than registry-sourced (both verified byte-identical to
+  their rows, and DIAG-4-frozen so they cannot drift silently green), the
+  double-operator spelling `----y` still inflating the arm count, and one
+  comment clause carrying a historical framing. The prose item was polished
+  (comment characters only; executable lines byte-identical before and after,
+  gates re-run green), so the confirmation round was skipped by gate-diff.
+- **Verification:** SOLID. (1) The witness witnesses the defect: neutralising
+  the whole new arm reds 13 of the 28 cells with the bug document's pinned
+  signatures verbatim (`--y` drawing the cascade pair, `[--y]` drawing zero),
+  and the restore is byte-exact (`git hash-object` identical before and after).
+  (2) `npm test` 345/345 files, 6642/6642 tests. (3) Live: the new H8a cell run
+  for real against a live model, green with the fix and RED with the arm
+  neutralised (`Registered: ["cellb2arraydecrement","cellb2lowercase"]` — the
+  `[--y]` theta registering is precisely the pre-fix observable), restored
+  byte-exact and re-run green; no open `docs/bugs/` report matches that
+  signature. (4) Typecheck and lint clean. Plus: the two protected witnesses
+  (25 + 45) and the five sibling witnesses bug 0141 re-pinned (330 cells across
+  seven files) all green and byte-unchanged.
+- **Tests that lock it:**
+  - `tests/match-pattern-increment-decrement.test.ts` (new, 28 cells) —
+    §Witness's whole obligation. Every match-parsing cell asserts the **whole
+    ordered** diagnostic list (severity, code, range, message, hint; the
+    operative row's *Message* and *Hint* read from the registry per DIAG-4 as
+    bug 0084's witness does) **and** `arms.length` against the authored arm
+    count — the phantom-arm observable — **and** the built pattern shape.
+    Groups: (r) four registry-oracle guards pinning the row's *Trigger*, Hint
+    and Message byte-verbatim, so a `docs/` edit reds; (a) the primary `--y`
+    row, including the single-arm spelling; (b) `++y`; (c) `y--` byte-unchanged;
+    (d) the three formerly-silent spellings, each on its pattern shape;
+    (e) `Ok(--y)` with no `unknown-identifier`; (f) the arm-body, scrutinee and
+    statement-position controls proving the fix is positional; (g) the
+    identifier and wildcard legal-pattern controls; (h) the two §Non-goal pins
+    (the single `-` spelling and the genuine bare statement `1 => let z = 2`,
+    both unchanged); (i) the bug 0141 interaction rows `--Y`, `[--Y]`, `Y--`;
+    (j) the GOV-15 corpus sweep, failing loudly on an empty file list;
+    (k) nested depth.
+  - `tests/live/match-pattern-increment-decrement-live-cell.test.ts` (new, one
+    H8a cell, title token `` — the parent renumbers at merge) — the
+    registration denial end to end through the shipped composition root over a
+    real `.pi/theta/` discovery walk, on the `registeredNames()` observable,
+    `failLoudly` on an unmet precondition, child pins inherited from
+    `tests/live/harness.ts`. Three fixtures: `[--y]` as the red-capable row
+    (it registers pre-fix), the bare `--y` head as the report's primary input,
+    and a lowercase `[y]` control asserted **present first** so the cell cannot
+    pass vacuously.
+  - No existing cell was flipped, weakened or rewritten. The witness is
+    additive; `tests/increment-decrement-wiring.test.ts` and
+    `tests/capitalised-bare-match-pattern-refusal.test.ts` are byte-unchanged.
+- **Residuals:**
+  - The registered row's *Hint* ("Use `count += 1` / `count -= 1`.") prescribes
+    a reassignment statement, and no assignment is legal in pattern position
+    (`expressions.md:163–172`), so in this position the row now names the
+    operator correctly and then prescribes a repair the author cannot write.
+    Shipped deliberately unchanged: §Fix records that DIAG-2's list ("a new
+    code, removing a code, or changing a code's namespace, severity, or
+    trigger") and the GOV-15 carve-out both disposition **no** *Hint* edit, so
+    a position-aware hint is an unadjudicated registry-rule question, not an
+    implementation detail. Evidence: cell r1 pins the Hint byte-verbatim from
+    the registry; cell a1 asserts it reaches the author.
+  - `----y` and `++--y` still inflate the arm count: the second operator is a
+    `punct`, which is outside the adjudicated pattern-head set, so the
+    recursion stops and the leftover reaches the expression walk. Measured:
+    both operators draw the registered row and neither cascade code fires, but
+    the input still builds 4 arms from 2. Prescribed by route (a) as
+    adjudicated; no cell pins it.
+  - `theta/parse/statement-in-arm-body`'s missing `hint` field
+    (`theta-document.ts`, the push inside `tryConsumeArmBodyStatement`), the
+    `nullExpr` substitution's own cascade on a genuine bare arm-body statement,
+    the single `-` spelling, `-1` negative-literal patterns and the general
+    leniency of `parsePattern`'s fall-through are all §Non-goals, all still
+    open, and all pinned unchanged by cells (h) and (f).
+  - Line-number citations elsewhere in the repository that point past
+    `src/parser/theta-document.ts:4241` are shifted by the +37 insertion and
+    were deliberately **not** swept (citation sweeps are forbidden this run).
+- **Discharge notes appended:** none. Bug 0084's residual (iii) named this
+  filing and is not reopened; bug 0082 and bug 0050 keep their subjects.
+- **Pinned dispositions / non-goals:** bug 0084's four measured positions, its
+  adjacency rule, its two hooks and its scanner choice are untouched; bug
+  0141's tail-arm refusals, their ordering (reserved before case) and its
+  identifier-node posture are preserved and now compose with this arm; route
+  (b) and route (c) are declined on the record above; the *Hint* question and
+  the `----y` arity are surfaced, not fixed.

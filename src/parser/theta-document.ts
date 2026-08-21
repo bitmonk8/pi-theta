@@ -4355,6 +4355,43 @@ class BodyParser {
       }
       return { kind: "object", typeName: null, fields };
     }
+    // A pattern-position `++` / `--` (bug 0123 §Fix route (a)). Row `:34`'s
+    // *Trigger* ("`++` or `--` operator used.") carries no position
+    // qualifier, unlike the neighbouring rows that scope themselves to
+    // "expression position" or enumerate `match` pattern binding — so this is
+    // implementation conformance, not a Trigger change. Consuming the
+    // operator here leaves no token behind for `parseMatch`'s `=>` test to
+    // misread, which is what would otherwise manufacture a phantom arm
+    // carrying `statement-in-arm-body` and `match-arm-type-mismatch`.
+    // Recursing into `parsePattern` for the operand (rather than discarding
+    // it) keeps the pattern's arity honest — `[--y]` stays one slot,
+    // `{ a: --y }` stays one field — and preserves bug 0141's capitalised-head
+    // refusal on the operand. A bare `--` has no operand: recursing there
+    // would consume the `=` of the arrow and reproduce the same cascade, so
+    // that case returns a wildcard instead. Progress is guaranteed either way,
+    // since the operator token is always consumed first.
+    const incDecOp = this.incrementDecrementOp();
+    if (incDecOp !== undefined) {
+      const opTok = this.advance();
+      const diag = checkIncrementDecrement(
+        { op: incDecOp },
+        { file: this.file, range: opTok.range },
+      );
+      if (diag !== undefined) {
+        this.diagnostics.push(diag);
+      }
+      const next = this.peek();
+      const nextBeginsPattern =
+        next.kind === "number" ||
+        next.kind === "string" ||
+        next.kind === "ident" ||
+        next.kind === "keyword" ||
+        (next.kind === "punct" && (next.text === "[" || next.text === "{"));
+      if (nextBeginsPattern) {
+        return this.parsePattern();
+      }
+      return { kind: "wildcard" };
+    }
     // Unrecognised: consume one token and treat as a wildcard to keep progress.
     this.advance();
     return { kind: "wildcard" };
