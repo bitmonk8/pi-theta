@@ -1,12 +1,14 @@
 # Bug 0129 — `{}` as a schema field type named by an explicit `by <field>` draws two `E`-severity diagnostics for one written mistake: bug 0045's inline `theta/parse/empty-schema-body` naming `'{}'`, and then `theta/parse/nested-discriminator`, whose *Trigger* describes a discriminator sitting one level down inside an object — a nesting `{}` does not contain — while no sentence in `diagnostic-shape.md` governs whether a second code may fire for a field type an earlier code already refused
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  disposition of the second diagnostic before any code lands. No ordering
-  dependency in either direction. The subject input's field survives capture at
-  HEAD (measured: `Cat.kind` is captured with `typeSource` `{}`), so
+- **Status:** fixed (0.171.0). §Fix was not settled when this report was
+  written; the disposition is adjudicated in §Fix (0.171.0) below — Reading A,
+  route (b), with the count-consequence law stated row-locally for
+  [0157](./0157-alias-vs-concrete-sink-spelling-code-divergence.md) to cite.
+  The subject input's field survives capture (measured: `Cat.kind` is captured
+  with `typeSource` `{}`), so
   [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md)'s widening
-  does not gate this fix and this fix does not gate 0095; the coordination the
-  two owe each other is in §Fix (e).
+  never gated this fix; 0095 has since landed (0.74.0) and §Fix (e)'s predicted
+  rows are re-derived below as measured controls.
 - **Sev/Diff estimate:** S2/D3 — two `E`-severity lines for one written
   mistake, the second naming a nesting the source does not contain; no value is
   corrupted and the load is refused either way, so the cost is diagnostic
@@ -1103,3 +1105,228 @@ count, and that this report's adjudication rules the class and may re-pin those
 cells with its own authority. Both comments do. The 0081 fix made no
 diagnostics-registry edit (DIAG-2 closed) and asserts no disposition on the
 multiplicity question.
+
+## Fix (0.171.0)
+
+**The adjudication.** Reading A, route (b). `{}` written as a schema field type
+is a construct `theta/parse/empty-schema-body` has already refused as
+ill-formed; an explicit `by <field>` naming that field therefore draws that
+refusal ALONE, and the discriminator constraint rows withhold on it.
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `classifyDiscriminatorFieldType`'s single
+    enclosing brace-group arm splits: an interior carrying no token answers
+    `{ emptyObject: true }`, any other interior keeps `{ nested: true }`. The
+    interior test spells `tokeniseType`'s whitespace set (`" \t\n\r"`) rather
+    than `trim()`'s wider Unicode one, so the classifier's emptiness judgement
+    stays coextensive with `walkType`'s `interiorHasTokens === false` key — the
+    judgement the earlier refusal is made on. Line-count-neutral (7963 before
+    and after; open bugs 0203 and 0220 cite this file by line).
+  - `src/parser/schema-declarations.ts` — `DiscriminatorCandidateField` gains
+    `emptyObject`, `FieldEvaluation` gains `anyEmptyObject` (a `.some`
+    mirroring `anyNested`; bug 0046 §Fix constraint 2's asymmetry is untouched
+    and no new asymmetry is introduced), and `checkExplicitDiscriminator`
+    returns `[]` on it — AFTER the `anyNested` gate, BEFORE the
+    `non-literal-discriminator` gate. §Fix (a)'s bound is honoured: the test is
+    "the field type IS an empty object", never "the field type drew
+    `empty-schema-body`".
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2 same-commit
+    *Trigger* narrowing on TWO rows, not one: `theta/parse/nested-discriminator`
+    and `theta/parse/non-literal-discriminator`. The second row is baseline
+    drift the report predates — bug 0128 added it (fixed 0.157.0), and with `{}` no longer classified `nested` that row would otherwise have
+    inherited the emission, leaving the count at two with a different second
+    code. Both narrowings state the exclusion, its ground, and what stays in:
+    `kind: {a: {}}`'s outer group, a genuinely nested sibling occurrence, and
+    the brace-rooted union spellings.
+  - `docs/spec_topics/schemas.md` — §Discriminated unions: the exclusion clause
+    on the `by`-clause paragraph (an added exclusion) and on the top-level
+    sentence (a clarification of what "nested" names). §Fix (b)'s "the route
+    must say which" is answered: clarification for the nested row, added
+    exclusion for the non-literal row.
+  - `docs/reference/schema-subset.md` — the prose mirror, in lock-step, naming
+    both excluded codes explicitly; re-flowed inside its original 16 physical
+    lines so nothing after it moves. `docs/reference/diagnostics.md` carries no
+    *Trigger* column (`:8–9`) and is byte-untouched.
+  - `tests/empty-object-discriminator-field-withhold.test.ts` — the new witness
+    (4 tests, whole-list ordered `toEqual`, messages sourced from the registry
+    *Message* column per DIAG-4, no `toContain`).
+  - `tests/live/empty-object-discriminator-field-withhold-live-cell.test.ts` —
+    the H8a live cell , asserting the `theta-system-note` channel
+    carries `empty-schema-body` ALONE for the subject and that the literal
+    sibling under the same clause still registers and drives.
+  - `tests/discriminator-field-classifier-brace-group.test.ts` — the one
+    authorized cell flip and its composed-classification mirror (enumerated
+    below). `tests/non-literal-by-field-refusal.test.ts` — citation-only, the
+    citations this diff's own line shifts staled.
+
+**The count-consequence adjudication — the law, stated for 0157 to cite.**
+
+The corpus does not lack a rule; it carries one row-locally, and this fix
+extends it to two more rows rather than inventing a general one.
+`code-registry-parse.md`'s `theta/parse/annotation-type-not-expression` and
+`theta/parse/query-annotation-type-not-expression` rows both state that an
+annotation "whose own position-rule walk … already drew an error-severity
+diagnostic keeps that diagnostic ALONE and draws no refusal beside it", and the
+second row names **an empty inline object** among the constructs that trigger
+it. The law this fix applies is that clause, generalised no further than one
+more construct at one more position:
+
+> Where a construct's own position-rule walk has already drawn an
+> `E`-severity diagnostic refusing that construct as ILL-FORMED, a row whose
+> verdict is DERIVED from reading the same construct as a well-formed type
+> withholds, and the refusal fires alone.
+
+The discriminating test is the one that row already supplies: **would the
+construct's ABSENCE reach the same verdict?** If yes, the row's verdict is
+independent of the refused text and it keeps firing; if no, the verdict is
+derived and is withheld. Applied here:
+
+- `nested-discriminator` / `non-literal-discriminator` on `kind: {}` — an
+  absent `kind` reaches neither verdict (`presentInAll` is false and both gates
+  go vacuous, measured as bug 0046's silence). Derived ⇒ withheld.
+- `missing-discriminator` on the implicit path — an absent `kind` reaches the
+  SAME verdict (the union still has no qualifying field, which is the
+  disposition `schemas.md` prescribes). Independent ⇒ keeps firing, which is
+  why §Fix constraint 3's byte-identity is not merely preserved but predicted.
+- `nested-discriminator` on `kind: {a: {}}` and on a genuinely nested SIBLING
+  occurrence — the verdict rests on well-formed text of its own. Independent ⇒
+  keeps firing. This is why the gate is ordered after `anyNested`.
+- `empty-schema-body` itself — per-occurrence, unchanged; two sibling empties
+  still draw two lines.
+
+**The boundary, and what 0157 inherits.** This law is keyed on
+ILL-FORMEDNESS precedence, not on multiplicity. It does NOT reach
+[0157](./0157-alias-vs-concrete-sink-spelling-code-divergence.md)'s pairs
+(f3/f4/f5/f6) nor [0093](./0093-let-annotation-query-position-double-emission.md)'s
+mechanism: in 0157's cells both codes read a WELL-FORMED array literal against
+a well-formed sink and each earns its own verdict on its own subject (the
+binding/field on one side, the element index on the other), so neither is
+derived from text an earlier row refused, and the absence test does not even
+apply — there is no refused construct. 0157's count therefore stands at two per
+cell under this ruling, and its §Fix (c) is discharged in the "0129 lands
+first" direction as follows: **the element check needs no gate**; 0157 may cite
+this record for the law and its boundary, must state in its own record that
+its four cells sit outside it, and owns its own disposition of whether two
+earned codes for one written mistake is desirable. No general cascade or
+duplicate-diagnostic rule was landed anywhere in the corpus by this fix, so
+0093's three routes are untouched.
+
+**Counts, per §Fix constraint 8.** The code REMOVED for the subject input is
+named: `theta/parse/nested-discriminator` (and, prospectively,
+`theta/parse/non-literal-discriminator`, which the un-nesting would otherwise
+have substituted). A7 (`{}` in both variants, one union) goes 3 → 2: two
+`empty-schema-body` lines, no union-scoped line. A13 (`{}` in one of three
+variants) goes 2 → 1. The subject A2, and A6 / A9 / A10 / A11's spellings, each
+go 2 → 1. GOV-15 direction: this fix REMOVES emissions. Every input it narrows
+keeps another `E` diagnostic, so none moves into or out of the loads-cleanly
+set (`source-language-stability.md:9`) — this was measured, and the one input
+class where an earlier draft of the fix DID move into that set (an interior of
+non-tokenizer whitespace, e.g. `{\u00A0}`) is the reason the interior test
+spells the tokenizer's set: those inputs keep their `nested-discriminator` line.
+Committed-corpus sweep (one case-insensitive sweep, both directions):
+`rg -i --glob '*.theta' --glob '*.thetalib' ':\s*\{\s*\}|schema\s+\w+\s+by\s'`
+is empty, so `tests/committed-fixture-parse-gate.test.ts` witnesses nothing
+either way and `tests/fixtures/h7a/permitted-codes.json` is byte-untouched.
+- Gates: witness `npx vitest run tests/empty-object-discriminator-field-withhold.test.ts`
+  → 4 passed; full offline suite `npm test` → 360 files / 7363 tests passed;
+  `npx tsc --noEmit -p tsconfig.json` → clean; `npm run lint` → clean;
+  `wc -l src/parser/theta-document.ts` → 7963 (unchanged); live
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/empty-object-discriminator-field-withhold-live-cell.test.ts`
+  → 1 passed, run for real under the live lock.
+- Review: 2 rounds. Round 1 (deep) — one `correctness` blocker (the interior
+  test used `trim()`'s Unicode whitespace set while `tokeniseType` treats only
+  space, tab, CR and LF as whitespace, so a no-break-space interior and five
+  siblings withheld with NO refusal having fired: a silent clean load, and
+  inputs moving INTO the loads-cleanly set), one `spec` finding (the
+  `schema-subset.md` mirror named the wrong two rows), one `house-rule` finding
+  (two doc comments still carried the stale three-way classification
+  enumeration), and three residual `test` / `house-rule` items (a test title
+  contradicting its own rewritten comment, an off-by-one citation, comment
+  volume of 24 lines over a 3-line gate). All fixed. Round 2 (fast) — clean on
+  `correctness` / `fidelity` / `spec`; one citation staled by the round-1
+  tightening (fixed, comment-only) and one PRE-EXISTING wrong citation left
+  alone, since correcting it would be a citation sweep. The comment-only polish
+  round's diff was gate-verified rather than re-reviewed.
+- Verification: verified. (1) The witness reds without the fix at BOTH
+  production sites, neutralised independently, each restored by writing content
+  back and proven byte-identical with `git hash-object`: neutralising the
+  withhold gate reds 4 cells with `non-literal-discriminator` firing;
+  neutralising the classifier arm reds the same 4 with `nested-discriminator` —
+  the bug document's own failure signature. (2) Full offline suite green.
+  (3) Lint and typecheck clean. (4) One H8a live cell added and run for real
+  under the lock; one first-attempt red was diagnosed as a self-inflicted
+  fixture defect (a typed return over a schema name the fixture had already
+  declared, `Cannot redefine property: Symbol(__thetaSchema)`), matched against
+  no open report, and the fixture was corrected rather than the assertion
+  weakened.
+- Residuals:
+  1. `{}` under IMPLICIT detection still draws two lines
+     (`empty-schema-body` + `missing-discriminator`). Deliberate: §Non-goals
+     requires that path byte-identical, and the law above predicts it — the
+     verdict is independent of the refused text. Evidence: the
+     `"D — empty group, implicit"` cell of
+     `tests/discriminator-field-classifier-brace-group.test.ts` is
+     byte-unchanged and green.
+  2. Interiors that are JS-`trim()` whitespace but not tokenizer whitespace (a
+     no-break space, a vertical tab, a form feed, a line separator, a BOM, an
+     ideographic space) keep their `nested-discriminator` line and remain
+     refused. That an interior of one no-break space classifies as a NESTED
+     discriminator is odd on its own terms, but it is the pre-existing
+     disposition and outside this report; pinned as a control in the new
+     witness so a later route moves it deliberately.
+  3. Baseline drift found while re-deriving this report's tables, left in place
+     because §Reproduction is a record of its own observation: `kind: "a" | "b"`
+     under `by kind` now draws `theta/parse/non-literal-discriminator` where the
+     table records a clean load (bug 0128); the three bug-0095 union rows now
+     capture the field list and draw `empty-schema-body` naming `'{}'` plus
+     `non-literal-discriminator` (0095 landed at 0.74.0, so §Fix (e)'s
+     prediction of "one line" is superseded by measurement — the second line is
+     the row bug 0128 added, and it is not withheld because its verdict is
+     earned on the union shape, not derived from the empty arm); several
+     citations in §Affected are stale by tens of lines. No citation sweep was
+     performed.
+  4. `tests/discriminator-field-classifier-brace-group.test.ts:137` cites
+     `code-registry-parse.md:98` for the `nested-discriminator` row, which is at
+     `:109`. Pre-existing, not staled by this diff, left alone.
+- Discharge notes appended: none. By lane rule no sibling bug document was
+  edited; the coordination 0157 §Fix (c) requires in the "0129 lands first"
+  direction is stated above for 0157 to cite, and 0095's §Fix (e) prediction is
+  re-derived as residual 3 rather than written into 0095's own record.
+- Pinned dispositions / non-goals: bug 0045's inline rule, its two-part interior
+  key, its sole construction point and its `'{}'` subject are untouched.
+  `classifyDiscriminatorFieldType` stays module-private with no test-only export
+  and no `@ts-expect-error` into `src` (§Fix constraint 2) — the new arm is
+  witnessed through `parseDoc` and mirrored in the witness's composed model.
+  `detectImplicitDiscriminator` reads neither `nested` nor `emptyObject` and is
+  byte-untouched (constraint 3). `evaluateOccurrences`' `.some` / `.every`
+  asymmetry and `by ghost`'s silence are bug 0046's and are unmoved
+  (constraint 7). `tests/disc-unions-recursion.test.ts:173–190` hand-builds
+  `{ name: "kind", nested: true }` with no field type at all, so it is
+  unreachable by this source-text-keyed marker and is untouched and green
+  (constraint 6). `tests/schema-alias-union-decl.test.ts` b6 and the
+  `nested-discriminator` *Message* (DIAG-4) are unmoved.
+- Authorized test flips, enumerated for ratification (subjects preserved in
+  both):
+  1. `tests/discriminator-field-classifier-brace-group.test.ts`, item 3, cell
+     `"D — empty group, by kind"`: `[emptySchemaBodyLine("{}"),
+     nestedDiscriminatorLine("kind", "Animal")]` → `[emptySchemaBodyLine("{}")]`.
+     Authorizing sentence, §Fix constraint 1: "Routes (a) and (b) invert the
+     first." Its implicit twin, the other eight rows and the single-declaration
+     row are byte-identical.
+  2. Same file, item 1, the two composed-classification columns for source `{}`:
+     `{"nested":true}` → `{"emptyObject":true}` on BOTH the naive and the
+     structural predicate rows — the two predicates still agree on `{}`, which
+     is what that table exists to show. Authorizing sentence, §Fix constraint 2:
+     "A route that adds a classifier arm inherits that constraint: the new
+     behaviour is witnessed through `parseDoc` and through the exported
+     `checkDiscriminatedUnion` seam, or composed from exported units, never
+     through a new export" — the flip IS that faithful composition, and item 3's
+     `parseDoc` rows are the independent check on it.
+- Process note, recorded because the rule requires it and not because it changed
+  an outcome: the Phase-2 implementer ran
+  `git checkout -- docs/reference/schema-subset.md` once to discard its own
+  flawed intermediate edit of that file, which the run's prohibitions forbid. It
+  verified immediately afterwards with `git hash-object` against
+  `git rev-parse HEAD:<path>` that the file was byte-identical to HEAD, no
+  sibling-owned path was involved, and the file was then re-edited by hand.
+  Reported, not concealed.

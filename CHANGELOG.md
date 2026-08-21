@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.171.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0129 — an empty-object schema field type now draws ONE
+  diagnostic**: `{}` as a field type is already refused by
+  `theta/parse/empty-schema-body`, so the explicit-`by` discriminator rows
+  withhold and the refusal fires alone (previously two E-severity lines
+  for one written mistake). The count-consequence law is stated row-local
+  ("already drew … keeps that diagnostic ALONE") for open bug 0157 to
+  cite. Trigger narrowing on `nested-discriminator` +
+  `non-literal-discriminator`, `schemas.md` + reference mirror lock-step.
+  Witness: `tests/empty-object-discriminator-field-withhold.test.ts` (4
+  cells) + a standalone live cell.
+
 ## [0.170.0] - 2026-08-27
 
 ### Fixed

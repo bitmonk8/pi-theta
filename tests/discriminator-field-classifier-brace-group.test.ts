@@ -136,7 +136,7 @@ function line(code: string, message: string): string {
  * `theta/parse/nested-discriminator` rendered for `field` on `schema`
  * (code-registry-parse.md:98). This is the whole observable surface of the
  * misclassification: the only reader of `anyNested`
- * (src/parser/schema-declarations.ts:625) emits exactly this.
+ * (src/parser/schema-declarations.ts:636) emits exactly this.
  */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";
@@ -202,8 +202,17 @@ function commaSeparatedFieldsLine(): string {
 // Item 1 — the predicate pair, and the classification the guarded arm selects.
 // ===========================================================================
 
-/** The classification shape the guarded arm produces (schema-declarations.ts:362). */
-type FieldClassification = Pick<DiscriminatorCandidateField, "literal" | "nested">;
+/**
+ * The classification shape the guarded arm produces
+ * (schema-declarations.ts:368). `emptyObject` is bug 0129's addition: a single
+ * enclosing brace group whose interior carries no token (`{}`, `{   }`) is a
+ * construct `theta/parse/empty-schema-body` has already refused, so it
+ * classifies apart from a genuinely nested group rather than as one.
+ */
+type FieldClassification = Pick<
+  DiscriminatorCandidateField,
+  "literal" | "nested" | "emptyObject"
+>;
 
 /** A brace-rootedness test over an already-trimmed type source. */
 type BraceGuard = (s: string) => boolean;
@@ -241,7 +250,12 @@ function naiveBraceTest(s: string): boolean {
 function classifyWith(guard: BraceGuard, typeSource: string): FieldClassification {
   const s = typeSource.trim();
   if (guard(s)) {
-    return { nested: true };
+    // bug 0129: an interior with no token is the refused construct, not a
+    // nested one — mirrors `classifyDiscriminatorFieldType`'s own arm
+    // (src/parser/theta-document.ts), including its whitespace set: the
+    // tokenizer's four characters, not `trim()`'s wider Unicode set, so the
+    // mirror's emptiness judgement stays coextensive with `walkType`'s.
+    return /^[ \t\n\r]*$/.test(s.slice(1, -1)) ? { emptyObject: true } : { nested: true };
   }
   if (splitTopLevel(s, "|").length > 1) {
     return {};
@@ -359,8 +373,8 @@ describe("bug 0096 item 1 — the brace predicate pair and the classification it
         source: "{}",
         naive: true,
         singleEnclosingBraceGroup: true,
-        naiveClassification: '{"nested":true}',
-        structuralClassification: '{"nested":true}',
+        naiveClassification: '{"emptyObject":true}',
+        structuralClassification: '{"emptyObject":true}',
       },
       {
         source: '"a" | "b"',
@@ -548,7 +562,7 @@ describe("bug 0096 item 2 — what each classification costs at the discriminato
 
   it("the implicit path's output is identical under both classifications", () => {
     // The downstream mask, pinned. `detectImplicitDiscriminator` filters on
-    // `presentInAll && allLiteral` (src/parser/schema-declarations.ts:543) and
+    // `presentInAll && allLiteral` (src/parser/schema-declarations.ts:554) and
     // reads no other property of a non-literal field, so both classifications
     // land on the same terminal branch. Pinning the two lists EQUAL to each
     // other, and not merely equal to the expected bytes, is what stops a later
@@ -888,9 +902,13 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
       {
         // An empty inline object type in a `Type` position draws
         // `empty-schema-body` naming `{}` — the second half of that row's
-        // Trigger (code-registry-parse.md:86), independent of this fix and
-        // pinned as it stands, since `{}` is a single enclosing group under
-        // both predicates and keeps `{ nested: true }`.
+        // Trigger (code-registry-parse.md:92), independent of this fix and
+        // pinned as it stands: `{}` is a single enclosing group under both
+        // predicates, but its interior carries no token, so
+        // `classifyDiscriminatorFieldType` classifies it `{ emptyObject: true
+        // }` rather than `{ nested: true }` (bug 0129) — a distinction this
+        // no-`by` row cannot observe, since no discriminator check ever reads
+        // either classification here.
         label: "B — an empty inline object type",
         diagnostics: [emptySchemaBodyLine("{}")],
         schemas: [
@@ -906,9 +924,11 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     ]);
   });
 
-  it("the end-to-end load under `by kind` and under implicit detection is byte-invariant", () => {
-    // §Reproduction table D, both dispatch arms. The union row now reaches
-    // the classifier: bug 0095 §Fix keeps `Cat`'s field list, so
+  it("the end-to-end load pins each `by kind` / implicit pair's disposition", () => {
+    // §Reproduction table D. Not every row is byte-invariant any more: bug
+    // 0129 split what used to be a symmetric "both dispatch arms agree modulo
+    // the terminal code" table. The union row still reaches the classifier as
+    // 0096 pinned it: bug 0095 §Fix keeps `Cat`'s field list, so
     // `objectFields` carries `Cat` and `buildUnionVariantSchemas` resolves the
     // union. `classifyDiscriminatorFieldType` classifies
     // `{a:integer}|{b:string}` as `{}` (0096's structural predicate declines
@@ -920,6 +940,18 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     // still falls through to `missing-discriminator`. These two rows are the
     // first that genuinely feed `classifyDiscriminatorFieldType` a
     // brace-rooted union — §Fix's witness item 4, inherited from bug 0096.
+    //
+    // The LAST pair below is bug 0129's split, not 0096's invariance: `{}` is
+    // the construct `theta/parse/empty-schema-body` has already refused as
+    // ill-formed, so under an explicit `by kind` the discriminator constraint
+    // set WITHHOLDS on it — the empty-schema-body line fires alone, and
+    // `nested-discriminator` does not (Reading A,
+    // docs/bugs/0129-empty-object-field-type-draws-two-diagnostics.md §Fix
+    // (b)). The IMPLICIT arm is untouched, because `detectImplicitDiscriminator`
+    // never reads `nested` or `emptyObject` (§Non-goals): it still pairs
+    // `empty-schema-body` with `missing-discriminator`, which is the
+    // disposition schemas.md prescribes for a union with no qualifying field,
+    // earned on its own terms rather than derived from the refused text.
     const observed: readonly LoadRow[] = [
       animalDoc("D — union arms, by kind", "{a: integer} | {b: string}", true),
       animalDoc("D — union arms, implicit", "{a: integer} | {b: string}", false),
@@ -980,8 +1012,12 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
         schemas: catDogAnimal('"a"|"b"'),
       },
       {
+        // bug 0129: the withhold. `nested-discriminator`'s verdict would be
+        // DERIVED from reading the refused `{}` as a well-formed type — its
+        // absence reaches no top-level/nesting verdict at all — so the row
+        // withholds and the empty-schema-body line fires alone.
         label: "D — empty group, by kind",
-        diagnostics: [emptySchemaBodyLine("{}"), nestedDiscriminatorLine("kind", "Animal")],
+        diagnostics: [emptySchemaBodyLine("{}")],
         schemas: catDogAnimal("{}"),
       },
       {

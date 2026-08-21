@@ -359,13 +359,18 @@ export function checkVariantAccess(
  * present iff the field type is a single literal `const` (`kind: "v1"`), and
  * carries that literal's type-kind and source text. `nested` marks a field
  * whose value is a nested object (`kind: { type: "x" }`) rather than a
- * top-level literal. Detection runs on the wire name (`wireName ?? name`).
+ * top-level literal. `emptyObject` marks a field whose captured type source
+ * IS an empty inline object (`{}`) — a construct `theta/parse/empty-schema-body`
+ * has already refused as ill-formed, distinct from `nested`, which marks a
+ * genuinely nested, well-formed group (bug 0129). Detection runs on the wire
+ * name (`wireName ?? name`).
  */
 export interface DiscriminatorCandidateField {
   readonly name: string;
   readonly wireName?: string;
   readonly literal?: { readonly kind: EnumValueKind; readonly text: string };
   readonly nested?: boolean;
+  readonly emptyObject?: boolean;
 }
 
 /** A single object-schema variant of a discriminated union. */
@@ -464,6 +469,7 @@ interface FieldEvaluation {
   readonly name: string;
   readonly presentInAll: boolean;
   readonly anyNested: boolean;
+  readonly anyEmptyObject: boolean;
   readonly allLiteral: boolean;
   readonly allString: boolean;
   readonly firstNonStringKind?: EnumValueKind | undefined;
@@ -497,6 +503,10 @@ function evaluateOccurrences(
 ): FieldEvaluation {
   const presentInAll = occurrences.every((o) => o !== undefined);
   const anyNested = occurrences.some((o) => o?.nested === true);
+  // A `.some` mirroring `anyNested`: the withhold this flag drives is DERIVED
+  // from one present, refused occurrence's own text, so one occurrence wide is
+  // its whole reach (bug 0046 §Fix constraint 2 owns this fold's asymmetry).
+  const anyEmptyObject = occurrences.some((o) => o?.emptyObject === true);
   const allLiteral =
     presentInAll && occurrences.every((o) => o?.literal !== undefined);
 
@@ -524,6 +534,7 @@ function evaluateOccurrences(
     name,
     presentInAll,
     anyNested,
+    anyEmptyObject,
     allLiteral,
     allString,
     firstNonStringKind,
@@ -632,6 +643,19 @@ function checkExplicitDiscriminator(
         message: `discriminator field '${field}' must be at the top level of each variant of ${decl.name}`,
       },
     ];
+  }
+
+  // An empty inline object type (`{}`) is a construct
+  // `theta/parse/empty-schema-body` has already refused as ill-formed, and that
+  // refusal fires ALONE: every row below reads the field's captured text as a
+  // well-formed type, which a refused `{}` does not supply (bug 0129, Reading
+  // A). The derived-verdict test: would the occurrence's ABSENCE reach the same
+  // verdict? An absent `kind` reaches no nesting verdict at all, so `{}`'s is
+  // derived, and withheld. Ordered after `anyNested` so a sibling's genuinely
+  // nested occurrence — an independent fault — still returns above. The
+  // implicit path reads neither flag, so its pairing is untouched.
+  if (evaluation.anyEmptyObject) {
+    return [];
   }
 
   // A named field that resolves in every variant but is not a single literal

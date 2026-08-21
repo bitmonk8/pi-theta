@@ -7073,7 +7073,7 @@ function buildUnionVariantSchemas(
  * (schemas.md §Discriminated unions), mirroring how
  * tests/disc-unions-recursion.test.ts hand-builds the same shape: a field's
  * typeSource classifies as a single literal (kind + decoded text), a nested
- * inline-object type, or neither.
+ * inline-object type, an empty inline object (`{}`), or neither.
  */
 function discriminatorCandidateFields(
   fields: readonly SchemaFieldSource[],
@@ -7086,16 +7086,16 @@ function discriminatorCandidateFields(
 }
 
 /**
- * Classify a field's captured type source for discriminator detection: a
- * quoted string / integer / number / boolean / `null` SINGLE literal (the
- * `const` shape a discriminator value must be), an inline-object type that is a
- * single enclosing brace group (a nested discriminator value,
- * `theta/parse/nested-discriminator`), or neither (a non-literal type — never a
- * discriminator candidate). Operates on the already-captured source text
- * (`SchemaFieldSource.typeSource`), the only representation a field retains
- * past parsing — mirrors `parseLiteralArm`
- * (params.ts) at that same source-text level rather than
- * re-deriving from a live token.
+ * Classify a field's captured type source (`SchemaFieldSource.typeSource`, the
+ * only representation a field retains past parsing) for discriminator
+ * detection: a quoted string / integer / number / boolean / `null` SINGLE
+ * literal (the `const` shape a discriminator value must be), a single enclosing
+ * brace group with a token inside (a nested discriminator value,
+ * `theta/parse/nested-discriminator`), an empty inline object (`{}`, already
+ * refused by `theta/parse/empty-schema-body`), or neither (never a candidate).
+ * The empty-object interior test spells `tokeniseType`'s whitespace set rather
+ * than using `trim()`'s wider Unicode one, so its emptiness judgement stays
+ * coextensive with `walkType`'s — any other interior byte is a token there too.
  *
  * The nested-object arm's guard is `isSingleEnclosingBraceGroup`
  * (body-type-lowering.ts), not a two-ended `startsWith("{") &&
@@ -7122,10 +7122,10 @@ function discriminatorCandidateFields(
  */
 function classifyDiscriminatorFieldType(
   typeSource: string,
-): Pick<DiscriminatorCandidateField, "literal" | "nested"> {
+): Pick<DiscriminatorCandidateField, "literal" | "nested" | "emptyObject"> {
   const s = typeSource.trim();
   if (isSingleEnclosingBraceGroup(s)) {
-    return { nested: true };
+    return /^[ \t\n\r]*$/.test(s.slice(1, -1)) ? { emptyObject: true } : { nested: true };
   }
   if (splitTopLevel(s, "|").length > 1) {
     return {};

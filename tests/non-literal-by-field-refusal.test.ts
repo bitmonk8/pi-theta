@@ -19,16 +19,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0128-non-literal-by-field-loads-silently.md).
 //
 // THE DEFECT, AT HEAD BEFORE THIS FIX. `checkExplicitDiscriminator`
-// (`src/parser/schema-declarations.ts:598`) resolved the author's theta-side
+// (`src/parser/schema-declarations.ts:609`) resolved the author's theta-side
 // name per variant and then tested three gates, all of which presuppose a
 // literal: `evaluation.anyNested`, `allLiteral && !allString && …` and
 // `allLiteral && allString && firstDuplicateValue !== undefined`. For this
-// class `presentInAll` is true (`evaluateOccurrences`, `:498`), `anyNested` is
-// false (`:499`) and `allLiteral` is false (`:500`) — no occurrence carries a
+// class `presentInAll` is true (`evaluateOccurrences`, `:504`), `anyNested` is
+// false (`:505`) and `allLiteral` is false (`:510`) — no occurrence carries a
 // literal — so every one of the three pre-fix gates declined and the function
 // returned `[]`. No gate tested `allLiteral` on its own; the fix adds exactly
-// that gate (`:645`), placed after `anyNested` (`:625`) and before the
-// non-string gate (`:651`).
+// that gate (`:669`), placed after `anyNested` (`:636`) and before the
+// non-string gate (`:675`).
 //
 // THE SETTLED DISPOSITION THIS FILE ENCODES (bug 0128 §Expected behaviour,
 // Reading A; §Fix (b) candidate 1). Detection rule 2
@@ -308,7 +308,7 @@ function a8Row(by: boolean): LoadRow {
  * A10 — the wire-renamed spelling. `by kind` names the THETA-SIDE identifier
  * (docs/spec_topics/schemas.md, §Wire-name renaming: the explicit form "accepts
  * the theta-side name — the only name visible in code"), which
- * `thetaNamedFieldInVariant` (`src/parser/schema-declarations.ts:427`)
+ * `thetaNamedFieldInVariant` (`src/parser/schema-declarations.ts:432`)
  * implements, so the rename must not change which field resolves nor what the
  * gate then says about its type.
  */
@@ -329,7 +329,7 @@ describe("bug 0128 class 1 — an explicit `by` over a resolved non-literal fiel
     // object-form schemas, `kind` resolves in every one of them, and its type
     // is not a single literal — the state `evaluateOccurrences` records as
     // `presentInAll && !allLiteral && !anyNested`
-    // (src/parser/schema-declarations.ts:498–500) and for which
+    // (src/parser/schema-declarations.ts:504–510) and for which
     // `checkExplicitDiscriminator` has no gate. Measured at HEAD: every row is
     // `[]`.
     const observed: readonly LoadRow[] = [
@@ -357,9 +357,9 @@ describe("bug 0128 class 1 — an explicit `by` over a resolved non-literal fiel
   it("the same variants without the clause keep `missing-discriminator`, byte-unchanged", () => {
     // The suppression column, and the invariant the fix must not disturb: the
     // implicit path's candidate filter is `presentInAll && allLiteral`
-    // (src/parser/schema-declarations.ts:543), so a resolved non-literal field
+    // (src/parser/schema-declarations.ts:554), so a resolved non-literal field
     // is filtered out and the terminal branch answers
-    // `theta/parse/missing-discriminator` (`:589`). Green at HEAD; it is the
+    // `theta/parse/missing-discriminator` (`:599`). Green at HEAD; it is the
     // rejection the clause removes, and the fix adds nothing to this path.
     const observed: readonly LoadRow[] = [
       ...CLASS_1.map((r) => animalRow(r.label, { ...r.fixture, by: false })),
@@ -435,9 +435,9 @@ describe("bug 0128 class 1 — an explicit `by` over a resolved non-literal fiel
 describe("bug 0128 controls — the four neighbouring dispositions stay byte-identical", () => {
   it("A11/A12 keep `nested-discriminator`, A13 stays clean, A14 keeps `non-string-discriminator`", () => {
     // The new gate is placed AFTER the `anyNested` gate
-    // (src/parser/schema-declarations.ts:625), which is why A11 and A12 keep
+    // (src/parser/schema-declarations.ts:636), which is why A11 and A12 keep
     // their present code. A12 is the boundary: `anyNested` is a `.some`
-    // (`:499`), so ONE nested occurrence refuses a declaration whose other
+    // (`:505`), so ONE nested occurrence refuses a declaration whose other
     // occurrence is a literal union — a member of class 1 on its own. That
     // asymmetry is bug 0046 §Fix constraint 2's subject and a NON-GOAL here;
     // this cell pins the boundary where it stands so a later `.every` there
@@ -653,7 +653,7 @@ function site(): { file: string; range: SourceRange } {
   return { file: "bug0128.theta", range };
 }
 
-/** The classification shape the classifier produces (schema-declarations.ts:364). */
+/** The classification shape the classifier produces (schema-declarations.ts:368). */
 type FieldClassification = Pick<DiscriminatorCandidateField, "literal" | "nested">;
 
 /**
@@ -709,7 +709,7 @@ describe("bug 0128 seam — `checkDiscriminatedUnion` on a `{}`-classified field
   it("an ABSENT `by` field still returns no diagnostic — the bug 0046 boundary", () => {
     // The non-goal, pinned so the fix cannot over-reach into it. The new gate
     // fires on `presentInAll && !allLiteral`
-    // (src/parser/schema-declarations.ts:498–500); an explicit `by` naming a
+    // (src/parser/schema-declarations.ts:504–510); an explicit `by` naming a
     // field no variant declares has `presentInAll === false` and is bug 0046
     // class 1, whose disposition is undecided and is NOT settled here. A gate
     // written on `!allLiteral` alone would collapse the two classes and red
@@ -724,7 +724,7 @@ describe("bug 0128 seam — `checkDiscriminatedUnion` on a `{}`-classified field
   it("the implicit path is unchanged for the same variants", () => {
     // The clause is the only thing that changes: with no `by`, the same
     // declaration takes `detectImplicitDiscriminator`
-    // (src/parser/schema-declarations.ts:537) and its filter drops the
+    // (src/parser/schema-declarations.ts:548) and its filter drops the
     // non-literal field, so `missing-discriminator` answers. The fix adds no
     // dependency to this path.
     expect(seamCodes({}, undefined)).toEqual(["theta/parse/missing-discriminator"]);

@@ -87,22 +87,22 @@ value but is statically typed `Enum`; unknown variant is
 
 ### Discriminated unions
 
-A `schema X = A | B | C` of object schemas. The discriminator field is normally
-detected implicitly; it must be present in every variant, a single **string**
-literal type per variant, and unique across variants. Numeric/boolean
-discriminators are rejected (`theta/parse/non-string-discriminator`). Exactly one
-qualifying field is the discriminator; multiple →
-`theta/parse/ambiguous-discriminator`; none → `theta/parse/missing-discriminator`.
-Explicit form `schema Animal by species = Cat | Dog | Lizard` overrides detection
-(`by` on an object body is `theta/parse/by-on-object-schema`). Where the named
-field resolves in every variant, it must still be a single string literal per
-variant; a resolved field that is not a single literal is
-`theta/parse/non-literal-discriminator`, while a single literal whose type is
-not `string` keeps `theta/parse/non-string-discriminator`. Duplicate
-discriminator values: `theta/parse/duplicate-discriminator-value`; a
-non-top-level discriminator: `theta/parse/nested-discriminator`. Mixed unions
-(`string | Author`, `Author | null`) are not discriminated — they lower as plain
-`anyOf` (or the multi-type-array form when all arms are primitives).
+A `schema X = A | B | C` of object schemas. The discriminator field is normally detected
+implicitly; it must be present in every variant, a single **string** literal type per
+variant, and unique across variants. Numeric/boolean discriminators are rejected
+(`theta/parse/non-string-discriminator`). Exactly one qualifying field is the
+discriminator; multiple → `theta/parse/ambiguous-discriminator`; none →
+`theta/parse/missing-discriminator`. Explicit form `schema Animal by species = Cat | Dog
+| Lizard` overrides detection (`by` on an object body is
+`theta/parse/by-on-object-schema`). Where the named field resolves in every variant, it
+must still be a single string literal per variant; a resolved field that is not a single
+literal is `theta/parse/non-literal-discriminator`, while a single literal whose type is
+not `string` keeps `theta/parse/non-string-discriminator`. Duplicate discriminator
+values: `theta/parse/duplicate-discriminator-value`; a non-top-level discriminator:
+`theta/parse/nested-discriminator`. `{}` draws `theta/parse/empty-schema-body` alone —
+neither `theta/parse/nested-discriminator` nor `theta/parse/non-literal-discriminator`.
+Mixed unions (`string | Author`, `Author | null`) are not discriminated — they lower as
+plain `anyOf` (or the multi-type-array form when all arms are primitives).
 
 ### Recursion
 
