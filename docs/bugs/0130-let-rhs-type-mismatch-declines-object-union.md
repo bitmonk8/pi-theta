@@ -1,7 +1,8 @@
 # Bug 0130 — An inline object type in a `let` annotation converts to an unresolvable pseudo-`named` reference, so `theta/parse/let-rhs-type-mismatch` declines to fire at that position for every initialiser form: `let x: {a: integer} | null = 1` loads with zero diagnostics where the named twin `let x: S | null = 1` and the primitive `let x: string | null = 1` both refuse, the `⊑` engine answers `incompatible` when handed the same pair directly, and no runtime check exists at that position — plus, where an `array<…>` wrapper does make the check fire, `<expected>` renders `array<{a:integer}>` against `placeholder-rendering-a.md:21`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the constraints are
-  stated with their measured consequences and the route is not chosen here. No
+- **Status:** fixed (0.160.0). §Fix was constraint-pinned, not settled: the
+  constraints are stated with their measured consequences and the route was
+  chosen at fix time (§Fix (0.160.0), route R1/R2/R3). No
   ordering dependency in either direction — the three coordination points
   ([0129](./0129-empty-object-field-type-draws-two-diagnostics.md) on a second
   line for one written mistake,
@@ -1097,11 +1098,11 @@ Two further constraints on any implementation:
   `src/`, `tests/`, `docs/bugs/README.md` or any other bug document was modified
   by this filing.
 
-## Coordination note — bug 0093 landed (X.Y.Z)
+## Coordination note — bug 0093 landed (0.160.0)
 
 The other half of the QRY-4 pair this report shares with
 [0093](./0093-let-annotation-query-position-double-emission.md) has shipped.
-0093 §Fix (X.Y.Z) took its route 2: `parseLet` marks a query whose `schema`
+0093 §Fix (0.160.0) took its route 2: `parseLet` marks a query whose `schema`
 arrived by its own direct `let x: T = @`…`` (or `?`-wrapped) propagation with
 `QueryExpr.schemaFromLetAnnotation`, and `walkExpr`'s query arm withholds ONLY
 its `parseTypeExpression(responseAnnotation, "value", …)` call for a marked
@@ -1130,3 +1131,158 @@ One narrowing is worth carrying into this report's route selection: the
 lives on `QueryExpr`, not on the `let` statement, so a route here that keys on
 the annotation's own source text does not collide with it. Status unchanged
 (**open**).
+
+## Fix (0.160.0)
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — the conversion is split into a private
+    `convertAnnotation(text, mintInlineObjects)`; `annotationToCompatType`
+    keeps its exact behaviour (§Fix (f): the four other consumers, the
+    alias-RHS site and the `fn`-param seed are HELD, each with the reason
+    stated on its doc comment — the inline-object direction at those positions
+    carries another bug's landed bound), and a new exported
+    `letAnnotationToCompatType` mints `CompatType`'s documented `object` arm
+    (TYPE-8) for a well-formed, non-empty inline object type, recursing
+    through top-level union arms and `array<…>` elements. Its only call site is
+    `walkStmt`'s `case "let"` annotation resolution, so the `let` annotation —
+    and, through bug 0083's record, the binding type the downstream structural
+    gates read — is the one position that moves. §Fix (a) is answered as a
+    DECISION stated in code: an EMPTY interior (`{}`) does not convert, so
+    `let x: {} = 1` keeps exactly bug 0045's single `empty-schema-body` line
+    and bug 0129's open question is untouched; a malformed interior does not
+    convert either (no top-level `:`, non-identifier key, duplicate key, a
+    `void` atom — `void` is not a `Type`, grammar.md:89 — or a field-type tail
+    that derives from no recognised `Type` shape), and every decline falls back
+    to the deferring pseudo-`named`, never to a bogus field set. One
+    grammar-admitted trailing comma (grammar.md:101) is stripped before the
+    field split, so `{a: integer,}` and its comma-less twin get one
+    disposition.
+  - `src/parser/type-compat.ts` — §Fix (b) is answered by the third option it
+    names: `decide`'s TYPE-8 arm gains the same sub-side deferral the TYPE-7
+    array arm already carries, so an unresolvable `named` sub against an
+    `object` sup answers `"unknown"`. No expression in theta types AS an inline
+    object type, so without it every `call` / `invoke` / `query` /
+    bare-object-literal initialiser would be refused on the sink's KIND alone —
+    including the committed corpus fixture
+    `tests/live/acceptance/fixtures/acc-typed-inline.theta`, which is §Fix
+    (c)'s GOV-15 exposure. A RESOLVABLE `named` sub (a schema ctor) still
+    refuses: TYPE-10's cross-form rule, §Expected behaviour's required row.
+  - Element 2 falls out of the same edit: `displayType`'s conformant `object`
+    arm is reachable for the first time, so `<expected>` renders
+    `{ a: integer } | null`, `{ a: integer }` and `array<{ a: integer }>`, and
+    `<element>` at `theta/parse/non-string-array-join` renders
+    `array<{ a: integer }>`, per placeholder-rendering-a.md's category-1 form.
+  - DIAG-2 / DIAG-4: no registry row, no *Trigger*, no `docs/spec_topics/**` or
+    `docs/reference/**` file changed, and none is owed — §Fix (e)'s reading
+    holds: the *Trigger* already admits this input, the fix narrows nothing,
+    mints no code, extends no closed set, and element 2 is a placeholder
+    **rendering** correction rather than a *Message* reword. The
+    `annotation-type-not-expression` row's labelled QRY-4 exception (bug 0124
+    §Fix (0.121.0)) is NOT moved: a refused annotation still refuses
+    identically and still reaches this conversion the same way (measured —
+    `let x: {a: !!!} = 1` is byte-identical before and after).
+- Gates: witness `npx vitest run tests/let-annotation-inline-object-compat.test.ts`
+  → `Test Files 1 passed (1) / Tests 51 passed (51)`; full default suite
+  `npm test` → `Test Files 351 passed (351) / Tests 7035 passed (7035)`;
+  `npx tsc --noEmit` → clean; `npm run lint` → clean. One full-suite run
+  showed `tests/production-tools-load-resolution.test.ts` failing at
+  collection — the repository's named contention class; isolated re-run
+  `50 passed (50)`.
+- Review: 2 rounds. Round 1 (deep) → DEFECTS (3): a junk field-type tail was
+  minted anyway, so `let x: {a: integer>} = 1` refused and rendered a non-type
+  (correctness); the grammar-admitted single trailing comma declined
+  (fidelity); §Fix (g)'s newly-reachable gates were only partly dispositioned
+  (test). All three fixed — a strict field-type recogniser, the one-comma
+  strip, and six added witness cells. Round 2 (fast) → CLEAN, no
+  deep-review recommendation, one disclosed non-blocking residual (the
+  `|`-inside-brace shredding inherited from `splitTopLevelUnion`).
+- Verification: SOLID. (1) Witness genuinely witnesses — with the two `src`
+  files written back to HEAD content the witness reds `20 failed | 31 passed`
+  with this bug's exact signature (silence where an emission is required, the
+  `{a:integer}` rendering where the check does fire, the absent export), and
+  green `51 passed` with the fix restored byte-exact (`git hash-object`
+  quoted both ways). (2) Full default suite green, 351 files / 7035 tests.
+  (3) Live, run for real under the lane's live lock: the H8a cell (token
+  cell 80 in `tests/live/live-production-acceptance.test.ts`) is green with the
+  fix and red without it, asserting on the real registration observable and the
+  `theta-system-note` channel of the settled `SessionManager`; and a REAL H9a
+  acceptance run (`tests/live/acceptance/**`, `Tests 11 passed (11)`) decided
+  §Fix (d) rather than reacting to a first red — area (c)
+  (`typed-query-inline`, the `acc-typed-inline.theta` fixture) passed with
+  `noErrorExit` and `permittedCodesSubset` holding, so NO entry is owed to
+  `tests/fixtures/h7a/permitted-codes.json` and the empty-capture stderr
+  allowlist needed no change. (4) Lint and typecheck clean. The corpus-wide
+  "no shipped source moves" claim is discharged by
+  `tests/committed-fixture-parse-gate.test.ts` (`36 passed`), not by a scratch
+  probe.
+- Landed pins updated deliberately (the complete authorized set, premeasured
+  before Phase 1; every other cell in the tree is byte-identical):
+  `tests/brace-rooted-union-arm-capture.test.ts` cell 2b (`{a: integer} | null
+  = 1` now draws the row) and control 4i (shape assertions byte-preserved,
+  diagnostics list only), with cell 2a's comment re-derived to state §Fix (a)'s
+  decision in place of the reasoning this report does not sustain (2a's
+  expected list is unchanged, control 2c byte-identical);
+  `tests/annotation-nontype-text-refusal.test.ts` cell g4
+  (`let a: { b: integer } = 1`) and cell p2's `<expected>` bytes — group (o) is
+  byte-identical, all 251 cells passing, so the QRY-4 co-fire pin did not flip
+  in either direction; `tests/generic-argument-shredded-group-refusal.test.ts`
+  cell d1's `<expected>` bytes, its "renders without spaces" sentence
+  re-derived. Bug 0045's cells a7, g3 and control f4 and bug 0093's lock cell
+  b2 (`{a: void}`) are byte-preserved BY DECISION (§Fix (a)'s declines), and
+  re-asserted independently as this witness's cells e5/e6.
+- Residuals:
+  1. **The QRY-4 residual this report inherited from 0093 is NOT settled.**
+     0093's coordination note above assigns it here — the QRY-4 check
+     (`query-schema-resolve.ts`'s `checkLetMismatch`) converting refused
+     annotation source directly rather than through the
+     `annotation-type-not-expression` withhold. This route HOLDS
+     `query-schema-resolve` on the unchanged conversion (§Fix (f)), so that
+     residual survives untouched, witnessed by the unflipped group (o) cells.
+     The QRY-4 pair's shared *Trigger* exception is therefore **not fully
+     discharged**: 0093 closed the double-emission half and this fix closes the
+     `⊑`-refuses-but-loads half, while the withhold-routing question stays
+     open for a follow-up report.
+  2. **The four held consumers keep the old silence** (§Fix (f), each with its
+     reason in code): `theta/parse/object-field-type-mismatch` for an
+     inline-object FIELD type, `theta/parse/tool-arg-type-mismatch` for an
+     inline-object `params:` field type, and both `query-schema-resolve`
+     readers. Pinned: witness cell c3 records that
+     `schema X = {a: integer} | null` (the alias-RHS site) still defers, with
+     the reason, so a later widening reds there deliberately.
+  3. **A `|` inside a brace group still shreds.** `splitTopLevelUnion` tracks
+     `<…>` depth only, so `let x: {a: integer|null} = 1` splits before the
+     conversion is reached and stays deferred (status quo). Widening the
+     shared splitter would move `../runtime/tool-call.ts`'s RFC-0002
+     disjointness computation with it, which is separate work.
+  4. **Grammar-admitted spellings the strict interior parser declines**, all in
+     the SAFE direction (status-quo silence, never a wrong refusal): a quoted
+     key (`{"a": string}`), an `as "WireName"` rename, a generic application in
+     a field type (`Result<A, B>`). Each is measured and pinned silent.
+  5. **New reach at the gates §Fix (g) names**, dispositioned rather than
+     discovered, and each pinned with its pre-fix baseline: `x[0]` on an
+     inline-object-annotated binding now draws
+     `theta/parse/non-string-object-index` (matching the named twin);
+     `theta/parse/non-array-iterand` renders `got { a: integer }` where it
+     rendered the pseudo-name; `let z = [o, 1]` draws
+     `theta/parse/array-no-common-type`; `let x: array<{a: integer}> = [1]`
+     draws the ordered pair `let-rhs-type-mismatch` +
+     `array-element-type-mismatch`; and `let mut x: {a: integer} = 1` / `x =
+     "s"` draws `theta/parse/reassign-rhs-type-mismatch` — which also corrects
+     §Reproduction block G rows 4–5: those were measured at 0.74.0 before bug
+     0115 landed an emitter and a registry row, and are stale.
+  6. **Stale `path:line` citations elsewhere.** This diff inserts lines into
+     `src/parser/type-layer-checks.ts` and `src/parser/type-compat.ts`, so
+     citations into those files from documents and witnesses this fix did not
+     touch now point one shift late. Deliberately not chased (the citation-sweep
+     class), and every such citation in this repository is written in the
+     "at HEAD `<hash>`" convention pinned to its own commit.
+- Discharge notes appended:
+  `docs/bugs/0095-brace-rooted-union-arm-capture-destroys-context.md` —
+  residual (i) is settled (the check's disposition at an object-union `let`
+  annotation is an emission, not silence).
+- Pinned dispositions / non-goals: `{}` stays deferred (bug 0129's question
+  left open); the reassignment position is bug 0115's and is only reached here
+  as new-reach blast radius; the RHS side's pseudo-`named` inference
+  (`static-type-inference.ts`) is unchanged — R3's deferral is what makes that
+  safe; TYPE-1…TYPE-11's content is unchanged, an operand the relation already
+  defines is merely presented to it.

@@ -12996,3 +12996,176 @@ describe("H8a-T — bug 0145 cell 79: a `match` arm binder shadowing an enclosin
     }
   });
 });
+
+
+// ===========================================================================
+// cell 80 — bug 0130: an inline object type in a `let` annotation converts to
+// an unresolvable pseudo-`named` reference, so `theta/parse/let-rhs-type-mismatch`
+// declines to fire at that position for every initialiser form
+// (docs/bugs/0130-let-rhs-type-mismatch-declines-object-union.md, element 1).
+// At HEAD `85717fa8` (v0.155.0), `annotationToCompatType`'s final arm
+// (src/parser/type-layer-checks.ts:886) maps `{a: integer}` to
+// `{ kind: "named", name: "{a:integer}" }`, `decide` answers `"unknown"`
+// (src/parser/type-compat.ts:276–278) and `checkLetRhsCompat`'s deferral
+// (`:421–424`) returns no diagnostic — so a theta whose typed binding the `⊑`
+// relation REFUSES registers and runs on the real production path, with the
+// declared type reduced to a comment (the runtime `let` arm never reads
+// `stmt.annotation`, so the deferral names a net that does not exist here).
+//
+// THE ROUTE THIS CELL SCORES is R1/R2/R3 as encoded offline in
+// tests/let-annotation-inline-object-compat.test.ts: a new `let`-annotation-only
+// conversion mints `CompatType`'s TYPE-8 `object` arm for a well-formed
+// non-empty inline object type, and `decide`'s TYPE-8 arm gains the sub-side
+// deferral TYPE-7's array arm already carries — so an inline-object annotation
+// over a LITERAL initialiser refuses statically, while the QRY-22 typed-query
+// initialiser (the shipped area-(c) fixture
+// tests/live/acceptance/fixtures/acc-typed-inline.theta:14) keeps deferring.
+//
+// WHY LIVE, and what it adds over the offline witness: the offline file drives
+// `parseThetaDocument` through `parseDoc`. This cell drives the SHIPPED
+// extension's real `extensions/index.ts` entry, real five-source discovery, and
+// the production composition root, so it scores the two things the offline
+// harness cannot reach — that the new error-severity `theta/parse/*` line
+// reaches `hasLoadParseError` and UN-REGISTERS the caller, and that the same
+// line lands on the `theta-system-note` channel of the settled in-memory
+// `SessionManager`. Both observables are deterministic and provider-free at the
+// assertion (AGENTS.md §"Assert on real observables, not on `prompt()`
+// resolving"): no slash is driven, so the cell spends ZERO model turns — the
+// same profile as the bug 0070 / 0071 / 0110 / 0122 registration-only cells
+// above. A live provider is still REQUIRED and its absence fails loudly through
+// `requireLiveProvider`, never skips.
+//
+// RED AT HEAD, for the right reason: `b130liverefused` REGISTERS (the mismatch
+// never fires) and no theta-system-note carries the line. ADDITIVE ONLY: no
+// existing cell in this file is renumbered, reworded, weakened or deleted, and
+// this cell's number token is the literal string `cell 80`.
+// ===========================================================================
+
+/** `theta/parse/let-rhs-type-mismatch`'s registry page — DIAG-4, read not copied. */
+const CELL_C2_PARSE_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/** The row bug 0130 owns (`docs/spec_topics/diagnostics/code-registry-parse.md:57`). */
+const CELL_C2_LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
+
+/**
+ * cell 80's expected system-note fragment: `<code>: <message>` with the row's
+ * three slots substituted, mirroring `renderDiagnosticLine`'s join
+ * (src/diagnostics/diagnostic.ts) — the same shape the bug 0110 cell above
+ * asserts for its own code. `<expected>` is rendered per
+ * `docs/spec_topics/diagnostics/placeholder-rendering-a.md:27` (single space
+ * after each `:` and each `,`), which is bug 0130's element 2; a route that
+ * emits the row but renders the pseudo-name (`{a:integer}`) reds HERE rather
+ * than passing vacuously.
+ */
+function cellC2ExpectedFragment(): string {
+  const template = registryMessage(CELL_C2_PARSE_REGISTRY, CELL_C2_LET_RHS_CODE) as
+    | string
+    | undefined;
+  expect(
+    template,
+    `cell 80: ${CELL_C2_LET_RHS_CODE} has no registry row — the code this cell asserts is ` +
+      "not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<name>", "x")
+    .replaceAll("<expected>", "{ a: integer }")
+    .replaceAll("<actual>", "integer");
+  expect(
+    message,
+    `cell 80: ${CELL_C2_LET_RHS_CODE}: an unsubstituted <…> placeholder remains — the ` +
+      "registry row's Message template changed shape and this cell's substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${CELL_C2_LET_RHS_CODE}: ${message}`;
+}
+
+/**
+ * cell 80's load-bearing fixture: a `mode: prompt` theta whose typed binding
+ * annotates an inline object type and initialises it with an integer literal.
+ * `1 ⋢ { a: integer }` under TYPE-8 (docs/spec_topics/type-system.md:42) — the
+ * relation already answers `incompatible` when handed the shapes directly, and
+ * bug 0130 is that nothing hands them to it. The trailing query is never sent:
+ * the refusal un-registers the caller before any slash can be driven.
+ */
+function cellC2InlineObjectMismatchTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let x: {a: integer} = 1",
+    "@`unreachable — this theta must not register`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T cell 80 — bug 0130: an inline-object `let` annotation refuses its incompatible initialiser, live (Convention: live-host acceptance)", () => {
+  it("cell 80: does not register a caller whose `let x: {a: integer} = 1` the ⊑ relation refuses, and the theta-system-note channel carries the mismatch line, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace. Without
+      // it, the refused theta's absence could be (wrongly) attributed to a
+      // broken workspace instead of the fix.
+      { source: "project", stem: "b130livectl", text: promptTheta("THETA-LIVE-OK") },
+      {
+        source: "project",
+        stem: "b130liverefused",
+        text: cellC2InlineObjectMismatchTheta(),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b130livectl"),
+        "cell 80: the precondition control did not register — a broken workspace, not the " +
+          "fix, would explain the refused theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // Observable 1 — registration. The new error-severity `theta/parse/*`
+      // line reaches the SAME `hasLoadParseError` site the bug
+      // 0070/0071/0079(a)/0110/0122 cells above exercise for their own codes.
+      expect(
+        handle.command("b130liverefused"),
+        "cell 80: the caller whose typed binding the ⊑ relation refuses " +
+          "(`let x: {a: integer} = 1`) registered anyway through the live " +
+          "discovery/session_start path — theta/parse/let-rhs-type-mismatch did not fire at " +
+          "an inline-object annotation. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "cell 80: Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b130liverefused");
+
+      // Observable 2 — the diagnostic itself, off the `theta-system-note`
+      // channel of the SETTLED in-memory `SessionManager` (AGENTS.md §"Assert
+      // on real observables"): the shipped `loadSink` routes every
+      // error-severity load-phase diagnostic there during
+      // `session.bindExtensions({})` inside `bootShippedExtension` above,
+      // before any slash is driven — so the FULL entry list is the delta, the
+      // same read the bug 0110 cell performs. The fragment is derived from the
+      // registry row (DIAG-4) and carries element 2's conformant rendering, so
+      // this half also scores `placeholder-rendering-a.md:27`.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = cellC2ExpectedFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "cell 80: no theta-system-note entry carried the let-rhs-type-mismatch line for the " +
+          "inline-object annotation. Expected fragment: " +
+          JSON.stringify(expectedFragment) +
+          " — Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

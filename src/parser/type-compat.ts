@@ -227,8 +227,25 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
 
   // TYPE-8 — field-wise on inline object types with an exact field set
   // (`additionalProperties:false` ⇒ no excess-property widening), field order
-  // irrelevant. Never crosses the inline/named boundary (TYPE-10).
+  // irrelevant. Never crosses the inline/named boundary (TYPE-10). Same
+  // reasoning as the TYPE-7 array arm above: no expression in theta types AS
+  // an inline object type (`static-type-inference.ts`'s `#typeExpr` has no
+  // `object` arm), so a `call` / `invoke` / `query` / bare-object-literal
+  // initialiser under an inline-object annotation is always this sup's `named`
+  // sub, past the parser's static view. Without this escape every such
+  // initialiser would be refused on the sink's KIND alone — never on any fact
+  // about the value — which would refuse the committed corpus fixture
+  // tests/live/acceptance/fixtures/acc-typed-inline.theta and engage GOV-15
+  // (docs/spec_topics/governance/source-language-stability.md:5) in the
+  // refusing direction. Hands the question to the runtime AJV net instead
+  // (type-system.md §"Unresolvable operands"). A RESOLVABLE `named` sub (a
+  // schema ctor) still falls through to the `sub.kind !== "object"` refusal
+  // below — TYPE-10's cross-form rule (type-system.md:52): an inline-object
+  // sup is never `⊑` structurally from a named schema, resolvable or not.
   if (sup.kind === "object") {
+    if (sub.kind === "named" && resolveNamed(env, sub.name) === undefined) {
+      return "unknown";
+    }
     if (sub.kind !== "object") {
       return "incompatible";
     }

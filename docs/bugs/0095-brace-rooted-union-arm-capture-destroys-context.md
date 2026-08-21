@@ -1039,7 +1039,7 @@ this fix landing first.
   scored cells, so the corpus-wide claim is re-derivable by running the default
   suite rather than by re-writing an oracle. Status unchanged.
 
-## Discharge note — bug 0128 (X.Y.Z)
+## Discharge note — bug 0128 (0.157.0)
 
 The witness cell this report inherited from bug 0096 item 4 —
 `tests/brace-rooted-union-arm-capture.test.ts`, the `by kind` union over
@@ -1051,3 +1051,15 @@ draws the same code. The relief this report shipped is unchanged — the
 misattributed `theta/parse/empty-schema-body` is still removed and the field
 list still survives capture; only what the exposed field then draws at the
 discriminator checker moved. Status unchanged.
+
+- **Discharge note (bug 0130).** Residual (i) above is settled. Bug 0130 argues
+  that the resolvability clause the residual's reasoning rests on governs the
+  RHS type, not the annotation, and the RHS here is the integer literal `1` —
+  statically resolvable by TYPE-3 — so the check's disposition at an
+  object-union `let` annotation is an EMISSION, not silence. Its fix mints
+  TYPE-8's `object` arm at the `let`-annotation site for a well-formed,
+  non-empty inline object type, which is what this file's own cell 2b
+  (`let x: {a: integer} | null = 1`) now draws a `theta/parse/let-rhs-type-mismatch`
+  line for. Cell 2a's empty-arm subject (`{} | null`) is unaffected — bug
+  0130's §Fix (a) declines to convert an empty interior, which is bug 0129's
+  open question, left open. Status unchanged.

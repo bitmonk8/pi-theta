@@ -2029,6 +2029,17 @@ describe("bug 0124 (p) — the shredded brace groups stay free of the new code",
       capturedAt(label, doc, "let", "f", "r"),
       `${label}: PRECONDITION — the whole generic application is one capture`,
     ).toBe("array<{a:string,b:integer,c:boolean}>");
+    // MEASURED AT HEAD, NOT ASSUMED: `<expected>` used to render the
+    // token-joined pseudo-name's raw text (`array<{a:string,b:integer,c:boolean}>`)
+    // because `annotationToCompatType` collapsed the inline object to an
+    // unresolvable `named` reference and `displayType`'s `named` arm returns a
+    // name verbatim. Bug 0130 element 2 corrects this: the row's OWN
+    // disposition is unchanged (this is one row, no new code, exactly as this
+    // cell's premise states), but the `let`-annotation site now converts
+    // through `letAnnotationToCompatType`, which mints TYPE-8's `object` arm,
+    // so `<expected>` renders through `displayType`'s conformant `object` arm
+    // instead — single space after each `:` and each `,`
+    // (placeholder-rendering-a.md:27).
     expect(
       diagLines(doc),
       `${label}: the annotation is well-formed, so the RHS gate's own row is the WHOLE ` +
@@ -2037,7 +2048,7 @@ describe("bug 0124 (p) — the shredded brace groups stay free of the new code",
     ).toEqual([
       line("theta/parse/let-rhs-type-mismatch", [
         ["<name>", "r"],
-        ["<expected>", "array<{a:string,b:integer,c:boolean}>"],
+        ["<expected>", "array<{ a: string, b: integer, c: boolean }>"],
         ["<actual>", "integer"],
       ]),
     ]);
@@ -2060,7 +2071,29 @@ const CONTROL_ROWS: ReadonlyArray<{
   { id: "g1", position: "let", typeSource: "integer", expected: () => [] },
   { id: "g2", position: "let", typeSource: "array<integer>", rhsOrBody: "[1]", expected: () => [] },
   { id: "g3", position: "let", typeSource: "integer | string", expected: () => [] },
-  { id: "g4", position: "let", typeSource: "{ b: integer }", rhsOrBody: "1", expected: () => [] },
+  {
+    // MEASURED AT HEAD, NOT ASSUMED, THE DOC'S READING IS STALE: this row
+    // read `expected: () => []` before bug 0130. That report's route mints
+    // TYPE-8's `object` arm for a well-formed inline object type at the `let`
+    // annotation site, so `1 \u22ee { b: integer }` is now a decidable `false`
+    // and the RHS gate's row fires — exactly the row this group otherwise
+    // fences as untouched, now WITH a subject to refuse. The `param` (g10) and
+    // `return` (g16) twins of the SAME `typeSource` stay silent: bug 0130
+    // §Fix (f) scopes the new conversion to the `let`-annotation call site
+    // alone, and `annotationToCompatType` — the conversion `fn` parameter and
+    // return positions still call — is unchanged.
+    id: "g4 (let, flipped by bug 0130)",
+    position: "let",
+    typeSource: "{ b: integer }",
+    rhsOrBody: "1",
+    expected: () => [
+      line("theta/parse/let-rhs-type-mismatch", [
+        ["<name>", "a"],
+        ["<expected>", "{ b: integer }"],
+        ["<actual>", "integer"],
+      ]),
+    ],
+  },
   {
     // MEASURED AT HEAD, NOT ASSUMED: the bug document's group (g) records
     // `diags []` for this row at 0.71.0. At HEAD a RESOLVED `NamedType` is

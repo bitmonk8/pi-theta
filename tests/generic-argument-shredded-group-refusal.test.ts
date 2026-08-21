@@ -601,17 +601,26 @@ describe("bug 0204 (c) — the CONTROL rows keep their clean load", () => {
 
 describe("bug 0204 (d) — the four already-admitting positions are untouched", () => {
   it("FENCE (d1): a `let` annotation keeps the RHS gate's row as its WHOLE disposition", () => {
+    // ELEMENT 2 ONLY, RE-DERIVED under bug 0130: the premise this cell pins —
+    // one row, no new code, this position's own disposition unmoved — still
+    // holds. What does NOT hold any more is the claim that `parseType`'s
+    // captured text is normalised so `<expected>` renders without spaces:
+    // that claim was exactly the collapse bug 0130 element 2 corrects. The
+    // `let`-annotation site now converts through `letAnnotationToCompatType`,
+    // which mints TYPE-8's `object` arm for the well-formed 3-field inline
+    // object inside `${T3}`, so `<expected>` renders through `displayType`'s
+    // conformant `object` arm — single space after each `:` and each `,`
+    // (placeholder-rendering-a.md:27) — rather than the pseudo-name's raw text.
     const r = parseDoc(`let x: ${T3} = 1\n`, "bug0204.theta");
     expect(
       diagLines(r),
       "d1 (let annotation): bug 0124's own cell p2 states the premise — the annotation is " +
-        "well-formed, so the RHS gate's row is the whole disposition. `parseType`'s captured " +
-        "text is normalised, so `<expected>` renders without spaces. A refusal appearing here " +
+        "well-formed, so the RHS gate's row is the whole disposition. A refusal appearing here " +
         "would mean the fix narrowed that decline (§Non-goals)",
     ).toEqual([
       line(LET_MISMATCH, [
         ["<name>", "x"],
-        ["<expected>", "array<{a:string,b:integer,c:boolean}>"],
+        ["<expected>", "array<{ a: string, b: integer, c: boolean }>"],
         ["<actual>", "integer"],
       ]),
     ]);

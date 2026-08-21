@@ -128,6 +128,7 @@ const EMPTY_BODY = "theta/parse/empty-schema-body";
 const UNSUPPORTED = "theta/parse/unsupported-feature";
 const NESTED_DISC = "theta/parse/nested-discriminator";
 const NON_LITERAL_DISC = "theta/parse/non-literal-discriminator";
+const LET_RHS = "theta/parse/let-rhs-type-mismatch";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -195,6 +196,22 @@ function nonLiteralDiscriminatorLine(field: string, schema: string): string {
     msg(NON_LITERAL_DISC, [
       ["<field>", field],
       ["<X>", schema],
+    ]),
+  );
+}
+
+/**
+ * `let-rhs-type-mismatch` — bug 0130's row. Added by that report to render the
+ * emission its fix owes at cells 2b and 4i below, which this file's own bug
+ * (0095) left silent because its subject was the CAPTURE, not the check.
+ */
+function mismatchLine(name: string, expected: string, actual: string): string {
+  return line(
+    LET_RHS,
+    msg(LET_RHS, [
+      ["<name>", name],
+      ["<expected>", expected],
+      ["<actual>", actual],
     ]),
   );
 }
@@ -534,12 +551,16 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
 describe("bug 0095 (2) — a brace-rooted union annotation keeps the `=` initialiser", () => {
   it("RED 2a: `let x: {} | null = 1` binds its initialiser and draws one inline line", () => {
     // MEASURED, not assumed: with the widening applied this fixture draws the
-    // single inline `'{}'` line and NOTHING else. `let-rhs-type-mismatch` has no
-    // subject here — the annotation is an object union, whose compatibility
-    // against the integer `1` is not statically resolvable
-    // (code-registry-parse.md:54 scopes the row to a resolvable RHS type), so
-    // that check's disposition for this input is silence (§Non-goals leaves the
-    // question to the check itself; this cell pins what it answers).
+    // single inline `'{}'` line and NOTHING else, and the expected list is
+    // UNCHANGED by bug 0130. Not for the reason once stated here — that report
+    // does not sustain a resolvability reading of the ANNOTATION (the
+    // *Trigger*'s clause governs the RHS type, and the RHS here is the integer
+    // literal `1`, which IS statically resolvable). The empty arm `{}` is
+    // R2's own decision instead: an empty interior does not convert to TYPE-8's
+    // `object` arm, so it stays the deferring pseudo-`named` and
+    // `let-rhs-type-mismatch` still has no subject here — bug 0045's inline
+    // line is the only one this annotation ever draws, and bug 0129's open
+    // question (a second line for one written mistake) is left untouched.
     expect(
       observeLet(body("let x: {} | null = 1")),
       "2a — `code-registry-parse.md:53` triggers `let-without-initialiser` on `let x: T` with " +
@@ -556,15 +577,21 @@ describe("bug 0095 (2) — a brace-rooted union annotation keeps the `=` initial
     });
   });
 
-  it("RED 2b: `let x: {a: integer} | null = 1` loads clean with the whole annotation", () => {
-    // The emptiness control at this position, and a GOV-15 loads-cleanly
-    // arrival: three diagnostics today, none after.
+  it("RED 2b: `let x: {a: integer} | null = 1` refuses under bug 0130's row (flipped)", () => {
+    // PRE-0130: this cell asserted `diagnostics: []` — the emptiness control at
+    // this position was read as also controlling the mismatch row. Bug 0130
+    // §Expected behaviour settles that the *Trigger*'s resolvability clause
+    // governs the RHS type (the integer literal `1`, TYPE-3), not the
+    // annotation, so `1 ⊑ {a: integer} | null` is a decidable `false`
+    // (TYPE-5 + TYPE-8) and the row fires. 0095's own subject stands: the
+    // annotation and initialiser are both still recovered whole, which is what
+    // makes the row have a subject to fire on at all.
     expect(
       observeLet(body("let x: {a: integer} | null = 1")),
-      "2b — with no empty arm there is nothing for 0045's rule to name, so the only observable " +
-        "is the recovered statement: one `let` with its annotation and its initialiser",
+      "2b — the recovered statement now reaches bug 0130's check, which decides `1 \u22ee " +
+        "{a: integer} | null` statically and refuses it",
     ).toEqual({
-      diagnostics: [],
+      diagnostics: [mismatchLine("x", "{ a: integer } | null", "integer")],
       shape: {
         annotation: "{a:integer}|null",
         hasInitialiser: true,
@@ -958,13 +985,16 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
   it("CONTROL 4i: `let x: {a: integer} = 1` keeps the `=` delimiter", () => {
     // The `let` half: a brace-rooted annotation with no `|` after it. The early
     // return and a full capture coincide here today, so this is the fixture that
-    // proves deleting it did not eat the initialiser.
+    // proves deleting it did not eat the initialiser. The SHAPE assertions stay
+    // byte-identical; only the diagnostics list gains bug 0130's row, for the
+    // same reason cell 2b's does — `1 \u22ee {a: integer}` is a decidable `false`
+    // (TYPE-8), not the deferred pseudo-`named` this file's own bug left it as.
     expect(
       observeLet(body("let x: {a: integer} = 1")),
       "4i — `=` still ends a `let` annotation at the completed-arm boundary, so the initialiser " +
         "arm of `parseLet` is still entered for a brace-rooted annotation",
     ).toEqual({
-      diagnostics: [],
+      diagnostics: [mismatchLine("x", "{ a: integer }", "integer")],
       shape: {
         annotation: "{a:integer}",
         hasInitialiser: true,

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.160.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0130 — a `let`-RHS type mismatch now fires at an inline-object
+  annotation** (the ⊑ relation refused the program silently). New exported
+  `letAnnotationToCompatType` mints TYPE-8's `object` arm at the `let`
+  site only (strict interior parser; `{}`/malformed/`void`/junk-tail
+  decline); TYPE-8 gains TYPE-7's sub-side unresolvable-`named` deferral.
+  Closes the QRY-4 pair (with 0093) — group (o) of the annotation witness
+  stayed byte-identical, 251/251. Witness:
+  `tests/let-annotation-inline-object-compat.test.ts` (51 cells) + H8a
+  cell 80. Ratified flips: 0095's 2b/4i (+2a comment), g4, p2/d1 bytes.
+  0095 residual (i) discharged.
+
 ## [0.159.0] - 2026-08-26
 
 ### Fixed
