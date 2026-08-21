@@ -231,6 +231,22 @@ function quotedInlineLine(field: string): string {
   return line("error", QUOTED_INLINE, msg(QUOTED_INLINE, [["<field>", field]]));
 }
 
+/** The code bug 0160 §Fix (c) adds for an inline `as "WireName"` rename. */
+const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
+
+/**
+ * The rendering for an inline wire-name rename (bug 0160 §Fix route (a) 3 /
+ * (c)), subordinate to both raw-key neighbours above: a repeated key keeps
+ * `theta/parse/duplicate-inline-field-name` alone and a quote-led key keeps
+ * `theta/parse/quoted-inline-field-name` alone, so this row fires only for a
+ * key that is neither. `<field>` renders the theta-side identifier the
+ * pattern captures, not the raw key, so it needs the same rendering at either
+ * position's spelling.
+ */
+function renamedInlineLine(field: string): string {
+  return line("error", RENAMED_INLINE, msg(RENAMED_INLINE, [["<field>", field]]));
+}
+
 /** The rendering for the DECLARATION spelling of the same two fields. */
 function collisionLine(name: string, schema: string): string {
   return line(
@@ -793,19 +809,26 @@ describe("bug 0052 (d) — a nested reuse and a generic interior are not repeats
     // Row 1 writes the identical text twice, so it is ONE key twice: the
     // lowering overwrites that single property and names it twice in
     // `required`, and the row is refused. Rows 2 and 3 write two different
-    // pre-colon texts, so they are two distinct keys and two distinct
-    // properties — admitted, and their `required` arrays repeat nothing.
+    // pre-colon texts, so they are two distinct keys for THIS rule — nothing
+    // here repeats — but bug 0160 closed the gap this comment used to record:
+    // an inline `as "WireName"` rename is refused outright
+    // (`theta/parse/renamed-inline-field-name`), one line per renamed entry,
+    // rather than left to lower a property name no author wrote. Row 2 names
+    // the identifier twice (once per renamed entry); row 3 names it once, its
+    // plain sibling drawing nothing from either rule.
     //
     // The subject rendered for row 1 is the ANNOTATION position's captured
     // text, which joins lexer token texts with no separator; the `params:`
     // position passes its YAML scalar through verbatim and renders the
     // author's spacing instead. That divergence belongs to the type-source
     // capture rather than to this rule, and is pinned as cell H1 of
-    // tests/inline-object-field-name-comparison-key.test.ts.
+    // tests/inline-object-field-name-comparison-key.test.ts. Row 1 is
+    // unaffected: a REPEATING key is bug 0159's row alone (bug 0160 §Fix
+    // precedence), so the new rule never reaches it.
     const cells: ReadonlyArray<readonly [type: string, want: string[]]> = [
       ['{a as "w": integer, a as "w": string}', [dupLine('aas"w"')]],
-      ['{a as "w": integer, a as "x": string}', []],
-      ['{a: integer, a as "x": string}', []],
+      ['{a as "w": integer, a as "x": string}', [renamedInlineLine("a"), renamedInlineLine("a")]],
+      ['{a: integer, a as "x": string}', [renamedInlineLine("a")]],
     ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
@@ -1355,13 +1378,17 @@ describe("bug 0052 (k) — a malformed entry contributes no key and curtails no 
   it('RED k3 (a rename ahead of a repeat): `{a as "w": integer, a: string, a: boolean}` is refused', () => {
     // The renamed entry's key is its whole pre-colon text, `as` clause
     // included, because neither lowerer parses that clause and the comparison
-    // reads the same text. It therefore collides with neither unrenamed `a`,
-    // and the repeat is between the two entries behind it. d4 pins the rename
-    // spellings that carry no other repeat.
+    // reads the same text. It therefore collides with neither unrenamed `a`
+    // for THIS rule, and the repeat is between the two entries behind it. d4
+    // pins the rename spellings that carry no other repeat. Bug 0160 adds its
+    // own line ahead of the repeat: the renamed entry is a non-repeating,
+    // non-quote-led key, so it draws `theta/parse/renamed-inline-field-name`
+    // for `a` before the duplicate row's own line for the two plain entries
+    // behind it, in source order.
     expectList(
       annotSrc('{a as "w": integer, a: string, a: boolean}'),
-      [dupLine("a")],
-      "k3 — an unparsed rename is a distinct key, so the subject is the bare `a` the two " +
+      [renamedInlineLine("a"), dupLine("a")],
+      "k3 — an unparsed rename is its own subject (bug 0160) ahead of the bare `a` the two " +
         "later entries share",
     );
     // WHAT THE REFUSAL PREVENTS: the three-item `required` this text still

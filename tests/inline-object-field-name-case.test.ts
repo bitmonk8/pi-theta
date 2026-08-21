@@ -108,10 +108,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     through an ordinary binding annotation on the ordinary load path).
 //   - (B) CONFORMANT CONTROLS, `[]` before and after: i1c, i2c, i3c, a1c, f7c,
 //     p2c — the same shapes with a conformant spelling — plus `us` (the leading
-//     `_` the rule's own predicate admits, which a `[a-z]` test would red) and
-//     w3 (a conformant field carrying the sanctioned `as "w"` rename). Paired
-//     with (A) these are the whole discriminator: each pair differs in one
-//     character's case.
+//     `_` the rule's own predicate admits, which a `[a-z]` test would red).
+//     w3 (a conformant field carrying an inline `as "w"` rename) stays `[]`
+//     for `binding-case-mismatch` specifically, but since bug 0160 (X.Y.Z)
+//     it is no longer a `[]` cell overall: the inline rename clause draws
+//     `theta/parse/renamed-inline-field-name`, an orthogonal row this file
+//     pins beside the case rule's own silence. Paired with (A) these are the
+//     whole discriminator: each pair differs in one character's case.
 //   - (C) THE `params:` FACE: p2 and L3. Both assert the diagnostics AND
 //     `doc.frontmatter === null` — the SEPARATE frontmatter gate withholds the
 //     whole frontmatter object on any error-severity frontmatter diagnostic, so
@@ -130,7 +133,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     A quoted key is a `str` token, so it never enters `fieldNames` — there is
 //     no double report. This row is what makes the route choice falsifiable: a
 //     check keyed on the raw entry text instead would draw two lines here.
-//   - (G) THE MEASURED DEVIATION, pinned with its cause: w2.
+//   - (G) THE MEASURED DEVIATION, pinned with its cause: w2. `binding-case-mismatch`
+//     stays silent (the cause below), but since bug 0160 (X.Y.Z) the row is
+//     no longer `[]` overall: the inline rename clause draws
+//     `theta/parse/renamed-inline-field-name` beside that silence.
 //
 // ORDERING IS PART OF THE ASSERTION. Every diagnostic in this file is
 // declaration-ranged, so `assembleDiagnostics`' `(file, line, col)` stable sort
@@ -218,6 +224,7 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
 const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
+const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
 const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
@@ -529,13 +536,28 @@ describe("0154 (B) — a conformant inline field name stays clean", () => {
     );
   });
 
-  it("w3: a conformant field carrying the sanctioned `as \"w\"` rename reports nothing", () => {
-    // lexical.md's bullet frees the WIRE half explicitly ("may be any string
-    // via the `as \"WireName\"` rename clause"), and schemas.md calls that clause
-    // the only mechanism for a non-identifier property name. A fix that reds
-    // this row removes the route the spec directs authors to.
+  it('w3: a conformant field carrying an inline `as "w"` rename draws bug 0160\'s row, not the case rule', () => {
+    // lexical.md's bullet frees the WIRE half of a rename from the case rule,
+    // but that rename is a SCHEMA-DECLARATION-ONLY clause (bug 0160, X.Y.Z):
+    // the inline `Field` form admits none, so this text is refused outright
+    // rather than reaching either diagnostic that reads a wire name. The
+    // theta-side identifier is conformant, so `binding-case-mismatch` still
+    // does not fire — the row this cell now measures is orthogonal to the case
+    // rule, not a route around it.
     const doc = theta('schema S { a: { ys as "w": string } }');
-    expect(rendered(doc), "the rename's wire half is free of the case rule").toEqual([]);
+    expect(
+      rendered(doc),
+      "the rename is refused inline (bug 0160); `binding-case-mismatch` stays silent because the identifier itself is conformant",
+    ).toEqual([
+      diag(
+        "error",
+        RENAMED_INLINE,
+        msg(RENAMED_INLINE, [["<field>", "ys"]]),
+        4,
+        1,
+        38,
+      ),
+    ]);
   });
 });
 
@@ -779,24 +801,36 @@ describe("0154 (F) — a quoted inline field name keeps its own row's line alone
 // (G) THE MEASURED DEVIATION — pinned with its cause.
 // ===========================================================================
 
-describe("0154 (G) — an ill-cased field carrying an `as` rename stays silent", () => {
-  it("w2: `{ Ys as \"w\": string }` reports nothing, and the cause is the field loop", () => {
-    // MEASURED, AND DELIBERATELY NOT CLOSED. The report's §Expected behaviour
-    // lists this shape among the rows owed a diagnostic; it is not, and the
-    // cause is upstream of every rule at the `object` arm.
-    // `TypeParser.parseObject` reads the name token and then REQUIRES a `:`;
-    // the `as` rename skip sits after the field's type parses, so `Ys as "w":`
-    // breaks the field loop as a malformed field (the loop stops to stay
-    // tolerant) and `Ys` never enters `TypeNode.fieldNames`. The rename
-    // mis-split is another open report's subject and this report's §Non-goals
-    // leaves it there, so this cell records the boundary rather than asserting
-    // the shape stays silent forever. A fix scoped to the field NAME must not
-    // try to make it fire — doing so means the rename parse moved, which is a
-    // different report's adjudication.
+describe("0154 (G) — an ill-cased field carrying an `as` rename: only `binding-case-mismatch` stays silent, the rename itself is refused", () => {
+  it('w2: `{ Ys as "w": string }` draws bug 0160\'s row; `binding-case-mismatch` stays silent, and the cause is the field loop', () => {
+    // MEASURED, AND DELIBERATELY NOT CLOSED for `binding-case-mismatch`. The
+    // 0154 report's §Expected behaviour lists this shape among the rows owed
+    // that diagnostic; it is not, and the cause is upstream of every rule at
+    // the `object` arm. `TypeParser.parseObject` reads the name token and then
+    // REQUIRES a `:`; the `as` rename skip sits after the field's type parses,
+    // so `Ys as "w":` breaks the field loop as a malformed field (the loop
+    // stops to stay tolerant) and `Ys` never enters `TypeNode.fieldNames`. The
+    // rename mis-split is bug 0160's subject and 0154's §Non-goals leaves it
+    // there, so this cell records the boundary rather than asserting the
+    // identifier-case shape stays silent forever. A fix scoped to the field
+    // NAME must not try to make `binding-case-mismatch` fire here — doing so
+    // means the rename parse moved, which is a different report's
+    // adjudication. Bug 0160 (X.Y.Z) refuses the rename spelling outright
+    // instead, over the raw key rather than over `fieldNames`, so it draws its
+    // own row here without touching either fact.
     const doc = theta('schema S { a: { Ys as "w": string } }');
     expect(
       rendered(doc),
-      "the rename mis-split withholds the name from the identifier retention; the parse, not the rule, is what this row measures",
-    ).toEqual([]);
+      "the rename mis-split still withholds the name from the identifier retention, so `binding-case-mismatch` stays silent; the raw-key refusal (bug 0160) does not depend on that retention and fires beside it",
+    ).toEqual([
+      diag(
+        "error",
+        RENAMED_INLINE,
+        msg(RENAMED_INLINE, [["<field>", "Ys"]]),
+        4,
+        1,
+        38,
+      ),
+    ]);
   });
 });

@@ -40,9 +40,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     why 0045's `{ a }` and `{ a: }` stay exactly as measured (group (H)).
 //   - A3 emission set, the NARROW answer — a key whose FIRST character is `"` or
 //     `'` is refused. 0160's `a as "w"` (raw key `a as "w"` / `aas"w"`) is
-//     therefore NOT refused and stays exactly as measured (group (H) row h5),
-//     leaving docs/bugs/0160-inline-object-wire-name-rename-unparsed.md's
-//     subject untouched.
+//     therefore NOT this row's subject and draws nothing from it (group (H)
+//     row h5), leaving grammar.md's inline `Field` form free for
+//     docs/bugs/0160-inline-object-wire-name-rename-unparsed.md to answer on
+//     its own row (`theta/parse/renamed-inline-field-name`, landed X.Y.Z) —
+//     h5's cell is re-pinned to that row rather than to `[]`.
 //   - PRECEDENCE — a key that REPEATS within one interior keeps
 //     `theta/parse/duplicate-inline-field-name` alone and draws nothing from the
 //     new row (group (G) rows c1–c4); a non-repeating quoted key draws the new
@@ -206,6 +208,20 @@ function dupLine(field: string): string {
 /** The rendering the DECLARATION spelling of a quoted field name keeps. */
 function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
+}
+
+/** The code bug 0160 adds for an inline `as "WireName"` rename (X.Y.Z). */
+const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
+
+/**
+ * The rendering for an inline wire-name rename (bug 0160). `<field>` renders
+ * the pattern's own captured theta-side identifier rather than the raw key,
+ * which is why this rendering is the same at every position regardless of
+ * whether the position hands the rule the raw `a as "w"` or the token-joined
+ * `aas"w"`.
+ */
+function renLine(field: string): string {
+  return line("error", RENAMED_INLINE, msg(RENAMED_INLINE, [["<field>", field]]));
 }
 
 // ===========================================================================
@@ -1007,21 +1023,26 @@ describe("bug 0176 (H) — 0045's reserved shapes, 0052's carve-out and 0160's s
     ).toEqual(expectedLowered);
   });
 
-  it('CONTROL H2 (row h5): `{a as "w": integer}` stays silent at all eleven positions', () => {
-    // Bug 0160's subject, explicitly pinned as untouched. The narrow A3 answer
-    // refuses a key whose FIRST character is a quote; this key's first character
-    // is `a`, so it is admitted exactly as measured. Whichever report lands
-    // first states the chosen key and the other rebases onto it (0176 §Fix
-    // *Coordination*) — this cell is that statement, made falsifiable.
+  it('CONTROL H2 (row h5): `{a as "w": integer}` is now refused by bug 0160, not by this row', () => {
+    // RE-PINNED for bug 0160 (X.Y.Z). This row's own subject is unmoved: the
+    // narrow A3 answer refuses a key whose FIRST character is a quote, this
+    // key's first character is `a`, and `theta/parse/quoted-inline-field-name`
+    // still says nothing about it — the `positions()` half below now names bug
+    // 0160's row instead of `[]`, once per position, not a second line from
+    // this one. The DIRECT lowering assertion stays byte-identical, which is
+    // what proves this fix changed no lowering: the artefact is unreachable
+    // through a load now, not rewritten.
     expect(
       positions('{a as "w": integer}'),
       "H2 — a refusal keyed on the whole key's SHAPE would take 0160's rename spelling with " +
-        "it; the settled emission set is the narrow one, so this row does not move",
-    ).toEqual(atEveryPosition([]));
+        "it; the settled emission set is the narrow one, so THIS row does not move — bug 0160's " +
+        "own row is what now fires here",
+    ).toEqual(atEveryPosition([renLine("a")]));
     expect(
       lowerQueryResponseSchema('{a as "w": integer}', [], []),
-      "H2 — and the unparsed rename's own property name is unchanged, still the whole " +
-        "pre-colon text (0160 §Reproduction rows L1–L6)",
+      "H2 — reached by DIRECT construction only now that the load-path refusal withholds it: " +
+        "the unparsed rename's own property name is unchanged, still the whole pre-colon text " +
+        "(0160 §Reproduction rows L1–L6)",
     ).toEqual({
       type: "object",
       properties: { 'a as "w"': { type: "integer" } },

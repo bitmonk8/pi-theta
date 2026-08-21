@@ -1,6 +1,6 @@
 # Bug 0160 — `grammar.md:109` assigns `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name` "within the one inline object", but `TypeParser.parseObject` breaks its field loop at the `as` token, so no `Type` position parses the rename and neither code can fire there: `@<{a as "w": integer, b as "w": string}>` loads with zero diagnostics and lowers two properties keyed `a as "w"` and `b as "w"` where the declaration spelling of the same two fields is refused, `@<{a as "a": integer}>` draws no redundant-rename warning, the identical-rename spelling mints `required: ["a as \"w\"", "a as \"w\""]` at the annotation root — the duplicate-`required` document AJV refuses to compile, which bug 0052's fix closed for plain names — and the break also suppresses every type-grammar check on every field written behind the rename
 
-- **Status:** open. Residual 2 of the bug 0052 fix (0.84.0, commit
+- **Status:** fixed (0.172.0). Residual 2 of the bug 0052 fix (0.84.0, commit
   `f856fd33`), recorded there as `## Fix (0.84.0)` *Residuals* item 2 and left
   unfiled for the parent. 0052's own §Non-goals had already declared it "a
   separate defect on the same sentence, unfiled". §Fix here is
@@ -907,3 +907,222 @@ clause inside an inline body will need to state its disposition against the new
 row's *Trigger* and against the two-row `<field>` carve-out at
 `placeholder-rendering-b.md:10`, exactly as this report's coordination note
 already does for 0159. Status unchanged (**open**).
+
+## Fix (0.172.0)
+
+- **The route, settled in the run.** §Fix (a) **route 2**, stating which of the
+  two it does: the rename is **not** parsed out of the key and no wire-name
+  semantics are delivered — the inline spelling is **refused**. §Fix (b): **no
+  lowering change** (rows L1–L6 keep their bytes under a direct lowerer call and
+  become unreachable through a load, the input now drawing an `E`). §Fix (c):
+  the third enumerated option — refuse the inline rename outright under a new
+  row, so `theta/parse/wire-name-collision` and
+  `theta/parse/redundant-wire-name` stay declaration-scoped and the `<schema>`
+  placeholder problem never arises. Two measurements decided it against route 1,
+  both re-derived at the fix baseline and both contradicting this document's
+  root-cause reading:
+  1. A parse-level rename parse in `TypeParser.parseObject` fires at
+     **`params:` only**. At the other ten `Type` positions the document
+     reconstructs the type-source text by joining lexer tokens with no
+     separator, so `{a as "w": integer}` reaches the parser as
+     `{aas"w":integer}` — the field-name token is `aas` and no `as` token
+     exists. A prototype of route 1 (measured, then withdrawn) emitted at one
+     position out of eleven: a position-dependent rule, against
+     `type-system.md` §position invariance.
+  2. Wire-name **semantics** are unrecoverable downstream of that capture: the
+     mangled text has already lost the theta/wire boundary, and both lowerers
+     key on raw text, so keying `properties` on a wire name would need the
+     token-join capture changed (`theta-document.ts`, outside this fix) and
+     would break the landed agreement-by-construction between the two raw-key
+     rules and the property names the lowering mints (0052's and 0176's rows
+     state it normatively).
+- **What shipped**
+  - `src/parser/type-grammar.ts` (1065 → **1176** lines) — a module-level
+    predicate `INLINE_FIELD_RENAME` and one new emission inside `walkType`'s
+    `object` arm, in the existing `inlineObjectFieldKeys` raw-key loop's
+    **non-repeating** branch, after the 0176 first-char-quote test (which gained
+    an explicit `continue`, so the precedence is enforced by control flow: a
+    repeating key is `duplicate-inline-field-name`'s alone, a quote-led key is
+    `quoted-inline-field-name`'s alone, a rename spelling is this row's).
+    Both gates inherited byte-for-byte from the two neighbours
+    (`closingBraceSpelled`, withheld under `insideGenericArgument` — the
+    neighbours' lowering-grounded reason, not 0154's identifier reason, because
+    this row's subject is the raw key the lowering would mint). The predicate
+    matches the verbatim (`a as "w"`) and the token-joined (`aas"w"`) spelling
+    alike and yields the **same** capture from both, which is what makes one
+    rule answer alike at all eleven positions. `TypeParser.parseObject`'s field
+    loop, its post-type `as` skip (§Non-goals' S14 decision: it **stays**,
+    unchanged), `fieldNames`, `namesStopped`, `interiorSource` and 0154's
+    identifier pass are byte-unmodified.
+  - **The new row**, `theta/parse/renamed-inline-field-name`, `E`, `parse`,
+    *Message* `wire-name rename on field '<field>' within one inline object
+    type`. `<field>` renders the predicate's capture — the theta-side
+    identifier — not the raw key, so it takes the **standard** identifier
+    rendering and the closed placeholder table's carve-out sentence stays at
+    *two* rows (`placeholder-rendering-b.md` byte-untouched; asserted by a
+    witness cell). Reserved-keyword-shaped leading text (`{let as "w": …}`) is
+    deliberately **inside** the emission set — this row's subject is a raw key,
+    not an identifier binding, so it inherits none of 0154's
+    `RESERVED_KEYWORDS` exclusion; the *Trigger* says so and a cell pins it.
+  - **DIAG-2, same change**: the new row in
+    `docs/spec_topics/diagnostics/code-registry-parse.md` with a full normative
+    *Trigger* (shared split/colon/trim key, both captures, both gates, the reach
+    at every `Type` position and depth, the three-way precedence, the
+    declaration spelling keeping the two wire-name rows, and the "spells no key"
+    carve-out); the mirror row in `docs/reference/diagnostics.md`. No existing
+    *Message* reworded (DIAG-4).
+  - **Prose the fix made false, corrected in the same change** (§Fix (d)):
+    `docs/spec_topics/grammar.md` §"Inline object types" (the sentence that
+    admitted the rename inline and assigned both codes there) and its
+    `ObjectType` production comment; `docs/reference/grammar.md`'s `ObjectType`
+    bullet and its wire-name sentence; `docs/spec_topics/lexical.md`'s
+    wire-name clause; and exactly two spans of 0176's shipped row — its *Fix*
+    hint (which recommended the inline rename) and the *Trigger* clause saying
+    the rename "is admitted exactly as measured". 0176's emission set is
+    untouched. `docs/spec_topics/schemas.md` and
+    `docs/reference/schema-subset.md` were **read and left unchanged**, decided
+    rather than assumed: both wire-name blocks sit under declaration-only
+    headings, so both read true after the fix.
+  - `tests/inline-object-wire-name-rename-refusal.test.ts` (new, **1440**
+    lines, 25 tests / 67 list cells, 47 of them carrying the new row) — the
+    §Fix (f) witness: whole-list ordered `toEqual` over unfiltered
+    `doc.diagnostics`, every *Message* through `parseRegistry`/`registryMessage`
+    (DIAG-4), `parseDoc` from `tests/helpers/e2e-s1`, all eleven `Type`
+    positions incl. `.thetalib` and `params:`, the declaration controls G3/G5
+    unmoved, §Reproduction (c)'s direct-lowerer bytes frozen as the proof that
+    §Fix (b) changed nothing, (d)'s D1–D10 with two real
+    `AjvSchemaValidator.compile` outcomes, (e)/(f)'s suppression rows with
+    controls, and 23 boundary cells. Anti-vacuity is a cell: `H1` recomputes
+    67/47 and names the seven empty-expectation cells; `H2` restates the whole
+    inventory at CODE level with no registry dependency.
+  - `tests/live/inline-object-wire-name-rename-live-cell.test.ts` (H8a) and
+    `tests/live/acceptance/inline-object-wire-name-rename-load-refusal.test.ts`
+    (H9a, real `pi -p`) — on 0154's and 0176's shipped idioms, both asserting on
+    the `theta-system-note` channel read off the settled `SessionManager` and on
+    `driveSlashCaptureTurn` observables, never on `prompt()` resolving, both
+    carrying an offline-attributable guard so a neutralised fix reds before any
+    provider call.
+- **Gates** — witness `npx vitest run
+  tests/inline-object-wire-name-rename-refusal.test.ts` → `Test Files 1 passed
+  (1) / Tests 25 passed (25)`; the five inline-object witness files together →
+  `Tests 138 passed (138)`; full default suite `npx vitest run` → `Test Files
+  359 passed (359) / Tests 7370 passed (7370)` (fork baseline 358 / 7345);
+  `npx tsc -p tsconfig.json --noEmit` clean; `npm run lint` clean. Live, under
+  the shared lock: `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/inline-object-wire-name-rename-live-cell.test.ts` → `1 passed`
+  (6.7 s, after one isolated re-run of the documented ~180 s stall class), and
+  the H9a acceptance file → `1 passed` (7.6 s) first attempt.
+- **Review** — 2 rounds. Round 1 (deep): no `fidelity` finding and no finding
+  against the settled route; one `correctness` finding (an escaped quote in the
+  wire name escapes all three inline rules and silently drops the field), two
+  `spec` findings (the *Trigger* said `Ident` while the code refuses
+  reserved-keyword-shaped text; `grammar.md`'s `ObjectType` production comment
+  contradicted the rewritten paragraph beneath it), one `house-rule` finding
+  (eleven comments attributed this unassigned fix to `0.165.0`, which is 0154's
+  landed version), and four prose/test residuals. All fixed; the escaped-quote
+  class was **pinned as a bound** (two cells, a lowering read-back and a
+  *Trigger* sentence) rather than closed, because the escape-blind quote
+  tracking is the shared split 0052 and 0176 key on. Round 2 (fast): **CLEAN**,
+  one dangling cross-reference to a nonexistent cell, corrected in place by the
+  orchestrator (comment-only; polish verified by gate-diff, confirmation round
+  skipped).
+- **Verification** — SOLID. (1) The witness reds for the right reason in the
+  neutralisation direction and in two of the three probe directions, each red
+  set derived in advance: full neutralisation reds exactly the 16 cells across
+  five files whose expectation names the new row and nothing else; removing the
+  generic-argument carve-out reds exactly the `array<{a as "w": string}>`
+  boundary cell; rendering the raw key instead of the capture reds **all 22**
+  position cells (not only the ten token-joining ones — the `params:` raw key
+  `a as "w"` diverges from the identifier too), which is stronger evidence for
+  the capture-rendering decision than the prediction was. Every restore proven
+  byte-exact by `git hash-object`. (2) Default suite green. (3) Both live halves
+  run for real; the H8a half proven red in both directions (the neutralised run
+  reds at the offline attribution guard, zero tokens). (4) Typecheck and lint
+  clean. Protected files proven byte-identical to HEAD by hash:
+  `tests/inline-empty-object-type.test.ts`, `tests/schema-field-name-case.test.ts`,
+  `tests/params-inline-object-lowering.test.ts`,
+  `tests/committed-fixture-parse-gate.test.ts`, `src/parser/params.ts`,
+  `src/parser/body-type-lowering.ts`, `src/parser/theta-document.ts`,
+  `src/parser/schema-lowering.ts`,
+  `docs/spec_topics/diagnostics/placeholder-rendering-b.md`,
+  `tests/fixtures/h7a/permitted-codes.json`.
+- **Flips, for parent ratification** — exactly **eight** cells moved, all
+  additive (a line gained beside every line already asserted), every subject
+  preserved, every comment describing a now-closed face corrected in the same
+  change, and no ninth cell anywhere in the suite:
+  `tests/inline-object-duplicate-field-name.test.ts` d4 (rows 2 and 3) and k3
+  (§Fix (f) authorises both by name);
+  `tests/inline-object-field-name-case.test.ts` w2 and w3 (0154's rename cells —
+  w2's subject, `binding-case-mismatch` staying silent behind a rename, is
+  **preserved**: the case rule still does not fire there);
+  `tests/inline-object-field-name-comparison-key.test.ts` A2, D1 and H2 (0159's
+  file; H2's `params:` read is replaced by `frontmatter === null` plus the
+  byte-identical direct lowering, the strongest remaining observable);
+  `tests/inline-object-quoted-field-name-refusal.test.ts` H2/row h5 — the cell
+  0176 wrote as the falsifiable coordination statement for whichever report
+  landed second; its direct-lowering half stays byte-identical, proving no
+  lowering changed.
+- **Residuals**
+  1. **An escaped quote in the wire name escapes all three inline rules and
+     silently drops the field.** `{a as "w\"x": integer}` loads `[]` at the
+     annotation root and at `params:`, and lowers
+     `{"type":"object","properties":{},"required":[],"additionalProperties":false}`
+     — the author's field vanishes. Cause: the quote tracking in the shared
+     `splitTopLevel`/`topLevelColon` is escape-blind, so the entry's `:` is
+     never seen at top level and the entry "spells no key" — the carve-out all
+     three rows now state. Widening it would move 0052's and 0176's keys and is
+     outside this fix; pinned in both directions by cells g20/g21 and
+     `CONTROL G4`, and by a *Trigger* sentence. Needs its own report.
+  2. **This document's root-cause reading is wrong in one part, and was
+     corrected by measurement.** §"Actual behaviour / root cause" attributes the
+     suppression family (§Reproduction (e)) and the unparsed rename to the
+     post-type position of `parseObject`'s `as` skip. Measured at the fix
+     baseline: the field loop breaks because it cannot read `Ident ":"` at the
+     field head, and at ten of eleven positions there is no `as` token there at
+     all (the token-join capture, `{aas"w":integer}`); the same suppression
+     reproduces at `params:`, where the spaces survive, and for
+     `{"a": string, b: void}`, which carries no rename at all. The suppression
+     family is therefore **not** this row's to close and is **not** closed:
+     §Reproduction (e) rows S1–S10 keep their measured silence, now pinned with
+     that cause and with the refusal beside them.
+  3. **§Reproduction (f) row S14 has moved since filing.**
+     `@<{a: integer as "w"}>` is not `[]` at the fix baseline: it draws a
+     `*-type-not-expression` refusal at ten of eleven positions and is silent
+     only at `invoke<T>`. The over-reach tripwire is asserted as "the new row
+     appears at no position", which is the claim that matters.
+  4. **`{a as "w" as "x": integer}` is a deliberate under-refusal.** The
+     predicate is anchored, so a second rename clause is trailing text and
+     matches nothing; the input loads `[]` and keeps minting its raw key. Pinned
+     by cell g23 and by the *Trigger*'s "no trailing text" clause.
+  5. **The `closingBraceSpelled` gate is structurally unfalsifiable by direct
+     removal**, for this row and both neighbours alike: `parseObject` sets
+     `interiorSource` to `""` whenever the closing brace is unspelled, so no
+     fixture can carry a non-empty interior behind a false gate. The gate
+     documents an invariant the node's construction already guarantees; recorded
+     so a later verifier does not re-derive the investigation.
+  6. **Corpus census re-derived at the fix baseline**: 34 committed
+     `.theta`/`.thetalib`, and one case-insensitive scan for an `as` rename in
+     any position returns the same single hit this document records (the English
+     word in a comment, `docs/examples/ralph-inline.theta`). No committed source
+     moves, `tests/committed-fixture-parse-gate.test.ts` takes no new refusal,
+     and GOV-15's disposition is the addition arm of the diagnostic-registry
+     carve-out over an in-repo input set that is empty.
+  7. **`tests/fixtures/h7a/permitted-codes.json` needed no entry**, decided by
+     the real H9a run: the refusal reaches only the `theta-system-note` channel,
+     so `parseSystemNoteCodes(stdout + stderr)` measured `[]` — the disposition
+     0154 and 0176 recorded for this class. Byte-untouched.
+  8. **Process note for the parent.** One live invocation during verification
+     was made without holding the shared lock; it failed at the file's own
+     offline attribution guard before any provider call (zero tokens), and every
+     other live run in this fix took and released the lock in one command.
+- **Discharge notes appended** — `docs/bugs/0154-…md` (its *Residuals* item 1,
+  the rename mis-split: re-measured, still open, its cells re-pinned additively
+  here). No other sibling document's status turns on this fix.
+- **Pinned dispositions / non-goals** — the plain-spelling duplicate rule
+  (0052) and its raw key, 0176's quoted-key row and its two-row `<field>`
+  carve-out, the declaration spelling and `checkObjectSchema` (rows G3/G5,
+  asserted unmoved), 0154's identifier pass and its `fieldNames` retention,
+  bug 0039's `params:` lowering freeze and 0035's 37-cell lock, the post-type
+  spelling `{a: integer as "w"}`, 0093's compound-position double emission,
+  AJV's root-only meta-schema validation, and 0134's citation drift: all
+  untouched, each asserted after the fix.

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.172.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0160 — an inline-object wire-name rename (`a as "w": T`) now
+  refuses at parse** with the NEW registered row
+  `theta/parse/renamed-inline-field-name` (previously the spelling
+  delivered no wire-name semantics silently; measurement showed the
+  rename parse fires at `params:` only and semantics are unrecoverable
+  downstream). Registry + reference mirror + grammar both sides +
+  `lexical.md` amended same commit; the raw-key adjudication untouched.
+  Witness: `tests/inline-object-wire-name-rename-refusal.test.ts` (25
+  tests/67 cells) + a standalone live cell + a NEW H9a acceptance file.
+  Eight re-pins across four protected witnesses ratified at merge.
+
 ## [0.171.0] - 2026-08-27
 
 ### Fixed

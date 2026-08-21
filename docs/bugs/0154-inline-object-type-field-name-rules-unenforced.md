@@ -1073,3 +1073,30 @@ the interior. Status unchanged (**open**).
   quoted-key rule and its row-scoped `<field>` carve-out, 0160's `a as "w"`
   wire-name question, 0153's six reserved-keyword positions, and bug 0039's
   freeze on the `params:` lowering: all untouched, each asserted after the fix.
+
+## Discharge note — bug 0160 landed and re-measured this report's residual 1 (0.172.0)
+
+Append-only; this report's status does not change (**fixed (0.165.0)**).
+
+[0160](./0160-inline-object-wire-name-rename-unparsed.md) shipped
+`theta/parse/renamed-inline-field-name` on its §Fix (a) **route 2 in the refusal
+disposition**: the inline `as "WireName"` rename is refused at the raw-key site
+this report's Coordination notes describe, and **no** parser recovery changed.
+Consequences for this report:
+
+- **Residual 1 (row w2, `{ Ys as "w": string }`) is NOT discharged and stays
+  open.** `theta/parse/binding-case-mismatch` still does not fire there: the
+  field loop still breaks at the field head, `Ys` still never enters
+  `fieldNames`, and 0160 measured that the cause is not the post-type position
+  of the `as` skip but the type-source capture — at ten of the eleven `Type`
+  positions the document joins lexer tokens with no separator, so the interior
+  reads `Ysas"w":string` and no `as` token exists for any parse-level rule to
+  see. A parse-level fix therefore fires at `params:` only. What DID change is
+  that the input is now refused, so the silence is no longer reachable through a
+  load without an `E`-severity diagnostic beside it.
+- **Cells w2 and w3 of `tests/inline-object-field-name-case.test.ts` were
+  re-pinned additively** under 0160's own §Fix (f) authority: each gained the
+  new refusal line beside what it already asserted, w2's subject (the case rule
+  staying silent behind a rename) is preserved as an assertion, and group (G)'s
+  title and w3's "sanctioned rename" wording were corrected, the inline rename
+  no longer being sanctioned. The file's other 28 cells are byte-unmodified.

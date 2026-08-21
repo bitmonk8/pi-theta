@@ -101,7 +101,8 @@ unknown — which file an importer enters the set through never changes the answ
 
 Casing and the import-specifier synthesised-name reservation below are the only
 enforced naming constraints. The lowercase-first rule applies to the theta-side
-field name; the wire name (`as "WireName"`) may be any string.
+field name; the wire name (`as "WireName"`, a schema-declaration-only clause)
+may be any string.
 
 A parsed `import` / `export` specifier's local binding — on either statement
 kind, with or without a trailing `from` clause — may not match one of
@@ -234,7 +235,12 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   or any type reachable transitively) is `theta/parse/result-in-schema-position`.
   `Result` remains admitted elsewhere (`fn` params/returns, `let` annotations,
   `invoke<Type>`, type ascription).
-- `ObjectType` fields reuse the object-schema `Field` form; empty `{}` is
+- `ObjectType` fields reuse the object-schema `Field` form **except the wire-name
+  rename**: `as "WireName"` is a schema-declaration-only clause, and an inline
+  field spelled `ident as "WireName": Type` is `theta/parse/renamed-inline-field-name`,
+  keyed on the same raw entry text as the two rows below, once per renamed
+  field in source order; `theta/parse/wire-name-collision` and
+  `theta/parse/redundant-wire-name` stay declaration-only. Empty `{}` is
   `theta/parse/empty-schema-body`; a key repeated in one inline object is
   `theta/parse/duplicate-inline-field-name`, keyed as written on each top-level
   comma entry's text up to its own top-level colon, once per repeated key; a
@@ -242,8 +248,8 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   `theta/parse/quoted-inline-field-name` (field names are identifiers; a key
   that repeats within the interior is the duplicate row's subject alone, and a
   key that does not repeat and whose first character is a quote is the new
-  row's); a nested inline object is its own list; both
-  rules skip generic arguments. Lowered into `$defs` as `__inline_<slug>`
+  row's); a nested inline object is its own list; all three rules skip generic
+  arguments. Lowered into `$defs` as `__inline_<slug>`
   ([Schema subset](./schema-subset.md)).
 - Nullability is written `T | null`.
 - Text deriving from none of the six alternatives is `theta/parse/annotation-type-not-expression`

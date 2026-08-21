@@ -202,6 +202,20 @@ function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
 }
 
+/** The code bug 0160 adds for an inline `as "WireName"` rename (X.Y.Z). */
+const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
+
+/**
+ * The rendering for an inline wire-name rename (bug 0160). Unlike `dupLine`
+ * and `quotedLine` above, the subject is the THETA-SIDE identifier the
+ * pattern captures, not the raw key — which is what lets this rendering stay
+ * the same at every position regardless of whether that position hands the
+ * rule the raw `a as "w"` or the token-joined `aas"w"`.
+ */
+function renLine(field: string): string {
+  return line("error", RENAMED_INLINE, msg(RENAMED_INLINE, [["<field>", field]]));
+}
+
 // ===========================================================================
 // Fixtures. One builder per `Type` position of 0159 §Reproduction, matching the
 // vocabulary of the landed sibling lock
@@ -419,14 +433,15 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
 
   it('RED A2 (a rename ahead of the repeat): `{a as "w": integer, a: string, a: boolean}`', () => {
     // The rename entry's raw pre-colon text is its own key and collides with
-    // nothing; the two unrenamed `a` entries behind it are the repeat. The type
-    // grammar instead stops at the `as` token, which is why nothing is compared
-    // today.
+    // nothing FOR THIS ROW; the two unrenamed `a` entries behind it are the
+    // repeat. Since bug 0160 (X.Y.Z) the rename entry is refused outright
+    // (it is a non-repeating, non-quote-led key), so it draws its own line
+    // ahead of the duplicate row's, in source order.
     expect(
       positions('{a as "w": integer, a: string, a: boolean}'),
       "A2 — the rename is a distinct key, not a stop: the repeat behind it is between two " +
-        "entries the lowering keys identically",
-    ).toEqual(atEveryPosition([dupLine("a")]));
+        "entries the lowering keys identically, and the rename itself is refused (bug 0160)",
+    ).toEqual(atEveryPosition([renLine("a"), dupLine("a")]));
   });
 
   it('RED A3 (a quoted name ahead of the repeat): `{"a": string, a: integer, a: boolean}`', () => {
@@ -724,7 +739,11 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
     // the expected diagnostic list can no longer be DERIVED from the reported
     // duplicate keys alone. Each row now spells its whole expected list; the
     // `reported` column stays exactly the duplicate keys, and the containment
-    // claim below still runs over it, so nothing is weakened.
+    // claim below still runs over it, so nothing is weakened. Bug 0160
+    // (X.Y.Z) widens two more rows the same way: an inline `as "WireName"`
+    // rename is refused outright rather than left an unparsed part of the
+    // duplicate key, so a rename entry ahead of (or nested beside) a repeat
+    // draws its own line in addition to the repeat's.
     const cells: ReadonlyArray<
       readonly [
         type: string,
@@ -740,7 +759,12 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
         ["a"],
         [quotedLine('"a"'), dupLine("a")],
       ],
-      ['{a as "w": integer, a: string, a: boolean}', ["a"], ["a"]],
+      [
+        '{a as "w": integer, a: string, a: boolean}',
+        ["a"],
+        ["a"],
+        [renLine("a"), dupLine("a")],
+      ],
       ["{a: 1 a: 2, a: 3}", ["a"], ["a"]],
       ['{"a": string, "a": integer}', ['"a"'], ['"a"']],
       ['{"": string, "": integer}', ['""'], ['""']],
@@ -751,7 +775,12 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
       ["{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}", ["p", "c"], ["p"]],
       ["{a: {b: {c: 1, : y, c: 2}, a: 4}, z: 5}", ["c"], ["c"]],
       ["{a: integer, a: string}", ["a"], ["a"]],
-      ['{p: {a as "w": integer}, q: integer, q: string}', ["q"], ["q"]],
+      [
+        '{p: {a as "w": integer}, q: integer, q: string}',
+        ["q"],
+        ["q"],
+        [dupLine("q"), renLine("a")],
+      ],
       ["{p: {c: 1, : y, c: 2, c: 3}, p: 9}", ["p", "c"], ["p"]],
     ];
 
@@ -1020,7 +1049,13 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
   it("CONTROL H2: the capture itself, read off the parsed document at three positions", () => {
     // The mechanism, asserted directly so H1's position-dependence is not read
     // as a property of the comparison. A type carrying inter-token whitespace
-    // inside its first key is enough to separate the two captures.
+    // inside its first key is enough to separate the two captures. RE-PINNED
+    // for bug 0160 (X.Y.Z): this key does not repeat, so it used to be the
+    // re-key's own silent control; it is now a non-repeating, non-quote-led
+    // rename, refused at every position including `params:`. The capture
+    // assertions below are unmoved — they read the type-source text directly,
+    // ahead of any rule — and the DIRECT lowerer call at the end stays
+    // byte-identical, which is what proves this fix changed no lowering.
     const type = '{a  as  "w": integer, b: string}';
     expect(
       capturedQuerySchema(type),
@@ -1036,35 +1071,21 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
     const paramsDoc = parseDoc(paramsSrc(`  p: '${type}'`), "bug0159.theta");
     expect(
       diagLines(paramsDoc),
-      "H2 — this type repeats no key, so it loads at `params:` and its lowering is readable",
-    ).toEqual([]);
+      "H2 — `params:` passes the YAML scalar through verbatim, so the rendered subject is the " +
+        "raw `a` the pattern captures from `a  as  \"w\"` — the same identifier H1 pins at the " +
+        "eight joined positions, position-invariance held even though the raw key differs",
+    ).toEqual([renLine("a")]);
     expect(
-      paramsDoc.frontmatter?.params?.fields?.[0]?.type,
-      "H2 — `params:` passes the YAML scalar through verbatim, whitespace preserved",
-    ).toBe(type);
-    expect(
-      paramsDoc.frontmatter?.params?.loweredSchema,
-      "H2 — and the lowered property name shows the same divergence the diagnostic subject " +
-        "does, at the same position, from the same string: the capture is what differs, not " +
-        "the comparison",
-    ).toEqual({
-      type: "object",
-      properties: { p: { $ref: "#/$defs/__inline_799512598b7ac287" } },
-      required: ["p"],
-      additionalProperties: false,
-      $defs: {
-        __inline_799512598b7ac287: {
-          type: "object",
-          properties: { 'a  as  "w"': { type: "integer" }, b: { type: "string" } },
-          required: ['a  as  "w"', "b"],
-          additionalProperties: false,
-        },
-      },
-    });
+      paramsDoc.frontmatter,
+      "H2 — the refusal is a load-time gate, not a sanitising lowerer: a `params:` field " +
+        "carrying a refused rename withholds the WHOLE frontmatter object, so no lowered schema " +
+        "keyed on either capture ever reaches the binder",
+    ).toBeNull();
     expect(
       lowerQueryResponseSchema(capturedQuerySchema(type), [], []),
-      "H2 — the joined capture lowers the joined property name, so at every joined position " +
-        "the rule's subject and the lowering's key are one string",
+      "H2 — reached by DIRECT construction only, now that the load-path refusal withholds this " +
+        "artefact: the joined capture still lowers the joined property name byte-for-byte, so " +
+        "this fix changed no lowering, only what reaches it through a load",
     ).toEqual({
       type: "object",
       properties: { 'aas"w"': { type: "integer" }, b: { type: "string" } },

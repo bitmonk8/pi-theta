@@ -64,6 +64,19 @@
 //     duplicate rule's gates (`TypeNode.closingBraceSpelled`, withheld inside
 //     a generic type argument) and its comparison key; a key that repeats
 //     draws the duplicate row alone (bug 0176 §Fix precedence).
+//   - `theta/parse/renamed-inline-field-name` (bug 0160) — a non-repeating,
+//     non-quoted entry of the same split whose raw text spells
+//     `Ident "as" String`, an inline `as "WireName"` rename. `parseObject`'s
+//     field loop breaks its tolerant recovery at the `as` token before this
+//     spelling can be retained as a `Field`, so the position holds a rename
+//     the grammar admits but no `Type` position parses; this rule refuses the
+//     spelling instead of parsing it, leaving `theta/parse/wire-name-collision`
+//     and `theta/parse/redundant-wire-name` declaration-only. Shares the two
+//     raw-key rules' gates and key, is subordinate to both of them (a
+//     repeating or quote-led key never reaches this test), and renders the
+//     THETA-SIDE identifier its pattern captures rather than the raw key —
+//     the one rendering that answers alike at every position, token-joined or
+//     not.
 //   - `theta/parse/binding-case-mismatch` (bug 0154) — an entry of
 //     `TypeNode.fieldNames`, the theta-side IDENTIFIER retention, whose first
 //     character is neither `_` nor a lowercase letter: the inline field-name
@@ -78,7 +91,7 @@
 //     identifier rule does not depend on, so a nested `array<{ Ys: string }>`
 //     still fires. Emits before the two raw-key rules above.
 //
-// A caller may select a narrower rule SET than all seven checks
+// A caller may select a narrower rule SET than all eight checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
 //
 // The `array<T>` literal type-sink rule of grammar.md fires
@@ -110,6 +123,25 @@ import { emptySchemaBodyDiagnostic } from "./schema-declarations";
  * immutable derived set, not a mutable global.
  */
 const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
+
+/**
+ * The raw-key shape `theta/parse/renamed-inline-field-name` refuses (bug
+ * 0160): `Ident "as" (String)` — the inline `Field` form's rename clause,
+ * spelled BEFORE the entry's own top-level `:` the way `schemas.md:23` fixes
+ * it, never after it (the post-type spelling `parseObject`'s own `as` skip
+ * matches is a different, undefined form; 0160 §Non-goals). Anchored at both
+ * ends against `inlineObjectFieldKeys`' trimmed entry text, so it accepts no
+ * leading or trailing token beyond what `trim()` already removed. Matches
+ * both spellings one raw key can arrive as — the token-joined text ten of the
+ * eleven `Type` positions reconstruct (`a as "w"` → `aas"w"`) and the
+ * `params:` position's untouched YAML scalar (`a as "w"`) — and yields the
+ * SAME capture, the theta-side identifier, from both: group 1 is greedy only
+ * up to the first `as` a trailing wire name can follow, which is the only
+ * split either spelling admits. Module-scoped and derived once, like
+ * `RESERVED_KEYWORDS` above: a regex literal carries no mutable state, so
+ * this is not the global CLAUDE.md forbids.
+ */
+const INLINE_FIELD_RENAME = /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"[^"]*"|'[^']*')$/;
 
 /**
  * The annotation position a type expression occupies, which governs the
@@ -144,9 +176,10 @@ export interface TypeCheckSite {
  *     `"all"`-only checks: `theta/parse/empty-schema-body`'s
  *     empty-brace-interior rule, `theta/parse/binding-case-mismatch`'s
  *     lowercase-first identifier rule over the field name (bug 0154),
- *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule, and
- *     `theta/parse/quoted-inline-field-name`'s non-identifier-key rule. The
- *     walk still DESCENDS generic arguments, object field types and union
+ *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule,
+ *     `theta/parse/quoted-inline-field-name`'s non-identifier-key rule, and
+ *     `theta/parse/renamed-inline-field-name`'s (bug 0160) rename-clause
+ *     refusal. The walk still DESCENDS generic arguments, object field types and union
  *     arms under this selection — a nested `{}`, a nested ill-cased name, a
  *     nested repeated name, or a nested quoted name is found at any depth —
  *     but withholds `void-in-non-return-position`, `generic-arity-mismatch`
@@ -717,7 +750,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *   - `theta/parse/empty-schema-body` — an inline object type whose brace
  *     interior carries no token AND whose closing `}` was consumed
  *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
- *     under EVERY `rules` value — one of the four checks `"inline-object-shape"`
+ *     under EVERY `rules` value — one of the five checks `"inline-object-shape"`
  *     admits — and is unqualified by `position`, by `isRoot`, or by
  *     `insideGenericArgument`: an empty `array<{}>` argument still fires. An
  *     unterminated `{` fails the second half and stays silent: `ObjectType`
@@ -762,7 +795,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     second occurrence, in source order — `seen` tracks a key's first
  *     occurrence and `reported` its emission, both `Set`s, so a third
  *     occurrence draws no second line. Runs under EVERY `rules` value — one
- *     of the four checks `"inline-object-shape"` admits — and is
+ *     of the five checks `"inline-object-shape"` admits — and is
  *     unqualified by `position` or by `isRoot`, but WITHHELD when
  *     `insideGenericArgument`: a generic type argument's interior is never
  *     divided into fields, so no duplicate `required` is ever minted there
@@ -785,12 +818,52 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     alone: this rule fires only for a key occurring exactly once, so
  *     `{"a": string, "a": integer}` draws one `duplicate-inline-field-name`
  *     line and no second line from this rule. Runs under EVERY `rules`
- *     value — the fourth check `"inline-object-shape"` admits.
+ *     value — one of the five checks `"inline-object-shape"` admits.
+ *   - `theta/parse/renamed-inline-field-name` (bug 0160) — a non-repeating,
+ *     non-quote-led entry of the same `inlineObjectFieldKeys` split whose raw
+ *     text matches `Ident "as" (String)` — an inline `as "WireName"` rename
+ *     (`schemas.md:23` fixes the clause's position between the field
+ *     identifier and its type). `TypeParser.parseObject`'s field loop breaks
+ *     its tolerant recovery at the `as` token before that spelling is ever
+ *     retained as a `Field` (the tolerant "malformed field" `break`), so no
+ *     `Type` position parses the rename `grammar.md`'s inline-object section
+ *     names, and neither `theta/parse/wire-name-collision` nor
+ *     `theta/parse/redundant-wire-name` — the two codes that sentence assigns
+ *     — can ever fire there. This rule refuses the spelling instead of
+ *     teaching `parseObject` to parse it: at ten of the eleven `Type`
+ *     positions the surrounding document rebuilds the type source by joining
+ *     lexer tokens with no separator, so a fix keyed on `parseObject`'s own
+ *     tokens would answer only at the one position that does not
+ *     token-join (`params:`) — a position-DEPENDENT rule, against
+ *     `type-system.md`'s one-grammar-in-every-position invariant — and the
+ *     token-joined text (`a as "w"` → `aas"w"`) has already lost the
+ *     `theta`-side/wire-side boundary the rename exists to express, so
+ *     recovering wire-name SEMANTICS from it needs a change to the type-source
+ *     capture that is out of this rule's scope. Shares both raw-key
+ *     neighbours' gates (`closingBraceSpelled`, withheld under
+ *     `insideGenericArgument`) and their comparison key, and is subordinate to
+ *     both: a key that repeats is the duplicate rule's alone, and a key whose
+ *     first character is a quote is the quoted rule's alone, so this test
+ *     never reaches either. The pattern is written to match BOTH spellings a
+ *     raw key can arrive as and yield the SAME capture — the theta-side
+ *     identifier — from either, which is what lets one rule answer alike at
+ *     every position; that identifier is also exactly what `<field>` renders
+ *     (category 5, identifier-shaped, `placeholder-rendering-b.md`), so
+ *     unlike its two raw-key neighbours — whose subject IS the raw,
+ *     unnormalised entry text and therefore needs its own row-scoped
+ *     carve-out — this row needs none. The generic-argument carve-out is
+ *     inherited for the same reason the two neighbours withhold under it (not
+ *     for bug 0154's identifier-pass reason): this row's subject is the raw
+ *     key the LOWERING mints as a property name, and a generic argument's
+ *     interior is never divided into fields, so no such key is ever minted
+ *     there for this row to name either. Runs under EVERY `rules` value —
+ *     the fifth check `"inline-object-shape"` admits.
  *
  * Every `rules` value still descends generic arguments, object field types
  * and union arms, so a nested empty inline object, a nested ill-cased name, a
- * nested repeated field name, or a nested quoted field name is found at any
- * depth regardless of which of the three `"all"`-only checks are withheld.
+ * nested repeated field name, a nested quoted field name, or a nested
+ * rename-bearing field name is found at any depth regardless of which of the
+ * three `"all"`-only checks are withheld.
  * Descending a generic argument's `args` sets
  * `insideGenericArgument` for that argument and everything beneath it; the
  * object and union arms propagate the flag unchanged when they descend their
@@ -861,7 +934,7 @@ function walkType(
         // Nothing to descend — a token-free interior leaves `fieldTypes` empty
         // whether or not the brace closed. The closing brace is the second
         // half of the key (see `TypeNode`); the check itself runs regardless of
-        // `rules`, being one of the four checks `"inline-object-shape"` admits.
+        // `rules`, being one of the five checks `"inline-object-shape"` admits.
         if (node.braceClosed) {
           out.push(emptySchemaBodyDiagnostic("{}", site));
         }
@@ -958,9 +1031,10 @@ function walkType(
           // A non-repeating key whose first character is a quote is not an
           // identifier (`schemas.md:17` fixes a field name there; `lexical.md:13`'s
           // identifier production admits no quote character), so the raw entry text
-          // that survived `topLevelColon` unquoted is exactly the spelling to name —
-          // `a as "w"`'s key (`aas"w"`, bug 0160's open subject) starts with a
-          // letter and is left untouched by this test.
+          // that survived `topLevelColon` unquoted is exactly the spelling to name.
+          // `a as "w"`'s key (`aas"w"` token-joined, `a as "w"` at `params:`) starts
+          // with a letter and is left untouched by this test; it falls through to the
+          // rename test below instead.
           const firstChar = key.charAt(0);
           if (firstChar === '"' || firstChar === "'") {
             out.push({
@@ -969,6 +1043,43 @@ function walkType(
               file: site.file,
               range: site.range,
               message: `quoted field name '${key}' within one inline object type; field names are identifiers`,
+            });
+            continue;
+          }
+          // `theta/parse/renamed-inline-field-name` (bug 0160) — the raw key spells
+          // an `Ident "as" String` rename (`INLINE_FIELD_RENAME`, above). This site
+          // is the raw-key loop rather than `TypeParser.parseObject`'s field-name
+          // token test, on purpose: at ten of the eleven `Type` positions the
+          // document reconstructs the type source by joining lexer tokens with no
+          // separator, so a parse-level fix keyed on `parseObject`'s own tokens
+          // would fire ONLY at the one position that does not token-join
+          // (`params:`) — a position-dependent rule, against
+          // `type-system.md`'s one-grammar-everywhere invariant — and the
+          // mangled text `aas"w"` at the other ten has already lost the `theta`/
+          // `wire` boundary the rename exists to express, so wire-name SEMANTICS
+          // are unrecoverable there without changing the token-join capture,
+          // which is out of this fix's scope (0160 §Fix (a), route 2 v. route 1).
+          // The regex is written to match both spellings and yield the SAME
+          // capture — the theta-side identifier — from either, which is what lets
+          // one rule answer alike at every position. That identifier is also
+          // exactly what `<field>` renders: it is category 5, identifier-shaped
+          // (`placeholder-rendering-b.md`), so this row needs no row-scoped
+          // carve-out beside its two raw-key neighbours' — their carve-outs exist
+          // because THEIR subject is the raw, unnormalised entry text, and this
+          // row's subject never is. The generic-argument carve-out below is
+          // inherited unchanged from both neighbours, and for the same reason as
+          // theirs (not 0154's identifier pass' reason): this row's subject is the
+          // raw key the LOWERING mints as a property name, and a generic
+          // argument's interior is never divided into fields, so no such key is
+          // ever minted there for this row to name either.
+          const renamed = INLINE_FIELD_RENAME.exec(key);
+          if (renamed !== null) {
+            out.push({
+              severity: "error",
+              code: "theta/parse/renamed-inline-field-name",
+              file: site.file,
+              range: site.range,
+              message: `wire-name rename on field '${renamed[1]}' within one inline object type`,
             });
           }
         }
