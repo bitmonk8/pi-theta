@@ -108,12 +108,25 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //   u13mf,      satisfies the sink at u13m / u13md / u13mf / u13mg and
 //   u13mg,      disagrees with it at u13me, which fires u12e's species for
 //   u13mh,      real. u13mf and u13mg are the two stdlib preconditions that
-//   u13mi       refuse an unresolvable type rather than deferring on it
-//               (`array.join`'s element, the object-index key). u13mh and u13mi
-//               are the withheld-fed cells of the two sinks whose verdict the
-//               withhold DECIDES: the read sits inside a composite, so the
-//               `array.join` element precondition and the primitive-annotated
+//   u13mi,      refuse an unresolvable type rather than deferring on it
+//   u13mj,      (`array.join`'s element, the object-index key). u13mh and u13mi
+//   u13mk,      are the withheld-fed cells of the two sinks whose verdict the
+//   u13ml,      withhold DECIDES: the read sits inside a composite, so the
+//   u13mm       `array.join` element precondition and the primitive-annotated
 //               `let` RHS each have a structure to judge and a hole in it.
+//               u13mj, u13mk and u13ml are the same class at the three
+//               remaining such sinks; u13mm is a second binder class at the
+//               already-pinned `join` sink, not a fourth sink. u13mj: the
+//               inferred `subagent fn` payload
+//               is an `array` the declared `integer` refuses by outer kind, so
+//               the annotation check cannot defer on the sentinel. u13mk: a
+//               schema field declared `array<T>` sends each branch through the
+//               element sink's structural relation — the typed-`let` route
+//               cannot reach it, its own gate answers first. u13ml: the read is
+//               a PART of the field value, so the declared primitive is decided
+//               against an `array` outer kind rather than deferred on. u13mm:
+//               the join element over a `match`-arm binder, the binder class
+//               u13mh does not carry.
 //   u13p,       the differentiators for that group, one per withheld sink: a
 //   u13pb,      typed `let`, both iterand call sites, an object-field value, an
 //   u13pc,      array element, a `subagent fn` return annotation, a `join`
@@ -969,6 +982,32 @@ const U13PH_OBJECT_INDEX_PROVEN_KEY =
  */
 const U13MH_JOIN_WITHHELD_ELEMENT = FM + 'fn h(x) { let s = [x].join(",") }\n1\n';
 const U13MI_LET_ANNOT_WITHHELD_ELEMENT = FM + "fn h(x) { let s: integer = [x] }\n1\n";
+
+/**
+ * The three remaining sinks whose verdict the withhold DECIDES, each fed the
+ * read from INSIDE a composite for the same reason U13MH and U13MI do, plus
+ * the `join` sink's second binder class: with the read as the WHOLE operand
+ * the sink's own unresolvable-`named` handling answers first and the gate is
+ * never what silences it.
+ *
+ * The route matters at the two schema sinks. A typed `let` cannot reach the
+ * array-element sink with a withheld branch, because the typed-`let` gate in
+ * `walkStmt`'s `case "let"` answers one level up; a schema constructor with a
+ * declared `array<T>` field reaches it, because `checkObjectField`'s declared
+ * element sink sits OUTSIDE that method's own gate.
+ *
+ * The binder is an unannotated `fn` parameter at the first three and a `match`
+ * pattern binder at the fourth — the two classes `recordWithheldBinders` still
+ * mints — so the fourth pins a binder class no cell reaches at the `join` sink.
+ */
+const U13MJ_SUBAGENT_RETURN_WITHHELD_ELEMENT =
+  FM + "subagent fn h(x): integer { return [x] }\nlet r = h(1)\nr\n";
+const U13MK_SCHEMA_ARRAY_FIELD_WITHHELD_ELEMENT =
+  FM + "schema Q { b: array<integer> }\nfn h(x) { let m = Q { b: [[x]] } }\n1\n";
+const U13ML_OBJECT_FIELD_WITHHELD_ELEMENT =
+  FM + "schema Q { b: string }\nfn h(x) { let m = Q { b: [x] } }\n1\n";
+const U13MM_JOIN_MATCH_BINDER_ELEMENT =
+  FM + 'let m = match "hi" { x => [x].join(",") }\nm\n';
 
 /** The marking channel's true positive when an arm body IS its binder, and the render residual. */
 const U13E_ARM_IDENTITY_MARKING =
@@ -2604,11 +2643,25 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // — so u13me fires; see that cell's own comment.
 //
 // WHICH CELLS CARRY THE WITHHELD SUBJECT, and which rest on a proven element:
-// u13c and u13mb (object-field value), u13d and u13mc (`par for` iterand),
-// u13e (the fn-arg identity channel), u13r (the composite render), u13mh (the
-// `array.join` element) and u13mi (the typed-`let` RHS) read a `match`-arm
-// binder or an unannotated `fn` parameter, the classes bug 0126 leaves
-// withheld, so those six sinks are where the group's own subject is measured;
+// u13r (the composite render), u13mh and u13mm (the `array.join` element, over
+// an unannotated parameter and over a `match`-arm binder), u13mi (the
+// typed-`let` RHS), u13mj (the `subagent fn` return annotation), u13mk (the
+// array-element common type) and u13ml (the object-field value) read a
+// `match`-arm binder or an unannotated `fn` parameter, the classes bug 0126
+// leaves withheld, and each puts that read INSIDE a composite the sink judges
+// structurally, so those are the sinks where the group's own subject is
+// measured. u13d and u13mc (the `par for` iterand) read the SAME withheld
+// classes as the WHOLE operand, not inside a composite: `checkForIterand`
+// refuses every unresolvable iterand outright, the same blanket refusal
+// u13mf and u13mg draw, so the withheld subject is what the row refuses
+// rather than what a structural check judges. u13e is neither: the arm body
+// IS the bare binder, so bug 0199's identity-marking channel is what turns
+// the withheld read back into a real verdict, not a structural judgement of
+// a composite. u13c and u13mb sit at the object-field value sink too, but
+// they route the read as the WHOLE field value, where the emitter answers on
+// the operand's own unresolvability and the gate decides nothing — u13ml is
+// that sink's measured cell, and u13c / u13mb keep their own subject, that
+// the row defers on an unresolvable value type;
 // u13, u13b, u13m, u13md, u13mf and u13mg read a plain `for` variable and rest
 // on its proven element, where what they discriminate is the sink's channel —
 // the RECORDED element type, never the binder's spelling — which is the same
@@ -2981,6 +3034,95 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     expect(
       doc.diagnostics,
       `u13mi — a structurally decided annotation over a composite whose element is withheld supports no verdict. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mj: a `subagent fn` return annotation over a payload built from a WITHHELD read draws nothing", () => {
+    // The return-annotation sink's withheld-fed cell.
+    // `checkSubagentReturnAnnotation` runs FN-3 payload inference first, so the
+    // payload IS reached and it carries the sentinel inside an `array` outer
+    // kind. `checkInvokeReturnType` then decides the declared `integer` against
+    // that outer kind structurally, before any `resolveNamed` arm, so the
+    // sentinel's unresolvability cannot defer this row on its own: the gate in
+    // `checkSubagentReturnAnnotation` is what keeps this list empty, and the
+    // runtime payload is whatever the caller passes. Cell u13pf is the same
+    // position over an annotated parameter and reports, so the silence here is
+    // a withhold and not an unreached check.
+    const doc = parse(U13MJ_SUBAGENT_RETURN_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "r"),
+      "PRECONDITION: the call of `h` binds `let r` on body line 5; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(5, 1, 5, 13));
+    expect(
+      doc.diagnostics,
+      `u13mj — a boundary payload built from a withheld read supports no verdict at an annotation decided by its outer kind. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mk: an array-element sink over a branch built from a WITHHELD read draws nothing", () => {
+    // The array-element sink's withheld-fed cell, reached through a schema
+    // constructor rather than a typed `let`: `checkObjectField`'s declared
+    // `array<T>` element sink sits OUTSIDE that method's own gate, whereas the
+    // `let` route's element sink sits INSIDE the typed-`let` gate, so
+    // `let a: array<integer> = [[x]]` would measure u13mi's gate instead. The
+    // branch `[x]` is an `array` BUILT from the read, and `checkCommonType`'s
+    // in-scope-sink arm tests each branch against the declared `integer`
+    // element through the structural relation, which cannot defer on an
+    // unresolvable name, so the gate in `checkArrayLiteral` is what keeps this
+    // list empty. Cell u13pe is the same sink over a proven `string` element
+    // and reports, so the silence here is a withhold and not an unreached
+    // check.
+    const doc = parse(U13MK_SCHEMA_ARRAY_FIELD_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `Q { b: [[x]] }` constructor sits in the `let m` initialiser inside `h`'s body on body line 5; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(5, 11, 5, 33));
+    expect(
+      doc.diagnostics,
+      `u13mk — a branch whose element is withheld supports no verdict at an element sink that reports the first failing branch by index. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13ml: an object-field value built from a WITHHELD read draws nothing", () => {
+    // The object-field sink's withheld-fed cell. The read is a PART of the
+    // field value's type — `[x]` is an `array` whose element carries the
+    // sentinel — so `checkObjectFieldCompat` has a structure to judge and
+    // decides the declared `string` against an `array` outer kind before any
+    // `resolveNamed` arm: the gate in `checkObjectField` is what keeps this
+    // list empty. That is what separates this cell from u13c and u13mb, whose
+    // whole-operand shape the emitter defers on by itself. Cell u13pd is the
+    // same sink over a proven `integer` value and reports, so the silence here
+    // is a withhold and not an unreached check.
+    const doc = parse(U13ML_OBJECT_FIELD_WITHHELD_ELEMENT);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `Q { b: [x] }` constructor sits in the `let m` initialiser inside `h`'s body on body line 5; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(5, 11, 5, 31));
+    expect(
+      doc.diagnostics,
+      `u13ml — a field value whose element is withheld supports no verdict at a row decided by the value's outer kind. Diagnostics: ${render(doc)}`,
+    ).toEqual([]);
+  });
+
+  it("u13mm: the `array.join` element precondition over a `match`-BINDER element draws nothing", () => {
+    // The join sink's second binder class. u13mh feeds it an unannotated `fn`
+    // parameter; here the read is a `match` pattern binder, the other class
+    // `recordWithheldBinders` mints, and the arm body is the `join` call itself.
+    // The receiver is an array BUILT from the read, so `checkMethodCall`'s
+    // `join` branch IS entered and the element carries the sentinel;
+    // `checkArrayJoin` admits a `string` element and refuses every other one,
+    // an unresolvable name included, so it cannot defer on this element by
+    // itself and the gate in that branch is what keeps this list empty. Cell
+    // u13pg is the same position over a proven `integer` element and reports,
+    // so the silence here is a withhold and not an unreached check.
+    const doc = parse(U13MM_JOIN_MATCH_BINDER_ELEMENT);
+    expect(
+      letRange(doc, "m"),
+      "PRECONDITION: the `match` whose arm body is the `join` call binds `let m` on body line 4; a drifted layout must fail here rather than let the empty diagnostic list below measure nothing",
+    ).toEqual(range(4, 1, 4, 42));
+    expect(
+      doc.diagnostics,
+      `u13mm — a \`match\`-arm binder read is withheld at the join precondition exactly as an unannotated parameter's is. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 

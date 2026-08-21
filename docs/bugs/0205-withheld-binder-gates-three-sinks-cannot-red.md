@@ -1,6 +1,6 @@
 # Bug 0205 — Three of the eight `containsWithheldBinderType` gates in `src/parser/type-layer-checks.ts` — the `subagent fn` return annotation (`checkSubagentReturnAnnotation`, `:1699`), the array-literal common type (`checkArrayLiteral`, `:1833`) and the object-field value (`checkObjectField`, `:1942`) — have no pinning cell anywhere in the suite: neutering each one leaves the full default suite at `325 files / 5949 tests` green, and the fixtures that discriminate them (`subagent fn h(x): integer { return [x] }`, `Q { b: [[x]] }` and `Q { b: [x] }` over a schema-declared field) parse `[]` at HEAD and exist in no committed test
 
-- **Status:** open. §Fix is settled: additive absence cells with their
+- **Status:** fixed (0.154.0). §Fix is settled: additive absence cells with their
   emitting-twin controls in bug 0050's witness
   (`tests/fn-arg-type-mismatch-wired.test.ts`), on the pattern bug
   [0193](./0193-withheld-binder-gates-lost-last-pinning-cells.md) shipped for
@@ -528,3 +528,186 @@ the shape `u13mh` and `u13mi` use.
   over one scratch vitest file driving `parseDoc`, `rg` and file reads for
   everything else. The scratch file was deleted after measurement;
   `git status --short` and `ls tests | grep -i scratch` are both empty.
+
+## Fix (0.154.0)
+
+Tests only, as §Fix settles it: `src/**` is byte-untouched
+(`git hash-object src/parser/type-layer-checks.ts` equals
+`git rev-parse HEAD:src/parser/type-layer-checks.ts`,
+`94522f67b84d237a318dfe97a1acc7bb3b9045b2`, re-checked after all twelve
+neutralisations across three independent measurers), no assertion flipped, no
+fixture re-pointed, no registry or spec row engaged. `git diff --numstat` is
+`152 10 tests/fn-arg-type-mismatch-wired.test.ts` — a single file, and every
+one of the ten deletions is comment text inside the two prose blocks §Fix item
+6 assigns; no `-` line is executable.
+
+- **What shipped:** `tests/fn-arg-type-mismatch-wired.test.ts` — four additive
+  absence cells in the `u13*` group beside `u13mi`, their four fixture
+  constants under one doc-comment, and §Fix item 6's two prose updates. Cell
+  identifiers are the next free ones on the file's own `u13m*` scheme.
+  - `u13mj` (§Fix item 1) — the `subagent fn` return-annotation sink. Fixture
+    `U13MJ_SUBAGENT_RETURN_WITHHELD_ELEMENT`, the source
+    `subagent fn h(x): integer { return [x] }` with `let r = h(1)`, expected
+    `[]` as an ordered whole-list `toEqual` behind a loud `letRange(doc, "r")`
+    precondition. `checkSubagentReturnAnnotation` runs FN-3 payload inference
+    first, so the payload is reached carrying the sentinel inside an `array`
+    outer kind, and `checkInvokeReturnType` decides the declared `integer`
+    against that outer kind before any `resolveNamed` arm — the gate, not the
+    sentinel's unresolvability, is what keeps the list empty.
+  - `u13mk` (§Fix item 2) — the array-literal common-type sink. Fixture
+    `U13MK_SCHEMA_ARRAY_FIELD_WITHHELD_ELEMENT`, `schema Q { b: array<integer> }`
+    with `fn h(x) { let m = Q { b: [[x]] } }`. The route is a schema
+    constructor and not a typed `let`: `checkObjectField`'s
+    declared-`array<T>` element sink sits OUTSIDE that method's own gate,
+    whereas the `let` route's element sink sits INSIDE the typed-`let` gate, so
+    `let a: array<integer> = [[x]]` would measure `u13mi`'s gate instead.
+  - `u13ml` (§Fix item 3) — the object-field value sink. Fixture
+    `U13ML_OBJECT_FIELD_WITHHELD_ELEMENT`, `schema Q { b: string }` with
+    `fn h(x) { let m = Q { b: [x] } }`. The withheld read is a PART of the
+    field value's type, so `checkObjectFieldCompat` has a structure to judge —
+    unlike `u13c` / `u13mb`, whose whole-operand shape the emitter defers on by
+    itself.
+  - `u13mm` (§Fix item 4) — the `array.join` element over a `match` pattern
+    binder, 0193's residual 2, now measured rather than optional. Fixture
+    `U13MM_JOIN_MATCH_BINDER_ELEMENT`, `let m = match "hi" { x => [x].join(",") }`.
+    It pins a binder class no cell reached at that sink; it is a second binder
+    class at an already-pinned sink, not a fourth unpinned sink.
+  - Binder class per §Fix item 5: an unannotated `fn` parameter at the first
+    three cells and a `match` pattern binder at the fourth — the two classes
+    `recordWithheldBinders` still mints after 0126 — so no cell is exposed to a
+    future change in plain-`for` binding. §Fix item 5's optional `match`-binder
+    twins of cells 2 and 3 (probes C13, O5) were not written: each sink has its
+    one discriminating cell, which item 5 permits.
+  - Controls per §Fix items 1–4, cited in each cell's comment on `g6`'s
+    pattern: `u13pf`, `u13pe`, `u13pd` and `u13pg`, each read and verified to
+    sit at the same position over a non-withheld operand. No expected-message
+    literal was added — all four cells expect `[]`, so DIAG-4's
+    `registryMessage` oracle is untouched.
+  - §Fix item 6 prose: the u13 block's "WHICH CELLS CARRY THE WITHHELD
+    SUBJECT" sentence no longer counts the object-field value sink as measured
+    by `u13c` / `u13mb`; it names `u13ml` as that sink's measured cell, states
+    that `u13c` / `u13mb` route the read as the WHOLE field value where the
+    emitter answers on the operand's own unresolvability, and keeps their own
+    subject intact. The head-of-file cell inventory gains `u13mj`–`u13mm` with
+    one mechanism line each on the `u13mh` / `u13mi` shape.
+  - Every new comment keys on SYMBOL names only, with no `path:line` citation
+    into `src/parser/type-layer-checks.ts`. That file's line layout is moving
+    under concurrent work, and a symbol-keyed comment survives the move; the
+    existing cells' stale citations are bug
+    [0134](./0134-params-shift-induced-stale-citations.md)'s class and are not
+    swept.
+- **Gates:**
+  - Witness file: `npx vitest run tests/fn-arg-type-mismatch-wired.test.ts` →
+    `Test Files 1 passed (1)` / `Tests 93 passed (93)`, the 89 `it`s at this
+    HEAD plus four. §Fix item 8's 93 is exact.
+  - Full default suite: `npm test` → `Test Files 349 passed (349)` /
+    `Tests 6974 passed (6974)`. Baseline at the fork was 349 / 6970, so the
+    delta is exactly the four new cells and nothing flipped anywhere else.
+    §Fix item 8's `5949 → 5953` was the 0.124.0-era total.
+  - `npx tsc -p tsconfig.json --noEmit` → clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) →
+    clean, no output.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned two `prose`
+  findings and no `correctness`, `fidelity` or `spec` finding. It verified
+  independently, by reading the four sinks and re-running all four
+  neutralisations itself, that each fixture places the withheld read inside a
+  composite the sink judges structurally, that each binder is a class
+  `recordWithheldBinders` mints, that all four `letRange` ranges are correct
+  and fail loudly, that the four controls really are the emitting twins of
+  these positions, that no hunk falls inside an existing `it(` body, and that
+  no added line carries a line-number citation into the moving source file.
+  The two findings: the rewritten narrative sentence extended its "read INSIDE
+  a composite, judged structurally" clause over `u13d`, `u13mc` and `u13e`, for
+  which it is false — those read the whole operand, and their sinks refuse
+  every unresolvable operand outright (`checkForIterand`) or run bug 0199's
+  identity-marking channel; and both new prose blocks said "four remaining
+  sinks" where three sinks were unpinned, contradicting their own later text
+  that `u13mm` is a second binder class at an already-pinned sink. Both fixed
+  in one comment-only round (`bug-fix-fixer-light`); that round's diff touches
+  no executable line, its two new mechanism claims were checked against
+  `checkForIterand`'s own in-source doc-comment and against `u13e`'s comment,
+  and the gate re-run is green — so the polish was verified by gate-diff and
+  the confirmation review round was skipped.
+- **Verification:** verified (`bug-fix-verifier`, 1 round, no findings).
+  - §Fix item 7, both directions, per gate, reproduced independently rather
+    than taken from the earlier runs. Each gate neutered by one targeted byte
+    edit, restored by explicit inverse edit, each restore proved by blob hash
+    against `HEAD:src/parser/type-layer-checks.ts`:
+    - `checkSubagentReturnAnnotation` → `if (false)`: `1 failed | 92 passed`,
+      the single red `u13mj` with `theta/parse/invoke-return-type-mismatch`
+      `@4:10-4:41`, `… callee 'h' return type array<<withheld>>`.
+    - `checkArrayLiteral` → `if (false)`: `1 failed | 92 passed`, the single red
+      `u13mk` with `theta/parse/array-element-type-mismatch` `@5:26-5:31`,
+      `… at index 0: expected integer, got array<<withheld>>`.
+    - `checkObjectField` → `if (true)`: `2 failed | 91 passed`, the reds `u13ml`
+      (`… expected string, got array<<withheld>>`) and `u13mk`
+      (`… expected array<integer>, got array<array<<withheld>>>`).
+    - `checkMethodCall`'s `join` branch → `false`: `2 failed | 91 passed`, the
+      reds `u13mm` (`theta/parse/non-string-array-join` `@4:27-4:40`,
+      `… got array<<withheld>>`) and the pre-existing `u13mh` at `@4:19-4:32`,
+      which §Fix item 7 expects.
+    Every red carries `array<<withheld>>` under an `E` code, and each gate's red
+    SET is distinct, so each gate's removal is individually visible to the
+    suite — which is the property this report exists to create.
+  - The pre-fix half of the witness was measured once, on the pristine tree
+    before the cells existed: neutering `checkSubagentReturnAnnotation`,
+    `checkArrayLiteral` or `checkObjectField` each left the FULL suite at
+    `349 passed (349)` / `6970 passed (6970)`, and neutering the `join` branch
+    red `u13mh` alone. That is the defect this report names, re-measured at this
+    HEAD rather than inherited from §Reproduction.
+  - Full default suite green in the delivered state; typecheck and lint clean;
+    `src/**` byte-untouched at the end
+    (`94522f67b84d237a318dfe97a1acc7bb3b9045b2` on both sides).
+  - Live obligation discharged without a live run and proved rather than
+    asserted: `git diff --numstat` names one file and it is not under
+    `tests/live/**`; the four fixtures reach only `parse` → `parseDoc`, with no
+    `SessionManager`, no child process and no provider in the path. §Fix item 8
+    settles it and 0193's verification discharged the identical obligation the
+    same way.
+  - Fidelity spot-check: no hunk falls inside any existing `it(` body; `u13c`,
+    `u13mb`, `u13mh`, `u13mi` and all four controls keep byte-identical
+    assertions.
+- **Residuals:**
+  1. **Neutering `checkObjectField`'s gate reds two cells, not one — §Fix item
+     7's "exactly that gate's new cell" is wrong here, and the fixture is not
+     at fault.** `u13mk`'s field value is `array<array<<withheld>>>` against a
+     declared `array<integer>`, so with the object-field gate off
+     `checkObjectFieldCompat` judges it at the enclosing field row of the very
+     same statement. The coupling is intrinsic to the route §Fix item 2
+     prescribes: the array-element sink is withheld-reachable ONLY through a
+     schema constructor, and every schema-constructor route crosses
+     `checkObjectField` first. Discrimination survives in the direction that
+     matters — neutering `checkArrayLiteral` alone reds `u13mk` alone, and the
+     two gates' red sets differ in membership, code and message. The document
+     never measured probe C11 under the object-field neutering, so it did not
+     see this. No assertion was weakened to accommodate it.
+  2. **A gate call site the document does not name.** A search for
+     `containsWithheldBinderType` in `src/parser/type-layer-checks.ts` finds ten
+     occurrences at this HEAD, four of them the predicate itself, leaving nine
+     gates rather than §Reproduction step 1's eight: there is a `let`-arm site
+     testing both a declared type and an RHS type that post-dates the filing.
+     It is not measured for pin status here — §Non-goals scopes this fix to the
+     three named sinks — and it is recorded so the next reader does not
+     re-derive the eight-site count from a stale enumeration.
+  3. **The document's line citations are stale, and no sweep is made.** Every
+     `src/parser/type-layer-checks.ts` citation in §Affected, §Reproduction and
+     §Fix was measured at v0.124.0. Re-measured by symbol at this HEAD, the
+     typed-`let` gate, the `for` iterand gate, `checkSubagentReturnAnnotation`,
+     `checkArrayLiteral`, `checkObjectField`, the `par for` iterand,
+     `checkObjectIndex` and `checkMethodCall`'s `join` branch all sit at
+     different lines. The suite totals in §Reproduction and §Fix item 8 are
+     equally superseded (`325 / 5949` → `349 / 6970`). That is bug 0134's class
+     and §Non-goals excludes it.
+  4. **The four new cells shift this witness's line citations.** The file grows
+     from 3305 to 3447 lines, so any citation into
+     `tests/fn-arg-type-mismatch-wired.test.ts` past the first added hunk is
+     stale by the amount added above it. Inherent to an additive-cell fix, the
+     same recorded class as residual 3; no sweep is made.
+- **Discharge notes appended:** bug 0193's `## Fix (0.124.0)` §*Residuals*
+  items 2 and 3 — the filing origin — now record this fix as their discharge.
+- **Pinned dispositions / non-goals:** all nine gates stay byte-identical, so
+  no defect is asserted against `src/**`. `u13c` and `u13mb` keep their
+  post-0126 subject and their byte-identical assertions — the new cells sit
+  beside them, not over them, and only the block-level narrative was corrected.
+  §Fix item 5's optional `match`-binder twins, the citation sweeps of residuals
+  3 and 4, and the pin status of residual 2's ninth site all stay out.

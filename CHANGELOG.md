@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.154.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0205 — the three unpinned `containsWithheldBinderType` gates are now
+  pinned** (tests-only, the 0193 shape): additive absence cells
+  u13mj/u13mk/u13ml/u13mm in `tests/fn-arg-type-mismatch-wired.test.ts` pin
+  `checkSubagentReturnAnnotation`, `checkArrayLiteral`, `checkObjectField`,
+  and `checkMethodCall`'s `join` branch over a `match` binder — pre-fix the
+  first three gates were deletable with the whole suite green. Source
+  byte-untouched. 0193's residuals 2 and 3 discharged.
+
 ## [0.153.0] - 2026-08-26
 
 ### Fixed

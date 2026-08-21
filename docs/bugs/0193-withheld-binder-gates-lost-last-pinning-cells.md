@@ -704,11 +704,30 @@ that cannot red.
      this HEAD, and its neutered direction remains unmeasured, so no cell was
      written for it. It stays what the document calls it: a candidate, not an
      obligation.
+
+     **Discharged by bug
+     [0205](./0205-withheld-binder-gates-three-sinks-cannot-red.md)
+     `## Fix (X.Y.Z)`.** That fix measures the shape in both directions and
+     ships it as cell `u13mm`: `[]` as shipped, and
+     `theta/parse/non-string-array-join … got array<<withheld>>` with the
+     `join` branch's gate neutered, beside `u13mh`'s expected red. The
+     `match`-binder class at the join sink is pinned.
   3. **Six of the eight gate call sites are still unmeasured for pin status.**
      §Non-goals scopes this fix to two sinks; the object-field, `par for`
      iterand, subagent-return, array-common-type and plain-`for` iterand sinks
      were not measured, and the arithmetic between 0126's round-2 "four sinks"
      and its settled residual's two is not re-derived here either.
+
+     **Discharged by bug
+     [0205](./0205-withheld-binder-gates-three-sinks-cannot-red.md).** Its
+     filing measures all six against the full suite: the plain-`for` iterand,
+     the `par for` iterand and the object-index key are pinned; the
+     `subagent fn` return annotation, the array-literal common type and the
+     object-field value are not, and its `## Fix (X.Y.Z)` pins those three with
+     cells `u13mj`, `u13mk` and `u13ml`. The arithmetic 0126 left open resolves
+     to three unpinned sinks, the object-field value being the one neither of
+     0126's counts named. Its residual 2 also records a ninth gate call site
+     that post-dates this document's eight-site enumeration.
 - **Discharge notes appended:** bug 0126's `## Fix (0.107.0)` §*Residuals*
   item 1 — the filing origin — now records this fix as its discharge, naming
   both cells and the per-gate neutralisation evidence.
