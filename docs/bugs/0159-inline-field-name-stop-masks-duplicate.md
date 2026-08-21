@@ -950,3 +950,18 @@ modified state.
   `theta/parse/wire-name-collision` and its own bytes. The `as "WireName"`
   clause's wire-name SEMANTICS remain unparsed and remain 0160's subject, as
   does the `<schema>` placeholder question for that row.
+
+## Note — bug 0176 discharged this fix record's *Residuals* item 1 (0.161.0)
+
+The quoted-key SINGLE-field admission this record named as owed to a filing is
+closed by [0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md)
+on its §Fix route **A**: a non-repeating inline key whose first character is `"`
+or `'` is refused as `theta/parse/quoted-inline-field-name` at every `Type`
+position, so `{"a": string}` no longer lowers `properties['"a"']`. This fix's
+comparison key is unchanged and was REUSED, not re-adjudicated — the new row
+reads the same `inlineObjectFieldKeys` list, behind the same two gates, and a
+key that repeats still keeps `theta/parse/duplicate-inline-field-name` alone.
+Four cells of the witness this fix shipped were re-pinned there (A3, B1, D1 and
+G2 of `tests/inline-object-field-name-comparison-key.test.ts`; G2's own comment
+authorised its inversion), each with its subject preserved. Status unchanged
+(**fixed (0.93.0)**).

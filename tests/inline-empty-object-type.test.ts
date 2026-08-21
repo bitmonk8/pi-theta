@@ -184,6 +184,18 @@ function declLine(name: string): string {
   return line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", name]]));
 }
 
+/** The code bug 0176 §Fix route A adds for a QUOTED inline field-name key. */
+const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
+
+/**
+ * The rendering for a quoted inline field-name key (bug 0176 §Fix route A): the
+ * subject is the entry's raw pre-colon text after `trim()`, rendered verbatim by
+ * that row's own `<field>` carve-out (placeholder-rendering-b.md:10).
+ */
+function quotedInlineLine(field: string): string {
+  return line(QUOTED_INLINE, msg(QUOTED_INLINE, [["<field>", field]]));
+}
+
 // ===========================================================================
 // Fixtures. One builder per position of grammar.md's enumeration. Every body
 // fixture ends `let a = 1` + `a` so the theta carries a tail expression, and
@@ -786,13 +798,19 @@ describe("bug 0045 (f) — a malformed or unterminated brace is not an empty one
     );
   });
 
-  it("CONTROL f2: `schema S { f: { \"a\": string } }` stays silent", () => {
+  it("CONTROL f2: `schema S { f: { \"a\": string } }` draws bug 0176's quoted-key refusal and NOT this rule's", () => {
+    // WHY THIS LINE MOVED: bug 0176 §Fix route A refuses a non-repeating inline
+    // field-name key whose first character is a quote, at `inlineObjectFieldKeys`
+    // and behind this rule's own two gates — this cell's subject (no
+    // `empty-schema-body` over a NON-EMPTY interior) is preserved by asserting
+    // the whole list, which names the other row and never this one.
     expectList(
       body('schema S { f: { "a": string } }'),
-      [],
+      [quotedInlineLine('"a"')],
       "f2 — a non-`ident` field name is skipped by the tolerant recovery and yields no field " +
         "type, which is indistinguishable from emptiness by field count and distinguishable " +
-        "by interior token",
+        "by interior token: this interior is not empty, so `theta/parse/empty-schema-body` " +
+        "stays absent however the quoted key is otherwise disposed of",
     );
   });
 

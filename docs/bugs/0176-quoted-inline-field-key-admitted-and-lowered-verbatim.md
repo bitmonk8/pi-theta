@@ -1,6 +1,6 @@
 # Bug 0176 — `grammar.md:101` refers the inline field to a `Field` form the corpus spells nowhere and `schemas.md:17` fixes as an identifier, so a SINGLE quoted field name loads with zero diagnostics at eleven measured `Type` positions and lowers a JSON Schema property whose name is the three characters `"a"` — quote characters included — a name `lexical.md:13`'s identifier production cannot spell and `schemas.md:39` reserves to the `as "WireName"` clause; AJV then enforces it against the model, so a payload naming the field the author wrote draws `must have required property '"a"'` beside `must NOT have additional properties` and the typed query spends its whole three-attempt repair budget before returning `Err(ValidationError { cause: "schema_validation" })`, while a payload copying the schema's own key validates in one attempt and binds a value whose only property no theta expression can read
 
-- **Status:** open. This is the re-filing
+- **Status:** fixed (0.161.0). This is the re-filing
   [0161](./0161-quoted-inline-field-name-not-a-field.md) §Fix **B2** prescribed
   and the 0159 fix run recorded as owed: 0161 closed `fixed (0.93.0)` on its own
   route-B terms — "*If route B is chosen, this report closes on the duplicate and
@@ -960,3 +960,107 @@ against the tree at HEAD `e54338a7` by `rg` or `Read`; symbols are named beside
 line numbers per [0134](./0134-params-shift-induced-stale-citations.md), because
 the commit this report is filed from grew `src/parser/type-grammar.ts` from 835
 to 923 lines and the registry row moved from `:87` to `:89`.
+
+## Fix (0.161.0)
+
+- **What shipped**
+  - `src/parser/type-grammar.ts` (923 → **977** lines) — §Fix route **A**,
+    detection site **(ii)**: `walkType`'s `object` arm now judges the key list
+    `inlineObjectFieldKeys` already derives, behind the two gates it already
+    stood on (`!insideGenericArgument && node.closingBraceSpelled`). A key
+    occurring exactly once whose first character is `"` or `'` draws the new
+    `theta/parse/quoted-inline-field-name`; occurrences are counted up front so
+    a key that REPEATS keeps `theta/parse/duplicate-inline-field-name` alone at
+    its second position, quoted or not. `TypeParser.parseObject`'s tolerant
+    `else` branch and the `fieldNames` retention are untouched — site (i) stays
+    free for 0154 (§Coordination).
+  - **§Fix A3 answered narrowly**: the trigger is the key's FIRST character, not
+    identifier-shapedness, so `{a as "w": integer}` (raw key `aas"w"`) is
+    admitted exactly as measured and 0160's subject is not pre-empted.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the new row (E,
+    parse), and the `duplicate-inline-field-name` row's added clause that a
+    NON-repeating quoted key is the new row's subject rather than its own (its
+    *Trigger*'s existing `"a"` / `'a'` / `a as "w"` sentence stays true of
+    repeats and was not deleted).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §Fix A2 answered
+    by a SECOND row-scoped `<field>` carve-out beside the duplicate row's, both
+    rows named explicitly; `<key>`'s doubled quoting was declined on the same
+    legibility ground 0159 recorded, and no other row's rendering moved.
+  - `docs/reference/diagnostics.md`, `docs/reference/grammar.md` (the
+    `ObjectType` bullet), `docs/spec_topics/grammar.md:109` — the lock-step
+    mirrors, all in the same change (DIAG-2, `diagnostic-shape.md:72`).
+  - `tests/inline-object-quoted-field-name-refusal.test.ts` (**1032** lines,
+    16 cells) — the witness §Fix *Common obligations* specifies.
+  - `tests/live/quoted-inline-field-name-live-cell.test.ts` (H8a) and
+    `tests/live/acceptance/quoted-inline-field-name-load-refusal.test.ts` (H9a
+    real `pi -p`) — the live halves of the registration-facing surface.
+- **Gates** — witness `npx vitest run tests/inline-object-quoted-field-name-refusal.test.ts`
+  → `Test Files 1 passed (1) / Tests 16 passed (16)`; the four touched offline
+  files → `129 passed (129)`; full default suite `npx vitest run` →
+  `Test Files 354 passed (354) / Tests 7114 passed (7114)`;
+  `npx tsc -p tsconfig.json --noEmit` clean; `npm run lint` clean. Live:
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/quoted-inline-field-name-live-cell.test.ts`
+  → `1 passed`, and the H9a file → `1 passed` (real `pi -p`, exit 0, 0-byte
+  stderr on the clean sibling, `OFFENDER REFUSED` on the offender).
+- **Review** — 1 round. Round 1 (deep): one `spec` defect — a dead same-file
+  anchor `(#object-schema)` in the `docs/spec_topics/grammar.md:109` lock-step
+  edit — plus two prose residuals; the anchor and one metaphor were fixed in a
+  docs-only polish round, whose diff touches no executable line, so the
+  confirmation round was discharged by gate-diff inspection instead. A
+  pre-review citation-correction round (comment-only) re-derived the three
+  `type-grammar.ts` line numbers the added doc comments shifted
+  (`:647/:784/:813` → `:656/:809/:838`).
+- **Verification** — SOLID. (1) Neutralising the emission guard reds exactly the
+  ten cells derived in advance — the five new RED cells and the five re-pinned
+  ones — each with the "silence instead of refusal" signature; restoration
+  proven byte-exact by `git hash-object` against the pre-neutralisation hash.
+  (2) Default suite green. (3) Both live halves run for real and proven red in
+  both directions (the neutralised runs red on the offline attribution guard
+  before any provider call). (4) Typecheck and lint clean.
+- **Residuals**
+  1. **`tests/fixtures/h7a/permitted-codes.json` needed no entry**, decided by
+     the real H9a run and not assumed: the load-time refusal reaches only the
+     `theta-system-note` channel, so `parseSystemNoteCodes(stdout + stderr)`
+     measured `[]` (the disposition 0128 recorded for the same class).
+  2. **§Reproduction (j)'s census re-run at the fix HEAD**: 34
+     `.theta`/`.thetalib` in the working tree, **0** PCRE2 matches for
+     `[{,]\s*(["'])[^"']*\1\s*:` — no committed source moves, so the GOV-15
+     disposition is the addition arm of the diagnostic-registry carve-out
+     (`source-language-stability.md:25`) over an in-repo input set that is
+     empty.
+  3. **Six landed cells were re-pinned** (subjects preserved, nothing weakened,
+     no fixture source changed): `tests/inline-object-field-name-comparison-key.test.ts`
+     A3, B1, D1 and G2 (G2's own comment pre-authorised its inversion);
+     `tests/inline-object-duplicate-field-name.test.ts` k2, which now carries
+     the quoted line ahead of its unchanged duplicate line; and
+     `tests/inline-empty-object-type.test.ts` f2, whose subject — no
+     `empty-schema-body` over a non-empty interior — is preserved by its
+     whole-list assertion. §Fix A6 authorises the comparison-key flips; k2 and
+     f2 are consequences of the settled route rather than discretionary edits,
+     and are recorded here for that reason.
+  4. **The document's byte pins predate this HEAD** and were re-derived rather
+     than trusted (0134's class): `src/parser/params.ts` **1921** (doc 1253),
+     `src/parser/body-type-lowering.ts` **629** (763),
+     `src/parser/schema-declarations.ts` **851** (819),
+     `src/seams/schema-validator.ts` **464** (168),
+     `tests/inline-object-field-name-comparison-key.test.ts` **1075** (1029);
+     the registry rows are `:91`/`:92`, not `:88`/`:89`, and
+     `docs/reference/diagnostics.md`'s rows `:140`/`:141`, not `:138`. Every
+     behavioural claim of the report reproduced unchanged at HEAD.
+  5. **Two statements in this document are internally inconsistent** and were
+     resolved in favour of the measurement: §Fix A6 says the group-(B) rows
+     flip "if A3's answer is the broad one" — they flip under the narrow answer
+     too, because their quoted keys do not repeat; and §Fix *Common
+     obligations* lists §Reproduction (g) row c5
+     (`{"a": string, 'a': integer}` → `[]`) among the immovables, which no
+     route-A refusal can honour. c5 is now two quoted lines.
+  6. **`<field>`'s "other fourteen rows" count is stale in
+     `placeholder-rendering-b.md:10`** and pre-dates this fix (17 rows carry
+     `<field>` at this HEAD). The carve-out's arithmetic was preserved as
+     found — one carved-out row became two — rather than re-counted here.
+- **Discharge notes appended** — 0159, 0160, 0161, 0154, 0052, 0045.
+- **Pinned dispositions / non-goals** — 0160's wire-name semantics (the narrow
+  A3 answer leaves `a as "w"` exactly as measured), 0154's identifier rules and
+  the `parseObject` site they need, 0133's declaration recovery, the
+  generic-argument interior, and the type-source capture's whitespace collapse:
+  all untouched, each asserted after the fix.

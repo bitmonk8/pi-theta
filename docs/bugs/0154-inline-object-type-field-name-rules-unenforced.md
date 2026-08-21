@@ -907,3 +907,14 @@ disposition, settled and recorded in
   `object` arm derives the duplicate rule's keys through a module-private
   `inlineObjectFieldKeys` helper. Cite by symbol; the line numbers in this
   report's §Affected are one minor old (0134's do-not-chase class).
+
+## Coordination note — bug 0176 took the OTHER site (0.161.0)
+
+[0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md) shipped
+its refusal at site (ii) — `walkType`'s `object` arm, over the module-private
+`inlineObjectFieldKeys` key list — and deliberately did NOT touch
+`TypeParser.parseObject`'s tolerant `else` branch or the `TypeNode.fieldNames`
+retention. Both remain available to this report's identifier rules, which need
+identifier TOKENS rather than raw entry text. Whichever rule lands next at the
+object arm adds itself to that single pass rather than opening a second scan of
+the interior. Status unchanged (**open**).

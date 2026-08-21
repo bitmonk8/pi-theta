@@ -910,3 +910,16 @@ rows, and its three single-emission rows and non-query arity control are
 byte-identical. Nothing in the rule 0045 shipped changed; what changed is how
 many times the implementation reports it at one position. Status unchanged
 (**fixed (0.57.0)**).
+
+## Note — control f2 of this report's witness was re-pinned by bug 0176 (0.161.0)
+
+[0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md) refuses
+a non-repeating quoted inline field key, so `schema S { f: { "a": string } }` —
+control f2 of `tests/inline-empty-object-type.test.ts` — now draws
+`theta/parse/quoted-inline-field-name` instead of loading silently. The cell's
+subject is preserved by its whole-list assertion: a non-empty interior still
+draws no `theta/parse/empty-schema-body`. This report's own reserved shapes are
+untouched and asserted after that fix — `{ a }` and `{ a: }` contribute no
+quoted key (the first spells no key at all, the second an identifier one), and
+`array<{"a": string}>` stays outside the new row on the same generic-argument
+ground. Status unchanged (**fixed (0.57.0)**).

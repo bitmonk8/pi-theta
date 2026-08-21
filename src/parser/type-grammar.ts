@@ -57,8 +57,15 @@
 //     key: they are the theta-side IDENTIFIER list bug 0154's identifier
 //     rules rebase onto, which the raw entry text this rule now keys on is
 //     not.
+//   - `theta/parse/quoted-inline-field-name` — a non-repeating entry of the
+//     same split whose key's first character is `"` or `'`: the inline
+//     spelling reuses the object-schema `Field` form, and schemas.md's field
+//     names are identifiers, which admit no quote character. Shares the
+//     duplicate rule's gates (`TypeNode.closingBraceSpelled`, withheld inside
+//     a generic type argument) and its comparison key; a key that repeats
+//     draws the duplicate row alone (bug 0176 §Fix precedence).
 //
-// A caller may select a narrower rule SET than all five checks
+// A caller may select a narrower rule SET than all six checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
 //
 // The `array<T>` literal type-sink rule of grammar.md fires
@@ -107,13 +114,14 @@ export interface TypeCheckSite {
  *     as documented on `walkType`.
  *   - `"inline-object-shape"` — the checks that constrain the SHAPE of an
  *     inline object type, independent of position and of the other three
- *     checks: `theta/parse/empty-schema-body`'s empty-brace-interior rule and
- *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule. The
+ *     checks: `theta/parse/empty-schema-body`'s empty-brace-interior rule,
+ *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule, and
+ *     `theta/parse/quoted-inline-field-name`'s non-identifier-key rule. The
  *     walk still DESCENDS generic arguments, object field types and union
- *     arms under this selection — a nested `{}` or a nested repeated name is
- *     found at any depth — but withholds `void-in-non-return-position`,
- *     `generic-arity-mismatch` and `result-in-schema-position`, which stay
- *     `"all"`-only.
+ *     arms under this selection — a nested `{}`, a nested repeated name, or a
+ *     nested quoted name is found at any depth — but withholds
+ *     `void-in-non-return-position`, `generic-arity-mismatch` and
+ *     `result-in-schema-position`, which stay `"all"`-only.
  *
  * A caller selects `"inline-object-shape"` when its position runs no other
  * type-grammar pass, so importing the other three checks in the same edit
@@ -624,9 +632,10 @@ class TypeParser {
 }
 
 /**
- * The comparison key `theta/parse/duplicate-inline-field-name` (`walkType`'s
- * `object` arm, below) runs over: every entry a brace-and-angle-aware
- * top-level comma split of `interiorSource` yields
+ * The comparison key `theta/parse/duplicate-inline-field-name` AND
+ * `theta/parse/quoted-inline-field-name` (`walkType`'s `object` arm, below)
+ * run over: every entry a brace-and-angle-aware top-level comma split of
+ * `interiorSource` yields
  * (`splitTopLevel(interiorSource, ",", "angle-and-brace")`, `./params`),
  * keyed on that entry's own raw text before its own top-level `:`
  * (`topLevelColon`, `./params`) after `trim()` — no unquoting, no
@@ -679,7 +688,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *   - `theta/parse/empty-schema-body` — an inline object type whose brace
  *     interior carries no token AND whose closing `}` was consumed
  *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
- *     under EVERY `rules` value — one of the two checks `"inline-object-shape"`
+ *     under EVERY `rules` value — one of the three checks `"inline-object-shape"`
  *     admits — and is unqualified by `position`, by `isRoot`, or by
  *     `insideGenericArgument`: an empty `array<{}>` argument still fires. An
  *     unterminated `{` fails the second half and stays silent: `ObjectType`
@@ -703,20 +712,36 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     an enclosing interior spells. One diagnostic per repeated key, at its
  *     second occurrence, in source order — `seen` tracks a key's first
  *     occurrence and `reported` its emission, both `Set`s, so a third
- *     occurrence draws no second line. Runs under EVERY `rules` value — the
- *     other check `"inline-object-shape"` admits — and is unqualified by
- *     `position` or by `isRoot`, but WITHHELD when `insideGenericArgument`: a
- *     generic type argument's interior is never divided into fields, so no
- *     duplicate `required` is ever minted there for this rule to name
- *     (code-registry-parse.md's row, "Two shapes sit outside this row").
- *     `TypeNode.fieldNames` — not this rule's key — stays on the node for bug
- *     0154's identifier rules, which need identifier tokens rather than this
- *     rule's raw entry text.
+ *     occurrence draws no second line. Runs under EVERY `rules` value — one
+ *     of the three checks `"inline-object-shape"` admits — and is
+ *     unqualified by `position` or by `isRoot`, but WITHHELD when
+ *     `insideGenericArgument`: a generic type argument's interior is never
+ *     divided into fields, so no duplicate `required` is ever minted there
+ *     for this rule to name (code-registry-parse.md's row, "Two shapes sit
+ *     outside this row"). `TypeNode.fieldNames` — not this rule's key —
+ *     stays on the node for bug 0154's identifier rules, which need
+ *     identifier tokens rather than this rule's raw entry text.
+ *   - `theta/parse/quoted-inline-field-name` — a non-repeating entry of the
+ *     same `inlineObjectFieldKeys` split whose key's first character is `"`
+ *     or `'`. The inline field-name slot reuses the object-schema `Field`
+ *     form (grammar.md §"Inline object types"), and `schemas.md`'s field
+ *     names are identifiers — an identifier admits no quote character
+ *     (`lexical.md`) — so the declaration spelling of the same text is
+ *     already refused (`checkObjectSchema`, schema-declarations.ts); this
+ *     rule brings the inline position into agreement with it. Shares both
+ *     of the duplicate rule's gates above (`closingBraceSpelled`, withheld
+ *     under `insideGenericArgument`) and its comparison key, so `array<{"a":
+ *     string}>` mints nothing here on the same generic-argument ground as
+ *     the duplicate rule. A key that REPEATS is the duplicate rule's subject
+ *     alone: this rule fires only for a key occurring exactly once, so
+ *     `{"a": string, "a": integer}` draws one `duplicate-inline-field-name`
+ *     line and no second line from this rule. Runs under EVERY `rules`
+ *     value — the third check `"inline-object-shape"` admits.
  *
  * Every `rules` value still descends generic arguments, object field types
- * and union arms, so a nested empty inline object or a nested repeated field
- * name is found at any depth regardless of which of the other three checks
- * are withheld. Descending a generic argument's `args` sets
+ * and union arms, so a nested empty inline object, a nested repeated field
+ * name, or a nested quoted field name is found at any depth regardless of
+ * which of the other three checks are withheld. Descending a generic argument's `args` sets
  * `insideGenericArgument` for that argument and everything beneath it; the
  * object and union arms propagate the flag unchanged when they descend their
  * own field types and arms.
@@ -786,7 +811,7 @@ function walkType(
         // Nothing to descend — a token-free interior leaves `fieldTypes` empty
         // whether or not the brace closed. The closing brace is the second
         // half of the key (see `TypeNode`); the check itself runs regardless of
-        // `rules`, being one of the two checks `"inline-object-shape"` admits.
+        // `rules`, being one of the three checks `"inline-object-shape"` admits.
         if (node.braceClosed) {
           out.push(emptySchemaBodyDiagnostic("{}", site));
         }
@@ -811,24 +836,53 @@ function walkType(
       // `Set`s, never a plain object, so an author-chosen key can never
       // collide with an object's own prototype keys.
       if (!insideGenericArgument && node.closingBraceSpelled) {
+        const keys = inlineObjectFieldKeys(node.interiorSource);
+        // A key that repeats within this interior is `duplicate-inline-field-name`'s
+        // subject alone (bug 0176 §Fix precedence): counting occurrences up front,
+        // rather than deciding key-by-key as the loop below runs, is what lets a
+        // key's FIRST occurrence know it will repeat and withhold the quoted-name
+        // row for it, matching the SECOND occurrence's suppression.
+        const occurrences = new Map<string, number>();
+        for (const key of keys) {
+          occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+        }
         const seen = new Set<string>();
         const reported = new Set<string>();
-        for (const key of inlineObjectFieldKeys(node.interiorSource)) {
-          if (!seen.has(key)) {
-            seen.add(key);
+        for (const key of keys) {
+          if ((occurrences.get(key) ?? 0) > 1) {
+            if (!seen.has(key)) {
+              seen.add(key);
+              continue;
+            }
+            if (reported.has(key)) {
+              continue;
+            }
+            reported.add(key);
+            out.push({
+              severity: "error",
+              code: "theta/parse/duplicate-inline-field-name",
+              file: site.file,
+              range: site.range,
+              message: `duplicate field name '${key}' within one inline object type`,
+            });
             continue;
           }
-          if (reported.has(key)) {
-            continue;
+          // A non-repeating key whose first character is a quote is not an
+          // identifier (`schemas.md:17` fixes a field name there; `lexical.md:13`'s
+          // identifier production admits no quote character), so the raw entry text
+          // that survived `topLevelColon` unquoted is exactly the spelling to name —
+          // `a as "w"`'s key (`aas"w"`, bug 0160's open subject) starts with a
+          // letter and is left untouched by this test.
+          const firstChar = key.charAt(0);
+          if (firstChar === '"' || firstChar === "'") {
+            out.push({
+              severity: "error",
+              code: "theta/parse/quoted-inline-field-name",
+              file: site.file,
+              range: site.range,
+              message: `quoted field name '${key}' within one inline object type; field names are identifiers`,
+            });
           }
-          reported.add(key);
-          out.push({
-            severity: "error",
-            code: "theta/parse/duplicate-inline-field-name",
-            file: site.file,
-            range: site.range,
-            message: `duplicate field name '${key}' within one inline object type`,
-          });
         }
       }
       for (const fieldType of node.fieldTypes) {

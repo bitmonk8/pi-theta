@@ -182,6 +182,21 @@ function dupLine(field: string): string {
   return line("error", DUPLICATE_INLINE, msg(DUPLICATE_INLINE, [["<field>", field]]));
 }
 
+/** The code bug 0176 §Fix route A adds for a NON-REPEATING quoted key. */
+const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
+
+/**
+ * The rendering for a quoted inline field-name key (bug 0176 §Fix route A). Its
+ * subject is the same raw pre-colon text this file's comparison key is, rendered
+ * verbatim by that row's own carve-out beside this row's
+ * (placeholder-rendering-b.md:10). The settled precedence: a key that REPEATS
+ * keeps `theta/parse/duplicate-inline-field-name` alone and draws nothing from
+ * the new row; a non-repeating quoted key draws the new row, in source order.
+ */
+function quotedLine(field: string): string {
+  return line("error", QUOTED_INLINE, msg(QUOTED_INLINE, [["<field>", field]]));
+}
+
 /** The rendering the DECLARATION spelling of a quoted field name keeps. */
 function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
@@ -415,11 +430,16 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
   });
 
   it('RED A3 (a quoted name ahead of the repeat): `{"a": string, a: integer, a: boolean}`', () => {
+    // WHY THIS LIST GREW: bug 0176 §Fix route A refuses the non-repeating quoted
+    // key `"a"` on its own row, ahead of the repeat behind it in source order;
+    // the settled precedence subordinates the new row to this one only where a
+    // key repeats.
     expect(
       positions('{"a": string, a: integer, a: boolean}'),
       'A3 — the quoted entry\'s key is the three characters `"a"`, distinct from `a`, so the ' +
-        "repeat is between the two unquoted entries behind it",
-    ).toEqual(atEveryPosition([dupLine("a")]));
+        "repeat is between the two unquoted entries behind it, and the quoted entry ahead of " +
+        "them is refused in its own right",
+    ).toEqual(atEveryPosition([quotedLine('"a"'), dupLine("a")]));
   });
 
   it("RED A4 (a stop inside a NESTED body): `{p: {c: 1, : y, c: 2}, p: 3}`", () => {
@@ -469,18 +489,27 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
 
 describe("bug 0159 (B) — the comparison key is raw pre-colon text after `trim()`", () => {
   it("RED B1: quote style, padding, emptiness and quotedness each decide the key", () => {
+    // WHY FIVE OF THESE LISTS GREW: bug 0176 §Fix route A refuses a
+    // NON-REPEATING key whose first character is a quote, once per offending key
+    // in source order. Every row's SUBJECT is unchanged — each still isolates one
+    // clause of THIS row's comparison key, now read off a whole list that names
+    // the other row too; the three repeating rows and the padded/empty ones keep
+    // their single duplicate line by the settled precedence.
     const cells: ReadonlyArray<readonly [type: string, want: string[]]> = [
       // The split is quote-aware, so a `:` or a `,` inside quotes neither ends
       // an entry nor moves its colon — two distinct keys, and no repeat.
-      ['{"a:b": string, c: integer}', []],
-      ['{"a,b": string, c: integer}', []],
+      ['{"a:b": string, c: integer}', [quotedLine('"a:b"')]],
+      ['{"a,b": string, c: integer}', [quotedLine('"a,b"')]],
       // No unquoting: two quote styles spell one wire name but two keys, so
-      // this source is ADMITTED. 0161 §Fix B4 names it as the row that
-      // separates route B from a route that normalises.
-      [`{'a': string, "a": integer}`, []],
+      // this source draws no DUPLICATE line. 0161 §Fix B4 names it as the row
+      // that separates route B from a route that normalises; bug 0176 refuses
+      // both of its keys, which is exactly two distinct non-repeating quoted
+      // keys and so two lines.
+      [`{'a': string, "a": integer}`, [quotedLine("'a'"), quotedLine('"a"')]],
       // No normalisation the other way either: a quoted key and its bare
-      // spelling are two keys.
-      ['{a: integer, "a": string}', []],
+      // spelling are two keys, so no repeat — and only the quoted one is
+      // refused.
+      ['{a: integer, "a": string}', [quotedLine('"a"')]],
       // The empty-string key is a key, and collides with itself.
       ['{"": string, "": integer}', [dupLine('""')]],
       // `trim()` absorbs the padding around the pre-colon text, so the padded
@@ -489,7 +518,7 @@ describe("bug 0159 (B) — the comparison key is raw pre-colon text after `trim(
       // 0161's own subject shape: two entries whose raw pre-colon texts are
       // identical.
       ['{"a": string, "a": integer}', [dupLine('"a"')]],
-      ['{"a": string, "b": integer}', []],
+      ['{"a": string, "b": integer}', [quotedLine('"a"'), quotedLine('"b"')]],
       // Multiplicity is unchanged by the re-key: one line per repeated KEY, at
       // its second occurrence, so a third occurrence adds no subject.
       ['{"a": string, "a": integer, "a": boolean}', [dupLine('"a"')]],
@@ -690,11 +719,27 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
     // repeats is the safe direction — it refuses a source that would otherwise
     // drop a declared field silently; the reverse would leave an invalid
     // fragment minted with nothing said.
+    // WHY THE `expected` SHAPE WIDENED: bug 0176 §Fix route A puts a second code
+    // on one of these sources' lists (row 2's non-repeating quoted key `"a"`), so
+    // the expected diagnostic list can no longer be DERIVED from the reported
+    // duplicate keys alone. Each row now spells its whole expected list; the
+    // `reported` column stays exactly the duplicate keys, and the containment
+    // claim below still runs over it, so nothing is weakened.
     const cells: ReadonlyArray<
-      readonly [type: string, reported: string[], repeatedRequired: string[]]
+      readonly [
+        type: string,
+        reported: string[],
+        repeatedRequired: string[],
+        expectedLines?: string[],
+      ]
     > = [
       ["{a: integer, : x, a: boolean}", ["a"], ["a"]],
-      ['{"a": string, a: integer, a: boolean}', ["a"], ["a"]],
+      [
+        '{"a": string, a: integer, a: boolean}',
+        ["a"],
+        ["a"],
+        [quotedLine('"a"'), dupLine("a")],
+      ],
       ['{a as "w": integer, a: string, a: boolean}', ["a"], ["a"]],
       ["{a: 1 a: 2, a: 3}", ["a"], ["a"]],
       ['{"a": string, "a": integer}', ['"a"'], ['"a"']],
@@ -712,14 +757,14 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
 
     const actual: Record<string, unknown> = {};
     const expected: Record<string, unknown> = {};
-    for (const [type, reported, repeatedRequired] of cells) {
+    for (const [type, reported, repeatedRequired, expectedLines] of cells) {
       const captured = capturedQuerySchema(type);
       actual[type] = {
         reported: lines(annotSrc(type)),
         repeatedRequired: repeatedRequiredEntries(lowerQueryResponseSchema(captured, [], [])),
       };
       expected[type] = {
-        reported: reported.map((field) => dupLine(field)),
+        reported: expectedLines ?? reported.map((field) => dupLine(field)),
         repeatedRequired,
       };
     }
@@ -916,18 +961,19 @@ describe("bug 0159 (G) — bug 0161's declaration control and its explicitly-ope
     ).toEqual(expected);
   });
 
-  it('CONTROL G2: a SINGLE quoted field still loads and still lowers `properties[\'"a"\']`', () => {
-    // 0161 §Fix B2's explicitly-open half. One quoted entry repeats no key, so
-    // the re-key says nothing about it, and the lowering still mints a JSON
-    // Schema property name carrying the author's quote characters — a name no
-    // theta identifier can address. Pinned so the residual is measured; the
-    // report that closes it reds exactly here.
+  it('RED G2: a SINGLE quoted field is refused, and no longer lowers `properties[\'"a"\']` through a load', () => {
+    // 0161 §Fix B2's explicitly-open half, CLOSED by bug 0176 §Fix route A. The
+    // re-key still says nothing about a single quoted entry — it repeats no key
+    // — so the refusal comes from the new row this cell's own comment authorised
+    // in advance ("the report that closes it reds exactly here"). The lowering
+    // read-back below is kept as a prevented-artefact control: the bytes are
+    // frozen and reachable only by a direct call once the refusal lands.
     expectList(
       annotSrc('{"a": string}'),
-      [],
+      [quotedLine('"a"')],
       "G2 — the duplicate row's subject is a repeated key, and one entry repeats nothing; " +
-        "whether the inline field-name slot admits a non-identifier at all is a separate " +
-        "question this route does not answer",
+        "whether the inline field-name slot admits a non-identifier at all is bug 0176's " +
+        "question, and its route A answers it with a refusal keyed on the same raw key",
     );
     expect(
       lowerQueryResponseSchema('{"a": string}', [], []),

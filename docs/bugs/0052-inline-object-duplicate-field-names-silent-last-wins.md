@@ -833,3 +833,15 @@ position's, as h1's contrast against rows 2–3 already established.
 The link to 0093 in §Fix residual 4 (`:338`) spells a filename that report does
 not carry; the correct path is the one used above. Disclosed, not chased
 (0134's class). Status unchanged (**fixed**).
+
+## Note — cell k2 of this report's witness was re-pinned by bug 0176 (0.161.0)
+
+[0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md) added
+`theta/parse/quoted-inline-field-name` for a non-repeating quoted inline key.
+Cell k2 of `tests/inline-object-duplicate-field-name.test.ts`
+(`{"a": string, a: integer, a: boolean}`) now expects that line ahead of its
+unchanged `duplicate-inline-field-name` line for the bare `a`; the cell's
+subject — a malformed entry contributes no key and curtails no comparison — and
+its lowering read-back are preserved verbatim. Cell d5 is untouched: a REPEATING
+quoted key keeps this report's row alone and gains no second line. Status
+unchanged (**fixed**).

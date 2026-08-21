@@ -891,3 +891,19 @@ tokenisation route "delivers no wire-name semantics: G1's two fields carry two
   wire-name slot. `src/parser/params.ts` (1253),
   `src/parser/body-type-lowering.ts` (763) and
   `src/parser/schema-declarations.ts` (819) are untouched by 0159's fix.
+
+## Coordination note — bug 0176 landed and left this report's surface intact (0.161.0)
+
+[0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md) shipped
+`theta/parse/quoted-inline-field-name` on its §Fix route **A**, and answered its
+§Fix A3 NARROWLY on purpose so this report is not pre-empted: the trigger is the
+key's FIRST character (`"` or `'`), not identifier-shapedness. `{a as "w":
+integer}` therefore keeps its raw key `aas"w"`, keeps loading at all eleven
+`Type` positions, and keeps lowering the property name this report measures —
+asserted after the fix as a control (group H of
+`tests/inline-object-quoted-field-name-refusal.test.ts`). This report's
+wire-name semantics remain wholly its own; a fix here that parses the `as`
+clause inside an inline body will need to state its disposition against the new
+row's *Trigger* and against the two-row `<field>` carve-out at
+`placeholder-rendering-b.md:10`, exactly as this report's coordination note
+already does for 0159. Status unchanged (**open**).

@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.161.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0176 — a quoted inline field key now refuses at parse** instead of
+  being admitted and lowered verbatim (the 0161 re-filing). NEW registered
+  `theta/parse/quoted-inline-field-name` (E, parse) at
+  `inlineObjectFieldKeys`; the landed raw-key adjudication reused ('a' vs
+  "a" stay distinct keys); 0160's wire-name subject untouched. Witness:
+  `tests/inline-object-quoted-field-name-refusal.test.ts` (16 cells) + a
+  standalone H8a live cell + a NEW H9a acceptance file. Six re-pins
+  (subjects preserved), f2's control flip ratified.
+
 ## [0.160.0] - 2026-08-26
 
 ### Fixed

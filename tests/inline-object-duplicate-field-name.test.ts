@@ -218,6 +218,19 @@ function dupLine(field: string): string {
   return line("error", DUPLICATE_INLINE, msg(DUPLICATE_INLINE, [["<field>", field]]));
 }
 
+/** The code bug 0176 §Fix route A adds for a NON-REPEATING quoted key. */
+const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
+
+/**
+ * The rendering for a quoted inline field-name key (bug 0176 §Fix route A),
+ * subordinate to the duplicate row on a key that repeats: a repeated key keeps
+ * `theta/parse/duplicate-inline-field-name` alone and draws nothing from this
+ * row.
+ */
+function quotedInlineLine(field: string): string {
+  return line("error", QUOTED_INLINE, msg(QUOTED_INLINE, [["<field>", field]]));
+}
+
 /** The rendering for the DECLARATION spelling of the same two fields. */
 function collisionLine(name: string, schema: string): string {
   return line(
@@ -1314,11 +1327,16 @@ describe("bug 0052 (k) — a malformed entry contributes no key and curtails no 
     // included and not unquoted (code-registry-parse.md:89), so it collides
     // with neither unquoted `a`. The repeat is between the two entries behind
     // it, and it is those two the lowering writes one property for.
+    // WHY THIS LIST GREW: bug 0176 §Fix route A refuses the non-repeating quoted
+    // key `"a"` on its own row, in source order ahead of the repeat behind it;
+    // the settled precedence subordinates the new row to this one only on a key
+    // that REPEATS, and `"a"` here occurs once.
     expectList(
       annotSrc('{"a": string, a: integer, a: boolean}'),
-      [dupLine("a")],
-      "k2 — the quoted key and the bare key are two distinct texts, so the subject is the " +
-        "bare `a` the two later entries share",
+      [quotedInlineLine('"a"'), dupLine("a")],
+      "k2 — the quoted key and the bare key are two distinct texts, so the subject of the " +
+        "duplicate line is the bare `a` the two later entries share, and the quoted entry " +
+        "ahead of it draws bug 0176's refusal instead of nothing",
     );
     // WHAT THE REFUSAL PREVENTS: the three-item `required` this text still
     // lowers on a direct call, its middle `a` declaration dropped to last-wins.

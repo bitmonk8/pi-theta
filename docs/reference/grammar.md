@@ -238,8 +238,13 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   `theta/parse/empty-schema-body`; a key repeated in one inline object is
   `theta/parse/duplicate-inline-field-name`, keyed as written on each top-level
   comma entry's text up to its own top-level colon, once per repeated key; a
-  nested inline object is its own list; the rule skips generic arguments. Lowered
-  into `$defs` as `__inline_<slug>` ([Schema subset](./schema-subset.md)).
+  non-repeating key of that same text whose first character is `"` or `'` is
+  `theta/parse/quoted-inline-field-name` (field names are identifiers; a key
+  that repeats within the interior is the duplicate row's subject alone, and a
+  key that does not repeat and whose first character is a quote is the new
+  row's); a nested inline object is its own list; both
+  rules skip generic arguments. Lowered into `$defs` as `__inline_<slug>`
+  ([Schema subset](./schema-subset.md)).
 - Nullability is written `T | null`.
 - Text deriving from none of the six alternatives is `theta/parse/annotation-type-not-expression`
   at a `let` annotation, an `fn` parameter type, or an `fn` return type; a schema field type or

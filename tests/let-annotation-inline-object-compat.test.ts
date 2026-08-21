@@ -617,13 +617,21 @@ describe("bug 0130 (e) — R2: `{}` and malformed interiors do not convert", () 
     );
   });
 
-  it("e3: `let x: {\"a\": string} = 1` stays silent — a quoted key is no `Ident`", () => {
+  it("e3: `let x: {\"a\": string} = 1` draws bug 0176's quoted-key refusal alone — a quoted key is no `Ident`", () => {
     // The field name grammar is `Ident` (schemas.md's `Field` form, reused by
     // `ObjectType` per grammar.md:109), so a JSON-style quoted key is not one.
+    // WHY THIS LIST MOVED (at the 0176 merge): bug 0176 §Fix route A refuses a
+    // quoted inline field-name key at parse (`theta/parse/quoted-inline-field-name`),
+    // and this cell's fixture is exactly that class. The cell's subject is
+    // preserved by the whole-list assertion: R2 still declines the conversion —
+    // no `let-rhs-type-mismatch` line appears — and the one line present is
+    // 0176's own row (its `<field>` is the raw pre-colon text after trim()).
     expect(
       stmtDiags('let x: {"a": string} = 1'),
       "e3 — R2 declines a non-identifier key rather than treating `\"a\"` as a field name",
-    ).toEqual([]);
+    ).toEqual([
+      line("error", "theta/parse/quoted-inline-field-name", [["<field>", '"a"']]),
+    ]);
   });
 
   it("e4: a duplicate field name keeps its OWN line alone", () => {

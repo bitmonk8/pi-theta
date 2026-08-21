@@ -807,3 +807,16 @@ than re-deriving any of it.
   [0160](./0160-inline-object-wire-name-rename-unparsed.md)'s open subject, and
   the identifier RULES at this slot remain
   [0154](./0154-inline-object-type-field-name-rules-unenforced.md)'s.
+
+## Note — the re-filing this record required has landed (0.161.0)
+
+§Fix **B2**'s explicitly-open half — one quoted key written once — is closed by
+[0176](./0176-quoted-inline-field-key-admitted-and-lowered-verbatim.md) on its
+own route **A**: the spelling is refused as `theta/parse/quoted-inline-field-name`
+rather than admitted as a wire name, so this record's route-B closure terms are
+satisfied and nothing here re-opens. The DUPLICATE face this report owns is
+untouched: the raw-key adjudication (key = raw pre-colon text after `trim()`, no
+unquoting, `'a'` and `"a"` DISTINCT) is a boundary 0176 reused by construction.
+Row c5 (`{"a": string, 'a': integer}`) is now two refusals rather than a
+silence, being two distinct non-repeating quoted keys. Status unchanged
+(**fixed (0.93.0)**).
