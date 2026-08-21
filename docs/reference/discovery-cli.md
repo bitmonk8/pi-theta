@@ -16,7 +16,7 @@ top-level-`Err` surface.
   `.pi/settings.json` — `string[]` of file/directory paths.
 - **CLI**: `--theta <paths>` (single flag; multiple paths joined with
   `path.delimiter` — `:` POSIX, `;` Windows). Registered by the theta extension via
-  `pi.registerFlag('theta', ...)`; read with `pi.getFlag('theta')`.
+  `pi.registerFlag('theta', ...)`; read with `pi.getFlag('theta')`. Each component is a literal file or directory path — glob expansion is the invoking shell's job: a POSIX shell expands an unquoted glob before theta sees it, while PowerShell (or any quoted operand) passes the pattern through verbatim, where it names no path and is reported missing — and a leading `!`, `+` or `-` is part of that literal path, not an override.
 
 Discovery is **non-recursive** and matches only `*.theta` (byte-exact lowercase:
 `Plan.THETA` never matches on any platform). `.thetalib` library files are never

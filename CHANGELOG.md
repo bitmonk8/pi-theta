@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.178.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0078 — an override-prefixed (`!`/`+`/`-`) `--theta` entry whose path
+  is absent now draws `theta/load/missing-source`** (route B, disposition
+  (i)): the literal-path `ENOENT` skips DISC-2's clean-leaf walk instead of
+  mis-classifying as `theta/load/unreadable-source`; non-`ENOENT` stays
+  `unreadable`. No new code, no severity move, no *Message* edit — no DIAG-2
+  widening. First in-line edits to the `discovery-cli.md` mirror and
+  `code-registry-load.md` since 0113 declined them (zero line movement).
+  Witness `tests/discovery-cli-entry-override-prefix.test.ts` (13 cells) + a
+  standalone live cell with no fault injection.
+
+>>>>>>> 24d3d34c (fix(bug-0078): an absent override-prefixed --theta entry draws missing-source, not unreadable-source — v0.178.0)
+
 ## [0.177.0] - 2026-08-27
 
 ### Fixed

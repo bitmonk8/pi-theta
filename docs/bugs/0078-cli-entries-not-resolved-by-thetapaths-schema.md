@@ -1,9 +1,8 @@
 # Bug 0078 — `--theta` components get none of the `thetaPaths` entry schema the CLI row binds them to: a glob component is reported as a missing path, and a `!` / `+` / `-` component is taken as a literal path — so an exclusion silently fails to exclude while emitting an unreadable-source error against the operand text
 
-- **Status:** open. §Fix adjudicates two routes (implement the schema for the CLI
-  source, or amend the CLI row to state the exclusion) and recommends the second,
-  on the evidence that the CLI source is a single-invocation override whose
-  entries the shell already globs.
+- **Status:** fixed (0.178.0) — Route B (the §Fix recommendation), with input (2)'s
+  disposition resolved as §Fix choice (i) plus §Fix's own correction of the
+  emitted code. See [Fix (0.178.0)](#fix-xyz) below.
 - **Kind:** specification gap composed with a silent no-op. `discovery-sources.md:7`
   binds the CLI entry to the `thetaPaths` entry schema by reference; that schema
   pins glob support and the `!`/`+`/`-` override grammar; no page states an
@@ -247,3 +246,143 @@ route is taken:
   `entries.map`, glob detection at `isGlobPattern` (`:216`), and the four ordered
   steps run from `:774` to the end of that function. Cite the symbols.
 > **Coordination note (at bug 0113's fix, 0.126.0):** `emitUniverseFailures` (new in both discovery files) takes the row severity as a parameter — if this report gives the CLI row the `thetaPaths` schema, the third DISC-2 row that emission serves arrives as a call-site change only (severity via `CLI_MODES`). `listTree`'s signature and return type changed in both files; re-anchor by symbol at pick.
+
+<a id="fix-xyz"></a>
+
+## Fix (0.178.0)
+
+**Adjudication.** §Fix's own recommendation governs: **Option B**. The CLI source
+is a single-invocation override, the *Discovery roots* bullet already reads that
+way, and Option A would add a recursive `listTree` universe to the startup path
+for a case the shell covers. Input (2)'s open disposition is resolved as §Fix
+choice **(i)** — a leading `!` / `+` / `-` is part of the literal path, no
+override is performed — together with the correction §Fix itself attaches to that
+choice: the diagnostic must be `theta/load/missing-source`, not
+`theta/load/unreadable-source`. The `missing-source` row's *Trigger* ("a
+discovery source's path does not exist") admits the class as written, at the CLI
+row's *Missing path* severity (error — the same severity the operand drew
+before), so the family's emission shape is reused rather than re-derived: **no
+new code, no new registry row, no *Message* reword** (DIAG-4), and no
+`permitted-codes.json` decision. A non-`ENOENT` rejection on such an operand
+still classifies `unreadable` — there the path exists and cannot be read, which
+is what the row means. Input (1) (a glob operand) needs no behavioural change:
+its `theta/load/missing-source` error was already correct once the spec states
+that glob expansion belongs to the invoking shell for this source.
+
+**Registry and mirror decision.** Unlike 0113 and 0075, this pass **does** touch
+the two mirror surfaces, because both are contradictions this change would
+otherwise create and both are same-commit obligations: the
+`theta/load/unreadable-source` row's *Trigger* previously claimed every
+dirty-ancestor `ENOENT` from an explicit reference, which now over-claims; and
+`docs/reference/discovery-cli.md` is the page §Fix says "gains one sentence"
+(today it lets an operator infer glob support and get an error). Both edits are
+**in-line**, so every file's line count is unchanged
+(`discovery-sources.md` 106, `discovery-cli.md` 285, `code-registry-load.md` 64)
+and the live `docs/reference/discovery-cli.md:NNN` citations in the still-open
+bug documents 0088, 0111, 0146 and 0147 — 0113's residual 2 and 0075's re-checked
+ground — do not stale. No citation sweep was run.
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — a `hasOverridePrefix` predicate beside
+    `isGlobPattern`, and a two-arm `EnoentPolicy` (`"ancestor-walk"` /
+    `"missing"`) threaded explicitly as a per-entry field through
+    `collectFromEntries` → `resolveEntry` → `classifyPath`. The CLI arm computes
+    the policy from the RAW operand (before `expandHome`, which can neither
+    introduce nor remove a leading `!`/`+`/`-`); the conventional-roots call site
+    and the settings-side `addLiteral` classification both pass
+    `"ancestor-walk"` explicitly, so DISC-2's clean-leaf walk is unchanged
+    everywhere else. `properAncestors`, `ancestorsClean`, `classifyForSource`,
+    `resolveSettingsSource`'s prefix parse and both `listTree` copies are
+    untouched.
+  - `docs/spec_topics/discovery/discovery-sources.md` — the CLI bullet stops
+    binding a component to the whole `thetaPaths` entry schema: it shares the
+    file-vs-directory rule stated at *Discovery roots* but none of the schema's
+    glob or `!`/`+`/`-` override grammar; glob expansion is the invoking shell's
+    job; an override-prefixed component is a literal path reported as
+    `theta/load/missing-source` without the clean-leaf walk, and one that names
+    an existing path resolves like any other entry. DISC-2's clean-leaf
+    implementation note is qualified to match. Both edits in-line; 106 lines.
+  - `docs/reference/discovery-cli.md` — the mirror sentence on the `--theta`
+    bullet: components are literal file or directory paths, glob expansion is
+    the shell's (a POSIX shell expands an unquoted glob; PowerShell or any
+    quoted operand passes the pattern through verbatim, where it names no path
+    and is reported missing), and a leading `!`/`+`/`-` is part of the path.
+    In-line; 285 lines; the DISC-2 failure-mode table untouched.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — an in-line qualifier
+    on the `theta/load/unreadable-source` *Trigger* excepting the
+    override-prefixed `--theta` component. No row added or removed, no code,
+    severity or *Message* change. 64 lines.
+- Gates: witness `tests/discovery-cli-entry-override-prefix.test.ts` 13/13
+  (cells 1, 2, 3 RED before the fix, each observing
+  `theta/load/unreadable-source` where `missing-source` is owed); full default
+  suite `369 files / 7537 tests passed` (lane baseline 368/7524 at v0.175.0 — the
+  delta is exactly this witness); `npx tsc -p . --noEmit` clean; `npm run lint`
+  clean; live H8a `CELL-D2` 1/1 real run under the live lock, red-proven by
+  neutralising the CLI arm's policy.
+- Review: 2 rounds plus one comment-only polish. Round 1 (deep) found no
+  correctness or fidelity defect and five non-behavioural findings — the
+  `unreadable-source` *Trigger* over-claiming the class, DISC-2's clean-leaf note
+  contradicting the amended CLI bullet, a factually wrong PowerShell-globbing
+  parenthetical, a closed-list "only" that `lexical.md`'s settings/CLI extension
+  check and DISC-4's dedup sentence exceed, and a `discoverThetas` comment made
+  false by the change — plus a test residual (three uncovered predicate
+  boundaries). One `bug-fix-fixer-light` round applied all five and added three
+  additive boundary cells, touching no executable `src/` line. Round 2 (fast)
+  CLEAN, no escalation, with one residual: cell 10 (bare `-`) is inert —
+  measured green under a stubbed `hasOverridePrefix` because a single-segment
+  relative operand has no ancestors to walk. A final comment-only polish round
+  corrected that cell's rationale; polish verified by gate-diff, confirmation
+  round skipped.
+- Verification: SOLID. (A) The witness reds on revert, proven both directions
+  with byte-exact restoration (`git hash-object src/discovery/discovery-walk.ts`
+  = `5e3982e231c993e37c4795a00657bda387e9e114` before and after every cycle):
+  forcing the CLI arm to `"ancestor-walk"` reds cells 1–3 with the quoted
+  `unreadable-source` symptom; dropping the `ENOENT` guard so the walk is skipped
+  unconditionally reds cells 4, 11 and 12, so the DISC-2 controls can genuinely
+  fail. (B) `npm test` 369/7537. (C) `npx tsc -p . --noEmit` and `npm run lint`
+  clean. (D) Live: one additive standalone H8a cell,
+  `tests/live/discovery-cli-override-prefix-missing-source-cell-d2.test.ts`,
+  boots the real shipped extension with an override-prefixed `--theta` operand
+  naming an absent path and asserts the `missing-source` note (and the absence of
+  the `unreadable-source` one) on the `theta-system-note` channel off the settled
+  `SessionManager`, bracketed by a registration precondition control. The
+  provocation needs **no fault injection and no ACL** — strictly cleaner than
+  0075's `fs.promises.lstat` patch — because `readThetaFlagPaths` carries the
+  operand verbatim into the real CLI arm; disclosed in the cell header.
+  Registration-only, no subagent child spawn, so no child pins are owed. Green,
+  red-proven. No H9a run and no `permitted-codes.json` edit: no new code and no
+  severity change. No stochastic class was observed. Protected witnesses all
+  green and unflipped: `discovery-tree-walk-lstat-failure` 11/11,
+  `discovery-glob-universe-enumeration-failure` 19/19,
+  `production-tools-load-resolution` 50/50, `e2e-s5-disc-cli-settings` 6/6.
+- Residuals:
+  1. **The CLI source still implements none of the `thetaPaths` glob grammar**
+     — that is Option B's whole point, now stated rather than silent. Evidence:
+     `isGlobPattern` remains unconsulted on the CLI path and witness cell 8 pins
+     a glob operand to `theta/load/missing-source`. An operator on a shell that
+     does not expand the pattern gets a missing-path error the reference page
+     now predicts.
+  2. **The exclusion still does not exclude.** An operand the operator meant as
+     `!<path>` leaves the plain component's theta registered; the fix makes the
+     diagnostic truthful and the disposition documented, not the intent
+     honoured. Evidence: witness cells 1 and 3 assert the plain component's
+     theta stays registered.
+  3. **Cell 10 (bare `-`) is inert.** It pins `properAncestors`' vacuous
+     ancestor chain, not the override predicate: a single-segment relative
+     operand classifies `missing` under either policy. Evidence: round 2
+     measured it green with `hasOverridePrefix` stubbed to `false`; its comment
+     now says so. Cells 11 and 12 each red under a widened predicate.
+  4. **The Windows parent-ACL-as-`ENOENT` conflation is not distinguished for an
+     override-prefixed operand.** Skipping the walk is what makes that
+     impossible for this operand class — the trade the adjudication made and the
+     CLI bullet states.
+- Discharge notes appended: none. Bug 0075's fix record names "bug 0078's
+  subject (the CLI entry schema's route through `collectFromEntries`)" as
+  untouched and open; 0075 remains open for its own headline `classifyPath`
+  defect, and its record is left untouched.
+- Pinned dispositions / non-goals: the `path.delimiter` split, `~` expansion
+  (DISC-1), the settings-side matcher (0077, landed), `classifyPath`'s
+  link-typed candidates (0075's open headline subject), `properAncestors`'
+  relative and Windows-drive chains, both `listTree` copies and the
+  `emitUniverseFailures` chain (0113/0075), and Option A's shared-resolver
+  refactor with its base-directory question. None was touched.

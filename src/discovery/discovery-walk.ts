@@ -236,6 +236,15 @@ function isGlobPattern(operand: string): boolean {
   return /[*?[\]{}]/.test(operand);
 }
 
+/** True when an operand's first character is a DISC-5 override prefix
+ *  (`!`/`+`/`-`). DISC-5 is the settings source's grammar; a source that does
+ *  not implement it (the CLI source) sees such a character as ordinary path
+ *  text, not as a signal to strip before classifying. */
+function hasOverridePrefix(operand: string): boolean {
+  const first = operand[0];
+  return first === "!" || first === "+" || first === "-";
+}
+
 type LstatOutcome =
   | { readonly ok: true; readonly isDir: boolean; readonly isFile: boolean }
   | { readonly ok: false; readonly code: string | undefined };
@@ -279,10 +288,27 @@ type PathClass =
   | { readonly kind: "wrong-type" }
   | { readonly kind: "invalid-extension" };
 
-async function classifyPath(fs: FileSystem, path: string): Promise<PathClass> {
+/** Governs how `classifyPath` resolves an `ENOENT` candidate. `"ancestor-walk"`
+ *  runs DISC-2's clean-leaf walk, which asks whether every directory segment
+ *  the operand names along the way is itself enterable. `"missing"` skips that
+ *  walk and classifies `ENOENT` outright: for an operand whose leading
+ *  character is a DISC-5 override prefix but whose source honours no DISC-5
+ *  grammar, the walk's relative-looking prefix segments (`!`, `!/opt`) are
+ *  path text the operator never typed as directories, so asking whether they
+ *  are enterable answers a question about the wrong thing. */
+type EnoentPolicy = "ancestor-walk" | "missing";
+
+async function classifyPath(
+  fs: FileSystem,
+  path: string,
+  enoentPolicy: EnoentPolicy,
+): Promise<PathClass> {
   const outcome = await lstatOutcome(fs, path);
   if (!outcome.ok) {
     if (outcome.code === "ENOENT") {
+      if (enoentPolicy === "missing") {
+        return { kind: "missing" };
+      }
       return (await ancestorsClean(fs, path))
         ? { kind: "missing" }
         : { kind: "unreadable" };
@@ -401,9 +427,10 @@ async function resolveEntry(
   descriptor: string,
   modes: FailureModes,
   explicitFile: boolean,
+  enoentPolicy: EnoentPolicy,
   diagnostics: Diagnostic[],
 ): Promise<RawCandidate[]> {
-  const resolved = classifyForSource(await classifyPath(fs, path), path, explicitFile);
+  const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, explicitFile);
   switch (resolved.kind) {
     case "dir":
       return enumerateDirectory(fs, path, descriptor, modes, diagnostics);
@@ -790,7 +817,10 @@ async function resolveSettingsSource(
   // A literal (non-glob) entry classifies directly, preserving the per-entry
   // missing / unreadable / wrong-type failure diagnostics of the DISC-2 table.
   const addLiteral = async (entry: ParsedSettingsEntry): Promise<void> => {
-    const cls = await classifyPath(fs, entry.abs);
+    // The settings source implements DISC-5's own grammar (its prefix parse
+    // above already stripped the override character), so an ENOENT here is
+    // about ancestor directories the operator actually wrote into the entry.
+    const cls = await classifyPath(fs, entry.abs, "ancestor-walk");
     const descriptor = `settings entry index ${entry.index}`;
     switch (cls.kind) {
       case "dir":
@@ -891,6 +921,10 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     cliPaths.map((raw, index) => ({
       path: expandHome(raw, fs),
       descriptor: `--theta flag #${index + 1}`,
+      // Computed from the RAW operand, before `expandHome`: the DISC-5 prefix
+      // question is about what the operator typed, and `~` expansion cannot
+      // itself introduce or remove a leading `!`/`+`/`-`.
+      enoentPolicy: hasOverridePrefix(raw) ? ("missing" as const) : ("ancestor-walk" as const),
     })),
     "cli",
     CLI_MODES,
@@ -953,16 +987,18 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     // Only ENOENT is skipped. A root that EXISTS but cannot be read (EACCES /
     // EPERM) still reaches the classifier and still warns — that is a real
     // problem an operator needs told about, and it is what `unreadable`
-    // means. DISC-2's clean-leaf distinction is untouched for the CLI and
-    // settings sources, where an absent intermediate directory is a genuine
-    // signal about a path the user typed.
+    // means. DISC-2's clean-leaf distinction is untouched for the settings
+    // source and every ordinary (non-override-prefixed) CLI component, where
+    // an absent intermediate directory is a genuine signal about a path the
+    // user typed; an override-prefixed CLI component skips that walk instead
+    // (see `EnoentPolicy`).
     const probe = await lstatOutcome(fs, root.path);
     if (!probe.ok && probe.code === "ENOENT") {
       continue;
     }
     await collectFromEntries(
       fs,
-      [{ path: root.path, descriptor: root.descriptor }],
+      [{ path: root.path, descriptor: root.descriptor, enoentPolicy: "ancestor-walk" }],
       root.source,
       CONVENTIONAL_MODES,
       false,
@@ -982,7 +1018,11 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
 
 async function collectFromEntries(
   fs: FileSystem,
-  entries: readonly { readonly path: string; readonly descriptor: string }[],
+  entries: readonly {
+    readonly path: string;
+    readonly descriptor: string;
+    readonly enoentPolicy: EnoentPolicy;
+  }[],
   source: DiscoverySource,
   modes: FailureModes,
   explicitFile: boolean,
@@ -991,7 +1031,15 @@ async function collectFromEntries(
 ): Promise<void> {
   const sourceLabel = sourceLabelOf(source);
   for (const entry of entries) {
-    const raw = await resolveEntry(fs, entry.path, entry.descriptor, modes, explicitFile, diagnostics);
+    const raw = await resolveEntry(
+      fs,
+      entry.path,
+      entry.descriptor,
+      modes,
+      explicitFile,
+      entry.enoentPolicy,
+      diagnostics,
+    );
     for (const candidate of raw) {
       out.push({ ...candidate, source, sourceLabel });
     }
