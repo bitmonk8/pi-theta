@@ -1,6 +1,6 @@
 # Bug 0222 — `checkLetMismatch` converts a REFUSED `let` annotation directly instead of consulting the `theta/parse/annotation-type-not-expression` withhold six other consumers honour, so `let a: array<integer--> = @<integer>`x`` draws `theta/parse/explicit-schema-mismatch` (W) beside the refusal — a warning derived from text the same commit declared ABSENT, while the identical binding with the annotation OMITTED draws nothing on that channel
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.166.0). Filed as bug
   [0130](./0130-let-rhs-type-mismatch-declines-object-union.md)'s §Fix
   (0.160.0) *Residuals* item 1, which names this consumer, holds it, and states
   that "the withhold-routing question stays open for a follow-up report"
@@ -493,3 +493,160 @@ adds four things those records do not state:
   `compatToInferred`'s identifier test makes an INDIRECT sink under a refused
   annotation stay untyped (C1) — incidental, not a withhold, and not coverage
   of the subject.
+
+## Fix (0.166.0)
+
+- **What shipped:**
+  - `src/parser/query-schema-resolve.ts` — `checkLetMismatch` asks
+    `annotationSourceIsNotTypeExpression(annotationSource)` and returns before
+    either conversion when it answers `true`, joining the six landed call
+    sites in `type-layer-checks.ts` (§Fix (a)). The guard sits ahead of
+    `unwrapToQuery`'s `try` peel, so the direct and the postfix-`?` spellings
+    are covered by one guard (§Fix (b)(6)); the recogniser is added to the
+    existing named import the file already carries from that module, and the
+    method's doc comment states the absence semantics as its reason.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` —
+    `theta/parse/annotation-type-not-expression`'s *Trigger* loses the
+    exception paragraph naming this consumer, bug 0093 and bug 0130, and
+    gains this consumer in the withhold's consumer list and in the
+    reads-as-unannotated mechanism sentence (§Fix (b)(4)). Same commit. No row
+    added or removed (DIAG-2), no *Message* changed (DIAG-4), so no mirror
+    edit is owed — measured: `docs/reference/diagnostics.md` carries
+    Code | Sev | Phase | Message only and is byte-untouched, as is
+    `docs/spec_topics/query/query-forms.md` (QRY-4's own condition is that
+    both are present, and a refused annotation is absent).
+  - `src/parser/type-layer-checks.ts` — comment-only, one bullet of
+    `annotationToCompatType`'s doc comment: the `checkLetMismatch` consumer is
+    now gated by the recogniser and still reads this unwidened conversion, so
+    bug 0130's five-consumer hold is not narrowed (§Fix (b)(2)). Both
+    conversion functions' bodies are byte-identical.
+  - `tests/qry4-refused-annotation-withhold.test.ts` — NEW, the name §Fix (c)
+    names: 14 offline, deterministic, provider-free cells pinning
+    §Reproduction (A) A1–A6, (B) B1–B4, (C) C1–C2 with their measured
+    `QueryExpr.schema` values, and (D) D1–D2. Every expected message is read
+    from the registry at runtime (DIAG-4); no cell skips, and every
+    precondition fails loudly naming itself.
+  - `tests/annotation-nontype-text-refusal.test.ts` — the two pre-authorised
+    flips and the group (o) header re-derivation (enumerated below). 251 cells
+    at HEAD, 251 passing after.
+  - `tests/live/live-production-acceptance.test.ts` — additive-only: one H8a
+    cell appended at the end of the file, tagged `CELL-D`, asserting the
+    subject's `theta-system-note` notes carry the refusal fragment and NOT the
+    mismatch fragment, with a well-formed-mismatch liveness control asserted
+    first. Registration-only, zero model turns.
+- **The two authorised witness flips, enumerated for ratification** (§Fix
+  (b)(1) pre-authorises exactly these two and no others; each subject is
+  preserved):
+  1. `o1` — subject `let a: array<integer--> = @<integer>`x``, unchanged.
+     Expected list `[refusal, warning]` → `[refusal]`. Title
+     `RESIDUAL (o1)` → `WITHHELD (o1)`; `why` moved to a new
+     `WITHHOLD_OWNER` constant naming this report.
+  2. `o2` — subject `let a: array<integer--> | boolean = @<string>`x``,
+     unchanged. Expected list `[refusal, warning]` → `[refusal]`. Same title
+     and `why` re-derivation.
+  The group (o) banner comment and the `describe` title are re-derived to
+  record the repair: the "out of scope / not a fix" framing, the
+  "required to stay green until 0093 or 0130 settles the conversion path"
+  clause, and the two-open-reports attribution were all false after this fix.
+  `o3` (absence control), `o4` (well-formed QRY-4 warning) and `o5`
+  (bare-name deferral) are byte-identical, as is every other cell in the
+  file — verified by diff extent and by the unchanged 251-cell pass count.
+  Locks byte-verified against HEAD by `git hash-object`:
+  `tests/let-annotation-query-double-emission.test.ts` (10 cells, bug 0093),
+  `tests/let-annotation-inline-object-compat.test.ts` (51 cells, bug 0130,
+  cell `c3` included), `src/parser/theta-document.ts`,
+  `tests/fixtures/h7a/permitted-codes.json`, `docs/reference/diagnostics.md`,
+  `docs/spec_topics/query/query-forms.md`.
+- **Gates:**
+  - Witness, red before: `npx vitest run tests/qry4-refused-annotation-withhold.test.ts`
+    → `Tests 3 failed | 11 passed (14)`, A1/A2/A3 each failing with the single
+    diff `+ "warning theta/parse/explicit-schema-mismatch: explicit @<Schema>
+    ascription is not compatible with binding annotation @ 4:27-4:40"` (A2 at
+    `4:37-4:49`, A3 at `5:29-5:42`) — the correct-reason symptom.
+  - Witness, green after: `Tests 14 passed (14)`; with
+    `tests/annotation-nontype-text-refusal.test.ts`, `Tests 265 passed (265)`.
+  - Full offline suite: `Test Files 358 passed (358)` / `Tests 7303 passed
+    (7303)` (baseline at the fork was 357 files / 7289 tests; the deltas are
+    the one new witness file and its 14 cells).
+  - `npx tsc --noEmit` — clean. `npm run lint` — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts -t "CELL-D"` →
+    `Tests 1 passed | 81 skipped (82)` (the 81 are the `-t` filter's, not
+    skips in the cell).
+- **Blast-radius premeasurement** (before the witness was written): the guard
+  was prototyped and the FULL offline suite run against it. Exactly two reds,
+  `o1` and `o2` — 356/357 files and 7287/7289 tests green. Nothing else in the
+  corpus moved. The prototype was then removed by writing the file's content
+  back, verified byte-exact against `HEAD:src/parser/query-schema-resolve.ts`
+  by `git hash-object`. GOV-15 direction is REMOVAL: the change deletes an
+  emission from inputs that already fail to register, so no currently-clean
+  program changes disposition. Bug 0124's census was re-derived at this
+  baseline rather than assumed — 34 committed `.theta`/`.thetalib` fixtures,
+  10 `let` annotations, zero offenders — and the corpus-wide claim is
+  discharged by `tests/committed-fixture-parse-gate.test.ts` (36 cells green),
+  not by a scratch probe.
+- **Review:** 1 round.
+  - Round 1 (`bug-fix-reviewer`): FINDINGS — one `prose` defect (the new
+    `WITHHOLD_OWNER` doc comment claimed o4 cites `RESIDUAL_OWNERS`; measured,
+    only o3 and o5 do) plus one non-blocking `prose` residual (a banned
+    "Note that" in the new witness's header). No `correctness`, `fidelity` or
+    `spec` finding; guard placement, the registry subtraction, the mechanism
+    group, every lock hash and the red-capability of A1/A2/A3 were each
+    verified with quoted evidence.
+  - Polish (`bug-fix-fixer-light`): both prose items fixed. Every hunk of that
+    round touches only comment text; gates re-run green, so per the
+    convergence policy the polish is verified by gate-diff and the
+    confirmation round is skipped.
+- **Verification:** SOLID, 2 rounds (`bug-fix-verifier`).
+  - Witness genuinely witnesses: the guard was neutralised by a temporary
+    local edit; A1/A2/A3 and the flipped `o1`/`o2` all red on the surviving
+    `explicit-schema-mismatch` line; restored by writing the content back and
+    proved byte-exact by identical `git hash-object` before and after
+    (`fe583de908d0307e0aa2cdc00334a46321bd6edf`); green re-confirmed.
+  - Full offline suite green (358/7303), twice, with identical counts.
+  - Live: round 1 ran the new `CELL-D` cell green but did not prove it can
+    red, and the subject theta does not register — so the decisive
+    "no mismatch note" assertion was suspected vacuous. Round 2 settled it by
+    measurement: `parseDiscoveredTheta` returns a failed load's diagnostics as
+    `dropped` rather than discarding them, `runComposePass` emits that group,
+    and `emitLoadNoteGroup` routes its warning-severity members onto the same
+    `theta-system-note` channel as one batch note, unconditional of
+    registration — registration and load-diagnostic delivery are decoupled.
+    Proved by running the live cell with the guard neutralised: it RED on the
+    decisive assertion itself, with both notes present and citing the subject
+    file. Restored, re-run green. Both directions proven live, per AGENTS.md.
+  - Lint and typecheck clean.
+- **Residuals:**
+  1. `RESIDUAL_OWNERS` in `tests/annotation-nontype-text-refusal.test.ts`
+     still reads "both open and unsettled" of bugs 0093 and 0130, and is still
+     cited by cells `o3` and `o5`. Both reports have landed, so that clause is
+     stale prose. It is left as written BY DECISION: §Fix (b)(1) makes those
+     three cells byte-locks, and the lock outranks re-deriving prose inside
+     them. `o1` and `o2` moved to the new `WITHHOLD_OWNER` constant instead.
+     Evidence: `grep -n RESIDUAL_OWNERS` returns the declaration, the
+     `WITHHOLD_OWNER` doc comment, o3's `why` and o5's `why`; o4 carries a
+     bespoke literal and never used the constant.
+  2. `compatToInferred`'s identifier test (`named` arm) is why an INDIRECT
+     sink under a refused annotation stays untyped (§Reproduction C1). That
+     decline is INCIDENTAL, not a withhold — recorded in §Fix (b)(7),
+     deliberately NOT fixed here, and not counted as coverage. C1 and C2 pin
+     it with their measured `QueryExpr.schema` values and C1's own text
+     disclaims it.
+  3. The guard adds thirteen lines to `src/parser/query-schema-resolve.ts` and
+     five to `src/parser/type-layer-checks.ts`, so line citations into both
+     files drift. Not chased: bug 0134's adjudicated do-not-chase class, and
+     no citation sweep was run. Every citation this record makes names
+     symbols.
+  4. §Reproduction (D)'s propagated `QueryExpr.schema` text is unmoved and
+     stays outside this report (§Non-goals); D1/D2 pin it as measured.
+- **Discharge notes appended:** 0093 and 0130 (both fixed; append-only,
+  statuses unchanged). Bug 0124's witness group (o) is the flip site and is
+  recorded above rather than by a note on that report.
+- **Pinned dispositions / non-goals:** the propagated `QueryExpr.schema` text;
+  widening `annotationToCompatType` (bug 0130's five-consumer hold, unmoved —
+  this fix gates a consumer and converts nothing differently); `⊑`'s treatment
+  of an unresolvable element (`type-compat.ts` unmoved — the fix removes the
+  input, not the rule); the QRY-4 warning's severity, direction and range; the
+  ascription side, which is
+  `theta/parse/query-annotation-type-not-expression`'s (bug 0203, open). All
+  unmoved.

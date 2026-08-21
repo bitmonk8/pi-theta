@@ -1828,26 +1828,24 @@ describe("bug 0124 (q) — a scope already refused keeps exactly its own diagnos
 });
 
 // ===========================================================================
-// (o) THE EIGHTH CONSUMER — OUT OF SCOPE, A RECORDED RESIDUAL, NOT A FIX. §Fix
-// (f)(1) promises exactly one diagnostic and no cascade for the FOUR sites
-// this fix threads its withhold through (the `let` arm, the `fn` parameter
-// loop, `checkSubagentReturnAnnotation`, `checkFnCallArgs`). This group pins a
-// FIFTH consumer of the same refused `let`-annotation text that none of those
-// four sites reaches: `checkLetMismatch` (src/parser/query-schema-resolve.ts),
-// the QRY-4 explicit-schema check comparing a `let` annotation against an
-// explicit `@<Schema>` ascription on the same binding's query initialiser. It
-// reads `stmt.annotation` and converts it directly, so a refusal whose junk
-// converts to an `array<…>` (or a union arm that is itself such an array)
-// still draws `theta/parse/explicit-schema-mismatch` (W) beside the refusal —
-// a cascade this fix's own guard cannot prevent, because preventing it means
-// editing a file bug 0093 and bug 0130 (both open, both unsettled) already
-// claim. Wiring `checkLetMismatch` into this fix's withhold would decide
-// those two reports' open coordination questions rather than this one's, so
-// it is left alone and pinned here instead: GREEN at HEAD (the pairing
-// predates this fix and is not created by it) and required to stay green
-// until 0093 or 0130 settles the conversion path — at which point this group
-// reds and forces this file, and the registry row's stated exception, back
-// into review.
+// (o) THE EIGHTH CONSUMER — GATED BY THE WITHHOLD AS OF BUG 0222. §Fix (f)(1)
+// promises exactly one diagnostic and no cascade for the FOUR sites this fix
+// threads its withhold through (the `let` arm, the `fn` parameter loop,
+// `checkSubagentReturnAnnotation`, `checkFnCallArgs`). This group pins a
+// FIFTH consumer of the same refused `let`-annotation text, one this fix's
+// own four-site withhold did not reach when it landed: `checkLetMismatch`
+// (src/parser/query-schema-resolve.ts), the QRY-4 explicit-schema check
+// comparing a `let` annotation against an explicit `@<Schema>` ascription on
+// the same binding's query initialiser. At the time this group was written it
+// read `stmt.annotation` and converted it directly, so a refusal whose junk
+// converted to an `array<…>` (or a union arm that is itself such an array)
+// drew `theta/parse/explicit-schema-mismatch` (W) beside the refusal. Bug
+// 0222 added a leading `annotationSourceIsNotTypeExpression` guard to
+// `checkLetMismatch`, joining the four sites above, so a refused annotation
+// is now absent to this consumer too: o1 and o2 pin the WITHHELD reading (the
+// refusal alone), and o3 (the absence control), o4 (the well-formed QRY-4
+// warning) and o5 (the bare-name deferral) are unaffected by the guard and
+// keep their original expectations.
 // ===========================================================================
 
 /**
@@ -1867,44 +1865,62 @@ const RESIDUAL_OWNERS =
   "bug 0130 (the annotationToCompatType conversion this check shares with the sites it names), " +
   "both open and unsettled; this fix does not adjudicate it";
 
+/**
+ * o1/o2's WHY, post-bug-0222: the pairing `RESIDUAL_OWNERS` describes is what
+ * this consumer USED to draw before the guard landed. o3 and o5 still cite
+ * `RESIDUAL_OWNERS` because their own subjects (absence, a bare unresolvable
+ * name) were never that pairing and are untouched by bug 0222; o4 carries
+ * its own bespoke `why` naming the QRY-4 channel directly, since its subject
+ * (a well-formed mismatch) never used `RESIDUAL_OWNERS` either at HEAD or
+ * now. Only o1 and o2 exercised the pairing itself, so only their WHY moves
+ * to name the report that settled it.
+ */
+const WITHHOLD_OWNER =
+  "bug 0222, which gated `checkLetMismatch` behind `annotationSourceIsNotTypeExpression` so a " +
+  "refused `let` annotation reads as absent to the QRY-4 explicit-schema check, the same as it " +
+  "reads to this fix's four withheld sites";
+
 describe(
-  "bug 0124 (o) — the QRY-4 explicit-schema check reads the refused text directly, unlike this fix's four withheld sites",
+  "bug 0124 (o) — the QRY-4 explicit-schema check withholds on a refused annotation (settled by bug 0222)",
   () => {
-    it("RESIDUAL (o1): a refusal nested under `array<…>` still draws `explicit-schema-mismatch` beside it", () => {
-      // The annotation's OUTER shape is `array<…>` (a `GenericType`), so the
-      // compatibility relation decides the ascription and the annotation
-      // incompatible from the outer-kind mismatch alone — array vs a scalar
-      // ascription — without ever reaching the array's junk element. The
-      // refusal (this fix) and the warning (the unwired fifth consumer) both
-      // fire for one offending annotation.
+    it("WITHHELD (o1): a refusal nested under `array<…>` draws the refusal ALONE", () => {
+      // The annotation's OUTER shape is `array<…>` (a `GenericType`). Before
+      // bug 0222, the compatibility relation decided the ascription and the
+      // annotation incompatible from the outer-kind mismatch alone — array vs
+      // a scalar ascription — without ever reaching the array's junk element,
+      // and a `theta/parse/explicit-schema-mismatch` warning fired beside the
+      // refusal. `checkLetMismatch` now asks the same recogniser this fix's
+      // other four sites already consult, before it converts anything, so
+      // the refused annotation is absent to it and the warning no longer
+      // fires.
       expectSequence(
         "o1 (let, array<integer-->, @<integer>)",
         "let",
         "array<integer-->",
-        [refusalLine("a"), warningLine("theta/parse/explicit-schema-mismatch")],
+        [refusalLine("a")],
         {
           rhsOrBody: "@<integer>`x`",
-          why: `this pairing is ${RESIDUAL_OWNERS}`,
+          why: `this consumer withholds the annotation as of ${WITHHOLD_OWNER}`,
         },
       );
     });
 
-    it("RESIDUAL (o2): the same pairing through a union arm that is itself the array-wrapped refusal", () => {
+    it("WITHHELD (o2): the same withheld reading through a union arm that is itself the array-wrapped refusal", () => {
       // `array<integer--> | boolean` converts to a union whose first arm is
-      // the same array-wrapped junk as o1. Union-widening tries each arm in
-      // turn; the array arm fails on outer kind exactly as in o1, the
-      // `boolean` arm fails on primitive mismatch, and neither arm reaches
-      // "compatible" or "unknown", so the union verdict is "incompatible" and
-      // the warning fires beside the refusal — the nesting depth changes
-      // nothing about which consumer decided the verdict.
+      // the same array-wrapped junk as o1. Before bug 0222, the array arm
+      // failed on outer kind exactly as in o1, the `boolean` arm failed on
+      // primitive mismatch, and the union verdict was "incompatible" — the
+      // nesting depth changed nothing about which consumer decided the
+      // verdict. The same guard withholds this annotation too, so the union
+      // case draws no warning either.
       expectSequence(
         "o2 (let, array<integer--> | boolean, @<string>)",
         "let",
         "array<integer--> | boolean",
-        [refusalLine("a"), warningLine("theta/parse/explicit-schema-mismatch")],
+        [refusalLine("a")],
         {
           rhsOrBody: "@<string>`x`",
-          why: `this pairing is ${RESIDUAL_OWNERS}`,
+          why: `this consumer withholds the annotation as of ${WITHHOLD_OWNER}`,
         },
       );
     });

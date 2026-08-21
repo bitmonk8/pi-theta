@@ -58,7 +58,11 @@ import {
   type InferredSchema,
   type SchemaSinkFrame,
 } from "./query-schema-inference";
-import { annotationToCompatType, collectTypeEnv } from "./type-layer-checks";
+import {
+  annotationSourceIsNotTypeExpression,
+  annotationToCompatType,
+  collectTypeEnv,
+} from "./type-layer-checks";
 import type { CompatType, TypeEnv } from "./type-compat";
 
 /** The resolved body plus the QRY-4 explicit-schema-mismatch diagnostics. */
@@ -466,9 +470,22 @@ class QuerySchemaResolveWalk {
    * emit `theta/parse/explicit-schema-mismatch` iff `S ⋢ T` (a wider binding
    * annotation is silently allowed; either side past the static view is
    * skipped). A direct-let propagation makes `S === T`, so it never fires.
+   *
+   * `annotationSource` is read verbatim off the AST with no derived carrier
+   * between it and the text, so — like the six sites
+   * `annotationSourceIsNotTypeExpression` already gates in `type-layer-checks.ts`
+   * (`checkSubagentReturnAnnotation`, `checkFnCallArgs`, and the rest) — this
+   * method must establish the absence itself rather than inherit it: a
+   * refused annotation is ABSENT to every downstream consumer the recogniser
+   * reaches, and a verdict computed from it is a verdict computed from text
+   * that does not exist. The guard below sits ahead of the `unwrapToQuery`
+   * peel so the postfix-`?` spelling is refused the same as the direct one.
    */
   private checkLetMismatch(init: Expr, annotationSource: string | null): void {
     if (annotationSource === null || annotationSource.length === 0) {
+      return;
+    }
+    if (annotationSourceIsNotTypeExpression(annotationSource)) {
       return;
     }
     const query = unwrapToQuery(init);

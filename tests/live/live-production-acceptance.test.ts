@@ -13493,3 +13493,193 @@ describe("cell 82 (bug 0224): an undeclared name spelled inside a `par for` body
     }
   });
 });
+
+
+
+// ===========================================================================
+// Bug 0222 — `checkLetMismatch` (src/parser/query-schema-resolve.ts)
+// converted a REFUSED `let` annotation directly instead of consulting the
+// `theta/parse/annotation-type-not-expression` withhold six other consumers
+// already honoured, so `let a: array<integer--> = @<integer>`x`` drew
+// `theta/parse/explicit-schema-mismatch` (W) BESIDE the refusal — a warning
+// computed from text the same registry row declares ABSENT to its consumers
+// (docs/bugs/0222-qry4-let-mismatch-reads-refused-annotation.md).
+//
+// WHY REGISTRATION IS NOT THE OBSERVABLE HERE, UNLIKE MOST CELLS IN THIS FILE.
+// The refusal itself is error-severity, so `hasLoadParseError`
+// (src/extension/production-composition.ts) denies registration whether or
+// not the guard this fix adds ever runs — the bug doc's own Sev/Diff estimate
+// states it: "no value or dispatch moves". The fixed observable is instead
+// WHICH diagnostics land on the theta-system-note channel: the load-phase
+// router (`production-composition.ts`, the V4e pre-eval router plus its
+// warning arm) delivers every error-severity diagnostic as its own pre-eval
+// note AND every warning-severity diagnostic as one `emitDiagnosticBatch`
+// note — so the refused annotation's warning, if it fired, would be
+// independently visible on this channel beside the refusal note, exactly as
+// the unit witness (tests/qry4-refused-annotation-withhold.test.ts, cells
+// A1-A3) observes it in the raw diagnostic array. Post-fix, that batch note
+// never arrives.
+//
+// THE LIVENESS CONTROL, ASSERTED FIRST (mirrors A5 of the unit witness). A
+// WELL-FORMED mismatched annotation (`let a: string = @<integer>`x``, no
+// refusal in play) must still draw the warning note — proving this cell's
+// detection method can see the warning message at all, so the subject's
+// absence of that same note is attributable to the withhold rather than to a
+// broken detector or a channel that never delivers warnings live.
+//
+// Registration-only: no slash command is invoked on either planted theta, so
+// NO model turn runs and the cell spends ZERO tokens (the same profile the
+// bug 0100/0118/0203 registration-only cells above claim). No subagent child
+// process is spawned, so the #subagent-child-pins convention does not apply
+// to this cell. ADDITIVE ONLY: no existing cell in this file is weakened,
+// reworded, reordered or deleted.
+//
+//
+// ===========================================================================
+
+const CELL_D_REFUSAL_CODE = "theta/parse/annotation-type-not-expression";
+const CELL_D_MISMATCH_CODE = "theta/parse/explicit-schema-mismatch";
+
+/** The sharded registry page carrying both bug-0222 codes' rows. */
+const CELL_D_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/annotation-type-not-expression: '<name>' declares a type that
+ * is not a theta type expression` — DIAG-4: the message half is READ from the
+ * registry row, mirroring this file's `malformedSpecifierListFragment`. This
+ * row's Message carries the `<name>` slot, substituted with the binder.
+ */
+function cellDRefusalFragment(name: string): string {
+  const template = registryMessage(CELL_D_REGISTRY, CELL_D_REFUSAL_CODE) as string | undefined;
+  expect(
+    template,
+    `${CELL_D_REFUSAL_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  expect(
+    template as string,
+    `${CELL_D_REFUSAL_CODE}: the '<name>' slot is missing from the live template — the row's ` +
+      "Message shape changed and this cell is stale",
+  ).toContain("<name>");
+  const rendered = (template as string).replaceAll("<name>", name);
+  return `${CELL_D_REFUSAL_CODE}: ${rendered}`;
+}
+
+/**
+ * `theta/parse/explicit-schema-mismatch: explicit @<Schema> ascription is not
+ * compatible with binding annotation` — placeholder-free (its one `<…>` token
+ * is the literal `@<Schema>` source spelling, not an interpolation slot), so
+ * this fragment substitutes nothing, mirroring `malformedSpecifierListFragment`'s
+ * placeholder-free guard.
+ */
+function cellDMismatchFragment(): string {
+  const template = registryMessage(CELL_D_REGISTRY, CELL_D_MISMATCH_CODE) as string | undefined;
+  expect(
+    template,
+    `${CELL_D_MISMATCH_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  return `${CELL_D_MISMATCH_CODE}: ${template as string}`;
+}
+
+/** A `mode: prompt` theta whose sole `let a` binding is followed by the tail `a`. */
+function cellDLetTheta(stmt: string): string {
+  return ["---", "mode: prompt", "---", stmt, "a", ""].join("\n");
+}
+
+describe("H8a-T — bug 0222: the QRY-4 explicit-schema check withholds a refused `let` annotation, live (Convention: live-host acceptance)", () => {
+  it("a `let` annotation array<integer--> refused by the parser draws the refusal alone on the theta-system-note channel, with no explicit-schema-mismatch warning beside it (cell 83)", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Liveness control (mirrors unit-witness A5): a WELL-FORMED mismatched
+      // annotation, no refusal anywhere in the program. Registers (the
+      // mismatch is warning-severity only) and must carry the warning note —
+      // proving this cell's detector actually sees that note when it fires.
+      {
+        source: "project",
+        stem: "b222livewarn",
+        text: cellDLetTheta("let a: string = @<integer>`x`"),
+      },
+      // The subject: the array-wrapped refused annotation this bug names.
+      // Refused at parse (error-severity), so `hasLoadParseError` denies
+      // registration either way — the fixed observable is the ABSENCE of the
+      // warning note beside the refusal note, not registration.
+      {
+        source: "project",
+        stem: "b222livesubject",
+        text: cellDLetTheta("let a: array<integer--> = @<integer>`x`"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // The liveness control registers (warning-only) and its note carries the
+      // mismatch fragment, asserted FIRST so a dead detector or a channel that
+      // never delivers warnings live cannot be mistaken for the subject's fix.
+      expect(
+        handle.command("b222livewarn"),
+        "the well-formed mismatched-annotation control did not register — a broken workspace, " +
+          "not the withhold under test, would explain the subject's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      const controlNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const mismatchFragment = cellDMismatchFragment();
+      expect(
+        controlNotes.some((note) => note.includes(mismatchFragment)),
+        "the well-formed mismatch control fired no explicit-schema-mismatch note — this cell's " +
+          "detector cannot see that channel at all, so the subject's silence below would be " +
+          "vacuous. Notes: " + JSON.stringify(controlNotes),
+      ).toBe(true);
+
+      // The subject: refused at parse, so it never registers — unchanged by
+      // this fix, and asserted so a regression that ALSO stopped refusing the
+      // junk annotation cannot be mistaken for the fix under test.
+      expect(
+        handle.command("b222livesubject"),
+        "the array<integer--> annotation registered — the refusal (independent of this bug) did " +
+          "not fire. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+
+      // The fixed observable: the refusal note fires ALONE. Pre-fix,
+      // `checkLetMismatch` converted the refused text directly and a second
+      // `explicit-schema-mismatch` note landed beside it; post-fix, the guard
+      // this bug adds withholds the annotation before any conversion runs, so
+      // no such note arrives.
+      // Scoped to the subject theta's OWN notes: `systemNoteContents` reads
+      // the full session entry list, which also carries the liveness
+      // control's legitimate warning note (from `b222livewarn`) — an
+      // unscoped read would find that note and misattribute it to the
+      // subject, so every note is filtered to the ones citing the subject's
+      // own planted file path first.
+      const allNotes = systemNoteContents(handle.sessionManager.getEntries());
+      const subjectNotes = allNotes.filter((note) => note.includes("b222livesubject.theta"));
+      expect(
+        subjectNotes.length > 0,
+        "no theta-system-note entry cited b222livesubject.theta at all, so this cell cannot " +
+          "distinguish the subject's notes from the control's. All notes: " +
+          JSON.stringify(allNotes),
+      ).toBe(true);
+      const refusalFragment = cellDRefusalFragment("a");
+      expect(
+        subjectNotes.some((note) => note.includes(refusalFragment)),
+        "no theta-system-note entry named the annotation-type-not-expression refusal for the " +
+          "array<integer--> annotation. Notes: " + JSON.stringify(subjectNotes),
+      ).toBe(true);
+      expect(
+        subjectNotes.some((note) => note.includes(mismatchFragment)),
+        "an explicit-schema-mismatch note fired beside the refusal for the array<integer--> " +
+          "annotation — the withhold bug 0222 adds did not gate `checkLetMismatch`, so the " +
+          "warning was still computed from text the refusal's own registry row declares ABSENT " +
+          "to its consumers. Notes: " + JSON.stringify(subjectNotes),
+      ).toBe(false);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

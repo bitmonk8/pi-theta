@@ -1286,3 +1286,29 @@ the annotation's own source text does not collide with it. Status unchanged
   (`static-type-inference.ts`) is unchanged — R3's deferral is what makes that
   safe; TYPE-1…TYPE-11's content is unchanged, an operand the relation already
   defines is merely presented to it.
+
+## Coordination note — bug 0222 landed (0.166.0)
+
+§Fix (0.160.0) *Residuals* item 1 held this route on the unchanged conversion
+and stated the disposition: the QRY-4 pair's shared *Trigger* exception is
+"not fully discharged … while the withhold-routing question stays open for a
+follow-up report". That report is
+[0222](./0222-qry4-let-mismatch-reads-refused-annotation.md), fixed at 0.166.0,
+and the exception is now discharged: `checkLetMismatch` consults
+`annotationSourceIsNotTypeExpression` and returns before either conversion
+runs, so the refusal fires alone at that site, and
+`theta/parse/annotation-type-not-expression`'s *Trigger* loses the exception
+paragraph naming this report and 0093 in the same commit. Item 1 stands as
+written at 0.160.0 — the hold it records was deliberate and remains the
+accurate account of what this route did.
+
+This fix's own boundary is undisturbed, and 0222 verified it rather than
+assuming it. `letAnnotationToCompatType` and `annotationToCompatType` are
+byte-identical in body; the only edit to `src/parser/type-layer-checks.ts` is
+one bullet of `annotationToCompatType`'s doc comment, recording that the
+`checkLetMismatch` consumer is now gated by the recogniser and still reads
+this unwidened conversion — so the five-consumer hold is not narrowed, and
+*Residuals* item 2's four remaining held consumers keep the old silence.
+`tests/let-annotation-inline-object-compat.test.ts` is byte-identical and all
+51 cells pass, cell `c3` included, verified by `git hash-object` against the
+fix baseline. Status unchanged (**fixed (0.160.0)**).

@@ -821,7 +821,12 @@ function collectSchemaFields(
  *   - `query-schema-resolve.ts`'s `checkLetMismatch` and `compatToInferred`
  *     convert an `@<T>` ascription and a `let` annotation through this same
  *     function and compare the results as an `InferredSchema`, which has no
- *     `object` case to compare against.
+ *     `object` case to compare against. `checkLetMismatch` is now gated by a
+ *     leading `annotationSourceIsNotTypeExpression` check (bug 0222) that
+ *     returns before either conversion runs for a refused `let` annotation;
+ *     the conversion it still reaches for every annotation the guard lets
+ *     through is this same unwidened function, so bug 0130's hold here is
+ *     not narrowed.
  *   - the alias-RHS conversion (`collectTypeEnv`, below) and the `fn`-param
  *     binding seed (`walkFn`'s parameter loop) both read a declared type in a
  *     position TYPE-11 or the parameter contract already governs by name,

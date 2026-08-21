@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.166.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0222 — `checkLetMismatch` now consults the annotation withhold**:
+  the QRY-4 explicit-schema check joins
+  `theta/parse/annotation-type-not-expression`'s withhold consumers, so a
+  refused `let` annotation draws the refusal ALONE — previously the same
+  mistake also drew `theta/parse/explicit-schema-mismatch` (two diagnostics
+  for one error). The registry row's consumer enumeration gains the QRY-4
+  check same-commit. Witness:
+  `tests/qry4-refused-annotation-withhold.test.ts` (14 cells) + H8a cell
+  83. Flips o1/o2 of `tests/annotation-nontype-text-refusal.test.ts`
+  ratified at merge (doc-named). Bugs 0093/0130 discharge notes appended
+  (0130 residual 1 discharged).
+
 ## [0.165.0] - 2026-08-27
 
 ### Fixed

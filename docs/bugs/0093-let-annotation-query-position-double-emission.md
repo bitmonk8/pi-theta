@@ -621,3 +621,34 @@ the removed line; read them as measured at 0.57.0. Status unchanged (**open**).
   arity proxies since 0179 — see the coordination note above); the `let`
   annotation running no name-resolution walk; the brace-rooted union-arm
   capture defect; which site should own the rule set. All unmoved.
+
+## Coordination note — bug 0222 landed (0.166.0)
+
+§Fix (0.155.0) *Measured NOT to flip* recorded that
+`tests/annotation-nontype-text-refusal.test.ts` group (o) stayed GREEN under
+this repair, with the structural reason — group (o)'s subjects carry an
+explicit `@<Schema>` ascription, so `parseLet`'s `init.schema === null` guard
+never propagates and the marker is never set — and closed on "the residual it
+records stays open with 0130". That sentence stands as written at 0.155.0: this
+repair did not touch the QRY-4 explicit-schema channel, and the reason it gave
+is the reason it did not.
+
+The residual itself is now closed, by neither of the two reports that sentence
+names. [0222](./0222-qry4-let-mismatch-reads-refused-annotation.md) §Fix
+(0.166.0) gates `query-schema-resolve.ts`'s `checkLetMismatch` behind
+`annotationSourceIsNotTypeExpression`, so a refused `let` annotation is ABSENT
+to the QRY-4 explicit-schema check as it already was to the six consumers bug
+0124 threaded, and
+`docs/spec_topics/diagnostics/code-registry-parse.md`'s
+`theta/parse/annotation-type-not-expression` row loses the exception paragraph
+that named this report and 0130 as the residual's future owners.
+
+This report's own witness did not move: cells o1 and o2 of group (o) — the two
+this fix measured green and left alone — are the two 0222 flipped, under the
+group header's own pre-authorisation. This report's 10-cell lock,
+`tests/let-annotation-query-double-emission.test.ts`, is byte-identical and
+all 10 cells pass, verified by `git hash-object` against the fix baseline:
+0222's guard sits in a consumer those subjects never reach, because they
+propagate the annotation onto a query that carried no ascription and
+`checkLetMismatch` returns at its `query.schema === null` test. Status
+unchanged (**fixed (0.155.0)**).
