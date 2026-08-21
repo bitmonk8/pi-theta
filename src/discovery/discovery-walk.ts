@@ -557,18 +557,20 @@ interface TreeEntry {
  *  (discovery-sources.md:63 wants that entry's descriptor). */
 interface TreeWalk {
   readonly entries: TreeEntry[];
-  /** Directories that exist and could not be enumerated. A clean-leaf `ENOENT`
-   *  is absent instead: there the pattern resolves to no path, which
-   *  package-and-settings.md:29 keeps silent. */
+  /** Directories that exist and could not be enumerated, plus any entry a
+   *  directory's `readdir` named whose own `lstat` rejected with a code other
+   *  than `ENOENT`. A clean-leaf `ENOENT` is absent instead: there the pattern
+   *  resolves to no path, which package-and-settings.md:29 keeps silent. */
   readonly unreadable: string[];
 }
 
 /** Recursively enumerate every file/dir under `root` (symlinks not followed);
  *  the universe glob patterns are matched against. A failure to enumerate any
  *  directory in that walk — the static-prefix root itself or a subtree below
- *  it — is a traversal failure inside a root that exists, an unreadable source
- *  and not silence (discovery-sources.md:69), so the rejection is classified by
- *  the :68 clean-leaf rule and carried out rather than dropped. */
+ *  it — or to `lstat` an entry that walk enumerated, is a traversal failure
+ *  inside a root that exists, an unreadable source and not silence
+ *  (discovery-sources.md:69), so the rejection is classified by the :68
+ *  clean-leaf rule and carried out rather than dropped. */
 async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
   const out: TreeEntry[] = [];
   const unreadable: string[] = [];
@@ -586,7 +588,15 @@ async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
     for (const name of outcome.names) {
       const abs = joinPosix(dir, name);
       const stat = await lstatOutcome(fs, abs);
-      if (!stat.ok) continue;
+      if (!stat.ok) {
+        // A clean-leaf ENOENT here is the entry vanishing between the readdir
+        // that named it and this probe: a leaf under a parent already proven
+        // enterable, so the pattern resolves to no path there and
+        // package-and-settings.md:29 keeps it silent. Any other code is a
+        // traversal failure inside a root that exists (discovery-sources.md:69).
+        if (stat.code !== "ENOENT") unreadable.push(abs);
+        continue;
+      }
       out.push({ abs, base: name, isDir: stat.isDir, isFile: stat.isFile });
       if (stat.isDir) {
         await walk(abs);

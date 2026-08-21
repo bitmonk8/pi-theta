@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.175.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0075 (partial) — the `listTree` per-entry `lstat` swallow now
+  classifies by error code** in BOTH discovery copies (`discovery-walk.ts` +
+  `package-discovery.ts`): a non-`ENOENT` `lstat` rejection joins
+  `TreeWalk.unreadable` and draws the `theta/load/unreadable-source` warning
+  (0113's row — its Trigger already admits the class); `ENOENT` stays silent
+  (clean-leaf precedent). The doc's headline `classifyPath`
+  link-classification subject stays OPEN — status narrowed, not flipped.
+  Witness `tests/discovery-tree-walk-lstat-failure.test.ts` (11 cells) + a
+  standalone live cell (`discovery-entry-lstat-failure-live-cell`).
+
 ## [0.174.0] - 2026-08-27
 
 ### Fixed

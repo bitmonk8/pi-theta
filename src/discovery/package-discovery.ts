@@ -319,10 +319,11 @@ interface TreeWalk {
 
 /** Recursively enumerate every file/dir under the package root (the universe
  *  the `pi.theta` patterns are matched against). Symlinks are not followed. A
- *  failure to enumerate any directory in that walk is a traversal failure
- *  inside a root that exists — an unreadable source, not silence
- *  (discovery-sources.md:69) — so the rejection is carried out to
- *  `resolvePiThetas`, which owns the `pi.theta` descriptor.
+ *  failure to enumerate any directory in that walk, or to `lstat` an entry
+ *  that walk enumerated, is a traversal failure inside a root that exists —
+ *  an unreadable source, not silence (discovery-sources.md:69) — so the
+ *  rejection is carried out to `resolvePiThetas`, which owns the `pi.theta`
+ *  descriptor.
  *
  *  An `ENOENT` needs no discovery-sources.md:68 ancestor walk here, for the
  *  reason `thetasInDirectory` states: this walk's every ancestor is already
@@ -348,10 +349,18 @@ async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
       const abs = joinPosix(dir, name);
       const rel = relBase === "" ? name : `${relBase}/${name}`;
       const stat = await fs.lstat(abs).then(
-        (s) => ({ isDir: s.isDirectory(), isFile: s.isFile() }),
-        () => undefined,
+        (s) => ({ ok: true as const, isDir: s.isDirectory(), isFile: s.isFile() }),
+        (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
       );
-      if (stat === undefined) continue;
+      if (!stat.ok) {
+        // This walk's ancestors are pre-proven enterable (package.json was read
+        // and the parent was just readdir'ed), so an ENOENT here is always the
+        // clean-leaf case: the pattern resolves to no path there, which
+        // package-and-settings.md:29 keeps silent. Any other code is a
+        // traversal failure inside a root that exists (discovery-sources.md:69).
+        if (stat.code !== "ENOENT") unreadable.push(abs);
+        continue;
+      }
       out.push({ abs, rel, base: name, isDir: stat.isDir, isFile: stat.isFile });
       if (stat.isDir) {
         await walk(abs, rel);

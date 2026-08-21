@@ -1,6 +1,9 @@
 # Bug 0075 — A discovery root or explicit `.theta` entry that is a symlink or a Windows directory junction is classified `wrong-type` and contributes nothing: `classifyPath` probes the candidate with `lstat`, where DISC-2's implementation note pins `readdir` or `stat` for the candidate and reserves `lstat` for the ancestor probe
 
-- **Status:** open.
+- **Status:** open — the headline `classifyPath` subject is untouched. The
+  `listTree` per-entry `lstat` swallow named in §Affected (`discovery-walk.ts`
+  `listTree`, and its `package-discovery.ts` twin) is fixed; see
+  §Fix (0.175.0).
 - **Kind:** defect. The DISC-2 clean-leaf-`ENOENT` note states which probe applies
   to the candidate path and which to its ancestors; the implementation uses the
   ancestor probe for both, so every link-typed candidate falls into the
@@ -240,3 +243,128 @@ from the test.
 - Spec: `docs/spec_topics/discovery/discovery-sources.md:49`, `:57–64`, `:60`,
   `:66`, `:67`; `docs/reference/discovery-cli.md:40–59`.
 > **Coordination note (at bug 0113's fix, 0.126.0):** both `listTree` copies moved — the return type now carries the readdir failures, `treeFor` takes a second `descriptor` argument, and `resolveSettingsSource` ends with an `emitUniverseFailures` call. This report's subject (per-entry `lstat`/link classification) is untouched; the per-entry `lstat` swallow stays a 0113 §Non-goal. Line citations into `src/discovery/discovery-walk.ts` / `src/discovery/package-discovery.ts` below `listTree` drifted — re-anchor by symbol at pick.
+
+## Fix (0.175.0) — the `listTree` per-entry `lstat` swallow only
+
+**Scope.** This pass fixes one of the two defect classes this report names: the
+per-entry `lstat` swallow inside both `listTree` copies (§Affected,
+`discovery-walk.ts` `listTree`; the same rule in `package-discovery.ts`), which
+bug 0113's fix record carries as its residual 1 and its §Non-goals name by
+symbol. The headline subject — `classifyPath` probing the candidate with `lstat`
+so a symlink or Windows junction classifies `wrong-type` — is **not** fixed and
+this report stays open for it, together with the §Fix Option A / Option B
+choice and the `tests/e2e-s5-disc-cli-settings.test.ts:253–263` re-pinning that
+choice requires. Bug 0078's subject (the CLI entry schema's route through
+`collectFromEntries`) was not touched either; it shares these two files and
+remains open.
+
+**Adjudication.** Bug 0113's Reading-A holding governs unchanged: a traversal
+failure inside a root that exists is not zero-match silence
+(`discovery-sources.md:69`). An entry whose own `lstat` rejects is that class —
+the parent's `readdir` has already named the entry, so the path exists and
+cannot be read. The emission shape is 0113's, reused rather than re-derived:
+the same `theta/load/unreadable-source` row at the source's *Unreadable path*
+severity (warning for both reachable rows), the same descriptors
+(`settings entry index N`, lowest-index owner of a shared cached universe; and
+`` package `<name>` (pi.theta) ``), and the same carry-the-failure-out plumbing,
+so **no new code, no registry row, no *Message* reword** (DIAG-4). The row's
+*Trigger* ("a discovery source's path exists but cannot be read") admits the
+class as written on the 0076 and 0113 precedents, so **no DIAG-2 widening** is
+owed. `ENOENT` from that `lstat` stays silent: the entry vanished between the
+enumeration and the probe, a clean leaf under a parent already proven enterable,
+which leaves the pattern resolving to no path (`package-and-settings.md:29`).
+
+**Mirror decision, re-checked at this tree.** `docs/reference/discovery-cli.md`
+is again **deliberately not edited**. The mirror check found no contradiction —
+no new code, no severity change, no *Message* change, no *Trigger* widening — and
+the ground 0113 stated still holds: live `docs/reference/discovery-cli.md:NNN`
+citations sit in four still-**open** bug documents (0088:267, 0111:212/937,
+0146:254/484/784, 0147:238/496/888), which an edit shifting that file's line
+numbering would stale.
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `listTree`'s per-entry probe classifies
+    the `lstat` rejection by named code instead of dropping it: non-`ENOENT`
+    pushes the entry path onto `TreeWalk.unreadable`, so the `treeFor` /
+    `universeFailures` / `emitUniverseFailures` chain 0113 landed attributes it
+    to the lowest-index `settings entry index N` and reports it once, skipping
+    any path a per-match enumeration already reported. `ENOENT` stays silent.
+    The `TreeWalk.unreadable` field comment and the `listTree` header comment
+    now state both failure arms.
+  - `src/discovery/package-discovery.ts` — the same classification in the
+    `pi.theta` universe walk, through the `nodeErrorCode` helper its `readdir`
+    arm already uses; the existing loop in `resolvePiThetas` emits the
+    `` package `<name>` (pi.theta) `` warning with its double-report guard.
+  - `docs/spec_topics/discovery/discovery-sources.md` — the glob-universe
+    sentence group named only a `readdir` failure at or below the prefix root;
+    one in-line clause extends it to a failure to `lstat` an entry that same
+    walk enumerated. Appended in-line and the file's line count is unchanged
+    (106), so no citation into this file moved.
+- Gates: witness `tests/discovery-tree-walk-lstat-failure.test.ts` 11/11 (cells
+  1, 2, 3, 5, 7 RED before the fix, `Observed diagnostics=[]`); full default
+  suite `367 files / 7501 tests passed` (fork baseline 366/7490 at v0.173.0 —
+  the delta is exactly this witness); `npx tsc -p . --noEmit` clean;
+  `npm run lint` clean; live H8a `CELL-D` 1/1 real run under the live lock,
+  red-proven by neutralising the settings-side arm.
+- Review: 3 rounds. Round 1 (deep) found no correctness, fidelity or spec
+  defect: three items, all test/prose — the witness cited pre-fix line numbers,
+  quoted deleted code shapes and narrated the defect as present fact (a
+  historical reference); `TreeWalk.unreadable`'s comment and both `listTree`
+  header comments described only the `readdir` failure class; the new spec
+  clause carried a banned word. One `bug-fix-fixer-light` round applied all
+  three, touching no executable line in `src/`. Round 2 (fast) CLEAN with one
+  citation-drift residual (`emitUniverseFailures` had moved +2 lines), corrected
+  as a recorded, bounded, citation-only self-authorization — every
+  `path:line` in the witness re-derived by symbol, no assertion touched. Round 3
+  (fast) judged the new live cell: CLEAN, adjudicating the fault-injection
+  provocation acceptable and reporting two lane-token placement residuals,
+  both then made strip-safe (`(CELL-D)` parenthesized form).
+- Verification: SOLID. (A) The witness reds on revert, proven three ways with
+  byte-exact restoration (`git hash-object` re-verified after each): restoring
+  the settings-side swallow reds cells 1, 2, 3, 7; restoring the package-side
+  swallow reds cell 5; dropping the `ENOENT` filter so the report is
+  unconditional reds exactly the two silence controls (cells 4, 6), so the
+  silent arm can genuinely fail. (B) `npm test` 367/7501. (C) `npx tsc -p .
+  --noEmit` and `npm run lint` clean. (D) Live: one additive standalone H8a
+  cell, `tests/live/discovery-entry-lstat-failure-cell-d.test.ts`, boots the
+  real shipped extension and asserts the warning arrives on the
+  `theta-system-note` channel off the settled `SessionManager`, with the message
+  half read from the registry row (DIAG-4) and the descriptor
+  `settings entry index 0`; bracketed by a registration precondition control and
+  a guard that the theta under the denied entry stays absent. Green, and
+  red-proven by neutralising the settings-side arm. Registration-only, zero
+  tokens, no subagent child spawn, so no child pins are owed. No H9a run and no
+  `permitted-codes.json` decision: no new code and no severity change.
+  No stochastic class was observed. Both `listTree` copies' at-rest blob hashes
+  match their pre-neutralisation values.
+- Residuals:
+  1. **The headline `classifyPath` defect is untouched** — a symlinked or
+     junctioned root, `--theta` component or settings entry still classifies
+     `wrong-type` and contributes nothing. Evidence: `classifyPath` is
+     byte-unchanged in this pass and §Fix's Option A / Option B choice is
+     unmade. This report stays open for it.
+  2. **The live cell injects its fault at `node:fs`, not at the real
+     filesystem.** `fs.promises.lstat` — the primitive `PiFileSystem.lstat`
+     delegates to — is patched for exactly one absolute path and restored in a
+     `finally` around the boot call; every layer above it is the real
+     composition root. Evidence recorded in the cell's header: the ACL-free
+     provocation bug 0113's cell 62 uses has no entry-level equivalent (the
+     failing call is an `lstat` on `<parent>/<name>` whose parent's own
+     `readdir` already proved it a directory, so no non-final component is left
+     to be the wrong type), a Windows `icacls` deny does not make `lstat` fail
+     (measured on the host), and a TOCTOU race is non-deterministic with no
+     injectable seam in the composition root.
+  3. **A denied entry is reported but not recovered.** The path stays absent
+     from the universe; the fix converts a silent loss into a reported one.
+     Evidence: the witness's per-cell guards assert the theta below the denied
+     entry does not register.
+  4. **Cross-source duplication for one denied path remains by design**
+     (0113 residual 3, unchanged and untested).
+- Discharge notes appended: none. This fix discharges bug 0113's fix-record
+  residual 1, but 0113 is closed and its record is left untouched.
+- Pinned dispositions / non-goals: `classifyPath`'s link-typed candidates
+  (residual 1, this report's headline subject); bug 0078's CLI-entry schema
+  route through `collectFromEntries`; `globMatches`' selection (0077, landed);
+  `enumerateRoot`'s DISC-6 root swallow; the DISC-6 bounds; the
+  `node_modules/` symlink filter and the `realpath` dedup in
+  `isCanonicalDuplicate` (section Non-goals). None was touched.
