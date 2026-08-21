@@ -649,3 +649,24 @@ makes the choice honest rather than assumed:
   message would be false of it; no registry row and no normative sentence is
   edited; the lowercase head, exhaustiveness, unreachable arms, guards and rest
   patterns stay where §Non-goals leaves them.
+
+## Discharge note — bug 0221 (0.167.0)
+
+Bug [0221](./0221-object-pattern-head-name-unchecked-fires-wrong-arm.md) closed
+the non-reserved half of this arm: an `ident`-kind object-pattern head absent
+from the whole-file declaration universe now draws
+`theta/parse/unresolved-named-type` at the head's range, from the same site this
+report's guard emits from.
+
+- §Fix (0.156.0) *Residual* 2 (element 3, `Zed { a: 1 }` silent) — **closed**.
+  Witness cell `n2` here is one of the two flips bug 0221 §Fix (c)(2)
+  authorised.
+- §Fix (0.156.0) *Residual* 3 (the lowercase object-pattern head) — **closed**.
+  Witness cell `n1` here is the second authorised flip.
+- §Fix (0.156.0) *Residual* 1 (element 2, narrowed to declared-name
+  interchangeability) — **survives**, as bug 0221's own record's residual 1: a
+  DECLARED head whose declaration cannot carry the listed fields still selects
+  its arm, because `parsePattern` holds no schema field bodies.
+
+Every other cell of this report's 54-cell witness is byte-identical and green;
+`v6`'s diagnostic half did not flip, both its heads being declared.

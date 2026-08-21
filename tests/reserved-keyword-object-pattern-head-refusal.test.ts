@@ -550,25 +550,44 @@ describe("0219 (d) — the refusal fires at every depth the pattern grammar recu
 // ===========================================================================
 
 describe("0219 (n) — the spellings a route must leave silent", () => {
-  it("n1 (a7 boundary): a LOWERCASE object-pattern head `p { a: 1 }` stays silent", () => {
-    // §Non-goals: no spec sentence names a lowercase head at this position and
-    // bug 0141 declined the parallel question, so a route that reds this is
-    // refusing more than element 1.
+  it("n1 (a7 boundary): a LOWERCASE object-pattern head `p { a: 1 }` is refused as an unresolved head", () => {
+    // The lowercase object-pattern head was unclaimed by bug 0219 and by bug
+    // 0141, and is claimed and closed by bug 0221
+    // (docs/bugs/0221-object-pattern-head-name-unchecked-fires-wrong-arm.md,
+    // §Fix (c)(2), which names this cell as one of the two flips it
+    // authorises): the head is resolved against the whole-file pattern-head
+    // universe and a lowercase `let` binding is not in it, so `p` draws
+    // `theta/parse/unresolved-named-type` at the head's range — the same code
+    // the VALUE position already drew at the same spelling.
     expectDiagnostics(
       armBody("p { a: 1 }"),
-      [],
-      "the lowercase object-pattern head is unclaimed by bug 0219 and by bug 0141",
+      [
+        existing(
+          "theta/parse/unresolved-named-type",
+          "unresolved named type 'p'",
+          headRange("p"),
+        ),
+      ],
+      "bug 0221 §Expected behaviour 1: an object-pattern head that resolves to no declaration usable at that position is refused once, at the head's range",
     );
   });
 
-  it("n2 (a8 boundary): an UNDECLARED head `Zed { a: 1 }` stays silent (element 3)", () => {
-    // Element 3 is recorded and held open: refusing it means adding a sixth
-    // position to `theta/parse/unresolved-named-type`'s closed five-position
-    // list (code-registry-parse.md:99), a DIAG-2 *Trigger* edit.
+  it("n2 (a8 boundary): an UNDECLARED head `Zed { a: 1 }` is refused as an unresolved head (element 3, closed by bug 0221)", () => {
+    // Element 3 was recorded and held open by bug 0219 — refusing it added a
+    // further position to `theta/parse/unresolved-named-type`'s position list
+    // (code-registry-parse.md:101). Bug 0221 settled that DIAG-2 question and
+    // reuses the row rather than minting one; §Fix (c)(2) names this cell as
+    // the second of the two flips it authorises.
     expectDiagnostics(
       armBody("Zed { a: 1 }"),
-      [],
-      "element 3 (the head resolving against nothing) is measured and NOT settled by bug 0219's §Fix",
+      [
+        existing(
+          "theta/parse/unresolved-named-type",
+          "unresolved named type 'Zed'",
+          headRange("Zed"),
+        ),
+      ],
+      "bug 0221: the head resolving against nothing is refused, where bug 0219's §Fix left it measured and silent",
     );
   });
 

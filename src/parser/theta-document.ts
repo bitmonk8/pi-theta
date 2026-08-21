@@ -4355,6 +4355,16 @@ class BodyParser {
       if (this.isPunct("{")) {
         if (t.kind === "keyword") {
           this.diagnostics.push(reservedKeywordAsIdentifierDiagnostic(t.text, t.range, this.file));
+        } else if (!this.patternHeadTypeNames().has(t.text)) {
+          // A pattern head REFERENCES a declaration (lexical.md:18: it "refers
+          // to an existing schema, enum, or constructor in scope"), the same
+          // reading the value-position sibling `checkObjectExpr` already
+          // enforces for a constructor name (code-registry-parse.md:101). An
+          // `ident`-kind head absent from the whole-file universe resolves to
+          // nothing, so it is refused with the SAME code the value position
+          // draws at the same spelling (bug 0221) — `else if`, not a second
+          // `if`, so a `keyword`-kind head keeps bug 0219's code ALONE.
+          this.diagnostics.push(unresolvedNamedTypeDiagnostic(t.text, t.range, this.file));
         }
         this.advance();
         const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
@@ -4494,6 +4504,74 @@ class BodyParser {
     // Unrecognised: consume one token and treat as a wildcard to keep progress.
     this.advance();
     return { kind: "wildcard" };
+  }
+
+  /**
+   * Memoised result of {@link patternHeadTypeNames}, computed at most once per
+   * parse: the token list is fixed for the file's whole parse, so re-scanning
+   * it on every `match` arm the way `parsePattern` recurses through arms and
+   * depths would be a per-head rescan of the same answer.
+   */
+  private patternHeadTypeNamesMemo: ReadonlySet<string> | undefined;
+
+  /**
+   * The whole-file pattern-head universe (bug 0221 §Fix): every name an
+   * object-pattern head may resolve against, scanned from `this.tokens` ONCE
+   * rather than from the statement list `collectIdentRoots` reads, because
+   * `parsePattern` runs DURING the parse and the statement list does not
+   * exist yet at that point (`parsePattern` takes no arguments and reads no
+   * parser state beyond the token cursor — bug 0221 §Fix (a)).
+   *
+   * Seeded from `BUILTIN_VALUE_NAMES` (a pattern head REFERENCES a
+   * declaration rather than constructing one, so the builtin error-model
+   * names the value position refuses — `QueryError`, measured against
+   * `docs/spec_topics/expressions.md:171`'s own example head and the three
+   * committed `Err(QueryError { … })` examples — resolve here); then every
+   * identifier following a `schema` / `enum` token; then every specifier name
+   * of every `import` / `export` statement, scanned forward from the keyword
+   * to the first `string` (the `from "path"` clause) or `eof` token, adding
+   * every `ident`- or `keyword`-kind token in between (an `as`, a `from`, or a
+   * reserved specifier spelling included).
+   *
+   * DELIBERATELY PERMISSIVE. Over-collecting a name here can only make the
+   * check SILENT on it, never make it misfire on a name that should resolve —
+   * the same one-directional risk the pre-fix behaviour already carried for
+   * every name (bug 0221 §Non-goals: an enum head and an imported head
+   * defer). A tighter universe would need to parse each `import`/`export`
+   * specifier list and each `schema`/`enum` declaration properly, which is
+   * exactly the parse this scan runs ahead of and must not depend on.
+   */
+  private patternHeadTypeNames(): ReadonlySet<string> {
+    if (this.patternHeadTypeNamesMemo !== undefined) {
+      return this.patternHeadTypeNamesMemo;
+    }
+    const names = new Set<string>(BUILTIN_VALUE_NAMES);
+    for (let i = 0; i < this.tokens.length; i += 1) {
+      const tok = this.tokens[i];
+      if (tok === undefined || tok.kind !== "keyword") {
+        continue;
+      }
+      if (tok.text === "schema" || tok.text === "enum") {
+        const nameTok = this.tokens[i + 1];
+        if (nameTok !== undefined) {
+          names.add(nameTok.text);
+        }
+        continue;
+      }
+      if (tok.text === "import" || tok.text === "export") {
+        for (let j = i + 1; j < this.tokens.length; j += 1) {
+          const specTok = this.tokens[j];
+          if (specTok === undefined || specTok.kind === "string" || specTok.kind === "eof") {
+            break;
+          }
+          if (specTok.kind === "ident" || specTok.kind === "keyword") {
+            names.add(specTok.text);
+          }
+        }
+      }
+    }
+    this.patternHeadTypeNamesMemo = names;
+    return names;
   }
 
   /**

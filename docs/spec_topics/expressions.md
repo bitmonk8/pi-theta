@@ -171,7 +171,7 @@ let score = match @<ReviewScore>`Rate the critique 1-5: ${critique}` {
 | Object/schema | `QueryError { kind: "validation", cause: "schema_validation", attempts }` | object whose listed fields match the inner patterns; unlisted fields are ignored. Field shorthand `{ attempts }` is sugar for `{ attempts: attempts }` |
 | Array | `[a, b]`, `[first, _, _]` | exact-length array; each slot matches its pattern |
 
-Disambiguation: lowercase identifiers bind, capitalised identifiers refer to constructors or schema names. `Ok` and `Err` are reserved.
+Disambiguation: lowercase identifiers bind, capitalised identifiers refer to constructors or schema names. `Ok` and `Err` are reserved. An Object/schema pattern's head resolves against the whole-file declaration universe, per the pattern-head position of `theta/parse/unresolved-named-type` in [Diagnostics — Code registry (parse)](./diagnostics/code-registry-parse.md#code-registry); a head resolving to nothing draws that code.
 
 Guards (`Ok(x) if x.value > 3 => ...`) and rest patterns (`[first, ...rest]`, `{ kind, ...other }`) are not in theta 1.0: their use surfaces as `theta/parse/match-guard-not-supported` and `theta/parse/rest-pattern-not-supported` respectively. See [Future Considerations](./future-considerations.md).
 

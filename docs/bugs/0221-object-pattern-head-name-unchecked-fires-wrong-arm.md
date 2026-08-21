@@ -1,6 +1,6 @@
 # Bug 0221 — A NON-reserved `match` object-pattern head is checked against nothing: an undeclared `R { a: 1 }`, an undeclared head nested one level down, and a lowercase `q { a: 1 }` each parse clean, register, and select their arm on a value of an unrelated declared schema — where the same three heads written in the VALUE position each draw `theta/parse/unresolved-named-type` at the same spelling
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.167.0). Filed as bug
   [0219](./0219-reserved-keyword-object-pattern-head-parses-clean.md)'s named
   residuals 1–3 (§Fix (0.156.0) *Residuals*: element 2 "narrowed", element 3
   "unchanged", "the lowercase object-pattern head" — each closed with
@@ -487,3 +487,169 @@ reproduce, and the measurement adds four things the residuals do not state:
 Also measured: row A5 (two declared, field-compatible schemas) is outside any
 name check's reach and is recorded as the boundary §Fix (c)(5) pins, and the
 corpus carries zero object-pattern arms of any kind (§Reproduction (D)).
+
+## Fix (0.167.0)
+
+**The DIAG-2 question §Fix (b) left to the fixer is settled as REUSE.**
+`theta/parse/unresolved-named-type` gains a sixth position rather than a new row
+minting a second message for the same author mistake. The grounds, in order:
+the row's own *Trigger* predicate is "A `NamedType` that resolves to no
+declaration usable at the position it is written", which is exactly the
+judgement this report asks for, so the edit adds a POSITION to an enumeration
+and does not move the predicate; §Expected behaviour 1 states the target as
+"exactly as the same spelling already is in the value position (A4, B5, C3)",
+and the same code is what makes that asymmetry disappear for the author; reuse
+mints no code, so `tests/fixtures/h7a/permitted-codes.json` stays
+byte-untouched and no H9a reachability run is owed; and reuse needs no new
+diagnostic builder, which keeps every source edit inside `parsePattern` plus
+one tightly-local helper, as the concurrent-lane region boundary requires. The
+AST-shape question is settled the same way and for the same reason: no head
+range is carried on `PatternNode` and no walk is extended — the emission is
+`parsePattern`'s own, at `t.range`, from the site bug 0219's guard already
+emits from.
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parsePattern`'s `{`-gated object / schema
+    arm gains an `else if` branch beside bug 0219's `keyword`-kind guard: an
+    `ident`-kind head absent from the whole-file pattern-head universe pushes
+    `unresolvedNamedTypeDiagnostic(t.text, t.range, this.file)`. `else if`, not
+    a second `if`, so a reserved head keeps bug 0219's code alone (§Fix
+    (c)(3)). The universe is a new memoised private helper
+    (`patternHeadTypeNames`, placed immediately after `parsePattern`) that
+    scans the parser's own token list ONCE — `BUILTIN_VALUE_NAMES`, then every
+    identifier following a `schema` / `enum` token, then every specifier of
+    every `import` / `export` statement. It is deliberately permissive:
+    over-collecting can only leave a head silent, which is the pre-fix
+    disposition, so the scan can under-refuse but never mis-refuse. §Fix (c)(4)
+    holds: the returned node is still
+    `{ kind: "object", typeName: t.text, fields }`, and
+    `src/runtime/statement-executor.ts` and `src/runtime/match-result.ts` are
+    not in the diff.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/unresolved-named-type` *Trigger* gains the sixth position (a
+    `match` object-pattern head), the pattern-position resolution rule (a head
+    REFERENCES a declaration rather than constructing one, so it carries no
+    brace-constructible requirement and an `enum` name or an imported symbol
+    defers where the constructor position fires), and the GOV-15 addition
+    sentence in the shape `theta/parse/default-not-literal` already uses.
+  - `docs/spec_topics/expressions.md` — one sentence on the pattern-grammar
+    disambiguation line: an Object/schema pattern's head resolves against the
+    whole-file declaration universe, and a head resolving to nothing draws that
+    code. No grammar row, no table cell reworded, `lexical.md` untouched (its
+    first-letter sentence is already the normative rule this enforces).
+  - `docs/reference/diagnostics.md` — inspected, NOT edited: the mirror row
+    carries Code / Sev / Phase / Message and none of the four changes.
+  - `tests/object-pattern-head-unresolved-refusal.test.ts` — new, 43 offline
+    cells.
+  - `tests/live/object-pattern-head-unresolved-live-cell.test.ts` — new,
+    one standalone H8a cell.
+  - `tests/reserved-keyword-object-pattern-head-refusal.test.ts` — the two
+    flips §Fix (c)(2) authorises, and nothing else in the file.
+- **Gates:** witness
+  `npx vitest run tests/object-pattern-head-unresolved-refusal.test.ts
+  tests/reserved-keyword-object-pattern-head-refusal.test.ts` →
+  `Tests 97 passed (97)`; RED before the fix → `Tests 14 failed | 83 passed
+  (97)`, every failure a missing refusal (`actual diagnostics: []`) or a wrong
+  arm still answered. Full default suite `npm test` → `Test Files 358 passed
+  (358)`, `Tests 7332 passed (7332)` (baseline at the lane fork: 357 files /
+  7289 tests). `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean.
+  `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+  clean. Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/object-pattern-head-unresolved-live-cell.test.ts` → `1 passed`,
+  red-proven in the other direction. GOV-15 corpus discharge run rather than
+  assumed, and it FALSIFIES §Reproduction (D) — see *Residuals* 2.
+- **Blast radius, premeasured before the witness was written.** The emission
+  was prototyped and the FULL suite run against it: exactly two reds, cells
+  `n1` and `n2`, both named by §Fix (c)(2) as authorised. `v6`'s diagnostic
+  half did NOT flip — both its heads are declared, so it stays silent and keeps
+  its value, and §Fix (c)(2)'s third authorisation went unused. No
+  diagnostics-governance count grew: no code was minted.
+- **The flips, enumerated for ratification.** `n1` (lowercase head
+  `p { a: 1 }`) and `n2` (undeclared head `Zed { a: 1 }`) in
+  `tests/reserved-keyword-object-pattern-head-refusal.test.ts`. Each keeps its
+  cell id, its `a7` / `a8` boundary subject and its fixture byte-identical;
+  each `[]` becomes the one-code whole-list assertion at `headRange(...)`, and
+  each comment now cites this report as the authorising one. No other cell in
+  that file is in the diff.
+- **Review:** 1 round. Round 1 (deep) — CLEAN, no findings and no residuals
+  filed. It read every hunk, enumerated the three `new BodyParser(` call sites
+  to establish the memo is sound (one instance, one `readonly` token list),
+  hunted the interpolation sub-parser as the false-positive risk and measured
+  that a `match` inside `${…}` is refused before any sub-parser diagnostic is
+  forwarded, and probed every clause of the new *Trigger* prose against the
+  running implementation (enum defers, imported symbol defers, `QueryError`
+  resolves at the head while still refusing in value position, a `schema`
+  declared after the `match` resolves).
+- **Verification:** SOLID. (1) The witness witnesses the defect: neutralising
+  the single `this.diagnostics.push(...)` line reds exactly the 12 predicted
+  cells plus `n1` / `n2`, and the neutralised FULL suite reds nothing outside
+  those two files (`2 failed | 356 passed (358)`); restore by writing the
+  original content back is byte-exact (`git hash-object` →
+  `033e1d269c4612b6210d3ba2c4c7cbed7be0dfe4` before and after, with no
+  `git checkout` / `restore` / `stash` at any point). (2) Full default suite
+  green at 358 files / 7332 tests. (3) Live, both directions, for real, under
+  the campaign live lock: green with the fix; with the emission neutralised the
+  same cell fails with the pre-fix signature — the refused theta REGISTERS
+  (`Registered: ["celladeclaredname","cellaundeclaredhead"]`) when it must not
+  — then byte-exact restore and green again. `tests/live/acceptance/`
+  deliberately not run: the diff is a parse-time emission plus a token scan,
+  and `toRuntimePattern`, `matchPattern`, `hasLoadParseError`, discovery and
+  composition are all outside it, so H9a adds no observable for this surface.
+  (4) `npm run lint` and `npm run typecheck` clean. Also verified: every
+  protected lock green as written and absent from the diff — bug 0141's 45
+  cells, bug 0123's 28, the five 0141-re-pinned siblings, the three whole-list
+  `[]`-pin witnesses, and `tests/committed-fixture-parse-gate.test.ts` (36).
+- **Residuals:**
+  1. **§Expected behaviour 3 (row A1) is NOT closed.** A DECLARED head whose
+     declaration cannot carry the listed fields — `schema R { b: integer }`
+     with the pattern `R { a: 1 }` — stays silent and still answers `"r-arm"`
+     over a `Q`-constructed value. Evidence: cell `a1`, which pins the `[]` and
+     the `"r-arm"` value as a measured residual, and says so in terms. The
+     field-set half needs the resolved declaration's field bodies, which
+     `parsePattern` does not hold; carrying them would mean the
+     `checkObjectExpr` descent §Fix (a) names, i.e. an edit at a site a
+     concurrent lane owns. Unclaimed by any report.
+  2. **§Reproduction (D) and §Fix (c)(7)'s corpus claim are FALSE, measured.**
+     Three committed examples DO carry object-pattern arms:
+     `docs/examples/handle-error.theta:14`,
+     `docs/examples/fan-out-reviews.theta:31` and
+     `docs/examples/configure-tool-loop.theta:10`, each
+     `Err(QueryError { kind: "…" })`. The report's regex missed them because
+     the `}` is followed by `)`, not by `=>`. Consequences, both handled: the
+     pattern-head universe MUST admit the builtin `QueryError` (independent
+     authority: `expressions.md:171`'s Object/schema pattern row's own example
+     head is `QueryError`), and the sweep is re-derived in cell `f1` with a
+     regex that catches the `})` shape, failing loudly on an empty
+     `git ls-files` result. A first prototype without the builtin seed red
+     three `committed-fixture-parse-gate` rows and four sibling gates — which
+     is how the false claim was caught.
+  3. **The universe's permissive edges, measured and disclosed.** In a file
+     already carrying `theta/parse/import-missing-from-clause`, the
+     `import` / `export` specifier scan runs past the malformed statement and
+     can admit a head that should not resolve; and `import { X as Y }` admits
+     `X` as well as `Y` at the head. Both are silence in files that either
+     already fail `hasLoadParseError` or fall under §Non-goals' imported-symbol
+     deferral, so neither can mis-refuse. Unclaimed by any report.
+  4. **Citation drift recorded, not chased** (bug 0134's adjudicated class).
+     This report's §Affected cites bug 0219's filing frame: at the lane fork
+     the registry row is `code-registry-parse.md:101` (cited `:99`), the object
+     arm's gate `src/parser/theta-document.ts:4355` (cited `:4292`),
+     `unresolvedNamedTypeDiagnostic` `:5702` (cited `:5639`),
+     `collectPatternBindings` `:5178` (cited `:5115`), `walkExpr`'s `match`
+     case `:7525` (cited `:7455`) and `checkObjectExpr` `:7337` (cited
+     `:7268`). Every citation authored this run is symbol-named and re-derived
+     against this tree; no other document's citations were touched.
+  5. **Row A5 stays measured**, per §Fix (c)(5): two declared,
+     field-compatible schemas remain interchangeable in pattern position (cell
+     `a5`), which is the clean-by-design boundary nominal dispatch would move
+     and §Non-goals holds open.
+- **Discharge notes appended:** bug 0219 (its §Fix (0.156.0) *Residuals* 2 and
+  3 are closed here; residual 1's declared-name half survives as this record's
+  residual 1).
+- **Pinned dispositions / non-goals:** nominal dispatch for object patterns
+  stays out (§Non-goals); the runtime is byte-identical; bug 0123's one-token
+  recovery tail is byte-identical and its `--y` input keeps its exact code
+  list; no new registered row, so bug 0141's
+  `theta/parse/capitalised-pattern-head` and bug 0219's
+  `theta/parse/reserved-keyword-as-identifier` keep their triggers, counts and
+  ranges.

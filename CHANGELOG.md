@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.167.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0221 — an unresolved object-pattern head now refuses instead of
+  firing a wrong arm**: `parsePattern`'s object arm consults a memoised
+  declared-schema + builtin universe (incl. `QueryError`), so an
+  undeclared or lowercase head draws `theta/parse/unresolved-named-type`
+  (sixth Trigger position, same-commit) instead of silently binding the
+  wrong `match` arm. Witness:
+  `tests/object-pattern-head-unresolved-refusal.test.ts` (43 cells) + a
+  standalone live cell. Flips n1/n2 of the 0219 witness ratified at merge
+  (doc-authorized). 0219 discharge note appended.
+
 ## [0.166.0] - 2026-08-27
 
 ### Fixed
