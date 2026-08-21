@@ -17,7 +17,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE SPEC SENTENCES.
 //   - docs/spec_topics/expressions.md:222 scopes the rules: "*Common-type rules
-//     for array literals (and ternary branches):*".
+//     for array literals:*", carving out rule 2's least-upper-bound
+//     computation as the one clause that also governs ternary branches.
 //   - :225 is rule 2, the clause under test: "Otherwise, the parser computes the
 //     *least upper bound* of the element types under `⊑`: identical types
 //     collapse (TYPE-1); `integer` widens to `number` when mixed with `number`
@@ -25,10 +26,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     (`["a", null]` → `array<string | null>`; `[1, "a"]` →
 //     `array<number | string>`)."
 //   - :226 is rule 3, the one sink-less refusal the spec prescribes: "Object
-//     schemas do not unify implicitly — an array containing two different named
-//     schemas yields `array<A | B>` only if some sink in scope expects a union;
-//     otherwise it is `theta/parse/array-no-common-type`".
-//   - docs/reference/type-system.md:89–95 mirrors both rules.
+//     schemas do not unify implicitly — array literal only: an array literal
+//     containing two different named schemas yields `array<A | B>` only if some
+//     sink in scope expects a union; otherwise it is
+//     `theta/parse/array-no-common-type`".
+//   - docs/reference/type-system.md:104–107 (rule 2) and :108–111 (rule 3)
+//     mirror both rules; rule 1, at :101–103, sits above them.
 //
 // THE ROUTE UNDER TEST — the interim route the bug doc's §Fix names, and not one
 // step wider. ONE exported `commonType(branches, env, relate)` in
@@ -46,11 +49,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // callers is what discharges the bug doc's §Fix constraint 3, by construction
 // rather than by coincidence.
 //
-// TWO FACETS OF THE REPORT ARE DEFERRED and are therefore pinned here at their
-// PRESENT values, as tripwires rather than as expectations:
-//   - facet (b), the ternary caller of `checkCommonType` — cell r8;
+// ONE FACET OF THE REPORT REMAINS DEFERRED, pinned here at its PRESENT value as
+// a tripwire rather than an expectation:
 //   - facet (d), the `fn`-parameter sink supplied at a call site — bounded by
 //     cell r6's comment.
+// Facet (b), the ternary caller of `checkCommonType`, is SETTLED, not deferred:
+// bug 0155 route (b) adjudicates rule 3 out of the ternary position — its code's
+// registered *Trigger* (the `theta/parse/array-no-common-type` row of
+// code-registry-parse.md) names an array literal only — so cell r8's `[]` is
+// the rule, not a residual awaiting a *Trigger* widening.
 //
 // THE CELL-BY-CELL CONTRACT.
 //
@@ -80,7 +87,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //             rule 3 survives, which is §Fix constraint 2.
 //   r7b       two ALIAS-spelled object schemas still refuse — the
 //             `isObjectBranch` TYPE-11 unfold witness r7 alone does not cover.
-//   r8        `true ? A{…} : B{…}` still loads — facet (b)'s residual.
+//   r8        `true ? A{…} : B{…}` still loads — rule 3 is array-literal-only
+//             (bug 0155 route (b)), so a ternary never reaches it, by rule.
 //   cPlus     `1 + "a"` keeps its diagnostic and its rendering — r10's
 //             non-ternary control.
 //   cIdx      `let x = [1, 2.5]` then `x[0] + 1` stays silent.
@@ -136,21 +144,24 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // SPEC ANCHORS (re-derived against the tree at this HEAD):
 //   - docs/spec_topics/expressions.md:218 §"Array construction"; :220 the sink
-//     list naming "parameter type"; :222 the "(and ternary branches)" scope;
-//     :224 rule 1; :225 rule 2; :226 rule 3; :228 §"`+` operator", the pairing
-//     rule r10 and cPlus rest on.
-//   - docs/reference/type-system.md:83 §"Common-type rules (array literals &
-//     ternary branches)"; :89–92 rule 2; :93–95 rule 3.
+//     list naming "parameter type"; :222 the array-literal scope sentence and
+//     its rule-2 ternary carve-out; :224 rule 1; :225 rule 2; :226 rule 3; :228
+//     §"`+` operator", the pairing rule r10 and cPlus rest on.
+//   - docs/reference/type-system.md:97 §"Common-type rules (array literals &
+//     ternary branches)"; :104–107 rule 2; :108–111 rule 3.
 //   - docs/spec_topics/type-system.md:35 TYPE-1; :36 TYPE-2, whose "when mixed
 //     with `number`" condition the s1 disposition turns on; :39 TYPE-5 and :40
 //     TYPE-6, the union rules rule 2 names; :48 §"Unresolvable operands", the
-//     posture that makes a union receiver defer at r9; :50 TYPE-9, which routes
-//     a ternary through this machinery and is facet (b)'s unimplemented half.
+//     posture that makes a union receiver defer at r9; :50 TYPE-9, which (post
+//     bug 0155 route (b)) states that a ternary reports no code of its own —
+//     its branches reduce under rule 2's LUB and the enclosing site reports
+//     through its own registered code.
 //   - docs/spec_topics/diagnostics/diagnostic-shape.md:74 DIAG-4 — the *Message*
 //     column is normative and a test MUST source the string from it. Every
 //     expected message below is read through `registryMessage`. :72 DIAG-2 —
 //     the registry is closed; this fix adds, removes and edits no row, which is
-//     also why facet (b) stays deferred (r8).
+//     also why facet (b) settles the way it does (r8): rule 3 stays
+//     array-literal-only rather than its *Trigger* widening to name a ternary.
 //   - docs/spec_topics/diagnostics/code-registry-parse.md:41
 //     `theta/parse/array-no-common-type`, whose *Trigger* reads "Array literal
 //     whose elements have no common type and no sink to narrow against"; :36
@@ -532,7 +543,7 @@ describe("bug 0081 — the union clause of rule 2 admits the spec's worked vecto
     precondition(doc, "u3", { arrayWidths: [3] });
     expect(
       codesOf(doc),
-      `u3 — docs/reference/type-system.md:89–92 computes "the least upper bound under \`⊑\`" of the element types with no arity bound. Diagnostics: ${render(doc)}`,
+      `u3 — docs/reference/type-system.md:104–107 computes "the least upper bound under \`⊑\`" of the element types with no arity bound. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 
@@ -694,7 +705,7 @@ describe("bug 0081 — the computed LUB's rendered spelling", () => {
     // This is the type r9 and r10 read through their respective checkers.
     expect(
       tailSpelling('true ? 1 : "a"\n', "ternary", "s5"),
-      "s5 — expressions.md:222 scopes the common-type rules to ternary branches, and docs/spec_topics/type-system.md:50 TYPE-9 routes a ternary through this machinery",
+      "s5 — expressions.md:222 scopes rule 2's LUB (and rule 2 alone) to ternary branches; docs/spec_topics/type-system.md:50 TYPE-9 states that this reduction is the whole of what a ternary contributes",
     ).toBe("integer | string");
   });
 
@@ -782,11 +793,12 @@ describe("bug 0081 — the paths the union clause must not disturb", () => {
 });
 
 // ===========================================================================
-// (r7, r8) — the two loud tripwires: rule 3's refusal, which must survive, and
-// facet (b)'s residual, which must not be closed by accident.
+// (r7, r8) — rule 3's refusal, which must survive at an array literal, and its
+// deliberate absence at a ternary, which is the settled rule (bug 0155 route
+// (b)), not a residual.
 // ===========================================================================
 
-describe("bug 0081 — rule 3's refusal survives and facet (b) stays deferred", () => {
+describe("bug 0081 — rule 3's refusal survives, and does not reach a ternary", () => {
   it("r7: `[A{…}, B{…}]` still refuses, with the registered Message", () => {
     // §Reproduction row 7, and §Fix constraint 2. Rule 3 (expressions.md:226) is
     // the ONLY sink-less rejection the spec prescribes, so the union arm has to
@@ -852,30 +864,30 @@ describe("bug 0081 — rule 3's refusal survives and facet (b) stays deferred", 
     ).toEqual([`${NO_COMMON_TYPE_CODE}: ${noCommonTypeMessage()}`]);
   });
 
-  it("r8: `true ? A{…} : B{…}` still loads — facet (b)'s residual", () => {
-    // §Reproduction row 8. Rule 3 is NOT enforced for a ternary, and the route
-    // under test does not enforce it: `checkCommonType`'s only caller in `src/`
-    // is `checkArrayLiteral` (src/parser/type-layer-checks.ts), so no ternary
-    // node reaches the refusal.
+  it("r8: `true ? A{…} : B{…}` still loads — rule 3 is array-literal-only", () => {
+    // §Reproduction row 8, RE-PINNED to the settled disposition (bug 0155 route
+    // (b)). Rule 3 is adjudicated out of the ternary position: its code,
+    // `theta/parse/array-no-common-type`, is registered against an "**Array
+    // literal**" (its row on code-registry-parse.md), and DIAG-2
+    // (diagnostic-shape.md:72, the registry is closed) makes that *Trigger* the
+    // normative statement of the code's emission set. `checkCommonType`'s only
+    // caller in `src/` is `checkArrayLiteral`
+    // (src/parser/type-layer-checks.ts), and no ternary node reaches the
+    // refusal — by rule, not by omission.
     //
-    // The deferral is not an oversight. `theta/parse/array-no-common-type`'s
-    // registered *Trigger* (code-registry-parse.md:41) reads "**Array literal**
-    // whose elements have no common type and no sink to narrow against", so
-    // wiring the ternary caller emits the code outside its registered Trigger —
-    // a DIAG-2 adjudication (diagnostic-shape.md:72, the registry is closed)
-    // that this fix does not make. Closing facet (b) honestly requires widening
-    // that Trigger to name ternaries, against
-    // docs/spec_topics/type-system.md:50 TYPE-9, which already routes a ternary
-    // here. That corpus self-disagreement is facet (b)'s residual.
+    // `[]` here is the RULE: docs/spec_topics/type-system.md:50 TYPE-9 states
+    // that a ternary reports no code of its own, so its branches reduce under
+    // rule 2's LUB and the resulting branch-order dependence between the two
+    // schemas is accepted, not diagnosed.
     //
-    // This cell is green before and after. It is a tripwire: a later widening
-    // that enforces rule 3 for a ternary without settling the Trigger reds here
-    // instead of landing unnoticed.
+    // This cell is green before and after. It stays a tripwire: a later change
+    // that enforces rule 3 for a ternary without a DIAG-2 *Trigger* widening
+    // reds here instead of landing unnoticed.
     const doc = parse(`${A_B_SCHEMAS}let x = true ? A { a: 1 } : B { b: "x" }\n`);
     precondition(doc, "r8", { ternaries: 1, ctors: ["A", "B"] });
     expect(
       codesOf(doc),
-      `r8 — facet (b) is deferred; this row's silence is the present value, pinned so that closing it becomes a visible decision about code-registry-parse.md:41's *Trigger*. Diagnostics: ${render(doc)}`,
+      `r8 — rule 3 is array-literal-only (bug 0155 route (b)); this row's silence is the adjudicated rule, not a deferral. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 });

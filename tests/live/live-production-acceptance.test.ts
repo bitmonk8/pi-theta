@@ -4097,6 +4097,134 @@ describe("H8a-T — bug 0081: the array/ternary common-type union admits a spec-
 });
 
 // ===========================================================================
+// Bug 0155 (cell 85) — the ternary is adjudicated OUT of common-type rules 1
+// and 3: `theta/parse/array-element-type-mismatch` and
+// `theta/parse/array-no-common-type` are both registered against an "Array
+// literal" *Trigger* (code-registry-parse.md rows :43/:44) and DIAG-2 makes
+// that *Trigger* the normative statement of the emission set
+// (docs/bugs/0155-ternary-common-type-unenforced-trigger-conflict.md, route
+// (b)). `checkCommonType`'s one caller in `src/` stays `checkArrayLiteral`
+// (type-layer-checks.ts) — no ternary caller was wired — so a ternary with
+// two distinct named object-schema branches and no sink LOADS AND REGISTERS,
+// while the one-token-apart array-literal spelling of the same pair still
+// refuses under rule 3. The 23-cell unit witness
+// (tests/ternary-common-type-trigger-adjudication.test.ts) proves this
+// offline at the `parseThetaDocument` boundary (cells t1 and a1). This cell
+// proves the SAME disposition end to end through the real production
+// composition root (session_start -> resources_discover ->
+// composeExtensionInstance -> checkTypeLayer) — the fixed path had zero live
+// coverage before this addition.
+//
+// Registration-only, mirroring the bug 0081 cell immediately above: no slash
+// command is invoked, so no model turn runs and the cell spends zero tokens.
+// ADDITIVE ONLY.
+// ===========================================================================
+
+/**
+ * `true ? A { a: 1 } : B { b: "x" }` under two distinct named object schemas
+ * with no sink — bug 0155's own §Reproduction row t1 and the unit witness's
+ * cell t1, verbatim. Route (b) adjudicates the ternary out of rule 3's reach,
+ * so this theta MUST register with no err note (cell 85).
+ */
+function ternaryNoCommonTypeAdjudicatedTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema A {",
+    "  a: integer",
+    "}",
+    "schema B {",
+    "  b: string",
+    "}",
+    'let x = true ? A { a: 1 } : B { b: "x" }',
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0155: a ternary with two distinct named object-schema branches loads and registers, live, with the array-literal twin's refusal surviving as a contrast (cell 85) (Convention: live-host acceptance)", () => {
+  it("registers a theta whose ternary has two distinct named object-schema branches and no sink, while the array-literal spelling of the same pair still does not register, through the real discovery->registration path (cell 85)", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, either
+      // sibling's status could be (wrongly) attributed to a broken workspace
+      // instead of the bug 0155 adjudication under test.
+      { source: "project", stem: "b155livectl", text: promptTheta("THETA-LIVE-OK") },
+      // THE FIXED OBSERVABLE — the ternary is adjudicated out of rule 3's
+      // reach and registers with no err note.
+      { source: "project", stem: "b155liveternary", text: ternaryNoCommonTypeAdjudicatedTheta() },
+      // THE CONTRAST — the one-token-apart array-literal spelling of the same
+      // pair still refuses under rule 3, whose registered *Trigger* names an
+      // array literal. Without this control, the ternary registering would be
+      // unfalsifiable: a harness (or a regressed fix) that admitted every
+      // heterogeneous object set would pass the ternary cell for the wrong
+      // reason.
+      { source: "project", stem: "b155livebroken", text: noCommonTypeObjectBranchTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b155livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the bug 0155 adjudication under test, would explain either " +
+          "sibling's status too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE (cell 85) — the ternary registers. Through the
+      // REAL production composition root (not the offline parseThetaDocument
+      // harness the unit witness uses), a ternary whose two branches are
+      // distinct named object schemas with no dominating member loads and
+      // registers: `checkCommonType`'s one caller in `src/` stays
+      // `checkArrayLiteral`, so no ternary node reaches rule 3's refusal, and
+      // `#commonType`'s first-candidate fallback answers the walk without
+      // reporting anything.
+      expect(
+        handle.command("b155liveternary"),
+        "`true ? A{...} : B{...}` did not register through the live " +
+          "discovery/session_start path — bug 0155 route (b)'s adjudication " +
+          "(the ternary is out of rule 3's reach) did not hold live. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE CONTRAST — the array-literal twin still refuses. Same two named
+      // object schemas, same absence of a sink, one token apart
+      // (`[A{...}, B{...}]` versus `... ? ... : ...`).
+      expect(
+        handle.command("b155livebroken"),
+        "the array-literal twin (two distinct named object schemas, no sink) " +
+          "registered anyway through the live discovery/session_start path — " +
+          "theta/parse/array-no-common-type did not fire, so the ternary's " +
+          "registration above would prove nothing. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b155livebroken");
+
+      // The theta-system-note channel, read off the settled in-memory
+      // `SessionManager`: the ternary's absence of a diagnostic means its
+      // delta must carry NO array-no-common-type note, while the
+      // array-literal contrast's delta must carry exactly the registered
+      // *Message*.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = arrayNoCommonTypeFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the array-no-common-type rejection " +
+          "for the array-literal contrast. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
 // Bug 0052 — a repeated field name inside an inline object body
 // (`{a: integer, a: string}`) was admitted with zero diagnostics at every
 // `Type` position: `TypeParser.parseObject` (src/parser/type-grammar.ts) read

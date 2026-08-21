@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.174.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0155 — the ternary common-type corpus self-disagreement is
+  adjudicated by the registered Trigger** (route (b)): the ternary is OUT of
+  common-type rules 1–2's emission set — `array-ternary-common-type-union`'s
+  registered *Trigger* governs, the exceeding rule-page scope corrected in
+  the same commit (expressions.md + type-system.md + reference mirror). THE
+  STATED LAW (for 0158 to cite): a registered *Trigger* is the normative
+  statement of a code's emission set; where a rule page's scope exceeds it,
+  the *Trigger* governs and the page is corrected same-commit; narrowing an
+  emission set ONTO its registered *Trigger* needs no registry edit, but
+  *Trigger* text presupposing the wider reading is corrected in the same
+  commit as the narrowing. Zero test flips; witness
+  `tests/ternary-common-type-trigger-adjudication.test.ts` (23 cells) + H8a
+  cell 85.
+
 ## [0.173.0] - 2026-08-27
 
 ### Fixed

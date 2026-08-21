@@ -67,15 +67,18 @@ inferred binding depending on a Pi-tool call whose schema is not parse-time
 visible; an `invoke` against a callee that produced `theta/load/callee-has-errors`),
 the parse-time check is skipped and the runtime AJV check is the safety net.
 
-- **TYPE-9.** Five sites report their own parse-time diagnostic on a static
-  failure: `let x: T = expr` → `theta/parse/let-rhs-type-mismatch`; a plain
-  top-level `fn` argument → `theta/parse/fn-arg-type-mismatch`; a ternary →
-  through the array/ternary common-type machinery
-  (`theta/parse/array-element-type-mismatch` against a sink, else
-  `theta/parse/array-no-common-type`); a `params:` default →
-  `theta/parse/params-default-type-mismatch` (or `theta/parse/integer-narrowing`
-  for `number`-under-`integer`); a reassignment RHS (the plain form and the five
-  compound forms) against the target binding's declared or inferred type →
+- **TYPE-9.** Five sites take a compatibility check, and four of them report
+  their own parse-time diagnostic on a static failure: `let x: T = expr` →
+  `theta/parse/let-rhs-type-mismatch`; a plain top-level `fn` argument →
+  `theta/parse/fn-arg-type-mismatch`; a ternary → no code of its own — its
+  branches reduce under rule 2's LUB and the enclosing site reports through its
+  own code; when both branches are object schemas with no dominating member, the
+  reduction is the first branch and the resulting branch-order dependence is
+  accepted by rule; a `params:` default →
+  `theta/parse/params-default-type-mismatch` (or
+  `theta/parse/integer-narrowing` for `number`-under-`integer`); a
+  reassignment RHS (the plain form and the five compound forms) against the
+  target binding's declared or inferred type →
   `theta/parse/reassign-rhs-type-mismatch` (or `theta/parse/integer-narrowing`
   for the same one-way narrowing case).
 - **TYPE-10.** Object-schema named types are **nominal** — participate in `⊑`
@@ -96,14 +99,16 @@ the parse-time check is skipped and the runtime AJV check is the safety net.
 Applying `⊑` to the array/ternary case:
 
 1. With a type sink in scope, every element must satisfy `T_element ⊑ T_sink`; a
-   mismatch is `theta/parse/array-element-type-mismatch`.
+   mismatch is `theta/parse/array-element-type-mismatch`. Array literal only —
+   a ternary's branches never reach this rule.
 2. Otherwise the parser computes the least upper bound under `⊑`: identical types
    collapse (TYPE-1); `integer` widens to `number` (TYPE-2); otherwise unioned via
    TYPE-5/6 (`["a", null]` → `array<string | null>`; `[1, "a"]` →
-   `array<number | string>`).
+   `array<number | string>`). This rule alone also governs ternary branches.
 3. Object schemas do not unify implicitly — two different named schemas yield
    `array<A | B>` only under a union sink; otherwise
-   `theta/parse/array-no-common-type`.
+   `theta/parse/array-no-common-type`. Array literal only — see TYPE-9 for what
+   a ternary reports instead.
 
 `match` arms and inferred theta/`fn` return types use the same LUB discipline (see
 [Grammar](./grammar.md) and [Errors and results — final value](./errors-and-results.md)).

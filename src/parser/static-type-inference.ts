@@ -475,12 +475,20 @@ export class StaticTypeInferencePass {
    * `checkCommonType` also calls, so the checker and this inference pass
    * cannot disagree about a candidate set: both decide it the same way, over
    * this pass's injected `V2b` engine. `undefined` means rule 3 — an
-   * object-branch set with no dominating member — which the checker turns
-   * into `array-no-common-type` at the literal; this pass still owes the
-   * rest of the walk a type for that node, so it falls back to the first
-   * candidate rather than propagate the absence. An empty set has no
-   * candidate to fall back to, so it is answered directly, ahead of the
-   * delegation, with a nominal `unknown` reference.
+   * object-branch set with no dominating member. At an array-literal call
+   * site the type-layer checker's own array-literal check
+   * (./type-layer-checks.ts) turns that absence into `array-no-common-type`
+   * at the literal, so this pass's first-candidate answer there only has to
+   * keep the walk going past a node already reported. At a ternary call
+   * site rule 3 is out of scope — `array-no-common-type`'s registered
+   * *Trigger* (docs/spec_topics/diagnostics/code-registry-parse.md) names
+   * an array literal, not a ternary (bug 0155 route (b)) — so there is no
+   * refusal to defer to: the first-candidate answer IS the ternary's type
+   * by rule, and the resulting branch-order dependence between the two
+   * branches is the adjudicated disposition, not a stopgap awaiting one.
+   * An empty set has no candidate to fall back to, so it is answered
+   * directly, ahead of the delegation, with a nominal `unknown`
+   * reference.
    */
   #commonType(candidates: readonly CompatType[], env: TypeEnv): CompatType {
     if (candidates.length === 0) {

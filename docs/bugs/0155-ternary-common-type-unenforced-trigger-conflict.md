@@ -1,6 +1,6 @@
 # Bug 0155 — `expressions.md:222` scopes the common-type rules to "array literals **(and ternary branches)**" and TYPE-9 routes a ternary through that same machinery, but `theta/parse/array-no-common-type`'s registered *Trigger* names only an "**Array literal**" and `checkCommonType` has exactly one caller in `src/` (`checkArrayLiteral`), so rule 3's refusal never fires for a ternary: `let x = true ? A { a: 1 } : B { b: "x" }` reports `[]` and registers where the array twin `[A { a: 1 }, B { b: "x" }]` draws `theta/parse/array-no-common-type` and does not, and `#commonType`'s rule-3 fallback then launders the ternary to whichever branch is written first, so `let p = P { v: true ? A { a: 1 } : B { b: "x" } }` binds a `B`-producing expression into an `A`-declared field unremarked and `let y: B = x` flips between refusal and silence on branch order alone
 
-- **Status:** open. Residual R1 of the bug 0081 fix (0.83.0, commit
+- **Status:** fixed (0.174.0) — route (b); see `## Fix (0.174.0)`. Residual R1 of the bug 0081 fix (0.83.0, commit
   `5de8d78a`), recorded there as facet (b) and DEFERRED with its cause stated:
   "**Needs a DIAG-2 *Trigger* adjudication, not just code.**" The deliverable
   here is that adjudication — a *Trigger* decision with its same-commit spec
@@ -725,3 +725,132 @@ part of this measurement session and were neither read as evidence nor touched.
 The tracked tree was verified identical to HEAD before and after every
 measurement (`git status --short` showing untracked scratch files only, and
 `git diff --stat HEAD -- src/ docs/ tests/` empty).
+
+## Fix (0.174.0)
+
+- **Route selected: (b)** — the ternary is adjudicated OUT of common-type rules
+  1 and 3; the two registered *Triggers* stand; no code was wired and no
+  executable line changed. Route (a) was refused on three measured grounds: the
+  *Trigger* rows still read "Array literal" at this HEAD
+  (`code-registry-parse.md`, the `array-element-type-mismatch` and
+  `array-no-common-type` rows); wiring a ternary caller would emit outside a
+  registered *Trigger* — the fault 0125's fix record prosecutes and the
+  0084/0139 posture forbids; and route (a)'s only natural code region (a
+  sibling of `checkArrayLiteral`, `type-layer-checks.ts:2039–2069`) sits 92
+  lines from a concurrent sibling lane's `checkObjectFieldCompat` region
+  (`:2161`), inside this run's 200-line no-go boundary.
+- **THE STATED LAW** (the *Trigger*-fidelity adjudication this report and 0158
+  share; 0158 lands second and cites this clause verbatim):
+  > A registered *Trigger* is the normative statement of a code's emission set
+  > (DIAG-2). Where a rule page's scope exceeds the registered *Trigger* of the
+  > code it names, the *Trigger* governs and the rule page is corrected in the
+  > same commit; no implementation may be wired to emit a code outside its
+  > registered *Trigger*. Narrowing an emission set ONTO its registered
+  > *Trigger* needs no registry edit (the 0084/0139 posture), but where the
+  > *Trigger*'s TEXT presupposes the wider reading, that text is corrected in
+  > the same commit as the narrowing.
+- **What shipped:**
+  - `docs/spec_topics/expressions.md` — the scoping sentence no longer scopes
+    all three rules to ternary branches; rules 1 and 3 are marked
+    array-literal-only, rule 3 points at TYPE-9 for the ternary case, and rule
+    2's LUB is stated as the one rule that also governs ternary branches.
+  - `docs/spec_topics/type-system.md` — TYPE-9's ternary clause rewritten: a
+    ternary reports no code of its own; its branches reduce under rule 2's LUB
+    and the enclosing site reports through its own registered code; a
+    two-object-schema branch pair reduces to the first branch and the resulting
+    branch-order dependence is accepted by rule. The paragraph's opening
+    counter was reworded so it no longer claims all five TYPE-9 sites report a
+    code of their own.
+  - `docs/reference/type-system.md` — the TYPE-9 mirror bullet and rules 1/3 of
+    the common-type block carry the same disposition, mirror-faithfully.
+  - `src/parser/static-type-inference.ts` — `#commonType`'s docstring premise
+    ("which the checker turns into `array-no-common-type` at the literal")
+    corrected: true at an array-literal call site, out of scope at a ternary,
+    so the first-candidate answer is the ternary's type BY RULE, not a stopgap
+    awaiting a refusal. Comment-only (510 → 518 lines; §Fix constraint 3's
+    "378 lines" pin is stale at this HEAD and was already 510 before this fix).
+  - `tests/array-ternary-common-type-union.test.ts` — §Fix (c) constraint 1
+    discharged: cell r8's assertion stays `[]` and its comment, the file
+    header's inventory lines, the `describe`/section headers and the
+    SPEC-ANCHORS TYPE-9 line are re-pinned to the settled disposition. Cells r7
+    and r7b did not move.
+  - `tests/ternary-common-type-trigger-adjudication.test.ts` — new 23-cell
+    witness (corpus-conformance cells A1–A5, behaviour pins over §Reproduction
+    rows t1/a1/t1x/a1x/s1/s2/s3/u1–u4/L2–L6, and two *Trigger*-fidelity
+    structural pins over `src/`).
+  - `tests/live/live-production-acceptance.test.ts` — one additive H8a live
+    cell proving the same disposition through the real production composition
+    root.
+- **Gates:** witness RED before (4 corpus-conformance cells: `A2` quoting
+  TYPE-9's `theta/parse/array-no-common-type` routing, `A3` the mirror bullet,
+  `A4` expressions.md's "(and ternary branches)" parenthetical, `A5` the
+  mirror's unscoped rules 1/3), GREEN after (23/23). Full default suite
+  `npx vitest run` → 367 files / 7513 tests passed (baseline 366/7490 plus this
+  witness's 23 cells). `npm run typecheck` clean. `npm run lint` clean. Live:
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/live-production-acceptance.test.ts -t "CELL-E"` → 1 passed / 84
+  skipped.
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS: one `spec` finding (TYPE-9's
+  "Five sites … each reports its own diagnostic" counter contradicted the new
+  ternary clause in both pages) and four `test` findings (a header line still
+  calling facet (b) deferred; header quotes of corpus sentences this fix
+  changed; a mirror rule-range inventory misassigning rules 1/2/3; two fresh
+  `code-registry-parse.md:41` citations for a row at `:44`), plus two prose
+  residuals. Round 2 (fast) — CLEAN, with one one-line citation residual
+  corrected by the orchestrator as a bounded citation-only edit (a failure
+  message string, no assertion, gates re-run green; polish verified by
+  gate-diff, confirmation round skipped).
+- **Verification:** SOLID. (1) The witness reds destructively in both
+  directions: reinstating the pre-fix sentence in `expressions.md` reds A4 and
+  in `spec_topics/type-system.md` reds A2, each restored byte-exact and
+  hash-verified; reinstating the REFUSED behaviour-change limb (a verbatim
+  union stand-in in `#typeExpr`'s `case "ternary"`) reds 7 cells across both
+  witness files (L3/L4/L5/L6 among them), restored byte-exact. (2) Full suite
+  367/7513 green. (3) Live: no pre-existing live cell drove a ternary node; one
+  H8a cell was added and run for real under the live lock — the ternary
+  registers, the one-token-apart array-literal twin still refuses. (4)
+  typecheck and lint clean.
+- **GOV-15:** census re-measured at this HEAD — 34 committed
+  `.theta`/`.thetalib` files, zero ternary expressions (` ? ` sweep empty). No
+  committed source's diagnostic sequence moves; no emission set moves at all
+  under route (b), so DIAG-2 is a no-op and no registry row, mirror row or
+  `docs/reference/diagnostics.md` entry was touched.
+- **Residuals:**
+  1. The un-narrowed object-branch ternary (§Reproduction rows s2, s3, L5) and
+     the branch-order dependence (rows L2/L3/L4) are now accepted BY RULE, as
+     §Fix route (b) bullet 3's first option authorises. The order-independent
+     alternative was premeasured and refused: prototyping a verbatim-union
+     stand-in in `#typeExpr`'s `case "ternary"` red 14 cells in
+     `tests/loop-element-withhold-binding-scoped.test.ts` (bug 0194's witness)
+     — an unauthorised flip in another open report's witness. A future report
+     wanting order independence owns that blast radius.
+  2. `docs/reference/type-system.md`'s block heading "Common-type rules (array
+     literals & ternary branches)" and its "Applying `⊑` to the array/ternary
+     case" lead-in are deliberately unchanged: rule 2 genuinely governs ternary
+     branches, each rule beneath now self-scopes, and that heading is cited by
+     open bug 0158.
+  3. This fix grew `docs/reference/type-system.md` by 4 lines, shifting the
+     absolute positions other open reports cite in it (0081, 0158, 0180 cite
+     `:96`/`:97`/`:108`/`:109` for sentences this fix did not touch). That is
+     bug 0134's adjudicated do-not-chase class; no citation sweep was
+     performed. For the record, the `match`-arm LUB sentence 0158 claims is at
+     `docs/reference/type-system.md:113` after this fix.
+  4. Three pre-existing `code-registry-parse.md:41`-family citations in
+     `tests/array-ternary-common-type-union.test.ts` (bug 0081's own prose,
+     outside the cells this fix re-pinned) are stale at this HEAD. 0134 class;
+     not chased.
+- **Discharge notes appended:** none (no sibling bug document was edited).
+- **Pinned dispositions / non-goals:**
+  - **0158's rows are NOT settled here.** This fix edits no `match`-arm or
+    `fn`-return sentence, no `leastUpperBound`, no `computeLub`, and neither
+    `docs/reference/type-system.md`'s `match`-arm LUB sentence nor
+    `docs/spec_topics/functions.md` FN-3. 0158 inherits THE STATED LAW above
+    and applies it to its own two rows.
+  - **0195's subject is NOT claimed:** `docs/spec_topics/control-flow.md`'s
+    empty-array iterand claim and registered-row reachability are untouched;
+    the file is not in this diff.
+  - Rule 2's union clause (bug 0081's shipped behaviour, §Reproduction rows
+    u1–u4) and the `integer | string` arms-verbatim spelling are unchanged.
+  - 0156's `fn`-parameter-sink subject and 0129's diagnostic-multiplicity
+    question are untouched: route (b) adds no diagnostic, so row L6's shape
+    gains no second code and 0129 is owed no disclosure.
