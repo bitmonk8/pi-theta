@@ -130,13 +130,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // expected strings from it. Every message below is read through `parseRegistry`
 // + `registryMessage` (tools/code-registry/index.js) and interpolated in ONE
 // pass, with an unsupplied or unused placeholder throwing. Registry rows are
-// cited by CODE, never by line. One code group (e) needs — CTRL-4's
-// `theta/parse/par-query-in-body` — has no row on the four sharded spec
-// registry pages `parseRegistry` reads, and appears in table form only on the
-// transcription page whose own header declares that column normative under the
-// same DIAG-4; `parQueryInBody` below reads it from there, preferring the
-// sharded oracle whenever a row lands on it. Disclosed, not chased: that gap is
-// not this file's subject.
+// cited by CODE, never by line.
 //
 // ── NO SILENT SKIPPING (CLAUDE.md) ──────────────────────────────────────────
 // Nothing here early-returns, branches on the environment, or skips. A missing
@@ -173,23 +167,6 @@ const REGISTRY = parseRegistry(
   readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
 ) as RegistryRow[];
 
-/**
- * The four-column transcription of the registry's stable-contract columns,
- * whose own header states that its *Message* column is normative under DIAG-4
- * and that tests source their expected strings from it. Read for one code only:
- * `theta/parse/par-query-in-body`, which group (e) row e2 needs and which
- * `REGISTRY` above does not carry — CTRL-4's three RFC-0003 legacy
- * `theta/parse/par-*` rows are stated in control-flow.md prose and tabulated
- * only here, and `parseRegistry` requires the five-column sharded shape. (The
- * fourth `par-*` code, `par-return-in-body`, does have a sharded row; it is not
- * a code this file reads.)
- */
-const TRANSCRIPTION_PAGE = "docs/reference/diagnostics.md";
-
-const TRANSCRIPTION_TEXT = readFileSync(
-  fileURLToPath(new URL(`../${TRANSCRIPTION_PAGE}`, import.meta.url)),
-  "utf8",
-);
 
 /**
  * A registered code's normative *Message* template. Throws naming the row and
@@ -238,35 +215,6 @@ function fill(code: string, subs: ReadonlyMap<string, string>): string {
   return message;
 }
 
-/**
- * A code's normative *Message* read off {@link TRANSCRIPTION_PAGE}'s
- * Code / Sev / Phase / Message table, whose Message cell is a code span —
- * doubled (``` `` ```) where the message itself embeds one, which
- * `par-query-in-body`'s backtick-quoted `@` does.
- *
- * The sharded oracle wins whenever it carries the row, so the day CTRL-4's rows
- * land on a spec registry page this reader stops being consulted rather than
- * silently diverging from it. A code neither page carries throws NAMING both,
- * so a drift can never degrade an assertion below into a comparison against
- * `undefined`.
- */
-function transcribed(code: string): string {
-  const sharded = registryMessage(REGISTRY, code) as string | undefined;
-  if (sharded !== undefined) {
-    return sharded;
-  }
-  const escaped = code.replace(/[/-]/g, (c) => `\\${c}`);
-  const row = new RegExp(
-    `^\\|\\s*\`${escaped}\`\\s*\\|[^|]*\\|[^|]*\\|\\s*\`\`(.+?)\`\`\\s*\\|`,
-    "m",
-  ).exec(TRANSCRIPTION_TEXT);
-  if (row === null) {
-    throw new Error(
-      `harness: neither ${REGISTRY_PAGE} nor ${TRANSCRIPTION_PAGE} carries a Message row for ${code} — the DIAG-4 column (diagnostic-shape.md:74) is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return (row[1] as string).trim();
-}
 
 const FN_ARG = "theta/parse/fn-arg-type-mismatch";
 const LET_RHS = "theta/parse/let-rhs-type-mismatch";
@@ -311,8 +259,8 @@ const G_MISMATCH = fnArg("g", 0, "s", "string", "integer");
 /** Group (e)'s verdict — a placeholder-free *Message*, so the template IS the text. */
 const INTERP_MESSAGE = registered(INTERP_RESULT);
 
-/** Row e2's CTRL-4 co-fire, from the transcription table (see {@link transcribed}). */
-const PAR_QUERY_MESSAGE = transcribed(PAR_QUERY);
+/** Row e2's CTRL-4 co-fire. */
+const PAR_QUERY_MESSAGE = registered(PAR_QUERY);
 
 // ===========================================================================
 // Parse harness.

@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.173.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0200 — the three legacy CTRL-4 `par-*` codes now have sharded
+  registry rows** (`par-query-in-body`, `par-shared-mutation`,
+  `par-break-continue` — emitting since RFC 0003 but tabulated only on the
+  reference transcription page). Rows land between `break-with-value` and
+  0223's `par-return-in-body`; `src/**` byte-untouched. Witness:
+  `tests/par-body-restriction-registry-rows.test.ts` (6 cells). The 0194
+  witness's transcription fallback ladder retired under this doc's
+  authority (routes through the sharded oracle).
+
 ## [0.172.0] - 2026-08-27
 
 ### Fixed

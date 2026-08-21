@@ -1,10 +1,11 @@
 # Bug 0200 — DIAG-2 closes the diagnostic registry on the four sharded `code-registry-*.md` pages and requires every code to land its row there, yet the three CTRL-4 `par for` body-restriction codes — `theta/parse/par-query-in-body`, `theta/parse/par-shared-mutation`, `theta/parse/par-break-continue` — have no row on any of them: they are emitted from four sites in `theta-document.ts`, stated in `control-flow.md` CTRL-4 prose, and tabulated only in the `docs/reference/` mirror, whose own Provenance says they "are registered here"; a set difference over the two artifacts is exactly these three codes, their normative *Trigger* / *Spec rule* / *Hint* columns exist nowhere in the corpus, and the one committed DIAG-4 witness that needs a *Message* carries a two-page fallback ladder to resolve it
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the row content is
-  derivable from CTRL-4 prose, but which sharded page hosts the rows is an
-  adjudication (the namespace points at the parse page; that page is the largest
-  of the four under a committed size cap), and the *Trigger* / *Spec rule* /
-  *Hint* cells have no existing text to transcribe. No code change is proposed —
+- **Status:** fixed (0.173.0). §Fix was constraint-pinned, not settled: the row
+  content is derivable from CTRL-4 prose, but which sharded page hosts the rows
+  was an adjudication (the namespace points at the parse page; that page is the
+  largest of the four under a committed size cap), and the *Trigger* /
+  *Spec rule* / *Hint* cells had no existing text to transcribe. See
+  §"Fix (0.173.0)" for the disposition taken. No code change is proposed —
   all three codes fire at HEAD and every rendered byte already matches the
   mirror's normative *Message*. No ordering dependency: nothing blocks this and
   it blocks nothing.
@@ -750,3 +751,180 @@ rows**. Their *Message* templates interpolate exactly two placeholders,
 *Placeholders* line, so sharding the rows into `code-registry-parse.md` admits no
 new placeholder and requires no placeholder-rendering edit. Recorded so a fix for
 this report does not have to re-derive it.
+
+## Fix (0.173.0)
+
+Constraint 1's adjudication is settled in the affirmative: `code-registry-parse.md`
+absorbs the three rows. The namespace admits no other host, and bug 0223's
+`## Fix (0.170.0)` already placed the fourth `par-*` code's row on that page
+immediately after `break-with-value`, recording that the legacy three belong ahead
+of it — this fix takes that placement rather than diverging from it, so the sharded
+row order now matches the mirror's exactly (`break-with-value`,
+`par-query-in-body`, `par-shared-mutation`, `par-break-continue`,
+`par-return-in-body`, `illegal-template-escape`). No code change: all three codes
+fired at HEAD and still do, byte-for-byte.
+
+- **What shipped:**
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — three new seven-column
+    rows at `:74`–`:76`, between `break-with-value` (`:73`) and
+    `par-return-in-body` (now `:77`). All three `E` / `parse`; *Spec rule*
+    `[Control Flow — CTRL-4](../control-flow.md#ctrl-4)`, spelled identically to
+    the neighbouring row; *Hint* `—` for all three, because CTRL-4 states grounds
+    and no remedy for any of them (Constraint 2's ruling on the `—` form).
+    *Trigger* cells derive from CTRL-4 (`control-flow.md:76`) plus the parser's
+    real scan and mint no condition absent from both: `par-query-in-body` names
+    both the statement and the expression arm, the body's own statement/expression
+    tree at any depth, the nested-`par for` single-emission fact, and the
+    nested-`fn` carve-out; `par-shared-mutation` names the outer `let mut` not
+    shadowed by a body-local, the legality of reads, and that a body-local
+    reassignment is not refused *under this rule*; `par-break-continue` names the
+    depth-zero targeting condition and contrasts it explicitly with
+    `par-return-in-body`'s every-depth reach. *Message* cells are byte-identical
+    to the shipped emissions in `src/parser/theta-document.ts`
+    (`scanParForStmt`'s `reassign` / `break`-`continue` / `query` arms and
+    `scanParForExpr`'s `query` arm) and to the mirror's cells;
+    `par-query-in-body`'s cell uses the outer single-backtick span with `` \` ``
+    inner escapes — the `theta/parse/empty-query-annotation` precedent
+    (`code-registry-parse.md:84`) — because the mirror's doubled-backtick
+    spelling mis-extracts under `extractMessage` (Constraint 5 / R7, measured
+    both directions below).
+  - `docs/reference/diagnostics.md` — Provenance note reconciled into one
+    statement: all four CTRL-4 `par-*` codes are registered on
+    `code-registry-parse.md` and mirrored here, with the RFC-0003 origin of the
+    three preserved. The two-artifact contradiction the report measured
+    (§Actual behaviour element 4) is closed: the page is now a transcription and
+    says only that. Its *Code* / *Sev* / *Phase* / *Message* rows are
+    byte-untouched (Constraint 4) — no normative *Message* byte moves.
+  - `tests/par-body-restriction-registry-rows.test.ts` — new offline witness, six
+    cells: (r1) whole-list `[]` pin that all three codes carry a sharded row;
+    (r2) `E` / `parse` per row; (r3) the R7 round-trip — the registry-extracted
+    *Message* byte-identical to the mirror's independently parsed cell; (r4)
+    DIAG-4 — the interpolated template byte-identical to what the real parser
+    emits over three inline fixtures, with a one-pass `fill` that throws on an
+    unsupplied or unused placeholder; (r5) the *Spec rule* cell (cells[4] of a
+    seven-cell row) points at `../control-flow.md#ctrl-4`; (r6) the two-way
+    census — no `par-*` code is mirror-only. Every unmet precondition throws
+    naming the absent row and both pages; no skip, no early return.
+  - **Declined scope, stated rather than inferred.**
+    `docs/rfcs/0003-parallel-fanout.md`'s spec-impact clause is left as
+    accepted-RFC history (Constraint 3's explicit call). `tools/closing-gate/**`
+    is untouched: Constraint 7 is optional and its own measurement (96 subjects
+    including the regex artefact `theta/parse/par-`) makes the kind unusable as a
+    gate without separately tightening `extractAssertedCodes`, a §Non-goal.
+    `docs/spec_topics/control-flow.md` is untouched (§Non-goals: CTRL-4's prose
+    is the source, not the subject). `placeholder-rendering-a.md` / `-b.md` are
+    byte-untouched: the three *Message* templates are NOT placeholder-free — they
+    interpolate `<name>` and `<keyword>` — but both are already enumerated on
+    category 5's *Placeholders* line (`placeholder-rendering-b.md:5`, quoted in
+    verification), so the rows reuse existing category-5 sub-rules, admit no new
+    placeholder, and 0189's same-commit placeholder obligation is discharged in
+    advance exactly as its coordination note records. `src/**` is byte-untouched.
+- **Gates:** witness RED before — `Test Files 1 failed (1)` / `Tests 6 failed (6)`,
+  every red naming the missing sharded row (verified by removing lines `:74`–`:76`
+  and writing the file back; restore proved byte-exact: `git hash-object`
+  `f61740cb367193fca6039f07e6f56d8fe28ac00b` identical before and after,
+  92,995 bytes / 137 lines both times). Witness GREEN after —
+  `Tests 6 passed (6)`. Full default suite `npx vitest run --reporter=dot` —
+  `Test Files 364 passed (364)` / `Tests 7461 passed (7461)`; the fork baseline was
+  363 files / 7455 tests, so the delta is exactly the new witness file and its six
+  cells. `npx tsc --noEmit` — no output, exit 0. `npm run lint`
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) — no output. Blast
+  radius premeasured before Phase 1: no registry-reading test asserts a row count
+  or a page byte size, so the only measured coupling was the 0194 witness's ladder
+  rung, checked in both tree states below.
+- **§Fix verification list, re-run:** R1 — exactly three hits under
+  `docs/spec_topics/diagnostics/`, all on `code-registry-parse.md:74`–`:76`.
+  R5 — sharded 216 distinct codes, mirror 215, `mirror-only: []`,
+  `sharded-only: ["theta/runtime/non-object-receiver"]`, the one
+  opposite-direction residue the report declares a §Non-goal. R7 — all three
+  codes' extracted *Message* byte-identical to the mirror's cell; and, measured in
+  the other direction through the shipped `parseRegistry`, the naive
+  doubled-backtick transplant yields an extracted string carrying an extra
+  leading and trailing backtick-plus-space against the mirror's cell
+  (`bytes equal: false`), i.e. it would have redded cell r3 and, silently, bug
+  0194's witness. `tests/loop-element-withhold-binding-scoped.test.ts` — 30/30
+  green with cell `e2` asserting unchanged bytes, and green in the reverted state
+  too (its `transcribed` ladder covers both), `git diff` on it empty;
+  `tests/par-for.test.ts` (95 cells) and
+  `tests/par-for-body-return-refusal.test.ts` (22 cells) green and byte-identical
+  to HEAD. GOV-15 measurement: +3 rows, +1,804 bytes (91,191 → 92,995), 7,005
+  bytes of headroom under the documented 100 KB hard cap that Constraint 1 prices
+  — the four-page enumeration is unchanged and no page splits.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — FINDINGS: one `test`
+  finding (three comment-only line citations in the new witness written in the
+  pre-insertion coordinate frame) and two `prose` residuals (the
+  `par-query-in-body` *Trigger* omitted the nested-`fn` carve-out its sibling row
+  spells; `par-shared-mutation`'s "not refused" clause lacked the sibling row's
+  "under this rule" scoping). It independently re-derived the *Message*
+  round-trip, probed all three *Trigger* cells against the real parser, and
+  confirmed the seven-cell shape, the `—` *Hint* ruling and the 0189 discharge.
+  Round 2 (`bug-fix-fixer-light`) — all three fixed: citations corrected to `:77`
+  and `:84` (re-verified by `rg -n` against the current file), the carve-out
+  clause added verbatim in the sibling row's register, and "under this rule"
+  inserted. Every hunk was a `//` comment or table-cell doc prose, no executable
+  line and no `expect(...)` touched; polish verified by gate-diff, confirmation
+  round skipped per the convergence policy.
+- **Verification:** SOLID (`bug-fix-verifier`), all four obligations discharged
+  with quoted evidence. (1) Witness genuinely witnesses — hash-verified
+  revert/restore cycle above, RED 6/6 for the right reason, GREEN 6/6 restored,
+  R7 hazard proved in both directions out of tree. (2) Full default suite
+  364/7461 green. (3) Live coverage — NO live run owed and none performed:
+  `git diff -- src/` empty, `git diff --stat` names only the two docs, and the one
+  permitted-codes artifact in the tree (`tests/fixtures/h7a/permitted-codes.json`;
+  no `docs/spec_topics/diagnostics/permitted-codes.json` exists) is byte-untouched.
+  Registering rows for three codes that were already registered and already
+  emitting changes no reachability and moves no executable byte, so the 0193/0205
+  docs-only precedent applies. The live lock was therefore not taken.
+  (4) `npx tsc --noEmit` and `npm run lint` clean.
+- **Residuals:**
+  1. **The 0194 witness's Constraint-6 simplification is available and NOT taken;
+     its header disclosure is now factually stale.** Left in place deliberately:
+     the file is bug 0194's protected witness, its `transcribed` ladder was
+     authored to prefer the sharded rung the day these rows landed
+     (`:243`–`:245`), and it is green through that rung now — so nothing is
+     broken and the flip changes no assertion. What is now false is the header
+     disclosure, which still states that `par-query-in-body` "has no row on the
+     four sharded spec registry pages `parseRegistry` reads, and appears in table
+     form only on the transcription page". The flip, enumerated for parent
+     ratification, subject restated (bug 0200: the three CTRL-4 `par for`
+     body-restriction codes carry no row on the closed sharded registry): retire
+     `TRANSCRIPTION_PAGE` / `TRANSCRIPTION_TEXT` (`:174`–`:188`) and `transcribed`
+     (`:249`–`:265`), route `PAR_QUERY_MESSAGE` (`:311`) through the primary
+     `registered` / `fill` path, and delete the header disclosure
+     (`:131`–`:137`). Cell `e2` (`:1182`–`:1189`) and its ordered whole-list
+     assertion must not move. Evidence: the file is byte-identical to HEAD
+     (`git diff` empty) and 30/30 green both with and without the new rows.
+  2. **+3 lines shift 456 pre-existing `code-registry-parse.md:NN` citations
+     across 187 files (all `NN ≥ 74`).** Measured over `docs/`, `tests/`, `src/`
+     and `tools/`: 1,128 such citations in 187 files, of which 456 sit at
+     `NN ≥ 74`. This is bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s class — that
+     report's subject, not this one's (§Non-goals already excludes the citation
+     class) — citation sweeps were out of scope for this fix, and bug 0223
+     shifted the same population by +1 one merge earlier on the same grounds. No
+     citation authored by this fix is stale: round 1 caught the three that were
+     and round 2 corrected them.
+  3. **The reconciliation that computes this gap is still filtered out.**
+     Constraint 7 declined, as above. R8's finding —
+     `asserted-code-not-in-registry` is computed over the live corpus and dropped
+     because the kind is outside `CANARY_GAP_KINDS`
+     (`tools/closing-gate/live-corpus.js:51`–`:59`) — is unchanged, so a future
+     missing row is still undetected by the canary. Enabling the kind needs
+     `extractAssertedCodes` tightened first (96 subjects including the artefact
+     `theta/parse/par-`), which the report's own §Non-goals excludes.
+  4. **`theta/runtime/non-object-receiver` is still sharded-only.** Unchanged
+     opposite-direction residue, §Non-goals, measured again in R5 above.
+- **Discharge notes appended:** 0189's coordination note is discharged as it
+  itself predicted — `<name>` and `<keyword>` are already category-5
+  placeholders, so no placeholder-rendering edit was owed and both pages are
+  byte-untouched. 0223's shard-question closure is discharged: its record's
+  statement that the legacy three belong ahead of `par-return-in-body` is the
+  placement this fix took, and the mirror's Provenance no longer names bug 0200
+  as open (`rg -n '0200'` over `docs/reference/` and `docs/spec_topics/` returns
+  zero hits).
+- **Pinned dispositions / non-goals:** CTRL-4's prose, the three codes'
+  behaviour / severity / phase, the RFC's spec-impact clause, the closing gate's
+  `CANARY_GAP_KINDS` and `extractAssertedCodes`, the placeholder-rendering pages,
+  `theta/runtime/non-object-receiver`'s mirror absence, bug 0118's stale
+  `theta-document.ts` citations, and the 0194 witness's ladder simplification
+  (residual 1, awaiting ratification).

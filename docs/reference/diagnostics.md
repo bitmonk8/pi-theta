@@ -314,12 +314,10 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
 
 - `theta/parse/*` table (Code/Sev/Phase/Message transcribed verbatim):
   `docs/spec_topics/diagnostics/code-registry-parse.md`.
-- The three `theta/parse/par-*` codes (`par-query-in-body`, `par-shared-mutation`,
-  `par-break-continue`) originate in `docs/rfcs/0003-parallel-fanout.md` (accepted;
-  Specification impact — Diagnostics) and are registered here for theta 1.1 —
-  which sharded `code-registry-*.md` page (if any) should also carry a row for
-  them is open bug 0200's subject, not settled here. A fourth CTRL-4
-  body-restriction code, `theta/parse/par-return-in-body`, is registered on
+- The four CTRL-4 `theta/parse/par-*` body-restriction codes (`par-query-in-body`,
+  `par-shared-mutation`, `par-break-continue` — the three that originate in
+  `docs/rfcs/0003-parallel-fanout.md`, accepted, Specification impact —
+  Diagnostics — and `par-return-in-body`) are all registered on
   [`code-registry-parse.md`](../spec_topics/diagnostics/code-registry-parse.md)
   and mirrored here.
 - `subagent fn` (theta 1.2, `docs/rfcs/0001-subagent-fn.md`, accepted) adds **no**
