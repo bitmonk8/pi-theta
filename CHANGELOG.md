@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.145.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0214 — a `__proto__`-named key now survives defaulting, inference
+  and the echo.** The defaulting fill write and `inlineDefsRefs` land on
+  `defineRecordField`; a new `restoreDroppedOwnKeys` repairs typebox
+  `Type.Unsafe`'s own silent drop of `__proto__`/`constructor`/`prototype`
+  own keys (measured: the doc's one-line conversion was insufficient); the
+  echo's prototype-chain read is own-key guarded (`RangeError` gone).
+  `defaultedWireNames` no longer reports a fill that did not land. Witness:
+  `tests/proto-named-binder-write-sites.test.ts` (9 cells, 7 red pre-fix).
+  The AJV validation seam remains bug 0212.
+
 ## [0.144.0] - 2026-08-26
 
 ### Fixed

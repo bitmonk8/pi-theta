@@ -28,6 +28,7 @@
 import type { CompiledValidator, ValidationError } from "../seams/schema-validator";
 import { orderValidationIssues, type ValidationIssue } from "../runtime/query-error";
 import { depthWalk } from "../runtime/depth-walk";
+import { defineRecordField } from "../runtime/value";
 import { classifyBinderArgs, type BinderArgsClassification } from "./retry-taxonomy";
 
 /** One `params:` field that declared a default, with its declared default value. */
@@ -133,7 +134,14 @@ export function fillDefaultsAndRevalidate(
   const defaultedWireNames: string[] = [];
   for (const field of input.defaults) {
     if (!Object.prototype.hasOwnProperty.call(input.binderArgs, field.wireName)) {
-      merged[field.wireName] = field.defaultValue;
+      // A field's wire name is author-controlled; see `defineRecordField`'s
+      // doc-comment for why the fill must be a define, not an assignment.
+      // `merged` is a fresh spread literal (`:133`), so it is extensible, and
+      // the define below installs a configurable+writable data descriptor —
+      // the own key exists for every wire name once this line runs, so the
+      // report on the next line and the record it describes can never
+      // diverge.
+      defineRecordField(merged, field.wireName, field.defaultValue);
       defaultedWireNames.push(field.wireName);
     }
   }

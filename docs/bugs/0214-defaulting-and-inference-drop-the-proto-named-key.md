@@ -1,6 +1,6 @@
 # Bug 0214 — Two record writes past bug 0210's scope still drop a `__proto__`-named `params:` field, newly reachable now that the lowered document compiles: `fillDefaultsAndRevalidate` fills the declared default into the prototype slot and reports the field as default-supplied anyway, so the fill-step report claims a value the merged args do not carry, and `inlineDefsRefs` drops the same own key out of the binder tool's model-facing schema one seam later, reinstating the `required`-names-what-`properties`-omits malformation bug 0210 removed
 
-- **Status:** open. §Fix is constraint-pinned: the write idiom is settled
+- **Status:** fixed (0.145.0). §Fix was constraint-pinned: the write idiom is settled
   (`defineRecordField`, `src/runtime/value.ts:596`, the helper 0119 exported and
   0210 applied at five sites), and the two open dispositions are named below —
   what the fill step reports when it cannot produce an own key, and whether the
@@ -441,3 +441,132 @@ private), so they are reproduced statement-for-statement around the shipped
 loops. Scratch vitest under a gitignored directory, deleted after the run;
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+## Fix (0.145.0)
+
+- What shipped, keyed to §Fix:
+  - **Site (1)** — `src/binder/defaulting.ts`, `fillDefaultsAndRevalidate`'s
+    fill-if-absent write is `defineRecordField(merged, field.wireName,
+    field.defaultValue)`, the landed idiom (`src/runtime/value.ts`). The merged
+    `args` carry the filled field as an own property for a primitive and an
+    object default alike, and the record's prototype is `Object.prototype` in
+    both cases.
+  - **Site (2)** — `src/binder/binder-inference.ts`, two writes. `inlineDefsRefs`'s
+    copy-walk write is `defineRecordField(copy, key, …)`. `buildBinderCompleteCall`
+    hoists the pre-wrap document into a local and runs the new non-exported
+    `restoreDroppedOwnKeys(parametersDocument, parameters)` over the `Type.Unsafe`
+    result, which re-defines every own enumerable key the third-party clone
+    dropped, at every depth, with a `structuredClone` of the source subtree. The
+    model-facing `args` table is the relaxed table verbatim modulo inlining:
+    own keys `["a","__proto__"]`, `required` `["a","__proto__"]`, `properties`
+    and `required` in agreement per `schema-subset.md:8`.
+  - **Site (3)** — `src/extension/production-theta-producer.ts`,
+    `#emitBinderEchoNote`'s per-field read is own-key guarded
+    (`Object.prototype.hasOwnProperty.call`), so an absent field takes the
+    `null` arm instead of materialising an inherited `Object.prototype` member
+    and `renderArgumentEcho` no longer throws on a bind the classifier called
+    `ok`. The `properties?.[field.wireName]` read is unchanged — the lowered
+    properties table carries the own key.
+  - `required` is untouched at both sites (§Fix constraint 2). No registry work,
+    no new export, no field-name refusal, no `Object.create(null)` carrier.
+- **Open dispositions, settled on the record:**
+  1. *What the fill step reports when it cannot fill.* `:137`'s
+     `defaultedWireNames.push` stays **unconditional**. `merged` is a fresh
+     spread literal and therefore extensible, and `defineRecordField` installs a
+     configurable+writable data descriptor, so the own key exists for every wire
+     name once the define runs — report and record cannot diverge. A conditional
+     guard would be unreachable and unwitnessable code; the same ground on which
+     the round-1 residual R1 (a dead prototype-reset branch in
+     `restoreDroppedOwnKeys`) was deleted rather than kept.
+  2. *Whether site (3) lands here.* It **lands here**. The read is
+     independently reachable: default recovery is best-effort
+     (`#mergeDeclaredDefaults`'s doc-comment) while `required` omits a defaulted
+     field, so a field named by any `Object.prototype` member can be absent from
+     the merged args on a bind that still classifies `ok`. Witness cell 3b uses
+     `toString`, per §Fix "Ordering" — it reds on site (3) alone, independently
+     of site (1).
+- **Correction to this document (measured twice).** §Fix's one-line
+  `inlineDefsRefs` conversion does **not** alone satisfy §Expected behaviour for
+  site (2). `Type.Unsafe` (typebox 1.3.2) deep-clones through
+  `Memory.Clone`'s `FromPlainObject`, whose `Guard.IsUnsafePropertyKey` check
+  (`build/guard/guard.mjs`) skips exactly `__proto__`, `constructor` and
+  `prototype` before the per-key assignment — so the wrap drops those own keys
+  by itself, not merely the replaced prototype §Reproduction's `@@ T` block
+  measured. Evidence: an orchestrator probe against this tree's typebox (input
+  `properties` with an own enumerable `__proto__` → output own keys `["a"]`,
+  bytes `{"type":"object","properties":{"a":{"type":"string"}},"required":["a","__proto__"],"additionalProperties":false}`),
+  an independent measurement by the test author (cell 2a cannot green on the
+  conversion alone), and the round-1 and round-2 reviewers reading
+  `typebox/build/system/memory/clone.mjs` and `guard.mjs` directly. §Affected
+  already names `:382` as the discard point and §Expected behaviour fixes the
+  model-facing observable, so closing the second drop is inside the settled
+  §Fix. It is bounded to `src/binder/binder-inference.ts`, adds no export, keeps
+  the `Type.Unsafe` call (its `~unsafe` marker is a non-enumerable own key
+  pi-ai's `TSchema` contract carries), never mutates or aliases the input
+  document, and is byte-invariant for every document declaring none of those
+  three keys.
+- **Witness:** `tests/proto-named-binder-write-sites.test.ts`, 9 offline cells —
+  1a/1b (site (1), primitive and object default; per §Fix constraint 4 they
+  assert the merged `args` and the fill-step report, never the post-merge AJV
+  verdict, which is
+  [0212](./0212-ajv-drops-declared-proto-named-property.md)'s subject), 1c
+  (ordinary-name control, verdict asserted), 2-SRC + 2a (site (2), source-shape
+  and model-facing bytes), 2b (ordinary-name byte-invariance control), 3-SRC +
+  3a/3b (site (3), source-shape plus the `RangeError`/`null` behaviour through
+  the shipped `renderArgumentEcho`). `tests/proto-named-record-write-sites.test.ts`
+  (0210's 17 cells) is byte-unmoved and green.
+- **Gates:** witness 9/9 green; default suite `Test Files 343 passed (343)`,
+  `Tests 6569 passed (6569)`; `tsc -p tsconfig.json --noEmit` clean;
+  `eslint "src/**/*.ts"` clean; live
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "bug 0064"`
+  → `Tests 1 passed | 72 skipped (73)` (a real binder-arm bind over a two-field
+  `params:` theta with one defaulted field, so it drives all three sites; it is
+  the live-facing risk of `restoreDroppedOwnKeys` now sitting on every binder
+  tool's `Tool.parameters`).
+- **Review:** 2 rounds. Round 1 (deep) CLEAN with three non-blocking residuals —
+  R1 a dead prototype-reset branch, R2 the source-shape cells' spelling lock, R3
+  an inexact clone-guard attribution; R1 and R3 were landed by a polish round
+  confined to `src/binder/binder-inference.ts`. Round 2 (confirmation) CLEAN, no
+  deep-review recommendation, every claim re-derived against typebox 1.3.2's own
+  source. One pre-review correction round preceded round 1: four `tests/*.test.ts`
+  files the implementer had citation-swept for `defaulting.ts` line shifts were
+  restored byte-exact to HEAD (no citation sweeps).
+- **Verification:** SOLID. Each site's src change was reverted in isolation and
+  the witness red for the documented reason — site (1) → 1a/1b (`{"a":"1"}` vs
+  `{"a":"1","__proto__":"x"}`; the object default becoming the prototype), site
+  (2) half A and half B *separately* → 2a in both cases (`properties` own keys
+  `["a"]` against `required ["a","__proto__"]`), site (3) → 3a/3b (`RangeError:
+  renderObject: object EchoType carries no fields`) — then restored byte-exact
+  (`git hash-object` matched the pre-experiment hash at every step) and green.
+- **Residuals:**
+  - The source-shape cells 2-SRC and 3-SRC pin an implementation spelling
+    (`defineRecordField(copy, key,` and
+    `Object.prototype.hasOwnProperty.call(mergedArgs`). A semantically
+    equivalent refactor (e.g. to `Object.hasOwn`) reds them, and would also
+    drive 3a/3b's local reproduction down the unguarded arm — three cells red
+    with a message that would then be a misdiagnosis. They fail loudly with
+    re-anchor instructions and no silent-skip path, and 2a reds behaviourally on
+    its own, so they are belt-and-braces for a private statement rather than the
+    sole witness.
+  - No live fixture carries a `$defs`-bearing / NamedType `params:` field, so
+    the live run does not additionally exercise `restoreDroppedOwnKeys` over an
+    inlined fragment. Round 1 covered that shape offline by probe (a
+    `__proto__`-named field inside an inlined `$defs` fragment and inside an
+    `anyOf` arm under `items`: own keys and `required` agreed at every depth).
+  - No live cell binds a `__proto__`-named param: per §Fix constraint 4 the
+    post-merge AJV verdict is
+    [0212](./0212-ajv-drops-declared-proto-named-property.md)'s subject, so such
+    a bind fails loudly by design until 0212 lands. A `__proto__`-named param
+    binds end to end only when both reports are fixed, exactly as §Status
+    states.
+  - Line-number citations elsewhere in the corpus that reference the three
+    touched files past the edited lines are left stale (notably into
+    `production-theta-producer.ts`, and `defaulting.ts:70–75` → `:71–75` cited
+    from two comments in that same file). No citation sweep was run.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the AJV seam
+  ([0212](./0212-ajv-drops-declared-proto-named-property.md)) is untouched — no
+  change to `src/seams/schema-validator.ts` or any AJV configuration; no
+  registry code minted or *Trigger* widened, so DIAG-2 is not engaged; no
+  field-name refusal, per 0119's settled route.
+

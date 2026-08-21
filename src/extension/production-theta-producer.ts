@@ -999,7 +999,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             | undefined)
         : undefined;
     const echoParams: EchoParam[] = params.fields.map((field) => {
-      const value = (mergedArgs[field.wireName] ?? null) as ThetaValue;
+      // Own-key guarded: `mergedArgs[field.wireName] ?? null` never takes
+      // the `?? null` arm for a wire name naming an `Object.prototype` member
+      // (`__proto__`, `toString`, ...), and that name is reachable-absent
+      // here — default recovery is best-effort (`#mergeDeclaredDefaults`'s
+      // doc-comment) while `required` omits a defaulted field, so the bind
+      // still classifies `ok`.
+      const value = (
+        Object.prototype.hasOwnProperty.call(mergedArgs, field.wireName)
+          ? mergedArgs[field.wireName] ?? null
+          : null
+      ) as ThetaValue;
       // The tag is membership in `defaultedWireNames`, not a recomputation from
       // the theta's declared defaults: a field the fill step could not recover
       // a value for (`#recoverDeclaredDefaults`'s best-effort arms) is absent

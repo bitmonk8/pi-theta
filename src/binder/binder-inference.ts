@@ -57,6 +57,7 @@ import type {
 import type { BinderEnvelopeSchema } from "./binder-envelope";
 import { binderSendsTemperature } from "./binder-temperature";
 import { forcedToolChoiceForApi } from "./forced-tool-choice";
+import { defineRecordField } from "../runtime/value";
 
 /**
  * The per-provider binder seed-field mapping
@@ -178,6 +179,54 @@ function binderToolParametersSchema(
 }
 
 /**
+ * Repairs the own-key loss `Type.Unsafe`'s deep clone performs on its own
+ * accord (bug 0214 site (2)'s second drop). typebox `Memory.Clone` rebuilds
+ * every plain object one key at a time through `result[key] = FromValue(...)`
+ * (`typebox/build/system/memory/clone.mjs`), and its own
+ * prototype-pollution guard (`Guard.IsUnsafePropertyKey`) skips exactly the
+ * keys `__proto__`, `constructor` and `prototype` before that assignment —
+ * dropping them from the clone rather than refusing the call. `source` is
+ * the pre-wrap document (`binderToolParametersSchema`'s return; never
+ * mutated — it is also the slug/AJV artifact, see that function's
+ * doc-comment); `wrapped` is what `Type.Unsafe` returned for it. Walks both
+ * trees in lock-step (arrays index-wise) and defines each own enumerable key
+ * of `source` that is missing as an own key of the matching `wrapped` node
+ * (`defineRecordField` — see its doc-comment) with a `structuredClone` of
+ * the source subtree — `structuredClone` preserves an own `__proto__` key,
+ * so a restored subtree needs no further recursion. The result is that
+ * `Tool.parameters` carries every own enumerable key of `source`, at every
+ * depth, on plain `Object.prototype` records, which is what
+ * `schema-subset.md:8`'s `properties`/`required` agreement requires of the
+ * document the provider is asked to satisfy.
+ */
+function restoreDroppedOwnKeys(source: unknown, wrapped: unknown): void {
+  if (Array.isArray(source)) {
+    if (!Array.isArray(wrapped)) {
+      return;
+    }
+    for (let index = 0; index < source.length && index < wrapped.length; index += 1) {
+      restoreDroppedOwnKeys(source[index], wrapped[index]);
+    }
+    return;
+  }
+  if (source === null || typeof source !== "object") {
+    return;
+  }
+  if (wrapped === null || typeof wrapped !== "object" || Array.isArray(wrapped)) {
+    return;
+  }
+  const target = wrapped as Record<string, unknown>;
+  const sourceRecord = source as Record<string, unknown>;
+  for (const key of Object.keys(sourceRecord)) {
+    if (!Object.prototype.hasOwnProperty.call(target, key)) {
+      defineRecordField(target, key, structuredClone(sourceRecord[key]));
+      continue;
+    }
+    restoreDroppedOwnKeys(sourceRecord[key], target[key]);
+  }
+}
+
+/**
  * Non-mutating structural walk that dereferences every pure
  * `{ "$ref": "#/$defs/<name>" }` node against `defs` (the envelope document's
  * root `$defs` table), inlining the referenced fragment transitively — a
@@ -263,7 +312,10 @@ function inlineDefsRefs(
       // semantics); dropped from the attachment copy — see the doc comment.
       continue;
     }
-    copy[key] = inlineDefsRefs(value, defs, expansionPath, survivingRefs);
+    // A `properties` table's field name is author-controlled; see
+    // `defineRecordField`'s doc-comment for why the copy must define this
+    // key rather than assign it.
+    defineRecordField(copy, key, inlineDefsRefs(value, defs, expansionPath, survivingRefs));
   }
   return copy;
 }
@@ -376,10 +428,22 @@ export function buildBinderCompleteCall(
 ): BinderCompleteCall {
   const toolName = binderToolName(input.slug);
 
+  const parametersDocument = binderToolParametersSchema(input.envelopeSchema);
+  const parameters = Type.Unsafe<unknown>(parametersDocument);
+  // `Type.Unsafe` deep-clones the document it is handed (typebox
+  // `Memory.Clone`) by rebuilding every plain object through per-key
+  // assignment, and its `IsUnsafePropertyKey` check skips
+  // `__proto__`/`constructor`/`prototype` before that assignment — dropping
+  // those own keys from the clone rather than refusing the call.
+  // `restoreDroppedOwnKeys` puts them back so the attachment
+  // `Tool.parameters` carries every own enumerable key of
+  // `parametersDocument`, at every depth (schema-subset.md:8).
+  restoreDroppedOwnKeys(parametersDocument, parameters as unknown);
+
   const tool: Tool = {
     name: toolName,
     description: BINDER_TOOL_DESCRIPTION,
-    parameters: Type.Unsafe<unknown>(binderToolParametersSchema(input.envelopeSchema)),
+    parameters,
   };
 
   const context: Context = {
