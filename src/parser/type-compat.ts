@@ -879,3 +879,43 @@ export function checkReassignRhsCompat(opts: {
     },
   ];
 }
+
+/**
+ * The `name` the WITHHELD binder entry carries (`recordWithheldBinders`,
+ * ./type-layer-checks.ts, and `StaticTypeInferencePass`'s own arm-scope build,
+ * ./static-type-inference.ts — bug 0145 §Fix (a) route 1 gave the inference
+ * pass its own minting site, so this is no longer the one place that mints it,
+ * only the lowest module both import): a spelling no `.theta` source can
+ * declare, so a read of a binder this layer cannot type is never judged
+ * against a declaration that happens to share the binder's own name.
+ *
+ * UNSPELLABLE AS A KEY by the grammar, not by convention. A `TypeEnv` key is
+ * exactly ONE token's text — `parseSchema` takes the declaration's name with a
+ * single `this.advance().text` (./theta-document.ts) and `collectTypeEnv`
+ * (./type-layer-checks.ts) keys the env by it — and no token text can equal a
+ * ten-character run beginning with `<`: an `ident` / `keyword` is
+ * `[A-Za-z_][A-Za-z0-9_]*`, a `punct` is one character or a two-character
+ * operator from a fixed table, a `number` is digits and `.`, a `string`
+ * token's text is the RAW source slice and therefore begins with its own
+ * quote, a `newline` / `stmt-sep` is `\n` and `eof` is empty
+ * (../lexer/lexer.ts). `resolveNamed` (above) consults the env with
+ * `Object.hasOwn`, so no prototype name answers for it either, and every `⊑`
+ * question about it reaches the unresolvable-name arms. The KEY claim does not
+ * cover every NAME: an alias's right-hand side or a direct annotation is a
+ * source-text slice, not a token, so it CAN carry this text — harmlessly,
+ * since that name still fails every `resolveNamed` lookup and only ever
+ * defers.
+ *
+ * A casing rule would not do this job: lexical.md §"Identifiers" scopes
+ * lowercase-first to `let` / `let mut` bindings, function parameters, function
+ * names and schema field names, which leaves a `for` / `par for` variable and a
+ * `match` pattern binder outside it — and an uppercase binder colliding with a
+ * declared schema is exactly how the binder's own spelling was judged
+ * nominally.
+ *
+ * Home: this is the lowest module both `type-layer-checks.ts` and
+ * `static-type-inference.ts` import (the latter never imports the former,
+ * bug 0145 §Fix's layering adjudication), so a shared constant lives here
+ * rather than being duplicated at each mint site.
+ */
+export const WITHHELD_BINDER_TYPE_NAME = "<withheld>";

@@ -12784,3 +12784,215 @@ describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal 
     }
   });
 });
+
+
+// ===========================================================================
+// cell 79 — bug 0145: `StaticTypeInferencePass`'s `#typeExpr` `case "match"`
+// types every arm body in the ENCLOSING scope, so an arm body's read of its own
+// pattern binder resolves to a same-named outer binding's record. `let x = 1` +
+// `let m: string = match "hi" { x => x }` therefore draws
+// `theta/parse/let-rhs-type-mismatch` (`expected string, got integer`) on a
+// theta whose value is the string `"hi"` — measured through the production
+// executor in tests/match-arm-scope-inference-pass.test.ts group (f)
+// (docs/bugs/0145-inference-pass-no-match-arm-scope.md, group (b)).
+//
+// That code is `E` (docs/spec_topics/diagnostics/code-registry-parse.md), so
+// `hasLoadParseError` (src/extension/production-composition.ts) DENIES the
+// theta registration and the author has no runtime to check the claim against.
+// The registration denial is what makes this a live question at all: the
+// offline witness measures the diagnostic list off `parseThetaDocument`, and no
+// offline harness observes the real discovery→registration path deciding
+// whether a `.theta` becomes a slash command.
+//
+// DIRECTION — the inverse of the bug 0070 / 0071 / 0079(a) / 0110 / 0122 cells
+// above, which assert a NON-registration. Refusals DISAPPEAR here on legal
+// input, so cell 79 asserts the previously-refused theta IS registered, and it
+// reds under neutralisation two ways: the subject's absence from
+// `registeredNames()`, and the `theta/parse/let-rhs-type-mismatch` refusal note
+// on the `theta-system-note` channel read off the settled `SessionManager`
+// (AGENTS.md §"Assert on real observables"), read there before any slash is
+// driven exactly as the bug 0110 cell reads its containment diagnostic.
+//
+// ZERO TOKENS. All three planted thetas but the shared sentinel control are
+// query-free: their bodies are a `let` chain and a trailing identifier, so no
+// model is built and no provider is dispatched. This cell registers only and
+// drives nothing — the same profile as the bug 0070/0071/0079(a)/0110/0077
+// registration-only cells above.
+//
+// DIAG-2 / DIAG-4. No registry row changes for this fix: every code involved is
+// registered with an accurate *Trigger* and the refused inputs sit outside it
+// (bug 0145 §Fix (c), "No registry edit"). The refusal fragment this cell
+// asserts the ABSENCE of is therefore sourced from the live registry row rather
+// than transcribed, on the same discipline `invokePathEscapeFragment` above
+// applies to its own code.
+
+/** The sharded registry page carrying `theta/parse/let-rhs-type-mismatch`'s row. */
+const PARSE_REGISTRY_CELL_D = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+const LET_RHS_MISMATCH_CODE_CELL_D = "theta/parse/let-rhs-type-mismatch";
+
+/**
+ * cell 79's refusal fragment: `theta/parse/let-rhs-type-mismatch`'s registered
+ * *Message* with the binding name and the two rendered types substituted, code-
+ * prefixed the way `renderDiagnosticLine` (src/diagnostics/diagnostic.ts) joins
+ * them into the theta-system-note content. Sourced from the registry row
+ * (DIAG-4, docs/spec_topics/diagnostics/diagnostic-shape.md:74), never copied,
+ * so a reworded row reds this cell instead of a stale string passing vacuously.
+ */
+function letRhsMismatchFragmentCellD(
+  name: string,
+  expected: string,
+  actual: string,
+): string {
+  const template = registryMessage(
+    PARSE_REGISTRY_CELL_D,
+    LET_RHS_MISMATCH_CODE_CELL_D,
+  ) as string | undefined;
+  expect(
+    template,
+    `cell 79: ${LET_RHS_MISMATCH_CODE_CELL_D} has no registry row — the code ` +
+      "whose absence this cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = (template as string)
+    .replaceAll("<name>", name)
+    .replaceAll("<expected>", expected)
+    .replaceAll("<actual>", actual);
+  expect(
+    message,
+    `cell 79: ${LET_RHS_MISMATCH_CODE_CELL_D}: an unsubstituted <…> placeholder ` +
+      "remains — the registry row's Message template changed shape and this " +
+      "cell's substitution is stale",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${LET_RHS_MISMATCH_CODE_CELL_D}: ${message}`;
+}
+
+/**
+ * cell 79's subject: bug 0145 row b1, verbatim — a spec-legal prompt-mode theta
+ * whose `match` arm binder `x` shadows an enclosing `let x = 1`. Query-free, so
+ * registering it and never driving it spends nothing.
+ */
+function matchArmShadowTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let x = 1",
+    'let m: string = match "hi" { x => x }',
+    "m",
+    "",
+  ].join("\n");
+}
+
+/**
+ * cell 79's precondition control: the SAME theta with the shadowing `let x = 1`
+ * deleted — bug 0145 row b2, which the offline witness measures as `[]` and
+ * whose value the production executor measures as `"hi"`. It registers today,
+ * so its presence separates "a broken workspace" from "the arm-scope refusal".
+ */
+function matchArmNoShadowTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    'let m: string = match "hi" { x => x }',
+    "m",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0145 cell 79: a `match` arm binder shadowing an enclosing binding refuses registration (Convention: live-host acceptance)", () => {
+  it("cell 79: registers a caller whose `match` arm binder shadows an enclosing `let`, alongside its unshadowed sibling, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control 1: an ordinary theta in the SAME workspace,
+      // proving the workspace and the discovery walk both work — without this,
+      // the subject's absence could be (wrongly) attributed to a broken
+      // workspace instead of the arm-scope refusal.
+      { source: "project", stem: "b145livectl", text: promptTheta("THETA-LIVE-OK") },
+      // Precondition control 2: bug 0145 row b2 — the SUBJECT minus the one
+      // shadowing line. It registers today, so it separates "this `match` /
+      // `let`-annotation shape never registers" from "the SHADOW is what
+      // refuses it". This is the one-line delta the whole report rests on.
+      { source: "project", stem: "b145livenoshadow", text: matchArmNoShadowTheta() },
+      // The load-bearing subject: bug 0145 row b1.
+      { source: "project", stem: "b145liveshadow", text: matchArmShadowTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b145livectl"),
+        "cell 79: the precondition control did not register — a broken " +
+          "workspace, not the arm-scope refusal, would explain the subject's " +
+          "absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b145livenoshadow"),
+        "cell 79: the UNSHADOWED sibling did not register — bug 0145 row b2 is " +
+          "measured `[]` offline (tests/match-arm-scope-inference-pass.test.ts " +
+          "cell b2), so either the `let`-annotated `match` shape stopped " +
+          "registering for an unrelated reason (which this cell does not intend " +
+          "to test) or discovery/registration itself regressed. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline `parseThetaDocument` harness the unit witness uses), a
+      // spec-legal theta whose `match` arm binder shadows an enclosing `let`
+      // REGISTERS. expressions.md:168 binds the identifier pattern's value to
+      // the binder and :51 makes that binding shadow everything else lexically,
+      // so the arm body's `x` is the string `"hi"` and the `string` annotation
+      // accepts it — the input sits outside the registered *Trigger*, and
+      // `hasLoadParseError` must have nothing to act on.
+      expect(
+        handle.command("b145liveshadow"),
+        "cell 79: the theta whose `match` arm binder shadows an enclosing " +
+          "`let x = 1` did NOT register through the live " +
+          "discovery/session_start path — `theta/parse/let-rhs-type-mismatch` " +
+          'fired on a legal program (its value is the string "hi", measured ' +
+          "in tests/match-arm-scope-inference-pass.test.ts cell f1) and " +
+          "`hasLoadParseError` un-registered it. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.registeredNames(),
+        "cell 79: Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toContain("b145liveshadow");
+
+      // The second, independent neutralisation guard: the refusal itself, off
+      // the theta-system-note channel read from the settled in-memory
+      // `SessionManager` (AGENTS.md §"Assert on real observables"). The shipped
+      // path's sink routes every error-severity parse-phase diagnostic there
+      // during `session.bindExtensions({})` inside `bootShippedExtension`
+      // above — before any slash is driven, so the full entry list (not a
+      // per-drive slice) is read here, exactly as the bug 0110 cell does. A
+      // route that suppressed the diagnostic's DELIVERY while leaving the
+      // emission in place would pass the registration assertions above and red
+      // here; a route that removed the emission passes both.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const refusal = letRhsMismatchFragmentCellD("m", "string", "integer");
+      expect(
+        notes.filter((note) => note.includes(refusal)),
+        "cell 79: the theta-system-note channel still carries the " +
+          "`let-rhs-type-mismatch` refusal for the shadowing theta. The " +
+          "refused `integer` is `let x = 1`'s type, read through the arm " +
+          "binder that shadows it, and the fragment is derived from the " +
+          "registry *Message* row (DIAG-4), not transcribed. Notes: " +
+          JSON.stringify(notes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

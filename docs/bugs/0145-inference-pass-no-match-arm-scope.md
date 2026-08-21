@@ -1,13 +1,17 @@
 # Bug 0145 — `StaticTypeInferencePass` has no arm-scope concept: `#typeExpr`'s `case "match"` (`static-type-inference.ts:237–241`) types every arm body in the ENCLOSING scope, so an arm body's read of its own pattern binder resolves to a same-named outer binding's record — six registered `E`-severity rows then refuse spec-legal thetas (`let x = 1` + `let m: string = match "hi" { x => x }` reports `expected string, got integer` where the binding is `"hi"`), three more keep the right code and name the outer binding's type in the `<type>` placeholder, and the same record returned BY IDENTITY poisons the outer binding through `unprovableBindings`, withholding a true `fn-arg-type-mismatch`
 
-- **Status:** open. §Fix is not settled: two routes are enumerated with their
-  consequences and the constraints are pinned, but the disposition — and the
-  question of what static type an arm binder carries, which the type layer today
-  deliberately declines to answer — is left to the run. No ordering dependency
-  blocks it. The coordination surface is bug 0050's committed witness: cell
-  u13e of `tests/fn-arg-type-mismatch-wired.test.ts` (`:2694–2724`) pins group
-  (a) below in both directions and names both of this report's fix routes as
-  its flip conditions, so any fix here reds that cell by design (§Fix (d)).
+- **Status:** fixed (0.158.0). §Fix was route-enumerated rather than settled: two
+  routes with their consequences, the constraints pinned, and the question of
+  what static type an arm binder carries left to the run. **Route 1 shipped,
+  with §Fix (b)'s WITHHELD-SENTINEL answer** — the one the type layer had
+  already adjudicated; see `## Fix (0.158.0)`. Route 2 was moot on arrival:
+  §Reproduction group (a), its whole observable, had been discharged at 0.120.0
+  by bug [0199](./0199-let-arm-marks-borrowed-object-suppression.md), which
+  restated cell u13e of `tests/fn-arg-type-mismatch-wired.test.ts` as an
+  EMISSION cell and left this report the remaining flip day — arm-scope typing,
+  which is what shipped here. This fix reds no cell of that file: the emission
+  u13e now asserts is byte-unmoved by an arm scope that resolves nothing the
+  marking guard reads.
 - **Sev/Diff estimate:** S2/D3 — six registered `E`-severity codes refuse
   programs the runtime executes correctly (measured: `"hi"`, `"hia"`, `["hi"]`,
   `{"s":"hi"}` returned by the identical sources with the shadowed outer
@@ -845,6 +849,178 @@ One further row no group above supplies: an assertion that `checkMatchArmTypes`'
 node, so a future reader added to that arm cannot silently take the enclosing map
 again. No live tier applies: nothing on this path crosses a provider, and every
 observable is determined inside one parse or one `executeBody`.
+
+## Fix (0.158.0)
+
+- **What shipped**, keyed to §Fix:
+  - **§Fix (a) route 1, with §Fix (b) answer = the WITHHELD SENTINEL.** The
+    inference pass now types an arm body in the arm's own scope.
+    `src/parser/static-type-inference.ts`: `#typeExpr`'s `case "match"` maps each
+    arm body through a new private `#matchArmScope(pattern, bindings)` —
+    `bindings` plus that arm's pattern binders, each recorded as
+    `WITHHELD_BINDER_TYPE_NAME`. It is a COPY (`new Map(bindings)`), the shape
+    `case "par-for"` already used at the pass's only other binder-bearing arm,
+    and a pattern binding nothing returns the caller's map unchanged and
+    allocates no scope — `matchArmScope`'s empty-name branch is the model. The
+    sentinel answer was taken because it is the one the type layer had already
+    adjudicated (`recordWithheldBinders`); the scrutinee-type answer stays
+    outside this report per §Non-goals, and the spelling-mint answer stays
+    rejected pending bug 0136.
+  - **A second reader, which route 1 does not reach on its own.**
+    `src/parser/type-layer-checks.ts`: `walkExpr`'s `case "match"` resolves
+    `checkMatchArmTypes`'s `armTypes` mapping through the existing
+    `matchArmScope`, not through the enclosing `bindings`. Without it b3 and b17
+    keep their `match-arm-type-mismatch` — the arm types the LUB reduces are
+    computed in the type layer, not inside the pass's `case "match"`. All three
+    readers on that node (the arm-body walk, `provableArgType`'s reduction, this
+    mapping) now resolve one scope, which is what `matchArmScope`'s own contract
+    comment always claimed; that comment is re-derived to say three, not two.
+  - **The layering consequence §Fix (a) route 1 flagged, resolved in favour of
+    shared homes rather than a reverse import.** `type-layer-checks.ts` imports
+    the pass and never the reverse, so the two values the pass now needs moved
+    DOWN and both consumers import them: `WITHHELD_BINDER_TYPE_NAME` to
+    `src/parser/type-compat.ts` and `collectPatternBinderNames` to
+    `src/parser/match-result.ts` (the `match`/`Result` parse-type seam that
+    already owns `checkMatchArmTypes`; its `PatternNode` import is type-only, so
+    the runtime graph stays acyclic —
+    `theta-document → type-layer-checks → {static-type-inference, match-result} →
+    type-compat`). One value each, no duplicate mint constant. Both carried doc
+    comments were re-derived where the move falsified them: the sentinel's
+    "the one site that mints it" and the collector's single-importer claim.
+  - **The identity channel did NOT cross the layer.** `recordWithheldBinders`
+    also adds each minted sentinel to `unprovableBindings`, the identity set a
+    marking guard reads. The pass acquired no such set and must not: it carries
+    the VALUE channel only (the unspellable name, which drives every sibling read
+    to its unresolvable-name arm), and identity-keyed suppression is bug 0199's
+    landed, narrower surface. Recorded in `#matchArmScope`'s doc comment.
+  - **Bug 0143 binds without moving.** Route 1 extends the sentinel's reach into
+    the pass, but mints the same value at a second site rather than giving it a
+    new spelling or a new spellability property, so 0143's contract is inherited
+    unchanged.
+  - **§Fix (c)'s constraints, each re-measured rather than assumed.** The ten
+    silent controls stay silent; d4 stays `[]` and now defers instead of passing
+    on an outer record that happened to satisfy the position, with the changed
+    mechanism written into its cell; d3 and d7 are treated below (both had
+    stopped being fences); d5 stays `[]` and copies no map; the `par for` arm is
+    byte-unmoved; `collectProvableArgTypes`
+    (`src/extension/invoke-static-checks.ts`) keeps its EMPTY bindings map; no
+    registry, spec-topic or `docs/reference` file is touched, so DIAG-2 and
+    DIAG-4 are not engaged — no *Trigger* and no *Message* changed, and the codes
+    involved simply stop firing on inputs outside their own triggers. GOV-15 is
+    engaged in the REMOVAL direction only, which owes no carve-out.
+  - **The corpus sweep re-run, not assumed** (§Fix (c) requires this, and cites
+    bug 0132 as the reason not to trust the gate): 0132 is fixed in this tree, so
+    `tests/committed-fixture-parse-gate.test.ts` now walks `.thetalib` too — 36
+    cells green, and both committed `.thetalib` files independently re-parsed
+    through the real `parseThetaDocument` to `[]`.
+- **Gates** (each re-run by the orchestrator, not taken on report):
+  - Witness — `npx vitest run tests/match-arm-scope-inference-pass.test.ts` →
+    `Test Files 1 passed (1) / Tests 48 passed (48)`.
+  - Full default suite — `npm test` →
+    `Test Files 350 passed (350) / Tests 7018 passed (7018)`. Zero collateral
+    reds; the four protected witnesses green at their exact counts
+    (`fn-arg-type-mismatch-wired` 89, `annotation-nontype-text-refusal` 251,
+    `let-arm-withhold-binding-scoped` 32,
+    `loop-element-withhold-binding-scoped` 30).
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean.
+  - `npm run lint` (`eslint … "src/**/*.ts"`) → clean.
+  - Live — the H8a registration cell → `Tests 1 passed | 77 skipped (78)`.
+- **Blast-radius premeasure.** The route was prototyped before any test was
+  written and the whole default suite run against it: zero reds, so no protected
+  cell needed flipping and §Fix (d)'s restated-not-deleted prescription was never
+  reached. The committed corpus blast radius the report measured as zero is
+  confirmed: no committed pattern binder shadows an enclosing binding.
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS: one `fidelity` (the witness
+  shipped group (f) as f1–f7 + f10 and dropped f8/f9 with no adjudication, where
+  §(e)'s header does adjudicate its omission — both rows added, f9 asserting the
+  throw attributed to bug 0136 as the control's cost), two `house-rule` (a
+  move-narration comment inside `containsWithheldBinderType`, deleted; a
+  soundness sentence in `provableArgType`'s `case "match"` that this fix
+  falsified by making the reduction arm-scoped inside the pass, re-derived), one
+  `prose` (`resolveNamed` cited as "below" when it is above). Round 2 (fast) —
+  CLEAN, one `prose` residual (a symbol-home citation in the witness that this
+  fix's own relocation staled), fixed, plus two sibling occurrences of the same
+  staleness corrected on the orchestrator's bounded self-authorization
+  (citation-text only, no assertion touched). Polish verified by gate-diff; the
+  confirmation round was skipped because every hunk was comment or citation text
+  and the gates re-ran green.
+- **Verification:** SOLID, four obligations.
+  - *The tests witness the bug.* Each behavioural edit neutralised separately and
+    then together, restored by writing saved bytes back and proven byte-exact by
+    `git hash-object` on both sides. Pass-only neutralised → 18 cells red
+    (b1, b5, b7, b9, b11, b13, b15, b17, c1, c3, c4, c5, d1+d2, d3, d6, d7, e1,
+    e3); `armTypes`-only neutralised → exactly b3, b17 and the STRUCTURAL cell;
+    both → 20. No neutralisation reds nothing.
+  - *Full default suite green* — 350/7018.
+  - *Live, run for real, red-proven both directions.* Green with the fix;
+    neutralising the pass edit reds it with the registration-denial observable
+    (`Registered: ["b145livectl","b145livenoshadow"]` — both preconditions pass,
+    only the shadowing subject is absent); restored, green. No stochastic-red
+    class encountered.
+  - *Lint and typecheck* — both clean, script names confirmed against
+    `package.json`.
+  - Plus: no silent skipping, spot-checked by breaking three absence cells'
+    preconditions and confirming each fails loudly naming the drift, then
+    restoring byte-exact.
+- **Residuals:**
+  1. **c4 and d6 each LOSE an emission**, which is this route's own predicted
+     cost, in the permissive direction. Under the sentinel the binder's spelling
+     is no longer minted, so c4's `non-array-iterand` … `got x` and d6's
+     `let-rhs-type-mismatch` … `got xs` both disappear; c4 remains an owed
+     emission this route does not pay, alongside b12, c2 and c6. §Fix (b)'s
+     withheld-sentinel bullet states exactly this ("leaves c2, c4, c6 and b12
+     missing owed emissions"). Paying them is the scrutinee-type answer, which
+     §Non-goals places outside this report and which needs its own witness at
+     each of the nine rows.
+  2. **§Fix (c) and §Fix (b) contradict each other about c4** — (c) requires the
+     `got x` rendering be asserted unchanged, (b) predicts its loss. They cannot
+     both hold under the sentinel, because `got x` IS the mint the sentinel
+     replaces. Adjudicated in favour of (b), the route-attached bullet, with the
+     adjudication written into the cell.
+  3. **§Reproduction (d) has two fences that stopped being fences before this fix
+     ran, and one row that stopped emitting.** d7 is the material one: the report
+     says a frontmatter `params:` field "is not in `bindings` at all, so it cannot
+     be the shadowed outer", which a later fix falsified by putting declared
+     `params:` types into the type layer — at this HEAD d7 DRAWS
+     `let-rhs-type-mismatch`, making it a group-(b) refusal whose shadowed outer
+     lives in a different file region (frontmatter) from the body the diagnostic
+     points at. It is closed by this fix and pinned, with a one-token control.
+     d3 likewise became a refusal once the landed loop-element binding gave a
+     `for` variable a real element type, so the arm binder's shadow reads a TYPED
+     twin instead of a withheld one; also closed and pinned. b14 drifted the
+     other way and is silent at HEAD; asserted silent, with the drift recorded.
+     All three are pre-fix baseline drift the report predates, not fix effects.
+  4. **`checkMatchArmTypes`'s `sink` parameter is still `undefined` at its only
+     call site**, so the sink branch stays unreachable in production. §Non-goals
+     required a fix here not to make it reachable silently; it does not.
+  5. **The STRUCTURAL cell is a source-text guard.** It extracts `walkExpr`'s
+     `case "match"` block and asserts no arm-body read in it is spelled with the
+     enclosing map, matching over the whole block so a multi-line spelling cannot
+     evade it. Its three extraction anchors fail loudly rather than vacuously if
+     the block is restructured — a deliberate cost, since the behavioural rows
+     alone cannot stop a FOURTH reader being added enclosing-scoped.
+  6. **Citation drift in this document, reported and not repaired** (bug 0134's
+     standing class, and citation sweeps were out of scope for this run): every
+     `src/` line number here is from 0.77.0; the ten registry line citations have
+     all moved; and `placeholder-rendering-a.md:13` is cited for "Render the Theta
+     static type", which is at `:19` (`:13` is *Admitted-but-unrendered names*).
+     The witness is immune by construction — it cites registry rows by CODE and
+     `src/` by SYMBOL, never by line.
+  7. **Bug 0136's mint is untouched.** d6's `got xs` disappearing is a
+     consequence of the binder no longer missing, not of the `??` fallback
+     changing; the fabrication arm is byte-unmoved and 0136's subject stands.
+- **Discharge notes appended:** none. No sibling bug document was edited: group
+  (a)'s discharge note was already written by bug 0199, and 0081, 0126, 0136,
+  0141 and 0143 are each untouched at the file level by this change (0081's
+  `#commonType` body is byte-unmoved — only the candidates reaching it changed,
+  which is the rebase §Fix (d) anticipated).
+- **Pinned dispositions / non-goals:** what static type an arm binder carries is
+  still unanswered — the pass now declines to answer in the same voice the type
+  layer already used, rather than answering with a different binding's type,
+  which is the only claim this report made. The spelling mint when nothing
+  shadows (0136 / 0126), which patterns bind (0141), `#commonType`'s reduction
+  rule (0081), top-level array/object patterns on a non-`Result` scrutinee, and
+  the `?`/enum-variant readings of the same node all stay out.
 
 ## Provenance
 

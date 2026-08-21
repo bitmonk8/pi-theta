@@ -26,8 +26,18 @@
 // Spec (narrative): type-system.md, expressions.md, control-flow.md,
 // functions.md. Closes no new spec REQ-ID.
 
-import type { Block, Expr, IfStmt, MemberExpr, ThetaBody, Stmt } from "./theta-document";
-import { commonType, displayType, resolveNamed, unfoldAlias, type CompatType, type Compatibility, type TypeEnv } from "./type-compat";
+import type { Block, Expr, IfStmt, MemberExpr, PatternNode, ThetaBody, Stmt } from "./theta-document";
+import {
+  commonType,
+  displayType,
+  resolveNamed,
+  unfoldAlias,
+  WITHHELD_BINDER_TYPE_NAME,
+  type CompatType,
+  type Compatibility,
+  type TypeEnv,
+} from "./type-compat";
+import { collectPatternBinderNames } from "./match-result";
 
 /**
  * The `V2b` type-compatibility engine (`⊑`) as an injectable seam: the directed
@@ -259,8 +269,13 @@ export class StaticTypeInferencePass {
         // `operand?` propagates the operand's success type statically.
         return this.#typeExpr(node.operand, env, bindings);
       case "match":
+        // bug 0145 §Fix (a) route 1: an arm body executes under its OWN
+        // pattern's binders (`evalMatch` installs them into a child
+        // environment before the body runs, ../runtime/statement-executor.ts),
+        // never under a same-named ENCLOSING binding — so each arm is typed in
+        // `#matchArmScope`'s copy rather than in the caller's `bindings`.
         return this.#commonType(
-          node.arms.map((arm) => this.#typeExpr(arm.body, env, bindings)),
+          node.arms.map((arm) => this.#typeExpr(arm.body, env, this.#matchArmScope(arm.pattern, bindings))),
           env,
         );
       case "member":
@@ -315,6 +330,42 @@ export class StaticTypeInferencePass {
         };
       }
     }
+  }
+
+  /**
+   * The scope a `match` arm's body is typed in: `bindings` plus that arm's own
+   * pattern binders, each recorded as the withheld sentinel
+   * (`WITHHELD_BINDER_TYPE_NAME`, ./type-compat.ts) — the same answer the type
+   * layer's own `matchArmScope` (./type-layer-checks.ts) already gives the
+   * arm-body walk and `provableArgType`'s reduction, so all three readers of
+   * an arm body now resolve the same scope for the same node (bug 0145 §Fix).
+   *
+   * VALUE CHANNEL ONLY. The type layer's `recordWithheldBinders` also adds
+   * each minted sentinel to an identity set (`unprovableBindings`) a marking
+   * guard reads; this pass carries no such set (bug 0145 §Bounds) and must
+   * not acquire one — the withheld name alone is what makes a sibling read
+   * unresolvable (`type-system.md:48`, *Unresolvable operands*), and identity-
+   * keyed suppression is bug 0199's landed, narrower surface.
+   *
+   * A pattern binding nothing (a literal or a wildcard) yields `bindings`
+   * unchanged and copies no map — the same shape `matchArmScope` uses, and the
+   * one `case "par-for"` above does not need because a `for` loop always binds
+   * its variable.
+   */
+  #matchArmScope(
+    pattern: PatternNode,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ReadonlyMap<string, CompatType> {
+    const names = new Set<string>();
+    collectPatternBinderNames(pattern, names);
+    if (names.size === 0) {
+      return bindings;
+    }
+    const scope = new Map(bindings);
+    for (const name of names) {
+      scope.set(name, { kind: "named", name: WITHHELD_BINDER_TYPE_NAME });
+    }
+    return scope;
   }
 
   /**

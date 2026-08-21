@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.158.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0145 — the inference pass now types match-arm bodies in arm scope**
+  (group (b); group (a) was discharged by 0199). `#typeExpr`'s `match` arm
+  types each arm body in a new private `#matchArmScope` (withheld binders,
+  VALUE channel only); `checkMatchArmTypes`' `armTypes` mapping is
+  arm-scoped. Closes the six E-severity false refusals and three
+  wrong-placeholder rows. `WITHHELD_BINDER_TYPE_NAME` moved to
+  `type-compat.ts`, `collectPatternBinderNames` to `match-result.ts`.
+  Witness: `tests/match-arm-scope-inference-pass.test.ts` (48 cells, 20 red
+  at HEAD) + H8a cell 79, red-proven both directions.
+
 ## [0.157.0] - 2026-08-26
 
 ### Fixed

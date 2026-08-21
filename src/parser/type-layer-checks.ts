@@ -69,6 +69,7 @@ import {
   displayType,
   resolveNamed,
   unfoldAlias,
+  WITHHELD_BINDER_TYPE_NAME,
   type CompatType,
   type NamedDecl,
   type PrimitiveName,
@@ -89,6 +90,7 @@ import {
   checkMatchArmTypes,
   checkQuestionOperand,
   checkQuestionScope,
+  collectPatternBinderNames,
   type EnclosingReturnScope,
   type QuestionOperandType,
 } from "./match-result";
@@ -393,36 +395,6 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
 }
 
 /**
- * The `name` the WITHHELD binder entry carries (`recordWithheldBinders`, the one
- * site that mints it): a spelling no `.theta` source can declare, so a read of a
- * binder this layer cannot type is never judged against a declaration that
- * happens to share the binder's own name.
- *
- * UNSPELLABLE AS A KEY by the grammar, not by convention. A `TypeEnv` key is
- * exactly ONE token's text — `parseSchema` takes the declaration's name with a
- * single `this.advance().text` (./theta-document.ts) and `collectTypeEnv` below
- * keys the env by it — and no token text can equal a ten-character run
- * beginning with `<`: an `ident` / `keyword` is `[A-Za-z_][A-Za-z0-9_]*`, a
- * `punct` is one character or a two-character operator from a fixed table, a
- * `number` is digits and `.`, a `string` token's text is the RAW source slice
- * and therefore begins with its own quote, a `newline` / `stmt-sep` is `\n` and
- * `eof` is empty (../lexer/lexer.ts). `resolveNamed` (./type-compat.ts) consults
- * the env with `Object.hasOwn`, so no prototype name answers for it either, and
- * every `⊑` question about it reaches the unresolvable-name arms. The KEY claim
- * does not cover every NAME: an alias's right-hand side or a direct annotation
- * is a source-text slice, not a token, so it CAN carry this text — harmlessly,
- * since that name still fails every `resolveNamed` lookup and only ever defers.
- *
- * A casing rule would not do this job: lexical.md §"Identifiers" scopes
- * lowercase-first to `let` / `let mut` bindings, function parameters, function
- * names and schema field names, which leaves a `for` / `par for` variable and a
- * `match` pattern binder outside it — and an uppercase binder colliding with a
- * declared schema is exactly how the binder's own spelling was judged
- * nominally.
- */
-const WITHHELD_BINDER_TYPE_NAME = "<withheld>";
-
-/**
  * Whether `type` was read, in whole or in part, out of a WITHHELD binder entry —
  * the marker for "this position holds a value this layer cannot type".
  *
@@ -698,37 +670,6 @@ function walkExprForLocalBinders(expr: Expr, names: Set<string>): void {
     default:
       // ident / number / string / bool / null — no local binder, no nested
       // expression.
-      return;
-  }
-}
-
-/**
- * Every name a `match` pattern binds, recursively through the constructor /
- * object / array pattern forms. Kept independent of `theta-document.ts`'s own
- * (unexported) `collectPatternBindings`: this fix touches `theta-document.ts`
- * only at the `checkTypeLayer` call site, so that function is not exported to
- * be shared here.
- */
-function collectPatternBinderNames(pattern: PatternNode, names: Set<string>): void {
-  switch (pattern.kind) {
-    case "identifier":
-      names.add(pattern.name);
-      return;
-    case "constructor":
-      collectPatternBinderNames(pattern.inner, names);
-      return;
-    case "object":
-      for (const f of pattern.fields) {
-        collectPatternBinderNames(f.pattern, names);
-      }
-      return;
-    case "array":
-      for (const el of pattern.elements) {
-        collectPatternBinderNames(el, names);
-      }
-      return;
-    default:
-      // wildcard / literal bind nothing.
       return;
   }
 }
@@ -1604,9 +1545,11 @@ class TypeLayerWalk {
    * `env.child()` with every pattern binding defined
    * (../runtime/statement-executor.ts; an identifier pattern binds the
    * scrutinee whatever its value, ../runtime/match-result.ts), so the walk of
-   * an arm body and `provableArgType`'s reduction over arm bodies both resolve
-   * it through here — the two disagreeing about which binding an arm body reads
-   * is the scope mismatch this exists to close.
+   * an arm body, `provableArgType`'s reduction over arm bodies, AND
+   * `checkMatchArmTypes`'s `armTypes` mapping (`walkExpr`'s `case "match"`,
+   * bug 0145 §Fix) all resolve it through here — three readers disagreeing
+   * about which binding an arm body reads was the scope mismatch this exists
+   * to close, and now all three agree.
    *
    * A pattern binding nothing (a literal or a wildcard) yields `bindings`
    * unchanged, so the common arm copies no map.
@@ -2125,12 +2068,12 @@ class TypeLayerWalk {
         // Each arm body is proven in THAT ARM's scope, the one the walk uses
         // (`matchArmScope`): a proof taken in the enclosing scope would prove a
         // binding the arm body does not read, which is the false-`E` shape this
-        // whole predicate exists to refuse. The reduction itself is read in the
-        // enclosing scope, which is sound because every arm shape this function
-        // PROVES is either scope-independent (a literal, a boolean-valued
-        // operator, a nominal naming the construct that produced the value) or
-        // recurses through the `ident` arm, where a read of a withheld binder
-        // withholds the whole composite.
+        // whole predicate exists to refuse. The reduction is taken in the same
+        // scope without being asked for it here: `typeOf` reaches
+        // `StaticTypeInferencePass`'s own `case "match"`
+        // (./static-type-inference.ts), which types every arm body under that
+        // arm's binders, so `reduced` and the proof below answer for one
+        // reading of the arm bodies rather than two.
         return this.isProvenReduction(
           expr.arms.map((arm) => arm.body),
           reduced,
@@ -2468,9 +2411,16 @@ class TypeLayerWalk {
         this.walkExpr(e.index, bindings, flow);
         return;
       case "match":
+        // bug 0145 §Fix (a) route 1: the LUB reader must resolve the SAME scope
+        // for an arm body as the arm-body walk six lines below — both were
+        // reading `arm.body` under the ENCLOSING `bindings` and only the walk
+        // was arm-scoped, so `checkMatchArmTypes` judged a body against a
+        // same-named outer binding's type instead of the arm's own binder.
         this.diagnostics.push(
           ...checkMatchArmTypes({
-            armTypes: e.arms.map((arm) => this.typeOf(arm.body, bindings)),
+            armTypes: e.arms.map((arm) =>
+              this.typeOf(arm.body, this.matchArmScope(arm.pattern, bindings)),
+            ),
             sink: undefined,
             env: this.env,
             site: { file: this.file, range: e.range },
