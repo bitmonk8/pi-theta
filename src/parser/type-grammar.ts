@@ -64,8 +64,21 @@
 //     duplicate rule's gates (`TypeNode.closingBraceSpelled`, withheld inside
 //     a generic type argument) and its comparison key; a key that repeats
 //     draws the duplicate row alone (bug 0176 §Fix precedence).
+//   - `theta/parse/binding-case-mismatch` (bug 0154) — an entry of
+//     `TypeNode.fieldNames`, the theta-side IDENTIFIER retention, whose first
+//     character is neither `_` nor a lowercase letter: the inline field-name
+//     position reuses the object-schema `Field` form, so lexical.md's
+//     lowercase-first rule reaches it exactly as it reaches an object-schema
+//     body's own field name. Excludes a spelling that is a member of the
+//     lexer's own `reservedKeywords()` (Disposition A — the reserved-keyword
+//     class at this slot stays with its own open report). Shares the empty
+//     rule's closing-brace gate but NOT the two raw-key rules'
+//     generic-argument carve-out: that carve-out is grounded in the LOWERING
+//     never dividing a generic argument's interior into fields, which this
+//     identifier rule does not depend on, so a nested `array<{ Ys: string }>`
+//     still fires. Emits before the two raw-key rules above.
 //
-// A caller may select a narrower rule SET than all six checks
+// A caller may select a narrower rule SET than all seven checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
 //
 // The `array<T>` literal type-sink rule of grammar.md fires
@@ -81,8 +94,22 @@
 // engine are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { reservedKeywords } from "../lexer/lexer";
 import { splitTopLevel, topLevelColon } from "./params";
 import { emptySchemaBodyDiagnostic } from "./schema-declarations";
+
+/**
+ * The reserved-spelling exclusion `walkType`'s `object` arm needs for bug
+ * 0154's identifier pass (Disposition A): a keyword-shaped inline field name
+ * (`Ok`, `Err`, `Result`, `let`, …) must not draw `binding-case-mismatch`,
+ * because `tokeniseType` has no keyword kind at all and would otherwise
+ * present every one of them exactly as it presents `Ys`. Derived ONCE at
+ * module scope from the lexer's own exported set, the same shape
+ * `src/parser/params.ts` and `src/parser/frontmatter.ts` already use for the
+ * identical exclusion at their own field-name positions — a module-private
+ * immutable derived set, not a mutable global.
+ */
+const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
 
 /**
  * The annotation position a type expression occupies, which governs the
@@ -112,16 +139,18 @@ export interface TypeCheckSite {
  *
  *   - `"all"` (the default) — every check the seam owns, gated by `position`
  *     as documented on `walkType`.
- *   - `"inline-object-shape"` — the checks that constrain the SHAPE of an
- *     inline object type, independent of position and of the other three
- *     checks: `theta/parse/empty-schema-body`'s empty-brace-interior rule,
+ *   - `"inline-object-shape"` — the checks that run at an inline object
+ *     type's own arm independent of position and of the other three
+ *     `"all"`-only checks: `theta/parse/empty-schema-body`'s
+ *     empty-brace-interior rule, `theta/parse/binding-case-mismatch`'s
+ *     lowercase-first identifier rule over the field name (bug 0154),
  *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule, and
  *     `theta/parse/quoted-inline-field-name`'s non-identifier-key rule. The
  *     walk still DESCENDS generic arguments, object field types and union
- *     arms under this selection — a nested `{}`, a nested repeated name, or a
- *     nested quoted name is found at any depth — but withholds
- *     `void-in-non-return-position`, `generic-arity-mismatch` and
- *     `result-in-schema-position`, which stay `"all"`-only.
+ *     arms under this selection — a nested `{}`, a nested ill-cased name, a
+ *     nested repeated name, or a nested quoted name is found at any depth —
+ *     but withholds `void-in-non-return-position`, `generic-arity-mismatch`
+ *     and `result-in-schema-position`, which stay `"all"`-only.
  *
  * A caller selects `"inline-object-shape"` when its position runs no other
  * type-grammar pass, so importing the other three checks in the same edit
@@ -688,12 +717,32 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *   - `theta/parse/empty-schema-body` — an inline object type whose brace
  *     interior carries no token AND whose closing `}` was consumed
  *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
- *     under EVERY `rules` value — one of the three checks `"inline-object-shape"`
+ *     under EVERY `rules` value — one of the four checks `"inline-object-shape"`
  *     admits — and is unqualified by `position`, by `isRoot`, or by
  *     `insideGenericArgument`: an empty `array<{}>` argument still fires. An
  *     unterminated `{` fails the second half and stays silent: `ObjectType`
  *     requires the closing brace, so there is no inline object type there to
  *     call empty.
+ *   - `theta/parse/binding-case-mismatch` (bug 0154) — an entry of
+ *     `TypeNode.fieldNames`, the theta-side IDENTIFIER retention, whose first
+ *     character is neither `_` nor a lowercase letter, excluding a spelling
+ *     that is a member of the lexer's own `reservedKeywords()` (Disposition A:
+ *     a keyword-shaped inline field name stays with the reserved-keyword
+ *     class's own open report, not this one). `fieldNames` is NOT the same key
+ *     `duplicate-inline-field-name` / `quoted-inline-field-name` below read —
+ *     those key on `TypeNode.interiorSource`'s raw, unnormalised entry text,
+ *     deliberately not an identifier, while this rule needs identifier TOKENS.
+ *     Runs under EVERY `rules` value, gated ONLY on `TypeNode.closingBraceSpelled`
+ *     (the same grammar requirement the empty rule above reads) and NOT on
+ *     `insideGenericArgument`: the two raw-key rules' generic-argument carve-out
+ *     is grounded in the LOWERING never dividing that interior into fields,
+ *     which is a fact about the lowered artefact this identifier rule does not
+ *     depend on — the source's field-name position exists at any depth, so
+ *     `array<{ Ys: string }>` fires. Emits BEFORE the two raw-key rules below
+ *     so `{ Ys: string, Ys: string }` reads as two `binding-case-mismatch`
+ *     lines then one `duplicate-inline-field-name` line, in emission order
+ *     (`assembleDiagnostics`' stable sort cannot separate same-range
+ *     diagnostics by column).
  *   - `theta/parse/duplicate-inline-field-name` — two entries of the split
  *     `inlineObjectFieldKeys` derives from `TypeNode.interiorSource` share a
  *     key — the raw text before that entry's own top-level `:`, after
@@ -713,7 +762,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     second occurrence, in source order — `seen` tracks a key's first
  *     occurrence and `reported` its emission, both `Set`s, so a third
  *     occurrence draws no second line. Runs under EVERY `rules` value — one
- *     of the three checks `"inline-object-shape"` admits — and is
+ *     of the four checks `"inline-object-shape"` admits — and is
  *     unqualified by `position` or by `isRoot`, but WITHHELD when
  *     `insideGenericArgument`: a generic type argument's interior is never
  *     divided into fields, so no duplicate `required` is ever minted there
@@ -736,12 +785,13 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     alone: this rule fires only for a key occurring exactly once, so
  *     `{"a": string, "a": integer}` draws one `duplicate-inline-field-name`
  *     line and no second line from this rule. Runs under EVERY `rules`
- *     value — the third check `"inline-object-shape"` admits.
+ *     value — the fourth check `"inline-object-shape"` admits.
  *
  * Every `rules` value still descends generic arguments, object field types
- * and union arms, so a nested empty inline object, a nested repeated field
- * name, or a nested quoted field name is found at any depth regardless of
- * which of the other three checks are withheld. Descending a generic argument's `args` sets
+ * and union arms, so a nested empty inline object, a nested ill-cased name, a
+ * nested repeated field name, or a nested quoted field name is found at any
+ * depth regardless of which of the three `"all"`-only checks are withheld.
+ * Descending a generic argument's `args` sets
  * `insideGenericArgument` for that argument and everything beneath it; the
  * object and union arms propagate the flag unchanged when they descend their
  * own field types and arms.
@@ -811,11 +861,49 @@ function walkType(
         // Nothing to descend — a token-free interior leaves `fieldTypes` empty
         // whether or not the brace closed. The closing brace is the second
         // half of the key (see `TypeNode`); the check itself runs regardless of
-        // `rules`, being one of the three checks `"inline-object-shape"` admits.
+        // `rules`, being one of the four checks `"inline-object-shape"` admits.
         if (node.braceClosed) {
           out.push(emptySchemaBodyDiagnostic("{}", site));
         }
         return;
+      }
+      // Bug 0154's identifier pass — the lowercase-first rule (lexical.md) over
+      // `TypeNode.fieldNames`, the theta-side IDENTIFIER retention (not the raw
+      // entry text the two rules below key on). Gated ONLY on the grammar's own
+      // closing-brace requirement (`ObjectType` spells `}`), and deliberately
+      // NOT withheld under `insideGenericArgument`: the two raw-key rules below
+      // carve that out because the LOWERING never divides a generic argument's
+      // interior into fields, so no property name is minted there for either of
+      // them to name — a fact about agreement with the lowered artefact that an
+      // identifier rule does not depend on. The source's field-name position
+      // exists at any depth, so `array<{ Ys: string }>` must still fire. Emits
+      // BEFORE the raw-key rules below so the settled order holds: a
+      // declaration-ranged diagnostic cannot be separated from another at the
+      // same range by column, so `assembleDiagnostics`' stable sort keeps
+      // emission order, and the identifier pass over `fieldNames` is read first.
+      // A reserved-keyword-shaped name is excluded by set membership
+      // (`RESERVED_KEYWORDS`, above) rather than left to an identifier-shape
+      // guard alone — `tokeniseType` has no keyword kind, so `Ok` / `Err` /
+      // `Result` present as plain `ident` text exactly as `Ys` does, and without
+      // the exclusion this pass would draw the wrong code on them (Disposition
+      // A, docs/bugs/0154).
+      if (node.closingBraceSpelled) {
+        for (const name of node.fieldNames) {
+          if (RESERVED_KEYWORDS.has(name)) {
+            continue;
+          }
+          const first = name.charAt(0);
+          const isUpper = first >= "A" && first <= "Z";
+          if (isUpper) {
+            out.push({
+              severity: "error",
+              code: "theta/parse/binding-case-mismatch",
+              file: site.file,
+              range: site.range,
+              message: "binding name must start with a lowercase letter or _",
+            });
+          }
+        }
       }
       // `theta/parse/duplicate-inline-field-name` stands on two gates. The
       // closing brace is the grammar's own: `ObjectType` spells it, so an

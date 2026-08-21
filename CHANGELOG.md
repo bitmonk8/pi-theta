@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.165.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0154 — inline object type field names now enforce the naming
+  rules**: `walkType`'s object arm runs the identifier pass over the
+  retained `fieldNames` (declaration-ranged), so case and reserved-keyword
+  rules fire on inline object fields as on schema declarations —
+  previously unenforced. Gated on the spelled closing brace; no new
+  registry row (existing rows reused). Witness:
+  `tests/inline-object-field-name-case.test.ts` (30 cells) + a standalone
+  H8a live cell + a NEW H9a acceptance file. Row f7 of
+  `tests/schema-field-name-case.test.ts` re-pinned under bug 0149's
+  authorisation.
+
 ## [0.164.0] - 2026-08-27
 
 ### Fixed

@@ -1,6 +1,7 @@
 # Bug 0154 — `docs/reference/grammar.md:203` makes an inline object type's fields "reuse the object-schema `Field` form", which puts the inline field name inside `lexical.md:16`'s lowercase-first rule and inside the registered *Trigger*'s "field-name position" (`code-registry-parse.md:19`), but no identifier rule reaches that slot: `fn h(p: { Ys: string })`, `schema S { a: { Ys: string } }`, `fn h(): { Ys: string }`, a `params:` right-hand side `p: { Ys: string }` and `schema S by Kind = { Kind: "a" } | { Kind: "b" }` each report `[]` and register, `params: p: { Xs: string }` lowers the uppercase key into the provider-facing `$defs` as `"properties":{"Xs":…}`, and the reserved-keyword rule (`lexical.md:20`) is unreachable at the identical slot — all 18 spellings measured silent, `{ let: string }` lowering to `"properties":{"let":…}` — while `schema S { Xs: string }` and a `params:` key `Topic: string` on the same HEAD each draw `theta/parse/binding-case-mismatch`
 
-- **Status:** open. Face 3 of the bug 0149 fix (0.82.0, `bfa5ae84`), recorded
+- **Status:** fixed (0.165.0). Face 3 of the bug 0149 fix (0.82.0, `bfa5ae84`),
+  recorded
   as **OUT** in that fix's face-set table and as Residual 1 of its report
   (`.pi/tmp/fixes/0149-report.md`), and in 0149's own `## Fix (0.82.0)` record.
   0149 read the face as inside the *Trigger* by rule and left it unimplemented
@@ -918,3 +919,157 @@ retention. Both remain available to this report's identifier rules, which need
 identifier TOKENS rather than raw entry text. Whichever rule lands next at the
 object arm adds itself to that single pass rather than opening a second scan of
 the interior. Status unchanged (**open**).
+
+## Fix (0.165.0)
+
+- **What shipped**
+  - `src/parser/type-grammar.ts` (977 → **1065** lines) — §Fix (a) route
+    **1**, §Fix (b) route **2**, §Fix (c) disposition **A**: `walkType`'s
+    `object` arm now runs a lowercase-first identifier pass over
+    `TypeNode.fieldNames` — the theta-side IDENTIFIER retention both
+    Coordination notes above keep free for
+    this report — and draws `theta/parse/binding-case-mismatch` at
+    `range: site.range`, message byte-identical to the two shipped emitters of
+    that code. The pass is gated ONLY on `node.closingBraceSpelled`, joins the
+    `"inline-object-shape"` rule set beside its three neighbours so it runs
+    under every `rules` value and needs no new call site, and emits BEFORE the
+    `inlineObjectFieldKeys` raw-key loop. `TypeParser.parseObject`'s field loop,
+    its tolerant non-`ident` branch and `TypeToken` are byte-unmodified: the
+    retention this report rebases onto is untouched, and the raw-key rules
+    0052 and 0176 own read a disjoint key.
+  - **The generic-argument carve-out is deliberately NOT inherited.** The two
+    raw-key rules withhold under `insideGenericArgument` because the LOWERING
+    never divides a generic argument's interior into fields, so no property
+    name is minted there for either of them to name — a fact about agreement
+    with the lowered artefact. An identifier rule does not depend on it: the
+    source's field-name position exists at any depth, so `array<{ Ys: string }>`
+    fires (row g1, which §Expected names).
+  - **Disposition A**, via a module-level `RESERVED_KEYWORDS` derived once from
+    the lexer's exported `reservedKeywords()` — the shape
+    `src/parser/params.ts` and `src/parser/frontmatter.ts` already use at
+    their own field-name
+    positions. `{ let: string }`, `{ Ok: string }`, `{ Err: string }`,
+    `{ Result: string }` and `{ void: string }` stay silent, so the class stays
+    with open 0153 and no part of its rule is claimed. `tokeniseType` has no
+    keyword kind, so set membership is the only guard available; without it the
+    pass would draw the wrong code on `{ Ok: string }`, which is the defect
+    0149's review loop removed at its own face 2.
+  - **No registry edit and no spec edit** (§Fix (d), decided by reading the
+    row rather than assumed): `code-registry-parse.md`'s
+    `binding-case-mismatch` *Trigger* already reads "Identifier in a binding /
+    parameter / fn-name / field-name position does not start with a lowercase
+    letter or `_`", with no spelling qualifier, which 0149's fix took as
+    covering this face; disposition A involves no reserved-keyword row; and
+    `grammar.md` §"Inline object types" and `docs/reference/grammar.md`'s
+    `ObjectType` bullet already carry the `Field`-form equivalence that
+    PRESCRIBES this behaviour. 0052 and 0176 each added a sentence there
+    because each minted a NEW code needing a spec anchor; reusing a code
+    already anchored in `lexical.md` owes none, and both pages read truer
+    after the fix than before. No *Message* edit (DIAG-4).
+  - `tests/inline-object-field-name-case.test.ts` (new, **802** lines, 30
+    cells) — the witness §Fix (e) requires: whole-list ordered `toEqual` over
+    unfiltered `doc.diagnostics`, every *Message* through
+    `parseRegistry`/`registryMessage`, `parseDoc` from `tests/helpers/e2e-s1`.
+    Carries every cell of §Reproduction (a) and its controls, (c) collapsed to
+    `let`/`Ok`/`Err`/`Result`/`void`, (d)'s five TYPE-slot rows and (e)'s four
+    already-enforced rows as tripwires, the `.thetalib` route, the `params:`
+    face with its frontmatter-gate consequence, and the query response-schema
+    root at the binding annotation.
+  - `tests/schema-field-name-case.test.ts` — the ONE authorised re-pin, row
+    f7: `schema S by Kind = { Kind: "a" } | { Kind: "b" }` now draws two
+    declaration-ranged lines at `@4:1-4:49`, one per arm. That file's FACE-3
+    exclusion block and its LEDGER bullet are corrected in the same change so
+    neither describes a face that is closed. Its other 45 cells are
+    byte-unmodified.
+  - `tests/live/inline-object-field-name-case-live-cell.test.ts` (H8a) and
+    `tests/live/acceptance/inline-object-field-name-case-load-refusal.test.ts`
+    (H9a, real `pi -p`) — the live halves of the registration-facing surface,
+    on bug 0176's shipped idioms. Both assert on the `theta-system-note`
+    channel read off the settled `SessionManager` and on `driveSlashCaptureTurn`
+    observables, never on `prompt()` resolving, and both carry an
+    offline-attributable guard so a neutralised fix reds before any provider
+    call.
+- **Gates** — witness
+  `npx vitest run tests/inline-object-field-name-case.test.ts` →
+  `Test Files 1 passed (1) / Tests 30 passed (30)`;
+  `npx vitest run tests/schema-field-name-case.test.ts` →
+  `Test Files 1 passed (1) / Tests 46 passed (46)`; the four protected witness
+  files → `Test Files 4 passed (4) / Tests 129 passed (129)` with
+  `git diff --stat` on them empty; full default suite `npx vitest run` →
+  `Test Files 358 passed (358) / Tests 7319 passed (7319)` (fork baseline
+  357 / 7289); `npx tsc -p tsconfig.json --noEmit` clean; `npm run lint` clean.
+  Live, under the shared lock:
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/inline-object-field-name-case-live-cell.test.ts tests/live/acceptance/inline-object-field-name-case-load-refusal.test.ts`
+  → `Test Files 2 passed (2) / Tests 2 passed (2)`.
+- **Review** — 2 rounds. Round 1 (deep): no `correctness`, `fidelity`, `spec`
+  or `house-rule` finding; four `test`/`prose` findings — a missing `void`
+  cell at the NAME slot that §Fix (e)'s named minimum collapse requires, a
+  wrong anti-vacuity cell count in the witness header, and two factual errors in the
+  draft record (a stale `923` line baseline and a false clause about row c2's
+  reachability). Round 2 (fast): CLEAN, with one non-blocking prose residual —
+  the witness's group-(D) ledger manifest did not name the new cell — fixed in
+  place.
+- **Verification** — SOLID, four obligations. (1) The witness reds for the
+  right reason in FOUR directions, each red set derived in advance and matched
+  exactly: full neutralisation reds precisely the 15 non-empty-expectation
+  cells of groups (A) and (C) plus row f7 (16 of 76), each with the
+  silence-instead-of-refusal signature; adding the `insideGenericArgument` gate
+  reds exactly `g1`; removing the reserved exclusion reds exactly the
+  `Ok`/`Err`/`Result` cell; moving the pass after the raw-key loop reds exactly
+  `n9` on ORDER. Every restore proven byte-exact by `git hash-object`. So all
+  three settled adjudications are load-bearing, not incidental. (2) Default
+  suite green. (3) Both live halves run for real and proven red in both
+  directions (the neutralised runs red at the offline attribution guard, zero
+  incremental tokens). (4) Typecheck and lint clean.
+- **Residuals**
+  1. **Row w2 does not fire, against this document's §Expected**, and is pinned
+     silent with its cause rather than closed. `schema S { a: { Ys as "w":
+     string } }` stays `[]`: `TypeParser.parseObject` reads the name token and
+     then requires `:`, but the `as` rename skip sits AFTER the field's type
+     parses, so `Ys as "w":` breaks the field loop at its tolerant
+     "malformed field" arm and `Ys` never enters `fieldNames`. §Expected lists
+     w2 among the should-draw rows; the rename mis-split that defeats it is
+     open [0052](./0052-inline-object-duplicate-field-names-silent-last-wins.md)
+     §Non-goals leaves it with them. Measured, not inferred.
+  2. **A non-ASCII uppercase first letter is still admitted at this slot.**
+     `{ Élan: string }` is silent and lowers `Élan` into `$defs`. The shipped
+     predicate is `checkName`'s own (`first >= "A" && first <= "Z"`), matched
+     deliberately so one rule keeps one spelling across every position it is
+     enforced at, and `tokeniseType`'s identifier scan is ASCII-only, so the
+     gap is the house predicate's, not this pass's. Sibling of 0176's
+     non-identifier-key class; outside this report's letter.
+  3. **This document's §Reproduction tables were stale at the fix baseline**
+     and were re-derived rather than trusted (0134's class). Two rows had MOVED
+     before this fix: n9 (`{ Ys: string, Ys: string }`) draws
+     `theta/parse/duplicate-inline-field-name`, not `[]` (0052 landed in
+     0.84.0), and the query response-schema root reached through the ORDINARY
+     LOAD PATH (`let r: { Ys: boolean } = @`…`?`) is a walked `Type` position,
+     so §Reproduction (f)'s row L4 measured a direct
+     `lowerQueryResponseSchema` call rather than a load-path observable — the
+     wire leak it names is closed by the refusal at the binding annotation.
+     `src/parser/type-grammar.ts` was **977** lines at the fix baseline, not
+     §Status's 923. Every other behavioural claim reproduced.
+  4. **Corpus census re-derived at the fix baseline**: 34 committed
+     `.theta`/`.thetalib`; a PCRE2 scan for an inline object type with an
+     uppercase-first or reserved field name returns **zero** hits, so no
+     committed source moves and GOV-15's disposition is the addition arm of the
+     diagnostic-registry carve-out over an in-repo input set that is empty.
+  5. **`tests/fixtures/h7a/permitted-codes.json` needed no entry**, decided by
+     the real H9a run and not assumed: the load-time refusal reaches only the
+     `theta-system-note` channel, so `parseSystemNoteCodes(stdout + stderr)`
+     measured `[]` — the same disposition 0176 recorded for this class. The
+     file is byte-untouched.
+  6. **Process note for the parent.** The first of this run's H8a live
+     invocations was made without holding the shared live lock; every
+     subsequent live run, including both direction proofs and the final
+     confirmation on the shipped tree, took and released the lock in one
+     command. No conflict was observed.
+- **Discharge notes appended** — none. 0176's own fix already appended this
+  report's coordination note, 0052's and 0159's dispositions are quoted above
+  unchanged, and no sibling document's status turns on this fix.
+- **Pinned dispositions / non-goals** — the field's TYPE slot (rows r1, r3,
+  r5, n1b, bug 0044's subject), the shipped rules already at this leaf (n2,
+  n3, n7, n8), 0052's duplicate rule and its `TypeNode.interiorSource` key, 0176's
+  quoted-key rule and its row-scoped `<field>` carve-out, 0160's `a as "w"`
+  wire-name question, 0153's six reserved-keyword positions, and bug 0039's
+  freeze on the `params:` lowering: all untouched, each asserted after the fix.

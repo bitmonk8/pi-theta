@@ -75,7 +75,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - (b) FACE 1 BOUNDARIES: f6 and f14 (a reserved keyword at the field
 //     position stays `[]` — a different registered code under lexical.md:20,
 //     unclaimed here; f14 is the uppercase-first spelling f6's lowercase `let`
-//     cannot discriminate), f7 (an alias right-hand side reaches face 3, below).
+//     cannot discriminate), f7 (an alias right-hand side's inline arms, now
+//     enforced by bug 0154's fix — see below).
 //   - (c) OVER-REACH TRIPWIRES: o4, o5, g2. They red if enforcement widens past
 //     lexical.md:16's list.
 //   - (d) DOWNSTREAM RE-PINS: f10, f12, f13, o3, w1, w2. The fix adds a lexical
@@ -101,22 +102,23 @@ import { parseDoc } from "./helpers/e2e-s1";
 // entering the same namespace by two spellings; the rule cannot hold for one
 // and not the other.
 //
-// OUT OF SCOPE, deliberately unrowed — FACE 3, the inline object type
-// (`parseObject`, src/parser/type-grammar.ts), reachable in any `Type`
-// position: `fn h(p: { Ys: string })`, `schema S { a: { Ys: string } }`, a
-// `params:` right-hand side. docs/reference/grammar.md:203 makes it the same
-// `Field` production ("`ObjectType` fields reuse the object-schema `Field`
-// form"), so it is inside the *Trigger*'s reading; it is left unimplemented
-// for an engineering reason, not read out of the rule. `TypeToken`
-// (src/parser/type-grammar.ts) is `{ kind, text }` with no range, and every
-// diagnostic on that path is ranged at the caller's `site.range`, so a
-// field-name-precise range there needs a structural change. Following bug
-// 0139's precedent at this file's sibling position
-// (tests/fn-param-name-case.test.ts:72–76), the excluded face carries NO ROW:
-// a row asserting `[]` would red permanently against a later fix that closes
-// it. Row f7 is the one place face 3 is visible here — `schema S by Kind = …`
-// reaches the ALIAS right-hand side, whose inline arms are parsed by
-// `parseObject`, which is why f7 stays `[]` while f1's braced body does not.
+// FACE 3, the inline object type (`parseObject`, src/parser/type-grammar.ts),
+// reachable in any `Type` position — `fn h(p: { Ys: string })`,
+// `schema S { a: { Ys: string } }`, a `params:` right-hand side — is now
+// ENFORCED, closed by bug 0154
+// (docs/bugs/0154-inline-object-type-field-name-rules-unenforced.md):
+// `walkType`'s `object` arm (src/parser/type-grammar.ts) tests
+// `TypeNode.fieldNames` and draws `theta/parse/binding-case-mismatch`,
+// declaration-ranged at the caller's `site.range` (route 2 of that report's
+// §Fix (b) — `TypeToken.start` is an offset into the STRING `parseType`
+// returns, whose stringification collapses whitespace, so a field-name-precise
+// range there is not exact without a structural change). Face 3's own witness
+// rows live in `tests/inline-object-field-name-case.test.ts`, not here — this
+// file stays 0149's, and bug 0154 authorised exactly one re-pin: row f7 below.
+// `schema S by Kind = …` reaches the ALIAS right-hand side, whose inline arms
+// are parsed by `parseObject`, which is why f7 now draws two declaration-
+// ranged lines (one per arm) while f1's braced body — face 1's own position —
+// is unaffected.
 //
 // ORDERING IS PART OF THE ASSERTION. Every group funnels through
 // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–126), which sorts by
@@ -539,19 +541,23 @@ describe("0149 (b) — the field position's two boundaries", () => {
     ).toEqual([]);
   });
 
-  it("f7: an alias right-hand side's inline arms report nothing (face 3)", () => {
+  it("f7: an alias right-hand side's inline arms now draw the code, closed by bug 0154", () => {
     // `schema S by Kind = …` is an ALIAS right-hand side, not an object body:
     // its brace-rooted arms are parsed by `parseObject`
-    // (src/parser/type-grammar.ts), which is face 3 — named in this file's
-    // header as out of scope and deliberately unrowed. This row is where the
-    // face boundary is observable, so it records the boundary rather than
-    // asserting face 3 stays silent forever: it is `schema S { … }` that this
-    // file's contract reaches, and the two spellings take different parsers.
+    // (src/parser/type-grammar.ts), which is face 3 of the 0149 fix. Bug 0154
+    // closed that face and authorised exactly this one re-pin
+    // (docs/bugs/0154-inline-object-type-field-name-rules-unenforced.md §Fix
+    // (e)): each of the two arms is its own inline object type, so each draws
+    // its own `binding-case-mismatch` line, both at the whole declaration's
+    // range — the settled declaration-ranged answer, since the two arms
+    // cannot be told apart by column at one range. Face 3's full row set lives
+    // in `tests/inline-object-field-name-case.test.ts`; this row records only
+    // the boundary this file's own contract touches.
     const doc = theta('schema S by Kind = { Kind: "a" } | { Kind: "b" }\n');
     expect(
       rendered(doc),
-      "the alias right-hand side is parsed by `parseObject`, not by `parseSchemaObjectBody`",
-    ).toEqual([]);
+      "each inline arm is its own object type, so each ill-cased field name draws its own declaration-ranged line",
+    ).toEqual([bcm(4, 1, 49), bcm(4, 1, 49)]);
   });
 });
 
