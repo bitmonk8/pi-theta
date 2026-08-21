@@ -66,7 +66,7 @@ import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics"
 // absent from src/ today, so every test here is expected to be RED for the
 // "feature-not-implemented" reason (a `par for` source mis-parses to an
 // identifier `par` followed by a plain `for` statement, produces no `par-for`
-// AST node, emits none of the three body-restriction diagnostics, and is not
+// AST node, emits none of the four body-restriction diagnostics, and is not
 // fanned-out at runtime). The paired implementation stage turns them green.
 //
 // One test is a deliberate NON-REGRESSION GUARD that is GREEN both now and
@@ -459,11 +459,13 @@ const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
  * The registered Message for `code` (DIAG-4), with each `<placeholder>` key of
  * `bindings` substituted. A missing row fails LOUDLY: the Message column is
  * this group's only message oracle, so its absence is a harness failure, never a
- * skip. The three `theta/parse/par-*` codes are registered on
+ * skip. The three RFC-0003 legacy `theta/parse/par-*` codes are registered on
  * docs/reference/diagnostics.md:118,:120 instead of under
  * docs/spec_topics/diagnostics/ (recorded at docs/reference/diagnostics.md:312),
  * so they are unreachable through this oracle and the cells that pin them assert
- * their exact COUNTS rather than their messages.
+ * their exact COUNTS rather than their messages. The fourth `par-*` code,
+ * `theta/parse/par-return-in-body`, is the exception: it carries a sharded row
+ * on code-registry-parse.md and so IS reachable through this oracle.
  */
 function registryMessageFor(
   code: string,
@@ -1072,35 +1074,66 @@ describe("bug 0118 — the rest of the walk's family fires in a `par for` body, 
 // PARSER — the RET family's disposition inside a `par for` body
 // ===========================================================================
 //
-// RULE: the `par-for` arm gives the body `{ ...scope }` for `voidReturn` — the
-// same shape the `for` and `while` arms use — so a bare `return` in the body is
-// judged against the ENCLOSING function's (or the theta body's) return
-// annotation. WHY: that is "the same terms as everywhere else"
-// (docs/bugs/0118-nested-fn-result-return-defers-to-runtime-panic.md
-// §Expected behaviour), and no rule assigns a `par for` body its own return
-// regime — CTRL-4 (docs/spec_topics/control-flow.md:76) enumerates the body
-// restrictions and does not name `return`.
+// RULE (bug 0223, §Fix route (a) — ENUMERATE-AND-REFUSE): CTRL-4
+// (docs/spec_topics/control-flow.md:76) now names `return` as a fourth `par for`
+// body restriction, so a `return` ANYWHERE under a `par for` body is REFUSED at
+// load with `theta/parse/par-return-in-body` (Sev `E`, phase `parse`). The
+// refusal is at EVERY body depth — `loopDepth` is deliberately NOT consulted,
+// unlike the neighbouring `break` / `continue` arm's `loopDepth === 0` gate
+// (src/parser/theta-document.ts:4707) — because a `return` at depth > 0 does not
+// stay inside the inner loop: it crosses it and is consumed at the `par for`
+// boundary (bug 0223 §Reproduction K). The bare form is in class too, so the
+// body's own rule, not the enclosing annotation, decides it.
 //
-// The countervailing fact, recorded so the next reader sees this is a SEPARATE
-// subject and not an oversight: at run, a `return` in the body yields the
-// ITERATION's value rather than the enclosing function's —
-// `runParForIteration` folds `flow.kind === "return"` into
-// `makeOk(flow.value)` (src/runtime/statement-executor.ts:1266–1269), the same
-// arm as a normal body completion. Whether that runtime meaning should give the
-// body its own `voidReturn` regime (and whether CTRL-4 should enumerate
-// `return` at all) is a spec question this cell group does not decide; it pins
-// the shipped disposition in BOTH directions so a change to it is visible.
+// WHY the enclosing-scope inheritance nonetheless still shows through: bug
+// 0118's `par-for` walk arm is unchanged (it hands the body
+// `{ ...scope, inLoop: true, topLevel: false }`, so `voidReturn` INHERITS —
+// src/parser/theta-document.ts:7757), and route (a) withholds nothing. RET-2's
+// `theta/parse/bare-return-in-non-void` and RET-3's
+// `theta/parse/unreachable-code` therefore FIRE BESIDE the refusal rather than
+// being suppressed as derived verdicts — which is why (r24) / (r25) below carry
+// TWO codes and (r26) / (r27) / (r28), previously silent, now carry exactly one.
+// The parse-time CTRL-4 body scan (`emitParForBodyDiagnostics`,
+// src/parser/theta-document.ts:4653) runs before the post-parse structural
+// walk, so the refusal is FIRST in every mixed cell.
+//
+// THE FOLD KNOWLEDGE, RESTATED RATHER THAN DELETED (this group's original
+// countervailing fact, still true): at run, a `return` in the body yields the
+// ITERATION's value, not the enclosing function's — `runParForIteration`
+// (symbol at src/runtime/statement-executor.ts:1209) folds
+// `flow.kind === "return"` into `makeOk(flow.value)` — this fix splits that
+// case out of `case "normal"`'s arm into its OWN arm with the identical body
+// (`:1269-1273`; the shared-arm shape this describes was the pre-fix state).
+// Route (a) does NOT remove that arm: it makes it UNREACHABLE from a fresh
+// load and keeps it as a DEFENSIVE fold, exactly as `case "break"` /
+// `case "continue"` beside it already are (`:1274-1277`, whose comment names
+// the parser gate). The fold's element values
+// — and the plain-`for` contrast that exits instead — are locked by
+// tests/par-for-body-return-refusal.test.ts's DEFENSIVE-FOLD group, which is
+// green both before and after this refusal landed; do not read the cells below
+// as evidence that the fold changed.
+//
+// The spec question this group formerly declared undecided ("whether CTRL-4
+// should enumerate `return` at all") is now decided — by bug 0223, route (a).
+// This group pins the refusal in BOTH directions: the refused rows here, and the
+// controls (r24-control) … (r26-control), which show the RET-family codes still
+// belong to their own checks outside a `par for` body.
 
-describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing scope's annotation", () => {
-  it("(r24) a bare `return` in a TOP-LEVEL `par for` body draws bare-return-in-non-void", () => {
+describe("bug 0118/0223 — a `return` in a `par for` body is refused by CTRL-4, with the enclosing scope's RET-2 verdict still firing beside the bare form", () => {
+  it("(r24) a bare `return` in a TOP-LEVEL `par for` body draws par-return-in-body AND bare-return-in-non-void", () => {
     // A theta body is a non-`void` scope (RET-2), and the body inherits it.
     // The `return` here is genuinely bare: a statement on the following line
     // would be absorbed as its operand by newline continuation.
+    //
+    // FLIPPED by bug 0223 route (a): the body's own refusal now fires FIRST
+    // (parse-time CTRL-4 scan), and RET-2's inherited verdict is NOT withheld
+    // beside it. Range-exact form of this row: cell (c2) of
+    // tests/par-for-body-return-refusal.test.ts.
     const src = ["let xs = par for i in [1, 2] {", "  return", "}", "xs"].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118): the body inherits the enclosing non-void return regime. Observed: ${showDiags(src)}`,
-    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+      `PRIMARY (bug 0223 route (a) + bug 0118): the body refuses the \`return\` outright, and the inherited non-void RET-2 verdict still fires beside it. Observed: ${showDiags(src)}`,
+    ).toEqual([`error theta/parse/par-return-in-body`, `error ${BARE_RETURN_IN_NON_VOID}`]);
     expect(
       messagesFor(src, BARE_RETURN_IN_NON_VOID),
       "DIAG-4: message read from the registry's Message column",
@@ -1119,7 +1152,10 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ).toEqual([registryMessageFor(BARE_RETURN_IN_NON_VOID)]);
   });
 
-  it("(r25) a bare `return` in a `par for` body inside a NON-VOID `fn` draws bare-return-in-non-void", () => {
+  it("(r25) a bare `return` in a `par for` body inside a NON-VOID `fn` draws par-return-in-body AND bare-return-in-non-void", () => {
+    // FLIPPED by bug 0223 route (a): same pair as (r24), with the non-void
+    // verdict supplied by the enclosing `fn`'s annotation instead of the theta
+    // body's. The refusal does not depend on that annotation.
     const src = [
       "fn outer(): integer {",
       "  let xs = par for i in [1, 2] {",
@@ -1132,8 +1168,8 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118): the enclosing \`fn\`'s non-void annotation reaches the body. Observed: ${showDiags(src)}`,
-    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+      `PRIMARY (bug 0223 route (a) + bug 0118): the body refuses the \`return\`, and the enclosing \`fn\`'s non-void annotation still reaches the body beside it. Observed: ${showDiags(src)}`,
+    ).toEqual([`error theta/parse/par-return-in-body`, `error ${BARE_RETURN_IN_NON_VOID}`]);
     expect(
       messagesFor(src, BARE_RETURN_IN_NON_VOID),
       "DIAG-4: message read from the registry's Message column",
@@ -1150,15 +1186,18 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
   });
 
-  it("(r26) a bare `return` in a `par for` body inside a `fn(): void` is SILENT on that code", () => {
-    // The other direction of the inheritance: `voidReturn` is inherited, so a
-    // `void`-annotated enclosing `fn` makes the bare `return` legal in the body
-    // exactly as it is directly in that `fn`.
+  it("(r26) a bare `return` in a `par for` body inside a `fn(): void` draws par-return-in-body ALONE", () => {
+    // The other direction of the inheritance, unchanged: `voidReturn` is
+    // inherited, so RET-2 has nothing to say here (`checkBareReturn` returns
+    // `undefined` for a `void` enclosing annotation, src/parser/functions.ts:379)
+    // — exactly as it has nothing to say directly in that `fn` ((r26-control)).
     //
-    // A silence cell cannot tell this verdict apart from a `walkExpr` that
-    // never descends a `par for` at all — an unwalked body is silent too. That
-    // discrimination is (r24) / (r25)'s job; what this cell guards is the
-    // inheritance itself, which a body-local `voidReturn` regime would break.
+    // FLIPPED by bug 0223 route (a) from `[]` to one code: this is now the
+    // CLEANEST bare-form row, because the only diagnostic in it is the body's
+    // own refusal. It no longer relies on the (r24) / (r25) pair to distinguish
+    // an inherited silence from an unwalked body — a `walkExpr` that never
+    // descended a `par for` would still be silent, but the CTRL-4 body scan is
+    // a different traversal and it speaks here.
     const src = [
       "fn outer(): void {",
       "  let xs = par for i in [1, 2] {",
@@ -1169,8 +1208,8 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118): a \`void\` enclosing annotation is inherited, so no bare-return refusal is owed. Observed: ${showDiags(src)}`,
-    ).toEqual([]);
+      `PRIMARY (bug 0223 route (a) + bug 0118): the body refuses the \`return\`; a \`void\` enclosing annotation is still inherited, so NO bare-return refusal joins it. Observed: ${showDiags(src)}`,
+    ).toEqual([`error theta/parse/par-return-in-body`]);
   });
 
   it("(r26-control) a bare `return` directly in a `fn(): void` body is SILENT on that code", () => {
@@ -1181,13 +1220,15 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ).toEqual([]);
   });
 
-  it("(r27) a `return <value>` in a `par for` body inside a `fn(): void` draws nothing on the RET family", () => {
+  it("(r27) a `return <value>` in a `par for` body inside a `fn(): void` draws par-return-in-body and nothing on the RET family", () => {
     // A `return` WITH an operand takes `walkStatement`'s other branch: the
     // operand is walked and no bare-return question is asked, so the whole RET
-    // family is silent in both enclosing shapes ((r27), (r28)) rather than
-    // half-pinned by the bare rows alone. Like (r26) this is a silence, so it
-    // guards against a NEW valued-`return` emission in this subtree, not
-    // against the arm disappearing — (r24) / (r25) own that.
+    // family stays silent in both enclosing shapes ((r27), (r28)).
+    //
+    // FLIPPED by bug 0223 route (a) from `[]` to one code: the refusal is on the
+    // STATEMENT, so it is indifferent to whether the `return` carries an
+    // operand — while RET-2's question, which the operand form never asks,
+    // remains unasked. The two halves are now separable in one cell.
     const src = [
       "fn outer(): void {",
       "  let xs = par for i in [1, 2] {",
@@ -1198,11 +1239,14 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118): a valued \`return\` asks no bare-return question. Observed: ${showDiags(src)}`,
-    ).toEqual([]);
+      `PRIMARY (bug 0223 route (a) + bug 0118): the body refuses the valued \`return\`, and that valued form still asks no bare-return question. Observed: ${showDiags(src)}`,
+    ).toEqual([`error theta/parse/par-return-in-body`]);
   });
 
-  it("(r28) a `return <value>` in a `par for` body inside a NON-VOID `fn` draws nothing on the RET family", () => {
+  it("(r28) a `return <value>` in a `par for` body inside a NON-VOID `fn` draws par-return-in-body and nothing on the RET family", () => {
+    // FLIPPED by bug 0223 route (a) from `[]` to one code: the non-void twin of
+    // (r27). Both enclosing annotations yield the same single refusal, which is
+    // what "the body's own rule decides" means.
     const src = [
       "fn outer(): integer {",
       "  let xs = par for i in [1, 2] {",
@@ -1215,8 +1259,8 @@ describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing
     ].join("\n");
     expect(
       diagShapeOf(src),
-      `PRIMARY (bug 0118): the non-void twin of (r27) — the valued form is silent in both enclosing shapes. Observed: ${showDiags(src)}`,
-    ).toEqual([]);
+      `PRIMARY (bug 0223 route (a) + bug 0118): the non-void twin of (r27) — the refusal is identical in both enclosing shapes and the RET family stays silent for the valued form. Observed: ${showDiags(src)}`,
+    ).toEqual([`error theta/parse/par-return-in-body`]);
   });
 });
 

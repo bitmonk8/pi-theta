@@ -1009,3 +1009,19 @@ gained a `case "par-for"` mirroring `walkCallSiteExpr`'s and `walkExpr`'s
 arms. This report's §Fix (c) arrangement-2 standing charge ("the identifier
 walk's omission survives … and needs its own measurements") is discharged by
 that report's own measurements; this Status stays unchanged.
+
+## Discharge note (bug 0223)
+
+*Residuals* item 1 above — a `par for` body's unenumerated `return` regime — is
+DISCHARGED by bug
+[0223](./0223-par-for-body-return-folds-unenumerated.md): CTRL-4
+(`docs/spec_topics/control-flow.md`) now enumerates `return` as a fourth body
+restriction and `scanParForStmt` refuses it as
+`theta/parse/par-return-in-body`, so the CTRL-4 spec question this fix
+deliberately left open is answered in the refuse direction. The five cells this
+report added — (r24)–(r28) in `tests/par-for.test.ts` — flip with it: each now
+carries the body refusal, and (r24) / (r25) carry it beside the
+`bare-return-in-non-void` verdict this report pinned, which 0223 withholds
+nothing from. `runParForIteration`'s fold keeps its behaviour as a defensive
+arm behind a load that no longer succeeds, and is locked by 0223's own
+`tests/par-for-body-return-refusal.test.ts`. This Status stays unchanged.

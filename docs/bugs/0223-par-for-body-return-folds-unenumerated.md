@@ -1,6 +1,7 @@
 # Bug 0223 — CTRL-4 enumerates three `par for` body restrictions and does not name `return`, while the runtime FOLDS a body `return` into that iteration's `Ok` value: `return <expr>` inside a `par for` body loads with zero diagnostics and produces the element rather than exiting the enclosing `fn` or theta, which `return.md`'s first sentence and RET-1 state unconditionally — the identical statement inside a plain `for` body does exit, so one keyword carries two control-flow meanings discriminated only by which loop encloses it
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.170.0) — §Fix route (a) ENUMERATE-AND-REFUSE, recorded in
+  §Fix (0.170.0) below. Filed as bug
   [0118](./0118-nested-fn-result-return-defers-to-runtime-panic.md)'s §Fix
   (0.162.0) *Residuals* item 1, which pins the shipped parse-side disposition in
   both directions and states that "whether a `par for` body should carry its own
@@ -558,6 +559,233 @@ route must pay:
 - **`break` with a value, and `break` / `continue` at body depth > 0.** The depth
   discrimination is cited as the analogue route (a) must decide against; its own
   correctness is not questioned.
+
+## Fix (0.170.0)
+
+Route (a) ENUMERATE-AND-REFUSE, operator-adjudicated. Route (b) is not taken:
+`return.md:3`, RET-1's main clause and `docs/reference/grammar.md`'s mirror keep
+their unconditional wording, and a `par for` body becomes a scope in which the
+statement is not written. Premeasured before any edit: all twelve §Reproduction
+rows reproduce byte-identically at this tree (parse halves and, through
+`executeBody`, the fold values — C ≡ E, I = `42`, H = `1`, J = `[Ok 5, Ok 5]`,
+K = `[Ok 7, Ok 7]`, D = `[Ok null, Ok null]`), so the adjudication's premise
+holds and nothing here rests on the doc's older measurements.
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `scanParForStmt`'s existing silent
+    `case "return"` now pushes `theta/parse/par-return-in-body` (Sev `E`, phase
+    `parse`, range = the `return` statement's range), before the pre-existing
+    operand walk so a query nested in the operand still draws
+    `par-query-in-body` after it; `loopDepth` is deliberately NOT consulted, so
+    the refusal fires at every depth of the body's own statement tree (row K:
+    a depth > 0 `return` crosses the inner plain loop and is consumed at the
+    `par for` boundary, unlike `break`, so CTRL-4's depth gate does not
+    transfer). The scan's `default` arm still does not descend into a nested
+    `fn`, whose body is its own return scope — measured, and pinned by cell
+    (b8) beside (r8).
+  - `src/runtime/statement-executor.ts` — `runParForIteration`'s `case "return"`
+    is split out of the shared `case "normal"` arm with an identical body and a
+    comment naming the parser gate: the fold KEEPS its behaviour as a defensive
+    arm, exactly as `case "break"` / `case "continue"` already do, and becomes
+    unreachable from a fresh load. No behavioural change; 0118's pinned
+    `par for` runtime cells are untouched.
+  - `docs/spec_topics/control-flow.md` — CTRL-4 gains `return` as a fourth body
+    restriction, stating the ground (no realisation across an iteration
+    boundary), the every-depth reach with the explicit `break` / `continue`
+    contrast, the nested-`fn` carve-out, the bare form's inclusion, and that
+    RET-2 / RET-3 are NOT withheld beside it. CTRL-3 needs no edit: the refusal
+    removes the second element-value source, leaving the body tail as the only
+    one.
+  - `docs/spec_topics/return.md` — RET-1 gains the reach clause: the enclosing
+    function or top-level theta is never reached from inside a `par for` body,
+    because a `return` written there is refused at parse (CTRL-4). RET-2 and
+    RET-3 keep their wording; the page's opening sentence is deliberately
+    unchanged.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — one new row (DIAG-2,
+    same commit as the emission), inserted immediately after
+    `theta/parse/break-with-value`. Its *Trigger* enumerates the valued and the
+    bare spelling, the statement-tree reach with the nested-`fn` carve-out, the
+    nested-`par for` single-emission fact, and the non-withholding of
+    RET-2 / RET-3. *Message* is `'return' is not permitted inside a 'par for'
+    body` — PLACEHOLDER-FREE by design, so the CLOSED placeholder table
+    (`placeholder-rendering-a.md` / `-b.md`) needs no edit and no sub-rule is
+    reused; those pages are byte-unchanged.
+  - `docs/reference/diagnostics.md` — the mirror row after
+    `par-break-continue`, and the Provenance note amended so it stays true: the
+    three RFC-0003 legacy `par-*` codes remain mirror-only with bug
+    [0200](./0200-par-codes-missing-from-sharded-registry.md) named open, while
+    the fourth is registered on the sharded page and mirrored here.
+  - `docs/reference/grammar.md` — the `par for` body-restriction list gains the
+    fourth restriction with the statement-tree scoping; the `ParForBody` bullet
+    records that a written `return` is not admitted while `?` keeps its stated
+    propagation.
+  - `docs/how-to/fan-out-in-parallel.md` — the fourth bullet, plus the two
+    count-bearing phrases ("Three constructs" → four, "the three body parse
+    errors" → four) and the new code in the Diagnostics reference bullet.
+  - `tests/par-for-body-return-refusal.test.ts` (new, 22 cells) — the witness.
+  - `tests/par-for.test.ts` — the five entailed flips, the group header rewritten
+    (fold knowledge RESTATED, not deleted), the describe title retitled, and two
+    count-bearing comment phrases corrected.
+  - `tests/live/par-for-body-return-live-cell.test.ts` (new, H8a, token
+    ``) — the registration observable.
+  - `tests/loop-element-withhold-binding-scoped.test.ts` — one doc comment
+    qualified to the three legacy `par-*` codes. No assertion touched.
+
+- Registry shard placement, and WHY (bug 0200 rebases on exactly this): the row
+  lands on `docs/spec_topics/diagnostics/code-registry-parse.md`, immediately
+  after `theta/parse/break-with-value`, with a mirror row on
+  `docs/reference/diagnostics.md` immediately after `par-break-continue`. Three
+  grounds. (i) DIAG-2 closes the registry on the four sharded
+  `code-registry-*.md` pages, so a newly minted code has no other lawful home;
+  placing a fourth `par-*` row on the mirror alone would extend 0200's defect
+  rather than avoid it. (ii) DIAG-4 makes the *Message* column the only message
+  oracle, and the suite's `registryMessage` reader reads the sharded pages only
+  — a mirror-only row is unreachable through it, which is why the three legacy
+  `par-*` codes' cells assert counts instead of messages; the sharded row is
+  what lets this fix's cells assert the message. (iii) The insertion point keeps
+  the sharded page in the SAME relative order as the mirror (both rows sit after
+  `break-with-value` / `par-break-continue`), so if 0200 decides the three
+  legacy rows belong on the sharded page they land ahead of this row with no
+  reordering, and if it decides otherwise this row is unaffected. This fix takes
+  no position on where the legacy three belong — that stays 0200's subject, and
+  the amended Provenance note says so.
+
+- The bare `return` (doc row D) is IN CLASS. It is enumerated explicitly in the
+  registry row's *Trigger* and in CTRL-4: the fold gives it `Ok(null)` at the
+  iteration boundary while RET-2 judges it against the enclosing scope, so the
+  one statement was judged by one scope and executed by another — the same
+  defect as the valued form. Refusing it means (r24) / (r25) now carry the
+  refusal BESIDE `bare-return-in-non-void` (nothing withheld) and (r26) — bare
+  `return` in a `par for` body inside `fn(): void`, previously silent — now
+  carries the refusal alone.
+
+- Gates (verbatim):
+  - witness RED (emission neutralised, restore proven byte-exact by
+    `git hash-object` = `ebf1df705b4bb548e5f24b07a4b66ec37df0229d` both sides):
+    `Test Files 2 failed (2) | Tests 16 failed | 101 passed (117)` — all 16
+    reds are the missing `error theta/parse/par-return-in-body`;
+  - witness GREEN: `Test Files 2 passed (2) | Tests 117 passed (117)`;
+  - full offline suite: `Test Files 361 passed (361) | Tests 7424 passed
+    (7424)` (fork baseline 360 / 7402; +1 file, +22 cells);
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, clean;
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    clean;
+  - live H8a, run for real under the mandatory lock (acquire → run → release in
+    one command), BOTH directions: GREEN
+    `Test Files 1 passed (1) | Tests 1 passed (1)`; RED with the emission
+    neutralised — `a theta whose 'par for' body contains a 'return' registered …
+    Registered: ["celleparcontrol","celleparreturn"]`; restored byte-exact and
+    GREEN again;
+  - committed-corpus claim discharged through the real gate:
+    `tests/committed-fixture-parse-gate.test.ts` `36 passed (36)`.
+    `docs/examples/fan-out-reviews.theta` is the only committed `par for` and
+    its body carries no `return`, so no shipped source's load or value moves.
+
+- GOV-15 growth: +1 registry row, enumerated. The addition is carve-out-covered
+  by the [diagnostic-registry
+  carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out):
+  its in-scope input set is exactly the inputs that did not previously emit
+  `theta/parse/par-return-in-body` — every `.theta` / `.thetalib` whose
+  `par for` bodies contain no `return` statement, whose observables (a)/(b)/(c)
+  are unchanged. Inputs that DO carry a body `return` gain the new code's
+  emission (and lose registration, an `E`-severity consequence); they did not
+  load cleanly-and-equivalently under any prior reading of the corpus, and the
+  carve-out covers the appearance of the emission. No code is renamed, no
+  namespace moves, no *Message* is reworded, so nothing here is deferred to
+  theta 2.0.
+
+- Review: 3 rounds. Round 1 (deep) — FINDINGS ×4: F1 [spec] the prose
+  over-claimed "every nesting depth" (a `return` inside a nested `fn` in the
+  body is correctly NOT refused, pinned by (r8)); F2 [test] three citations
+  falsified by this diff's own line shifts; F3 [fidelity] five
+  `code-registry-parse.md` citations inside the touched parser file shifted by
+  the new row; F4 [prose] three count-bearing "three `par-*`" comment phrases.
+  All four fixed, plus R1 (present-tense fold wording in the *Trigger*), and a
+  carve-out witness cell (b8) added. Round 2 (fast) — one finding: the F3
+  correction had mechanically shifted a citation that was ALREADY stale, so the
+  four sites pointed at `import-name-collision` (`:123`) instead of the row
+  whose partition sentence they cite, `import-malformed-specifier-list`
+  (`:127`). Round 3 fixer corrected those four numbers; that round's diff is
+  four comment characters, touches no executable line, and the gate re-run
+  (suite, typecheck, lint) is green — polish verified by gate-diff, confirmation
+  round skipped. The only executable line this fix adds to the parser is the
+  emission block itself (verified by filtering the parser diff to non-comment
+  additions).
+
+- Verification: SOLID, no findings. Witness genuinely witnesses (neutralise →
+  16 reds naming the missing code → restore proven byte-exact → 117 green).
+  Full default suite green (361 / 7424). One end-to-end live test exercises the
+  fixed path for real, in both directions, under the lock. Typecheck and lint
+  clean. Protected locks hash-verified byte-identical to HEAD:
+  `tests/type-name-as-value-refusal.test.ts` (bug 0140 cell g9),
+  `tests/non-literal-by-field-refusal.test.ts` (bug 0128),
+  `tests/committed-fixture-parse-gate.test.ts`,
+  `tests/interpolated-result-gate.test.ts`,
+  `tests/fixtures/h7a/permitted-codes.json`, `package.json`, `CHANGELOG.md`,
+  `docs/bugs/README.md`. `permitted-codes.json` stays byte-untouched: the real
+  live run plants synthetic sources and loads no committed fixture, so the new
+  code is not reachable on a committed-fixture shape.
+
+- Entailed flips enumerated for ratification (bug 0118's five pinned cells,
+  pre-authorised by their own header, which names this subject "separate and
+  undecided"):
+  1. (r24) bare `return`, top-level `par for` body: `[bare-return-in-non-void]`
+     → `[par-return-in-body, bare-return-in-non-void]`. Pins that the body
+     refusal fires first and that RET-2's inherited verdict is not withheld
+     beside it.
+  2. (r25) the same inside `fn(): integer`: same flip. Pins that the refusal is
+     independent of WHICH enclosing scope supplies the non-void annotation.
+  3. (r26) bare `return` inside `fn(): void`: `[]` →
+     `[par-return-in-body]`. Pins the bare form's membership: the body's own
+     rule refuses it where RET-2 has nothing to say.
+  4. (r27) `return 1` inside `fn(): void`: `[]` → `[par-return-in-body]`. Pins
+     that the refusal is on the statement, indifferent to the operand, while
+     the valued form still asks no bare-return question.
+  5. (r28) `return 1` inside `fn(): integer`: `[]` → `[par-return-in-body]`.
+     Pins that both enclosing annotations yield the same single refusal.
+  The group header and describe title are rewritten in the same change (§Fix
+  required it): the fold observation is RESTATED behind a load that no longer
+  succeeds, citing `runParForIteration` by symbol and pointing at the new file's
+  defensive-fold group — no fold knowledge is deleted.
+
+- Residuals:
+  1. **Citation drift this change causes is measured, not chased** (bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication;
+     0118's residual 5 is the same class). The five
+     `code-registry-parse.md` citations INSIDE the touched parser file were
+     re-measured and corrected in place (and the round-2 finding above shows two
+     of them were already stale at HEAD, so they are now correct rather than
+     merely shifted). Shift map, measured from the diff hunks:
+     `code-registry-parse.md` ≥73 → +1; `docs/reference/diagnostics.md`
+     122–316 → +1 and ≥317 → +6; `docs/reference/grammar.md` ≥286 → +1, ≥521 →
+     +3; `docs/how-to/fan-out-in-parallel.md` ≥62 → +8, ≥196 → +9;
+     `src/parser/theta-document.ts` ≥4587 → +1, ≥4648 → +2, ≥4754 → +16;
+     `src/runtime/statement-executor.ts` ≥1268 → +4. 207 further citation sites
+     across `tests/` and `src/` fall under those shifts and are deliberately NOT
+     swept; the enumeration lives in `.pi/tmp/fixes/0223-report.md` in this
+     lane.
+  2. **The element type when a body's `return` operands and its tail expression
+     disagree** (§Non-goals) is removed as a live case rather than answered:
+     route (a) makes the shape unwritable, so no rule is owed. Recorded because
+     §Non-goals named it as a consequence of whichever route won.
+  3. **The three RFC-0003 legacy `par-*` codes still have no sharded row.** Bug
+     0200's subject, untouched here; this fix's row placement is the precedent
+     it may follow but does not prejudge (see the placement note above).
+  4. **`docs/rfcs/0003-parallel-fanout.md` is deliberately unedited** — an
+     accepted RFC is a historical record, so its three-restriction enumeration
+     is left as filed. CTRL-4 is the normative site and it is current.
+
+- Discharge notes appended: bug 0118 — *Residuals* item 1 ("a `par for` body's
+  `return` regime is not enumerated by the spec") is discharged; the note is
+  appended to that document as "## Discharge note (bug 0223)", mirroring its
+  existing 0224 note's shape. Its Status is unchanged.
+
+- Pinned dispositions / non-goals: route (b) (specify-the-fold) is not taken and
+  is not re-litigable by this record. CTRL-4's other three restrictions are
+  untouched. `break` / `continue`'s depth discrimination is untouched — cited
+  only as the analogue this rule departs from. ERR-20's iteration-boundary
+  downgrade is untouched. The identifier walk's `par for` reach is bug 0224's
+  and is not widened here; bug 0140's cell g9 is byte-unchanged.
 
 ## Related
 

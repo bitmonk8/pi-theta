@@ -120,6 +120,7 @@ trigger.
 | `theta/parse/par-query-in-body` | E | parse | `` `@` query against the enclosing conversation is not permitted inside a 'par for' body `` |
 | `theta/parse/par-shared-mutation` | E | parse | `cannot assign to outer binding '<name>' from inside a 'par for' body` |
 | `theta/parse/par-break-continue` | E | parse | `'<keyword>' is not permitted inside a 'par for' body` |
+| `theta/parse/par-return-in-body` | E | parse | `'return' is not permitted inside a 'par for' body` |
 | `theta/parse/illegal-template-escape` | E | lex | `` illegal escape sequence in @`...` template: \<char> `` |
 | `theta/parse/unterminated-template` | E | lex | `` unterminated @`...` query template `` |
 | `theta/parse/discarded-query-result` | E | parse | `query result discarded; use ? to propagate failure or 'let _ = ...' to discard explicitly` |
@@ -314,7 +315,12 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   `docs/spec_topics/diagnostics/code-registry-parse.md`.
 - The three `theta/parse/par-*` codes (`par-query-in-body`, `par-shared-mutation`,
   `par-break-continue`) originate in `docs/rfcs/0003-parallel-fanout.md` (accepted;
-  Specification impact — Diagnostics) and are registered here for theta 1.1.
+  Specification impact — Diagnostics) and are registered here for theta 1.1 —
+  which sharded `code-registry-*.md` page (if any) should also carry a row for
+  them is open bug 0200's subject, not settled here. A fourth CTRL-4
+  body-restriction code, `theta/parse/par-return-in-body`, is registered on
+  [`code-registry-parse.md`](../spec_topics/diagnostics/code-registry-parse.md)
+  and mirrored here.
 - `subagent fn` (theta 1.2, `docs/rfcs/0001-subagent-fn.md`, accepted) adds **no**
   new diagnostic code: a broken inline body reuses `theta/load/callee-has-errors`,
   a self-reference reuses `theta/load/invocation-cycle`, and a `with { … }`

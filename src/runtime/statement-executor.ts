@@ -1265,7 +1265,11 @@ async function runParForIteration(
 
   switch (flow.kind) {
     case "normal":
+      return { kind: "result", result: makeOk(flow.value), diagnostics };
     case "return":
+      // Barred by the parser (par-return-in-body); defensively folded into the
+      // iteration's own result rather than propagated outward, exactly as a
+      // normal body completion is.
       return { kind: "result", result: makeOk(flow.value), diagnostics };
     case "break":
     case "continue":

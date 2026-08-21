@@ -3194,7 +3194,7 @@ class BodyParser {
     // the loop below can tell a missing or stray `,` from a written one;
     // `hasSeparatorDegeneracy` is STICKY for the statement because the
     // registry disposition (bug 0211 §Fix constraint 2; granularity carried
-    // in `docs/spec_topics/diagnostics/code-registry-parse.md:122`'s
+    // in `docs/spec_topics/diagnostics/code-registry-parse.md:127`'s
     // partition sentence) is one diagnostic per statement, not per offending
     // position. Declared outside the brace block: with no
     // braces at all these stay at their initial values, which is correct —
@@ -3249,7 +3249,7 @@ class BodyParser {
           // fresh one for the next token; `anyDanglingAlias` stays sticky for
           // the whole list so the new separator-degeneracy arm below can defer
           // to `checkImportDanglingAlias`'s own subject (bug 0211 §Fix
-          // constraint 2, carried in `code-registry-parse.md:122`'s
+          // constraint 2, carried in `code-registry-parse.md:127`'s
           // partition sentence).
           sawSpecifier = true;
           separatorSeen = false;
@@ -3364,11 +3364,11 @@ class BodyParser {
     // specifiers, a stray `,`, or a discarded catch-all token — is a THIRD
     // STATEMENT-level fact under the same code, alongside the absent/empty
     // list above. Same gate as that arm (bug 0211 §Fix constraint 3; registry
-    // disposition at `code-registry-parse.md:122`'s statement-arm gate), and
+    // disposition at `code-registry-parse.md:127`'s statement-arm gate), and
     // suppressed on an empty recovered list or a dangling `as` so the three
     // arms of this code partition and at most one statement-ranged
     // diagnostic fires (bug 0211 §Fix constraint 2, carried in
-    // `code-registry-parse.md:122`'s partition sentence) —
+    // `code-registry-parse.md:127`'s partition sentence) —
     // `specifierCount === 0` already excludes this arm from ever co-firing
     // with the one above.
     const separatorDegenerateSpecifierList = checkImportSeparatorDegenerateSpecifierList(
@@ -4401,7 +4401,7 @@ class BodyParser {
           // A pattern head REFERENCES a declaration (lexical.md:18: it "refers
           // to an existing schema, enum, or constructor in scope"), the same
           // reading the value-position sibling `checkObjectExpr` already
-          // enforces for a constructor name (code-registry-parse.md:101). An
+          // enforces for a constructor name (code-registry-parse.md:102). An
           // `ident`-kind head absent from the whole-file universe resolves to
           // nothing, so it is refused with the SAME code the value position
           // draws at the same spelling (bug 0221) — `else if`, not a second
@@ -4623,9 +4623,10 @@ class BodyParser {
    * brace-suppression active so the trailing `{` opens the body block rather
    * than reading as a bare object literal; `max` is a contextual keyword here
    * (an ordinary identifier lexeme) recognised only between the iterand and the
-   * body. After the body parses, the three body-restriction diagnostics
-   * (`par-query-in-body` / `par-shared-mutation` / `par-break-continue`,
-   * control-flow.md CTRL-4) are emitted over the parsed body.
+   * body. After the body parses, the four body-restriction diagnostics
+   * (`par-query-in-body` / `par-shared-mutation` / `par-break-continue` /
+   * `par-return-in-body`, control-flow.md CTRL-4) are emitted over the parsed
+   * body.
    */
   private parseParFor(): Expr {
     const parTok = this.advance(); // `par`
@@ -4685,7 +4686,8 @@ class BodyParser {
    * Emit the CTRL-4 body-restriction diagnostics over a parsed `par for` body:
    *   - an `@`-query against the enclosing conversation → `par-query-in-body`;
    *   - a reassignment to an outer `let mut` binding → `par-shared-mutation`;
-   *   - a `break` / `continue` targeting the `par for` → `par-break-continue`.
+   *   - a `break` / `continue` targeting the `par for` → `par-break-continue`;
+   *   - a `return` statement, at any body depth → `par-return-in-body`.
    * A nested `par for` emits its own diagnostics during its own parse, so this
    * walk does not descend into a nested `par-for` body (only its iterand / max,
    * which evaluate in this body's scope).
@@ -4793,6 +4795,20 @@ class BodyParser {
         this.scanParForExpr(s.expr, outerMutables);
         return;
       case "return":
+        // Refused at EVERY depth, unlike `break` / `continue` above: those stay
+        // inside the loop they target when nested (depth > 0 admits them), but
+        // a `return` inside a nested plain `for` / `while` crosses that inner
+        // loop's boundary (the runtime propagates it outward) and is only
+        // consumed at the `par for` boundary — so `loopDepth` is not consulted
+        // here. Emitted before the operand walk so a query nested in the
+        // operand still draws its own `par-query-in-body` refusal below.
+        this.diagnostics.push({
+          severity: "error",
+          code: "theta/parse/par-return-in-body",
+          file: this.file,
+          range: s.range,
+          message: "'return' is not permitted inside a 'par for' body",
+        });
         if (s.operand !== null) {
           this.scanParForExpr(s.operand, outerMutables);
         }

@@ -283,7 +283,8 @@ ParForBody ::= "{" Stmt* Expr? "}"      // per-iteration body; tail Expr optiona
   statement (`ForStmt`, no value); `par for` is an expression whose value is
   `array<Result<T, QueryError>>`, `T` the `ParForBody` tail type (absent tail →
   `null`). `ParForBody` behaves as a `Result<T, QueryError>` scope: a postfix `?`
-  inside it propagates to that iteration's element, not out of the loop. A
+  inside it propagates to that iteration's element, not out of the loop; a
+  written `return` is not admitted in the body (CTRL-4). A
   discarded-value `par for` is legal as an expression statement. Scheduling,
   ordering, body restrictions, and failure semantics are owned by
   [Control flow](../spec_topics/control-flow.md#par-for).
@@ -519,7 +520,9 @@ Anything not on this list is `theta/parse/unknown-method`.
   (parse-time): a query against the enclosing conversation is
   `theta/parse/par-query-in-body`; assignment to a binding declared outside the
   body is `theta/parse/par-shared-mutation`; `break` / `continue` are
-  `theta/parse/par-break-continue`. Scheduling, ordering, isolation, and failure
+  `theta/parse/par-break-continue`; a `return` statement, at any depth in the
+  body's own statement tree — but not inside a nested `fn`, which is its own
+  return scope — is `theta/parse/par-return-in-body`. Scheduling, ordering, isolation, and failure
   semantics: [Control flow](../spec_topics/control-flow.md#par-for).
 - **`while expr`** — condition must be `boolean` (no coercion).
 - **`break` / `continue`** — bare statements, legal only inside a loop

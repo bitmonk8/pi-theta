@@ -47,7 +47,7 @@ par for <var> in <array-expr> [max <n>] { <body> }
 ## Body restrictions
 
 The body is **isolation-only** — each iteration's work is private to that
-iteration, with no link to the enclosing conversation. Three constructs are
+iteration, with no link to the enclosing conversation. Four constructs are
 parse errors inside a `par for` body:
 
 - A query against the enclosing conversation (`` @`...` ``) —
@@ -59,6 +59,14 @@ parse errors inside a `par for` body:
   readable; reduce *after* the loop, over the collected array.
 - `break` / `continue` — `theta/parse/par-break-continue`. Neither has a defined
   meaning under concurrent scheduling.
+- `return`, at any depth of the body's own statement tree — including inside a
+  nested `if` block or a nested plain `for` / `while` —
+  `theta/parse/par-return-in-body`. Its documented meaning (exiting the
+  enclosing function or top-level theta) has no realisation across an
+  iteration boundary; collect the value as the body's tail expression instead.
+  A `return` inside a `fn` declared in the body is outside this rule: that `fn`
+  body is its own return scope, and the nested declaration is already
+  `theta/parse/nested-fn`.
 
 Because the isolation rule severs the only link to the enclosing conversation,
 `par for` is legal in both prompt- and subagent-mode thetas.
@@ -186,13 +194,14 @@ line, recovering from a per-element `Err` instead of aborting the whole batch.
 
 - [Grammar — Control flow](../reference/grammar.md#control-flow) and
   [Blocks](../reference/grammar.md#blocks) — `ParForExpr`, `MaxClause`, the
-  contextual `par` keyword, and the three body parse errors.
+  contextual `par` keyword, and the four body parse errors.
 - [Errors and results — ERR-20](../reference/errors-and-results.md#err-20) — the
   iteration-boundary panic downgrade and the `array<Result<T, QueryError>>` value.
 - [Hard ceilings — `par for` width throttle](../reference/hard-ceilings.md#par-for-width-throttle)
   — the 64-in-flight, per-loop scheduling bound.
 - [Diagnostics](../reference/diagnostics.md) — `theta/parse/par-query-in-body`,
-  `theta/parse/par-shared-mutation`, `theta/parse/par-break-continue`.
+  `theta/parse/par-shared-mutation`, `theta/parse/par-break-continue`,
+  `theta/parse/par-return-in-body`.
 - [How to write an agent loop](./write-an-agent-loop.md) — the sequential
   counterpart.
 

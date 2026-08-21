@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.170.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0223 — a `return` in a `par for` body now refuses at load**
+  (previously it loaded silently and the runtime FOLDED the body return
+  into that iteration's `Ok(value)` instead of exiting the enclosing
+  scope). NEW registered row `theta/parse/par-return-in-body` from
+  `scanParForStmt`'s `return` arm at every body depth (not descending a
+  nested `fn`); the runtime fold retained as a defensive arm. CTRL-4 +
+  RET-1 + sharded registry row + both reference mirrors + how-to amended
+  same commit. Witness: `tests/par-for-body-return-refusal.test.ts` (22
+  cells) + a standalone live cell. Entailed flips (r24)–(r28) of
+  `tests/par-for.test.ts` ratified at merge. Bug 0118's residual 1
+  discharged.
+
 ## [0.169.0] - 2026-08-27
 
 ### Fixed

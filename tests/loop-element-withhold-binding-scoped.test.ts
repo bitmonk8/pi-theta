@@ -178,9 +178,11 @@ const REGISTRY = parseRegistry(
  * whose own header states that its *Message* column is normative under DIAG-4
  * and that tests source their expected strings from it. Read for one code only:
  * `theta/parse/par-query-in-body`, which group (e) row e2 needs and which
- * `REGISTRY` above does not carry — CTRL-4's three `theta/parse/par-*` rows are
- * stated in control-flow.md prose and tabulated only here, and `parseRegistry`
- * requires the five-column sharded shape.
+ * `REGISTRY` above does not carry — CTRL-4's three RFC-0003 legacy
+ * `theta/parse/par-*` rows are stated in control-flow.md prose and tabulated
+ * only here, and `parseRegistry` requires the five-column sharded shape. (The
+ * fourth `par-*` code, `par-return-in-body`, does have a sharded row; it is not
+ * a code this file reads.)
  */
 const TRANSCRIPTION_PAGE = "docs/reference/diagnostics.md";
 
