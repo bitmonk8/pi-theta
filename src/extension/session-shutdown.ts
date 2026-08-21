@@ -28,6 +28,7 @@ import type { ThetaRegistry } from "./reload-wiring";
 import { SHUTDOWN_AWAIT_CAP_MS } from "./capability-probe";
 import { armSessionSwapTripwireForReason } from "./session-swap-tripwire";
 import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
+import { classifyShutdownReason, type PinnedConstantSnapshotSource } from "./unknown-reason-rule";
 
 // The bounded-await cap for sub-step 3 (session-shutdown-semantics.md sub-step 3
 // / `cka-31`) is owned by the single `SHUTDOWN_AWAIT_CAP_MS` declaration site
@@ -141,8 +142,14 @@ export interface SessionShutdownDeps {
   readonly debouncer?: TeardownAwareDebouncer | undefined;
   /** The sub-step 5 forwarding-signal sources, in detach order. */
   readonly forwardingSignals: readonly ForwardingSignalSource[];
-  /** The injected `SDK_SURFACE_INVENTORY` the unknown-reason rule reads (V9h). */
-  readonly inventory: readonly { readonly kind: string; readonly path?: string; readonly literals?: unknown }[] | undefined;
+  /**
+   * The injected `SDK_SURFACE_INVENTORY` the unknown-reason rule reads (V9h):
+   * `classifyShutdownReason` performs the snapshot lookup-and-`literals` read
+   * against this array before `event.reason` is read. `undefined` routes the
+   * classifier's circular-init / live-binding-gap arm to
+   * `"missing-entry"` rather than reading anything.
+   */
+  readonly inventory: readonly PinnedConstantSnapshotSource[] | undefined;
   readonly sink: EmissionSink;
 }
 
@@ -183,26 +190,6 @@ function coerceUnderlyingError(error: unknown): string {
   }
   try {
     return String(error);
-  } catch (coerceError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
-    void coerceError;
-    return "<unreadable>";
-  }
-}
-
-/**
- * Coerce the handler-captured `event.reason` to the stamped string. A closed-set
- * member reads as itself; a non-string reason is `String(...)`-coerced, falling
- * back to `"<unreadable>"` if that coercion throws. The full four-arm
- * Unknown-reason routing (set-membership, snapshot read, the two diagnostics) is
- * owned by `V9h`; this handler only needs the stamped-string channel sub-step 2
- * writes onto each entry's `shutdownReason`.
- */
-function coerceReasonString(reason: unknown): string {
-  if (typeof reason === "string") {
-    return reason;
-  }
-  try {
-    return String(reason);
   } catch (coerceError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
     void coerceError;
     return "<unreadable>";
@@ -535,7 +522,18 @@ export async function runSessionShutdown(
   event: SessionShutdownEventLike,
   deps: SessionShutdownDeps,
 ): Promise<void> {
-  const capturedReason = coerceReasonString(event.reason);
+  // Unknown-reason rule (V9h, PIC-45/46/47): the classifier owns the fixed
+  // snapshot-then-`event.reason` read order and the handler-entry `try`/`catch`
+  // discipline, so `event.reason` is read only inside it — a throwing getter
+  // routes to `session-shutdown-reason-unknown`, not to a caller-side catch.
+  // Its single pre-sub-step-1 diagnostic (if any) is emitted through the same
+  // sink sub-steps 1/3/4/5 use, before sub-step 1 runs (both *Trigger* columns
+  // pin this ordering).
+  const classification = classifyShutdownReason(event, deps.inventory);
+  if (classification.diagnostic !== undefined) {
+    emitTeardownDiagnostic(deps.sink, classification.diagnostic);
+  }
+  const capturedReason = classification.capturedEventReason;
 
   // ── Sub-step 1: stop accepting new work (drain, then init drain-state tag) ──
   // Fixed order — `drain()` then `initDrainStateTag()` — each in its own

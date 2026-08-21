@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.153.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0216 — `classifyShutdownReason` is now wired at the shutdown
+  handler** (disposition A): called at handler entry, emitting before
+  sub-step 1, with `capturedEventReason` feeding the stamp and the
+  tripwire; the factory supplies `inventory: SDK_SURFACE_INVENTORY` and
+  stops pre-reading `event.reason` (the throwing-getter case lands on the
+  extension-bootstrap-failed arm as measured). Both `theta/host/*`
+  code-registry rows are now reachable. Witness cells in
+  `tests/session-shutdown.test.ts` + `tests/session-shutdown-wiring.test.ts`
+  + H8a cell 77 (red-proven). `unknown-reason-rule` 24 cells byte-untouched.
+
 ## [0.152.0] - 2026-08-26
 
 ### Fixed

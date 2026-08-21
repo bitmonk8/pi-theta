@@ -59,6 +59,7 @@ import {
 } from "./capability-probe";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 import { readParentEnv } from "./production-subagent-host";
+import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
 /**
  * The diagnostics-registry code a factory-time bootstrap registration /
@@ -1048,7 +1049,10 @@ export function createThetaExtension(
             // generation. Empty when nothing was ever pushed, keeping that
             // path an instant no-op.
             forwardingSignals: mergedForwardingSignals,
-            inventory: undefined,
+            // PIC-46: the single injected copy of the closed-set snapshot
+            // (`SessionShutdownEvent.reason`'s `type-union-snapshot` row); the
+            // unknown-reason rule reads it, no separate copy lives here.
+            inventory: SDK_SURFACE_INVENTORY,
             sink: {
               emit: (line: unknown): void => {
                 console.error(line);
@@ -1071,7 +1075,13 @@ export function createThetaExtension(
           liveForwardingSignals = undefined;
           supersededGenerations.length = 0;
 
-          return runSessionShutdown({ reason: event.reason }, shutdownDeps);
+          // The classifier reads `event.reason` in its own `try` (PIC-47), so
+          // this call must not pre-read the property: a throwing getter has to
+          // route to `session-shutdown-reason-unknown`, not to this `catch`'s
+          // `extension-bootstrap-failed`. `event` (a `SessionShutdownEvent`)
+          // satisfies `SessionShutdownEventLike` structurally, so it is passed
+          // through unread.
+          return runSessionShutdown(event, shutdownDeps);
         } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
           deps.emitDiagnostic?.(
             bootstrapFailedDiagnostic("pi.on", e, { event: "session_shutdown" }),

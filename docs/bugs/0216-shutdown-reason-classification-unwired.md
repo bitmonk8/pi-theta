@@ -1,12 +1,8 @@
 # Bug 0216 — The `session_shutdown` reason-classification seam has no production caller: `classifyShutdownReason` is imported by one test file and nothing else, `SessionShutdownDeps.inventory` is declared and never read, and `src/extension/factory.ts:1051` passes `inventory: undefined` — so the two registered rows `theta/host/session-shutdown-reason-unknown` and `theta/host/session-shutdown-pinned-constant-unreadable` cannot fire from any input, and PIC-45 / PIC-46 / PIC-47 hold only inside a unit test
 
-- **Status:** open. §Fix is constraint-pinned: two dispositions are left to the
-  run — wire the classifier into the shipped teardown handler, or retire both
-  rows under DIAG-2 and re-derive the prose that hangs on them. Measured below:
-  the shipped handler computes its captured reason with a private
-  `coerceReasonString` that performs no snapshot read and no membership check,
-  so no emission-reach-only fix (a call site added with no other change) is
-  available without deciding which seam owns the read.
+- **Status:** fixed (0.153.0). §Fix was constraint-pinned to two dispositions;
+  disposition A (wire the classifier) was adjudicated on measurement — see
+  §Fix (0.153.0).
 - **Sev/Diff estimate:** S3/D2 — two registered rows no input can fire and a
   24-cell unit suite that is green against a function the shipped extension
   never calls; D2 because the wiring is confined to the teardown subsystem
@@ -434,3 +430,132 @@ code and the registry gate's closed set no longer contains them.
   either code, an `allow-broad-catch` fixture string, not an emission).
 - Reproduction: four `rg` invocations and two file reads, quoted verbatim in
   §Reproduction. No test was run, no probe written, no file created.
+
+## Fix (0.153.0)
+
+**Disposition A — wire the classifier.** Adjudicated on measurement at the fix
+tree (v0.148.0, `46bd3b60`), inside §Fix's own constraints, before any edit:
+
+1. `docs/spec_topics/pi-integration-contract/session-only-degraded-state.md:27`
+   keys its accepted-residual-gap composite on the *co-emission* of both
+   `theta/host/*` rows; disposition B would have forced re-deriving that page,
+   which had just been repaired at v0.147.0. Disposition A leaves it true and
+   makes its composite observable for the first time.
+2. The same page's tripwire *Arm* bullet (`:13`) requires `capturedEventReason`
+   be "read via the same handler-scoped seam the **Unknown-reason rule** pins".
+   Before the fix, `armSessionSwapTripwireForReason` received `coerceReasonString`
+   output, not that seam — disposition A satisfies the sentence literally.
+3. §Fix *Ordering* names A "the smaller edit" that "leaves every cited page true
+   as written"; B is a six-page spec change plus a DIAG-2 registry removal.
+4. `src/extension/sdk-inventory.ts:184–189` already holds the correct pinned row,
+   so the injection target existed and needed no registry edit.
+
+Every §Affected citation was re-verified at the fix tree before editing; all
+line numbers were unchanged from the report's `689fc630` measurement.
+
+- **What shipped:**
+  - `src/extension/session-shutdown.ts` — `runSessionShutdown` calls
+    `classifyShutdownReason(event, deps.inventory)` at handler entry, emits its
+    single returned diagnostic through the existing `deps.sink` *before*
+    sub-step 1, and feeds `capturedEventReason` to both existing consumers (the
+    sub-step-2 stamp and `armSessionSwapTripwireForReason`); the dead
+    `coerceReasonString` is deleted, leaving the tree one coercion rule (the
+    classifier's internal `coerceObserved`); `SessionShutdownDeps.inventory` is
+    read rather than merely declared, retyped to the classifier's exported
+    `PinnedConstantSnapshotSource` and re-documented. `| undefined` is retained
+    deliberately: `readSnapshotLiterals` routes it to `"missing-entry"`, the
+    circular-init / live-binding-gap arm.
+  - `src/extension/factory.ts` — `inventory: SDK_SURFACE_INVENTORY` in place of
+    `inventory: undefined`; the handler call passes `event` through unread in
+    place of `{ reason: event.reason }`, so `event.reason` is read only inside
+    the classifier's own `try` and a throwing getter routes to
+    `session-shutdown-reason-unknown` instead of the subscription `catch`'s
+    `theta/load/extension-bootstrap-failed`. `SessionShutdownEvent` satisfies
+    `SessionShutdownEventLike` structurally, so no cast was needed.
+  - No registry row was added, removed or altered; no spec page was edited.
+    PIC-46 (no second copy of the closed set on the teardown path), PIC-47
+    (exactly one of the two rows per event, emission before sub-step 1) and
+    §Fix's "no third option" (the rows are not emitted from the factory
+    subscription) all hold.
+- **Which row a witness drives end to end** (§Fix *Ordering* requires this to be
+  stated): **both.** `theta/host/session-shutdown-reason-unknown` is driven
+  through the shipped handler by an out-of-set reason, and through the real
+  production composition root by the live cell;
+  `theta/host/session-shutdown-pinned-constant-unreadable` is driven through the
+  shipped handler on both closed `details.failure` discriminators
+  (`literals-shape-invalid`, `missing-entry`). Neither row is reachable only via
+  a direct `classifyShutdownReason` call any more.
+- **Gates:**
+  - Witness: `npx vitest run tests/session-shutdown.test.ts tests/session-shutdown-wiring.test.ts`
+    → before: `Test Files 2 failed (2)` / `Tests 9 failed | 34 passed (43)`;
+    after: `Test Files 2 passed (2)` / `Tests 43 passed (43)`.
+  - Full default suite: `npm test` → `Test Files 345 passed (345)` /
+    `Tests 6815 passed (6815)`.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean, no
+    output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`)
+    → clean, exit 0.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "cell 77"`
+    → `Test Files 1 passed (1)` / `Tests 1 passed | 74 skipped (75)`, emitting
+    `{"severity":"warning","code":"theta/host/session-shutdown-reason-unknown","message":"session_shutdown event.reason outside closed set: hibernate","details":{"observed":"hibernate"}}`.
+- **Review:** 2 rounds.
+  - Round 1 (deep) — FINDINGS: one, `prose`, non-blocking (F1: a new test-block
+    comment asserted "is green over a function no `src/` module calls", which the
+    fix itself falsifies; a historical reference under CLAUDE.md). Fidelity
+    constraints (a)–(g), correctness (h)–(k), test quality (l)–(o) and house
+    rules (p)–(s) were all verified clean with quoted evidence. No
+    `recommend-deep-review`.
+  - Round 2 (polish) — F1 reworded to "stays green whether or not a production
+    caller exists". Gate-diff proved the round's sole delta was two comment lines
+    becoming three, with no executable line touched; polish verified by gate-diff
+    and the confirmation round skipped per the post-polish rule.
+- **Verification:** SOLID.
+  - Witness genuinely reds: reverted in two independent halves so each is proven
+    load-bearing — (a) the handler's classifier call reverted to a local
+    `String()` coercion → the 7 handler cells red; (b) `inventory: undefined`
+    plus the restored `{ reason: event.reason }` pre-read → both factory cells
+    red on the opposite arm of each assertion. Restoration proven byte-exact:
+    `git hash-object` returned `22cbf037…` (`session-shutdown.ts`, 778 lines) and
+    `10be4af9…` (`factory.ts`, 1159 lines), matching the hashes captured before
+    the first touch.
+  - Full default suite green, re-run independently and again by the orchestrator.
+  - Live end-to-end coverage: no existing live cell exercised the classifier's
+    diagnostic arm (cells 61/64 fire `session_shutdown` only with closed-set
+    reasons), so one H8a cell was minted. It drives the real production
+    composition root, fails loudly on an absent provider via
+    `requireLiveProvider()`, carries a registration precondition control so an
+    absent diagnostic cannot be misattributed to a broken workspace, and asserts
+    on the serialised diagnostic line rather than on `prompt()` resolving. Run
+    for real twice — by the verifier and independently by the orchestrator — both
+    green.
+  - Lint and typecheck clean.
+  - No stochastic live-red class was triggered.
+- **Protected-witness flips:** none. `tests/unknown-reason-rule.test.ts` is
+  untouched and its 24 cells stay green as unit coverage of the pure function.
+  The only pre-existing line touched in either edited test file is
+  `inventory: healthyInventory()` → `inventory: overrides.inventory ?? healthyInventory()`,
+  a widening with an unchanged default.
+- **Residuals:**
+  - The two `src/` edits shift line numbers cited in comments (and in one
+    `expect(...)` failure-message string) of sibling test files —
+    `tests/e2e-s6-session-shutdown-real-teardown.test.ts`,
+    `tests/conformance/production-conformance.test.ts`,
+    `tests/e2e-s6-description-registration.test.ts`,
+    `tests/supersession-detach-throw-containment.test.ts`,
+    `tests/supersession-inflight-rebuild-quiesce.test.ts`,
+    `tests/typeenv-prototype-names.test.ts` — and in a number of closed
+    `docs/bugs/*.md` reports. None is an assertion (the suite is green), and this
+    report's own §Affected header states the governing convention: "symbols are
+    the durable anchor, line numbers drift". No citation sweep was performed, by
+    operator instruction.
+  - `src/extension/session-shutdown.ts` and `src/extension/unknown-reason-rule.ts`
+    each declare a structurally identical `SessionShutdownEventLike`
+    (`{ readonly reason: unknown }`). Pre-existing and benign — confirmed present
+    at `HEAD` before this fix, neither introduced nor worsened here. Left alone
+    as out of scope.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** disposition B (retire both rows, delete
+  `unknown-reason-rule.ts` and its 24-cell suite, re-derive six spec pages under
+  a DIAG-2 registry removal) is CLOSED, not deferred — the four measurements
+  above settle it against B. No registry row and no spec sentence was changed by
+  this fix, because disposition A leaves every cited page true as written.

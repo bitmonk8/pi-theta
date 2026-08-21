@@ -12447,3 +12447,154 @@ describe("H8a-T — bug 0211 (cell 76): a separator-degenerate import specifier 
     }
   });
 });
+
+
+// ===========================================================================
+// cell 75 (cell 77) — bug 0216: the shipped `session_shutdown` teardown handler
+// is the unknown-reason rule's only production caller, live.
+//
+// docs/bugs/0216-shutdown-reason-classification-unwired.md §Fix, disposition A:
+// `runSessionShutdown` now calls `classifyShutdownReason(event, deps.inventory)`
+// at handler entry and emits its single returned diagnostic through the same
+// sink sub-steps 1/3/4/5 use, BEFORE sub-step 1 runs; `factory.ts` injects the
+// real `SDK_SURFACE_INVENTORY` (was `inventory: undefined`) and stopped
+// pre-reading `event.reason` at the call site (was `{ reason: event.reason }`),
+// so a throwing getter now routes to `session-shutdown-reason-unknown` instead
+// of the subscription's own `extension-bootstrap-failed` catch.
+//
+// Pre-fix, NEITHER registered row (`theta/host/session-shutdown-reason-unknown`,
+// `theta/host/session-shutdown-pinned-constant-unreadable`) could fire from any
+// input: the handler computed its captured reason with a private
+// `coerceReasonString` — a bare `String()` coercion with no snapshot read and no
+// membership check — and `factory.ts` passed `inventory: undefined`. This cell
+// drives the REAL production composition root (session_start →
+// createThetaExtension's `session_shutdown` subscription → the shipped
+// `runSessionShutdown`), not `classifyShutdownReason` directly (the unit
+// witness `tests/unknown-reason-rule.test.ts` already covers the pure function
+// and stays green whether or not a production caller exists — the gap this bug
+// names).
+//
+// The diagnostic sink at this composition root is a raw `console.error` of the
+// serialised `Diagnostic` (`factory.ts`'s `session_shutdown` deps literal), not
+// the `theta-system-note` channel — this handler-entry diagnostic precedes
+// sub-step 1, before any per-invocation note could exist. The file-scope
+// `console.error` spy every cell in this file already runs under (bug 0030,
+// installed/inspected in the shared `beforeEach`/`afterEach` above) is reused
+// here as the observable read; `thetaOwnedStderrLines` does not recognise this
+// line's shape, so the shared `afterEach`'s zero-offender assertion is
+// unaffected by this cell's own diagnostic line.
+//
+// Registration-only precondition, then a direct `session_shutdown` emission —
+// no slash command is invoked and no model turn runs, so this cell spends ZERO
+// tokens, the same profile as the bug 0175/0217 cells above. `bootShippedExtension`
+// still requires a live provider/model to construct the `AgentSession` (AGENTS.md
+// §"No silent skipping" — `requireLiveProvider()` fails loudly, never skips, when
+// none is configured), even though this cell drives no turn against it.
+//
+// ADDITIVE ONLY: every existing cell in this file is unchanged and this cell adds
+// no assertion to any of them.
+//
+// NOTE (cell 75 / cell 77): the parent renumbers cells at merge; a tail-append
+// rebase conflict at this site is expected and mechanical.
+// ===========================================================================
+
+const SESSION_SHUTDOWN_REASON_UNKNOWN_CODE = "theta/host/session-shutdown-reason-unknown";
+const SESSION_SHUTDOWN_PINNED_CONSTANT_UNREADABLE_CODE =
+  "theta/host/session-shutdown-pinned-constant-unreadable";
+const EXTENSION_BOOTSTRAP_FAILED_CODE = "theta/load/extension-bootstrap-failed";
+
+describe("H8a-T — bug 0216 cell 75 (cell 77): the shipped session_shutdown handler classifies an out-of-set reason live, through the real production wiring", () => {
+  it("emits exactly one session-shutdown-reason-unknown carrying details.observed for a live session_shutdown whose reason is outside the closed set, never extension-bootstrap-failed", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: proves the workspace and discovery walk both
+      // work, so an absent diagnostic below cannot be attributed to a broken
+      // workspace instead of the wiring under test.
+      { source: "project", stem: "b216livectl", text: promptTheta("THETA-LIVE-OK") },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b216livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the unknown-reason wiring under test, would explain the assertions " +
+          "below too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.runner.hasHandlers("session_shutdown"),
+        "the shipped extension registered no session_shutdown handler — the " +
+          "fixed path (the classifier's production call) can never be reached " +
+          "by this cell.",
+      ).toBe(true);
+
+      // THE FIXED OBSERVABLE: an out-of-set `event.reason` reaches the real
+      // `classifyShutdownReason` call at handler entry (session-shutdown.ts) via
+      // the real `SDK_SURFACE_INVENTORY` factory injects (factory.ts), and its
+      // single pre-sub-step-1 diagnostic is pushed through the sink before this
+      // `emit()` call resolves.
+      // `reason` is deliberately outside the closed literal union the SDK's
+      // own type declares (PIC-45's very reason to exist — a patch-skew live
+      // host CAN deliver a reason the pinned snapshot has not caught up to),
+      // so the emitted event is cast through `unknown` rather than widened via
+      // an `as "quit"` lie.
+      await handle.runner.emit(
+        { type: "session_shutdown", reason: "hibernate" } as unknown as Parameters<
+          typeof handle.runner.emit
+        >[0],
+      );
+
+      const lines = (consoleErrorSpy?.mock.calls ?? []).map((call) => call[0]);
+      const diagnosticLines = lines.filter(
+        (line): line is string =>
+          typeof line === "string" &&
+          line.startsWith("{") &&
+          line.includes(SESSION_SHUTDOWN_REASON_UNKNOWN_CODE),
+      );
+      expect(
+        diagnosticLines,
+        "no theta/host/session-shutdown-reason-unknown diagnostic line reached " +
+          "the production sink for a live session_shutdown with an out-of-set " +
+          "reason — pre-fix (bug 0216) `runSessionShutdown` computed its " +
+          "captured reason with a private String()-coercion and never consulted " +
+          "the classifier, so neither registered row could ever fire. Captured " +
+          "console.error calls: " + JSON.stringify(lines),
+      ).toHaveLength(1);
+      const diagnostic = JSON.parse(diagnosticLines[0] as string) as {
+        readonly code: string;
+        readonly details?: { readonly observed?: string };
+      };
+      expect(diagnostic.details).toStrictEqual({ observed: "hibernate" });
+
+      // Mutual exclusivity (PIC-47): a healthy snapshot cannot also report
+      // pinned-constant-unreadable for the same event.
+      expect(
+        lines.filter(
+          (line): line is string =>
+            typeof line === "string" &&
+            line.includes(SESSION_SHUTDOWN_PINNED_CONSTANT_UNREADABLE_CODE),
+        ),
+      ).toEqual([]);
+
+      // The mis-routed path bug 0216 named: pre-fix, `factory.ts`'s
+      // `{ reason: event.reason }` pre-read happened OUTSIDE the classifier, so
+      // a throwing getter (not exercised by this string reason, but the same
+      // call site) would have routed to this code instead. For THIS reason
+      // (a plain string, never throws on read) the negative simply confirms no
+      // bootstrap-failure noise accompanied the fixed emission.
+      expect(
+        lines.filter(
+          (line): line is string =>
+            typeof line === "string" && line.includes(EXTENSION_BOOTSTRAP_FAILED_CODE),
+        ),
+      ).toEqual([]);
+    } finally {
+      // `dispose()` fires its own session_shutdown (reason "quit", closed-set)
+      // as part of the real host-mirroring teardown path (bug 0018) — a SECOND
+      // event on top of the one this cell fired directly, exactly as the bug
+      // 0074/0073 cells above already do.
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

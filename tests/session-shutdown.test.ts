@@ -151,6 +151,11 @@ interface HarnessOverrides {
   readonly entries?: readonly ControllableEntry[];
   readonly sink?: ReturnType<typeof sinkSpy>;
   readonly clock?: FakeClock;
+  /**
+   * A corrupted pinned-constant inventory, so the snapshot-read failure arm of
+   * the unknown-reason rule is reachable through the shipped handler.
+   */
+  readonly inventory?: SessionShutdownDeps["inventory"];
 }
 
 interface Harness {
@@ -187,7 +192,7 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     settingsWatcher,
     debounceHandle: clock.setTimeout(() => {}, 250),
     forwardingSignals,
-    inventory: healthyInventory(),
+    inventory: overrides.inventory ?? healthyInventory(),
     sink,
   };
   return {
@@ -612,5 +617,194 @@ describe("PIC-27 — handler-isolation swallow", () => {
     await expect(driveShutdown(eventWith("reload"), harness)).resolves.toBeUndefined();
     // The swallowed emission throw does not prevent sub-step 4/5 from running.
     expect(harness.settingsWatcher.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// Bug 0216 — the unknown-reason rule's single production caller
+//
+// These cells drive the SHIPPED `runSessionShutdown`, never
+// `classifyShutdownReason` directly: the rule's own suite
+// (`tests/unknown-reason-rule.test.ts`) stays green whether or not a
+// production caller exists, so only a handler-level drive can witness the
+// wiring.
+//
+// Spec: pi-integration-contract/unknown-reason-rule.md:6 (PIC-45 closed-set
+// membership; PIC-46 constant-source pinning; PIC-47 read order, the closed
+// `details.failure` discriminator set and the two rows' mutual exclusivity);
+// diagnostics/code-registry-host.md:11, :12 (both *Trigger* columns: "exactly
+// once per `session_shutdown` event, *before* sub-step 1 runs");
+// pi-integration-contract/session-shutdown-semantics.md:10 (sub-step 2 stamps
+// the classifier's captured reason, including the snapshot-failure
+// `"<unreadable>"`); pi-integration-contract/session-only-degraded-state.md:13
+// (the tripwire *Arm* bullet reads `capturedEventReason` "via the same
+// handler-scoped seam the **Unknown-reason rule** pins").
+// ============================================================================
+
+// The two anchor-stable codes (PIC-48), sourced verbatim from
+// diagnostics/code-registry-host.md:11, :12.
+const REASON_UNKNOWN_CODE = "theta/host/session-shutdown-reason-unknown";
+const PINNED_CONSTANT_UNREADABLE_CODE =
+  "theta/host/session-shutdown-pinned-constant-unreadable";
+
+/**
+ * The diagnostics of one code the handler actually pushed through the injected
+ * sink. Read off `emit` rather than `serialise` so a constructed-but-unemitted
+ * diagnostic cannot satisfy an emission-count assertion.
+ */
+function emittedRows(
+  sink: ReturnType<typeof sinkSpy>,
+  code: string,
+): readonly Diagnostic[] {
+  return sink.emit.mock.calls
+    .map((call) => call[0])
+    // The PIC-25 bare-`code` fallback line is not JSON; only serialised
+    // diagnostics are parsed.
+    .filter(
+      (line): line is string =>
+        typeof line === "string" && line.startsWith("{") && line.includes(code),
+    )
+    .map((line) => JSON.parse(line) as Diagnostic)
+    .filter((diagnostic) => diagnostic.code === code);
+}
+
+/** A pinned-constants block whose snapshot row carries a non-array `literals`. */
+function shapeInvalidInventory(): SessionShutdownDeps["inventory"] {
+  return [
+    {
+      kind: "type-union-snapshot",
+      path: "SessionShutdownEvent.reason",
+      literals: "quit|reload|new|resume|fork",
+    },
+  ];
+}
+
+describe("bug 0216 — runSessionShutdown is the unknown-reason rule's production caller", () => {
+  it("emits exactly one session-shutdown-reason-unknown carrying details.observed for an out-of-set reason (PIC-45, SM-2)", async () => {
+    const harness = makeHarness();
+    await driveShutdown(eventWith("hibernate"), harness);
+
+    const unknownRows = emittedRows(harness.sink, REASON_UNKNOWN_CODE);
+    expect(unknownRows).toHaveLength(1);
+    expect(unknownRows[0]?.severity).toBe("warning");
+    expect(unknownRows[0]?.message).toBe(
+      "session_shutdown event.reason outside closed set: hibernate",
+    );
+    expect(unknownRows[0]?.details).toStrictEqual({ observed: "hibernate" });
+    // Mutual exclusivity: a healthy snapshot cannot also report unreadable.
+    expect(emittedRows(harness.sink, PINNED_CONSTANT_UNREADABLE_CODE)).toHaveLength(0);
+  });
+
+  it("emits exactly one pinned-constant-unreadable with details.failure `literals-shape-invalid` and no reason-unknown (PIC-47 mutual exclusivity)", async () => {
+    // The snapshot read runs FIRST and is dominant, so even a closed-set-member
+    // `event.reason` must not surface the misleading reason-unknown message.
+    const harness = makeHarness({ inventory: shapeInvalidInventory() });
+    await driveShutdown(eventWith("quit"), harness);
+
+    const unreadableRows = emittedRows(harness.sink, PINNED_CONSTANT_UNREADABLE_CODE);
+    expect(unreadableRows).toHaveLength(1);
+    expect(unreadableRows[0]?.severity).toBe("warning");
+    expect(unreadableRows[0]?.message).toBe(
+      "session_shutdown pinned-constant read failed: literals-shape-invalid",
+    );
+    expect(unreadableRows[0]?.details).toStrictEqual({
+      failure: "literals-shape-invalid",
+    });
+    expect(emittedRows(harness.sink, REASON_UNKNOWN_CODE)).toHaveLength(0);
+  });
+
+  it("emits exactly one pinned-constant-unreadable with details.failure `missing-entry` when the snapshot row is absent (PIC-47)", async () => {
+    const harness = makeHarness({
+      inventory: [{ kind: "namespace-function", path: "pi.on" }],
+    });
+    await driveShutdown(eventWith("reload"), harness);
+
+    const unreadableRows = emittedRows(harness.sink, PINNED_CONSTANT_UNREADABLE_CODE);
+    expect(unreadableRows).toHaveLength(1);
+    expect(unreadableRows[0]?.details).toStrictEqual({ failure: "missing-entry" });
+    expect(emittedRows(harness.sink, REASON_UNKNOWN_CODE)).toHaveLength(0);
+  });
+
+  it("emits NEITHER host reason row for each of the five closed-set members (PIC-45)", async () => {
+    for (const reason of SESSION_SHUTDOWN_REASON_SNAPSHOT.literals) {
+      const harness = makeHarness();
+      await driveShutdown(eventWith(reason), harness);
+      expect(emittedRows(harness.sink, REASON_UNKNOWN_CODE)).toHaveLength(0);
+      expect(emittedRows(harness.sink, PINNED_CONSTANT_UNREADABLE_CODE)).toHaveLength(0);
+    }
+  });
+
+  it("emits the reason-unknown row BEFORE sub-step 1's drain (code-registry-host.md:11 *Trigger*)", async () => {
+    const harness = makeHarness();
+    const drainSpy = vi.spyOn(harness.registry, "drain");
+    await driveShutdown(eventWith("hibernate"), harness);
+
+    expect(emittedRows(harness.sink, REASON_UNKNOWN_CODE)).toHaveLength(1);
+    expect(drainSpy).toHaveBeenCalledTimes(1);
+    // Global invocation order across the two spies decides the ordering without
+    // a shared mock implementation on either seam.
+    const firstEmit = harness.sink.emit.mock.invocationCallOrder[0];
+    const firstDrain = drainSpy.mock.invocationCallOrder[0];
+    assert(
+      firstEmit !== undefined && firstDrain !== undefined,
+      "both the sink emit and the sub-step-1 drain must have been invoked",
+    );
+    expect(firstEmit).toBeLessThan(firstDrain);
+  });
+
+  it("emits the pinned-constant-unreadable row BEFORE sub-step 1's drain (code-registry-host.md:12 *Trigger*)", async () => {
+    const harness = makeHarness({ inventory: shapeInvalidInventory() });
+    const drainSpy = vi.spyOn(harness.registry, "drain");
+    await driveShutdown(eventWith("quit"), harness);
+
+    expect(emittedRows(harness.sink, PINNED_CONSTANT_UNREADABLE_CODE)).toHaveLength(1);
+    expect(drainSpy).toHaveBeenCalledTimes(1);
+    const firstEmit = harness.sink.emit.mock.invocationCallOrder[0];
+    const firstDrain = drainSpy.mock.invocationCallOrder[0];
+    assert(
+      firstEmit !== undefined && firstDrain !== undefined,
+      "both the sink emit and the sub-step-1 drain must have been invoked",
+    );
+    expect(firstEmit).toBeLessThan(firstDrain);
+  });
+
+  it("stamps the classifier's captured reason on each entry — the snapshot-failure `<unreadable>` (session-shutdown-semantics.md:10, fourth alternative)", async () => {
+    const controllable = makeEntry("plan", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", {
+      settleable: true,
+    });
+    controllable.settle();
+    const harness = makeHarness({
+      entries: [controllable],
+      inventory: shapeInvalidInventory(),
+    });
+    // A closed-set-member reason: only the snapshot failure can turn the stamp
+    // into the sentinel, so the assertion isolates the classifier's captured
+    // value from a `String()` coercion of `event.reason`.
+    await driveShutdown(eventWith("reload"), harness);
+
+    expect(controllable.entry.shutdownReason).toBe("<unreadable>");
+  });
+
+  it("feeds the classifier's captured reason to the session-swap tripwire — a snapshot failure leaves it unarmed (session-only-degraded-state.md:13 *Arm*)", async () => {
+    const harness = makeHarness({ inventory: shapeInvalidInventory() });
+    // `"new"` is session-only, but the snapshot failure makes the handler-scoped
+    // captured reason `"<unreadable>"`, which is not a session-only reason, so
+    // the *Arm* bullet's predicate must not hold.
+    await driveShutdown(eventWith("new"), harness);
+
+    expect(harness.registry.readSessionSwapTornDown()).toStrictEqual({
+      armed: false,
+      reason: undefined,
+    });
+  });
+
+  it("arms the session-swap tripwire from the classifier's captured reason on the healthy path (session-only-degraded-state.md:13 *Arm*)", async () => {
+    const harness = makeHarness();
+    await driveShutdown(eventWith("fork"), harness);
+
+    expect(harness.registry.readSessionSwapTornDown()).toStrictEqual({
+      armed: true,
+      reason: "fork",
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -15,6 +15,7 @@ import {
 } from "../src/extension/reload-wiring";
 import { FakeClock } from "./helpers/fake-clock";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // Increment A/B1 — the factory-level `session_shutdown` wiring integration.
 //
@@ -228,5 +229,133 @@ describe("Increment A — session_shutdown wired through the real factory", () =
     await harness.fireSessionStart();
 
     await expect(harness.fireSessionShutdown("quit")).resolves.toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Bug 0216 — the factory-level half of the unknown-reason wiring
+//
+// `factory.ts` owns two of the wiring's obligations, and neither is observable
+// from a direct `runSessionShutdown` drive:
+//   (a) the `SessionShutdownDeps.inventory` it injects must be the real
+//       `SDK_SURFACE_INVENTORY` (PIC-46 single-site constant source), not
+//       `undefined` — an `undefined` inventory routes every teardown to
+//       `pinned-constant-unreadable` / `"missing-entry"`;
+//   (b) the `event.reason` read must happen INSIDE the classifier, so a
+//       throwing property-access getter routes to
+//       `theta/host/session-shutdown-reason-unknown` with
+//       `details.observed === "<unreadable>"` rather than to the subscription's
+//       own `catch`, which reports `theta/load/extension-bootstrap-failed`.
+//
+// Spec: pi-integration-contract/unknown-reason-rule.md:6 (PIC-46, PIC-47);
+// diagnostics/code-registry-host.md:11, :12.
+// ============================================================================
+
+const REASON_UNKNOWN_CODE = "theta/host/session-shutdown-reason-unknown";
+const PINNED_CONSTANT_UNREADABLE_CODE =
+  "theta/host/session-shutdown-pinned-constant-unreadable";
+const BOOTSTRAP_FAILED_CODE = "theta/load/extension-bootstrap-failed";
+
+interface BootedWithDiagnostics {
+  readonly harness: Harness;
+  /** Everything the factory pushed through `deps.emitDiagnostic`. */
+  readonly bootstrapDiagnostics: readonly Diagnostic[];
+}
+
+/**
+ * Boot through the REAL factory with the bootstrap diagnostic sink connected, so
+ * a mis-routed getter throw is observable as a `theta/load/*` row rather than
+ * being silently swallowed by the optional-call.
+ */
+async function bootWithDiagnosticSink(): Promise<BootedWithDiagnostics> {
+  const harness = makeHarness();
+  const bootstrapDiagnostics: Diagnostic[] = [];
+  const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
+  const deps: ThetaExtensionDeps = {
+    fixtures: [],
+    emitDiagnostic: (diagnostic: Diagnostic): void => {
+      bootstrapDiagnostics.push(diagnostic);
+    },
+    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
+      thetas: [makeTheta("foo")],
+      registry,
+      activeInvocations: new ActiveInvocationRegistry(),
+      forwardingSignals: [],
+      clock: new FakeClock(),
+      installHotReload: () => ({ detach: vi.fn() }),
+    }),
+  };
+  createThetaExtension(deps)(harness.pi);
+  await harness.fireSessionStart();
+  return { harness, bootstrapDiagnostics };
+}
+
+/**
+ * Deliver an arbitrary `session_shutdown` payload to the registered handler and
+ * return the diagnostics the teardown sink wrote to `console.error`. The payload
+ * is passed unmodified (the harness's own `fireSessionShutdown` builds it from a
+ * plain reason string, which cannot carry a throwing getter).
+ */
+async function driveRawShutdown(
+  harness: Harness,
+  event: unknown,
+): Promise<readonly Diagnostic[]> {
+  const handlers = harness.subscriptions.get("session_shutdown") ?? [];
+  assert(
+    handlers.length === 1,
+    `expected exactly one session_shutdown subscription, observed ${handlers.length}`,
+  );
+  const lines: unknown[] = [];
+  const errorSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    lines.push(args[0]);
+  });
+  try {
+    for (const handler of handlers) {
+      // The subscription reads only its event argument; the ctx is unused.
+      await handler(event, undefined as unknown as ExtensionContext);
+    }
+  } finally {
+    errorSpy.mockRestore();
+  }
+  return lines
+    // The PIC-25 bare-`code` fallback line is not JSON; only serialised
+    // diagnostics are parsed.
+    .filter((line): line is string => typeof line === "string" && line.startsWith("{"))
+    .map((line) => JSON.parse(line) as Diagnostic);
+}
+
+describe("bug 0216 — factory-level unknown-reason wiring", () => {
+  it("injects the real SDK_SURFACE_INVENTORY — an out-of-set reason emits reason-unknown, never pinned-constant-unreadable (PIC-46)", async () => {
+    const { harness } = await bootWithDiagnosticSink();
+
+    const emitted = await driveRawShutdown(harness, {
+      type: "session_shutdown",
+      reason: "hibernate",
+    });
+
+    // `inventory: undefined` at the injection site would surface
+    // `"missing-entry"` here instead of the drift row.
+    expect(emitted.filter((d) => d.code === PINNED_CONSTANT_UNREADABLE_CODE)).toHaveLength(0);
+    const unknownRows = emitted.filter((d) => d.code === REASON_UNKNOWN_CODE);
+    expect(unknownRows).toHaveLength(1);
+    expect(unknownRows[0]?.details).toStrictEqual({ observed: "hibernate" });
+  });
+
+  it("routes a THROWING event.reason getter to session-shutdown-reason-unknown with details.observed `<unreadable>`, not to extension-bootstrap-failed (PIC-47)", async () => {
+    const { harness, bootstrapDiagnostics } = await bootWithDiagnosticSink();
+
+    const emitted = await driveRawShutdown(harness, {
+      type: "session_shutdown",
+      get reason(): unknown {
+        throw new Error("reason getter boom");
+      },
+    });
+
+    // The read must happen inside the classifier's own `try`, so the
+    // subscription's bootstrap-failed `catch` is never reached.
+    expect(bootstrapDiagnostics.filter((d) => d.code === BOOTSTRAP_FAILED_CODE)).toHaveLength(0);
+    const unknownRows = emitted.filter((d) => d.code === REASON_UNKNOWN_CODE);
+    expect(unknownRows).toHaveLength(1);
+    expect(unknownRows[0]?.details).toStrictEqual({ observed: "<unreadable>" });
   });
 });
