@@ -1,10 +1,9 @@
 # Bug 0212 — AJV's generated validator drops a declared property literally named `__proto__` from every schema-derived code path and reads the `required` check off the data's prototype chain, so the document theta now emits for a `__proto__`-named `params:` field or `schema` field validates `{}` as conforming, refuses a conforming payload that carries the key as `additionalProperties`, and never enforces the field's declared type — a `__proto__`-named field cannot bind end to end even though bug 0210 closed every record-write site that reaches this validator
 
-- **Status:** open. §Fix is constraint-pinned: two routes are named (a
-  schema-build change that sidesteps the validator's schema-properties codegen,
-  and a wrapper-side own-key pre-check in `AjvSchemaValidator`), plus the
-  measured `ownProperties: true` half-fix; none is chosen here, and the route
-  decision is left to the run. No ordering dependency on
+- **Status:** fixed (0.152.0). The run took §Fix route 1 (the schema-build
+  indirection) combined with the route-3 `ownProperties: true` component, both
+  confined to documents that actually declare the name; see §Fix (0.152.0) for
+  the route adjudication and its measurements. No ordering dependency on
   [0214](./0214-defaulting-and-inference-drop-the-proto-named-key.md): the two
   are independently fixable and independently witnessable, but a
   `__proto__`-named param binds end to end only when both land.
@@ -415,6 +414,238 @@ field, the declared-type check with and without `additionalProperties`, the
 sibling-name control, and a byte assertion that a document declaring no
 `__proto__` field compiles to the same verdicts as today. Each cell must red on
 its own direction alone. The live half is cell 69, updated in the same change.
+
+## Fix (0.152.0)
+
+- **What shipped**, keyed to §Fix:
+  - `src/seams/schema-validator.ts` — three module-private additions plus one
+    branch, all inside the `V8c` seam. `declaresFilteredProperty` is a
+    read-only, schema-aware walk answering whether any `properties` table in
+    the document carries `__proto__` as an own enumerable key; it classifies
+    keys as schema-MAP (`properties`, `$defs`, `patternProperties`,
+    `definitions`), schema-VALUED (`items` incl. tuple form,
+    `additionalProperties` when an object, `not`, `contains`, `propertyNames`,
+    `if`, `then`, `else`), schema-LIST (`anyOf`, `allOf`, `oneOf`) and LEAF
+    (everything else — `type`, `required`, `enum`, `const`, `format`,
+    `description` are never recursed into), so a document declaring an ordinary
+    field literally named after a keyword cannot misfire.
+    `translateFilteredProperties` returns an equivalent document over the same
+    classification: at every affected node the `properties.__proto__` entry is
+    relocated to `patternProperties["^__proto__$"]`, whose codegen matches the
+    DATA's own keys against the pattern and is not routed through
+    `allSchemaProperties`. `required` is untouched at every level (§Fix
+    constraint 1, `schema-subset.md:8`); every copied table is written through
+    the landed `defineRecordField` idiom (`src/runtime/value.ts`), and the
+    input document is never mutated or aliased-and-mutated.
+  - `src/seams/schema-validator.ts` — a second per-instance `Ajv`,
+    `#hardenedAjv`, configured `{ strict: false, allErrors: true, logger:
+    false, ownProperties: true }` with `addFormats` applied.
+    `ownProperties: true` is what repairs the `required` direction: it switches
+    AJV's data-side presence read from the prototype-chain
+    `data.__proto__ === undefined` to a `hasOwnProperty` test
+    (`noPropertyInData`, `ajv/dist/vocabularies/code.js:43`–`:47`). It is a
+    SECOND instance rather than the default configuration because it changes
+    the generated code for every `required` check in every document, which
+    §Fix constraint 1 forbids for a document declaring no such name.
+  - `#build` branches once: an affected document compiles the translated
+    document on `#hardenedAjv`; every other document takes the unmediated
+    path — the same `#ajv`, the same `schema` object by identity, one
+    `Ajv.compile` call. The branch lives strictly inside `#build`, after
+    `compile` has computed the slug and canonical bytes off the EMITTED
+    document, so the cache key space does not move. The `CompiledValidator`
+    closure, the `ValidationError` projection and the slug cache are unchanged.
+  - No emission change, no field-name refusal (0119's settled route stands), no
+    code minted and no *Trigger* widened (DIAG-2 unengaged, §Fix constraint 2),
+    no new export.
+- **Route adjudication, on the record** (§Fix left the route open and required
+  measurement first). Route 1 alone cannot satisfy constraint 3 — relocating
+  the entry repairs `additionalProperties` and the per-key `type` check but
+  leaves `required` reading the prototype chain; the route-3 component alone
+  repairs only `required`, as §Fix already measured. Measured together on
+  `ajv@8.20.0` under the production configuration, the translated document
+  `{"type":"object","properties":{},"patternProperties":{"^__proto__$":{"type":"string"}},"required":["__proto__"],"additionalProperties":false}`
+  answers all four §Expected behaviour verdicts: `validate({})` →
+  `required`/`missingProperty:"__proto__"`; `{"__proto__":"hello"}` → `ok`;
+  `{"__proto__":123}` → `type` at `instancePath:"/__proto__"`; `{"z":1}` →
+  `additionalProperties`/`z` (co-reported with the `required` entry
+  `allErrors: true` owes). The wrapper-side own-key pre-check (§Fix route 2)
+  was refused on measurement, not on taste: enforcing the affected names in
+  theta's own closure repairs the ROOT document only unless the wrapper
+  re-implements the walk, and the defect is per-subschema (witness cells
+  F1–F3 red at `$defs` depth), so route 2 would have shipped a partial fix or
+  a second validator. Upstream (§Fix route 4) was not taken: the filter is
+  deliberate upstream code and this fix depends on no upstream movement.
+  `$defs` / `$ref` indirection was measured and rejected as a mechanism —
+  `properties: {"__proto__": {"$ref": …}}` keeps the filtered KEY, so
+  `allSchemaProperties` drops it regardless of what the value is.
+- **The AJV-reads-the-data's-prototype question, settled.** 0210's fix record
+  left it open ("§Non-goals' measured AJV-reads-the-data's-prototype finding,
+  unchanged by this fix"), and it is the same question this fix answers. It is
+  settled as a VALIDATOR-SEAM own-key discipline, resolved by configuration
+  confined to the affected document rather than by any change to the emission
+  or to the data: JSON Schema's `required` is a statement about own
+  properties, `ownProperties: true` is AJV's own switch for that reading, and
+  every payload class production can present at this seam (`JSON.parse` of the
+  wire, `defineRecordField` records, `marshalParams`' JSON round trip, the
+  `{...binderArgs}` spread in `fillDefaultsAndRevalidate`) mints own keys
+  only — measured by the round-1 reviewer: no payload class's verdict moves
+  except the prescribed repairs. The prototype-chain reading is therefore not
+  relied on anywhere, and no field-name refusal or data-side rewrite was
+  needed.
+- **§Fix constraint 4's obligation, discharged and partly corrected.**
+  - H8a **cell 69** (`tests/live/live-production-acceptance.test.ts`) is
+    flipped in this change, under §Fix constraint 4's own authority. Its
+    asserted `userTexts` moves from
+    `["Reply with the single word OK. b0210-marker=subagent marshalled params
+    failed schema validation: must NOT have additional properties"]` to
+    `["Reply with the single word OK. b0210-marker=hello"]`, and the header
+    block that explained why the cell could not assert end-to-end binding is
+    rewritten. The cell's SUBJECT is preserved and strengthened: it still
+    witnesses 0210 site (a2) — that the marshalled payload carries the key —
+    and now witnesses it through the strongest available observable, the real
+    child's real BOUND value returned on the `Ok` arm. It still discriminates a
+    site-(a2) regression: with (a2) regressed the marshalled JSON is `{}` and
+    the now-enforcing intake reds `required` instead of false-passing, a
+    byte-distinct outcome; with this fix regressed the intake reds
+    `additionalProperties` on the conforming payload. Verified live, green.
+  - **§Fix constraint 4's claim that 0210's offline cells C2/C4/C6 move with it
+    is FALSE.** Re-read at HEAD by the test author, both reviewers and the
+    verifier: C2 asserts the emitted shape and bytes, `C2, AJV` and C4 assert
+    `expect(() => compile(document)).not.toThrow()`, and C6 is the
+    sibling-name control over a document declaring `b` and `a` only. None pins
+    a `__proto__`-named property's validation verdict, so none moves under any
+    constraint-1-conforming fix. `tests/proto-named-record-write-sites.test.ts`
+    is byte-unmoved and 17/17 green (`git diff --stat` on the path is empty).
+  - Bug 0214's witness cells 1a/1b, whose recorded boundary omits the
+    post-merge AJV verdict because it is this report's subject, were NOT
+    extended. `tests/proto-named-binder-write-sites.test.ts` is byte-unmoved
+    and 9/9 green. The binder-boundary verdict this fix makes assertable is
+    locked instead by this report's own witness cell E, which drives the
+    shipped `fillDefaultsAndRevalidate` and asserts `validation.ok === false`
+    and `classification.kind === "ajv_args"` for a non-defaulted
+    `__proto__`-named param absent from the args — the same claim, inside this
+    report's own file, leaving 0214's protected cells alone.
+- **Witness:** `tests/proto-named-schema-validator-enforcement.test.ts`, 18
+  offline cells over the shipped `AjvSchemaValidator`, the shipped
+  `parseParams`, the shipped `defineRecordField` and the shipped
+  `fillDefaultsAndRevalidate`: A0–A4 (the single-property document and all four
+  §Expected behaviour verdicts, one cell per direction), B0–B3 (`__proto__`
+  beside an ordinary field, §Reach's shape), C (the declared type with
+  `additionalProperties` ABSENT, so direction 3 is witnessed unmasked), D1/D2
+  (the sibling-name control and a `$defs`/`$ref` object-typed control — bytes
+  and verdicts including full `schemaPath`s, §Fix constraint 1's guard), E (the
+  binder `params` boundary), F0–F3 (the DEPTH LOCK: the same three directions
+  for a `__proto__` property inside a `$defs` fragment reached by `$ref`), G
+  (a hand-built document whose pre-existing `patternProperties["^__proto__$"]`
+  collides with the relocated entry: both constraints must fire). `schemaPath`
+  is deliberately unpinned for entries reported against the `__proto__`-named
+  property itself — the translation legitimately moves that pointer, and
+  nothing in `src/` reads `schemaPath` (`orderValidationIssues`,
+  `src/runtime/query-error.ts:197`, keys on `(instancePath, keyword, message)`
+  only, so ERR-14 determinism is preserved) — and pinned in full everywhere
+  else, every control included.
+- **Gates** (each re-run by the orchestrator after the last edit): witness
+  `npx vitest run tests/proto-named-schema-validator-enforcement.test.ts` →
+  `Tests 18 passed (18)`; pre-fix the same file was `Tests 12 failed | 5 passed
+  (17)`. Default suite `npm test` → `Test Files 344 passed (344)` / `Tests 6587
+  passed (6587)`, against the lane baseline 343/6569 — the delta is exactly
+  this witness file. `npx tsc -p tsconfig.json --noEmit` clean. `npm run lint`
+  clean. Live: the whole H8a file
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts`
+  → `Tests 73 passed (73)` (cell 69 among them, with the flipped assertion),
+  and the H9a acceptance suite `tests/live/acceptance` → `Tests 11 passed
+  (11)`. Both live suites were run because this seam compiles every bound
+  `params:` document and every typed query's body schema, so the
+  unaffected-document path is the blast radius that matters.
+- **Review:** 2 rounds plus one comment-only polish round. Round 1 (deep) —
+  F1 [correctness]: an exact `^__proto__$` collision in a hand-built
+  `patternProperties` table was silently OVERWRITTEN by the relocated entry
+  (measured: a document declaring `pattern ^__proto__$: integer` beside
+  `properties.__proto__: string` moved `{"__proto__":"h"}` from refuse to ok),
+  and the doc comment claimed a merge that did not happen; F2 [prose]: a false
+  "allocates nothing" claim; two residuals — a `translateSchemaMap` /
+  `translateSchemaMapExcluding` duplication and a cell title naming the half
+  that was already green. All four landed: the collision now INTERSECTS as
+  `{ allOf: [pre-existing, relocated] }` through one shared
+  `relocateFilteredProperty` helper both write sites call, locked by the new
+  witness cell G. Round 2 (deep, routed deep because round 1 raised a
+  correctness finding and because the witness file had to be reconstructed
+  after a fixer-round scripting accident truncated it) — CLEAN, with the
+  reconstruction independently proven not weaker: every non-control cell's
+  asserted expectation was re-derived against a locally-built pre-fix Ajv and
+  shown to differ, every control's to match, `schemaPath` pinning audited call
+  site by call site, and every adversarial translation case re-measured
+  (collision whose pre-existing entry itself declares a nested `__proto__`, a
+  boolean `false` pre-existing entry, a `$ref` self-cycle, keyword-named
+  ordinary fields, `enum`/`const` object values). Three stale self-citations
+  round 2 raised were fixed in a comment-only polish round confined to the two
+  files this fix owns; polish verified by gate-diff, confirmation round
+  skipped.
+- **Verification:** SOLID. The fix has three separable mechanisms and each was
+  neutralised ALONE, with `git hash-object` proving a byte-exact restore after
+  every experiment (`992f08a6…` before and after all three): (a) the whole
+  branch → 13 of 18 cells red, the 5 passes being exactly the controls; (b) the
+  translation alone (still on the hardened instance) → exactly A2/A3/B2/B3/C/
+  F2/F3/G red, the `additionalProperties` and per-key `type` directions;
+  (c) `ownProperties` alone (translated document on the plain instance) →
+  exactly A1/A4/B1/E/F1 red, the `required` direction. No cell is carried by
+  another's failure and no direction is unwitnessed. Full suite, typecheck and
+  lint re-run green; the two protected witnesses re-run green and proven
+  byte-unmoved; the live end-to-end obligation discharged by cell 69, audited
+  against `#intakeSubagentRootParams` and `marshalParams` as a genuine real
+  spawned child validating a real marshalled payload through this seam.
+- **Residuals:**
+  1. **A hand-built document is the only way to reach the collision path.** The
+     lowered subset emits no `patternProperties` (`schema-subset.md:8`), so
+     `relocateFilteredProperty`'s `allOf` intersection is unreachable from
+     theta source; cell G drives it with a hand-built `LoweredSchema` and says
+     so. It is kept rather than refused because the translation has no
+     diagnostic channel and silently dropping a declared constraint would be
+     the worse failure.
+  2. **The keyword classification is wider than the lowered subset.**
+     `contains`, `propertyNames`, `if` / `then` / `else` and `definitions` are
+     classified but never emitted by our lowering. Round 2 measured the width
+     as inert (no verdict divergence, no misfire) rather than risky; it exists
+     so a hand-built or future document is walked at the right depth instead of
+     silently skipped. Any keyword NOT classified is a leaf, i.e. copied
+     verbatim and not repaired — a `__proto__`-named property under an
+     unclassified keyword would still be mishandled by AJV. No such keyword is
+     reachable at HEAD.
+  3. **`schemaPath` moves for the relocated property's own errors** — from
+     `#/properties/__proto__/…` to `#/patternProperties/%5E__proto__%24/…`.
+     Nothing in `src/` reads `schemaPath` (grep: this seam is the only
+     mention) and ERR-14's ordering keys on `(instancePath, keyword, message)`,
+     so this is downstream-inert today; a future consumer of `schemaPath`
+     would see the relocated pointer.
+  4. **Line-number citations elsewhere in the corpus that point into
+     `src/seams/schema-validator.ts` past line 55 are left stale** by this
+     fix's ~300-line insertion — including this report's own §Affected anchors
+     (`:112`, `:116`, `:123`, `:149`) and 0210's fix record. No citation sweep
+     was run (bug 0134's forbidden class); every site this fix touches is
+     cited by SYMBOL. Only the self-citations INSIDE the two files this fix
+     owns were re-derived.
+  5. **Two citation drifts and one measurement error in this document,** found
+     while re-deriving and not corrected in place: §Reach's `@@ R1` block
+     quotes `"required":["a"]` for `{a: string, __proto__: string}`, but the
+     shipped `parseParams` emits `"required":["a","__proto__"]` (re-measured;
+     `@@ P1f` is the accurate row and `schema-subset.md:8` requires it); and
+     §Affected's `production-theta-producer.ts:1317`–`:1318`,
+     `:2238`/`:2358` and `subagent.md:93` are now `:1328`–`:1329`,
+     `:2259`/`:2379` and `subagent.md:96`.
+- **Discharge notes appended:** none. 0210's fix record §Residuals item 1 is
+  this report's subject and is discharged BY this record; 0214's §Residuals
+  third bullet ("a `__proto__`-named param binds end to end only when both
+  reports are fixed") is now satisfied and evidenced by H8a cell 69's green
+  `b0210-marker=hello`.
+- **Pinned dispositions / non-goals:** the emission is untouched — no change to
+  `src/parser/params.ts`, `src/parser/body-type-lowering.ts` or any lowering
+  site, and a document declaring no `__proto__` field compiles byte-identically
+  on the same instance from the same object; no field-name refusal, per 0119's
+  settled route; no diagnostic code minted and no *Trigger* widened, so DIAG-2
+  is unengaged; no upstream `ajv` change, fork or version bump; `ownProperties:
+  true` is NOT applied to the default instance; 0210's other excluded finding —
+  the single-string bypass running no AJV validation — remains excluded and
+  unadjudicated.
 
 ## Provenance
 

@@ -11320,61 +11320,47 @@ describe("H8a-T — bug 0203 (cell 68): an `@<T>` query ascription carrying a ju
 // PRIMARY assertion actually exercises, through the marshalled
 // `PI_THETA_PARAMS` channel the real child re-validates and rebinds from.
 //
-// A GENUINE, SEPARATE DEFECT SURFACED WHILE WIRING THIS CELL, NOT FIXED BY
-// 0210 AND NOT PAPERED OVER HERE: the CHILD's own intake step
-// (`#intakeSubagentRootParams`) validates the marshalled JSON against the
-// callee's OWN lowered `params:` document with a REAL `AjvSchemaValidator`
-// (`strict:false, allErrors:true`, byte-identical to production and to 0210's
-// own cell C2/C4 configuration). Measured directly (both offline, with a
-// throwaway node+ajv probe reproducing the exact schema/config, and live, by
-// this cell's own first run): AJV's OWN generated `additionalProperties:
-// false` code refuses a payload whose OWN `__proto__` key IS the declared
-// property -- `must NOT have additional properties` -- even though schema-
-// subset.md:78's emission is correct and 0210's cell C2/C4 already proved the
-// document COMPILES. Symmetrically, AJV's `required` check does the OPPOSITE
-// wrong thing on an EMPTY payload: `{}` against `required:["__proto__"]`
-// validates `ok:true` (a false pass -- exactly the class 0210 Non-goals names:
-// "AJV's own required and properties checks read the DATA's prototype chain").
-// This is a defect in AJV's own generated validator code for a schema
-// property literally named `__proto__`, orthogonal to all five of 0210's
-// record-write sites, undischarged by 0210's fix, and (searched) untracked by
-// any file under `docs/bugs/`. It means a REAL child can never successfully
-// VALIDATE a marshalled `__proto__` param end to end today, whatever site
-// (a1)/(a2) do -- reported to the orchestrator as a finding, not fixed here.
+// WHAT THE CHILD'S OWN INTAKE NOW DOES, and why this cell asserts an `Ok`:
+// the CHILD's intake step (`#intakeSubagentRootParams`) validates the
+// marshalled JSON against the callee's OWN lowered `params:` document with a
+// REAL `AjvSchemaValidator` (`strict:false, allErrors:true`, byte-identical to
+// production and to 0210's own cell C2/C4 configuration). That seam ENFORCES a
+// declared property literally named `__proto__` (bug 0212 §Fix: the
+// schema-build indirection plus the confined `ownProperties` component, both
+// inside `src/seams/schema-validator.ts`; AJV's own codegen filters that name
+// out of every schema-map enumeration -- `allSchemaProperties`,
+// `ajv/dist/vocabularies/code.js:48` -- and reads `required` off the DATA's
+// prototype chain, so an unmediated AJV both refuses the conforming payload as
+// `additionalProperties` and false-passes an EMPTY one). With that seam fixed,
+// a marshalled `{"__proto__":"hello"}` validates, the child BINDS the param,
+// its tail expression returns the bound string, and the parent's
+// `invoke<string>` resolves `Ok("hello")` -- so this cell asserts full
+// end-to-end BINDING of a `__proto__`-named param through a real spawned
+// child, which is the strongest claim the fixture can carry and the one
+// 0210 + 0212 together make true.
 //
-// HOW THIS CELL STILL PROVES SITES (a1)/(a2), GIVEN THAT DEFECT: the two AJV
-// failure modes above are DIFFERENT, and which one fires is exactly the
-// (a2) observable this cell needs. Pre-fix (a2 assigns instead of defines),
-// the marshalled JSON is `{}` (the key dropped) -- AJV's `required` bug above
-// means intake VALIDATES that empty payload `ok:true`, the child binds an
-// EMPTY params map, and the kid's body then references the declared-but-
-// unbound `__proto__` identifier, which fails the PARENT's `invoke<string>`
-// return-type check (measured: `e.message` is `"invoke<string> return value
-// failed validation"`). Post-fix (a2 defines), the marshalled JSON correctly
-// carries `{"__proto__":"hello"}` -- the key REACHED the child's intake
-// payload, which is exactly what (a2) is responsible for -- and AJV's
-// `additionalProperties` bug above then refuses THAT payload instead
-// (measured: `e.message` is `"subagent marshalled params failed schema
-// validation: must NOT have additional properties"`). The two `e.message`
-// strings are BYTE-DISTINCT and each names its own real cause, so asserting
-// the exact post-fix string is what discriminates "the key reached the
-// child's payload" (post-fix) from "the key never reached it" (pre-fix) --
-// this cell cannot assert full end-to-end BINDING (the AJV defect above
-// blocks that regardless of 0210's fix), so it asserts the strongest true
-// claim available: the marshalled payload's SHAPE changed exactly as (a2)
-// promises, observed through the real child's own real refusal message.
+// HOW THIS CELL STILL PROVES SITES (a1)/(a2): the discriminator is now
+// Ok-vs-Err, and each side names its own real cause. Post-fix (a2 defines),
+// the marshalled JSON carries `{"__proto__":"hello"}`, intake validates it and
+// the bound value `"hello"` reaches `z`. With site (a2) regressed to a plain
+// assignment, the marshalled JSON is `{}` (the assignment hits the inherited
+// `__proto__` setter and defines no own key), and the child's intake -- now
+// enforcing `required` by own-key test rather than by prototype-chain read --
+// REFUSES that empty payload instead of false-passing it, so `z` takes the
+// `Err` arm with a message naming the missing required property. The two
+// values are byte-distinct, so asserting the exact bound string discriminates
+// "the key reached the child's payload AND bound" from "the key never reached
+// it".
 //
 // OBSERVABLE, per AGENTS.md "Assert on real observables": `turn.userTexts`
 // (deterministic outbound-render channel) carries the parent's own computed
-// `@`-query text, `b0210-marker=${z}`, where `z` is `e.message` off the REAL
-// child's REAL `Err` envelope (the kid never returns `Ok` today, for the
-// orthogonal AJV reason above, on EITHER side of 0210's fix -- so this cell's
-// discriminator is the ERR MESSAGE's content, not Ok-vs-Err). `turn
+// `@`-query text, `b0210-marker=${z}`, where `z` is the REAL child's REAL
+// bound return value off the `Ok` arm (the `Err` arm remains a control
+// fallback whose message would name the real refusal instead). `turn
 // .systemNotes` is also checked for the absence of any fail-closed note
 // naming the PARENT theta (a note there would mean the PARENT itself failed
-// closed, not merely that its bound `z` took the `Err` arm -- the parent's
-// `match` always resolves the `Err` locally and the parent theta itself
-// terminates `Ok` on both sides of the fix).
+// closed rather than binding `z` at all -- the parent's `match` resolves
+// either arm locally and the parent theta itself terminates `Ok`).
 //
 // #subagent-child-pins: this file's imported `./harness` already sets all
 // three pins at module scope (`process.argv[1]`, `SUBAGENT_EXTENSION_PIN_ENV`,
@@ -11428,7 +11414,7 @@ function b0210CellALiveParentTheta(): string {
 }
 
 describe("H8a-T -- bug 0210 (cell cell 69): the spawnSubagentConversation params marshalling record-write site (a2) reaches a REAL spawned subagent child, live", () => {
-  it("the marshalled JSON the real child's real intake validates against carries the __proto__ key (an orthogonal AJV additionalProperties defect then refuses it, reported as a finding), spending one real model turn", async () => {
+  it("the marshalled JSON the real child's real intake validates against carries the __proto__ key, the child binds it and the parent's invoke<string> resolves Ok with the bound value, spending one real model turn", async () => {
     const provider = await requireLiveProvider();
     const thetas: PlantedTheta[] = [
       { source: "project", stem: "b0210cellalivekid", text: b0210CellALiveKidTheta() },
@@ -11447,24 +11433,26 @@ describe("H8a-T -- bug 0210 (cell cell 69): the spawnSubagentConversation params
 
       const turn = await driveSlashCaptureTurn(handle, "/b0210cellaliveparent");
 
-      // THE FIXED OBSERVABLE: the real child's real refusal MESSAGE names
-      // "additional properties" (the marshalled payload correctly carries the
-      // key -- site (a2)'s job) rather than the pre-fix "return value failed
-      // validation" (the key never reached the payload at all). See this
-      // cell's header for the full trace and the orthogonal AJV defect that
-      // keeps either side of the fix from returning `Ok`.
+      // THE FIXED OBSERVABLE: the real child's real BOUND VALUE. The
+      // marshalled payload carries the key (site (a2)'s job), the child's
+      // intake validates it against its own lowered `params:` document
+      // (bug 0212's fixed `AjvSchemaValidator`), the child binds it and
+      // returns it, and the parent's `invoke<string>` resolves `Ok`. See this
+      // cell's header for the full trace and for what each side of a site
+      // (a2) regression produces instead.
       expect(
         turn.userTexts,
-        "bug 0210 Fix (site a2, cell cell 69): the real child's real intake " +
-          "refusal must name `additionalProperties` (the __proto__ key REACHED " +
-          "the marshalled payload). Pre-fix, site (a2)'s `paramValues[name] = " +
-          "value` hits the inherited `__proto__` setter, the marshalled JSON is " +
-          "`{}`, and the failure is instead the PARENT's `invoke<string>` " +
-          "return-type refusal (the kid's body referenced an unbound " +
-          "identifier) -- observed userTexts: " + JSON.stringify(turn.userTexts),
-      ).toEqual([
-        "Reply with the single word OK. b0210-marker=subagent marshalled params failed schema validation: must NOT have additional properties",
-      ]);
+        "bugs 0210 (site a2) + 0212 (the AJV seam), cell cell 69: a " +
+          "`__proto__`-named param must bind END TO END through a real spawned " +
+          "child -- the marshalled payload carries the key, the child's intake " +
+          "validates it and the bound value comes back on the `Ok` arm. With " +
+          "site (a2) regressed to `paramValues[name] = value` the inherited " +
+          "`__proto__` setter drops it, the marshalled JSON is `{}` and the " +
+          "child's intake refuses it for the missing required property; with " +
+          "the 0212 seam regressed the child's intake refuses the CONFORMING " +
+          "payload as `additionalProperties` -- observed userTexts: " +
+          JSON.stringify(turn.userTexts),
+      ).toEqual(["Reply with the single word OK. b0210-marker=hello"]);
       const failureNotes = turn.systemNotes.filter((n) =>
         /^theta \/b0210cellaliveparent (returned Err|cancelled|aborted)/.test(n),
       );

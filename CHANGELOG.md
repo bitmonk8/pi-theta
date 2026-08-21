@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.152.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0212 — a declared `__proto__` property is now enforced by the AJV
+  validator** instead of being silently dropped by codegen.
+  `properties.__proto__` is relocated to `patternProperties["^__proto__$"]`
+  at every depth (schema-aware walk; `allOf` intersection on a colliding
+  pattern) plus `ownProperties: true`, both confined to affected documents
+  via a per-instance hardened AJV. Witness:
+  `tests/proto-named-schema-validator-enforcement.test.ts` (18 cells, 12
+  red pre-fix). H8a cell 69 flipped under 0212's own §Fix constraint 4
+  (ratified); 0210's AJV-reads-data-prototype question settled on the
+  record. Closes the `__proto__` pipeline opened by 0210/0214.
+
 ## [0.151.0] - 2026-08-26
 
 ### Fixed
