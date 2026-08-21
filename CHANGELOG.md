@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.162.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0118 — a nested `fn` under `par for` now refuses at load** instead
+  of deferring to a runtime panic. `walkExpr` threads a `scope: WalkCtx`
+  (31 sites) and gains a `par-for` arm (iterand → max → body,
+  `inLoop: true`). Witness: ~40 new cells in `tests/par-for.test.ts` (69
+  total) + `interpolated-result-gate` h1 (83 total) + H8a cell 81 + a NEW
+  standalone H9a file. 0140's g9 reach fact holds verbatim (§Fix (c)
+  arrangement 2). 0079 residual (iv) discharged.
+
 ## [0.161.0] - 2026-08-26
 
 ### Fixed

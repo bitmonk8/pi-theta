@@ -406,3 +406,22 @@ rather than key presence preserves that.
   through a bare object literal written inside the interpolation; and the array arm
   reproduces exactly as stated. Residuals (ii), (iii) and (iv) of this record are
   untouched — filed as bugs 0115, 0116 and 0118 respectively. Status unchanged.
+
+- **Discharge note (bug 0118, 0.162.0).** Residual **(iv)** of this record — "a
+  nested `fn`'s written `Result<…>` return defers to (b)'s runtime panic" — is
+  **DISCHARGED** as unreachable, not as fixed by that mechanism. Bug
+  [0118](./0118-nested-fn-result-return-defers-to-runtime-panic.md) measured no
+  input that reaches it: FN-1 (`docs/spec_topics/functions.md:20`) makes a
+  nested `fn` `theta/parse/nested-fn`, an error-severity `theta/parse/*`
+  diagnostic blocks registration
+  (`src/extension/production-composition.ts`'s `hasLoadParseError`), and the
+  one placement the parse-phase structural walk did not visit before that
+  fix — a `par for` body — was also the one placement the runtime callable
+  registry never hoisted a `fn` into
+  (`src/runtime/lexical-environment.ts`, top-level `fn` only), so the call
+  resolved as an unknown host tool and the body never ran to reach its return
+  at all. Bug 0118 closed the placement gap by giving the structural walk a
+  `par-for` arm, so top-level is now the only placement a `fn` can occupy and
+  `collectFnReturnAnnotations`'s reach coincides exactly with FN-1's admitted
+  set. This residual's widening is unreachable and not taken (bug 0118 §Fix
+  (e)). Status unchanged.

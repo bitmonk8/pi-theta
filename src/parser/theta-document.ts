@@ -6602,7 +6602,13 @@ function checkStructural(
     out,
   );
   if (body.tail !== null) {
-    walkExpr(body.tail, refs, file, out);
+    walkExpr(
+      body.tail,
+      { inLoop: false, topLevel: true, voidReturn: false },
+      refs,
+      file,
+      out,
+    );
   }
   // The alias/union declaration-graph checks (bug 0033 §Fix): scoped to
   // TOP-LEVEL declarations only, mirroring `collectBodyTypes` (the lowering
@@ -6970,7 +6976,7 @@ function walkBlock(
 ): void {
   walkStatements(block.statements, scope, refs, file, out);
   if (block.tail !== null) {
-    walkExpr(block.tail, refs, file, out);
+    walkExpr(block.tail, scope, refs, file, out);
   }
 }
 
@@ -7006,15 +7012,15 @@ function walkStatement(
         }
       }
       if (s.init !== null) {
-        walkExpr(s.init, refs, file, out);
+        walkExpr(s.init, scope, refs, file, out);
       }
       return;
     }
     case "reassign":
-      walkExpr(s.value, refs, file, out);
+      walkExpr(s.value, scope, refs, file, out);
       return;
     case "if": {
-      walkExpr(s.condition, refs, file, out);
+      walkExpr(s.condition, scope, refs, file, out);
       walkBlock(s.then, { ...scope, topLevel: false }, refs, file, out);
       if (s.otherwise !== null) {
         if ("statements" in s.otherwise) {
@@ -7032,7 +7038,7 @@ function walkStatement(
       return;
     }
     case "while":
-      walkExpr(s.condition, refs, file, out);
+      walkExpr(s.condition, scope, refs, file, out);
       walkBlock(
         s.body,
         { ...scope, inLoop: true, topLevel: false },
@@ -7042,7 +7048,7 @@ function walkStatement(
       );
       return;
     case "for":
-      walkExpr(s.iterand, refs, file, out);
+      walkExpr(s.iterand, scope, refs, file, out);
       walkBlock(
         s.body,
         { ...scope, inLoop: true, topLevel: false },
@@ -7125,7 +7131,7 @@ function walkStatement(
           ),
         );
       } else {
-        walkExpr(s.operand, refs, file, out);
+        walkExpr(s.operand, scope, refs, file, out);
       }
       return;
     case "query":
@@ -7146,16 +7152,16 @@ function walkStatement(
           range: s.range,
         }),
       );
-      walkExpr(s.query, refs, file, out);
+      walkExpr(s.query, scope, refs, file, out);
       return;
     case "tool-call":
-      walkExpr(s.call, refs, file, out);
+      walkExpr(s.call, scope, refs, file, out);
       return;
     case "invoke":
-      walkExpr(s.invoke, refs, file, out);
+      walkExpr(s.invoke, scope, refs, file, out);
       return;
     case "expr":
-      walkExpr(s.expr, refs, file, out);
+      walkExpr(s.expr, scope, refs, file, out);
       return;
     case "schema": {
       if (s.fields !== undefined) {
@@ -7343,6 +7349,7 @@ function checkObjectExpr(
 
 function walkExpr(
   e: Expr,
+  scope: WalkCtx,
   refs: StructuralRefs,
   file: string,
   out: Diagnostic[],
@@ -7361,16 +7368,16 @@ function walkExpr(
       }
       return;
     case "binary":
-      walkExpr(e.left, refs, file, out);
-      walkExpr(e.right, refs, file, out);
+      walkExpr(e.left, scope, refs, file, out);
+      walkExpr(e.right, scope, refs, file, out);
       return;
     case "ternary":
-      walkExpr(e.condition, refs, file, out);
-      walkExpr(e.consequent, refs, file, out);
-      walkExpr(e.alternate, refs, file, out);
+      walkExpr(e.condition, scope, refs, file, out);
+      walkExpr(e.consequent, scope, refs, file, out);
+      walkExpr(e.alternate, scope, refs, file, out);
       return;
     case "try":
-      walkExpr(e.operand, refs, file, out);
+      walkExpr(e.operand, scope, refs, file, out);
       return;
     case "call":
       // Direct-call-argument position: this walk suppresses the bare-object
@@ -7391,7 +7398,7 @@ function walkExpr(
       // inside an array argument), are still validated.
       for (const arg of e.args) {
         const directBareObject = arg.kind === "object" && arg.typeName === null;
-        walkExpr(arg, refs, file, out, directBareObject);
+        walkExpr(arg, scope, refs, file, out, directBareObject);
       }
       return;
     case "invoke":
@@ -7416,7 +7423,7 @@ function walkExpr(
         );
       }
       for (const arg of e.args) {
-        walkExpr(arg, refs, file, out);
+        walkExpr(arg, scope, refs, file, out);
       }
       return;
     case "member": {
@@ -7439,37 +7446,37 @@ function walkExpr(
           );
         }
       }
-      walkExpr(e.target, refs, file, out);
+      walkExpr(e.target, scope, refs, file, out);
       return;
     }
     case "index":
-      walkExpr(e.target, refs, file, out);
-      walkExpr(e.index, refs, file, out);
+      walkExpr(e.target, scope, refs, file, out);
+      walkExpr(e.index, scope, refs, file, out);
       return;
     case "object":
       checkObjectExpr(e, refs, file, out, bareObjectAllowed);
       for (const field of e.fields) {
-        walkExpr(field.value, refs, file, out);
+        walkExpr(field.value, scope, refs, file, out);
       }
       return;
     case "match":
-      walkExpr(e.scrutinee, refs, file, out);
+      walkExpr(e.scrutinee, scope, refs, file, out);
       for (const arm of e.arms) {
-        walkExpr(arm.body, refs, file, out);
+        walkExpr(arm.body, scope, refs, file, out);
       }
       return;
     case "result-ctor":
-      walkExpr(e.arg, refs, file, out);
+      walkExpr(e.arg, scope, refs, file, out);
       return;
     case "method-call":
-      walkExpr(e.target, refs, file, out);
+      walkExpr(e.target, scope, refs, file, out);
       for (const arg of e.args) {
-        walkExpr(arg, refs, file, out);
+        walkExpr(arg, scope, refs, file, out);
       }
       return;
     case "array":
       for (const el of e.elements) {
-        walkExpr(el, refs, file, out);
+        walkExpr(el, scope, refs, file, out);
       }
       return;
     case "query":
@@ -7563,6 +7570,18 @@ function walkExpr(
           }
         }
       }
+      return;
+    case "par-for":
+      // `break` / `continue` in a `par for` body are already rejected by
+      // CTRL-4 (`theta/parse/par-break-continue`); marking the body
+      // `inLoop: true` here keeps `checkBreakStatement` /
+      // `checkContinueStatement` from ALSO drawing their generic
+      // outside-a-loop diagnostic for the same statement.
+      walkExpr(e.iterand, scope, refs, file, out);
+      if (e.max !== null) {
+        walkExpr(e.max, scope, refs, file, out);
+      }
+      walkBlock(e.body, { ...scope, inLoop: true, topLevel: false }, refs, file, out);
       return;
     default:
       // number / string / bool / null — no nested expressions.

@@ -994,6 +994,55 @@ describe("bug 0079 (d) — the registry row is the oracle for both halves", () =
 });
 
 // ===========================================================================
+// BUG 0118 — the ONE shape that could carry a `Result` interpolation past this
+// gate is refused by FN-1 instead, and that silence is CORRECT.
+// ===========================================================================
+
+describe("bug 0118 — the two-nested-`fn` shape is refused by FN-1, not by this gate", () => {
+  it("(h1): both nested `fn`s draw theta/parse/nested-fn, and theta/parse/interpolated-result stays ABSENT", () => {
+    // The one shape that could hold a `Result`-typed interpolation the gate
+    // cannot see hides the `@`-query inside a `fn` nested in a `par for` body:
+    // CTRL-4's own body scan does not descend into a `fn` declaration
+    // (src/parser/theta-document.ts:4617–4620), so that scan reports nothing on
+    // the query. FN-1 (docs/spec_topics/functions.md:20) refuses the shape
+    // through the parse-phase structural walk instead — `walkExpr`'s `par-for`
+    // arm (:7350) reaches the body and `checkFnPlacement` fires — one refusal
+    // per declaration. This gate stays silent on the shape: a nested
+    // `fn`'s return annotation is out of `collectFnReturnAnnotations`'s reach by
+    // design (§Fix (e) keeps the collectors top-level-only), so the absence below
+    // is the CORRECT outcome and not a coverage gap in bug 0079's static half.
+    const src = `${FM}let xs = par for i in [1, 2] {
+  fn mk(): Result<integer, QueryError> {
+    Ok(1)
+  }
+  fn use(): integer {
+    let r = mk()
+    let _ = @\`x\${r}\`
+    1
+  }
+  use()
+}
+@\`done \${xs}\``;
+    const doc = parseOnly(src);
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}`),
+      `PRIMARY (bug 0118 finding (2)): FN-1 refuses BOTH nested declarations — one diagnostic each — so this shape does not load. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual(["error theta/parse/nested-fn", "error theta/parse/nested-fn"]);
+    expect(
+      doc.diagnostics.filter((d) => d.code === "theta/parse/nested-fn").map((d) => d.message),
+      "DIAG-4: the expected message is READ from the registry's Message column, never copied prose",
+    ).toEqual([
+      registryMessage(REGISTRY, "theta/parse/nested-fn"),
+      registryMessage(REGISTRY, "theta/parse/nested-fn"),
+    ]);
+    expect(
+      gateDiagnostics(doc).map((d) => `${d.code}: ${d.message}`),
+      `CONTROL (bug 0118 §Fix (e)): ${INTERPOLATED_RESULT_CODE} must be ABSENT here — the interpolation sits behind a nested \`fn\` FN-1 forbids, so no legal input carries the annotation this gate does not read. Observed: ${showDiagnostics(doc)}`,
+    ).toEqual([]);
+  });
+});
+
+// ===========================================================================
 // BUG 0114 — a `Result` NESTED inside an interpolated array or object.
 //
 // Bug 0079 (everything above) closed the TOP-LEVEL position in both halves.

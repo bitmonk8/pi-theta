@@ -1,4 +1,8 @@
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
@@ -351,6 +355,832 @@ describe("RFC-0003 par-for — body restrictions (CTRL-4)", () => {
       ["par for f in [1, 2, 3] {", "  continue", "}"].join("\n"),
     );
     expect(codes).toContain("theta/parse/par-break-continue");
+  });
+});
+
+// ===========================================================================
+// PARSER — the parse-phase structural walk reaches a `par for` (bug 0118)
+// ===========================================================================
+//
+// RULE: `walkExpr` (src/parser/theta-document.ts:7350) has a `par-for` arm, so
+// a `par for`'s iterand, `max` operand and body are visited and every check
+// that walk owns judges that subtree on the same terms as any other block —
+// FN-1's placement clause (`theta/parse/nested-fn`), FN-1's second clause
+// (`theta/parse/function-as-value`), RET-3 (`theta/parse/unreachable-code`),
+// the `let`-binding form check, the annotation type-expression check, the
+// object-literal and enum-variant checks, and the `@`-query template checks.
+// WHY: FN-1 (docs/spec_topics/functions.md:20) is unconditional — "`fn`
+// declarations are top-level only … Nested function definitions surface as
+// `theta/parse/nested-fn`" — and the registry Trigger
+// (docs/spec_topics/diagnostics/code-registry-parse.md:86) reads "`fn`
+// declaration nested inside another `fn` body or a block", of which a `par for`
+// body is one. The same reasoning carries every other check the walk owns:
+// each judges the source it is handed, and a `par for` body is source
+// (docs/bugs/0118-nested-fn-result-return-defers-to-runtime-panic.md §Fix (a),
+// §Expected behaviour — "the checks the same walk owns fire in that subtree on
+// the same terms as everywhere else").
+//
+// Every cell pins the WHOLE unfiltered `doc.diagnostics` array as an ordered
+// `severity code` list, so a second copy of a code the parser's own CTRL-4 scan
+// already emits reds here rather than passing on an "at least one" match
+// (§Fix (b)). Where a body construct draws TWO codes, both are pinned: each is
+// factually true of the source it judges, and both are error severity, so
+// registration is blocked either way.
+//
+// The one suppression the arm takes is `inLoop: true`, and only because a
+// `par for` IS a loop: `theta/parse/break-outside-loop` (and its `continue`
+// twin) would be factually FALSE of a `break` in that body, which CTRL-4
+// already refuses as `theta/parse/par-break-continue`.
+//
+// `walkIdentExpr` (:5371) and `checkUnknownIdentifiers` carry no `par-for` arm,
+// so no identifier-resolution code is drawn in this subtree (§Fix (c) keeps
+// that omission as a scoped residual); cell (r2) pins that absence.
+//
+// Each newly-reachable family below is paired with a TOP-LEVEL real-parse
+// CONTROL: the control proves the code belongs to the check, so the body cell's
+// verdict is attributable to the walk's reach and nothing else.
+
+/**
+ * The live registry, read from the spec corpus — the DIAG-4 message oracle for
+ * this group (the same source, and the same reader, the production emitters'
+ * messages are transcribed from).
+ */
+const BUG_0118_REGISTRY = parseRegistry(
+  [
+    "code-registry-parse.md",
+    "code-registry-load.md",
+    "code-registry-runtime.md",
+    "code-registry-host.md",
+  ]
+    .map((page) =>
+      readFileSync(
+        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
+        "utf8",
+      ),
+    )
+    .join("\n"),
+) as readonly { readonly code: string; readonly message: string }[];
+
+const NESTED_FN = "theta/parse/nested-fn";
+const FUNCTION_AS_VALUE = "theta/parse/function-as-value";
+const UNREACHABLE_CODE = "theta/parse/unreachable-code";
+const LET_WITHOUT_INITIALISER = "theta/parse/let-without-initialiser";
+const PAR_BREAK_CONTINUE = "theta/parse/par-break-continue";
+const PAR_QUERY_IN_BODY = "theta/parse/par-query-in-body";
+const DISCARDED_QUERY_RESULT = "theta/parse/discarded-query-result";
+const ANNOTATION_TYPE_NOT_EXPRESSION = "theta/parse/annotation-type-not-expression";
+const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
+const BARE_OBJECT_LITERAL = "theta/parse/bare-object-literal";
+const UNKNOWN_VARIANT = "theta/parse/unknown-variant";
+const UNSUPPORTED_FEATURE = "theta/parse/unsupported-feature";
+const BARE_RETURN_IN_NON_VOID = "theta/parse/bare-return-in-non-void";
+
+/**
+ * The registered Message for `code` (DIAG-4), with each `<placeholder>` key of
+ * `bindings` substituted. A missing row fails LOUDLY: the Message column is
+ * this group's only message oracle, so its absence is a harness failure, never a
+ * skip. The three `theta/parse/par-*` codes are registered on
+ * docs/reference/diagnostics.md:118,:120 instead of under
+ * docs/spec_topics/diagnostics/ (recorded at docs/reference/diagnostics.md:312),
+ * so they are unreachable through this oracle and the cells that pin them assert
+ * their exact COUNTS rather than their messages.
+ */
+function registryMessageFor(
+  code: string,
+  bindings: Readonly<Record<string, string>> = {},
+): string {
+  const template = registryMessage(BUG_0118_REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: no registry row for ${code} in docs/spec_topics/diagnostics/ — the DIAG-4 Message column is this group's oracle, so a missing row is a harness failure, never a skip`,
+    );
+  }
+  let message = template;
+  for (const [placeholder, value] of Object.entries(bindings)) {
+    message = message.replace(placeholder, value);
+  }
+  return message;
+}
+
+/** The whole unfiltered diagnostics array as an ordered `severity code` list. */
+function diagShapeOf(src: string): string[] {
+  return parse(src).diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}`);
+}
+
+/** Every message carried by a diagnostic of `code`, in emission order. */
+function messagesFor(src: string, code: string): string[] {
+  return parse(src)
+    .diagnostics.filter((d: Diagnostic) => d.code === code)
+    .map((d: Diagnostic) => d.message);
+}
+
+/** A compact rendering of a source's diagnostics for failure messages. */
+function showDiags(src: string): string {
+  const diags = parse(src).diagnostics;
+  return diags.length === 0
+    ? "[] (NO DIAGNOSTIC OF ANY SEVERITY — the source loads clean)"
+    : diags.map((d) => `${d.severity} ${d.code}: ${d.message}`).join("; ");
+}
+
+describe("bug 0118 — FN-1 reaches a `fn` declared under a `par for` (structural walk)", () => {
+  it("(r1) FN-1: a `fn` declared directly in a `par for` body is theta/parse/nested-fn", () => {
+    // FN-1 admits `fn` at the top level only, and a `par for` body is a block —
+    // the registry Trigger's own words (code-registry-parse.md:86).
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  fn mk(): integer { 1 }",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 finding (2)): FN-1 is unconditional, so this declaration is refused at load; the whole diagnostics array is exactly that one refusal. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`]);
+    expect(
+      messagesFor(src, NESTED_FN),
+      "DIAG-4: the expected message is READ from the registry's Message column, never copied prose",
+    ).toEqual([registryMessageFor(NESTED_FN)]);
+  });
+
+  it("(r2) FN-1: calling the nested `fn` in the body adds no second code — the ident walk has no `par-for` arm", () => {
+    // §Fix (c): `walkIdentExpr` / `checkUnknownIdentifiers` carry no `par-for`
+    // arm, so the call draws no `theta/parse/unknown-identifier`; the
+    // declaration's refusal alone blocks registration.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  fn mk(): integer { 1 }",
+      "  let r = mk()",
+      "  r",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (a) + (c)): exactly ONE refusal for the declaration, and no identifier-resolution code for the call. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`]);
+    expect(
+      diagShapeOf(src),
+      "§Fix (c): the identifier walk has no `par-for` arm, so no unknown-identifier is claimed for a name only a nested (refused) `fn` declares",
+    ).not.toContain("error theta/parse/unknown-identifier");
+  });
+
+  it("(r3) §Fix (b): a body `@`-query keeps exactly ONE par-query-in-body beside the refusal", () => {
+    // The walk's `query` arm reaches this template and CTRL-4's own scan
+    // (theta-document.ts:4593–4601) also refuses it, so the pair must not become
+    // a double emission of the same code.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  fn mk(): integer { 1 }",
+      "  let r = mk()",
+      "  let _ = @`x${r}`",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (a)/(b)): the refusal is added, CTRL-4's query refusal stays single. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`, `error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(r4) FN-1: a `fn` in a plain `for` block INSIDE the `par for` body is refused", () => {
+    // The hole is the `par-for` node itself, not the depth: an inner block form
+    // the walk already covers is still unreached while its `par for` ancestor is.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  for j in [3] {",
+      "    fn mk(): integer { 1 }",
+      "  }",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): FN-1 refuses the declaration at any depth under a \`par for\`. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`]);
+    expect(
+      messagesFor(src, NESTED_FN),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(NESTED_FN)]);
+  });
+
+  it("(r5) FN-1: a `par for` nested in a top-level `fn` body carries the refusal too", () => {
+    // The enclosing scope already has `topLevel: false`; the refusal is owed for
+    // the `par for` body regardless of where the `par for` itself sits.
+    const src = [
+      "fn outer(): integer {",
+      "  let xs = par for i in [1, 2] {",
+      "    fn mk(): integer { 1 }",
+      "    1",
+      "  }",
+      "  1",
+      "}",
+      "let n = outer()",
+      "n",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): nesting the \`par for\` deeper does not excuse the declaration. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`]);
+  });
+
+  it("(r7) FN-1 second clause: a `fn` name bound to a `let` in the body is theta/parse/function-as-value", () => {
+    // Same walk, same arm (`ident`): theta 1.0 has no first-class functions, so
+    // the value position is refused inside a `par for` body as anywhere else.
+    const src = [
+      "fn f(): integer { 1 }",
+      "let xs = par for i in [1, 2] {",
+      "  let g = f",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118, traversal-gap row): FN-1's second clause is owned by the same walk, so it must fire in this subtree. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${FUNCTION_AS_VALUE}`]);
+    expect(
+      messagesFor(src, FUNCTION_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column, with the row's `<name>` bound to the referenced `fn`",
+    ).toEqual([registryMessageFor(FUNCTION_AS_VALUE, { "<name>": "f" })]);
+  });
+
+  it("(r7-control) FN-1 second clause: the identical `let g = f` at the TOP LEVEL already fires", () => {
+    // The control direction of (r7): the check itself is correct and total over
+    // its input, so this cell isolates (r7)'s verdict to the walk's reach and not
+    // to the check.
+    const src = ["fn f(): integer { 1 }", "let g = f", "1"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the top-level placement is already refused, so (r7)'s red is the walk's reach and not the check. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${FUNCTION_AS_VALUE}`]);
+    expect(
+      messagesFor(src, FUNCTION_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(FUNCTION_AS_VALUE, { "<name>": "f" })]);
+  });
+
+  it("(r8) RET-3: code after `return` inside a `fn` under a `par for` body warns unreachable-code", () => {
+    // The refusal and the warning are both owed: the declaration is refused, and
+    // the walk descends its body on the same terms it does everywhere else.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  fn mk(): integer {",
+      "    return 1",
+      "    let z = 2",
+      "    z",
+      "  }",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118, traversal-gap row): RET-3 is owned by the same walk. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${NESTED_FN}`, `warning ${UNREACHABLE_CODE}`]);
+    expect(
+      messagesFor(src, UNREACHABLE_CODE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNREACHABLE_CODE)]);
+  });
+
+  it("(r8-control) RET-3: code after `return` inside a TOP-LEVEL `fn` warns unreachable-code", () => {
+    // The control direction of (r8) (§Fix (g) pairs each traversal-gap row with a
+    // top-level control): RET-3's check is correct and total over its input, so
+    // this cell attributes (r8)'s warning to the check and (r8)'s reach to the
+    // walk. No `par for` here — and therefore no `theta/parse/nested-fn`, since
+    // the `fn` is at the only placement FN-1 admits.
+    const src = [
+      "fn f(): integer {",
+      "  return 1",
+      "  let z = 2",
+      "  z",
+      "}",
+      "let n = f()",
+      "n",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: RET-3 already warns at the top-level placement, so (r8)'s warning is the check's and its reach is the walk's. Observed: ${showDiags(src)}`,
+    ).toEqual([`warning ${UNREACHABLE_CODE}`]);
+    expect(
+      messagesFor(src, UNREACHABLE_CODE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNREACHABLE_CODE)]);
+  });
+
+  it("(r9) FN-1 second clause: a `fn` name in the ITERAND is theta/parse/function-as-value", () => {
+    // §Fix (a): the iterand is walked in the ENCLOSING scope, so a value-position
+    // function name there is refused exactly as it is outside the loop.
+    const src = [
+      "fn f(): integer { 1 }",
+      "let xs = par for i in [f] { 1 }",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): the iterand is one of the par-for node's three walked limbs, and it is walked in the ENCLOSING scope. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${FUNCTION_AS_VALUE}`]);
+    expect(
+      messagesFor(src, FUNCTION_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(FUNCTION_AS_VALUE, { "<name>": "f" })]);
+  });
+
+  it("(r15) FN-1 second clause: a `fn` name as the `max` operand is theta/parse/function-as-value", () => {
+    // §Fix (a) walks the `max` operand in the enclosing scope too — the third
+    // limb of the `par-for` node, alongside the iterand and the body.
+    const src = [
+      "fn f(): integer { 1 }",
+      "let xs = par for i in [1, 2] max f { 1 }",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): the \`max\` operand is the third walked limb of the par-for node, walked in the ENCLOSING scope. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${FUNCTION_AS_VALUE}`]);
+    expect(
+      messagesFor(src, FUNCTION_AS_VALUE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(FUNCTION_AS_VALUE, { "<name>": "f" })]);
+  });
+
+  it("(r14) the `let`-binding form check reaches the body: an initialiser-less `let`", () => {
+    // `checkLetBinding` runs from `walkStatement`'s `let` arm, which the body's
+    // statements reach through `walkBlock`, so an initialiser-less binding is
+    // refused inside a `par for` body on the same terms as anywhere else.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let y",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): the \`let\`-form check is owned by this walk and the body's statements are walked. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${LET_WITHOUT_INITIALISER}`]);
+    expect(
+      messagesFor(src, LET_WITHOUT_INITIALISER),
+      "DIAG-4: message read from the registry's Message column, with `<name>` bound to the binding",
+    ).toEqual([registryMessageFor(LET_WITHOUT_INITIALISER, { "<name>": "y" })]);
+  });
+});
+
+describe("bug 0118 — the walk adds NOTHING to the rows CTRL-4's own scan judges", () => {
+  // These cells pin the counts on rows the parser's own CTRL-4 scan already
+  // judged, and they are the reason `inLoop: true` is the arm's scope: with
+  // `inLoop: false`, `checkBreakStatement` would add a second, factually wrong
+  // diagnostic (`theta/parse/break-outside-loop` / its `continue` twin) beside
+  // CTRL-4's own refusal. The exact counts below red if that scope is flipped.
+
+  it("(r10) CTRL-4: `break` in the body draws EXACTLY ONE par-break-continue", () => {
+    const src = ["par for i in [1, 2] {", "  break", "}"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `bug 0118 §Fix (a), \`inLoop: true\`: the body is a loop body for the walk's purposes, so CTRL-4's refusal stands alone. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_BREAK_CONTINUE}`]);
+  });
+
+  it("(r11) CTRL-4: `continue` in the body draws EXACTLY ONE par-break-continue", () => {
+    const src = ["par for i in [1, 2] {", "  continue", "}"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `bug 0118 §Fix (a), \`inLoop: true\`: the \`continue\` twin of (r10). Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_BREAK_CONTINUE}`]);
+  });
+
+  it("(r12) §Fix (b): a `?`-propagating `@`-query statement in the body stays EXACTLY ONE par-query-in-body", () => {
+    // A `@`...`?` line is a `try` over a `query` EXPRESSION, not a `QueryStmt`,
+    // so QRY-19's discarded-result check does not judge it at all (that shape is
+    // cell (r18)'s). What this cell pins is the count: the walk's `query` arm
+    // reaches the same template CTRL-4's own scan already refused, and adds no
+    // second copy of that code.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  @`hi ${i}`?",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `bug 0118 §Fix (b): the walk's \`query\` arm adds no second copy of CTRL-4's refusal. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(r17) §Fix (b): a BOUND body query stays EXACTLY ONE par-query-in-body", () => {
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let q = @`hi`?",
+      "  q",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `bug 0118 §Fix (b): the bound form of (r12) — one refusal, from CTRL-4's expression arm. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(r13) CONTROL: a legal `par for` keeps loading with ZERO diagnostics", () => {
+    // The false-positive gate for the whole group: a body that declares no `fn`,
+    // uses no function name as a value and carries no query draws nothing.
+    const src = ["let xs = par for i in [1, 2] { i }", "xs"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL (bug 0118 §Expected behaviour): "Nothing changes for a legal \`par for\`". Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// PARSER — the rest of the walk's check family inside a `par for` body
+// ===========================================================================
+//
+// One cell per family the `par-for` arm brings into the subtree beyond FN-1 and
+// RET-3, each paired with a TOP-LEVEL real-parse control on the same construct.
+// The pairing is what makes each verdict attributable: the control shows the
+// code belongs to the check, so the body cell shows the reach belongs to the
+// walk (§Fix (g)'s pairing discipline, applied to §Fix (b)'s named families).
+//
+// Where a body construct draws TWO codes — CTRL-4's own refusal plus the code
+// the walk's own check contributes — both are pinned rather than one suppressed.
+// Each is factually true of the source it judges: CTRL-4 judges the presence of
+// an enclosing-conversation query in the body, and the walk's check judges the
+// construct's own shape. Both are error severity, so `hasLoadParseError` blocks
+// registration either way and neither is load-bearing on its own.
+
+describe("bug 0118 — the rest of the walk's family fires in a `par for` body, each with a control", () => {
+  it("(r18) QRY-19: a bare `@`-query STATEMENT in the body draws par-query-in-body AND discarded-query-result", () => {
+    // A `@`...`` line with no `?` and no `let _ =` parses to a `QueryStmt`, which
+    // is `checkDiscardedQueryResult`'s input (unlike (r12)'s `?` form, a `try`
+    // over a query EXPRESSION). Two codes, and two is the count: the query is in
+    // a `par for` body (CTRL-4) and its `Result` is dropped without
+    // acknowledgement (QRY-19). They are different codes at different rules, not
+    // a doubling of one.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  @`hi`",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): CTRL-4's refusal plus QRY-19's, in that order, and nothing else. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`, `error ${DISCARDED_QUERY_RESULT}`]);
+    expect(
+      messagesFor(src, DISCARDED_QUERY_RESULT),
+      "DIAG-4: message read from the registry's Message column. `theta/parse/par-query-in-body` has no row under docs/spec_topics/diagnostics/ (it is registered on docs/reference/diagnostics.md:118), so only its count is pinned above",
+    ).toEqual([registryMessageFor(DISCARDED_QUERY_RESULT)]);
+  });
+
+  it("(r18-control) QRY-19: the identical bare `@`-query statement at the TOP LEVEL draws discarded-query-result alone", () => {
+    const src = ["@`hi`", "1"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: QRY-19's check is the code's owner; outside a \`par for\` body CTRL-4 has nothing to say. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${DISCARDED_QUERY_RESULT}`]);
+    expect(
+      messagesFor(src, DISCARDED_QUERY_RESULT),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(DISCARDED_QUERY_RESULT)]);
+  });
+
+  it("(r19) the annotation type-expression check reaches a body `let`", () => {
+    // §Fix (b)'s named "type-expression parse check the arm performs for
+    // annotations": `walkStatement`'s `let` arm judges the WHOLE captured
+    // annotation against the `Type` grammar
+    // (docs/spec_topics/diagnostics/code-registry-parse.md:95), one diagnostic
+    // per offending annotation, naming its binder.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let y: 1 + = 1",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): the annotation check judges a body annotation on the same terms as a top-level one. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${ANNOTATION_TYPE_NOT_EXPRESSION}`]);
+    expect(
+      messagesFor(src, ANNOTATION_TYPE_NOT_EXPRESSION),
+      "DIAG-4: message read from the registry's Message column, with `<name>` bound to the binder",
+    ).toEqual([registryMessageFor(ANNOTATION_TYPE_NOT_EXPRESSION, { "<name>": "y" })]);
+  });
+
+  it("(r19-control) the annotation type-expression check at the TOP LEVEL", () => {
+    const src = ["let y: 1 + = 1", "y"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the same annotation at the top level draws the same single refusal, so (r19)'s verdict is the check's. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${ANNOTATION_TYPE_NOT_EXPRESSION}`]);
+    expect(
+      messagesFor(src, ANNOTATION_TYPE_NOT_EXPRESSION),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(ANNOTATION_TYPE_NOT_EXPRESSION, { "<name>": "y" })]);
+  });
+
+  it("(r20) the `query` arm's ascription checks reach a body `@<T>` — par-query-in-body AND unresolved-named-type", () => {
+    // The `query` arm resolves an author-written `@<T>` ascription against the
+    // file's declarations (code-registry-parse.md:99). Two codes, both true: the
+    // query is in a `par for` body, and `Missing` names no declaration.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let q = @<Missing>`hi`?",
+      "  q",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): CTRL-4's refusal plus the ascription's, in that order. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`, `error ${UNRESOLVED_NAMED_TYPE}`]);
+    expect(
+      messagesFor(src, UNRESOLVED_NAMED_TYPE),
+      "DIAG-4: message read from the registry's Message column, with `<name>` bound to the unresolved type. `theta/parse/par-query-in-body` is registered on docs/reference/diagnostics.md:118 only, so its count alone is pinned above",
+    ).toEqual([registryMessageFor(UNRESOLVED_NAMED_TYPE, { "<name>": "Missing" })]);
+  });
+
+  it("(r20-control) the `@<T>` ascription check at the TOP LEVEL draws unresolved-named-type alone", () => {
+    const src = ["let q = @<Missing>`hi`?", "q"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the ascription check owns the code; outside a \`par for\` body CTRL-4 has nothing to say. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNRESOLVED_NAMED_TYPE}`]);
+    expect(
+      messagesFor(src, UNRESOLVED_NAMED_TYPE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(UNRESOLVED_NAMED_TYPE, { "<name>": "Missing" })]);
+  });
+
+  it("(r21) the object-literal check reaches a body `let` initialiser", () => {
+    // `checkObjectExpr` runs from `walkExpr`'s `object` arm: a bare
+    // `{ field: expr }` outside the two documented carve-outs is refused
+    // (code-registry-parse.md:48), inside a `par for` body as anywhere else.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let o = { a: 1 }",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): the object-literal check is owned by this walk. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_OBJECT_LITERAL}`]);
+    expect(
+      messagesFor(src, BARE_OBJECT_LITERAL),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(BARE_OBJECT_LITERAL)]);
+  });
+
+  it("(r21-control) the object-literal check at the TOP LEVEL", () => {
+    const src = ["let o = { a: 1 }", "1"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the same literal at the top level draws the same single refusal. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_OBJECT_LITERAL}`]);
+    expect(
+      messagesFor(src, BARE_OBJECT_LITERAL),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(BARE_OBJECT_LITERAL)]);
+  });
+
+  it("(r22) the enum-variant check reaches a body `Enum.Variant`", () => {
+    // `walkExpr`'s `member` arm resolves `Enum.Variant` against the declared
+    // variants (code-registry-parse.md:98).
+    const src = [
+      "enum Status { Ok, Bad }",
+      "let xs = par for i in [1, 2] {",
+      "  let s = Status.Nope",
+      "  1",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): the variant check is owned by this walk. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_VARIANT}`]);
+    expect(
+      messagesFor(src, UNKNOWN_VARIANT),
+      "DIAG-4: message read from the registry's Message column, with `<variant>` and `<enum>` bound",
+    ).toEqual([
+      registryMessageFor(UNKNOWN_VARIANT, { "<variant>": "Nope", "<enum>": "Status" }),
+    ]);
+  });
+
+  it("(r22-control) the enum-variant check at the TOP LEVEL", () => {
+    const src = ["enum Status { Ok, Bad }", "let s = Status.Nope", "1"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the same reference at the top level draws the same single refusal. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNKNOWN_VARIANT}`]);
+    expect(
+      messagesFor(src, UNKNOWN_VARIANT),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([
+      registryMessageFor(UNKNOWN_VARIANT, { "<variant>": "Nope", "<enum>": "Status" }),
+    ]);
+  });
+
+  it("(r23) checkQueryTemplateInterpolations reaches a body `@`-query: `match` inside `${...}`", () => {
+    // docs/spec_topics/expressions.md:40 — "Query templates (`@`...``) and
+    // `match` inside `${...}`" are both unsupported, so template evaluation stays
+    // code-only and never silently fires a model turn. Two codes, both true: the
+    // query is in a `par for` body, and its interpolation carries a forbidden
+    // form.
+    const src = [
+      "let xs = par for i in [1, 2] {",
+      "  let q = @`hi ${match i { _ => 1 }}`?",
+      "  q",
+      "}",
+      "xs",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118 §Fix (b)): CTRL-4's refusal plus the interpolation-form refusal, in that order. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`, `error ${UNSUPPORTED_FEATURE}`]);
+    expect(
+      messagesFor(src, UNSUPPORTED_FEATURE),
+      "DIAG-4: message read from the registry's Message column, with `<construct>` bound to the forbidden form. `theta/parse/par-query-in-body` is registered on docs/reference/diagnostics.md:118 only, so its count alone is pinned above",
+    ).toEqual([
+      registryMessageFor(UNSUPPORTED_FEATURE, {
+        "<construct>": "match inside ${...} interpolation",
+      }),
+    ]);
+  });
+
+  it("(r23-control) checkQueryTemplateInterpolations at the TOP LEVEL draws unsupported-feature alone", () => {
+    const src = ["let q = @`hi ${match 1 { _ => 1 }}`?", "q"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the interpolation-form check owns the code; outside a \`par for\` body CTRL-4 has nothing to say. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${UNSUPPORTED_FEATURE}`]);
+    expect(
+      messagesFor(src, UNSUPPORTED_FEATURE),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([
+      registryMessageFor(UNSUPPORTED_FEATURE, {
+        "<construct>": "match inside ${...} interpolation",
+      }),
+    ]);
+  });
+});
+
+// ===========================================================================
+// PARSER — the RET family's disposition inside a `par for` body
+// ===========================================================================
+//
+// RULE: the `par-for` arm gives the body `{ ...scope }` for `voidReturn` — the
+// same shape the `for` and `while` arms use — so a bare `return` in the body is
+// judged against the ENCLOSING function's (or the theta body's) return
+// annotation. WHY: that is "the same terms as everywhere else"
+// (docs/bugs/0118-nested-fn-result-return-defers-to-runtime-panic.md
+// §Expected behaviour), and no rule assigns a `par for` body its own return
+// regime — CTRL-4 (docs/spec_topics/control-flow.md:76) enumerates the body
+// restrictions and does not name `return`.
+//
+// The countervailing fact, recorded so the next reader sees this is a SEPARATE
+// subject and not an oversight: at run, a `return` in the body yields the
+// ITERATION's value rather than the enclosing function's —
+// `runParForIteration` folds `flow.kind === "return"` into
+// `makeOk(flow.value)` (src/runtime/statement-executor.ts:1266–1269), the same
+// arm as a normal body completion. Whether that runtime meaning should give the
+// body its own `voidReturn` regime (and whether CTRL-4 should enumerate
+// `return` at all) is a spec question this cell group does not decide; it pins
+// the shipped disposition in BOTH directions so a change to it is visible.
+
+describe("bug 0118 — a `return` in a `par for` body is judged by the enclosing scope's annotation", () => {
+  it("(r24) a bare `return` in a TOP-LEVEL `par for` body draws bare-return-in-non-void", () => {
+    // A theta body is a non-`void` scope (RET-2), and the body inherits it.
+    // The `return` here is genuinely bare: a statement on the following line
+    // would be absorbed as its operand by newline continuation.
+    const src = ["let xs = par for i in [1, 2] {", "  return", "}", "xs"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): the body inherits the enclosing non-void return regime. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+    expect(
+      messagesFor(src, BARE_RETURN_IN_NON_VOID),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(BARE_RETURN_IN_NON_VOID)]);
+  });
+
+  it("(r24-control) a bare `return` directly in the TOP-LEVEL theta body draws the same code", () => {
+    const src = ["return"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: RET-2's check owns the code at the enclosing scope, so (r24) inherits a verdict rather than inventing one. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+    expect(
+      messagesFor(src, BARE_RETURN_IN_NON_VOID),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(BARE_RETURN_IN_NON_VOID)]);
+  });
+
+  it("(r25) a bare `return` in a `par for` body inside a NON-VOID `fn` draws bare-return-in-non-void", () => {
+    const src = [
+      "fn outer(): integer {",
+      "  let xs = par for i in [1, 2] {",
+      "    return",
+      "  }",
+      "  1",
+      "}",
+      "let n = outer()",
+      "n",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): the enclosing \`fn\`'s non-void annotation reaches the body. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+    expect(
+      messagesFor(src, BARE_RETURN_IN_NON_VOID),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(BARE_RETURN_IN_NON_VOID)]);
+  });
+
+  it("(r25-control) a bare `return` directly in a NON-VOID `fn` body draws the same code", () => {
+    const src = ["fn outer(): integer {", "  return", "}", "let n = outer()", "n"].join(
+      "\n",
+    );
+    expect(
+      diagShapeOf(src),
+      `CONTROL: the code is RET-2's at the \`fn\` scope; (r25) shows the \`par for\` body inherits that scope. Observed: ${showDiags(src)}`,
+    ).toEqual([`error ${BARE_RETURN_IN_NON_VOID}`]);
+  });
+
+  it("(r26) a bare `return` in a `par for` body inside a `fn(): void` is SILENT on that code", () => {
+    // The other direction of the inheritance: `voidReturn` is inherited, so a
+    // `void`-annotated enclosing `fn` makes the bare `return` legal in the body
+    // exactly as it is directly in that `fn`.
+    //
+    // A silence cell cannot tell this verdict apart from a `walkExpr` that
+    // never descends a `par for` at all — an unwalked body is silent too. That
+    // discrimination is (r24) / (r25)'s job; what this cell guards is the
+    // inheritance itself, which a body-local `voidReturn` regime would break.
+    const src = [
+      "fn outer(): void {",
+      "  let xs = par for i in [1, 2] {",
+      "    return",
+      "  }",
+      "}",
+      "outer()",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): a \`void\` enclosing annotation is inherited, so no bare-return refusal is owed. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+
+  it("(r26-control) a bare `return` directly in a `fn(): void` body is SILENT on that code", () => {
+    const src = ["fn outer(): void {", "  return", "}", "outer()"].join("\n");
+    expect(
+      diagShapeOf(src),
+      `CONTROL: RET-2 admits a bare \`return\` in a \`void\` \`fn\`, which is the verdict (r26) inherits. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+
+  it("(r27) a `return <value>` in a `par for` body inside a `fn(): void` draws nothing on the RET family", () => {
+    // A `return` WITH an operand takes `walkStatement`'s other branch: the
+    // operand is walked and no bare-return question is asked, so the whole RET
+    // family is silent in both enclosing shapes ((r27), (r28)) rather than
+    // half-pinned by the bare rows alone. Like (r26) this is a silence, so it
+    // guards against a NEW valued-`return` emission in this subtree, not
+    // against the arm disappearing — (r24) / (r25) own that.
+    const src = [
+      "fn outer(): void {",
+      "  let xs = par for i in [1, 2] {",
+      "    return 1",
+      "  }",
+      "}",
+      "outer()",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): a valued \`return\` asks no bare-return question. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+
+  it("(r28) a `return <value>` in a `par for` body inside a NON-VOID `fn` draws nothing on the RET family", () => {
+    const src = [
+      "fn outer(): integer {",
+      "  let xs = par for i in [1, 2] {",
+      "    return 1",
+      "  }",
+      "  1",
+      "}",
+      "let n = outer()",
+      "n",
+    ].join("\n");
+    expect(
+      diagShapeOf(src),
+      `PRIMARY (bug 0118): the non-void twin of (r27) — the valued form is silent in both enclosing shapes. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
   });
 });
 

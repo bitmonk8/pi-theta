@@ -1,6 +1,12 @@
 # Bug 0118 — Bug 0079's static QRY-18 gate reads only TOP-LEVEL `fn` return annotations and its fix record files the resulting deferral as fail-safe, but no input reaches that deferral: a nested `fn` draws `theta/parse/nested-fn` in every placement the parse-phase structural walk visits, and in the one placement it never visits — anything under a `par for`, for which `walkExpr` has no arm — the nested `fn` loads with zero diagnostics, is never hoisted into the runtime callable registry, and its call resolves as an unknown host tool, so the interpolation is never evaluated; the collector's reach is exactly complete over legal theta, and the measured defect is the missing FN-1 refusal under a `par for`
 
-- **Status:** open. §Fix is constraint-pinned, not settled. Two subjects with
+- **Status:** fixed (0.162.0). The constraints §Fix pins are adjudicated in
+  §Fix (0.162.0) below: finding (2) is closed by giving the parse-phase
+  structural walk a `par-for` arm (§Fix (a), `inLoop: true`), the identifier
+  walk is left un-widened (§Fix (c), arrangement 2), the collectors stay
+  top-level-only (§Fix (e)), and finding (1) is recorded as unreachable rather
+  than defect (§Fix (f)). The §Fix section above is the constraint analysis the
+  adjudication was made from and is left as filed. Two subjects with
   opposite dispositions: bug 0079's residual (iv) — `collectFnReturnAnnotations`
   reading only top-level `fn` return annotations — needs no widening, and the
   consequence its fix record states ("defers to (b)'s runtime panic") does not
@@ -795,3 +801,201 @@ once by neutralising the new arm.
   the `tests/interpolated-result-gate.test.ts` live-session double, reading
   `pi.sendUserMessage`), and the traversal-gap sizing rows. Run on the outputs
   quoted above, then deleted. No file in the tree was written by the probe.
+
+## Fix (0.162.0)
+
+- What shipped, keyed to §Fix:
+  - **§Fix (a) — the parse-phase structural walk gains a `par-for` arm.**
+    `walkExpr` (`src/parser/theta-document.ts`) takes `scope: WalkCtx` as its
+    second parameter, threaded through all 31 call sites; the whole-document
+    tail call passes the same literal top-level context the `walkStatements`
+    entry beside it passes. The new `case "par-for"` walks the iterand, then
+    the `max` operand, in the enclosing scope, then the body through
+    `walkBlock` with `{ ...scope, inLoop: true, topLevel: false }` — the shape
+    the `for` arm already uses. `checkFnPlacement` fires from the one site it
+    already had. No new emitter, no new code, no registry change: the
+    `theta/parse/nested-fn` row's *Trigger*
+    (`docs/spec_topics/diagnostics/code-registry-parse.md:86`) already reads
+    "nested inside another `fn` body or a block", and `ParForExpr.body` is
+    typed `Block`, so DIAG-2 is not engaged. Emission order is load-bearing
+    (iterand, then `max`, then body) and is asserted.
+  - **`inLoop: true`, measured both directions.** With `inLoop: false` a
+    `break` / `continue` in a `par for` body draws a SECOND diagnostic beside
+    CTRL-4's `theta/parse/par-break-continue` — `theta/parse/break-outside-loop`
+    "'break' outside of a loop" / its `continue` twin — which is factually
+    false, because a `par for` IS a loop. This is the ONE suppression taken;
+    cells (r10) / (r11) pin the single count so a later flip reds.
+  - **§Fix (b) — every newly-reached emission is pinned, and none is
+    suppressed.** §Expected behaviour is "the checks the same walk owns fire in
+    that subtree on the same terms as everywhere else" and §Fix (a) forbids a
+    new emitter, so every code the widened walk now draws is factually true of
+    the source it judges and fires. Measured and pinned with an exact
+    pass-wide unfiltered `doc.diagnostics` assertion plus a top-level
+    real-parse control per family: `nested-fn` (r1)–(r5), and twice for the
+    two-nested-`fn` shape; `function-as-value` for a body `let`, for the
+    iterand and for the `max` operand (r7) / (r9) / (r15); `unreachable-code`
+    (r8); `let-without-initialiser` (r14); `discarded-query-result` beside
+    CTRL-4's `par-query-in-body` for a genuine bare `QueryStmt` (r18 — two
+    DIFFERENT codes, so not the `(code, range)` doubling §Fix (b) asked about;
+    both are error severity and registration is blocked either way);
+    `annotation-type-not-expression` (r19); `unresolved-named-type` from a body
+    query ascription (r20); `bare-object-literal` (r21); `unknown-variant`
+    (r22); and `unsupported-feature` for a forbidden `${match …}` interpolation
+    form (r23). The already-reached rows keep their counts exactly: (r10) /
+    (r11) `par-break-continue` once each, (r12) / (r17) `par-query-in-body`
+    once each, (r13) a legal `par for` still `[]`.
+  - **`voidReturn` inherits (`{ ...scope }`) — decided, with the countervailing
+    fact recorded.** It is the `for` / `while` arms' own shape and it is "the
+    same terms as everywhere else". Measured consequence, pinned both ways: a
+    bare `return` in a `par for` body draws
+    `theta/parse/bare-return-in-non-void` at the top level and inside a
+    non-void `fn` (r24) / (r25) and is silent inside a `fn(): void` (r26); a
+    `return <value>` is silent in both enclosures (r27) / (r28). Against it:
+    the runtime folds a body `return` into the ITERATION's value
+    (`src/runtime/statement-executor.ts`, `runParForIteration`'s
+    `case "return": … makeOk(flow.value)`), and CTRL-4
+    (`docs/spec_topics/control-flow.md:76`) does not enumerate `return` among
+    the body restrictions. Giving a `par for` body its own return regime is
+    therefore a separate subject and is NOT invented here; residual 1 records
+    it.
+  - **§Fix (c) — arrangement 2 taken: the structural walk alone.**
+    `walkIdentExpr` / `checkUnknownIdentifiers` are untouched, so a call to a
+    `fn` under a `par for` still draws NO `theta/parse/unknown-identifier` —
+    the declaration is refused anyway, so the second code is not required for
+    the refusal. Cell (r2) pins that absence. Bug 0140's protected cell g9,
+    which pins the identifier walk's `par for` non-reach as a REACH FACT naming
+    this report's class, is BYTE-UNCHANGED and green: its subject did not move,
+    so no flip or extension was owed. Residual 2 records the omission.
+  - **§Fix (d) and (e) — preserved, not revisited.** `type-layer-checks.ts` is
+    untouched: one emission site, provenance classification, no new
+    module-evaluation-time reference on the two-node import cycle.
+    `collectFnReturnAnnotations` and `collectFns` stay top-level-only — with
+    (a) landed, top-level is the only placement a `fn` can occupy, so their
+    reach coincides exactly with FN-1's admitted set and the widening residual
+    (iv) invites is unreachable.
+  - **§Fix (f) — 0079's fix record corrected, same change.** An APPEND-ONLY
+    discharge note at the end of
+    `docs/bugs/0079-interpolated-result-unemitted-private-encoding-rendered.md`
+    records residual (iv) as DISCHARGED-as-unreachable rather than fixed by
+    the mechanism it names, with the three barriers named. Append-only
+    deliberately: the existing residual text at `:194–197` is cited by other
+    documents, so no existing line moved. 0079's Status is unchanged.
+- Gates: witness `tests/par-for.test.ts` 69/69 and
+  `tests/interpolated-result-gate.test.ts` 83/83 (11 cells RED before the fix,
+  right-reason — the absent refusal, `Observed: []`); full default suite
+  `npx vitest run` 352 files / 7088 tests passed; `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) clean; `npm run lint`
+  (`eslint "src/**/*.ts"`) clean. Live: H8a
+  `tests/live/live-production-acceptance.test.ts` additive cell cell 81 passed
+  (registration-only, zero model turns); real H9a all four acceptance files
+  13/13 (`noninteractive-acceptance` 10 covering areas (a)–(i),
+  `ctor-unresolved-load-refusal` 1, `non-literal-discriminator-live` 1, the new
+  `nested-fn-under-par-for-live` 1) with
+  `tests/fixtures/h7a/permitted-codes.json` BYTE-UNCHANGED, decided on the real
+  run: the probe's captured stdout+stderr, scanned with the manifest's own
+  `parseSystemNoteCodes`, carried no `theta/{load,parse,runtime}/*` code at
+  all, so `theta/parse/nested-fn` does not reach the H9a capture through this
+  refusal path.
+- Blast radius, premeasured BEFORE the witness was written: a prototype of the
+  exact §Fix (a) shape was applied and the full suite run — 352 files / 7050
+  tests green, ZERO reds, `tsc` clean. No pre-existing source shape in `src/`,
+  in `tests/`, or in any committed `.theta` / `.thetalib` puts a `fn`, a
+  function name in value position, a `return`, a bare object literal, an
+  unknown enum variant, a junk annotation or a bare query statement under a
+  `par for`, so no whole-list pin moved.
+- Review: 2 rounds. Round 1 (deep) — four findings, all test- or
+  comment-shaped, no behavioural defect: a genuine bare `QueryStmt` in a body
+  was unwitnessed and cell (r12)'s "no discarded-query code" clause was
+  unreachable (its source is a `try` over a query EXPRESSION, never a
+  `QueryStmt`); six newly-reached check families were scored by no cell,
+  including §Fix (b)'s named annotation family and the whole `return`
+  disposition; new comments asserted the pre-fix state in the present tense;
+  §Fix (g)'s top-level `unreachable-code` control was missing. Round 2 (fast) —
+  CLEAN, with one cosmetic residual: the silence cells (r26) / (r27) / (r28)
+  cannot red on the arm's absence. Closed by a comment-only orchestrator polish
+  naming (r24) / (r25) as the cells that own that discrimination; polish
+  verified by gate-diff (witness, suite, typecheck, lint all re-run green),
+  confirmation round skipped.
+- Verification: SOLID. (1) The witness reds: with the `par-for` arm neutralised
+  to `return;` 19 cells red — every positive-expectation cell, (r1)–(r5), (r7),
+  (r8), (r9), (r14), (r15), (r18)–(r25) and (h1) — and the cells that stay
+  green are the eleven top-level controls, the four CTRL-4-owned count cells,
+  the legal-`par for` control and the three silence cells, each of which now
+  says in terms that it cannot make that discrimination. Restored by writing
+  the recorded content back and verifying `git hash-object`
+  (`abca53ce7e016ee4d0776906b8ae587bf8cd11c6`); green again 152/152. (2) Full
+  default suite green. (3) The live cells were red-proven in both directions
+  against the same neutralisation: the H8a cell reds with the offender
+  appearing in `registeredNames()`, and it asserts the `theta-system-note`
+  channel carries this row's own DIAG-4 message rather than only a registration
+  boolean — `hasLoadParseError` is severity-and-namespace-only, so a boolean
+  cannot tell this refusal from any other `theta/parse/*` error. (4) Lint and
+  typecheck clean. Protected witnesses confirmed byte-unchanged by
+  `git hash-object` and green: bug 0140's `type-name-as-value-refusal` 62/62
+  (g9 inspected, subject intact), bug 0219's
+  `reserved-keyword-object-pattern-head-refusal` 54/54, bug 0128's
+  `non-literal-by-field-refusal` 12/12.
+- Residuals:
+  1. **A `par for` body's `return` regime is not enumerated by the spec.**
+     `voidReturn` inherits, so a bare `return` in a `par for` body is judged
+     against the ENCLOSING `fn`'s (or the theta's) return type — measured and
+     pinned in both directions by (r24)–(r28). The runtime disagrees in
+     principle: `runParForIteration` folds a body `return` into that
+     ITERATION's `makeOk(flow.value)`, never into the enclosing `fn`'s return,
+     and CTRL-4 (`docs/spec_topics/control-flow.md:76`) names `break` /
+     `continue` / an enclosing-conversation query / shared mutation and not
+     `return`. Whether a `par for` body should carry its own return regime is a
+     CTRL-4 spec question this fix deliberately does not answer; the shipped
+     verdict is the least-change one and is pinned so a change to it is
+     deliberate.
+  2. **The identifier walk's `par for` omission survives.** `walkIdentExpr`
+     still has no `par-for` arm, so no identifier-resolution code is drawn
+     anywhere under a `par for` — the gap `walkCallSiteExpr`'s own comment
+     names ("Reached explicitly (unlike the ident walk, which predates RFC
+     0003)"). §Fix (c) admits exactly this arrangement. Pinned by (r2) here and
+     by bug 0140's row g9 (`tests/type-name-as-value-refusal.test.ts`,
+     byte-unchanged), whose REACH FACT therefore still holds verbatim. Widening
+     it changes which names a `par for` body resolves against — including the
+     loop variable, which the call-site walk binds explicitly — and needs its
+     own measurements.
+  3. **CTRL-4's scan still does not descend into a `fn` declaration** (the
+     `default` arm of the parser's own `par for` body scan). It is now
+     unobservable for the shape §Reproduction used, because that shape no
+     longer loads; cell (h1) pins that the two-nested-`fn` source is refused by
+     `theta/parse/nested-fn` twice and NOT by
+     `theta/parse/interpolated-result`, so the static gate's silence on it is
+     recorded as correct rather than read as a gap. Whether the scan should
+     descend for other reasons is untouched (§Non-goals).
+  4. **The imported-`fn` route stays deferred (§Fix (e)).** An imported
+     `Result`-returning `fn` is legal theta whose written annotation the static
+     gate does not read, because `materializeSymbol`
+     (`src/extension/import-static-checks.ts`) binds the `FnDecl` after
+     `parseThetaDocument` has already run `checkTypeLayer`. No traversal change
+     inside the parse can see it; a static route would need the load pass to
+     re-run the type layer with the materialised declarations in hand.
+  5. **Citation drift (bug 0134's class), NOT swept.** `walkExpr`'s new
+     parameter and arm grow `src/parser/theta-document.ts` by 6 lines, shifting
+     `theta-document.ts:<line>` citations at and beyond the `walkExpr` region.
+     Measured: nine such citations in test files
+     (`inline-object-duplicate-field-name`, `live-production-acceptance` twice,
+     `params-default-unresolvable-enum-variant`, `type-name-as-value-refusal`
+     twice, `non-literal-by-field-refusal`, `interpolation-parse-diagnostics`,
+     `let-annotation-query-double-emission`) plus citations in several
+     `docs/bugs/*.md` records. Two of the nine sit in protected witnesses. All
+     are line-number-only drift — every cited comment text is still correct —
+     and a sweep into unowned files is outside this report's remit. The two
+     citations inside the files this fix does touch were re-measured and
+     corrected.
+- Discharge notes appended: bug 0079 (residual (iv) — DISCHARGED as
+  unreachable, not as fixed by the mechanism it names; append-only at the end
+  of that document, no existing line moved). Bug 0140's g9 note needed no
+  amendment: its REACH FACT names the IDENTIFIER walk, which this fix does not
+  widen, so the cell and its stated rationale hold verbatim and the file is
+  byte-unchanged.
+- Pinned dispositions / non-goals: the collectors stay top-level-only; the
+  static gate keeps ONE emission site and provenance-not-name classification;
+  the two-node `type-layer-checks.ts` to `theta-document.ts` import cycle gains
+  no module-evaluation-time reference; no diagnostic code is minted and no
+  registry *Trigger* is widened; `theta/parse/break-outside-loop` and
+  `theta/parse/continue-outside-loop` are deliberately NOT drawn in a `par for`
+  body; the three `theta/parse/par-*` codes' registry home is untouched.

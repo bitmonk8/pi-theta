@@ -13169,3 +13169,165 @@ describe("H8a-T cell 80 — bug 0130: an inline-object `let` annotation refuses 
     }
   });
 });
+
+
+// ===========================================================================
+// cell 81 (bug 0118): a `fn` declared inside a `par for` body is refused by
+// FN-1 through the real discovery→registration path, and hoisting the same
+// declaration to the top level lets the caller register (Convention:
+// live-host acceptance).
+//
+// WHAT THIS COVERS THAT THE OFFLINE WITNESSES DO NOT. `tests/par-for.test.ts`
+// (cells r1/r4/r5) and `tests/interpolated-result-gate.test.ts` (h1) pin the
+// diagnostic bytes at the `parseThetaDocument` boundary; this cell drives the
+// same input through the SHIPPED `createAgentSession` composition (real
+// discovery, real `session.bindExtensions({})`, the real registration gate
+// `hasLoadParseError` reads) — the path 0079's own H8a cells (:1213–1216,
+// :1343–1346) already exercise for the sibling laundering shapes bug 0118
+// investigated, so this cell closes the same gap for the fix itself. A
+// registration boolean alone cannot tell this refusal from any other
+// `theta/parse/*` error blocking the same gate, so the assertion is the
+// theta-system-note MESSAGE, exactly as bug 0140's cell 59 does.
+//
+// Registration-only: the diagnostic fires at LOAD time (inside
+// `session.bindExtensions({})` inside `bootShippedExtension`), before any
+// slash is driven, so this cell spends zero model turns — the same profile as
+// the bug 0110 cell above (zero model turns: cell 81).
+// ===========================================================================
+
+/** `theta/parse/nested-fn`'s registered code and registry page (bug 0118 §Fix (a); code-registry-parse.md). */
+const NESTED_FN_CODE_CELL_B2 = "theta/parse/nested-fn";
+const NESTED_FN_REGISTRY_CELL_B2 = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
+/**
+ * `theta/parse/nested-fn: nested 'fn' declarations are not supported in
+ * theta 1.0` — DIAG-4: the message half is read from the registry row, not
+ * copied, mirroring this file's existing `nonLiteralDiscriminatorFragment` /
+ * `invokePathEscapeFragment` helpers (cell 81).
+ */
+function nestedFnFragmentCellB2(): string {
+  const template = registryMessage(
+    NESTED_FN_REGISTRY_CELL_B2,
+    NESTED_FN_CODE_CELL_B2,
+  ) as string | undefined;
+  expect(
+    template,
+    `${NESTED_FN_CODE_CELL_B2} has no registry row — the code this cell asserts is not registered (DIAG-2) (cell 81)`,
+  ).toBeTypeOf("string");
+  return `${NESTED_FN_CODE_CELL_B2}: ${template as string}`;
+}
+
+/** The offending theta (bug 0118 finding (2)): a `fn` declared directly in a `par for` body. */
+const NESTED_FN_UNDER_PAR_FOR_CELL_B2 = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let xs = par for i in [1, 2] {",
+  "  fn mk(): integer { 1 }",
+  "  1",
+  "}",
+  "@`Reply with exactly the token PARFORNESTEDFN-UNREACHED and nothing else.`",
+  "",
+].join("\n");
+
+/** The CLEAN sibling: the identical `fn` hoisted to the top level (the only placement FN-1 admits). */
+const NESTED_FN_HOISTED_CELL_B2 = [
+  "---",
+  "mode: prompt",
+  "---",
+  "fn mk(): integer { 1 }",
+  "let xs = par for i in [1, 2] { 1 }",
+  "@`Reply with exactly the token PARFORNESTEDFN-CLEAN and nothing else.`",
+  "",
+].join("\n");
+
+describe("cell 81 (bug 0118): a `fn` under a `par for` body is theta/parse/nested-fn live, and the hoisted sibling registers (Convention: live-host acceptance)", () => {
+  it("does not register a caller whose `par for` body declares a nested `fn`, the theta-system-note channel carries theta/parse/nested-fn's registered message, and hoisting the same declaration to the top level lets the caller register (cell 81)", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, a
+      // regressed fix (the offender failing to register FOR THE WRONG REASON,
+      // e.g. a broken workspace) could be misattributed (mirrors the bug
+      // 0110/0128 cells above).
+      {
+        source: "project",
+        stem: "cellb2livectl",
+        text: promptTheta("PARFORNESTEDFN-CONTROL"),
+      },
+      {
+        source: "project",
+        stem: "cellb2livebad",
+        text: NESTED_FN_UNDER_PAR_FOR_CELL_B2,
+      },
+      {
+        source: "project",
+        stem: "cellb2livegood",
+        text: NESTED_FN_HOISTED_CELL_B2,
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("cellb2livectl"),
+        "the precondition control did not register — a broken workspace, not the fixed arm, would explain the offender's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 81)",
+      ).toBeDefined();
+
+      // The fixed observable: a `fn` declared inside a `par for` body is
+      // refused (bug 0118 §Fix (a), `walkExpr`'s `par-for` arm), so the
+      // caller must NOT register.
+      expect(
+        handle.command("cellb2livebad"),
+        "a `fn` declared inside a `par for` body registered — pre-fix, `walkExpr` had no `par-for` arm and `checkFnPlacement` never fired for this subtree. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 81)",
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()) + " (cell 81)",
+      ).not.toContain("cellb2livebad");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager`: a
+      // registration boolean alone cannot distinguish this refusal from any
+      // other `theta/parse/*` error blocking the same gate, so the MESSAGE is
+      // the assertion, exactly as bug 0140's cell 59 does.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = nestedFnFragmentCellB2();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named " +
+          NESTED_FN_CODE_CELL_B2 +
+          " for the `par for`-nested declaration — the fixed arm did not fire. Notes: " +
+          JSON.stringify(notes) +
+          " (cell 81)",
+      ).toBe(true);
+
+      // The CLEAN sibling: the identical `fn` hoisted to the top level — the
+      // only placement FN-1 admits — DOES register. Pairs with the refusal
+      // above so this cell is not merely "nothing registered".
+      expect(
+        handle.command("cellb2livegood"),
+        "the top-level-hoisted sibling failed to register — the fix must not disturb a legal top-level `fn` declared beside a `par for`. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 81)",
+      ).toBeDefined();
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
