@@ -1139,7 +1139,7 @@ measurement forced it.
   subject, a falsified clause of `theta-document.ts`'s governance sentence for
   that same rule, was neither touched nor chased.
 
-  **Read back by bug 0204 (fixed, X.Y.Z).** 0204 corrected that clause and left
+  **Read back by bug 0204 (fixed, 0.139.0).** 0204 corrected that clause and left
   the split alone: it rejected widening precisely because this fix's `d6`/`d7`
   controls pin the two shredded-argument shapes as landed bytes, and instead
   stopped a MANUFACTURED shard from being judged. So `array<{m: "x" | "y"}>`

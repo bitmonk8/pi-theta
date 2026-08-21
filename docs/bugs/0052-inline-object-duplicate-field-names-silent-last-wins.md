@@ -814,11 +814,11 @@ runs.
   `AjvSchemaValidator` compiles over every lowered document — run on the
   outputs quoted above, then deleted per scratch policy.
 
-## Coordination note — bug 0093 landed (X.Y.Z)
+## Coordination note — bug 0093 landed (0.155.0)
 
 This report's §Fix residual 4, *The compound position emits per check-site*, is
 closed by [0093](./0093-let-annotation-query-position-double-emission.md) §Fix
-(X.Y.Z) — the repair it anticipated when it pinned h1 "so that fix flips it
+(0.155.0) — the repair it anticipated when it pinned h1 "so that fix flips it
 knowingly". `parseLet` now marks a query whose schema arrived by its own direct
 propagation, and the query arm withholds its type-grammar re-walk for a marked
 query, so the statement-ranged verdict from the `let` arm survives alone.

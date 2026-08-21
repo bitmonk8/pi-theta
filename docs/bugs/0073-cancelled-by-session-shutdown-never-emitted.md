@@ -451,7 +451,7 @@ Not yet decided in detail; the constraints any fix must satisfy are pinned:
      Recorded, not chased: a fix needs either a spec carve-out for the
      post-deadline-settle-of-a-stamped-entry case or a sanctioned deadline
      channel.
-     **Discharged in X.Y.Z by [bug 0208](./0208-post-deadline-dual-surface-clean-cancel-and-teardown-timeout.md)**,
+     **Discharged in 0.137.0 by [bug 0208](./0208-post-deadline-dual-surface-clean-cancel-and-teardown-timeout.md)**,
      which took the spec-carve-out route: the never-both EXCEPT arm now covers
      any post-deadline settle of an entry sub-step 2 processed, and the
      stamp-throw discriminator is re-pinned off the dual surface onto

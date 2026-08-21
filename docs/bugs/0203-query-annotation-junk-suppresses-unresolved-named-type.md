@@ -1210,7 +1210,7 @@ applies there.
   BOUNDARY RECORD, unedited. `QueryExpr.ascriptionWritten` is this fix's new
   surface; 0204 touches no query AST and should not need it.
 
-  **Re-derived by bug 0204 (fixed, X.Y.Z).** 0204 took its route (b)(3)
+  **Re-derived by bug 0204 (fixed, 0.139.0).** 0204 took its route (b)(3)
   (traversal suppression), so no split widened and neither decline narrowed:
   this row's two decline sentences keep their predicate and this row's inherited
   ADMISSIONS are unchanged — `@<Ghost{>` and `@<Ghost}>` stay silent, and group

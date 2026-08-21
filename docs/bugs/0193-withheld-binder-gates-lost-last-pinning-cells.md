@@ -707,7 +707,7 @@ that cannot red.
 
      **Discharged by bug
      [0205](./0205-withheld-binder-gates-three-sinks-cannot-red.md)
-     `## Fix (X.Y.Z)`.** That fix measures the shape in both directions and
+     `## Fix (0.154.0)`.** That fix measures the shape in both directions and
      ships it as cell `u13mm`: `[]` as shipped, and
      `theta/parse/non-string-array-join … got array<<withheld>>` with the
      `join` branch's gate neutered, beside `u13mh`'s expected red. The
@@ -723,7 +723,7 @@ that cannot red.
      filing measures all six against the full suite: the plain-`for` iterand,
      the `par for` iterand and the object-index key are pinned; the
      `subagent fn` return annotation, the array-literal common type and the
-     object-field value are not, and its `## Fix (X.Y.Z)` pins those three with
+     object-field value are not, and its `## Fix (0.154.0)` pins those three with
      cells `u13mj`, `u13mk` and `u13ml`. The arithmetic 0126 left open resolves
      to three unpinned sinks, the object-field value being the one neither of
      0126's counts named. Its residual 2 also records a ninth gate call site

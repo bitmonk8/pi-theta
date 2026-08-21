@@ -504,7 +504,7 @@ chosen route.
   `lexical-environment.ts` accepts on mutability alone, and `integer` / `number`
   are one JS value, so no executed value moves); 0079's adjudicated
   interpolation disposition.
-### Discharge note — residual 2 discharged by bug 0115 (X.Y.Z)
+### Discharge note — residual 2 discharged by bug 0115 (0.138.0)
 
 Appended by the bug 0115 fix; nothing above is altered and this record stays as
 it was written.

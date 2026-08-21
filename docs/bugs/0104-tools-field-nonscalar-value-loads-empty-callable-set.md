@@ -1104,7 +1104,7 @@ Constraints on any implementation:
   untouched and the new code deliberately does NOT join its `<value>`
   enumeration, because the *Message* interpolates nothing.
 
-## Coordination note — bug 0206 (X.Y.Z), append-only
+## Coordination note — bug 0206 (0.159.0), append-only
 
 Bug [0206](./0206-zero-entry-tools-scalar-loads-empty-callable-set.md) discharged
 this report's **residual 2** and moved this report's registry row's *Trigger*

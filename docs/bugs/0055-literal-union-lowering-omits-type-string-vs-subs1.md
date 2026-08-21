@@ -286,7 +286,7 @@ key orders were computed during review (`type`-first `16d4106209c9ee70`,
 written.
 
 **Discharged (iv) and (v) — bug
-[0099](./0099-schema-slug-hashes-stringify-not-canonical-form.md) §Fix (X.Y.Z),
+[0099](./0099-schema-slug-hashes-stringify-not-canonical-form.md) §Fix (0.140.0),
 route A.** Every mint now hashes the key-sorted canonical form, so residual (iv)
 is closed at its root: `respondSchemaSlug` is
 `schemaSlug(toLoweredJsonValue(lowered))`. Two consequences for this record. The

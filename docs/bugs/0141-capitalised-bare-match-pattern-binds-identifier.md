@@ -1112,7 +1112,7 @@ wiring it at this position is implementation conformance (bug 0084's posture).
   the two codes that report measures, so nothing here strands its subject. Row
   b5's enum-vs-string-literal equality is unchanged and remains unclaimed.
 
-### Discharge note — bug 0219 (X.Y.Z)
+### Discharge note — bug 0219 (0.156.0)
 
 The *Residuals* item above reading "`Result { a: 1 }` in pattern position — a
 reserved keyword as an *object*-pattern head — is still silent" is **closed**.

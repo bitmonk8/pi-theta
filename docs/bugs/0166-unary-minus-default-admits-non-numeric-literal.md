@@ -1110,7 +1110,7 @@ touches one predicate.
      neighbours bug 0165's fail-open territory. Evidence: the probe returns
      `check []`, `staticType {kind:"literal",typesAs:"integer"}`.
      **Discharged** by [0175](./0175-literal-sublanguage-parser-ignores-trailing-tokens.md)
-     (fixed X.Y.Z), which this residual filed: a shared `residueOf` helper makes
+     (fixed 0.144.0), which this residual filed: a shared `residueOf` helper makes
      both default-position readers require end of input, so `-1x` and `1x` — and
      the further twenty-two spellings that residual did not name — draw
      `theta/parse/default-not-literal` naming the residue and establish no static

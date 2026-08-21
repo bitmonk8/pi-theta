@@ -1665,7 +1665,7 @@ currently supports it.
   stale, which is corpus-wide staleness rather than a falsified claim. 0093 and
   0130 need no note: neither claim is falsified (residual 1).
 
-  **Discharged by bug 0203 (fixed, X.Y.Z).** This report's own residual 4
+  **Discharged by bug 0203 (fixed, 0.135.0).** This report's own residual 4
   ("the `@<T>` capture stays out of frame") is now closed: bug 0203 calls this
   fix's `annotationSourceIsNotTypeExpression` from `walkExpr`'s `"query"` arm
   and mints its own sibling registry row
@@ -1679,7 +1679,7 @@ currently supports it.
   params.ts`) now records a fourth consumer, closing this report's residual 3
   in full.
 
-  **Discharged by bug 0204 (fixed, X.Y.Z).** This report's own residual 5 — the
+  **Discharged by bug 0204 (fixed, 0.139.0).** This report's own residual 5 — the
   pre-existing FALSE refusal at bugs 0061's and 0059's landed positions, which
   this fix measured, declined and did not repair — is closed: 0204 stops
   `lowerTypeExpr`'s generic-argument recursion from JUDGING a fragment the
