@@ -1,12 +1,9 @@
 # Bug 0213 — `docs/spec_topics/pi-integration-contract/session-only-degraded-state.md` ends mid-word at HEAD: its last line stops at `required by the [*Runtime-construc`, so the page's only normative statement about what a sub-step-2 stamp throw does to `details.event.theta` has no predicate, no link target and no closing clause — and the two further bullets the same paragraph carried before the truncating commit (the `reload-teardown-timeout` / `cancelled-by-session-shutdown` co-emission exception that `code-registry-runtime.md`'s widened never-both clause still cites this anchor for, and the stated reason the gap is *accepted*) are gone with it
 
-- **Status:** open. §Fix is constraint-pinned: two routes are named below —
-  restore the truncated text from history under the current vocabulary, or
-  re-derive it from the governing prose that cites this anchor. The run
-  adjudicates. Measured below: the pre-truncation text exists verbatim in git
-  history and the inbound citations at HEAD state what the missing content must
-  cover, so both routes are available and they differ in scope, not in outcome
-  for the first bullet.
+- **Status:** fixed (0.147.0). Adjudicated to **Route A (hybrid)**: bullet 1
+  restored from history under the current vocabulary, bullet 2 re-derived
+  against bug 0208's widened clause (constraint 4 forbids the historical
+  wording), bullet 3 restored under the rename. See §Fix (0.147.0).
 - **Sev/Diff estimate:** S4/D1 — a spec page whose last sentence is cut mid-word
   where the runtime behaviour it describes is correct and unaffected; D1 because
   the edit is confined to one paragraph in one file, adds no registry row and no
@@ -329,6 +326,90 @@ Constraints on either route:
 above and stays untouched; report 0216 names the same two `theta/host/*` rows
 that `:27`'s composite-evidence sentence keys on, so if 0216 retires those rows
 this paragraph is re-read then — that is 0216's edit, not this one's.
+
+## Fix (0.147.0)
+
+- What shipped: `docs/spec_topics/pi-integration-contract/session-only-degraded-state.md`
+  — **Route A (hybrid)**, the adjudication §Fix left to the run. Bullet 1 (`:29`)
+  keeps its surviving prefix byte-for-byte and gains only the missing tail,
+  taken from `4189c6c1:88` with the `2bc69157` rename applied
+  (`loom/runtime/cancelled-by-session-shutdown` →
+  `theta/runtime/cancelled-by-session-shutdown`), closing the link to
+  `../diagnostics/diagnostic-shape.md#session-shutdown-details-conventions`.
+  Bullet 2 (`:30`) is re-derived prose, not the `4189c6c1:89` paste: it states
+  the co-emission is *permitted* by the widened never-both EXCEPT clause, that
+  the dual appearance alone is the ordinary post-deadline case and neither a
+  residual-gap signal nor a contract violation, and that classifying this gap
+  requires the composite already stated at `:27`. Bullet 3 (`:31`) is the
+  acceptance rationale restored from `4189c6c1:90` (no `loom` token, so no
+  rename applied). Three insertions, one deletion; 29 → 31 lines, 9526 → 10859
+  bytes.
+- Gates:
+  - Witness (offline, deterministic, no working-tree revert needed):
+    `git show HEAD:<page> | tail -c 120` →
+    `…so the slash-name discriminator required by the [*Runtime-construc` (RED at
+    HEAD); `tail -c 120 <page>` → `…is never frozen/proxied/write-rejecting by
+    the runtime) is low-probability.` (GREEN). No unit test is owed and none was
+    added: `tests/code-registry.test.ts` reads only the four
+    `docs/spec_topics/diagnostics/code-registry-*.md` pages, and
+    `tools/closing-gate/live-corpus.js`'s `CANARY_GAP_KINDS` are REQ-ID mapping,
+    per-facet citing tests and normative-MUST anchoring/rowing — the bullet
+    carries no `MUST` and no REQ-ID, so no gap kind has a subject. Both sources
+    were re-read at verification rather than taken from this report.
+  - Full default suite: `npm test` → `Test Files 342 passed (342)`,
+    `Tests 6560 passed (6560)`.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, no
+    output.
+  - Lint: `npm run lint` (`eslint --no-error-on-unmatched-pattern
+    "src/**/*.ts"`) — clean, no output.
+  - No live run owed: the change touches no executable path, no registry row, no
+    `.theta` fixture; `git diff --name-only` is the one spec page.
+- Review: 1 round — clean. Round 1 verified all five §Fix constraints with quoted
+  evidence (link target resolves at `diagnostic-shape.md:52`; lines `:5`, `:6`,
+  `:27` byte-identical by per-line `git hash-object`; `git diff --
+  docs/reference/` empty; bullet 2 compared claim-by-claim against
+  `code-registry-runtime.md:39`'s widened clause with no contradiction and no
+  drift from `:27`'s composite; LF-only file ending at a sentence boundary), and
+  checked bullet 3's ground against `session-shutdown-semantics.md:10` and
+  `active-invocation-registry.md:5`/`:12`. One non-blocking prose residual, in an
+  out-of-scope file (residual 1 below).
+- Verification: SOLID, one round, no findings. Witness both directions;
+  suite 342/6560; typecheck and lint clean; live not owed and not run; and the
+  six fix-integrity checks — pure LF (`wc -c` 10859 == CR-stripped 10859),
+  single terminal newline after a complete word (`tail -c 5 | xxd` →
+  `6974 792e 0a`), lines `:5`/`:6`/`:27` byte-identical and exactly the three
+  pre-existing anchors, both introduced link targets grepped and resolving,
+  the forbidden pre-0208 framings absent (`grep` exit 1 for both), and
+  `git status --porcelain` showing one modified path.
+- Inbound-citation check (required by the run's rider): the 0208-widened
+  never-both EXCEPT clause at `code-registry-runtime.md:39` cites
+  `session-only-degraded-state.md#substep-2-stamp-throw-residual-gap` as "the
+  named *Accepted theta 1.0 residual gap — sub-step-2 stamp-throw case*
+  … enumerated in PIC's `session-only-reason-degraded-state` bullet, `abort()`
+  was skipped". Post-fix that citation is true in substance: the anchor is
+  unchanged, the skipped-`abort()` enumeration is on the page at `:27`, and the
+  new bullet 2 supplies the never-both reconciliation the clause reaches for. It
+  is loose only in the word "bullet" (residual 1).
+- Residuals:
+  1. `docs/spec_topics/diagnostics/code-registry-runtime.md:39` calls the
+     enumeration a "bullet" under the `session-only-reason-degraded-state`
+     anchor, whereas at HEAD the skipped-`abort()` enumeration sits in the `:27`
+     paragraph (the residual-gap item was a numbered list item at `4189c6c1`;
+     `cbbe8c94` flattened it to a paragraph) and `session-only-reason-degraded-state`
+     is the tripwire-section anchor at `:6`. The imprecision pre-dates this fix,
+     is in a file §Fix constraint 3 puts out of scope, and would be a citation
+     sweep to correct. Not corrected here.
+  2. The `:27` composite-evidence sentence keys on the two `theta/host/*` rows
+     that report 0216 covers; bullet 2 now restates that composite in
+     abbreviated form. If 0216 retires those rows, both `:27` and the new bullet
+     2 are re-read then — 0216's edit, per §Fix *Ordering*.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Route B was not taken (Route A's history
+  bytes are recoverable and §Fix records the routes agree on bullet 1). No
+  anchor added, renamed or removed. No registry row, *Trigger* or *Message*
+  touched, so DIAG-2's mirror obligation stays unengaged and
+  `git diff -- docs/reference/` is empty. No `src/` or `tests/` change: the
+  document names no test and no default-suite gate can observe the defect.
 
 ## Provenance
 

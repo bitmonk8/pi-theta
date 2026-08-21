@@ -154,11 +154,11 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // only harness that can witness the RANGE and the per-shape attribution: the
 // refusal's Message carries no `<value>`, so every refused shape renders the
 // identical string and a shared-workspace load cannot attribute it. The
-// composition-root half is what makes the witness a production-load witness —
-// it proves the frontmatter-layer refusal reaches the shipped `session_start`
-// registration verdict over a real on-disk `.pi/theta/` discovery walk. No
-// integration or live tier is reachable for this observable: registration and
-// its diagnostics settle before any model, provider or transport exists.
+// production compose helper half proves the frontmatter-layer refusal reaches
+// `discoverAndComposeFixtures`'s fixtures over a real on-disk `.pi/theta/` walk,
+// through the `runComposePass` the shipped `session_start` root re-runs. No
+// integration or live tier is reachable for this observable: registration and its
+// diagnostics settle before any model, provider or transport exists.
 //
 // NO SILENT SKIPPING: every load is asserted against a per-row outcome that the
 // (D3) precondition guard proves non-vacuous (the clean scalar control must

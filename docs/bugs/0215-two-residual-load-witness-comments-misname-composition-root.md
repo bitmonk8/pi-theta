@@ -1,6 +1,6 @@
 # Bug 0215 — Two comment sites bug 0207's twenty-four-site sweep did not reach still attribute a `discoverAndComposeFixtures` load to the shipped composition root: `tests/tools-field-shape-refusal.test.ts:157–159` claims its "composition-root half" proves the refusal "reaches the shipped `session_start` registration verdict" — in a file whose other three sites 0207 corrected, so the file now contradicts itself — and `tests/prompt-mode-extension-tool-reach-e2e.test.ts:16–18` claims the dispatch is "wired by the composition root" and that "the whole load→register→dispatch chain is the shipped one", while at HEAD `rg -n 'discoverAndComposeFixtures' src/ extensions/` returns one declaration and three comments and no caller, and `pi.registerCommand` fires only from `src/extension/factory.ts:591`
 
-- **Status:** open. §Fix is settled by precedent: the substitution is bug 0183
+- **Status:** fixed (0.147.0). §Fix is settled by precedent: the substitution is bug 0183
   §Fix item 4's vocabulary pair, applied by the mechanism 0207 shipped in
   0.137.0. No disposition is left to the run. No ordering dependency: 0207 and
   0183 both shipped.
@@ -278,3 +278,165 @@ Constraints:
   `:222`, `:230`; `tests/conformance/production-conformance.test.ts:50`.
 - Reproduction: four `rg` invocations and two file reads, quoted verbatim in
   §Reproduction. No test was run, no probe written, no file created.
+
+## Fix (0.147.0)
+
+- **What shipped** — §Fix's two sites, comment bytes only, in bug 0183 §Fix
+  item 4's vocabulary (*production compose helper* =
+  `discoverAndComposeFixtures`; *shipped composition root* =
+  `composeExtensionInstance`), by bug 0207's mechanism:
+  - `tests/tools-field-shape-refusal.test.ts:157–159` (§Fix item 1) — the TIER
+    block's second half is now "the production compose helper half", and what it
+    proves is the production load verdict — `discoverAndComposeFixtures`'s
+    fixtures — "over a real on-disk `.pi/theta/` walk, through the
+    `runComposePass` the shipped `session_start` root re-runs". The registration
+    claim is **dropped**: the helper path never reaches `pi.registerCommand`
+    (`src/extension/factory.ts:591`). The following sentence (no integration or
+    live tier reachable) is retained, word for word. The file no longer names one
+    call two ways — `:130`, `:656`, `:668` (0207's edits) and this site now agree.
+  - `tests/prompt-mode-extension-tool-reach-e2e.test.ts:15–18` (§Fix item 2) —
+    the dispatch is attributed to `runComposePass` ("the real
+    `createProductionHostLoopDispatch`, wired inside the `runComposePass` the
+    shipped root shares"), the `COMPOSITION-BUILT` shout and the "not an injected
+    seam" contrast are retained, and the chain claim is narrowed from "the whole
+    load→register→dispatch chain is the shipped one" to "load and dispatch are
+    production; registration is not reached". Agrees with this file's `:2`,
+    `:77` and `:230`.
+
+  Diffstat: `2 files changed, 15 insertions(+), 15 deletions(-)` — every changed
+  line is `//`-prefixed. **No executable hunk was authorized or taken**: unlike
+  0207, this report authorizes no `describe` rename, and none was made.
+- **Evidence re-verified at the fix HEAD** (`fdcb0835`, v0.144.0), not at the
+  filing HEAD (`689fc630`): both target sites were byte-exact with **zero line
+  drift**, so §Affected needed no relocation. Four *ground-truth* citations in
+  §Affected/§Provenance had drifted by +1 and are recorded here rather than
+  edited above (0207 §Non-goals keeps bug documents as records of their own
+  HEAD): `discoverAndComposeFixtures` is `production-composition.ts:367`
+  (§Affected says `:366`), `runComposePass` `:434` (says `:433`),
+  `createProductionHostLoopDispatch` `:650` (says `:649`),
+  `composeExtensionInstance` `:1220` (says `:1219`). Unchanged and re-confirmed:
+  `factory.ts:591`, `:1146`; `extensions/index.ts:13`; the two load calls
+  (`tools-field-shape-refusal.test.ts:726`,
+  `prompt-mode-extension-tool-reach-e2e.test.ts:222`).
+- **Gates** (verbatim):
+  - Witness: **none exists and none was manufactured.** §Fix's premise — "no gate
+    reads `tests/**` comment prose" — was re-established independently twice (in
+    the tests-first phase and again at verification) rather than assumed. Exactly
+    two functions read `tests/**/*.ts` bytes: `tools/closing-gate/live-corpus.js:151`
+    (repo-scoped, consumed by `tests/warn-only-canary.test.ts` and
+    `tests/live-corpus-release-gate.test.ts`) and `tools/closing-gate/index.js:920`
+    (`loadCorpus`, pointed only at `test-fixtures/closing-gate/**` by its sole
+    caller `tests/closing-gate.test.ts:26`). The former exposes those bytes
+    through three token grammars only — the `theta/…` code grammar, the
+    `[A-Z]{2,4}-<n>` REQ-ID grammar and `citesTokenInline`'s facet-token match —
+    and **0 of the changed lines** carries a token any of them can see.
+    `npm run lint` globs `src/**/*.ts` only; `tsc` reads the bytes but is blind
+    to non-directive comment prose; nothing in `tests/` reads reporter output,
+    and no `describe`/`it` title changed, so that channel is empty as well.
+    No red is constructible, so none was faked.
+  - Full suite: `npm test` → `Test Files 342 passed (342)`,
+    `Tests 6560 passed (6560)` — identical to the lane-fork baseline.
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → exit 0.
+  - Lint: `npm run lint` → exit 0 (scoped to `src/**/*.ts`; no cover for this
+    prose, which was reviewed by reading).
+  - No live run was owed or performed: the corrected surface is comment prose,
+    no `tests/live/**` byte changed, and no executable line changed anywhere.
+    Same disposition 0207 recorded for the identical class.
+- **Comment-only proof, per file.** Method: a parser-based emit projection —
+  `ts.transpileModule` with `removeComments` and `reportDiagnostics` over each
+  worktree file and over its `git show HEAD:<path>` text, every transpile
+  asserted diagnostic-free, the emitted text digested and compared. **Both files
+  are emit-byte-identical to HEAD** (sha256/16 `47fe6592862e370d` for
+  `tests/tools-field-shape-refusal.test.ts`, `14445b451638fb75` for
+  `tests/prompt-mode-extension-tool-reach-e2e.test.ts`; the verifier's
+  independent re-run under different compiler options produced different
+  absolute digests, `97ba142e0a88fdd3` and `dcc712049b084a8f`, and the same
+  worktree==HEAD equality, which is the invariant). §Fix's own filter over
+  `git diff -- tests/`, dropping every `+`/`-` line whose payload starts with
+  `//`, independently returns nothing (exit 1). Per-file `wc -l` is identical to
+  HEAD — 943 and 273 — so no citing document's line numbers shift, and both
+  files remain LF-only (CR count 0).
+- **§Fix's verification greps, re-run after the edit:**
+
+  ```
+  $ rg -n 'discoverAndComposeFixtures' src/ extensions/
+  src/extension/production-composition.ts:367:export async function discoverAndComposeFixtures(
+  src/extension/production-composition.ts:405: * Factored out of `discoverAndComposeFixtures` so `composeExtensionInstance`
+  src/extension/production-composition.ts:471:  // the same gate; the reload-less `discoverAndComposeFixtures` helper holds no
+  src/extension/production-composition.ts:1020:    // discoverAndComposeFixtures) — both flow through this pass.
+  ```
+  One declaration and three comments; still **no caller**, so the premise of
+  0183, 0207 and this report holds at this HEAD.
+
+  ```
+  $ rg -n -i "composition root|composition-root" tests/tools-field-shape-refusal.test.ts tests/prompt-mode-extension-tool-reach-e2e.test.ts
+  (no output, exit 1)
+  ```
+  A clean 2→0 flip: neither file now contains the phrase in any casing.
+- **Review**: 2 rounds. Round 1 (`bug-fix-reviewer`) — DEFECTS-FOUND, one
+  `prose` finding: the first implementation's replacement lines ran 93/90/95 and
+  95/86/80 characters against a 72–82 band, introducing the longest comment
+  lines in either file; it also adjudicated the dropped `COMPOSITION-BUILT`
+  shout as an unnecessary register loss (non-blocking residual). Two
+  `bug-fix-fixer-light` passes followed: the first rewrapped to ≤82 but lost
+  three §Fix-mandated elements (site 1's named fixture verdict and "real
+  on-disk"; site 2's "the real" and "not an injected seam"), which the
+  orchestrator caught by inspecting the diff; the second applied an
+  orchestrator-computed wrap that restores all of them and still fits ≤82 with
+  both line counts held. The orchestrator then restored one em dash the second
+  pass had dropped after `agent_settled` (one comment character; no assertion,
+  no executable line). Round 2 (`bug-fix-reviewer-fast`) — **CLEAN**, no
+  findings, two non-blocking prose residuals (below); `recommend-deep-review`
+  not raised.
+- **Verification**: SOLID, no findings. Premise — re-derived independently from
+  the two `tests/**` byte readers and their three grammars; verdict not
+  witnessable, so no red was manufactured and no neutralization was attempted.
+  Suite 342/6560; `tsc` exit 0; `lint` exit 0. Comment-only — parser projection
+  regenerated from HEAD, worktree==HEAD per file; §Fix's filter empty. No drift
+  — `wc -l` 943/273 equal to HEAD, CR 0. Fidelity — every clause of both new
+  sentences located at a real symbol (`production-composition.ts:367`, `:434`,
+  `:650` inside `runComposePass`, `:1220` whose docstring states the reload
+  re-run; `factory.ts:591` as the tree's only `pi.registerCommand`, `:1146`;
+  `extensions/index.ts:13`; both load calls), none false or overclaiming. Scope
+  — zero executable lines, zero title changes, the 14 "content-addressing the
+  shipped composition root" comments untouched, no third site edited. Live —
+  none owed, none run.
+- **Residuals**:
+  - **"discovery" dropped from "discovery walk"** at
+    `tests/tools-field-shape-refusal.test.ts:158`. §Fix item 1's phrasing is
+    "over a real on-disk `.pi/theta/` discovery walk"; the shipped line reads
+    "over a real on-disk `.pi/theta/` walk". The word was dropped to hold both
+    the ≤82-character wrap and the file's line count: an exhaustive
+    minimum-line word-wrap over the whole comment paragraph shows the fully
+    verbatim sentence needs 11 lines where the paragraph's budget is 10, and
+    growing the paragraph would shift ~780 lines of citations into this file
+    (0134's class). No claim becomes false — the actor, the verdict and the
+    shared pass are all still named, and `production-composition.ts:360` calls
+    the same traversal a discovery walk. Review judged it non-blocking.
+  - **Compressed shared-pass attribution** at
+    `tests/prompt-mode-extension-tool-reach-e2e.test.ts:17–18`. §Fix item 2 asks
+    for `runComposePass`, "which both the helper and the shipped root run"; the
+    shipped wording is "wired inside the `runComposePass` the shipped root
+    shares", which carries the sharing implicitly via *shares* rather than
+    naming both parties, for the same line-budget reason. The paragraph's actor
+    is the helper-driven load (named at this file's `:2` and `:77`), so the
+    referent is recoverable. Review judged it adequate and non-blocking.
+  - **Four drifted ground-truth citations inside this document**, recorded under
+    *Evidence re-verified* above and deliberately not edited, per 0207
+    §Non-goals: `:366`→`:367`, `:433`→`:434`, `:649`→`:650`, `:1219`→`:1220`.
+    0134's class.
+  - **No third same-class site was found.** The case-insensitive
+    `composition root` / `composition-root` search over both files returns
+    nothing, and the standing instruction was to record a third site rather than
+    sweep it; none arose.
+- **Discharge notes appended**: none. 0207 §Non-goals rules `docs/bugs/**` prose
+  out of scope, so although this fix closes 0207's `## Fix (0.137.0)` residual 2
+  (a) and (b), no note was added to 0207's document and its text stands as the
+  provenance this report quotes.
+- **Pinned dispositions / non-goals**: `discoverAndComposeFixtures` is not
+  renamed, moved or consolidated; the 14 `tests/**` "content-addressing the
+  shipped composition root" comments are left alone as true claims about the
+  real root (0183 §Non-goals); the loose `composition root` mentions that name
+  no symbol are left alone; no `describe`/`it` title was renamed; the coverage
+  gap these two suites do not reach is not asserted as a defect; neighbouring
+  0134-class line drift was not swept.

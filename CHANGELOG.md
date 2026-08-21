@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.147.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0213 — the session-only degraded-state page is no longer truncated
+  mid-word.** The cut acceptance bullet is completed and the two dropped
+  bullets restored (route A hybrid: history under the loom→theta rename +
+  one bullet re-derived against 0208's widened never-both clause); the
+  `code-registry-runtime.md:39` EXCEPT-clause citation stays true.
+- **Bug 0215 — the two remaining load-witness comments naming a
+  "composition root" corrected** to 0183's item-4 vocabulary via 0207's
+  comment-only mechanism (transpile-emit digests equal HEAD per file);
+  0207's residual 2(a)/(b) discharged in full.
+
 ## [0.146.0] - 2026-08-26
 
 ### Fixed

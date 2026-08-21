@@ -11,14 +11,14 @@
 // fabricated-turn simulation production-host-loop-dispatch.test.ts drives
 // (tests/helpers/fake-host-loop-host.ts `FakeHostLoopHost`) — `sendUserMessage`
 // schedules a fabricated turn that invokes the registered bridge provider's
-// two-state `streamSimple`, executes the authored `tool_use` against a fake
-// tool executor, appends the toolResult transcript entry, and fires
-// `agent_settled` — but here it backs the COMPOSITION-BUILT dispatch (the real
-// `createProductionHostLoopDispatch` wired by the composition root), not an
-// injected seam, so the whole load→register→dispatch chain is the shipped one.
-// This wrapper contributes only the PARENT leg's load-pass surfaces (the
-// discovery/admission `ExtensionAPI` / `ExtensionContext` doubles), delegating
-// every host-loop member to the shared core.
+// two-state `streamSimple`, executes the authored `tool_use` against a fake tool
+// executor, appends the toolResult transcript entry, and fires `agent_settled` —
+// but here it backs the COMPOSITION-BUILT dispatch (the real
+// `createProductionHostLoopDispatch`, wired inside the `runComposePass` the
+// shipped root shares), not an injected seam: load and dispatch are production;
+// registration is not reached. This wrapper contributes only the PARENT leg's
+// load-pass surfaces (the discovery/admission `ExtensionAPI` / `ExtensionContext`
+// doubles), delegating every host-loop member to the shared core.
 //
 // Also witnessed: LOAD-TIME-ONLY resolution — `pi.getAllTools()` is consulted
 // at load and NOT re-consulted by invocations (Resolution snapshot: "the
