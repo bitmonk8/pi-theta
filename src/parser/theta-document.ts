@@ -4179,6 +4179,26 @@ class BodyParser {
       if (t.text === "_") {
         return { kind: "wildcard" };
       }
+      // Reserved before case (bug 0141 §Fix route 1 half 2): a reserved
+      // spelling is refused whatever its case, so `Ok` / `Err` / `Result`
+      // draw exactly this one code and never also the capitalised-head one.
+      if (t.kind === "keyword") {
+        this.diagnostics.push(reservedKeywordAsIdentifierDiagnostic(t.text, t.range, this.file));
+      } else if (/^[A-Z]/.test(t.text)) {
+        // A capitalised bare head names none of the admitted pattern
+        // productions (expressions.md's disambiguation sentence assigns the
+        // binding reading to a LOWERCASE identifier only); refused here,
+        // after the `(`/`{`-gated constructor and object arms above, so
+        // those two real productions are unaffected (bug 0141 §Fix route 1).
+        this.diagnostics.push(capitalisedPatternHeadDiagnostic(t.text, t.range, this.file));
+      }
+      // The node stays an identifier pattern in both refusal cases: the
+      // refusal is carried by the error-severity diagnostic alone (which
+      // `hasLoadParseError` turns into a registration denial), not by the
+      // AST shape. Returning a wildcard here would drop the name from
+      // `collectPatternBindings`, and an arm-body read of it would then draw
+      // a second, spurious `theta/parse/unknown-identifier` (bug 0141 §Fix
+      // route 1, "Emission detail" item 4).
       return { kind: "identifier", name: t.text };
     }
     // A bare object pattern `{ field: p, … }`.
@@ -5462,6 +5482,33 @@ function reservedKeywordAsIdentifierDiagnostic(
     file,
     range,
     message: `reserved keyword '${keyword}' cannot be used as an identifier`,
+  };
+}
+
+/**
+ * The registered `theta/parse/capitalised-pattern-head` refusal
+ * (code-registry-parse.md, bug 0141 §Fix route 1 half 1): a bare `match`
+ * pattern head that is an `ident` token starting A–Z that heads none of the
+ * admitted pattern productions: it is not the `Ok(p)` / `Err(p)` constructor
+ * spelling and it is not followed by `{`, so it names none of the six
+ * pattern-table productions
+ * (expressions.md's "Pattern grammar" table). `expressions.md`'s
+ * disambiguation sentence assigns the binding reading to a lowercase
+ * identifier only; this builder renders the refusal for the capitalised one.
+ * Same severity/range/file construction as `reservedKeywordAsIdentifierDiagnostic`
+ * above, the sibling builder for the reserved-keyword half.
+ */
+function capitalisedPatternHeadDiagnostic(
+  name: string,
+  range: SourceRange,
+  file: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/capitalised-pattern-head",
+    file,
+    range,
+    message: `capitalised pattern head '${name}' names no pattern production`,
   };
 }
 

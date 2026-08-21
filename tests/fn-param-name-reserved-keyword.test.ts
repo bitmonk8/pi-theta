@@ -118,12 +118,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - e5 — the schema field NAME. Unclaimed; bug 0046's §Non-goals covers the
 //     casing half of that position only.
 //   - e6 — the `params:` frontmatter field NAME. Unclaimed.
-//   - e7 — the `match` pattern binder. CLAIMED BY BUG 0141
+//   - e7 — the `match` pattern binder. OWNED BY BUG 0141
 //     (docs/bugs/0141-capitalised-bare-match-pattern-binds-identifier.md) §Fix
-//     (a) half 2, at a disjoint site: `parsePattern`'s tail arm
-//     (src/parser/theta-document.ts:3931, `:3983`) against `parseFn`'s loop.
-//     This row protects that report's claim; a fix here that turns it green
-//     takes another report's deliverable without coordinating.
+//     (a) half 2, which enforces the same code at a disjoint site:
+//     `parsePattern`'s tail arm against `parseFn`'s parameter loop. The row
+//     records that delivery: the emission there is 0141's, sourced from
+//     `lexical.md`'s restatement for `match` patterns, NOT this report's
+//     parameter-position rule widening. A fix HERE that changes the range,
+//     the count or the site of that emission is over-reach.
 //   - e8 — the `enum` variant name. Unclaimed.
 //   - e9a / e9b — both `import` specifier binding forms. Unclaimed.
 //   - e10 — a keyword in a `fn` parameter's TYPE slot. Bug 0044's family (a
@@ -852,17 +854,19 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
     ).toEqual([]);
   });
 
-  it("e7: a `match` pattern binder spelled `match` reports nothing — bug 0141's claim", () => {
-    // The load-bearing tripwire. Bug 0141 §Fix (a) half 2 claims this position
-    // for the SAME code under the SAME sentence, at a disjoint site
-    // (`parsePattern`'s tail arm, src/parser/theta-document.ts:3931 and
-    // `:3983`). A fix here that turns this row green takes another open
-    // report's deliverable.
+  it("e7: a `match` pattern binder spelled `match` draws bug 0141's reserved-keyword refusal, not this report's", () => {
+    // The load-bearing tripwire, now recording a delivery. The single code
+    // here is bug 0141 §Fix (a) half 2's, emitted from `parsePattern`'s tail
+    // arm under `lexical.md`'s restatement of the reserved set for `match`
+    // patterns. This report's rule — lexical.md:16's lowercase-first NAMING
+    // list of `let` / parameter / fn-name / field-name positions — still does
+    // not reach a pattern binder, so a SECOND code, a different range, or an
+    // emission from `parseFn`'s loop is over-reach by a fix here.
     const doc = theta("let v = 1\nlet r = match v { match => 1 }\nr\n");
     expect(
       codesOf(doc),
-      `the pattern binder belongs to bug 0141; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the pattern binder's refusal is bug 0141's, from \`parsePattern\`'s tail arm, not this report's parameter-position rule; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
   });
 
   it("e8: an `enum` variant named `let` reports nothing", () => {

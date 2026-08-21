@@ -178,6 +178,15 @@ const NON_STRING_OBJECT_INDEX = "theta/parse/non-string-object-index";
 const UNKNOWN_VARIANT = "theta/parse/unknown-variant";
 
 /**
+ * The pattern-grammar refusal a capitalised bare `match` pattern head draws
+ * (expressions.md's disambiguation: lowercase identifiers bind, capitalised
+ * ones refer to constructors or schema names). Sourced from a different
+ * sentence and a different site (`parsePattern`) than this file's refusal, so
+ * g4 carries it while still proving `type-as-value` stays away.
+ */
+const PATTERN_HEAD = "theta/parse/capitalised-pattern-head";
+
+/**
  * The two COMPANION codes group (c)'s c11 / c12 positions carry beside the
  * refusal. Each was measured emitting ALONE at its position with the refusal
  * neutralised, so each row asserts a PRE-EXISTING diagnostic unmoved rather
@@ -1607,19 +1616,26 @@ describe("bug 0140 (g) — the design locks: nine positions that stay silent", (
     expect(codesOf(doc), "g3: no refusal inside the fn body").not.toContain(TYPE_AS_VALUE);
   });
 
-  it("GREEN (g4): a `match` pattern binder spelled like the declaration draws nothing", () => {
+  it("GREEN (g4): a `match` pattern binder spelled like the declaration draws the pattern-head refusal, never this file's", () => {
     // Bug 0050's u9b class (tests/fn-arg-type-mismatch-wired.test.ts:1774–1796,
     // fixture `U9_MATCH_BINDER` at `:780`): a `match` arm binds its pattern name
-    // as a LOCAL (`armEnv.defineLocal`), and `lexical.md` scopes the
-    // lowercase-first rule away from pattern binders, so the collision is legal
-    // source. `collectPatternBindings` puts the binder in the arm's scope before
-    // the arm body is walked, which is what keeps this silent.
+    // as a LOCAL (`armEnv.defineLocal`), and `lexical.md`'s lowercase-first
+    // NAMING list does not reach a pattern binder, so the collision draws no
+    // case error. `collectPatternBindings` puts the binder in the arm's scope
+    // before the arm body is walked, which is what keeps `type-as-value` away
+    // from the body read — the lock this row holds.
+    //
+    // The one code here is a DIFFERENT rule: expressions.md's pattern-grammar
+    // disambiguation gives the binding reading to a lowercase identifier only,
+    // so a capitalised bare head names no admitted pattern production and
+    // `parsePattern` refuses it. Its presence says nothing about scope
+    // tracking; a `type-as-value` element appearing beside it would.
     const doc = parse('schema P { a: number }\nlet m = match "hi" { P => P }\nm\n');
     expectCodes(
       "g4 (match binder)",
       doc,
-      [],
-      "the arm body's `P` is the binder, not the declaration",
+      [PATTERN_HEAD],
+      "the arm body's `P` is the binder, not the declaration; the sole code is the pattern head's own grammar refusal",
     );
   });
 

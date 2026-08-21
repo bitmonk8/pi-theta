@@ -62,6 +62,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     (the two binder classes outside the rule's list).
 //
 // OVER-REACH TRIPWIRES. c1 and c2 red if enforcement widens past the parameter.
+// c2's pattern head carries a second, differently-sourced refusal
+// (`theta/parse/capitalised-pattern-head`, from expressions.md's pattern-grammar
+// disambiguation via `parsePattern`); the tripwire is that THIS rule's code is
+// absent there.
 // lexical.md:16's list contains no `for` / `par for` variable and no `match`
 // pattern binder, and `WITHHELD_BINDER_TYPE_NAME`'s doc comment
 // (src/parser/type-layer-checks.ts:381–387) argues from exactly that exclusion
@@ -149,6 +153,8 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const SCHEMA_CASE = "theta/parse/schema-case-mismatch";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
+/** The pattern-grammar refusal, sourced from expressions.md, not lexical.md:16. */
+const PATTERN_HEAD = "theta/parse/capitalised-pattern-head";
 
 // ===========================================================================
 // Parse harness.
@@ -497,8 +503,14 @@ describe("0139 (c) — a `for` variable and a `match` binder stay outside the ru
   // (src/parser/type-layer-checks.ts:381–387) reasons from exactly that
   // exclusion, so a fix that widens into these positions both contradicts the
   // spec sentence and invalidates the withheld-binder premise. A later reader
-  // finding these rows red should widen the fix's scope question, not the
-  // rows.
+  // finding c1 red, or finding this rule's code in c2, should widen the fix's
+  // scope question, not the rows. c2 does carry
+  // `theta/parse/capitalised-pattern-head`: a capitalised pattern HEAD names
+  // no admitted pattern production (expressions.md's pattern-grammar
+  // disambiguation — lowercase identifiers bind, capitalised ones refer to
+  // constructors or schema names — restated for `match` patterns in
+  // lexical.md), which is a different sentence enforced at a different site
+  // (`parsePattern`'s tail arm) and leaves this rule's list untouched.
 
   it("c1: `for Y in xs { Y }` reports nothing", () => {
     const doc = theta('let xs: array<string> = ["a"]\nfor Y in xs { Y }\n');
@@ -508,12 +520,12 @@ describe("0139 (c) — a `for` variable and a `match` binder stay outside the ru
     ).toEqual([]);
   });
 
-  it("c2: a `match` pattern binder `Q` reports nothing", () => {
+  it("c2: a `match` pattern binder `Q` draws only the pattern-head refusal, never this rule's code", () => {
     const doc = theta("let v: integer = 3\nlet r = match v { Q => 1 }\nr\n");
     expect(
       codesOf(doc),
-      `a \`match\` pattern binder is not in lexical.md:16's list; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `a \`match\` pattern binder is not in lexical.md:16's list, so the sole code here is the pattern-grammar refusal from \`parsePattern\`; diagnostics=${render(doc)}`,
+    ).toEqual([PATTERN_HEAD]);
   });
 });
 

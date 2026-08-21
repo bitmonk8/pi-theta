@@ -211,6 +211,13 @@ const OBJECT_INDEX_CODE = "theta/parse/non-string-object-index";
 // sibling rows above — cells u13b–u13d each draw it alongside their sibling
 // row.
 const BINDING_CASE_CODE = "theta/parse/binding-case-mismatch";
+// bug 0141's pattern-head refusal: a capitalised bare pattern head names no
+// pattern production per docs/spec_topics/expressions.md's disambiguation
+// sentence, so `P => …` draws this code at the arm head, independently of
+// any WITHHELD-entry read a sibling row makes of the SAME name inside the
+// arm body — cells u13c, u13d, u13mb and u13mc each draw it alongside (or in
+// place of) their sibling-row assertion.
+const CAP_PATTERN_HEAD_CODE = "theta/parse/capitalised-pattern-head";
 
 interface RegistryRow {
   readonly code: string;
@@ -328,6 +335,11 @@ function objectFieldMessage(
 /** `unknown identifier '<name>'`. */
 function unknownIdentifierMessage(name: string): string {
   return fill(UNKNOWN_IDENT_CODE, new Map([["<name>", name]]));
+}
+
+/** `capitalised pattern head '<name>' names no pattern production`. */
+function capitalisedPatternHeadMessage(name: string): string {
+  return fill(CAP_PATTERN_HEAD_CODE, new Map([["<name>", name]]));
 }
 
 /** `'for' expects array<T> after 'in'; got <type>`. */
@@ -1847,7 +1859,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
   it("u9d: a bare declared-schema reference at an argument position draws no fn-arg-type-mismatch", () => {
     // The route with no binder at all: `P` reaches the argument position as a
     // bare declared-schema reference. `checkUnknownIdentifiers`
-    // (src/parser/theta-document.ts:4950) seeds its walk from the roots every
+    // (src/parser/theta-document.ts:4970) seeds its walk from the roots every
     // NON-declaration source contributes, so a name only a `schema`
     // declaration introduces matches no arm of expressions.md's four-arm
     // resolution list and draws `theta/parse/type-as-value` at this value
@@ -2669,7 +2681,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ]);
   });
 
-  it("u13c: a `match` binder read at an OBJECT-FIELD sink draws no type verdict, and the shadowed parameter's own case does", () => {
+  it("u13c: a `match` binder read at an OBJECT-FIELD sink draws no type verdict, and the shadowed parameter's own case does, alongside the arm head's own refusal", () => {
     // The object-field row (bug 0031's sink) over an arm binder shadowing the
     // annotated parameter. `matchPattern` binds an identifier pattern to the
     // scrutinee unconditionally (src/runtime/match-result.ts:177–179), so the
@@ -2677,7 +2689,11 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // parameter `P` is the shadowed binder, and its uppercase spelling draws
     // bug 0139's `binding-case-mismatch` — a lexical check on the parameter
     // token, independent of the arm binder this cell's type-layer pin is
-    // about.
+    // about. Bug 0141 additionally refuses the arm's own capitalised pattern
+    // head (docs/spec_topics/expressions.md's disambiguation sentence), a
+    // SECOND, parse-time diagnostic on the same fixture; the withheld-binder
+    // premise this cell exists to test is unchanged — the arm still binds and
+    // the object-field row still has no operand to judge.
     const doc = parse(U13_ARM_OBJECT_FIELD_SHADOW);
     expect(
       letRange(doc, "m"),
@@ -2685,7 +2701,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(6, 27, 6, 65));
     expect(
       doc.diagnostics,
-      `u13c — the object-field row reads the arm binder's withheld entry and has no operand to judge; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+      `u13c — the object-field row reads the arm binder's withheld entry and has no operand to judge; the parameter's own spelling draws the lexical case code, and the arm head's own spelling draws the pattern-head refusal, in that source-position order. Diagnostics: ${render(doc)}`,
     ).toEqual([
       {
         severity: "error",
@@ -2694,17 +2710,27 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
         range: range(6, 6, 6, 7),
         message: registered(BINDING_CASE_CODE),
       },
+      {
+        severity: "error",
+        code: CAP_PATTERN_HEAD_CODE,
+        file: FILE,
+        range: range(6, 48, 6, 49),
+        message: capitalisedPatternHeadMessage("P"),
+      },
     ]);
   });
 
-  it("u13d: a `match` binder read as a `par for` ITERAND draws no type verdict, and the shadowed parameter's own case does", () => {
+  it("u13d: a `match` binder read as a `par for` ITERAND draws no type verdict, and the shadowed parameter's own case does, alongside the arm head's own refusal", () => {
     // The iterand row, and the route that is not about the spelling at all:
     // `checkForIterand` rejects every non-array iterand, so this fixture emits
     // with no `schema P` declared as well. What the withhold gate supplies is
     // the deferral the row cannot reach by itself. `h`'s own parameter `P` is
     // the shadowed binder, and its uppercase spelling draws bug 0139's
     // `binding-case-mismatch` on the parameter token, independent of the
-    // iterand read this cell's type-layer pin is about.
+    // iterand read this cell's type-layer pin is about. Bug 0141 additionally
+    // refuses the arm's own capitalised pattern head, a SECOND, parse-time
+    // diagnostic; the withheld-binder premise this cell exists to test is
+    // unchanged — the arm still binds and the iterand row still defers.
     const doc = parse(U13_ARM_ITERAND_SHADOW);
     expect(
       letRange(doc, "m"),
@@ -2712,7 +2738,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(5, 35, 5, 83));
     expect(
       doc.diagnostics,
-      `u13d — an iterand read out of a withheld binder entry supports no verdict and the row defers; the parameter's own spelling draws the lexical case code alone. Diagnostics: ${render(doc)}`,
+      `u13d — an iterand read out of a withheld binder entry supports no verdict and the row defers; the parameter's own spelling draws the lexical case code, and the arm head's own spelling draws the pattern-head refusal, in that source-position order. Diagnostics: ${render(doc)}`,
     ).toEqual([
       {
         severity: "error",
@@ -2720,6 +2746,13 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
         file: FILE,
         range: range(5, 6, 5, 7),
         message: registered(BINDING_CASE_CODE),
+      },
+      {
+        severity: "error",
+        code: CAP_PATTERN_HEAD_CODE,
+        file: FILE,
+        range: range(5, 56, 5, 57),
+        message: capitalisedPatternHeadMessage("P"),
       },
     ]);
   });
@@ -2746,10 +2779,14 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual([]);
   });
 
-  it("u13mb: the MISS class at the object-field sink defers", () => {
+  it("u13mb: the MISS class at the object-field sink defers, and the arm head's own spelling draws bug 0141's refusal", () => {
     // Same flip, one sink over: the arm binder `P` shadows nothing, so at this
     // HEAD the field value read `named P` and drew `expected string, got P`
-    // while the runtime hands the field the scrutinee `"hi"`.
+    // while the runtime hands the field the scrutinee `"hi"`. Bug 0141 refuses
+    // the bare capitalised head itself (docs/spec_topics/expressions.md's
+    // disambiguation sentence), a parse-time diagnostic that names exactly
+    // what changed; the object-field row's deferral on the withheld entry is
+    // unchanged.
     const doc = parse(U13MB_ARM_FIELD_MISS);
     expect(
       letRange(doc, "m"),
@@ -2757,11 +2794,19 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     ).toEqual(range(6, 1, 6, 39));
     expect(
       doc.diagnostics,
-      `u13mb — the object-field row defers on the withheld entry exactly as it defers on any unresolvable value type. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `u13mb — the object-field row defers on the withheld entry exactly as it defers on any unresolvable value type; the arm head's own spelling draws the pattern-head refusal. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      {
+        severity: "error",
+        code: CAP_PATTERN_HEAD_CODE,
+        file: FILE,
+        range: range(6, 22, 6, 23),
+        message: capitalisedPatternHeadMessage("P"),
+      },
+    ]);
   });
 
-  it("u13mc: the MISS class at the `par for` iterand defers, with NO declaration in the file", () => {
+  it("u13mc: the MISS class at the `par for` iterand defers, with NO declaration in the file, and the arm head's own spelling draws bug 0141's refusal", () => {
     // The iterand row's own flip, and the cell that shows it is not a spelling
     // question: this fixture declares no schema, so the minted `named P` was
     // unresolvable at this HEAD and the row rejected it anyway. The runtime
@@ -2773,10 +2818,22 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
       letRange(doc, "m"),
       "PRECONDITION: the `match` whose arm body is a `par for` sits on body line 4",
     ).toEqual(range(4, 1, 4, 49));
+    // Bug 0141 refuses the bare capitalised arm head itself, a parse-time
+    // diagnostic that names exactly what changed; the iterand row's own
+    // deferral on the withheld entry, this cell's original subject, is
+    // unchanged.
     expect(
       doc.diagnostics,
-      `u13mc — the iterand row's rejection of an unresolvable name is not a verdict about a withheld binder. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `u13mc — the iterand row's rejection of an unresolvable name is not a verdict about a withheld binder; the arm head's own spelling draws the pattern-head refusal. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      {
+        severity: "error",
+        code: CAP_PATTERN_HEAD_CODE,
+        file: FILE,
+        range: range(4, 22, 4, 23),
+        message: capitalisedPatternHeadMessage("P"),
+      },
+    ]);
   });
 
   it("u13md: a `for` iterand read out of an enclosing `for` variable is admitted", () => {

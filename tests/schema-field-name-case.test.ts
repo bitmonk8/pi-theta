@@ -211,6 +211,8 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
 const TIMEOUT_REJECTED = "theta/parse/timeout-field-rejected";
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
+/** The pattern-grammar refusal, sourced from expressions.md, not lexical.md:16. */
+const PATTERN_HEAD = "theta/parse/capitalised-pattern-head";
 
 // ===========================================================================
 // Parse harness.
@@ -567,7 +569,14 @@ describe("0149 (c) — binder classes and the enum variant stay outside the rule
   // variant is governed by the OTHER bullet (lexical.md:15) and the OTHER code
   // (code-registry-parse.md:20's "schema / enum / variant / type-alias
   // position"), so reaching g2 would emit the wrong code under the wrong rule.
-  // A later reader finding these rows red should narrow the fix, not the rows.
+  // A later reader finding o4 or g2 red, or finding this rule's codes at o5,
+  // should narrow the fix, not the rows. o5 does carry
+  // `theta/parse/capitalised-pattern-head`: a capitalised pattern HEAD names no
+  // admitted pattern production (expressions.md's pattern-grammar
+  // disambiguation — lowercase identifiers bind, capitalised ones refer to
+  // constructors or schema names — restated for `match` patterns in
+  // lexical.md), a different sentence enforced at a different site
+  // (`parsePattern`'s tail arm) that leaves lexical.md:16's list untouched.
 
   it("o4: `for Y in xs { Y }` reports nothing", () => {
     const doc = theta('let xs: array<string> = ["a"]\nfor Y in xs { Y }\n');
@@ -576,12 +585,12 @@ describe("0149 (c) — binder classes and the enum variant stay outside the rule
     );
   });
 
-  it("o5: a `match` pattern binder `Q` reports nothing", () => {
+  it("o5: a `match` pattern binder `Q` draws only the pattern-head refusal, never this rule's codes", () => {
     const doc = theta("let v: integer = 3\nlet r = match v { Q => 1 }\nr\n");
     expect(
       rendered(doc),
-      "a `match` pattern binder is not in lexical.md:16's list",
-    ).toEqual([]);
+      "a `match` pattern binder is not in lexical.md:16's list, so the sole code here is expressions.md's pattern-grammar refusal from `parsePattern`",
+    ).toEqual([diag("error", PATTERN_HEAD, msg(PATTERN_HEAD, [["<name>", "Q"]]), 5, 19, 20)]);
   });
 
   it("g2: a lowercase `enum` variant reports nothing", () => {
@@ -896,12 +905,23 @@ describe("0149 (e) — an uppercase-first `params:` key is a parse error", () =>
     ]);
   });
 
-  it("b3: a `match` pattern over the param reports only the declaration", () => {
+  it("b3: a `match` pattern over the param reports the declaration and the pattern head, each under its own rule", () => {
+    // Two rules, two sites. The `params:` key draws this fix's field-name case
+    // error; the pattern head draws expressions.md's pattern-grammar refusal
+    // from `parsePattern` (row o5) because a capitalised bare head names no
+    // admitted pattern production. A match pattern binder is NOT a field-name
+    // position, so `binding-case-mismatch` must stay at the declaration alone.
+    //
+    // Derivation: `---` (5) closes the frontmatter, so `Topic` in the pattern
+    // is line 6, columns 19–23, span 19→24.
     const doc = withParams("  Topic: string\n", "let r = match 3 { Topic => 1 }\nr\n");
     expect(
       rendered(doc),
-      "a match pattern binder is not a field-name position (row o5)",
-    ).toEqual([bcm(4, 3, 8)]);
+      "the case error is the field-name rule's; the pattern-head refusal is the pattern grammar's (row o5)",
+    ).toEqual([
+      bcm(4, 3, 8),
+      diag("error", PATTERN_HEAD, msg(PATTERN_HEAD, [["<name>", "Topic"]]), 6, 19, 24),
+    ]);
   });
 
   it("b4: a `schema Topic` colliding with the param key reports the key's case", () => {

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.146.0] - 2026-08-26
+
+### Fixed
+
+- **Bug 0141 — a capitalised bare head in a `match` pattern now refuses
+  instead of binding an identifier.** `parsePattern`'s tail arm refuses
+  reserved-before-case with the NEW registry row
+  `theta/parse/capitalised-pattern-head` (E, parse); the AST node is
+  preserved so no `unknown-identifier` cascade follows. Witness:
+  `tests/capitalised-bare-match-pattern-refusal.test.ts` (45 cells, 27 red
+  pre-fix) + a standalone live cell
+  (`tests/live/capitalised-pattern-head-live-cell.test.ts`). Nine
+  list-expansion flips in five sibling witnesses ratified on the record
+  (fixtures byte-identical, subjects preserved).
+
 ## [0.145.0] - 2026-08-26
 
 ### Fixed

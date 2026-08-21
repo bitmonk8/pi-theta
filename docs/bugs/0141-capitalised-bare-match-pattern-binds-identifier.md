@@ -1,10 +1,9 @@
 # Bug 0141 — `parsePattern`'s tail arm (`src/parser/theta-document.ts:3935`) returns `{ kind: "identifier", name: t.text }` for any leading `ident` **or `keyword`** token, so a capitalised bare `match` pattern binds the scrutinee instead of naming a declaration: `match 3 { P => P }` binds `P = 3` whether or not `schema P` / `enum P` is declared, `match c { Red => "r", Green => "g" }` answers `"r"` for `C.Green`, and `match Ok(1) { Err => "err-arm", _ => "other" }` answers `"err-arm"` — against `docs/spec_topics/expressions.md:174`'s disambiguation sentence and its `Ok` / `Err` reservation, with every row loading cleanly and registering
 
-- **Status:** open. §Fix is not settled: four routes are enumerated with their
-  consequences and the constraints are pinned. The crux — which registered code
-  a capitalised bare pattern draws, or whether the capitalised head gets a
-  referent instead — is argued in §Expected behaviour and left to the run. No
-  ordering dependency blocks it. Two coordination surfaces:
+- **Status:** fixed (0.146.0). §Fix enumerated four routes and left the crux to
+  the run; the run took **route 1 with half 2 included** and recorded the
+  adjudication in §Fix (0.146.0) below. Two coordination surfaces stood at filing
+  time:
   [0123](./0123-match-pattern-decrement-draws-neighbouring-codes.md) is **open**
   and its routes edit the same function, and
   [0050](./0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md) is
@@ -969,3 +968,146 @@ The fixtures themselves are untouched — `P` still binds, and the `schema P`
 collision each cell exercises is intact. Lowercasing the parameters was
 considered and rejected as a semantic weakening of the shadowing premise these
 cells exist to test.
+
+## Fix (0.146.0)
+
+**Route adjudication.** §Fix left the crux to the run. The run takes **route 1
+(refuse at the parser, in `parsePattern`'s tail arm) with half 2 included**, and
+half 1 draws a **new registered row** rather than reusing
+`theta/parse/binding-case-mismatch`. Reasons, in order: that row's *Trigger*
+enumerates positions and a pattern head is, by the two sentences this report
+files against, not a binding position, so reusing it is a DIAG-2 *Trigger* edit
+on a row four committed witnesses pin; its *Message* names the wrong repair for
+an author who meant a variant test; and a registry **addition** is exactly what
+the GOV-15 carve-out (`source-language-stability.md:25`) covers, on the
+0031 / 0084 / 0102 precedent. Route 3 (a referent for the capitalised head) is
+declined here: it is a language addition with its own grammar-table row, and it
+changes observable (a) on currently-clean inputs, the one direction the
+carve-out does not cover. Route 4 is declined as it deletes
+`lexical.md:13`'s mechanism sentence. Half 2 needs no registry edit:
+`reserved-keyword-as-identifier`'s *Trigger* carries no position qualifier, so
+wiring it at this position is implementation conformance (bug 0084's posture).
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parsePattern`'s tail arm, after the
+    `_` wildcard test and *after* both lookahead-gated arms, refuses a pattern
+    head twice over: a `keyword`-kind head draws
+    `theta/parse/reserved-keyword-as-identifier` (half 2, any case, so `string`
+    and `let` are closed as well as `Ok` / `Err` / `Result`), else an
+    `ident`-kind head starting `A`–`Z` draws the new
+    `theta/parse/capitalised-pattern-head` (half 1). **Reserved is checked
+    before case**, so a capitalised reserved spelling draws exactly one code and
+    never both. A new module-local builder `capitalisedPatternHeadDiagnostic`
+    renders the registered *Message*, beside the existing
+    `reservedKeywordAsIdentifierDiagnostic` it reuses for half 2.
+  - **The AST node is unchanged** in both refusal cases — still
+    `{ kind: "identifier", name }`. The refusal is carried by the
+    `error`-severity diagnostic, which `hasLoadParseError` already turns into a
+    registration denial; making the node a wildcard instead would drop the name
+    from `collectPatternBindings` and every arm-body read of it would draw a
+    second, spurious `theta/parse/unknown-identifier`. Consequence recorded
+    rather than changed: bug 0050's withheld-binder machinery is untouched, so
+    §Fix (e)'s "the type layer follows the production" bullet is a no-op here
+    and 0050's cells keep the collision premise they exist to test.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the new
+    `theta/parse/capitalised-pattern-head` row (`E`, `parse`), *Trigger*: "A
+    capitalised identifier in `match` pattern-head position that heads none of
+    the admitted pattern productions: it is not the `Ok(p)` / `Err(p)`
+    constructor spelling and it is not followed by `{`." No other row's
+    *Trigger* or *Message* is edited, so DIAG-4 is not engaged elsewhere.
+  - `docs/reference/diagnostics.md` — the Code / Sev / Phase / Message mirror
+    row, same relative position.
+  - No grammar-table row, no new pattern production, and no normative sentence
+    reworded: `expressions.md`, `lexical.md`, `grammar.md` and
+    `docs/reference/grammar.md` are untouched.
+- **Gates:** witness `npx vitest run tests/capitalised-bare-match-pattern-refusal.test.ts`
+  → `Tests 45 passed (45)` (RED before the fix: `27 failed | 17 passed (44)`).
+  Full default suite `npm test` → `Test Files 343 passed (343)`,
+  `Tests 6605 passed (6605)`. `npm run typecheck` (`tsc -p tsconfig.json
+  --noEmit`) clean. `npm run lint` (`eslint … "src/**/*.ts"`) clean. Live:
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` → `1 passed`, and
+  the new minted cell → `1 passed`.
+- **Review:** 2 rounds. Round 1 (deep) — one blocking finding: the new row's
+  *Trigger* said "with no following `(` or `{`" while the emitter also fires on
+  a capitalised head followed by `(` whose spelling is not `Ok` / `Err`
+  (`match 3 { Some(1) => 1, _ => 2 }`), because the constructor gate is
+  spelling-restricted; remedied by rewording the *Trigger* to the implemented
+  condition and pinning the `Some(1)` class with witness cell g3. Round 2
+  (fast) — CLEAN, with two comment/prose residuals (a builder doc comment
+  still carrying the pre-remedy narrower condition, and a `describe` title that
+  over-generalised past its own g3 cell), both since polished; polish verified
+  by gate-diff (comment-and-title-only hunks, gates re-run green), confirmation
+  round skipped.
+- **Verification:** SOLID. (1) The witness witnesses the defect: neutralising
+  both `this.diagnostics.push(...)` calls reds 35 tests across the six touched
+  test files, including every one of the nine protected-witness flips, and the
+  restore is byte-exact (`git hash-object` identical before and after). (2)
+  `npm test` 343/343 files, 6605/6605 tests after isolating one
+  `0xC0000142`-class stochastic red (`tests/subagent-return-depth-refusal.test.ts`,
+  green in isolation). (3) Live: the nearest existing load-refusal acceptance
+  cell run for real, plus a minted H8a cell that drives a capitalised
+  bare-pattern theta against a live model and asserts the theta **fails to
+  register** while a lowercase-pattern sibling over the same `match` shape does
+  — proven able to red by lowercasing the refused fixture once, then restored.
+  (4) Typecheck and lint clean.
+- **Tests that lock it:**
+  - `tests/capitalised-bare-match-pattern-refusal.test.ts` (new, 45 cells) —
+    §Witness's whole obligation: group (a) 7/7 with a2 / a7 as the lowercase and
+    wildcard controls and a3–a5 the three declaration kinds; (b) b1–b4, b6 with
+    b4 asserted on its value; (c) 9/9 with c2 / c4 / c9 the constructor
+    controls and c1 / c8 in both directions; (d) 9/9 with d2 / d4 / d6 the
+    controls and d5's whole ordered list; (e) the six-position inventory, e2
+    re-measured post-0139; (f) the corpus sweep over
+    `git ls-files -- '*.theta' '*.thetalib'`, failing loudly on an empty list;
+    the two gated-follower rows g1 / g2 plus g3's `Some(1)` boundary; and the
+    nested-position rows h1 / h2 (array element, object-pattern field value).
+  - `tests/live/capitalised-pattern-head-live-cell.test.ts` (new, one
+    H8a cell, title token `CELL-B`) — the registration denial end to end
+    against a live model, on the `registeredNames()` observable, `failLoudly` on
+    an unmet precondition.
+  - Nine protected-witness cells re-pinned as **list expansions**, every
+    fixture byte-identical, every assertion still whole-list and
+    order-sensitive, every original subject still proved:
+    `tests/fn-arg-type-mismatch-wired.test.ts` u13c, u13d, u13mb, u13mc (bug
+    0050 §Fix (e)); `tests/fn-param-name-reserved-keyword.test.ts` e7;
+    `tests/fn-param-name-case.test.ts` c2;
+    `tests/schema-field-name-case.test.ts` o5, b3;
+    `tests/type-name-as-value-refusal.test.ts` g4.
+- **Residuals:**
+  - §Fix (e) predicted **five** bug 0050 cells red by design; **four** reded.
+    `u9b` (`U9_MATCH_BINDER`) stayed green because this route preserves the
+    binder node and `u9b` asserts through the filtered
+    `expectNoFnArgMismatch` helper rather than a whole-list equality. Its
+    fixture now draws the pattern-head refusal, unasserted at that cell.
+  - Four further protected witnesses outside §Fix (e)'s list red on the new
+    emission and were flipped under this report's own named authority: e7
+    (whose inventory comment names bug 0141 as the position's owner), c2, o5 /
+    b3 and g4 (whose premise — that `lexical.md:16`'s lowercase-first NAMING
+    list does not reach a pattern binder — is untouched and still what each row
+    protects; the new element is a differently-sourced refusal under
+    `expressions.md`'s disambiguation sentence).
+  - `Result { a: 1 }` in pattern position — a reserved keyword as an
+    *object*-pattern head — is still silent. The `{`-gated arm sits above the
+    tail and outside route 1's site; unclaimed by any report.
+  - Bug 0123's cited `C.Red` measurement (this report's row g1) now draws a
+    third code, `capitalised-pattern-head` on `C`. 0123's own defect input
+    `--y` is untouched and still draws exactly its two-code cascade, verified;
+    the g1 row is a citation that re-measures on rebase.
+  - `u9b`'s comment in `tests/fn-arg-type-mismatch-wired.test.ts` cites
+    `parsePattern` at a pre-0139/0141 line and says the capitalised-pattern
+    question "is a separate question this route does not answer" — stale before
+    this change, and left alone under the no-citation-sweep fence.
+  - This change inserts 47 lines into `src/parser/theta-document.ts` below the
+    tail arm, so citations into that file below the two insertion points shift
+    by +20 (below the tail arm) or +47 (below the new builder). No sweep was
+    performed.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** every §Non-goals item holds. No
+  enum-variant pattern production was added, no exhaustiveness or
+  unreachable-arm analysis, no change to `matchPattern`'s identifier arm or to
+  bug 0050's withholding, and no change at the `fn` parameter or `for` /
+  `par for` variable positions. `parsePattern`'s one-token recovery tail — bug
+  0123's subject — is byte-identical, and its `--y` input still draws exactly
+  the two codes that report measures, so nothing here strands its subject. Row
+  b5's enum-vs-string-literal equality is unchanged and remains unclaimed.
