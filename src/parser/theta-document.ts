@@ -2380,6 +2380,13 @@ class BodyParser {
       // the verdict: such an input keeps the parameters, the statement
       // absorption and the diagnostics it had before.
       let closeParenAbsorbed = false;
+      // The first parameter-name-position token whose `kind` derives from no
+      // `Ident` (a `punct`, `number`, `string` or `template` token). Recorded
+      // rather than reported at the point of capture: only the epilogue knows
+      // whether the list closed on its own `)` or on one spent elsewhere, and
+      // the two settled exits (a body-open `{`, EOF) already carry the correct
+      // verdict under `fn-param-list-unclosed` on their own.
+      let refusedTok: Token | null = null;
       // `atParamStart` is true only where the author could have written a
       // parameter name. `mut`'s modifier check below can leave the loop
       // re-entering on a recovery artefact instead: consuming `mut` shifts
@@ -2399,9 +2406,11 @@ class BodyParser {
           unclosed = true;
           break;
         }
+        let mutConsumed = false;
         if (this.isKeyword("mut")) {
           // A `mut` modifier on a function parameter is an always-immutable
           // context (bindings.md §Immutable contexts).
+          mutConsumed = true;
           const mutTok = this.advance();
           const diag = checkMutModifier(
             { position: "fn-param" },
@@ -2412,6 +2421,23 @@ class BodyParser {
           }
         }
         const pTok = this.advance();
+        // `FnParam ::= Ident ":" Type` (grammar.md) derives an `Ident` at this
+        // position, and `Ident` is `[A-Za-z_][A-Za-z0-9_]*` (lexical.md) — a
+        // `punct`, `number`, `string` or `template` token here is not a
+        // shorter or malformed identifier, it is a different production
+        // entirely. Recorded, not reported: a `mut` consume in this same
+        // iteration shifts the annotation `:` into this slot as a recovery
+        // artefact, and that shift must not gain a second diagnostic beside
+        // `mut-on-immutable-context` (bug 0148 §Fix (d)), so the shifted token
+        // is exempt for this one iteration only.
+        if (
+          refusedTok === null &&
+          !mutConsumed &&
+          pTok.kind !== "ident" &&
+          pTok.kind !== "keyword"
+        ) {
+          refusedTok = pTok;
+        }
         // lexical.md's reserved-keyword rule carries no position list of its
         // own — unlike the lowercase-first rule below — so a `fn` parameter
         // name is inside its scope (bug 0148 §Fix). A reserved spelling
@@ -2467,6 +2493,22 @@ class BodyParser {
       }
       if (this.isPunct(")")) {
         this.advance();
+        // The list closed, so `fn-param-list-unclosed` is silent here and says
+        // nothing false: the closer this arm consumed may be the one the
+        // author wrote for a statement the loop swallowed as parameters,
+        // rather than for the list itself. Withheld under the same
+        // absorbed-closer condition as the unclosed verdict — a capture that
+        // took the list's own `)` already has its disposition decided by that
+        // rule, and this arm must not add a second, conflicting one.
+        if (refusedTok !== null && !closeParenAbsorbed) {
+          this.diagnostics.push({
+            severity: "error",
+            code: "theta/parse/fn-param-not-identifier",
+            file: this.file,
+            range: refusedTok.range,
+            message: "fn parameter name must be an identifier",
+          });
+        }
       } else {
         unclosed = true;
       }

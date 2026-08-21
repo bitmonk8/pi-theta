@@ -68,6 +68,7 @@ trigger.
 | `theta/parse/capitalised-pattern-head` | E | parse | `capitalised pattern head '<name>' names no pattern production` |
 | `theta/parse/single-line-if` | E | parse | `single-line body not permitted; wrap in { ... }` |
 | `theta/parse/fn-param-list-unclosed` | E | parse | `fn parameter list is not closed by ')'` |
+| `theta/parse/fn-param-not-identifier` | E | parse | `fn parameter name must be an identifier` |
 | `theta/parse/block-comment` | E | lex | `block comments are not supported` |
 | `theta/parse/integer-narrowing` | E | type | `cannot narrow number to integer` |
 | `theta/parse/integer-literal-out-of-range` | E | lex | `integer literal exceeds the safe-integer range` |

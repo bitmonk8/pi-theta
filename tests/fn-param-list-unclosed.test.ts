@@ -71,15 +71,26 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     resync removes the parser-side arm (the `X` is no longer a parameter).
 //   - e4: a disposition change no committed test asserts (`array<string { 1 }`
 //     captures the brace INTO the type, so the loop still exits at EOF).
-//   - MUST NOT MOVE (g1–g8, the `mut` and `let` parameter-slot boundaries, the
-//     foreign-`)` rows c3/c4/d1, and the three WITHHELD rows): every one of
-//     these is asserted with its HEAD behaviour, unchanged.
+//   - MUST NOT MOVE (g1–g8, the `mut` and `let` parameter-slot boundaries, and
+//     the three WITHHELD rows): every one of these is asserted with its HEAD
+//     behaviour, unchanged. c3/c4/d1 below no longer belong to this list —
+//     bug 0225's route reaches them.
 //
-// THE FOREIGN-`)` RESIDUAL, stated so it is not read as an oversight. c3, c4
-// and d1 exit the loop on a `)` that belongs to something else, so this route
-// says nothing about them and they are asserted here exactly as HEAD reports
-// them — including d1's duplicate `binding-case-mismatch`, which the route
-// leaves in place (Decision 4).
+// THE FOREIGN-`)` ROWS, UPDATED BY BUG 0225. c3, c4 and d1 exit this route's
+// loop on a `)` that belongs to something else, so this file's own route
+// still says nothing about the closed/unclosed distinction on them — but bug
+// 0225 (docs/bugs/0225-fn-param-list-foreign-close-paren-silent.md) adds a
+// second predicate, judged at every parameter-name position regardless of how
+// the list closes, and it reaches all three: each row gains one
+// `theta/parse/fn-param-not-identifier` diagnostic at the first swallowed
+// token this file's own codes do not already refuse (the `=` in c3, the `(`
+// in c4, the `=` in d1), ranged and ordered after this file's rows. The
+// recorded parameter arrays are unmoved — bug 0225's route defers its
+// emission to the list's own `)` arm without breaking or resyncing, so
+// nothing here recovers. d1's duplicate `binding-case-mismatch` also
+// persists: measured, not assumed, because a route that resynchronised at the
+// swallowed statement would have removed it (as c8 does), and this route does
+// not resynchronise anything.
 //
 // DIAG-4 (diagnostic-shape.md:74) — no asserted message string is written out.
 // Every one is READ from the registry's *Message* column through
@@ -156,6 +167,8 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = [])
 
 /** The new row this bug's fix adds under DIAG-2 (absent at HEAD). */
 const UNCLOSED = "theta/parse/fn-param-list-unclosed";
+/** Bug 0225's row (fires on c3/c4/d1 below; this file does not own it). */
+const NOTID = "theta/parse/fn-param-not-identifier";
 const CASE = "theta/parse/binding-case-mismatch";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
@@ -350,7 +363,7 @@ describe("0151 (a) — an unclosed list whose `{` follows is refused, and the br
   });
 
   it("a1: `fn h(P: string { 1 }` reports the unclosed list and the case rule, ordered by column", () => {
-    // The uppercase twin. Bug 0139's parser-side arm (theta-document.ts:2444)
+    // The uppercase twin. Bug 0139's parser-side arm (theta-document.ts:2470)
     // is the only code this input draws at HEAD; the structural diagnostic
     // joins it and sorts ahead of it, since `assembleDiagnostics`
     // (src/diagnostics/diagnostic.ts) sorts by (file, line, column) and the
@@ -439,7 +452,7 @@ describe("0151 (a) — an unclosed list whose `{` follows is refused, and the br
 
   it("a9: `fn h(mut P: string { 1 }` reports three codes, each at its own range", () => {
     // The three-code pile, ordered by column: the list's `(` at 5, the `mut`
-    // modifier at 6–9 (`checkMutModifier`'s verdict, theta-document.ts:2406–2412),
+    // modifier at 6–9 (`checkMutModifier`'s verdict, theta-document.ts:2415–2421),
     // and the parameter name at 10–11 (bug 0139's arm). Each carries the range
     // of the thing it judges, which is what orders them.
     const doc = theta("fn h(mut P: string { 1 }\n");
@@ -574,7 +587,7 @@ describe("0151 (c8) — the resync removes the parser-side half of the duplicate
     // At HEAD this input draws TWO `theta/parse/binding-case-mismatch` at the
     // identical range `5:5-5:6`: the lexer's `let` adjacency judges the
     // swallowed `X` (src/lexer/lexer.ts's `contextualDiagnostics` / `checkName`)
-    // and the parameter loop's own case arm (theta-document.ts:2444) lands on
+    // and the parameter loop's own case arm (theta-document.ts:2470) lands on
     // the same token, because at HEAD the `X` is BOTH a swallowed `let` binder
     // and a recorded parameter. Decision 4 changes nothing about the duplicate
     // directly; the resync removes its parser-side arm as a consequence,
@@ -718,7 +731,7 @@ describe("0151 (g) — a closed parameter list keeps its exact HEAD behaviour", 
 
   it("the `mut`-as-parameter-name boundary keeps `mut-on-immutable-context` ALONE", () => {
     // The boundary the in-loop `atParamStart` comment names
-    // (theta-document.ts:2383–2391, bug 0148 §Fix (d)): consuming `mut` shifts
+    // (theta-document.ts:2390–2398, bug 0148 §Fix (d)): consuming `mut` shifts
     // the annotation `:` into the name slot and the type token into the slot
     // after it, and neither shifted token may draw a second diagnostic. The
     // list here is CLOSED, so this route adds nothing — the recovery artefacts
@@ -744,24 +757,34 @@ describe("0151 (g) — a closed parameter list keeps its exact HEAD behaviour", 
 });
 
 // ===========================================================================
-// (c3, c4, d1) The foreign-`)` residual — the route says nothing about these.
+// (c3, c4, d1) The foreign-`)` rows — bug 0225's route reaches them.
 // ===========================================================================
 
-describe("0151 residual — a list that exits on a `)` belonging to something else is unchanged", () => {
-  // These three rows find a `)` — not their own. The loop therefore exits
-  // through its `)` arm, no `{` stands at a parameter-name position, and
-  // neither of the settled route's two marks is set: the inputs keep HEAD's
-  // exact behaviour, statement deletion included. This is a RECORDED RESIDUAL
-  // of the settled route, not an oversight, and these rows exist so a later
-  // route that DOES reach them moves an asserted byte deliberately.
+describe("0225 — a list that exits on a `)` belonging to something else now also draws fn-param-not-identifier", () => {
+  // These three rows find a `)` — not their own. This file's own two marks
+  // (the `{` break, the EOF exit) are still both unset here, so its OWN
+  // codes say nothing new about the closed/unclosed distinction — that half
+  // of bug 0225 §Fix constraint 2 holds. But bug 0225
+  // (docs/bugs/0225-fn-param-list-foreign-close-paren-silent.md) adds a
+  // second, independent predicate at every parameter-name position, judged
+  // regardless of how the list closes, and it reaches all three rows: each
+  // gains one `theta/parse/fn-param-not-identifier` diagnostic, deferred to
+  // the epilogue's `)`-present arm with no break and no recovery, so the
+  // recorded parameter arrays stay exactly as HEAD recorded them.
 
-  it("c3: `fn h(a: string,` + `let x = 1` + `) { 1 }` keeps its single reserved-keyword diagnostic", () => {
+  it("c3: `fn h(a: string,` + `let x = 1` + `) { 1 }` gains fn-param-not-identifier at the swallowed `=`", () => {
     const doc = theta("fn h(a: string,\nlet x = 1\n) { 1 }\n");
-    expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([e(RESERVED, "5:1-5:4")]);
-    expect(quads(doc)).toEqual([q(RESERVED, "5:1-5:4", [["<keyword>", "let"]])]);
+    expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([
+      e(RESERVED, "5:1-5:4"),
+      e(NOTID, "5:7-5:8"),
+    ]);
+    expect(quads(doc)).toEqual([
+      q(RESERVED, "5:1-5:4", [["<keyword>", "let"]]),
+      q(NOTID, "5:7-5:8"),
+    ]);
     expect(
       paramsOf(doc),
-      `the swallowed statement's five tokens stay recorded as parameters; diagnostics=${render(doc)}`,
+      `bug 0225's emission recovers nothing, so the swallowed statement's five tokens stay recorded as parameters; diagnostics=${render(doc)}`,
     ).toEqual([
       { name: "a", type: "string" },
       { name: "let", type: "" },
@@ -772,10 +795,16 @@ describe("0151 residual — a list that exits on a `)` belonging to something el
     expect(registered(doc)).toBe(false);
   });
 
-  it("c4: `fn h(a: string,` + a following `fn g(): number { 2 }` is unchanged", () => {
+  it("c4: `fn h(a: string,` + a following `fn g(): number { 2 }` gains fn-param-not-identifier at the swallowed `(`", () => {
     const doc = theta("fn h(a: string,\nfn g(): number { 2 }\n");
-    expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([e(RESERVED, "5:1-5:3")]);
-    expect(quads(doc)).toEqual([q(RESERVED, "5:1-5:3", [["<keyword>", "fn"]])]);
+    expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([
+      e(RESERVED, "5:1-5:3"),
+      e(NOTID, "5:5-5:6"),
+    ]);
+    expect(quads(doc)).toEqual([
+      q(RESERVED, "5:1-5:3", [["<keyword>", "fn"]]),
+      q(NOTID, "5:5-5:6"),
+    ]);
     expect(paramsOf(doc)).toEqual([
       { name: "a", type: "string" },
       { name: "fn", type: "" },
@@ -785,22 +814,27 @@ describe("0151 residual — a list that exits on a `)` belonging to something el
     expect(registered(doc)).toBe(false);
   });
 
-  it("d1: the duplicated `binding-case-mismatch` PERSISTS on the foreign-`)` row (Decision 4)", () => {
-    // Decision 4 is "do nothing about the duplicate", and here it is, intact:
+  it("d1: the duplicated `binding-case-mismatch` PERSISTS on the foreign-`)` row, and fn-param-not-identifier joins it (Decision 4, re-measured)", () => {
+    // Decision 4 is "do nothing about the duplicate", and it still holds:
     // two `binding-case-mismatch` at the identical range `5:5-5:6` — the
     // lexer's `let` adjacency and the parameter loop's own case arm judging the
     // same `X`, which on this row IS still a recorded parameter. Compare c8,
-    // where the resync removes the parser-side arm.
+    // where the resync removes the parser-side arm; bug 0225's route performs
+    // no such resync, so the duplicate is measured to survive rather than
+    // assumed to. The first token bug 0225's own predicate refuses beyond what
+    // the two case-mismatch rows already name is the `=` at `5:7-5:8`.
     const doc = theta("fn h(a: string,\nlet X = 1\n) { 1 }\n");
     expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([
       e(RESERVED, "5:1-5:4"),
       e(CASE, "5:5-5:6"),
       e(CASE, "5:5-5:6"),
+      e(NOTID, "5:7-5:8"),
     ]);
     expect(quads(doc)).toEqual([
       q(RESERVED, "5:1-5:4", [["<keyword>", "let"]]),
       q(CASE, "5:5-5:6"),
       q(CASE, "5:5-5:6"),
+      q(NOTID, "5:7-5:8"),
     ]);
     expect(registered(doc)).toBe(false);
   });

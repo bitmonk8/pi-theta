@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.168.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0225 — a foreign token in `fn` parameter position now refuses at
+  parse** (previously `fn h(a: string,` / `x = 1` / `) { 1 }` registered
+  silently with a phantom parameter). NEW registered row
+  `theta/parse/fn-param-not-identifier` (registry + reference mirror + one
+  grammar clause each side, same commit), deferred emission at `parseFn`'s
+  epilogue `)`-arm; bug 0150's wire-name subject untouched;
+  `fn-param-list-unclosed`'s Trigger not widened. Witness:
+  `tests/fn-param-not-identifier.test.ts` (24 cells) + a standalone live
+  cell. Bug 0151's residual discharged.
+
 ## [0.167.0] - 2026-08-27
 
 ### Fixed

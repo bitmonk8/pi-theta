@@ -1,6 +1,6 @@
 # Bug 0225 — `parseFn`'s parameter loop still pushes any token it advances over as a `FnParam` (`theta-document.ts:2414`, `:2460`), and bug 0151's landed refusal only marks the list unclosed at a block-open `{` (`:2398`) or at EOF (`:2468–2472`), so a swallowed region that ends at a `)` belonging to something else exits through the `)` arm as a closed list: `fn h(a: string,` + `x = 1` + `) { 1 }` reports `[]`, records `x`, `=` and `1` as three further parameters, drops the `x = 1` statement from `body.statements`, moves `h`'s arity from 1 to 4, and REGISTERS — and the one-line spelling `fn h(a: string, = 1) { 1 }`, which engages no newline continuation at all, is silent the same way
 
-- **Status:** open. Filed as residual 1 of bug
+- **Status:** fixed (0.168.0). Filed as residual 1 of bug
   [0151](./0151-unclosed-fn-parameter-list-accepted.md)'s `## Fix (0.163.0)`,
   which names this class, states that closing it "needs §Fix Decision 1's other
   sub-arm — a non-derivable-token test at every parameter-name position, not
@@ -650,3 +650,174 @@ observable is involved: every value settles inside one parse.
 - **Not verified end to end:** A7's runtime consequence is asserted from the
   code path (`statement-executor.ts:403` → `tool-call.ts:443`), not from a
   driven execution. Everything else in §Reproduction is probe output verbatim.
+
+## Fix (0.168.0)
+
+- **Route adjudicated in-run** (§Fix settled neither open question; these are
+  this run's decisions, taken against a re-measured HEAD and a full-suite
+  prototype, not copied from the filed tables):
+  - **Decision 1 — the NARROW predicate (§Fix constraint 4's first arm).** At a
+    parameter-name position, a token whose `kind` is neither `"ident"` nor
+    `"keyword"` — the `punct`, `number`, `string` and `template` classes no
+    reading of `Ident` derives — is refused. An annotation-less legal `Ident`
+    is NOT refused. **Bug 0150's open adjudication is therefore untouched:**
+    nothing in the predicate keys on a missing `":" Type`, A11
+    (`fn h(p): number { 1 }`) still registers with one parameter and zero
+    diagnostics, and A1 still records a parameter named `x`. The half this
+    report claims — a token no `Ident` derives, which 0150's §Non-goals
+    disclaims in terms — is the half that moved; 0150's own subject, its
+    wire-name half included, is neither claimed nor fixed here. A1's pin is
+    closed on registration and left open on the recorded `x`; residual 1 states
+    it.
+  - **Decision 2 — deferred emission at the epilogue's `)`-present arm; no
+    break, no recovery.** The first refused token is recorded in the loop and
+    reported only where the list closes on a `)`. §Fix constraint 6 proposed a
+    break with the cursor left on the token; **measurement refused it.** A
+    break means the cursor never reaches the list's `)`, so the epilogue's
+    closed/unclosed distinction collapses, `unclosed` is set on every member of
+    this class, and 0151's group (b) EOF cells c6 and c7 red — which §Fix
+    constraint 2 forbids. Measured under the break prototype: 7 reds across 2
+    files, including c6, c7 and the `fn h(mut: string)` boundary. Under the
+    deferred prototype: 3 reds, exactly the three cells constraint 7
+    authorises. Consequence, accepted and asserted rather than hidden: the
+    recorded parameters are unchanged and A1's `x = 1` stays absent from
+    `body.statements`.
+  - **Decision 3 — a NEW registered row, not a *Trigger* widening (§Fix
+    constraint 5, shape 2).** `theta/parse/fn-param-not-identifier` (E, parse),
+    *Message* placeholder-free and byte-exact `fn parameter name must be an
+    identifier`. Grounds: DIAG-4 (`diagnostic-shape.md:74`) makes the *Message*
+    normative, and `fn-param-list-unclosed`'s *Message* is FALSE on this class —
+    the author did write the `)`; the two rows' recoveries differ (that row
+    leaves the cursor ON the `{`, this one recovers nothing); and leaving that
+    row byte-unchanged keeps its withhold prose and 0151's pinned cells intact.
+    Placeholder-free, so `placeholder-rendering-a.md`'s closed table is not
+    engaged and bug 0063's open surface is not widened — 0151's Decision 3 and
+    bug 0042's precedent.
+  - **Decision 4 — withheld under bug 0124's `closeParenAbsorbed`.** An
+    absorbed-closer input keeps its previous disposition byte-for-byte, the new
+    emission included. The two withhold conditions can be true together at this
+    arm, so the guard carries its own falsifying cell (X9).
+  - **Decision 5 — exempt on a `mut` modifier consumed in the same loop
+    iteration.** Consuming `mut` shifts the annotation `:` into the name slot;
+    that shift is a recovery artefact, not an author-written name, and
+    `fn h(mut: string)` keeps `mut-on-immutable-context` ALONE (bug 0148 §Fix
+    (d)). The exemption is one iteration wide: `fn h(mut = 1) { 1 }` draws the
+    modifier code and then this row at the `1`.
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parseFn`: the `refusedTok` capture beside
+    `closeParenAbsorbed`, the per-iteration `mutConsumed` flag, the
+    non-derivable-token predicate at the `pTok` capture, and the deferred
+    emission inside the epilogue's `)`-present arm. No other function touched.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 row,
+    stating the refused token classes, the closed-list scoping (a list reaching
+    EOF or a body-open `{` is judged by `fn-param-list-unclosed` alone and is
+    not doubled), first-token-only reporting, the bug-0124 withhold, the `mut`
+    exemption, the absence of recovery, and that an annotation-less `Ident` is
+    not judged by this row.
+  - `docs/reference/diagnostics.md` — the Code/Sev/Phase/Message mirror row.
+  - `docs/spec_topics/grammar.md`, `docs/reference/grammar.md` — one clause
+    each beside the `FnParam ::= Ident ":" Type` sentence, in each page's
+    existing convention of naming a sibling rule's code inline.
+  - `tests/fn-param-not-identifier.test.ts` — 24 cells (new): A1–A9 the class,
+    A10/A11 the must-not-move controls that isolate this report from bug
+    0150's, A12/A13/A14 the boundaries, X2–X5 the `mut` exemption and the
+    separator and `Ident`-half rows, X6/X7 the two settled exits reporting
+    `fn-param-list-unclosed` alone, X8/X9 the withhold on both guarded arms,
+    and one registry cell asserting the DIAG-2 addition.
+  - `tests/live/fn-param-not-identifier-live-cell.test.ts` — one live
+    registration cell (new), tagged ``.
+  - `tests/fn-param-list-unclosed.test.ts` — the three authorised cell flips
+    (§Fix constraint 7) plus the group-header and ledger prose that pre-stated
+    them, and the `theta-document.ts` citations this diff's own insertion
+    shifted.
+- **Gates:** witness `24 passed (24)`; 0151's witness `35 passed (35)`;
+  `tests/code-registry.test.ts` `5 passed (5)` (DIAG-2 closed-set
+  reconciliation, both directions); `tests/committed-fixture-parse-gate.test.ts`
+  `36 passed (36)`; full default suite `Test Files 358 passed (358) / Tests
+  7313 passed (7313)`; `npx tsc --noEmit` clean; `npm run lint` clean. The fork
+  baseline was 357 files / 7289 tests.
+- **Review:** 1 round plus one comment-only polish. Round 1 (deep) — CLEAN, 25
+  adversarial token-shape probes reported per shape, both-directions
+  neutralisation proof (`17 failed | 41 passed` neutralised, `58 passed`
+  restored), and two non-blocking residuals: dual pre-fix/post-fix line
+  citations in the new witness comments (house-rule, CLAUDE.md's ban on
+  historical references) and pre-fix-only citations inside current-behaviour
+  prose (prose). Polish round (comment-only) collapsed every doublet to one
+  current-line-plus-symbol citation and re-derived the contract block's
+  numbers; verified by gate-diff — every hunk a `//` comment, gates re-run
+  green — so the confirmation review round was skipped.
+- **Verification:** SOLID after one fixer round. Witness reds on a neutralised
+  emission (`14 failed | 9 passed (23)`, class rows reporting an empty
+  diagnostic list) and the three flipped 0151 cells red with it
+  (`3 failed | 32 passed (35)`); greens restored with `git hash-object`
+  identical before and after (`97dcdbcc769458857467d55f4f53c0e0a39f0576`).
+  Guard falsifiability proven per guard: neutralising `!mutConsumed` reds X2
+  and X3; neutralising `!closeParenAbsorbed` on the `)`-arm initially red
+  NOTHING across all 358 files — reported as a finding and closed by cell X9,
+  re-proven independently (`1 failed | 23 passed (24)` neutralised,
+  `24 passed` restored, hash identical). Default suite, typecheck and lint
+  green. Live run for real under the shared lock: the new cell `1 passed` and
+  red-proven in BOTH directions live (neutralised, the foreign-`)` theta
+  registered and the cell failed on the registered-set observable; restored,
+  green), and 0151's precedent live cell `1 passed`. No stochastic class
+  engaged — the cell's observables are registration and the
+  `theta-system-note` channel, with no model turn.
+  `tests/fixtures/h7a/permitted-codes.json` left byte-untouched: the code is a
+  load-phase `theta/parse/*` observed on the note channel, not reachable from
+  the H9a stderr EMPTY-CAPTURE gate, and H9a was not run. GOV-15 sweep over all
+  34 committed `.theta` / `.thetalib` files (both extensions walked, bug 0132):
+  4 `fn` declarations, 0 offenders, 0 emissions of the new code; the
+  corpus-wide claim is discharged by the shipped
+  `tests/committed-fixture-parse-gate.test.ts`, not by the probe. One
+  case-insensitive repository sweep for `fn-param-not-identifier` returns hits
+  in exactly the six modified and two new files.
+- **Residuals:**
+  1. **The narrow predicate leaves the annotation-less `Ident` recorded, so
+     A1's statement deletion survives.** A1 now reports
+     `theta/parse/fn-param-not-identifier` at the `=` and does NOT register,
+     which closes the S1 claim; its parameter array is still
+     `a:string, x, =, 1` and `x = 1` is still absent from `body.statements`.
+     Closing that needs a predicate that also refuses an `Ident` carrying no
+     `":" Type`, which decides bug 0150's open adjudication — §Fix constraint 4
+     and this lane's own constraint forbid it here. Bug 0150's subject, its
+     wire-name half included, is untouched by this fix.
+  2. **The two exits bug 0151 settled do not gain this verdict.** A list that
+     reaches EOF or a body-open `{` after recording a non-derivable token
+     reports `theta/parse/fn-param-list-unclosed` alone (measured:
+     `fn h(a: string, 42 { 1 }` draws that code at `4:5-4:6`;
+     `fn h(a: string,` with `42` at EOF draws `single-line-if` and that code).
+     Deliberate: §Fix constraint 2 pins those cells byte-green, and the
+     registry row states the non-doubling. Cells X6 and X7 assert it.
+  3. **A `mut`-shifted token is exempt, so one shape stays silent.**
+     `fn h(mut = 1) { 1 }` draws the modifier code and this row at the `1`, but
+     the `=` shifted into the name slot by the `mut` consume draws nothing.
+     Bug 0148 §Fix (d) owns that recovery artefact.
+  4. **A12 and A13 gained a diagnostic against §Fix constraint 1's wording.**
+     Constraint 1 asks A13 to keep its exact diagnostic list and §Non-goals
+     asks A12 to keep bug 0148's emission alone. Both now carry this row as
+     well — A12 at `5:7-5:8`, A13 at `5:3-5:4` — because the `=` each swallows
+     is a genuine member of the class. Both inputs were already refused, so no
+     registration outcome moved, and no committed cell asserted either list
+     except c3, which constraint 7 authorises. Recorded as a deviation for the
+     parent to ratify, not as an accident.
+  5. **Citation drift.** The parser edit inserts inside `parseFn` and shifts
+     every `src/parser/theta-document.ts` citation below the `refusedTok`
+     declaration — bug 0134's adjudicated class. Corrected inside the two files
+     this fix already edits; disclosed and not chased elsewhere.
+     `tests/fn-param-list-unclosed.test.ts` retains three citations that were
+     already stale before this diff.
+  6. **No in-lane release-notes surface for the GOV-15 addition.** §Fix
+     constraint 8 asks for the class in the release notes; `CHANGELOG.md` is
+     out of bounds in this lane. The parent must record the new code as a
+     `source-language-stability.md:25` addition when it stamps the version.
+- **Discharge notes appended:** bug 0151's `## Fix (0.163.0)` residual 1 — a
+  note beside it records that the foreign-`)` class is closed here on
+  registration.
+- **Pinned dispositions / non-goals:** bug 0150's optional-annotation subject
+  (its wire-name half included), bug 0124's `parseType` terminator set and its
+  `<` / `>` counter with all five pinned cells, bug 0148's reserved-keyword
+  emission and its `mut` recovery artefact, bug 0139's duplicated
+  `binding-case-mismatch` (measured to survive on d1 — this route
+  resynchronises nothing), bug 0131's in-document arity check, bug 0133's
+  `parseSchemaObjectBody` recovery, bug 0063's `<construct>` table, and the
+  newline-continuation rule — all unmoved.

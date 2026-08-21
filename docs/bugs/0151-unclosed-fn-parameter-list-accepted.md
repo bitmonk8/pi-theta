@@ -1248,6 +1248,21 @@ settles inside one parse.
      Closing this needs §Fix Decision 1's other sub-arm — a non-derivable-token
      test at every parameter-name position, not only at `{` — which reaches
      bug 0148's and bug 0150's rows and is therefore not taken here.
+     **Discharged by bug
+     [0225](./0225-fn-param-list-foreign-close-paren-silent.md)'s
+     `## Fix (0.168.0)`,** which took that sub-arm in its narrow form: a token
+     whose `kind` is neither `"ident"` nor `"keyword"` at a parameter-name
+     position is recorded and reported through a new registered row,
+     `theta/parse/fn-param-not-identifier`, deferred to the epilogue's
+     `)`-present arm so the two exits settled here keep reporting
+     `theta/parse/fn-param-list-unclosed` alone. The class no longer
+     registers: `fn h(a: string,` + `x = 1` + `) { 1 }` draws that code at the
+     `=`. Bug 0150's rows are untouched — the predicate does not reach an
+     annotation-less `Ident`, so the swallowed `x` stays recorded and the
+     statement deletion survives as that fix's residual 1. Cells c3, c4 and d1
+     of this fix's witness were flipped there under bug 0225's §Fix
+     constraint 7; d1's duplicated `binding-case-mismatch` was re-measured and
+     survives, so Decision 4 stands.
   2. **Bug 0124's declined `<` / `>` row changes disposition where no `)` was
      absorbed.** `fn h(p: array<string { 1 }` (§Reproduction (e) e4) now draws
      the new code and no longer registers; the capture is still
