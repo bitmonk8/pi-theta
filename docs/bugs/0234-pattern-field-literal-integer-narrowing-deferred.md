@@ -1,6 +1,6 @@
 # Bug 0234 — At a `match` object-pattern head, a `number`-spelled literal under an `integer`-declared field draws nothing: `match d { Q { a: 1.0 } => … }` where `schema Q { a: integer }` draws `[]`, registers, and selects the arm, while `Q { a: 1.0 }` in the CONSTRUCTOR position and the same literal at a typed `let`, a `params:` default, a reassignment and an `array<integer>` element each draw `theta/parse/integer-narrowing`
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.204.0). Filed as bug
   [0226](./0226-declared-object-pattern-head-field-set-unchecked.md)'s
   `## Fix (0.176.0)` *Residuals* item 1 (`:710`): "`theta/parse/integer-narrowing`
   is a pinned DEFERRAL at the pattern position … The refusal that IS owed here is
@@ -550,3 +550,97 @@ is owed on bug 0226's precedent, since the route changes a registration outcome.
   producer deps. Row B5's second diagnostic
   (`theta/parse/unknown-identifier`) is the probe body's own artefact, stated
   rather than filtered.
+
+## Fix (0.204.0)
+
+**Disposition settled: 1 — the pattern position narrows.** Recorded reasoning,
+inside the nine constraints: the narrowing row's *Trigger*
+(`code-registry-parse.md:27`) named no position, so an emission widens no
+enumeration; the deferral's registered cause ("a pattern literal carries no
+lexed numeric spelling") is false at the site — `Token.numericType`
+(`src/lexer/lexer.ts:636`) reaches `parsePattern` and was dropped there;
+`lexical.md:28` makes the SOURCE spelling normative; and five sibling sinks
+refuse the identical spellings (§Reproduction B1–B7). Disposition 2 would have
+registered a position where `1.0` is typed by its value against a spec that
+types it by its spelling. Constraint 1 is answered by name: the integral-valued
+`number` spellings `1.0` and `1e10` refuse, because the token's spelling is
+carried, not only because the `.filter` is gone.
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `PatternNode`'s literal variant gains an
+    optional `numericType`; `BodyParser.parsePattern`'s number branch carries
+    the token's lexed spelling, set only for a `"number"` spelling (an absent
+    field reads as the `integer` default, mirroring the expression path's own
+    `t.numericType ?? "integer"` read).
+  - `src/parser/type-layer-checks.ts` — `patternLiteralType` takes that
+    spelling and types by it (falling back to `Number.isInteger`);
+    `TypeLayerWalk.checkPatternFieldTypes` passes `sub.numericType` and keeps
+    `checkObjectFieldCompat`'s WHOLE result, the `.filter` deleted. Both doc
+    comments state the emission rule instead of the deferral.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2, both rows
+    in the same change: `:27`'s *Trigger* widened to name the `match`
+    object-pattern position and the source-spelling rule, with its GOV-15
+    sentence; `:49`'s deferral sentence replaced by the mutual-exclusion
+    emission rule. Neither *Message* column moves (constraint 5), so
+    `docs/reference/diagnostics.md` and `tests/fixtures/h7a/permitted-codes.json`
+    are byte-untouched.
+  - `docs/spec_topics/expressions.md` — the pattern-position paragraph gains
+    the narrowing sentence. `type-system.md:52` (TYPE-9) deliberately NOT
+    edited: its enumeration is the five sites that mint their own code, and the
+    schema-CONSTRUCTOR field position is likewise absent from it.
+  - `tests/object-pattern-head-field-set-refusal.test.ts` — bug 0226's cell
+    `x4`, the single flip constraint 4 authorises, moved from the pinned `[]`
+    to the narrowing refusal at the whole-pattern range; the other 31 cells
+    unmoved.
+- **Gates:** witness RED at the fork point — 8 cells (`r2`, `r3`, `a1`, `a2`,
+  `a3`, `a4`, `a6`, `a7`), reproduced by the verifier's revert (`Tests 9 failed
+  | 48 passed (57)` with `x4`); witness GREEN after —
+  `tests/pattern-field-literal-integer-narrowing-refusal.test.ts (25 tests)`,
+  `tests/object-pattern-head-field-set-refusal.test.ts (32 tests)`,
+  `Tests 57 passed (57)`. Full default suite `Test Files 388 passed (388) /
+  Tests 8033 passed (8033)`. `npm run typecheck` clean, `npm run lint` clean.
+  Locks green at their document counts: 43 + 54 + 32.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`): DEFECTS(3), none a
+  blocker — two citation-health defects the change minted itself (a stale
+  `:1047` cite of the cell this change moved; a line-form cite of the DELETED
+  `.filter`) and historical narration in the flipped `x4` comments. Fixed in
+  one `bug-fix-fixer-light` round (comment/prose only; polish verified by
+  gate-diff, so the confirmation review round was skipped per policy).
+- **Verification:** VERIFIED after one finding. (1) The witness reds without
+  the fix and greens with it, with the docs half reverted separately to red
+  `r2`/`r3` alone — the 8-cell set reproduced exactly, restoration proved by
+  `git hash-object`. (2) Full default suite green (388 files). (3) Live:
+  `tests/live/pattern-field-integer-narrowing-live-cell-.test.ts` run
+  for real under the shared lock — GREEN with the fix (`Tests 1 passed (1)`,
+  3145ms, one real model turn on the `integer`-spelled sibling), and RED with
+  `src/parser/{type-layer-checks,theta-document}.ts` reverted byte-exact to the
+  fork point, with the bug's own signature (`Registered:
+  ["cellslashintegernarrowingpattern","cellslashintegerspelledpattern"]`);
+  src restored, hashes verified. (4) `npm run lint` / `npm run typecheck`
+  clean, no collateral (`permitted-codes.json`, `docs/reference/diagnostics.md`,
+  `src/runtime/**` byte-untouched), one case-insensitive scratch sweep clean.
+  The single verifier finding — a `:306` citation this change's own insertion
+  shifted to `:333` — was corrected in the witness comment.
+- **Residuals:**
+  1. `parsePattern` carries `numericType` only for a `"number"` spelling. The
+     omission is load-bearing: an unconditional carry structurally reds three
+     deep-equality cells in OPEN bug 0123's witness
+     (`tests/match-pattern-increment-decrement.test.ts` `f1`/`f2`/`h2` assert
+     `{ kind: "literal", value: 1 }` exactly). Measured both ways before the
+     route was fixed; the conditional carry leaves that file green (28 tests)
+     and constraint 9 untouched. Whichever of 0234/0123 is re-measured next
+     should keep this in view.
+  2. Pre-existing citation drift in touched files, bug 0134's do-not-chase
+     class, left as found: `tests/object-pattern-head-field-set-refusal.test.ts:88`
+     cites `case "match"` at `type-layer-checks.ts:3157` (now `:2804`), and
+     this document's own §Affected citations are its filing-HEAD measurement.
+  3. A pattern-field narrowing emission still uses the WHOLE object-pattern's
+     range (constraint 7). A per-field range is a node-shape change and is
+     unclaimed by any report.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** `type-system.md:52` (TYPE-9) not
+  widened, reason above; §Non-goals all held — no runtime dispatch change
+  (`src/runtime/**` byte-identical), no new code minted, the `fn`-argument
+  sink keeps its own code (witness cell `b8`), the shorthand stays unjudged
+  (`c4`), the negative pattern literal stays bug 0123's (`c5`), and the
+  `enum`/imported/builtin heads stay deferrals.

@@ -53,7 +53,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // elements, measured at this tree before the cells were written:
 //
 //   (1) RANGE CARRIAGE. The object variant of `PatternNode`
-//       (src/parser/theta-document.ts:307–:310, which today carries `typeName`
+//       (src/parser/theta-document.ts:321–:324, which today carries `typeName`
 //       and `fields` and no range — the reason §Fix constraint 1 exists) gains
 //       `readonly range: SourceRange` spanning the WHOLE pattern: the head
 //       token through the closing `}` (for the bare `{ … }` form, `{` through
@@ -90,10 +90,13 @@ import type { ThetaValue } from "../src/runtime/value";
 //       existing `checkObjectFieldCompat` (src/parser/type-compat.ts:526,
 //       TYPE-9 doc :508), with the verdict
 //       `theta/parse/object-field-type-mismatch` at the PATTERN's range. A
-//       number literal types as `integer` when integral, else `number`.
-//       `theta/parse/integer-narrowing` outcomes are DROPPED — a pinned
-//       deferral: a non-integral literal under an `integer` field stays
-//       silent (cell x4).
+//       number literal types as `integer` when integral, else `number`. The
+//       pattern position narrows (bug 0234 §Fix disposition 1,
+//       docs/bugs/0234-pattern-field-literal-integer-narrowing-deferred.md):
+//       `checkObjectFieldCompat`'s whole verdict is kept at the pattern
+//       position, so a non-integral literal under an `integer` field is
+//       refused there. This file's cell x4 is the single flip bug 0234
+//       §Fix constraint 4 authorises.
 //
 // NO NEW REGISTRY ROW, and no tests/fixtures/h7a/permitted-codes.json edit.
 // The disposition is DIAG-2 as a *Trigger* WIDENING of the two existing rows
@@ -175,6 +178,13 @@ const MISSING_FIELD = "theta/parse/missing-object-field";
 /** The value-position-only verdict for an alias head (:107) — cell v3. */
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 
+/**
+ * TYPE-2's one-way `number`-under-`integer` verdict (code-registry-parse.md:27).
+ * Bug 0234 authorises the single flip in this file that reads this constant:
+ * cell x4, moved from a pinned `[]` deferral to this refusal.
+ */
+const NARROWING = "theta/parse/integer-narrowing";
+
 // ===========================================================================
 // (r) The registry oracle — DIAG-4's source of truth for every rendering
 // below, and DIAG-2's evidence that the route mints no row.
@@ -230,6 +240,7 @@ function fill(template: string, slots: Readonly<Record<string, string>>): string
 
 const EXTRA_FIELD_TEMPLATE: string = registryMessage(REGISTRY, EXTRA_FIELD) as string;
 const TYPE_MISMATCH_TEMPLATE: string = registryMessage(REGISTRY, TYPE_MISMATCH) as string;
+const NARROWING_MESSAGE: string = registryMessage(REGISTRY, NARROWING) as string;
 
 describe("0226 (r) — the two registered rows the refusals render from", () => {
   it("r1: `extra-object-field` is registered `E`/`parse` with the rendering every (a) cell substitutes", () => {
@@ -405,6 +416,15 @@ function typeMismatch(
 /** An expected diagnostic from a code this fix does not move (group (v)). */
 function existing(code: string, message: string, at: SourceRange): DiagShape {
   return { severity: "error", code, file: FILE, range: at, message };
+}
+
+/**
+ * The narrowing refusal, rendered through the registry oracle. Bug 0234's
+ * fix keeps `checkObjectFieldCompat`'s whole result at the pattern position,
+ * so this row and `typeMismatch` above are mutually exclusive per field.
+ */
+function narrowing(at: SourceRange): DiagShape {
+  return { severity: "error", code: NARROWING, file: FILE, range: at, message: NARROWING_MESSAGE };
 }
 
 /** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message`. */
@@ -980,10 +1000,12 @@ describe("0226 (b) — the boundaries keep their silence and their values", () =
 });
 
 // ===========================================================================
-// (x) Rows measured for this route beyond the bug document's tables. x1, x2,
-// x4 and x5 are GREEN at HEAD and must stay green (they bound the four
+// (x) Rows measured for this route beyond the bug document's tables. x1, x2
+// and x5 are GREEN at HEAD and must stay green (they bound the four
 // elements); x3 and x6 are RED at HEAD and are NOT in the document's
-// must-not-move set, so their AMENDED form is pinned here.
+// must-not-move set, so their AMENDED form is pinned here. x4 is the single
+// flip bug 0234 authorises (§Fix constraint 4): FLIPPED from a pinned `[]`
+// deferral to the narrowing refusal.
 // ===========================================================================
 
 describe("0226 (x) — the route's own boundaries, measured", () => {
@@ -1044,23 +1066,28 @@ describe("0226 (x) — the route's own boundaries, measured", () => {
     );
   });
 
-  it("x4 [PINNED DEFERRAL]: a non-integral literal under an `integer` field stays silent", async () => {
-    // Element (4)'s stated deferral: number literals type as `integer` when
-    // integral and `number` otherwise, and the
-    // `theta/parse/integer-narrowing` outcomes of `checkObjectFieldCompat`
-    // (src/parser/type-compat.ts:526) are DROPPED at the pattern position. So
-    // `Q { a: 1.5 }` under `a: integer` draws nothing and the arm does
-    // not match. Pinned as the MEASURED disposition of the settled route, not
-    // as an argued-for one.
-    await expectClean(
+  it("x4 [FLIPPED by bug 0234]: a non-integral literal under an `integer` field is now refused", async () => {
+    // Number literals type as `integer` when integral and `number`
+    // otherwise. Per bug 0234 §Fix disposition 1
+    // (docs/bugs/0234-pattern-field-literal-integer-narrowing-deferred.md),
+    // `checkObjectFieldCompat`'s (src/parser/type-compat.ts:526) whole
+    // verdict is kept at the pattern position, so `Q { a: 1.5 }` under
+    // `a: integer` draws `theta/parse/integer-narrowing` at the whole
+    // pattern's range and the arm does not register. The two codes
+    // (`theta/parse/integer-narrowing` and
+    // `theta/parse/object-field-type-mismatch`) are mutually exclusive per
+    // field. This is the single flip bug 0234 §Fix constraint 4 authorises
+    // in this file (cell x4).
+    // Pattern `Q { a: 1.5 }` is 12 characters at column 19 of line 6.
+    await expectRefused(
       lines(
         "schema Q { a: integer }",
         "let d = Q { a: 1 }",
         'let r = match d { Q { a: 1.5 } => "n-arm", _ => "other" }',
         "r",
       ),
-      "other",
-      "element (4) drops `theta/parse/integer-narrowing` outcomes at the pattern position: the narrowing verdict stays the constructor's",
+      [narrowing(patternRange(6, ARM_COLUMN, "Q { a: 1.5 }"))],
+      "bug 0234 §Fix disposition 1: the pattern position narrows, so `checkObjectFieldCompat`'s `theta/parse/integer-narrowing` verdict now reaches the diagnostic list instead of being filtered out",
     );
   });
 

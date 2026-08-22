@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.204.0]
+
+### Fixed
+
+- **Bug 0234**: the integer-narrowing refusal was deferred at PATTERN
+  position by two independent mechanisms — the computed verdict was dropped
+  by a filter in the type layer, and `patternLiteralType` typed by
+  `Number.isInteger` on the parsed value while `parsePattern` dropped the
+  token's `numericType`. Disposition 1 shipped: the pattern position
+  narrows — `parsePattern` carries `numericType` for a `"number"` spelling
+  and the filter admits the pattern-position verdict, so
+  `Q { a: 1.5 }` under `a: integer` now refuses where `1.0` matches
+  (registry row widened onto the position; expressions.md amended same
+  commit). The one authorized flip: 0226's cell x4 (pinned today's silence
+  by design). Witness:
+  `tests/pattern-field-literal-integer-narrowing-refusal.test.ts` (25
+  cells) + an H8a live cell red-proven against reverted src.
+
 ## [0.203.0]
 
 ### Fixed

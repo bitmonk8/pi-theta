@@ -301,7 +301,21 @@ export interface ObjectExpr extends NodeBase {
 export type PatternNode =
   | { readonly kind: "wildcard" }
   | { readonly kind: "identifier"; readonly name: string }
-  | { readonly kind: "literal"; readonly value: string | number | boolean | null }
+  | {
+      readonly kind: "literal";
+      readonly value: string | number | boolean | null;
+      /**
+       * The lexed numeric spelling (`Token.numericType`, lexer.ts), carried
+       * exactly as `BodyParser.parsePrimary`'s number branch (this file)
+       * carries it onto `NumberExpr`. Present ONLY for a `"number"` spelling
+       * (`1.0`, `1e10`) because that is the one case unrecoverable from
+       * `value` alone (a `number`-spelled integral literal parses to an
+       * integral JS value, so `Number.isInteger` cannot tell `1.0` from `1`);
+       * an absent field means the `"integer"` default, mirroring the
+       * expression path's own `t.numericType ?? "integer"` read.
+       */
+      readonly numericType?: "integer" | "number";
+    }
   | { readonly kind: "constructor"; readonly ctor: "Ok" | "Err"; readonly inner: PatternNode }
   | {
       readonly kind: "object";
@@ -4671,7 +4685,18 @@ class BodyParser {
     const t = this.peek();
     if (t.kind === "number") {
       this.advance();
-      return { kind: "literal", value: Number(t.text) };
+      // Bug 0234: carry the token's lexed spelling so a pattern-position
+      // narrowing verdict can be judged by SOURCE spelling (lexical.md
+      // §"Number literals") rather than by the parsed value's shape. Only a
+      // "number" spelling is set: an absent field reads as "integer" by
+      // construction (mirroring `BodyParser.parsePrimary`'s own
+      // `t.numericType ?? "integer"` read, this file), and a "number"-spelled
+      // integral literal (`1.0`) is the one case `Number.isInteger(value)`
+      // cannot recover.
+      const numericType = t.numericType ?? "integer";
+      return numericType === "number"
+        ? { kind: "literal", value: Number(t.text), numericType }
+        : { kind: "literal", value: Number(t.text) };
     }
     if (t.kind === "string") {
       this.advance();

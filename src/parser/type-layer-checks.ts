@@ -1246,19 +1246,21 @@ function isResultGenericTypeName(name: string): boolean {
 
 /**
  * The static type a LITERAL match-pattern sub-pattern (`R { a: 1 }`'s `1`)
- * types as, for `checkPatternFieldTypes` (bug 0226 §Fix) to judge through
- * `checkObjectFieldCompat` — the same relation the constructor position
- * already decides at `checkObjectField` above. Unlike an EXPRESSION literal
- * (`static-type-inference.ts`'s `case "literal"`, which reads the lexed
- * `node.numericType` to tell `1` from `1.0`), a `PatternNode` literal carries
- * only the parsed JS value — no lexed numeric spelling — so an integral
- * number types `"integer"` and a non-integral one types `"number"`; reading
- * every numeric pattern literal as `"number"` would turn every integral
- * literal under an `integer`-declared field into a spurious narrowing
- * verdict, which element (4) deliberately drops at the pattern position
- * (cell x4).
+ * types as, for `checkPatternFieldTypes` (bug 0226 §Fix, bug 0234 §Fix) to
+ * judge through `checkObjectFieldCompat` — the same relation the constructor
+ * position already decides at `checkObjectField` above. A numeric literal is
+ * typed by its SOURCE spelling (lexical.md §"Number literals": no fractional
+ * or exponent part is `integer`, otherwise `number`), matching the EXPRESSION
+ * path's reading of `NumberExpr.numericType`
+ * (`static-type-inference.ts`'s `case "literal"`). `PatternNode`'s
+ * `numericType` (theta-document.ts) is set only for a `"number"` spelling, so
+ * an absent field reads `"integer"` — the same default `parsePattern` applies
+ * when it carries the field (theta-document.ts).
  */
-function patternLiteralType(value: string | number | boolean | null): CompatType {
+function patternLiteralType(
+  value: string | number | boolean | null,
+  numericType?: "integer" | "number",
+): CompatType {
   if (typeof value === "string") {
     return { kind: "literal", typesAs: "string" };
   }
@@ -1268,7 +1270,7 @@ function patternLiteralType(value: string | number | boolean | null): CompatType
   if (value === null) {
     return { kind: "literal", typesAs: "null" };
   }
-  return { kind: "literal", typesAs: Number.isInteger(value) ? "integer" : "number" };
+  return { kind: "literal", typesAs: numericType ?? (Number.isInteger(value) ? "integer" : "number") };
 }
 
 /**
@@ -2197,15 +2199,13 @@ class TypeLayerWalk {
    * Only `sub.kind === "literal"` fields are judged: a shorthand or
    * identifier binder carries no literal to compare, and a nested object /
    * array / constructor sub-pattern is reached by the recursion, not by this
-   * check. The result is FILTERED to `theta/parse/object-field-type-mismatch`
-   * alone — `checkObjectFieldCompat` can also answer TYPE-2's
-   * `theta/parse/integer-narrowing` for a `number` value under an
-   * `integer`-declared field, and that outcome is a PINNED DEFERRAL at the
-   * pattern position (cell x4): a pattern literal carries no lexed numeric
-   * type (`patternLiteralType`'s doc above), so `1.5` under `a: integer`
-   * types as plain `number` and would otherwise draw a narrowing verdict the
-   * constructor position's own literal-vs-declaration reading does not apply
-   * the same way to a pattern's runtime field-shape test.
+   * check. `checkObjectFieldCompat`'s WHOLE result is kept: it answers at
+   * most one code per field (`theta/parse/object-field-type-mismatch` for a
+   * two-way incompatibility, `theta/parse/integer-narrowing` for TYPE-2's
+   * one-way `number`-under-`integer` case), so keeping both admits whichever
+   * one the relation computes without ever emitting two for the same field
+   * (code-registry-parse.md §"integer-narrowing", §"object-field-type-mismatch";
+   * expressions.md §"Object/schema patterns").
    */
   private checkPatternFieldTypes(pattern: PatternNode): void {
     switch (pattern.kind) {
@@ -2243,10 +2243,10 @@ class TypeLayerWalk {
                 schema: typeName,
                 field: field.name,
                 declared,
-                value: patternLiteralType(sub.value),
+                value: patternLiteralType(sub.value, sub.numericType),
                 env: this.env,
                 site: { file: this.file, range: pattern.range },
-              }).filter((d) => d.code === "theta/parse/object-field-type-mismatch"),
+              }),
             );
           }
         }
