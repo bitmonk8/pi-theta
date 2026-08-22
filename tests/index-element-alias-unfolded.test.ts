@@ -111,19 +111,18 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //   - d1–d8 and d13–d16 are the dispositions the unfolding must not move —
 //     TYPE-10 nominal, unresolvable, cyclic, the object-index key check, and the
 //     sentinel/schema-name collision;
-//   - group (f) is the three sink-routing siblings (type-layer-checks.ts:621,
-//     `:958`, `:1050`), which test a raw `CompatType` too and diverge under an
-//     alias annotation. They are a SEPARATE open report (0125 §Non-goals,
-//     §Fix (d)); neutralising THIS line moves their raw-vs-unfolded divergence
-//     neither way, while bug 0081's union arm (`commonType`, type-compat.ts)
-//     has since changed WHICH codes f1/f3/f5 draw, as their cells record;
+//   - group (f) is the three sink-routing siblings (`walkStmt`'s `case "let"`
+//     array dispatch, `sinkedArrayOf`, `checkObjectField`), CLOSED by bug
+//     0157: each now unfolds its own sink before testing `kind`, a SEPARATE
+//     `unfoldAlias` call from the one this line neutralises, so reverting
+//     THIS line does not touch group (f) either way;
 //   - g2 and g3 are identical, so the `fn`-return route is out of reach for a
 //     different reason: `#typeExpr`'s `case "call"`
 //     (static-type-inference.ts:251–252) types a call by its callee name and
 //     never reads the declared return type.
 //
-// ANTI-VACUITY. Thirty-nine of the fifty-one rows expect a non-empty code list —
-// bug 0081's union arm empties f1's list by closing its false `E` — so a harness
+// ANTI-VACUITY. Forty of the fifty-four rows expect a non-empty code list — bug
+// 0081's union arm empties f1's list by closing its false `E` — so a harness
 // that stopped reaching the type layer (a frontmatter refusal, an unfed
 // static-type pass) fails loudly here rather than turning the `toEqual([])` rows
 // into silent passes. Every code assertion is an ordered whole-list equality on
@@ -1029,30 +1028,36 @@ describe("0125 (d cont.) — a `schema index = …` declaration drives real chec
 });
 
 // ===========================================================================
-// (f) The three sink-routing siblings — a SEPARATE open report (0125
-//     §Non-goals, §Fix (d)). f1/f3/f5 still take the sink-less path
-//     `type-layer-checks.ts:982`/`:1606` route them onto (a raw, un-unfolded
-//     `CompatType` skipping the element-sink call), unmoved by bug 0081 — but
-//     bug 0081's union arm changed what that sink-less path itself answers for
-//     two primitive branches, so the CODES these rows draw moved too: a false
-//     `E` closes (f1), or the sink-less refusal relabels to whichever outer
-//     check the alias's own unfolded RHS now disagrees with (f3, f5). f4/f6
-//     gain a second, genuine `E` for the same reason, at open bug 0129's
-//     class — recorded in each cell's own comment.
+// (f) The three sink-routing siblings — CLOSED by bug 0157: `walkStmt`'s
+//     `case "let"` array dispatch, `sinkedArrayOf` and `checkObjectField` now
+//     unfold the sink (TYPE-11) before classifying its `kind`, so an
+//     alias-spelled sink supplies the SAME element sink its concrete twin
+//     always did. f3 and f5 are re-pinned here to the two-code lists their
+//     concrete twins f4/f6 already drew: bug 0129 landed first (0.171.0) and
+//     ruled its ILL-FORMEDNESS-precedence law does not reach this pair —
+//     both codes here read a WELL-FORMED array literal against a well-formed
+//     sink and each earns its own verdict on its own subject, so "the element
+//     check needs no gate" (0129 fix report, §"The boundary, and what 0157
+//     inherits"). f4/f6 stay byte-unchanged: the bug 0081 fix's own sentence
+//     on them ("0129's adjudication rules the class and may re-pin this cell
+//     with its own authority") is now DISCHARGED by that same ruling — 0129
+//     read the class and left them exactly as they stood. o1/o3/x1 are new:
+//     rule 3's population, where the alias-spelled sink is not merely
+//     relabelled: absent this fix it is REFUSED outright, `theta/parse/array-no-common-type`
+//     firing outside its own registered Trigger ("no sink to narrow
+//     against") because a sink was in fact written.
 // ===========================================================================
 
-describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bug 0081's union arm", () => {
+describe("0125 (f) — the array-literal sink-routing siblings, closed by bug 0157's unfold-before-classify fix", () => {
   it("f1: an alias annotation of `array<string | integer>` admits a legal binding", () => {
-    // Bug 0081 closes a FALSE `E`: the sink-less LUB of `["a", 1]` is now the
-    // union `string | integer` (neither branch is an object branch, so rule 3
-    // does not gate it), and `checkLetRhsCompat` resolves `U`'s own alias RHS
-    // — the same union, in the same declared order — through TYPE-11 then
-    // TYPE-6, so `string | integer ⊑ string | integer` holds and nothing
-    // fires. `type-layer-checks.ts:982`'s routing defect is unmoved: this row
-    // still takes the sink-less path, which no longer refuses on it.
+    // Unaffected by the unfold-before-classify fix: the sink is now supplied
+    // (`U`'s unfolded element type is `string | integer`), and rule 1 admits
+    // both elements against it exactly as bug 0081's sink-less LUB already
+    // did by coincidence — the sunk arm and the sink-less arm agree on this
+    // input, so unfolding the sink changes nothing observable here.
     expect(
       codesOf(["schema U = array<string | integer>", 'let xs: U = ["a", 1]']),
-      "bug 0081 — the sink-less LUB now unions two primitive branches instead of refusing them, so the alias-routed binding agrees with f2's concrete-annotation control",
+      "the sunk arm now runs and admits both elements against U's unfolded union element type, agreeing with the sink-less LUB it superseded",
     ).toEqual([]);
   });
 
@@ -1063,21 +1068,37 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     ).toEqual([]);
   });
 
-  it("f3: an alias annotation of `array<string>` now reports the real error, relabelled", () => {
-    // Bug 0081's union arm closes the sink-less refusal (the LUB of `["a", 1]`
-    // is now `string | integer`, no longer `array-no-common-type`), so the
-    // ONLY diagnostic left is `checkLetRhsCompat`'s own verdict: `U`'s
-    // unfolded RHS is the concrete `array<string>`, and
-    // `array<string | integer> ⊭ array<string>` (TYPE-6 across the arms,
-    // since the `integer` arm alone already fails), so the outer check now
-    // reports the mismatch the annotation always implied.
-    // `type-layer-checks.ts:982`'s routing defect is unmoved — this is still
-    // the sink-less path, relabelled because it no longer has anything of its
-    // own to refuse.
+  it("f3: an alias annotation of `array<string>` now draws both the outer and the element code", () => {
+    // Bug 0157 §Fix (a): `sinkedArrayOf` unfolds `U` to `array<string>` and
+    // supplies its element type as the sink, so the element check runs and
+    // names the offending index — the diagnostic that stays unreachable
+    // without the unfold. `checkLetRhsCompat` still reads the RAW `annotation` (§Fix (b)),
+    // so the outer message keeps `expected U`, the alias name the author wrote.
+    const diags = diagsOf(["schema U = array<string>", 'let xs: U = ["a", 1]']);
     expect(
-      codesOf(["schema U = array<string>", 'let xs: U = ["a", 1]']),
-      "bug 0081 — the sink-less path no longer refuses on its own account, so the alias's own union RHS is what reports the real mismatch",
-    ).toEqual(["theta/parse/let-rhs-type-mismatch"]);
+      diags.map((d: Diagnostic) => d.code),
+      "the sunk arm now runs on the alias spelling exactly as it always did on the concrete one (f4), so the same two codes fire",
+    ).toEqual(["theta/parse/let-rhs-type-mismatch", "theta/parse/array-element-type-mismatch"]);
+    expect(
+      messageFor(diags, "theta/parse/let-rhs-type-mismatch"),
+      "code-registry-parse.md:59 — the outer code renders `expected U`, not `expected array<string>`: the alias name is preserved (§Fix (b))",
+    ).toBe(
+      msg("theta/parse/let-rhs-type-mismatch", [
+        ["<name>", "xs"],
+        ["<expected>", "U"],
+        ["<actual>", "array<string | integer>"],
+      ]),
+    );
+    expect(
+      messageFor(diags, "theta/parse/array-element-type-mismatch"),
+      "code-registry-parse.md:43 — the element diagnostic and its index, owed on both spellings once the sink is unfolded",
+    ).toBe(
+      msg("theta/parse/array-element-type-mismatch", [
+        ["<i>", "1"],
+        ["<expected>", "string"],
+        ["<actual>", "integer"],
+      ]),
+    );
   });
 
   it("f4: the same binding with a concrete annotation now ALSO reports the outer let-rhs mismatch", () => {
@@ -1120,25 +1141,44 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
     );
   });
 
-  it("f5: an alias-typed schema FIELD now reports the real error, relabelled the same way", () => {
-    // The constructor-field twin of f3: bug 0081's union arm closes the
-    // sink-less refusal, and `checkObjectFieldCompat` resolves the field's
-    // raw `named(U)` declared type through the same alias unfolding
-    // `checkCompatible` always applies, reaching the identical
-    // `array<string | integer> ⊭ array<string>` mismatch f3 reaches through
-    // the `let`-RHS check. `type-layer-checks.ts:1606`'s routing defect
-    // (testing the field's raw `kind` before the sink call at `:1577`) is
-    // unmoved.
+  it("f5: an alias-typed schema FIELD now draws both the outer and the element code", () => {
+    // The constructor-field twin of f3: `checkObjectField` unfolds the field's
+    // raw `named(U)` declared type (§Fix (a)) and supplies its element type as
+    // the sink, so the element check names the offending index here too.
+    // `checkObjectFieldCompat` still reads the RAW `declared` (§Fix (b)), so
+    // the outer message keeps `expected U`.
+    const diags = diagsOf([
+      "schema U = array<string>",
+      "schema P {",
+      "  xs: U",
+      "}",
+      'let p = P { xs: ["a", 1] }',
+    ]);
     expect(
-      codesOf([
-        "schema U = array<string>",
-        "schema P {",
-        "  xs: U",
-        "}",
-        'let p = P { xs: ["a", 1] }',
+      diags.map((d: Diagnostic) => d.code),
+      "the constructor-field sink now draws the same two codes the let-rhs sink does in f3, mirroring f6's concrete twin",
+    ).toEqual(["theta/parse/object-field-type-mismatch", "theta/parse/array-element-type-mismatch"]);
+    expect(
+      messageFor(diags, "theta/parse/object-field-type-mismatch"),
+      "code-registry-parse.md:49 — the outer code renders `expected U`, the alias name the author wrote (§Fix (b))",
+    ).toBe(
+      msg("theta/parse/object-field-type-mismatch", [
+        ["<field>", "xs"],
+        ["<schema>", "P"],
+        ["<expected>", "U"],
+        ["<actual>", "array<string | integer>"],
       ]),
-      "bug 0081 — the constructor-field sink relabels the same way the let-rhs sink does in f3",
-    ).toEqual(["theta/parse/object-field-type-mismatch"]);
+    );
+    expect(
+      messageFor(diags, "theta/parse/array-element-type-mismatch"),
+      "code-registry-parse.md:43 — the element diagnostic and its index, owed on both spellings once the sink is unfolded",
+    ).toBe(
+      msg("theta/parse/array-element-type-mismatch", [
+        ["<i>", "1"],
+        ["<expected>", "string"],
+        ["<actual>", "integer"],
+      ]),
+    );
   });
 
   it("f6: the same field declared concretely now ALSO reports the outer object-field mismatch", () => {
@@ -1198,6 +1238,79 @@ describe("0125 (f) — the array-literal sink-routing siblings, relabelled by bu
       codesOf(["let xs: array<string> = []"]),
       "the concrete spelling of f7's binding, which must stay identical to it",
     ).toEqual([]);
+  });
+
+  it("o1: an alias sink of `array<A | B>` admits two different named schemas (rule 3)", () => {
+    // `A ⊑ A | B` and `B ⊑ A | B` by TYPE-4/TYPE-5, so rule 1 admits both
+    // elements against `U`'s unfolded element type. Absent this fix this is
+    // refused under `theta/parse/array-no-common-type` — an emission outside
+    // that code's own registered Trigger ("no sink to narrow against"), since
+    // a sink was in fact written.
+    expect(
+      codesOf([
+        "schema A {",
+        "  a: string",
+        "}",
+        "schema B {",
+        "  b: string",
+        "}",
+        "schema U = array<A | B>",
+        'let xs: U = [A { a: "x" }, B { b: "y" }]',
+      ]),
+      "a spec-legal binding under rule 1, no longer refused for the spelling of the sink it was written with",
+    ).toEqual([]);
+  });
+
+  it("o3: an alias-union schema FIELD admits two different named schemas (rule 3)", () => {
+    // The constructor-field twin of o1: `checkObjectField`'s unfolded
+    // `declared` element type is the same union, so rule 1 admits here too.
+    expect(
+      codesOf([
+        "schema A {",
+        "  a: string",
+        "}",
+        "schema B {",
+        "  b: string",
+        "}",
+        "schema U = array<A | B>",
+        "schema P {",
+        "  xs: U",
+        "}",
+        'let p = P { xs: [A { a: "x" }, B { b: "y" }] }',
+      ]),
+      "a spec-legal field value under rule 1, no longer refused for the field's alias spelling",
+    ).toEqual([]);
+  });
+
+  it("x1: `schema U = array<A>` over two different named schemas draws the element mismatch, not the refusal", () => {
+    // Rule 3's refusal face on a real error: with the sink unfolded, rule 1's
+    // own `theta/parse/array-element-type-mismatch` is what is owed, naming
+    // the offending element and its index — `array-no-common-type`'s Trigger
+    // does not apply once a sink is supplied.
+    const diags = diagsOf([
+      "schema A {",
+      "  a: string",
+      "}",
+      "schema B {",
+      "  b: string",
+      "}",
+      "schema U = array<A>",
+      'let xs: U = [A { a: "x" }, B { b: "y" }]',
+    ]);
+    expect(
+      diags.map((d: Diagnostic) => d.code),
+      "code-registry-parse.md:43 trigger — the alias's unfolded element type A is the sink, and B fails against it",
+    ).toEqual(["theta/parse/array-element-type-mismatch"]);
+    expect(
+      messageFor(diags, "theta/parse/array-element-type-mismatch"),
+      "code-registry-parse.md:43 — the Message column renders the index and the expected / actual named schemas",
+    ).toBe(
+      msg("theta/parse/array-element-type-mismatch", [
+        ["<i>", "1"],
+        ["<expected>", "A"],
+        ["<actual>", "B"],
+      ]),
+    );
   });
 });
 

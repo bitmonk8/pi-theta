@@ -1398,9 +1398,14 @@ class TypeLayerWalk {
           // The declared type is still RECORDED below — an annotation is the
           // author's own claim about the position, and the runtime AJV net is
           // what judges the value that arrives.
+          // `sinkedArrayOf` is the one place that decides whether an array
+          // sink is in scope; the skip below must not re-derive it separately.
+          const sunkArray = this.sinkedArrayOf(stmt, annotation);
           if (annotation !== undefined && !containsWithheldBinderType(rhsType)) {
             // The typed-binding RHS narrowing / mismatch check (surfaces
             // `theta/parse/integer-narrowing` for a `number → integer` RHS).
+            // Reads the RAW `annotation` (TYPE-11 makes it and `sunkArray`'s
+            // unfolded element the same type), so this renders `expected U`.
             this.diagnostics.push(
               ...checkLetRhsCompat({
                 name: stmt.name,
@@ -1411,15 +1416,15 @@ class TypeLayerWalk {
               }),
             );
             // A typed array literal is checked against the annotation's
-            // element sink here, so the generic (sink-less) array check does
-            // not re-flag a validly-annotated union array.
-            if (stmt.init.kind === "array" && annotation.kind === "array") {
-              this.checkArrayLiteral(stmt.init, annotation.element, bindings);
+            // (alias-unfolded) element sink here, so the generic (sink-less)
+            // array check does not re-flag a validly-annotated union array.
+            if (sunkArray !== null) {
+              this.checkArrayLiteral(sunkArray.node, sunkArray.element, bindings);
             }
           }
           // Walk the initialiser for nested checks. A typed array already
           // checked against its element sink above is skipped by the walk.
-          this.walkExpr(stmt.init, bindings, flow, this.sinkedArrayOf(stmt, annotation));
+          this.walkExpr(stmt.init, bindings, flow, sunkArray === null ? null : sunkArray.node);
           // Record the declared type, not merely the initialiser's inferred
           // one: `checkLetRhsCompat` above has already verified the
           // initialiser against it, so later identifier references seeing the
@@ -2088,22 +2093,24 @@ class TypeLayerWalk {
   }
 
   /**
-   * The array node already checked against a binding-annotation element sink.
-   * `annotation` is the `let` arm's own resolution of `stmt.annotation` — a
-   * null or blank annotation source, and one `annotationToCompatType` cannot
-   * convert, both arrive as `undefined` and answer `null` here.
+   * The array node already checked against a binding-annotation element sink,
+   * and that sink's (alias-unfolded) element type; `null` when `stmt` is not
+   * a typed-array `let`. Unfolds `annotation` rather than trusting its raw
+   * `kind`: an alias-spelled sink has raw kind `named`, and TYPE-11 makes it
+   * the same type as its right-hand side wherever a `⊑` question is asked.
    */
-  private sinkedArrayOf(stmt: Stmt, annotation: CompatType | undefined): Expr | null {
-    if (
-      stmt.kind === "let" &&
-      stmt.init !== null &&
-      stmt.init.kind === "array" &&
-      annotation !== undefined &&
-      annotation.kind === "array"
-    ) {
-      return stmt.init;
+  private sinkedArrayOf(
+    stmt: Stmt,
+    annotation: CompatType | undefined,
+  ): { readonly node: ArrayExpr; readonly element: CompatType } | null {
+    if (stmt.kind !== "let" || stmt.init === null || stmt.init.kind !== "array") {
+      return null;
     }
-    return null;
+    const unfolded = annotation === undefined ? undefined : unfoldAlias(annotation, this.env);
+    if (unfolded === undefined || unfolded.kind !== "array") {
+      return null;
+    }
+    return { node: stmt.init, element: unfolded.element };
   }
 
   /**
@@ -2240,10 +2247,9 @@ class TypeLayerWalk {
    * with whatever the field declares even though `checkCompatible` alone
    * answers `"unknown"` for it. Otherwise routes the compatibility outcome
    * the way `checkLetRhsCompat` does. When the value is an array literal and
-   * the declared type is `array<T>`, also checks it against the declared
-   * element type as a sink (mirroring the typed-`let` arm's `sinkedArrayOf`)
-   * and returns the value node so the caller skips the generic sink-less
-   * array check on the same node; otherwise returns `null`.
+   * the declared type UNFOLDS (TYPE-11) to `array<T>`, also checks it against
+   * the unfolded element type as a sink and returns the value node so the
+   * caller skips the generic sink-less array check; otherwise returns `null`.
    */
   private checkObjectField(
     schema: string,
@@ -2269,8 +2275,11 @@ class TypeLayerWalk {
         }),
       );
     }
-    if (value.kind === "array" && declared.kind === "array") {
-      this.checkArrayLiteral(value, declared.element, bindings);
+    // Unfolds `declared` (TYPE-11) before classifying it: `checkObjectFieldCompat`
+    // above keeps reading the RAW `declared`, so its `<expected>` still names `U`.
+    const unfoldedDeclared = unfoldAlias(declared, this.env);
+    if (value.kind === "array" && unfoldedDeclared.kind === "array") {
+      this.checkArrayLiteral(value, unfoldedDeclared.element, bindings);
       return value;
     }
     return null;

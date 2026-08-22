@@ -1,6 +1,6 @@
 # Bug 0157 — The three array-literal sink dispatches classify the sink by raw `CompatType.kind` with no `unfoldAlias`, so an alias-spelled `array<T>` annotation or field type routes the literal down the sink-LESS `checkCommonType` path and one written mistake draws a different code set on each spelling: `schema U = array<string>` + `let xs: U = ["a", 1]` draws `theta/parse/let-rhs-type-mismatch` alone where the concrete twin draws that AND `theta/parse/array-element-type-mismatch` with the offending index, and `schema U = array<A | B>` + `let xs: U = [A { … }, B { … }]` is refused outright with `theta/parse/array-no-common-type` — whose *Trigger* reads "no sink to narrow against" — where the concrete twin loads
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the unfold-before-classify
+- **Status:** fixed (0.180.0). At filing, §Fix was constraint-pinned, not settled: the unfold-before-classify
   edit is one line at each of three dispatch sites, but its count consequence
   is open bug [0129](./0129-empty-object-field-type-draws-two-diagnostics.md)'s
   class and the run must state which of the two reports settles it. No ordering
@@ -822,3 +822,170 @@ files under `tests/` during part of this measurement session
 imported by any cell above and neither modifies `src/`; both are gone at the
 close of this filing, and `git status --short` carries the four sibling bug
 documents and nothing else.
+
+## Fix (0.180.0)
+
+**The route.** §Fix (a) as written — unfold before classifying, at all three
+dispatches — with §Fix (b) resolved in favour of preserving `expected U`, and
+§Fix (c) discharged in the "0129 lands first" direction (0129 landed at
+0.171.0).
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — the three sink dispatches classify the
+    alias-unfolded value. `sinkedArrayOf` unfolds `annotation` before testing
+    `kind` and answers `{ node, element }` (the unfolded element type) instead
+    of a bare node; `walkStmt`'s `case "let"` arm computes that answer ONCE and
+    consumes it both for the sunk `checkArrayLiteral` call and for `walkExpr`'s
+    `skipArray` argument, so §Fix (a)'s no-drift constraint is met
+    structurally rather than by convention — the two tests are now one test;
+    `checkObjectField` unfolds `declared` before its `kind` test and passes the
+    unfolded element. `checkLetRhsCompat` and `checkObjectFieldCompat` keep
+    reading the RAW annotation / declared type, which is §Fix (b)'s smaller
+    disposition: TYPE-11 makes the two the same type, only the rendering
+    differs, and the rendering keeps the name the author wrote.
+  - `tests/alias-sink-array-element-check.test.ts` — the new witness (28
+    cells in six groups: the `let` route, the constructor-field route, the
+    concrete twins, §Fix (a)'s bounds, TYPE-10's bound, anti-vacuity). Whole
+    -list ordered `toEqual` on every cell; every message `toBe` against a
+    `registryMessage` template read from
+    `docs/spec_topics/diagnostics/code-registry-parse.md` (DIAG-4); no
+    `toContain` on a message.
+  - `tests/live/alias-sink-array-element-check-live-cell-CELL-B2.test.ts` —
+    the standalone H8a live cell: the alias-spelled refusal reaches the
+    `theta-system-note` channel off a settled `SessionManager` carrying the
+    element diagnostic and its index, and the alias-union theta the defect
+    refused now registers and drives one real turn to a pinned sentinel.
+  - `tests/index-element-alias-unfolded.test.ts` — §Fix (d)'s second re-pin of
+    fixed bug 0125's group (f). f3 and f5 re-pinned to the two-code ordered
+    lists their concrete twins already drew, each strengthened with
+    registry-sourced messages including the preserved `expected U`; the group
+    header and the f1/f3/f5 cell comments no longer assert the routing is
+    unmoved and cite the three sites BY SYMBOL; o1, o3 and x1 added as the
+    rule-3 cells the group never had. f2, f4, f6, f7 and f8 are
+    byte-unchanged (proven by per-block extraction against
+    `git show HEAD:`). The file's RED/GREEN ledger paragraph on group (f) was
+    corrected in the same commit because this fix falsifies it directly — its
+    replacement claim (that neutralising bug 0125's own `#typeExpr` unfold
+    does not touch group (f) either way) was verified, not assumed: no
+    group-(f) cell contains an index expression, and the three sites call
+    their own `unfoldAlias`.
+
+**The count consequence — 0129's law, cited.** 0129 landed first and its record
+states the law this report's §Fix (c) had to defer to:
+
+> Where a construct's own position-rule walk has already drawn an
+> `E`-severity diagnostic refusing that construct as ILL-FORMED, a row whose
+> verdict is DERIVED from reading the same construct as a well-formed type
+> withholds, and the refusal fires alone.
+
+This run cites that clause and states no law of its own. **Agreement with
+0129's boundary, re-verified at this tree:** the law does not reach f3/f4/f5/f6.
+Both codes in each of those cells read a WELL-FORMED array literal against a
+well-formed sink — the outer code's subject is the binding or the field, the
+element code's subject is the offending index — so neither verdict is derived
+from text an earlier row refused as ill-formed, and the law's discriminating
+absence test does not even apply because no construct was refused. Re-derived
+here: at HEAD f3 and f5 draw their outer code with NO sunk check running at all
+(§Reproduction (a), reproduced verbatim in a scratch probe before any edit), so
+the outer verdict is independent of the element check by measurement, not by
+inference. **The element check therefore carries no gate**, exactly as 0129's
+record prescribes, and the count stands at two per cell. Instances of the class
+rise from two (f4/f6) to four (f3/f4/f5/f6), as §Fix (c) predicted; 0129's
+adjudication rules all four and may re-pin them.
+
+**DIAG-2 / DIAG-4 adjudication — no registry edit is owed, and none was made.**
+`theta/parse/array-element-type-mismatch`'s *Trigger* ("Array literal element
+does not type-check against the surrounding sink's element type") is
+spelling-neutral and covers an alias-spelled sink under TYPE-11, so the widened
+population needs no row edit. In the other direction this fix REMOVES
+`theta/parse/array-no-common-type` emissions (o1, o3, x1) that sat OUTSIDE that
+row's own registered *Trigger* ("… and no sink to narrow against") — bringing
+the runtime INTO conformity with the closed registry rather than changing what
+the registry says. Mirrors re-read and unfalsified:
+`docs/spec_topics/expressions.md` rules 1 and 3,
+`docs/reference/type-system.md`, `docs/reference/diagnostics.md`. Rule 3's
+remaining violation on the `fn`-parameter surface (cells o5/o6) is open bug
+0156's and is pinned unmoved by both witnesses.
+
+- Gates (verbatim): witness
+  `npx vitest run tests/alias-sink-array-element-check.test.ts` → 28 passed;
+  re-pinned `npx vitest run tests/index-element-alias-unfolded.test.ts` → 54
+  passed; full offline suite `npm test` → 370 files / 7587 tests passed;
+  `npx tsc --noEmit -p tsconfig.json` → clean; `npm run lint` → clean; live
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/alias-sink-array-element-check-live-cell-CELL-B2.test.ts`
+  → 1 passed, run for real under the live lock, green on the first attempt.
+- Review: 1 deep round plus one comment-only polish round. Round 1 (deep) —
+  clean on `correctness`, `fidelity` (code) and `spec`: the merged
+  `sinkedArrayOf` verdict was case-analysed as neither double-checking nor
+  skipping any input, the withheld-binder discipline was shown unmoved, and
+  TYPE-10's bound was probed at the new call sites including four cyclic-alias
+  shapes (`aliasCycleParticipants` omits cycle members from the env, so
+  `unfoldAlias` stops at an unresolvable `named` — no hang, no throw, no new
+  array sink). Four items raised and fixed: historical narration in seven
+  introduced comment lines, six registry-line citations introduced wrong at
+  this tree (`:40`/`:46`/`:54` → `:43`/`:49`/`:59`), a stale anti-vacuity row
+  count (39-of-51 → 40-of-54, re-derived mechanically), and a `describe` title
+  still asserting the superseded characterisation. The polish round's diff was
+  gate-verified rather than re-reviewed: every hunk was comment, string or
+  test-title only, and the suite, typecheck and lint re-ran green.
+- Verification: verified. (1) Per-site red per §Fix (f), each unfolding
+  neutralised independently and each restored by writing the content back and
+  proven byte-identical with `git hash-object`
+  (`ab190526c898219d04faa19ae3b04a6e34bc090a` before and after both cycles):
+  neutralising `sinkedArrayOf`'s unfold reds 9 cells (f3′, m1′, s1′, n1′, o1,
+  x1 and their group-(f) twins) with the document's own signature — the alias
+  spelling losing `array-element-type-mismatch`, or drawing
+  `array-no-common-type` where a sink is written; neutralising
+  `checkObjectField`'s unfold reds exactly the 4 constructor-field cells (f5′,
+  o3 and twins) and none of the first site's, so neither site's coverage is
+  inferred from the other's. The `let`-arm dispatch and `sinkedArrayOf` are
+  merged by this fix into one verdict and are reported as one site — they
+  cannot disagree by construction. (2) Full offline suite green. (3) One H8a
+  live cell run for real under the lock, green first attempt. (4) Lint and
+  typecheck clean. GOV-15 re-run at the fix state over `.theta` AND
+  `.thetalib`: zero committed files declare an alias over `array<` in either
+  direction, so `tests/committed-fixture-parse-gate.test.ts` (green) witnesses
+  nothing either way and `tests/fixtures/h7a/permitted-codes.json` is
+  byte-untouched. GOV-15 direction: the o1/o3 population moves INTO the
+  loads-cleanly set, which is admissible because those inputs draw an `E` at
+  the baseline and are therefore outside GOV-15's input set; no
+  previously-clean input becomes refused — the newly-supplied sink can only add
+  `array-element-type-mismatch`, and four alias-spelled clean sources were
+  probed to confirm it.
+- Residuals:
+  1. §Fix (e)'s line-count discipline is NOT held:
+     `src/parser/type-layer-checks.ts` goes 3323 → 3332 lines (+9), the
+     comment volume the three sites need to state why the outer checks read the
+     raw value while the dispatches read the unfolded one. No citation sweep
+     was performed (bug 0134's class), and none is owed as remediation: the
+     file was 2531 lines when this report pinned it and is 3332 now, so every
+     by-line citation of it in every open report — including this report's own
+     §Affected — was already stale before this diff. Evidence: `wc -l` 3323
+     before / 3332 after, and the eight-figure spread against the pinned 2531.
+  2. The `fn`-parameter surface still supplies no element sink on either
+     spelling (cells p1/p2, o5/o6, unmoved and pinned green in both
+     witnesses). Open bug 0156's subject, untouched by this route.
+  3. `tests/index-element-alias-unfolded.test.ts` f4/f6 still carry the
+     filing-era sentence naming bug 0129 as open and as able to re-pin them.
+     0129 has landed and read the class, leaving those cells exactly as they
+     stood; the sentence is stale but §Fix (d) requires those two cells
+     byte-unchanged, so the discharge is stated once in the group header
+     instead. Evidence: the byte-identity extraction in the review round.
+  4. One pre-existing stale citation in the same file (a `c3` comment citing
+     `type-layer-checks.ts:1474–1475` for the `array.join` unfold guard) was
+     already wrong at HEAD and was left alone — correcting it would be a
+     citation sweep.
+- Discharge notes appended: none. By lane rule no sibling bug document was
+  edited; the coordination §Fix (c) requires is stated above, citing 0129's own
+  record, and the increase from two to four instances of 0129's class is
+  disclosed here rather than written into 0129's document.
+- Pinned dispositions / non-goals: the arms-verbatim rendering of a computed
+  union (`array<string | string | integer>` in m1/m2) is bug 0081's pinned
+  disposition and is unmoved on both spellings. Bug 0147's argument-mismatch
+  count divergence is untouched — no route here reaches
+  `invoke-diagnostics.ts`, `invoke-static-checks.ts` or the `fn`-argument loop.
+  Bugs 0154 (inline object types, cells i1–i3 unmoved), 0155 and 0158 (other
+  callers of `checkCommonType` / `commonType`) are unmoved in either direction.
+  TYPE-10's nominal bound is preserved: `unfoldAlias` leaves an object-schema
+  `named`, an unresolvable `named` and a cycle participant intact, so none of
+  them becomes an array sink.

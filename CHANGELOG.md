@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.180.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0157 — an alias-spelled array sink now draws the same element
+  diagnostics as its concrete spelling** (unfold-before-classify at all
+  three dispatches; `sinkedArrayOf` is the single verdict returning
+  `{node,element}`, outer checks keep the raw type so `expected U` renders
+  the author's spelling). CITES 0129's stated count-consequence law
+  verbatim — no new law; f3–f6 re-verified OUTSIDE it (agreement recorded);
+  0129's class grows 2→4 instances. Witness
+  `tests/alias-sink-array-element-check.test.ts` (28 cells) + a standalone
+  live cell; `index-element-alias-unfolded` group (f) re-pinned under §Fix
+  (d) with o1/o3/x1 added.
+
+>>>>>>> 608b1090 (fix(bug-0157): alias-spelled array sinks draw the concrete spelling's element diagnostics — v0.180.0)
+
 ## [0.179.0] - 2026-08-27
 
 ### Fixed
