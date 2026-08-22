@@ -542,24 +542,29 @@ function spellingCells(): Cell[] {
 }
 
 /**
- * (D) The generic-argument position, where nothing refuses today —
- * §Reproduction (d).
+ * (D) The generic-argument position, where nothing refused before this
+ * report's own fix — §Reproduction (d).
  *
- * Bug 0228's raw-key row carries a registered generic-argument carve-out
- * (code-registry-parse.md:101), and bug 0154's case pass does NOT
+ * Bug 0154's case pass carries no generic-argument gate
  * (type-grammar.ts:1001–1038, and group (A)'s g1 cell of
- * tests/inline-object-field-name-case.test.ts pins it). So at this position the
- * case rule is the ONLY check that would have fired, the break withholds it,
- * and d1/d3 load with an EMPTY list and REGISTER at HEAD. The specified lists
- * below are the premeasured route-1 values: d1 gains the case line ALONE — the
- * `let-rhs-type-mismatch` / `array-element-type-mismatch` pair d2's control
- * draws does NOT appear — and d3 gains it at the `params:` face, where the
- * frontmatter gate then withholds the whole frontmatter object exactly as it
- * does for d4's control today.
+ * tests/inline-object-field-name-case.test.ts pins it), so at this position it
+ * is the check bug 0231's own fix (the `parseObject` resync) restores: d1
+ * gains its `binding-case-mismatch` line and d3 gains it at the `params:`
+ * face, where the frontmatter gate then withholds the whole frontmatter
+ * object exactly as it does for d4's control.
+ *
+ * d1/d3 are RE-PINNED for bug 0233
+ * (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md), which
+ * answers the carve-out question this comment used to leave open ("which code
+ * names `a b` there"): bug 0228's raw-key row no longer carries the
+ * generic-argument carve-out, so `a b` now draws
+ * `theta/parse/inline-field-name-not-identifier` beside the case pass's own
+ * line on `Zs` — two different fields, so bug 0129's count-consequence law
+ * (code-registry-parse.md:101) suppresses neither.
  */
 function genericArgumentCells(): Cell[] {
   return [
-    { cell: "d1", src: theta(`let x: array<${SUBJECT}> = [1]`), expected: [CASE] },
+    { cell: "d1", src: theta(`let x: array<${SUBJECT}> = [1]`), expected: [CASE, NOTIDENT("a b")] },
     {
       cell: "d2 control",
       src: theta(`let x: array<${CONTROL_WELL}> = [1]`),
@@ -569,7 +574,11 @@ function genericArgumentCells(): Cell[] {
         ARRAYELEM("0", "{ a: integer, Zs: string }", "integer"),
       ],
     },
-    { cell: "d3 params:", src: paramsSrc(`  p: 'array<${SUBJECT}>'`), expected: [CASE] },
+    {
+      cell: "d3 params:",
+      src: paramsSrc(`  p: 'array<${SUBJECT}>'`),
+      expected: [CASE, NOTIDENT("a b")],
+    },
     {
       cell: "d4 params: control",
       src: paramsSrc(`  p: 'array<${CONTROL_WELL}>'`),
@@ -684,12 +693,14 @@ describe("bug 0231 (C) — every non-`Ident \":\"` head accounts for itself and 
 // ===========================================================================
 
 describe("bug 0231 (D) — an interior deriving from no ObjectType does not load clean at a generic argument", () => {
-  it("RED: rows d1–d4", () => {
+  it("rows d1–d4, d1/d3 re-pinned for bug 0233's answer to the carve-out question", () => {
     expectGroup(
       genericArgumentCells(),
       "bug 0154's case pass is deliberately NOT withheld inside a generic argument, which is why " +
-        "d2 and d4 refuse today; `Zs` is unnamed at d1 and d3 because of the break alone. Which " +
-        "code names `a b` there is bug 0228's carve-out question and this report's §Non-goals",
+        "d2 and d4 refuse today; `Zs`'s case line stands beside `a b`'s own row at d1 and d3, " +
+        "since bug 0233 removed the generic-argument carve-out bug 0228's raw-key row used to " +
+        "carry — the question this comment used to leave open (`docs/bugs/0233-generic-` " +
+        "`argument-inline-field-key-rules-withheld.md`)",
     );
   });
 

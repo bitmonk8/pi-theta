@@ -89,13 +89,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 //   - GATES — the emission is gated on `node.closingBraceSpelled` (the grammar's
 //     own requirement: `ObjectType` spells a closing `}`, so an interior the
-//     source never closes spells no inline object type). It is NOT gated on
-//     `insideGenericArgument`: row g1 (`array<{ Ys: string }>`) MUST fire. The
-//     generic-argument carve-out its two key-rule neighbours carry is grounded
-//     in the LOWERING never dividing that interior into fields, so no property
-//     name is minted there; the identifier rule judges the SOURCE's field-name
-//     position, which exists whether or not anything is lowered from it, and
-//     §Expected behaviour names g1 among the rows owed a diagnostic.
+//     source never closes spells no inline object type). Row g1
+//     (`array<{ Ys: string }>`) MUST fire regardless of nesting beneath a
+//     generic type argument: the identifier rule judges the SOURCE's
+//     field-name position, which exists whether or not anything is lowered
+//     from it, and §Expected behaviour names g1 among the rows owed a
+//     diagnostic. Since bug 0233 (which dropped the two raw-key rules'
+//     narrower `!insideGenericArgument` gate half at `walkType`'s object arm)
+//     all six rules at that arm answer alike on this ground.
 //
 // THE LEDGER — what each group pins:
 //   - (A) THE PIN, the inline positions that MUST fire: i1 (fn parameter), i2
@@ -388,12 +389,11 @@ describe("0154 (A) — an ill-cased inline object field name is a parse error at
   });
 
   it("g1: an inline object inside a GENERIC ARGUMENT draws one line", () => {
-    // THE GATE ROW. The two raw-key rules at this arm are withheld under
-    // `insideGenericArgument` because the lowering never divides that interior
-    // into fields, so no property name is minted there to name. The identifier
-    // rule judges the SOURCE's field-name position, which exists regardless of
-    // what is lowered — so it must NOT inherit that carve-out. A fix that
-    // copied both of its neighbours' gates reds here.
+    // THE GATE ROW. The identifier rule judges the SOURCE's field-name
+    // position, which exists regardless of what the lowering divides into
+    // fields, so it fires here as it does at every other field-name position
+    // — its own no-move control, unaffected by bug 0233's widening of its two
+    // raw-key neighbours to the same ground.
     const doc = theta("schema S { a: array<{ Ys: string }> }");
     expect(
       rendered(doc),
@@ -1019,30 +1019,32 @@ describe("0227 (H) — no diagnostic's subject is the ASCII residue of a field n
     ).toEqual([nid("éLan", 4, 31)]);
   });
 
-  it("h8/h9: under a GENERIC ARGUMENT the residue verdict is the ONLY diagnostic, and it goes", () => {
-    // THE RECORDED FLIP. Group (A)'s g1 pins that this pass is NOT withheld
-    // under `insideGenericArgument` (type-grammar.ts:1057 withholds the raw-key
-    // rules, not this one), so the residue tail is the only subject this pass
-    // could reach for these two sources. It is not a lawful one, and nothing
-    // else refuses them: bug 0228's row is withheld here by its registered
-    // carve-out, and the alphabet is not widened to give this pass a real
-    // subject. An EMPTY list is therefore the specified outcome, accepted with
-    // the decision quoted in this group's banner — and it
-    // is asserted as a whole list so that a later refusal at this position reds
-    // and must be recorded rather than arriving unnoticed.
+  it("h8/h9: under a GENERIC ARGUMENT the raw-key refusal now fires beside the residue pass's silence (bug 0233)", () => {
+    // THE RECORDED FLIP, named per this comment's own instruction: bug 0233
+    // (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md)
+    // widened the raw-key gate in `walkType`'s `object` arm (the gate reads
+    // `node.closingBraceSpelled` alone now, by symbol rather than by absolute
+    // line — bug 0134's do-not-chase class) so it answers alike at every depth
+    // beneath a generic argument, the same as bug 0154's identifier pass
+    // (group (A)'s g1) already did. `éLan` and `*Lan` are non-`Ident` raw keys
+    // (`lexical.md:13`), so `theta/parse/inline-field-name-not-identifier` now
+    // names them here exactly as it does at every bare position in this file;
+    // the residue pass still has no lawful subject and contributes nothing.
     const cells: readonly string[] = [
       "schema S { a: array<{ éLan: string }> }",
       "schema S { a: array<{ *Lan: string }> }",
     ];
     const actual: Record<string, string[]> = {};
-    const expected: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {
+      "schema S { a: array<{ éLan: string }> }": [nid("éLan", 4, 40)],
+      "schema S { a: array<{ *Lan: string }> }": [nid("*Lan", 4, 40)],
+    };
     for (const src of cells) {
       actual[src] = rendered(theta(src));
-      expected[src] = [];
     }
     expect(
       actual,
-      "a residue is not a lawful subject even when it is the only subject available; the generic-argument carve-out belongs to the raw-key row",
+      "bug 0233: the raw-key gate no longer withholds a generic argument's interior, so the byte-identical bare refusal fires here too; a red reporting `[]` is the carve-out returning",
     ).toEqual(expected);
   });
 

@@ -906,21 +906,26 @@ describe("bug 0159 (E) — the refused source reaches no lowering and no compile
 });
 
 // ===========================================================================
-// (F) THE CARVE-OUTS THAT DO NOT MOVE — grammar.md:109's two exclusions and the
-// closing brace the `ObjectType` production spells. The re-key changes which
-// text the comparison runs over; it changes neither gate, and each gate is a
-// shape a rule keyed on "two equal pre-colon texts anywhere under this node"
-// would take with it.
-// GREEN now and after.
+// (F) THE GATES. The re-key changes which text the comparison runs over; it
+// does not change the ONE gate that remains after bug 0233 — the closing
+// brace the `ObjectType` production spells — which is a shape a rule keyed on
+// "two equal pre-colon texts anywhere under this node" would take with it.
+// The generic-argument exclusion grammar.md:109 used to state for this rule
+// alone is gone (bug 0233 §Fix route 1): the nested-reuse and unterminated
+// cells stay silent, GREEN now and after; the generic-argument cells RED
+// (each a `[]` red against the now-specified `duplicate-inline-field-name`).
 // ===========================================================================
 
 describe("bug 0159 (F) — the generic-argument, nested-reuse and unterminated carve-outs hold", () => {
-  it("CONTROL F1: a generic argument's interior, a nested reuse and an unclosed interior stay silent", () => {
+  it("F1: a nested reuse and an unclosed interior stay silent; a generic argument's interior is refused (bug 0233)", () => {
     const cells: ReadonlyArray<readonly [label: string, source: string]> = [
-      // The lowering never divides a generic argument's interior into fields —
-      // the argument split is angle-only, so a two-field interior presents as
-      // two arguments and the permissive fallthrough lowers `{}` — so no
-      // duplicate `required` is minted there for an emission to name.
+      // BUG 0233 (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md):
+      // the raw-key gate no longer withholds an object reached through a
+      // generic type argument, at any depth beneath it, so the SOURCE repeat
+      // this rule keys on is named here exactly as it is at any other
+      // position — the lowering still never divides that interior into
+      // fields (asserted below), which bounds the WIRE consequence, not
+      // whether this rule judges the source.
       ["generic argument", annotSrc("array<{a: integer, a: string}>")],
       ["generic argument, nested", annotSrc("array<{q: {a: integer, a: string}}>")],
       // Two field lists, not a repeat: each body's split yields its own keys.
@@ -933,21 +938,29 @@ describe("bug 0159 (F) — the generic-argument, nested-reuse and unterminated c
       ["unterminated, alias RHS", body("schema S = {a: 1, a: 2")],
     ];
     const actual: Record<string, string[]> = {};
-    const expected: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {
+      "generic argument": [dupLine("a")],
+      "generic argument, nested": [dupLine("a")],
+      "nested reuse": [],
+      "unterminated, annotation root": [],
+      "unterminated, invoke return": [],
+      "unterminated, alias RHS": [],
+    };
     for (const [label, source] of cells) {
       actual[label] = lines(source);
-      expected[label] = [];
     }
     expect(
       actual,
-      "F1 — the re-key moves the comparison's key, not its two gates: `insideGenericArgument` " +
-        "and the spelled closing brace still decide WHETHER a body is compared at all",
+      "F1 — bug 0233: the generic-argument gate is gone from `walkType`'s raw-key loop, so " +
+        "only the spelled closing brace still decides WHETHER a body is compared at all; a `[]` " +
+        "on either generic-argument cell is the withheld gate returning",
     ).toEqual(expected);
 
     expect(
       lowerQueryResponseSchema("array<{a: integer, a: string}>", [], []),
-      "F1 — the generic argument's read-back: the permissive `{}` carries no field list, so " +
-        "the repeat inside the element type reaches no lowered artefact either",
+      "F1 — the lowering tripwire bug 0233 requires: the generic argument's interior still " +
+        "lowers to the permissive `{}` with no field list, wholly independent of the parse-time " +
+        "refusal now standing beside it",
     ).toEqual({});
     expect(
       repeatedRequiredEntries(lowerQueryResponseSchema("{a: integer, b: {a: string}}", [], [])),

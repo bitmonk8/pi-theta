@@ -335,11 +335,14 @@ function positionCells(
     {
       cell: `A7 ${label} generic argument`,
       src: annotSrc(`array<${type}>`),
-      // The CTL column is `[]` here — the four raw-key rows' shared
-      // generic-argument gate (src/parser/type-grammar.ts, the
-      // `insideGenericArgument` withhold) — while the unterminated columns
-      // still draw the lexer's arm, which fires before any gate.
-      expected: label === "CTL" ? [] : lexed,
+      // RE-PINNED for bug 0233
+      // (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md):
+      // the four raw-key rows' shared generic-argument gate is gone from
+      // `walkType`'s raw-key loop, so the CTL column now draws the same
+      // rename refusal `lexed` names for it at every other position, while
+      // the unterminated columns still draw the lexer's arm, which fires
+      // before any parse-time rule and is unmoved.
+      expected: lexed,
     },
     {
       cell: `A8 ${label} .thetalib fn parameter`,

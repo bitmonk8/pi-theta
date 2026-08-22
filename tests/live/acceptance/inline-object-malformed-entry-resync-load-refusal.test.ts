@@ -155,13 +155,18 @@ function codesOf(text: string, path: string): readonly string[] {
 describe("-- H9a live: bug 0231 field-loop resynchronisation reaches a well-formed field's case violation behind a malformed generic-argument entry through the real `pi -p`", () => {
   it(": refuses `array<{a b: integer, Zs: string}> = [1]`, still registers and drives the case-fixed sibling, and measures whether the code reaches the H9a capture", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
-    // required): the offender carries exactly the fixed code and the other
-    // two sources are clean, so neither live sentinel can be produced by an
-    // unrelated load failure.
+    // required): the offender carries exactly the fixed code set and the
+    // other two sources are clean, so neither live sentinel can be produced
+    // by an unrelated load failure. Since bug 0233's widen (0.196.0) the
+    // malformed `a b` entry inside the generic argument ALSO draws
+    // `theta/parse/inline-field-name-not-identifier` beside the case
+    // refusal this cell witnesses — an entailed second diagnostic, ratified
+    // at merge under 0233's origin authority; the cell's subject (0231's
+    // resync reaching `Zs`'s case rule) is unchanged.
     expect(
       codesOf(OFFENDER, "cellmerooffender.theta"),
-      `attribution: the offending theta must carry exactly one diagnostic, ${CODE}; actual=${JSON.stringify(diagnosticsOf(OFFENDER, "cellmerooffender.theta"))}`,
-    ).toEqual([CODE]);
+      `attribution: the offending theta must carry exactly the fixed code set [binding-case-mismatch, inline-field-name-not-identifier]; actual=${JSON.stringify(diagnosticsOf(OFFENDER, "cellmerooffender.theta"))}`,
+    ).toEqual([CODE, "theta/parse/inline-field-name-not-identifier"]);
     expect(
       diagnosticsOf(PROBE, "cellmeroprobe.theta"),
       "attribution: the prober must be clean, so it registers and its verdict reflects the OFFENDER's disposition only",

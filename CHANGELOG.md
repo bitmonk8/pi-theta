@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.196.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0233 — the four raw-key rules now fire inside generic arguments at
+  every depth** (§Fix route 1, WIDEN: the raw-key gate keeps
+  `node.closingBraceSpelled` alone; `insideGenericArgument` removed from
+  `walkType` and its five call sites). `array<{a b: integer}>`,
+  `array<{ "q": string }>`, `array<{ q: string, q: integer }>` and
+  `array<{ a as "w": integer }>` now refuse beside the already-firing
+  identifier pass — enforcement parity with 0154's rule at the same arm.
+  Sixteen flipped pinned cells across nine files, every one a
+  generic-argument cell going `[]`→refusal under the report's own origin
+  authority. Four registry Triggers + `grammar.md:109`'s carve-out sentence
+  + the reference page's four-rule count corrected same commit (DIAG-2).
+  New 76-cell witness + H8a/H9a live pair.
+
 ## [0.195.0] - 2026-08-28
 
 ### Fixed

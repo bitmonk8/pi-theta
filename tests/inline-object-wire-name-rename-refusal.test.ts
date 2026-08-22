@@ -62,8 +62,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   2. a key whose FIRST character is a quote is
 //      `theta/parse/quoted-inline-field-name`'s alone;
 //   3. only then this row.
-// Gates inherited byte-for-byte from the two neighbours (:999):
-// `node.closingBraceSpelled` AND `!insideGenericArgument`.
+// Gate inherited byte-for-byte from the two neighbours: `node.closingBraceSpelled`
+// alone (bug 0233 dropped the loop's other, narrower `!insideGenericArgument`
+// half, so this row now answers alike at every depth beneath a generic
+// argument).
 //
 // Predicate over the raw key, verified by scratch probe before this file was
 // written: /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"[^"]*"|'[^']*')$/ — capture
@@ -633,9 +635,15 @@ function boundaryRows(): Cell[] {
       src: annotSrc('{a as "w": string, a as "w": integer}'),
       expected: [DUP('a as "w"')],
     },
-    // g4 — bug 0052's generic-argument carve-out, inherited byte-for-byte: the
-    // lowering never divides that interior into fields.
-    { cell: "g4", src: annotSrc('array<{a as "w": string}>'), expected: [] },
+    // g4 — RE-PINNED for bug 0233
+    // (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md):
+    // the generic-argument gate this row inherited from bug 0052 is gone from
+    // `walkType`'s raw-key loop, so the rename clause inside a generic
+    // argument is now refused exactly as it is at any other position. The
+    // LOWERING still never divides that interior into fields (CONTROL G3
+    // below), which bounds the wire consequence, not whether the source is
+    // judged.
+    { cell: "g4", src: annotSrc('array<{a as "w": string}>'), expected: [REN("a")] },
     // g5 — an interior that never closes spells no `ObjectType`, so
     // `closingBraceSpelled` withholds the row.
     { cell: "g5", src: annotSrc('{a as "w": string'), expected: [] },
@@ -773,7 +781,7 @@ function allCells(): Cell[] {
 /** Declared inventory size — cell H1 recomputes it (anti-vacuity). */
 const TOTAL_LIST_CELLS = 67;
 /** Declared count of cells carrying the new row — cell H1 recomputes it. */
-const NEW_ROW_LIST_CELLS = 49;
+const NEW_ROW_LIST_CELLS = 50;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -1359,7 +1367,11 @@ describe("bug 0160 (F) — the suppression family gains the refusal, and (since 
 // RED at HEAD (bug 0160's own baseline): g6, g7, g8, g10, g11, g12, g13, g14,
 // g16, g17, g18, g19, g22.
 // GREEN then (this row's own subject silent) and STILL SILENT ON THIS ROW
-// after bug 0228: g2, g3, g4, g5, g9. g20/g21 (an escaped quote in the wire
+// after bug 0228: g2, g3, g5, g9. g4 (a rename inside a generic argument) was
+// silent through bug 0228 too, but bug 0233 closes that class — the
+// generic-argument gate this row shared with bugs 0052 and 0176 is gone, so
+// g4 now names this row, RE-PINNED with 0233 as its authority. g20/g21 (an
+// escaped quote in the wire
 // name) were silent through bug 0228 too, but bug 0229 closes that class: the
 // colon scan and this row's predicate both now admit the escape, so g20/g21
 // draw the row and move OUT of this silent set into the ones that name it.
@@ -1402,11 +1414,12 @@ describe("bug 0160 (G) — quote style, precedence, the two gates, and the neigh
     ).toEqual([BINDING_CASE]);
   });
 
-  it("CONTROL G3: the generic-argument and unclosed-interior gates keep their lowered bytes", () => {
+  it("CONTROL G3: the generic-argument's lowering and the unclosed-interior gate keep their bytes", () => {
     expect(
       lowerQueryResponseSchema('array<{a as "w": string}>', [], []),
       "G3 — the lowering never divides a generic argument's interior into fields, which is the " +
-        "ground bug 0052 and bug 0176 withhold on and this row inherits byte-for-byte",
+        "ground g4's new refusal stands on (bug 0233): the WIRE consequence of the rename is " +
+        "unmoved, only whether the source is judged",
     ).toEqual({ type: "array", items: {} });
     expect(
       lowerQueryResponseSchema('{a as "w": string', [], []),
@@ -1507,9 +1520,10 @@ describe("bug 0160 (H) — the inventory is counted, and every cell is also asse
     // on.
     expect(
       cells.filter((c) => c.expected.length === 0).map((c) => c.cell),
-      "H1 — and the empty-expectation cells are exactly the two silent-by-design gate rows, " +
-        "named so a future edit cannot add a third by accident",
-    ).toEqual(["g4", "g5"]);
+      "H1 — and the empty-expectation cell is exactly the one silent-by-design gate row that " +
+        "survives bug 0233: g4 moved out of this list when the generic-argument gate went, " +
+        "leaving g5's unclosed-interior gate alone",
+    ).toEqual(["g5"]);
     expect(
       new Set(cells.map((c) => `${c.cell} :: ${c.src}`)).size,
       "H1 — every cell key is distinct, so no whole-map equality silently drops a row",

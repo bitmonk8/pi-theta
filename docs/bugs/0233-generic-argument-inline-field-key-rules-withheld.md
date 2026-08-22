@@ -1,6 +1,6 @@
 # Bug 0233 — the generic-argument carve-out registered on all four inline raw-key rows leaves every non-`Ident` inline-object field key inside a generic argument unjudged as a class: `array<{a b: integer}>`, `array<{ "q": string }>`, `array<{ q: string, q: integer }>`, `array<{ a as "w": integer }>`, `array<{ 3: string }>` and `array<{ éLan: string }>` all report `[]` and register at seven of the eight `Type` positions measured, and draw no key rule at the eighth, where the byte-identical bare interior draws `theta/parse/inline-field-name-not-identifier`, `theta/parse/quoted-inline-field-name`, `theta/parse/duplicate-inline-field-name` or `theta/parse/renamed-inline-field-name` — while the two rules at the same `walkType` arm that carry no carve-out (bug 0154's identifier pass, the empty-interior rule) DO fire there, so `array<{ Elan: string }>` and `array<{}>` are refused beside their silent neighbours
 
-- **Status:** open.
+- **Status:** fixed (0.196.0).
 - **Sev/Diff estimate:** S1/D3 — S1 because inputs the grammar derives from no
   `ObjectType` are accepted with no diagnostic and register, and four registered
   rows whose *Trigger*s state their reach as "any `Type` position and at any
@@ -617,3 +617,145 @@ sessions (`tests/scratch-0231-probe.test.ts`,
 `docs/spec_topics/diagnostics/code-registry-parse.md` (a one-line deletion, not
 this filing's) were present throughout; every registry citation above was read
 from HEAD rather than from the working tree.
+
+## Fix (0.196.0)
+
+- What shipped:
+  - `src/parser/type-grammar.ts` — §Fix (a) ROUTE 1, WIDEN. The raw-key loop in
+    `walkType`'s `object` arm loses the `!insideGenericArgument` half of its
+    gate and keeps `node.closingBraceSpelled` alone, so all four raw-key rows
+    judge an inline object's keys inside a generic type argument at every depth
+    and in every `Type` position, as bug 0154's identifier pass and the
+    empty-interior rule already did. The flag then had no reader, so the
+    `insideGenericArgument` parameter is removed from `walkType` and all five
+    call sites; every comment at the arm that asserted the carve-out is
+    restated for the one gate that remains.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the carve-out
+    clause is removed from all four *Trigger*s (DIAG-2 trigger widening); the
+    duplicate row keeps its nested-reuse clause, and each row's "any `Type`
+    position and any nesting depth" reach sentence is now true as written.
+  - `docs/spec_topics/grammar.md` §"Inline object types" — the duplicate-only
+    exception ("a generic type argument's interior is outside that rule") is
+    removed and one sentence states that all four raw-key rules hold in every
+    `Type` position, including a generic argument's interior (§Fix (b)).
+  - `docs/reference/grammar.md` — "all three rules skip generic arguments" is
+    corrected to name four rules, none of which skips a generic argument; the
+    bullet was re-wrapped so the page keeps its 688 lines and no citation of it
+    shifts.
+  - `docs/reference/diagnostics.md` — unchanged, and deliberately: its rows for
+    the four codes carry code, severity, phase and *Message* only, and no
+    *Message* moved, so DIAG-2 parity holds without an edit.
+  - `tests/generic-argument-inline-field-key-rules.test.ts` — the §Fix (d)
+    witness: 76 whole-list unfiltered cells over §Reproduction (a)–(f) plus an
+    inventory group, every *Message* read through `parseRegistry` /
+    `registryMessage` (DIAG-4).
+  - `tests/live/generic-argument-inline-field-key-live-cell.test.ts`
+    (H8a, the registration surface) and
+    `tests/live/acceptance/generic-argument-inline-field-key-load-refusal.test.ts`
+    (H9a, load refusal through a real `pi -p`).
+  - Nine shipped witnesses re-pinned at 16 generic-argument cells, each naming
+    this report as the authority: `tests/inline-object-field-name-case.test.ts`
+    (0227 h8/h9, the cell whose comment required that a refusal there "reds and
+    must be recorded"), `tests/inline-object-duplicate-field-name.test.ts`
+    (0052), `tests/inline-object-field-name-comparison-key.test.ts` (0159),
+    `tests/inline-object-quoted-field-name-refusal.test.ts` (0176),
+    `tests/inline-object-wire-name-rename-refusal.test.ts` (0160),
+    `tests/inline-object-type-source-capture.test.ts` (0228),
+    `tests/escaped-quote-inline-field-name-refusal.test.ts` (0229),
+    `tests/inline-object-malformed-entry-resync.test.ts` (0231 group (D), which
+    had deferred "which code names `a b` there" to this class), and
+    `tests/unterminated-literal-params-type-refusal.test.ts` (0232). Every flip
+    is `[]`-or-short-list → one raw-key refusal in a generic-argument cell; no
+    assertion was weakened, no cell deleted, and each file's declared inventory
+    counts were recomputed.
+- Gates: witness `npx vitest run tests/generic-argument-inline-field-key-rules.test.ts`
+  → `Test Files 1 passed (1) / Tests 9 passed (9)`; RED before the fix,
+  `Tests 5 failed | 4 passed (9)`, every failure an expected refusal against an
+  actual `Array []`. Full default suite `npx vitest run` →
+  `Test Files 381 passed (381) / Tests 7824 passed (7824)`. `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) and `npm run lint`
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) both clean, no
+  output. Live, run for real under the shared lock: the H8a cell
+  `Tests 1 passed (1)` (2701 ms) and the H9a acceptance cell
+  `Tests 1 passed (1)` (6044 ms), both green on the first run.
+- Review: 1 review round (`bug-fix-reviewer`), plus one pre-review correction
+  round and one prose polish round. The correction round — before round 1, and
+  not a review round — made the `docs/reference/grammar.md` edit line-count
+  neutral and restored `tests/fn-param-annotation-optional.test.ts` byte-exact
+  to HEAD (`git hash-object` == `git rev-parse HEAD:<path>`, `ef83cc58…`) after
+  the implementer had chased four citations the +4-line page shift induced in a
+  file this report does not own. Round 1: two findings, both `prose` — four
+  witness files whose frame comments still asserted the deleted carve-out as
+  current fact, and a dropped copula in the rewritten reference bullet. Both
+  fixed by `bug-fix-fixer-light`; that round's diff touches only comments and
+  markdown, so the polish was verified by gate-diff and the confirmation round
+  was skipped.
+- Verification: SOLID. (1) The witness genuinely reds — the gate half and the
+  parameter were reinstated through the whole call chain, the witness went
+  `5 failed | 4 passed`, the file was written back and proven byte-exact
+  against the pre-revert `git hash-object` (`8a9797e9…`), and the witness went
+  green again. (2) The default suite is green as above. (3) Both live cells ran
+  for real under the lock and passed; the H9a cell's own measurement confirms
+  the refusal does not reach the stderr capture, so
+  `tests/fixtures/h7a/permitted-codes.json` was left untouched. (4) Typecheck
+  and lint are clean. Byte-identical to HEAD, confirmed by hash:
+  `tests/params-inline-object-lowering.test.ts`,
+  `tests/committed-fixture-parse-gate.test.ts`,
+  `tests/registry-closed-set-corpus-gate.test.ts`,
+  `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json`,
+  `src/parser/params.ts` and `src/parser/type-layer-checks.ts`. The corpus
+  census is unmoved: 34 committed `.theta` / `.thetalib` files, zero hits for
+  `(array|Result)<[^>]*\{`, so no committed source moves.
+- GOV-15, both directions. *Addition*: the newly-emitting inputs are exactly an
+  inline object reached through `array<…>` / `Result<…,…>` whose raw key
+  repeats, is quote-led, spells a rename, or is not an `Ident`; those inputs
+  now emit `theta/parse/duplicate-inline-field-name`,
+  `theta/parse/quoted-inline-field-name`,
+  `theta/parse/renamed-inline-field-name` or
+  `theta/parse/inline-field-name-not-identifier` where they emitted nothing, at
+  every `Type` position and at every depth. *Removal*: empty — no input loses a
+  code it emitted before, no *Message* was reworded (no DIAG-4 break) and no
+  code was renamed. The addition's in-repo input set is empty (§Reproduction
+  (g)), and the edit is disposed of by the
+  [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out).
+- Residuals:
+  1. **§Fix (d)'s "every cell of §Reproduction (d) holds byte-for-byte after
+     the fix" is false for d7 and d8.** Both are `params:` rows: a refused
+     `params:` field withholds the whole frontmatter object, so after the fix
+     `doc.frontmatter === null` and no lowering exists — which is what
+     §Reproduction (e) already states for every refused row. d1–d6 and d9 do
+     hold byte-for-byte. The invariant the report actually asserts — that no
+     property name is minted inside a generic argument — holds at every cell.
+     Both rows are pinned in their measured after-form in the new witness.
+  2. **§Reproduction (f) row f2's `theta/parse/generic-arity-mismatch` is not
+     observable at this tree.** It was measured at 0.183.0; after bug 0231's
+     fix, `let x: Result<{a b: integer}, string> = 1` reports `[]` at HEAD and
+     the raw-key refusal alone after this fix. The `Result` argument-list
+     miscount §Non-goals recorded belongs to the bracket-group carrier class
+     filed separately as bug 0236; this fix neither touches nor claims it.
+  3. **§Expected behaviour's f3 attribution is wrong for its own fixture.** In
+     `schema S { a: array<{ éLan: string }` the tolerant recovery spends the
+     schema declaration's `}` as the interior's closing brace, so
+     `closingBraceSpelled` is true and the HEAD silence was the generic gate's,
+     not the closing-brace gate's; that row therefore refuses after this fix.
+     The genuinely-unclosed class is untouched: group (J) of
+     `tests/inline-object-field-name-case.test.ts` and group (J) of
+     `tests/inline-object-malformed-entry-resync.test.ts` are unmodified and
+     green before and after.
+  4. **Stale `docs/reference/grammar.md` citations predating this change.**
+     `tests/fn-param-not-identifier.test.ts`,
+     `tests/schema-field-name-case.test.ts`,
+     `tests/capitalised-bare-match-pattern-refusal.test.ts` and one cell of
+     `tests/fn-param-list-unclosed.test.ts` cite line numbers already wrong at
+     HEAD by far more than any shift this change could induce. Left untouched —
+     out of scope, and this change shifts that page by zero lines — and
+     recorded here for a future bug-0134-class filing.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the lowering's permissive `items: {}` for a
+  generic argument's interior does not move (0204's and 0164's class, pinned by
+  the witness's group (D)); the theta identifier alphabet stays ASCII (0227's
+  law); the unclosed-interior class and the closing-brace gate are untouched;
+  the `params:` KEY position and the `schema` declaration field-name surface
+  are unreached by any row here; citation drift inside
+  `src/parser/type-grammar.ts` is bug 0134's adjudicated do-not-chase class and
+  was not chased.

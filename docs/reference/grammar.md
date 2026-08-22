@@ -238,18 +238,18 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
 - `ObjectType` fields reuse the object-schema `Field` form **except the wire-name
   rename**: `as "WireName"` is a schema-declaration-only clause, and an inline
   field spelled `ident as "WireName": Type` is `theta/parse/renamed-inline-field-name`,
-  keyed on the same raw entry text as the two rows below, once per renamed
-  field in source order; `theta/parse/wire-name-collision` and
-  `theta/parse/redundant-wire-name` stay declaration-only. Empty `{}` is
-  `theta/parse/empty-schema-body`; a key repeated in one inline object is
-  `theta/parse/duplicate-inline-field-name`, keyed as written on each top-level
-  comma entry's text up to its own top-level colon, once per repeated key; a
-  non-repeating key of that same text whose first character is `"` or `'` is
-  `theta/parse/quoted-inline-field-name` (field names are identifiers; a key
-  that repeats within the interior is the duplicate row's subject alone, and a
-  key that does not repeat and whose first character is a quote is the new
-  row's); a nested inline object is its own list; all three rules skip generic
-  arguments. Lowered into `$defs` as `__inline_<slug>`
+  keyed on the same raw entry text as the rows below, once per renamed field in source
+  order; `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name` stay
+  declaration-only. Empty `{}` is `theta/parse/empty-schema-body`. Field names are
+  identifiers; four rules judge each top-level comma entry's text up to its own top-level
+  colon, as written, in precedence order: a repeat is
+  `theta/parse/duplicate-inline-field-name`, once per repeat; a quote-led key is
+  `theta/parse/quoted-inline-field-name`; a rename is
+  `theta/parse/renamed-inline-field-name` (the row above); a key matching no `Ident` is
+  `theta/parse/inline-field-name-not-identifier`. A nested inline object is its own list;
+  none of the four skips a generic argument; each judges the source key at any depth
+  beneath one — the lowering never dividing that interior into fields bounds the wire
+  consequence, not the judgement. Lowered as `__inline_<slug>` into `$defs`
   ([Schema subset](./schema-subset.md)).
 - Nullability is written `T | null`.
 - Text deriving from none of the six alternatives is `theta/parse/annotation-type-not-expression`

@@ -43,26 +43,26 @@
 //     `properties` and `required` writes on, so the comparison agrees with
 //     what is lowered BY CONSTRUCTION. One diagnostic per repeated key, at its
 //     second occurrence, in source order (code-registry-parse.md's row).
-//     Withheld for an object reached through a generic type argument, at
-//     every depth beneath it: the interior parses brace-aware there too, so a
-//     key-derivation over it would find the same repeat, and the withholding
-//     is a deliberate scope decision rather than a parse-time blind spot —
-//     the mechanism that leaves nothing for this rule to name is the
-//     LOWERING's generic-argument split (`params.ts`'s `lowerTypeExpr`,
-//     through `splitTopLevel`'s default angle-only nesting), which never
-//     divides that interior into fields and mints no duplicate `required`
-//     there (code-registry-parse.md's row, "Two shapes sit outside this
-//     row"). Position-independent, like `empty-schema-body` above. The
-//     retained `fieldNames` / `namesStopped` stay on the node beside this
-//     key: they are the theta-side IDENTIFIER list bug 0154's identifier
-//     rules rebase onto, which the raw entry text this rule now keys on is
-//     not.
+//     Answers alike for an object reached through a generic type argument, at
+//     every depth beneath it: `TypeParser.parseObject` parses that interior
+//     brace-aware, exactly as it parses any other object type, so the same
+//     repeat is there to name. The LOWERING's generic-argument split
+//     (`params.ts`'s `lowerTypeExpr`, through `splitTopLevel`'s default
+//     angle-only nesting) never divides that interior into fields and mints
+//     no duplicate `required` on the wire from there — that fact bounds the
+//     WIRE consequence of a repeated key, not whether this rule judges the
+//     source (code-registry-parse.md's row). Position-independent, like
+//     `empty-schema-body` above. The retained `fieldNames` / `namesStopped`
+//     stay on the node beside this key: they are the theta-side IDENTIFIER
+//     list bug 0154's identifier rules rebase onto, which the raw entry text
+//     this rule now keys on is not.
 //   - `theta/parse/quoted-inline-field-name` — a non-repeating entry of the
 //     same split whose key's first character is `"` or `'`: the inline
 //     spelling reuses the object-schema `Field` form, and schemas.md's field
 //     names are identifiers, which admit no quote character. Shares the
-//     duplicate rule's gates (`TypeNode.closingBraceSpelled`, withheld inside
-//     a generic type argument) and its comparison key; a key that repeats
+//     duplicate rule's gate (`TypeNode.closingBraceSpelled`) and its
+//     comparison key, and answers alike at any depth beneath a generic type
+//     argument on the same ground as the duplicate rule; a key that repeats
 //     draws the duplicate row alone (bug 0176 §Fix precedence).
 //   - `theta/parse/renamed-inline-field-name` (bug 0160) — a non-repeating,
 //     non-quoted entry of the same split whose raw text spells
@@ -73,7 +73,7 @@
 //     the grammar admits but no `Type` position parses; this rule refuses the
 //     spelling instead of parsing it, leaving `theta/parse/wire-name-collision`
 //     and `theta/parse/redundant-wire-name` declaration-only. Shares the two
-//     raw-key rules' gates and key, is subordinate to both of them (a
+//     raw-key rules' gate and key, is subordinate to both of them (a
 //     repeating or quote-led key never reaches this test), and renders the
 //     THETA-SIDE identifier its pattern captures rather than the raw key —
 //     the one rendering that answers alike at every position, token-joined or
@@ -86,11 +86,11 @@
 //     body's own field name. Excludes a spelling that is a member of the
 //     lexer's own `reservedKeywords()` (Disposition A — the reserved-keyword
 //     class at this slot stays with its own open report). Shares the empty
-//     rule's closing-brace gate but NOT the two raw-key rules'
-//     generic-argument carve-out: that carve-out is grounded in the LOWERING
-//     never dividing a generic argument's interior into fields, which this
-//     identifier rule does not depend on, so a nested `array<{ Ys: string }>`
-//     still fires. Emits before the two raw-key rules above.
+//     rule's closing-brace gate, the same gate the two raw-key rules above
+//     share: all six rules at this arm answer alike regardless of nesting
+//     depth beneath a generic type argument, so a nested `array<{ Ys: string }>`
+//     fires exactly as a nested `array<{ a b: string }>` does. Emits before
+//     the two raw-key rules above.
 //
 // A caller may select a narrower rule SET than all eight checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
@@ -237,7 +237,7 @@ export function parseTypeExpression(
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  walkType(node, true, position, rules, site, false, diagnostics);
+  walkType(node, true, position, rules, site, diagnostics);
   return diagnostics;
 }
 
@@ -873,8 +873,9 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     interior carries no token AND whose closing `}` was consumed
  *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
  *     under EVERY `rules` value — one of the five checks `"inline-object-shape"`
- *     admits — and is unqualified by `position`, by `isRoot`, or by
- *     `insideGenericArgument`: an empty `array<{}>` argument still fires. An
+ *     admits — and is unqualified by `position`, by `isRoot`, or by nesting
+ *     depth beneath a generic argument: an empty `array<{}>` argument still
+ *     fires. An
  *     unterminated `{` fails the second half and stays silent: `ObjectType`
  *     requires the closing brace, so there is no inline object type there to
  *     call empty.
@@ -888,12 +889,13 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     those key on `TypeNode.interiorSource`'s raw, unnormalised entry text,
  *     deliberately not an identifier, while this rule needs identifier TOKENS.
  *     Runs under EVERY `rules` value, gated ONLY on `TypeNode.closingBraceSpelled`
- *     (the same grammar requirement the empty rule above reads) and NOT on
- *     `insideGenericArgument`: the two raw-key rules' generic-argument carve-out
- *     is grounded in the LOWERING never dividing that interior into fields,
- *     which is a fact about the lowered artefact this identifier rule does not
- *     depend on — the source's field-name position exists at any depth, so
- *     `array<{ Ys: string }>` fires. Emits BEFORE the two raw-key rules below
+ *     (the same grammar requirement the empty rule above reads, and the one
+ *     the two raw-key rules below share): every rule at this arm judges the
+ *     SOURCE key regardless of nesting depth beneath a generic argument — the
+ *     LOWERING never dividing that interior into fields (`params.ts`'s
+ *     `lowerTypeExpr`) bounds the WIRE consequence a key has, not whether the
+ *     source spelling is judged — so `array<{ Ys: string }>` fires. Emits
+ *     BEFORE the two raw-key rules below
  *     so `{ Ys: string, Ys: string }` reads as two `binding-case-mismatch`
  *     lines then one `duplicate-inline-field-name` line, in emission order
  *     (`assembleDiagnostics`' stable sort cannot separate same-range
@@ -918,13 +920,15 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     occurrence and `reported` its emission, both `Set`s, so a third
  *     occurrence draws no second line. Runs under EVERY `rules` value — one
  *     of the five checks `"inline-object-shape"` admits — and is
- *     unqualified by `position` or by `isRoot`, but WITHHELD when
- *     `insideGenericArgument`: a generic type argument's interior is never
- *     divided into fields, so no duplicate `required` is ever minted there
- *     for this rule to name (code-registry-parse.md's row, "Two shapes sit
- *     outside this row"). `TypeNode.fieldNames` — not this rule's key —
- *     stays on the node for bug 0154's identifier rules, which need
- *     identifier tokens rather than this rule's raw entry text.
+ *     unqualified by `position`, by `isRoot`, or by nesting depth beneath a
+ *     generic type argument: a generic argument's interior is never divided
+ *     into fields at the LOWERING, so no duplicate `required` is ever minted
+ *     on the WIRE from there (code-registry-parse.md's row, "Two shapes sit
+ *     outside this row") — but the source key still repeats, and this rule
+ *     judges the source, not the lowered artefact. `TypeNode.fieldNames` —
+ *     not this rule's key — stays on the node for bug 0154's identifier
+ *     rules, which need identifier tokens rather than this rule's raw entry
+ *     text.
  *   - `theta/parse/quoted-inline-field-name` — a non-repeating entry of the
  *     same `inlineObjectFieldKeys` split whose key's first character is `"`
  *     or `'`. The inline field-name slot reuses the object-schema `Field`
@@ -932,11 +936,12 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     names are identifiers — an identifier admits no quote character
  *     (`lexical.md`) — so the declaration spelling of the same text is
  *     already refused (`checkObjectSchema`, schema-declarations.ts); this
- *     rule brings the inline position into agreement with it. Shares both
- *     of the duplicate rule's gates above (`closingBraceSpelled`, withheld
- *     under `insideGenericArgument`) and its comparison key, so `array<{"a":
- *     string}>` mints nothing here on the same generic-argument ground as
- *     the duplicate rule. A key that REPEATS is the duplicate rule's subject
+ *     rule brings the inline position into agreement with it. Shares the
+ *     duplicate rule's gate above (`closingBraceSpelled`) and its comparison
+ *     key, and answers alike at any depth beneath a generic type argument on
+ *     the same ground as the duplicate rule: the LOWERING never divides that
+ *     interior into fields, which bounds what reaches the wire, not what
+ *     this rule judges. A key that REPEATS is the duplicate rule's subject
  *     alone: this rule fires only for a key occurring exactly once, so
  *     `{"a": string, "a": integer}` draws one `duplicate-inline-field-name`
  *     line and no second line from this rule. Runs under EVERY `rules`
@@ -963,34 +968,33 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     `theta`-side/wire-side boundary the rename exists to express, so
  *     recovering wire-name SEMANTICS from it needs a change to the type-source
  *     capture that is out of this rule's scope. Shares both raw-key
- *     neighbours' gates (`closingBraceSpelled`, withheld under
- *     `insideGenericArgument`) and their comparison key, and is subordinate to
- *     both: a key that repeats is the duplicate rule's alone, and a key whose
- *     first character is a quote is the quoted rule's alone, so this test
- *     never reaches either. The pattern is written to match BOTH spellings a
- *     raw key can arrive as and yield the SAME capture — the theta-side
- *     identifier — from either, which is what lets one rule answer alike at
- *     every position; that identifier is also exactly what `<field>` renders
- *     (category 5, identifier-shaped, `placeholder-rendering-b.md`), so
- *     unlike its two raw-key neighbours — whose subject IS the raw,
- *     unnormalised entry text and therefore needs its own row-scoped
- *     carve-out — this row needs none. The generic-argument carve-out is
- *     inherited for the same reason the two neighbours withhold under it (not
- *     for bug 0154's identifier-pass reason): this row's subject is the raw
- *     key the LOWERING mints as a property name, and a generic argument's
- *     interior is never divided into fields, so no such key is ever minted
- *     there for this row to name either. Runs under EVERY `rules` value —
- *     the fifth check `"inline-object-shape"` admits.
+ *     neighbours' gate above (`closingBraceSpelled`) and their comparison
+ *     key, and is subordinate to both: a key that repeats is the duplicate
+ *     rule's alone, and a key whose first character is a quote is the quoted
+ *     rule's alone, so this test never reaches either. The pattern is written
+ *     to match BOTH spellings a raw key can arrive as and yield the SAME
+ *     capture — the theta-side identifier — from either, which is what lets
+ *     one rule answer alike at every position; that identifier is also
+ *     exactly what `<field>` renders (category 5, identifier-shaped,
+ *     `placeholder-rendering-b.md`), so unlike its two raw-key neighbours —
+ *     whose subject IS the raw, unnormalised entry text — this row needs no
+ *     row-scoped exception of its own either. This row answers alike at any
+ *     depth beneath a generic type argument for the same reason its
+ *     neighbours do: the LOWERING never divides that interior into fields,
+ *     which bounds what a rename would reach on the wire, not whether the
+ *     source rename clause is judged. Runs under EVERY `rules` value — the
+ *     fifth check `"inline-object-shape"` admits.
  *
  * Every `rules` value still descends generic arguments, object field types
  * and union arms, so a nested empty inline object, a nested ill-cased name, a
  * nested repeated field name, a nested quoted field name, or a nested
  * rename-bearing field name is found at any depth regardless of which of the
- * three `"all"`-only checks are withheld.
- * Descending a generic argument's `args` sets
- * `insideGenericArgument` for that argument and everything beneath it; the
- * object and union arms propagate the flag unchanged when they descend their
- * own field types and arms.
+ * three `"all"`-only checks are withheld. The six rules at the `object` arm
+ * below judge the SOURCE key at every depth and through every generic
+ * argument alike — the LOWERING never dividing a generic argument's interior
+ * into fields (`params.ts`'s `lowerTypeExpr`) bounds the WIRE consequence a
+ * key has, not whether the source spelling is judged — so `walkType` carries
+ * no flag distinguishing a generic argument's subtree from any other.
  */
 function walkType(
   node: TypeNode,
@@ -998,7 +1002,6 @@ function walkType(
   position: TypePosition,
   rules: TypeCheckRules,
   site: TypeCheckSite,
-  insideGenericArgument: boolean,
   out: Diagnostic[],
 ): void {
   switch (node.kind) {
@@ -1043,12 +1046,11 @@ function walkType(
           });
         }
       }
-      // Every type argument of a generic constructor carries the
-      // duplicate-inline-field-name carve-out for its whole subtree — set
-      // unconditionally here, since descending into ANY generic argument
-      // (re-)establishes it regardless of the incoming flag.
+      // A generic type argument's interior is one more `ObjectType`
+      // interior: nothing narrows `rules` or `position` for it, so it draws
+      // the same six object-arm rules as any other subtree.
       for (const arg of node.args) {
-        walkType(arg, false, position, rules, site, true, out);
+        walkType(arg, false, position, rules, site, out);
       }
       return;
     }
@@ -1066,14 +1068,14 @@ function walkType(
       // Bug 0154's identifier pass — the lowercase-first rule (lexical.md) over
       // `TypeNode.fieldNames`, the theta-side IDENTIFIER retention (not the raw
       // entry text the two rules below key on). Gated ONLY on the grammar's own
-      // closing-brace requirement (`ObjectType` spells `}`), and deliberately
-      // NOT withheld under `insideGenericArgument`: the two raw-key rules below
-      // carve that out because the LOWERING never divides a generic argument's
-      // interior into fields, so no property name is minted there for either of
-      // them to name — a fact about agreement with the lowered artefact that an
-      // identifier rule does not depend on. The source's field-name position
-      // exists at any depth, so `array<{ Ys: string }>` must still fire. Emits
-      // BEFORE the raw-key rules below so the settled order holds: a
+      // closing-brace requirement (`ObjectType` spells `}`) — the same gate the
+      // two raw-key rules below share, so this pass and they answer alike at
+      // any depth beneath a generic argument: the LOWERING never dividing that
+      // interior into fields (a fact about the lowered artefact) bounds what
+      // reaches the wire from there, not whether the source's field-name
+      // position is judged, and it exists at any depth, so `array<{ Ys: string }>`
+      // must still fire. Emits BEFORE the raw-key rules below so the settled
+      // order holds: a
       // declaration-ranged diagnostic cannot be separated from another at the
       // same range by column, so `assembleDiagnostics`' stable sort keeps
       // emission order, and the identifier pass over `fieldNames` is read first.
@@ -1101,25 +1103,26 @@ function walkType(
           }
         }
       }
-      // `theta/parse/duplicate-inline-field-name` stands on two gates. The
-      // closing brace is the grammar's own: `ObjectType` spells it, so an
-      // interior the source never closes holds no interior to compare — the
-      // same requirement the empty rule reads above, asked of the source
-      // because the tolerant recovery can spend this interior's `}` on a
-      // missing type position (`TypeNode`'s doc comment). The generic-argument
-      // gate is a deliberate scope decision rather than a parse-time blind
-      // spot: `interiorSource` still holds the repeat there, because
-      // `TypeParser.parseObject` parses a generic argument's interior exactly
-      // as it parses any other object type — brace-aware, not angle-only.
-      // What leaves nothing for this rule to name instead is the LOWERING's
-      // own generic-argument handling (`params.ts`'s `lowerTypeExpr`, through
-      // `splitTopLevel`'s default angle-only nesting): it never divides that
-      // interior into fields, so no duplicate `required` is ever minted there
-      // for this rule to see (code-registry-parse.md's row, "Two shapes sit
-      // outside this row"; bug 0052 §Non-goals). `seen` / `reported` are
-      // `Set`s, never a plain object, so an author-chosen key can never
-      // collide with an object's own prototype keys.
-      if (!insideGenericArgument && node.closingBraceSpelled) {
+      // `theta/parse/duplicate-inline-field-name` stands on one gate: the
+      // grammar's own closing brace. `ObjectType` spells it, so an interior
+      // the source never closes holds no interior to compare — the same
+      // requirement the empty rule reads above, asked of the source because
+      // the tolerant recovery can spend this interior's `}` on a missing type
+      // position (`TypeNode`'s doc comment). A generic type argument's
+      // interior draws the same gate: `TypeParser.parseObject` parses it
+      // exactly as it parses any other object type — brace-aware, not
+      // angle-only — so `interiorSource` holds the repeat there just as it
+      // does anywhere else, and this rule names it. The LOWERING's own
+      // generic-argument handling (`params.ts`'s `lowerTypeExpr`, through
+      // `splitTopLevel`'s default angle-only nesting) never divides that
+      // interior into fields, so no duplicate `required` is ever minted on
+      // the WIRE from there (code-registry-parse.md's row, "Two shapes sit
+      // outside this row"; bug 0052 §Non-goals) — that fact bounds the wire
+      // consequence of a repeated key, not whether this rule judges the
+      // source. `seen` / `reported` are `Set`s, never a plain object, so an
+      // author-chosen key can never collide with an object's own prototype
+      // keys.
+      if (node.closingBraceSpelled) {
         const keys = inlineObjectFieldKeys(node.interiorSource);
         // A key that repeats within this interior is `duplicate-inline-field-name`'s
         // subject alone (bug 0176 §Fix precedence): counting occurrences up front,
@@ -1187,14 +1190,14 @@ function walkType(
           // one rule answer alike at every position. That identifier is also
           // exactly what `<field>` renders: it is category 5, identifier-shaped
           // (`placeholder-rendering-b.md`), so this row needs no row-scoped
-          // carve-out beside its two raw-key neighbours' — their carve-outs exist
-          // because THEIR subject is the raw, unnormalised entry text, and this
-          // row's subject never is. The generic-argument carve-out below is
-          // inherited unchanged from both neighbours, and for the same reason as
-          // theirs (not 0154's identifier pass' reason): this row's subject is the
-          // raw key the LOWERING mints as a property name, and a generic
-          // argument's interior is never divided into fields, so no such key is
-          // ever minted there for this row to name either.
+          // exception beside its two raw-key neighbours' — their subject is the
+          // raw, unnormalised entry text, and this row's subject never is. This
+          // row answers alike at any depth beneath a generic argument for the
+          // same reason its neighbours do (not 0154's identifier-pass reason):
+          // its subject is the raw key the LOWERING mints as a property name,
+          // and a generic argument's interior is never divided into fields, so
+          // no such key ever reaches the wire from there — which bounds the
+          // wire consequence, not whether the source rename clause is judged.
           const renamed = INLINE_FIELD_RENAME.exec(key);
           if (renamed !== null) {
             out.push({
@@ -1231,13 +1234,13 @@ function walkType(
         }
       }
       for (const fieldType of node.fieldTypes) {
-        walkType(fieldType, false, position, rules, site, insideGenericArgument, out);
+        walkType(fieldType, false, position, rules, site, out);
       }
       return;
     }
     case "union": {
       for (const arm of node.arms) {
-        walkType(arm, false, position, rules, site, insideGenericArgument, out);
+        walkType(arm, false, position, rules, site, out);
       }
       return;
     }

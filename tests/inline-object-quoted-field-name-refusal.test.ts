@@ -33,9 +33,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE ADJUDICATION THIS FILE ENCODES (0176 §Fix route **A**, as settled):
 //   - A1 detection site (ii) — `inlineObjectFieldKeys`
-//     (src/parser/type-grammar.ts:656), scanned in `walkType`'s `object` arm
-//     (:809) behind the SAME two existing gates (:838,
-//     `!insideGenericArgument && node.closingBraceSpelled`).
+//     (src/parser/type-grammar.ts:656), scanned in `walkType`'s object-arm
+//     raw-key loop behind the one gate that loop reads, `node.closingBraceSpelled`
+//     (bug 0233 dropped the loop's other, narrower `!insideGenericArgument` half,
+//     so this row now answers alike at every depth beneath a generic argument).
 //     `TypeParser.parseObject`'s tolerant `else` branch is not touched, which is
 //     why 0045's `{ a }` and `{ a: }` stay exactly as measured (group (H)).
 //   - A3 emission set, the NARROW answer — a key whose FIRST character is `"` or
@@ -972,23 +973,40 @@ describe("bug 0176 (G) — a repeated key keeps its duplicate line alone", () =>
 // (H) BOUNDARIES MEASURED, NOT ASSUMED — 0176 §Reproduction (h). Route A's
 // detection site (ii) is `inlineObjectFieldKeys`, whose two skips do this
 // boundary work for free: an entry with no top-level `:` yields no key (h1), and
-// `{ a: }`'s key is the identifier `a` (h2). h4 is bug 0052's settled
-// generic-argument carve-out, kept by the untouched `!insideGenericArgument`
-// gate. h5 is bug 0160's subject and the narrow A3 answer's whole point: the
-// raw key `a as "w"` does not START with a quote, so it is not refused.
-// GREEN now and after.
+// `{ a: }`'s key is the identifier `a` (h2). h4 — RE-PINNED for bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): the
+// generic-argument gate this rule used to share with the duplicate rule is
+// gone from `walkType`'s raw-key loop, so the quoted key inside `array<{"a":
+// string}>` is now refused exactly as it is at any other position; the
+// LOWERING still never divides that interior into fields (asserted below via
+// the unmoved read-back), which bounds the wire consequence, not whether the
+// source is judged. h5 is bug 0160's subject and the narrow A3 answer's whole
+// point: the raw key `a as "w"` does not START with a quote, so it is not
+// refused.
+// GREEN now and after for h1–h3; RED for h4.
 // ===========================================================================
 
-describe("bug 0176 (H) — 0045's reserved shapes, 0052's carve-out and 0160's subject are untouched", () => {
-  it("CONTROL H1: h1–h4 keep their silence and their lowered bytes", () => {
-    const cells: ReadonlyArray<readonly [type: string, lowered: Record<string, unknown>]> = [
+describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic argument now refuses (bug 0233), and 0160's subject stays 0160's", () => {
+  it("H1: h1–h3 keep their silence and their lowered bytes; h4's generic argument is now refused (bug 0233)", () => {
+    const cells: ReadonlyArray<
+      readonly [type: string, lines: readonly string[], lowered: Record<string, unknown>]
+    > = [
       // h1 / h2 — 0045's reserved shapes: silent, and minting NO property. That
       // is the observable that keeps them a different class from this report's
       // subject, which mints one whose name carries quote characters.
-      ["{ a }", { type: "object", properties: {}, required: [], additionalProperties: false }],
-      ["{ a: }", { type: "object", properties: {}, required: [], additionalProperties: false }],
+      [
+        "{ a }",
+        [],
+        { type: "object", properties: {}, required: [], additionalProperties: false },
+      ],
+      [
+        "{ a: }",
+        [],
+        { type: "object", properties: {}, required: [], additionalProperties: false },
+      ],
       [
         "{ a, b: integer }",
+        [],
         {
           type: "object",
           properties: { b: { type: "integer" } },
@@ -996,30 +1014,33 @@ describe("bug 0176 (H) — 0045's reserved shapes, 0052's carve-out and 0160's s
           additionalProperties: false,
         },
       ],
-      // h4 — the generic-argument interior is never divided into fields, so no
-      // quoted key is minted there and none is refused.
-      ['array<{"a": string}>', { type: "array", items: {} }],
+      // h4 — bug 0233: refused now, since the raw-key loop no longer withholds
+      // an object reached through a generic type argument. The LOWERING is
+      // unmoved: the interior is still never divided into fields, so `items`
+      // is still the permissive `{}`.
+      ['array<{"a": string}>', [quotedLine('"a"')], { type: "array", items: {} }],
     ];
     const actualLines: Record<string, string[]> = {};
     const expectedLines: Record<string, string[]> = {};
     const actualLowered: Record<string, unknown> = {};
     const expectedLowered: Record<string, unknown> = {};
-    for (const [type, lowered] of cells) {
+    for (const [type, want, lowered] of cells) {
       actualLines[type] = lines(annotSrc(type));
-      expectedLines[type] = [];
+      expectedLines[type] = [...want];
       actualLowered[type] = lowerQueryResponseSchema(type, [], []);
       expectedLowered[type] = lowered;
     }
     expect(
       actualLines,
       "H1 — a refusal at `inlineObjectFieldKeys` sees no key at all for `{ a }`, an identifier " +
-        "key for `{ a: }`, and nothing inside a generic argument; a red here means the fix was " +
-        "keyed at `parseObject`'s tolerant `else` branch instead (§Fix A1 site (i)) and widened " +
-        "into 0045's reserved family",
+        "key for `{ a: }`; a red on either means the fix was keyed at `parseObject`'s tolerant " +
+        "`else` branch instead (§Fix A1 site (i)) and widened into 0045's reserved family. A `[]` " +
+        "on the generic-argument cell is bug 0233's withheld gate returning",
     ).toEqual(expectedLines);
     expect(
       actualLowered,
-      "H1 — and the read-backs that make the silences facts rather than omissions",
+      "H1 — and the read-backs that make the silences — and the generic argument's unmoved " +
+        "lowering — facts rather than omissions",
     ).toEqual(expectedLowered);
   });
 

@@ -109,9 +109,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `$defs` hoist, and C5 equals C6 byte-for-byte under one shared slug
 // `__inline_8cc8cb1e7074a3af`; group (D)'s D1 drops its property; group (E)'s
 // two `params:` documents register and mint permissive artefacts instead of
-// being refused. CONTROLS, green now and after: every CTL cell of (A), the
-// generic-argument withhold a9, (B)'s b2 and b3, (C)'s C6 and C7 bytes, (D)'s
-// D2, and (E)'s refused-rename and clean-type reads.
+// being refused. CONTROLS, green now and after: every CTL cell of (A) except
+// a9, (B)'s b2 and b3, (C)'s C6 and C7 bytes, (D)'s D2, and (E)'s
+// refused-rename and clean-type reads. RE-PINNED for bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): a9's
+// two cells (ESC and CTL) were silent through this file's own fix — the
+// generic-argument gate this row shared with its three raw-key neighbours —
+// and now name the row too, since that gate is gone from `walkType`'s
+// raw-key loop.
 //
 // NO SILENT SKIPPING: nothing here early-returns or conditionally skips. The
 // registry lookup asserts each row's presence and its placeholder before any
@@ -121,10 +126,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 // second time at CODE level with no registry dependency (cell F2), so the
 // silence signature is witnessed without the message oracle.
 //
-// ANTI-VACUITY: the diagnostic-list inventory is 33 cells, 25 of which carry a
-// non-empty expectation naming `theta/parse/renamed-inline-field-name`. Cell F1
-// recomputes both counts from the inventory itself and names the two cells
-// allowed to expect nothing, so no cell can be weakened to `[]` to buy green.
+// ANTI-VACUITY: the diagnostic-list inventory is 33 cells, 27 of which carry a
+// non-empty expectation naming `theta/parse/renamed-inline-field-name` (bug
+// 0233 moved this count from 25 by re-pinning a9's two cells). Cell F1
+// recomputes both counts from the inventory itself, so no cell can be
+// weakened to `[]` to buy green.
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -353,12 +359,16 @@ function positionCells(label: string, type: string, expected: readonly Exp[]): C
       path: "bug0229.thetalib",
       expected,
     },
-    // a9 — the generic-argument carve-out all four raw-key rows share
-    // (src/parser/type-grammar.ts:1031): the lowering never divides that
-    // interior into fields, so no property name is minted there for a row to
-    // name. The control is silent here too, which is what makes this a gate
-    // rather than an exception.
-    { cell: `a9 ${label} generic argument`, src: annotSrc(`array<${type}>`), expected: [] },
+    // a9 — RE-PINNED for bug 0233
+    // (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): the
+    // generic-argument gate this rule shared with its three raw-key
+    // neighbours (`walkType`'s object arm, by symbol — bug 0134's do-not-chase
+    // class on absolute line numbers) is gone, so the position answers alike
+    // at every depth beneath a generic argument now, exactly as the other
+    // eight positions do. The LOWERING still never divides that interior into
+    // fields, so no property name reaches the wire from there — that fact
+    // bounds the wire consequence, not whether this row judges the source.
+    { cell: `a9 ${label} generic argument`, src: annotSrc(`array<${type}>`), expected },
   ];
 }
 
@@ -452,8 +462,10 @@ function allCells(): Cell[] {
 
 /** Declared inventory size — cell F1 recomputes it (anti-vacuity). */
 const TOTAL_LIST_CELLS = 33;
+// RE-PINNED for bug 0233: the two generic-argument cells (a9 ESC, a9 CTL) now
+// name this row too (25 → 27).
 /** Declared count of cells naming the rename row — cell F1 recomputes it. */
-const RENAME_LIST_CELLS = 25;
+const RENAME_LIST_CELLS = 27;
 
 describe("bug 0229 (A) — the escaped wire name is refused wherever the unescaped one is", () => {
   it("RED A1: the eight refusing positions and the withheld generic argument, ESC beside CTL", () => {
@@ -704,7 +716,7 @@ describe("bug 0229 (E) — a refused `params:` type mints no lowered schema", ()
 // ===========================================================================
 
 describe("bug 0229 (F) — the inventory is counted, and asserted again without the registry", () => {
-  it("CONTROL F1: 33 diagnostic-list cells, 25 of them naming the rename row", () => {
+  it("CONTROL F1: 33 diagnostic-list cells, 27 of them naming the rename row", () => {
     const cells = allCells();
     expect(
       cells.length,
@@ -718,9 +730,10 @@ describe("bug 0229 (F) — the inventory is counted, and asserted again without 
     ).toBe(RENAME_LIST_CELLS);
     expect(
       cells.filter((c) => c.expected.length === 0).map((c) => c.cell),
-      "F1 — the only cells allowed to expect nothing are the two generic-argument withholds, " +
-        "which are the shared gate at src/parser/type-grammar.ts:1031 and not an exception to it",
-    ).toEqual(["a9 ESC generic argument", "a9 CTL generic argument"]);
+      "F1 — RE-PINNED for bug 0233: the generic-argument gate that used to withhold a9's two " +
+        "cells is gone from `walkType`'s raw-key loop, so no cell in this file expects nothing " +
+        "any longer",
+    ).toEqual([]);
     expect(
       new Set(cells.map((c) => `${c.cell} :: ${c.src}`)).size,
       "F1 — every cell key is distinct, so no whole-map equality silently drops a row",

@@ -60,18 +60,19 @@ import { parseDoc } from "./helpers/e2e-s1";
 // THE NEW REGISTRY ROW (E, parse):
 //   code    `theta/parse/inline-field-name-not-identifier`
 //   Message `field name '<field>' within one inline object type is not an identifier`
-// Detection site: `walkType`'s object arm raw-key loop
-// (src/parser/type-grammar.ts:1000, inside the `if (!insideGenericArgument &&
-// node.closingBraceSpelled)` gate at :999). PRECEDENCE — fourth and last:
+// Detection site: `walkType`'s object arm raw-key loop, gated on
+// `node.closingBraceSpelled` alone (bug 0233 dropped the loop's other,
+// narrower `!insideGenericArgument` half, so all four raw-key rows now
+// answer alike at every depth beneath a generic argument). PRECEDENCE —
+// fourth and last:
 //   1. a REPEATING key is `theta/parse/duplicate-inline-field-name`'s alone (:1024);
 //   2. a QUOTE-LED key is `theta/parse/quoted-inline-field-name`'s alone (:1042);
 //   3. a RENAME-shaped key is `theta/parse/renamed-inline-field-name`'s alone (:1079);
 //   4. only then this row — a non-repeating, non-quote-led, non-rename key whose
 //      raw text is not `[A-Za-z_][A-Za-z0-9_]*` (`docs/spec_topics/lexical.md:13`).
 // ONE diagnostic per offending field, and a field this row refuses draws NO
-// other error row on the same field (bug 0129's count-consequence law). Both
-// gates are inherited byte-for-byte from the three neighbours: the
-// generic-argument carve-out and `node.closingBraceSpelled`.
+// other error row on the same field (bug 0129's count-consequence law). The
+// gate is inherited byte-for-byte from the three neighbours: `node.closingBraceSpelled`.
 // `<field>` renders the RAW key, so the row takes a THIRD row-scoped carve-out
 // on docs/spec_topics/diagnostics/placeholder-rendering-b.md §"Source-derived
 // placeholders" (:10, whose sentence widens from "every row but two" to three).
@@ -140,8 +141,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     forbids copying the prose, so those cells red inside `msg()` naming the
 //     registry until the row lands — which is the correct pre-fix red).
 // GREEN NOW AND AFTER (the no-move controls): group (F)'s E1/E2 lowered bytes
-// and their empty diagnostic lists, E3/E4/E5's whole position maps, group (G)'s
-// `@<Ghost{>` ghost bound, and group (I)'s inventory arithmetic.
+// and their empty diagnostic lists, E3's whole position map, group (G)'s
+// `@<Ghost{>` ghost bound, and group (I)'s inventory arithmetic (its counts
+// re-derived below). Bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md)
+// RE-PINS the generic-argument cells of groups (C), (E), (F)'s E4/E5 and (G)'s
+// G3 from silent to refused, since it removes the gate those cells' rows
+// inherited from this file's own fix; every non-generic-argument cell in this
+// file is unmoved by it.
 //
 // NO SILENT SKIPPING: nothing here early-returns or conditionally skips. The
 // registry lookup asserts its row's presence and its placeholder before any
@@ -486,15 +493,26 @@ function positionCellsByLabel(
 /** (C) §Reproduction (b) — `{a b: integer, ab: string}`, two source names, one fused key. */
 const B_FIXTURE = "{a b: integer, ab: string}";
 
+// RE-PINNED for bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): the
+// generic-argument gate this row inherited from its three raw-key neighbours
+// is gone from `walkType`'s raw-key loop, so the carve-out cell now draws the
+// same refusal as the ten joining positions (`ab` never repeats, so it is
+// only `a b` that is refused, once, at every position including this one).
 function bFixtureCells(): Cell[] {
-  return positionCells("c1", B_FIXTURE, [NOTIDENT("a b")], []);
+  return positionCells("c1", B_FIXTURE, [NOTIDENT("a b")], [NOTIDENT("a b")]);
 }
 
 /** (E) §Reproduction (d) — `{A b: integer}`, D1–D6 inside the eleven-position map. */
 const D_FIXTURE = "{A b: integer}";
 
+// RE-PINNED for bug 0233: the raw-key row now answers inside a generic
+// argument exactly as bug 0154's identifier pass always did there, so the
+// carve-out cell draws the same single `NOTIDENT("A b")` line the ten joining
+// positions draw — bug 0129's count-consequence law (code-registry-parse.md:101)
+// suppresses a second line on the SAME field, and this fixture has one field.
 function dFixtureCells(): Cell[] {
-  return positionCells("d1", D_FIXTURE, [NOTIDENT("A b")], []);
+  return positionCells("d1", D_FIXTURE, [NOTIDENT("A b")], [NOTIDENT("A b")]);
 }
 
 /** (D) §Reproduction (c) C1–C7 — the fabricated names, at both capture readings. */
@@ -582,13 +600,16 @@ function boundCells(): Cell[] {
     // already position-invariant and this fix moves neither its verdict nor its
     // rendered subject. It is also the precedence control: a quote-led key is
     // the SECOND rule's alone and must never draw the new row, even though
-    // `"a b"` is no `Ident` either.
-    ...positionCells("f4 (E4)", E4_TYPE, [QUOTED('"a b"')], []),
+    // `"a b"` is no `Ident` either. RE-PINNED for bug 0233: the
+    // generic-argument gate this row inherited from bug 0052 is gone from
+    // `walkType`'s raw-key loop, so the carve-out cell now answers alike too.
+    ...positionCells("f4 (E4)", E4_TYPE, [QUOTED('"a b"')], [QUOTED('"a b"')]),
     // E5 — whitespace OUTSIDE a key is absorbed by the duplicate rule's
     // `trim()` at every position, so it is not this defect and does not move.
     // Also the precedence control for the FIRST rule: a repeating key is bug
-    // 0052's alone.
-    ...positionCells("f5 (E5)", E5_TYPE, [DUP("a")], []),
+    // 0052's alone. RE-PINNED for bug 0233, the same way as E4: the
+    // generic-argument carve-out is gone, so this cell now answers alike too.
+    ...positionCells("f5 (E5)", E5_TYPE, [DUP("a")], [DUP("a")]),
   ];
 }
 
@@ -635,8 +656,10 @@ function allCells(): Cell[] {
 
 /** Declared inventory size — cell I1 recomputes it (anti-vacuity). */
 const TOTAL_LIST_CELLS = 102;
+// RE-PINNED for bug 0233: the generic-argument carve-out cells of groups (C)
+// and (E) now name this row too (40 → 42).
 /** Declared count of cells carrying the new row — cell I1 recomputes it. */
-const NEW_ROW_LIST_CELLS = 40;
+const NEW_ROW_LIST_CELLS = 42;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -801,29 +824,35 @@ describe("bug 0228 (B) — the type-source capture is the author's text, at all 
 
 // ===========================================================================
 // (C) §Reproduction (b) B1–B11 — ONE verdict at all eleven positions, plus the
-// generic-argument carve-out. `{a b: integer, ab: string}` spells TWO distinct
-// field names; at HEAD the fused key manufactures a repeat and
-// `duplicate-inline-field-name` renders `'ab'` — a key the source does not
-// contain — at ten positions, and `params:` loads it clean.
+// generic-argument position (a twelfth cell since bug 0233). `{a b: integer,
+// ab: string}` spells TWO distinct field names; at HEAD the fused key
+// manufactures a repeat and `duplicate-inline-field-name` renders `'ab'` — a
+// key the source does not contain — at ten positions, and `params:` loads it
+// clean.
 // RED at HEAD: all eleven refusal cells — SYMPTOM 2 (the fabricated verdict).
-// The carve-out cell is GREEN in both directions.
+// RE-PINNED for bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): the
+// generic-argument cell, silent through this file's own fix, now draws the
+// same refusal as the other eleven — the raw-key gate no longer withholds an
+// object reached through a generic type argument.
 // ===========================================================================
 
 describe("bug 0228 (C) — `{a b: integer, ab: string}` draws exactly one refusal at every position", () => {
-  it("RED C1: the eleven positions and the generic-argument carve-out, whole ordered lists", () => {
+  it("C1: the eleven positions and the generic argument, whole ordered lists", () => {
     expectGroup(
       bFixtureCells(),
       "C1 — the source has NO repeated field name, so the fabricated " +
         `${DUPLICATE_INLINE} naming 'ab' must be GONE at the ten joining positions (the ` +
         "newly-ADMITTED set this fix must state explicitly), and the key the author did write, " +
-        "`a b`, must be refused ONCE — at `params:` too, where the same text loads clean today. " +
-        "A cell that still names 'ab' is the join; a cell that names 'a b' twice is a " +
-        "precedence or loop error; the `array<>` cell must stay silent, since the " +
-        "generic-argument carve-out is inherited from all three neighbours",
+        "`a b`, must be refused ONCE at every one of the twelve positions — at `params:` where " +
+        "the same text loads clean today, and inside `array<>` where bug 0233 removed the " +
+        "generic-argument gate this rule used to inherit from its raw-key neighbours. A cell " +
+        "that still names 'ab' is the join; a cell that names 'a b' twice is a precedence or " +
+        "loop error; a `[]` on the `array<>` cell is bug 0233's withheld gate returning",
     );
   });
 
-  it("RED C2: the same cells at CODE level, and the eleven positions stop loading cleanly", () => {
+  it("C2: the same cells at CODE level, and the eleven positions stop loading cleanly", () => {
     // The registry-independent half of C1: this reds on the WRONG VERDICT alone,
     // so the parse-gate half of the fix has its own witness while the registry
     // half is outstanding.
@@ -1005,19 +1034,23 @@ describe("bug 0228 (D) — the joined lowering and the `params:` lowering agree,
 // `.thetalib schema field`, D4 = `@<T> annotation root`,
 // D5 = `array<> generic argument`, D6 = `params: field`.
 // RED at HEAD: all eleven refusal cells and the carve-out cell — SYMPTOM 2.
+// RE-PINNED for bug 0233: the raw-key row now answers inside a generic
+// argument exactly as bug 0154's identifier pass always did there (row D5),
+// so the carve-out cell draws `A b` too, once — bug 0129's count-consequence
+// law keeps it to one line since `A b` is a single field.
 // ===========================================================================
 
 describe("bug 0228 (E) — `{A b: integer}` draws one refusal naming `A b`, and no case row anywhere", () => {
-  it("RED E1: D1–D6 inside the eleven-position map, whole ordered lists", () => {
+  it("E1: D1–D6 inside the eleven-position map, plus the generic argument, whole ordered lists", () => {
     expectGroup(
       dFixtureCells(),
       "E1 — the fabricated " +
         BINDING_CASE +
         " must be GONE at the ten joining positions (it names `Ab`, which no source contains) " +
-        "and the raw key `A b` must be refused once everywhere, `params:` included. The " +
-        "`array<>` cell is the sharpest: 0154's pass has no generic-argument carve-out, so it " +
-        "refuses there today, and this row inherits the carve-out from its three neighbours — " +
-        "so that cell must go SILENT",
+        "and the raw key `A b` must be refused once everywhere, `params:` and the generic " +
+        "argument included. Bug 0233 removed the generic-argument gate this row inherited from " +
+        "its three raw-key neighbours, so the `array<>` cell now answers exactly as 0154's " +
+        "identifier pass already did there — a `[]` there is the withheld gate returning",
     );
   });
 
@@ -1048,11 +1081,15 @@ describe("bug 0228 (E) — `{A b: integer}` draws one refusal naming `A b`, and 
 // diagnostic lists); E3, E4 and E5 are the three refusals this fix must leave
 // exactly where they are, and they are also the precedence controls for the
 // three neighbour rows this one is subordinate to.
-// GREEN NOW AND AFTER: every cell in this group.
+// GREEN NOW AND AFTER: E1, E2 and E3 at every position. RE-PINNED for bug
+// 0233: E4's and E5's generic-argument cells were silent through this file's
+// own fix (the raw-key gate withheld their OWN rows there too) and now draw
+// the quoted-key and duplicate-key refusals respectively, since bug 0233
+// removed that gate for every raw-key rule.
 // ===========================================================================
 
-describe("bug 0228 (F) — the five bounds, unmoved at every position", () => {
-  it("CONTROL F1: E1–E5 at all eleven positions and inside the generic argument", () => {
+describe("bug 0228 (F) — the five bounds, unmoved at ten positions and now refused inside the generic argument (bug 0233)", () => {
+  it("F1: E1–E5 at all eleven positions and inside the generic argument", () => {
     expectGroup(
       boundCells(),
       "F1 — a red in E1/E2 means the fix moved a well-formed interior's VERDICT, which route 1 " +
@@ -1073,7 +1110,10 @@ describe("bug 0228 (F) — the five bounds, unmoved at every position", () => {
 // unbounded prototype). The `>` INSIDE a balanced generic argument must not
 // stop it, and a generic argument's own interior must be captured whole.
 // RED at HEAD: G2 and G3's capture bytes — SYMPTOM 1. G1 is GREEN in both
-// directions and is the regression bound.
+// directions and is the regression bound. RE-PINNED for bug 0233
+// (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): G3's
+// diagnostic half moves from silent to refused, since the generic-argument
+// gate that row inherited is gone.
 // ===========================================================================
 
 describe("bug 0228 (G) — the brace consumer is bounded by the annotation's own `>`", () => {
@@ -1112,7 +1152,7 @@ describe("bug 0228 (G) — the brace consumer is bounded by the annotation's own
     ).toEqual(renderAll([UNRESOLVED("x")]));
   });
 
-  it("RED G3: `array<{a b: integer}>` captures the whole generic argument, and draws nothing", () => {
+  it("G3: `array<{a b: integer}>` captures the whole generic argument, and now refuses it (bug 0233)", () => {
     expect(
       capturedLetAnnotation("array<{a b: integer}>"),
       "G3 — text OUTSIDE the brace group keeps today's separator-free join (`array<` + `>`), " +
@@ -1120,10 +1160,14 @@ describe("bug 0228 (G) — the brace consumer is bounded by the annotation's own
     ).toBe("array<{a b: integer}>");
     expect(
       lines(body("let x: array<{a b: integer}> | null = null")),
-      "G3 — and the generic-argument carve-out this row inherits from its three neighbours " +
-        "keeps it silent there: the lowering never divides that interior into fields, so no " +
-        "wire key is minted for this row to name",
-    ).toEqual([]);
+      "G3 — RE-PINNED for bug 0233 " +
+        "(docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md): the " +
+        "generic-argument gate this row inherited from its three neighbours is gone from " +
+        "`walkType`'s raw-key loop, so the captured `a b` is named here exactly as it is at any " +
+        "other position. The LOWERING still never divides that interior into fields, so no wire " +
+        "key is minted — that fact bounds the wire consequence, not whether this row judges the " +
+        "source",
+    ).toEqual(renderAll([NOTIDENT("a b")]));
   });
 });
 
@@ -1177,7 +1221,7 @@ describe("bug 0228 (H) — exactly one row per offending field, naming the raw k
 // ===========================================================================
 
 describe("bug 0228 (I) — the inventory is counted, and every cell is also asserted without the registry", () => {
-  it("CONTROL I1: 102 diagnostic-list cells, 40 of them naming the new row", () => {
+  it("CONTROL I1: 102 diagnostic-list cells, 42 of them naming the new row", () => {
     const cells = allCells();
     expect(
       cells.length,

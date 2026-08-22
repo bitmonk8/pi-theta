@@ -754,31 +754,35 @@ describe("bug 0052 (d) — a nested reuse and a generic interior are not repeats
     ).toEqual(PAIR_FRAGMENT);
   });
 
-  it("CONTROL d3 (generic argument interior, fixture H1): `array<{a: integer, a: string}>` stays silent at every depth", () => {
-    // THE CARVE-OUT THAT CONSTRAINS THE IMPLEMENTATION MOST. `walkType`'s
-    // `generic` arm descends its arguments (src/parser/type-grammar.ts, the
-    // `case "generic"` arm), and the sibling rule of the same rule SET does
-    // fire inside `array<{}>` (group (i)'s row), so adding this check to the
-    // `object` arm with no further qualification reds this cell.
+  it("RED d3 (generic argument interior, fixture H1) — bug 0233: `array<{a: integer, a: string}>` now draws the raw-key refusal at every depth", () => {
+    // BUG 0233 (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md):
+    // the raw-key gate in `walkType`'s `object` arm withheld this rule for an
+    // object reached through a generic type argument; that gate now reads
+    // `node.closingBraceSpelled` alone (by symbol, per bug 0134's do-not-chase
+    // class on absolute line numbers), so this rule answers alike at every
+    // depth beneath a generic argument, the same as the sibling empty-rule
+    // already did (group (i)'s row).
     //
-    // The reason the interior is outside the trigger is that it is never split
-    // into fields: the generic-argument split is angle-only, so a two-field
-    // interior presents as two arguments, the arity-1 `array` arm is not taken,
-    // and the permissive fallthrough lowers `{}` whether or not the names
-    // repeat. Nothing is dropped and no duplicate `required` is minted, so
-    // there is no author-visible consequence for a diagnostic to name
-    // (§Non-goals; code-registry-parse.md:87).
+    // The interior is still never DIVIDED INTO FIELDS by the lowering: the
+    // generic-argument split is angle-only, so a two-field interior presents
+    // as two arguments, the arity-1 `array` arm is not taken, and the
+    // permissive fallthrough lowers `{}` whether or not the names repeat. That
+    // fact bounds the WIRE consequence of the repeat — nothing is dropped and
+    // no duplicate `required` is minted — but it no longer bounds whether this
+    // rule JUDGES the source, which it now does at both levels below.
     expectList(
       body(`schema S { p: array<${DUP}> }`),
-      [],
-      "d3 — a generic type argument's interior is outside the trigger, at the position the " +
-        "bug doc measures it (fixture H1)",
+      [dupLine("a")],
+      "d3 — bug 0233: the generic-argument gate is gone, so the SOURCE repeat this rule keys " +
+        "on is named at the position the bug doc measures it (fixture H1); a `[]` here is the " +
+        "withheld gate returning",
     );
     expectList(
       body(`schema S { p: array<{q: ${DUP}}> }`),
-      [],
-      "d3 — the carve-out is the whole interior rather than its first level alone: a body nested " +
-        "inside the generic argument is reached through the same non-splitting argument",
+      [dupLine("a")],
+      "d3 — bug 0233: a body nested inside the generic argument is reached through the same " +
+        "non-splitting argument and answers alike too, since the flag propagating the " +
+        "withholding downward no longer exists",
     );
     expect(
       Object.fromEntries(
@@ -787,8 +791,9 @@ describe("bug 0052 (d) — a nested reuse and a generic interior are not repeats
           [],
         ),
       ),
-      "d3 — the read-back the bug doc records for H1: `S.properties.p` is the permissive " +
-        "`{}`, so the repeat inside the element type reaches no lowered artefact either",
+      "d3 — the lowering tripwire bug 0233 requires: no route dividing this rule into the " +
+        "generic argument's fields changed — `S.properties.p` is still the permissive `{}`, " +
+        "lowered wholly independent of the parse-time refusal now standing beside it",
     ).toEqual({
       S: {
         type: "object",
