@@ -1100,3 +1100,45 @@ Consequences for this report:
   staying silent behind a rename) is preserved as an assertion, and group (G)'s
   title and w3's "sanctioned rename" wording were corrected, the inline rename
   no longer being sanctioned. The file's other 28 cells are byte-unmodified.
+
+## Discharge note — bug 0227 re-measured and closed this report's residual 2 in part (0.183.0)
+
+Append-only; this report's status does not change (**fixed (0.165.0)**).
+
+[0227](./0227-non-ascii-inline-object-field-name-admitted.md) was filed as this
+report's residual 2 and is now **fixed (0.183.0)**. Consequences for this report:
+
+- **The residual's stated cause was wrong and is corrected.** It attributes the
+  admission of `{ Élan: string }` to "the house predicate's" A–Z bound. Measured
+  at 0227's filing and re-measured at its fix: the name never reaches the
+  predicate. `tokeniseType`'s ASCII `isIdentStart` emits `É` as a one-character
+  `punct` token, `TypeParser.parseObject`'s tolerant field loop skips it, and the
+  ASCII TAIL (`lan`) is what entered `fieldNames` and what this report's pass
+  judged. The residual's two other facts hold as written: the predicate does test
+  A–Z only, at all four positions the rule is enforced at, and the type
+  tokeniser's identifier scan is ASCII-only.
+- **The silence half is discharged, by bug 0228 rather than by 0227.** At this
+  tree `{ Élan: string }` draws `theta/parse/inline-field-name-not-identifier`
+  at every `Type` position except inside a generic argument, and nothing is
+  lowered, so the residual's "silent and lowers `Élan` into `$defs`" no longer
+  describes any position but that one.
+- **The inverted-verdict half is what 0227 shipped**, and it changes what this
+  report's pass is ever asked: `{ éLan: string }` and `{ ÉLan: string }` no
+  longer draw `theta/parse/binding-case-mismatch` on the residue `Lan`, because
+  a name spelled behind a non-`ident` token in the same field entry is no longer
+  retained in `TypeNode.fieldNames`. This report's own 30 cells / 39 assertions
+  are **byte-unmodified**; 0227 added groups (H), (I) and (J) beside them
+  (43 `it` blocks / 62 cells) under its own §Fix (d) authority.
+- **The alphabet question the residual left open is settled**, in the direction
+  this report's predicate already assumed: theta's identifier alphabet stays
+  ASCII (`docs/spec_topics/lexical.md` §Identifiers), so the predicate's A–Z
+  bound is not widened at any of its four sites and no non-ASCII spelling
+  becomes a name.
+- **Not discharged:** one position remains silent for a non-ASCII key — an
+  inline object reached through a generic type argument
+  (`array<{ Élan: string }>`), where 0228's raw-key row is withheld by its
+  registered carve-out. 0227's residual 1 carries it, with the measurement that
+  the class is not non-ASCII-specific (`array<{ a b: string }>` and
+  `array<{ "Élan": string }>` are silent there too). Residual 1 of this report
+  (row w2) and the `params:` KEY position are untouched by 0227 and stay as
+  recorded.

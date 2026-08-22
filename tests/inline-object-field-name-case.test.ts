@@ -137,6 +137,31 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     stays silent (the cause below), but since bug 0160 (X.Y.Z) the row is
 //     no longer `[]` overall: the inline rename clause draws
 //     `theta/parse/renamed-inline-field-name` beside that silence.
+//   - (H) THE RESIDUE VERDICT (bug 0227 element 2), the cells this file's own
+//     code does NOT draw: h1–h7 and h8/h9. Each source spells a field-name key
+//     whose FIRST character is outside the `Ident` alphabet and whose ASCII
+//     TAIL is uppercase-first; the tail is text the author never wrote as a
+//     field name, so it is no rule's subject and only the honest raw-key
+//     refusal stands (under a generic argument that refusal is itself
+//     withheld, leaving the list empty). Every cell asserts the whole
+//     unfiltered list, so the absence of `binding-case-mismatch` is asserted
+//     positionally. h10 is the boundary: a `,` at a field-name position closes
+//     an EMPTY entry, which produces no residue, so the FOLLOWING entry's own
+//     field name is judged normally and `binding-case-mismatch` stands alone.
+//   - (I) THE 0227 TRIPWIRES, byte-unchanged: t1–t3 (the ASCII
+//     uppercase-first spellings this file's own code still owns, including
+//     under a generic argument, where group (A)'s g1 gate is what separates
+//     this pass from its raw-key neighbours), t4–t7 (the four refusals the
+//     raw-key readers and the declaration surface already carry for the same
+//     non-ASCII bytes) and t8 (a non-`Ident` key whose tail is LOWERCASE, so
+//     no residue verdict exists to remove and the honest refusal stands
+//     alone).
+//   - (J) THE UNCLOSED INTERIOR, measured: j1–j4. `ObjectType` spells a
+//     closing `}`, so an interior the source never closes is already silent
+//     for BOTH passes at this arm — including for the ASCII control j4, which
+//     is what proves the silence is the closing-brace gate and not the
+//     residue. Pinned so a fix that removes the residue verdict cannot be
+//     read as having created a new silence here.
 //
 // ORDERING IS PART OF THE ASSERTION. Every diagnostic in this file is
 // declaration-ranged, so `assembleDiagnostics`' `(file, line, col)` stable sort
@@ -167,7 +192,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // ANTI-VACUITY / NO SILENT SKIPPING: nothing here early-returns, branches on
 // the environment or conditionally skips. The registry lookup asserts its row's
-// presence before the template is used. 22 of the 39 cells (20 of the 30 `it`
+// presence before the template is used. 39 of the 62 cells (31 of the 43 `it`
 // blocks) expect a non-empty ordered list, so a harness that stopped reaching
 // the parser fails loudly here rather than turning the `toEqual([])` rows into
 // silent passes.
@@ -842,5 +867,341 @@ describe("0154 (G) — an ill-cased field carrying an `as` rename: only `binding
         38,
       ),
     ]);
+  });
+});
+
+// ===========================================================================
+// (H) BUG 0227 ELEMENT 2 — THE RESIDUE VERDICT MUST GO.
+//
+// THE ALPHABET DECISION THIS GROUP ENCODES, quoted from the report's own
+// §Non-goals (docs/bugs/0227-non-ascii-inline-object-field-name-admitted.md:396):
+// "**Widening the theta identifier alphabet.** `lexical.md:13` is ASCII by
+// letter. Whether theta admits non-ASCII identifiers at all is a spec question
+// for theta 2.0, not a defect; this report is about what happens to a name that
+// the current alphabet excludes." So `docs/spec_topics/lexical.md:13`'s
+// `[A-Za-z_][A-Za-z0-9_]*` stands, `tokeniseType`'s ASCII `isIdentStart`
+// (src/parser/type-grammar.ts:387) is CORRECT and is NOT widened, and route 2 of
+// the report's §Fix is what ships: no diagnostic's subject may be the ASCII
+// residue of a name the author wrote.
+//
+// WHAT PRODUCED THE RESIDUE. A first character outside that alphabet matches no
+// scanner arm and is emitted as a one-character `punct` token by the fallback at
+// `type-grammar.ts:436`. `TypeParser.parseObject`'s field loop peeks the
+// field-name token and, when its kind is not `ident`, sets `entryTainted` to
+// whether that token's own text is not the entry separator `,` (`:686–692`)
+// — so a genuine non-`ident` name token latches it, while a `,` closing an
+// empty entry clears it instead (h10's boundary below) — before the loop
+// advances one token and `continue`s. The NEXT token — the ASCII tail, when
+// the tainted token was a genuine junk name — is still read as the field
+// name, but the latch now suppresses its retention (`:703–704`) instead of
+// letting bug 0154's identifier pass (`:1001–1027`, the `first >= "A" &&
+// first <= "Z"` test at `:1027`) judge it. `entryTainted` clears at the
+// entry-separating `,` (`:724`), so only the tainted entry's own tail is
+// affected.
+//
+// WHAT CARRIES THESE INPUTS INSTEAD. `theta/parse/inline-field-name-not-
+// identifier` (bug 0228), which reads the RAW pre-colon key and therefore names
+// the author's own spelling — and which is withheld under a generic argument by
+// its registered carve-out (code-registry-parse.md's row), so h8/h9 are
+// silent there: nothing refuses an inline object reached through a generic
+// type argument at that row, and this pass must not substitute for it by
+// judging a residue.
+//
+// Every cell below carries the raw-key refusal alone; none carries a
+// `binding-case-mismatch` line judging the ASCII tail.
+// ===========================================================================
+
+/** The registry-sourced `inline-field-name-not-identifier` line (bug 0228's row). */
+function nid(field: string, line: number, endColumn: number): string {
+  return diag(
+    "error",
+    NOT_IDENTIFIER,
+    msg(NOT_IDENTIFIER, [["<field>", field]]),
+    line,
+    1,
+    endColumn,
+  );
+}
+
+describe("0227 (H) — no diagnostic's subject is the ASCII residue of a field name", () => {
+  it("h1: `{ éLan: string }` draws the raw-key refusal ALONE, not a verdict on `Lan`", () => {
+    // The report's row m2. `é` is a `punct` token, the retained name is `Lan`,
+    // and `Lan` is uppercase-first — so this file's own code fires on text the
+    // author never wrote as a field name, at a range that names nothing.
+    const doc = theta("schema S { a: { éLan: string } }");
+    expect(
+      rendered(doc),
+      "the honest refusal names the whole key `éLan`; the case rule must have no subject here because the author wrote no ASCII-first field name",
+    ).toEqual([nid("éLan", 4, 33)]);
+    expect(registers(doc), "the raw-key refusal still denies registration").toBe(false);
+  });
+
+  it("h2: `{ ÉLan: string }` — the uppercase spelling of the same key behaves alike", () => {
+    // The report's row m3. The pair h1/h2 is the discriminator for the residue:
+    // the two keys differ in the case of the character the tokeniser SPLITS OFF,
+    // so a rule reading the key cannot tell them apart, while a rule reading the
+    // tail cannot tell them apart either — both are handed `Lan`. Only the
+    // tail's absence from every verdict makes the two agree for the right reason.
+    const doc = theta("schema S { a: { ÉLan: string } }");
+    expect(
+      rendered(doc),
+      "the split character's own case is not part of any judgement; the key is refused as a key",
+    ).toEqual([nid("ÉLan", 4, 33)]);
+    expect(registers(doc), "the raw-key refusal still denies registration").toBe(false);
+  });
+
+  it("h3: a WELL-FORMED sibling field does not change the verdict", () => {
+    // The report's row d6. `b: string` is conformant, so the only judgement in
+    // this interior is on the second entry's key; the range widens with the
+    // declaration and nothing else moves.
+    const doc = theta("schema S { a: { b: string, éLan: string } }");
+    expect(
+      rendered(doc),
+      "one diagnostic per offending key; a conformant sibling adds nothing and removes nothing",
+    ).toEqual([nid("éLan", 4, 44)]);
+  });
+
+  it("h4: an ASCII-punct first character produces the same residue and must behave alike", () => {
+    // THE ASCII ANALOGUE, and why this cell is not redundant with h1: the defect
+    // is `parseObject` retaining an identifier that follows a non-`ident` token,
+    // NOT anything about non-ASCII bytes. `*` is plain ASCII and reaches the
+    // same `punct` fallback, so a fix that special-cased a non-ASCII code point
+    // instead of the token sequence reds here.
+    const doc = theta("schema S { a: { *Lan: string } }");
+    expect(
+      rendered(doc),
+      "the subject is the token sequence `punct ident \":\"`, not the byte width of the first character",
+    ).toEqual([nid("*Lan", 4, 33)]);
+  });
+
+  it("h5: the `fn` PARAMETER position carries the same pair", () => {
+    // Reach: the residue verdict is not specific to the schema-body call site.
+    // The report's §Fix (c) requires the disposition at every `Type` position.
+    const doc = theta("fn h(p: { éLan: string }): number { 1 }");
+    expect(
+      rendered(doc),
+      "every `Type` position funnels through the same `walkType` arm, so the residue verdict must be gone at all of them",
+    ).toEqual([nid("éLan", 4, 40)]);
+    expect(registers(doc), "the raw-key refusal still denies registration").toBe(false);
+  });
+
+  it("h6: a REPEATED residue key draws the duplicate row alone — neither tail is a subject", () => {
+    // MULTIPLICITY. Both entries carry a residue tail, so a rule judging tails
+    // would draw one line per entry ahead of the neighbour's duplicate line (the
+    // emission order row n9 pins). Neither tail is a subject, and the raw-key
+    // precedence gives a repeating key to `duplicate-inline-field-name` alone,
+    // so exactly one line stands.
+    const doc = theta("schema S { a: { éLan: string, éLan: string } }");
+    expect(
+      rendered(doc),
+      "a repeating key is the duplicate row's subject alone; neither entry's tail is any rule's subject",
+    ).toEqual([
+      diag(
+        "error",
+        DUPLICATE_INLINE,
+        msg(DUPLICATE_INLINE, [["<field>", "éLan"]]),
+        4,
+        1,
+        47,
+      ),
+    ]);
+  });
+
+  it("h7: the residue verdict goes even when the DECLARATION's own brace is unspelled", () => {
+    // The gates at this arm read the INLINE object's `}` (group (J)'s subject),
+    // not the declaration's, so an unterminated `schema` body whose inline
+    // interior IS closed still reaches both passes. This cell keeps the fix from
+    // being gated on the outer declaration parsing cleanly.
+    const doc = theta("schema S { a: { éLan: string }");
+    expect(
+      rendered(doc),
+      "the inline interior closed, so the raw-key refusal holds; the tail is still nobody's subject",
+    ).toEqual([nid("éLan", 4, 31)]);
+  });
+
+  it("h8/h9: under a GENERIC ARGUMENT the residue verdict is the ONLY diagnostic, and it goes", () => {
+    // THE RECORDED FLIP. Group (A)'s g1 pins that this pass is NOT withheld
+    // under `insideGenericArgument` (type-grammar.ts:1057 withholds the raw-key
+    // rules, not this one), so the residue tail is the only subject this pass
+    // could reach for these two sources. It is not a lawful one, and nothing
+    // else refuses them: bug 0228's row is withheld here by its registered
+    // carve-out, and the alphabet is not widened to give this pass a real
+    // subject. An EMPTY list is therefore the specified outcome, accepted with
+    // the decision quoted in this group's banner — and it
+    // is asserted as a whole list so that a later refusal at this position reds
+    // and must be recorded rather than arriving unnoticed.
+    const cells: readonly string[] = [
+      "schema S { a: array<{ éLan: string }> }",
+      "schema S { a: array<{ *Lan: string }> }",
+    ];
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const src of cells) {
+      actual[src] = rendered(theta(src));
+      expected[src] = [];
+    }
+    expect(
+      actual,
+      "a residue is not a lawful subject even when it is the only subject available; the generic-argument carve-out belongs to the raw-key row",
+    ).toEqual(expected);
+  });
+
+  it("h10: an EMPTY entry's separator produces no residue, so the next name is judged", () => {
+    // THE BOUNDARY OF THE PER-ENTRY EXCLUSION. A `,` at a field-name position is
+    // the token that CLOSES an empty entry, not the first token of one, so it
+    // spells no key and leaves no residue behind it: the name that follows is
+    // the author's own and this file's own code owns it. A per-entry exclusion
+    // that treated any non-`ident` token alike would suppress `Bad` here.
+    const cells: ReadonlyArray<readonly [string, string[]]> = [
+      // A leading separator: the interior's first entry is empty.
+      ["schema S { a: { , Bad: string } }", [bcm(4, 34)]],
+      // A doubled separator behind a conformant entry: the empty entry sits
+      // between two spelled ones.
+      ["schema S { a: { b: string,, Bad: string } }", [bcm(4, 44)]],
+    ];
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const [src, want] of cells) {
+      actual[src] = rendered(theta(src));
+      expected[src] = want;
+    }
+    expect(
+      actual,
+      "an empty entry's separator is not a residue-producing token, so the following entry's field name reaches the case rule intact",
+    ).toEqual(expected);
+  });
+});
+
+// ===========================================================================
+// (I) THE 0227 TRIPWIRES — byte-unchanged by the fix.
+//
+// t1–t3 are the ASCII uppercase-first spellings this file's own code owns: the
+// fix removes a verdict on a RESIDUE, so it must not narrow the pass's real
+// subject. t4–t7 are the four refusals already carried for the same non-ASCII
+// bytes by the raw-key readers and the declaration surface. GREEN now and after.
+// ===========================================================================
+
+describe("0227 (I) — the real subjects of every rule at this seam do not move", () => {
+  it("t1/t2/t3: an ASCII uppercase-first field name still draws this file's code, generic argument included", () => {
+    const cells: ReadonlyArray<readonly [string, string[]]> = [
+      // t1 — the inline slot, the pass's own subject: one `ident` token with no
+      // preceding `punct`, so nothing about the residue fix reaches it.
+      ["schema S { a: { Elan: string } }", [bcm(4, 33)]],
+      // t2 — the `schema` DECLARATION field name, whose range is the field's own
+      // (the outer lexer's site, not this arm's declaration-ranged convention).
+      ["schema S { b: string, Elan: string }", [bcm(4, 27, 23)]],
+      // t3 — under a generic argument, where group (A)'s g1 gate is the whole
+      // difference between this pass and its raw-key neighbours. A fix that
+      // reached the withholding gate instead of the retention reds here.
+      ["schema S { a: array<{ Elan: string }> }", [bcm(4, 40)]],
+    ];
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const [src, want] of cells) {
+      actual[src] = rendered(theta(src));
+      expected[src] = want;
+    }
+    expect(
+      actual,
+      "the pass keeps every name the author actually wrote as an ASCII identifier in a field-name position",
+    ).toEqual(expected);
+  });
+
+  it("t4/t5/t6/t7: the same non-ASCII bytes keep the refusals the other rows already carry", () => {
+    const cells: ReadonlyArray<readonly [string, string[]]> = [
+      // t4 — the lowercase-tail spelling: the case predicate admits `lan`, so
+      // even a rule reading the tail would be silent here and the raw-key
+      // refusal stands alone for a second, independent reason.
+      ["schema S { a: { Élan: string } }", [nid("Élan", 4, 33)]],
+      // t5 — precedence: a repeating key is the duplicate row's subject alone.
+      [
+        "schema S { a: { Élan: string, Élan: string } }",
+        [
+          diag(
+            "error",
+            DUPLICATE_INLINE,
+            msg(DUPLICATE_INLINE, [["<field>", "Élan"]]),
+            4,
+            1,
+            47,
+          ),
+        ],
+      ],
+      // t6 — precedence: a quote-led key is the quoted row's subject alone, and
+      // a `str` token never enters `fieldNames` at all (group (F)'s argument).
+      [
+        'schema S { a: { "Élan": string } }',
+        [
+          diag(
+            "error",
+            QUOTED_INLINE,
+            msg(QUOTED_INLINE, [["<field>", '"Élan"']]),
+            4,
+            1,
+            35,
+          ),
+        ],
+      ],
+      // t7 — the DECLARATION spelling of the same key, refused by the row that
+      // owns a body whose first token is not a plain `ident: Type` field list.
+      // This is the footing the inline refusal is measured against.
+      [
+        "schema S { Élan: string }",
+        [diag("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "S"]]), 4, 1, 26)],
+      ],
+    ];
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const [src, want] of cells) {
+      actual[src] = rendered(theta(src));
+      expected[src] = want;
+    }
+    expect(
+      actual,
+      "the rows reading the RAW key already name the author's spelling; the fix touches the identifier retention only",
+    ).toEqual(expected);
+  });
+
+  it("t8: a non-`Ident` key with a LOWERCASE tail is already the raw-key row's alone", () => {
+    // The control for group (H): the same `punct ident ":"` token sequence with
+    // a tail the case predicate happens to admit. No case verdict is available
+    // on this tail at all — which is what separates group (H)'s silences from
+    // the token sequence merely being refused.
+    const doc = theta("schema S { a: { *lan: string } }");
+    expect(
+      rendered(doc),
+      "a tail the case predicate admits would draw nothing even if it were a subject, so this cell isolates the token sequence from the verdict",
+    ).toEqual([nid("*lan", 4, 33)]);
+  });
+});
+
+// ===========================================================================
+// (J) THE UNCLOSED INTERIOR — measured, and pinned as already silent.
+//
+// `ObjectType` spells a closing `}`, so both passes at this arm are withheld
+// when the source never closes the interior. j4 is the ASCII control that makes
+// the cause unambiguous: it too is silent, so the silence is the gate and not
+// the residue. Pinned so that removing the residue verdict cannot be mistaken
+// for creating a new silence here. GREEN now and after.
+// ===========================================================================
+
+describe("0227 (J) — an inline interior the source never closes stays silent at this arm", () => {
+  it("j1/j2/j3/j4: an unspelled closing `}` withholds both passes, residue or not", () => {
+    const cells: readonly string[] = [
+      "fn h(p: { éLan: string ): number { 1 }",
+      "fn h(p: { ÉLan: string ): number { 1 }",
+      "fn h(p: { *Lan: string ): number { 1 }",
+      "fn h(p: { Elan: string ): number { 1 }",
+    ];
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const src of cells) {
+      actual[src] = rendered(theta(src));
+      expected[src] = [];
+    }
+    expect(
+      actual,
+      "the closing-brace gate withholds this file's own code from j4 exactly as it withholds every row from j1–j3, so no diagnostic here is the fix's to add or remove",
+    ).toEqual(expected);
   });
 });

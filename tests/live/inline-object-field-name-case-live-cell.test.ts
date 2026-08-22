@@ -262,3 +262,129 @@ describe("bug 0154 live: an ill-cased inline object field name is refused at reg
     }
   });
 });
+
+// ===========================================================================
+// A residue field-name key inside a GENERIC ARGUMENT -- the fix's own recorded
+// flip (docs/spec_topics/lexical.md's ASCII `Ident` alphabet stands; the
+// `entryTainted` per-entry latch in `TypeParser.parseObject` stops the ASCII
+// tail that follows a non-`ident` field-name token from reaching bug 0154's
+// identifier pass over `fieldNames`, and under a generic argument the raw-key
+// refusal `theta/parse/inline-field-name-not-identifier` is itself withheld by
+// its own registered carve-out -- so the diagnostic list is EMPTY and the
+// theta REGISTERS where it previously did not).
+//
+// WHY THIS FLIP IS THE STRONGEST LIVE OBSERVABLE AVAILABLE HERE: at every
+// OTHER position a residue key still denies registration (the raw-key row
+// fires there instead), so the only place a neutralised latch is visible as a
+// REGISTRATION change -- not merely a differently-coded refusal -- is under a
+// generic argument, where the raw-key row's own carve-out leaves nothing else
+// to refuse it.
+//
+// Chosen home: this file, because it already exercises this exact seam (the
+// same registration path, the same theta-system-note channel, the same
+// `binding-case-mismatch` code) for bug 0154's own fix -- no new live file or
+// harness setup is needed, and the contrast with the BAD/GOOD pair above is
+// direct: BAD there is refused BY `binding-case-mismatch`; the residue cell
+// here must NOT be.
+// ===========================================================================
+
+const RESIDUE_SENTINEL = "RESIDUEGENERICLIVEGOOD";
+
+/**
+ * A field-name key whose first character (`é`) sits outside `Ident`'s ASCII
+ * alphabet and whose ASCII tail (`Lan`) is uppercase-first, spelled inside a
+ * GENERIC ARGUMENT's inline object type on a `let` binding's typed-query
+ * response annotation.
+ */
+const RESIDUE_UNDER_GENERIC = [
+  "---",
+  "mode: prompt",
+  "---",
+  'let r: array<{ éLan: string }> = @`Return a JSON array containing exactly ' +
+    'one object of the shape {"éLan": "' +
+    RESIDUE_SENTINEL +
+    '"} and nothing else, no other text.`?',
+  "@`Reply with exactly this text and nothing else, no punctuation: " + RESIDUE_SENTINEL + "`?",
+  "",
+].join("\n");
+
+describe("a residue field-name key under a generic argument registers and drives cleanly (bug 0227)", () => {
+  it("registers `let r: array<{ éLan: string }> = ...`, carries an EMPTY diagnostic list, and drives a real turn to the live sentinel (bug 0227)", async () => {
+    // ATTRIBUTION GUARD (offline, token-free, before the live host is
+    // required): the source must parse with an EMPTY diagnostic list under
+    // the shipped fix. If a neutralised latch is in effect this reds right
+    // here, with zero tokens spent, naming the unwanted
+    // `binding-case-mismatch` line rather than a live-only symptom.
+    expect(
+      parseDoc(RESIDUE_UNDER_GENERIC, "residuegeneric.theta").diagnostics.map((d) => d.code),
+      "attribution: the residue key under a generic argument must draw NO diagnostic -- " +
+        "neither the case rule (withheld by the per-entry taint latch) nor the raw-key " +
+        "refusal (withheld by its own generic-argument carve-out)",
+    ).toEqual([]);
+
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the same workspace, so
+      // an absent residue registration cannot be misattributed to a broken
+      // workspace.
+      {
+        source: "project",
+        stem: "residuegenericctl",
+        text: [
+          "---",
+          "mode: prompt",
+          "---",
+          "@`Reply with exactly the token RESIDUEGENERICCONTROL and nothing else.`",
+          "",
+        ].join("\n"),
+      },
+      { source: "project", stem: "residuegeneric", text: RESIDUE_UNDER_GENERIC },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("residuegenericctl"),
+        "the precondition control did not register -- a broken workspace, not the fixed " +
+          "gate, would explain the residue theta's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE FIXED OBSERVABLE: the residue key under a generic argument must
+      // now REGISTER -- a neutralised `entryTainted` latch draws
+      // `binding-case-mismatch` here and denies registration instead.
+      expect(
+        handle.command("residuegeneric"),
+        "`let r: array<{ éLan: string }> = ...` did not register -- a residue verdict is " +
+          "blocking it. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      expect(
+        notes.some((note) => note.includes(BINDING_CASE_CODE)),
+        "a " + BINDING_CASE_CODE + " theta-system-note fired for the residue key under a " +
+          "generic argument -- the case rule judged the ASCII tail instead of staying silent. " +
+          "Notes: " + JSON.stringify(notes),
+      ).toBe(false);
+
+      // One real live turn: proves the residue key does not merely fail to
+      // block registration but also does not block a real drive to
+      // completion.
+      const driven = await driveSlashCaptureTurn(handle, "/residuegeneric");
+      expect(
+        driven.text,
+        "the live model reply for the residue-key theta did not contain the deterministic " +
+          "sentinel. Reply: " + JSON.stringify(driven.text),
+      ).toContain(RESIDUE_SENTINEL);
+      expect(
+        driven.systemNotes,
+        "the driven turn over the residue-key theta appended a theta-system-note (a " +
+          "fail-closed ending) -- the fixed path must drive clean. Notes: " +
+          JSON.stringify(driven.systemNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

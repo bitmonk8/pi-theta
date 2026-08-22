@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.183.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0227 — a non-ASCII inline-object field name no longer mints a bogus
+  verdict on its ASCII residue** (route 2; route 1 declined — theta's
+  `Ident` alphabet stays ASCII per `lexical.md` §Identifiers, stated as
+  law): `parseObject`'s per-entry taint latch stops the ASCII tail after a
+  non-`ident` token from entering `fieldNames`, so `{ éLan: string }` draws
+  0228's key refusal without a spurious `binding-case-mismatch` on `Lan`
+  (0228 had already closed the silent-admission element). No new code, no
+  registry edit. `inline-object-field-name-case` grows 39→62 cells + one
+  live cell.
+
+
 ## [0.182.0] - 2026-08-27
 
 ### Fixed

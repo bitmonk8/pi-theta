@@ -286,6 +286,18 @@ type TypeNode =
        * recurses object field types, generic arguments and union arms, which
        * is what carries the stop to every enclosing body rather than the
        * nearest one.
+       *
+       * A FOURTH exclusion is per-entry rather than a stop: an entry whose
+       * field-name position holds a token outside `Ident`'s alphabet
+       * (`lexical.md` §Identifiers) DID spell a name — the whole raw key — so
+       * the ASCII tail that `TypeParser.parseObject`'s tolerant skip lands on next
+       * is not that name: it is excluded from this entry's contribution alone,
+       * and the exclusion lifts at the following entry, unlike the three stops
+       * above, which silence every entry from that point on. Such an entry is
+       * `theta/parse/inline-field-name-not-identifier`'s subject instead
+       * (bug 0227 §Fix route 2), so its residue must not also reach this list
+       * for bug 0154's identifier pass to judge under a name the author never
+       * wrote.
        */
       readonly fieldTypes: TypeNode[];
       readonly fieldNames: string[];
@@ -655,6 +667,18 @@ class TypeParser {
     // guards that list even though `theta/parse/duplicate-inline-field-name`
     // reads `interiorSource` instead.
     let namesStopped = false;
+    // Set when the CURRENT entry's field-name position was occupied by a
+    // non-`ident` token (a name outside `Ident`'s alphabet, `lexical.md`
+    // §Identifiers). The ASCII tail this loop then reads at the next position
+    // is not text the author wrote as a field name, so it must not reach
+    // `fieldNames` for bug 0154's identifier pass to judge — that name is
+    // `theta/parse/inline-field-name-not-identifier`'s subject instead.
+    // Cleared once the entry-separating `,` is consumed, since only the
+    // tainted entry's own residue is affected. A skipped `,` at a field-name
+    // position closes an EMPTY entry rather than opening one, so the taint
+    // lifts there too — otherwise the following entry's own field name, which
+    // the author did write, would be suppressed.
+    let entryTainted = false;
     while (this.peek() !== undefined && this.peek()?.text !== "}") {
       // FieldName `:` Type — hold the name token until the colon behind it is
       // consumed, which is the whole of the retention key (`TypeNode`'s doc
@@ -663,6 +687,7 @@ class TypeParser {
       if (fieldName !== undefined && fieldName.kind === "ident") {
         this.next();
       } else {
+        entryTainted = fieldName?.text !== ",";
         this.next();
         continue;
       }
@@ -675,7 +700,7 @@ class TypeParser {
       // punctuation skip can consume the FOLLOWING field's tokens as this
       // field's type, and a name the author wrote must not vanish because a
       // neighbour's text was eaten.
-      if (!namesStopped) {
+      if (!namesStopped && !entryTainted) {
         fieldNames.push(fieldName.text);
       }
       const fieldType = this.parseUnion();
@@ -696,6 +721,7 @@ class TypeParser {
       if (!this.eatPunct(",")) {
         break;
       }
+      entryTainted = false;
     }
     const braceClosed = this.eatPunct("}");
     const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
