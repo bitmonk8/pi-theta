@@ -1026,8 +1026,9 @@ export interface ClassifiedArgumentSegment {
  * the source spells and keeps its judgement.
  *
  * The scan reproduces `splitTopLevelSegments`' `"angle"` idiom byte for byte —
- * the same angle-depth counter, the same quote/escape handling, the same trim,
- * and `splitTopLevel`'s non-empty filter — so `text` in order equals
+ * in that mode the split's stack holds only `<`, so its length is the same
+ * floored angle depth this scan counts, the same quote/escape handling, the
+ * same trim, and `splitTopLevel`'s non-empty filter — so `text` in order equals
  * `splitTopLevel(interior, ",")` and the classification indexes that array
  * directly. It adds one counter the split does not keep, `{}`/`[]` depth, and
  * changes no cut point: widening the split itself is §Fix (b)(1), whose cost
@@ -1080,7 +1081,12 @@ export function classifyGenericArgumentSegments(interior: string): ClassifiedArg
     } else if (c === "<") {
       angle += 1;
     } else if (c === ">") {
-      angle -= 1;
+      // Floored, not decremented: a stray `>` with no open `<` must not cancel
+      // an enclosing `{`/`[` group, and this scan is angle-only, so the floor
+      // and bug 0238's typed opener-stack rule coincide here (§Fix
+      // constraint 3 — this scan reproduces `splitTopLevelSegments`' `"angle"`
+      // idiom byte for byte).
+      angle = Math.max(0, angle - 1);
     } else if (c === "{" || c === "[") {
       group += 1;
       segmentGroup += 1;
@@ -1199,7 +1205,10 @@ export function findCutBracketGroupText(interior: string): string | undefined {
     } else if (c === "<") {
       angle += 1;
     } else if (c === ">") {
-      angle -= 1;
+      // Floored for the same reason as `classifyGenericArgumentSegments`,
+      // above, whose idiom this scan reproduces byte for byte (bug 0238 §Fix
+      // constraint 3): angle-only, so the floor is the typed rule here.
+      angle = Math.max(0, angle - 1);
     } else if (c === "{" || c === "[") {
       stack.push({ opener: c, start: i, cut: false });
     } else if (c === "}" || c === "]") {
@@ -1895,9 +1904,17 @@ export function lowerParamsFieldType(
  * inline raw-key rules compare and the property name both lowerers mint
  * are both derived from the entry text this function's colon divides in
  * two (bug 0229).
+ *
+ * Nesting is a TYPED opener stack, not a bare depth counter: `>` closes only
+ * an open `<`, `}` only an open `{`, `)` only an open `(`. A close token whose
+ * innermost open frame is of another kind, or whose stack is empty, is
+ * INERT — it neither opens nor closes a level, so a stray `>` inside an open
+ * `{…}` cannot cancel that brace (bug 0238 §Fix: the typed rule is what
+ * closes the nested case a bare `Math.max(0, depth - 1)` floor leaves
+ * unrepaired).
  */
 export function topLevelColon(entry: string): number {
-  let depth = 0;
+  const open: string[] = [];
   let quote: string | undefined;
   for (let i = 0; i < entry.length; i += 1) {
     const c = entry[i] ?? "";
@@ -1912,10 +1929,13 @@ export function topLevelColon(entry: string): number {
     if (c === '"' || c === "'") {
       quote = c;
     } else if (c === "<" || c === "{" || c === "(") {
-      depth += 1;
+      open.push(c);
     } else if (c === ">" || c === "}" || c === ")") {
-      depth -= 1;
-    } else if (c === ":" && depth === 0) {
+      const top = open[open.length - 1];
+      if ((c === ">" && top === "<") || (c === "}" && top === "{") || (c === ")" && top === "(")) {
+        open.pop();
+      }
+    } else if (c === ":" && open.length === 0) {
       return i;
     }
   }
@@ -1979,7 +1999,13 @@ export function splitTopLevelSegments(
 ): string[] {
   const parts: string[] = [];
   const tracksBraces = nesting === "angle-and-brace";
-  let depth = 0;
+  // A TYPED opener stack, not a bare depth counter (bug 0238 §Fix): `>` closes
+  // only an open `<`, `}` (under `"angle-and-brace"`) only an open `{`. A
+  // close token whose innermost open frame is of the other kind, or whose
+  // stack is empty, is INERT — it neither opens nor closes a level, so a
+  // stray `>` inside an open `{…}` does not cancel that brace and the
+  // separator behind an unmatched close token stays top-level.
+  const open: string[] = [];
   let quote: string | undefined;
   let current = "";
   for (let i = 0; i < source.length; i += 1) {
@@ -2000,16 +2026,19 @@ export function splitTopLevelSegments(
       continue;
     }
     if (c === "<" || (tracksBraces && c === "{")) {
-      depth += 1;
+      open.push(c);
       current += c;
       continue;
     }
     if (c === ">" || (tracksBraces && c === "}")) {
-      depth -= 1;
+      const top = open[open.length - 1];
+      if ((c === ">" && top === "<") || (c === "}" && top === "{")) {
+        open.pop();
+      }
       current += c;
       continue;
     }
-    if (depth === 0 && c === separator) {
+    if (open.length === 0 && c === separator) {
       parts.push(current.trim());
       current = "";
       continue;

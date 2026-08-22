@@ -1,6 +1,6 @@
 # Bug 0238 — A stray depth-0 CLOSE token in an inline object type underflows `splitTopLevelSegments`' depth counter, so every entry behind it merges into one unkeyed segment: `p: '{a: integer, b > c, m: integer}'` loads clean, lowers `p` to a one-field `{a}` whose `additionalProperties: false` REJECTS the declared field `m`, and withholds all four raw-key rules — while `TypeParser.skipMalformedEntry` CLAMPS on the same token and its own field rules still fire behind it
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.218.0). Filed as bug
   [0231](./0231-well-formed-field-behind-malformed-entry-unchecked.md)'s
   `## Fix (0.189.0)` *Residuals* item 2 (`:711`). Re-measured at HEAD for this
   filing, not copied from that record. **Ordering:** no report blocks this one
@@ -538,3 +538,167 @@ precedent, because both change a registration outcome (W2 registers today).
   `tests/` entry from this filing. One pre-existing foreign scratch file,
   `tests/scratch-parfor-qsr-probe.test.ts`, belongs to another session and was
   left untouched.
+
+## Fix (0.218.0)
+
+- **Route selected:** §Fix **(a) — clamp to match**, refined. Settled against
+  this lane's two landed skip contracts, which point the same way: bug 0237
+  (0.207.0) made `parsePrimary` DECLINE an entry separator so the enclosing
+  loop keeps its own boundary, minting no code and no registry row; bug 0236
+  (0.214.0) made `parsePrimary` consume a closed bracket group whole so the
+  parser's count is the count the source spells, explicitly declining both a
+  further segmentation and a registry edit. Both made a scanner faithful to the
+  source rather than minting a refusal. Route (b) would have minted a DIAG-2
+  registry decision plus parallel narrowings at four positions — the direction
+  both landed contracts declined. Route (a) mints no diagnostic code, moves no
+  registry row, and leaves `docs/reference/diagnostics.md` and
+  `tests/fixtures/h7a/permitted-codes.json` byte-unchanged.
+- **The refinement, and why it is route (a) and not a widening.** §Fix (a)'s
+  literal sketch — floor the decrement at zero — is NECESSARY BUT NOT
+  SUFFICIENT, measured: it repairs W2, W3, W4, W6, W8, W10, W12 and W22 and
+  leaves **W15 unmoved**, because the stray `>` inside `n`'s own braces cancels
+  a REAL `{` and the depth never goes negative, so the floor never engages.
+  §Fix (a) itself promises "W15's inner `m` … reach the key list and the
+  lowered fragment" and §Fix constraint 2 enumerates W15, so the floor alone
+  does not close the report. What shipped is §Kind 1's own phrasing — "a close
+  token with no matching opener" — as a TYPED opener stack: `>` closes only an
+  open `<`, `}` only an open `{`, `)` only an open `(`; a close token whose
+  innermost open frame is of another kind, or none, is INERT. In an angle-only
+  alphabet the typed rule and the floor coincide, which is why the two
+  angle-only sibling scans take the floor. Verification pass B pins the
+  distinction: the bare floor reds exactly the two W15/nested cells and no flat
+  cell.
+- **What shipped:**
+  - `src/parser/params.ts` — `splitTopLevelSegments` and `topLevelColon` count
+    nesting with a typed opener stack instead of an unfloored depth counter
+    (cited by SYMBOL throughout, bug 0134's gate);
+    `classifyGenericArgumentSegments` and `findCutBracketGroupText` take the
+    angle-only floor (§Fix constraint 3), and their headers state why the floor
+    IS the typed rule in that alphabet, so bug 0204's index correspondence
+    still reads as shared.
+  - `src/parser/type-grammar.ts` — `TypeParser.skipMalformedEntry` takes the
+    same typed rule, so §Expected 1's two inventories of one interior agree;
+    its bug-0231 cursor contract (return without consuming a close token when
+    no frame is open) is preserved exactly (§Non-goals). §Fix constraint 6: its
+    doc comment stated the divergence and is rewritten to state the rule that
+    now holds.
+  - `tests/inline-object-stray-close-token-split.test.ts` — the §Fix "Witness"
+    file, 16 `it` blocks: W1–W4/W15/W16 with hand-written canonical lowered
+    bytes, the four raw-key rule pairs W5–W12, W13's exactly-one-line agreement
+    cell, the W14/W17/W18/W19 refusal fences, W20–W22, the E1/E2 validator
+    cells, and the direct segmentation unit cells including the nested
+    `>`-inside-`{…}` arithmetic.
+  - `tests/live/inline-object-stray-close-token-live-cell.test.ts` and
+    `tests/live/acceptance/inline-object-stray-close-token-load.test.ts` — the
+    live cover §Fix "Witness" owes under either route, the route changing a
+    registered contract.
+  - `tests/generic-argument-inline-field-key-rules.test.ts` — one comment
+    citation into `type-grammar.ts` displaced by this change's own +5-line
+    shift, corrected. No other citation chased (bug 0134's adjudicated class,
+    §Non-goals).
+- **Rows, after:** W2 `[]` with the fragment `{a, m}` — BYTE-IDENTICAL to W1's
+  and sharing its slug; W3 `{a, m, n}`; W4 `{m}` rather than the permissive
+  `p: {}`; W15 `{a, n → {m}}`, the nested object no longer cut in two and
+  nothing promoted; W6/W8/W10/W12 each draw their control's single registered
+  line; W22 draws `duplicate-inline-field-name`; W1, W13 (one line), W14, W16,
+  W17, W18, W19, W20 byte-unmoved. W21 stays `[]` — the report's measured,
+  explicitly UNATTRIBUTED non-goal, pinned in the witness as a fence with that
+  label and claimed by nothing here.
+- **Gates:** witness `npx vitest run tests/inline-object-stray-close-token-split.test.ts`
+  → `Test Files 1 passed (1) / Tests 16 passed (16)`; full default suite
+  `npx vitest run` → `Test Files 405 passed (405) / Tests 8407 passed (8407)`,
+  zero reds; `npx tsc -p tsconfig.json --noEmit` → clean; `npm run lint` →
+  clean. Live, run for real under the shared lock:
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/inline-object-stray-close-token-live-cell.test.ts tests/live/acceptance/inline-object-stray-close-token-load.test.ts`
+  → `Test Files 2 passed (2) / Tests 2 passed (2)` (H8a 8027 ms, H9a 43280 ms),
+  first attempt, no stochastic class observed. No code reached either capture,
+  so `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged and nothing is
+  at stake in it.
+- **Blast radius, premeasured before the witness was written.** A prototype of
+  this exact change was run against the FULL default suite before Phase 1:
+  zero reds. Every §Fix constraint-5 lock is green with its cell count
+  UNMOVED — `unterminated-literal-params-type-refusal` 5,
+  `escaped-quote-inline-field-name-refusal` 12 `it`,
+  `inline-object-quoted-field-name-refusal` 16,
+  `inline-object-field-name-case` 43 `it`,
+  `inline-object-malformed-entry-resync` 8,
+  `inline-object-wire-name-rename-refusal` 25,
+  `params-inline-object-lowering` 37,
+  `generic-argument-shredded-group-refusal` 135,
+  `committed-fixture-parse-gate` 36, plus this lane's
+  `inline-object-empty-field-type-truncation` (0237) 10 — 10 files / 327 tests.
+  No cell flip was drawn on, so no route's named authority was exercised. The
+  live surfaces were enumerated too (50 `tests/live/*.test.ts` plus 14
+  acceptance files): no live fixture spells a close token with no matching
+  opener, so none could flip and none did.
+- **§Fix constraints, discharged.** 1 — W13 keeps exactly one
+  `binding-case-mismatch` line, pinned with a byte-neighbour control. 2 — none
+  of W2, W3, W4, W6, W8, W10, W12, W15 is silent-and-short any more. 3 —
+  `classifyGenericArgumentSegments(interior).map(s => s.text)` re-MEASURED
+  equal to `splitTopLevel(interior, ",")` over the interiors of
+  `generic-argument-shredded-group-refusal` and
+  `nested-inline-enum-generic-argument-refusal`, and independently over 18
+  adversarial interiors in review. 4 — bug 0042's count comparison intact;
+  W18/W19 keep their codes and messages and `splitTopLevelSegments("Cat |",
+  "|")` still carries the blank slice that check reads. 5 — above. 6 — the
+  divergence comment now states the rule. 7 — corpus re-run at this tree: 34
+  committed `.theta`/`.thetalib` files, 9 `>` lines none of which spells the
+  class, `committed-fixture-parse-gate` green.
+- **Review:** one round plus a comment-only polish. Round 1 (deep) returned
+  CLEAN, having enumerated all 13 `splitTopLevel` call sites and all 3
+  `topLevelColon` call sites by symbol, independently recomputed all seven
+  fragment slugs, probed the newly-typed `()` handling in `topLevelColon`, and
+  swept for prose the typed rule falsifies; it raised one non-blocking prose
+  residual (`classifyGenericArgumentSegments`' header still claiming "the same
+  angle-depth counter"), fixed by `bug-fix-fixer-light`. That polish is
+  comment-only — verified by gate-diff, every hunk inside one `/** … */` block,
+  gates re-run green — so the confirmation review round was skipped on the
+  charter's post-polish rule.
+- **Verification:** SOLID. (1) Two independent neutralisation passes. Pass A
+  (typed stacks reverted to the pre-fix unfloored counter) reds 7 of 16 `it`
+  blocks with the report's own signature — `colonOfMerged: -1`, W15's promoted
+  `"n":{},"m":{}`, the four raw-key empty lists, E2's `declared: false`. Pass B
+  (the literal `Math.max(0, depth - 1)` floor alone) reds EXACTLY the two
+  W15/nested-arithmetic cells and no flat cell, which is the recorded
+  justification for the typed refinement. Both passes restored by writing the
+  fixed content back and proven byte-exact with `git hash-object`; never
+  `git checkout`/`restore`/`stash`. (2) Full suite 405/8407 green, all ten
+  locks green and unmoved. (3) Live pair audited as source against every
+  AGENTS.md live convention — real observables (bound values, the arithmetic
+  sentinel, absence of fail-closed `theta-system-note`s), an ANSWER-shaped
+  discriminator (`17 * 23 = 391`, computable only if both declared fields
+  bound), `failLoudly` on a missing provider/model, the `` token, no
+  subagent child path reached, and an offline attribution guard ahead of the
+  provider requirement so neither file can be vacuously green. (4) typecheck
+  and lint clean. (5) corpus re-run.
+- **Residuals:**
+  1. **The `let`-annotation structural type still declines behind a stray
+     close token.** W21 (`let y: {a: integer, b > c, m: integer} = 1`) stays
+     with an empty diagnostic list — no `let-rhs-type-mismatch`. The substrate
+     is `type-layer-checks.ts`'s own `splitTopLevelObjectFields` /
+     `topLevelColonIndex`, a SEPARATE untyped copy of this arithmetic that this
+     fix does not touch. §Reproduction (D) measures the row and §Non-goals
+     declines to attribute it; the witness pins it as a fence explicitly
+     labelled unattributed. Not claimed, not repaired. A future report may
+     claim that copy; it would be the same rule at a third site.
+  2. **`type-layer-checks.ts` carries the third copy of the split arithmetic.**
+     Named here so the next change to either scanner knows it exists: three
+     components now share the typed rule (the split, `topLevelColon`,
+     `skipMalformedEntry`) and one does not.
+  3. **Citation drift.** This change shifts `src/parser/params.ts` and
+     `src/parser/type-grammar.ts` line numbers (+5 in the latter around
+     `skipMalformedEntry`). One in-tree citation verified correct at HEAD and
+     displaced by it was corrected; every other stale `params.ts:NNN` /
+     `type-grammar.ts:NNN` citation checked was ALREADY stale before this
+     change. Bug 0134's adjudicated class, §Non-goals, not chased.
+  4. **`params-inline-object-lowering.test.ts` is 37 `it` blocks, not the 32
+     §Fix constraint 5 records.** The drift predates this fix (intervening lane
+     work); no cell of it moved here.
+- **Discharge notes appended:** none. No sibling report's rows moved.
+- **Pinned dispositions / non-goals:** bug 0237's subject (`parsePrimary`'s
+  tolerant punctuation skip) untouched; bug 0231's `skipMalformedEntry` cursor
+  contract preserved exactly; bugs 0204/0217's bracket VOCABULARY untouched —
+  only the depth counter's matching rule changed; the brace exemption at
+  `code-registry-load.md:19` is not narrowed and no `params:` fragment that
+  loads today newly refuses except through the four already-registered raw-key
+  rules; W21 unattributed.

@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.218.0]
+
+### Fixed
+
+- **Bug 0238**: a stray depth-0 CLOSE token in an inline object type drove
+  `splitTopLevelSegments`' depth counter to −1, merging every entry behind
+  it into one unkeyed segment — `p: '{a: integer, b > c, m: integer}'`
+  loaded clean, lowered to a one-field `{a}`, and AJV then FALSELY REFUSED
+  the author's declared field `m`. Route (a) clamp-to-match, shipped as
+  §Kind 1's own phrasing — a TYPED OPENER STACK (a close token matching no
+  open frame of its kind is inert) in `splitTopLevelSegments`,
+  `topLevelColon`, the angle floors, and `TypeParser.skipMalformedEntry`
+  (the two components now agree; the literal `Math.max(0, …)` floor was
+  measured leaving W15 unrepaired and rejected). Witness:
+  `tests/inline-object-stray-close-token-split.test.ts` (16 tests,
+  W1–W22/E1/E2) + an H8a live cell + a new H9a acceptance file.
+
 ## [0.217.0]
 
 ### Fixed

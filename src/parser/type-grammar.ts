@@ -921,33 +921,38 @@ class TypeParser {
    * ",", "angle-and-brace")` (./params) is: the boundary this skip
    * resynchronises on must be the SAME boundary `inlineObjectFieldKeys`
    * splits `interiorSource` on, so the loop's view of the interior and the
-   * raw-key view agree for an interior whose brackets are balanced or merely
-   * unclosed. The two diverge on a stray CLOSE token at depth 0: this skip
-   * clamps (a depth-0 `}`/`>` returns without decrementing, below), while
-   * `splitTopLevelSegments` (./params) underflows on the same token, after
-   * which no later comma reads as top-level there. On that class the loop's
-   * field inventory and the raw-key inventory can differ.
+   * raw-key view agree for an interior whose brackets are balanced, merely
+   * unclosed, or carrying a close token with no matching opener. Both this
+   * skip and `splitTopLevelSegments` (./params) treat such an unmatched close
+   * token as INERT — tracked with a TYPED opener stack rather than a bare
+   * depth counter, so a close token whose innermost open frame is of another
+   * kind (or none) neither opens nor closes a level for either scan (bug
+   * 0238 §Fix). The two inventories of one interior therefore agree.
    *
-   * Stops WITHOUT consuming a depth-0 `}` or `>`: the interior's own closing
-   * brace must remain for `parseObject`'s `eatPunct("}")` to read, and a
-   * generic argument's `>` must remain for `parseGeneric` to read. Consuming
-   * either here would hand the enclosing parse a token it still needs.
+   * Stops WITHOUT consuming a depth-0 `}` or `>` whose stack is empty: the
+   * interior's own closing brace must remain for `parseObject`'s
+   * `eatPunct("}")` to read, and a generic argument's `>` must remain for
+   * `parseGeneric` to read. Consuming either here would hand the enclosing
+   * parse a token it still needs.
    */
   private skipMalformedEntry(): void {
-    let depth = 0;
+    const open: string[] = [];
     while (this.peek() !== undefined) {
       const text = this.peek()?.text;
-      if (depth === 0 && text === ",") {
+      if (open.length === 0 && text === ",") {
         this.next();
         return;
       }
-      if (depth === 0 && (text === "}" || text === ">")) {
+      if (open.length === 0 && (text === "}" || text === ">")) {
         return;
       }
       if (text === "{" || text === "<") {
-        depth += 1;
+        open.push(text);
       } else if (text === "}" || text === ">") {
-        depth -= 1;
+        const top = open[open.length - 1];
+        if ((text === "}" && top === "{") || (text === ">" && top === "<")) {
+          open.pop();
+        }
       }
       this.next();
     }

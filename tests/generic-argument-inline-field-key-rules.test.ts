@@ -15,7 +15,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0233-generic-argument-inline-field-key-rules-withheld.md). This
 // file is that report's §Fix (d) fresh witness.
 //
-// THE MECHANISM. `walkType` (src/parser/type-grammar.ts:995) carries an
+// THE MECHANISM. `walkType` (src/parser/type-grammar.ts:1000) carries an
 // `insideGenericArgument` parameter (:1001). The `generic` arm descends into
 // every type argument with that flag hard-set to `true`:
 //
