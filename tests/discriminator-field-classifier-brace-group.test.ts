@@ -717,6 +717,12 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     ];
 
     expect(observed).toEqual([
+      // Since bug 0228's fix an inline object's brace group is a raw slice
+      // of the author's own source bytes at the `schema` body field position
+      // too, so each `kind` capture below keeps the author's inter-token
+      // spacing (and the literal source newline in the "closed on the next
+      // line" row) instead of a lossy join. The diagnostics and the field
+      // ORDER — this table's own subject — are unmoved.
       {
         label: "B row 1 — two brace-group arms",
         diagnostics: [],
@@ -724,7 +730,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -737,7 +743,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -750,7 +756,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -764,7 +770,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
             name: "Cat",
             fields: [
               { name: "name", typeSource: "string" },
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
             ],
           },
         ],
@@ -776,7 +782,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -789,7 +795,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|{b:string}" },
+              { name: "kind", typeSource: "{a: integer}|{b: string}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -802,7 +808,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}|null" },
+              { name: "kind", typeSource: "{a: integer}|null" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -815,7 +821,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "null|{a:integer}" },
+              { name: "kind", typeSource: "null|{a: integer}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -828,7 +834,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: '{type:"x"}' },
+              { name: "kind", typeSource: '{ type: "x" }' },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -841,7 +847,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: '{type:"x"|"y"}' },
+              { name: "kind", typeSource: '{ type: "x" | "y" }' },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -867,7 +873,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:integer}" },
+              { name: "kind", typeSource: "{a: integer\n}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -880,7 +886,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: "{a:{b:integer}}" },
+              { name: "kind", typeSource: "{a: {b: integer}}" },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -893,7 +899,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
           {
             name: "Cat",
             fields: [
-              { name: "kind", typeSource: '{a:"}"}' },
+              { name: "kind", typeSource: '{a: "}"}' },
               { name: "name", typeSource: "string" },
             ],
           },
@@ -966,35 +972,39 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
     ];
 
     expect(observed).toEqual([
+      // Since bug 0228's fix an inline object's brace group is a raw slice of
+      // the author's own source bytes here too, so each `catKind` capture
+      // below keeps the author's inter-token spacing. The dispositions this
+      // table pins are unmoved.
       {
         label: "D — union arms, by kind",
         diagnostics: [nonLiteralDiscriminatorLine("kind", "Animal")],
-        schemas: catDogAnimal("{a:integer}|{b:string}"),
+        schemas: catDogAnimal("{a: integer}|{b: string}"),
       },
       {
         label: "D — union arms, implicit",
         diagnostics: [missingDiscriminatorLine("Animal")],
-        schemas: catDogAnimal("{a:integer}|{b:string}"),
+        schemas: catDogAnimal("{a: integer}|{b: string}"),
       },
       {
         label: "D — single group, by kind",
         diagnostics: [nestedDiscriminatorLine("kind", "Animal")],
-        schemas: catDogAnimal('{type:"x"}'),
+        schemas: catDogAnimal('{ type: "x" }'),
       },
       {
         label: "D — single group, implicit",
         diagnostics: [missingDiscriminatorLine("Animal")],
-        schemas: catDogAnimal('{type:"x"}'),
+        schemas: catDogAnimal('{ type: "x" }'),
       },
       {
         label: "D — interior union, by kind",
         diagnostics: [nestedDiscriminatorLine("kind", "Animal")],
-        schemas: catDogAnimal('{type:"x"|"y"}'),
+        schemas: catDogAnimal('{ type: "x" | "y" }'),
       },
       {
         label: "D — interior union, implicit",
         diagnostics: [missingDiscriminatorLine("Animal")],
-        schemas: catDogAnimal('{type:"x"|"y"}'),
+        schemas: catDogAnimal('{ type: "x" | "y" }'),
       },
       {
         // The parity control: the literal-union spelling of the same shape

@@ -618,14 +618,17 @@ describe("0151 (e4) — the `array<string { 1 }` row is refused, with its captur
     // position and exits at EOF. The captured text carries no `)`, so the
     // WITHHOLD below does not apply and the list is reported. The capture
     // itself is bug 0124 §Reproduction (e)'s class, declined by both reports'
-    // §Non-goals, and is asserted here exactly as HEAD records it.
+    // §Non-goals. Since bug 0228's fix the `{ 1 }` group is a raw slice of
+    // the author's source bytes rather than a joined `{1}`, so the interior
+    // spacing the author wrote now survives into this capture too — the
+    // capture is still untouched by THIS report, and no longer lossy.
     const doc = theta("fn h(p: array<string { 1 }\n");
     expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([e(UNCLOSED, "4:5-4:6")]);
     expect(quads(doc)).toEqual([q(UNCLOSED, "4:5-4:6")]);
     expect(
       paramsOf(doc),
       `bug 0124's declined \`<\`/\`>\` capture is untouched; diagnostics=${render(doc)}`,
-    ).toEqual([{ name: "p", type: "array<string{1}" }]);
+    ).toEqual([{ name: "p", type: "array<string{ 1 }" }]);
     expect(registered(doc)).toBe(false);
   });
 });

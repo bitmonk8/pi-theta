@@ -144,6 +144,15 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
 const INLINE_FIELD_RENAME = /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"[^"]*"|'[^']*')$/;
 
 /**
+ * The `Ident` production a raw inline field-name key must match
+ * (`lexical.md:13`), asked of the whole trimmed key rather than of its first
+ * character alone: `theta/parse/inline-field-name-not-identifier` refuses a
+ * key this test declines, once the three keys ahead of it in precedence —
+ * repeating, quote-led, rename-shaped — have declined it first.
+ */
+const INLINE_FIELD_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
  * The annotation position a type expression occupies, which governs the
  * `void` and `Result` position rules of grammar.md §"Type grammar":
  *
@@ -305,14 +314,18 @@ type TypeNode =
        * reads `closingBraceSpelled`; the empty rule keeps `braceClosed`, which
        * for its token-free interior answers alike.
        *
-       * `interiorSource` is the raw source text between this node's own `{`
-       * and the depth-0 `}` `interiorClosingBraceIndex` finds — the empty
-       * string when `closingBraceSpelled` is false, since a `{` the source
-       * never closes spells no interior to slice. Sliced off `TypeToken.start`
-       * offsets rather than reconstructed from token texts, so quoting and
-       * inter-token whitespace survive verbatim, exactly as `splitTopLevel` /
-       * `topLevelColon` would see them if handed this source directly.
-       * `theta/parse/duplicate-inline-field-name` derives its comparison key
+       * `interiorSource` is the raw text between this node's own `{` and the
+       * depth-0 `}` `interiorClosingBraceIndex` finds, sliced off
+       * `TypeToken.start` offsets rather than reconstructed from token texts —
+       * the empty string when `closingBraceSpelled` is false, since a `{` the
+       * source never closes spells no interior to slice. Quoting and
+       * inter-token whitespace survive verbatim relative to the string this
+       * node was tokenised from, exactly as `splitTopLevel` / `topLevelColon`
+       * would see them if handed that string directly. Since bug 0228 an
+       * inline object's brace group is itself a raw slice of the author's own
+       * source bytes at every `Type` position (`theta-document.ts`'s
+       * `consumeInlineObjectType`), so for a brace-group interior that string
+       * is the author's spelling. `theta/parse/duplicate-inline-field-name` derives its comparison key
        * from this field alone (`inlineObjectFieldKeys`, below):
        * `splitTopLevel(interiorSource, ",", "angle-and-brace")` (`./params`),
        * keyed on each entry's raw pre-colon text (`topLevelColon`, `./params`)
@@ -328,9 +341,14 @@ type TypeNode =
 /**
  * `start` is the offset of the token's first character in the tokenised
  * source string — recorded so `TypeParser.parseObject` can slice
- * `TypeNode.interiorSource` directly off the source rather than
- * reconstructing it from token texts (which would drop the interior's
- * original whitespace and quoting).
+ * `TypeNode.interiorSource` directly off that string rather than
+ * reconstructing it from token texts, which would drop the interior's
+ * whitespace and quoting relative to that string. Since bug 0228 an inline
+ * object's brace group is itself a raw slice of the author's own source
+ * bytes at every `Type` position, so for a brace-group interior the string
+ * tokenised here already is the author's spelling; outside a brace group the
+ * string can still be a lossy join, and this slice is verbatim relative to
+ * whatever string it was handed either way.
  */
 interface TypeToken {
   readonly kind: "ident" | "str" | "num" | "punct";
@@ -485,8 +503,10 @@ function carriesUnclosedInterior(node: TypeNode): boolean {
 class TypeParser {
   private pos = 0;
   // `source` is held beside `tokens` so `parseObject` can slice
-  // `TypeNode.interiorSource` directly off the original bytes, quoting and
-  // inter-token whitespace intact.
+  // `TypeNode.interiorSource` directly off this string, quoting and
+  // inter-token whitespace intact relative to it — the author's own source
+  // bytes for a brace-group interior since bug 0228, and otherwise whatever
+  // text the caller threaded through.
   constructor(
     private readonly tokens: readonly TypeToken[],
     private readonly source: string,
@@ -670,13 +690,15 @@ class TypeParser {
     const braceClosed = this.eatPunct("}");
     const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
     const closingBraceToken = closingBraceIndex >= 0 ? this.tokens[closingBraceIndex] : undefined;
-    // The raw source text between this node's own `{` and the depth-0 `}`
-    // `closingBraceToken` names — empty when the interior never closes, since
-    // there is then no such span to slice (`TypeNode`'s doc comment). Sliced
-    // off `TypeToken.start` offsets rather than reconstructed from token
-    // texts, so the bytes are exactly what `splitTopLevel` / `topLevelColon`
-    // would see if handed this source directly — quoting, inter-token
-    // whitespace and all.
+    // The text between this node's own `{` and the depth-0 `}`
+    // `closingBraceToken` names, in `this.source` — empty when the interior
+    // never closes, since there is then no such span to slice (`TypeNode`'s
+    // doc comment). Sliced off `TypeToken.start` offsets rather than
+    // reconstructed from token texts, so the bytes are exactly what
+    // `splitTopLevel` / `topLevelColon` would see if handed `this.source`
+    // directly — quoting and inter-token whitespace intact relative to
+    // `this.source`, which since bug 0228 is itself the author's own source
+    // bytes for a brace-group interior at every `Type` position.
     const interiorSource =
       closingBraceToken !== undefined
         ? this.source.slice((openBrace?.start ?? 0) + 1, closingBraceToken.start)
@@ -1080,6 +1102,29 @@ function walkType(
               file: site.file,
               range: site.range,
               message: `wire-name rename on field '${renamed[1]}' within one inline object type`,
+            });
+            continue;
+          }
+          // `theta/parse/inline-field-name-not-identifier` (bug 0228) — fourth
+          // and last in this loop's precedence: a key that reaches here has
+          // already declined the repeat, quote-led and rename tests above, so
+          // this is a key whose raw text is not an `Ident`
+          // (`schemas.md:17` fixes a field name as an identifier;
+          // `lexical.md:13` gives `Ident` as `[A-Za-z_][A-Za-z0-9_]*`, which
+          // admits no space). A sibling refusal to
+          // `theta/parse/fn-param-not-identifier` (bug 0225), asked of a raw
+          // inline field-name key rather than of a parameter binding: the
+          // TYPE this entry declares may be well-formed (bound E3 of bug
+          // 0228's witness pins that this row does not widen the
+          // `*-type-not-expression` rows), so the message names the key, not
+          // the type.
+          if (!INLINE_FIELD_IDENT.test(key)) {
+            out.push({
+              severity: "error",
+              code: "theta/parse/inline-field-name-not-identifier",
+              file: site.file,
+              range: site.range,
+              message: `field name '${key}' within one inline object type is not an identifier`,
             });
           }
         }

@@ -230,6 +230,7 @@ const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const RESULT_POSITION = "theta/parse/result-in-schema-position";
+const NOT_IDENTIFIER = "theta/parse/inline-field-name-not-identifier";
 
 // ===========================================================================
 // Parse harness. `parseDoc` (tests/helpers/e2e-s1.ts) is the shipped whole-file
@@ -728,13 +729,22 @@ describe("0154 (E) — the field's TYPE slot and the leaf's existing rules do no
     ]);
   });
 
-  it("n2: a non-identifier field name stays silent — the field loop skips it outright", () => {
+  it("n2: a non-identifier field name stays silent at THIS rule — the field loop still skips it outright", () => {
     // `3` is neither an identifier nor a quoted key, so the tolerant field loop
-    // consumes and skips it and nothing enters either key list. A fix that
-    // reached this shape would be judging tokens the parser deliberately
-    // discards.
+    // consumes and skips it and nothing enters `fieldNames` or the quoted-key
+    // list: this cell's own subject, 0154's identifier PASS OVER `fieldNames`,
+    // is unmoved by bug 0228 — the skipped field name still enters no rule
+    // reading that list. What changed is that a different rule reads the raw
+    // pre-colon text directly rather than a token list: bug 0228's fourth-in-
+    // precedence row now names the honest key `3` as not `Ident`-shaped, so
+    // the shape is refused, but not by this file's rule.
     const doc = theta("schema S { a: { 3: string } }");
-    expect(rendered(doc), "a skipped field name enters no rule's subject set").toEqual([]);
+    expect(
+      rendered(doc),
+      "a skipped field name still enters no rule reading `fieldNames`; the new row reads the raw key instead",
+    ).toEqual([
+      diag("error", NOT_IDENTIFIER, msg(NOT_IDENTIFIER, [["<field>", "3"]]), 4, 1, 30),
+    ]);
   });
 
   it("n3/n7/n8: the three rules already at this leaf keep their codes and their `@4:1` ranges", () => {

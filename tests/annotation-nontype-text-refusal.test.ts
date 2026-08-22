@@ -771,11 +771,14 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
     // not as a desired posture — the capture over-run is bug 0124 §Non-goals'.
     const label = "a20 (return, integer|)";
     const doc = parseDoc(srcAt("return", "integer|", "1"), "bug0124.theta");
+    // Since bug 0228's fix the absorbed `{ 1 }` body is a raw slice of the
+    // author's own source bytes rather than a joined one, so its interior
+    // spacing survives too.
     expect(
       capturedAt(label, doc, "return"),
       `${label}: PRECONDITION — the trailing \`|\` opens a union arm, so the body joins the ` +
         `capture and the judged text carries a brace`,
-    ).toBe("integer|{1}");
+    ).toBe("integer|{ 1 }");
     expect(
       stmtKinds(doc),
       `${label}: the capture absorbs the body and the following statements, unchanged by this fix`,
@@ -802,6 +805,14 @@ const SPELLING_ROWS: ReadonlyArray<{
   readonly typeSource: string;
   /** Only where a WELL-FORMED reading of the annotation would constrain it. */
   readonly rhsOrBody?: string;
+  /**
+   * Only where the default `joinedCapture` (strip every space) is wrong for
+   * this row: since bug 0228's fix an inline `ObjectType` brace group is a
+   * raw slice of the author's own source bytes rather than a joined one, so a
+   * row whose whole `typeSource` IS a brace group keeps its interior spacing
+   * verbatim.
+   */
+  readonly capture?: string;
 }> = [
   { label: "a21 (string-literal trailer)", typeSource: 'integer"x"' },
   { label: "a22 (leading)", typeSource: "--integer" },
@@ -816,7 +827,13 @@ const SPELLING_ROWS: ReadonlyArray<{
   { label: "a27 (generic argument)", typeSource: "array<integer-->", rhsOrBody: "[1]" },
   { label: "a28 (union arm, first)", typeSource: "integer-- | string" },
   { label: "a29 (union arm, second)", typeSource: "integer | string--" },
-  { label: "a30 (inline object field)", typeSource: "{ b: integer-- }" },
+  {
+    label: "a30 (inline object field)",
+    typeSource: "{ b: integer-- }",
+    // The whole `typeSource` IS the brace group, so bug 0228's fix captures it
+    // verbatim rather than joined.
+    capture: "{ b: integer-- }",
+  },
   // The registry row's *Trigger* states the number-literal trailer as refused
   // only "where the joined capture is not `Ident`-shaped", which makes this row
   // and `n2` below a PAIR: `integer1` joins to one `Ident` and stays silent,
@@ -839,6 +856,7 @@ describe("bug 0124 (a) — the leading, interior, doubled, spaced, bare and nest
       it(`RED (${row.label}, ${position}): \`${row.typeSource}\` draws exactly one ${CODE}`, () => {
         expectRefused(`${row.label} (${position})`, position, row.typeSource, {
           ...(row.rhsOrBody === undefined ? {} : { rhsOrBody: row.rhsOrBody }),
+          ...(row.capture === undefined ? {} : { capture: row.capture }),
         });
       });
     }
@@ -2022,10 +2040,12 @@ describe("bug 0124 (p) — the shredded brace groups stay free of the new code",
       `${FM}schema QueryError { m: string }\n` +
       "let r: Result<{a: string, b: integer, c: boolean}, QueryError> = @`x`\nr\n";
     const doc = parseDoc(src, "bug0124.theta");
+    // Since bug 0228's fix the brace group is a raw slice of the author's own
+    // source bytes; the text outside it is still joined with no separator.
     expect(
       capturedAt(label, doc, "let", "f", "r"),
       `${label}: PRECONDITION — the whole generic application is one capture`,
-    ).toBe("Result<{a:string,b:integer,c:boolean},QueryError>");
+    ).toBe("Result<{a: string, b: integer, c: boolean},QueryError>");
     expect(
       diagLines(doc),
       `${label}: the angle-only generic-argument split shreds the brace group into ` +
@@ -2041,10 +2061,12 @@ describe("bug 0124 (p) — the shredded brace groups stay free of the new code",
       `${FM}let r: array<{a: string, b: integer, c: boolean}> = 1\nr\n`,
       "bug0124.theta",
     );
+    // Since bug 0228's fix the brace group is a raw slice of the author's own
+    // source bytes.
     expect(
       capturedAt(label, doc, "let", "f", "r"),
       `${label}: PRECONDITION — the whole generic application is one capture`,
-    ).toBe("array<{a:string,b:integer,c:boolean}>");
+    ).toBe("array<{a: string, b: integer, c: boolean}>");
     // MEASURED AT HEAD, NOT ASSUMED: `<expected>` used to render the
     // token-joined pseudo-name's raw text (`array<{a:string,b:integer,c:boolean}>`)
     // because `annotationToCompatType` collapsed the inline object to an
@@ -2083,6 +2105,12 @@ const CONTROL_ROWS: ReadonlyArray<{
   readonly typeSource: string;
   readonly rhsOrBody?: string;
   readonly expected: () => readonly string[];
+  /**
+   * Only where the default `joinedCapture` (strip every space) is wrong: since
+   * bug 0228's fix a `typeSource` that IS a brace group is captured verbatim,
+   * interior spacing intact.
+   */
+  readonly capture?: string;
 }> = [
   { id: "g1", position: "let", typeSource: "integer", expected: () => [] },
   { id: "g2", position: "let", typeSource: "array<integer>", rhsOrBody: "[1]", expected: () => [] },
@@ -2102,6 +2130,7 @@ const CONTROL_ROWS: ReadonlyArray<{
     position: "let",
     typeSource: "{ b: integer }",
     rhsOrBody: "1",
+    capture: "{ b: integer }",
     expected: () => [
       line("theta/parse/let-rhs-type-mismatch", [
         ["<name>", "a"],
@@ -2132,13 +2161,13 @@ const CONTROL_ROWS: ReadonlyArray<{
   { id: "g7", position: "param", typeSource: "integer", expected: () => [] },
   { id: "g8", position: "param", typeSource: "array<integer>", expected: () => [] },
   { id: "g9", position: "param", typeSource: "integer | string", expected: () => [] },
-  { id: "g10", position: "param", typeSource: "{ b: integer }", expected: () => [] },
+  { id: "g10", position: "param", typeSource: "{ b: integer }", capture: "{ b: integer }", expected: () => [] },
   { id: "g11", position: "param", typeSource: "Cat", expected: () => [] },
   { id: "g12", position: "param", typeSource: "Ghost", expected: () => [] },
   { id: "g13", position: "return", typeSource: "integer", expected: () => [] },
   { id: "g14", position: "return", typeSource: "array<integer>", expected: () => [] },
   { id: "g15", position: "return", typeSource: "integer | string", expected: () => [] },
-  { id: "g16", position: "return", typeSource: "{ b: integer }", expected: () => [] },
+  { id: "g16", position: "return", typeSource: "{ b: integer }", capture: "{ b: integer }", expected: () => [] },
   { id: "g17", position: "return", typeSource: "Cat", expected: () => [] },
   { id: "g18", position: "return", typeSource: "Ghost", expected: () => [] },
   {
@@ -2162,6 +2191,7 @@ describe("bug 0124 (g) — grammar-admitted annotations keep their bytes at all 
         row.expected(),
         {
           ...(row.rhsOrBody === undefined ? {} : { rhsOrBody: row.rhsOrBody }),
+          ...(row.capture === undefined ? {} : { capture: row.capture }),
           why: "grammar.md:90–:95 derives this text, so a refusal reaching this row refuses " +
             "input the grammar admits at every `Type` position",
         },

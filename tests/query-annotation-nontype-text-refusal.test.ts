@@ -500,7 +500,10 @@ const SPELLINGS: ReadonlyArray<readonly [string, string]> = [
   // would be ADMITTED and stay silent, which is why no such row is here.
   ["array<Ghost-->", "array<Ghost-->"],
   ["Ghost-- | string", "Ghost--|string"],
-  ["{a: Ghost--}", "{a:Ghost--}"],
+  // Since bug 0228's fix an inline object's brace group is a raw slice of the
+  // author's own source bytes at `@<T>` too, so this row's interior space
+  // survives the capture instead of being joined away.
+  ["{a: Ghost--}", "{a: Ghost--}"],
 ];
 
 describe("bug 0203 (c) — the leading, interior, doubled, spaced, bare and one-level-down spellings", () => {

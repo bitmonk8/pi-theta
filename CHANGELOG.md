@@ -6,6 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.179.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0228 — an inline object's interior is captured as the author's raw
+  source, and a field key that is not an identifier refuses** (route 1
+  subject-scoped + the mandatory §Fix (b) refusal, parent-adjudicated after
+  the first run's premeasure tripped the route valve): the balanced brace
+  group is sliced from `bodyText` at all three capture sites (`parseType`,
+  `@<T>`, `invoke<T>`), so `{a b: integer}` no longer fabricates the wire key
+  `ab` at ten positions — the NEW row `theta/parse/inline-field-name-not-identifier`
+  refuses it at all eleven, `params:` included. The `@<Ghost{>` runaway is
+  bounded. 47 witness cells re-derived under the recorded grant (13 files);
+  `params:` lowered bytes for well-formed interiors held by hash. Witness
+  `tests/inline-object-type-source-capture.test.ts` (102 cells) + a
+  standalone live cell + a NEW H9a acceptance file.
+
+>>>>>>> 15ec4992 (fix(bug-0228): inline-object interiors capture raw author source; non-identifier field keys refuse — v0.179.0)
+
 ## [0.178.0] - 2026-08-27
 
 ### Fixed

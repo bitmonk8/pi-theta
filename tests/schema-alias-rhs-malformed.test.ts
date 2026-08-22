@@ -770,7 +770,10 @@ describe("bug 0042 (b) — same-line residue after a complete right-hand side is
     {
       label: "b10 `schema X = { a: string } Cat` (inline object arm)",
       source: F10,
-      arms: ["{a:string}"],
+      // Since bug 0228's fix an inline object's brace group is a raw slice of
+      // the author's own source bytes at a `schema X = ...` right-hand side
+      // too, so this arm's interior space survives the capture.
+      arms: ["{ a: string }"],
       statements: [
         "schema:Cat@1:1-1:25",
         "schema:X@2:1-2:25",

@@ -556,12 +556,21 @@ describe("bug 0128 — the captured `typeSource` per field spelling", () => {
       ["integer", [[["kind", "integer"], ["name", "string"]]]],
       ["array<string>", [[["kind", "array<string>"], ["name", "string"]]]],
       ['"cat" | null', [[["kind", '"cat"|null'], ["name", "string"]]]],
-      ['{ type: "x" }', [[["kind", '{type:"x"}'], ["name", "string"]]]],
+      // Since bug 0228's fix an inline object's brace group is a raw slice of
+      // the author's own source bytes at a `schema` body field too, so the
+      // captured `typeSource` keeps the author's inter-token spacing instead
+      // of joining it away.
+      ['{ type: "x" }', [[["kind", '{ type: "x" }'], ["name", "string"]]]],
       // The eighth row is the one that moved since bug 0128 was filed: it
       // captured NOTHING at 0.73.0 (bug 0095's destroyed field list), and bug
       // 0095's fix made the capture span the whole `Type ("|" Type)*` extent.
-      // That is exactly what makes class 2 below reachable at HEAD.
-      ["{a: integer} | {b: string}", [[["kind", "{a:integer}|{b:string}"], ["name", "string"]]]],
+      // That is exactly what makes class 2 below reachable at HEAD. Since bug
+      // 0228's fix each brace-group arm additionally keeps the author's own
+      // spacing rather than a lossy join.
+      [
+        "{a: integer} | {b: string}",
+        [[["kind", "{a: integer}|{b: string}"], ["name", "string"]]],
+      ],
     ]);
   });
 });
@@ -616,7 +625,10 @@ describe("bug 0128 class 2 — a brace-rooted union-typed `by` field is the same
       b1.schemas[0]?.fields.map((f) => [f.name, f.typeSource]),
       "precondition: bug 0095's widened capture must keep `Cat`'s field list, or class 2 never reaches the discriminator checkers",
     ).toEqual([
-      ["kind", "{a:integer}|{b:string}"],
+      // Since bug 0228's fix each brace-group arm is a raw slice of the
+      // author's own source bytes, keeping the inter-token space instead of
+      // joining it away.
+      ["kind", "{a: integer}|{b: string}"],
       ["name", "string"],
     ]);
 

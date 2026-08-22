@@ -3402,11 +3402,15 @@ class BodyParser {
   }
 
   /**
-   * Consume a type expression, joining its tokens until a delimiter. At an
+   * Consume a type expression, joining its tokens until a delimiter — outside
+   * any inline `ObjectType` brace group, where no separator survives between
+   * two tokens (bug 0228). At an
    * arm start — the scan's first token, or the token straight after a
    * depth-0 `|` (`atArmStart`) — a `{` opens an inline `ObjectType` arm:
-   * consumed as a balanced group (`consumeInlineObjectType`) and then
-   * CONTINUED past, so `{ a: string } | Cat` captures as one two-arm `Type`.
+   * consumed as a balanced group (`consumeInlineObjectType`), whose own
+   * interior is a raw slice of the author's source bytes rather than a join,
+   * and then CONTINUED past, so `{ a: string } | Cat` captures as one two-arm
+   * `Type`.
    * `ObjectType` is a `Type` in any `Type` position (grammar.md §"Type
    * grammar", §"Inline object types"; type-system.md, which states the same
    * grammar applies at every type-annotation position), so the rule is
@@ -3502,10 +3506,23 @@ class BodyParser {
           break;
         }
         if (t.kind === "punct" && t.text === "{") {
+          // No `stopAtAngleClose` at this arm-start site: nothing here encloses
+          // the arm in a `<…>` capture, so a `>` inside the brace group (e.g.
+          // `{a: integer>}`) is ordinary content the group must keep consuming
+          // (bug 0130 cell e7, the regression this omission guards).
           this.consumeInlineObjectType(parts);
           armComplete = true;
           continue;
         }
+      }
+      // A `{` reached at depth > 0 (e.g. `array<{a: integer}>`) still opens an
+      // inline `ObjectType` arm; route it through the same balanced-group
+      // consumer so its interior is a raw slice rather than the outer join.
+      // `stopAtAngleClose` bounds the group at the enclosing `<…>`'s own `>`,
+      // since depth > 0 here only happens inside one.
+      if (depth > 0 && t.kind === "punct" && t.text === "{") {
+        this.consumeInlineObjectType(parts, true);
+        continue;
       }
       if (
         depth === 0 &&
@@ -3565,28 +3582,77 @@ class BodyParser {
   }
 
   /**
-   * Append a balanced `{ … }` group's token texts to `parts`, stopping early at
-   * a `stmt-sep` so an unclosed brace cannot run the scan past its statement.
+   * Consume a balanced `{ … }` group token-by-token — stopping early at a
+   * `stmt-sep` so an unclosed brace cannot run the scan past its statement —
+   * and push exactly ONE part: the raw `this.bodyText` slice from the `{`
+   * token's start to the last consumed token's end (`positionToOffset`), the
+   * same raw-slice treatment the query template already gets for its own
+   * lossy, space-joined capture (`parseQuery`'s `rawTemplate`, below). Falls back to the joined
+   * token texts when `this.bodyText` is empty (no body source threaded
+   * through), so an interior's field-name spelling reaches every rule and
+   * lowerer as the author wrote it rather than with its inter-token
+   * whitespace deleted (bug 0228).
+   *
+   * `stopAtAngleClose` is set only at the three angle-context call sites
+   * (`parseType` at depth > 0, `parseQuery`'s `@<T>` loop, `parseInvoke`'s
+   * `invoke<T>` loop): the scan then tracks its OWN `<`/`>` nesting and stops,
+   * without consuming, at a `>` met at its own angle-depth 0 while the brace
+   * group is still unclosed — that `>` closes the ENCLOSING capture, not this
+   * group (`@<Ghost{>` must not swallow the template past its `>`). An
+   * interior `<…>` pair (`{a: array<x>}`) sits at angle-depth 1 and does not
+   * trip the bound, so the group still closes normally on its own `}`. Left
+   * unset at the arm-start call inside `parseType` (`depth === 0` above),
+   * where no enclosing `<…>` bounds the arm, so a `>` inside the group is
+   * ordinary content (bug 0130 cell e7).
    * Precondition: the current token is `{`.
    */
-  private consumeInlineObjectType(parts: string[]): void {
+  private consumeInlineObjectType(parts: string[], stopAtAngleClose = false): void {
+    const startTok = this.peek();
     let braceDepth = 0;
+    let angleDepth = 0;
+    let lastTok: Token | null = null;
+    const consumedTexts: string[] = [];
     while (!this.atEnd()) {
       const t = this.peek();
       if (t.kind === "stmt-sep") {
-        return;
+        break;
+      }
+      if (
+        stopAtAngleClose &&
+        t.kind === "punct" &&
+        t.text === ">" &&
+        angleDepth === 0 &&
+        braceDepth > 0
+      ) {
+        break;
       }
       if (t.kind === "punct" && t.text === "{") {
         braceDepth += 1;
       } else if (t.kind === "punct" && t.text === "}") {
         braceDepth -= 1;
+      } else if (stopAtAngleClose && t.kind === "punct" && t.text === "<") {
+        angleDepth += 1;
+      } else if (stopAtAngleClose && t.kind === "punct" && t.text === ">") {
+        angleDepth -= 1;
       }
-      parts.push(t.text);
+      lastTok = t;
+      consumedTexts.push(t.text);
       this.advance();
       if (braceDepth === 0) {
-        return;
+        break;
       }
     }
+    if (lastTok === null) {
+      return;
+    }
+    const raw =
+      this.bodyText.length > 0
+        ? this.bodyText.slice(
+            positionToOffset(this.bodyText, startTok.range.start),
+            positionToOffset(this.bodyText, lastTok.range.end),
+          )
+        : null;
+    parts.push(raw !== null ? raw : consumedTexts.join(""));
   }
 
   // --- expression sublanguage --------------------------------------------
@@ -4927,6 +4993,13 @@ class BodyParser {
             this.advance();
             break;
           }
+        } else if (t.kind === "punct" && t.text === "{") {
+          // An inline `ObjectType` arm inside `invoke<T>`: route it through
+          // the same balanced-group consumer as `parseType`, angle-bounded so
+          // an unclosed brace cannot run past this annotation's own `>`
+          // (bug 0228).
+          this.consumeInlineObjectType(parts, true);
+          continue;
         }
         parts.push(t.text);
         this.advance();
@@ -5075,7 +5148,9 @@ class BodyParser {
     // An optional `@<Schema>` annotation precedes the backtick template
     // (query-forms.md QRY-3). The annotation is a type expression between angle
     // brackets — a named schema (`@<Triage>`), a primitive (`@<integer>`), or a
-    // nested generic (`@<array<Foo>>`) — captured verbatim as the annotation.
+    // nested generic (`@<array<Foo>>`) — its tokens joined with no separator,
+    // except an inline `ObjectType` brace group's interior, sliced raw from
+    // the author's source bytes (bug 0228).
     if (this.isPunct("<")) {
       this.advance(); // `<`
       const parts: string[] = [];
@@ -5089,6 +5164,13 @@ class BodyParser {
             this.advance();
             break;
           }
+        } else if (this.isPunct("{")) {
+          // An inline `ObjectType` arm inside `@<T>`: route it through the
+          // same balanced-group consumer as `parseType`, angle-bounded so an
+          // unclosed brace cannot run past this annotation's own `>` (the
+          // `@<Ghost{>` ghost bound, bug 0228).
+          this.consumeInlineObjectType(parts, true);
+          continue;
         }
         parts.push(this.advance().text);
       }

@@ -1502,10 +1502,14 @@ describe("bug 0033 (j) — an inline-object arm is captured, at either end of th
     // for the statement loop: `stray '|'` plus `Cat` as an expression statement.
     const doc = parse(F_BRACE_ARM_FIRST);
     expectLoadsClean(doc, "j1 — an inline object as the FIRST arm");
+    // Since bug 0228's fix an inline object's brace group is a raw slice of
+    // the author's own source bytes at a `schema X = ...` right-hand side
+    // too, so the arm keeps the author's inter-token space instead of joining
+    // it away.
     expect(
       armsOf(doc, "X", "j1"),
       "j1 — the brace group is one arm and `Cat` is the other",
-    ).toEqual(["{a:string}", "Cat"]);
+    ).toEqual(["{ a: string }", "Cat"]);
     expect(
       stmtSig(doc),
       "j1 — one schema declaration, then the following statements intact; " +
@@ -1525,9 +1529,10 @@ describe("bug 0033 (j) — an inline-object arm is captured, at either end of th
         `position; actual=${JSON.stringify(diagLines(doc))}`,
     ).not.toContain("theta/parse/bare-object-literal");
     expectLoadsClean(doc, "j2 — an inline object as the SECOND arm");
+    // Same raw-slice capture as j1: the arm keeps the author's spacing.
     expect(armsOf(doc, "X", "j2"), "j2 — arm order follows source order").toEqual([
       "Cat",
-      "{a:string}",
+      "{ a: string }",
     ]);
     expect(
       stmtSig(doc),

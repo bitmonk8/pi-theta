@@ -1158,7 +1158,11 @@ const D3: Pair = {
   params: `${PFM}  p: {s: string}\n---\nif p.s { 1 } else { 2 }\n`,
   paramsSites: ["params p:{s: string}"],
   control: `${CFM}fn f(p: {s: string}) { if p.s { 1 } else { 2 } }\n1\n`,
-  controlSites: ["fn f(p:{s:string})"],
+  // Since bug 0228's fix an inline object's brace group is a raw slice of the
+  // author's own source bytes at the `fn` parameter position too, so this
+  // control's captured type keeps the author's inter-token space instead of
+  // joining it away.
+  controlSites: ["fn f(p:{s: string})"],
 };
 
 const D4: Pair = {

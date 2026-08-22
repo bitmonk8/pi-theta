@@ -1,6 +1,6 @@
 # Bug 0228 — the three type-source captures in `theta-document.ts` rebuild a `Type`'s text by joining lexer token texts with no separator (`parseType`'s `parts.join("")` at `:3554`, the `@<T>` capture at `:5085`, the `invoke<T>` capture at `:4924`), so at every `Type` position except `params:` an inline object's interior loses the author's inter-token whitespace before any rule or lowerer sees it: `{a b: integer}` arrives as `{ab:integer}` and loads with zero diagnostics at every position, minting the wire property name `ab` — a field the author never declared — while the same text at `params:` mints `a b`; `{a b: integer, ab: string}` draws `theta/parse/duplicate-inline-field-name` naming `'ab'` at ten of the eleven positions and loads clean at `params:`; and `{A b: integer}` draws `theta/parse/binding-case-mismatch` at those ten and nothing at `params:`
 
-- **Status:** open. Finding (a) of the bug
+- **Status:** fixed (0.179.0). Finding (a) of the bug
   [0160](./0160-inline-object-wire-name-rename-unparsed.md) fix
   (0.172.0): that record's route rationale item 1 measured the join, ruled
   route 1 out on it ("a prototype of route 1 … emitted at one position out of
@@ -684,3 +684,288 @@ the newly-ADMITTED set (rows B1–B10 and D1–D5, which stop refusing under rou
   `tests/inline-object-wire-name-rename-refusal.test.ts` (1440, 25 tests);
   `tests/params-inline-object-lowering.test.ts` (1178, 37 cells);
   `tests/committed-fixture-parse-gate.test.ts`.
+
+## Fix (0.179.0)
+
+Route **(a) route 1, in its subject-scoped reading** (variant B), plus the
+**mandatory** §Fix (b) refusal, operator-adjudicated on measurement. Two
+premeasurements stand behind that adjudication and are binding evidence, not
+prose: a prior run measured both admissible readings of route 1 on the full
+default suite and stopped rather than improvise, and this run re-measured the
+adjudicated shape whole before writing a line of test.
+
+**The doc was wrong, and the correction is recorded here.** §Fix (a) route 1
+says "give **each of the three captures**" the raw-slice treatment. Taken
+literally — a whole-capture raw slice at `parseType`, `@<T>` and `invoke<T>` —
+that reds **94 tests across 17 files**, including verdict flips in bug families
+[0124](./0124-parsetype-trailing-punctuation-leniency.md),
+0061 and
+[0203](./0203-query-annotation-nontype-text-silent.md): a whole-capture slice
+preserves inter-token spacing everywhere, so every family whose rule fires on
+FUSED JUNK (`Cat+`, `integer--`, `stringletx`) moves. None of those families is
+this report's subject — the title and every §Reproduction row is an
+inline-object INTERIOR — so the sentence overreaches the document's own claim.
+The shipped reading slices the **balanced brace group only**: 44 cells move,
+all inside the enumerated grant, and text outside a brace group keeps the
+separator-free join untouched.
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `consumeInlineObjectType` still consumes
+    the balanced `{ … }` group token by token, but pushes exactly ONE part: the
+    raw `this.bodyText` slice from the `{` token's start to the last consumed
+    token's end, through `positionToOffset`, with the joined token texts as the
+    fallback when no body source is threaded through. This is the precedent the
+    query template already had at the same parser, under the comment naming the
+    tokens a lossy, space-joined view. A `{` now routes through that consumer at
+    three further sites — `parseType` at depth > 0, `parseQuery`'s `@<T>`
+    capture loop and `parseInvoke`'s `invoke<T>` capture loop — so all three
+    captures carry the author's interior bytes and agree byte-for-byte.
+  - `src/parser/theta-document.ts` — the GHOST BOUND. An opt-in
+    `stopAtAngleClose`, set at those three angle-context sites and at NO other,
+    tracks the consumer's own `<` / `>` nesting and stops without consuming at a
+    `>` met at angle depth 0 while the brace group is still unclosed. Without
+    it `@<Ghost{>` runs the consumer past the annotation's `>` and swallows the
+    backtick template. The flag is deliberately unset at `parseType`'s depth-0
+    arm-start call: setting it there stops `let x: {a: integer>} = 1` at the
+    stray `>` and reds bug 0130 cell e7. Both directions are pinned — 0203's
+    `g1` holds its own subject green, and 0130's file is a named gate.
+  - `src/parser/type-grammar.ts` — the §Fix (b) refusal, as a NEW row
+    `theta/parse/inline-field-name-not-identifier` (`E`, parse) in `walkType`'s
+    object-arm raw-key loop, inside the existing
+    `!insideGenericArgument && node.closingBraceSpelled` block so it inherits
+    the generic-argument carve-out and the closing-brace gate unchanged. The
+    predicate is anchored at both ends against `[A-Za-z_][A-Za-z0-9_]*`.
+    Precedence is FOURTH and last: repeat, quote-led, rename, then this row.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 row, in
+    fourth table position after `theta/parse/renamed-inline-field-name` so its
+    stated precedence and every positional cross-reference among the four
+    inline raw-key rows read true. Its *Trigger* states the precedence, both
+    gates, the reach, the 0129 interaction and the `Field` derivation. The two
+    falsified *Trigger* sentences are corrected in the same change (below).
+  - `docs/reference/diagnostics.md` — the mirror row, same position, *Message*
+    byte-identical to the registry column and to the code's emission.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` —
+    §"Source-derived placeholders" gains a THIRD row-scoped `<field>`
+    carve-out beside 0052's and 0176's, because this row's rendered subject is
+    the raw key and is not identifier-shaped. 0160's row deliberately gains
+    none: it renders its predicate's capture group, which is identifier-shaped,
+    and stays under the default. Both directions are asserted.
+
+**§Fix (b): why a NEW row and not a widening.** The four
+`*-type-not-expression` rows were not widened. Their *Message* says the
+position "declares a type that is not a theta type expression", which is FALSE
+of `{a b: integer}`: the TYPE the entry declares is well-formed — bound E3
+(`{a: integer b: string}`) is the shape whose *type* derives from no `Type`
+production, and it keeps those rows. What derives from no production here is
+the KEY. The honest-identity discipline of bugs 0044, 0104 and
+[0124](./0124-parsetype-trailing-punctuation-leniency.md) forbids naming one
+defect with another's row, and the sibling shape is already registered: bug
+0225's `theta/parse/fn-param-not-identifier`, minted rather than folded into a
+neighbour for exactly this Message-falsity ground. `grammar.md:101` derives an
+inline `Field` from the schema `Field` form, `schemas.md:17` fixes a field name
+as an identifier and `lexical.md:13` gives `Ident` as
+`[A-Za-z_][A-Za-z0-9_]*`; the row names the key against those three sentences.
+
+**The two spellings §Fix (b) names, disposed explicitly.** Row D4
+(`{A b: integer}`, at `@<…>` and at every other position) draws **one**
+diagnostic: this row, naming the raw key `A b`. It draws no
+`theta/parse/binding-case-mismatch` — a space-broken key never reaches
+`TypeNode.fieldNames`, because `TypeParser.parseObject` pushes a name only
+after an `Ident ":"` pair, so 0154's identifier pass has nothing to see and its
+own subject is untouched. Row C5 (`{let b: integer}`) likewise draws **one**
+diagnostic naming `let b`, and no
+`theta/parse/reserved-keyword-as-identifier`: the key is not the reserved
+keyword, it is text containing one. Both are what bug 0129's stated
+count-consequence law requires — "a row that already drew an error-severity
+diagnostic keeps that diagnostic ALONE" — and both are measured, not assumed
+(witness group (H)).
+
+**GOV-15, both directions, stated.**
+
+- **Newly ADMITTED** (emissions REMOVED, which is the direction §Fix (f) says
+  to state explicitly because they landed with 0052, 0154 and 0159): rows
+  B1–B10 stop drawing `theta/parse/duplicate-inline-field-name` naming `'ab'`
+  — a key no source contains — and rows D1–D5 stop drawing
+  `theta/parse/binding-case-mismatch` on the fused `Ab`. Both were refusals on
+  manufactured evidence; removing them is the point of the report.
+- **Newly REFUSED**, disposed of by the
+  [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+  per §Fix (f): rows B11, C1–C7 and D6 — the `params:` position, whose capture
+  was already faithful and which therefore had nothing to refuse before this
+  row existed. This is the set the doc's §Expected mandates ("what is not
+  admissible is loading it, and minting a property name — `a b` at `params:` —
+  that no author wrote"), and it is the reason §Fix (b) is not optional: the
+  capture change ALONE reaches position invariance while `{a b: integer}` still
+  loads at all eleven positions and still mints a non-`Ident` wire key. That
+  was measured, and it is recorded here rather than left as an open pick.
+  One further spelling joins the newly-refused set: `{ 3: string }` (0154 cell
+  n2), whose numeric key is not `Ident`-shaped and whose lowering would mint
+  the property `3`.
+- **0035's `params:` byte freeze holds BY HASH.**
+  `tests/params-inline-object-lowering.test.ts` (37 cells) is byte-identical to
+  HEAD — `git hash-object` = `8bcec9b804f99d92351363a0d5f4a727eead1074` =
+  `git rev-parse HEAD:…` — and green, so the lowered bytes of every well-formed
+  interior are unmoved. Its DIAGNOSTIC surface gained nothing: none of its
+  cells spells a B11/C/D6 shape.
+  `tests/inline-object-quoted-field-name-refusal.test.ts` is likewise
+  byte-identical (`0839ccde1dd3f6e341b2dce7c1db9ab8f31381aa`), and
+  `tests/committed-fixture-parse-gate.test.ts` takes no new refusal — the
+  corpus-wide "no shipped source moves" claim of §Reproduction (f) is
+  discharged by that gate, 36 cells green.
+
+**The falsified prose, corrected in the same change under this report's named
+authority** (§Fix (c)):
+
+- `code-registry-parse.md` — 0052's row: the reconstruction sentence ("where a
+  position reconstructs its type-source text from lexer tokens rather than
+  reading it verbatim, the two agree on that reconstruction too") no longer
+  describes an inline object interior, which is now read from the author's
+  source bytes at every `Type` position.
+- `code-registry-parse.md` — 0160's row: the clause "at ten of the eleven
+  `Type` positions the surrounding document reconstructs the type source by
+  joining lexer tokens with no separator", and the RATIONALE it grounded for
+  rendering the predicate's capture group rather than the raw key. The row's
+  *Message* and its rendering do not change; the reason does. Rendering the
+  theta-side identifier is now a statement about what that row's SUBJECT is —
+  the name a rename is written on — not a workaround for a lossy capture, since
+  the raw key agrees at every position. Its closing carve-out clause also now
+  names the three carved-out rows rather than "the two above".
+- `src/parser/type-grammar.ts` — the three absolute "original bytes" /
+  "inter-token whitespace survive verbatim" claims around `interiorSource`,
+  `TypeToken.start` and `parseObject`'s interior slice, made exact rather than
+  absolute.
+- `src/parser/theta-document.ts` — `parseType`'s "joining its tokens" doc
+  comment and `parseQuery`'s "captured verbatim as the annotation" comment,
+  both restated to what happens: token texts joined with no separator outside a
+  brace group, the balanced brace group sliced from the author's source bytes.
+- `tests/inline-object-field-name-comparison-key.test.ts` — group (H)'s header,
+  which stated the consequence as "only the rendered subject differs". §Fix (e)
+  requires the correction and §Reproduction (b) and (d) are the
+  counter-evidence: the VERDICT differed too. The group now pins position
+  invariance.
+- `tests/inline-object-wire-name-rename-refusal.test.ts` — the file header's
+  ten-of-eleven rationale paragraph, corrected on the same ground as the
+  registry row's.
+
+- Gates (each re-run independently of every nested report):
+  - Witness, both directions, each half of the fix neutralised SEPARATELY and
+    each prediction stated before the run and matched exactly. Capture
+    neutralised (joined texts pushed back): `Tests 12 failed | 9 passed (21)`,
+    red set `B1 C1 C2 D1 D2 E1 E2 G2 G3 H1 H2 I2`. Refusal neutralised
+    (emission suppressed): `Tests 7 failed | 14 passed (21)`, red set
+    `C1 C2 C3 D2 E1 H1 I2`. Restored by writing the bytes back — never
+    `git checkout --`, never `git restore`, never `git stash` — and hash-proven
+    byte-exact both times (`theta-document.ts`
+    `3803c6805154ce47677f56ffd7023b566b6399ea`, `type-grammar.ts`
+    `65c762b286a2bd744488a62b49258b557609592b`). Restored green:
+    `Tests 21 passed (21)`.
+  - Full default suite: `Test Files 367 passed (367)`,
+    `Tests 7511 passed (7511)` (baseline 366 / 7490; the extra file and its 21
+    tests are this fix's witness).
+  - Typecheck: `tsc -p tsconfig.json --noEmit` clean. Lint:
+    `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` clean.
+  - Named gates: `tests/params-inline-object-lowering.test.ts` 37/37,
+    `tests/committed-fixture-parse-gate.test.ts` 36/36,
+    `tests/let-annotation-inline-object-compat.test.ts` 51/51 (the ghost
+    bound's negative gate), `tests/query-annotation-nontype-text-refusal.test.ts`
+    cell `g1` green (the ghost bound's positive witness, 0203's subject
+    preserved).
+  - Live, run for real under the shared live lock: H8a
+    `tests/live/inline-field-name-not-identifier-CELL-A-live-cell.test.ts`
+    1/1 passed (10.3 s), H9a
+    `tests/live/acceptance/inline-field-name-not-identifier-load-refusal.test.ts`
+    1/1 passed (9.1 s). The H9a MEASUREMENT
+    (`parseSystemNoteCodes(probe.stdout + probe.stderr)`) held at `[]` — the new
+    code does not reach the H9a stdout/stderr capture, so
+    `tests/fixtures/h7a/permitted-codes.json` is correctly byte-untouched. The
+    clean sibling's stderr was the empty capture.
+- Review: 3 rounds. Round 1 (deep) — FINDINGS ×2: the new registry row sat
+  between the quoted and renamed rows, falsifying three positional
+  cross-references (`spec`), and one banned filler word in the new
+  emission-site comment (`prose`). Round 2 (fast) — CLEAN, with the row relocation and the
+  carve-out clause confirmed true at the new ordering; it surfaced two
+  banned-word occurrences in added test comments as a residual. Round 3 —
+  polish only, both banned words removed; every hunk comment-only, so the
+  polish is verified by gate-diff and the confirmation round is skipped.
+- Verification: SOLID. Obligation 1 discharged in two separable halves, each
+  with a stated prediction matching observation and hash-proven restoration.
+  Obligation 2 discharged with the suite counts and the two byte-identity
+  hashes. Obligation 3 discharged by two real live runs, both green first
+  attempt, no stochastic-class red. Obligation 4 discharged with both scripts
+  named from `package.json` and quoted clean.
+
+**The flip grant, cell by cell, subjects preserved.** Every flipped cell was
+RE-DERIVED by measurement (never search-edited), keeps witnessing its own
+subject, and carries an inline comment naming this report as the authority. 47
+cells across 13 files, the exact set the premeasurement predicted:
+
+- Doc-authorized (5): 0159 `D1` `H1` `H2`; 0160 `E1` `G1`; 0052 `d4`.
+- Entailed, ratified cell by cell (39): bug 0095 ×19 — `1b 1g 1h 1i 4a 4d 4e
+  4g 4h 4i 5a 5b 6c` byte/shape, `2b 3b 3d 3f 3g 6a` also diagnostic-list;
+  [0124](./0124-parsetype-trailing-punctuation-leniency.md) ×9 — `a20`, `a30`
+  ×3, `p1 p2 g4 g10 g16`, all precondition captures; bug 0096 ×2 — the 15-row
+  and 10-row byte-invariance tables, re-derived whole, dispositions unmoved;
+  bug 0128 ×2;
+  [0203](./0203-query-annotation-nontype-text-silent.md) ×2 — `c8` capture
+  bytes, and `g1` which the ghost bound keeps GREEN;
+  bug 0033 ×2 — `j1 j2`; bug 0151 ×1 — `e4`; bug 0192 ×1 — `d3`;
+  bug 0042 ×1 — `b10`.
+- Entailed by §Fix (b) itself, inside the doc-named witness set of §Fix (e) and
+  disposed of by §Fix (f)'s carve-out (3): 0160 `A1` — the control asserting
+  "no third row-scoped `<field>` carve-out", falsified by this fix's own
+  mandatory carve-out and re-derived to assert three carve-outs with 0160's own
+  row still absent from the set; 0160 `H2` — a code-level mirror of the
+  authorized `G1` inventory, where `g1 g15 g23` flip admit→refuse under the new
+  row while still declining 0160's rename predicate; 0154 `n2` —
+  `schema S { a: { 3: string } }`, where the field loop still skips the numeric
+  key from `fieldNames` (0154's own subject unmoved) and the new row names it
+  honestly instead.
+- The per-cell STOP VALVE was not reached: all six of 0095's diagnostic-list
+  cells and both of 0096's tables re-derived with their subjects intact.
+
+- Residuals:
+  1. **Re-pinned cell titles keep a stale `RED` prefix.**
+     `tests/inline-object-field-name-comparison-key.test.ts` cells `H1`/`H2`
+     were 0159's red witnesses and now pin the post-0228 uniform key while
+     keeping the prefix. Evidence: round 1's residual R1; the assertions are
+     correct and green. Repo-wide convention drift, not this fix's to settle.
+  2. **A well-formed field behind a space-broken one draws no rule of its
+     own.** `{a b: integer, Zs: string}` draws this fix's row for `a b`; `Zs`
+     never enters `fieldNames`, because `parseObject`'s tolerant loop breaks at
+     the malformed field, so `theta/parse/binding-case-mismatch` stays silent
+     on it. Evidence: round 1's residual R2, measured. The document is refused
+     either way (an `E` is present, registration denied), and the identical
+     blindness holds at `params:` at HEAD — the verbatim position — so it is a
+     pre-existing tolerance property of the field loop and not a regression
+     here. A candidate filing, not a blocker.
+  3. **The `bodyText`-empty fallback is unreachable in the shipped
+     composition.** All three `BodyParser` constructions thread a source, so the
+     joined-texts fallback in `consumeInlineObjectType` cannot be entered from
+     a shipped path. Evidence: round 1's audit of the three construction sites.
+     It is retained because the route mandates it and because it is the same
+     defence-in-depth arm the query template's raw slice already carries.
+- Discharge notes appended: none. The two residuals this report was filed to
+  unblock —
+  [0160](./0160-inline-object-wire-name-rename-unparsed.md)'s *Residuals*
+  item 2 (the capture, not the post-type `as` skip, is the cause of the family)
+  and [0154](./0154-inline-object-type-field-name-rules-unenforced.md)'s
+  *Residuals* item 1 (row w2, the case rule blind at `{ Ys as "w": string }`) —
+  are both discharged by the shipped capture: `Ys as "w"` now reaches the
+  raw-key loop as the author wrote it. Neither sibling document is edited here.
+- Pinned dispositions / non-goals: the inline wire-name rename keeps 0160's
+  row and its rendering. The escaped-quote class is
+  [0229](./0229-escaped-quote-wire-name-drops-inline-field.md) and is untouched
+  — its escape-blind quote tracking in the shared split now receives the
+  author's SPACED text at every position instead of the joined text, so its
+  input spelling changes and its subject and red signature do not (a string
+  literal is one token either way). The non-ASCII tokeniser class is
+  [0227](./0227-non-ascii-tokeniser-drop.md) and is untouched — a non-ASCII byte
+  sitting BETWEEN tokens inside a brace-group interior now reaches
+  `tokeniseType` verbatim rather than being dropped with the whitespace, so
+  0227's premeasure must treat the capture as an input variable. The
+  positional drift this change induces in `theta-document.ts` and
+  `type-grammar.ts` is [0134](./0134-params-shift-induced-stale-citations.md)'s
+  adjudicated do-not-chase class: no citation sweep was performed at any phase.
+  The `params:` lowering freeze of 0035 and 0039 was a constraint and is
+  hash-proven unmoved. The missing-comma shape (row E3) keeps the
+  `*-type-not-expression` rows it already drew.

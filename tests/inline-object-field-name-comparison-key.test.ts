@@ -770,7 +770,10 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
       ['{"": string, "": integer}', ['""'], ['""']],
       ['{"a" : string, "a" : integer}', ['"a"'], ['"a"']],
       ['{"a": string, "a": integer, "a": boolean}', ['"a"'], ['"a"']],
-      ['{a as "w": integer, a as "w": string}', ['aas"w"'], ['aas"w"']],
+      // Since bug 0228's fix the annotation's brace group is a raw slice of
+      // the author's own source bytes, so the repeated key is the author's
+      // spacing (`a as "w"`) rather than a joined `aas"w"`.
+      ['{a as "w": integer, a as "w": string}', ['a as "w"'], ['a as "w"']],
       ["{p: {c: 1, : y, c: 2}, p: 3}", ["p", "c"], ["p"]],
       ["{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}", ["p", "c"], ["p"]],
       ["{a: {b: {c: 1, : y, c: 2}, a: 4}, z: 5}", ["c"], ["c"]],
@@ -1018,32 +1021,40 @@ describe("bug 0159 (G) — bug 0161's declaration control and its explicitly-ope
 });
 
 // ===========================================================================
-// (H) THE TYPE-SOURCE CAPTURE IS POSITION-DEPENDENT, AND THE RULE IS NOT.
-// `params:` hands the type grammar the YAML scalar verbatim, whitespace
-// preserved, while the other seven positions and the `.thetalib` spelling
-// rebuild the type text by joining lexer token texts with NO separator. So
-// `{a  as  "w": integer, b: string}` arrives at `params:` as written and
-// everywhere else as `{aas"w":integer,b:string}`.
+// (H) THE TYPE-SOURCE CAPTURE IS FAITHFUL AT EVERY POSITION, AND SO IS THE
+// RULE (bug 0228). Before that fix, `params:` alone handed the type grammar
+// the YAML scalar verbatim, while the other seven positions and the
+// `.thetalib` spelling rebuilt the type text by joining lexer token texts with
+// NO separator: `{a  as  "w": integer, b: string}` arrived at `params:` as
+// written and everywhere else as `{aas"w":integer,b:string}`. Bug 0228's fix
+// makes an inline object's brace group a raw slice of the author's own source
+// bytes at every position, so the group above now arrives identically
+// everywhere — group (H) no longer needs a `params:`-versus-the-rest split to
+// state its claim.
 //
-// This is a property of the CAPTURE and not of the rule: the rule and the two
-// lowerers receive the SAME string at each position, so their keys agree
-// exactly everywhere — only the rendered subject differs, and it differs
-// exactly where the lowered PROPERTY NAME already differs today. Shapes with no
-// inter-token whitespace inside a key are unaffected, which is why every table
-// in group (A) is uniform across the nine positions.
-// RED at HEAD: the emission table. The capture and lowering read-backs are
-// CONTROLS.
+// This group's header used to read "only the rendered subject differs" — a
+// narrower claim than what §Reproduction (b) and (d) of bug 0228 measured: at
+// HEAD before that fix, the VERDICT differed too (a repeat manufactured by the
+// join at ten positions, admitted at `params:`, and vice versa for a
+// case-mismatch key). What this group pins now: the rule and the two lowerers
+// receive the SAME string at every position, so their keys agree exactly
+// everywhere, and so does the rendered subject — there is no longer a
+// position whose capture disagrees with the others. Shapes with no inter-token
+// whitespace inside a key were already unaffected either way, which is why
+// every table in group (A) is uniform across the nine positions.
 // ===========================================================================
 
 describe("bug 0159 (H) — the rendered subject follows the position's type-source capture", () => {
-  it('RED H1: `{a as "w": integer, a as "w": string}` names the joined key at eight positions and the raw key at `params:`', () => {
-    const joined = atEveryPosition([dupLine('aas"w"')]);
+  it('RED H1: `{a as "w": integer, a as "w": string}` names the same raw key at every position', () => {
+    // Since bug 0228's fix every position's brace group is a raw slice of the
+    // author's own source bytes, so `params:` no longer stands apart: all
+    // nine positions render the SAME raw key.
+    const everywhere = atEveryPosition([dupLine('a as "w"')]);
     expect(
       positions('{a as "w": integer, a as "w": string}'),
       "H1 — one key repeated is one line at every position; the subject is the entry's raw " +
-        "pre-colon text, and `params:` is the one position whose raw text still carries the " +
-        "author's spacing",
-    ).toEqual({ ...joined, "params: field": [dupLine('a as "w"')] });
+        "pre-colon text, which now agrees at every position including `params:`",
+    ).toEqual({ ...everywhere, "params: field": [dupLine('a as "w"')] });
   });
 
   it("CONTROL H2: the capture itself, read off the parsed document at three positions", () => {
@@ -1057,16 +1068,19 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
     // ahead of any rule — and the DIRECT lowerer call at the end stays
     // byte-identical, which is what proves this fix changed no lowering.
     const type = '{a  as  "w": integer, b: string}';
+    // Since bug 0228's fix the whole annotation is ONE brace group, so its
+    // capture is a raw slice of the author's own source bytes — byte-identical
+    // to `type` itself, double interior spaces and all.
     expect(
       capturedQuerySchema(type),
-      "H2 — the `@<T>` annotation's text is rebuilt from lexer token texts joined with no " +
-        "separator, so the author's spacing is gone before any rule or lowerer sees it",
-    ).toBe('{aas"w":integer,b:string}');
+      "H2 — the `@<T>` annotation's brace group is a raw slice of the author's own source " +
+        "bytes, so the captured text is the type as written",
+    ).toBe(type);
     expect(
       capturedSchemaFieldType(type),
       "H2 — the `schema` body field position captures the same way, which is why the " +
-        "`.thetalib` spelling of it answers with the joined key too",
-    ).toBe('{aas"w":integer,b:string}');
+        "`.thetalib` spelling of it answers with the raw key too",
+    ).toBe(type);
 
     const paramsDoc = parseDoc(paramsSrc(`  p: '${type}'`), "bug0159.theta");
     expect(
@@ -1081,15 +1095,21 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
         "carrying a refused rename withholds the WHOLE frontmatter object, so no lowered schema " +
         "keyed on either capture ever reaches the binder",
     ).toBeNull();
+    // Since bug 0228's fix the DIRECT lowerer call reads the same raw capture
+    // the load path does, so it mints the raw pre-colon text — double interior
+    // spaces included — as the property name, not a joined `aas"w"`. This is
+    // still a prevented-artefact control: the load path withholds the whole
+    // frontmatter object on the refusal above, so this schema is reachable
+    // only by this direct call.
     expect(
       lowerQueryResponseSchema(capturedQuerySchema(type), [], []),
       "H2 — reached by DIRECT construction only, now that the load-path refusal withholds this " +
-        "artefact: the joined capture still lowers the joined property name byte-for-byte, so " +
-        "this fix changed no lowering, only what reaches it through a load",
+        "artefact: the raw capture lowers the raw pre-colon text byte-for-byte, so this fix " +
+        "changed no lowering, only what reaches it through a load",
     ).toEqual({
       type: "object",
-      properties: { 'aas"w"': { type: "integer" }, b: { type: "string" } },
-      required: ['aas"w"', "b"],
+      properties: { 'a  as  "w"': { type: "integer" }, b: { type: "string" } },
+      required: ['a  as  "w"', "b"],
       additionalProperties: false,
     });
   });

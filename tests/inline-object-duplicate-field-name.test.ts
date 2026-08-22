@@ -817,16 +817,16 @@ describe("bug 0052 (d) — a nested reuse and a generic interior are not repeats
     // the identifier twice (once per renamed entry); row 3 names it once, its
     // plain sibling drawing nothing from either rule.
     //
-    // The subject rendered for row 1 is the ANNOTATION position's captured
-    // text, which joins lexer token texts with no separator; the `params:`
-    // position passes its YAML scalar through verbatim and renders the
-    // author's spacing instead. That divergence belongs to the type-source
-    // capture rather than to this rule, and is pinned as cell H1 of
+    // Since bug 0228's fix, an inline object's brace group is a raw slice of
+    // the author's own source bytes at the ANNOTATION position too, so row 1's
+    // rendered key is the author's spacing (`a as "w"`), agreeing with what
+    // `params:` already rendered — the divergence this comment used to record
+    // is closed, and is pinned as cell H1 of
     // tests/inline-object-field-name-comparison-key.test.ts. Row 1 is
-    // unaffected: a REPEATING key is bug 0159's row alone (bug 0160 §Fix
-    // precedence), so the new rule never reaches it.
+    // otherwise unaffected: a REPEATING key is bug 0159's row alone (bug 0160
+    // §Fix precedence), so the new rule never reaches it.
     const cells: ReadonlyArray<readonly [type: string, want: string[]]> = [
-      ['{a as "w": integer, a as "w": string}', [dupLine('aas"w"')]],
+      ['{a as "w": integer, a as "w": string}', [dupLine('a as "w"')]],
       ['{a as "w": integer, a as "x": string}', [renamedInlineLine("a"), renamedInlineLine("a")]],
       ['{a: integer, a as "x": string}', [renamedInlineLine("a")]],
     ];

@@ -394,6 +394,9 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
     // HEAD. Post-fix there is no empty arm for 0045's rule to name, so the whole
     // list is empty — the fixture §Fix's GOV-15 clause names as "newly loads
     // clean".
+    // Since bug 0228's fix an inline object's brace group is a raw slice of
+    // the author's own source bytes here too, so the non-empty arm keeps its
+    // inter-token spacing.
     expect(
       observeSchema(body("schema S { f: {a: integer} | null }")),
       "1b — an optional inline-object field with a field in it draws nothing at all: the " +
@@ -401,7 +404,7 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
     ).toEqual({
       diagnostics: [],
       shape: [
-        { name: "S", fields: [{ name: "f", typeSource: "{a:integer}|null" }], arms: null },
+        { name: "S", fields: [{ name: "f", typeSource: "{a: integer}|null" }], arms: null },
       ],
     });
   });
@@ -486,13 +489,17 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
   it("RED 1g: `schema S { f: {  } | null }` — a whitespace interior is the same empty arm", () => {
     // Whitespace is not a token, so this is the same input to 0045's rule as 1a
     // and the captured type source is the same bytes.
+    // Since bug 0228's fix the brace group is a raw slice of the author's own
+    // source bytes, so the whitespace interior survives the capture (the
+    // group's INTERIOR, after `trim()`, is still empty, so 0045's rule fires
+    // identically to 1a — only the captured `typeSource` bytes move).
     expect(
       observeSchema(body("schema S { f: {  } | null }")),
       "1g — the tokeniser discards whitespace before the interior is read, so an interior of " +
         "whitespace alone is the empty inline object of 1a and captures identically",
     ).toEqual({
       diagnostics: [inlineLine()],
-      shape: [{ name: "S", fields: [{ name: "f", typeSource: "{}|null" }], arms: null }],
+      shape: [{ name: "S", fields: [{ name: "f", typeSource: "{  }|null" }], arms: null }],
     });
   });
 
@@ -501,6 +508,7 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
     // records as unusable at this position. Post-fix it loads, which is what
     // turns that cell into the four-position parity assertion its own comment
     // says it could not be.
+    // Since bug 0228's fix the brace-group arm keeps the author's own spacing.
     expect(
       observeSchema(body("schema S { a: {a: integer} | array<integer> }")),
       "1h — a brace-group arm beside a generic arm is ordinary grammar (grammar.md:94, :99); " +
@@ -510,7 +518,7 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
       shape: [
         {
           name: "S",
-          fields: [{ name: "a", typeSource: "{a:integer}|array<integer>" }],
+          fields: [{ name: "a", typeSource: "{a: integer}|array<integer>" }],
           arms: null,
         },
       ],
@@ -522,6 +530,8 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
     // declaration is unaffected (the recovery IS scoped), and the claim
     // post-fix is that BOTH declarations carry their fields and the list is
     // empty — so this cell moves the first declaration only.
+    // Since bug 0228's fix `S`'s brace-group arm keeps the author's own
+    // spacing.
     expect(
       observeSchema(`${FM}schema S { f: {a: integer} | null }\nschema T { g: string }\n${TAIL}`),
       "1i — recovery scoping is already correct; what moves is that `S` keeps its field, so " +
@@ -529,7 +539,7 @@ describe("bug 0095 (1) — a brace-rooted union arm in a schema field keeps the 
     ).toEqual({
       diagnostics: [],
       shape: [
-        { name: "S", fields: [{ name: "f", typeSource: "{a:integer}|null" }], arms: null },
+        { name: "S", fields: [{ name: "f", typeSource: "{a: integer}|null" }], arms: null },
         { name: "T", fields: [{ name: "g", typeSource: "string" }], arms: null },
       ],
     });
@@ -590,10 +600,13 @@ describe("bug 0095 (2) — a brace-rooted union annotation keeps the `=` initial
       observeLet(body("let x: {a: integer} | null = 1")),
       "2b — the recovered statement now reaches bug 0130's check, which decides `1 \u22ee " +
         "{a: integer} | null` statically and refuses it",
+    // Since bug 0228's fix the brace-group arm keeps the author's own spacing
+    // in the captured `annotation`; the RENDERED `<expected>` above already
+    // went through `displayType`'s own spacing convention and is unmoved.
     ).toEqual({
       diagnostics: [mismatchLine("x", "{ a: integer } | null", "integer")],
       shape: {
-        annotation: "{a:integer}|null",
+        annotation: "{a: integer}|null",
         hasInitialiser: true,
         statementKinds: ["let", "let"],
         docTailPresent: true,
@@ -661,6 +674,8 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
     // fixture loads with ZERO diagnostics today, carrying three parameters, and
     // with zero after, carrying one. A diagnostic-only assertion is vacuous
     // here, so the parameter list is the entire witness.
+    // Since bug 0228's fix the brace-group parameter type keeps the author's
+    // own spacing.
     expect(
       observeFn(body("fn f(p: {a: integer} | null) { 1 }")),
       "3b — arity is read by argument binding (invocation.md §\"Argument arity\"), so a theta " +
@@ -669,7 +684,7 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
     ).toEqual({
       diagnostics: [],
       shape: {
-        params: [{ name: "p", type: "{a:integer}|null" }],
+        params: [{ name: "p", type: "{a: integer}|null" }],
         returnType: null,
         bodyStatementKinds: [],
         bodyTailPresent: true,
@@ -703,6 +718,8 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
 
   it("RED 3d: `fn f(): {a: integer} | null { 1 }` loads clean with the whole return type", () => {
     // §Fix's other named GOV-15 arrival: two diagnostics today, none after.
+    // Since bug 0228's fix the brace-group return-union arm keeps the
+    // author's own spacing.
     expect(
       observeFn(body("fn f(): {a: integer} | null { 1 }")),
       "3d — a non-empty brace arm in a return union leaves nothing for any rule to name, so the " +
@@ -711,7 +728,7 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
       diagnostics: [],
       shape: {
         params: [],
-        returnType: "{a:integer}|null",
+        returnType: "{a: integer}|null",
         bodyStatementKinds: [],
         bodyTailPresent: true,
         docTailPresent: true,
@@ -753,6 +770,9 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
     // (`rg '\|\s*\{' --glob '*.theta' --glob '*.thetalib'` over the tree —
     // no match), matching the corpus oracle's byte-identical dispositions
     // across all 35 files (`.pi/tmp/fixes/0095-corpus-baseline.txt`).
+    // Since bug 0228's fix the absorbed `{ 1 }` body-turned-arm is a raw
+    // slice of the author's own source bytes, so its interior spacing
+    // survives too.
     expect(
       observeFn(body("fn f(): integer | { 1 }")),
       "3f — a loads-cleanly source can move its RETURN type's arm count and the document's own " +
@@ -761,7 +781,7 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
       diagnostics: [],
       shape: {
         params: [],
-        returnType: "integer|{1}",
+        returnType: "integer|{ 1 }",
         bodyStatementKinds: ["let"],
         bodyTailPresent: true,
         docTailPresent: false,
@@ -780,6 +800,8 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
     // side of the union the brace-rooted arm sits on, so the SECOND `{` here
     // is not at an arm start and still ends the capture at the same
     // COMPLETED-arm boundary 3c/3d/4a/4b pin, and stays the `FnBody`.
+    // Since bug 0228's fix the brace-group return-union arm keeps the
+    // author's own spacing.
     expect(
       observeFn(body("fn f(): integer | {a: integer} { 1 }")),
       "3g — a non-empty brace arm SECOND in a return union leaves nothing for any rule to name, " +
@@ -788,7 +810,7 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
       diagnostics: [],
       shape: {
         params: [],
-        returnType: "integer|{a:integer}",
+        returnType: "integer|{a: integer}",
         bodyStatementKinds: [],
         bodyTailPresent: true,
         docTailPresent: true,
@@ -812,6 +834,8 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
     // The competing-token case, non-empty. The return type is a completed arm
     // and the `{` that follows is the `FnBody`; a widening that consumed a
     // post-arm `{` would swallow the body here and red.
+    // Since bug 0228's fix the completed brace-group return type keeps the
+    // author's own spacing.
     expect(
       observeFn(body("fn f(): {a: integer} { 1 }")),
       "4a — `atArmStart` is false after a completed arm, so the depth-0 `{` stop " +
@@ -820,7 +844,7 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
       diagnostics: [],
       shape: {
         params: [],
-        returnType: "{a:integer}",
+        returnType: "{a: integer}",
         bodyStatementKinds: [],
         bodyTailPresent: true,
         docTailPresent: true,
@@ -872,6 +896,8 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
   });
 
   it("CONTROL 4d: `schema S { f: {a: integer}, g: string }` keeps the `,` delimiter", () => {
+    // Since bug 0228's fix the brace-group field type keeps the author's own
+    // spacing.
     expect(
       observeSchema(body("schema S { f: {a: integer}, g: string }")),
       "4d — a brace-rooted field type with no `|` after it captures correctly today because the " +
@@ -882,7 +908,7 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
         {
           name: "S",
           fields: [
-            { name: "f", typeSource: "{a:integer}" },
+            { name: "f", typeSource: "{a: integer}" },
             { name: "g", typeSource: "string" },
           ],
           arms: null,
@@ -902,11 +928,13 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
       },
       "4e — `}` still ends a field type at depth 0, and the declaration is not field-less in " +
         "either spelling, so the empty one keeps the INLINE subject",
+    // Since bug 0228's fix the non-empty group keeps the author's own
+    // spacing; the empty group has no interior to move.
     ).toEqual({
       nonEmpty: {
         diagnostics: [],
         shape: [
-          { name: "S", fields: [{ name: "f", typeSource: "{a:integer}" }], arms: null },
+          { name: "S", fields: [{ name: "f", typeSource: "{a: integer}" }], arms: null },
         ],
       },
       empty: {
@@ -930,9 +958,13 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
   it("CONTROL 4g: a brace group at depth > 0 inside `array<…>` is byte-unchanged", () => {
     // Both nesting directions in one table: the empty group inside `<…>` beside
     // a union outside it, and a whole union inside it. A brace at depth > 0
-    // never reaches the arm-start test at all, so these two are the same bytes
-    // one level down — the pair §Reproduction's control table uses to bound the
-    // defect to depth 0.
+    // never reaches the ARM-START test (`parseType`'s `depth === 0` branch), so
+    // this cell's own claim — no arm-start reordering one level down — is
+    // unmoved; since bug 0228's fix a depth>0 `{` is instead routed through the
+    // shared balanced-group consumer (`stopAtAngleClose`), which raw-slices a
+    // NON-EMPTY interior. `outerUnion`'s group is empty (no interior to move);
+    // `innerUnion`'s is not, so its `typeSource` keeps the author's own
+    // spacing.
     expect(
       {
         outerUnion: observeSchema(body("schema S { f: array<{}> | null }")),
@@ -952,7 +984,7 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
         shape: [
           {
             name: "S",
-            fields: [{ name: "f", typeSource: "array<{a:integer}|null>" }],
+            fields: [{ name: "f", typeSource: "array<{a: integer}|null>" }],
             arms: null,
           },
         ],
@@ -963,6 +995,8 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
   it("CONTROL 4h: `fn f(p: {a: integer}, q: string) { 1 }` keeps the `,` and `)` delimiters", () => {
     // The parameter-slot half of the delimiter claim: a brace-rooted parameter
     // type followed by `,` and then `)`, both at COMPLETED-arm boundaries.
+    // Since bug 0228's fix the brace-group parameter type keeps the author's
+    // own spacing.
     expect(
       observeFn(body("fn f(p: {a: integer}, q: string) { 1 }")),
       "4h — `,` and `)` still end a parameter type at depth 0 after a completed arm, so a " +
@@ -971,7 +1005,7 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
       diagnostics: [],
       shape: {
         params: [
-          { name: "p", type: "{a:integer}" },
+          { name: "p", type: "{a: integer}" },
           { name: "q", type: "string" },
         ],
         returnType: null,
@@ -989,6 +1023,8 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
     // byte-identical; only the diagnostics list gains bug 0130's row, for the
     // same reason cell 2b's does — `1 \u22ee {a: integer}` is a decidable `false`
     // (TYPE-8), not the deferred pseudo-`named` this file's own bug left it as.
+    // Since bug 0228's fix the brace-group annotation keeps the author's own
+    // spacing in the captured `annotation`.
     expect(
       observeLet(body("let x: {a: integer} = 1")),
       "4i — `=` still ends a `let` annotation at the completed-arm boundary, so the initialiser " +
@@ -996,7 +1032,7 @@ describe("bug 0095 (4) — the delimiters the widened capture must not eat", () 
     ).toEqual({
       diagnostics: [mismatchLine("x", "{ a: integer }", "integer")],
       shape: {
-        annotation: "{a:integer}",
+        annotation: "{a: integer}",
         hasInitialiser: true,
         statementKinds: ["let", "let"],
         docTailPresent: true,
@@ -1051,9 +1087,14 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
         diagnostics: [inlineLine()],
         shape: [{ name: "X", fields: null, arms: ["null", "{}"] }],
       },
+      // Since bug 0228's fix the alias's own brace-group arm is ALSO a raw
+      // slice now (it shares the same `consumeInlineObjectType`), so this
+      // reference capture (grammar.md:175) keeps the author's own spacing
+      // too, agreeing byte-for-byte with the widened positions it generalises
+      // to.
       nonEmpty: {
         diagnostics: [],
-        shape: [{ name: "X", fields: null, arms: ["{a:integer}", "null"] }],
+        shape: [{ name: "X", fields: null, arms: ["{a: integer}", "null"] }],
       },
     });
   });
@@ -1078,9 +1119,11 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
       "5b — the `@<T>` root already captures the whole union and reports exactly the empty arm; " +
         "this fix touches `parseType` only, and the captured bytes are the proof rather than the " +
         "diagnostic alone",
+    // Since bug 0228's fix the `@<T>` root's brace-group arm keeps the
+    // author's own spacing.
     ).toEqual({
       empty: { diagnostics: [inlineLine()], querySchema: "{}|null" },
-      nonEmpty: { diagnostics: [], querySchema: "{a:integer}|null" },
+      nonEmpty: { diagnostics: [], querySchema: "{a: integer}|null" },
     });
   });
 
@@ -1156,6 +1199,8 @@ describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator un
     // resolves in every variant but is not a single literal, so 0096's
     // structural predicate classifies it `{}` (not nested) and bug 0128's gate
     // refuses it under `theta/parse/non-literal-discriminator`.
+    // Since bug 0228's fix each brace-group arm keeps the author's own
+    // spacing.
     expect(
       observeSchema(animalSrc("{a: integer} | {b: string}")),
       "6a — `{a:integer}|{b:string}` is not a single enclosing brace group, so 0096's " +
@@ -1168,7 +1213,7 @@ describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator un
         {
           name: "Cat",
           fields: [
-            { name: "kind", typeSource: "{a:integer}|{b:string}" },
+            { name: "kind", typeSource: "{a: integer}|{b: string}" },
             { name: "name", typeSource: "string" },
           ],
           arms: null,
@@ -1225,6 +1270,8 @@ describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator un
     // The bound on 6a: the code 0096's predicate still selects for a SINGLE
     // enclosing brace group. Without this cell, 6a's clean load could be
     // satisfied by a classifier that never reports nesting at all.
+    // Since bug 0228's fix the single enclosing brace group keeps the
+    // author's own spacing.
     expect(
       observeSchema(animalSrc('{ type: "x" }')),
       "6c — `{ type: \"x\" }` IS a single enclosing brace group, so the discriminator is not at " +
@@ -1235,7 +1282,7 @@ describe("bug 0095 (6) — 0096's witness item 4: a brace-group discriminator un
         {
           name: "Cat",
           fields: [
-            { name: "kind", typeSource: '{type:"x"}' },
+            { name: "kind", typeSource: '{ type: "x" }' },
             { name: "name", typeSource: "string" },
           ],
           arms: null,

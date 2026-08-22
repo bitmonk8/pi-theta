@@ -69,16 +69,25 @@ import { parseDoc } from "./helpers/e2e-s1";
 // written: /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"[^"]*"|'[^']*')$/ — capture
 // group 1 is the rendered `<field>`.
 //
-// WHY A PARSE-LEVEL ROUTE WAS REJECTED, AND WHY THAT PREDICATE IS
-// POSITION-INVARIANT (re-verified here by probe, not inherited):
-// at ten of the eleven `Type` positions the document reconstructs the type
-// source by joining lexer tokens with no separator, so `{a as "w": integer}`
-// reaches both the checker and the lowerer as `{aas"w":integer}` and the raw key
-// is `aas"w"`; `params:` alone passes its YAML scalar through and keeps
-// `a as "w"`. The predicate matches BOTH spellings and yields `a` from both —
-// which is what lets one rule answer alike at all eleven positions
-// (docs/spec_topics/type-system.md:15). Group (C) pins both spellings' subject
-// as the same identifier; group (E) row e1 exhibits the two raw keys directly
+// WHY A PARSE-LEVEL ROUTE WAS REJECTED, AND WHY THIS ROW RENDERS THE
+// THETA-SIDE IDENTIFIER RATHER THAN THE RAW KEY (re-verified here by probe,
+// not inherited):
+// before bug 0228's fix, at ten of the eleven `Type` positions the document
+// reconstructed the type source by joining lexer tokens with no separator, so
+// `{a as "w": integer}` reached both the checker and the lowerer as
+// `{aas"w":integer}` and the raw key was `aas"w"`; `params:` alone passed its
+// YAML scalar through and kept `a as "w"`. Rendering the pattern's captured
+// GROUP rather than the raw key was load-bearing then: the predicate matches
+// both spellings and yields `a` from both, which was what let this row answer
+// alike at all eleven positions despite the captures disagreeing
+// (docs/spec_topics/type-system.md:15). Bug 0228's fix makes an inline
+// object's brace group a raw slice of the author's own source bytes at every
+// position, so the raw key now agrees with the author's spelling everywhere
+// too — the reason to render the identifier instead of the raw key is no
+// longer that agreement, it is that the identifier IS this row's subject: the
+// theta-side name a rename is written on, not the raw key a rename clause
+// happens to spell. Group (C) pins both spellings' subject as the same
+// identifier; group (E) row e1 exhibits the (now-agreeing) raw keys directly
 // through the neighbour row's own rendered subject.
 //
 // SPEC ANCHORS (the contract, not the current code):
@@ -204,6 +213,11 @@ const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
 const QUERY_ANNOT_NOT_EXPR = "theta/parse/query-annotation-type-not-expression";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
+// Bug 0228's fourth-and-last raw-key row, entailed into this file's boundary
+// group (G): a key that is none of this row's own subject (repeat, quote-led,
+// rename-shaped) and is not itself `Ident`-shaped now draws this row instead
+// of staying silent.
+const NOT_IDENTIFIER_INLINE = "theta/parse/inline-field-name-not-identifier";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -308,6 +322,9 @@ function BINDINGCASE(): Exp {
 }
 function RESERVED(keyword: string): Exp {
   return { severity: "error", code: RESERVED_KEYWORD, fills: [["<keyword>", keyword]] };
+}
+function NOTIDENT(key: string): Exp {
+  return { severity: "error", code: NOT_IDENTIFIER_INLINE, fills: [["<field>", key]] };
 }
 
 // ===========================================================================
@@ -573,21 +590,25 @@ function suppressionRows(): Cell[] {
  */
 function boundaryRows(): Cell[] {
   return [
-    // g1 — a non-identifier key that is NOT a rename. The predicate does not
-    // match it, so it stays silent and this report claims nothing for it
-    // (0176's non-identifier-key residual owns the class).
-    { cell: "g1", src: annotSrc('{a"b": string}'), expected: [] },
+    // g1 — a non-identifier key that is NOT a rename. THIS row's predicate
+    // does not match it, and 0160 claims nothing for it (0176's
+    // non-identifier-key residual owns the class). Since bug 0228's fix,
+    // though, the key `a"b"` is not `Ident`-shaped either, and that report's
+    // own row — fourth and last in the precedence, after this file's rename
+    // row — now names it: the cell's SUBJECT (this row stays silent on a
+    // non-rename key) is unmoved, but the shape is no longer admitted overall.
+    { cell: "g1", src: annotSrc('{a"b": string}'), expected: [NOTIDENT('a"b"')] },
     // g2 — bug 0176's row alone: the first character is a quote, so the
     // first-char test `continue`s before this row is reached.
     { cell: "g2", src: annotSrc('{"a": string}'), expected: [QUOTED('"a"')] },
     // g3 — a REPEATING rename key is bug 0159's row ALONE, with no line from
-    // this one. The rendered subject is the token-joined raw key, which is what
-    // makes the position-dependence of the KEY visible beside the
-    // position-invariance of this report's rendered `<field>`.
+    // this one. Since bug 0228's fix the rendered subject is the author's own
+    // raw key at every position, not a token-joined one — this cell no longer
+    // needs a `params:`-versus-the-rest split to make its point.
     {
       cell: "g3",
       src: annotSrc('{a as "w": string, a as "w": integer}'),
-      expected: [DUP('aas"w"')],
+      expected: [DUP('a as "w"')],
     },
     // g4 — bug 0052's generic-argument carve-out, inherited byte-for-byte: the
     // lowering never divides that interior into fields.
@@ -648,8 +669,11 @@ function boundaryRows(): Cell[] {
     // predicate's own `\s*` absorbs the rest.
     { cell: "g14", src: annotSrc('{ a as "w" : integer }'), expected: [REN("a")] },
     // g15 — an `as` with no string literal behind it is not a rename spelling:
-    // the predicate requires the quoted wire name, so this stays silent.
-    { cell: "g15", src: annotSrc("{a as: integer}"), expected: [] },
+    // THIS row's predicate requires the quoted wire name, so it stays silent.
+    // Since bug 0228's fix the raw key `a as` is not `Ident`-shaped either
+    // (it carries a space), so that report's own fourth-and-last row now
+    // names it — this cell's subject (no rename here) is unmoved.
+    { cell: "g15", src: annotSrc("{a as: integer}"), expected: [NOTIDENT("a as")] },
     // g16 — a leading-underscore theta name is an identifier
     // (lexical.md:13) and is rendered as written.
     { cell: "g16", src: annotSrc('{_a as "w": integer}'), expected: [REN("_a")] },
@@ -699,12 +723,16 @@ function boundaryRows(): Cell[] {
       src: annotSrc('{let as "w": integer}'),
       expected: [REN("let"), RESERVED("as")],
     },
-    // g23 — a SECOND rename clause behind the first is trailing text, and the
-    // predicate is anchored at both ends with the wire-name literal at the end,
-    // so the whole entry matches nothing and stays silent. That is an
-    // under-refusal this route accepts rather than a shape it claims: the key
-    // the lowering still mints from it is pinned in cell G4.
-    { cell: "g23", src: annotSrc('{a as "w" as "x": integer}'), expected: [] },
+    // g23 — a SECOND rename clause behind the first is trailing text, and
+    // THIS row's predicate is anchored at both ends with the wire-name literal
+    // at the end, so the whole entry matches nothing and this row alone stays
+    // silent on it — that under-refusal-BY-THIS-ROW is what cell G4 still
+    // pins in the lowered bytes. Since bug 0228's fix, though, the raw key
+    // `a as "w" as "x"` is not `Ident`-shaped, so that report's own
+    // fourth-and-last row now names it; the key still reaches the lowering
+    // unrefused ONLY through the DIRECT construction cell G4 performs, not
+    // through a load.
+    { cell: "g23", src: annotSrc('{a as "w" as "x": integer}'), expected: [NOTIDENT('a as "w" as "x"')] },
   ];
 }
 
@@ -777,18 +805,27 @@ describe("bug 0160 (A) — the third code the refusal route mints, and its place
     ).toBe("wire-name rename on field '<field>' within one inline object type");
   });
 
-  it("CONTROL A1: `<field>` keeps the standard identifier rendering — no third row-scoped carve-out", () => {
-    // placeholder-rendering-b.md:10 grants `<field>` a raw-text carve-out on
-    // exactly two rows (bug 0159's and bug 0176's) because their subject is an
-    // inline entry's raw pre-colon text. This row's subject is an IDENTIFIER,
-    // so it takes category 5's default rendering and the page does not move.
+  it("CONTROL A1: `<field>` keeps the standard identifier rendering — THREE row-scoped carve-outs, none of them this row's", () => {
+    // placeholder-rendering-b.md:10 grants `<field>` a raw-text carve-out
+    // because a row's subject is an inline entry's raw pre-colon text. This
+    // row's own subject is an IDENTIFIER, so it takes category 5's default
+    // rendering and this row is not among the carved-out ones.
+    //
+    // The carve-out COUNT is entailed by bug 0228, not by this report: that
+    // fix mints `theta/parse/inline-field-name-not-identifier`, a FOURTH
+    // raw-key-comparing row whose `<field>` also needs the carve-out (its
+    // subject is the raw key too), so the sentence now excepts three rows
+    // rather than two. This row (`theta/parse/renamed-inline-field-name`)
+    // takes NO carve-out either way — its own subject was always the
+    // theta-side identifier — so the control's real claim is unmoved: this
+    // row is not one of the excepted ones.
     const page = readDiagnosticsPage("placeholder-rendering-b.md");
     expect(
       page,
-      "A1 — the carve-out sentence must still except exactly two rows; a fix that added this " +
-        "row to it would be rendering a raw key rather than the theta-side identifier, which " +
-        "is not the settled disposition",
-    ).toContain("`<field>` renders this way on every row but two");
+      "A1 — the carve-out sentence now excepts exactly three rows (bug 0228 adds the fourth " +
+        "raw-key row); a fix that added THIS row to it would be rendering a raw key rather than " +
+        "the theta-side identifier, which is not the settled disposition",
+    ).toContain("`<field>` renders this way on every row but three");
     expect(
       page.includes(RENAMED_INLINE),
       `A1 — ${RENAMED_INLINE} must NOT appear on placeholder-rendering-b.md: its <field> is ` +
@@ -1066,14 +1103,14 @@ describe("bug 0160 (E) — the duplicate family bug 0159 closed, and the AJV out
   it("CONTROL E1: D1 and D5 — a repeating rename key keeps bug 0159's row alone, at all eleven positions", () => {
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
-    // The subject is the RAW key, so it is position-dependent: `aas"w"` at the
-    // ten token-joining positions, `a as "w"` at `params:`. That is exactly the
-    // rendering this report's row must NOT inherit, and this cell is where both
-    // spellings are visible side by side.
+    // The subject is the RAW key. Since bug 0228's fix every position's brace
+    // group is a raw slice of the author's own source bytes, so `a as "w"` is
+    // now the rendering at EVERY position, `params:` included — no more
+    // position-dependent spelling for this cell to hold side by side.
     for (const [label, src, path] of positionSources('{a as "w": integer, a as "w": string}')) {
       const key = `e1 ${label} :: ${src}`;
       actual[key] = lines(src, path);
-      expected[key] = renderAll([DUP(label === "params: field" ? 'a as "w"' : 'aas"w"')]);
+      expected[key] = renderAll([DUP('a as "w"')]);
     }
     expect(
       actual,
@@ -1290,8 +1327,13 @@ describe("bug 0160 (F) — the suppression family gains the refusal and keeps it
 // precedence (repeating key → bug 0159's row alone; quote-first key → bug
 // 0176's row alone; only then this row) and the two inherited gates are the
 // whole of this group's subject.
-// RED at HEAD: g6, g7, g8, g10, g11, g12, g13, g14, g16, g17, g18, g19, g22.
-// GREEN now and after: g1, g2, g3, g4, g5, g9, g15, g20, g21, g23.
+// RED at HEAD (bug 0160's own baseline): g6, g7, g8, g10, g11, g12, g13, g14,
+// g16, g17, g18, g19, g22.
+// GREEN then (this row's own subject silent) and STILL SILENT ON THIS ROW
+// after bug 0228: g2, g3, g4, g5, g9, g20, g21. g1, g15 and g23 are also
+// silent on THIS row throughout, but since bug 0228's fix each now draws
+// `theta/parse/inline-field-name-not-identifier` instead of nothing at all
+// (§Fix (b)'s newly-refused set), so they carry a non-empty expectation too.
 // ===========================================================================
 
 describe("bug 0160 (G) — quote style, precedence, the two gates, and the neighbours' subjects", () => {
@@ -1404,11 +1446,16 @@ describe("bug 0160 (H) — the inventory is counted, and every cell is also asse
         `${RENAMED_INLINE}. A cell weakened to \`[]\` to make the file green would move this ` +
         "count, which is what makes the red set above non-vacuous",
     ).toBe(NEW_ROW_LIST_CELLS);
+    // Since bug 0228's fix g1, g15 and g23 are no longer silent-by-design
+    // overall: each now names `theta/parse/inline-field-name-not-identifier`
+    // (this file's own row still declines each of them, on its own subject
+    // — no repeat, no quote-led, no rename — which is why they moved OUT of
+    // this list rather than out of the boundary group).
     expect(
       cells.filter((c) => c.expected.length === 0).map((c) => c.cell),
-      "H1 — and the empty-expectation cells are exactly the seven silent-by-design boundary " +
-        "rows, named so a future edit cannot add an eighth by accident",
-    ).toEqual(["g1", "g4", "g5", "g15", "g20", "g21", "g23"]);
+      "H1 — and the empty-expectation cells are exactly the four silent-by-design boundary " +
+        "rows, named so a future edit cannot add a fifth by accident",
+    ).toEqual(["g4", "g5", "g20", "g21"]);
     expect(
       new Set(cells.map((c) => `${c.cell} :: ${c.src}`)).size,
       "H1 — every cell key is distinct, so no whole-map equality silently drops a row",
