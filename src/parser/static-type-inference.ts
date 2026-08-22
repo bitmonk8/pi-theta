@@ -32,7 +32,7 @@ import {
   displayType,
   resolveNamed,
   unfoldAlias,
-  WITHHELD_BINDER_TYPE_NAME,
+  withheldBinderType,
   type CompatType,
   type Compatibility,
   type TypeEnv,
@@ -354,18 +354,30 @@ export class StaticTypeInferencePass {
 
   /**
    * The scope a `match` arm's body is typed in: `bindings` plus that arm's own
-   * pattern binders, each recorded as the withheld sentinel
-   * (`WITHHELD_BINDER_TYPE_NAME`, ./type-compat.ts) — the same answer the type
-   * layer's own `matchArmScope` (./type-layer-checks.ts) already gives the
-   * arm-body walk and `provableArgType`'s reduction, so all three readers of
-   * an arm body now resolve the same scope for the same node (bug 0145 §Fix).
+   * pattern binders, each recorded via `withheldBinderType()`
+   * (./type-compat.ts) — the same answer the type layer's own `matchArmScope`
+   * (./type-layer-checks.ts) already gives the arm-body walk and
+   * `provableArgType`'s reduction, so all three readers of an arm body now
+   * resolve the same scope for the same node (bug 0145 §Fix). LOAD-BEARING:
+   * this is the inference pass's own mint site (bug 0143 §Fix (b) route 1) —
+   * if it minted the bare `{ kind: "named", name: WITHHELD_BINDER_TYPE_NAME }`
+   * literal instead of routing through the shared factory, the withhold
+   * predicate (`containsWithheldBinderType`, ./type-layer-checks.ts) would
+   * silently stop deferring for every match-arm binder, since that predicate
+   * now tests the `withheld` provenance marker and no longer the name.
    *
    * VALUE CHANNEL ONLY. The type layer's `recordWithheldBinders` also adds
    * each minted sentinel to an identity set (`unprovableBindings`) a marking
    * guard reads; this pass carries no such set (bug 0145 §Bounds) and must
-   * not acquire one — the withheld name alone is what makes a sibling read
-   * unresolvable (`type-system.md:48`, *Unresolvable operands*), and identity-
-   * keyed suppression is bug 0199's landed, narrower surface.
+   * not acquire one. Two things are true about the withheld name now,
+   * precisely: the name alone (with no marker) still makes a sibling
+   * `resolveNamed` lookup unresolvable and therefore defer
+   * (`type-system.md:48`, *Unresolvable operands*) — that holds for any
+   * `named` spelled `<withheld>`, marked or not; but the WITHHOLD decision
+   * itself (`containsWithheldBinderType`) now keys on the `withheld` marker,
+   * not on the name, which is why this site must mint through
+   * `withheldBinderType()` rather than the bare literal. Identity-keyed
+   * suppression is bug 0199's landed, narrower surface.
    *
    * A pattern binding nothing (a literal or a wildcard) yields `bindings`
    * unchanged and copies no map — the same shape `matchArmScope` uses, and the
@@ -383,7 +395,7 @@ export class StaticTypeInferencePass {
     }
     const scope = new Map(bindings);
     for (const name of names) {
-      scope.set(name, { kind: "named", name: WITHHELD_BINDER_TYPE_NAME });
+      scope.set(name, withheldBinderType());
     }
     return scope;
   }

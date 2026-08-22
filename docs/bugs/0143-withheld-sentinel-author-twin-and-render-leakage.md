@@ -1,8 +1,16 @@
 # Bug 0143 — `WITHHELD_BINDER_TYPE_NAME` is unspellable as a `TypeEnv` KEY but not as a `CompatType` NAME, and the sentinel has two author-visible faces: an author who writes `<withheld>` in any type-slice position mints a twin the withhold predicate cannot distinguish from the engine's own mint, so six judgement sinks go silent where the byte-identical program spelled `<foo>` reports — including a true `array-element-type-mismatch` on an operand the twin does not touch, in a document that then loads clean — while the same ten characters render verbatim into six user-visible *Message* strings
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  sentinel's spellability contract and the render disposition before any code
-  lands. The disposition bug 0050 round 8 left unpinned ("pin the twin's
+- **Status:** fixed (0.212.0). §Fix was **not settled** when this report was
+  filed — it existed to pin the sentinel's spellability contract and the render
+  disposition before any code landed — and `## Fix (0.212.0)` below records the
+  in-run adjudication that settled it: **face 1's root closed by §Fix (b)
+  route 1 (provenance on the `named` arm), face 2 (the render) declined with
+  its governance argument and pinned**. Face 1's *observable* half was found
+  MOOTED at the fix baseline — bug 0124 / 0061's capture closure landed in the
+  interval and now refuses every non-`Type`-derivable slice at `E`, identically
+  for `<withheld>` and `<foo>` — so §Reproduction groups (a), (b) and row c6 are
+  stale as filed and are restated in the record below rather than silently
+  inherited. The disposition bug 0050 round 8 left unpinned ("pin the twin's
   deferral disposition in a cell") is still unpinned at HEAD — the u13r cell
   comment (`tests/fn-arg-type-mismatch-wired.test.ts:2742–2746`) names the
   author-twin route in prose and no cell measures it. Coordination, not a hard
@@ -913,3 +921,165 @@ Two things this report depends on, and what each is now:
 
 The sentinel itself, the key-level unspellability claim, the author-twin route
 and the `type-compat.ts` render arm are all untouched by 0126.
+
+## Fix (0.212.0)
+
+**The adjudication §Fix owed.** Re-derived at the fix baseline (`687305c5`,
+0.204.0) with a scratch `parseDoc` probe over every cell of §Reproduction: the
+report predates ~127 minors and **one of its two faces is mooted while the
+other survives with different carriers**. Both halves are restated here rather
+than silently inherited. The ownership check clears: 0193 (0.124.0) and 0205
+(0.154.0) both queue this report by name as the one that "edits the sentinel's
+contract / changes the predicate", and 0135 (0.202.0) routed its declined
+face 1 here; no fresher document owns the subject.
+
+- **What the baseline measurement found.**
+  - **Face 1 (the collision) is MOOTED as an observable.** §Fix (e) predicted
+    it in terms — "[0124] and [0061] are the natural first landing … closing
+    the capture removes the twin from most or all of group (b)". That is what
+    happened. Every author type-slice position now refuses a
+    non-`Type`-derivable slice at `E`: `theta/parse/schema-type-not-expression`
+    (alias RHS, schema field, nested `array<…>` element, union arm),
+    `theta/parse/annotation-type-not-expression` (`let` annotation, `fn`
+    parameter type, `fn` return type), `theta/load/params-type-not-expression`
+    (`params:` RHS) — **byte-identically for `<withheld>`, `<foo>` and
+    `<Withheld>`**. Every row of group (b) now yields the same single
+    diagnostic in both spellings, so the report's central claim ("six sinks
+    report on one and not the other") is falsified at HEAD, row c6 is gone with
+    it, and the documents no longer load cleanly, so GOV-15's loads-cleanly
+    predicate (`source-language-stability.md:9`) no longer selects them.
+  - **Face 1's ROOT survives**, and it is what this fix closes:
+    `annotationToCompatType("<withheld>")` still returns a value byte-equal to
+    the engine's own mint, so the withhold predicate's VALUE channel is
+    forgeable at the module seam even though no source path currently delivers
+    a forgery. That is §Expected behaviour ¶1 in terms.
+  - **Face 2 (the render) survives with re-derived carriers.** Bug 0126
+    (0.107.0) moved the plain-`for` variable off the sentinel, so
+    §Reproduction c1–c4's `for x in [3]` fixtures now render `array<integer>`
+    and c5 reports `[]`. The sentinel still reaches four *Message* strings
+    through a **`match`-arm binder** and an **unannotated `fn` parameter**:
+    `non-boolean-condition`, `mixed-plus-operands`, `non-orderable-operands`
+    and `unknown-method`, all as `array<<withheld>>`. The `join`-element and
+    `for`-iterand gates now defer to `[]`.
+- **§Fix (a) — which face. Face 1's ROOT only.** **Face 2 is declined**, not
+  deferred by silence, on three measured grounds: (i) no clause of category 1's
+  *Rule* (`placeholder-rendering-a.md`) admits any rendering for a binder whose
+  type this layer cannot determine — there is no author-written type to
+  re-serialise, which is the same wall bug 0135 §Fix (b) route 2 hit; (ii)
+  minting one is a spec-versioned breaking change under GOV-7 / GOV-8, outside
+  a bug fix's reach within theta 1.x; (iii) suppressing the four surviving
+  emissions would drop verdicts that ARE decidable — an `array` receiver is not
+  a boolean, is not orderable and has no such method whatever its element type
+  — and is a DIAG-2 *Trigger* removal, i.e. exactly the b6-shaped defect this
+  report itself complains about. Face 2 is therefore **pinned, not fixed**, and
+  routed to a spec-level change; see residual 1.
+- **§Fix (b) — route 1 of the four: provenance on the `named` arm.** Route 2
+  (refuse at capture) is 0124's / 0061's and has already landed, which is what
+  mooted face 1's observable half. Route 3 (rename the sentinel) is declined
+  for the reason 0135 §Fix (b) gave when it declined the same route: it mints a
+  fresh unspellable name and makes face 2 worse. Route 4 (document the
+  collision) contradicts `grammar.md:105` and is the highest bar of the four.
+- **§Fix (c) — what DIAG-2 / DIAG-4 / GOV-15 bite on: nothing.** No registry
+  row moves, no *Message* template byte moves, no `docs/reference/` mirror byte
+  moves, `displayType` is byte-untouched, and the change is **zero-observable
+  at the document level** — the full default suite showed zero flips under the
+  prototype. GOV-15 is not engaged because no input's observable (a)/(b)/(c)
+  changes.
+- **§Fix (d) — the constraints, each re-measured.** The key-level claim holds
+  and stays witnessed (`Object.hasOwn(env,"<withheld>")` false, `resolveNamed`
+  `undefined` — now over-determined by 0135's read-seam case fence as well);
+  the surviving binder-fed shapes keep their verdicts byte-exact (cells
+  `f2a`–`f2d`); **cell `u13r` is byte-untouched** because face 2 is declined,
+  as are 0135's four face-1 pins and 0125's `d7`/`d8`; `<Withheld>` stays
+  judged exactly as `<foo>` (cells `m1`–`m8` assert equality *across* the three
+  spellings); the whitespace variant is covered by the same capture refusal;
+  the `subagent fn` return and object-index-key gates are **in** — they consult
+  the same predicate and now key on the same marker; the committed-corpus claim
+  is discharged by `tests/committed-fixture-parse-gate.test.ts` (green), not by
+  assumption.
+- **What shipped:**
+  - `src/parser/type-compat.ts` — `CompatType`'s `named` arm gains
+    `readonly withheld?: true` (optional, so no other `kind: "named"`
+    construction site in the tree is touched — the census
+    `rg -n 'kind: "named"' src/` returns 31); new exported factory
+    `withheldBinderType()`, the ONLY admitted mint of the marker;
+    `WITHHELD_BINDER_TYPE_NAME`'s doc comment restated — the KEY claim holds,
+    the NAME is author-reachable in principle, so the withhold decision no
+    longer rests on the string at all and the string survives only as the
+    rendered spelling.
+  - `src/parser/type-layer-checks.ts` — `containsWithheldBinderType`'s `named`
+    arm tests `type.withheld === true` instead of the string;
+    `recordWithheldBinders` mints through the factory, so the VALUE channel is
+    forgery-proof like the IDENTITY channel (`unprovableBindings`) beside it;
+    comments restated in provenance terms.
+  - `src/parser/static-type-inference.ts` — `#matchArmScope` mints through the
+    factory. Load-bearing and separately witnessed: this is the inference
+    pass's own mint site (bug 0145 §Fix), reached by the gates through
+    `TypeLayerWalk`'s `typeOf`.
+  - `src/runtime/wire-translation.ts` — comment-only citation repair
+    (`resolveNamed`'s line range), self-inflicted by this diff's `+6` shift.
+  - `tests/withheld-sentinel-author-twin-provenance.test.ts` — new, 5 cells:
+    `w1` the forgeability witness, `w2a`–`w2c` the marker surviving composition
+    at BOTH mint sites, `w3` the anti-overreach sweep proving no
+    author-reachable producer sets the marker.
+  - `tests/withheld-sentinel-mooting-and-render-pins.test.ts` — new, 16 cells:
+    `m1`–`m8` the mooting locks (one per author type-slice position, asserting
+    the shared list AND equality across the three spellings, so a capture
+    relaxation reds), `m9` the b6 no-twin control, `m10` the key-level claim,
+    `f2a`–`f2f` the declined face 2 pinned byte-exact with its reason.
+  - `tests/live/withheld-binder-provenance-live-cell.test.ts` — new H8a cell:
+    the clean `match`-arm join-element carrier registers and drives one real
+    turn against an arithmetic discriminator, beside a `<withheld>`-annotation
+    control that does NOT register and whose note evidence carries
+    `theta/parse/annotation-type-not-expression` — face 1's mooting, live.
+- **Gates:** witness RED before / GREEN after on two independent
+  neutralisations (the factory's marker dropped → `w1` reds naming the
+  forgeable seam; the inference pass's mint reverted to the bare literal →
+  `w2c` reds with `non-array-iterand … got <withheld>`), each restored
+  byte-exact and `git hash-object`-proven; full default suite 394 files / 8196
+  tests passed; `npm run typecheck` clean; `npm run lint` clean; live cell 1/1
+  passed under the shared live lock (~3.0 s, real turn).
+- **Review:** 3 rounds — preceded by a pre-review citation-correction round
+  (symbol-form conversion in the two new witness files, comment and
+  assertion-label prose only, all four src hashes unchanged). Round 1 (deep):
+  one blocking `test` finding (cell `w2c` did not witness the mint site it
+  claimed to pin) plus two residuals. Round 2 (light fixer): `w2c` repointed
+  onto fixtures that reach the inference pass's mint through `typeOf`, one
+  narrative sentence dropped. Round 3 (fast, confirmation): clean, no
+  escalation.
+- **Verification:** SOLID on all four obligations, each with quoted output —
+  both witness directions, full suite, a real live run under the lock, lint and
+  typecheck.
+- **Residuals:**
+  1. **Face 2 stays open, by decision.** Four *Message* strings still render
+     `array<<withheld>>` from a `match`-arm binder or an unannotated `fn`
+     parameter. It is not routable to another bug report: bug 0135 already
+     declined its own render face and routed it here, and this record declines
+     it for the governance reason above. **Its owner is a spec-level change** —
+     a category-1 clause admitting a rendering for an untypeable static type,
+     under GOV-7 / GOV-8 — not a further implementation fix. Cells `f2a`–`f2f`
+     pin the current strings so any such change reds them deliberately.
+  2. **The predicate's marker test has no in-tree red path at HEAD.** Mutating
+     `containsWithheldBinderType`'s `named` arm back to the string equality
+     leaves the full suite green (measured, 394/8196), because the capture
+     closure keeps every author twin from reaching a gate, so the two tests are
+     extensionally equal on all currently reachable inputs. The two mint sites
+     ARE separately witnessed. This is the accepted cost of closing the channel
+     by construction rather than waiting for a delivery route to reopen it.
+  3. **§Reproduction groups (a), (b) and row c6 are stale as filed** and are
+     corrected in the measurement above, not in the tables. Group (c) is stale
+     in its carriers (0126) but not in its shapes.
+  4. **Citation churn.** This diff shifts every symbol below ~line 49 of
+     `src/parser/type-compat.ts` by `+6` and below ~948 by `+10`. Per the
+     policy bug 0135's record set, only citations this change itself
+     invalidated were repaired, in the files it touches
+     (`src/runtime/wire-translation.ts`, `src/parser/type-layer-checks.ts`);
+     the two new witness files cite `src/**.ts` by SYMBOL, not by line, because
+     this surface carries 450+ already-stale line-form citations.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** every §Non-goals item stands — the
+  capture leniency is 0124's / 0061's (and has now largely landed), row c6's
+  emission was 0144's and is moot with c6, the plain-`for` binder question was
+  0126's and is closed, and the sibling internal names at the same render arm
+  are 0135's and are untouched. The `displayType` arm is byte-untouched, so
+  0124, 0126, 0130 and 0135 are unaffected by this landing.

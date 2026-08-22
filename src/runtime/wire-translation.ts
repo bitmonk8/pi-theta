@@ -366,7 +366,7 @@ function rebuildInbound(
   // read-side guard can supply: a write the inherited setter swallows
   // loses the field outright, leaving nothing for a later read to guard.
   // A lookup this walk adds later by an author- or payload-controlled key
-  // uses `Object.hasOwn`, per `type-compat.ts:92-103` (`resolveNamed`).
+  // uses `Object.hasOwn`, per `type-compat.ts:98-109` (`resolveNamed`).
   const result: { [k: string]: ThetaValue } = Object.create(null) as { [k: string]: ThetaValue };
   // `orderedEntries` reorders; it never changes WHICH entries are visited or
   // how many — the walk below still guards `Object.hasOwn`-equivalent access

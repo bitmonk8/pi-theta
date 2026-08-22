@@ -69,7 +69,7 @@ import {
   displayType,
   resolveNamed,
   unfoldAlias,
-  WITHHELD_BINDER_TYPE_NAME,
+  withheldBinderType,
   type CompatType,
   type NamedDecl,
   type PrimitiveName,
@@ -426,14 +426,18 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
  * `array<array<integer>>` rests entirely on `x`. Terminating without an `env`,
  * because no alias is unfolded here: the walk is over the finite type tree the
  * inference pass built, never over the alias graph. A declared alias's
- * right-hand side CAN carry this name — it is a source-text slice, not a
- * token — and leaving it unresolved stays sound regardless, because a twin
- * reached through an alias only ever defers, never trips a false verdict.
+ * right-hand side CAN carry this NAME — it is a source-text slice, not a
+ * token — but bug 0143 §Fix (b) route 1 moved the test off the name and onto
+ * the `withheld` provenance marker `CompatType`'s `named` arm carries
+ * (./type-compat.ts): only `withheldBinderType()` sets it, and no
+ * author-reachable producer (`annotationToCompatType` below) ever does, so an
+ * alias's twin still stays sound regardless — it never carries the marker and
+ * therefore only ever defers, never trips a false verdict.
  */
 function containsWithheldBinderType(type: CompatType): boolean {
   switch (type.kind) {
     case "named":
-      return type.name === WITHHELD_BINDER_TYPE_NAME;
+      return type.withheld === true;
     case "array":
       return containsWithheldBinderType(type.element);
     case "union":
@@ -863,7 +867,7 @@ export function annotationToCompatType(src: string): CompatType | undefined {
  * The `let`-annotation-only sibling of `annotationToCompatType` above (bug
  * 0130 §Fix (a)/(f)): identical except that a well-formed, NON-EMPTY inline
  * object type mints `CompatType`'s documented `object` arm
- * (`type-compat.ts:61–64`) instead of falling through to the deferred nominal
+ * (`type-compat.ts:67–70`) instead of falling through to the deferred nominal
  * `named` reference, recursing through top-level union arms and `array<…>`
  * elements so `{a: integer} | null` and `array<{a: integer}>` both carry a
  * real field set. This is the ONLY call site switched to this function
@@ -1821,7 +1825,14 @@ class TypeLayerWalk {
    */
   private recordWithheldBinders(scope: Map<string, CompatType>, names: Iterable<string>): void {
     for (const name of names) {
-      const withheld: CompatType = { kind: "named", name: WITHHELD_BINDER_TYPE_NAME };
+      // Both channels are forgery-proof as of bug 0143 §Fix (b) route 1: the
+      // IDENTITY channel (`unprovableBindings`, below) always was — an author
+      // cannot forge object identity — and the VALUE channel now is too, since
+      // `withheldBinderType()` is the only admitted mint of the `withheld`
+      // marker `containsWithheldBinderType` tests. The single-object-per-
+      // binder shape (one `withheld` object added to both the scope map and
+      // the identity set) is unchanged.
+      const withheld: CompatType = withheldBinderType();
       scope.set(name, withheld);
       this.unprovableBindings.add(withheld);
     }

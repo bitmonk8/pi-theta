@@ -46,7 +46,13 @@ export type PrimitiveName = "string" | "number" | "integer" | "boolean" | "null"
  *                 in expression position, which drives TYPE-3.
  *   - `named`   — a `NamedType` reference, resolved through `TypeEnv`; an
  *                 object-schema declaration is nominal (TYPE-10), an alias
- *                 declaration is transparent (TYPE-11).
+ *                 declaration is transparent (TYPE-11). `withheld` is
+ *                 provenance, not grammar: it distinguishes the engine's own
+ *                 mint of the withheld-binder sentinel (`withheldBinderType()`
+ *                 below) from an author-spelled type slice that happens to
+ *                 carry the same ten characters (bug 0143) — the withhold
+ *                 decision keys on this marker, never on `name` alone. Only
+ *                 `withheldBinderType()` may set it.
  *   - `array`   — `array<T>`, covariant in its `element` (TYPE-7).
  *   - `union`   — `T₁ | T₂ | …`, widening (TYPE-5) and distributive (TYPE-6).
  *   - `object`  — an inline anonymous object type `{ f: T, … }`, field-wise
@@ -55,7 +61,7 @@ export type PrimitiveName = "string" | "number" | "integer" | "boolean" | "null"
 export type CompatType =
   | { readonly kind: "prim"; readonly name: PrimitiveName }
   | { readonly kind: "literal"; readonly typesAs: PrimitiveName }
-  | { readonly kind: "named"; readonly name: string }
+  | { readonly kind: "named"; readonly name: string; readonly withheld?: true }
   | { readonly kind: "array"; readonly element: CompatType }
   | { readonly kind: "union"; readonly arms: readonly CompatType[] }
   | {
@@ -943,9 +949,13 @@ export function checkReassignRhsCompat(opts: {
  * `Object.hasOwn`, so no prototype name answers for it either, and every `⊑`
  * question about it reaches the unresolvable-name arms. The KEY claim does not
  * cover every NAME: an alias's right-hand side or a direct annotation is a
- * source-text slice, not a token, so it CAN carry this text — harmlessly,
- * since that name still fails every `resolveNamed` lookup and only ever
- * defers.
+ * source-text slice, not a token, so it CAN carry this text. Bug 0143
+ * measured what that costs: the string is author-reachable in principle, so a
+ * predicate keyed on the string alone cannot tell the engine's own mint from
+ * an author's `<withheld>` annotation. The withhold decision therefore no
+ * longer rests on this string at all — it rests on the `withheld` marker on
+ * `CompatType`'s `named` arm (above), which only `withheldBinderType()` sets.
+ * The string survives only as the RENDERED spelling (`displayType`).
  *
  * A casing rule would not do this job: lexical.md §"Identifiers" scopes
  * lowercase-first to `let` / `let mut` bindings, function parameters, function
@@ -960,3 +970,17 @@ export function checkReassignRhsCompat(opts: {
  * rather than being duplicated at each mint site.
  */
 export const WITHHELD_BINDER_TYPE_NAME = "<withheld>";
+
+/**
+ * Mint the engine's withheld-binder `CompatType` — the ONLY admitted mint of a
+ * withheld binder entry (bug 0143 §Fix (b) route 1). Both mint sites
+ * (`recordWithheldBinders`, ./type-layer-checks.ts, and `#matchArmScope`,
+ * ./static-type-inference.ts) route through this factory rather than
+ * constructing the object literal themselves, so the `withheld: true` marker
+ * cannot be forgotten at one of them while `containsWithheldBinderType`
+ * (./type-layer-checks.ts) tests it at both. No other call site may construct
+ * a `named` `CompatType` with `withheld: true` set.
+ */
+export function withheldBinderType(): CompatType {
+  return { kind: "named", name: WITHHELD_BINDER_TYPE_NAME, withheld: true };
+}

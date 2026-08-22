@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.212.0]
+
+### Fixed
+
+- **Bug 0143**: the withheld-binder sentinel was forgeable — an author
+  writing `<withheld>` in a type slice minted a twin the withhold predicate
+  could not distinguish from the engine's own mint. Face 1's root shipped:
+  provenance on `CompatType`'s `named` arm (the marker survives both mint
+  sites; forged spellings no longer read as engine mints). Face 1's
+  silent-sink half is MOOTED at HEAD — 0124/0061's capture closure refuses
+  every non-`Type` slice identically for `<withheld>`/`<foo>` (mooting
+  locked by cross-spelling equality cells). Face 2 (the render leak)
+  DECLINED on the record — no category-1 clause admits a rendering for an
+  untypeable type; pinned by cells and routed to a spec-level change.
+  Witnesses: provenance (5 cells) + mooting-and-render-pins (16 cells) +
+  an H8a live cell (real turn, arithmetic discriminator).
+
 ## [0.211.0]
 
 ### Fixed
