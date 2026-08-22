@@ -263,6 +263,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/registry-swap-failed` | E | runtime | `registry swap failed: <path>`. |
 | `theta/runtime/watcher-terminated` | E | runtime | `theta watcher terminated; hot-reload halted until /reload`. |
 | `theta/runtime/internal-error` | E | runtime | `internal error: <error.message>`. |
+| `theta/runtime/non-object-receiver` | E | runtime | `non-object receiver: cannot read <read> on <receiver kind>`. |
 | `theta/runtime/subagent-dispose-failure` | E | runtime | `subagent teardown failed: <teardown error first line>`. |
 | `theta/runtime/subagent-spawn-failed` | E | runtime | `subagent child spawn failed: <error.message>`. |
 | `theta/runtime/subagent-child-crashed` | E | runtime | `subagent child crashed: <exit detail>`. |

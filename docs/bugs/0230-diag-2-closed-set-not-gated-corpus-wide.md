@@ -1,8 +1,9 @@
 # Bug 0230 — `tests/code-registry.test.ts` drives `reconcileClosedSet` with a hand-written two-row registry (`:87–:112`), so DIAG-2's closed set is gated NOWHERE corpus-wide: the live-corpus canary computes both closed-set kinds (4 `registry-code-no-asserting-test` + 112 `asserted-code-not-in-registry` at HEAD) and filters both out before the only assertion (`live-corpus.js:184`, `live-corpus-release-gate.test.ts:143–145`), no tool compares the registry against its `docs/reference/diagnostics.md` mirror (`parseRegistry` yields 0 rows over the 4-column mirror), and a ghost row added to `code-registry-parse.md` with no mirror row and no asserting test leaves the whole default suite green (375 files / 7698 tests)
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the candidate gate
-  shapes are enumerated with their measured costs and the choice is left to the
-  run. Nothing blocks this report from starting.
+- **Status:** fixed (0.184.0). §Fix was constraint-pinned, not settled: the
+  candidate gate shapes were enumerated with their measured costs and the choice
+  was left to the run. The run selected shape 2 in its no-second-copy reading
+  and records why in `## Fix (0.184.0)`.
 - **Sev/Diff estimate:** S3/D3 — S3 because the subject is a verification gap,
   not an author-visible behaviour: no diagnostic changes, and the gate that
   DIAG-2's same-commit discipline is repeatedly credited to
@@ -535,3 +536,147 @@ H5b/H6a plan-leaf prose stating the four-arm live-corpus footing.
   `:160`, `:180`, `:213`); `tests/schema-declarations.test.ts:141–:154`;
   `tests/inline-object-type-source-capture.test.ts`;
   `tests/inline-object-field-name-case.test.ts`.
+
+## Fix (0.184.0)
+
+**Shape 2, in its no-second-copy reading, selected by the run.** The gate is a
+dedicated corpus-wide reconciliation test that runs the SHIPPED machinery —
+`assembleLiveCorpus` + `runClosingGate` (`tools/closing-gate/`) and
+`parseRegistry` (`tools/code-registry/`) — over the real repository root and
+asserts on the two closed-set kinds directly. No second definition of
+"asserted" is authored, which is what `live-corpus.js:5–:11` forbids and what
+§Fix (a) shape 2 charged against it.
+
+**Why the other two shapes are wrong here.** Shape 1 (admit the kinds into
+`CANARY_GAP_KINDS`) re-scopes the canary: `live-corpus.js:21–:24` states a
+four-arm live-corpus footing that H6a hard-fails on, so admitting a fifth and
+sixth arm drags the H5b/H6a plan-leaf prose that fixes that footing and couples
+this subject to the canary's release-gate contract — a blast radius §Fix (g)
+did not need to buy for a closed-set gate. Shape 3 (strengthen
+`tests/code-registry.test.ts` in place) needs a mirror reader, and the only
+candidates were a four-column mode on `parseRegistry` or a change to its
+five-cell floor (`code-registry/index.js:36`) — 150 test files import that
+module. The shipped shape keeps a mirror reader local to the new file and
+leaves `parseRegistry` byte-identical.
+
+**The 112-count arm is baselined, not gated to empty.** `extractAssertedCodes`
+(`closing-gate/index.js:589`) matches any code-shaped span in test text, so the
+population is dominated by prose truncations, `.theta` document names and the
+registry test's deliberate ghosts (§Reproduction (d), §Fix (b)). Gating it to
+empty would red permanently, which is no gate. It is pinned as DATA — the
+precedent shape of `tests/fixtures/h7a/permitted-codes.json` — with its own
+staleness tripwire, so an ADDITION reds while extractor fidelity stays §Fix
+(b)'s separate subject.
+
+- What shipped:
+  - `tests/registry-closed-set-corpus-gate.test.ts` (new) — six cells over the
+    live tree. Cell 1: the `registry-code-no-asserting-test` subject set is
+    asserted SET-EQUAL to an inline `CARVE_OUT` table, so an unwitnessed row
+    landing reds and a stale carve-out reds (§Fix (c), §Fix (f) "the carve-out
+    list is asserted, not merely consulted"). Cell 2: every carved-out code is a
+    live registry code carrying a non-empty stated reason. Cell 3: the
+    `asserted-code-not-in-registry` subjects are a SUBSET of the pinned
+    baseline. Cell 4: no pinned baseline entry has gone stale. Cells 5–6:
+    registry↔mirror code-set parity, both directions, with distinct messages.
+    A missing artifact throws naming its path (`readRequired`) — never a skip.
+  - `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` (new) —
+    the 112 HEAD subjects, produced mechanically from the gate run and sorted.
+  - `docs/reference/diagnostics.md` — one added row,
+    `theta/runtime/non-object-receiver`, transcribed verbatim from
+    `code-registry-runtime.md` in that page's ordering position. §Fix (d) lands
+    HERE, as the parity gate's precondition; it is also 0200's *Residuals*
+    item 4, now discharged. Registry and mirror both enumerate 218 codes.
+  - The four carve-outs carry per-code reasons, and the reasons are three
+    distinct findings, not one excuse: `theta/load/cross-source-shadow` is
+    emitted at `src/discovery/discovery-walk.ts:1181` and genuinely unwitnessed;
+    `theta/runtime/subagent-wire-parse-failed` has NO emitter anywhere in `src/`
+    (bug 0086, open), so no test can witness it;
+    `theta/runtime/subagent-envelope-parse-failed` and
+    `theta/runtime/subagent-envelope-schema-skew` ARE witnessed
+    (`tests/subagent-envelope.test.ts:330`, `:346`,
+    `tests/subagent-json-wire.test.ts:129`) through exported code constants, so
+    the shipped extractor — which matches literal spans — cannot see them.
+  - `CODE_PREFIX = "theta" + "/"`: the carve-out table composes its codes rather
+    than spelling them, because `extractAssertedCodes` treats any code-shaped
+    literal in a `tests/**` source as an assertion and a spelled-out table would
+    make the gate file itself the asserting test for the very codes it carves
+    out. Verified arm-neutral: both arms recompute identically with the file
+    present and with it filtered out of `testSources` (delta `[]`).
+- Gates:
+  - Witness, red before: `npx vitest run tests/registry-closed-set-corpus-gate.test.ts`
+    → `Tests 1 failed | 5 passed (6)`, `registry codes absent from
+    docs/reference/diagnostics.md: expected [ 'theta/runtime/non-object-receiver' ]
+    to deeply equal []`. Green after: `Tests 6 passed (6)`.
+  - Full default suite: `npm test` → `Test Files 376 passed (376)`,
+    `Tests 7704 passed (7704)` (filing baseline 375 / 7698, plus this file's 6).
+  - `npm run typecheck` → clean, no output. `npm run lint` → clean, no output.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — FINDINGS, two, both text:
+  the `cross-source-shadow` carve-out reason was self-falsified (it claimed its
+  own message string occurred nowhere under `tests/`, which the landing file
+  makes false), and the `REGISTRY_PAGES` comment wrongly equated the four
+  sharded pages with `assembleLiveCorpus`'s wider `registryText`. Round 1 also
+  independently re-ran all four §Fix (f) mutation proofs. One fixer round,
+  comment/reason-string only, no assertion moved. Round 2
+  (`bug-fix-reviewer-fast`) — CLEAN, no escalation.
+- Verification: PASS.
+  - Witness reds: the mirror row deleted by a temporary local edit → RED naming
+    `theta/runtime/non-object-receiver`; restored by writing the bytes back →
+    GREEN.
+  - §Fix (f) mutation proofs, each restored byte-exact and hash-verified against
+    `git rev-parse HEAD:<path>` (`code-registry-parse.md`
+    `61acaa4d5c47a4118596c57d5d5e03a01748d002`, `code-registry-load.md`
+    `218bf3af1fdeed561af9147c77e19d8b95f89b5f`): the ghost row of §Reproduction
+    (b) → 2 cells red, and the whole default suite red
+    (`Test Files 1 failed | 375 passed (376)`) where the filing measured
+    `375 passed (375)` green — cell B4 is closed; cell C1 → 2 cells red; cell C2
+    → 1 cell red; a mirror row deleted → red naming the code. Cell C3's own
+    DIAG-4 red is unweakened: `tools/**` and both inline-object witness files
+    are byte-identical to HEAD.
+  - Census re-measured after the fix: `registry-code-no-asserting-test` 4,
+    `asserted-code-not-in-registry` 112, `retired-live-id-clash` 13,
+    `per-prefix-numbering-hole` 2130; registry 218 rows, mirror 218 rows,
+    registry-only `[]`, mirror-only `[]`, baseline fixture length 112.
+  - Live: no `src/` path is touched and the diff carries no executable source
+    change (`git status --short`: one modified documentation file plus two new
+    test-only paths), so the 0193/0205 precedent applies and no live run is
+    owed. None was run; no live lock was taken.
+- Residuals:
+  1. **A coordinated removal of a prose-mentioned code stays green.** Deleting
+     `theta/parse/empty-enum-body` from BOTH `code-registry-parse.md` and the
+     mirror in one edit leaves all six cells green (measured in review round 1,
+     restored byte-exact): arms (3)/(4) read `parseRegistryCodes` over
+     `registryText`, which spans every `.md` under
+     `docs/spec_topics/diagnostics/` plus `docs/spec_topics/diagnostics.md`
+     (`live-corpus.js:148–:150`), so a code backtick-mentioned in
+     `placeholder-rendering-b.md` still counts as registered, and symmetric
+     deletion satisfies parity. Closing this needs a third reconciliation —
+     `extractAssertedCodes` against `parseRegistry` over the four TABLES only —
+     which is a design extension past §Fix's obligations. The file's
+     `REGISTRY_PAGES` comment states the wider-set mechanism so the parity cells
+     are not misread as covering it.
+  2. **The baseline cell is merge-sensitive by design.** `assembleLiveCorpus`
+     reads `tests/**/*.ts` from disk independent of vitest's include/exclude, so
+     a sibling change landing a test that cites a new code-shaped span (a
+     bug-numbered `.theta` document name, say) reds the subset cell until the
+     baseline is updated. That is the tripwire working — the precedent fixture
+     `tests/fixtures/h7a/permitted-codes.json` behaves the same way — but a
+     merge should expect it and update the pin rather than weaken the cell. An
+     untracked scratch test sitting in `tests/` during a run reds it too.
+  3. **`theta/parse/tool-arg-not-literal` and `theta/parse/unexpected-token`**
+     sit in the 112 baseline and are code-SHAPED rather than obviously
+     artefactual. Whether either names a real unregistered code or is prose is
+     §Fix (b)'s extractor-fidelity subject, explicitly out of scope here.
+  4. **`tests/par-for.test.ts:464` cites `docs/reference/diagnostics.md:312`**
+     for the CTRL-4 Provenance paragraph, whose true line at HEAD was 318 — a
+     pre-existing 6-line drift, unrelated to this fix, moved to 319 by the added
+     row. 0134's adjudicated do-not-chase class; not chased.
+- Discharge notes appended: none. 0200's *Residuals* item 4 (the missing mirror
+  row) and 0033's §Affected statement are discharged in substance by this
+  record; neither sibling document was edited.
+- Pinned dispositions / non-goals: `CANARY_GAP_KINDS` and the canary's four-arm
+  live-corpus footing are unchanged (§Non-goals "the four gated canary arms");
+  `per-prefix-numbering-hole` and `retired-live-id-clash` stay filtered;
+  `parseRegistry`'s five-cell floor and its 150 importers are untouched;
+  `tests/code-registry.test.ts`'s reconciler unit cells are untouched (cell F1
+  is correct for what it asserts); no `src/` change, no diagnostic emission, no
+  *Message* cell moved.

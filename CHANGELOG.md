@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.184.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0230 — DIAG-2's closed set is now gated corpus-wide** (shape 2,
+  no-second-copy: the gate drives the shipped `assembleLiveCorpus` +
+  `runClosingGate` + `parseRegistry`). A new offline gate
+  (`tests/registry-closed-set-corpus-gate.test.ts`, 6 cells) reconciles the
+  REAL registry against the real test corpus in both directions: every
+  registry code either has an asserting test or is a pinned carve-out with a
+  stated reason, and every asserted code beyond the registry sits in a pinned
+  112-entry baseline (`tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json`,
+  the `permitted-codes.json` precedent shape) with its own staleness tripwire.
+  The reference mirror gains its missing `theta/runtime/non-object-receiver`
+  row (discharges 0200 residual 4) and is parity-checked against the registry
+  both ways. Ghost registry rows previously survived the whole suite; they
+  now red it. `CANARY_GAP_KINDS` untouched.
+
 ## [0.183.0] - 2026-08-27
 
 ### Fixed
