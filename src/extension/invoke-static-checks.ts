@@ -771,15 +771,15 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *   - INV-5 path-escape (`theta/load/invoke-path-escape`) via the shared
  *     realpath + discovery-root containment check — the `invoke(...)` surface
  *     ONLY. The `tools:` `.theta`-entry surface's containment is judged
- *     upstream, at `tools:` resolution time (`parseCalleeForTools`): an
- *     error-severity rejection there un-registers the caller before this pass
- *     runs, so an escaping entry never reaches this pass's arity or type
- *     loops. For a callee this pass cannot statically resolve at load, the
- *     defence is the runtime open-time re-check the dispatch path runs
- *     before it opens the callee (`#driveCallee` →
- *     `#recheckCalleeContainment` in
- *     `src/extension/production-theta-producer.ts`), which fails the call
- *     closed instead of un-registering the caller;
+ *     upstream at `tools:` resolution time (`parseCalleeForTools`), for the
+ *     entry itself and for a `tools:`-reached callee's own `tools:` `.theta`
+ *     entries alike: an error-severity rejection there un-registers the
+ *     caller before this pass runs, so an escaping entry at either depth
+ *     never reaches this pass's arity or type loops. For a callee this pass
+ *     cannot statically resolve at load — or one reached by an `invoke(...)`
+ *     literal, whose own nested entries that judgement does not reach — the
+ *     defence is the runtime open-time re-check (`#driveCallee` →
+ *     `#recheckCalleeContainment`), which fails the call closed instead;
  *   - INV-3 arity (`theta/parse/invoke-arity-too-{many,few}`) against the
  *     statically-resolved callee's `params:` counts, over BOTH the
  *     `invoke(...)` call surface and the `.theta`-callable call surface

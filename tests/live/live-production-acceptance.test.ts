@@ -1105,6 +1105,171 @@ describe("H8a-T — bug 0110: an out-of-root .theta tools: entry escapes contain
 });
 
 // ===========================================================================
+// Bug 0111 — the bug-0110 load-time containment check reaches only the
+// discovered-theta pass: `parseCalleeTheta` (a `tools:`-reached callee's
+// dispatch parse) called `resolveThetaToolsAtLoad` with no active-root union,
+// so a callee reached by a discovered caller's `tools:` entry had ITS OWN
+// `tools:` `.theta` entries minted with no load-time containment check
+// (docs/bugs/0111-nested-callee-tools-entries-no-load-time-containment.md).
+// The fix (route (a), minimum honest form, `tools:`-surface scoped) makes the
+// discovered-theta compose pass's `tools:` pre-parse
+// (`parseCalleeForTools`) additionally judge a `tools:`-reached callee's OWN
+// `tools:` entries via the new `checkNestedToolsContainment`, resolved
+// against the CALLEE's directory; an escape is pushed at the CALLER's file so
+// the CALLER un-registers, exactly as a depth-0 escape does.
+//
+// This cell is the live sibling of the bug 0110 cell immediately above,
+// reusing its harness and its registry-sourced `invokePathEscapeFragment`
+// helper: an IN-ROOT, UNDISCOVERED nested callee (planted directly on disk,
+// never through `plantThetaWorkspace`'s conventional sources, so the
+// discovery walk's non-recursion is what keeps it undiscovered) whose OWN
+// `tools:` entry names a `.theta` outside every active discovery root. The
+// nested callee sits under the project discovery root's `b111Nested`
+// subdirectory, inside the
+// active root by segment-boundary containment and never itself discovered
+// (the walk collects `*.theta` per directory and does not recurse — the same
+// non-recursion fact `tests/nested-tools-entry-containment.test.ts` proves
+// offline). Registration-only: no slash command is invoked, so no model turn
+// runs and the cell spends zero tokens, the same profile as the bug 0110 cell
+// above. ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered or deleted. (cell 88)
+// ===========================================================================
+
+describe("H8a-U — bug 0111: a nested tools: entry escapes containment through a tools:-reached callee's OWN tools: (Convention: live-host acceptance) (cell 88)", () => {
+  it("does not register a caller whose tools: entry names an in-root, undiscovered callee whose OWN tools: entry names a .theta outside every active discovery root, and the theta-system-note channel names the NESTED entry spec, through the real discovery->registration path", async () => {
+    const provider = await requireLiveProvider();
+
+    // The out-of-root callee named by the NESTED entry: a SECOND, undiscovered
+    // temp directory, mirroring the bug 0110 cell's `outsideDir`.
+    const outsideDir = mkdtempSync(join(tmpdir(), "theta-b0111-livefar-"));
+    const outSpec = outsideDir.replace(/\\/g, "/");
+    writeFileSync(
+      join(outsideDir, "b111livefarcallee.theta"),
+      ["---", "mode: subagent", "---", "@`hi`", ""].join("\n"),
+      "utf8",
+    );
+
+    const thetas: PlantedTheta[] = [
+      // The in-root control, mirroring the bug 0110 cell's precondition pair:
+      // proves the planted workspace and ordinary within-root resolution both
+      // work before the escaping cell's non-registration is attributed to
+      // containment.
+      {
+        source: "project",
+        stem: "b111livenearcallee",
+        text: ["---", "mode: subagent", "---", "@`hi`", ""].join("\n"),
+      },
+      {
+        source: "project",
+        stem: "b111livecallnear",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./b111livenearcallee.theta",
+          "---",
+          "b111livenearcallee()?",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+      // The load-bearing caller: a `tools:` entry naming an IN-ROOT,
+      // UNDISCOVERED nested callee.
+      {
+        source: "project",
+        stem: "b111livecallmid",
+        text: [
+          "---",
+          "mode: subagent",
+          "tools:",
+          "  - ./b111Nested/b111livemidcallee.theta",
+          "---",
+          "b111livemidcallee()?",
+          "@`hi`",
+          "",
+        ].join("\n"),
+      },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    // The nested callee, planted directly under the project discovery root's
+    // `b111Nested` subdirectory —
+    // inside the active root by segment-boundary containment, never itself a
+    // `plantThetaWorkspace` discovery source, so the discovery walk's
+    // non-recursion (proven offline by
+    // `tests/nested-tools-entry-containment.test.ts` cell 0) keeps it
+    // undiscovered. ITS OWN `tools:` entry names the out-of-root callee.
+    const nestedDir = join(workspace.cwd, ".pi", "theta", "b111Nested");
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(
+      join(nestedDir, "b111livemidcallee.theta"),
+      [
+        "---",
+        "mode: subagent",
+        "tools:",
+        `  - ${outSpec}/b111livefarcallee.theta`,
+        "---",
+        "b111livefarcallee()?",
+        "@`hi`",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the in-root control caller must register before the
+      // nested-escape caller's absence can be attributed to the nested
+      // containment check instead of a broken workspace.
+      expect(
+        handle.command("b111livenearcallee"),
+        "the in-root callee did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b111livecallnear"),
+        "the in-root `tools:` caller did not register — precondition unmet. " +
+          "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root, a
+      // caller whose `tools:` entry names an IN-ROOT nested callee whose OWN
+      // `tools:` entry escapes every active discovery root does not register —
+      // the nested entry's containment is now judged at the caller's load.
+      expect(
+        handle.command("b111livecallmid"),
+        "the caller whose `tools:` entry names a nested callee with an " +
+          "escaping `tools:` entry registered anyway through the live " +
+          "discovery/session_start path — the nested containment check did not " +
+          "fire. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b111livecallmid");
+
+      // The containment diagnostic, off the theta-system-note channel,
+      // naming the NESTED entry spec as written (not the nested callee's own
+      // path) — `docs/spec_topics/diagnostics/placeholder-rendering-b.md`
+      // category 5's `tools:`-entry rendering arm.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = invokePathEscapeFragment(
+        `${outSpec}/b111livefarcallee.theta`,
+      );
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the containment diagnostic for the " +
+          "nested out-of-root entry. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+      rmSync(outsideDir, { recursive: true, force: true });
+      rmSync(nestedDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
 // Bug 0077 — the settings `thetaPaths` glob matcher (`globMatches`,
 // src/discovery/discovery-walk.ts) matched a universe entry's basename against
 // the PATTERN'S OWN basename (`basename(absPattern)`) instead of against the

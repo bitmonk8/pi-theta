@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.206.0]
+
+### Fixed
+
+- **Bug 0111**: a `tools:` `.theta` entry inside an INVOKED callee's own
+  `tools:` minted its callable with no diagnostic on any channel — the
+  bug-0110 load-time containment check reached only the discovered-theta
+  pass. Route (a), minimum honest form: `parseCalleeTheta`'s resolution now
+  threads the active-root union, so the nested escape is refused at the
+  CALLER's load exactly like the top-level spelling (route (b) — dropping
+  the entry from the nested snapshot — measured strictly worse:
+  `#classifyCall` misreads positional-arg calls as Pi-tool calls). Witness:
+  `tests/nested-tools-entry-containment.test.ts` (29 tests/10 cells incl. a
+  realpath junction cell) + H8a cell 88 (live, real provider).
+
 ## [0.205.0]
 
 ### Fixed

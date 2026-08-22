@@ -1568,6 +1568,17 @@ interface CalleeParse {
    * is set, so `mode` / `hasErrors` above stay at their neutral defaults.
    */
   readonly escape?: Diagnostic;
+  /**
+   * Bug 0111 / INV-1: one diagnostic per escaping entry of THIS callee's OWN
+   * `tools:` list, judged against the callee's own directory the same way a
+   * discovered theta's entries are judged against its directory. Only
+   * populated for a callee that passed its own containment check (`escape` is
+   * absent) and whose bytes parsed to non-null frontmatter — an escaping or
+   * unreadable callee's contents are never read (§Fix constraint 2). Absent
+   * (not empty) when the callee declares no `tools:` or none of its entries
+   * escape.
+   */
+  readonly nestedToolsEscapes?: readonly Diagnostic[];
 }
 
 /** The outcome of resolving a discovered theta's `tools:` callable set at load. */
@@ -1615,14 +1626,17 @@ async function resolveThetaToolsAtLoad(
   // `pi.getAllTools()` registry snapshot the MODE-INDEPENDENT admission reads.
   // Absent on harness paths (built-in admission only).
   getAllTools?: GetAllToolsSnapshot,
-  // INV-1 (invocation.md §Resolution) / bug 0110: the active discovery-root
-  // union each `.theta` `tools:` entry's resolved path is checked against.
-  // `undefined` on the nested-callee parse (`parseCalleeTheta`'s call site
-  // below in this file scopes the new check to the discovered-theta pass,
-  // §Fix constraint 5) — that callee's own `tools:` carries no load-time
-  // containment check because the active-root union is deliberately not
-  // threaded to it; the runtime open-time re-check
-  // (`#recheckCalleeContainment`) is its containment backstop.
+  // INV-1 (invocation.md §Resolution) / bug 0110, widened by bug 0111: the
+  // active discovery-root union threaded by the discovered-theta compose pass
+  // (call site below in this file), which judges BOTH an entry's own resolved
+  // path AND — for a `.theta` `tools:` entry — that callee's own `tools:`
+  // `.theta` entries (`parseCalleeForTools`'s `nestedToolsEscapes`). `undefined`
+  // on the nested-callee dispatch parse (`parseCalleeTheta`'s call site below
+  // in this file): sound for a callee reached through a `tools:` entry, because
+  // that callee's own nested entries were already judged at the caller's load;
+  // the residual uncovered case is a callee reached by an `invoke(...)`
+  // literal, for which the runtime open-time re-check
+  // (`#recheckCalleeContainment`) remains the containment backstop.
   activeRoots?: readonly string[],
 ): Promise<ThetaToolsResolution> {
   const toolsList = parsed.frontmatter.tools;
@@ -1651,18 +1665,29 @@ async function resolveThetaToolsAtLoad(
     }
   }
 
-  // INV-1 / bug 0110: an entry whose resolved path escapes every active
-  // discovery root is rejected on its path alone, before any rule derived
-  // from the callee's contents runs — pushed FIRST, ahead of the V15f
-  // callee-has-errors loop below, so a callable the spec says was never
-  // created cannot also draw a content-derived diagnostic (tool-calls.md
-  // §"Argument shape": "the callable is not created"; §Fix constraint 1).
-  // Located exactly as the other `tools:`-surface diagnostics below are (a
-  // file-head span; the parsed frontmatter carries no finer per-entry range).
+  // INV-1 / bug 0110, widened by bug 0111: an entry whose resolved path
+  // escapes every active discovery root is rejected on its path alone, before
+  // any rule derived from the callee's contents runs — pushed FIRST, ahead of
+  // the V15f callee-has-errors loop below, so a callable the spec says was
+  // never created cannot also draw a content-derived diagnostic (tool-calls.md
+  // §"Argument shape": "the callable is not created"; §Fix constraint 1). The
+  // same loop also drains a passed-containment callee's OWN escaping `tools:`
+  // entries (`nestedToolsEscapes`), located at THIS caller's file exactly like
+  // a depth-0 escape: bug 0111's headline is that the identical entry shape
+  // must draw the identical report whichever depth names it. Located exactly
+  // as the other `tools:`-surface diagnostics below are (a file-head span; the
+  // parsed frontmatter carries no finer per-entry range).
   for (const callee of calleeCache.values()) {
     if (callee.escape !== undefined) {
       diagnostics.push({
         ...callee.escape,
+        file: parsed.sourcePath,
+        range: TOOLS_DIAGNOSTIC_RANGE,
+      });
+    }
+    for (const nestedEscape of callee.nestedToolsEscapes ?? []) {
+      diagnostics.push({
+        ...nestedEscape,
         file: parsed.sourcePath,
         range: TOOLS_DIAGNOSTIC_RANGE,
       });
@@ -1845,11 +1870,14 @@ function isBareToolName(spec: string): boolean {
  * Pre-parse one `.theta` callee for the tools scan: resolve it against the
  * caller's directory, read it, check its resolved path's discovery-root
  * containment (INV-1 / bug 0110), and — for a contained entry — parse it and
- * report declared mode and whether it carries its own error-severity
- * load/parse diagnostics. An unreadable path is `fileExists: false` (drives
+ * report declared mode, whether it carries its own error-severity load/parse
+ * diagnostics, and (bug 0111) the containment verdicts of the callee's OWN
+ * `tools:` `.theta` entries, judged against the callee's own directory. An
+ * unreadable path is `fileExists: false` (drives
  * `theta/load/unresolvable-theta-path` through `resolveCallableSet`); an
  * escaping path is reported via `escape` with neutral `mode` / `hasErrors`
- * (its bytes are never parsed — see `CalleeParse.escape`).
+ * (its bytes are never parsed — see `CalleeParse.escape`), and its OWN
+ * `tools:` is therefore never inspected either.
  */
 async function parseCalleeForTools(
   fs: FileSystem,
@@ -1876,9 +1904,10 @@ async function parseCalleeForTools(
   // entry's own bytes are never parsed and no rule derived from its contents
   // can name it (tool-calls.md §"Argument shape" — "the callable is not
   // created"; §Fix constraint 1). `activeRoots` is `undefined` on the
-  // nested-callee parse (`parseCalleeTheta`'s call site, below in this file)
-  // — the discovered-theta pass is the only caller that threads the
-  // active-root union (§Fix constraint 5).
+  // nested-callee dispatch parse (`parseCalleeTheta`'s call site, below in
+  // this file) — the discovered-theta pass is the only caller that threads
+  // the active-root union, and bug 0111 judges a `tools:`-reached callee's own
+  // nested entries only inside this same gate, below.
   if (activeRoots !== undefined) {
     // A `realpath` rejection (e.g. a root removed by a concurrent watch
     // event) is handled by the same rejection-to-`undefined` idiom the
@@ -1918,11 +1947,71 @@ async function parseCalleeForTools(
     // resolves to no file (unresolvable-theta-path).
     return { fileExists: true, mode: "subagent", hasErrors: true };
   }
+  const nestedToolsEscapes = await checkNestedToolsContainment(
+    fs,
+    absolute,
+    document.frontmatter.tools,
+    activeRoots,
+  );
   return {
     fileExists: true,
     mode: document.frontmatter.mode,
     hasErrors: hasLoadParseError(document.diagnostics),
+    ...(nestedToolsEscapes !== undefined ? { nestedToolsEscapes } : {}),
   };
+}
+
+/**
+ * Bug 0111 / INV-1, one level in: judge a `tools:`-reached callee's OWN
+ * `tools:` `.theta` entries for discovery-root containment, resolved against
+ * the CALLEE's directory (`calleeAbsolutePath`'s `dirname`) exactly as
+ * `parseCalleeForTools` resolves its own spec. Reached only for a callee that
+ * already passed its own containment check and whose bytes parsed to
+ * non-null frontmatter (`parseCalleeForTools` above) — an escaping or
+ * unreadable callee's contents are never read (§Fix constraint 2). Bare
+ * Pi-tool names and empty specs are routed away exactly like the depth-0 loop
+ * in `resolveThetaToolsAtLoad`; a full callable-set resolution is deliberately
+ * not run here — only the path-shaped rule this report's Fix scopes to — so no
+ * content-derived diagnostic can be produced for an entry this function does
+ * not otherwise inspect. `undefined` when the callee declares no `tools:`, or
+ * `activeRoots` is `undefined` (the nested-callee dispatch parse), or none of
+ * its entries escape.
+ */
+async function checkNestedToolsContainment(
+  fs: FileSystem,
+  calleeAbsolutePath: string,
+  calleeTools: readonly string[] | undefined,
+  activeRoots: readonly string[] | undefined,
+): Promise<readonly Diagnostic[] | undefined> {
+  if (activeRoots === undefined || calleeTools === undefined || calleeTools.length === 0) {
+    return undefined;
+  }
+  const calleeDir = dirname(calleeAbsolutePath);
+  const escapes: Diagnostic[] = [];
+  const judged = new Set<string>();
+  for (const entry of calleeTools) {
+    const spec = toolsEntrySpec(entry);
+    if (spec.length === 0 || isBareToolName(spec) || judged.has(spec)) {
+      continue;
+    }
+    judged.add(spec);
+    const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
+    // Rejection-to-`undefined`, the same idiom `parseCalleeForTools` uses for
+    // its own entry above — never a broad `catch`.
+    const containment = await checkInvokePathAtLoad({
+      deps: { fs },
+      resolvedPath: nestedAbsolute,
+      literalPath: spec,
+      activeRoots,
+    }).then(
+      (value) => value,
+      () => undefined,
+    );
+    if (containment?.kind === "escape") {
+      escapes.push(containment.diagnostic);
+    }
+  }
+  return escapes.length > 0 ? escapes : undefined;
 }
 
 /**
@@ -2121,14 +2210,17 @@ async function parseCalleeTheta(
   // reach ambient host tools (bash / read / …) from code. A no-`tools:` child
   // resolves to the frozen EMPTY snapshot, so it has no code callables.
   //
-  // No `activeRoots` argument (INV-1 / bug 0110, §Fix constraint 5): the
-  // load-time containment check is scoped to the discovered-theta compose
-  // pass only, mirroring `#recheckCalleeContainment`'s `activeRoots ===
-  // undefined` early return in `production-theta-producer.ts` — an omitted
-  // union, not an empty one, is what turns the check off here. This nested
-  // callee's own `tools:` carries no load-time containment check because the
-  // active-root union is deliberately not threaded to it; the runtime
-  // open-time re-check is its containment backstop.
+  // No `activeRoots` argument (INV-1 / bug 0110): this is the dispatch parse
+  // of a callee reached by an `invoke(...)` literal — correct, not a gap, for
+  // a callee reached through a `tools:` entry, whose own nested `tools:`
+  // entries were already judged at the caller's load
+  // (`resolveThetaToolsAtLoad`'s `nestedToolsEscapes`, bug 0111). The residual
+  // this omission leaves open is a callee reached by an `invoke(...)` literal:
+  // for that surface the runtime open-time re-check
+  // (`#recheckCalleeContainment` in `production-theta-producer.ts`, mirroring
+  // its own `activeRoots === undefined` early return) is the containment
+  // backstop — an omitted union, not an empty one, is what turns the load-time
+  // check off here.
   const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps, getAllTools);
   return { ...input, callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET };
 }
