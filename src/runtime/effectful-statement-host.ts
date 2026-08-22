@@ -67,6 +67,7 @@ import type { InvokeChild } from "./invoke-cancellation";
 import { runInvokeChild } from "./invoke-cancellation";
 import { surfaceThetaCallableCalleeFailure } from "./tool-call";
 import type { QueryError } from "./query-error";
+import { summariseErrorField } from "./err-field-summary";
 
 /**
  * How to drive one `@`-query through the real two-phase query loop: whether the
@@ -419,7 +420,7 @@ async function runInvokeEffect(
       const wrapped = surfaceThetaCallableCalleeFailure(
         child.calleePath,
         result.error as unknown as QueryError,
-        `invoke of ${child.calleePath} callee returned Err(${String(innerKind)})`,
+        `invoke of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
       );
       return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
     }

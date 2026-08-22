@@ -1,6 +1,10 @@
 # Bug 0177 — The SLSH-3 `Err`-note renderer and the XMODE-1 invoke wrap embed a `QueryError` field in a template string with no stringification rule: `renderLeafKindNote`'s seven interpolating SNK rows (`${leaf.kind}`, `${e.message}`, `${e.tool_name}`, `${e.cause}`, `${e.callee_path}`, `${e.attempts}`, `${e.rounds}`) and `String(innerKind)` at `effectful-statement-host.ts:401` all assume a string, where the type layer admits a schema-typed record at every one of those positions with zero diagnostics — a plain-prototype record renders the user-facing note `theta /<name> returned Err: [object Object] — m`, the exact default QRY-18 forbids for the same class one page over, and since bug 0173 null-prototyped the inbound rebuild a typed-`invoke<T>`-bound record raises `TypeError: Cannot convert object to primitive value` from inside the renderer, replacing the SLSH-3 note with the `theta/runtime/internal-error` framing `theta /<name> aborted with internal error: …`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the fix surface is
+- **Status:** fixed (0.186.0). The rendering rule §Fix (b) left undecided is
+  settled by the fix record below (**§Fix (0.186.0) — the 0177 field-rendering
+  law**), which is the citable authority for any later report that renders a
+  non-string value into a user-facing note. The original constraint-pinned
+  statement follows: the fix surface is
   fixed (the seven interpolating SNK rows in `src/runtime/err-note-render.ts`
   and the one `String(…)` in `src/runtime/effectful-statement-host.ts` — eight
   sites), but *what* a
@@ -777,6 +781,142 @@ widen, but it is not a prerequisite in either direction.
 would mint null-prototype records at the theta-side construction sites too and
 so add routes to the same eight positions; this fix is prototype-blind by
 constraint 4, so it covers those routes without rebasing on that report.
+
+## Fix (0.186.0)
+
+### The 0177 field-rendering law
+
+**Every position that embeds a `QueryError` payload field in a user-facing
+string renders that field through `summariseErrorField`
+(`src/runtime/err-field-summary.ts`) — never by bare template substitution and
+never by `String(…)`. `summariseErrorField` is total over any plain-data
+`ThetaValue`, prototype-blind, and never coerces an object to a primitive:
+(1) a string renders verbatim — no quoting, no truncation, no escaping;
+(2) a number, boolean, bigint, `undefined` or `null` renders as `String(value)`;
+(3) an enum value (a boxed `String`) renders as its bare wire string;
+(4) any other object or array renders as compact `JSON.stringify` — QRY-18's
+answer (`query-escapes-stringification.md:16`, `:27`) and `summariseScrutinee`'s
+(`match-result.ts:88–89`); (5) except that when (4) cannot produce a bounded
+finite string — a cycle, a `JSON.stringify` result of `undefined`, or output
+longer than the 200-character cap — the value renders as
+`summariseNonResultOperand`'s capped descriptor instead
+(`runtime-panics.ts:440`).**
+
+§Fix (b)'s two candidates are therefore not alternatives but a primary and a
+bounded fallback: candidate 1 wherever it is bounded and finite, candidate 2
+exactly where it is not. The evidence that decided it: QRY-18 states the rule
+*and its reason* for the same class one page over and names `[object Object]`
+as the failure to avoid; the spec's own worked example pins compact
+`JSON.stringify` for a theta value embedded in a runtime message
+(`placeholder-rendering-a.md:39`); and SLSH-3 makes this note the **only**
+user-facing failure surface for a subagent-mode theta
+(`slash-invocation.md:31`), so discarding the field's content is a real loss,
+while candidate 2's two stated costs (cycles, unbounded size) are precisely the
+cases where candidate 1 cannot render at all — so adopting candidate 2 there
+costs nothing candidate 1 could have delivered.
+
+**No spec edit was required, adjudicated against the text.** SLSH-4
+(`slash-invocation.md:33`) fixes the surrounding template text and the
+placeholder set; it states no stringification rule for a non-string placeholder
+value. The SNK table is outside the placeholder-rendering closure
+(`placeholder-rendering-a.md:7`, scoped to the four Code-registry pages'
+*Message* columns). Both candidates are therefore admissible without a spec
+edit, and `docs/spec_topics/**` is untouched. No registry row text changed, so
+DIAG-2 / DIAG-4 are not engaged. GOV-15 observable (c) moves only for the
+inputs that rendered `[object Object]` or threw at HEAD; every string- and
+number-valued field renders byte-identically, asserted rather than assumed.
+
+- What shipped:
+  - `src/runtime/err-field-summary.ts` (new) — `summariseErrorField`, the law's
+    one implementation; cycles are detected by an explicit ancestor-stack walk
+    (`hasCycle`, with backtracking so ordinary DAG sharing is not a cycle)
+    rather than by catching `JSON.stringify`, keeping the module free of a
+    broad `catch` (§Fix (a): one coercion-safe summariser).
+  - `src/runtime/err-note-render.ts` — the seven interpolating SNK rows (SNK-a
+    `attempts`, SNK-c `message`, SNK-d `tool_name`/`message`, SNK-g
+    `tool_name`/`cause`/`message`, SNK-h `rounds`/`last_tool_name`, SNK-i
+    `callee_path`/`cause`, SNK-k `kind`/`message`) route through it. SNK-b,
+    SNK-e and SNK-f interpolate nothing and are untouched; no surrounding
+    template text changed (SLSH-4); SNK-h's `?? "respond"` still runs before
+    the summariser, so `null` still renders the literal `respond`.
+  - `src/runtime/effectful-statement-host.ts` — `runInvokeEffect`'s XMODE-1
+    wrapper message uses `summariseErrorField(innerKind)` in place of
+    `String(innerKind)`; the `invoke_infra`/`cancelled` passthrough is
+    unchanged (§Fix (a), the eighth position).
+  - `src/runtime/runtime-panics.ts` — `summariseNonResultOperand` is exported
+    (one word; the file is otherwise byte-identical, same line count) so rule 5
+    reuses the shipped descriptor instead of duplicating it.
+  - Constraints 1–7 hold: no prototype check anywhere (constraint 4), no shape
+    gate and no `QueryError` type change (constraint 5), no new registered code
+    (constraint 6), `src/runtime/wire-translation.ts` untouched (constraint 7).
+- Gates: witness run — the 24 + 3 new cells RED at HEAD with the two pinned
+  signatures (`expected 'theta /t returned Err: [object Object] — m' to be
+  'theta /t returned Err: {"n":"x"} — m'` and `TypeError: Cannot convert object
+  to primitive value` at `err-note-render.ts:161` / `effectful-statement-host.ts`
+  `runInvokeEffect`), GREEN after; full suite `npm test` → `Test Files 375
+  passed (375) / Tests 7725 passed (7725)`; `npm run typecheck` (`tsc -p
+  tsconfig.json --noEmit`) clean; `npm run lint` (`eslint "src/**/*.ts"`) clean.
+- Review: 2 rounds, plus one pre-review citation-correction round. The
+  correction round removed a 7-line doc-comment whose line shift had invalidated
+  `runtime-panics.ts:496` citations elsewhere, and restored the three files the
+  implementer had chased (`tests/index-element-alias-runtime-disposition.test.ts`,
+  `tests/type-name-as-value-refusal.test.ts`,
+  `tests/live/live-production-acceptance.test.ts`) byte-exact to HEAD
+  (`git hash-object` = `git rev-parse HEAD:<path>` for each) — positional drift
+  is [0134](./0134-params-shift-induced-stale-citations.md)'s do-not-chase
+  class. Round 1 (deep): no correctness, fidelity or spec finding; two prose
+  findings (a `wire-translation.ts:299` citation stale at this HEAD — the
+  `rebuildInbound` build is `:370` — repeated in four new comments, and a
+  mixed-frame entry-point citation) plus one prose residual (an over-broad
+  totality claim). Round 2 (light): all three fixed, comment text only;
+  polish verified by gate-diff (the module's executable body byte-identical
+  before and after), confirmation round skipped.
+- Verification: SOLID. (1) The witness genuinely reds — neutralising
+  `summariseErrorField`'s object arm to `String(value)` reproduced both pre-fix
+  signatures across all 24 cells, and restoring the file byte-exact
+  (`git hash-object` `b3ab9406…` before and after) returned them green.
+  (2) Full default suite green (375 / 7725). (3) A real end-to-end live H8a
+  cell exercises the fixed path — `tests/live/err-note-render-record-error-field-live-cell.test.ts`,
+  a `mode: subagent` kid returning `Err(E { kind: I { n: "x" }, message: "m" })`
+  through a REAL spawned RFC-0006 child and a `tools:`-routed prompt-mode parent
+  propagating it with `?`, asserting the settled `SessionManager`'s
+  `theta-system-note` reads `theta /b0177liveparent returned Err: {"n":"x"} — m`;
+  run for real under the shared live lock, green, and proved both directions
+  (neutralised → the note read `theta /b0177liveparent returned Err: [object
+  Object] — m`). (4) `npm run typecheck` and `npm run lint` clean.
+- Residuals:
+  1. **Positional drift in `src/runtime/err-note-render.ts`** — the added import
+     and the SNK-h comment shift the SNK rows by four lines (SNK-i `:157` →
+     `:161`, SNK-k `:161` → `:165`, `renderLeafKindNote` `:105` → `:106`). Every
+     external citation of those lines is now off by four. Not chased: 0134's
+     adjudicated do-not-chase class. Known citers left as they are:
+     `tests/live/live-production-acceptance.test.ts` (two `:157` citations in
+     comments and one `expect` message) and this document's own §Kind /
+     §Affected line numbers, which stand as measured at `21988875`.
+  2. **`tests/wire-translation-inbound-retag.test.ts:293` cites
+     `wire-translation.ts:299`**, which is stale at this HEAD (`:370`). Outside
+     this diff, so untouched — 0134 class, recorded for whoever next edits that
+     file.
+  3. **Two inputs outside the summariser's stated contract still throw** — an
+     object with a throwing getter or proxy trap (out of the key walk) and an
+     object containing a nested `bigint` (out of `JSON.stringify`). Neither is a
+     plain-data `ThetaValue`, so neither is producible at a `QueryError` field;
+     the carve-out is stated in `summariseErrorField`'s doc-comment, matching
+     `summariseNonResultOperand`'s own fails-loud posture
+     (`runtime-panics.ts:435–439`).
+  4. **The bug document's `effectful-statement-host.ts` citations were stale at
+     this HEAD** and were re-derived rather than trusted: the `innerKind` read is
+     `:416` (doc: `:394`) and the coercion `:423` (doc: `:401`);
+     `surfaceThetaCallableCalleeFailure` is `tool-call.ts:804` (doc: `:796`);
+     `#validateInvokeReturn` is `production-theta-producer.ts:3816` with its
+     passthrough at `:3821–3822` (doc: `:3436` / `:3442–3443`). Every
+     `err-note-render.ts` citation in the document was re-verified accurate at
+     HEAD before the fix.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: unchanged — no `Err`-payload shape gate, no
+  change to what the type layer admits at an author's error-schema field, bug
+  0173's record builds and witness untouched, the SNK template wording and the
+  SLSH-5 chain suffix unchanged.
 
 ## Non-goals
 

@@ -437,7 +437,7 @@ export class QuestionOperandDefectError extends Error {
  * fails into the same top-level `theta/runtime/internal-error` surface this
  * defect targets, so the abort stays loud either way.
  */
-function summariseNonResultOperand(value: ThetaValue): string {
+export function summariseNonResultOperand(value: ThetaValue): string {
   if (value === null) {
     return "null";
   }

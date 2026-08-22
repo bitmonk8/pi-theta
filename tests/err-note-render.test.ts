@@ -327,3 +327,277 @@ describe("V12b-T — SLSH-5 chain attribution", () => {
     );
   });
 });
+
+// ===========================================================================
+// Bug 0177 — non-string `QueryError` payload fields at the interpolating SNK
+// rows. ADDITIVE: none of the 16 cells above is edited, re-pinned or deleted.
+//
+// Spec: docs/bugs/0177-err-note-render-string-coercion-on-record-error-fields.md
+// §Fix (a) (the eight positions), §Fix (b) (the rendering rule),
+// §Fix (c) constraint 1 (no change for a string-valued field),
+// §Fix (d) (this witness), §Reproduction (b) (the measured rows).
+//
+// The settled rule ("the law"): every position that embeds a `QueryError`
+// payload field in a user-facing string renders that field through one total,
+// prototype-blind summariser — never bare template substitution, never
+// `String(...)`:
+//   1. a string renders verbatim (no quoting, truncation or escaping);
+//   2. a number / boolean / bigint / undefined / null renders as
+//      `String(value)` (`null` -> `null`);
+//   3. an enum value (a boxed `String`) renders as its bare wire string;
+//   4. any other object or array renders as compact `JSON.stringify` (QRY-18,
+//      `docs/spec_topics/query/query-escapes-stringification.md:16`, `:27`;
+//      `summariseScrutinee`, `src/runtime/match-result.ts:88`);
+//   5. except that when (4) cannot produce a bounded finite string —
+//      `JSON.stringify` throws (a cycle) or returns `undefined`, or the output
+//      exceeds a 200-character cap — the value renders as
+//      `summariseNonResultOperand`'s capped descriptor instead
+//      (`src/runtime/runtime-panics.ts:440`).
+//
+// At HEAD every cell below reds for one of the two measured reasons: a
+// plain-prototype record substitutes as `[object Object]`
+// (`renderLeafKindNote`'s seven interpolating rows, `err-note-render.ts:122`,
+// `:127`, `:132`, `:146`, `:155-156`, `:161`, `:165`), and a null-prototype
+// record — the shape `rebuildInbound` mints since bug 0173
+// (`src/runtime/wire-translation.ts:370`) — raises
+// `TypeError: Cannot convert object to primitive value` from inside the
+// renderer. The cells assert the rendered string under the law, not merely
+// `not.toThrow()` (§Fix (d)).
+//
+// These cells import nothing that does not exist at HEAD: the new summariser
+// module `src/runtime/err-field-summary.ts` is the implementer's to add, so
+// every assertion here runs through the shipped public entry points
+// `renderLeafKindNote` (`err-note-render.ts:106`) and `renderTopLevelErrNote`
+// (`:179`).
+
+/** The one-own-key record every §Reproduction (b) row places at a field. */
+function plainRec(): Record<string, unknown> {
+  return { n: "x" };
+}
+
+/**
+ * Its null-prototype twin — the shape `rebuildInbound` builds with
+ * `Object.create(null)` (`src/runtime/wire-translation.ts:370`, bug 0173's
+ * §Fix (a)) and that a typed `invoke<T>` return binds into theta code
+ * (§Reproduction (d)).
+ */
+function nullProtoRec(): Record<string, unknown> {
+  const o = Object.create(null) as Record<string, unknown>;
+  o.n = "x";
+  return o;
+}
+
+/** Law rule 4's rendering of both records above: compact `JSON.stringify`. */
+const REC_JSON = '{"n":"x"}';
+
+/** Both prototypes, driven through every row (§Reproduction (b), (a)). */
+const PROTOS: readonly (readonly [string, () => Record<string, unknown>])[] = [
+  ["plain-prototype", plainRec],
+  ["null-prototype", nullProtoRec],
+];
+
+/** Build an arbitrary leaf shape as a `QueryError` (ERR-15 openness). */
+function leafOf(fields: Record<string, unknown>): QueryError {
+  return fields as unknown as QueryError;
+}
+
+describe("bug 0177 — a record at an interpolating SNK field renders through the summariser", () => {
+  for (const [proto, mk] of PROTOS) {
+    it(`SNK-k: a record at 'kind' renders as compact JSON, not [object Object] and not a throw — ${proto}`, () => {
+      // §Reproduction (b) rows 1-2: plain renders
+      // `theta /t returned Err: [object Object] — m`; null-prototype throws.
+      // SNK-k's return is `err-note-render.ts:165`, in the `default:` arm at
+      // `:163`.
+      expect(renderLeafKindNote("t", leafOf({ kind: mk(), message: "m" }))).toBe(
+        `theta /t returned Err: ${REC_JSON} ${DASH} m`,
+      );
+    });
+
+    it(`SNK-k: a record at 'message' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 3. Same template, second placeholder
+      // (`err-note-render.ts:165`).
+      expect(renderLeafKindNote("t", leafOf({ kind: "weird", message: mk() }))).toBe(
+        `theta /t returned Err: weird ${DASH} ${REC_JSON}`,
+      );
+    });
+
+    it(`SNK-c: a record at transport 'message' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 4; the row's return is `err-note-render.ts:127`.
+      expect(renderLeafKindNote("t", leafOf({ kind: "transport", message: mk() }))).toBe(
+        `theta /t returned Err: transport ${DASH} ${REC_JSON}`,
+      );
+    });
+
+    it(`SNK-d: a record at model_tool 'tool_name' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 5; the row's return is `err-note-render.ts:132`.
+      expect(
+        renderLeafKindNote("t", leafOf({ kind: "model_tool", tool_name: mk(), message: "m" })),
+      ).toBe(`theta /t returned Err: tool ${REC_JSON} failed ${DASH} m`);
+    });
+
+    it(`SNK-g: a record at code_tool 'cause' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 6; the row's return is `err-note-render.ts:146`.
+      expect(
+        renderLeafKindNote(
+          "t",
+          leafOf({ kind: "code_tool", tool_name: "x", cause: mk(), message: "m" }),
+        ),
+      ).toBe(`theta /t returned Err: tool x call failed (${REC_JSON}) ${DASH} m`);
+    });
+
+    it(`SNK-i: a record at invoke_infra 'callee_path' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 7; the row's return is `err-note-render.ts:161`.
+      expect(
+        renderLeafKindNote("t", leafOf({ kind: "invoke_infra", callee_path: mk(), cause: "c" })),
+      ).toBe(`theta /t returned Err: invoke of ${REC_JSON} failed (c)`);
+    });
+
+    it(`SNK-a: a record at validation 'attempts' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 8; the row's return is `err-note-render.ts:122`.
+      expect(
+        renderLeafKindNote(
+          "t",
+          leafOf({ kind: "validation", cause: "schema_validation", attempts: mk() }),
+        ),
+      ).toBe(`theta /t returned Err: model failed schema after ${REC_JSON} respond-repair attempts`);
+    });
+
+    it(`SNK-h: records at 'rounds' and at 'last_tool_name' render as compact JSON — ${proto}`, () => {
+      // §Reproduction (b) row 9 measures `rounds`; `last_tool_name` reaches the
+      // same template through `e.last_tool_name ?? "respond"`
+      // (`err-note-render.ts:155`), where `??` passes a record through
+      // unchanged. The row's return is `:156`.
+      expect(
+        renderLeafKindNote(
+          "t",
+          leafOf({ kind: "tool_loop_exhausted", rounds: mk(), last_tool_name: null }),
+        ),
+      ).toBe(
+        `theta /t returned Err: tool-call loop exhausted after ${REC_JSON} rounds (last tool: respond)`,
+      );
+      expect(
+        renderLeafKindNote(
+          "t",
+          leafOf({ kind: "tool_loop_exhausted", rounds: 2, last_tool_name: mk() }),
+        ),
+      ).toBe(
+        `theta /t returned Err: tool-call loop exhausted after 2 rounds (last tool: ${REC_JSON})`,
+      );
+    });
+
+    it(`SLSH-3: renderTopLevelErrNote over a direct leaf with a record 'kind' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b), first `renderTopLevelErrNote` row: the boundary entry
+      // point (`err-note-render.ts:179`) reaches the same coercion.
+      expect(
+        renderTopLevelErrNote({
+          thetaName: "t",
+          error: leafOf({ kind: mk(), message: "m" }),
+          chain: [],
+        }),
+      ).toBe(`theta /t returned Err: ${REC_JSON} ${DASH} m`);
+    });
+
+    it(`SLSH-5: an invoke_callee wrapper is not a shield — the walked-to leaf's record 'kind' renders as compact JSON — ${proto}`, () => {
+      // §Reproduction (b), second `renderTopLevelErrNote` row: the wrapper walk
+      // (`err-note-render.ts:183-185`) reaches the leaf before the row renders.
+      expect(
+        renderTopLevelErrNote({
+          thetaName: "t",
+          error: calleeWrap("./k.theta", leafOf({ kind: mk(), message: "m" })),
+          chain: [],
+        }),
+      ).toBe(`theta /t returned Err: ${REC_JSON} ${DASH} m`);
+    });
+  }
+
+  it("SNK-e / SNK-f: the two non-interpolating rows are unaffected by a record at 'message'", () => {
+    // §Reproduction (b), last two rows, and §Reproduction (g): SNK-e
+    // (`err-note-render.ts:134-138`) and SNK-f (`:139-142`) interpolate no
+    // payload field, so no value in one can perturb them. Green at HEAD and
+    // green after the fix — the controls that show the defect is the
+    // interpolation, not the dispatch.
+    for (const [, mk] of PROTOS) {
+      expect(renderLeafKindNote("t", leafOf({ kind: "context_overflow", message: mk() }))).toBe(
+        "theta /t returned Err: context overflow",
+      );
+      expect(renderLeafKindNote("t", leafOf({ kind: "cancelled", message: mk() }))).toBe(
+        "theta /t cancelled",
+      );
+    }
+  });
+
+  it("constraint 1: every string- and number-valued field still renders byte-identically", () => {
+    // §Fix (c) constraint 1 / law rules 1-2: the summariser returns a string
+    // unchanged (no quoting, truncation or escaping) and a number as
+    // `String(value)`, so GOV-15 observable (c)
+    // (`docs/spec_topics/governance/source-language-stability.md:5`) moves only
+    // for the inputs that render `[object Object]` or throw at HEAD. Green at
+    // HEAD and green after the fix.
+    expect(renderLeafKindNote("demo", validation("schema_validation", 3))).toBe(
+      "theta /demo returned Err: model failed schema after 3 respond-repair attempts",
+    );
+    expect(renderLeafKindNote("demo", validation("empty_template", 0))).toBe(
+      `theta /demo returned Err: rendered query template was empty ${DASH} no provider turn was issued`,
+    );
+    expect(renderLeafKindNote("demo", transport("connection reset"))).toBe(
+      `theta /demo returned Err: transport ${DASH} connection reset`,
+    );
+    expect(renderLeafKindNote("demo", modelTool("search", "bad arg"))).toBe(
+      `theta /demo returned Err: tool search failed ${DASH} bad arg`,
+    );
+    expect(renderLeafKindNote("demo", contextOverflow())).toBe(
+      "theta /demo returned Err: context overflow",
+    );
+    expect(renderLeafKindNote("demo", cancelled())).toBe("theta /demo cancelled");
+    expect(renderLeafKindNote("demo", codeTool("fmt", "execution", "threw"))).toBe(
+      `theta /demo returned Err: tool fmt call failed (execution) ${DASH} threw`,
+    );
+    expect(renderLeafKindNote("demo", toolLoopExhausted(5, "grep"))).toBe(
+      "theta /demo returned Err: tool-call loop exhausted after 5 rounds (last tool: grep)",
+    );
+    expect(renderLeafKindNote("demo", toolLoopExhausted(2, null))).toBe(
+      "theta /demo returned Err: tool-call loop exhausted after 2 rounds (last tool: respond)",
+    );
+    expect(renderLeafKindNote("demo", invokeInfra("/abs/c.theta", "load_failure"))).toBe(
+      "theta /demo returned Err: invoke of /abs/c.theta failed (load_failure)",
+    );
+    expect(renderLeafKindNote("demo", unlistedKind("binder", "boom"))).toBe(
+      `theta /demo returned Err: binder ${DASH} boom`,
+    );
+    // A string field is rendered verbatim — never JSON-quoted (law rule 1).
+    expect(renderLeafKindNote("demo", transport('he said "hi"'))).toBe(
+      `theta /demo returned Err: transport ${DASH} he said "hi"`,
+    );
+  });
+
+  it("law rule 5: a cycle-carrying record renders the capped descriptor and does not throw", () => {
+    // §Fix (b) candidate 1's stated cost — "`JSON.stringify` throws on a cycle
+    // — which the summariser must then handle, or the fix reintroduces the
+    // throw it removes on a different input". Law rule 5 falls back to
+    // `summariseNonResultOperand`'s descriptor
+    // (`src/runtime/runtime-panics.ts:440`, its capped own-key list at `:461`).
+    for (const [, mk] of PROTOS) {
+      const cyc = mk();
+      cyc.self = cyc;
+      expect(renderLeafKindNote("t", leafOf({ kind: cyc, message: "m" }))).toBe(
+        `theta /t returned Err: an object with keys n, self ${DASH} m`,
+      );
+    }
+  });
+
+  it("law rule 5: a record whose compact JSON exceeds the 200-character cap renders the capped descriptor", () => {
+    // §Fix (b) candidate 1's other stated cost — unbounded output length — and
+    // §Fix (c) constraint 1's requirement that the cap "must not apply to
+    // strings that render today" (the constraint-1 cell above pins that half).
+    for (const [, mk] of PROTOS) {
+      const big = mk();
+      delete big.n;
+      big.a = "x".repeat(150);
+      big.b = "y".repeat(150);
+      expect(JSON.stringify(big).length).toBeGreaterThan(200);
+      expect(renderLeafKindNote("t", leafOf({ kind: big, message: "m" }))).toBe(
+        `theta /t returned Err: an object with keys a, b ${DASH} m`,
+      );
+    }
+  });
+});

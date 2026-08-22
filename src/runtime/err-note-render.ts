@@ -44,6 +44,7 @@ import type {
   ValidationError,
 } from "./query-error";
 import type { InvocationRecord } from "./invoke-provenance";
+import { summariseErrorField } from "./err-field-summary";
 
 /**
  * The SLSH-4 template separator: em-dash U+2014. The registry/template cells
@@ -118,17 +119,17 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
         return `${prefix} returned Err: rendered query template was empty ${DASH} no provider turn was issued`;
       }
       // SNK-a
-      return `${prefix} returned Err: model failed schema after ${e.attempts} respond-repair attempts`;
+      return `${prefix} returned Err: model failed schema after ${summariseErrorField(e.attempts)} respond-repair attempts`;
     }
     case "transport": {
       // SNK-c
       const e = leaf as TransportError;
-      return `${prefix} returned Err: transport ${DASH} ${e.message}`;
+      return `${prefix} returned Err: transport ${DASH} ${summariseErrorField(e.message)}`;
     }
     case "model_tool": {
       // SNK-d
       const e = leaf as ModelToolError;
-      return `${prefix} returned Err: tool ${e.tool_name} failed ${DASH} ${e.message}`;
+      return `${prefix} returned Err: tool ${summariseErrorField(e.tool_name)} failed ${DASH} ${summariseErrorField(e.message)}`;
     }
     case "context_overflow": {
       // SNK-e
@@ -142,23 +143,26 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
     case "code_tool": {
       // SNK-g
       const e = leaf as CodeToolError;
-      return `${prefix} returned Err: tool ${e.tool_name} call failed (${e.cause}) ${DASH} ${e.message}`;
+      return `${prefix} returned Err: tool ${summariseErrorField(e.tool_name)} call failed (${summariseErrorField(e.cause)}) ${DASH} ${summariseErrorField(e.message)}`;
     }
     case "tool_loop_exhausted": {
       // SNK-h — `last_tool_name` renders as the literal `respond` when null
       // (defensive forward-compat rendering; no theta 1.0-reachable null case).
       const e = leaf as ToolLoopExhaustedError;
+      // `??` runs BEFORE the summariser so a `null` (not a record) still
+      // renders the literal `respond` — the summariser only ever sees a
+      // present value here.
       const lastTool = e.last_tool_name ?? "respond";
-      return `${prefix} returned Err: tool-call loop exhausted after ${e.rounds} rounds (last tool: ${lastTool})`;
+      return `${prefix} returned Err: tool-call loop exhausted after ${summariseErrorField(e.rounds)} rounds (last tool: ${summariseErrorField(lastTool)})`;
     }
     case "invoke_infra": {
       // SNK-i
       const e = leaf as InvokeInfraError;
-      return `${prefix} returned Err: invoke of ${e.callee_path} failed (${e.cause})`;
+      return `${prefix} returned Err: invoke of ${summariseErrorField(e.callee_path)} failed (${summariseErrorField(e.cause)})`;
     }
     default: {
       // SNK-k catch-all — total over any unlisted `kind` in the open union.
-      return `${prefix} returned Err: ${leaf.kind} ${DASH} ${leaf.message}`;
+      return `${prefix} returned Err: ${summariseErrorField(leaf.kind)} ${DASH} ${summariseErrorField(leaf.message)}`;
     }
   }
 }

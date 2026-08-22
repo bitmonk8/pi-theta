@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.186.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0177 — a record-valued `QueryError` field no longer throws (or renders
+  `[object Object]`) in err-notes**. New `summariseErrorField`
+  (`src/runtime/err-field-summary.ts`) implements the 0177 field-rendering
+  law: string verbatim; primitives via `String(value)`; enum as its bare wire
+  string; any other object/array as compact `JSON.stringify`; capped
+  descriptor fallback on cycle / `undefined` / >200 chars. All seven
+  interpolating SNK rows and XMODE-1's `String(innerKind)` now route through
+  it. Null-prototype rebuilt records — previously a render-time `TypeError` —
+  and plain records both render honestly. No note template text changed; no
+  spec edit required (SLSH-4 states no stringification rule). The law is
+  stated citable in the fix record; bug 0198 cites it rather than forking.
+
 ## [0.185.0] - 2026-08-28
 
 ### Fixed

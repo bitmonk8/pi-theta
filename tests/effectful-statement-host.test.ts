@@ -12,7 +12,7 @@ import type {
   CommittedSurface,
   DrivenConversationMode,
 } from "../src/runtime/terminal-outcomes";
-import { makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
+import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
 import type {
   FreePhaseTurn,
   ForcedRespondTurn,
@@ -442,5 +442,119 @@ describe("V19d-T — invoke-dispatch cancellation checkpoint on the real trampol
       r.outcome,
       "cka-47 (V15m): a cancellation at the real invoke checkpoint drives to the cancel terminal outcome",
     ).toBe("cancel");
+  });
+});
+
+// ===========================================================================
+// Bug 0177 — the XMODE-1 invoke wrap coerces the callee's `Err` payload `kind`.
+//
+// Spec: docs/bugs/0177-err-note-render-string-coercion-on-record-error-fields.md
+// §Fix (a) (the eighth position), §Fix (d) ("The XMODE-1 wrap: a callee-returned
+// `Err` whose `kind` is a record produces the wrapper message under the chosen
+// rule rather than throwing, on both prototypes").
+//
+// The site is `runInvokeEffect` (`src/runtime/effectful-statement-host.ts`): it
+// reads `const innerKind = (result.error as { readonly kind?: unknown } |
+// null)?.kind` (`:416` — the code already types the field `unknown`), tests it
+// against the two passthrough literals (`:417`), and on every other value builds
+// the XMODE-1 wrapper message
+// `invoke of ${child.calleePath} callee returned Err(${String(innerKind)})`
+// (`:423`, into `surfaceThetaCallableCalleeFailure`,
+// `src/runtime/tool-call.ts:804`). The bug doc's `:394` / `:401` citations are
+// stale at this HEAD; the symbols are the stable anchors. (Bug 0177's fix
+// routes `:423`'s coercion through `summariseErrorField` — the site still
+// reads `String(innerKind)` in this comment only because it is quoting the
+// pre-fix source the paragraph above describes; the shipped line now reads
+// `summariseErrorField(innerKind)`.)
+//
+// The settled rule ("the law", stated in full in the bug-0177 block of
+// `tests/err-note-render.test.ts`): a record at the field renders as compact
+// `JSON.stringify` — so the wrapper message is
+// `invoke of ./child.theta callee returned Err({"n":"x"})`, on a plain-prototype
+// record (which coerces to `[object Object]` at HEAD) and on a null-prototype
+// one (which raises `TypeError: Cannot convert object to primitive value` at
+// HEAD).
+//
+// `RecordingInvokeChild` above always resolves `makeOk(this.value)`, so it
+// cannot make the child return an `Err` payload. Rather than edit it (its four
+// existing cells pin its `Ok` behaviour), this block adds its own
+// `ErrReturningInvokeChild` — the same legitimate `InvokeChild` boundary the
+// real trampoline (`runInvokeChild`) drives — and passes it through the
+// existing `harness({ invoke })` seam unchanged.
+
+/**
+ * A recording `InvokeChild` whose completed drive resolves to the callee's own
+ * `Err(payload)` — the input that reaches the XMODE-1 wrap unexamined
+ * (`#validateInvokeReturn` (`src/extension/production-theta-producer.ts:3816`)
+ * returns a non-`ok` result unchanged at `:3821-3822`; the bug doc's
+ * `:3442-3443` is stale at this HEAD).
+ */
+class ErrReturningInvokeChild implements InvokeChild {
+  driven = false;
+  readonly committed: readonly CommittedSideEffect[] = [];
+  constructor(
+    readonly calleePath: string,
+    readonly errorPayload: ThetaValue,
+  ) {}
+  drive(): Promise<ResultValue> {
+    this.driven = true;
+    return Promise.resolve(makeErr(this.errorPayload));
+  }
+}
+
+describe("bug 0177 — XMODE-1 invoke wrap over a record-valued callee Err `kind`", () => {
+  const cases: readonly (readonly [string, () => Record<string, unknown>])[] = [
+    ["plain-prototype", (): Record<string, unknown> => ({ n: "x" })],
+    [
+      "null-prototype",
+      (): Record<string, unknown> => {
+        // The shape `rebuildInbound` mints since bug 0173
+        // (`src/runtime/wire-translation.ts:370`).
+        const o = Object.create(null) as Record<string, unknown>;
+        o.n = "x";
+        return o;
+      },
+    ],
+  ];
+
+  for (const [proto, mk] of cases) {
+    it(`XMODE-1: a callee Err whose 'kind' is a record wraps with compact JSON, not [object Object] and not a throw — ${proto}`, async () => {
+      const payload = { kind: mk(), message: "m" } as unknown as ThetaValue;
+      const invoke = new ErrReturningInvokeChild("./child.theta", payload);
+      const program = body([], invokeExpr("./child.theta"));
+
+      const r = await executeBody(program, harness({ invoke }));
+
+      expect(invoke.driven, "the real trampoline drove the child").toBe(true);
+      const value = r.result.value as ResultValue;
+      expect(value.ok, "XMODE-1: a callee-returned Err surfaces as an Err at the parent").toBe(
+        false,
+      );
+      const wrapped = (value as { readonly error: ThetaValue }).error as unknown as {
+        readonly kind: string;
+        readonly message: string;
+      };
+      expect(wrapped.kind, "XMODE-1: the callee's Err is wrapped as invoke_callee").toBe(
+        "invoke_callee",
+      );
+      expect(wrapped.message).toBe('invoke of ./child.theta callee returned Err({"n":"x"})');
+    });
+  }
+
+  it("XMODE-1: a string-valued callee Err `kind` still wraps byte-identically", () => {
+    // §Fix (c) constraint 1 — the summariser returns a string unchanged, so the
+    // wrapper message for the reachable-today string case does not move.
+    const payload = { kind: "transport", message: "m" } as unknown as ThetaValue;
+    const invoke = new ErrReturningInvokeChild("./child.theta", payload);
+    const program = body([], invokeExpr("./child.theta"));
+
+    return executeBody(program, harness({ invoke })).then((r) => {
+      const value = r.result.value as ResultValue;
+      expect(value.ok).toBe(false);
+      const wrapped = (value as { readonly error: ThetaValue }).error as unknown as {
+        readonly message: string;
+      };
+      expect(wrapped.message).toBe("invoke of ./child.theta callee returned Err(transport)");
+    });
   });
 });
