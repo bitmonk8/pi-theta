@@ -43,7 +43,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //       omits, under `additionalProperties: false` — the malformation 0210
 //       removed at the lowering, re-created one seam later.
 //   (3) `#emitBinderEchoNote`'s per-field read
-//       (`src/extension/production-theta-producer.ts:1002`), a prototype-chain
+//       (`src/extension/production-theta-producer.ts:1003`), a prototype-chain
 //       read whose `?? null` arm is written for absence but is never taken for
 //       a wire name that names an `Object.prototype` member.
 //
@@ -555,7 +555,7 @@ function productionReadIsOwnKeyGuarded(): boolean {
 
 /**
  * `#emitBinderEchoNote`'s per-field read, reproduced in both shapes. The
- * unguarded arm is byte-equivalent to `production-theta-producer.ts:1002`; the
+ * unguarded arm is byte-equivalent to `production-theta-producer.ts:1003`; the
  * guarded arm is the corrected read, which answers `null` for an absent field
  * so the echo renders it as `null` (0214 §Expected behaviour, site (3)).
  */
@@ -621,7 +621,7 @@ function echoForAbsentField(wireName: string, what: string): string {
 describe("bug 0214 (3-SRC) — the echo's per-field read is own-key guarded", () => {
   it("RED (3-SRC): `#emitBinderEchoNote` reads the merged args by own key, not through the prototype chain", () => {
     // The direct statement of the claim about a private line
-    // (`production-theta-producer.ts:1002`), by the method 0214 §Provenance
+    // (`production-theta-producer.ts:1003`), by the method 0214 §Provenance
     // names. The behavioural cells below run a reproduction of this statement,
     // so this cell is what ties them to production.
     expect(

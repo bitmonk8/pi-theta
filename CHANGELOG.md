@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.192.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0198 — BND-3 notes keep the provider's message text on
+  overflow-classified binder attempts** (§Fix (b) mechanism (1):
+  `#classifyBinderAttempt`'s note-message gate drops its `kind` half, keeps
+  the emptiness half, and routes the text through `summariseErrorField` —
+  the 0177 field-rendering law cited, not forked).
+  `determinism-cancellation-failure.md:42` pins the transport row's
+  `<message>`; sibling rows byte-identical. The doc-named pre-authorized
+  flip in `binder-forced-tool-dispatch.test.ts` applied with its subject
+  preserved; +6 witness cells. Residual recorded: the overflow note text
+  itself has no live witness (a real >200k-token prompt is out of bounds).
+
 ## [0.191.0] - 2026-08-28
 
 ### Fixed

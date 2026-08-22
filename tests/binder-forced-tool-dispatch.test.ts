@@ -62,7 +62,10 @@
 //       instead of the needs_info note + 1 call.
 //   13. onResponse status → classifier      — HEAD: fabricated httpStatus 200
 //       misses the anthropic 400 overflow signature, so the note carries the
-//       raw errorMessage instead of the fixed transport fallback.
+//       raw errorMessage instead of the classifier's overflow message (bug
+//       0198: post-0198-fix the captured 400 still gates the overflow
+//       signature, and the note carries that classification's own message,
+//       not the fixed transport fallback).
 //
 // CONTROLS (green at HEAD for a mechanism-independent reason — HEAD cannot
 // read ToolCall parts at all, so every ToolCall-only reply is malformed with
@@ -881,10 +884,14 @@ describe("bug 0011 — the binder complete() call is the spec-pinned forced-tool
   // RED PIN 13 — HEAD: onResponse is never registered, so the classifier input
   // fabricates httpStatus 200; the anthropic overflow signature (gated on HTTP
   // 400) cannot match and the transport note carries the RAW errorMessage.
-  // With the REAL captured 400 the signature matches → ContextOverflow → folds
-  // to transport-class with the FIXED fallback message.
+  // With the REAL captured 400 the signature matches → ContextOverflow, which
+  // folds to transport-class (determinism-cancellation-failure.md:36) and
+  // renders through the transport row — but the row's `<message>` is the
+  // classifier's own overflow message, not the fixed fallback: the fallback
+  // is reserved for the no-text case (bug 0198 §Fix (b) option 1), and this
+  // classification carries text.
   // ---------------------------------------------------------------------------
-  it("classifier: onResponse-captured HTTP status reaches the classifier — anthropic 400 overflow signature folds to the fixed transport message", async () => {
+  it("classifier: onResponse-captured HTTP status reaches the classifier — anthropic 400 overflow signature renders the classifier's message", async () => {
     scripted.replyFor = (model, _context, options) => {
       // The provider delivered an HTTP 400 before the body resolved: fire the
       // registered capture callback (undefined at HEAD — the optional call
@@ -910,8 +917,10 @@ describe("bug 0011 — the binder complete() call is the spec-pinned forced-tool
     expect(channelNotes).toHaveLength(1);
     expect(
       channelNotes[0]!.content,
-      "a REAL 400 + anthropic overflow signature classifies ContextOverflow and folds to the fixed transport fallback (RED at HEAD: fabricated 200 keeps the raw errorMessage)",
-    ).toBe(TRANSPORT_FALLBACK_NOTE);
+      "a REAL 400 + anthropic overflow signature classifies ContextOverflow, folds to transport-class, and renders the classifier's own message (RED at HEAD: fabricated 200 keeps the raw errorMessage)",
+    ).toBe(
+      "theta /code-review: argument binder unavailable (anthropic-messages: prompt is too long for this model)",
+    );
     // Transport-class (overflow folds into it): exactly one retry.
     expect(scripted.calls).toHaveLength(2);
     expect(result.bound).toBe(false);
@@ -1040,5 +1049,245 @@ describe("bug 0011 — the binder complete() call is the spec-pinned forced-tool
     expect(channelNotes).toHaveLength(1);
     expect(channelNotes[0]!.content).toBe("Running /code-review: sev=High");
     expect(channelNotes[0]!.display).toBe(true);
+  });
+});
+
+// =============================================================================
+// Bug 0198 — the BND-3 transport-row `<message>` on an overflow classification.
+//
+// Before this fix, `#classifyBinderAttempt`
+// (`src/extension/production-theta-producer.ts:1070`) selected the note's
+// `<message>` with `classified.kind === "transport" && classified.message !==
+// ""`, falling back to the literal `"provider transport failure"`, and then
+// returned `outcome.kind: "transport"` for EVERY classification
+// (`docs/spec_topics/binder/determinism-cancellation-failure.md:36`). Since bug
+// 0065 widened the anthropic overflow status gate to `400 || null`
+// (`src/binder/provider-error-mapping.ts:276`) a real overflow classifies
+// `context_overflow`, whose `message` is the provider's own text unchanged
+// (`matchOverflowSignature`, `:296`, message at `:311`; the `length` arm at
+// `:388`) — and the `kind` half of the gate discarded it.
+//
+// ADJUDICATED MECHANISM (bug 0198 §Fix (b) option 1): drop the `kind` half,
+// keep the emptiness half, so the classifier's own non-empty message fills
+// `<message>` on both overflow arms and the transport arm, and the fixed
+// literal survives only as the NO-TEXT fallback — its specified meaning on the
+// three surfaces that do specify it
+// (`docs/spec_topics/errors-and-results/queryerror-variants.md:106`,
+// `docs/spec_topics/pi-integration-contract/conversation-drive.md:16` PIC-51,
+// `docs/spec_topics/pi-integration-contract/provider-error-mapping.md:45`).
+// The selected string routes through `summariseErrorField`
+// (`src/runtime/err-field-summary.ts:93`) per the bug-0177 field-rendering law;
+// rule 1 (a string renders verbatim) makes that a no-op for this statically
+// string field, so every literal below is exactly
+// `renderBinderSystemNote("code-review", { kind: "transport", provider:
+// "anthropic-messages", message })` (`src/binder/retry-taxonomy.ts:88`, the
+// transport arm's `capSystemNote` at `src/binder/system-note.ts:99`, cap 120 at
+// `:38`).
+//
+// The 0011-lineage cell at `:894-927` (RED PIN 13) is the one cell bug 0198
+// §Fix constraint 5 authorizes moving, in the fix commit itself, not here:
+// its expected note changes from the fixed fallback to the classifier's own
+// overflow message (its SUBJECT — that the captured status reaches the
+// classifier — is unchanged). `TRANSPORT_FALLBACK_NOTE` (`:534-535`) stays: two
+// cells below (the `length`-with-no-text and the empty-message transport
+// cells) still assert it as the no-text fallback.
+// =============================================================================
+
+/**
+ * The verbatim live anthropic overflow `errorMessage`, byte-identical to the
+ * string committed at `tests/binder-inference-provider-mapping.test.ts:941-942`
+ * (captured from a real `claude-haiku-4-5` overflow by bug 0065's 0.100.0 run).
+ */
+const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
+  `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
+
+/** The non-overflow control: the same pi-ai-formatted envelope shape at a 5xx. */
+const LIVE_ANTHROPIC_5XX_ERROR_MESSAGE =
+  `500 {"type":"error","error":{"type":"api_error","message":"Internal server error"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Hb"}`;
+
+// Hard-coded rendered notes. Each was derived ONCE by calling the shipped
+// `renderBinderSystemNote` + `capSystemNote` (via `summariseErrorField`) in a
+// scratch probe at this HEAD and then pinned as a literal — never recomputed in
+// an assertion, so a renderer regression cannot co-move with the expectation.
+// Both 168-code-point envelopes truncate at the 120-code-point cap.
+const OVERFLOW_PROVIDER_TEXT_NOTE =
+  "theta /code-review: argument binder unavailable (anthropic-messages: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_reque\u2026";
+const FIVEXX_PROVIDER_TEXT_NOTE =
+  "theta /code-review: argument binder unavailable (anthropic-messages: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"m\u2026";
+const LENGTH_ARM_PROVIDER_TEXT_NOTE =
+  "theta /code-review: argument binder unavailable (anthropic-messages: output truncated at the context boundary)";
+
+/**
+ * Script an error-terminated binder reply: the adapter's MEASURED shape on a
+ * refusal — `stopReason: "error"`, empty content, the provider text in
+ * `errorMessage`, and (unless `capturedStatus` is given) NO `onResponse`
+ * firing, so the classifier input's `httpStatus` is `null`
+ * (`tests/live/provider-error-revalidation-gate.test.ts:271` cell (b) measured
+ * `firings: []` on the anthropic-messages 400).
+ */
+function scriptErrorReply(options: {
+  readonly errorMessage?: string;
+  readonly stopReason?: string;
+  readonly capturedStatus?: number;
+}): void {
+  scripted.replyFor = (model, _context, callOptions) => {
+    if (options.capturedStatus !== undefined) {
+      (
+        callOptions as {
+          readonly onResponse?: (response: unknown, model: unknown) => void;
+        }
+      ).onResponse?.({ status: options.capturedStatus, headers: {} }, model);
+    }
+    return {
+      role: "assistant",
+      content: [],
+      stopReason: options.stopReason ?? "error",
+      ...(options.errorMessage !== undefined ? { errorMessage: options.errorMessage } : {}),
+      timestamp: 0,
+    };
+  };
+}
+
+describe("bug 0198 — the BND-3 transport row carries the classifier's own message whenever it is non-empty", () => {
+  // -------------------------------------------------------------------------
+  // RED at HEAD. The live overflow bytes in the adapter's measured shape
+  // (`stopReason: "error"`, no `onResponse` firing → `httpStatus: null`) take
+  // the widened anthropic overflow arm (`provider-error-mapping.ts:276`) and
+  // classify `context_overflow` with `message` === the input `errorMessage`
+  // (`:311`); at git HEAD the selection's `kind` half discarded it and
+  // rendered the fixed fallback. Post-fix (`#classifyBinderAttempt`'s message
+  // selection, `production-theta-producer.ts:1158-1161`) the note carries the
+  // provider's text, truncated at the 120-code-point cap (`system-note.ts:38`,
+  // `:99`).
+  // -------------------------------------------------------------------------
+  it("the live anthropic overflow errorMessage with no onResponse capture reaches the note", async () => {
+    scriptErrorReply({ errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE });
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(
+      channelNotes[0]!.content,
+      "an overflow classification's non-empty message IS the provider's text (RED at HEAD: the fixed fallback instead)",
+    ).toBe(OVERFLOW_PROVIDER_TEXT_NOTE);
+    // Constraint 2: the retry disposition does not move — transport-class fold,
+    // ONE transport-class retry (determinism-cancellation-failure.md:36, :56).
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Constraint 4, half one — GREEN at HEAD and after: the `length` stop-reason
+  // overflow arm (`provider-error-mapping.ts:385-393`) with no `errorMessage`
+  // classifies with `message: ""` (`:388`), so the emptiness half of the
+  // selection fires and the fixed fallback is the correct note. `length` is
+  // absent from `OFF_SESSION_NORMAL_STOP_REASONS`
+  // (`production-theta-producer.ts:5609-5614`), so the reply reaches the
+  // classifier at all.
+  // -------------------------------------------------------------------------
+  it("length terminator with NO errorMessage still renders the fixed no-text fallback", async () => {
+    scriptErrorReply({ stopReason: "length" });
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(
+      channelNotes[0]!.content,
+      "no provider text exists, so the fixed fallback is the specified rendering",
+    ).toBe(TRANSPORT_FALLBACK_NOTE);
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Constraint 4, half two — RED at HEAD: the same `length` arm WITH text.
+  // The classification is `context_overflow` again, so HEAD's `kind` test
+  // rejects a message that exists; post-fix the note is that text (110 code
+  // points — the cap is not involved on this row).
+  // -------------------------------------------------------------------------
+  it("length terminator WITH an errorMessage renders that text, not the fallback", async () => {
+    scriptErrorReply({
+      stopReason: "length",
+      errorMessage: "output truncated at the context boundary",
+    });
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(
+      channelNotes[0]!.content,
+      "the length arm's non-empty message is provider text too (RED at HEAD: the fixed fallback instead)",
+    ).toBe(LENGTH_ARM_PROVIDER_TEXT_NOTE);
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Constraint 5's companion — GREEN at HEAD and after: a `transport`
+  // classification whose message is empty (`provider-error-mapping.ts:399`,
+  // `errorMessage ?? ""`) keeps the fixed fallback. Reached by a non-normal
+  // `stopReason: "error"` with no `errorMessage` and no capture, which the
+  // routing guard admits on the stop-reason limb alone.
+  // -------------------------------------------------------------------------
+  it("a transport classification with an EMPTY message still renders the fixed fallback", async () => {
+    scriptErrorReply({});
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(
+      channelNotes[0]!.content,
+      "the emptiness half of the selection is the whole gate after the fix",
+    ).toBe(TRANSPORT_FALLBACK_NOTE);
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Non-perturbation control (bug 0198 §Reproduction (e), row p4) — GREEN at
+  // HEAD, measured at HEAD and pinned here so the fix is proved byte-identical
+  // on the rows it must not move: a captured 500 classifies `transport` and
+  // already renders the provider's text.
+  // -------------------------------------------------------------------------
+  it("non-perturbation: a CAPTURED 500 renders the provider text byte-identically", async () => {
+    scriptErrorReply({
+      errorMessage: LIVE_ANTHROPIC_5XX_ERROR_MESSAGE,
+      capturedStatus: 500,
+    });
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(channelNotes[0]!.content).toBe(FIVEXX_PROVIDER_TEXT_NOTE);
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Non-perturbation control (bug 0198 §Reproduction (e), row p5) — GREEN at
+  // HEAD: the same bytes with NO capture at all. The discriminator is the
+  // classification, not the status and not the presence of a capture.
+  // -------------------------------------------------------------------------
+  it("non-perturbation: the same 5xx bytes with NO capture render identically", async () => {
+    scriptErrorReply({ errorMessage: LIVE_ANTHROPIC_5XX_ERROR_MESSAGE });
+    const { deps, notes } = producerWithCapture(ANTHROPIC_BINDER_MODEL);
+
+    const result = await driveBinder(deps, twoParamTheta());
+
+    const channelNotes = noteChannelEntries(notes);
+    expect(channelNotes).toHaveLength(1);
+    expect(channelNotes[0]!.content).toBe(FIVEXX_PROVIDER_TEXT_NOTE);
+    expect(scripted.calls).toHaveLength(2);
+    expect(result.bound).toBe(false);
   });
 });

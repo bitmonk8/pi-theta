@@ -1,8 +1,9 @@
 # Bug 0198 — The binder's BND-3 unavailability note renders the fixed fallback `provider transport failure` instead of the provider's own text whenever the attempt classifies `context_overflow`: `#classifyBinderAttempt` selects the note's `<message>` with `classified.kind === "transport" && classified.message !== ""` (`production-theta-producer.ts:1096–1099`) and then returns `outcome.kind: "transport"` for every classification per `determinism-cancellation-failure.md:36`, so the anthropic overflow bug 0065's element 1 made classify `context_overflow` reaches the operator as `theta /code-review: argument binder unavailable (anthropic-messages: provider transport failure)` where the provider supplied `prompt is too long: 220044 tokens > 200000 maximum` — and nothing specifies what that slot carries: `:42` pins `<provider>` and `<ajv-summary>` and is silent on `<message>`, so a wrong observable and a spec gap are the same defect here
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three mechanisms are
-  enumerated with their measured end states, and the run adjudicates between
-  them against two facts this report measures — the 120-code-point system-note
+- **Status:** fixed (0.192.0). §Fix was constraint-pinned, not settled: three
+  mechanisms were
+  enumerated with their measured end states, and the run adjudicated between
+  them (mechanism (1), see `## Fix (0.192.0)`) against two facts this report measures — the 120-code-point system-note
   cap, which the provider's 168-code-point formatted overflow string does not
   fit (§Reproduction (h)), and the spec silence at
   `docs/spec_topics/binder/determinism-cancellation-failure.md:42`, which pins
@@ -780,3 +781,134 @@ rebases on all three and waits for none.
   clean before and after), and every citation was re-resolved at that HEAD
   rather than carried from 0065's, 0182's or 0011's document. The pre-0065 gate
   quoted in §Related was read from `git show 9c6e8efc^`.
+
+## Fix (0.192.0)
+
+**Mechanism (1) of §Fix (b), adjudicated in-run.** The BND-3 note's `<message>`
+is the classifier's own message whenever it is non-empty — both overflow arms
+and the transport arm — and the fixed string `"provider transport failure"`
+only when no text exists, which is the meaning that string carries on the three
+surfaces that do specify it (`queryerror-variants.md:106`,
+`conversation-drive.md:16` PIC-51, `provider-error-mapping.md:45`).
+
+Mechanism (2) (narrow through `providerMessageWindow`) was rejected on two
+independent grounds. §Fix (d) requires §Reproduction (e)'s 5xx rows to render
+byte-identically, so the window could not be applied uniformly and would need a
+second per-kind branch in the very expression the defect came from, plus an
+export widening `provider-error-mapping.ts` that §Fix constraint 1 keeps closed.
+And the **0177 field-rendering law**, landed in this tree at 0.186.0
+(`docs/bugs/0177-err-note-render-string-coercion-on-record-error-fields.md`
+`## Fix (0.186.0)`), rule 1: a string `QueryError` field "renders verbatim — no
+quoting, no truncation, no escaping". Narrowing a string field before embedding
+it contradicts that law. That evidence post-dates this report's measurement HEAD
+(v0.110.0) and is recorded here as the deciding input. Mechanism (3) (amend the
+spec, ratify the loss) was rejected because (1) is available; §Fix (b) requires a
+run choosing (3) to state why (1) and (2) were unavailable, and neither was.
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `#classifyBinderAttempt`'s
+    message selection (§Fix (a); at this HEAD `:1158–1161`, not the report's
+    `:1096–1099` — the file is 6667 lines here, the bug-0134 do-not-chase class)
+    drops the `classified.kind === "transport"` half of the gate and keeps the
+    emptiness half; the retained field renders through `summariseErrorField`
+    (`src/runtime/err-field-summary.ts`) per the 0177 law — a runtime no-op for
+    the statically-string `message` (rule 1), and the law's required routing
+    rather than a second stringifier. The outcome return, `:36`'s
+    transport-class fold and the one transport-class retry are unchanged
+    (§Fix constraint 2, asserted on every failure row).
+  - `docs/spec_topics/binder/determinism-cancellation-failure.md` — the
+    failure-mode-templates preamble (`:42`) now pins the transport row's
+    `<message>`, the one placeholder it left unpinned: for a filling derived
+    from the provider-error classifier it is that error's `message` field
+    rendered verbatim when non-empty — for every classification reaching the row
+    along that path, including a `ContextOverflowError` folded in per
+    `#failure-class-taxonomy` — and the fixed string when that field is empty or
+    absent. A second, expressly descriptive clause records what the
+    non-classifier filling (a rejected provider call) carries at this revision
+    and states that an abort surfaces the cancelled row instead, so the pin
+    claims nothing false of the arm §Fix constraint 6 leaves alone. No template
+    row, placeholder, prefix, separator or parenthetical changed; `:36`, `:50`
+    and `:53` are byte-identical.
+  - `tests/binder-forced-tool-dispatch.test.ts` — six new witness cells
+    (title-token `CELL-F2`) and the ONE pre-authorized committed-cell flip
+    (§Fix constraint 5): the 0011-lineage cell keeps its subject (the
+    `onResponse`-captured 400 reaches the classifier, two calls, `bound: false`)
+    and changes only its expected note; its banner and the file's header entry
+    are rewritten to the current reason. `TRANSPORT_FALLBACK_NOTE` stays — two
+    of the new cells assert it as the no-text fallback. No other cell touched.
+  - `tests/proto-named-binder-write-sites.test.ts` — three comment-only
+    citation corrections (`production-theta-producer.ts:1002` → `:1003`) forced
+    by this change's one-line import shift. Bounded, self-authorized, recorded
+    under *Residuals* item 2.
+- Gates:
+  - Witness: neutralising the selection back to the old expression reds exactly
+    three cells (the flipped 0011 cell and the two new provider-text cells),
+    each on `Received: "…provider transport failure)"` against the expected
+    provider text; restoring gives `Tests 24 passed (24)`. Restoration proved
+    exact by `git hash-object` → `f28d378f0a6c528657056bbbd5aabf6cdff7c2f0`
+    before and after the neutralisation cycle.
+  - Full default suite: `npm test` → `Test Files 377 passed (377)`,
+    `Tests 7766 passed (7766)`.
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live (under the shared live lock): H9a
+    `tests/live/live-production-acceptance.test.ts -t "drives a real binder pass"`
+    → 1 passed (a real bind still emits the echo note and never
+    `argument binder unavailable`); H8a
+    `tests/live/err-note-render-record-error-field-live-cell.test.ts` → 1 passed
+    (the `summariseErrorField` routing this fix newly depends on, driven through
+    a real provider and a real RFC-0006 child, asserted on the
+    `theta-system-note` channel off the settled `SessionManager`).
+  - Untouched-by-hash: `src/binder/provider-error-mapping.ts`,
+    `src/binder/retry-taxonomy.ts`, `src/binder/system-note.ts`,
+    `src/runtime/err-field-summary.ts` — each `git hash-object` equals
+    `git rev-parse HEAD:<path>` (§Fix constraints 1, 3, 7). The off-session copy
+    of the selection expression is unchanged (§Fix constraint 6).
+- Review: 3 rounds. Round 1 (deep) — one `spec` finding: the new pin overreached
+  onto the rejected-`complete()` arm, whose message is
+  `coerceUnderlyingString(thrown)` and can be empty. Round 2 (deep) — one `spec`
+  finding: the replacement clause's abort sub-case was false of the row, since
+  `runBinderCallWithCancellation` intercepts the sticky signal before and after
+  every attempt and surfaces the cancelled row. Round 3 (fast) — clean, no
+  escalation. Both fixer rounds changed spec prose only; no assertion, no
+  executable line.
+- Verification: SOLID. Witness reds and greens on demand with the hashes above;
+  default suite green; live binder surface exercised for real on both the H9a
+  binder cell and an H8a cell of the newly-depended-on summariser; lint and
+  typecheck clean.
+- Residuals:
+  1. **No live test exercises the overflow note text itself.** Forcing a real
+     provider `ContextOverflowError` needs a genuine >200 000-token prompt,
+     which is not token-bounded under the AGENTS.md live conventions; the
+     verifier was explicitly not authorized to build it. The path is covered
+     offline with proven red/green discrimination on the committed live
+     anthropic overflow bytes (`binder-inference-provider-mapping.test.ts:941–942`),
+     and the live runs above cover the surface's success direction and the
+     summariser. Named, not hidden.
+  2. **Three comment-only citation corrections outside the fix's own file**
+     (`tests/proto-named-binder-write-sites.test.ts`, `:1002` → `:1003`). The
+     question that would have gone to the operator: may a fix repair citations
+     its own one-line import shift invalidated, given 0134's do-not-chase
+     policy? Self-authorized as citation/comment-only on three sources: 0134 is
+     the adjudicated class for *pre-existing* positional drift, not for drift
+     this change creates; the charter's correction-round clause names
+     "shifted line numbers that other documents cite … sibling witnesses" as a
+     citation-only remedy; and the diff touches three comment lines, zero
+     assertions and zero executable lines, with the cited content re-read at
+     `:1003` and the file's nine cells green. Bound: that one file, those three
+     lines. Stop valve: any further file going red, or any hunk touching an
+     executable line, stops the run. Every other citation into the shifted file
+     was left alone as the 0134 class.
+  3. **Pre-existing stale citations found and left.** The implementer's audit
+     found `tests/live/provider-error-revalidation-gate.test.ts` and
+     `tests/off-session-transport-classification.test.ts` carry citations into
+     `production-theta-producer.ts` that were already wrong at HEAD, before this
+     change. Reported, not chased (0134).
+  4. **One full-suite run showed `1 failed | 7765 passed` with no captured
+     failure name; the isolated re-run of the same suite was `377 passed` /
+     `7766 passed`, as were the three later full runs.** Recorded as a
+     machine-contention flake per the stochastic-class policy, not chased.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: unchanged. Bugs 0065, 0182 and 0011 are not
+  reopened; the retry taxonomy, the transport-class fold, the 120-code-point cap
+  and the off-session fold stay exactly as they are; `mistral` parity remains
+  unmeasured (no `mistral` api provider in this install).

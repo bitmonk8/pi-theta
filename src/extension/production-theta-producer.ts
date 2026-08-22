@@ -142,6 +142,7 @@ import {
   enforceInvokeParamsDepth,
   enforceInvokeReturnDepth,
 } from "../runtime/invoke-ceiling-depth";
+import { summariseErrorField } from "../runtime/err-field-summary";
 import type {
   ForcedRespondTurn,
   FreePhaseTurn,
@@ -1057,7 +1058,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    *   3. no matching ToolCall + a non-normal stopReason, a non-empty
    *      errorMessage, or a captured non-200 HTTP status → the shared
    *      provider-error classifier with the onResponse-captured REAL HTTP
-   *      status (ContextOverflow folds into transport per the taxonomy);
+   *      status (ContextOverflow folds into transport per the taxonomy); the
+   *      note's `<message>` carries the classifier's own text whenever it is
+   *      non-empty, regardless of `kind` — the fixed fallback is reserved for
+   *      the no-text case, the same reading the fallback carries everywhere
+   *      else it is specified (queryerror-variants.md:106,
+   *      conversation-drive.md:16 PIC-51, provider-error-mapping.md:45);
    *   4. otherwise (a clean normal-stop reply — plain text or a wrong-name
    *      ToolCall) → `malformed`.
    */
@@ -1141,9 +1147,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         stopReason: typeof stopReason === "string" ? stopReason : "",
         ...(typeof errorMessage === "string" ? { errorMessage } : {}),
       });
+      // The classifier-produced message renders whenever it exists, whichever
+      // kind produced it: both overflow arms carry the provider's own text
+      // in the same field the transport arm does
+      // (provider-error-mapping.ts:311, :388, :399), and the outcome below is
+      // transport-class regardless of `kind` (determinism-cancellation-failure.md:36).
+      // The fixed fallback is the no-text case only, matching the fallback's
+      // specified meaning elsewhere (queryerror-variants.md:106,
+      // conversation-drive.md:16 PIC-51, provider-error-mapping.md:45).
       const message =
-        classified.kind === "transport" && classified.message !== ""
-          ? classified.message
+        classified.message !== ""
+          ? summariseErrorField(classified.message)
           : "provider transport failure";
       return { outcome: { kind: "transport", provider, message } };
     }
