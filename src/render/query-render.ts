@@ -445,6 +445,46 @@ export function stringifyInterpolatedValue(
 // --- Degenerate rendered templates (QRY-6) ---------------------------------
 
 /**
+ * Projects a raw (pre-escape) `@`...`` template body onto the STATIC body
+ * QRY-6 (query-forms.md#qry-6) defines its parse-time predicate over: "every
+ * literal segment between interpolations". A backslash escape pair is copied
+ * verbatim — both characters, unrewritten — because the predicate reads the
+ * body pre-escape (this is what makes the `\n` two-character sequence a
+ * suppression hatch rather than whitespace); a `${…}` interpolation span is
+ * dropped in its entirety, brace-depth tracked so a nested `{`/`}` inside the
+ * expression does not close the span early; every other character is copied
+ * as-is. The concatenation of the surviving literal segments is returned.
+ */
+export function queryTemplateStaticBody(rawTemplate: string): string {
+  let out = "";
+  let i = 0;
+  while (i < rawTemplate.length) {
+    const ch = rawTemplate[i]!;
+    if (ch === "\\" && i + 1 < rawTemplate.length) {
+      out += ch + rawTemplate[i + 1]!;
+      i += 2;
+      continue;
+    }
+    if (ch === "$" && rawTemplate[i + 1] === "{") {
+      i += 2;
+      let depth = 1;
+      while (i < rawTemplate.length && depth > 0) {
+        if (rawTemplate[i] === "{") {
+          depth += 1;
+        } else if (rawTemplate[i] === "}") {
+          depth -= 1;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
  * The parse-time `theta/parse/empty-template` warning (QRY-6). The predicate is
  * evaluated over the *static* body — every literal segment between
  * interpolations, newline-trim and dedent notionally applied, the escape

@@ -116,8 +116,14 @@ import { checkToolCallArguments } from "../runtime/tool-call";
 // A `@`-query template body is captured verbatim at parse time; its `${…}`
 // interpolations are re-lexed here (the same lexer the render path drives) so
 // the parse-time whole-document walk can reject the forms expressions.md
-// §"Not supported" forbids inside `${…}` (a nested `match` or `@`-query).
-import { lexQueryTemplate } from "../render/query-render";
+// §"Not supported" forbids inside `${…}` (a nested `match` or `@`-query), and
+// its static body (the literal segments, `${…}` spans dropped) is projected
+// and checked for QRY-6's degenerate-template parse-time warning.
+import {
+  emptyTemplateWarning,
+  lexQueryTemplate,
+  queryTemplateStaticBody,
+} from "../render/query-render";
 
 // --------------------------------------------------------------------------
 // Expression AST (the `Expr` node family; grammar.md §Expression sublanguage)
@@ -5539,6 +5545,21 @@ class BodyParser {
             positionToOffset(this.bodyText, closeTick.range.start),
           )
         : parts.join(" ");
+    // QRY-6's Trigger presupposes a template the author WROTE and CLOSED; an
+    // error-recovery capture (an over-run `@<Ghost` annotation at EOF, or an
+    // unterminated `` @` `` with no closing backtick) mints this same node
+    // shape with an empty `template` for text the author never wrote as a
+    // template body at all, so the check is gated on both tick tokens being
+    // present rather than on the template text.
+    if (openTick !== null && closeTick !== null) {
+      const warning = emptyTemplateWarning(
+        queryTemplateStaticBody(rawTemplate),
+        spanRange(openTick.range, closeTick.range),
+      );
+      if (warning !== undefined) {
+        this.diagnostics.push({ ...warning, file: this.file });
+      }
+    }
     return {
       kind: "query",
       schema,

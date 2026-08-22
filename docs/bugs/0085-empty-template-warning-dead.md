@@ -1,6 +1,6 @@
 # Bug 0085 — QRY-6's parse-time layer is absent: `emptyTemplateWarning` (`query-render.ts:435`) has no `src/` caller, so `theta/parse/empty-template` never fires and an empty or whitespace-only `@`…`` template loads clean and fails at runtime as `Err(ValidationError { cause: "empty_template" })` instead of warning at load
 
-- **Status:** open.
+- **Status:** fixed (0.210.0).
 - **Kind:** defect — a registered `W`-severity parse row is implemented,
   unit-tested and never wired. QRY-6 defines **two** layers against a
   degenerate prompt; only the second exists. The consequence is not silent
@@ -284,7 +284,9 @@ asserted from source text.
 
 ## Fix
 
-Not yet decided.
+Settled in-run: **disposition 1** (wire the caller). The record of what
+shipped is §Fix (0.210.0) below; the analysis of both dispositions is retained
+unchanged.
 
 **Disposition 1 — wire the caller (recommended).** Call `emptyTemplateWarning`
 from the parse walk at each `@`…`` template node, with the concatenated static
@@ -333,6 +335,96 @@ implements every clause of QRY-6's first bullet including the two subtle ones
 GOV-15 blast radius is the smallest of any wiring in this class — no
 registration is denied. Retirement additionally requires rewriting a normative
 rule and deleting a documented authoring hatch.
+
+## Fix (0.210.0)
+
+- **What shipped:**
+  - `src/render/query-render.ts` — new exported `queryTemplateStaticBody`,
+    beside `emptyTemplateWarning` under §Degenerate rendered templates: it
+    projects a raw template body onto QRY-6's *static* body (backslash escape
+    pairs copied verbatim so the predicate stays pre-escape and the `\n` hatch
+    keeps working; `${…}` spans dropped with brace-depth tracking; every other
+    character copied).
+  - `src/parser/theta-document.ts` — the `@`-query capture in `BodyParser`'s
+    `parseQuery` now calls `emptyTemplateWarning(queryTemplateStaticBody(…),
+    spanRange(openTick.range, closeTick.range))` and pushes the returned
+    diagnostic (with `file`) onto the parser's own diagnostic channel — the
+    same channel `theta/parse/empty-query-annotation` already uses. Import of
+    `../render/query-render` widened accordingly.
+  - **The guard, load-bearing:** the check runs only when BOTH tick tokens are
+    present. QRY-6's Trigger presupposes a template the author wrote and
+    closed; an error-recovery capture (an over-run `@<Ghost` annotation at EOF,
+    an unterminated `` @` ``) mints the same node shape with `template: ""`
+    for text that is no template body. Premeasured: without the guard five
+    protected witnesses red — `tests/fn-param-sink-array-literal.test.ts`,
+    `tests/inbound-union-arm-dispatch.test.ts`,
+    `tests/inline-object-duplicate-field-name.test.ts`,
+    `tests/query-annotation-nontype-text-refusal.test.ts`,
+    `tests/unterminated-literal-params-type-refusal.test.ts`; with it the full
+    suite is green and no witness is flipped.
+  - **The §Non-goals open question is settled by the letter:** the static body
+    is the literal segments only, so an interpolation-only template
+    (`` @`${x}` ``, `` @`  ${x}  ` ``) warns. Chosen over narrowing the
+    Trigger so that the registry Trigger prose stays accurate — **DIAG-2 is not
+    engaged**: no code added, removed, renamed or re-triggered, Message and
+    Hint unchanged (DIAG-4), registry, mirror and QRY-6 untouched. The corpus
+    gate's carve-out table needs no change (`theta/parse/empty-template`
+    already carried an asserting test and now also has a reachable-emission
+    witness).
+  - **GOV-15:** severity `W`, registration unaffected; the loads-cleanly
+    predicate is untouched. No committed `.theta` / `.thetalib` fixture, no
+    `docs/examples/` input and no `tests/live/**` fixture carries a degenerate
+    or interpolation-only template (measured), so no shipped input newly warns.
+- **Gates:**
+  - Witness RED before: `npx vitest run tests/empty-template-parse-warning.test.ts`
+    → `Tests 12 failed | 14 passed (26)`, every red "expected +0 to be 1 …
+    NO DIAGNOSTIC".
+  - Witness GREEN after: `Test Files 1 passed (1) / Tests 26 passed (26)`.
+  - Full default suite: `npx vitest run` → `Test Files 392 passed (392) /
+    Tests 8176 passed (8176)`.
+  - `npm run typecheck` → clean; `npm run lint` → clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/empty-template-warning-registration-live-cell.test.ts` →
+    `Test Files 1 passed (1) / Tests 1 passed (1)` (run twice: verifier, then
+    orchestrator, each under the shared live lock).
+- **Review:** 1 round — `bug-fix-reviewer`, verdict CLEAN, no findings; it
+  re-derived the predicate clause-by-clause against QRY-6, compared
+  `queryTemplateStaticBody` against `lexQueryTemplate`'s interpolation scan,
+  probed the guard for a written-and-closed template reaching the site with a
+  tick missing (none exists), and reproduced the 12-cell red itself.
+- **Verification:** verdict solid.
+  - Witness genuineness: the diagnostic push was neutralised in place → 12
+    W-cells red, 14 M/L/S controls green; restored byte-exact
+    (`git hash-object` equal to the pre-probe blob) → 26/26 green.
+  - Full default suite green (392/8176).
+  - Live end-to-end: no existing live cell loaded a degenerate template, so one
+    H8a cell was added — it plants a control theta and an offender
+    (`` let r = @`   `? ``), asserts registration is NOT denied (severity `W`),
+    counts exactly one `theta/parse/empty-template: <registry Message>` on the
+    real `theta-system-note` load batch, and drives the registered command,
+    asserting empty `userTexts` plus the QRY-6 layer-two SLSH-3 note. Zero
+    provider tokens; no verbatim-echo sentinel (sentinel-refusal class avoided).
+  - Lint and typecheck clean (the typecheck covers `tests/`, hence the live
+    cell).
+- **Residuals:**
+  1. `theta/parse/unterminated-template` does not fire for an unterminated
+     `` @` `` reached through `parseDoc` — `UNTERMINATED_TEMPLATE_CODE` has no
+     emission site in `src/parser/` or `src/lexer/` on that path. Measured
+     while pinning this fix's suppression rows (`S-7`/`S-8` therefore assert
+     only the negative). Same dead-registration class as bug 0050; unfiled,
+     out of scope here.
+  2. `` @` ${x // }` `` (a line comment inside an interpolation commenting out
+     the closing tick) loads with zero diagnostics; `` ${f("}")} `` misparses at
+     the character-level brace counter. Both are pre-existing lexer behaviour,
+     unchanged by this fix, and neither produces a spurious warning.
+  3. QRY-6's `\n` hatch remains ineffective end-to-end: it suppresses the
+     parse-time warning (now real) but not the runtime short-circuit, which
+     reads the post-escape render. Recorded as a spec question by §Non-goals;
+     not settled here.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the runtime short-circuit,
+  `theta/parse/empty-query-annotation`, oversized templates and whether `\n`
+  should also suppress layer two all stay as §Non-goals states them.
 
 ## Provenance
 

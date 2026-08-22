@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.210.0]
+
+### Fixed
+
+- **Bug 0085**: QRY-6's parse-time layer was absent — `emptyTemplateWarning`
+  had no `src/` caller, so `theta/parse/empty-template` never fired and an
+  empty or whitespace-only `@`…`` template loaded clean, failing only at
+  runtime as `Err(ValidationError { cause: "empty_template" })`.
+  `parseQuery` now consults the new exported `queryTemplateStaticBody` and
+  pushes the warning, gated on both tick tokens being present
+  (interpolation-only templates warn per QRY-6's letter; recovery captures
+  stay suppressed — the ungated wiring premeasurably reds five protected
+  witnesses). No registry/mirror/canary edits owed. Witness:
+  `tests/empty-template-parse-warning.test.ts` (26 cells) + an H8a
+  registration live cell.
+
 ## [0.209.0]
 
 ### Fixed
