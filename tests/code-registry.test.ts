@@ -68,7 +68,10 @@ describe("V7b-T — machine-checkable diagnostic registry (closed-set, DIAG-2)",
     expect(row).toBeDefined();
     expect(row?.namespace).toBe("parse");
     expect(row?.severity).toBe("E");
-    expect(row?.phase).toBe("lex");
+    // Bug 0239 (DIAG-2): this row now also fires from the `params:` default
+    // read (a position with no lexer of its own), so *Phase* gained `parse`
+    // beside `lex` in the same commit as that Trigger widening.
+    expect(row?.phase).toBe("lex, parse");
     // The Message column is the normative string (DIAG-4 owns it; here we pin
     // that parseRegistry carries it).
     expect(row?.message).toBe("unterminated string literal");

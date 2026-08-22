@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.201.0]
+
+### Fixed
+
+- **Bug 0239**: a `params:` DEFAULT whose string literal never closes
+  registered with zero diagnostics — `p: 'string = "abc'` lowered,
+  recorded `defaultSource` `"abc`, rendered the malformed bytes into the
+  binder prompt, and the default recovery silently repaired them — where
+  the same bytes in the TYPE half (bug 0232, 0.188.0) and in body code are
+  both refused. A new default-side guard in `parseParams`'s default loop
+  now raises the existing `theta/parse/unterminated-string` row (Phase
+  widened `lex` → `lex, parse`; registry + reference mirror + §Defaults +
+  its mirror amended same commit). Witness:
+  `tests/params-default-unterminated-literal-refusal.test.ts` (26 cells) +
+  an H8a live cell + a new H9a acceptance file.
+
 ## [0.200.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0239 — a `params:` default whose string literal never closes registers with zero diagnostics: `p: 'string = "abc'` lowers and records `defaultSource` `"abc`, the binder system prompt renders the malformed bytes `default="abc`, and the default recovery silently repairs them to `"abc"` — where the same bytes in the TYPE half (bug 0232, 0.188.0) and in body code are both refused
 
-- **Status:** open
+- **Status:** fixed (0.201.0)
 - **Sev/Diff estimate:** S1/D2 — S1 because a theta registers carrying a
   default the source does not spell: `p: 'string = "abc'` reports `[]`, lowers
   `{"type":"object","properties":{"p":{"type":"string"}},"required":[],"additionalProperties":false}`
@@ -318,7 +318,9 @@ From that, one statement:
 - **A `params:` default RHS carrying a string literal that never closes
   spells no literal, so it is refused and the theta does not register.** Rows
   a1, a2, a4, a5, a8, a9, a11 and a12 each report an error-severity diagnostic
-  naming the field. Row a3's control and every other row of `tests/params-defaults.test.ts`
+  ranged on the field (corrected in the fix record below: the route selected
+  raises a registry row whose normative *Message* carries no field placeholder,
+  so the field is named by the diagnostic's range). Row a3's control and every other row of `tests/params-defaults.test.ts`
   are unchanged.
 - **The refusal precedes the compatibility judgement.** Rows a6 and a7 report
   the malformed literal, not `expected integer, got string`: no declared type
@@ -481,7 +483,7 @@ today.
   and with `hasRawNewlineInStringLiteral`. The route must measure both.
 
 **(b) Binding under every route.** Rows a1, a2, a4, a5, a8, a9, a11 and a12
-draw exactly one error-severity diagnostic naming field `p`, and the theta does
+draw exactly one error-severity diagnostic ranged on field `p`, and the theta does
 not register. Rows a6 and a7 draw that same diagnostic INSTEAD of
 `theta/parse/params-default-type-mismatch` — one diagnostic per offending
 field, the precedence the position already keeps. Row a3, row a10, row d2 and
@@ -515,6 +517,120 @@ of row d1.
 
 **(e) Ordering.** No blocking dependency. This report is filed against a landed
 fix (0232, 0.188.0) and every row above is measured with that fix in force.
+
+## Fix (0.201.0)
+
+- **Route selected (settled in-run, inside the constraints of the section
+  above):** route 2 — refuse at the default splitter's own position, with the
+  registered row `theta/parse/unterminated-string` (`code-registry-parse.md`'s
+  row for exactly these bytes) and bug 0102's precedent for a lex-phase row
+  firing at the `params:` default position. Route 1 (widening bug 0232's
+  predicate to the whole RHS) was declined: it reports a DEFAULT-half
+  malformation under a TYPE-side Trigger and puts the closure question ahead of
+  bug 0102's raw-newline verdict, which the non-goals pin byte-identical. Route
+  3 (recording closure on `tokeniseExpr`'s `str` token) was declined on blast
+  radius: that scanner also answers `isBareObjectLiteral` for
+  `src/runtime/tool-call.ts` and `hasRawNewlineInStringLiteral`, neither of
+  which this report claims.
+- **What shipped:**
+  - `src/parser/params.ts` — one new guard in `parseParams`'s per-field DEFAULT
+    loop, between bug 0102's `hasRawNewlineInStringLiteral` push and
+    `checkLiteralSublanguage`: when no error-severity diagnostic has yet been
+    emitted for this field's default (the existing `defaultDiagStart` slice) and
+    `hasUnterminatedStringLiteral(field.defaultSource)` holds, it pushes
+    `theta/parse/unterminated-string` at error severity ranged on the field and
+    `continue`s. Bug 0232's predicate is reused unchanged and its type-half
+    caller is untouched; the predicate is string closure, not container balance,
+    so row d2 and bug 0232's normative unbalanced-BRACE boundary stay admitted.
+    The `continue` is what makes rows a6 and a7 draw the malformed-literal
+    refusal INSTEAD of bug 0163's compatibility code.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` (DIAG-2, same change)
+    — the `theta/parse/unterminated-string` row: *Phase* `lex` → `lex, parse`;
+    *Trigger* gains the `params:` default reach, the one-diagnostic-per-field
+    precedence sentence, and the GOV-15 diagnostic-registry-carve-out sentence.
+    *Message* and *Hint* unchanged (DIAG-4). Mirrored (Phase only) in
+    `docs/reference/diagnostics.md` — the same package bug 0102's fix shipped
+    for the neighbouring row.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` (§Defaults) and
+    `docs/reference/frontmatter.md` — the RHS must close every string literal it
+    opens; one that never closes spells no `Literal` and is refused,
+    `theta/parse/unterminated-string`, ranged on the offending field.
+    `lexical.md` and `grammar.md` are unedited.
+  - `tests/code-registry.test.ts` — ONE expectation, the sample row's *Phase*
+    (`"lex"` → `"lex, parse"`), the mechanical mirror of the DIAG-2 amendment.
+    Premeasured as the only flipped assertion in the entire default suite.
+  - `tests/params-default-unterminated-literal-refusal.test.ts` — the witness:
+    26 cells over the reproduction rows (the registry row; all thirteen (a) rows
+    as whole ordered unfiltered `toEqual` triples with every *Message* read
+    through `parseRegistry` / `registryMessage`; a drop-gate cell over the eleven
+    refused rows; (b)'s four lexed rows; (c)'s four reader calls; (d2) and (d3);
+    an anti-vacuity inventory cell).
+  - `tests/live/params-default-unterminated-literal--live-cell.test.ts`
+    (H8a) and
+    `tests/live/acceptance/params-default-unterminated-literal-load-refusal-.test.ts`
+    (H9a) — the live pair mirroring bug 0232's shape at the default half.
+- **Gates:** witness `26 passed (26)`; default suite `Test Files 388 passed
+  (388)` / `Tests 8034 passed (8034)`; `npm run typecheck` clean (no output);
+  `npm run lint` clean (no output). Live, run for real under the shared lock:
+  the new H8a cell green (the offender does not register, the closed neighbour
+  does, the `theta-system-note` channel carries the code), the new H9a
+  acceptance file green in full (`Tests 2 passed (2)` — OFFENDER REFUSED, GOOD
+  LOADED, and the print-mode code measurement), and bug 0232's own pair
+  (`tests/live/params-unterminated-literal-live-cell.test.ts`,
+  `tests/live/acceptance/params-unterminated-literal-load-refusal.test.ts`)
+  re-run green as the fix section requires.
+- **Review:** 2 rounds. Round 1 (deep) — one finding, `spec`: the §Defaults
+  sentence claimed the diagnostic "names the field", which DIAG-4's bare
+  *Message* cannot do; corrected to "ranged on the offending field". Round 2
+  (fast) — clean, no findings, no escalation.
+- **Verification:** PASS. (1) The witness reds for the right reason with the
+  guard neutralised (11 red / 15 green — rows a1, a2, a4, a5, a6, a7, a8, a9,
+  a11, a12 and the drop-gate cell, each showing `[]` plus a lowered schema plus
+  the unterminated `defaultSource`), then byte-exact restoration
+  (`git hash-object` identical before and after) and 26/26 green again. (2) The
+  default suite is green. (3) Live end-to-end green as above. (4) Lint and
+  typecheck clean. `tests/fixtures/h7a/permitted-codes.json` needs no change:
+  the completed H9a run measured `[]` observed codes on both spawns, so
+  `theta/parse/unterminated-string` does not reach the print-mode capture.
+- **Locks preserved unchanged:**
+  `tests/unterminated-literal-params-type-refusal.test.ts` (bug 0232's five
+  cells including its normative row E2),
+  `tests/params-default-type-compat.test.ts` (bug 0163 — green unmodified, so no
+  cell of it carried an unterminated-literal default and the conditional
+  re-derivation is discharged vacuously),
+  `tests/params-default-empty-literal-refusal.test.ts` (bug 0165),
+  `tests/params-default-string-literal-raw-newline.test.ts` (bug 0102),
+  `tests/params-default-trailing-residue-refusal.test.ts` (bug 0175),
+  `tests/params-defaults.test.ts`, `tests/params-inline-object-lowering.test.ts`
+  and `tests/committed-fixture-parse-gate.test.ts` — all green, none edited. Row
+  d1's corpus claim is discharged by that last gate.
+- **Residuals:**
+  1. The new H9a acceptance file's PROBE spawn asks the model to echo two fixed
+     verdict tokens and is exposed to the sentinel-refusal class: it red once and
+     then passed on identical bytes. Its query sits inside the offender/GOOD
+     verdict path, so it was not rewritten here. A bounded remedy would restate
+     those two verdicts as computed answers, the shape the CLEAN precondition now
+     uses.
+  2. Bug 0232's H9a acceptance file passed here, but its OFFENDER theta is
+     non-bypass with no `bind_model:`, so that file's `OFFENDER REFUSED` is not
+     uniquely attributable to `theta/load/params-type-not-expression`. Not this
+     report's claim; noted for whoever next touches that file.
+  3. Reproduction row a12's `$defs` slug is unobservable post-fix (the row is
+     refused and the frontmatter is withheld); the witness carries it as
+     documentation only.
+- **Where the report was wrong:** the expected-behaviour and binding sentences
+  asked for a diagnostic "naming the field".
+  `theta/parse/unterminated-string`'s normative *Message* is the bare
+  `unterminated string literal` with no placeholder and DIAG-4 defers wording
+  changes to theta 2.0, so under the selected route the field is named by the
+  diagnostic's RANGE. Both sentences are corrected above and the witness asserts
+  the range property.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** unchanged — the unmatched bracket/brace
+  default (row d2), the out-of-set literal-union default (rows a9, a10), bug
+  0232's type-half guard, `tokeniseExpr`'s behaviour for the raw-newline
+  predicate, `parseExpressionSource`'s discarded diagnostics in general, and the
+  duplicated splitter.
 
 ## Provenance
 

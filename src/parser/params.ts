@@ -399,6 +399,33 @@ export function parseParams(
         message: "literal newline in string literal",
       });
     }
+    // lexical.md §String literals: a string literal that never closes spells no
+    // `STRING`, and grammar.md §Theta literal sublanguage makes that position's
+    // RHS a strict subset of the same expression grammar — a subset admits
+    // nothing the superset refuses. `hasUnterminatedStringLiteral` (bug 0232's
+    // predicate) is reused unchanged; its existing caller over the field's type
+    // half is untouched, and this is a second, independent call over the default
+    // half, the position bug 0232's guard does not reach. Gated on the same
+    // `defaultDiagStart` slice test the compat guard below uses, so exactly one
+    // diagnostic fires per offending field: bug 0102's raw-newline verdict above
+    // keeps priority when both would otherwise fire, and `continue` stops bug
+    // 0163's compat pair from judging a declared type against a value type
+    // derived from bytes that spell no literal at all. Bug 0232's normative
+    // unbalanced-BRACE boundary and the unmatched-BRACKET row stay admitted
+    // here too: this predicate is string closure, not container balance.
+    if (
+      diagnostics.slice(defaultDiagStart).every((d) => d.severity !== "error") &&
+      hasUnterminatedStringLiteral(field.defaultSource)
+    ) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/unterminated-string",
+        file: site.file,
+        range: field.range,
+        message: "unterminated string literal",
+      });
+      continue;
+    }
     diagnostics.push(
       ...checkLiteralSublanguage(field.defaultSource, "default", {
         file: site.file,

@@ -57,7 +57,7 @@ trigger.
 | `theta/parse/illegal-escape` | E | lex | `illegal escape sequence: \<char>` |
 | `theta/parse/invalid-unicode-escape` | E | lex | `invalid Unicode escape: value is not a Unicode scalar value` |
 | `theta/parse/literal-newline-in-string` | E | lex, parse | `literal newline in string literal` |
-| `theta/parse/unterminated-string` | E | lex | `unterminated string literal` |
+| `theta/parse/unterminated-string` | E | lex, parse | `unterminated string literal` |
 | `theta/parse/invalid-path-separator` | E | lex | `invalid path separator: backslash in path literal` |
 | `theta/parse/stray-backslash` | E | lex | `stray backslash in source` |
 | `theta/parse/invoke-non-theta-extension` | E | parse | `invoke path '<path>' does not end in .theta` |

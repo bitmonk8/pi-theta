@@ -116,7 +116,9 @@ anchors, and prose ("binder model").
   whitespace-only after trim spells no arm at all and is
   `theta/parse/default-without-literal`. A raw line break
   inside a string literal is refused too (`theta/parse/literal-newline-in-string`);
-  use the `\n` escape, or move the value into body code. When a slash-command
+  use the `\n` escape, or move the value into body code. The RHS must close
+  every string literal it opens; one that never closes is refused too
+  (`theta/parse/unterminated-string`). When a slash-command
   invocation omits the positional argument, the default fills in before AJV
   validation. The default's static type must be compatible with the declared type
   (`theta/parse/params-default-type-mismatch`; a `number` under `integer` is
