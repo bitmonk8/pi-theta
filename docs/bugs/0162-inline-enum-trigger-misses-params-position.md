@@ -1,6 +1,6 @@
 # Bug 0162 — `theta/parse/inline-enum` is raised from the two `schema`-declaration call sites only, so one authored mistake draws different codes by position: `schema S { a: enum["x", "y"] }` and `schema S = enum["x", "y"]` raise the registered code whose *Fix hint* names the literal-union form, while the byte-identical text at the `params:` right-hand side loads with zero diagnostics, lowers the permissive `{}`, records `enum["x", "y"]` as the declared type and renders it into the binder's `Parameters:` block — and the literal-union form the hint directs the author to is the very form bug 0056 made enforce at `params:`
 
-- **Status:** open. Residual 1 of the bug 0056 fix (0.85.0, commit `81600080`),
+- **Status:** fixed (0.209.0). Residual 1 of the bug 0056 fix (0.85.0, commit `81600080`),
   recorded there as `## Fix (0.85.0)` *Residuals* item 1
   (`0056-…md:1028–1033`) and measured before it in that report's §Non-goals
   (`:718–722`, "a trigger gap in a different row, unfiled"). §Fix is
@@ -548,3 +548,125 @@ position refuses with the GENERIC text code while both declaration spellings
 draw `theta/parse/inline-enum` with its targeted fix hint — the code-divergence
 question this report owns stands, re-derive §Reproduction against v0.86.0 at
 pick time.
+
+## Fix (0.209.0)
+
+- What shipped: `src/parser/params.ts` — `parseParams`'s per-field loop asks the
+  exported `checkInlineEnumForm` recogniser of the field's own recovered type
+  text and pushes `theta/parse/inline-enum` in place of
+  `theta/load/params-type-not-expression` when it matches (§Fix **route (a)**,
+  adjudicated in-run; see *Adjudication* below);
+  `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+  `theta/parse/inline-enum` row's *Trigger* re-derived to name the third
+  position, its leading-arm-only anchoring, its precedence (ahead of the text
+  stage of `theta/load/params-type-not-expression` and that stage's brace
+  exemption; behind the node-shape stage and behind any error-severity
+  type-side diagnostic the field's own pass raised), the withheld default-side
+  rows, and the one input newly brought into the code's emission set (§Fix
+  constraints 1–4, DIAG-2 in the same commit; *Message* bytes unchanged, so no
+  DIAG-4); `docs/spec_topics/diagnostics/code-registry-load.md` — the
+  `theta/load/params-type-not-expression` row's *Trigger* re-derived in the
+  same commit to exclude the class that now answers elsewhere, with bug 0217's
+  nested last-resort push stated as unmoved (§Fix constraint 4);
+  `tests/params-inline-enum-position-refusal.test.ts` (new, 48 cells) and
+  `tests/live/params-inline-enum-live.test.ts` (new, one H8a
+  registration cell) lock it; the three protected fence cells that assert the
+  `params:` disposition of the bare spelling were flipped under this report's
+  own authority (see *Protected locks* below).
+- Adjudication (§Fix leaves the route to the run): **route (a)**. Three
+  independent grounds, each measured at HEAD `1da5115b`. (i) Bug 0044's landed
+  precedent at these same positions — give the position the specific row rather
+  than let the generic one absorb a registered, named mistake — is on point and
+  points one way. (ii) Post-0217 the two `schema` positions already answer this
+  text with the specific row at their own top level and with a generic row one
+  level down; route (a) gives `params:` the identical two-tier answer, so the
+  registry states one rule for three positions instead of blessing a split.
+  (iii) GOV-15 exposure is minimal in this direction: every input whose code
+  changes fails the loads-cleanly predicate at HEAD (each already draws
+  `theta/load/params-type-not-expression`) and so lies outside the equivalence
+  promise's input set; exactly one input class — `p: 'enum[{a: string}]'`,
+  admitted at HEAD by the brace exemption — is newly refused, which the
+  diagnostic-registry carve-out (`source-language-stability.md:25`) covers as
+  an addition and which the new *Trigger* prose enumerates. Route (b) would
+  have had to justify the generic code against (i) and would have left (ii)'s
+  split in the corpus.
+- Mechanism note: §Fix route (a) proposes a `LowerCtx` sink drained beside the
+  three existing drains. That mechanism predates bug 0217, which settled that a
+  nested `enum[…]` answers to the generic rows; a sink filled at
+  `lowerTypeExpr`'s catch-all fires at depth and would have reopened what 0217
+  closed. The landed mechanism is the whole-recovered-text predicate this
+  position already uses for bug 0232's unterminated-literal judgement, which
+  reproduces `checkInlineEnumForm`'s anchoring exactly as the two `schema`
+  positions apply it. Recogniser reuse, the emission point, the code and the
+  one-diagnostic-per-field discipline are all as §Fix route (a) states.
+- Re-derivation at HEAD (the doc's 0.86.0 status note asked for it): R1 draws
+  one `error theta/load/params-type-not-expression` — not the silence
+  §Reproduction measured; R2/R3/R4 draw `theta/parse/inline-enum`; R5/R6/R7
+  draw the generic row; R8 draws `theta/parse/schema-type-not-expression`; R9
+  and the `fn`/`let` positions draw nothing; C1/C2 load clean; C3/C4 unchanged.
+  Corpus census re-run (§Fix constraint 5): 35 committed `.theta`/`.thetalib`
+  files, zero carry `enum[`, so no committed source moves.
+- Gates: witness `npx vitest run tests/params-inline-enum-position-refusal.test.ts`
+  → `Test Files 1 passed (1) / Tests 48 passed (48)`, and 13 of those 48 red on
+  a neutralised guard (`Tests 13 failed | 35 passed (48)`), restored byte-exact
+  with `git hash-object` re-matched; full suite `npm test` →
+  `Test Files 391 passed (391) / Tests 8140 passed (8140)`; `npm run typecheck`
+  clean; `npm run lint` clean; live
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/params-inline-enum-live.test.ts`
+  → `Test Files 1 passed (1) / Tests 1 passed (1)` (run twice, the second under
+  the shared live lock by the orchestrator).
+- Review: 2 rounds. Round 1 (deep) — three findings: the new *Trigger*
+  over-claimed precedence at `params:` ("ahead of both stages", plus a sameness
+  claim with the `schema` object-field position that `p: 'enum["x"] | Ghost'`
+  falsifies); the default-side suppression the widened row performs was
+  prescribed in no registry sentence; and `parseParams`'s header doc-comment
+  no longer enumerated every code the seam raises. All three were prose and
+  comment defects, not behaviour, and were fixed in one round with no
+  executable change. Round 2 (fast) — clean, findings none, with the four
+  withheld default-side rows probed individually against firing baselines.
+- Verification: SOLID. (1) The witness reds on a neutralised fix with the bug's
+  own signature and greens on restore, the file proved byte-identical by hash.
+  (2) The full default suite is green. (3) A new H8a live cell exercises the
+  fixed path end to end through the real discovery→registration path — the
+  `enum[{a: string}]` theta no longer registers while its `"a" | "b"` sibling
+  and an unrelated control still do, and the `theta-system-note` channel names
+  the registered inline-enum row (registration and system-note observables, no
+  model-echo sentinel). (4) Lint and typecheck are clean.
+- Protected locks (§Fix constraints 3 and 6): exactly three cells flipped,
+  enumerated before the witness was written by a full-suite prototype run —
+  `tests/generic-argument-shredded-group-refusal.test.ts` FENCE (g1, params)
+  and FENCE (g2, params), and
+  `tests/nested-inline-enum-generic-argument-refusal.test.ts` FENCE (d4,
+  params). Each asserted the code identity this report owns while fencing its
+  own report's subject; each keeps that subject intact (one refusal, not two;
+  gate and registration counts unchanged) and now records this report as the
+  authority for the code. §Fix constraint 6's two named witnesses —
+  `tests/schema-declarations.test.ts` and `tests/schema-alias-union-decl.test.ts`
+  cell n6 — keep their bytes (`git diff --name-only` empty for both).
+- Residuals:
+  1. `p: 'string | enum["x"]'` still draws the generic row at `params:` while
+     the alias/union position's per-arm pass draws `theta/parse/inline-enum` on
+     the same second-position arm (§Reproduction R4/R5). The landed *Trigger*
+     states this asymmetry rather than removing it: the `params:` position and
+     the `schema` object-field position both anchor at the whole captured text,
+     and only the alias position walks arms. Unfiled; it is a wider trigger
+     question than this report's subject and belongs with §Non-goals' nested
+     and `@<T>` gap.
+  2. `enum[…]` at the `@<T>` annotation, an `fn` parameter or return type and a
+     `let` annotation still draws nothing at all (measured this run: the doc's
+     R9 plus two positions it did not measure). §Non-goals holds it outside
+     this report; the landed *Trigger* states the row does not reach those
+     positions rather than leaving the omission implicit.
+  3. `p: 'enum["x"] | Ghost'` draws `theta/parse/unresolved-named-type` alone at
+     `params:` where both `schema` positions draw that row *and* this one. That
+     is the position's own one-diagnostic-per-field discipline (§Fix constraint
+     3), now stated in the *Trigger*; it is not a code-choice divergence, since
+     the surviving code is the same at all three positions.
+  4. `tests/fixtures/h7a/permitted-codes.json` was not touched: no H9a run was
+     made for this fix, and the file lists neither this row nor the generic row.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: bug 0217's nested-spelling answer is
+  untouched at all three positions; bug 0059's emission set is narrowed by
+  exactly the one class this report owns and its row is re-derived accordingly;
+  the permissive `{}` fragment disposition (bug 0028) is unmoved — what moved is
+  the diagnostic, not the fragment.

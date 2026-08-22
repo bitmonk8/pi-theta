@@ -54,6 +54,7 @@ import {
   type LoweredPrimitiveType,
   type LoweredUnionArm,
 } from "./schema-lowering";
+import { checkInlineEnumForm } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { defineRecordField } from "../runtime/value";
 
@@ -130,12 +131,19 @@ export interface ParamsParseResult {
  *     a `NamedType`;
  *   - `theta/parse/unresolved-named-type` — a RHS `NamedType` resolving to no
  *     `bodyTypes` entry (whole-file resolution, so forward references resolve);
+ *   - `theta/parse/inline-enum` — a field's recovered type text spells an
+ *     inline `enum[...]` at its own top level, under the same anchored
+ *     recogniser (`checkInlineEnumForm`) the two `schema` positions ask, and
+ *     under the same two gates as the row below (`shapeRefused` unset, no
+ *     other error-severity diagnostic from this field's own pass);
  *   - `theta/load/params-type-not-expression` — a field's recovered type text
  *     spells no `Type` production (bug 0059 §Fix): the field's own value node
  *     already passed the frontmatter seam's shape gate
  *     (`ParamFieldInput.shapeRefused` unset), the text is not what
- *     `parseLiteralArm` recognises or brace-carrying, and the field carries no
- *     other error-severity diagnostic from this same pass;
+ *     `parseLiteralArm` recognises or brace-carrying, the text does not match
+ *     the inline-enum recogniser above (which takes precedence, so the two
+ *     never both fire for one field), and the field carries no other
+ *     error-severity diagnostic from this same pass;
  *   - `theta/load/schema-slug-collision` — an `__inline_<slug>` slug match
  *     whose retained canonical-form bytes differ (schema-subset.md §Schema-slug
  *     collision posture);
@@ -182,9 +190,10 @@ export function parseParams(
   const inlineFragments = new Map<string, Record<string, unknown>>();
   const slugCollisions: string[] = [];
   const collisionSites: { readonly slug: string; readonly range: SourceRange }[] = [];
-  // Fields whose type half drew `theta/load/params-type-not-expression` below,
-  // so the default-literal loop further down (bug 0059 §Fix's guard
-  // extension) can tell which fields to leave unchecked.
+  // Fields whose type half drew a type-half refusal below — either
+  // `theta/parse/inline-enum` or `theta/load/params-type-not-expression` — so
+  // the default-literal loop further down (bug 0059 §Fix's guard extension)
+  // can tell which fields to leave unchecked.
   const typeRefused = new Set<ParamFieldInput>();
   for (const field of fields) {
     // `fieldDiagStart` bounds the last-resort guard below to diagnostics THIS
@@ -262,6 +271,21 @@ export function parseParams(
     // and `isUnspellableTextRefusable`'s own brace exemption stays untouched
     // so the genuinely-unbalanced-brace boundary (Constraint 2) does not move.
     const unterminatedLiteral = hasUnterminatedStringLiteral(field.typeSource);
+    // An inline `enum[...]` written at the field's OWN top level is the same
+    // authored mistake the two `schema` positions answer with
+    // `theta/parse/inline-enum` (bug 0162 §Fix route (a)), so this position
+    // reuses that row's exported recogniser over the same unit those
+    // positions hand it — the field's whole recovered type text, anchored —
+    // instead of re-spelling a second predicate for one registry row.
+    // Anchored means top level only: `enum[...]` nested inside a generic
+    // argument or an inline object field keeps
+    // `theta/load/params-type-not-expression` (bug 0217 §Fix (b)(2)), exactly
+    // as the schema positions keep `theta/parse/schema-type-not-expression`
+    // for the same nesting.
+    const inlineEnum = checkInlineEnumForm(field.typeSource, {
+      file: site.file,
+      range: field.range,
+    });
     // §Fix constraint 1 ("exactly one diagnostic per offending field"), two
     // guards. `field.shapeRefused` is set at the frontmatter seam when the
     // value NODE was already refused (`paramValueCanCarryType`,
@@ -274,18 +298,24 @@ export function parseParams(
     // `generic-arity-mismatch`, or the unresolved-named-type loop just above)
     // keeps that diagnostic alone.
     if (
-      (refusable.length > 0 || unterminatedLiteral) &&
+      (inlineEnum !== undefined || refusable.length > 0 || unterminatedLiteral) &&
       field.shapeRefused !== true &&
       !diagnostics.slice(fieldDiagStart).some((d) => d.severity === "error")
     ) {
       typeRefused.add(field);
-      diagnostics.push({
-        severity: "error",
-        code: "theta/load/params-type-not-expression",
-        file: site.file,
-        range: field.range,
-        message: `'params:' field '${field.name}' right-hand side is not a theta type expression`,
-      });
+      // One diagnostic per offending field (bug 0162 §Fix constraint 3): where
+      // both would answer, the registered inline-enum row wins and the
+      // generic text refusal stands down, matching the two `schema`
+      // positions' own precedence over their nested-spelling last resort.
+      diagnostics.push(
+        inlineEnum ?? {
+          severity: "error",
+          code: "theta/load/params-type-not-expression",
+          file: site.file,
+          range: field.range,
+          message: `'params:' field '${field.name}' right-hand side is not a theta type expression`,
+        },
+      );
     }
     if (field.defaultSource === undefined) {
       required.push(field.name);

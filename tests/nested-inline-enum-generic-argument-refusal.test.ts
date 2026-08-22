@@ -143,9 +143,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     2's class, stated here rather than discovered later.
 //
 // `src/parser/schema-declarations.ts`'s `checkInlineEnumForm` anchored match is
-// NOT touched and `theta/parse/inline-enum`'s reach does NOT change — group (d)
-// cell d4 is that fence: the BARE spelling keeps drawing `inline-enum` exactly
-// once at the two schema positions.
+// NOT touched and `theta/parse/inline-enum`'s reach at DEPTH does NOT change —
+// group (d) cell d4 is that fence: the BARE spelling keeps drawing
+// `inline-enum` exactly once, and since bug 0162 §Fix route (a) that includes
+// the `params:` position, which now draws this row too for the bare top-level
+// spelling rather than the generic text refusal.
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles inside
 // one `parseThetaDocument` call over a string (`parseDoc`,
@@ -987,8 +989,10 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
       "enum",
       "the BARE spelling — `checkInlineEnumForm`'s anchored match owns it at the two schema " +
         "positions and is NOT touched, so `theta/parse/inline-enum` keeps exactly its current " +
-        "reach and fires exactly once. This cell is what distinguishes route §Fix (b)(2) from " +
-        "route §Fix (b)(1)",
+        "reach and fires exactly once. Bug 0162 §Fix route (a) wires the same recogniser over " +
+        "`params:`'s own top-level text, so this position draws the SAME row rather than the " +
+        "generic text refusal, and this cell is what distinguishes route §Fix (b)(2) from " +
+        "route §Fix (b)(1) across all three positions",
     ],
     [
       "d5",
@@ -1014,10 +1018,10 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
         const label = `${id} (${position}, ${typeSource})`;
         const r = read(label, position, typeSource, withCat);
         const expected =
-          position === "params"
-            ? [paramsRefusal("f")]
-            : schemaCode === "enum"
-              ? [line(INLINE_ENUM, [])]
+          schemaCode === "enum"
+            ? [line(INLINE_ENUM, [])]
+            : position === "params"
+              ? [paramsRefusal("f")]
               : [schemaRefusal(DECL_NAME[position])];
         expect(
           r.lines,

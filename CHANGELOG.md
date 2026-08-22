@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.209.0]
+
+### Fixed
+
+- **Bug 0162**: an inline `enum[...]` at a `params:` field's own top-level
+  type position drew the generic `theta/load/params-type-not-expression`
+  where every sibling position draws `theta/parse/inline-enum` — the
+  code-divergence half the doc's v0.86.0 status note left open. Route (a):
+  the params capture now consults the shared `checkInlineEnumForm` on the
+  captured top-level type text, so the position-specific row fires and the
+  generic row stops covering the class (both Triggers amended, DIAG-2);
+  nested spellings unchanged (0217's row). One GOV-15 emission-set
+  addition: `p: 'enum[{a: string}]'` was load-clean and is now refused
+  (carve-out enumerated in the Trigger). Witness:
+  `tests/params-inline-enum-position-refusal.test.ts` (48 cells) + an H8a
+  registration/system-note live cell.
+
 ## [0.208.0]
 
 ### Fixed

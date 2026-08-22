@@ -752,8 +752,10 @@ describe("bug 0204 (f) — the refusals that stand, stand", () => {
 //
 // g1/g2 are fences: the BARE inline enum keeps `theta/parse/inline-enum` at the
 // two schema positions (`checkInlineEnumForm`'s anchored `/^\s*enum\s*\[/` match
-// is untouched, §Non-goals) and the `params:` position keeps refusing the whole
-// text the author wrote, which no split manufactured.
+// is untouched, §Non-goals), and since bug 0162 §Fix route (a) the `params:`
+// position draws the SAME registered row for the same top-level text, in place
+// of the generic text refusal it drew before that fix — one authored mistake,
+// one code, across all three positions.
 //
 // g3/g4 are the cells bug 0204 landed as silence and **bug 0217** moves
 // deliberately (docs/bugs/0217-nested-inline-enum-in-generic-argument-draws-nothing.md,
@@ -794,14 +796,13 @@ describe("bug 0204 (g) — the inline-enum spellings", () => {
       it(`FENCE (${id}, ${position}): bare \`${typeSource}\` keeps its own disposition`, () => {
         const label = `${id} (${position}, ${typeSource})`;
         const r = read(label, position, typeSource);
-        const expected =
-          position === "params" ? [paramsRefusal("f")] : [line(INLINE_ENUM, [])];
+        const expected = [line(INLINE_ENUM, [])];
         expect(
           r.lines,
-          `${label}: the bare spelling is what \`checkInlineEnumForm\`'s anchored match owns at ` +
-            `the schema positions, and at \`params:\` the whole right-hand side reaches the ` +
-            `catch-all as ONE fragment the author wrote — no split manufactured it, so the ` +
-            `suppression cannot reach it (§Non-goals: the anchored match is not this report's)`,
+          `${label}: the bare spelling is what \`checkInlineEnumForm\`'s anchored match owns, and ` +
+            `bug 0162 §Fix route (a) wires the same recogniser over \`params:\`'s own top-level ` +
+            `captured text — the whole right-hand side, ONE fragment the author wrote, no split ` +
+            `manufactured it — so all three positions draw this row for this input`,
         ).toEqual(expected);
       });
     }
