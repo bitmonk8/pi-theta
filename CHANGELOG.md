@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.202.0]
+
+### Fixed
+
+- **Bug 0135**: the `<withheld>`-style index sentinel leaked into TypeEnv
+  as a resolvable name — face 2 closed on Reading A at the READ seam: a
+  case fence in `resolveNamed` (`src/parser/type-compat.ts`) stops any
+  name whose first character is not A–Z from resolving, so the sentinel
+  can no longer be spelled into a resolution. Face 1 (the render leak)
+  declined and routed to open bug 0143, which owns the class. No registry
+  or spec bytes moved — the two codes stop firing because their existing
+  Triggers stop covering the class. Witness:
+  `tests/index-sentinel-typeenv-case-fence.test.ts` (19 cells) + an H8a
+  live cell; 0125's d13/d15 restated under this fix's authority.
+
 ## [0.201.0]
 
 ### Fixed

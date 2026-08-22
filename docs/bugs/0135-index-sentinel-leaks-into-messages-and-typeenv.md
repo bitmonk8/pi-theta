@@ -1,8 +1,11 @@
 # Bug 0135 — `#typeExpr`'s index else arm mints the internal type name `index`, and that name has two author-visible faces: `displayType` returns it verbatim, so `fn f(p: Nope) { for y in p[0] { y } }` reports `got index` — a name category 1 of `placeholder-rendering-a.md` does not admit and `lexical.md:15` forbids at a type position — while `schema index = …` draws `theta/parse/schema-case-mismatch` and still enters the `TypeEnv`, so an author's refused declaration decides real checks off the parser's own fabrication
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  sentinel's disposition and the DIAG-2 / DIAG-4 reading before any code
-  lands. Coordination, not a hard prerequisite —
+- **Status:** fixed (0.202.0). §Fix was not settled at filing: this report
+  existed to pin the sentinel's disposition and the DIAG-2 / DIAG-4 reading,
+  and `## Fix (0.202.0)` below records the in-run adjudication that settled it —
+  **face 2 closed on Reading A at the read seam, face 1 declined to
+  [0143](./0143-withheld-sentinel-author-twin-and-render-leakage.md)**.
+  Coordination, not a hard prerequisite —
   [0125](./0125-index-element-narrowing-not-alias-unfolded.md) is **fixed
   (0.76.0)** and its witness pins four of this report's rows byte-exact
   (`tests/index-element-alias-unfolded.test.ts:833`, `:859`, `:971`, `:1003`);
@@ -836,3 +839,162 @@ determined inside one parse.
   `hasLoadParseError` mirror);
   `tests/helpers/e2e-s1.ts:39` (`parseDoc`). No test in the tree asserts that a
   rendered type name is category-1 conformant.
+
+## Fix (0.202.0)
+
+**The adjudication §Fix owed.** Re-derived at the fix baseline with a scratch
+`parseDoc` probe over every cell of §Reproduction: the report is neither mooted
+nor owned by a fresher document. Face 1 still renders (`a1`, `a2`, `b1` report
+`got index`; `f1` reports `got object`) and face 2 still collides (`c1`, `c3`,
+`c5` each carry a second code the refused declaration supplies), so the subject
+survives ~110 minors of landings. Four cells of the filed table are stale and
+are restated below rather than silently inherited. The ownership check clears:
+[0143](./0143-withheld-sentinel-author-twin-and-render-leakage.md) is open and
+fresher and shares the `displayType` arm, but it says in terms that the two
+reports are not duplicates — its subject is the engine's *unspellable* sentinel,
+this one's is a name inside the author's namespace.
+
+- **§Fix (a) — which face.** **Face 2 only**, the `TypeEnv` collision (`c1`,
+  `c3`, `c5`), on §Expected behaviour's **Reading A**: a declaration the case
+  rule refuses (`theta/parse/schema-case-mismatch`, `E`,
+  `code-registry-parse.md:20`) declares no type, so it must not make any operand
+  statically resolvable and must not decide any static check. **Face 1 (the
+  render) is declined**, not deferred by silence: `a1`, `a2`, `b1` and `f1` still
+  render a name category 1 does not admit (`placeholder-rendering-a.md:25` read
+  with `lexical.md:15`), and that disposition belongs to 0143, which owns the
+  arm's contract for engine-minted names and whose §Fix is itself unsettled.
+  Closing face 1 here would either mint a rendering no clause admits
+  (GOV-7 / GOV-8) or suppress a diagnostic (DIAG-2 *Trigger*), and would
+  pre-empt a fresher open report on its own subject.
+- **§Fix (b) — route, and the seam the measurement moved.** **Route 3's
+  principle**, applied at the **read** seam `resolveNamed`
+  (`src/parser/type-compat.ts:124–130`) rather than at the write seam
+  `collectTypeEnv` (`src/parser/type-layer-checks.ts:374–402`) the report names.
+  The write seam is excluded by measurement, not by preference: a case fence in
+  `collectTypeEnv` reds bug 0038's protected witness cell g2
+  (`tests/typeenv-prototype-names.test.ts` — a `schema __proto__` declaration
+  must land as an **own key** of the null-prototyped record), a flip no document
+  authorizes; the full default suite showed 3 reds under the write-seam
+  prototype against 2 under the read-seam one, the two being exactly the rows
+  this report authorizes. The read seam is sufficient because it is the only
+  `TypeEnv` read in the tree — every `named`-type consumer routes through it,
+  which is the discipline bug 0038's fix established. **Route 1 (rename the
+  sentinel) is declined**: it would mint a second `<withheld>`-class unspellable
+  name, a fresh instance of 0143's open subject, and the report itself records
+  that it makes face 1 worse. **Route 4 is declined**: GOV-7 / GOV-8, and the
+  "enforced at build time" clause this report leans on was **struck** by bug
+  0189 (0.129.0) — see the staleness list below.
+- **§Fix (c) — the DIAG-2 / DIAG-4 reading.** No registry row moves, no
+  *Message* template byte moves, no `docs/reference/diagnostics.md` mirror byte
+  moves, so neither DIAG-2's same-commit discipline (`diagnostic-shape.md:72`)
+  nor DIAG-4 (`:74`) is engaged. The two codes stop firing on group (c) because
+  their **existing** *Trigger* text stops covering those inputs once the refused
+  declaration resolves to nothing: `let-rhs-type-mismatch`'s "where the RHS type
+  is statically resolvable" (`code-registry-parse.md:59`) and
+  `non-string-array-join`'s "invoked on an array whose element type is not
+  `string`" (`:46`) — the implementation moving to a normative rule, the posture
+  bug 0038 took. `type-system.md:48`'s unresolvable-operand deferral is the
+  disposition group (c) now exhibits, which is what `c2` and `c4` measure.
+- **§Fix (d) — the constraints, each re-measured green.** The else arm keeps
+  deferring for an unresolvable receiver (`c2`, `c4`; 0125's `d3`/`d4`
+  untouched); `b5` still names the real type (`got integer`); `d1` still draws
+  exactly one diagnostic, because the fence keys on the **case rule** (first
+  character) and not on a name list, so `schema Index = string` still resolves
+  and still decides; 0125's four pinned rows are updated **deliberately** —
+  `d13` and `d15` restated with their reason in comment and assertion label,
+  `d7`, `d8`, `d14` and `d16` byte-untouched because they are face-1 rows and
+  face-1 controls; the **sibling fabrications are stated**: `query`, `object`
+  and `unknown` are **in** for face 2 (all are lowercase-initial, so none can
+  ever resolve through the fence) and **out** for face 1 (`f1` still reports
+  `got object`, by design); GOV-15 needs no carve-out and the corpus claim is
+  discharged by `tests/committed-fixture-parse-gate.test.ts` (36 cells, green),
+  not by assumption.
+- **What shipped:**
+  - `src/parser/type-compat.ts` — `resolveNamed` answers `undefined` for any
+    name whose first character is not `A`–`Z`, before the own-key lookup; the
+    predicate is re-derived from the first character exactly as the lexer's
+    type-position test does (`src/lexer/lexer.ts:833`, emission `:842–849`). Its
+    doc comment records why the fence belongs at the read seam and why the write
+    seam is excluded.
+  - `tests/index-sentinel-typeenv-case-fence.test.ts` — new, 19 cells: the
+    group (c) closure with its `c2`/`c4`/`c6` controls, a non-registration
+    assertion per declaring row (the module-private `hasLoadParseError` mirror,
+    `src/extension/production-composition.ts:2220`), the `d1` anti-overreach
+    pin, the `b2`–`b5` legality and recovery controls, `e2`, the face-1 pins
+    `a1`/`a2`/`b1`/`f1` each naming 0143 as the arm's owner, and the
+    **conformance oracle** the report asks for — scoped to face 2, scoring every
+    category-1 placeholder fill in group (c) against
+    `placeholder-rendering-a.md:21–27`'s clause list, so a future change that
+    re-resolves a lowercase declaration reds on the rendered value and not only
+    on the code list.
+  - `tests/index-element-alias-unfolded.test.ts` — `d13` and `d15` restated
+    (+5 lines); `d7`, `d8`, `d14`, `d16` untouched.
+  - `tests/live/index-sentinel-typeenv-case-fence-live-cell.test.ts` — new H8a
+    cell: the lowercase-declaration document does not register and its note
+    evidence carries the casing code and **not** `let-rhs-type-mismatch`, beside
+    a clean control that registers and drives one real turn to a pinned
+    sentinel.
+- **Gates:** witness RED before / GREEN after with the fence's four lines
+  removed and restored byte-exact (`git hash-object` equal before and after,
+  `edcc07d3…`); full default suite 389 files / 8056 tests passed; `npm run
+  typecheck` clean; `npm run lint` clean; live cell 1/1 passed under the shared
+  live lock (~2.8 s, real turn), and RED at the baseline for the right reason.
+- **Review:** 3 rounds — round 1 (deep): three findings, none correctness
+  (self-inflicted stale `type-compat.ts` citations, the doc comment missing the
+  measured read-seam reason, and this record itself); round 2 (light fixer):
+  both code-adjacent findings fixed, comment and citation text only; round 3
+  (fast, confirmation): clean.
+- **Verification:** SOLID on all four obligations, each with quoted output —
+  witness both directions, full suite, a real live run under the lock, lint and
+  typecheck.
+- **Residuals:**
+  1. **Face 1 stays open**, by decision: `a1`, `a2`, `b1` render `got index` and
+     `f1` renders `got object`. Routed to 0143, which owns the `displayType`
+     arm's disposition; the face-1 pins in the new witness assert the current
+     strings so a render fix reds them deliberately.
+  2. **The report's own §Witness conformance row is only half-supplied.** The
+     oracle ranges over group (c), where after the fence no category-1
+     placeholder fill remains; extending it over the face-1 rows would assert a
+     contract no open fix delivers. Its zero-fill companion assertion is the
+     anti-vacuity guard and must be revisited deliberately by whichever fix
+     makes group (c) render again.
+  3. **Citation churn.** The `resolveNamed` doc comment adds 24 lines, shifting
+     every symbol below line 104 of `src/parser/type-compat.ts` by that amount.
+     454 line-form citations into that file exist across `docs/bugs/**`,
+     `tests/**` and `src/**`, most already stale from earlier landings; only the
+     citations this change itself invalidated were repaired, in the four files it
+     touches. `resolveNamed` is now `:124–130`, `unfoldAlias` `:179–196`,
+     `displayType` `:368–382` with the `named` arm at `:374–375`.
+  4. **Four cells of §Reproduction are stale at this baseline** and are corrected
+     here rather than in the tables: `b2`
+     (`schema P { index: array<string> }` + `for y in p.index`) now reports
+     `[]` — bug 0136 (0.106.0) moved the member arm onto the field's declared
+     type, so the report's "a legal field name renders the same string" claim no
+     longer holds; `e1` now also reports `theta/parse/type-as-value`; `e2`
+     reports `[let-rhs-type-mismatch, type-as-value]` in that order; `e3` now
+     reports `[]`.
+  5. **Corpus citations in the report body are stale by line**, re-derived here:
+     the mint is `src/parser/static-type-inference.ts:294`; `collectTypeEnv` is
+     `src/parser/type-layer-checks.ts:374–402`; `checkMethodCall`'s render is
+     `:3279`; `hasLoadParseError` is
+     `src/extension/production-composition.ts:2220`;
+     `placeholder-rendering-a.md`'s category-1 heading is `:15`, its *Rule*
+     `:19`, its clause list `:21–27` with the `named` clause at `:25`;
+     `type-system.md:54` is TYPE-10 and `:56` is TYPE-11 (the report inverts
+     them); `code-registry-parse.md` rows are `:20`, `:46`, `:59`, `:70`, `:71`;
+     the mirrors are `docs/reference/diagnostics.md:66`, `:92`, `:105`. The
+     report's "the closure is enforced at build time" reading is **falsified**:
+     bug 0189 (0.129.0) struck that claim and replaced it with the same-commit
+     discipline enforced by review.
+  6. **A nested reviewer ran the live cell once without holding the shared
+     lock.** Reported by the agent itself; the run passed and spent one small
+     turn's tokens. No sibling run was observed to collide. Recorded because the
+     lock protocol was breached, not because the result is in doubt.
+- **Discharge notes appended:** none. 0143's own record is untouched; this
+  record names it as face 1's owner.
+- **Pinned dispositions / non-goals:** every §Non-goals item stands — 0127's
+  deferral question, the object receiver's specified result type, the member
+  arm's field-name typing (now moot at `b2` after 0136), case enforcement at
+  `NamedType` *reference* positions, the three sink-routing siblings, and
+  `bare-object-literal` in `f1`. The `displayType` arm is byte-untouched, so
+  0124, 0126, 0130 and 0143 are unaffected by this landing.

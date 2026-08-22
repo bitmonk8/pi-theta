@@ -100,8 +100,32 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * establish before treating `decl.rhs` as a `CompatType`. `Object.hasOwn`
  * makes this hold for a `TypeEnv` value constructed anywhere, independent of
  * whether `env` itself is null-prototyped.
+ *
+ * A name whose first character is not `A`–`Z` also resolves to nothing.
+ * `lexical.md:15` requires PascalCase for a `schema`/`enum`/type-like
+ * binding, and the lexer's refusal (`theta/parse/schema-case-mismatch`,
+ * src/lexer/lexer.ts:842–849) is a contextual diagnostic, not a parse
+ * refusal that drops the node: a refused `SchemaDecl` still reaches
+ * `doc.body.statements` and `collectTypeEnv` still writes it into the
+ * `TypeEnv`. A name the case rule refuses therefore names no declared type,
+ * and answering its own key here would let a refused declaration decide a
+ * static check — type-system.md:48's unresolvable-operand deferral is the
+ * correct disposition, and code-registry-parse.md:59's "where the RHS type
+ * is statically resolvable" qualifier already excludes it. The predicate is
+ * re-derived from the name's first character rather than shared, matching
+ * the lexer's own type-position test (src/lexer/lexer.ts:833) and the other
+ * local re-derivations in this tree (src/parser/frontmatter.ts:807,
+ * src/parser/theta-document.ts:2559,3065, src/parser/type-grammar.ts:1087).
+ * The fence sits at this read seam, not the write seam (`collectTypeEnv`):
+ * bug 0038's witness requires a `schema __proto__` declaration to land as
+ * an own key of the record (tests/typeenv-prototype-names.test.ts, cell
+ * g2), which a write-seam fence would swallow.
  */
 export function resolveNamed(env: TypeEnv, name: string): NamedDecl | undefined {
+  const first = name[0] ?? "";
+  if (!(first >= "A" && first <= "Z")) {
+    return undefined;
+  }
   return Object.hasOwn(env, name) ? env[name] : undefined;
 }
 

@@ -961,35 +961,40 @@ describe("0125 (d) — the TYPE-10, unresolvable and cyclic bounds on the unfold
 });
 
 // ===========================================================================
-// (d cont.) The sentinel collides with a declaration that spells it. Unchanged
-//           by this fix, which narrows the else arm's input class without
-//           renaming the sentinel (0125 §Fix (b)).
+// (d cont.) The sentinel meets a declaration that spells it. RESTATED for bug
+//           0135 §Fix (Reading A, the `resolveNamed` fence): a declaration the
+//           case rule refuses resolves nothing, so the sentinel's name no
+//           longer reaches these two gates. The rows stay, with their new
+//           expectations and the reason.
 // ===========================================================================
 
-describe("0125 (d cont.) — a `schema index = …` declaration drives real checks off the sentinel", () => {
-  it("d13: `schema index = array<integer>` supplies an element type to an unresolvable receiver's read", () => {
+describe("0125 (d cont.) — a `schema index = …` declaration is refused and therefore decides no check (restated for bug 0135)", () => {
+  it("d13: `schema index = array<integer>` supplies NO element type to an unresolvable receiver's read (restated: bug 0135 §Fix, Reading A)", () => {
     // lexical.md:15 requires an uppercase first letter, so `schema index = …` is
-    // refused — and it still enters the `TypeEnv` in the same pass, so the
-    // fabricated name unfolds through the author's declaration and the `join`
-    // guard decides on it. Both diagnostics are `E`, so no such theta registers:
-    // this bounds a replacement sentinel's design space (0125 §Fix (b)) rather
-    // than reporting a load hazard.
+    // refused at `E` severity and the document declares no type of that name.
+    // Bug 0135 §Fix (Reading A) fences the READ seam — `resolveNamed`
+    // (src/parser/type-compat.ts:124–130) answers nothing for a name whose first
+    // character is not `A`–`Z` — so `unfoldAlias` (`:179–196`) no longer returns
+    // the refused declaration's right-hand side and the `join` guard
+    // (src/runtime/stdlib-array.ts:100–124) has nothing to refuse. The row now
+    // reports what its d14 control always reported, plus the casing refusal:
+    // type-system.md:48's deferral, restored to this input.
     const diags = diagsOf([
       "schema index = array<integer>",
       ...JOIN_READ("p", "Nope", "p[0]"),
     ]);
     expect(
       diags.map((d: Diagnostic) => d.code),
-      "lexical.md:15 + code-registry-parse.md:20 — the declaration is refused for its casing and still resolves the sentinel's name",
-    ).toEqual(["theta/parse/schema-case-mismatch", "theta/parse/non-string-array-join"]);
+      "bug 0135 §Fix, Reading A at `resolveNamed` — the declaration is refused for its casing and therefore resolves nothing, so code-registry-parse.md:46's trigger no longer covers this input",
+    ).toEqual(["theta/parse/schema-case-mismatch"]);
     expect(
       messageFor(diags, "theta/parse/schema-case-mismatch"),
       "code-registry-parse.md:20 — the *Message* column carries no placeholder",
     ).toBe(msg("theta/parse/schema-case-mismatch", []));
     expect(
       messageFor(diags, "theta/parse/non-string-array-join"),
-      "code-registry-parse.md:43 — the element type comes from the author's `index` declaration, which the sentinel resolves to",
-    ).toBe(msg("theta/parse/non-string-array-join", [["<element>", "integer"]]));
+      "bug 0135 §Fix, Reading A — the element type this row used to render came from a refused declaration, so no element type reaches the `join` guard and the code is absent",
+    ).toBeUndefined();
   });
 
   it("d14: the same join with no `index` declaration reports nothing (control)", () => {
@@ -999,24 +1004,24 @@ describe("0125 (d cont.) — a `schema index = …` declaration drives real chec
     ).toEqual([]);
   });
 
-  it("d15: `schema index = string` supplies an RHS type to a typed binding", () => {
-    // The second half of the collision: the fabricated name reaches the
-    // compatibility check and the message renders it.
+  it("d15: `schema index = string` supplies NO RHS type to a typed binding (restated: bug 0135 §Fix, Reading A)", () => {
+    // The second gate the refused declaration used to decide.
+    // code-registry-parse.md:59 scopes `let-rhs-type-mismatch` to inputs "where
+    // the RHS type is statically resolvable", and after the `resolveNamed`
+    // fence a name the case rule refuses resolves nothing — so this input leaves
+    // the trigger and joins its d16 control. The `<actual>` this row used to
+    // render was the sentinel's own name, which placeholder-rendering-a.md:25
+    // read with lexical.md:15 does not admit at a type position; that rendering
+    // is now unreachable through a declaration.
     const diags = diagsOf(["schema index = string", ...INTEGER_SINK("p", "Nope", "p[0]")]);
     expect(
       diags.map((d: Diagnostic) => d.code),
-      "lexical.md:15 + code-registry-parse.md:54 — the refused declaration still makes the sentinel's RHS type statically resolvable",
-    ).toEqual(["theta/parse/schema-case-mismatch", "theta/parse/let-rhs-type-mismatch"]);
+      "bug 0135 §Fix, Reading A at `resolveNamed` — a declaration refused for its casing makes no RHS type statically resolvable, so code-registry-parse.md:59's trigger no longer covers this input",
+    ).toEqual(["theta/parse/schema-case-mismatch"]);
     expect(
       messageFor(diags, "theta/parse/let-rhs-type-mismatch"),
-      "code-registry-parse.md:54 — the rendered `<actual>` is the sentinel's own name, which is the render leak this fix does not close",
-    ).toBe(
-      msg("theta/parse/let-rhs-type-mismatch", [
-        ["<name>", "m"],
-        ["<expected>", "integer"],
-        ["<actual>", "index"],
-      ]),
-    );
+      "bug 0135 §Fix, Reading A — the `<actual>` this row used to render was supplied by the refused declaration, so the mismatch is absent rather than reworded",
+    ).toBeUndefined();
   });
 
   it("d16: the same binding with no `index` declaration reports nothing (control)", () => {
