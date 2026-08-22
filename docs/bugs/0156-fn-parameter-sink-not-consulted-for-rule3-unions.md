@@ -1,6 +1,6 @@
 # Bug 0156 — `expressions.md:220` names the parameter type among an array literal's sinks and rule 3 (`:226`) admits two named object schemas "only if some sink in scope expects a union", but no `fn`-parameter sink is ever supplied at a call site: `fn f(xs: array<A | B>): integer { 1 }` + `f([A { a: 1 }, B { b: "x" }])` draws `theta/parse/array-no-common-type` at `E` and the theta does not register, where the binding-annotation and constructor-field spellings of the identical union both load clean — `checkFnCallArgs` resolves the callee's parameter type at `type-layer-checks.ts:1601` and never hands it to `checkArrayLiteral`, whose `call`-arm invocation at `:1947` is reached with `skipArray` defaulted to `null`, so the refusal fires outside its own registered *Trigger* ("… and no sink to narrow against")
 
-- **Status:** open. Residual **R2** of the bug 0081 fix (0.83.0, commit
+- **Status:** fixed (0.193.0). Residual **R2** of the bug 0081 fix (0.83.0, commit
   `5de8d78a`), recorded in that fix's report (`.pi/tmp/fixes/0081-report.md`
   §Residuals R2) and in 0081's own `## Fix (0.83.0)` record residual 2. The
   class is **strictly narrower** than 0081 framed it: 0081's §Why-it-matters
@@ -732,3 +732,180 @@ states its choice with the consequence it accepts.
   here rather than reused.
 - Observations: three throwaway vitest parse probes at `5de8d78a`
   (33 sources across §Reproduction (a)–(g)), deleted after the run.
+
+## Fix (0.193.0)
+
+**The route.** §Fix **Route A** — supply the callee's parameter type as the
+array-literal element sink wholesale, so rule 1
+(`docs/spec_topics/expressions.md` §"Array construction") is in force at the
+argument position on the same footing as at the two wired sinks. Chosen on
+measured evidence rather than on the report's estimate: a Route-A probe patch
+run at this tree before any test was written reds exactly **four** existing
+cells — o5, o6, p1 and p2 of `tests/alias-sink-array-element-check.test.ts` —
+and bug 0157's own `## Fix (0.180.0)` record names all four, by cell, as "open
+bug 0156's subject / cell, not this one's". The report's predicted coordination
+surface (rows g1–g3, cells r4/u3/u4 of `tests/fn-arg-type-mismatch-wired.test.ts`)
+does not red at all, because those cells filter to the pinned code through
+`expectOneFnArgMismatch`; r4's own comment anticipates this route by name.
+Route B was declined because it would leave §Kind element 1's e3 face — the
+sink-list sentence and rule 1 unimplemented at the parameter position — as a
+residual to file, at no measured saving.
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — `checkFnCallArgs` answers
+    `ReadonlySet<Expr>`: the arguments it has already run through
+    `checkArrayLiteral` against a parameter-supplied element sink. Every arm of
+    its callee-resolution ladder returns the empty answer, so the ladder stays
+    total with no silent fall-through. Per matched index it keeps the ONE
+    `annotationToCompatType(p.type)` resolution §Fix constraint 1 requires and
+    consumes it twice: the whole-argument `checkFnArgCompat` push (now guarded
+    on a provable reduction rather than skipping the index — row a1 is exactly
+    the case where the whole-argument judgement withholds and the union sink is
+    still in scope), then, after that push, `unfoldAlias` (TYPE-11, bug 0157's
+    landed unfold-before-classify law) and, under the same two-sided
+    `array`/`array` guard the other two dispatches use,
+    `checkArrayLiteral(arg, unfolded.element, bindings)`. `checkFnArgCompat`
+    keeps reading the RAW parameter type, so `expected U` survives at an
+    alias-spelled parameter — 0157 §Fix (b)'s smaller disposition, inherited
+    rather than re-decided. `walkExpr`'s `case "call"` consumes the set ONCE and
+    passes each argument its own `skipArray`, satisfying §Fix constraint 2
+    structurally; the two-call cell f5 is the tripwire for a shared slot.
+    Diagnostic order is outer-code-then-element-code, mirroring the typed-`let`
+    arm's `checkLetRhsCompat` → `checkArrayLiteral` sequencing.
+  - `tests/fn-param-sink-array-literal.test.ts` — the new witness (28 cells in
+    eight groups: the pin a1/a2, the wired sinks b1/b2/b4, bug 0081's LUB
+    narrowing c1–c6, the sink-less refusals d1/d2, rule 1 taking force
+    e1/e2/e3 with e4/e5 as controls, the reach rows f1/f2/f4/f5/f6/f7, the three
+    boundaries, and anti-vacuity). Whole-list ordered `toEqual` on every cell;
+    every message `toBe` a `registryMessage` template read from
+    `docs/spec_topics/diagnostics/code-registry-parse.md` (DIAG-4); no
+    `toContain` on a message; every absence cell routed through a loud
+    precondition that asserts the frontmatter parsed and the body walked to its
+    exact top-level statement count before the empty list is read.
+  - `tests/live/fn-param-sink-array-literal-live-cell.test.ts` — the
+    standalone H8a live cell, mirroring bug 0157's. The refusal control d1 is
+    asserted FIRST — it does not register and its `array-no-common-type` lands
+    on the `theta-system-note` channel read off a settled `SessionManager` — so
+    the harness is proven able to witness a refusal before the admission half is
+    read; then row a1's theta registers through the real composition root and
+    drives one real turn to a fixture-pinned sentinel.
+  - `tests/alias-sink-array-element-check.test.ts` — bug 0157's witness,
+    re-pinned at the four cells its own fix record reserves for this one. o5 and
+    o6 (the alias-union and concrete-union `fn` parameters) move from
+    `[theta/parse/array-no-common-type]` to `[]` and gain the file's loud
+    absence precondition; p1 and p2 (the alias-spelled and concrete
+    `array<string>` parameters) move from `[theta/parse/fn-arg-type-mismatch]`
+    to that code followed by `theta/parse/array-element-type-mismatch`. Every
+    other cell in the file is byte-unchanged.
+  - `tests/fn-arg-type-mismatch-wired.test.ts` — comments only, at cells r4, u3
+    and u4: each now states that the full diagnostic list carries
+    `theta/parse/array-element-type-mismatch` beside the code the cell pins, and
+    names the offending index. No assertion changed and none weakened;
+    `expectOneFnArgMismatch` filters to the pinned code, which is why these
+    three never reddened.
+  - `docs/bugs/0129-empty-object-field-type-draws-two-diagnostics.md` — the
+    disclosure note §Fix constraint 3 requires of a Route-A run, appended
+    without altering anything above it.
+
+**The count consequence — bug 0129's law, cited.** Supplying the sink makes the
+argument position answer a mistyped element with two `E` lines, the shape row e4
+already measures at the binding position. 0129's `## Fix (0.171.0)` law gates a
+derived row only where the construct's own position-rule walk has already drawn
+an `E`-severity diagnostic refusing that construct as ILL-FORMED. It does not
+reach these cells: both codes read a WELL-FORMED array literal against a
+well-formed sink, so no verdict is derived from refused text and the law's
+discriminating absence test does not apply. The count stands at two. This run
+cites that clause and states no law of its own; 0129's adjudication rules the
+new instances and may re-pin them.
+
+**DIAG-2 / DIAG-4 — no registry edit is owed, and none was made.** Confirmed by
+re-reading both rows rather than presumed.
+`theta/parse/array-element-type-mismatch`'s *Trigger* — "Array literal element
+does not type-check against the surrounding sink's element type" — names no
+sink SOURCE, so it covers a parameter-supplied sink unmodified. In the other
+direction every `theta/parse/array-no-common-type` emission this fix removes had
+a sink in scope and therefore sat OUTSIDE that row's own *Trigger* ("… and no
+sink to narrow against"), so the change brings the runtime INTO conformity with
+the closed registry rather than changing what the registry says — the posture
+§Kind element 2 states and bug 0157's fix took at the same row. `git status
+--short docs/` was empty across the code phases. GOV-15: zero committed
+`.theta`/`.thetalib` files pass an array literal at an argument position
+(§Reproduction (h), re-discharged corpus-wide by
+`tests/committed-fixture-parse-gate.test.ts`), so no committed theta's
+diagnostic sequence changes.
+
+**Line-count discipline (§Fix constraint 5).**
+`src/parser/static-type-inference.ts` is untouched and still **603** lines —
+the eleven-report pin is intact, and the rule-3 `?? candidates[0]` fallback
+stays as bug 0081 left it. `src/parser/type-layer-checks.ts` grew 3332 → 3370;
+its induced citation drift is bug 0134's adjudicated do-not-chase class, and no
+by-line citation into it was written anywhere in this change.
+
+- Gates (verbatim): witness `npx vitest run tests/fn-param-sink-array-literal.test.ts`
+  → 28 passed; re-pinned `npx vitest run tests/alias-sink-array-element-check.test.ts`
+  → 28 passed; full offline suite `npm test` → 380 files / 7835 tests passed;
+  `npx tsc --noEmit -p tsconfig.json` → clean; `npm run lint` → clean; corpus
+  gates `npx vitest run tests/registry-closed-set-corpus-gate.test.ts
+  tests/committed-fixture-parse-gate.test.ts` → 42 passed with
+  `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` untouched;
+  live `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/fn-param-sink-array-literal-live-cell.test.ts` → 1 passed,
+  and bug 0157's neighbouring live cell
+  `tests/live/alias-sink-array-element-check-live-cell.test.ts` → 1 passed.
+- Review: 1 round. Round 1 (deep) returned two `prose` findings and no
+  `correctness`, `fidelity`, `spec`, `house-rule` or `test` finding: a
+  STYLE-banned word in a live-cell comment, and a self-refuting line count in
+  the witness header (it stated the file's PRE-fix length as current). Both were
+  fixed in one light round; the round's diff touched comments only, the gates
+  re-ran green, and the confirmation round was skipped on that gate-diff
+  evidence.
+- Verification: solid on all four obligations. (1) The witness genuinely reds —
+  the fixed blob was copied aside, HEAD's content written back (a write, not a
+  `checkout`), the HEAD hash confirmed, the witness run RED at 9 of 28 cells for
+  0156's own symptom (`array-no-common-type` where the parameter sink should
+  admit; `array-element-type-mismatch` absent where rule 1 should take force),
+  the four re-pinned sibling cells confirmed red alongside as predicted, then
+  the fixed content restored and its blob hash confirmed byte-identical to the
+  recorded fixed hash, and the witness re-run GREEN. (2) Default suite 380 files
+  / 7835 tests green. (3) Two live H8a cells run for real under the shared live
+  lock, both green on the first attempt, no stochastic class triggered.
+  (4) Typecheck and lint both rc=0.
+- Residuals:
+  1. **The recursive-descent sink is unwired at every route, and this report's
+     §Expected is falsified for row f3.** `docs/spec_topics/grammar.md`
+     §"`array<T>` literal type-sink rule" declares the sink set exhaustive in
+     FOUR bullets, the fourth being "the element type of an array-typed sink
+     that this literal is itself an element of (recursive descent)". That bullet
+     is unwired at the argument position AND at the binding-annotation position
+     alike: `fn f(xs: array<array<A | B>>)` + `f([[A { a: 1 }, B { b: "x" }]])`
+     and `let xs: array<array<A | B>> = [[A { a: 1 }, B { b: "x" }]]` are both
+     still refused with `theta/parse/array-no-common-type` on the INNER literal.
+     §Expected's sentence "Rows f2–f5 should report `[]`" is therefore false for
+     f3, and f3 is a symmetric pre-existing gap rather than this report's class.
+     Evidence: the paired boundary cell in
+     `tests/fn-param-sink-array-literal.test.ts` group (g) pins both routes
+     together with the symmetry stated. Not filed here.
+  2. **The imported-`.thetalib` callee still supplies no sink.**
+     `checkFnCallArgs` returns before resolving any parameter type for an
+     imported symbol, so the deferral is unchanged and the fix reaches same-file
+     callees only. Bug 0138's claim, per §Non-goals; stated rather than silently
+     inherited.
+  3. **The method-call, `.theta`-callable and `invoke` argument sinks are
+     unmoved** (rows f6, f7, pinned green in the witness) — other rows' sinks,
+     per §Non-goals; bug 0137 owns the `invoke` half.
+  4. **The ternary at an argument position still draws nothing** (row e5, pinned
+     green) — bug 0155's facet, untouched.
+  5. **Every by-line citation of `src/parser/type-layer-checks.ts` in this
+     report is stale and none was chased.** The file was 2531 lines when this
+     report pinned it and is 3370 now; the whole fix was derived by SYMBOL.
+     Bug 0134's adjudicated class.
+- Discharge notes appended:
+  `docs/bugs/0129-empty-object-field-type-draws-two-diagnostics.md` (the
+  Route-A disclosure §Fix constraint 3 requires).
+- Pinned dispositions / non-goals: rows d1 and d2 keep
+  `theta/parse/array-no-common-type` with the registry *Message* verbatim; rows
+  b1/b2/b4 and c1–c6 keep `[]`; row e4 keeps its two-code binding-position list
+  unchanged; the shadowed-callee and excess-argument boundaries keep their
+  refusals (the callee ladder returns before any sink, and an argument past the
+  parameter list has no parameter to supply one). All are pinned as green
+  controls in the witness.

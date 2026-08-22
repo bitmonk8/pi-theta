@@ -1330,3 +1330,47 @@ either way and `tests/fixtures/h7a/permitted-codes.json` is byte-untouched.
   `git rev-parse HEAD:<path>` that the file was byte-identical to HEAD, no
   sibling-owned path was involved, and the file was then re-edited by hand.
   Reported, not concealed.
+
+## Disclosure note — a shipped instance of this report's class (bug 0156, 0.193.0)
+
+Appended by the bug 0156 fix; nothing above is altered. This report stays as it
+stands.
+
+Bug 0156 wired the third of the element-sink dispatches named exhaustively by
+`docs/spec_topics/grammar.md` §"`array<T>` literal type-sink rule" — a function
+parameter type at a call site — so an array literal passed as a `fn` argument is
+now judged against the callee's declared element type. Rule 1
+(`docs/spec_topics/expressions.md` §"Array construction") therefore takes force
+at the argument position, and a mistyped element there now draws
+`theta/parse/array-element-type-mismatch` beside the whole-argument
+`theta/parse/fn-arg-type-mismatch` the position already drew. That is a second
+`E`-severity line for one written mistake, at a new position: this report's
+class.
+
+- **The instances.** Measured at the fix's tree, argument position, both codes
+  ordered outer-then-element and sharing the argument's range:
+  `fn f(xs: array<string>): integer { 1 }` + `f([1, 2])` and the same callee +
+  `f(["a", 1])` (cells e1/e2 of `tests/fn-param-sink-array-literal.test.ts`),
+  and cells p1/p2 of `tests/alias-sink-array-element-check.test.ts` at the
+  alias-spelled and concrete `fn`-parameter twins. Cells r4, u3 and u4 of
+  `tests/fn-arg-type-mismatch-wired.test.ts` join the class by measurement
+  without changing their assertions — they filter to the pinned code — and
+  their comments were brought up to the landed disposition in the same change.
+- **This report's law was cited, not forked.** The count-consequence law of
+  `## Fix (0.171.0)` gates a derived row only where the construct's own
+  position-rule walk has already drawn an `E`-severity diagnostic refusing that
+  construct as ILL-FORMED. It does not reach these cells: both codes read a
+  WELL-FORMED array literal against a well-formed sink — the outer code's
+  subject is the argument, the element code's subject is the offending index —
+  so no verdict is derived from text an earlier row refused, and the law's
+  discriminating absence test does not apply because nothing was refused. The
+  count stands at two, exactly as this report's boundary paragraph reaches for
+  bug 0157's pairs.
+- **The mirror-image direction.** The same fix REMOVES the single
+  `theta/parse/array-no-common-type` line from every rule-3 literal that now has
+  a parameter sink in scope, so the population where one written mistake draws a
+  line at all shrinks at the same boundary it grows in count.
+- **Authority.** Bug 0156 §Fix constraint 3, Route A: a run taking that route
+  "records 0129's authority to re-pin them again, and appends a disclosure note
+  to 0129." This is that note. This report's adjudication rules the new
+  instances and may re-pin them.

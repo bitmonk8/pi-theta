@@ -1072,14 +1072,19 @@ describe("bug 0050 — a mistyped argument at a plain top-level `fn` call report
   it("r4: `fn g(xs: array<number>)` called `g([\"a\"])` fires once, on the argument", () => {
     // `["a"]` reads as `array<string>` and `array<number>` is the declared
     // parameter type, so the mismatch is decided by `⊑` on the array types
-    // themselves. Only the `fn-arg-type-mismatch` set is pinned here.
-    // docs/spec_topics/grammar.md:216 declares the `array<T>` literal
-    // type-sink set exhaustive and :219 lists "A function parameter type at a
-    // call site" in it, so this position is also an element sink and may
-    // additionally report `theta/parse/array-element-type-mismatch` — an
-    // already-registered code whose wiring the §Fix's one-call disposition
-    // does not describe either way. Pinning it would make this cell red for a
-    // second, unstated reason.
+    // themselves. Only the `fn-arg-type-mismatch` set is pinned here —
+    // `expectOneFnArgMismatch` filters to this code alone, so it does not care
+    // about a second one.
+    //
+    // LANDED (bug 0156, §Fix Route A): the callee's parameter type is now
+    // supplied as the array literal's element sink at this position too
+    // (docs/spec_topics/grammar.md's exhaustive sink list names "a function
+    // parameter type at a call site" second of three), so this fixture's full
+    // diagnostic list now also carries `theta/parse/array-element-type-mismatch`
+    // at index 0 (`expected number, got string`), beside the code pinned
+    // below — the two-line shape rule 1 prescribes wherever a sink is in
+    // scope, reproduced here at the argument position on the same footing as
+    // the binding position.
     const doc = parse(R4);
     const argument = argRange(doc, "g", 0);
     expectOneFnArgMismatch(
@@ -1440,6 +1445,13 @@ describe("bug 0050/0081 — a once-erased argument read is now a proven union an
     // (`array<integer | string>`) instead of discarding the `string` arm, so
     // this fixture no longer draws `theta/parse/array-no-common-type` either —
     // the array now has a common type of its own, a different row's concern.
+    //
+    // LANDED (bug 0156, §Fix Route A): with the parameter's `array<number>`
+    // now supplied as the element sink, the full diagnostic list also carries
+    // `theta/parse/array-element-type-mismatch` at index 1 (`expected number,
+    // got string`) beside the code pinned below — the same two-code count as
+    // r4, gated by neither row because both codes here read a well-formed
+    // literal against a well-formed sink (bug 0129's landed law).
     const doc = parse(U3);
     const argument = argRange(doc, "g", 0);
     expectOneFnArgMismatch(
@@ -1454,6 +1466,11 @@ describe("bug 0050/0081 — a once-erased argument read is now a proven union an
     // Pinned alongside u3 because the two closed through the same mechanism
     // over different arms — a mixed-primitive pair and a `null` arm — so both
     // had to move together, not one of them alone.
+    //
+    // LANDED (bug 0156, §Fix Route A): the full diagnostic list also carries
+    // `theta/parse/array-element-type-mismatch` at index 0 (`expected number,
+    // got string`) beside the code pinned below, for the same reason u3's
+    // comment states.
     const doc = parse(U4);
     const argument = argRange(doc, "g", 0);
     expectOneFnArgMismatch(

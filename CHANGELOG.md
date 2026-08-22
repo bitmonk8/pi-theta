@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.193.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0156 — a `fn` call argument's array literal now checks its elements
+  against the parameter's element type (the parameter type reaches the
+  literal as its sink)** (§Fix route A, chosen on a pre-Phase-1 probe: the
+  blast radius is exactly the four cells 0157's record reserves to 0156; the
+  doc's predicted `g1`–`g3` reds do not occur). `checkFnCallArgs` returns the
+  sunk-arg set with per-arg `skipArray`; unfold-before-classify per TYPE-11;
+  built on 0157's landed `sinkedArrayOf {node,element}` shape per its
+  threading note. `o5`/`o6`/`p1`/`p2` re-pinned in 0157's witness; a Route-A
+  disclosure note appended to 0129. No registry edit owed. New 28-cell
+  witness + H8a live cell.
+
 ## [0.192.0] - 2026-08-28
 
 ### Fixed

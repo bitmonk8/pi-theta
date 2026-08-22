@@ -2304,13 +2304,32 @@ class TypeLayerWalk {
    * `theta/parse/fn-arg-type-mismatch`). Every arm below either resolves the
    * question and returns, or falls through to the next — never both, so the
    * resolution is total over `e.callee` with no silent fall-through.
+   *
+   * Bug 0156's fix (§Fix Route A): a function parameter's declared type is
+   * the array literal's SECOND element sink in `grammar.md`'s exhaustive
+   * three-bullet list — the same footing as the binding-annotation sink
+   * (`walkExpr`'s typed-`let` arm, via `sinkedArrayOf`) and the
+   * constructor-field sink (`checkObjectField`). The return value names which
+   * of `e.args` this call already ran through `checkArrayLiteral` against
+   * that sink, so the caller (`walkExpr`'s `case "call"`) does not re-check a
+   * sunk literal sink-less — resolved ONCE here rather than re-derived in the
+   * walk. The fourth bullet, recursive descent into an array-typed sink's
+   * OWN element, is not wired at this or any other route and is not this
+   * change's claim.
    */
-  private checkFnCallArgs(e: CallExpr, bindings: ReadonlyMap<string, CompatType>): void {
+  private checkFnCallArgs(
+    e: CallExpr,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ReadonlySet<Expr> {
+    // A per-call, per-argument answer: two calls of the same `fn` in one
+    // document must each narrow their own literal, never a slot shared
+    // across invocations.
+    const sunkArgs = new Set<Expr>();
     if (this.shadowedNames.has(e.callee)) {
       // expressions.md §"Identifier resolution": a local binding (arm 1)
       // outranks a top-level `fn` (arm 2), so a call of a locally-bound name
       // is never a user-`fn` call at this site.
-      return;
+      return sunkArgs;
     }
     if (this.importedSymbols.has(e.callee)) {
       // A documented deferral, not a dropped route: the registry Trigger
@@ -2318,7 +2337,7 @@ class TypeLayerWalk {
       // single-file parse carries no imported `fn`'s parameter types.
       // type-system.md §"Unresolvable operands" defers a check whose operand
       // is past the parser's static view.
-      return;
+      return sunkArgs;
     }
     const fn = this.fnDecls.get(e.callee);
     if (fn === undefined) {
@@ -2326,7 +2345,7 @@ class TypeLayerWalk {
       // none is a user `fn`, and each has its own owning diagnostic
       // (`tool-arg-type-mismatch`, `invoke-arg-type-mismatch`, or
       // `unknown-identifier`).
-      return;
+      return sunkArgs;
     }
     const matchedCount = Math.min(e.args.length, fn.params.length);
     for (let i = 0; i < matchedCount; i += 1) {
@@ -2344,29 +2363,43 @@ class TypeLayerWalk {
       const paramType = annotationToCompatType(p.type);
       if (paramType === undefined) {
         // An unannotated parameter (`p.type` is the empty string) has no
-        // declared type to judge the argument against.
+        // declared type to be an element sink either.
         continue;
       }
       const arg = e.args[i] as Expr;
       const argType = this.provableArgType(arg, bindings);
-      if (argType === undefined) {
-        // Not a proof of the argument's runtime value type
-        // (`provableArgType`) — withholding here can only suppress an
-        // emission.
-        continue;
+      if (argType !== undefined) {
+        // Withheld only when the whole-argument reduction is unprovable
+        // (`provableArgType`) — the element sink below must still run in
+        // that case, so this guards the push alone rather than skipping the
+        // rest of the index (bug 0156's pinned row a1: the reduction is
+        // unprovable and the whole-argument judgement withholds, but the
+        // union sink is still in scope for rule 3).
+        this.diagnostics.push(
+          ...checkFnArgCompat({
+            fnName: fn.name,
+            index: i,
+            paramName: p.name,
+            paramType,
+            argType,
+            env: this.env,
+            site: { file: this.file, range: arg.range },
+          }),
+        );
       }
-      this.diagnostics.push(
-        ...checkFnArgCompat({
-          fnName: fn.name,
-          index: i,
-          paramName: p.name,
-          paramType,
-          argType,
-          env: this.env,
-          site: { file: this.file, range: arg.range },
-        }),
-      );
+      // Unfolds (TYPE-11) before classifying, the law bug 0157 landed for the
+      // two wired dispatches: an alias-spelled union parameter must admit on
+      // the same footing as one spelled inline. Diagnostic order is
+      // outer-code-then-element-code, mirroring the typed-`let` arm's
+      // `checkLetRhsCompat` → `checkArrayLiteral` sequencing, because the push
+      // above already ran for this index.
+      const unfolded = unfoldAlias(paramType, this.env);
+      if (arg.kind === "array" && unfolded.kind === "array") {
+        this.checkArrayLiteral(arg, unfolded.element, bindings);
+        sunkArgs.add(arg);
+      }
     }
+    return sunkArgs;
   }
 
   /**
@@ -2810,12 +2843,17 @@ class TypeLayerWalk {
         this.checkMemberAccess(e, bindings);
         this.walkExpr(e.target, bindings, flow);
         return;
-      case "call":
-        this.checkFnCallArgs(e, bindings);
+      case "call": {
+        // Consumed once: `checkFnCallArgs` already decided, per argument,
+        // whether a parameter-supplied element sink narrowed it (bug 0156's
+        // fix). Re-deriving that decision here instead of reading it back
+        // would risk drifting from the check that actually ran.
+        const sunkArgs = this.checkFnCallArgs(e, bindings);
         for (const arg of e.args) {
-          this.walkExpr(arg, bindings, flow);
+          this.walkExpr(arg, bindings, flow, sunkArgs.has(arg) ? arg : null);
         }
         return;
+      }
       case "invoke":
         // `invoke` shares this arm's label with `call` in the grammar but not
         // in the registry: it carries its own row

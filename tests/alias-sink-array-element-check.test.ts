@@ -97,7 +97,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 // tier would add a session round-trip to a parse-time observable and buy no
 // reach. The registration consequence — an alias-union theta refused by an `E`
 // code — is covered live in
-// tests/live/alias-sink-array-element-check-live-cell-CELL-B2.test.ts.
+// tests/live/alias-sink-array-element-check-live-cell.test.ts.
 //
 // DIAG-4 (docs/spec_topics/diagnostics/diagnostic-shape.md): no asserted message
 // string is written out here. Every one is READ from the registry's *Message*
@@ -466,9 +466,17 @@ describe("0157 (c) — the concrete-spelling controls", () => {
     ).toEqual([]);
   });
 
-  it("p2: the concrete `fn`-parameter twin draws the argument code alone", () => {
+  it("p2: the concrete `fn`-parameter twin draws the argument code THEN the element code, closed by bug 0156's fix", () => {
+    // Bug 0156 (fixed, §Fix Route A) supplies the callee's declared parameter
+    // type as the array literal's element sink at the argument position, so
+    // this cell gains the two-code shape its LET twin (m1) already carries.
+    // Bug 0129's landed count-consequence law (`## Fix (0.171.0)`) withholds a
+    // derived verdict only where an earlier row refused the SAME construct as
+    // ill-formed; here both codes read a well-formed literal against a
+    // well-formed sink on their own subjects, so the law does not gate either
+    // away and the count stands at two.
     const diags = diagsOf(["fn f(xs: array<string>) {", "  1", "}", 'f(["a", 1])']);
-    expect(diags.map((d: Diagnostic) => d.code)).toEqual([FN_ARG]);
+    expect(diags.map((d: Diagnostic) => d.code)).toEqual([FN_ARG, ELEMENT]);
     expect(messageFor(diags, FN_ARG)).toBe(
       msg(FN_ARG, [
         ["<name>", "f"],
@@ -478,12 +486,23 @@ describe("0157 (c) — the concrete-spelling controls", () => {
         ["<actual>", "array<string | integer>"],
       ]),
     );
+    expect(messageFor(diags, ELEMENT)).toBe(
+      msg(ELEMENT, [
+        ["<i>", "1"],
+        ["<expected>", "string"],
+        ["<actual>", "integer"],
+      ]),
+    );
   });
 
-  it("o6: the concrete `fn`-parameter union twin is refused, and stays open bug 0156's", () => {
-    const diags = diagsOf([...AB, "fn f(xs: array<A | B>) {", "  1", "}", 'f([A { a: "x" }, B { b: "y" }])']);
-    expect(diags.map((d: Diagnostic) => d.code)).toEqual([NO_COMMON]);
-    expect(messageFor(diags, NO_COMMON)).toBe(msg(NO_COMMON, []));
+  it("o6: the concrete `fn`-parameter union twin now admits, closed by bug 0156's fix", () => {
+    // The callee's `array<A | B>` parameter is now supplied as the sink, so
+    // both elements satisfy rule 1 against the union and nothing fires — the
+    // same admission o2/o4 already measure at the two wired sinks. This cell
+    // was `theta/parse/array-no-common-type` while bug 0156 was open.
+    expect(
+      codesOf([...AB, "fn f(xs: array<A | B>) {", "  1", "}", 'f([A { a: "x" }, B { b: "y" }])']),
+    ).toEqual([]);
   });
 });
 
@@ -521,12 +540,16 @@ describe("0157 (d) — the bounds the unfolding must not move", () => {
     ).toEqual([]);
   });
 
-  it("p1: the alias-spelled `fn`-parameter sink stays open bug 0156's, not this fix's", () => {
-    // The `fn`-parameter surface is not one of the three sites: it supplies no
-    // element sink at either spelling, so the argument code fires alone and the
-    // alias name is preserved in it.
+  it("p1: the alias-spelled `fn`-parameter sink now also draws the argument code THEN the element code, closed by bug 0156's fix reaching the alias-unfolded sink", () => {
+    // Bug 0156's fix unfolds the parameter type (TYPE-11) before classifying
+    // it — the law bug 0157 landed for the two wired dispatches, now reached at
+    // the third — so the alias spelling gains the same element code p2's
+    // concrete spelling draws. The outer message still names the alias `U`,
+    // unchanged: that check reads the RAW declared type and is not this fix's
+    // subject. Bug 0129's count-consequence law does not gate either code away
+    // for the same reason p2's comment states.
     const diags = diagsOf(["schema U = array<string>", "fn f(xs: U) {", "  1", "}", 'f(["a", 1])']);
-    expect(diags.map((d: Diagnostic) => d.code)).toEqual([FN_ARG]);
+    expect(diags.map((d: Diagnostic) => d.code)).toEqual([FN_ARG, ELEMENT]);
     expect(messageFor(diags, FN_ARG)).toBe(
       msg(FN_ARG, [
         ["<name>", "f"],
@@ -536,19 +559,30 @@ describe("0157 (d) — the bounds the unfolding must not move", () => {
         ["<actual>", "array<string | integer>"],
       ]),
     );
+    expect(messageFor(diags, ELEMENT)).toBe(
+      msg(ELEMENT, [
+        ["<i>", "1"],
+        ["<expected>", "string"],
+        ["<actual>", "integer"],
+      ]),
+    );
   });
 
-  it("o5: an alias-union `fn` parameter keeps its refusal — bug 0156's cell, not this one's", () => {
-    const diags = diagsOf([
-      ...AB,
-      "schema U = array<A | B>",
-      "fn f(xs: U) {",
-      "  1",
-      "}",
-      'f([A { a: "x" }, B { b: "y" }])',
-    ]);
-    expect(diags.map((d: Diagnostic) => d.code)).toEqual([NO_COMMON]);
-    expect(messageFor(diags, NO_COMMON)).toBe(msg(NO_COMMON, []));
+  it("o5: an alias-union `fn` parameter now admits too, closed by bug 0156's fix reaching the alias-unfolded sink", () => {
+    // TYPE-11 unfolds `U` to `array<A | B>` before classifying, so the alias
+    // spelling of the union sink admits on the same footing as o6's concrete
+    // spelling. Was `theta/parse/array-no-common-type` while bug 0156 was
+    // open.
+    expect(
+      codesOf([
+        ...AB,
+        "schema U = array<A | B>",
+        "fn f(xs: U) {",
+        "  1",
+        "}",
+        'f([A { a: "x" }, B { b: "y" }])',
+      ]),
+    ).toEqual([]);
   });
 
   it("i1 / i2 / i3: an inline-object sink never reaches these dispatches", () => {
