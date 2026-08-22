@@ -202,7 +202,7 @@ function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
 }
 
-/** The code bug 0160 adds for an inline `as "WireName"` rename (X.Y.Z). */
+/** The code bug 0160 adds for an inline `as "WireName"` rename (0.172.0). */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 
 /**
@@ -434,7 +434,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
   it('RED A2 (a rename ahead of the repeat): `{a as "w": integer, a: string, a: boolean}`', () => {
     // The rename entry's raw pre-colon text is its own key and collides with
     // nothing FOR THIS ROW; the two unrenamed `a` entries behind it are the
-    // repeat. Since bug 0160 (X.Y.Z) the rename entry is refused outright
+    // repeat. Since bug 0160 (0.172.0) the rename entry is refused outright
     // (it is a non-repeating, non-quote-led key), so it draws its own line
     // ahead of the duplicate row's, in source order.
     expect(
@@ -740,7 +740,7 @@ describe("bug 0159 (D) — every duplicate the lowering would mint is named by t
     // duplicate keys alone. Each row now spells its whole expected list; the
     // `reported` column stays exactly the duplicate keys, and the containment
     // claim below still runs over it, so nothing is weakened. Bug 0160
-    // (X.Y.Z) widens two more rows the same way: an inline `as "WireName"`
+    // (0.172.0) widens two more rows the same way: an inline `as "WireName"`
     // rename is refused outright rather than left an unparsed part of the
     // duplicate key, so a rename entry ahead of (or nested beside) a repeat
     // draws its own line in addition to the repeat's.
@@ -1074,7 +1074,7 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
     // The mechanism, asserted directly so H1's position-dependence is not read
     // as a property of the comparison. A type carrying inter-token whitespace
     // inside its first key is enough to separate the two captures. RE-PINNED
-    // for bug 0160 (X.Y.Z): this key does not repeat, so it used to be the
+    // for bug 0160 (0.172.0): this key does not repeat, so it used to be the
     // re-key's own silent control; it is now a non-repeating, non-quote-led
     // rename, refused at every position including `params:`. The capture
     // assertions below are unmoved — they read the type-source text directly,

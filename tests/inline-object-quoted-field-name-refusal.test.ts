@@ -44,7 +44,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     therefore NOT this row's subject and draws nothing from it (group (H)
 //     row h5), leaving grammar.md's inline `Field` form free for
 //     docs/bugs/0160-inline-object-wire-name-rename-unparsed.md to answer on
-//     its own row (`theta/parse/renamed-inline-field-name`, landed X.Y.Z) —
+//     its own row (`theta/parse/renamed-inline-field-name`, landed 0.172.0) —
 //     h5's cell is re-pinned to that row rather than to `[]`.
 //   - PRECEDENCE — a key that REPEATS within one interior keeps
 //     `theta/parse/duplicate-inline-field-name` alone and draws nothing from the
@@ -211,7 +211,7 @@ function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
 }
 
-/** The code bug 0160 adds for an inline `as "WireName"` rename (X.Y.Z). */
+/** The code bug 0160 adds for an inline `as "WireName"` rename (0.172.0). */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 
 /**
@@ -1045,7 +1045,7 @@ describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic arg
   });
 
   it('CONTROL H2 (row h5): `{a as "w": integer}` is now refused by bug 0160, not by this row', () => {
-    // RE-PINNED for bug 0160 (X.Y.Z). This row's own subject is unmoved: the
+    // RE-PINNED for bug 0160 (0.172.0). This row's own subject is unmoved: the
     // narrow A3 answer refuses a key whose FIRST character is a quote, this
     // key's first character is `a`, and `theta/parse/quoted-inline-field-name`
     // still says nothing about it — the `positions()` half below now names bug

@@ -111,7 +111,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     p2c — the same shapes with a conformant spelling — plus `us` (the leading
 //     `_` the rule's own predicate admits, which a `[a-z]` test would red).
 //     w3 (a conformant field carrying an inline `as "w"` rename) stays `[]`
-//     for `binding-case-mismatch` specifically, but since bug 0160 (X.Y.Z)
+//     for `binding-case-mismatch` specifically, but since bug 0160 (0.172.0)
 //     it is no longer a `[]` cell overall: the inline rename clause draws
 //     `theta/parse/renamed-inline-field-name`, an orthogonal row this file
 //     pins beside the case rule's own silence. Paired with (A) these are the
@@ -135,7 +135,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     no double report. This row is what makes the route choice falsifiable: a
 //     check keyed on the raw entry text instead would draw two lines here.
 //   - (G) THE MEASURED DEVIATION, pinned with its cause: w2. `binding-case-mismatch`
-//     stays silent (the cause below), but since bug 0160 (X.Y.Z) the row is
+//     stays silent (the cause below), but since bug 0160 (0.172.0) the row is
 //     no longer `[]` overall: the inline rename clause draws
 //     `theta/parse/renamed-inline-field-name` beside that silence.
 //   - (H) THE RESIDUE VERDICT (bug 0227 element 2), the cells this file's own
@@ -564,7 +564,7 @@ describe("0154 (B) — a conformant inline field name stays clean", () => {
 
   it('w3: a conformant field carrying an inline `as "w"` rename draws bug 0160\'s row, not the case rule', () => {
     // lexical.md's bullet frees the WIRE half of a rename from the case rule,
-    // but that rename is a SCHEMA-DECLARATION-ONLY clause (bug 0160, X.Y.Z):
+    // but that rename is a SCHEMA-DECLARATION-ONLY clause (bug 0160, 0.172.0):
     // the inline `Field` form admits none, so this text is refused outright
     // rather than reaching either diagnostic that reads a wire name. The
     // theta-side identifier is conformant, so `binding-case-mismatch` still
@@ -850,7 +850,7 @@ describe("0154 (G) — an ill-cased field carrying an `as` rename: only `binding
     // identifier-case shape stays silent forever. A fix scoped to the field
     // NAME must not try to make `binding-case-mismatch` fire here — doing so
     // means the rename parse moved, which is a different report's
-    // adjudication. Bug 0160 (X.Y.Z) refuses the rename spelling outright
+    // adjudication. Bug 0160 (0.172.0) refuses the rename spelling outright
     // instead, over the raw key rather than over `fieldNames`, so it draws its
     // own row here without touching either fact.
     const doc = theta('schema S { a: { Ys as "w": string } }');

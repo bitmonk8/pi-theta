@@ -47,7 +47,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `params:` the scalar is a YAML string and never reaches the theta lexer, so
 // the unterminated-literal spelling there still spelled no key and drew
 // nothing at this route's HEAD — recorded then as a BOUND of this route
-// (0229 §Fix Residuals item 1). CLOSED by bug 0232 (vX.Y.Z): `params:` now
+// (0229 §Fix Residuals item 1). CLOSED by bug 0232 (v0.188.0): `params:` now
 // raises its own registered `theta/load/params-type-not-expression` directly
 // off a new params.ts-local unterminated-literal predicate
 // (`hasUnterminatedStringLiteral`, src/parser/params.ts), so the field is
