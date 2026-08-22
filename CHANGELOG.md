@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.207.0]
+
+### Fixed
+
+- **Bug 0237**: an EMPTY type position in an inline object made
+  `parsePrimary`'s punct skip eat the following comma — `{a: , Zs: string}`
+  parsed `Zs` as field `a`'s type, truncated every entry behind the first
+  empty position, and still shipped the dropped fields to the provider
+  schema. Route (a) resync-aware-skip, narrowed to the entry separator:
+  `parsePrimary` declines a `,` at a type position only while a
+  `parseObject` field loop or `parseGeneric` argument list is open;
+  `}`/`>` keep the existing skip-and-recurse. No new registry row. Witness:
+  `tests/inline-object-empty-field-type-truncation.test.ts` (120 list cells
+  + 7 lowerings) + an H8a live cell + a new H9a acceptance file.
+
 ## [0.206.0]
 
 ### Fixed

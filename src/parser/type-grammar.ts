@@ -273,13 +273,17 @@ type TypeNode =
        * from that point on, reaching every enclosing body from the second; the
        * cascade bears only on this identifier list, not on the duplicate-key
        * comparison above. The first breaks `TypeParser.parseObject`'s loop
-       * outright: a completed field with no `,` behind it. This is the genuine
-       * end of the interior only when the preceding field's type parse did not
-       * itself consume the separator; an entry whose TYPE position is empty is
-       * the shape where `parsePrimary`'s tolerant punctuation skip swallows
-       * that `,`, and this break then fires mid-interior instead. The second
-       * leaves the loop running and stops the pushes
-       * for the rest of the body — a field whose own parsed type carries an
+       * outright: a completed field with no `,` behind it. That is the genuine
+       * end of the interior whenever the preceding field's type parse left the
+       * source's own separator standing, which includes an entry whose TYPE
+       * position is empty: `parsePrimary` declines a `,` while a `parseObject`
+       * field loop or a `parseGeneric` argument list is open (bug 0237 §Fix
+       * route `resync-aware-skip`), so such an entry costs its own type alone
+       * and the `,` is still there for `eatPunct(",")` to read. The break fires
+       * MID-interior where the source spells no separator between two entries
+       * at all (`{a: Zs: string}`), so nothing stands where `eatPunct(",")`
+       * looks. The second leaves the loop running and stops
+       * the pushes for the rest of the body — a field whose own parsed type carries an
        * interior that never closes (`carriesUnclosedInterior`, read off the
        * field type the moment it parses). `carriesUnclosedInterior` recurses
        * object field types, generic arguments and union arms, which is what
@@ -334,12 +338,15 @@ type TypeNode =
        * `closingBraceSpelled` is the same grammar requirement asked of the
        * SOURCE rather than of the field loop: whether a `}` stands at brace
        * depth 0 ahead of this interior in the token stream
-       * (`interiorClosingBraceIndex`). The two diverge where a field's type
-       * position is empty and `parsePrimary`'s tolerant punctuation skip
+       * (`interiorClosingBraceIndex`). The two diverge where the LAST entry's
+       * type position is empty and `parsePrimary`'s tolerant punctuation skip
        * consumes the interior's own `}` looking for a type (`{a: integer, a: }`
-       * — `braceClosed` false, `closingBraceSpelled` true), and again where a
-       * nested interior's `}` is the only one in the stream (`{a: {}, a: 2` —
-       * a `}` was consumed, none of it this interior's, so both are false).
+       * — `braceClosed` false, `closingBraceSpelled` true; bug 0237's decline
+       * is of the `,` alone and leaves this class exactly where it was, which
+       * is why that source still draws
+       * `theta/parse/duplicate-inline-field-name` — measured), and again where
+       * a nested interior's `}` is the only one in the stream (`{a: {}, a: 2`
+       * — a `}` was consumed, none of it this interior's, so both are false).
        * `theta/parse/duplicate-inline-field-name` asks the grammar question and
        * reads `closingBraceSpelled`; the empty rule keeps `braceClosed`, which
        * for its token-free interior answers alike.
@@ -462,10 +469,12 @@ const GENERIC_ARITY: Readonly<Record<string, number>> = Object.freeze({
  * which is the question `theta/parse/duplicate-inline-field-name` needs: a `{`
  * the source never closes is no inline object type and holds no interior to
  * compare. `TypeNode.braceClosed` cannot answer it, being whether
- * `TypeParser.parseObject`'s own loop CONSUMED that brace — for a field whose
- * type position is empty, `parsePrimary`'s tolerant punctuation skip consumes
- * the interior's `}` while looking for a type, and the depth-0 requirement here
- * is what keeps a NESTED interior's brace from answering for an enclosing one.
+ * `TypeParser.parseObject`'s own loop CONSUMED that brace — for a LAST entry
+ * whose type position is empty, `parsePrimary`'s tolerant punctuation skip
+ * consumes the interior's `}` while looking for a type (`{a: integer, a: }`;
+ * `TypeNode`'s doc comment states the divergence), and the depth-0 requirement
+ * here is what keeps a NESTED interior's brace from answering for an enclosing
+ * one.
  * The scan is over `tokens`, which no parse step mutates, so it reads the source
  * however far the tolerant recovery has advanced. `TypeParser.parseObject`
  * reads the index twice: `closingBraceSpelled` is whether it is `>= 0`, and the
@@ -532,6 +541,17 @@ function carriesUnclosedInterior(node: TypeNode): boolean {
 /** A tolerant recursive-descent parser for the type grammar. */
 class TypeParser {
   private pos = 0;
+  // How many `,`-reading constructs — `parseObject` field loops and
+  // `parseGeneric` argument lists, which separate their entries alike — are
+  // OPEN at the position `parsePrimary` is reading. Ownership of a `,` is a
+  // property of the enclosing parse state, not of the text: the same text is a
+  // stray token wherever no such construct is mid-read, and a stray token's
+  // only recovery has always been the skip-and-recurse arm. One counter
+  // suffices because a `,` is owned identically by either construct, and only
+  // the `,` is declined. Instance state rather than a parameter thread because
+  // every intervening frame (`parseUnion`'s arm loop, a nested `parsePrimary`)
+  // would otherwise have to carry a value it does not use.
+  private openCommaReadingConstructs = 0;
   // `source` is held beside `tokens` so `parseObject` can slice
   // `TypeNode.interiorSource` directly off this string, quoting and
   // inter-token whitespace intact relative to it — the author's own source
@@ -603,6 +623,31 @@ class TypeParser {
       if (t.text === "{") {
         return this.parseObject();
       }
+      // An entry SEPARATOR is the ENCLOSING construct's own text while that
+      // construct is mid-read: an open `parseObject` field loop reads the
+      // entry-separating `,`, and an open `parseGeneric` argument list reads
+      // the argument-separating `,`. Yielding no type leaves that `,` for its
+      // owner instead of spending it here, which is why an entry whose type
+      // position is empty no longer costs the interior its separator and no
+      // longer reads the NEXT entry's name as its own type (bug 0237 §Fix
+      // route `resync-aware-skip`). With no such construct open nothing is
+      // waiting for the token, so it stays a stray one and keeps the
+      // skip-and-recurse recovery below, the only recovery it has — which is
+      // what keeps `,void` as a whole annotation with no construct around it
+      // (`let r = @<,void>`) drawing
+      // `theta/parse/void-in-non-return-position`, measured identical before
+      // and after.
+      //
+      // Only the `,` is declined. A `}` or `>` at a type position is the
+      // empty-type-at-the-LAST-entry class, which bug 0237 §Reproduction (a)
+      // row a4 and §(g) rows g2–g3 measure as already refused identically to
+      // their controls and which its §Fix (c) forbids moving; declining it
+      // would also cost a genuinely stray closer the skip-and-recurse recovery
+      // that is its only one, losing the diagnostic the recursion goes on to
+      // draw (`array<{a: >void}>` keeps `void-in-non-return-position`).
+      if (t.text === "," && this.openCommaReadingConstructs > 0) {
+        return undefined;
+      }
       // Unexpected punctuation: skip it to stay tolerant.
       this.next();
       return this.parsePrimary();
@@ -635,15 +680,22 @@ class TypeParser {
     this.eatPunct("<");
     const args: TypeNode[] = [];
     if (this.peek()?.text !== ">") {
-      const first = this.parseUnion();
-      if (first !== undefined) {
-        args.push(first);
-      }
-      while (this.eatPunct(",")) {
-        const arg = this.parseUnion();
-        if (arg !== undefined) {
-          args.push(arg);
+      // Open across the whole argument list, so `parsePrimary` declines
+      // exactly the argument-separating `,` this list is still going to read.
+      this.openCommaReadingConstructs += 1;
+      try {
+        const first = this.parseUnion();
+        if (first !== undefined) {
+          args.push(first);
         }
+        while (this.eatPunct(",")) {
+          const arg = this.parseUnion();
+          if (arg !== undefined) {
+            args.push(arg);
+          }
+        }
+      } finally {
+        this.openCommaReadingConstructs -= 1;
       }
     }
     this.eatPunct(">");
@@ -657,8 +709,9 @@ class TypeParser {
     this.eatPunct("{");
     // Held before the field loop advances `pos`, because the grammar's
     // closing-brace requirement is a question about the SOURCE and the tolerant
-    // recovery can consume this interior's `}` from a field's type position
-    // (`TypeNode`'s doc comment states the divergence).
+    // recovery can consume this interior's `}` from a LAST entry's empty type
+    // position (`TypeNode`'s doc comment states the divergence), so wherever
+    // `pos` ends up is no answer to it.
     const interiorStart = this.pos;
     // Captured off the token immediately after `{`, before the field loop
     // below can advance `pos` — see `TypeNode`'s doc comment for why the
@@ -687,59 +740,67 @@ class TypeParser {
     // lifts there too — otherwise the following entry's own field name, which
     // the author did write, would be suppressed.
     let entryTainted = false;
-    while (this.peek() !== undefined && this.peek()?.text !== "}") {
-      // FieldName `:` Type — hold the name token until the colon behind it is
-      // consumed, which is the whole of the retention key (`TypeNode`'s doc
-      // comment states it).
-      const fieldName = this.peek();
-      if (fieldName !== undefined && fieldName.kind === "ident") {
-        this.next();
-      } else {
-        entryTainted = fieldName?.text !== ",";
-        this.next();
-        continue;
-      }
-      if (!this.eatPunct(":")) {
-        // A malformed entry accounts for itself and for nothing else
-        // (code-registry-parse.md:101's count-consequence sentence, scoped to
-        // "that field"): resynchronise at this interior's next depth-0 `,`
-        // instead of ending the loop, so every entry behind this one still
-        // reaches `fieldNames` / `fieldTypes` and every check those arrays
-        // feed. `entryTainted` is cleared because the skip already consumed
-        // the whole abandoned entry — there is no residue left for the latch
-        // to guard — and the entry the skip lands on is one the author did
-        // write.
-        this.skipMalformedEntry();
-        entryTainted = false;
-        continue;
-      }
-      // The interior has now spelled `Ident ":"` at a field-name position, so
-      // the name is retained ahead of its type: `parsePrimary`'s tolerant
-      // punctuation skip can consume the FOLLOWING field's tokens as this
-      // field's type, and a name the author wrote must not vanish because a
-      // neighbour's text was eaten.
-      if (!namesStopped && !entryTainted) {
-        fieldNames.push(fieldName.text);
-      }
-      const fieldType = this.parseUnion();
-      if (fieldType !== undefined) {
-        fieldTypes.push(fieldType);
-        // Read after the push above, so the suspect field's own name — spelled
-        // ahead of the interior that never closes — stays contributed, and only
-        // the names behind it stop.
-        namesStopped = namesStopped || carriesUnclosedInterior(fieldType);
-      }
-      // Optional `as "WireName"` rename — skip if present.
-      if (this.peek()?.kind === "ident" && this.peek()?.text === "as") {
-        this.next();
-        if (this.peek()?.kind === "str") {
+    // Open across the whole field loop, so `parsePrimary` declines exactly the
+    // entry-separating `,` this loop is still going to read.
+    this.openCommaReadingConstructs += 1;
+    try {
+      while (this.peek() !== undefined && this.peek()?.text !== "}") {
+        // FieldName `:` Type — hold the name token until the colon behind it is
+        // consumed, which is the whole of the retention key (`TypeNode`'s doc
+        // comment states it).
+        const fieldName = this.peek();
+        if (fieldName !== undefined && fieldName.kind === "ident") {
           this.next();
+        } else {
+          entryTainted = fieldName?.text !== ",";
+          this.next();
+          continue;
         }
+        if (!this.eatPunct(":")) {
+          // A malformed entry accounts for itself and for nothing else
+          // (code-registry-parse.md:101's count-consequence sentence, scoped to
+          // "that field"): resynchronise at this interior's next depth-0 `,`
+          // instead of ending the loop, so every entry behind this one still
+          // reaches `fieldNames` / `fieldTypes` and every check those arrays
+          // feed. `entryTainted` is cleared because the skip already consumed
+          // the whole abandoned entry — there is no residue left for the latch
+          // to guard — and the entry the skip lands on is one the author did
+          // write.
+          this.skipMalformedEntry();
+          entryTainted = false;
+          continue;
+        }
+        // The interior has now spelled `Ident ":"` at a field-name position, so
+        // the name is retained ahead of its type: `parsePrimary`'s tolerant
+        // punctuation skip can still consume tokens beyond this field where the
+        // source spells no separator between two entries (`{a: Zs: string}`),
+        // and a name the author wrote must not vanish because a neighbour's
+        // text was eaten.
+        if (!namesStopped && !entryTainted) {
+          fieldNames.push(fieldName.text);
+        }
+        const fieldType = this.parseUnion();
+        if (fieldType !== undefined) {
+          fieldTypes.push(fieldType);
+          // Read after the push above, so the suspect field's own name — spelled
+          // ahead of the interior that never closes — stays contributed, and only
+          // the names behind it stop.
+          namesStopped = namesStopped || carriesUnclosedInterior(fieldType);
+        }
+        // Optional `as "WireName"` rename — skip if present.
+        if (this.peek()?.kind === "ident" && this.peek()?.text === "as") {
+          this.next();
+          if (this.peek()?.kind === "str") {
+            this.next();
+          }
+        }
+        if (!this.eatPunct(",")) {
+          break;
+        }
+        entryTainted = false;
       }
-      if (!this.eatPunct(",")) {
-        break;
-      }
-      entryTainted = false;
+    } finally {
+      this.openCommaReadingConstructs -= 1;
     }
     const braceClosed = this.eatPunct("}");
     const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
@@ -1100,9 +1161,10 @@ function walkType(
       // grammar's own closing brace. `ObjectType` spells it, so an interior
       // the source never closes holds no interior to compare — the same
       // requirement the empty rule reads above, asked of the source because
-      // the tolerant recovery can spend this interior's `}` on a missing type
-      // position (`TypeNode`'s doc comment). A generic type argument's
-      // interior draws the same gate: `TypeParser.parseObject` parses it
+      // the tolerant recovery can spend this interior's `}` on a LAST entry's
+      // missing type position (`TypeNode`'s doc comment), which would leave
+      // `braceClosed` false for a brace the source does spell.
+      // A generic type argument's interior draws the same gate: `TypeParser.parseObject` parses it
       // exactly as it parses any other object type — brace-aware, not
       // angle-only — so `interiorSource` holds the repeat there just as it
       // does anywhere else, and this rule names it. The LOWERING's own

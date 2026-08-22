@@ -1,6 +1,6 @@
 # Bug 0237 — an inline object entry whose TYPE position is empty truncates the interior at that entry, because `parsePrimary`'s tolerant punctuation skip (`type-grammar.ts:606`–`:608`) eats the entry-separating `,` and reads the NEXT entry's name as the empty entry's type: `{a: , Zs: string}` reports `[]` and registers at ten `Type` positions including `params:`, the `.thetalib` spelling and inside `array<…>`, lowers `Zs` into the provider-facing `$defs`, and withholds five registered rows (`binding-case-mismatch`, `void-in-non-return-position`, `generic-arity-mismatch`, `empty-schema-body`, `result-in-schema-position`) that every byte-neighbour control draws — while bug 0231's landed resync never runs, since the colon this entry does spell is consumed
 
-- **Status:** open.
+- **Status:** fixed (0.207.0).
 - **Sev/Diff estimate:** S1/D3 — S1 because the theta LOADS AND REGISTERS with
   zero diagnostics on any channel: `fn f(p: {a: , Zs: string}): integer { 1 }`
   reports `[]` where `fn f(p: {a: integer, Zs: string}): integer { 1 }` draws
@@ -469,3 +469,97 @@ does not reach this shape (§(c)).
 
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+## Fix (0.207.0)
+
+- **Route selected:** §Fix (a) `resync-aware-skip`, UNPAIRED, narrowed to the
+  entry separator alone. `TypeParser.parsePrimary`'s tolerant punctuation arm
+  declines a `,` at a fresh type position — yields no type instead of eating
+  the token — while at least one `,`-reading construct is open (a
+  `parseObject` field loop or a `parseGeneric` argument list, counted by one
+  instance counter opened across each loop body and closed in `finally`). A
+  `}`, a `>` and every other punctuation keep the pre-existing skip-and-recurse
+  recovery byte-for-byte. Two refinements were settled in-run inside §Fix (a)'s
+  own constraints and are recorded here: the OWNERSHIP guard, because an
+  unconditional decline made `,void`, `>void`, `}void` and
+  `{a: >void, Zs: string}` load clean where they were refused before; and the
+  narrowing to the `,`, because declining a `}` or `>` cost a genuinely stray
+  closer its only recovery (`array<{a: >void}>` lost
+  `theta/parse/void-in-non-return-position`, `array<{a: }void>` lost its
+  refusal outright) and because a `}` or `>` at a type position is the
+  empty-type-at-the-LAST-entry class §Reproduction (a) row a4 and §(g) rows
+  g2–g3 measure as already refused identically to their controls and §Fix (c)
+  forbids moving. Both refinements are discharged by §Fix (a)'s standing
+  obligation to measure the other callers of `parsePrimary`. No new diagnostic
+  code, no registry row, no `docs/reference/diagnostics.md` amendment, no
+  `tests/fixtures/h7a/permitted-codes.json` change; bug 0231's colon-gate
+  resync is untouched.
+- **What shipped:** `src/parser/type-grammar.ts` — the ownership-aware `,`
+  decline in `TypeParser.parsePrimary`, the open-construct counter scoped
+  around `parseGeneric`'s argument list and `parseObject`'s field loop, and six
+  doc-comment corrections the route falsified (`TypeNode`'s stop-shape and
+  `braceClosed`/`closingBraceSpelled` divergence paragraphs,
+  `interiorClosingBraceIndex`, `parseObject`'s `interiorStart` and
+  name-retention comments, `walkType`'s duplicate-rule gate).
+  `tests/inline-object-empty-field-type-truncation.test.ts` — the §Fix (e)
+  witness. `tests/live/inline-object-empty-field-type-truncation-live-cell.test.ts`
+  and `tests/live/acceptance/inline-object-empty-field-type-truncation-load-refusal.test.ts`
+  — the live cover §Fix (e) owes, the route changing what reaches a
+  provider-facing schema (§Reproduction (f) row f6).
+- **Gates:** witness `npx vitest run tests/inline-object-empty-field-type-truncation.test.ts`
+  → `Test Files 1 passed (1) / Tests 10 passed (10)`; full default suite
+  `npx vitest run` → `Test Files 388 passed (388) / Tests 8018 passed (8018)`;
+  `npx tsc -p tsconfig.json --noEmit` → clean; `npm run lint` → clean. Live:
+  the two new files and bug 0231's sibling pair as a control, run under the
+  shared live lock → 4 files, the H9a acceptance file red once on a
+  sentinel-refusal (a named stochastic class) and green on one isolated
+  re-run.
+- **Review:** three rounds. Round 1 (deep) found the unconditional decline
+  regression (correctness) plus one missing lane token and four prose defects.
+  Round 2 (deep), after the ownership guard and the narrowing to the `,`,
+  returned CLEAN with three prose/test residuals. Round 3 (fast, confirmation
+  after a comment-and-cells polish) returned CLEAN.
+- **Verification:** witness neutralised at the decline guard → the seven
+  declared groups (A, B, C, D, E, F-f6, R) red, G and L green; bytes written
+  back and `git hash-object` re-verified → 10/10 green. Full suite green. Live
+  run real, both new files exercising the `params:` refusal end-to-end.
+  `permitted-codes.json` byte-unchanged and the real H9a run surfaced no
+  unpermitted code. Corpus census re-run: 34 committed sources, no hit for an
+  empty inline type position, so no shipped source moves.
+- **Behaviour that moved, beyond the subject:**
+  `Result<{a: , Zs: string}, string>` exchanges HEAD's `theta/parse/generic-arity-mismatch` for the interior's own
+  `theta/parse/binding-case-mismatch` (§Non-goals disclaimed the arity face of
+  this shape; the route repairs the argument count as a by-product and the
+  cell is pinned at the new value). `{a: integer | , Zs: string}` and
+  `array<integer | , string>` exchange
+  `theta/parse/annotation-type-not-expression` for the case rule and the arity rule respectively — a refusal in both trees.
+  `{a: ,void}` moves from HEAD's `theta/parse/void-in-non-return-position` to
+  its byte-neighbour control's `[]`, which is §Expected point 1 holding: HEAD's
+  line was an artefact of the eaten separator, and the silence behind it is the
+  colon-less-entry class bug 0231 owns.
+- **Residuals:**
+  1. An empty type position with no entry behind it still draws nothing —
+     §Reproduction (g) rows g2–g4 (`{a: }`, `{a:}`, `{a: , }`) and §(a) row
+     a4 stay exactly as measured, the UNPAIRED disposition §Fix (a) admits. An
+     all-lowercase interior with an empty type position (`{a: , b: string}`)
+     therefore still loads clean, with that entry contributing no property to
+     the wire schema — as the lowering already omitted it (§(f) row f3). A
+     paired refusal for the empty position itself is forward-filing material.
+  2. §Reproduction (b) row b5's subject still lacks the control's
+     `theta/parse/let-rhs-type-mismatch`; the route repairs the interior's
+     field set, not that position's RHS comparison, and no cell claims it.
+  3. §Reproduction (e) row e4's `fn`-parameter triple is `[]` in all three
+     columns before and after: `theta/parse/result-in-schema-position` is a
+     schema-feeding-position row, so the doc's "the two positions agree per
+     row" is false for e4. Subject equals control there, which is the binding
+     requirement.
+  4. A colon-less identifier-shaped entry (`{a: integer,void}`) draws nothing
+     on any channel, in both trees — bug 0231's class, surfaced by residual
+     row `{a: ,void}` above rather than introduced here.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** bug 0231's colon-gate resync unchanged;
+  bug 0233's widen unchanged; no registry amendment and no closed-set
+  extension; `tests/fixtures/h7a/permitted-codes.json` untouched; the four
+  locked witnesses named in §Affected are file-unmodified and green;
+  positional drift in `src/parser/type-grammar.ts` citations is bug 0134's
+  do-not-chase class and was not chased.
