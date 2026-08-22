@@ -665,32 +665,68 @@ describe("0156 (g) — the boundaries of the new dispatch", () => {
     ).toEqual([11, 39]);
   });
 
-  it("a nested array sink narrows neither at the argument route nor at the binding route — the nested boundary", () => {
-    // PAIRED, and deliberately not "fixed" here. `docs/spec_topics/grammar.md:221`'s
-    // fourth sink bullet — recursive descent into an array-typed sink's element
-    // — is unwired at EVERY route, which is why the BINDING control below is
-    // refused identically at HEAD. The class is symmetric and therefore not
-    // this fix's; a route that closed only the argument half would make the two
-    // routes disagree.
+  it("a nested array sink narrows at the argument route and at the binding route alike — the nested boundary, symmetric", () => {
+    // PAIRED. `docs/spec_topics/grammar.md:221`'s fourth sink bullet —
+    // recursive descent into an array-typed sink's element — is one relation
+    // shared by both dispatches, so the two routes owe the same verdict on the
+    // same source: this cell exists to hold them together. A route that
+    // narrowed only one half would make the argument and binding spellings of
+    // one program disagree, which is the drift bug 0241 wired the descent to
+    // rule out.
     //
-    // The 0156 doc's §Expected sentence "Rows f2–f5 should report `[]`" is
-    // FALSIFIED for its row f3 by the binding control in this same cell: f3's
-    // inner literal has no sink at either spelling, so `[]` is not what f3 is
-    // owed and f3 is not a must-flip row.
+    // The violation control is what keeps the admission from being vacuous: an
+    // element that breaks the declared `A | B` element type must still be named
+    // by rule 1 at its own index, at both routes, rather than passed through.
+    // `schema C` is declared here alone because no other cell in this file has
+    // a use for it.
     const argumentRoute = diagsOf([
       ...AB,
       "fn f(xs: array<array<A | B>>): integer { 1 }",
       `let y = f([${A_AND_B}])`,
     ]);
-    expect(argumentRoute.map((d: Diagnostic) => d.code)).toEqual([NO_COMMON]);
-    expect(messageFor(argumentRoute, NO_COMMON)).toBe(msg(NO_COMMON, []));
+    expect(
+      argumentRoute.map((d: Diagnostic) => d.code),
+      "the argument route refuses the nested literal — the element sink does not reach a literal one level down",
+    ).toEqual([]);
 
     const bindingRoute = diagsOf([...AB, `let xs: array<array<A | B>> = [${A_AND_B}]`]);
     expect(
       bindingRoute.map((d: Diagnostic) => d.code),
-      "the binding route stopped refusing the nested literal — the symmetry that puts this class outside bug 0156 is broken",
-    ).toEqual([NO_COMMON]);
-    expect(messageFor(bindingRoute, NO_COMMON)).toBe(msg(NO_COMMON, []));
+      "the binding route refuses the nested literal the argument route admits — the two routes disagree on one program",
+    ).toEqual([]);
+
+    const C: readonly string[] = ["schema C {", "  c: boolean", "}"];
+    const A_AND_C = "[A { a: 1 }, C { c: true }]";
+    const argumentViolation = diagsOf([
+      ...AB,
+      ...C,
+      "fn f(xs: array<array<A | B>>): integer { 1 }",
+      `let y = f([${A_AND_C}])`,
+    ]);
+    expect(
+      argumentViolation.map((d: Diagnostic) => d.code),
+      "the argument route admits a nested element that violates the declared element type — the descent narrows without judging",
+    ).toEqual([ELEMENT]);
+    expect(messageFor(argumentViolation, ELEMENT)).toBe(
+      msg(ELEMENT, [
+        ["<i>", "1"],
+        ["<expected>", "A | B"],
+        ["<actual>", "C"],
+      ]),
+    );
+
+    const bindingViolation = diagsOf([...AB, ...C, `let xs: array<array<A | B>> = [${A_AND_C}]`]);
+    expect(
+      bindingViolation.map((d: Diagnostic) => d.code),
+      "the binding route does not name the offending nested element the argument route names — the two routes disagree on one violation",
+    ).toEqual([ELEMENT]);
+    expect(messageFor(bindingViolation, ELEMENT)).toBe(
+      msg(ELEMENT, [
+        ["<i>", "1"],
+        ["<expected>", "A | B"],
+        ["<actual>", "C"],
+      ]),
+    );
   });
 });
 

@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.208.0]
+
+### Fixed
+
+- **Bug 0241**: grammar.md's FOURTH sink bullet — recursive descent into an
+  array-typed sink's element — was unwired at all three routes:
+  `checkArrayLiteral` judged one level and inner literals fell to the
+  sink-less arm, so six registry rows refused conformant NESTED union
+  literals ("index 1: expected A | B, got C") whose flat twins loaded
+  clean. `checkArrayLiteral` now descends inside the shared relation
+  (`markNestedArrayLiterals` + a widened skip set across `walkExpr`,
+  `checkObjectField(s)`, `checkFnCallArgs`, and the `let` arm), one verdict
+  per literal. The one authorized flip: 0156's paired boundary cell.
+  Witness: `tests/nested-array-element-sink-descent.test.ts` (26 cells) +
+  an H8a live cell.
+
 ## [0.207.0]
 
 ### Fixed

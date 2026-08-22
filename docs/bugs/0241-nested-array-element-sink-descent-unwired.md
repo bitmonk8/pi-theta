@@ -1,6 +1,6 @@
 # Bug 0241 — `grammar.md`'s fourth sink bullet, recursive descent into an array-typed sink's element, is unwired at all three type-layer routes: `let xs: array<array<A | B>> = [[A { a: 1 }, B { b: "x" }]]`, the same literal at an `fn` parameter, and the same literal at a constructor field each draw `theta/parse/array-no-common-type` on the INNER literal and do not register, while their one-level-flat twins load clean
 
-- **Status:** open. Filed as bug
+- **Status:** fixed (0.208.0). Filed as bug
   [0156](./0156-fn-parameter-sink-not-consulted-for-rule3-unions.md)'s
   `## Fix (0.193.0)` *Residuals* item 1 (`:874`): "The recursive-descent sink is
   unwired at every route, and this report's §Expected is falsified for row f3
@@ -354,3 +354,111 @@ neither of which claims it. Every row in §Reproduction was measured at HEAD
 `30c0cb67` (v0.197.0) with scratch probes over `parseDoc`
 (`tests/helpers/e2e-s1.ts:39`), run and deleted; every citation was checked
 against the tree at that HEAD.
+
+## Fix (0.208.0)
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — `TypeLayerWalk.checkArrayLiteral` carries
+    the descent and returns `ReadonlySet<Expr>`, the array nodes it judged under
+    a sink (itself, plus the nested literals it reached). §Fix's one-relation
+    route: none of the three dispatches gained an argument.
+  - `src/parser/type-layer-checks.ts` — the descent unfolds (TYPE-11,
+    `unfoldAlias`) before classifying and recurses with the unfolded sink's
+    element type for each element whose kind is `array`; the RAW sink still
+    renders every whole-value message (§Fix constraint 1, bug 0157's shape).
+    Row A5 is the measurement.
+  - `src/parser/type-layer-checks.ts` — the skip discipline widens from one node
+    to a set: `walkExpr`'s fourth parameter is `sunkArrays: ReadonlySet<Expr>`
+    defaulting to the module-scope empty `NO_SUNK_ARRAYS`, its `array` arm tests
+    membership and rides the set down the element recursion, its `call` arm
+    hands each argument walk the whole `sunkArgs` set, and `checkObjectField` /
+    `checkObjectFields` carry a set instead of `Expr | null` (§Fix constraint 2,
+    bug 0156's discipline). The binding arm still skips its own node where the
+    check withholds on a withheld binder.
+  - `src/parser/type-layer-checks.ts` — `markNestedArrayLiterals`, the
+    withholding twin of the judging traversal: where this level's own
+    `checkCommonType` reported, the nested literals are marked skipped WITHOUT
+    being judged, so withholding means no verdict rather than a sink-less one.
+    It follows the array-element chain alone; a literal inside an object-field
+    value or a call argument keeps its own sink route (row F5).
+  - `tests/nested-array-element-sink-descent.test.ts` — the witness, 26 cells:
+    (A) rows A1–A6, (B) the flat twins B1–B4, (C) rows C1–C3 plus E1 at two
+    codes, (D) the silence controls D1–D5, (E) anti-vacuity, (F) rows F1–F5, the
+    refused-outer shapes constraint 3's disposition governs.
+  - `tests/live/nested-array-element-sink-descent-live-cell.test.ts` — the H8a
+    live cell: the nested-sink document registers through the real
+    discovery/session_start path and drives to a pinned sentinel with no
+    `array-no-common-type` on the `theta-system-note` channel, against a refused
+    control that must still not register.
+  - `tests/fn-param-sink-array-literal.test.ts` — the one authorised cell flip
+    (§Fix constraint 2): bug 0156's paired boundary cell now asserts that the
+    nested sink narrows at the argument route and the binding route alike, with
+    a violation control at both routes proving the admission is not vacuous.
+- The code count at rows C1–C3 (§Fix constraint 3), settled in-run: **one
+  verdict per literal**. The descent judges an element only where the enclosing
+  literal's own `checkCommonType` reported nothing; where that level has already
+  refused the literal, an element verdict is DERIVED from re-reading the same
+  text as conformant and withholds, which is bug 0129's landed law at one more
+  position. Rows C1–C3 and E1 therefore keep exactly the two codes they draw
+  today — no third — and bug 0195's cell m2
+  (`tests/for-empty-array-iterand-adjudication.test.ts:293–298`) does not move.
+  Withholding is not silence-by-omission: rows F1–F4 pin that the withheld
+  nested literals draw nothing at all, rather than falling back to the sink-less
+  row at a position where the sink is written and in scope.
+- Gates: witness `npx vitest run tests/nested-array-element-sink-descent.test.ts`
+  → 26 passed (26). Full default suite `npm test` → 389 files, 8073 tests, 0
+  failed. `npm run typecheck` → rc 0, no output. `npm run lint` → rc 0, no
+  output. Live, under the shared lock:
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/nested-array-element-sink-descent-live-cell.test.ts
+  tests/live/fn-param-sink-array-literal-live-cell.test.ts
+  tests/live/alias-sink-array-element-check-live-cell.test.ts` → the two adjacent
+  cells green first attempt; the new cell drew one sentinel refusal (the model
+  declined to echo the token, naming prompt injection) and was green on one
+  isolated re-run with no edit between runs — the stochastic class, not a
+  defect.
+- Review: 2 rounds. Round 1 (deep) — one `correctness` blocker: on the
+  refused-outer path the nested literals were returned unmarked and leaked to
+  the sink-less arm, minting `array-no-common-type` where a sink is in scope, at
+  all three routes and at depth 2; plus three prose/house-rule items (a false
+  "Frozen" claim on `NO_SUNK_ARRAYS`, line-form citations into a file whose
+  lines this diff moves, two banned words). All four fixed; the blocker became
+  `markNestedArrayLiterals` and witness group (F). Round 2 (fast) — CLEAN, with
+  one non-blocking test residual (below).
+- Verification: SOLID. (1) Both halves witnessed in both directions by temporary
+  local neutralisation, restored byte-exact (`git hash-object` equal each time):
+  stubbing the judging descent reds A1–A6 with the documented signature
+  (`expected [ 'theta/parse/array-no-common-type' ] to deeply equal []`, and A6's
+  code swap), stubbing `markNestedArrayLiterals` reds F1–F4 with the leaked
+  second code. (2) Default suite 389/8073 green. (3) Three live H8a cells run for
+  real under the lock, all green. (4) Typecheck and lint rc 0.
+- Residuals:
+  1. **Row F5's isolation is incidental, not load-bearing.** The row pins that a
+     call argument's own `array-no-common-type` survives inside a withheld
+     enclosing array. `walkExpr`'s `case "call"` derives a fresh `sunkArgs` from
+     `checkFnCallArgs` and discards the inbound set, so an over-marking
+     `markNestedArrayLiterals` would not red F5. The end state the row asserts is
+     true and worth pinning; the claim in its comment that the element chain is
+     what confines the marking is defended by the call arm's reset rather than by
+     the traversal. Evidence: round 2's mutation probe (over-marking through a
+     `call` element's `args`) left F5 green.
+  2. **One sentinel-refusal instance on the new live cell.** Captured name:
+     sentinel refusal. First run refused to echo the token (12.9 s), isolated
+     re-run green (1.8 s), no edit between. Recorded so a future red on this cell
+     is classified before it is attributed.
+  3. **`tests/match-fn-return-lub-dominating-discipline.test.ts:109` cites
+     `type-layer-checks.ts:2652` for the `sink: undefined` match-arm site.** The
+     citation was already stale before this change and this change moves the site
+     further. Bug 0134's do-not-chase class; not chased, and that file is a LOCK
+     witness this fix does not edit.
+- Discharge notes appended: 0156 (*Residuals* item 1), 0195 (row m3).
+- Pinned dispositions / non-goals: no DIAG-2 edit and no registry edit —
+  `code-registry-parse.md` and `tests/fixtures/diag2/` are byte-untouched, and
+  removing rows A1–A5's emissions narrows `theta/parse/array-no-common-type` onto
+  its own registered *Trigger* (§Fix constraint 4). No spec edit (§Fix constraint
+  5): `grammar.md`, `docs/reference/grammar.md` and `expressions.md` already state
+  the behaviour. `src/parser/type-compat.ts` is untouched, so `commonType` and its
+  LUB discipline are unmoved (§Fix constraint 6, bug 0158's LOCK). The `for`
+  iterand, the imported `.thetalib` callee, the method call, the
+  `.theta`-callable, the `invoke` argument and the ternary at an argument
+  position are all unmoved (§Fix constraint 7); rows D1–D5 are the controls.

@@ -112,6 +112,14 @@ const PRIMITIVE_NAMES: ReadonlySet<string> = new Set([
 const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
 
 /**
+ * The empty sunk-array set `walkExpr` defaults to: no array node reaching this
+ * call carries a sink, so its own `case "array"` runs the sink-less check.
+ * Shared and readonly-typed rather than allocated per call — an empty
+ * `ReadonlySet` carries no per-call state to isolate.
+ */
+const NO_SUNK_ARRAYS: ReadonlySet<Expr> = new Set();
+
+/**
  * `Ident` (lexical.md: `[A-Za-z_][A-Za-z0-9_]*`) — tests a `FnParam.name`
  * against the shape a well-formed parameter list can only ever hold, so
  * `checkFnCallArgs` (bug 0131 §(c)) can tell a genuine parameter list from one
@@ -1384,7 +1392,7 @@ class TypeLayerWalk {
             stmt.annotation.length > 0 &&
             annotationSourceIsNotTypeExpression(stmt.annotation)
           ) {
-            this.walkExpr(stmt.init, bindings, flow, null);
+            this.walkExpr(stmt.init, bindings, flow, NO_SUNK_ARRAYS);
             this.recordWithheldBinders(bindings, [stmt.name]);
             return;
           }
@@ -1414,6 +1422,12 @@ class TypeLayerWalk {
           // `sinkedArrayOf` is the one place that decides whether an array
           // sink is in scope; the skip below must not re-derive it separately.
           const sunkArray = this.sinkedArrayOf(stmt, annotation);
+          // Skipped even where the check below never runs (annotation withheld
+          // by a withheld binder, or no annotation at all): `sunkArray` alone
+          // decides the OUTER node's skip, and widening that decision from one
+          // node to a set of them leaves the decision itself unchanged.
+          let sunkArrays: ReadonlySet<Expr> =
+            sunkArray === null ? NO_SUNK_ARRAYS : new Set([sunkArray.node]);
           if (annotation !== undefined && !containsWithheldBinderType(rhsType)) {
             // The typed-binding RHS narrowing / mismatch check (surfaces
             // `theta/parse/integer-narrowing` for a `number → integer` RHS).
@@ -1432,12 +1446,13 @@ class TypeLayerWalk {
             // (alias-unfolded) element sink here, so the generic (sink-less)
             // array check does not re-flag a validly-annotated union array.
             if (sunkArray !== null) {
-              this.checkArrayLiteral(sunkArray.node, sunkArray.element, bindings);
+              sunkArrays = this.checkArrayLiteral(sunkArray.node, sunkArray.element, bindings);
             }
           }
           // Walk the initialiser for nested checks. A typed array already
-          // checked against its element sink above is skipped by the walk.
-          this.walkExpr(stmt.init, bindings, flow, sunkArray === null ? null : sunkArray.node);
+          // checked against its element sink above is skipped by the walk, and
+          // so is every nested literal that check descended into.
+          this.walkExpr(stmt.init, bindings, flow, sunkArrays);
           // Record the declared type, not merely the initialiser's inferred
           // one: `checkLetRhsCompat` above has already verified the
           // initialiser against it, so later identifier references seeing the
@@ -2089,11 +2104,29 @@ class TypeLayerWalk {
     );
   }
 
+  /**
+   * The array-literal check every sink dispatch shares (`sinkedArrayOf`'s
+   * caller, `checkFnCallArgs`, `checkObjectField`), and the one place
+   * `grammar.md:221`'s fourth sink bullet is wired: an array-typed sink's
+   * element type is itself a sink for a nested array literal. Returns every
+   * node this call judged — `array` itself when a sink is in scope (including
+   * on the withheld-binder early return below, since a caller marks that node
+   * skipped whether or not the check actually ran), plus, recursively, the
+   * nested literals the descent reached — so `walkExpr`'s `case "array"` does
+   * not judge any of them sink-less (bug 0156 §Fix constraint 2). Where this
+   * level's own check reported, the nested literals are still returned but
+   * carry no verdict: an in-scope sink covers them either way, and only the
+   * derived verdict is withheld (see the refusal arm below).
+   */
   private checkArrayLiteral(
     array: ArrayExpr,
     sink: CompatType | undefined,
     bindings: ReadonlyMap<string, CompatType>,
-  ): void {
+  ): ReadonlySet<Expr> {
+    const judged = new Set<Expr>();
+    if (sink !== undefined) {
+      judged.add(array);
+    }
     const branches = array.elements.map((e) => this.typeOf(e, bindings));
     // One branch read out of a WITHHELD binder withholds the whole check: the
     // element sink decides each branch through the same structural TYPE-7 arm
@@ -2101,16 +2134,66 @@ class TypeLayerWalk {
     // failing branch by index, so there is no per-branch skip to hand the
     // byte-frozen checker instead.
     if (branches.some((branch) => containsWithheldBinderType(branch))) {
-      return;
+      return judged;
     }
-    this.diagnostics.push(
-      ...checkCommonType({
-        branches,
-        sink,
-        env: this.env,
-        site: { file: this.file, range: array.range },
-      }),
-    );
+    const own = checkCommonType({
+      branches,
+      sink,
+      env: this.env,
+      site: { file: this.file, range: array.range },
+    });
+    this.diagnostics.push(...own);
+    if (sink === undefined || own.length > 0) {
+      // One verdict per literal (bug 0129's law): where this call already
+      // refused the literal, an element verdict derived from re-reading the
+      // same text as conformant would stand beside it, which is exactly the
+      // second diagnostic that law withholds. No sink also stops here — an
+      // unsunk literal has nothing to unfold and descend through.
+      if (sink !== undefined) {
+        // Withholding a verdict is NO verdict, not a sink-LESS one: this sink
+        // stays in scope at every nested position down the element chain
+        // (`grammar.md:221`), so `theta/parse/array-no-common-type`'s
+        // registered *Trigger* — "and no sink to narrow against" — is false
+        // there and the sink-less route must not run on those nodes either.
+        this.markNestedArrayLiterals(array, judged);
+      }
+      return judged;
+    }
+    // Unfold before classifying and keep the RAW `sink` for the message above,
+    // the shape bug 0157 landed for the three dispatches (§Fix constraint 1):
+    // an alias-spelled element sink admits on the same footing as an inline one.
+    const unfolded = unfoldAlias(sink, this.env);
+    if (unfolded.kind !== "array") {
+      return judged;
+    }
+    for (const element of array.elements) {
+      if (element.kind === "array") {
+        for (const node of this.checkArrayLiteral(element, unfolded.element, bindings)) {
+          judged.add(node);
+        }
+      }
+    }
+    return judged;
+  }
+
+  /**
+   * The judging descent's traversal with the verdict removed: adds every array
+   * literal reachable from `array` down the array-ELEMENT chain to `into`
+   * without checking any of them, so `walkExpr`'s `case "array"` stays silent
+   * on nodes an enclosing sink covers but no call judged.
+   *
+   * Array elements ONLY, matching the descent above step for step: a literal
+   * sitting inside an object-literal field value or a call argument reaches its
+   * own sink route (`checkObjectField`, `checkFnCallArgs`) or none at all, and
+   * marking it here would silence a refusal that route owes.
+   */
+  private markNestedArrayLiterals(array: ArrayExpr, into: Set<Expr>): void {
+    for (const element of array.elements) {
+      if (element.kind === "array") {
+        into.add(element);
+        this.markNestedArrayLiterals(element, into);
+      }
+    }
   }
 
   /**
@@ -2157,7 +2240,7 @@ class TypeLayerWalk {
     const typeName = e.typeName;
     const declaredFields = typeName === null ? undefined : this.declaredFieldsOf(typeName);
     for (const field of e.fields) {
-      let skipArray: Expr | null = null;
+      let skipArrays: ReadonlySet<Expr> = NO_SUNK_ARRAYS;
       // Own-key lookup: a theta field name may collide with an
       // `Object.prototype` member (`toString`, `constructor`, …), and the
       // record must never answer through the prototype chain and manufacture a
@@ -2167,9 +2250,9 @@ class TypeLayerWalk {
           ? declaredFields[field.name]
           : undefined;
       if (typeName !== null && declared !== undefined) {
-        skipArray = this.checkObjectField(typeName, field, declared, bindings);
+        skipArrays = this.checkObjectField(typeName, field, declared, bindings);
       }
-      this.walkExpr(field.value, bindings, flow, skipArray);
+      this.walkExpr(field.value, bindings, flow, skipArrays);
     }
   }
 
@@ -2267,15 +2350,17 @@ class TypeLayerWalk {
    * answers `"unknown"` for it. Otherwise routes the compatibility outcome
    * the way `checkLetRhsCompat` does. When the value is an array literal and
    * the declared type UNFOLDS (TYPE-11) to `array<T>`, also checks it against
-   * the unfolded element type as a sink and returns the value node so the
-   * caller skips the generic sink-less array check; otherwise returns `null`.
+   * the unfolded element type as a sink and returns every node that check
+   * judged (the value itself and any nested literal the descent reached), so
+   * the caller skips the generic sink-less array check on each; otherwise
+   * returns the empty set.
    */
   private checkObjectField(
     schema: string,
     field: ObjectFieldNode,
     declared: CompatType,
     bindings: ReadonlyMap<string, CompatType>,
-  ): Expr | null {
+  ): ReadonlySet<Expr> {
     const value = field.value;
     const valueType = this.typeOf(value, bindings);
     // Same withhold discipline as the typed-`let` sink: a field value read out
@@ -2298,10 +2383,9 @@ class TypeLayerWalk {
     // above keeps reading the RAW `declared`, so its `<expected>` still names `U`.
     const unfoldedDeclared = unfoldAlias(declared, this.env);
     if (value.kind === "array" && unfoldedDeclared.kind === "array") {
-      this.checkArrayLiteral(value, unfoldedDeclared.element, bindings);
-      return value;
+      return this.checkArrayLiteral(value, unfoldedDeclared.element, bindings);
     }
-    return null;
+    return NO_SUNK_ARRAYS;
   }
 
   /**
@@ -2428,8 +2512,9 @@ class TypeLayerWalk {
       // above already ran for this index.
       const unfolded = unfoldAlias(paramType, this.env);
       if (arg.kind === "array" && unfolded.kind === "array") {
-        this.checkArrayLiteral(arg, unfolded.element, bindings);
-        sunkArgs.add(arg);
+        for (const node of this.checkArrayLiteral(arg, unfolded.element, bindings)) {
+          sunkArgs.add(node);
+        }
       }
     }
     return sunkArgs;
@@ -2783,7 +2868,7 @@ class TypeLayerWalk {
     e: Expr,
     bindings: ReadonlyMap<string, CompatType>,
     flow: WalkCtx,
-    skipArray: Expr | null = null,
+    sunkArrays: ReadonlySet<Expr> = NO_SUNK_ARRAYS,
   ): void {
     switch (e.kind) {
       case "ternary":
@@ -2822,11 +2907,14 @@ class TypeLayerWalk {
         this.walkExpr(e.operand, bindings, flow);
         return;
       case "array":
-        if (e !== skipArray) {
+        if (!sunkArrays.has(e)) {
           this.checkArrayLiteral(e, undefined, bindings);
         }
+        // The set rides the element recursion: a nested literal the enclosing
+        // sink descended into is reached from HERE, and dropping the set on
+        // this call is the sink-less re-judgement the descent exists to avoid.
         for (const el of e.elements) {
-          this.walkExpr(el, bindings, flow);
+          this.walkExpr(el, bindings, flow, sunkArrays);
         }
         return;
       case "index":
@@ -2883,7 +2971,7 @@ class TypeLayerWalk {
         // would risk drifting from the check that actually ran.
         const sunkArgs = this.checkFnCallArgs(e, bindings);
         for (const arg of e.args) {
-          this.walkExpr(arg, bindings, flow, sunkArgs.has(arg) ? arg : null);
+          this.walkExpr(arg, bindings, flow, sunkArgs);
         }
         return;
       }

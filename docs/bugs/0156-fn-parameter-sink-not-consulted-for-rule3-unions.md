@@ -909,3 +909,16 @@ by-line citation into it was written anywhere in this change.
   refusals (the callee ladder returns before any sink, and an argument past the
   parameter list has no parameter to supply one). All are pinned as green
   controls in the witness.
+
+## Discharge note — bug 0241 (0.208.0)
+
+`## Fix (0.193.0)` *Residuals* item 1 is discharged. Bug
+[0241](./0241-nested-array-element-sink-descent-unwired.md) wired the recursive
+descent at all three routes at once, inside the one relation they share
+(`TypeLayerWalk.checkArrayLiteral`, `src/parser/type-layer-checks.ts`), so this
+report's row f3 reports `[]` and §Expected's sentence "Rows f2–f5 should report
+`[]`" is true of f3 as well. The paired boundary cell of
+`tests/fn-param-sink-array-literal.test.ts` — the pinning byte 0241 §Fix
+constraint 2 authorised to move — now asserts the symmetric admission at the
+argument and binding routes together, with a violation control at each. The
+other 27 cells of that witness are byte-untouched.

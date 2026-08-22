@@ -1012,3 +1012,18 @@ probe files and one modified `src/extension/production-theta-producer.ts` were
 present in the working tree during part of this measurement session and were
 neither read as evidence nor touched. This filing's own probes were removed
 before it closed.
+
+## Discharge note — bug 0241 (0.208.0)
+
+§(d)'s row m3 is spent. Bug
+[0241](./0241-nested-array-element-sink-descent-unwired.md) wired
+`grammar.md:221`'s fourth sink bullet in `TypeLayerWalk.checkArrayLiteral`
+(`src/parser/type-layer-checks.ts`), so the source m3 records —
+`let xs: array<array<A | B>> = [[A { a: 1 }, B { b: "x" }]]` — now reports `[]`
+and registers, at that route and at the `fn`-parameter and constructor-field
+routes alike. The row stays as written: it is a measurement at this report's own
+HEAD, and §Non-goals' condition "If route (a) is taken, row m3 needs its own
+filing" is what 0241 answered. Row m1 (`[[]]`) is unmoved and pinned as 0241's
+control D5, and cell m2 of
+`tests/for-empty-array-iterand-adjudication.test.ts` keeps its two codes under
+0241's one-verdict-per-literal disposition — that witness is byte-untouched.
