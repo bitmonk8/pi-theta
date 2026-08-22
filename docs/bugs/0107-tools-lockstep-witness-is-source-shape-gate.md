@@ -1,13 +1,13 @@
 # Bug 0107 — The bug-0069 constraint-5 lock-step witness is a blacklist of two byte sequences over one function's source text, so it reds on one spelling of the drift and not on the class: `tests/tools-entry-closed-grammar-lockstep.test.ts` group (D1) asserts only that `presentedCallableNames`' body carries no `split(` and no quoted `as`, and two re-tokenisations that reinstate the whole drift — `match(/\S+/g)` plus `includes(" as ")`, and `indexOf(" as ")` plus `search(/\s/)` — pass both cells; group (D2), which the file calls "the derivation both sides must agree on", asks only the resolver, so it passes while the fallback already fails one of the three derivations its own comment says a delegating fallback must reproduce verbatim — `./code-review.theta` presents as `code-review` at the fallback and `code_review` at the resolver and at the parse gate
 
-- **Status:** open. §Fix is constraint-pinned with a recommendation: four
-  dispositions are stated and (c) — replacing the two-regex blacklist with a
-  whitelist requiring the scanned body to call `parseToolsEntry` — is
-  recommended. The choice between (c) and (b) (a behavioural cell over the
-  producer drive, measured feasible in §Reproduction), and the disposition of
-  the name divergence measured here, are left to the run. No ordering
-  dependency: 0069 shipped in 0.62.0 and published the constraint this witness
-  discharges.
+- **Status:** fixed (0.219.0). §Fix was constraint-pinned with a recommendation:
+  four dispositions were stated and (c) — replacing the two-regex blacklist with
+  a whitelist requiring the scanned body to call `parseToolsEntry` — was
+  recommended. The run settled (c) **composed with** (b) (the behavioural
+  agreement cells over the producer drive, measured feasible in §Reproduction),
+  additively: no existing cell was weakened. The name divergence measured here
+  took §Fix constraint 4's second route — recorded rather than closed — and is
+  now PINNED by a cell that reds when it closes. See §Fix (0.219.0).
 - **Sev/Diff estimate:** S3/D2 — a shipped gate that cannot red on the defect
   class it guards, plus a reader divergence at HEAD it does not detect; the fix
   is one witness file with no new registered code and no spec edit, over an
@@ -719,3 +719,124 @@ Constraints on any of (a)–(c):
   on the outputs quoted above, then deleted. The probe lived under the
   gitignored `.pi/tmp/`; no file under `src/`, `tests/` or any other bug doc was
   modified by this filing.
+
+## Fix (0.219.0)
+
+- What shipped:
+  - `tests/tools-entry-closed-grammar-lockstep.test.ts` (the only file changed;
+    3 cells → 11) — §Fix (c) **composed with** (b), additively:
+    - **(D1) presence cell** (§Fix (c)): the scanned `presentedCallableNames`
+      slice must match `/\bparseToolsEntry\(/`. A blacklist enumerates spellings
+      of the defect; this names the delegation, which is the property bug 0069
+      §Fix constraint 5 states, so every re-tokenisation fails it. The two
+      legacy absence cells and `topLevelFunctionBody`'s two loud throws are kept
+      byte-identical (§Fix constraint 2) and are now subsumed, not weakened.
+    - **(D3) derivation-agreement group** (§Fix (b), 5 cells): a real `.theta`
+      source is driven through `parseThetaDocument` →
+      `createProductionProducerDeps().bindPromptConversation` → `executeBody`
+      with a `ThetaCompositionInput` carrying **no** `callableSet`, which selects
+      the snapshot-absent fallback arm. The observable is the bug-0016 dispatch
+      belt (`localShadowsCallable` tests `root.callables.has(name)` first;
+      `ShadowedCalleeDispatchDefectError` on a shadowed call), so registry
+      membership is decidable from outside the module — the behavioural
+      observable 0069's disposition recorded as absent. Cells: the positive
+      control (`- read`, belt fires), the `as` rename, a hyphen-free `.theta`
+      stem, and the three malformed shapes (`read bash`, `read as`,
+      `read as file_read junk`), each probing **every** identifier-shaped token
+      of the entry so no truncation a future body picks escapes. Each message
+      states what the resolver answers, so a red names the disagreement.
+    - **(D4) pinned divergence** (§Fix constraint 4, second route — recorded,
+      not closed): for a hyphenated `.theta` entry the fallback's
+      `thetaCallableName` keeps the hyphens while the resolver's
+      `thetaDefaultName`, the parse gate's `toolCallableName` and
+      `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §default name all
+      map them to underscores. The cell pins the CURRENT state and reds when the
+      divergence closes, forcing this record to be corrected in the same change.
+      It is not an endorsement: the comment names the state as spec-violating.
+    - **Header re-derived** (§Fix constraint 3): the stale `:3595` /
+      `:3600–3607` citations and the pre-fix "WHAT IS RED HERE AND WHY"
+      paragraph are gone; the header states what each of the four groups
+      asserts, that every cell is green at HEAD, and what the pinned divergence
+      is. All citations are symbol/anchor form (bug 0134's citation gate; no
+      line-form citation anywhere in the file).
+  - `src/` is **byte-untouched** (§Fix constraint 5: this is a test-surface
+    change; DIAG-2 and GOV-15 are not reached — GOV-15 no-op, no registry row,
+    no message text, no diagnostic-code sequence changed).
+- Staleness re-derivation at HEAD before Phase 1 (the doc's citations predate
+  ~110 minors): `presentedCallableNames` is at
+  `src/extension/production-theta-producer.ts:4214`, `thetaCallableName` at
+  `:714`, `parseToolsEntry` exported at `src/parser/callable-set.ts:362`,
+  `thetaDefaultName` at `:442`. Scratch probe verdicts: the real HEAD body and
+  both re-tokenisations (`match(/\S+/g)` + `includes(" as ")`;
+  `indexOf(" as ")` + `search(/\s/)`) pass both legacy (D1) cells, and only the
+  pre-fix-shaped reconstruction reds them — the doc's measurement reproduces
+  unchanged. Reader agreement at HEAD holds for `read`, `grep as searcher`,
+  `read bash`, `read as`, `read as file_read junk`, `./plain.theta`, and fails
+  ONLY for hyphenated `.theta` stems (`./code-review.theta` → `code-review` at
+  the fallback, `code_review` at the resolver) — exactly the one divergence
+  class this report measured, with no new one.
+- Gates (verbatim): witness `npx vitest run
+  tests/tools-entry-closed-grammar-lockstep.test.ts` → `Test Files 1 passed (1)
+  / Tests 11 passed (11)`; full default suite `npx vitest run` → `Test Files
+  407 passed (407) / Tests 8565 passed (8565)`; `npm run typecheck` → clean, no
+  output; `npm run lint` → clean, no output. Protected siblings green in one
+  run: `tools-entry-grammar-derivations-lockstep` (24),
+  `tools-entry-closed-grammar` (28), `shadowed-callable-call` (29),
+  `conformance/production-conformance` (27), `registry-closed-set-corpus-gate`
+  (6), `committed-fixture-parse-gate` (36).
+- Review: 2 rounds. Round 1 (deep) — CLEAN, two non-blocking residuals: the
+  `AMBIENT-EXECUTED` sentinel was wired but never asserted (a per-cell vacuity
+  channel on the `drive-completed` path), and one editorial aside in the (D4)
+  message. Round 2 (fast, after a fixer round closing both) — CLEAN, no new
+  findings, no deep-review escalation.
+- Verification: SOLID. (1) Red path proven independently, three ways, each
+  restored by writing the original bytes back and verifying `git hash-object`
+  == `git rev-parse HEAD:<path>` (`7758b45a…` both sides): substituting the
+  measured V2 re-tokenisation for the fallback's delegation leaves BOTH legacy
+  (D1) absence cells GREEN (the evasion this bug is about, reproduced) while the
+  new presence cell and all three malformed (D3) cells RED naming the
+  disagreement; closing the divergence reds (D4) alone; defeating the ambient
+  sentinel reds the malformed cells' reached-the-call-site precondition. (2)
+  Full default suite green (407 files / 8565 tests). (3) No live cell owed: the
+  change touches no file under `src/` (`git status --porcelain` → ` M
+  tests/tools-entry-closed-grammar-lockstep.test.ts` alone), the lane precedent
+  for a tests-only, src-byte-untouched change (bugs 0193/0205); no live test was
+  run and no live lock was taken. (4) `npm run lint` and `npm run typecheck`
+  clean.
+- Composition with 0106 (§Fix constraint 6, measured before Phase 1 as the
+  stop-if-mooted check): 0106's landed 24-cell witness
+  `tests/tools-entry-grammar-derivations-lockstep.test.ts` contains ZERO
+  references to `presentedCallableNames`, the producer fallback or
+  `callableSet`. It pins the PARSE-GATE-side derivations (`toolsEntrySpec`,
+  `toolCallableName`, `piToolCallableName`) against the resolver through
+  load-time diagnostic codes. This fix pins the PRODUCER FALLBACK against the
+  resolver through the runtime dispatch belt — a reader pair 0106 never reaches.
+  The two files cover disjoint reader pairs over the same shared grammar; no
+  cell is duplicated, and 0106 did not moot this subject.
+- Residuals:
+  1. **The hyphenated `.theta` default-name divergence is recorded, not closed**
+     (§Fix constraint 4, second route). The snapshot-absent fallback presents
+     `code-review` where the resolver, the parse gate and
+     `frontmatter-fields-a.md` §default name all say `code_review`. Its blast
+     radius is the test surface only: the production load path always attaches a
+     snapshot (`src/extension/production-composition.ts`), so the fallback arm
+     is reached by in-memory fixtures. Closing it is one line in the fallback's
+     default-name derivation and needs no spec edit; it is deliberately out of
+     this run's scope, which is tests-only. Evidence: the (D4) cell, and the
+     verification probe showing that closing the divergence reds (D4) alone.
+     Whoever closes it flips (D4) to `belt-fired`, moves it into (D3), and
+     updates the file header's PINNED DIVERGENCE paragraph — the cell's own
+     failure message says so.
+  2. **(D1) remains a source scan.** Disposition (a) (exporting
+     `presentedCallableNames`) was not taken: `src/` is out of scope for this
+     run, and (b) supplies the behavioural half without widening a module
+     surface for a test. The whitelist's stated limit stands: a body that calls
+     `parseToolsEntry` and then ignores its verdict satisfies (D1) — which is
+     why (D3) exists.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: dispositions (a) (export the function) and
+  (d) (leave as found) were not taken. The three entry-grammar derivations
+  outside the lock-step remain 0106's subject. Whether the snapshot-absent
+  fallback should exist at all, and the bug-0016 belt's own `params:`-field
+  residual, stay out of scope.
+

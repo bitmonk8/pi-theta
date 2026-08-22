@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.219.0]
+
+### Fixed
+
+- **Bug 0107**: the bug-0069 constraint-5 lockstep witness was a blacklist
+  of two byte sequences — re-tokenisations reinstating the whole derivation
+  drift passed both cells, and its "agreement" group asked only the
+  resolver while the fallback already disagreed on `./code-review.theta`.
+  The witness now gates the CLASS: a `parseToolsEntry` presence cell, a
+  five-cell derivation-agreement group driving the producer with a
+  snapshot-absent input and reading the bug-0016 belt, and the hyphen
+  divergence PINNED as a red-when-closed cell (D4). Tests-only; `src/`
+  byte-untouched (hash-verified) — the recorded fallback-vs-resolver
+  hyphen divergence stays open inside the fix record.
+
 ## [0.218.0]
 
 ### Fixed
