@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.195.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0075 — a symlinked (junction) discovery root now classifies by its
+  TARGET's type instead of drawing `wrong-type`; the doc closes** (§Fix
+  Option B: `classifyPath` probes with `readdir` first, `lstat` fallback
+  unchanged; a link candidate resolves via `realpath`+`lstat`; a dangling
+  link is `missing` through the existing ENOENT/`ancestorsClean` branch —
+  0078's `missing-source` Trigger admits the class, no registry edit;
+  `wrong-type` preserved for fifo/socket/device). `listTree` untouched (the
+  0.175.0 lstat half). The fake filesystem gains host fidelity (all
+  primitives but `lstat` follow links). New 10-cell witness (7 red at HEAD)
+  + 5 seam conformance cells + a REQ-DISC-14 re-pin + standalone H8a live
+  cell over a real Windows junction. Completes the doc the 0.175.0 partial
+  left open-narrowed.
+
 ## [0.194.0] - 2026-08-28
 
 ### Fixed

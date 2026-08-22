@@ -276,6 +276,21 @@ async function realpathOr(fs: FileSystem, path: string): Promise<string | undefi
   );
 }
 
+type RealpathOutcome =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly code: string | undefined };
+
+/** `realpath` outcome carrying the rejection's Node-style `.code`, for a
+ *  caller (`classifyPath`'s resolved-target step below) that must tell a
+ *  dangling target (`ENOENT`) apart from a denied one — a distinction
+ *  `realpathOr`'s existing callers collapse and do not need. */
+async function realpathOutcome(fs: FileSystem, path: string): Promise<RealpathOutcome> {
+  return fs.realpath(path).then(
+    (resolved) => ({ ok: true as const, path: normalizePath(resolved) }),
+    (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
+  );
+}
+
 // --------------------------------------------------------------------------
 // Source resolution.
 // --------------------------------------------------------------------------
@@ -303,6 +318,18 @@ async function classifyPath(
   path: string,
   enoentPolicy: EnoentPolicy,
 ): Promise<PathClass> {
+  // DISC-2's implementation note assigns the candidate probe to `readdir` or
+  // `stat` — both of which follow links — and reserves `lstat` for the
+  // ancestor chain (`ancestorsClean` above). A successful `readdir` both
+  // resolves any link in the path and proves the target a directory
+  // ("successful enumeration short-circuits", discovery-sources.md DISC-2).
+  const enumerable = await fs.readdir(path).then(
+    () => true,
+    () => false,
+  );
+  if (enumerable) {
+    return { kind: "dir" };
+  }
   const outcome = await lstatOutcome(fs, path);
   if (!outcome.ok) {
     if (outcome.code === "ENOENT") {
@@ -321,8 +348,66 @@ async function classifyPath(
   if (outcome.isFile) {
     return { kind: "file" };
   }
-  // A symlink or other non-regular, non-directory entry.
+  // `lstat` on the candidate itself reports neither a directory nor a regular
+  // file: a symlink/junction whose target `stat` would still resolve, or a
+  // genuine non-regular entry that resolves to itself. `readdir` already
+  // rejected (a symlinked file, or a non-directory entry, both reject
+  // `ENOTDIR`), so resolve the target the way the host's `stat` would and
+  // classify by what it finds there.
+  return classifyResolvedTarget(fs, path, enoentPolicy);
+}
+
+/** The DISC-2 candidate probe's link-resolution step: `realpath` then `lstat`
+ *  the resolved path, so a link (or a chain of them) classifies by its
+ *  target's own type rather than by the link's. A dangling target routes
+ *  through the SAME `ENOENT`/`ancestorsClean` branch `classifyPath` uses for
+ *  its own direct `ENOENT`, keyed off the ORIGINAL candidate path — the
+ *  operand's own ancestor chain is what DISC-2's clean-leaf rule asks about,
+ *  not the unreachable target's. */
+async function classifyResolvedTarget(
+  fs: FileSystem,
+  path: string,
+  enoentPolicy: EnoentPolicy,
+): Promise<PathClass> {
+  const target = await realpathOutcome(fs, path);
+  if (!target.ok) {
+    return classifyUnresolvedTarget(fs, path, target.code, enoentPolicy);
+  }
+  const outcome = await lstatOutcome(fs, target.path);
+  if (!outcome.ok) {
+    return classifyUnresolvedTarget(fs, path, outcome.code, enoentPolicy);
+  }
+  if (outcome.isDir) {
+    return { kind: "dir" };
+  }
+  if (outcome.isFile) {
+    return { kind: "file" };
+  }
+  // Resolution reached an entry that is itself neither a directory nor a
+  // regular file (fifo, socket, device) — the residue DISC-2's wrong-type
+  // column, titled "Path is wrong type (file vs dir)", still admits once
+  // links resolve to their target's own type.
   return { kind: "wrong-type" };
+}
+
+/** Shared rejection handling for both steps of `classifyResolvedTarget`
+ *  (the `realpath` call and the resolved-path `lstat`): `ENOENT` is a
+ *  DANGLING link, classified through the candidate's own ancestor walk
+ *  exactly as a direct `ENOENT` on the candidate is; any other code is a
+ *  real read failure on an existing path. */
+async function classifyUnresolvedTarget(
+  fs: FileSystem,
+  path: string,
+  code: string | undefined,
+  enoentPolicy: EnoentPolicy,
+): Promise<PathClass> {
+  if (code !== "ENOENT") {
+    return { kind: "unreadable" };
+  }
+  if (enoentPolicy === "missing") {
+    return { kind: "missing" };
+  }
+  return (await ancestorsClean(fs, path)) ? { kind: "missing" } : { kind: "unreadable" };
 }
 
 /** A `*.theta` file found under a source, before validity/collision resolution. */

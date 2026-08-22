@@ -1,5 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { writeFile, mkdir, symlink } from "node:fs/promises";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -39,6 +39,7 @@ describe("V8b — FakeFileSystem (PIC-13 seam contract)", () => {
     files: Record<string, string | Uint8Array>;
     dirs: Record<string, readonly string[]>;
     symlinks: Record<string, string>;
+    others: readonly string[];
     errors: Record<string, string>;
     caseInsensitive: boolean;
   }> = {}): FileSystem {
@@ -139,6 +140,52 @@ describe("V8b — FakeFileSystem (PIC-13 seam contract)", () => {
     expect((await fs.lstat("/f")).isFile()).toBe(true);
     expect((await fs.lstat("/d")).isDirectory()).toBe(true);
     expect(await rejectionCode(fs.lstat("/missing"))).toBe("ENOENT");
+  });
+
+  // The link-following split PIC-13 inherits from Node, and the axis DISC-2's
+  // clean-leaf note leans on: "The candidate path itself is checked with
+  // `readdir` or `stat` first" (discovery-sources.md:68) presupposes that those
+  // primitives resolve a link while `lstat` does not. The mirror-image
+  // assertions against the real `PiFileSystem` over a Windows junction are in
+  // the production-adapter describe below.
+  it("PIC-13: readdir follows a link and enumerates the target directory's entries", async () => {
+    const fs = fake({
+      dirs: { "/real": ["greet.theta"] },
+      files: { "/real/greet.theta": "x" },
+      symlinks: { "/link": "/real" },
+    });
+    await expect(fs.readdir("/link")).resolves.toEqual(["greet.theta"]);
+  });
+
+  it("PIC-13: readText follows a link at a non-final path component", async () => {
+    const fs = fake({
+      dirs: { "/real": ["greet.theta"] },
+      files: { "/real/greet.theta": "body" },
+      symlinks: { "/link": "/real" },
+    });
+    await expect(fs.readText("/link/greet.theta")).resolves.toBe("body");
+  });
+
+  it("PIC-13: lstat alone does NOT follow a link to a directory", async () => {
+    const fs = fake({
+      dirs: { "/real": ["greet.theta"] },
+      symlinks: { "/link": "/real" },
+    });
+    const st = await fs.lstat("/link");
+    expect(st.isDirectory()).toBe(false);
+    expect(st.isSymbolicLink()).toBe(true);
+  });
+
+  it("PIC-13: a non-regular, non-directory entry lstats as neither file nor directory nor link", async () => {
+    // A fifo / socket / device node — the only input class for which DISC-2's
+    // wrong-type column stays reachable through a candidate that resolves.
+    const fs = fake({ others: ["/fifo"] });
+    const st = await fs.lstat("/fifo");
+    expect(st.isFile()).toBe(false);
+    expect(st.isDirectory()).toBe(false);
+    expect(st.isSymbolicLink()).toBe(false);
+    expect(await rejectionCode(fs.readdir("/fifo"))).toBe("ENOTDIR");
+    await expect(fs.realpath("/fifo")).resolves.toBe("/fifo");
   });
 
   it("PIC-13: realpath follows symlinks transitively to a canonical absolute path", async () => {
@@ -279,5 +326,26 @@ describe("V8b — PiFileSystem (PIC-13 production adapter)", () => {
   it("PIC-13: realpath rejects with `.code === \"ENOENT\"` when a path component is missing", async () => {
     const fs = new PiFileSystem();
     expect(await rejectionCode(fs.realpath(path.join(dir, "missing", "leaf")))).toBe("ENOENT");
+  });
+
+  // The host behaviour `FakeFileSystem` is required to mirror on the
+  // link-following axis (the fake's describe above asserts the same three
+  // facts). A JUNCTION, not a symlink:
+  // `fs.symlink` for a directory needs privileges on Windows and a junction
+  // does not, so a junction is the default-privilege way to point a discovery
+  // root at a checked-out thetas directory — and Node reports it as a symlink.
+  it("PIC-13: readdir and readText follow a directory junction that lstat reports as a link", async () => {
+    const fs = new PiFileSystem();
+    const target = path.join(dir, "junction-target");
+    const link = path.join(dir, "junction-link");
+    await mkdir(target);
+    await writeFile(path.join(target, "greet.theta"), "body", "utf8");
+    symlinkSync(target, link, "junction");
+
+    await expect(fs.readdir(link)).resolves.toEqual(["greet.theta"]);
+    await expect(fs.readText(path.join(link, "greet.theta"))).resolves.toBe("body");
+    const st = await fs.lstat(link);
+    expect(st.isDirectory()).toBe(false);
+    expect(st.isSymbolicLink()).toBe(true);
   });
 });

@@ -25,8 +25,20 @@ export interface FakeFileSystemOptions {
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
   /** Directories: path → entry names (no full paths, no normalisation). */
   readonly dirs?: Readonly<Record<string, readonly string[]>>;
-  /** Symlinks: path → immediate target (resolved transitively by `realpath`). */
+  /** Symlinks: path → immediate target. Every primitive that a host resolves
+   *  through a link (`readdir`, `readText`, `readBytes`, `realpath`) resolves
+   *  these at EVERY path component, transitively; `lstat` alone does not, which
+   *  is the PIC-13 distinction the seam documents. Targets are absolute. */
   readonly symlinks?: Readonly<Record<string, string>>;
+  /** Entries that exist but are neither a regular file, nor a directory, nor a
+   *  link — a fifo, socket or device node. `lstat` reports one, `readdir`
+   *  rejects `ENOTDIR` and the byte readers reject with a deterministic
+   *  non-`ENOENT` code (`EINVAL`) — a fixed fake value, not a claim about what
+   *  any particular host reports for these node types.
+   *  These are the only inputs for which DISC-2's wrong-type column, titled
+   *  "Path is wrong type (file vs dir)", is reachable through a resolved
+   *  candidate (discovery-sources.md DISC-2). */
+  readonly others?: readonly string[];
   /** Injected per-path Node-style `.code` rejections. */
   readonly errors?: Readonly<Record<string, string>>;
   /** When true, `realpath` canonicalises component/leaf case to one entry. */
@@ -42,7 +54,7 @@ function codeError(code: string): NodeJS.ErrnoException {
 
 class FakeStat implements FileStat {
   constructor(
-    private readonly kind: "file" | "dir" | "symlink",
+    private readonly kind: "file" | "dir" | "symlink" | "other",
   ) {}
   isDirectory(): boolean {
     return this.kind === "dir";
@@ -62,6 +74,7 @@ export class FakeFileSystem implements FileSystem {
   readonly #files: Map<string, string | Uint8Array>;
   readonly #dirs: Map<string, readonly string[]>;
   readonly #symlinks: Map<string, string>;
+  readonly #others: Set<string>;
   readonly #errors: Map<string, string>;
   readonly #caseInsensitive: boolean;
 
@@ -71,30 +84,25 @@ export class FakeFileSystem implements FileSystem {
     this.#files = new Map(Object.entries(options.files ?? {}));
     this.#dirs = new Map(Object.entries(options.dirs ?? {}));
     this.#symlinks = new Map(Object.entries(options.symlinks ?? {}));
+    this.#others = new Set(options.others ?? []);
     this.#errors = new Map(Object.entries(options.errors ?? {}));
     this.#caseInsensitive = options.caseInsensitive === true;
   }
 
   async readText(path: string): Promise<string> {
-    const injected = this.#errors.get(path);
-    if (injected !== undefined) {
-      throw codeError(injected);
-    }
-    const content = this.#files.get(path);
+    const target = this.#resolveForFollowingPrimitive(path);
+    const content = this.#files.get(target);
     if (content === undefined) {
-      throw codeError("ENOENT");
+      throw codeError(this.#others.has(target) ? "EINVAL" : "ENOENT");
     }
     return typeof content === "string" ? content : new TextDecoder().decode(content);
   }
 
   async readBytes(path: string): Promise<Uint8Array> {
-    const injected = this.#errors.get(path);
-    if (injected !== undefined) {
-      throw codeError(injected);
-    }
-    const content = this.#files.get(path);
+    const target = this.#resolveForFollowingPrimitive(path);
+    const content = this.#files.get(target);
     if (content === undefined) {
-      throw codeError("ENOENT");
+      throw codeError(this.#others.has(target) ? "EINVAL" : "ENOENT");
     }
     return typeof content === "string"
       ? new TextEncoder().encode(content)
@@ -117,7 +125,12 @@ export class FakeFileSystem implements FileSystem {
       }
       throw codeError(injected);
     }
-    return this.#files.has(path) || this.#dirs.has(path) || this.#symlinks.has(path);
+    return (
+      this.#files.has(path) ||
+      this.#dirs.has(path) ||
+      this.#symlinks.has(path) ||
+      this.#others.has(path)
+    );
   }
 
   homedir(): string {
@@ -143,13 +156,12 @@ export class FakeFileSystem implements FileSystem {
   }
 
   async readdir(path: string): Promise<readonly string[]> {
-    const injected = this.#errors.get(path);
-    if (injected !== undefined) {
-      throw codeError(injected);
-    }
-    const entries = this.#dirs.get(path);
+    const target = this.#resolveForFollowingPrimitive(path);
+    const entries = this.#dirs.get(target);
     if (entries === undefined) {
-      throw codeError("ENOENT");
+      throw codeError(
+        this.#others.has(target) || this.#files.has(target) ? "ENOTDIR" : "ENOENT",
+      );
     }
     // Returned verbatim — no Unicode normalisation, per the entry-name guarantee.
     return entries;
@@ -170,33 +182,68 @@ export class FakeFileSystem implements FileSystem {
     if (this.#files.has(path)) {
       return new FakeStat("file");
     }
+    if (this.#others.has(path)) {
+      return new FakeStat("other");
+    }
     throw codeError("ENOENT");
   }
 
   async realpath(path: string): Promise<string> {
-    const seen = new Set<string>();
-    let current = path;
-    // Follow every symlink on the chain transitively; detect cycles as ELOOP.
-    for (;;) {
-      const injected = this.#errors.get(current);
-      if (injected !== undefined) {
-        throw codeError(injected);
-      }
-      const target = this.#lookupSymlink(current);
-      if (target === undefined) {
-        break;
-      }
-      if (seen.has(current)) {
-        throw codeError("ELOOP");
-      }
-      seen.add(current);
-      current = target;
-    }
-    const canonical = this.#resolveExisting(current);
+    const canonical = this.#resolveExisting(this.#resolveForFollowingPrimitive(path));
     if (canonical === undefined) {
       throw codeError("ENOENT");
     }
     return canonical;
+  }
+
+  /**
+   * The path a link-following primitive actually operates on: the injected
+   * rejection for the requested path (and, when resolution moves it, for the
+   * resolved path) is raised first, then every symlinked component is followed
+   * transitively. This is the host contract `PiFileSystem` inherits from Node —
+   * only `lstat` bypasses it — and DISC-2's implementation note leans on it:
+   * "The candidate path itself is checked with `readdir` or `stat` first"
+   * (docs/spec_topics/discovery/discovery-sources.md, DISC-2 clean-leaf note).
+   */
+  #resolveForFollowingPrimitive(path: string): string {
+    const injected = this.#errors.get(path);
+    if (injected !== undefined) {
+      throw codeError(injected);
+    }
+    const resolved = this.#followLinks(path, 0);
+    if (resolved !== path) {
+      const onTarget = this.#errors.get(resolved);
+      if (onTarget !== undefined) {
+        throw codeError(onTarget);
+      }
+    }
+    return resolved;
+  }
+
+  /** Follow symlinks at every component of an absolute path; a chain deeper
+   *  than the host's own limit — which a cycle always is — rejects `ELOOP`. */
+  #followLinks(path: string, depth: number): string {
+    if (depth > 40) {
+      throw codeError("ELOOP");
+    }
+    if (!path.startsWith("/")) {
+      return path;
+    }
+    let current = "";
+    for (const segment of path.split("/")) {
+      if (segment.length === 0) {
+        continue;
+      }
+      current = `${current}/${segment}`;
+      const target = this.#lookupSymlink(current);
+      if (target !== undefined) {
+        current = this.#followLinks(target, depth + 1);
+        if (current.length > 1 && current.endsWith("/")) {
+          current = current.slice(0, -1);
+        }
+      }
+    }
+    return current === "" ? "/" : current;
   }
 
   /** Immediate symlink target for a path, honouring case-insensitive matching. */
@@ -216,18 +263,19 @@ export class FakeFileSystem implements FileSystem {
   }
 
   /**
-   * Canonical spelling of an existing (non-symlink) path among files/dirs, or
+   * Canonical spelling of an existing (non-symlink) path among files, dirs and
+   * non-regular entries, or
    * `undefined` if no such entry exists. Under case-insensitivity the returned
    * value is the on-disk key spelling, so case-variant inputs to one entry
    * yield byte-identical output (the case-canonicalisation guarantee).
    */
   #resolveExisting(path: string): string | undefined {
-    if (this.#files.has(path) || this.#dirs.has(path)) {
+    if (this.#files.has(path) || this.#dirs.has(path) || this.#others.has(path)) {
       return path;
     }
     if (this.#caseInsensitive) {
       const lower = path.toLowerCase();
-      for (const key of [...this.#files.keys(), ...this.#dirs.keys()]) {
+      for (const key of [...this.#files.keys(), ...this.#dirs.keys(), ...this.#others]) {
         if (key.toLowerCase() === lower) {
           return key;
         }

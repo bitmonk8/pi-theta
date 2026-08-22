@@ -1,9 +1,9 @@
 # Bug 0075 — A discovery root or explicit `.theta` entry that is a symlink or a Windows directory junction is classified `wrong-type` and contributes nothing: `classifyPath` probes the candidate with `lstat`, where DISC-2's implementation note pins `readdir` or `stat` for the candidate and reserves `lstat` for the ancestor probe
 
-- **Status:** open — the headline `classifyPath` subject is untouched. The
-  `listTree` per-entry `lstat` swallow named in §Affected (`discovery-walk.ts`
-  `listTree`, and its `package-discovery.ts` twin) is fixed; see
-  §Fix (0.175.0).
+- **Status:** fixed (0.195.0). Both halves have landed: the `listTree` per-entry
+  `lstat` swallow named in §Affected (`discovery-walk.ts` `listTree`, and its
+  `package-discovery.ts` twin) at §Fix (0.175.0), and the headline
+  `classifyPath` link-classification subject at §Fix (0.195.0).
 - **Kind:** defect. The DISC-2 clean-leaf-`ENOENT` note states which probe applies
   to the candidate path and which to its ancestors; the implementation uses the
   ancestor probe for both, so every link-typed candidate falls into the
@@ -368,3 +368,164 @@ numbering would stale.
   `enumerateRoot`'s DISC-6 root swallow; the DISC-6 bounds; the
   `node_modules/` symlink filter and the `realpath` dedup in
   `isCanonicalDuplicate` (section Non-goals). None was touched.
+
+## Fix (0.195.0) — the headline `classifyPath` link classification
+
+**Scope.** This pass fixes the report's headline subject and the 0.175.0 record's
+residual 1: `classifyPath` probed the candidate with `lstat`, so a symlink — or,
+on Windows, a directory junction — answered `isDirectory() === false` and
+`isFile() === false` and took the `wrong-type` arm, taking the whole root dark.
+With this, both defect classes this report names are fixed and it closes.
+
+**Adjudication.** §Fix's own recommendation governs: **Option B**, with the
+`realpath` step for the file case. The candidate is probed with `readdir` first
+(DISC-2's implementation note, `discovery-sources.md:68`: the candidate is
+checked with `readdir` or `stat`, `lstat` is the ancestor probe, and successful
+enumeration short-circuits); on rejection `lstat` classifies as before; when
+`lstat` reports neither a directory nor a regular file, `realpath` then `lstat`
+on the resolved path classify the candidate by its target's own type. No seam
+member was added, so `SDK_SURFACE_INVENTORY` is untouched and Option A's
+`FakeFileSystem` `stat` conformance obligation does not arise. The three
+invariants §Fix requires are kept: a dangling link classifies through the
+`ENOENT` branch (`EnoentPolicy` / `ancestorsClean` on the ORIGINAL candidate's
+chain — the operand's own ancestors are what DISC-2's clean-leaf rule asks
+about) rather than as `wrong-type`; `ancestorsClean` stays on `lstat`; and the
+`wrong-type` arm still fires for a genuine non-regular, non-directory entry
+(fifo, socket, device), which is the only input the failure-modes column titled
+"Path is wrong type (file vs dir)" still admits once links resolve.
+
+**Diagnostic-family discipline.** Classified by code. The dangling-link case
+moves from the `theta/load/wrong-type-source` row to the
+`theta/load/missing-source` row, whose *Trigger* — "A discovery source's path
+does not exist." — admits the class as written: the link resolves to nothing,
+which is that row one indirection later. Bug 0078's fix (0.178.0) put an
+override-prefixed non-existent CLI operand on the same row on exactly this
+reasoning. So **no new code, no registry row, no *Message* reword** (DIAG-4), no
+DIAG-2 widening and no `permitted-codes.json` decision. The
+`wrong-type-source` row's *Trigger* ("exists but resolves to something that is
+neither a regular `.theta` file nor a directory") is unaffected — a resolved
+fifo/socket/device still admits it exactly.
+
+**Mirror decision.** No documentation edit. DISC-2's implementation note already
+states the correct rule; the defect was the implementation not matching an
+already-correct spec, so no contradiction is created and the 0113 / 0.175.0
+ground holds unchanged — live `docs/reference/discovery-cli.md:NNN` citations
+sit in still-open bug documents 0088, 0111, 0146 and 0147, which an edit
+shifting that file's line numbering would stale. Line counts confirmed
+unchanged: `discovery-sources.md` 106, `discovery-cli.md` 285,
+`code-registry-load.md` 64.
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `classifyPath` probes the candidate with
+    `fs.readdir` first and short-circuits a resolving enumeration to `dir`; the
+    `lstat` fallback keeps the dir / file / `ENOENT` / unreadable arms it always
+    had; a candidate that `lstat`s as neither directory nor regular file goes to
+    the new `classifyResolvedTarget`, which resolves it with `realpath` and
+    `lstat`s the result (dir ⇒ `dir`, file ⇒ `file`, anything else ⇒
+    `wrong-type`). `classifyUnresolvedTarget` handles both steps' rejections:
+    `ENOENT` (a dangling link) routes through the candidate's own
+    `EnoentPolicy` / `ancestorsClean` walk, any other code is `unreadable`. A
+    code-carrying `realpathOutcome` helper was added beside `realpathOr` rather
+    than widening `realpathOr`, whose existing callers do not need the
+    distinction. `ancestorsClean`, `properAncestors`, `classifyForSource`,
+    `enumerateDirectory`, both `listTree` copies, `package-discovery.ts` and
+    `src/seams/**` are untouched.
+  - `tests/helpers/fake-file-system.ts` — host fidelity, a prerequisite of any
+    offline witness: every primitive a host resolves through a link
+    (`readdir`, `readText`, `readBytes`, `realpath`) now follows symlinks at
+    EVERY path component, transitively, with `ELOOP` on a cycle; `lstat` alone
+    still does not, which is the PIC-13 distinction the seam documents. Additive
+    `others?` option models a fifo / socket / device node so the `wrong-type`
+    arm is reachable offline.
+  - `tests/discovery-symlinked-root-classification.test.ts` (new, 10 cells) —
+    the witness, driving the real `discoverThetas`.
+  - `tests/filesystem-seam.test.ts` — 5 additive link-axis conformance cells,
+    including one real-`PiFileSystem` cell over a Windows directory junction
+    (`fs.symlinkSync(target, link, "junction")` — a junction needs no
+    privileges where `fs.symlink` for a directory does).
+  - `tests/e2e-s5-disc-cli-settings.test.ts` — the REQ-DISC-14 re-pin §Fix
+    requires: its fixture is a DANGLING link, whose spec-conformant class is
+    `theta/load/missing-source` (error, CLI row), re-derived from the DISC-2
+    failure-modes table rather than from the test id, which has no anchor under
+    `docs/`; plus an added cell holding the `wrong-type` contract with a genuine
+    non-regular target.
+  - `tests/live/discovery-symlinked-root-live-cell.test.ts` (new) — the live cell.
+- Gates: witness `tests/discovery-symlinked-root-classification.test.ts` 10/10
+  with `tests/e2e-s5-disc-cli-settings.test.ts` 7/7 and
+  `tests/filesystem-seam.test.ts` 36/36 (8 of those 53 RED before the fix, each
+  observing `theta/load/wrong-type-source` where an empty diagnostics array and
+  a registered theta, or `missing-source`, are owed); full default suite
+  `383 files / 7887 tests passed` (lane baseline 382/7871 at v0.191.0 — the
+  delta is exactly this witness plus the additive seam and e2e cells);
+  `npx tsc -p . --noEmit` clean; `npm run lint` clean; live H8a
+  the standalone live cell 1/1 real run under the live lock, red-proven by neutralising
+  `classifyPath`.
+- Review: 1 round plus one comment-only polish. Round 1 (deep) found no
+  correctness, fidelity or spec defect: two items, both non-executable — the
+  re-pinned e2e cell's comment narrated its former expectation (a historical
+  reference), and the fake's `others?` doc claimed an unmeasured host `EINVAL`
+  for fifo / socket nodes. One `bug-fix-fixer-light` round applied both,
+  touching no executable line; polish verified by gate-diff, confirmation round
+  skipped. One reviewer residual was recorded rather than fixed: the successful
+  `readdir` probe's entry list is discarded and `enumerateDirectory`
+  re-enumerates (residual 2 below).
+- Verification: SOLID. (A) The witness reds on revert, proven four ways with
+  byte-exact restoration by writing saved content back (`git hash-object`
+  re-verified after each: `src/discovery/discovery-walk.ts`
+  `a952aef54324524b690e92605ceaa2654a25ed19`,
+  `tests/helpers/fake-file-system.ts`
+  `929fd2aa62d78df5620e2aea3ea9e1135946f7d3`): short-circuiting
+  `classifyResolvedTarget` to `wrong-type` reds the symlinked-file cell and both
+  dangling-link cells; gutting `classifyUnresolvedTarget` reds the two
+  dangling-link cells with the `missing-source`-vs-`wrong-type-source` symptom;
+  neutralising the fake's link following reds 11 cells across three files;
+  removing the `readdir`-first probe alone reds nothing (residual 1). (B)
+  `npm test` 383/7887. (C) `npx tsc -p . --noEmit` and `npm run lint` clean.
+  (D) Live: one additive standalone H8a cell,
+  `tests/live/discovery-symlinked-root-live-cell.test.ts`, boots the real shipped
+  extension with the project discovery root replaced by a REAL Windows
+  directory junction over a real `.theta`, and asserts off the settled
+  `SessionManager` that the theta registers and that no
+  `theta/load/wrong-type-source` note lands on the `theta-system-note` channel.
+  No fault injection: the provocation is ACL-free, so the 0.175.0 half's
+  `node:fs` patch shape was not needed. Green, red-proven by neutralising
+  `classifyPath` and re-run green after byte-exact restore; all three runs under
+  the live lock, 290–668 ms wall. No H9a run and no `permitted-codes.json`
+  decision: no new code, no severity change and no CLI-surface change; the
+  classification layer is invoked identically under a real `pi -p` host, and the
+  H8a harness already drives the real composition root over the real
+  `PiFileSystem`. No stochastic class was observed. 0075's own landed 11 cells,
+  0113's 19, 0078's 13 and the registry closed-set corpus gate are green and
+  unmodified; the DIAG-2 baseline fixture is unchanged.
+- Residuals:
+  1. **The `readdir`-first probe is not witnessed offline.** Neutralising it
+     alone reds no cell: the `lstat` + `realpath` fallback reaches the same
+     classification for every fixture. Evidence: verification neutralisation N1,
+     17/17 green. It is kept because DISC-2's implementation note names it as
+     the candidate probe and it is what makes a resolving enumeration
+     short-circuit on the host; a cell distinguishing the two paths would have
+     to assert on syscall counts, which no harness here observes.
+  2. **A successful candidate `readdir` is enumerated twice.** `classifyPath`
+     discards the probe's entry list and `enumerateDirectory` re-enumerates, so
+     §Fix Option B's "the entry list is already in hand" is not exploited. Cost
+     is one syscall per directory source; the TOCTOU window between the two
+     calls lands in `enumerateDirectory`'s existing missing / unreadable
+     emission, so no diagnostic is lost.
+  3. **`listTree`'s per-entry link classification is unchanged.** A symlinked
+     subdirectory inside a settings-glob universe is still recorded with
+     `isDir === false` and is not descended. Disposed of by §Non-goals
+     (link-following on descent) and left deliberately: the universe walk is
+     recursive, and following links there needs cycle detection this fix does
+     not carry. Evidence: both `listTree` copies are byte-unchanged in this
+     pass.
+  4. **The two remaining 0.175.0 residuals stand** — a denied entry is reported
+     but not recovered (residual 3 there), and cross-source duplication for one
+     denied path remains by design (residual 4 there). Neither was touched.
+- Discharge notes appended: none. This fix discharges this report's own
+  0.175.0 residual 1; bug 0078's subject (the CLI entry schema's route through
+  `collectFromEntries`) shares these files and is untouched.
+- Pinned dispositions / non-goals: `listTree`'s link-typed entries and
+  link-following on descent (residual 3); the `node_modules/` symlink filter,
+  which `package-and-settings.md:123` pins on `lstat` for a different reason;
+  the `realpath` dedup in `isCanonicalDuplicate`; bug 0078's open subject. None
+  was touched.

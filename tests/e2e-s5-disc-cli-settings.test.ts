@@ -69,6 +69,7 @@ interface FakeSpec {
   readonly files?: Record<string, string>;
   readonly errors?: Record<string, string>;
   readonly symlinks?: Record<string, string>;
+  readonly others?: readonly string[];
 }
 
 function build(spec: FakeSpec): FakeFileSystem {
@@ -79,6 +80,7 @@ function build(spec: FakeSpec): FakeFileSystem {
     files: spec.files ?? {},
     errors: spec.errors ?? {},
     symlinks: spec.symlinks ?? {},
+    others: spec.others ?? [],
   });
 }
 
@@ -250,12 +252,36 @@ describe("REQ-DISC-14 — directory validity regardless of contents", () => {
     expect(diagnostics).toHaveLength(0);
   });
 
-  it("REQ-DISC-14: the wrong-type rule fires only for a non-.theta-file, non-directory target (a symlink --theta target)", async () => {
+  // `REQ-DISC-14` has no anchor under docs/, so the class of a DANGLING link
+  // is derived from the DISC-2 failure-modes table (that table, not the test
+  // id, is authoritative): docs/spec_topics/discovery/discovery-sources.md:51,
+  // rows :53-58, mirrored docs/reference/discovery-cli.md:46-53. The link's
+  // target does not exist, so nothing here *resolves to* something that is
+  // "neither a regular `.theta` file nor a directory" (:70) — the candidate is
+  // an `ENOENT` on a clean ancestor chain (:68), and the CLI row's *Missing
+  // path* cell is `error`.
+  it("REQ-DISC-14: a DANGLING symlink --theta target is a missing-source error, not wrong-type", async () => {
     const fs = build({
       dirs: { ...ancestors("/cli/link") },
       symlinks: { "/cli/link": "/somewhere/else" },
     });
     const { thetas, diagnostics } = await discoverThetas(input(fs, { cliPaths: ["/cli/link"] }));
+    expect(byCode(diagnostics, "theta/load/wrong-type-source")).toHaveLength(0);
+    const missing = byCode(diagnostics, "theta/load/missing-source");
+    expect(missing).toHaveLength(1);
+    expect(missing[0]!.severity).toBe("error"); // CLI source: missing is fatal
+    expect(missing[0]!.file).toBe("/cli/link");
+    expect(thetas).toHaveLength(0);
+  });
+
+  it("REQ-DISC-14: the wrong-type rule fires only for a non-.theta-file, non-directory target (a fifo --theta target)", async () => {
+    // A non-regular, non-directory entry: it exists and resolution leads to the
+    // same entry, which is what the third column's title (:51) admits.
+    const fs = build({
+      dirs: { ...ancestors("/cli/fifo") },
+      others: ["/cli/fifo"],
+    });
+    const { thetas, diagnostics } = await discoverThetas(input(fs, { cliPaths: ["/cli/fifo"] }));
     const wrongType = byCode(diagnostics, "theta/load/wrong-type-source");
     expect(wrongType).toHaveLength(1);
     expect(wrongType[0]!.severity).toBe("error"); // CLI source: wrong-type is fatal
