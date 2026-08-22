@@ -71,7 +71,7 @@ describe(
         "theta/load/wrong-type-source note on the theta-system-note channel",
       async () => {
         const provider = await requireLiveProvider();
-        const workspace = plantJunctionRootWorkspace("junctionrootcelle2");
+        const workspace = plantJunctionRootWorkspace("junctionroot0075");
 
         let handle: Awaited<ReturnType<typeof bootShippedExtension>> | undefined;
         try {
@@ -82,7 +82,7 @@ describe(
           // alone), the junction answers `isDirectory() === false` on `lstat`,
           // the root classifies `wrong-type`, and this command is absent.
           expect(
-            handle.command("junctionrootcelle2"),
+            handle.command("junctionroot0075"),
             "the theta beneath the junction-rooted project discovery root did not " +
               "register — classifyPath still classifies a link/junction candidate " +
               "wrong-type instead of resolving it. Registered: " +

@@ -167,7 +167,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (src/extension/production-composition.ts) reads — error severity and the
 // `theta/parse/` / `theta/load/` namespaces — over the diagnostics the fixture
 // actually emitted, plus the frontmatter collapse. One additive live H8a cell
-// (`CELL-D`, tests/live/live-production-acceptance.test.ts) covers the real
+// (cell 60, tests/live/live-production-acceptance.test.ts) covers the real
 // discovery→registration path on top of this.
 //
 // NO SILENT SKIPPING: every registry lookup asserts the row is present before

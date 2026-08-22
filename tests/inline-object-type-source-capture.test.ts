@@ -121,7 +121,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // same call `src/extension/production-theta-producer.ts:2672` makes on
 // `QueryExpr.schema`; `lowerParamsFieldType`, src/parser/params.ts). The two
 // live halves cover only the registration-facing surface this tier cannot
-// reach: tests/live/inline-field-name-not-identifier-CELL-A-live-cell.test.ts
+// reach: tests/live/inline-field-name-not-identifier-live-cell.test.ts
 // (H8a) and
 // tests/live/acceptance/inline-field-name-not-identifier-load-refusal.test.ts
 // (H9a).

@@ -107,7 +107,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // live — an error-severity `theta/parse/*` denying registration through the real
 // composition root (`hasLoadParseError`, src/extension/production-composition.ts)
 // — is a registration-only cell in tests/live/live-production-acceptance.test.ts
-// carrying the token CELL-D, and it spends zero tokens.
+// (cell 79), and it spends zero tokens.
 //
 // ── HARNESS ─────────────────────────────────────────────────────────────────
 // The shared house driver `parseDoc` (tests/helpers/e2e-s1.ts:39), unmodified —
