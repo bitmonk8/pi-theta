@@ -1,6 +1,7 @@
 # Bug 0195 — `control-flow.md:13` and three sibling corpus sentences state that `for x in []` with no surrounding sink is `theta/parse/array-no-common-type`, "the same diagnostic that `let xs = []` raises in unannotated position", and both measure `[]` at HEAD: the reachable emitter's sink-less arm exempts an empty literal by construction (`type-compat.ts:601`, "Fewer than two branches trivially share one") while the one function written for exactly this class — `checkArrayCommonType` (`type-grammar.ts:890`), whose `for-iterand` and `none` contexts both fire on `[]` — has no `src/` caller and is reached only by a green unit cell asserting the diagnostic the production parser never emits
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the deliverable is
+- **Status:** fixed (0.190.0) — **route (a)**; see `## Fix (0.190.0)`. §Fix was
+  constraint-pinned, not settled, at filing: the deliverable was
   the adjudication — either the four corpus sentences are corrected and the
   callerless emitter is disposed of, or the empty-literal refusal is wired and
   `theta/parse/array-no-common-type`'s registered *Trigger* is dispositioned
@@ -727,6 +728,236 @@ first.
    registered *Trigger* governs route (b)'s admissibility here. If neither has,
    this report's ruling governs theirs, and it must be written so they can cite
    it.
+
+## Fix (0.190.0)
+
+**Route selected: (a)** — the empty array literal is NOT owed a refusal. The
+four corpus sentences (plus the `docs/reference/type-system.md` mirror of
+expressions.md's common-type rules) are corrected onto the registered
+*Trigger*; no registry row moved, no `src/` line moved, no emission set moved
+(`git hash-object src/parser/type-compat.ts` = `git rev-parse
+HEAD:src/parser/type-compat.ts` = `55be9cb35845b841651d0416524e862d6e7793ef`;
+`git diff --stat src/` empty). Route (b) was refused on two measured, cited
+grounds, neither re-derived here:
+
+1. **The *Trigger*-governs law, cited verbatim from bug
+   [0155](./0155-ternary-common-type-unenforced-trigger-conflict.md)'s landed
+   `## Fix (0.174.0)` ("THE STATED LAW"), the same clause bug
+   [0158](./0158-match-arm-and-fn-return-lub-diverge-from-common-type.md)'s
+   `## Fix (0.181.0)` and bug
+   [0144](./0144-annotated-unresolvable-arg-structural-param-emits.md)'s
+   `## Fix (0.185.0)` each cite rather than fork:**
+   > A registered *Trigger* is the normative statement of a code's emission set
+   > (DIAG-2). Where a rule page's scope exceeds the registered *Trigger* of the
+   > code it names, the *Trigger* governs and the rule page is corrected in the
+   > same commit; no implementation may be wired to emit a code outside its
+   > registered *Trigger*. Narrowing an emission set ONTO its registered
+   > *Trigger* needs no registry edit (the 0084/0139 posture), but where the
+   > *Trigger*'s TEXT presupposes the wider reading, that text is corrected in
+   > the same commit as the narrowing.
+
+   Applied: `theta/parse/array-no-common-type`'s *Trigger*
+   (`code-registry-parse.md:44` at this HEAD, `:41` in §Affected) requires an
+   "Array literal whose elements have no common type and no sink to narrow
+   against" — a POSITIVE verdict over elements that exist, which is exactly the
+   reading 0144's record applies to `fn-arg-type-mismatch` ("An operand past the
+   parser's static view reaches no such verdict, so the unresolvable-operand
+   case is **outside** the registered *Trigger*"). An empty literal has no
+   elements and so reaches no such verdict: it is **outside** the registered
+   *Trigger*. Wiring the refusal would emit outside it, which the law forbids.
+   The four rule pages exceeded the *Trigger*, so the *Trigger* governs and the
+   pages are corrected in this commit. **No registry edit follows**: the law's
+   second limb fires only where the *Trigger*'s text presupposes the wider
+   reading, and this one already reads narrowly. §Fix route (a) suggested the
+   *Trigger* text as "the natural place" to record the reading; that suggestion
+   is declined on the law's own terms and the reading is recorded instead in the
+   four corrected pages (each names why the code does not fire) and here. DIAG-4
+   is untouched — the *Message* is byte-identical, pinned by witness cell A6.
+2. **Route (b)'s named prerequisite is unmet.** Bug
+   [0156](./0156-fn-parameter-sink-not-consulted-for-rule3-unions.md) is **open**
+   at this HEAD. §Fix b1 makes it binding: wiring the refusal today draws an `E`
+   on §Reproduction (d) rows b2 (`f([])`) and m1
+   (`let xs: array<array<integer>> = [[]]`), both declared legal by the same
+   sentence. Re-measured this run: b2 `[]`, m1 `[]`.
+
+**Severity stays S3.** The §Sev/Diff upgrade condition ("if the run adjudicates
+that the refusal is owed, the same evidence rescores S2") does not fire: the
+refusal is adjudicated NOT owed, so rows a1–a4 are inputs the spec now declares
+accepted, and the g1/g2 deferral is a correct check over a body that never runs
+(CTRL-1).
+
+- **Premeasure (before any edit, at HEAD `4782e5bf` / 0.185.0).** Every row of
+  §Reproduction (a)–(d) re-derived through `parseDoc` with one deleted scratch
+  probe; **zero flips** against the filing's table, so the 0081 and 0126 loop
+  substrate moves left no row behind: a1/a2/a3/a4 `[]`; f1/h3/c1/m3
+  `["theta/parse/array-no-common-type"]`; f2/c2/i1/b1/b3/b2/m1/k1/g1/g2/e3/j1/j2
+  `[]`; m2 `["theta/parse/let-rhs-type-mismatch","theta/parse/array-element-type-mismatch"]`;
+  g3 `["theta/parse/unknown-method"]`; e1/e2 `["theta/parse/non-string-array-join"]`.
+  §Fix constraint 4's GOV-15 census re-measured at this HEAD: **34** committed
+  `.theta`/`.thetalib`, **zero** containing `[]`, **zero** iterating a bracket
+  literal — so no committed source's diagnostic sequence moves, and the witness
+  re-measures it at run time (cell D1) rather than pinning the filing's count.
+- **What shipped:**
+  - `docs/spec_topics/control-flow.md` — the `for … in` paragraph's
+    empty-literal clause: the iterand is still **not** an element-type sink, and
+    that absence now *draws no diagnostic*; `for x in []` types the literal as
+    `array<unknown>`, the same type `let xs = []` gets unannotated; the loop
+    variable binds that unresolvable element so body checks defer under the
+    *Unresolvable operands* rule the same paragraph already cites, over a body
+    that never runs (CTRL-1). The annotate-or-inline advice survives,
+    re-motivated: it buys the body's checks back rather than silencing a
+    diagnostic.
+  - `docs/spec_topics/grammar.md` — §"`array<T>` literal type-sink rule"'s
+    closing line. "resist any `for`-specific carve-out" is **answered, not
+    deleted** (the string survives verbatim): the iterand is not a sink and never
+    becomes one, an unsunk `[]` there types as `array<unknown>` and draws no
+    code exactly as an unsunk `[]` anywhere else does, so there is nothing
+    `for`-specific to carve out in either direction. The reason is named — the
+    registered *Trigger* covers elements that have no common type, and an empty
+    literal has none — with the registry cited.
+  - `docs/reference/grammar.md` — the mirror of the same clause, in that page's
+    register.
+  - `docs/spec_topics/expressions.md` — §"Array construction": the three-context
+    sentence gains the fallback its absence left unstated — with no such context
+    the literal has no elements to reduce and no sink to narrow against, so it
+    types as `array<unknown>` and draws no diagnostic, its consumers deferring
+    under *Unresolvable operands*. Rule 3's population sentence is byte-identical
+    (pinned by cell A4).
+  - `docs/reference/type-system.md` — the same fallback in the transcribed
+    common-type rule block, mirror-faithful to the expressions.md edit.
+    `docs/spec_topics/type-system.md` was CHECKED per §Fix route (a) and NOT
+    edited: at this HEAD its only array-adjacent content is the `⊑` site list
+    (`:27`) and TYPE-9 (`:52`); the array-literal common-type rules live in
+    expressions.md, which `docs/reference/type-system.md` transcribes, so the
+    mirror is the fallback's only type-system home.
+  - `tests/for-empty-array-iterand-adjudication.test.ts` — new 26-cell witness.
+    (A) six corpus-conformance cells reading the live tree, each asserting both
+    directions (false claim absent, replacement observable present), plus A6
+    pinning the registry *Trigger* and *Message* byte-identical — the
+    no-DIAG-2-edit pin. (B) eighteen behaviour pins over `parseDoc` discharging
+    §Fix constraints 1–3: the four subject rows silent, f1 and h3 (both loop
+    forms) and c1 still drawing the code, i1/c2/f2/b1/b3/k1/m2 unmoved, g1/g2
+    against control g3, and d2 (`array<unknown>`) as the mechanism. (C) a
+    structural pin that no `src/` file references `checkArrayCommonType`. (D) the
+    GOV-15 census. Every cell titled with the lane's `CELL-G2` token,
+    strip-safe.
+  - `tests/type-grammar.test.ts` — the V2a-T cell re-pointed, **prose only**
+    (titles, in-cell comment, file header; zero assertions and zero executable
+    lines changed): it no longer claims `for x in []` fires on the shipped path,
+    and states that it measures an unwired V2a-era seam with zero `src/` callers
+    whose `for-iterand` contract is not the shipped rule, pointing at the new
+    witness. This is §Fix route (a)'s stated alternative for the disposal limb —
+    see residual 1.
+  - `tests/array-ternary-common-type-union.test.ts`,
+    `tests/invoke-return-enum-carrier-projection.test.ts` — citation-only
+    corrections for this fix's OWN +6 line insertion into
+    `docs/reference/type-system.md` (four comment lines and one failure-message
+    string; zero assertions). Not bug 0134's class: the drift is self-inflicted
+    and in doc-page coordinates, not the adjudicated `type-grammar.ts` /
+    `type-compat.ts` positional class, which was left unchased.
+- **Gates:** witness RED before at 5/26 cells — A1 (`control-flow.md` "still
+  carries the claim …"), A2, A3, A4, A5 — each on a corpus-conformance
+  assertion naming the un-corrected sentence, none on a harness throw; GREEN
+  after, 26/26. Full default suite `npx vitest run` → **378 files / 7759 tests
+  passed**, re-run independently by the orchestrator after every phase.
+  `npm run typecheck` clean. `npm run lint` clean.
+  `tests/registry-closed-set-corpus-gate.test.ts` and
+  `tests/committed-fixture-parse-gate.test.ts` green (the 0.184.0 DIAG-2
+  corpus gate: this witness introduces no code-shaped fixture span, so its
+  baseline is unchanged). **No live run owed and none made**: `src/` is
+  byte-unchanged (`git status --short src/` and `git diff --stat src/` both
+  empty), the 0193/0205 disposition for a prose+witness fix.
+- **Review:** 1 round, plus one pre-review citation-only correction round (not
+  a review round; round numbering unaffected). Pre-review round: this fix's +6
+  insertion into `docs/reference/type-system.md` staled three citations in two
+  sibling witnesses; corrected comment-only after re-measuring each range, with
+  two further lines of the same self-inflicted drift folded in under a recorded
+  bounded self-authorization (see residual 4). Round 1 (deep) — **CLEAN**, with
+  three non-blocking `prose` residuals (R1, R2 below; R3 an off-range in one of
+  this witness's own failure messages). R1 and R3 were then closed by a
+  `bug-fix-fixer-light` round; that round's diff touched only corpus prose (one
+  preposition) and one failure-message string, so per the charter's
+  post-polish rule the polish was verified by gate-diff and the confirmation
+  round skipped.
+- **Verification:** **SOLID**. (1) The witness reds destructively in three
+  independent directions, each restored by writing content back — never by
+  `git checkout`/`restore` — and proven exact: reinstating HEAD's
+  `control-flow.md` reds A1 and HEAD's `reference/grammar.md` reds A3 (both
+  restored, `diff` clean); splitting `type-compat.ts`'s sink-less guard into
+  route (b)'s `branches.length === 0` shape reds §B rows a1–a4 with
+  `expected [ 'theta/parse/array-no-common-type' ] to deeply equal []` (restored
+  byte-exact, `git hash-object` = `git rev-parse HEAD:` =
+  `55be9cb35845b841651d0416524e862d6e7793ef`); adding a `checkArrayCommonType`
+  reference to `src/parser/type-layer-checks.ts` reds C1 (restored byte-exact,
+  `ab190526c898219d04faa19ae3b04a6e34bc090a`). So no cell is
+  green-by-construction-and-unfalsifiable. (2) Full suite 378/7759 green.
+  (3) Live: none owed, `src/` byte-unchanged, proof quoted above. (4) Lint and
+  typecheck clean. Fidelity spot-checks all passed: the registry page and
+  `docs/reference/diagnostics.md` byte-unchanged, all four sentences moved, the
+  carve-out string intact, census 34/zero.
+- **Residuals:**
+  1. **The callerless emitter survives, by ownership, not by preference.** §Fix
+     route (a) asks that `checkArrayCommonType`, `ArraySinkContext` and
+     `ArrayLiteralSite` (`src/parser/type-grammar.ts:1198–1257` at this HEAD;
+     `:864–923` in §Affected) be removed with their witness cell, **or** that
+     the reason for keeping dead exported code with a green witness be stated in
+     writing. `src/parser/type-grammar.ts` is owned by a concurrent lane for the
+     duration of this run and is out of bounds, so the alternative is taken and
+     this is the writing: the seam is retained UNWIRED, its test cell no longer
+     claims shipped behaviour, and witness cell C1 structurally pins that no
+     `src/` file references it — so a later silent wiring reds rather than
+     passing. The file-header prose at `type-grammar.ts:65–69`, which restates
+     the refuted rule, is in the same out-of-bounds file and also survives. A
+     follow-up filing should delete all four artefacts together; nothing in this
+     record depends on their removal.
+  2. **`docs/spec_topics/glossary.md:67`** — the *type sink* entry closes "an
+     array literal that cannot otherwise infer its element type is
+     `theta/parse/array-no-common-type`", which an unsunk `[]` now measurably is
+     not. §Affected lists this line as "Supporting, not claimed", and §Fix route
+     (a) names four sentences; widening to a fifth would have exceeded the
+     settled scope. The clause is readable as rule 3's (≥2 elements, no LUB)
+     population, which is uncontested; a follow-up tightening to "elements that
+     have no common type" would remove the ambiguity.
+  3. **`tests/non-object-receiver-gate.test.ts:50`** cites
+     `docs/reference/type-system.md:113` for the `Result` observation rule; the
+     restatement is at `:155`. Measured pre-existing at HEAD (`:113` sits BELOW
+     this fix's insertion point and did not shift), so it is not this fix's
+     drift and was left untouched rather than widening the write surface to a
+     third sibling file.
+  4. **Bounded self-authorization, recorded because an invisible one is a
+     violation.** The `question` tool is unavailable in this run. The question I
+     would have asked: *may the pre-review citation round extend to
+     `tests/array-ternary-common-type-union.test.ts:34` and `:151`, the two
+     remaining lines of the same self-inflicted +6 drift, sitting inside the
+     same comment blocks as the lines already corrected?* Self-authorized under
+     the citation/comment-only branch. Three independent evidence sources:
+     (i) `sed -n '121,123p' docs/reference/type-system.md` measuring rule 1 at
+     `:121–123`; (ii) the fixer's `sed` measuring rules 2 and 3 at `:124–127`
+     and `:128–131`; (iii) `git diff --numstat docs/reference/type-system.md` =
+     `6 0`, a single insertion hunk above old `:115`, so the shift is uniformly
+     +6. Bound: exactly two `//` comment lines in one file already inside the
+     diff surface, zero assertions, zero executable lines. STOP valve declared
+     and not tripped: any red, or any third file implicated, would have stopped
+     the run.
+  5. **Row m3 remains unowned.** §Non-goals records that no open report owns the
+     fact that a written, in-scope `array<A | B>` element sink does not reach a
+     nested literal (`let xs: array<array<A | B>> = [[A {…}, B {…}]]` draws the
+     code). Route (a) does not confront it, so §Non-goals' "if route (a) is
+     taken, row m3 needs its own filing" stands as a filing candidate,
+     re-measured unchanged this run.
+- **Discharge notes appended:** none. Bug 0127's fifth spelling (the synthesised
+  `named "unknown"` an unsunk `[]` types as) is UNCHANGED by route (a) — rows
+  e1/e2 still draw `theta/parse/non-string-array-join` — so §Non-goals' "a route
+  that does not, changes nothing there" applies and 0127 is owed no note. Bugs
+  0155, 0158 and 0144 are cited, not amended. Bug 0156 is unblocked-unaffected:
+  route (b) was refused, so nothing here constrains its fix.
+- **Pinned dispositions / non-goals:** the registry row and its mirror are
+  byte-unchanged and cell A6 keeps them so; DIAG-4's *Message* is not reworded;
+  no ternary, `match`, `leastUpperBound` or `computeLub` line is touched (0155 /
+  0158's territory); `commonType`'s clause 2 and rule-3 gate are untouched
+  (0081's); the `fn`-parameter sink is untouched (0156's); positional citation
+  drift inside `src/parser/type-grammar.ts` and `src/parser/type-compat.ts` was
+  left unchased per bug 0134.
 
 ## Provenance
 

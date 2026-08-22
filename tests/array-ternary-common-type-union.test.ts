@@ -30,8 +30,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     containing two different named schemas yields `array<A | B>` only if some
 //     sink in scope expects a union; otherwise it is
 //     `theta/parse/array-no-common-type`".
-//   - docs/reference/type-system.md:118–121 (rule 2) and :122–125 (rule 3)
-//     mirror both rules; rule 1, at :115–117, sits above them.
+//   - docs/reference/type-system.md:124–127 (rule 2) and :128–131 (rule 3)
+//     mirror both rules; rule 1, at :121–123, sits above them.
 //
 // THE ROUTE UNDER TEST — the interim route the bug doc's §Fix names, and not one
 // step wider. ONE exported `commonType(branches, env, relate)` in
@@ -148,7 +148,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     its rule-2 ternary carve-out; :224 rule 1; :225 rule 2; :226 rule 3; :228
 //     §"`+` operator", the pairing rule r10 and cPlus rest on.
 //   - docs/reference/type-system.md:111 §"Common-type rules (array literals &
-//     ternary branches)"; :118–121 rule 2; :122–125 rule 3.
+//     ternary branches)"; :124–127 rule 2; :128–131 rule 3.
 //   - docs/spec_topics/type-system.md:35 TYPE-1; :36 TYPE-2, whose "when mixed
 //     with `number`" condition the s1 disposition turns on; :39 TYPE-5 and :40
 //     TYPE-6, the union rules rule 2 names; :48 §"Unresolvable operands", the
@@ -543,7 +543,7 @@ describe("bug 0081 — the union clause of rule 2 admits the spec's worked vecto
     precondition(doc, "u3", { arrayWidths: [3] });
     expect(
       codesOf(doc),
-      `u3 — docs/reference/type-system.md:118–121 computes "the least upper bound under \`⊑\`" of the element types with no arity bound. Diagnostics: ${render(doc)}`,
+      `u3 — docs/reference/type-system.md:124–127 computes "the least upper bound under \`⊑\`" of the element types with no arity bound. Diagnostics: ${render(doc)}`,
     ).toEqual([]);
   });
 

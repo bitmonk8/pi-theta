@@ -112,6 +112,12 @@ falls into the unresolvable-callee case a runtime check would cover.
 
 Applying `⊑` to the array/ternary case:
 
+An empty array literal has no elements to reduce and no sink to narrow
+against, so none of the three rules below applies to it: it types as
+`array<unknown>` and draws no diagnostic (see
+[Type compatibility](#type-compatibility), *Unresolvable operands*, for what
+defers behind it).
+
 1. With a type sink in scope, every element must satisfy `T_element ⊑ T_sink`; a
    mismatch is `theta/parse/array-element-type-mismatch`. Array literal only —
    a ternary's branches never reach this rule.

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.190.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0195 — the spec's claim that an empty array literal iterand draws a
+  refusal is corrected: no refusal is owed** (route (a) by citation — 0155's
+  Trigger-governs law as applied by 0144: the `for`-row's Trigger needs a
+  positive verdict over elements that exist, so `[]` draws nothing).
+  `control-flow.md`'s false clause corrected; `grammar.md` both sides (the
+  carve-out warning answered and kept verbatim); `expressions.md` states the
+  previously-missing fallback with its reference mirror. The §Fix
+  delete-`checkArrayCommonType` limb is deferred (file owned by a concurrent
+  lane): the seam stays unwired and cell C1 pins zero `src/` callers. New
+  26-cell witness (5 red pre-fix). `src/` byte-unchanged — no live owed.
+
 ## [0.189.0] - 2026-08-28
 
 ### Fixed

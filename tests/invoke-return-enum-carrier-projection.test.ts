@@ -24,7 +24,7 @@
 // inbound pass "after AJV validation against the lowered schema" and names
 // "`invoke` returns" in its four-boundary set; on this cell the verdict that
 // pass is ordered after is `{"ok":false}`, so the pass never runs and the value
-// never binds. Reference mirror: `docs/reference/type-system.md:145`.
+// never binds. Reference mirror: `docs/reference/type-system.md:154`.
 //
 // THE CELL UNDER TEST, AND WHY THE HARNESS IS SHAPED THIS WAY. The prompt→prompt
 // attach guard is `callerMode === "prompt" && callee.frontmatter.mode ===

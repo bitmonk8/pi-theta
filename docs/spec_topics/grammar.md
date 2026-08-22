@@ -220,4 +220,4 @@ When no trigger holds, the newline closes the statement. There is no semicolon e
 - The declared type of a surrounding constructor field (`Schema { items: [...] }`).
 - The element type of an array-typed sink that this literal is itself an element of (recursive descent).
 
-The iterand of a `for x in expr` is **not** a sink — `for` cannot supply `T` to `[]`. `for x in []` with no other sink is `theta/parse/array-no-common-type`, the same diagnostic that `let xs = []` raises in unannotated position. This is the same hole; resist any `for`-specific carve-out.
+The iterand of a `for x in expr` is **not** a sink — `for` cannot supply `T` to `[]`, and it never becomes one. An unsunk `[]` at the iterand types as `array<unknown>` and draws no code, exactly as an unsunk `[]` anywhere else does: the registered *Trigger* covers elements that have no common type, and an empty literal has none (see [Diagnostics — code registry](./diagnostics/code-registry-parse.md#code-registry)). There is therefore nothing `for`-specific to carve out in either direction; resist any `for`-specific carve-out.

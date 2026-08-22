@@ -219,7 +219,7 @@ For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via th
 
 ## Array construction
 
-`[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is `theta/parse/array-no-common-type`.
+`[]` is the empty array; its element type is inferred from context (binding annotation, parameter type, or surrounding constructor field). With no such context, the empty literal has no elements to reduce and no sink to narrow against, so it types as `array<unknown>` and draws no diagnostic; consumers of that element defer under [Type System — Type compatibility](./type-system.md#type-compatibility) (*Unresolvable operands*). `[a, b, c]` is non-empty; its element type is the common type of its elements, narrowed by context if applicable. An array whose elements have no common type and no context to narrow against is `theta/parse/array-no-common-type`.
 
 *Common-type rules for array literals:* the underlying compatibility check is governed by [Type System — Type compatibility](./type-system.md#type-compatibility); the rules below apply that relation to array literals, except that rule 2's least-upper-bound computation also governs ternary branches (see [Type System — TYPE-9](./type-system.md#type-9) for what a ternary reports).
 

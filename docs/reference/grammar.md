@@ -465,7 +465,10 @@ insufficient. The exhaustive sink set: a binding annotation
 (`let xs: array<T> = ...`); a function parameter type at a call site; the declared
 type of a surrounding constructor field; the element type of an array-typed sink
 this literal is an element of (recursive). The `for x in expr` iterand is **not**
-a sink: `for x in []` with no other sink is `theta/parse/array-no-common-type`.
+a sink and never becomes one: an unsunk `[]` there types as `array<unknown>`
+and draws no code, the same as an unsunk `[]` anywhere else — the registered
+*Trigger* covers elements with no common type, and an empty literal has none
+(see [Diagnostics](./diagnostics.md)).
 
 ### `?` operator
 

@@ -22,12 +22,24 @@ import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 // grammar.md §"array<T> literal type-sink rule" (the exhaustive sink set, with
 // the `for` iterand explicitly excluded), and type-system.md.
 //
-// The type-grammar and array-sink rules need the surrounding annotation context
-// the tokeniser does not carry, so they are asserted against the standalone
-// `parseTypeExpression` / `checkArrayCommonType` seams (src/parser/type-grammar.ts).
+// The type-grammar rules need the surrounding annotation context the tokeniser
+// does not carry, so they are asserted against the standalone
+// `parseTypeExpression` seam (src/parser/type-grammar.ts).
 // The literal-sublanguage rules are asserted against the
 // `checkLiteralSublanguage` / `checkObjectLiteralFields` seams
 // (src/parser/literal-sublanguage.ts).
+//
+// `checkArrayCommonType` (src/parser/type-grammar.ts:1224) is a V2a-era seam
+// with ZERO `src/` callers, so the array-sink cell below measures the seam's
+// own contract and NOT the shipped rule. Bug 0195 adjudicates that contract's
+// `for-iterand` arm out of the language: an empty array literal has no
+// elements, so it reaches no verdict under the registered *Trigger* of
+// `theta/parse/array-no-common-type`
+// (docs/spec_topics/diagnostics/code-registry-parse.md:44), and under DIAG-2
+// (docs/spec_topics/diagnostics/diagnostic-shape.md:72) the *Trigger* governs.
+// The production-path behaviour of `for x in []` — no diagnostic,
+// `array<unknown>`, consumers deferring — is witnessed in
+// tests/for-empty-array-iterand-adjudication.test.ts, not here.
 //
 // Diagnostic *Message* strings are sourced from the diagnostics registry
 // (diagnostics/code-registry-parse.md) per the *Diagnostic message anchors*
@@ -182,10 +194,16 @@ describe("V2a-T — literal-sublanguage violations", () => {
 
 // --- grammar.md §"array<T> literal type-sink rule" ------------------------
 
-describe("V2a-T — array literal type sink (theta/parse/array-no-common-type)", () => {
-  it("theta/parse/array-no-common-type: an `[]` in a `for` iterand (not a sink) fires; a binding-annotation sink resolves it", () => {
-    // `for x in []` — the iterand is explicitly NOT a sink, so `[]` has no
-    // resolving sink and fires (grammar.md §"array<T> literal type-sink rule").
+describe("V2a-T — the UNWIRED array-sink seam `checkArrayCommonType` (no `src/` caller)", () => {
+  it("the seam's own contract: an `[]` under `for-iterand` yields the registry Message; a binding-annotation sink resolves it — NOT the shipped rule for `for x in []`, see bug 0195", () => {
+    // The seam's `for-iterand` context is defined to leave the literal unsunk
+    // and fire. That contract is the seam's, not the language's: no `src/` file
+    // calls this function, and bug 0195 adjudicates that an empty literal is
+    // owed no refusal on the production path, because it reaches no verdict
+    // under the registered *Trigger* the code's row carries
+    // (docs/spec_topics/diagnostics/code-registry-parse.md:44). What `for x in
+    // []` actually does is pinned in
+    // tests/for-empty-array-iterand-adjudication.test.ts.
     const forIterand: ArraySinkContext = "for-iterand";
     const d = checkArrayCommonType(forIterand, [], site());
     expect(d, "theta/parse/array-no-common-type for a for-iterand `[]`").toBeDefined();
