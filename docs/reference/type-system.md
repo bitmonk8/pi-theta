@@ -66,6 +66,13 @@ admits new pairs.
 inferred binding depending on a Pi-tool call whose schema is not parse-time
 visible; an `invoke` against a callee that produced `theta/load/callee-has-errors`),
 the parse-time check is skipped and the runtime AJV check is the safety net.
+The skip is unconditional on the target's kind — a structural target
+(`array<T>`, an inline object type) skips exactly as a primitive, union or
+named target does — and is unconditional on whether the position
+documents a runtime AJV net of its own; emitting where the relation reached
+no verdict falls outside the code's registered *Trigger*. The `for` iterand's
+`array<T>` precondition and `join`'s element precondition are not `⊑` checks
+and take their own dispositions.
 
 **Absent operands.** An unannotated `fn` parameter is a different case: its
 argument is not past the parser's static view — the parameter has no declared

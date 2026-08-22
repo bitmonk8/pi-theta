@@ -1,7 +1,10 @@
 # Bug 0144 — `decide` answers `named ⊑ array<…>` structurally at `type-compat.ts:212–217`, before the `resolveNamed` arms at `:249–269` ever run, so an argument whose declared type the `TypeEnv` cannot resolve is judged **incompatible** rather than deferred at the `fn`-argument sink bug 0050 wired: `fn g(xs: array<integer>)` + `let v: Zz = [1]` + `g(v)` draws an `E`-severity `theta/parse/fn-arg-type-mismatch … expected array<integer>, got Zz` and does not register, while the executor hands `g` the fitting `[1]`; the same refusal reaches a well-formed multi-file program through an imported `.thetalib` type name, and no corpus sentence pins the disposition — `type-system.md:31`'s closed-list preamble reads for the emission, `:48` and TYPE-9's "both operands statically resolvable" parenthetical read against it
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  disposition before any code lands. No ordering dependency blocks it. Two
+- **Status:** fixed (0.185.0). §Fix was not settled at filing: this report existed
+  to pin the disposition before any code lands. The disposition is now
+  adjudicated and written into the corpus — see §Fix (0.185.0) at the foot of this
+  document. The behavioural half had already landed at 0.104.0 (bug 0179); this
+  fix ships the corpus sentence and the witness. No ordering dependency blocks it. Two
   coordination constraints are binding and are stated in §Fix (e): bug 0050's
   84-cell witness (`tests/fn-arg-type-mismatch-wired.test.ts`, green at HEAD)
   pins the sink's neighbouring dispositions, and
@@ -986,3 +989,211 @@ that any route here must agree with
 0179's fix record states its `:48` reading and explicitly does not claim to
 close this report. Status unchanged (**open**); re-derive §Reproduction at pick,
 since the rows measuring the `fn`-argument sink now read clean.
+
+## Fix (0.185.0)
+
+**Route: adjudicate, and correct the corpus onto the registered *Trigger*.** The
+deliverable §Fix (a) asked for — which reading of `type-system.md` governs an
+unresolvable operand against a structural target — is settled as **Reading B**,
+at every `⊑` check site on `type-system.md:27`'s list. §Fix (b)'s route 1 (the
+`decide` reorder) had already landed at 0.104.0 as bug
+[0179](./0179-array-sink-refuses-unresolvable-value-type.md)'s conformance fix,
+so no code was wired and no executable line changed here; what shipped is the
+sentence that route 1 owed and did not write, plus the witness §Fix's *Witness*
+paragraph specifies. `src/` is byte-unchanged (`git hash-object
+src/parser/type-compat.ts` = `git rev-parse HEAD:src/parser/type-compat.ts`).
+
+- **THE ADJUDICATION, and the law it applies.** Bug
+  [0155](./0155-ternary-common-type-unenforced-trigger-conflict.md)'s landed
+  *Trigger*-governs law (its `## Fix (0.174.0)`, "THE STATED LAW") is cited
+  verbatim and not forked:
+  > A registered *Trigger* is the normative statement of a code's emission set
+  > (DIAG-2). Where a rule page's scope exceeds the registered *Trigger* of the
+  > code it names, the *Trigger* governs and the rule page is corrected in the
+  > same commit; no implementation may be wired to emit a code outside its
+  > registered *Trigger*. Narrowing an emission set ONTO its registered
+  > *Trigger* needs no registry edit (the 0084/0139 posture), but where the
+  > *Trigger*'s TEXT presupposes the wider reading, that text is corrected in
+  > the same commit as the narrowing.
+
+  Applied here: `theta/parse/fn-arg-type-mismatch`'s registered *Trigger*
+  (`code-registry-parse.md:136`) requires an argument "whose static type is not
+  compatible with the matched parameter's declared type" — a POSITIVE `T₁ ⋢ T₂`
+  verdict. An operand past the parser's static view reaches no such verdict, so
+  the unresolvable-operand case is **outside** the registered *Trigger*.
+  `type-system.md:31`'s closed-list preamble claimed a wider emission set than
+  that *Trigger*; the *Trigger* governs and the page is corrected. The
+  *Trigger*'s own text presupposed the wider reading ("Always parse-time … so no
+  runtime AJV safety net applies", unqualified), so it is corrected too — late
+  relative to the 0.104.0 narrowing, which is the debt this fix discharges.
+
+  Two consequences the adjudication states explicitly, because §Expected
+  behaviour's Reading A turns on them: the skip is **unconditional on the
+  target's kind** (a structural target is a fact about the position, never
+  evidence about the unresolvable operand), and it is **unconditional on whether
+  the position documents a runtime AJV net of its own** — where a position
+  documents none, emitting would emit outside the code's registered *Trigger*,
+  which DIAG-2 forbids. Reading A's third support in §Expected behaviour ("a
+  rule that cannot distinguish e4's legal and illegal member is not deciding the
+  question its message names") is thereby the record's, not an argument against
+  it.
+
+- **What shipped:**
+  - `docs/spec_topics/type-system.md:31` — the closed-list preamble gains a
+    trailing sentence giving the *Unresolvable operands* paragraph precedence
+    over its type-mismatch disposition when either side is past the parser's
+    static view. Every existing clause is byte-identical, in particular the
+    "unless the position is one where a runtime AJV check is documented as the
+    safety net" exception (the 0163 clause below).
+  - `docs/spec_topics/type-system.md:48` — the *Unresolvable operands*
+    paragraph gains the adjudication: the skip is unconditional on the target's
+    kind and on whether the position documents a runtime AJV net of its own,
+    with the DIAG-2 rationale, plus the boundary sentence scoping the paragraph
+    away from the non-`⊑` precondition gates. Line count unchanged (57).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md:136` — the
+    `theta/parse/fn-arg-type-mismatch` row's *Trigger* cell gains the
+    statical-resolvability qualifier (mirroring the `let-rhs-type-mismatch`
+    row's own at `:59`, the asymmetry §Kind element 3 named) and scopes its
+    no-AJV-net sentence to the unresolvable-CALLEE case, reusing
+    `type-system.md:50`'s verbatim wording. *Trigger* cell only: severity,
+    phase, rule link, hint and the *Message* template are byte-identical, so
+    DIAG-4 is not engaged. Row stays one physical line; line count unchanged
+    (139).
+  - `docs/reference/type-system.md:65` — the mirror's *Unresolvable operands*
+    paragraph carries the same disposition, mirror-faithfully (224 → 231 lines).
+    `docs/reference/diagnostics.md` carries no *Trigger* column and is not
+    edited, exactly as §Fix (c) predicted.
+  - `tests/unresolvable-operand-structural-target-adjudication.test.ts` — new
+    29-cell offline witness (below).
+  - `tests/array-ternary-common-type-union.test.ts`,
+    `tests/fn-param-annotation-optional.test.ts` — comment and
+    `expect()`-failure-message line citations into
+    `docs/reference/type-system.md`, re-derived because this fix's mirror edit
+    shifted that file down by 7 lines. No assertion moved; both files green
+    before and after.
+- **Witness — `tests/unresolvable-operand-structural-target-adjudication.test.ts`,
+  29 cells, offline and provider-free**, discharging §Fix's *Witness* paragraph:
+  (A) four corpus-conformance cells, one per edited prose target, plus two
+  controls (the fn-arg *Trigger*'s positive-verdict wording, which is the law's
+  hook, and the `let`-RHS row's existing qualifier, which is the model);
+  (B) nineteen behaviour pins — a1, a3, a4, a5 (refusal control), b2, b3, b5,
+  b7, b10, b11 (refusal control), e2, e3, **e4** (the imported `.thetalib` type
+  name, the row §Reproduction (e) says decides severity) with its e8
+  local-declaration control, e5, e12, the `array<integer>` constructor-field
+  sink, d1 and d8; (C) two boundary pins, d4 and d5; (D) the shape-invariance
+  row §Fix's *Witness* paragraph requires that no group supplies — the real
+  `checkCompatible` answers `"unknown"` for an unresolvable `named` source
+  against sixteen enumerated targets covering all six `CompatType` kinds, with a
+  loud precondition on the enumeration's coverage; (E) f2 through the production
+  executor — the body parses clean and `g` receives `[1]`, the measurement the
+  old emission contradicted. Every diagnostic assertion is over the WHOLE
+  unfiltered list, messages registry-sourced. No live tier applies and none was
+  run: `src/` is untouched (the 0193/0205 precedent).
+- **Gates:** witness RED before (4 (A) cells, each naming the file and the
+  missing disposition), GREEN after (29/29). Full default suite `npx vitest run`
+  → **376 files / 7727 tests passed**. `npm run typecheck` clean.
+  `npm run lint` clean. Corpus GOV-15 discharged by
+  `tests/committed-fixture-parse-gate.test.ts` (36 green), not by a scratch
+  probe. Protected witnesses byte-unchanged and green:
+  `fn-arg-type-mismatch-wired` 93, `array-sink-unresolvable-deferral` 21,
+  `ternary-common-type-trigger-adjudication` 23,
+  `match-fn-return-lub-dominating-discipline` 26,
+  `array-ternary-common-type-union` 21.
+- **Review:** 1 round. Round 1 (deep) — **CLEAN**, with evidence of a read diff
+  (the reviewer independently measured the 0179 arm at
+  `src/parser/type-compat.ts:218–226`, checked TYPE-10's "not deferred to a
+  runtime AJV failure" sentence against the shipped disposition, spot-checked
+  the `:48` claim that every code named for these sites registers a *Trigger*
+  requiring a static failure against rows `:43`, `:59`, `:60`, `:85`, `:134`,
+  `:137`, and verified every `path:line` in the new file resolves). Four
+  residuals, all pre-existing and none introduced here — recorded below.
+- **Verification:** **SOLID**, all four obligations discharged with quoted
+  evidence. (1a) Each of the four prose edits was individually reverted to its
+  pre-fix text and the matching (A) cell red naming the missing phrase; each
+  file restored and proved byte-exact by `git hash-object`. (1b) The behaviour
+  pins red destructively: reinstating bug 0179's pre-fix `decide` TYPE-7 arm
+  order reds **12 of 29** cells — a1, b2, e2, e3, e4, e5, e12, the ctor-field
+  sink, d1, d8, the (D) invariance row (six targets flipping to
+  `"incompatible"`) and (E) f2 — each red naming the reinstated emission;
+  `src/parser/type-compat.ts` restored byte-exact (`git hash-object` =
+  `git rev-parse HEAD:…`) and clean in `git status`. (1c) d4 still refuses at
+  the shipped tree and is stated correct. (2) 376 files / 7727 tests, delta 0.
+  (3) No live run owed and none run — `git diff --name-only` and
+  `git status --short` contain no `src/` path. (4) typecheck and lint clean.
+- **Coordination — the three binding agreements this fix owed:**
+  1. **[0127](./0127-join-element-gate-does-not-defer-on-unresolvable-element.md)
+     stays open and its subject is not fixed; the boundary is named.** The line
+     is the `⊑` relation itself: this adjudication reaches exactly the check
+     sites `type-system.md:27` enumerates, all of which are governed by
+     `T₁ ⊑ T₂`. `join`'s element precondition is **not** one of them — 0127's
+     own §Fix already records that `:48` does not reach its site for that
+     reason — and neither is the `for` iterand's `array<T>` precondition. Both
+     are refusal gates that ask a shape question directly rather than through
+     the relation, so no `T₁ ⋢ T₂` verdict is in play and this record decides
+     nothing about them. Measured at this HEAD and pinned as boundary cells:
+     `for y in v { y }` over `let v: Zz = [1]` still draws
+     `theta/parse/non-array-iterand … got Zz` (§Reproduction d4), and the
+     `join` receiver still defers (d5). §Fix (e)'s clause that "a decision here
+     is the narrower one and does not settle 0127 by itself" is honoured
+     literally: 0127 is the *wider* question — whether a non-`⊑` precondition
+     gate owes the same deferral — and remains entirely open.
+  2. **[0163](./0163-params-default-type-compat-unchecked-at-load.md)'s gate is
+     agreed with, not contradicted.** That report's reading — that
+     `theta/parse/params-default-type-mismatch`'s registered *Trigger*
+     (`code-registry-parse.md:53`) documents the runtime AJV safety net for its
+     own unresolvable-operand deferrals, and thereby satisfies `:31`'s "unless
+     the position is one where a runtime AJV check is documented as the safety
+     net" clause at that position — is affirmed. It is in fact the precedent
+     this record generalises: a registry *Trigger* is where a position's net (or
+     its absence) is documented. Edit 1 therefore leaves `:31`'s exception
+     clause byte-identical and only adds precedence for the unresolvable-operand
+     case, which is the same disposition `:53` already spells out for itself;
+     `:53` is byte-unchanged. No disagreement is raised, so 0163 is not
+     reopened.
+  3. **[0050](./0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md)'s
+     witness is untouched and green** (93 cells at this HEAD, grown from the 84
+     §Fix (e) recorded). Its d1/d2 parameter-side deferral cells and its
+     `:2337–2348` header narrative are byte-unchanged: this fix moved no
+     behaviour, so the narrative's mechanism claim was already restated by 0179
+     and needs no further edit here.
+- **Residuals:**
+  1. **The document's title, §Summary and §Reproduction describe the
+     pre-0.104.0 observable and are preserved unedited.** The observable
+     inverted at 0179 (the appended coordination note says so) and was
+     re-derived at this HEAD before any work: a1, b2, b3, b7, b10, d1, d8, e2,
+     e3, e5, e12 and the `array<integer>` constructor-field sink are all `[]`;
+     only a5 (a resolvable mistyped literal), b11, d4 and e7 still refuse. The
+     new witness pins the current truth cell-by-cell; the historical body is
+     left as filed per the append-only convention.
+  2. **The document's registry line citations have drifted** (bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s class, not edited
+     here): `fn-arg-type-mismatch` is `code-registry-parse.md:136` (the document
+     says `:116`), `let-rhs-type-mismatch` is `:59` (says `:54`),
+     `non-array-iterand` is `:70` (says `:64`). The witness cites the HEAD
+     numbers.
+  3. **The (D) invariance cell's kind coverage is runtime-checked, not
+     compile-checked.** Its precondition reds on under-coverage of the six
+     `CompatType` kinds that exist today but would not red if a seventh kind
+     were added. A `Record<CompatType["kind"], …>`-typed enumeration would move
+     the check to the compiler. Recorded by review round 1 as non-blocking; the
+     §Fix-required row is fully discharged for every kind that exists.
+  4. **Three pre-existing stale citations, none introduced and none edited:**
+     `tests/fn-param-annotation-optional.test.ts:71`, `:289`, `:304` cite the
+     fn-arg row at `code-registry-parse.md:135` (it is `:136`; those assertions
+     resolve the row by code string, not by line);
+     `src/parser/type-compat.ts:257`'s comment cites TYPE-10 at
+     `type-system.md:52` (it is `:54`); and `type-system.md:50`/`:52` carry a
+     `code-registry-parse.md#code-registry` link whose anchor id does not exist
+     in that file (2 occurrences, present at base).
+- **Discharge notes appended:** none. No sibling document required an edit —
+  0127, 0163, 0050, 0179 and 0130 are each cited from this record without being
+  modified.
+- **Pinned dispositions / non-goals:** every §Non-goals item stands unchanged.
+  In particular the TYPE-8 arm is still unreachable and is not decided here
+  (0130 owns the conversion that would reach it, and this record's `:48`
+  sentence names the inline object type as a target kind so that a future
+  reachable arm inherits the disposition rather than reopening it); the
+  `<withheld>` binder sentinel is not involved; the composite disagreement
+  between the two wired sinks (c2 against d8) is recorded, not reconciled; and
+  bug 0051 still owns whether an unresolvable annotation should be refused at
+  the annotation.

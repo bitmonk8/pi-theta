@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.185.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0144 — Reading B adjudicated: an annotated-but-unresolvable argument
+  against a structural parameter is OUTSIDE `fn-arg-type-mismatch`'s Trigger**
+  (bug 0155's Trigger-governs law applied: the Trigger requires a positive
+  `T₁ ⋢ T₂` verdict an unresolvable operand never reaches). `type-system.md:31`
+  corrected onto the *Unresolvable operands* rule; `:48` states the
+  adjudication and the 0127 boundary; `code-registry-parse.md` Trigger cell
+  tightened (Message byte-identical, DIAG-2); reference mirror updated. The
+  0163-gate rider is satisfied on the record. Behaviour already conformed
+  since 0.104.0 — prose + witness only, `src/` byte-unchanged (no live owed,
+  0193/0205 precedent). New witness
+  `tests/unresolvable-operand-structural-target-adjudication.test.ts` (29
+  cells) pins the deferral, the 0127 boundary, shape invariance, and f2
+  through the production executor.
+
 ## [0.184.0] - 2026-08-28
 
 ### Fixed

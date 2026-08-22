@@ -65,7 +65,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //       This is §Fix route 2's third bullet, "It must supply the typing rule
 //       the shape currently lacks, and the obvious one does not fit": the
 //       unresolvable-operand deferral (docs/spec_topics/type-system.md:48,
-//       mirror docs/reference/type-system.md:65–68) names "the runtime AJV
+//       mirror docs/reference/type-system.md:65–75) names "the runtime AJV
 //       check" as the safety net, and the `theta/parse/fn-arg-type-mismatch`
 //       row states that for a `fn` call none applies
 //       (docs/spec_topics/diagnostics/code-registry-parse.md:135). The mirror
@@ -283,7 +283,7 @@ describe("0150 (a) — route 2's documentation edit: both mirrors, both prose pa
     // §Fix route 2's own constraint: the relaxation "must supply the typing
     // rule the shape currently lacks, and the obvious one does not fit". The
     // unresolvable-operand deferral (docs/spec_topics/type-system.md:48,
-    // mirror docs/reference/type-system.md:65–68) names the runtime AJV check
+    // mirror docs/reference/type-system.md:65–75) names the runtime AJV check
     // as the safety net; the `theta/parse/fn-arg-type-mismatch` row states
     // that for a `fn` call no such net applies
     // (docs/spec_topics/diagnostics/code-registry-parse.md:135). §Reproduction
