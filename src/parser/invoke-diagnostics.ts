@@ -23,6 +23,12 @@
 //     or fails its own structural checks, emitted at the referencing site with
 //     the deliberate severity split (error for a `tools:` entry, warning for an
 //     `invoke(...)` literal) and the underlying sites listed via `related`.
+//   - `theta/parse/fn-arity-too-few` / `theta/parse/fn-arity-too-many` — a plain
+//     top-level `fn` call (bug 0131, arm (2) only — a same-file `fn`, including
+//     `subagent fn`; an imported `.thetalib` arm is deferred to bug 0138) whose
+//     positional argument count differs from the callee's declared parameter
+//     count. A `fn` parameter carries no default, so required equals total —
+//     both arms are always parse-time, with no runtime AJV net.
 //
 // V15f-T (tests-task) declares the seam shapes and the registry-anchored message
 // builders (real, pure) and stubs the five behaviour-bearing checkers so the
@@ -74,6 +80,12 @@ export const INVOKE_NON_THETA_EXTENSION_CODE =
 
 /** `theta/load/callee-has-errors` (code-registry-load.md). */
 export const CALLEE_HAS_ERRORS_CODE = "theta/load/callee-has-errors";
+
+/** `theta/parse/fn-arity-too-few` (code-registry-parse.md; bug 0131). */
+export const FN_ARITY_TOO_FEW_CODE = "theta/parse/fn-arity-too-few";
+
+/** `theta/parse/fn-arity-too-many` (code-registry-parse.md; bug 0131). */
+export const FN_ARITY_TOO_MANY_CODE = "theta/parse/fn-arity-too-many";
 
 // --------------------------------------------------------------------------
 // Registry-anchored message + hint builders (real, pure — the *Message*/*Hint*
@@ -142,6 +154,33 @@ export function calleeHasErrorsMessage(calleePath: string): string {
   return `callee '${calleePath}' has errors; see related diagnostics`;
 }
 
+/**
+ * `fn '<name>' passes too few arguments: expected <required>, got <provided>`.
+ * `<required>` / `<provided>` are the category-4 numeric integer counts;
+ * `<required>` is the callee's declared parameter count (bug 0131 §(a): a `fn`
+ * parameter carries no default, so required equals total).
+ */
+export function fnArityTooFewMessage(
+  name: string,
+  required: number,
+  provided: number,
+): string {
+  return `fn '${name}' passes too few arguments: expected ${required}, got ${provided}`;
+}
+
+/**
+ * `fn '<name>' passes too many arguments: expected <required>, got <provided>`.
+ * `<required>` is the callee's declared parameter count, the same operand the
+ * too-few arm reads (bug 0131 §(a)).
+ */
+export function fnArityTooManyMessage(
+  name: string,
+  required: number,
+  provided: number,
+): string {
+  return `fn '${name}' passes too many arguments: expected ${required}, got ${provided}`;
+}
+
 /** Registry *Hint* column for `theta/parse/invoke-return-type-mismatch`. */
 export const INVOKE_RETURN_TYPE_MISMATCH_HINT =
   "Widen the annotation, narrow the callee, or drop the annotation and let the runtime AJV check decide.";
@@ -160,6 +199,14 @@ export const INVOKE_NON_THETA_EXTENSION_HINT =
 
 /** Registry *Hint* column for `theta/load/callee-has-errors`. */
 export const CALLEE_HAS_ERRORS_HINT = "Open the callee and fix the listed errors.";
+
+/** Registry *Hint* column for `theta/parse/fn-arity-too-few`. */
+export const FN_ARITY_TOO_FEW_HINT =
+  "Provide the missing argument(s); a `fn` parameter carries no default, so every declared parameter needs one.";
+
+/** Registry *Hint* column for `theta/parse/fn-arity-too-many`. */
+export const FN_ARITY_TOO_MANY_HINT =
+  "Drop the extra argument(s); positional binding has no destination for them.";
 
 // --------------------------------------------------------------------------
 // Argument type mismatch — theta/parse/invoke-arg-type-mismatch
@@ -372,6 +419,66 @@ export function checkInvokeArity(input: InvokeArityInput): Diagnostic[] {
         range: site.range,
         message: invokeArityTooFewMessage(callee, requiredCount, providedCount),
         hint: INVOKE_ARITY_TOO_FEW_HINT,
+      },
+    ];
+  }
+  return [];
+}
+
+// --------------------------------------------------------------------------
+// A plain `fn` call's argument arity — theta/parse/fn-arity-too-few / -too-many
+// (bug 0131). Mirrors `checkInvokeArity`'s shape: a `fn` parameter carries no
+// default, so `requiredCount === totalCount === params.length` at every
+// caller — both arms are always parse-time, with no runtime AJV net.
+// --------------------------------------------------------------------------
+
+/** Inputs to the `fn`-call arity check (bug 0131). */
+export interface FnCallArityInput {
+  /** The callee `fn`'s name, as declared. */
+  readonly name: string;
+  /** The callee's declared parameter count — required and total both. */
+  readonly requiredCount: number;
+  /** Number of positional arguments supplied at the call site. */
+  readonly providedCount: number;
+  /** The located call-expression site the diagnostic attaches to. */
+  readonly site: CompatSite;
+}
+
+/**
+ * Check a plain `fn` call's argument arity (bug 0131; invocation.md §Argument
+ * arity, extended by grammar.md's "every `fn` parameter is non-defaulted for
+ * the argument-arity count"): a `fn` parameter carries no default, so the
+ * declared parameter count is both the minimum and the maximum — unlike
+ * `checkInvokeArity`'s `params:` frontmatter, there is no defaulted-field gap
+ * between the two, so the two arms collapse into one predicate on
+ * `requiredCount` and there is no not-statically-resolvable escape: a
+ * same-file `fn` callee (the only arm this checker serves; an imported
+ * `.thetalib` `fn` is bug 0138's deferred cross-file route) is always
+ * statically resolvable, so both directions are always a parse error.
+ */
+export function checkFnCallArity(input: FnCallArityInput): Diagnostic[] {
+  const { name, requiredCount, providedCount, site } = input;
+  if (providedCount > requiredCount) {
+    return [
+      {
+        severity: "error",
+        code: FN_ARITY_TOO_MANY_CODE,
+        file: site.file,
+        range: site.range,
+        message: fnArityTooManyMessage(name, requiredCount, providedCount),
+        hint: FN_ARITY_TOO_MANY_HINT,
+      },
+    ];
+  }
+  if (providedCount < requiredCount) {
+    return [
+      {
+        severity: "error",
+        code: FN_ARITY_TOO_FEW_CODE,
+        file: site.file,
+        range: site.range,
+        message: fnArityTooFewMessage(name, requiredCount, providedCount),
+        hint: FN_ARITY_TOO_FEW_HINT,
       },
     ];
   }

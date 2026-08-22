@@ -184,6 +184,8 @@ trigger.
 | `theta/parse/invoke-return-type-mismatch` | E | type | `invoke<Schema> annotation incompatible with callee '<callee>' return type <actual>` |
 | `theta/parse/invoke-arity-too-few` | E | parse | `invoke '<callee>' passes too few arguments: expected <required> non-defaulted, got <provided>` |
 | `theta/parse/invoke-arity-too-many` | E | parse | `invoke '<callee>' passes too many arguments: expected at most <max>, got <provided>` |
+| `theta/parse/fn-arity-too-few` | E | type | `fn '<name>' passes too few arguments: expected <required>, got <provided>` |
+| `theta/parse/fn-arity-too-many` | E | type | `fn '<name>' passes too many arguments: expected <required>, got <provided>` |
 
 ## `theta/load/*`
 

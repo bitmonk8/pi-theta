@@ -170,6 +170,8 @@ const UNCLOSED = "theta/parse/fn-param-list-unclosed";
 /** Bug 0225's row (fires on c3/c4/d1 below; this file does not own it). */
 const NOTID = "theta/parse/fn-param-not-identifier";
 const CASE = "theta/parse/binding-case-mismatch";
+/** Bug 0131's row (arm (2)) — fires on g4's missing argument, not on the closed list. */
+const TOO_FEW = "theta/parse/fn-arity-too-few";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 const SINGLE_LINE_IF = "theta/parse/single-line-if";
@@ -668,15 +670,26 @@ describe("0151 (g) — a closed parameter list keeps its exact HEAD behaviour", 
     expect(registered(doc)).toBe(true);
   });
 
-  it("g4: a closed list plus a wrong-arity in-document call reports nothing (bug 0131's, not this one's)", () => {
-    // The arity control. There is no parse-time arity check for an in-document
-    // `fn` call (bug 0131), which is WHY a swallow-corrupted arity reaches the
-    // runtime at HEAD. That absence is not this fix's to close, so this row
-    // stays silent.
+  it("g4: a closed list plus a wrong-arity in-document call draws bug 0131's arity row", () => {
+    // The arity control. This cell's silence WAS bug 0131's own defect: no
+    // parse-time arity check ran for an in-document `fn` call, which is why a
+    // swallow-corrupted arity reached only the runtime at HEAD. Bug 0131's fix
+    // mints `theta/parse/fn-arity-too-few` at the call-expression range, so the
+    // correct contract here is one arity diagnostic, not `[]` — this file's own
+    // subject (the closed-list recovery) still contributes nothing beside it.
     const doc = theta("fn h(a: string) { 1 }\nlet z = h()\n");
-    expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([]);
+    expect(triples(doc), `bug 0131's arity row now fires here; diagnostics=${render(doc)}`).toEqual([
+      e(TOO_FEW, "5:9-5:12"),
+    ]);
+    expect(quads(doc)).toEqual([
+      q(TOO_FEW, "5:9-5:12", [
+        ["<name>", "h"],
+        ["<required>", "1"],
+        ["<provided>", "0"],
+      ]),
+    ]);
     expect(topKinds(doc)).toEqual(["fn", "let"]);
-    expect(registered(doc)).toBe(true);
+    expect(registered(doc)).toBe(false);
   });
 
   it("g5: `fn h(): number { 1 }` — the empty CLOSED list reports nothing", () => {

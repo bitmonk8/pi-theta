@@ -355,6 +355,8 @@ const CASE = "theta/parse/binding-case-mismatch";
 const NOTID = "theta/parse/fn-param-not-identifier";
 /** The row the empty annotation silently switches off (0150's title claim). */
 const FN_ARG = "theta/parse/fn-arg-type-mismatch";
+/** Bug 0131's row (arm (2)) — fires on B3's missing argument, not the annotation. */
+const TOO_FEW = "theta/parse/fn-arity-too-few";
 /** A body-side sink that the withheld binder defers (§Reproduction B8/B9). */
 const UNKNOWN_METHOD = "theta/parse/unknown-method";
 
@@ -736,16 +738,26 @@ describe("0150 (c) — every type-layer verdict keeps its exact bytes under rout
     expect(registered(doc)).toBe(false);
   });
 
-  it("B3: `fn g(x): string { x }` + `let q = g()` + `q` is silent — bug 0131's row, recorded", () => {
-    // The missing ARGUMENT, not the missing annotation. Recorded so the two
-    // silences are not conflated: bug 0131 owns the in-document arity check and
-    // route 2 does not reach it.
+  it("B3: `fn g(x): string { x }` + `let q = g()` + `q` draws bug 0131's arity row, not silence", () => {
+    // The missing ARGUMENT, not the missing annotation. This cell's silence WAS
+    // bug 0131's own unchecked-arity defect; bug 0131's fix mints
+    // `theta/parse/fn-arity-too-few` at exactly this call-expression range, so
+    // the correct contract is now a single arity diagnostic here, not `[]` —
+    // route 2 (this file's own subject, the unannotated-parameter relaxation)
+    // still contributes nothing beside it.
     const doc = theta("fn g(x): string { x }\nlet q = g()\nq\n");
     expect(
       triples(doc),
-      `bug 0131's unchecked arity is a separate silence; diagnostics=${render(doc)}`,
-    ).toEqual([]);
-    expect(registered(doc)).toBe(true);
+      `bug 0131's arity row now fires here; diagnostics=${render(doc)}`,
+    ).toEqual([e(TOO_FEW, "5:9-5:12")]);
+    expect(quads(doc)).toEqual([
+      q(TOO_FEW, "5:9-5:12", [
+        ["<name>", "g"],
+        ["<required>", "1"],
+        ["<provided>", "0"],
+      ]),
+    ]);
+    expect(registered(doc)).toBe(false);
   });
 
   it("B8: `fn g(x): string { x.join(\",\") }` + `g(\"a\")` is silent", () => {

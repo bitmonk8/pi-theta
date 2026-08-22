@@ -623,24 +623,46 @@ describe("0156 (g) — the boundaries of the new dispatch", () => {
   });
 
   it("an argument past the parameter list supplies no sink — the arity boundary", () => {
-    // `checkFnCallArgs` iterates `Math.min(e.args.length, fn.params.length)`;
-    // an EXCESS argument matches no parameter, so it has no sink and keeps
-    // rule 3's refusal. The matched first argument narrows, so the whole list
-    // is ONE refusal and it sits at the excess argument's own range — the
-    // column pin below is what distinguishes "the excess argument was refused"
-    // from "the first argument was refused". Arity itself is a different row
-    // and no fix here changes that bound (§Non-goals).
+    // Bug 0131's fix changed this cell's own reading. `FN_UNION` declares ONE
+    // parameter, and the call below supplies two arguments, so
+    // `checkFnCallArgs` now runs `checkFnCallArity` BEFORE
+    // `Math.min(e.args.length, fn.params.length)`'s per-argument loop
+    // (invocation.md §Argument arity) and returns on the too-many verdict —
+    // neither argument ever reaches the sink dispatch this fix wires, so BOTH
+    // array literals read sink-less, not just the excess one. The list is
+    // therefore the arity row followed by one `array-no-common-type` per
+    // literal, in source order; arity itself is still a different row from
+    // this fix's own subject and this cell records its boundary, not its
+    // ownership (§Non-goals).
     const diags = diagsOf([
       ...AB,
       FN_UNION,
       `let y = f(${A_AND_B}, [A { a: 2 }, B { b: "y" }])`,
     ]);
-    expect(diags.map((d: Diagnostic) => d.code)).toEqual([NO_COMMON]);
-    expect(messageFor(diags, NO_COMMON)).toBe(msg(NO_COMMON, []));
+    expect(diags.map((d: Diagnostic) => d.code)).toEqual([
+      "theta/parse/fn-arity-too-many",
+      NO_COMMON,
+      NO_COMMON,
+    ]);
+    expect(messageFor(diags, "theta/parse/fn-arity-too-many")).toBe(
+      msg("theta/parse/fn-arity-too-many", [
+        ["<name>", "f"],
+        ["<required>", "1"],
+        ["<provided>", "2"],
+      ]),
+    );
+    // Both refusals are pinned by message and by column, not merely by code:
+    // the columns are what distinguish "each literal was refused at its own
+    // range" from "one literal was refused twice".
+    const sinkLess = diags.filter((d: Diagnostic) => d.code === NO_COMMON);
+    expect(sinkLess.map((d: Diagnostic) => d.message)).toEqual([
+      msg(NO_COMMON, []),
+      msg(NO_COMMON, []),
+    ]);
     expect(
-      diags.map((d: Diagnostic) => d.range?.start.column),
-      "the surviving refusal is not at the EXCESS argument — the sink was supplied to the wrong argument index",
-    ).toEqual([39]);
+      sinkLess.map((d: Diagnostic) => d.range?.start.column),
+      "the two refusals do not sit at the two argument literals' own ranges",
+    ).toEqual([11, 39]);
   });
 
   it("a nested array sink narrows neither at the argument route nor at the binding route — the nested boundary", () => {

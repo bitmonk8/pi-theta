@@ -95,7 +95,7 @@ import {
   type QuestionOperandType,
 } from "./match-result";
 import { resolveReturnType, type ReturnContribution } from "./functions";
-import { checkInvokeReturnType } from "./invoke-diagnostics";
+import { checkFnCallArity, checkInvokeReturnType } from "./invoke-diagnostics";
 import { checkArrayJoin } from "../runtime/stdlib-array";
 import { checkObjectIndex } from "../runtime/stdlib-object";
 
@@ -110,6 +110,14 @@ const PRIMITIVE_NAMES: ReadonlySet<string> = new Set([
 
 /** The four ordering operators (expressions.md §"Ordering comparisons"). */
 const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
+
+/**
+ * `Ident` (lexical.md: `[A-Za-z_][A-Za-z0-9_]*`) — tests a `FnParam.name`
+ * against the shape a well-formed parameter list can only ever hold, so
+ * `checkFnCallArgs` (bug 0131 §(c)) can tell a genuine parameter list from one
+ * a `fn-param-not-identifier` recovery captured a non-identifier token into.
+ */
+const FN_PARAM_NAME_IS_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
  * The additive-operand category of a static type, for the `+` (A5) and ordering
@@ -2346,6 +2354,31 @@ class TypeLayerWalk {
       // (`tool-arg-type-mismatch`, `invoke-arg-type-mismatch`, or
       // `unknown-identifier`).
       return sunkArgs;
+    }
+    // Bug 0131 §(c): a parameter list holding a name no `Ident` derives (a
+    // capture artefact left by the `fn-param-not-identifier` recovery, bug
+    // 0225) carries a count the author never wrote, so the arity verdict is
+    // withheld entirely — the same discipline the registry states for a
+    // refused parameter ANNOTATION being absent from the callee's parameter
+    // table. Falls through to the per-argument loop unchanged so 0225's own
+    // row stays the only diagnostic this callee draws.
+    const paramsAreIdents = fn.params.every((p) => FN_PARAM_NAME_IS_IDENT.test(p.name));
+    if (paramsAreIdents) {
+      // Bug 0131 §(c): arity is decided BEFORE per-argument type
+      // (invocation.md §Argument arity) — the same
+      // `if (arityDiags.length > 0) return arityDiags;` order `checkInvokeCall`
+      // uses (invoke-diagnostics.ts) — so a mis-arity call draws the arity row
+      // alone and never reaches the per-argument loop below.
+      const arityDiags = checkFnCallArity({
+        name: fn.name,
+        requiredCount: fn.params.length,
+        providedCount: e.args.length,
+        site: { file: this.file, range: e.range },
+      });
+      if (arityDiags.length > 0) {
+        this.diagnostics.push(...arityDiags);
+        return sunkArgs;
+      }
     }
     const matchedCount = Math.min(e.args.length, fn.params.length);
     for (let i = 0; i < matchedCount; i += 1) {

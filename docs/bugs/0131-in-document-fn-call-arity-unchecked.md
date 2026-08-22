@@ -1,7 +1,9 @@
 # Bug 0131 — An in-document `fn` call's argument count is checked at no parse seam: `fn f(p: integer) { 1 }` called with three arguments draws `[]`, and the only enforcement anywhere is a runtime `ThetaFnArityError` that reports an ordinary authoring mistake through `theta/runtime/internal-error` — the runtime-defect surface `error-model.md:74` defines as one "no theta expression 'causes'" — while inside a `par for` body ERR-20's downgrade turns the same mistake into a discardable element `Err` with zero diagnostics; no registry row's *Trigger* names the position, though `grammar.md:143` routes every `fn` parameter into invocation.md's argument-arity count and `placeholder-rendering-b.md:132` names a `.thetalib` `fn` callee as an emitting arm of `theta/parse/invoke-arity-too-few`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: this report exists to
-  pin the registry disposition before any code lands. Ordering dependency —
+- **Status:** fixed (0.199.0). §Fix was constraint-pinned, not settled: this report
+  existed to pin the registry disposition before any code landed, and the
+  disposition is now taken and recorded in §Fix (0.199.0) below. Ordering
+  dependency —
   [0050](./0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md) (open)
   owns the argument-**type** judgement at this same `fn` boundary, and
   `invocation.md:48` requires arity to be decided **before** per-argument type,
@@ -1212,3 +1214,117 @@ prefix. Cell a1 of `tests/fn-arg-type-mismatch-wired.test.ts` pins the
 current silence in both directions (`g()` and `g(3, 4)` draw neither the
 fn-arg code nor any arity code). Per this report, the registry question
 comes first — no row covers a plain `fn` call's argument count.
+
+## Fix (0.199.0)
+
+**The adjudication §Fix owed.** Re-derived at the fix baseline: every cell of
+§Reproduction still drew `[]` at parse, no registry row's *Trigger* reached the
+position, and both corpus sentences (`grammar.md`'s `FnDecl` prose,
+`placeholder-rendering-b.md`'s Category-7 fallback) still stood — so the report
+was neither mooted nor owned by a fresher document (0050 and
+[0138](./0138-imported-thetalib-fn-arg-route-deferred.md) own the argument
+**type** route, [0147](./0147-arg-mismatch-diagnostic-count-diverges-by-surface.md)
+the intra-site diagnostic count for the type rows; none owns arity). Reading A
+governs. §Fix (a) **route 1 — mint**, on the measured DIAG-4 collision that costs
+route 2 (both `invoke-arity-*` *Message*s open with the literal `invoke ` and the
+too-few *Hint* prescribes defaulting a `params:` field, a repair a `fn` parameter
+cannot take, with a reword deferred past 1.x) and the extra `error-model.md`
+boundary amendment that route 3 would force — 0115's landed precedent for the
+same family. **Two** rows, not one, because a single row carries one *Hint* and
+the author-facing repair is opposite in the two directions; `<required>` is the
+declared parameter count in both arms, since required equals total at a `fn`
+callee. §Fix (b): arm (2) only, `subagent fn` included; arm (3) **deferred and
+stated in the minted *Trigger*** rather than silently dropped — the cross-file
+signature is 0138's plumbing at this identical boundary. §Fix (c): hosted in
+0050's landed `checkFnCallArgs`, no forked walk, callee identified by the
+resolution ladder (`shadowedNames` → `importedSymbols` → `fnDecls.get` with an
+explicit `!== undefined` test), arity before type as an early `return`. §Fix (d)
+is discharged structurally: both judgements now live in one function, so the
+suppression is that `return` and no cross-pass channel is built. §Fix (e): the
+carve-out's **addition** arm alone, singly stated; the paired disappearance of
+`theta/runtime/internal-error` at those inputs is that addition's consequence at
+the loads-cleanly predicate, not a second claim. §Fix (g): the runtime throw, its
+three sites, its `theta/runtime/internal-error` attribution and the `par for`
+element-`Err` downgrade are **unchanged** — the surface is no longer the author's
+only channel for arm (2), and arm (3) keeps the throw genuinely reachable from
+legal source, so it is not a witness-less guard. §Fix (h): decided by the real
+run, not by prediction.
+
+- **What shipped:**
+  - `src/parser/invoke-diagnostics.ts` — appended (no existing line moved) the
+    two code constants, the two registry-*Hint* constants, the two *Message*
+    builders and `checkFnCallArity`, mirroring `checkInvokeArity`'s shape with no
+    not-statically-resolvable escape: a same-file `fn` is hoisted and always
+    resolvable, and required equals total, so both arms are always parse-time.
+    The module header's code inventory names the two new codes.
+  - `src/parser/type-layer-checks.ts` — inside `checkFnCallArgs` only: the
+    `Ident`-shape constant, and after the callee resolves out of `fnDecls`, (i) a
+    **withhold** when any recorded parameter name is not `Ident`-shaped (a
+    `theta/parse/fn-param-not-identifier` recovery artefact holds a count no
+    author wrote), else (ii) `checkFnCallArity` at the call expression's range,
+    pushed and returned above the per-argument loop. `checkArrayLiteral`'s body,
+    the pattern region and every sibling-lane surface are untouched.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the two minted rows
+    (Sev `E`, phase `type`), whose *Trigger*s state exactly what the emitter
+    serves: the same-file arm including `subagent fn`, the arm-(3) deferral named
+    as deferred, the junk-parameter-table withhold, required-equals-total, and
+    that the suppression on a mis-arity call covers the per-argument
+    `theta/parse/fn-arg-type-mismatch` check and the parameter-typed element sink
+    but **not** each argument expression's own judgement.
+  - `docs/reference/diagnostics.md` — the two same-commit mirror rows (Code /
+    Sev / Phase / Message, per that page's own statement).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — the category-4
+    numeric scope sentence, which names its rows by code, gains the two new
+    codes. No placeholder coined, no closure edit.
+- **Gates:** witness `tests/fn-call-arity-unchecked.test.ts` 29/29 green (16 of
+  29 red before the fix, red again under neutralisation and green after
+  byte-exact restoration); full default suite `388 files / 8037 tests passed`;
+  `npm run typecheck` clean; `npm run lint` clean; live H8a
+  `tests/live/fn-call-arity-live-cell-.test.ts` green with its red path
+  proven, beside all four sibling live cells green in the same run; real H9a
+  `tests/live/acceptance/noninteractive-acceptance.test.ts` 10/10 green.
+- **Review:** 3 rounds. Round 1 (deep) — three findings and one residual, all
+  prose or a dropped assertion, no correctness or fidelity defect: two *Trigger*
+  clauses that were false of the shipped emitter (the "differ in `<name>`'s
+  repair" claim, and "draws this row alone"), one stale cell's prose in
+  `tests/fn-arg-type-mismatch-wired.test.ts`, and the flipped sink cell's dropped
+  message and column pins. Round 2 (fast) — clean. Round 3 (fast, scoped to the
+  live cell added during verification) — no findings, two naming/ordering
+  residuals, both answered in the file's own header.
+- **Verification:** SOLID. The witness reds under neutralisation on the 16 arity
+  cells with the "arity check absent" signature and greens after restoration
+  (`git hash-object` proof both ways); the default suite is green at the
+  premeasured 388/8037; the live cell witnesses both directions over a real
+  drive with its refusal read off the settled `SessionManager`'s
+  `theta-system-note` channel and its message sourced from the registry; lint
+  and typecheck are clean. `tests/fixtures/h7a/permitted-codes.json` needs **no**
+  append, decided by the real H9a run (10/10, `assertStderrClean` and
+  `assertCodesSubsetOfPermitted` both green), not by the corpus prediction.
+- **Residuals:**
+  1. **Arm (3) is deferred, not covered.** An imported `.thetalib` `fn` called at
+     the wrong arity still loads clean and still throws `ThetaFnArityError` into
+     `theta/runtime/internal-error` at runtime. The minted *Trigger*s say so.
+     Cell `e-imported-arm3` of the witness pins the silence. The cross-file
+     signature is 0138's plumbing.
+  2. **`placeholder-rendering-b.md`'s Category-7 fallback still names a
+     `.thetalib` `fn` callee as a rendering arm of
+     `theta/parse/invoke-arity-too-few`.** That sentence is untouched here: it is
+     about arm (3), which this fix defers, and about a code this fix does not
+     widen. It stays unreachable from source text until residual 1 closes.
+  3. **The junk-parameter-table withhold is silence, not a verdict.** A `fn`
+     whose parameter list absorbed a statement draws its own declaration-level
+     refusal and no arity row; since that refusal is `E`-severity the theta does
+     not register either way, so no input is left both silent and loadable.
+  4. **Adding two rows to `docs/reference/diagnostics.md`'s `theta/parse/*` table
+     shifts every line after it by +2**, so line-form citations into that page at
+     `:187` and beyond — carried by roughly two dozen `docs/bugs/*.md` documents —
+     are stale by two. Intrinsic to any registry addition on that page and not
+     repaired here: those documents belong to other owners and this lane may not
+     edit them.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the runtime throw, its attribution and the
+  ERR-20 `par for` downgrade are unchanged (§Fix (g)); `error-model.md`'s
+  boundary sentence, `invocation.md`'s scoping sentences and
+  `placeholder-rendering-b.md` are unedited; the `invoke(...)` and
+  `.theta`-callable arity surfaces, the Pi-tool argument rules, and the argument
+  **type** judgement at this boundary are untouched.

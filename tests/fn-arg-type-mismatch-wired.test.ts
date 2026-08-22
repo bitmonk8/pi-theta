@@ -141,7 +141,9 @@ import { errors, parseDoc } from "./helpers/e2e-s1";
 //               a composite BUILT from a withheld read, at a row whose verdict
 //               its outer kind decides.
 //   e1          the three shipped example files keep loading clean (GOV-15).
-//   a1          argument COUNT stays unjudged at parse — bug 0131, open.
+//   a1          the two `invoke-arity-*` rows stay away from a plain `fn` call,
+//               and `fn-arg-type-mismatch` stays suppressed where the argument
+//               count itself is wrong.
 //
 // RED / GREEN AT THIS HEAD (7c8833cd, offline, deterministic). r1–r6, s1 and
 // every positive-differentiator cell for the fn-arg code (u7p, u8p, u9p, u10p,
@@ -3414,22 +3416,22 @@ describe("bug 0050 — the shipped example corpus keeps loading clean", () => {
 });
 
 // ===========================================================================
-// a1 — argument COUNT is a different question and stays unjudged at parse.
-// GREEN at this HEAD and after. Bug 0131 owns the arity position and is OPEN;
-// it is NOT fixed here. Its ordering note records that arity must be decided
-// before per-argument type, so whichever lands second inherits the other's
-// suppression channel — this cell is the marker that this route landed first
-// and changed nothing about the count.
+// a1 — argument COUNT is a different question, answered by its own rows.
+// A plain `fn` call whose argument count is wrong draws
+// `theta/parse/fn-arity-too-few` / `-too-many`; the two `invoke-arity-*` rows
+// are scoped to `invoke` / `.theta`-callable callees and MUST stay away from a
+// `fn` call site, or the wrong row's message and Hint reach the author. The
+// second half of the cell is the ordering: arity is decided before per-argument
+// type, so a mis-arity call carries no `fn-arg-type-mismatch` verdict at all.
 // ===========================================================================
 
-describe("bug 0050 — argument arity at a plain `fn` call is untouched", () => {
-  it("a1: `g()` and `g(3, 4)` against a one-parameter `fn` draw neither fn-arg-type-mismatch nor an arity code", () => {
-    // Too few: there is no argument to judge. Too many: index 0 is compatible
-    // (`integer ⊑ number`) and index 1 sits past the end of the parameter list,
-    // so the check has no declared type for it and skips it — the extra
-    // argument is an arity fault, and no registry row covers a plain `fn`
-    // call's argument count. The runtime still throws `ThetaFnArityError`
-    // (src/runtime/statement-executor.ts:386, :424).
+describe("bug 0050 — argument arity at a plain `fn` call is a different route", () => {
+  it("a1: `g()` and `g(3, 4)` against a one-parameter `fn` draw no fn-arg-type-mismatch and no `invoke`-scoped arity code", () => {
+    // Both calls are mis-arity against `fn g(n: number)`, so the arity verdict
+    // is drawn first and the per-argument type check never runs: too few has no
+    // argument to judge, and too many never reaches index 0's compatible
+    // (`integer ⊑ number`) slot. The rows that fire are the `fn`-scoped pair;
+    // what this cell holds is that the `invoke`-scoped pair does not.
     const tooFew = parse(A1_TOO_FEW);
     const tooFewCalls = collectCalls(tooFew).filter((c) => c.callee === "g");
     expect(
@@ -3438,7 +3440,7 @@ describe("bug 0050 — argument arity at a plain `fn` call is untouched", () => 
     ).toEqual([0]);
     expectNoFnArgMismatch(
       tooFew,
-      "a1 (too few) — an absent argument has no static type, so the type check has no operand",
+      "a1 (too few) — arity is decided first and returns, so no per-argument type verdict is drawn on a mis-arity call",
     );
 
     const tooMany = parse(A1_TOO_MANY);
@@ -3448,7 +3450,7 @@ describe("bug 0050 — argument arity at a plain `fn` call is untouched", () => 
     ).toEqual(range(5, 14, 5, 15));
     expectNoFnArgMismatch(
       tooMany,
-      "a1 (too many) — the surplus argument sits at an index the parameter list does not cover, so it carries no declared type to be judged against",
+      "a1 (too many) — arity is decided first and returns, so the compatible slot at index 0 is never judged either",
     );
 
     for (const [label, doc] of [
@@ -3457,7 +3459,7 @@ describe("bug 0050 — argument arity at a plain `fn` call is untouched", () => 
     ] as const) {
       expect(
         [...locatedHits(doc, ARITY_TOO_FEW_CODE), ...locatedHits(doc, ARITY_TOO_MANY_CODE)],
-        `a1 (${label}) — the two registered arity rows are scoped to \`invoke\` / \`.theta\`-callable callees; bug 0131 is open and this route does not answer it. Diagnostics: ${render(doc)}`,
+        `a1 (${label}) — the two \`invoke-arity-*\` rows are scoped to \`invoke\` / \`.theta\`-callable callees; a plain \`fn\` call's count is answered by the \`fn-arity-*\` pair instead, and neither \`invoke\` row may reach this site. Diagnostics: ${render(doc)}`,
       ).toEqual([]);
     }
   });

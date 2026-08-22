@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.199.0]
+
+### Fixed
+
+- **Bug 0131**: in-document `fn` calls with the wrong argument count drew no
+  diagnostic — surplus arguments were silently discarded and missing ones
+  bound `<withheld>`, with the only enforcement a runtime
+  `ThetaFnArityError` surfacing as `theta/runtime/internal-error`. Two new
+  registered rows `theta/parse/fn-arity-too-few` /
+  `theta/parse/fn-arity-too-many` (E, type phase) now refuse at every
+  in-document call position, arity-before-type, hosted in `checkFnCallArgs`;
+  imported `.thetalib` `fn` arity stays deferred (bug 0138's seam). Registry
+  + reference mirror + placeholder table amended same commit. Witness:
+  `tests/fn-call-arity-unchecked.test.ts` (29 cells) + a standalone live
+  registration cell.
+
 ## [0.198.0] - 2026-08-29
 
 ### Added
