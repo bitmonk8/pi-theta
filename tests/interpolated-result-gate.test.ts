@@ -192,6 +192,9 @@ const REGISTRY = parseRegistry(
     .join("\n"),
 ) as readonly { readonly code: string; readonly message: string }[];
 
+/** The reserved-keyword code the enum-variant NAME position draws (bug 0153). */
+const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
+
 /**
  * The registered Message for `theta/parse/interpolated-result`. The row's
  * template carries no placeholder, so the registry cell IS the expected string
@@ -207,6 +210,25 @@ function interpolatedResultMessage(): string {
     );
   }
   return template;
+}
+
+/**
+ * The registered Message for `theta/parse/reserved-keyword-as-identifier` with
+ * its `<keyword>` slot filled (DIAG-4). Row definedness and placeholder
+ * presence are asserted before the fill, so a missing row or a reworded
+ * template reds by naming the registry rather than by a silent mismatch.
+ */
+function reservedKeywordMessage(keyword: string): string {
+  const template = registryMessage(REGISTRY, RESERVED_KEYWORD_CODE) as string | undefined;
+  expect(
+    template,
+    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${RESERVED_KEYWORD_CODE}`,
+  ).toBeDefined();
+  expect(
+    template as string,
+    `DIAG-4: the ${RESERVED_KEYWORD_CODE} Message template must carry the \`<keyword>\` slot the emission interpolates`,
+  ).toContain("<keyword>");
+  return (template as string).replace("<keyword>", keyword);
 }
 
 // ===========================================================================
@@ -728,25 +750,31 @@ describe("bug 0079 (a) — the generic `Result<…>` forms also refuse the load"
 // ===========================================================================
 
 describe("bug 0079 (a) — controls: `Ok`/`Err` as ORDINARY names, and composite operands", () => {
-  it("CONTROL (a11): an enum VARIANT named `Ok` takes QRY-18's enum row", () => {
-    // `StaticTypeInferencePass` types every member access as `named <field>`, so
-    // `Status.Ok` and a genuine `Ok(…)` constructor record the identical type
-    // name. QRY-18's enum row prescribes the bare wire value for this, not a
-    // rejection.
-    assertGateSilent(
-      FM + "enum Status { Ok, Bad }\n" + "@`x${Status.Ok}`\n",
-      "an interpolation of an enum variant that happens to be named `Ok`",
-    );
+  it("CONTROL (a11): an enum VARIANT named `Ok` is refused at declaration, not reached by this gate", () => {
+    // The enum-variant NAME is an identifier position lexical.md:20 reserves
+    // (bug 0153), and `Ok` is one of its 32 spellings, so this declaration is
+    // refused at parse time and `StaticTypeInferencePass` never runs on it.
+    // The collision this control names — `Status.Ok` and a genuine `Ok(…)`
+    // constructor both typing as `named Ok` — is therefore unconstructible,
+    // and the refusal itself is what this row pins, so a widening of the
+    // enum-variant position reds here.
+    const doc = parseOnly(FM + "enum Status { Ok, Bad }\n" + "@`x${Status.Ok}`\n");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+      "the enum-variant NAME position is bug 0153's claim; the declaration is refused before the interpolation gate is reached",
+    ).toEqual([`error ${RESERVED_KEYWORD_CODE}: ${reservedKeywordMessage("Ok")}`]);
   });
 
-  it("CONTROL (a12): a BINDING holding that variant is silent too", () => {
-    // The stronger form: `let s = Status.Ok` records the same type a
-    // `let r = Ok(1)` records, so the two are indistinguishable by name and
-    // separable only by the initialiser's provenance.
-    assertGateSilent(
-      FM + "enum Status { Ok, Bad }\nlet s = Status.Ok\n" + "@`x${s}`\n",
-      "a binding holding an enum variant named `Ok`",
-    );
+  it("CONTROL (a12): a BINDING holding that variant is refused at declaration too", () => {
+    // Same foreclosure as (a11), at the stronger form: `let s = Status.Ok` is
+    // indistinguishable from `let r = Ok(1)` by name alone, and bug 0153's
+    // refusal of the enum declaration forecloses the shape before the
+    // binding's initialiser is reached.
+    const doc = parseOnly(FM + "enum Status { Ok, Bad }\nlet s = Status.Ok\n" + "@`x${s}`\n");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+      "same refusal as (a11): the binding's initialiser is unreachable once the enum declaration itself is refused",
+    ).toEqual([`error ${RESERVED_KEYWORD_CODE}: ${reservedKeywordMessage("Ok")}`]);
   });
 
   it("CONTROL (a13): a `string` FIELD sharing its name with a `Result`-returning `fn`", () => {
@@ -1626,16 +1654,19 @@ describe("bug 0114 (f) — controls: containment must not change any NON-`Result
     );
   });
 
-  it("CONTROL (f5 / C05): the enum row inside a container — an enum VARIANT named `Ok`", async () => {
-    // QRY-18 :25 renders an enum variant as its bare wire value; inside an array
-    // that is a quoted JSON string. The variant is literally named `Ok`, so a
-    // nested classifier keyed on anything but the RESULT_TAG brand reds here —
-    // bug 0020's shared-brand posture, at the nested position.
-    await assertNestedControlRenders(
-      FM + "enum S { Ok, Bad }\n" + "let xs = [S.Ok]\n" + "@`x${xs}`\n",
-      "an array holding an enum variant named `Ok`",
-      'x["Ok"]',
-    );
+  it("CONTROL (f5 / C05): an enum VARIANT named `Ok` is refused at declaration, not reached by the nested renderer", () => {
+    // QRY-18 :25 renders an enum variant as its bare wire value, and a variant
+    // literally named `Ok` is bug 0020's shared-brand posture at the nested
+    // position — a classifier keyed on anything but the RESULT_TAG brand reds
+    // on it. That shape is unconstructible: bug 0153 reserves `Ok` from the
+    // enum-variant-NAME position (lexical.md:20), so the declaration is refused
+    // at parse time and `translateInterpolationOutbound`'s nested renderer
+    // never runs on it. The refusal is what this row pins.
+    const doc = parseOnly(FM + "enum S { Ok, Bad }\n" + "let xs = [S.Ok]\n" + "@`x${xs}`\n");
+    expect(
+      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+      "the enum-variant NAME position is bug 0153's claim; the declaration is refused before the nested renderer is reached",
+    ).toEqual([`error ${RESERVED_KEYWORD_CODE}: ${reservedKeywordMessage("Ok")}`]);
   });
 
   it("CONTROL (f6 / C06): a plain array of integers", async () => {

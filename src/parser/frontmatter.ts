@@ -766,13 +766,43 @@ function extractParsedParams(
     // already uses. The predicate is `checkName`'s own two-comparison form
     // (lexer.ts). Its two exclusions hold the guard to the Trigger's
     // "Identifier in a … field-name position": a key spelling no theta
-    // identifier (a quoted phrase), and a reserved keyword. Wherever this rule
-    // IS enforced the keyword arm claims the spelling first — `checkName`
-    // returns before its first-letter test, and `parseFn`'s parameter arm
-    // tests the keyword kind ahead of the case arm — under a different
-    // registered code and spec sentence (lexical.md §Reserved words) this fix
-    // does not close, which face 1's `ident` guard already honours.
-    if (isIdentifierShaped(name) && !RESERVED_KEYWORDS.has(name)) {
+    // identifier (a quoted phrase), and a reserved keyword. Two arms split the
+    // position between two rules, in the order every other enforcement site
+    // uses — `checkName` returns from its keyword arm before its first-letter
+    // test, and `parseFn`'s parameter arm tests the keyword kind ahead of the
+    // case arm. The keyword arm below claims a reserved spelling under
+    // lexical.md §Reserved words / code-registry-parse.md:21; the `ident`-
+    // shaped arm after it judges the first letter's case under lexical.md
+    // §Identifiers / code-registry-parse.md:19. The two subjects are disjoint,
+    // so neither arm can reach the other's input.
+    if (RESERVED_KEYWORDS.has(name)) {
+      // lexical.md:20 reserves 32 spellings from identifier position with no
+      // scope list, and code-registry-parse.md:21's Trigger names no
+      // position either: a `params:` key is an identifier position twice
+      // over (schemas.md's field-identifier reading, and
+      // frontmatter-fields-a.md:57's "exposed as typed variables in the
+      // theta body"), and it is the face that reaches furthest — the
+      // spelling becomes a JSON Schema property key and a `wireName` the
+      // binder and the provider receive (row L1). This key is a YAML scalar,
+      // not a token, so the predicate is membership in the shipped
+      // `RESERVED_KEYWORDS` set rather than a `kind` test, and the range
+      // comes from the key node itself, the same fallback-to-`range` shape
+      // the case arm below uses for the same key. Emitted under the
+      // registered `theta/parse/*` code and not a `theta/load/` twin: DIAG-2
+      // closes the registry, the `load` namespace carries no
+      // reserved-keyword row, and the code names the RULE rather than the
+      // module. The keyword arm runs first — mirroring `parseFn`'s
+      // parameter-name check (`theta-document.ts`, `keyword` ahead of
+      // `ident`) — though the case arm's own `!RESERVED_KEYWORDS.has` guard
+      // already keeps the two subjects disjoint.
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/reserved-keyword-as-identifier",
+        file,
+        range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
+        message: `reserved keyword '${name}' cannot be used as an identifier`,
+      });
+    } else if (isIdentifierShaped(name)) {
       const first = name[0] ?? "";
       const isUpper = first >= "A" && first <= "Z";
       if (isUpper) {

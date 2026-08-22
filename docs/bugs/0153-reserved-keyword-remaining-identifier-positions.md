@@ -1,6 +1,6 @@
 # Bug 0153 — `docs/spec_topics/lexical.md:20` makes any of 32 reserved spellings "in identifier position" `theta/parse/reserved-keyword-as-identifier` and the registered *Trigger* (`code-registry-parse.md:21`) names no position at all, but bug 0148's fix (0.81.0) closed the `fn` parameter name only, so `for string in xs`, `par for string in xs`, `schema S { let: string }`, a `params:` field `let: string`, `enum E { let }`, `import { let }` and `import { a as let }` each report `[]`, bind the keyword verbatim into the AST — and, at the `params:` face, into the lowered JSON Schema's `properties` and `required` — and register, while at the same `for` position four of the 32 spellings do fire and name the WRONG token: `for let in xs { 1 }` draws the code against `'in'` @5:9-5:11
 
-- **Status:** open. Residual 2 of the bug 0148 fix (0.81.0, `751fa708`),
+- **Status:** fixed (0.194.0). Residual 2 of the bug 0148 fix (0.81.0, `751fa708`),
   recorded in that fix's report (`.pi/tmp/fixes/0148-report.md` §Residuals 2
   and 4) and in 0148's own `## Fix (0.81.0)` record, §Fix (b) items 1, 2, 3, 5
   and 6, each dispositioned **OUT** and pinned by an over-reach tripwire row.
@@ -981,3 +981,176 @@ orchestrator fixing bug 0149 held uncommitted prototype edits in two of those
 files during the session. All three scratch files were deleted after the run.
 No source file, test file, `docs/bugs/README.md` entry or other bug document is
 modified by this filing.
+
+## Fix (0.194.0)
+
+**Pre-fix census, re-derived at HEAD `35b718cc` (0.187.0), ~106 minors after
+the filing.** All six positions still admitted a reserved spelling, so nothing
+here was mooted: rows a1–a8 all `[]` and all registering; controls c1–c7 `[]`;
+the enforced adjacencies k1–k5 unmoved; the misfire rows m1/m6/m9 and the `as`
+rows w1–w2 unmoved; the `single-line-if` rows w4–w6 unmoved; the `params:`
+lowering L1 still carrying `properties.let` / `required: ["let"]` /
+`wireName: "let"`. Three drifts against the filing, each measured and recorded:
+(1) the `match` binder now FIRES (`match v { match => 1 }` draws the code at
+5:19-5:24) — bug 0141 landed in 0.146.0, so §Non-goals' first bullet is
+discharged by another report and row `e7` records that delivery; (2) at both
+`import` faces the spelling `as` now draws
+`theta/parse/import-malformed-specifier-list` (bugs 0100/0211), so the
+32-spelling partition there is 27 silent / 4 `single-line-if` / 1 malformed,
+not §Reproduction (b)'s 28/4; (3) every `theta-document.ts`,
+`frontmatter.ts` and `production-composition.ts` line number in this document
+is stale (bug 0134's class) — the shipped citations are re-derived.
+
+- **Route adjudicated.** §Fix (a) **Route 1/2 hybrid**: six parser-leaf
+  emissions, five of them reusing bug 0044's existing builder
+  `reservedKeywordAsIdentifierDiagnostic` **unchanged and unexported**, the
+  sixth constructing the same shape locally because `frontmatter.ts` cannot
+  import `theta-document.ts`. Route 3 (widening the lexer dispatch) declined
+  as §Fix (a) anticipated. §Fix (b): the `params:` face emits the registered
+  `theta/parse/reserved-keyword-as-identifier`, **not** a `theta/load/` twin —
+  DIAG-2 closes the registry, the `load` namespace carries no reserved-keyword
+  row, the code names the RULE rather than the module, and bug 0149's face-2
+  emission already pushes a `theta/parse/*` code from this same loop. §Fix (c):
+  **route (i)** at all three misfire faces — the lexer's pre-existing
+  adjacency diagnostics (`'in'`, `'as'`) and the `controlHeads` scan's
+  `single-line-if` are left standing beside the new correct diagnostic, and
+  the resulting ordered lists are pinned; `src/lexer/lexer.ts` is blob-identical
+  to HEAD (`17f6e1d710ebe4b9c3350130aaa86585f9d4bd45`, asserted both before and
+  after), so bugs 0051's and 0135's citations there do not shift. Route (iii)
+  stays refuted by row k1. §Fix (d): **all six positions land together** — the
+  contests the filing recorded are gone (0100 fixed 0.134.0, 0141 fixed
+  0.146.0, 0149 fixed 0.82.0).
+- **What shipped:**
+  - `src/parser/theta-document.ts` — five emissions: `parseFor` and
+    `parseParFor` at the iteration-variable capture, each guarded against the
+    `mut`-consumption recovery artefact; `parseSchemaObjectBody` on a
+    `keyword`-kind field-NAME token, as a new arm beside (not inside) bug
+    0149's `ident` case arm; `parseEnumVariants` at the variant-name capture;
+    `parseImportExport` at BOTH `ImportSpec` name slots (SOURCE and `as`
+    ALIAS). The field TYPE path, bug 0044's four callers and bug 0148's
+    `atParamStart`-guarded parameter emission are untouched.
+  - `src/parser/frontmatter.ts` — `extractParsedParams` gains a keyword arm
+    ahead of bug 0149's case arm, predicated on `RESERVED_KEYWORDS.has(name)`
+    (the YAML key is a scalar, so there is no token kind to test) and ranged on
+    `rangeOf(item.key, …) ?? range`, the same fallback the sibling emission in
+    the loop uses.
+  - `tests/reserved-keyword-remaining-identifier-positions.test.ts` — NEW,
+    76 cells: the firing row and its range at each of the six positions, the
+    whole 32-spelling sweep at each of the seven source shapes asserted as
+    ordered whole lists, the conformant control at each, the `.thetalib`
+    route, the binding rows, the registration rows, the misfire rows under
+    route (i), and the must-not-move rows for bugs 0044/0141/0148 and the
+    contextual keywords. Every message is read from the registry through
+    `parseRegistry`/`registryMessage` with the `<keyword>` slot filled (DIAG-4);
+    every assertion is a whole-list ordered `toEqual` over unfiltered
+    `doc.diagnostics`.
+  - `tests/fn-param-name-reserved-keyword.test.ts` — the eight tripwire rows
+    §Reproduction (h) names (`e4`, `e4p`, `e5`, `e6`, `e8`, `e9a`, `e9b`,
+    `e14`) **retaken in place**, each strengthened from `toEqual([])` to the
+    firing row with its registry-rendered message and its range, and the file
+    header's ledger rewritten to match. `e7`, `e10`, `e11`, `e12` and every
+    `a`/`b`/`c`/`d`/`ck` row are unchanged and green.
+  - `tests/schema-field-name-case.test.ts` — bug 0149's five coordination
+    rows (`f6`, `f14`, `p4`, `p7`, `p8`) retaken to the firing rows, the
+    rebase §Related predicted for whichever rule lands second at the shared
+    schema-field and `params:` positions.
+  - `tests/interpolated-result-gate.test.ts` — controls `a11`, `a12` and
+    `f5`/`C05` retaken: their fixtures declare an enum variant literally named
+    `Ok`, one of `lexical.md:20`'s 32 spellings, which is now refused at
+    declaration. Each now pins the refusal, rendered from the registry.
+  - `tests/par-for.test.ts` — `r22` / `r22-control`: incidental fixture
+    rename `Ok` → `Good`; the unknown-variant lookup under test is unchanged.
+  - `tests/live/reserved-keyword-remaining-positions-live-cell.test.ts`
+    — NEW standalone H8a-T registration-denial cell (the §Fix (g) live
+    obligation), proving the refusal end to end through the real
+    `session_start → resources_discover → composeExtensionInstance` path at the
+    `params:` face and the `for`-variable face, each against a conformant
+    same-shape sibling plus an unrelated precondition control.
+- **The `mut`-recovery guard, the one predicate the routes left open.** A
+  naive emission at the variable capture would fire on the artefact `mut`
+  leaves behind (`for mut in xs`, where the modifier is consumed and the
+  grammar's `in` falls into the name slot), which is the failure mode 0148's
+  `atParamStart` exists to prevent and which row m9/`m11`/`m12` pin. The
+  shipped discriminator is the FOLLOWING token: the artefact is followed by
+  the iterand, a genuine variable spelled `in` behind a `mut` is followed by
+  the grammar's own `in`. Rows `m13` / `m14` pin that other side —
+  `for mut in in xs { 1 }` and `par for mut in in xs { 1 }` each draw
+  `mut-on-immutable-context` AND the reserved refusal on the variable.
+- **Gates** (all re-run by the orchestrator, not taken on report):
+  witness `npx vitest run tests/reserved-keyword-remaining-identifier-positions.test.ts
+  tests/fn-param-name-reserved-keyword.test.ts tests/schema-field-name-case.test.ts
+  tests/interpolated-result-gate.test.ts tests/par-for.test.ts` →
+  `Test Files 5 passed (5)`, `Tests 344 passed (344)`; full default suite
+  `npm test` → `Test Files 379 passed (379)`, `Tests 7878 passed (7878)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+  `npm run lint` (`eslint "src/**/*.ts"`) clean;
+  `npx vitest run tests/registry-closed-set-corpus-gate.test.ts
+  tests/committed-fixture-parse-gate.test.ts` → `Tests 42 passed (42)`;
+  live `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/reserved-keyword-remaining-positions-live-cell.test.ts` →
+  `Test Files 1 passed (1)`, `Tests 1 passed (1)`.
+- **Review:** 2 rounds. Round 1 (deep) — DEFECTS (4): one correctness finding
+  (the `mut`-recovery guard swallowed a genuine variable spelled `in` behind
+  `mut`), two house-rule findings (pre-existing comments left contradicting the
+  new arms; six comments narrating history), one DIAG-4 test finding
+  (hand-written expected messages in the collateral controls). Round 2 (fast) —
+  CLEAN, with each remedy re-derived from the diff.
+- **Verification:** SOLID. (1) Witness genuinely reds: all six emissions
+  neutralised together → 4 files red, 59 cells, including all eight retaken
+  tripwires; the `params:`, `for`-variable and schema-field faces additionally
+  neutralised one at a time, so `e6`, `e4` and `e5` each red individually;
+  restoration proven byte-exact by `git hash-object` against the recorded
+  pre-revert digests (`30a25c6e…`, `59edcfad…`), never by `git
+  checkout`/`restore`/`stash`. (2) Full default suite green. (3) The live cell
+  ran for real under the cross-lane lock and passed. (4) Typecheck and lint
+  clean.
+- **GOV-15 (§Fix (f)).** Obligation 1 re-run at fix time: the committed corpus
+  is discharged by `tests/committed-fixture-parse-gate.test.ts` (36 cells,
+  green) plus `tests/registry-closed-set-corpus-gate.test.ts`; no committed
+  `.theta` or `.thetalib` changes disposition, and no baseline entry is added.
+  Obligation 2's release note names the six newly refused input classes, one
+  per position. DIAG-2 is not engaged — no registry row is added, removed or
+  re-triggered, and the *Trigger* already covered every position. DIAG-4 is
+  satisfied: every emission renders the registry *Message*, and no asserted
+  message string is hand-written.
+- **Residuals:**
+  1. **The three misfire faces are not repaired** (§Fix (c) route (i), taken
+     deliberately). `for let in xs { 1 }` now reports TWO diagnostics — the
+     correct one naming `'let'` at 5:5-5:8 and the lexer adjacency's naming
+     `'in'` at 5:9-5:11 — and the `as` faces (w1–w3) and the `single-line-if`
+     faces (w4–w7) likewise carry a second, wrong-subject diagnostic beside
+     the correct one. All are pinned as ordered whole lists (`m1`, `m6`, `m8`,
+     `w1`–`w7`, retaken `e14`). Repairing them requires narrowing
+     `src/lexer/lexer.ts`'s adjacency dispatch, which shifts open bugs 0051's
+     and 0135's citations; unfiled.
+  2. **Coverage foreclosed by the enum-variant position closing.** An enum
+     variant literally named `Ok` is now refused at declaration, so the
+     `Ok`-collision controls in `tests/interpolated-result-gate.test.ts`
+     (`a11`, `a12`, `f5`/`C05`) can no longer construct their scenario; each
+     is retaken as a pin on the refusal. Control `a13` (a `string` field
+     sharing its name with a `Result`-returning `fn`) still exercises the
+     surviving name-collision shape. Sibling reports whose §Reproduction rows
+     spell `enum … { Ok, … }` — 0079, 0114, 0118, 0196 — have fixtures that
+     are now refused at parse; those documents are not edited here (bug 0134's
+     do-not-chase class), but a run re-measuring them should expect the
+     refusal.
+  3. **A `params:` face diagnostic withholds the whole frontmatter.** Row `L1`
+     records that `doc.frontmatter` is `null` once the reserved key draws its
+     error, so the lowered schema the filing measured (`properties.let`) is
+     not merely corrected but absent. That is `ParsedFrontmatter`'s
+     pre-existing "present iff loadable" behaviour, shared with bug 0149's
+     sibling emission in the same loop; it is not introduced here.
+  4. **One non-reproducible full-suite red** was observed in a single early
+     `npm test` run under heavy machine contention (collect time 1061 s
+     against a normal ~460 s) and did not reproduce: three subsequent full
+     runs, including the verifier's, are `379 passed / 7878 passed`. The
+     failing cell was not captured before that run was superseded.
+- **Discharge notes appended:** none. The sibling documents this fix rebases
+  against (bug 0148's witness rows, bug 0149's coordination rows) are
+  discharged by the retaken rows themselves, not by prose in those documents.
+- **Pinned dispositions / non-goals:** unchanged. The `match` pattern binder
+  stays bug 0141's (delivered; row `e7` records it); bug 0044's `Type`
+  positions stay untouched (`e10`, `e11`, `e12`); the case rules at these
+  positions stay bug 0149's plus the unfiled `enum`-variant case half; the
+  discard `_`, the inline object type's field name, and the `mut` recovery's
+  own repair are not approached.

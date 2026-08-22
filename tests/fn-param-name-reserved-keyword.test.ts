@@ -103,21 +103,33 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     `let mut` skip and both the `schema` and `enum` arms — they are what make
 //     a red above attributable to the parameter position rather than to a dead
 //     code or a broken harness), e11 and e12 (bug 0044's type-position
-//     emissions), e14 (the `let`-adjacency misfire at a `for` variable, which
-//     names the wrong token and is unclaimed by any report).
+//     emissions). Row e14 is no longer a must-not-move row: bug 0153 retook
+//     it, and it now pins the `let`-adjacency misfire SURVIVING beside 0153's
+//     correct diagnostic at the `for` variable's own range.
 //   - REGISTRATION: d1 (the pin does not register), d2 (bug 0139's spelling
 //     still does not), d3 (a conformant parameter still does).
 //
 // OVER-REACH TRIPWIRES. lexical.md:20 bounds itself by no position list, so a
 // classification widened past `parseFn`'s parameter loop reaches positions
-// this report does not claim. Each row below is the disposition bug 0148 §Fix
-// (b) records, and a reader finding one red should widen the fix's scope
-// question rather than the row:
-//   - e4 / e4p — the `for` and `par for` iteration variable. Unclaimed by any
-//     report at this HEAD (bug 0148 §Non-goals).
-//   - e5 — the schema field NAME. Unclaimed; bug 0046's §Non-goals covers the
-//     casing half of that position only.
-//   - e6 — the `params:` frontmatter field NAME. Unclaimed.
+// this report does not claim. Rows e7 and e10 below are still that: the
+// disposition bug 0148 §Fix (b) records, where a reader finding one red should
+// widen the fix's scope question rather than the row. Rows e4, e4p, e5, e6,
+// e8, e9a, e9b and e14 are no longer dispositions — they are DELIVERIES,
+// RETAKEN by bug 0153
+// (docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md), which
+// claimed all six of the positions 0148 left out and closed each at its own
+// parser leaf. Each retaken row now pins the code, the interpolated subject
+// and the RANGE of that delivery, so a fix that lands the emission at the
+// wrong token still reds here; the whole 32-spelling picture at each of the
+// six positions lives in 0153's own witness,
+// tests/reserved-keyword-remaining-identifier-positions.test.ts:
+//   - e4 / e4p — the `for` and `par for` iteration variable, emitted at
+//     `parseFor` / `parseParFor`'s variable capture. Bug 0153's claim.
+//   - e5 — the schema field NAME, emitted at `parseSchemaObjectBody`'s
+//     name token. Bug 0153's claim; bug 0046's §Non-goals and bug 0149 cover
+//     the casing half of that position only.
+//   - e6 — the `params:` frontmatter field NAME, emitted from
+//     `extractParsedParams` on the YAML key. Bug 0153's claim.
 //   - e7 — the `match` pattern binder. OWNED BY BUG 0141
 //     (docs/bugs/0141-capitalised-bare-match-pattern-binds-identifier.md) §Fix
 //     (a) half 2, which enforces the same code at a disjoint site:
@@ -126,8 +138,17 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     `lexical.md`'s restatement for `match` patterns, NOT this report's
 //     parameter-position rule widening. A fix HERE that changes the range,
 //     the count or the site of that emission is over-reach.
-//   - e8 — the `enum` variant name. Unclaimed.
-//   - e9a / e9b — both `import` specifier binding forms. Unclaimed.
+//   - e8 — the `enum` variant name, emitted at `parseEnumVariants`'s name
+//     capture. Bug 0153's claim. The variant-name CASE rule at that position
+//     remains unclaimed by any report.
+//   - e9a / e9b — both `import` specifier binding forms, emitted in
+//     `parseImportExport`'s specifier loop at the SOURCE and ALIAS slots. Bug
+//     0153's claim.
+//   - e14 — the `let`-adjacency misfire at a `for` variable. Bug 0153 §Fix (c)
+//     route (i) ACCEPTS it: `src/lexer/lexer.ts` stays blob-identical (open
+//     bugs 0051 and 0135 hold citations in it), so the row now pins TWO
+//     diagnostics — 0153's correct one naming `let` at @5:5-5:8, then the
+//     surviving lexer one naming `in` at @5:9-5:11.
 //   - e10 — a keyword in a `fn` parameter's TYPE slot. Bug 0044's family (a
 //     `Type` position governed by `NamedType ::= Ident`), whose four shipped
 //     parser-leaf callers reach the schema-body and `params:` field types
@@ -820,38 +841,78 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
   // later reader finding one red should widen the fix's scope question, and —
   // for e7 — coordinate with the report that claims it, not edit the row.
 
-  it("e4: a `for` iteration variable named `string` reports nothing", () => {
+  it("e4: a `for` iteration variable named `string` draws bug 0153's refusal, ranged on the variable", () => {
+    // RETAKEN by bug 0153
+    // (docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md),
+    // which claims this position and five siblings. What the row NOW records
+    // is a delivery, not a disposition: the emission is 0153's parser-leaf one
+    // at `parseFor`'s variable capture (src/parser/theta-document.ts:2341),
+    // under lexical.md:20's unqualified sentence, and NOT bug 0148's
+    // `atParamStart`-guarded parameter arm widening out of `parseFn`. The
+    // range is the load-bearing half: `for ` is four characters on line 5, so
+    // the variable spans 5→11 end-exclusive. A SECOND diagnostic here, a range
+    // covering the whole statement, or a subject other than `string` is
+    // over-reach by a fix at either report's site.
     const doc = theta("let xs = [1]\nfor string in xs { 1 }\n1\n");
     expect(
       codesOf(doc),
-      `the \`for\` variable is unclaimed by any report at this HEAD; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the \`for\` variable is bug 0153's claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("string"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(5, 5, 5, 11));
   });
 
-  it("e4p: a `par for` iteration variable named `string` reports nothing", () => {
+  it("e4p: a `par for` iteration variable named `string` draws bug 0153's refusal, ranged on the variable", () => {
+    // RETAKEN by bug 0153, the same claim at the second parse site
+    // (`parseParFor`, src/parser/theta-document.ts:4722). `par for ` is eight
+    // characters, so the variable spans 9→15. Over-reach here would be a
+    // diagnostic ranged on the `par` or `for` keyword rather than the name.
     const doc = theta("let xs = [1]\npar for string in xs { 1 }\n1\n");
     expect(
       codesOf(doc),
-      `the \`par for\` variable is the same unclaimed position; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the \`par for\` variable is the same claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("string"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(5, 9, 5, 15));
   });
 
-  it("e5: a schema field NAME spelled `let` reports nothing", () => {
-    // Bug 0046's §Non-goals covers the CASING half of this position; the
-    // keyword half is unclaimed.
+  it("e5: a schema field NAME spelled `let` draws bug 0153's refusal, ranged on the name token", () => {
+    // RETAKEN by bug 0153. Bug 0046's §Non-goals and bug 0149 cover the CASING
+    // half of this position; this is the KEYWORD half, emitted at
+    // `parseSchemaObjectBody`'s field-name token
+    // (src/parser/theta-document.ts:2909–2910). `schema S { ` is eleven
+    // characters, so the name spans 12→15. Over-reach would be the WHOLE
+    // declaration range rows e11 / e12 carry — that range belongs to bug
+    // 0044's TYPE-slot emission, whose `SchemaFieldSource` has no range of its
+    // own; the NAME slot has a token, so it must use it.
     const doc = theta("schema S { let: string }\n1\n");
     expect(
       codesOf(doc),
-      `the schema field name is unclaimed; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the schema field NAME is bug 0153's claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 12, 4, 15));
   });
 
-  it("e6: a `params:` frontmatter field NAME spelled `let` reports nothing", () => {
+  it("e6: a `params:` frontmatter field NAME spelled `let` draws bug 0153's refusal, ranged on the YAML key", () => {
+    // RETAKEN by bug 0153. This is the face with no token: the name is a YAML
+    // scalar key (src/parser/frontmatter.ts:749), so the predicate is string
+    // membership in that module's `RESERVED_KEYWORDS` (`:478`,
+    // `= reservedKeywords()`) and the range comes from `rangeOf(item.key, …)`,
+    // the shape bug 0149's `binding-case-mismatch` emission in the SAME loop
+    // already uses. The code is the REGISTERED `theta/parse/*` one and not a
+    // `theta/load/` twin — DIAG-2 closes the registry and the `load`
+    // namespace carries no reserved-keyword row at all. The two-space YAML
+    // indent puts the key at columns 3–5 of line 4, so it spans 3→6. Over-reach would be the
+    // VALUE node's range — that range is row e12's, bug 0044's TYPE-slot
+    // emission at the same field.
     const doc = parseDoc("---\nmode: prompt\nparams:\n  let: string\n---\n1\n");
     expect(
       codesOf(doc),
-      `the \`params:\` field name is unclaimed; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the \`params:\` field NAME is bug 0153's claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 3, 4, 6));
   });
 
   it("e7: a `match` pattern binder spelled `match` draws bug 0141's reserved-keyword refusal, not this report's", () => {
@@ -869,28 +930,51 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
     ).toEqual([RESERVED]);
   });
 
-  it("e8: an `enum` variant named `let` reports nothing", () => {
+  it("e8: an `enum` variant named `let` draws bug 0153's refusal, ranged on the variant token", () => {
+    // RETAKEN by bug 0153, emitted at `parseEnumVariants`'s name capture
+    // (src/parser/theta-document.ts:3090). `enum E { ` is nine characters, so
+    // the variant spans 10→13. The variant-name CASE rule (lexical.md:15,
+    // schemas.md:78) is a different code and unclaimed by any report; a
+    // `theta/parse/schema-case-mismatch` appearing here would be over-reach.
     const doc = theta("enum E { let }\n1\n");
     expect(
       codesOf(doc),
-      `the enum variant name is unclaimed; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the enum variant NAME is bug 0153's claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 10, 4, 13));
   });
 
-  it("e9a: an `import` specifier named `let` reports nothing", () => {
+  it("e9a: an `import` specifier named `let` draws bug 0153's refusal, ranged on the SOURCE name", () => {
+    // RETAKEN by bug 0153, emitted in `parseImportExport`'s specifier loop at
+    // the SOURCE name slot (src/parser/theta-document.ts:3221–3222, `:3230`).
+    // `import { ` is nine characters, so the name spans 10→13. Over-reach
+    // would be a diagnostic ranged over the whole statement — that range
+    // belongs to `theta/parse/import-malformed-specifier-list`, whose subject
+    // is a list that spells no specifier at all.
     const doc = theta('import { let } from "./lib.thetalib"\n1\n');
     expect(
       codesOf(doc),
-      `the import specifier binding is unclaimed; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the import specifier's SOURCE slot is bug 0153's claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 10, 4, 13));
   });
 
-  it("e9b: an `import ... as let` alias reports nothing", () => {
+  it("e9b: an `import ... as let` alias draws bug 0153's refusal, ranged on the ALIAS", () => {
+    // RETAKEN by bug 0153 — the alias branch
+    // (src/parser/theta-document.ts:3241–3242) and the fully live half of the
+    // position: `a` is a legitimate export and the local binding becomes
+    // `let`. `import { a as ` is fourteen characters, so the alias spans
+    // 15→18. A diagnostic on the SOURCE name `a` here would be the
+    // wrong-subject over-reach.
     const doc = theta('import { a as let } from "./lib.thetalib"\n1\n');
     expect(
       codesOf(doc),
-      `the aliased import binding is the same unclaimed position; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the aliased import binding is the same claimed position; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 15, 4, 18));
   });
 
   it("e10: a keyword in a `fn` parameter's TYPE slot reports nothing", () => {
@@ -933,20 +1017,42 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
     expect(soleRange(doc, RESERVED)).toEqual(range(4, 6, 4, 9));
   });
 
-  it("e14: `for let in xs { 1 }` still names `in`, unmoved", () => {
-    // The lexer's `let` adjacency treats any `let` keyword token as a
-    // `let`-statement head (src/lexer/lexer.ts:876–882), so it inspects the
-    // token after the for-variable and names `in` where the offending
-    // identifier is `let`. Unfiled and unclaimed; pinned because a fix at the
-    // parser leaf must leave it exactly as it is, and a fix that changed the
-    // lexer dispatch would move it.
+  it("e14: `for let in xs { 1 }` names `let` at its own range, with the lexer's `in` misfire still beside it", () => {
+    // RETAKEN by bug 0153 §Fix (c) route (i). The lexer's `let` adjacency
+    // treats any `let` keyword token as a `let`-statement head
+    // (src/lexer/lexer.ts:876–882), so it inspects the token AFTER the
+    // for-variable and names `in` where the offending identifier is `let`.
+    // 0153 adds the correct parser-leaf diagnostic at the variable's own range
+    // and deliberately does NOT edit `src/lexer/lexer.ts` — open bugs 0051 and
+    // 0135 hold live citations in that file, and 0148 kept it blob-identical
+    // for the same reason — so the misfiring diagnostic survives BESIDE the
+    // correct one and this row now pins both, in order.
+    //
+    // The order is positional, not group order: `assembleDiagnostics`
+    // (src/diagnostics/diagnostic.ts:107–127) stable-sorts by
+    // (file, line, column), so the parser's diagnostic at column 5 precedes
+    // the lexer's at column 9. The same file already showed a parser
+    // diagnostic ahead of a lexer one this way — `for mut let in xs { 1 }`
+    // reports `mut-on-immutable-context` @5:5-5:8 before the lexer's `in`
+    // @5:13-5:15.
+    //
+    // What would be OVER-REACH: dropping the `in` diagnostic (that is a lexer
+    // edit 0153 §Fix (c) route (ii) refuses), or narrowing the lexer's arms to
+    // require an `ident`-kind `k+1` token (route (iii), refuted by row a16
+    // `let let = 1`, which must keep firing).
     const doc = theta("let xs = [1]\nfor let in xs { 1 }\n1\n");
     expect(
       codesOf(doc),
-      `the \`let\`-adjacency misfire is adjacent machinery, not this report's subject; diagnostics=${render(doc)}`,
-    ).toEqual([RESERVED]);
-    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("in"));
-    expect(soleRange(doc, RESERVED)).toEqual(range(5, 9, 5, 11));
+      `bug 0153's correct diagnostic lands beside the surviving \`let\`-adjacency misfire; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED, RESERVED]);
+    expect(
+      doc.diagnostics.map((d: Diagnostic) => d.message),
+      `the FIRST names the offending variable \`let\`, the second is the lexer's surviving \`in\`; diagnostics=${render(doc)}`,
+    ).toEqual([reservedMsg("let"), reservedMsg("in")]);
+    expect(
+      doc.diagnostics.map((d: Diagnostic) => d.range),
+      `the new diagnostic covers the loop variable @5:5-5:8; diagnostics=${render(doc)}`,
+    ).toEqual([range(5, 5, 5, 8), range(5, 9, 5, 11)]);
   });
 });
 

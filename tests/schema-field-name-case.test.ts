@@ -504,41 +504,36 @@ describe("0149 (k) — the already-enforced positions keep their behaviour", () 
 // ===========================================================================
 
 describe("0149 (b) — the field position's two boundaries", () => {
-  it("f6: a reserved keyword at the field position reports nothing", () => {
+  it("f6: a reserved keyword at the field position now draws reserved-keyword-as-identifier (bug 0153)", () => {
     // `parseSchemaObjectBody` admits a `keyword` token as a field name
-    // deliberately, and the registered *Trigger* covers an "Identifier in a …
-    // field-name position", so a keyword-shaped field name is outside THIS
-    // code. Closing the reserved-keyword arm is a separate input class under
-    // lexical.md:20 and a different registered code
-    // (`theta/parse/reserved-keyword-as-identifier`); bug 0148 claimed the `fn`
-    // parameter half and left the field half unfiled. The guard that keeps this
-    // row clean is the same `ident` guard that keeps bug 0133's twelve
-    // non-`ident` recovery token classes out of the emission.
+    // deliberately, so a keyword-shaped field name CAN be captured rather than
+    // mis-parsed — but bug 0153 closed the field-NAME identifier position
+    // under lexical.md:20's separate reserved-keyword rule, a different
+    // registered code from THIS file's `binding-case-mismatch`
+    // (lexical.md:16). This row pins that closed position's firing row. The
+    // `ident` guard keeping bug 0133's twelve non-`ident` recovery token
+    // classes out of the case-mismatch arm is untouched by it — the two arms
+    // sit side by side, keyed on `nameTok.kind`.
     const doc = theta("schema S { let: string }\n");
     expect(
       rendered(doc),
-      "a keyword-shaped field name is not an Identifier under the Trigger",
-    ).toEqual([]);
+      "bug 0153 (lexical.md:20) now refuses a keyword-shaped field name at declaration",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "let"]]), 4, 12, 15)]);
   });
 
-  it("f14: an UPPERCASE-first reserved keyword at the field position reports nothing", () => {
-    // f6's discriminating twin. Its `let` is already lowercase, so f6 stays
-    // clean whether the guard reads the token kind or only the first letter;
-    // `Ok` is one of the three uppercase-first reserved words (`Ok`, `Err`,
-    // `Result` — `reservedKeywords`, src/lexer/lexer.ts), which is the only
-    // shape where the two readings diverge. The reserved-keyword arm at a
-    // field-name position is a different registered code under a different spec
-    // sentence (lexical.md:20) and is NOT closed by this fix, so `Ok` must draw
-    // nothing here; row k6 measures which arm owns the spelling on a path this
-    // fix does not touch. This row and its face-2 twins p7 / p8 are what keep
-    // the two faces of the rule agreeing on that, so the same spelling of the
-    // same position cannot draw different codes depending on which face it is
-    // written in.
+  it("f14: an UPPERCASE-first reserved keyword at the field position also now fires (bug 0153)", () => {
+    // f6's discriminating twin. `Ok` is one of the three uppercase-first
+    // reserved words (`Ok`, `Err`, `Result` — `reservedKeywords`,
+    // src/lexer/lexer.ts), the shape where a token-kind guard and a
+    // first-letter-only guard would have diverged. Bug 0153's keyword arm
+    // reads `nameTok.kind`, not the first letter, so `Ok` fires exactly like
+    // `let` does in f6 — the same code k6 measures owning `Ok` ahead of the
+    // case arm at the `let`-binding position, now also true here.
     const doc = theta("schema S { Ok: string }\n");
     expect(
       rendered(doc),
-      "an uppercase-first reserved keyword is not an Identifier under the Trigger either",
-    ).toEqual([]);
+      "an uppercase-first reserved keyword is still a reserved keyword first",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "Ok"]]), 4, 12, 14)]);
   });
 
   it("f7: an alias right-hand side's inline arms now draw the code, closed by bug 0154", () => {
@@ -827,53 +822,47 @@ describe("0149 (e) — an uppercase-first `params:` key is a parse error", () =>
     expect(rendered(doc), "lexical.md:16 admits a leading underscore").toEqual([]);
   });
 
-  it("p4: a reserved keyword as a `params:` key reports nothing", () => {
+  it("p4: a reserved keyword as a `params:` key now draws reserved-keyword-as-identifier (bug 0153)", () => {
     // Face 2's boundary, f6's twin. A keyword-shaped key is not an Identifier
-    // under code-registry-parse.md:19's *Trigger*, and the reserved-keyword arm
-    // at a field position is a different registered code under lexical.md:20,
-    // unclaimed at this HEAD. The guard is `isIdentifierShaped`
-    // (src/parser/frontmatter.ts), which admits `let` as identifier-SHAPED, so
-    // this row also fences the emission against the keyword set: it must judge
-    // the first character's case and nothing else.
+    // under code-registry-parse.md:19's *Trigger*, so `isIdentifierShaped`
+    // (src/parser/frontmatter.ts) admitting `let` as identifier-SHAPED never
+    // reaches the case arm here — bug 0153's keyword arm, keyed on the same
+    // `RESERVED_KEYWORDS` set, claims it first. This row pins that closed
+    // position's firing row, ranged on the YAML key (`rangeOf(item.key, …)`),
+    // the same range the case arm above uses for the same key.
     const doc = withParams("  let: string\n", "1\n");
     expect(
       rendered(doc),
-      "the reserved-keyword arm at a field position is a different code and a different spec sentence",
-    ).toEqual([]);
+      "bug 0153 (lexical.md:20) now refuses a keyword-shaped `params:` key",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "let"]]), 4, 3, 6)]);
   });
 
-  it("p7: an UPPERCASE-first reserved keyword as a `params:` key reports nothing", () => {
-    // p4's discriminating twin and f14's face-2 partner. p4's `let` is already
-    // lowercase, so it passes whether or not the guard excludes the keyword
-    // set; `Ok` is one of the three uppercase-first reserved words (`Ok`, `Err`,
-    // `Result` — `reservedKeywords`, src/lexer/lexer.ts), so it is the shape
-    // that separates the two readings. The reserved-keyword arm at a field-name
-    // position is a different registered code under a different spec sentence
-    // (lexical.md:20) and is NOT closed by this fix; face 1 honours that
-    // structurally through `nameTok.kind === "ident"` (row f14), and face 2
-    // reaches the same verdict rather than making the emitted code depend on
-    // which face the spelling is written in. Row k6 measures which arm owns the
-    // input.
+  it("p7: an UPPERCASE-first reserved keyword as a `params:` key also now fires (bug 0153)", () => {
+    // p4's discriminating twin and f14's face-2 partner. `Ok` is one of the
+    // three uppercase-first reserved words (`Ok`, `Err`, `Result` —
+    // `reservedKeywords`, src/lexer/lexer.ts), the shape that would separate a
+    // token-kind-only guard from a set-membership guard; bug 0153's `params:`
+    // face reads `RESERVED_KEYWORDS.has(name)` directly (there is no token to
+    // read a `kind` from), so `Ok` fires exactly like `let` does in p4 — the
+    // same precedence k6 measures at the `let`-binding position, now also
+    // true at both field-name faces.
     const doc = withParams("  Ok: string\n", "1\n");
     expect(
       rendered(doc),
-      "a reserved keyword is outside the Trigger's Identifier clause at either face",
-    ).toEqual([]);
+      "a reserved keyword now fires identically at both field-name faces",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "Ok"]]), 4, 3, 5)]);
   });
 
-  it("p8: a SECOND uppercase-first reserved keyword as a `params:` key reports nothing", () => {
+  it("p8: a SECOND uppercase-first reserved keyword as a `params:` key also now fires (bug 0153)", () => {
     // p7 with `Result`, so the pair pins the SET rather than one spelling: the
     // guard reads the lexer's own `reservedKeywords()` (src/lexer/lexer.ts)
-    // instead of a hand-written list, and a fix that special-cased `Ok` reds
-    // here. Same ground as p7 — the reserved-keyword arm at a field-name
-    // position is a different registered code under a different spec sentence
-    // (lexical.md:20), not closed by this fix, and these rows are what keep the
-    // two faces of the rule agreeing on it.
+    // instead of a hand-written list, so a fix that special-cased `Ok` alone
+    // would leave this row red.
     const doc = withParams("  Result: string\n", "1\n");
     expect(
       rendered(doc),
-      "the exclusion is the lexer's keyword set, not one spelling",
-    ).toEqual([]);
+      "the closed set is the lexer's keyword set, not one spelling",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "Result"]]), 4, 3, 9)]);
   });
 
   it("p6: a body interpolating the param reports only the declaration", () => {

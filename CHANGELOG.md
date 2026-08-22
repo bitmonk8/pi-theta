@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.194.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0153 — reserved keywords now refuse at the six remaining identifier
+  positions** (`for`/`par for` binders, schema field names, enum variants,
+  import/export source + alias, and frontmatter params — five parser-leaf
+  emissions reusing 0044's builder unchanged, plus a `mut`-recovery
+  discriminator at both `for` sites and a keyword arm in
+  `extractParsedParams` ahead of 0149's case arm). Route (i): the lexer is
+  untouched (blob-identical); the three known misfire faces are left
+  standing and recorded. 0148/0149 tripwire rows retaken and strengthened.
+  New 76-cell witness + standalone live registration-denial cell. Note:
+  `enum … { Ok, … }` is now a parse error — stale `§Reproduction` fixtures
+  in bugs 0079/0114/0118/0196 no longer load (expected refusal, not a
+  regression).
+
 ## [0.193.0] - 2026-08-28
 
 ### Fixed

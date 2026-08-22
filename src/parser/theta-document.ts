@@ -2379,9 +2379,11 @@ class BodyParser {
 
   private parseFor(): Stmt {
     const kw = this.advance();
+    let mutConsumed = false;
     if (this.isKeyword("mut")) {
       // A `mut` modifier on a `for` iteration variable is an always-immutable
       // context (bindings.md §Immutable contexts).
+      mutConsumed = true;
       const mutTok = this.advance();
       const diag = checkMutModifier(
         { position: "for-var" },
@@ -2391,7 +2393,35 @@ class BodyParser {
         this.diagnostics.push(diag);
       }
     }
+    const variableTok = this.peek();
     const variable = this.advance().text;
+    // lexical.md:20 reserves all 32 spellings from identifier position with no
+    // scope list, and code-registry-parse.md:21's Trigger names no position
+    // either: `ForStmt ::= "for" Ident "in" Expr StmtBlock` (grammar.md) makes
+    // the loop variable an `Ident` terminal the lexer's adjacency dispatch
+    // cannot reach (it keys on `let`/`fn`/`schema`/`enum` tokens, never on
+    // this production). Guarded against the same recovery artefact bug 0148's
+    // `atParamStart` guards for `fn` parameters: `mutConsumed` true with the
+    // captured token reading `in` means no variable was written at all — the
+    // `mut` modifier's own consumption left `in` occupying this slot, and that
+    // artefact must not gain a second diagnostic beside
+    // `mut-on-immutable-context`. The discriminator between that artefact and a
+    // genuine iteration variable spelled `in` behind a `mut` (`for mut in in
+    // xs`) is the FOLLOWING token: the artefact's next token is the iterand
+    // (`xs`), while a genuine variable is followed by the grammar's own `in`
+    // keyword, so only the artefact is suppressed. The lexer's own adjacency
+    // diagnostic is left standing beside this one where the variable is itself `let`/`fn`/
+    // `schema`/`enum` (misfire face, bug 0153 §Fix (c) route (i)): narrowing
+    // the lexer to suppress it would drift bugs 0051/0135's citations there,
+    // and requiring the following token to be `ident`-kind (route (iii)) is
+    // refuted by `let let = 1` firing correctly.
+    const mutRecoveryArtefact =
+      mutConsumed && variableTok.text === "in" && !this.isKeyword("in");
+    if (variableTok.kind === "keyword" && !mutRecoveryArtefact) {
+      this.diagnostics.push(
+        reservedKeywordAsIdentifierDiagnostic(variableTok.text, variableTok.range, this.file),
+      );
+    }
     if (this.isKeyword("in")) {
       this.advance();
     }
@@ -3003,15 +3033,34 @@ class BodyParser {
       // drawing the code on a field that is never declared. Those recovery
       // arms are bug 0133's subject and none of its rows move: the guard
       // below runs only on a field name that reaches the push, never on one
-      // an earlier arm discards. Guarded on `ident`, not on `isFieldName`
-      // above: a `keyword` token is deliberately admitted as a field name,
-      // and a keyword-shaped one is a different registered code under a
-      // different spec sentence (lexical.md §Reserved words), not closed
-      // here. The predicate mirrors `checkName`'s own two-comparison form
-      // (lexer.ts) — the same one the `fn` parameter check (bug 0139)
+      // an earlier arm discards. Two arms, keyed on `nameTok.kind`, split the
+      // position between two rules: a `keyword` token (deliberately admitted
+      // as a field name by `isFieldName` above) claims the reserved spelling
+      // under lexical.md §Reserved words / code-registry-parse.md:21, and an
+      // `ident` token is judged on its first letter under lexical.md
+      // §Identifiers / code-registry-parse.md:19. The two subjects are
+      // disjoint by construction, so the case arm never sees a reserved
+      // spelling. The case predicate mirrors `checkName`'s own two-comparison
+      // form (lexer.ts) — the same one the `fn` parameter check (bug 0139)
       // already reuses — so the rule keeps one spelling across every
       // position it is enforced at.
-      if (nameTok.kind === "ident") {
+      if (nameTok.kind === "keyword") {
+        // lexical.md:20 reserves all 32 spellings from identifier position
+        // with no scope list, and code-registry-parse.md:21's Trigger names
+        // no position either: "the field identifier" (schemas.md:23) is an
+        // identifier position this fix closes. Ranged on the field-name
+        // token itself, which (unlike `SchemaFieldSource`'s TYPE slot, bug
+        // 0044's family, row n3) HAS a range to use. Reusing
+        // `reservedKeywordAsIdentifierDiagnostic` (bug 0044's builder) keeps
+        // the rendered Message identical across every NAME- and TYPE-slot
+        // caller. The keyword arm sits beside the case arm below rather than
+        // inside it, mirroring `parseFn`'s parameter-name check
+        // (`pTok.kind === "keyword"` ahead of `pTok.kind === "ident"`), since
+        // the case arm's `ident` guard already excludes reserved spellings.
+        this.diagnostics.push(
+          reservedKeywordAsIdentifierDiagnostic(nameTok.text, nameTok.range, this.file),
+        );
+      } else if (nameTok.kind === "ident") {
         const first = nameTok.text[0] ?? "";
         const isUpper = first >= "A" && first <= "Z";
         if (isUpper) {
@@ -3141,6 +3190,16 @@ class BodyParser {
         continue;
       }
       if (depth === 1 && expectName && (t.kind === "ident" || t.kind === "keyword")) {
+        // "Variant names are PascalCase identifiers" (schemas.md:78) makes the
+        // variant name an identifier position; lexical.md:20 reserves all 32
+        // spellings from it with no scope list, and this admits `keyword`
+        // deliberately so a keyword-spelled variant CAN be captured (it is the
+        // input the rule refuses) rather than mis-parsed as something else.
+        if (t.kind === "keyword") {
+          this.diagnostics.push(
+            reservedKeywordAsIdentifierDiagnostic(t.text, t.range, this.file),
+          );
+        }
         names.push(t.text);
         currentName = t.text;
         currentDecl = { name: t.text };
@@ -3280,6 +3339,19 @@ class BodyParser {
           if (sawSpecifier && !separatorSeen) {
             hasSeparatorDegeneracy = true;
           }
+          // `ImportSpec ::= Ident ("as" Ident)?` (grammar.md:36): the SOURCE
+          // name is the first `Ident` terminal. `isSymbolToken` above admits
+          // `keyword` deliberately (a keyword-spelled source is the input
+          // lexical.md:20 refuses, not one the grammar rejects), and
+          // `isSymbolToken` already excludes the spelling `as` — the token
+          // that draws `theta/parse/import-malformed-specifier-list` (bugs
+          // 0100/0211) instead, a disjoint subject this emission must not
+          // reach.
+          if (t.kind === "keyword") {
+            this.diagnostics.push(
+              reservedKeywordAsIdentifierDiagnostic(t.text, t.range, this.file),
+            );
+          }
           const source = t.text;
           const sourceRange = t.range;
           this.advance();
@@ -3294,6 +3366,21 @@ class BodyParser {
               (aliasTok.kind === "ident" || aliasTok.kind === "keyword") &&
               aliasTok.text !== "as"
             ) {
+              // The second `Ident` terminal of `ImportSpec`'s optional
+              // `("as" Ident)?` clause — the ALIAS slot, fully live (row L8):
+              // `a` resolves and the local binding becomes the reserved
+              // spelling. Same predicate and same builder as the SOURCE slot
+              // above; `aliasTok.text !== "as"` above already excludes the
+              // `as` spelling from reaching here.
+              if (aliasTok.kind === "keyword") {
+                this.diagnostics.push(
+                  reservedKeywordAsIdentifierDiagnostic(
+                    aliasTok.text,
+                    aliasTok.range,
+                    this.file,
+                  ),
+                );
+              }
               local = aliasTok.text;
               endRange = aliasTok.range;
               this.advance();
@@ -4815,9 +4902,11 @@ class BodyParser {
   private parseParFor(): Expr {
     const parTok = this.advance(); // `par`
     this.advance(); // `for`
+    let mutConsumed = false;
     if (this.isKeyword("mut")) {
       // A `mut` modifier on the loop variable is an always-immutable context
       // (bindings.md §Immutable contexts), same as plain `for`.
+      mutConsumed = true;
       const mutTok = this.advance();
       const diag = checkMutModifier(
         { position: "for-var" },
@@ -4827,7 +4916,22 @@ class BodyParser {
         this.diagnostics.push(diag);
       }
     }
+    const variableTok = this.peek();
     const variable = this.advance().text;
+    // `ParForExpr ::= "par" "for" Ident "in" Expr MaxClause? ParForBody`
+    // (grammar.md) makes this the second `Ident` terminal position `parseFor`
+    // above serves the first of; same rule, same recovery-artefact guard (bug
+    // 0153 §Fix, see `parseFor`'s comment on the same shape). The artefact is
+    // discriminated from a genuine iteration variable spelled `in` behind a
+    // `mut` by the FOLLOWING token: the artefact is followed by the iterand,
+    // the genuine variable by the grammar's own `in` keyword.
+    const mutRecoveryArtefact =
+      mutConsumed && variableTok.text === "in" && !this.isKeyword("in");
+    if (variableTok.kind === "keyword" && !mutRecoveryArtefact) {
+      this.diagnostics.push(
+        reservedKeywordAsIdentifierDiagnostic(variableTok.text, variableTok.range, this.file),
+      );
+    }
     if (this.isKeyword("in")) {
       this.advance();
     }

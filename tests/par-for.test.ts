@@ -991,9 +991,12 @@ describe("bug 0118 — the rest of the walk's family fires in a `par for` body, 
 
   it("(r22) the enum-variant check reaches a body `Enum.Variant`", () => {
     // `walkExpr`'s `member` arm resolves `Enum.Variant` against the declared
-    // variants (code-registry-parse.md:98).
+    // variants (code-registry-parse.md:98). The variant names here are
+    // incidental fixture data for the unknown-variant lookup under test, not
+    // its subject; `Good`/`Bad` (not `Ok`/`Bad`) because bug 0153 reserves
+    // `Ok` from every identifier position, including this one.
     const src = [
-      "enum Status { Ok, Bad }",
+      "enum Status { Good, Bad }",
       "let xs = par for i in [1, 2] {",
       "  let s = Status.Nope",
       "  1",
@@ -1013,7 +1016,8 @@ describe("bug 0118 — the rest of the walk's family fires in a `par for` body, 
   });
 
   it("(r22-control) the enum-variant check at the TOP LEVEL", () => {
-    const src = ["enum Status { Ok, Bad }", "let s = Status.Nope", "1"].join("\n");
+    // Same incidental rename as (r22)'s fixture: `Good`/`Bad`, not `Ok`/`Bad`.
+    const src = ["enum Status { Good, Bad }", "let s = Status.Nope", "1"].join("\n");
     expect(
       diagShapeOf(src),
       `CONTROL: the same reference at the top level draws the same single refusal. Observed: ${showDiags(src)}`,
