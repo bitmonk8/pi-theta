@@ -1776,6 +1776,383 @@ describe("bug 0224 — nothing else in the `par for` subtree moves", () => {
 });
 
 // ===========================================================================
+// PARSER — the Option-B query-schema-resolve pass over a `par for` subtree
+// ===========================================================================
+//
+// RULE (bug 0240): QRY-2's sink positions (query-forms.md:29–:33) and its
+// outward walk (`:39–:44`, crossed/stopped) are stated over expression context
+// and name no exempt enclosure, and `theta/parse/explicit-schema-mismatch`'s
+// registered Trigger (code-registry-parse.md:84) is stated over the presence of
+// a binding annotation beside an ascription — so the pass that implements both
+// (`resolveQuerySchemas`, whose expression recursion is the `rewriteExpr` method
+// of src/parser/query-schema-resolve.ts) owes a `par for` body the same verdicts
+// it gives the plain-`for` spelling of the identical body. `par for` is an
+// expression (control-flow.md:70), so it reaches that recursion — not the
+// statement-side one that already carries the `for` arm.
+//
+// Each (s) cell below runs the SAME inner body twice in one cell: once in
+// `for i in [1, 2] { … }` (CONTROL) and once in `par for i in [1, 2] { … }`
+// (IN-CLASS). The control is what makes the in-class verdict attributable to the
+// enclosure and to nothing else about the fixture — the pairing discipline the
+// (r) group above already uses for its top-level controls.
+//
+// CTRL-4 (control-flow.md:76) refuses every `@`-query in the body at every
+// depth, so `theta/parse/par-query-in-body` is expected BESIDE each resolved
+// schema, exactly once per query and never doubled — (r3)'s PRIMARY subject,
+// preserved. That code carries a registry row (code-registry-parse.md:75), so
+// its Message is a DIAG-4 oracle as much as QRY-4's is: (s6) pins it through
+// `registryMessageFor` beside the count / code / severity every cell here pins.
+
+/** QRY-4's warning; the one row in this group with a registry message oracle. */
+const EXPLICIT_SCHEMA_MISMATCH = "theta/parse/explicit-schema-mismatch";
+
+/**
+ * A whole prompt-mode theta declaring the one schema every row binds against,
+ * so each fixture is a real parse of a real file rather than a body fragment.
+ */
+function withOwnerSchema(lines: readonly string[]): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "schema Owner {",
+    "  name: string",
+    "}",
+    ...lines,
+  ].join("\n");
+}
+
+/**
+ * Every `QueryExpr.schema` on the parsed body in source order — read off the
+ * AST the pass returns, which is the single source of truth downstream
+ * consumers (the provider's structured-output contract) read.
+ */
+function querySchemasOf(src: string): (string | null)[] {
+  return collectByKind(parse(src).body, "query").map(
+    (q) => q.schema as string | null,
+  );
+}
+
+describe("bug 0240 — the query-schema-resolve pass descends a `par for` body", () => {
+  it("(s1) CONTROL: the DIRECT `let o: Owner = @` spelling resolves under BOTH enclosures", () => {
+    // §Reproduction D1, the control that locates the fault in this pass rather
+    // than in the parser: `parseLet` propagates the annotation onto the query
+    // before `resolveQuerySchemas` runs, so this row is green under both
+    // spellings and every INDIRECT row beside it is the pass's own reach.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  let o: Owner = @`who`",
+      "  1",
+      "}",
+    ]);
+    expect(querySchemasOf(control)).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  let o: Owner = @`who`",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `UNCHANGED (§Expected behaviour): the direct spelling is already resolved when this pass starts. Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(inClass)).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s2) an ARRAY-LITERAL element sink in the body resolves, with CTRL-4's refusal still SINGLE", () => {
+    // §Reproduction D2. The array literal has a sink (the binding annotation),
+    // so its elements are crossed (query-forms.md:41) and the element query
+    // takes `Owner` — the same value the control below already produces.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  let o: array<Owner> = [@`who`]",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  let o: array<Owner> = [@`who`]",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D2): the sink is the same sink, so the schema is the same schema. Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(
+      diagShapeOf(inClass),
+      "CTRL-4's refusal is unchanged: one diagnostic for the one body query, and nothing else",
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s3) both TERNARY branches in the body resolve, with one refusal per query", () => {
+    // §Reproduction D3. The ternary itself has a sink, so both branches are
+    // crossed (query-forms.md:41) — two queries, two schemas, and two refusals
+    // because CTRL-4 judges each query and not the construct.
+    const control = withOwnerSchema([
+      "let c = true",
+      "for i in [1, 2] {",
+      "  let o: Owner = c ? @`a` : @`b`",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner", "Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let c = true",
+      "let xs = par for i in [1, 2] {",
+      "  let o: Owner = c ? @`a` : @`b`",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D3). Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner", "Owner"]);
+    expect(
+      diagShapeOf(inClass),
+      "one refusal per body query, in source order, and no third copy",
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`, `error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s4) a local-`fn` CALL-ARGUMENT sink in the body resolves", () => {
+    // §Reproduction D4. The declared parameter type is a sink position
+    // (query-forms.md:33) and a matched argument is crossed (`:41`). The `fn` is
+    // declared at the top level because FN-1 refuses one in the body, so the
+    // sink is reached across the construct's boundary by the CALL, not by the
+    // enclosure.
+    const control = withOwnerSchema([
+      "fn f(x: Owner): integer {",
+      "  1",
+      "}",
+      "for i in [1, 2] {",
+      "  let s = f(@`who`)",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "fn f(x: Owner): integer {",
+      "  1",
+      "}",
+      "let xs = par for i in [1, 2] {",
+      "  let s = f(@`who`)",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D4). Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(inClass)).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s5) a postfix `?` between the query and an array sink in the body is crossed", () => {
+    // §Reproduction D5. ERR-18's unwrap preserves the operand's type context, so
+    // the walk continues outward from `?` (query-forms.md:41) — the `?` must not
+    // become a stop merely because the enclosure is a `par for`.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  let o: array<Owner> = [@`who`?]",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  let o: array<Owner> = [@`who`?]",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D5). Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(inClass)).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s6) QRY-4's mismatch warning FIRES BESIDE CTRL-4's refusal in the body", () => {
+    // §Reproduction D6, the one row whose divergence is visible on a channel the
+    // author reads: `checkLetMismatch` is called from the `let` arm of the
+    // statement recursion, which the body's statements must reach. The shape is
+    // (r18)'s and (r20)'s — two different rules, two different codes, one
+    // diagnostic each, CTRL-4's refusal first because the parse-time body scan
+    // runs before this pass.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  let o: Owner = @<integer>`who`",
+      "  1",
+      "}",
+    ]);
+    expect(
+      diagShapeOf(control),
+      `CONTROL: QRY-4 owns the code; outside a \`par for\` body CTRL-4 has nothing to say. Observed: ${showDiags(control)}`,
+    ).toEqual([`warning ${EXPLICIT_SCHEMA_MISMATCH}`]);
+    expect(
+      messagesFor(control, EXPLICIT_SCHEMA_MISMATCH),
+      "DIAG-4: message read from the registry's Message column",
+    ).toEqual([registryMessageFor(EXPLICIT_SCHEMA_MISMATCH)]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  let o: Owner = @<integer>`who`",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      diagShapeOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D6): the whole unfiltered diagnostics array is CTRL-4's refusal followed by QRY-4's warning. Observed: ${showDiags(inClass)}`,
+    ).toEqual([
+      `error ${PAR_QUERY_IN_BODY}`,
+      `warning ${EXPLICIT_SCHEMA_MISMATCH}`,
+    ]);
+    expect(
+      messagesFor(inClass, EXPLICIT_SCHEMA_MISMATCH),
+      "DIAG-4: message read from the registry's Message column, unmoved by the enclosure",
+    ).toEqual([registryMessageFor(EXPLICIT_SCHEMA_MISMATCH)]);
+    expect(
+      messagesFor(inClass, PAR_QUERY_IN_BODY),
+      "DIAG-4: CTRL-4's refusal carries its own registered Message (code-registry-parse.md:75), so this row's refusal half is pinned by message and not by code alone",
+    ).toEqual([registryMessageFor(PAR_QUERY_IN_BODY)]);
+    expect(
+      querySchemasOf(inClass),
+      "the ascription overrides inference either way (query-forms.md:66), so the schema itself is unchanged — the warning is what the enclosure withheld",
+    ).toEqual(["integer"]);
+  });
+
+  it("(s7) a sink inside a NESTED plain `for` in the body resolves", () => {
+    // §Reproduction D7. The nested statement's own arm already carries a `for`
+    // case; it is unreachable only because the enclosing construct is never
+    // entered, so this row measures depth rather than a second missing arm.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  for j in [1] {",
+      "    let o: array<Owner> = [@`w`]",
+      "  }",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  for j in [1] {",
+      "    let o: array<Owner> = [@`w`]",
+      "  }",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D7). Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(
+      diagShapeOf(inClass),
+      "CTRL-4 refuses a body query at EVERY depth (control-flow.md:76), once",
+    ).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s8) a sink inside a NESTED BLOCK EXPRESSION in the body resolves", () => {
+    // §Reproduction D8. Same depth argument as (s7) against the other landed
+    // arm: the block expression's tail is rewritten under the enclosing frames
+    // (bug 0082's cell (l) is the lock on that), which this enclosure denies it.
+    const control = withOwnerSchema([
+      "for i in [1, 2] {",
+      "  let o: array<Owner> = {",
+      "    let z = 1",
+      "    [@`w`]",
+      "  }",
+      "  1",
+      "}",
+    ]);
+    expect(
+      querySchemasOf(control),
+      `CONTROL: the plain-\`for\` spelling of the identical body. Observed diags: ${showDiags(control)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(control)).toEqual([]);
+    const inClass = withOwnerSchema([
+      "let xs = par for i in [1, 2] {",
+      "  let o: array<Owner> = {",
+      "    let z = 1",
+      "    [@`w`]",
+      "  }",
+      "  1",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(inClass),
+      `PRIMARY (bug 0240 §Expected behaviour D8). Observed diags: ${showDiags(inClass)}`,
+    ).toEqual(["Owner"]);
+    expect(diagShapeOf(inClass)).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s9) BOUNDARY: the body TAIL is NOT the enclosing annotation's sink — schema stays null", () => {
+    // §Reproduction E1 / bug 0240 §Fix (b). CTRL-3 (control-flow.md:74) makes
+    // the construct's value `array<Result<T, QueryError>>` where `T` is the body
+    // tail type, so an enclosing `let xs: array<Owner> = par for …` annotation
+    // does not describe the tail and must not be handed to it as a frame: the
+    // body is rewritten with an EMPTY tail-frame list, unlike a block
+    // expression, whose value IS its tail. There is NO plain-`for` control for
+    // this row — `for` is a statement and produces no value, so nothing can
+    // annotate its tail — and the assertion therefore stands on CTRL-3 alone.
+    const src = withOwnerSchema([
+      "let xs: array<Owner> = par for i in [1, 2] {",
+      "  @`who`",
+      "}",
+      "xs",
+    ]);
+    expect(
+      querySchemasOf(src),
+      `BOUNDARY (bug 0240 §Fix (b)): passing the enclosing frames through the construct is the plausible wrong reading, and this is the pin against it. Observed diags: ${showDiags(src)}`,
+    ).toEqual([null]);
+    expect(diagShapeOf(src)).toEqual([`error ${PAR_QUERY_IN_BODY}`]);
+  });
+
+  it("(s10) CONTROL: a query-free body with a `max` clause stays clean under both operands", () => {
+    // §Reproduction F2. The iterand and the `max` operand sit in the ENCLOSING
+    // scope and carry no sink of their own, so widening this pass's reach must
+    // leave a query-free `par for` exactly as silent as it is today.
+    const src = withOwnerSchema(["par for i in [1, 2] max 2 { let z = 1 }"]);
+    expect(
+      parForNodes(parse(src).body).length,
+      "precondition: the fixture really parses to a `par-for` node, so the silence below is the pass's and not a mis-parse",
+    ).toBe(1);
+    expect(querySchemasOf(src)).toEqual([]);
+    expect(
+      diagShapeOf(src),
+      `CONTROL (§Reproduction F2): nothing to resolve, nothing to refuse. Observed: ${showDiags(src)}`,
+    ).toEqual([]);
+  });
+});
+
+// ===========================================================================
 // PARSER — both enclosing modes admit `par for` (CTRL-4)
 // ===========================================================================
 

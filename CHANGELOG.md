@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.200.0]
+
+### Fixed
+
+- **Bug 0240**: the Option-B query-schema-resolve pass never descended a
+  `par for` subtree — `rewriteExpr` had no `par-for` arm, so an `@`-query at
+  any indirect sink position inside the body kept `schema: null` where the
+  plain-`for` spelling resolved it, and QRY-4's
+  `theta/parse/explicit-schema-mismatch` warning was withheld beside CTRL-4's
+  refusal. A `case "par-for"` arm mirroring `rewriteStmt`'s `case "for"` now
+  descends with an empty body tail-frame list (the body tail stays sink-less
+  under CTRL-3). Zero tracked flips premeasured. Witness: `tests/par-for.test.ts`
+  cells (s1)–(s10) + a standalone live cell on the `theta-system-note` channel.
+
 ## [0.199.0]
 
 ### Fixed

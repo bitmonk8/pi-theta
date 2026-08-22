@@ -1,6 +1,6 @@
 # Bug 0240 — `rewriteExpr` in the Option-B query-schema-resolve pass carries no `par-for` arm, so the whole `par for` subtree is returned unrewritten: an `@`-query at an INDIRECT sink position inside the body keeps `schema: null` where the plain-`for` spelling of the same body resolves it, and the QRY-4 `theta/parse/explicit-schema-mismatch` warning is withheld beside CTRL-4's refusal — where two sibling query verdicts do co-fire at that same position
 
-- **Status:** open.
+- **Status:** fixed (0.200.0).
 - **Sev/Diff estimate:** S2/D1 — S2 because one written mistake loses a
   registered verdict: `let o: Owner = @<integer>`who`` draws
   `theta/parse/explicit-schema-mismatch` (W) inside a plain `for` body and
@@ -441,3 +441,140 @@ No ordering dependency: nothing blocks this and it blocks nothing.
   `parseThetaDocument` over whole prompt-mode sources and printing every
   `QueryExpr.schema` beside the unfiltered `doc.diagnostics`. Run on the outputs
   quoted above, then deleted.
+
+## Fix (0.200.0)
+
+- What shipped:
+  - **§Fix (a)/(b) — `src/parser/query-schema-resolve.ts`:** `rewriteExpr` gains
+    `case "par-for"` (one 19-line insertion, plus the `ParForExpr` type import).
+    It rewrites `iterand` under its own `{ kind: "stop", label: "for-iterand" }`
+    frame, `max` (when non-null) under its own `stop` frame, and the body through
+    `rewriteBlock` with an EMPTY tail-frame list — the three components of
+    `rewriteStmt`'s `case "for"` extended by the `max` operand the statement form
+    does not have, in traversal order iterand → `max` → body. The enclosing
+    `frames` are DROPPED at the construct's boundary per §Fix (b): under CTRL-3
+    (`docs/spec_topics/control-flow.md:74`) the value is
+    `array<Result<T, QueryError>>`, so an enclosing annotation never describes
+    the body tail. No emitter added, no diagnostic code minted, no registry row
+    added or removed; `resolveQuery` and `checkLetMismatch` are reached by the
+    widened traversal, unchanged.
+  - **§Fix (c) — `tests/par-for.test.ts`:** an additive block of 10 cells
+    (s1)–(s10), 377 inserted lines, 0 deletions. (s2)(s3)(s4)(s5)(s7)(s8) assert
+    the resolved `QueryExpr.schema` for rows D2, D3, D4, D5, D7, D8 beside the
+    unchanged SINGLE `par-query-in-body` per query; (s6) asserts row D6's exact
+    pass-wide unfiltered `doc.diagnostics` as CTRL-4's refusal followed by QRY-4's
+    warning, with BOTH messages read from the registry at runtime (DIAG-4);
+    (s1) and (s10) are rows D1 and F2 as unchanged controls; (s9) pins row E1 per
+    §Fix (b). Every row owing a plain-`for` control carries it in the same cell.
+  - **Live witness — `tests/live/par-for-body-qry4-mismatch-live-cell-.test.ts`
+    (new):** an H8a cell carrying row D6 to the shipped load path, where the
+    withheld verdict is actually felt: the subject's `theta-system-note` channel
+    must carry BOTH `theta/parse/par-query-in-body` and
+    `theta/parse/explicit-schema-mismatch`, both message-pinned from the
+    registry. Sibling controls: the plain-`for` spelling registers and warns
+    (detector liveness), and a query-free `par for` registers silent
+    (§Reproduction F2). Zero model turns.
+- Gates:
+  - Witness, red before / green after, src neutralised to HEAD byte-exact
+    (`git hash-object` = `3cc5b342faa89eac4ed5d5e6121c2d89a98ebf37` =
+    `git rev-parse HEAD:src/parser/query-schema-resolve.ts`):
+    `tests/par-for.test.ts` `Tests  7 failed | 98 passed (105)` — reds exactly
+    (s2)(s3)(s4)(s5)(s7)(s8) on `[null]` / `[null, null]` where `["Owner"]` /
+    `["Owner", "Owner"]` is expected, and (s6) on the diagnostics array missing
+    `warning theta/parse/explicit-schema-mismatch`; controls (s1)(s9)(s10) green
+    unfixed. With the arm restored: `Tests  105 passed (105)`.
+  - Full default suite: `Test Files  387 passed (387)` /
+    `Tests  8018 passed (8018)`, zero reds. Baseline at HEAD unfixed was
+    `387` / `8008`, so the delta is exactly the 10 new cells — ZERO tracked
+    flips in either direction, confirming §Fix (d)'s premeasured prototype
+    rather than re-deriving it. Bug 0082's 30, bug 0220's 7, bug 0222's 14,
+    `tests/query-schema-resolve.test.ts`'s 34 and this file's pre-existing 95
+    all green and unedited.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`): clean. `npm run lint`
+    (`eslint "src/**/*.ts"`): clean.
+  - Live, run for real under the shared lock, both directions: arm neutralised ⇒
+    RED on the note-channel assertion itself (`no
+    theta/parse/explicit-schema-mismatch note fired beside CTRL-4's refusal…`,
+    the observed channel carrying only `par-query-in-body`); arm restored
+    (hash `65108f6baf183d646cfe8ca5a18c4dfdd6f83cd2`) ⇒
+    `Test Files  1 passed (1)`.
+- Review: 2 rounds plus one comment-only polish.
+  - Round 1 (deep): `src/` arm ruled CLEAN on fidelity to §Fix (a)/(b) and on
+    correctness (no reach outside a `par for` subtree; frames correctly dropped);
+    (s1)–(s10) ruled non-vacuous. Three blockers, all in the new test artifacts:
+    F1 the live cell asserted CTRL-4's registry row was ABSENT (false — see
+    Residual 1) and so shipped red; F2 the same false claim in the new (s)-block
+    prose; F3 the new live cell's own line-form citations into
+    `query-schema-resolve.ts` were staled by this fix's own insertion. Remedy:
+    guard replaced by a registry-read message pin, prose corrected, citations
+    converted to symbol form per `docs/STYLE.md` §Citations.
+  - Round 2 (fast): CLEAN. One non-blocking house-rule residual — a
+    "post-fix disposition" comment narrating history rather than stating a
+    property — fixed comment-only; polish verified by gate-diff (no executable
+    line touched), confirmation round skipped.
+- Verification: VERIFIED. Suite re-run independently 387/8018 zero reds;
+  typecheck and lint independently clean; the revert/restore witness cycle
+  re-done independently with both hashes quoted, every red matching the doc's
+  signature; the live cell run for real. §Fix (e) discharged —
+  `git diff docs/reference/diagnostics.md
+  docs/spec_topics/diagnostics/code-registry-parse.md` is EMPTY, so both rows
+  keep their Trigger, Sev, Phase and Message byte-unchanged and no code is
+  minted. §Fix (d)'s corpus claim discharged by
+  `tests/committed-fixture-parse-gate.test.ts` (36/36) inside that suite run,
+  not by a scratch probe. §Non-goals confirmed: CTRL-4's refusal stays SINGLE
+  per query on every row, E1 stays `[null]`, and the body tail is not a sink.
+  Verification raised one finding — the subject's offline attribution guard
+  preceded the live note-channel assertion, so neutralising the arm reded the
+  guard first and the live assertion's own falsifiability was never witnessed.
+  Remedied by sequencing that guard last (statement reorder, no assertion
+  content changed), after which the neutralised run reds on THE FIXED OBSERVABLE
+  itself, quoted above.
+- Residuals:
+  1. **This document's §Fix (c) is wrong on one point.** It states that
+     `theta/parse/par-query-in-body` "has no row under
+     `docs/spec_topics/diagnostics/`". The row EXISTS at
+     `docs/spec_topics/diagnostics/code-registry-parse.md:75` (Sev `E`, Phase
+     `parse`, with a Message), which this document's own §Affected cites
+     correctly — the two halves contradict each other and §Affected is the right
+     one. Evidence: a real live run reded on a guard built from the §Fix (c)
+     claim, and `docs/reference/diagnostics.md:320` records that all four CTRL-4
+     `par-*` codes are registered there and mirrored. Consequence taken: the code's
+     Message IS a DIAG-4 oracle, and both new test artifacts pin it from the
+     registry rather than pinning only its count. §Fix (c)'s sentence is left
+     as-filed; this record is the correction.
+  2. **The same false claim survives in protected cells.** Bug 0224's (r18)
+     (`:855`) and (r20) (`:926`) comments and bug 0118's `registryMessageFor`
+     helper comment (`:456`–`:464`) in `tests/par-for.test.ts` repeat it. They
+     are comment-only (no assertion depends on it — the file is 105/105 green)
+     and belong to other bugs, so they were left byte-unchanged. A sibling pass
+     owning 0224/0118 should correct the prose.
+  3. **This fix stales line-form citations into the file it edits.** The arm
+     inserts 19 lines after old `:439`, so every citation at `>= :440` shifts by
+     +19: `0014:35` (`:451`), `0093` (`:518`, `:523`), `0097` (`:523`),
+     `0124` (`:470`), `0130` (`:470`, `:478`, `:518`), `0220` (`:450`, `:509`,
+     `:544`), `0222` (`:470`). Not chased: those are six other bug documents,
+     editing them here is out of scope, and this is precisely bug
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class, which §Non-goals pins by name. Every one of them names
+     its symbol beside the line, so each remains resolvable.
+  4. **The iterand and `max` positions are newly traversed but only witnessed
+     query-free.** Post-fix an annotated `let` inside a `match`-arm block
+     expression in the iterand can reach `checkLetMismatch`, exactly as the
+     plain-`for` iterand already does through `rewriteStmt`'s `case "for"`. That
+     is spec-correct (QRY-4's Trigger names no exempt construct) and parallels
+     the control spelling, but only the query-free (s10) exercises those
+     positions. Contrived to construct; follow-up cell material.
+  5. **One stochastic suite red observed once, not reproducible.**
+     `tests/extension-tool-unreachable-load-refusal-e2e.test.ts` ("PIC-64 …")
+     failed once with `Test timed out in 5000ms` under machine load and passed
+     on every clean re-run, including three independent full-suite runs at
+     387/8018 zero reds. Load-timeout class, unrelated to this surface.
+- Discharge notes appended: none. No sibling bug document was modified.
+- Pinned dispositions / non-goals: CTRL-4's refusal of body queries keeps its
+  trigger, count and range on every row — (r3)'s PRIMARY subject, the refusal
+  staying SINGLE, is preserved and re-asserted by every new positive cell. The
+  `par for` body tail is NOT a sink, ruled out by CTRL-3 in §Fix (b) and pinned
+  by (s9), not left open. `checkLetMismatch`'s withhold rule (bug 0222) and the
+  `fn`-return `void` disposition (bug 0220) are untouched: this fix changes
+  which statements reach a check, never what a check decides. No spec or
+  registry edit (§Fix (e)). `src/parser/type-layer-checks.ts` was not touched.

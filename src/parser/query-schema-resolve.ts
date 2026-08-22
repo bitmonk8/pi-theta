@@ -44,6 +44,7 @@ import type {
   MemberExpr,
   MethodCallExpr,
   ObjectExpr,
+  ParForExpr,
   QueryExpr,
   ResultCtorExpr,
   Stmt,
@@ -437,6 +438,24 @@ class QuerySchemaResolveWalk {
         // level up. The block's own statements are fresh contexts, like any
         // other block's.
         return { ...expr, body: this.rewriteBlock(expr.body, frames) };
+      case "par-for":
+        // Mirrors `rewriteStmt`'s `case "for"`: the iterand (and, unique to the
+        // expression form, `max`) evaluate in the ENCLOSING scope, so each gets
+        // its own opaque `stop` frame rather than sharing one — a sibling binary
+        // operand or call argument does not leak into the other. The body's
+        // tail-frame list is EMPTY, not `frames`: CTRL-3 (control-flow.md:74)
+        // types the whole construct as `array<Result<T, QueryError>>`, `T` the
+        // body tail type, so an enclosing annotation is never the tail's sink —
+        // unlike `case "block"` above, where the block's value IS its tail.
+        return {
+          ...expr,
+          iterand: this.rewriteExpr(expr.iterand, [{ kind: "stop", label: "for-iterand" }]),
+          max:
+            expr.max === null
+              ? null
+              : this.rewriteExpr(expr.max, [{ kind: "stop", label: "par-for-max" }]),
+          body: this.rewriteBlock(expr.body, []),
+        } satisfies ParForExpr;
       default:
         // ident / number / string / bool / null — no nested query.
         return expr;
