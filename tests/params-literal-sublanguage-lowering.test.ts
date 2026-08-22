@@ -1062,11 +1062,14 @@ describe("bug 0056 (d) — every source the literal recogniser declines keeps it
     );
     expect(
       fieldDoc.diagnostics.map((d) => d.code),
-      `d12 [field]: \`-\` is a parse-layer question bug 0042's family owns, untouched here — ` +
-        `\`schema S { a: -1 | 1 }\` is refused before any lowering runs, so this position never ` +
-        `reaches a fragment to compare; observed ` +
+      `d12 [field]: \`-\` is a parse-layer question bug 0042's family owns, untouched here. The ` +
+        `field \`a\` is now RETAINED (bug 0133 §Fix (a)2/(a)3 + §Fix constraint 5's ` +
+        `diagnostic-registry carve-out): the capture stops after the leading \`-\`, so the ` +
+        `retained field's junk type (\`-\`) reaches the checker-time field-type walk that an ` +
+        `absent \`fields\` key used to gate off, drawing \`schema-type-not-expression\` beside the ` +
+        `new \`malformed-schema-field\` line anchored on the offending \`1\`; observed ` +
         `${JSON.stringify(fieldDoc.diagnostics.map((d) => d.code))}`,
-    ).toEqual(["theta/parse/empty-schema-body"]);
+    ).toEqual(["theta/parse/schema-type-not-expression", "theta/parse/malformed-schema-field"]);
 
     const aliasDoc = parseDoc(
       "---\nmode: prompt\nparams:\n  a: X\n---\nschema X = -1 | 1\nlet inert = 1\ninert\n",

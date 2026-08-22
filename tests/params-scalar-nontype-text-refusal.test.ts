@@ -675,10 +675,26 @@ const S_WITH_PERMISSIVE_A = {
   additionalProperties: false,
 };
 
-/** The two-code sequence the body parser raises for junk inside a schema body. */
-const FIELD_JUNK_CODES = [
-  "error theta/parse/empty-schema-body",
+/**
+ * The two-code sequence for junk inside a schema body: bug 0133 §Fix
+ * (a)2/(a)3 + §Fix constraint 5's diagnostic-registry carve-out keeps the
+ * field captured before the junk token, so `malformed-schema-field`
+ * (anchored at the offending token) fires instead of `empty-schema-body`,
+ * and the retained field's own junk type reaches the checker-time
+ * field-type walk. Four of the five field-position CONTRAST_ROWS below have
+ * a junk type that walk refuses too (`schema-type-not-expression`), so
+ * their own sequence gains that row ahead of the comma rule's; `c16`
+ * (`Triage Triage`) does not, because `Triage` is a resolvable named type.
+ */
+const FIELD_JUNK_CODES_WITH_TYPE_REFUSAL = [
+  "error theta/parse/schema-type-not-expression",
   "error theta/parse/unsupported-feature",
+  "error theta/parse/malformed-schema-field",
+];
+/** The field-position sequence when the retained field's own type resolves (c16). */
+const FIELD_JUNK_CODES_RESOLVED_TYPE = [
+  "error theta/parse/unsupported-feature",
+  "error theta/parse/malformed-schema-field",
 ];
 
 /** The alias declaration's own malformed-right-hand-side refusal. */
@@ -686,15 +702,25 @@ const ALIAS_MALFORMED = ["error theta/parse/malformed-alias-rhs"];
 
 /**
  * Each junk text at each contrast position, with the lowered artefact and the
- * whole diagnostic-code sequence that position produces at HEAD. Every row is
- * a NO-CHANGE cell: the fix threads its sink at `params:` alone, so a row that
- * gains a code or changes a byte is the cross-position blast constraint 2
- * forbids.
+ * whole diagnostic-code sequence that position produces at HEAD. Every row but
+ * the five FIELD-position rows named below (c1, c10, c13, c16, c19) is a
+ * NO-CHANGE cell: this bug's own fix threads its sink at `params:` alone, so a
+ * row that gains a code or changes a byte from THIS fix is the cross-position
+ * blast constraint 2 forbids. The five named rows move under a DIFFERENT
+ * authority — bug 0133 §Fix (a)2/(a)3 + §Fix constraint 5's diagnostic-registry
+ * carve-out: the field list a malformed field sits in is retained, so each
+ * row's own junk field type reaches the checker-time field-type walk this
+ * bug's own gate unlocks.
  */
 const CONTRAST_ROWS: ReadonlyArray<
   readonly [string, string, ContrastPosition, unknown, readonly string[]]
 > = [
-  ["c1", "a: Tirage", "field", PERMISSIVE, FIELD_JUNK_CODES],
+  // c1 — bug 0133 §Fix (a): the field `a` is retained, so the row's junk type
+  // (`a` — `parseType`'s field-boundary stop ends the capture there) reaches
+  // the checker-time field-type walk and draws its own refusal ahead of the
+  // comma rule's, replacing the discard's `empty-schema-body` with the new
+  // anchored-at-the-token row.
+  ["c1", "a: Tirage", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
   [
     "c2",
     "a: Tirage",
@@ -712,10 +738,13 @@ const CONTRAST_ROWS: ReadonlyArray<
     ["error theta/parse/empty-schema-body", "error theta/parse/unknown-identifier"],
   ],
   ["c9", "[a, b]", "annotation", PERMISSIVE, []],
-  ["c10", "- a", "field", PERMISSIVE, FIELD_JUNK_CODES],
+  // c10 — same authority as c1: the retained field's junk type (`-`) is
+  // refused by the field-type walk this fix unlocks.
+  ["c10", "- a", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
   ["c11", "- a", "alias", PERMISSIVE, ALIAS_MALFORMED],
   ["c12", "- a", "annotation", PERMISSIVE, []],
-  ["c13", "# comment", "field", PERMISSIVE, FIELD_JUNK_CODES],
+  // c13 — same authority as c1: the retained field's junk type is refused.
+  ["c13", "# comment", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
   [
     "c14",
     "# comment",
@@ -724,10 +753,29 @@ const CONTRAST_ROWS: ReadonlyArray<
     [...ALIAS_MALFORMED, "error theta/parse/unknown-identifier"],
   ],
   ["c15", "# comment", "annotation", PERMISSIVE, []],
-  ["c16", "Triage Triage", "field", PERMISSIVE, FIELD_JUNK_CODES],
+  // c16 — bug 0133 §Fix (a): the field `a: Triage` is retained and `Triage` IS
+  // a resolvable named type (this file's own `DECLS`), so its lowered bytes
+  // are a real `$ref` rather than the permissive fragment, and the
+  // field-type walk draws nothing — only the comma rule's own line and the
+  // new anchored row survive.
+  [
+    "c16",
+    "Triage Triage",
+    "field",
+    { type: "object", properties: { a: { $ref: "#/$defs/Triage" } }, required: ["a"], additionalProperties: false },
+    FIELD_JUNK_CODES_RESOLVED_TYPE,
+  ],
   ["c17", "Triage Triage", "alias", { $ref: "#/$defs/Triage" }, ALIAS_MALFORMED],
   ["c18", "Triage Triage", "annotation", PERMISSIVE, []],
-  ["c19", "string | a: Tirage", "field", PERMISSIVE, FIELD_JUNK_CODES],
+  // c19 — same authority as c1: the retained field's junk union arm is
+  // refused by the field-type walk, beside the settled `string` arm.
+  [
+    "c19",
+    "string | a: Tirage",
+    "field",
+    { type: "object", properties: { a: { anyOf: [{ type: "string" }, {}] } }, required: ["a"], additionalProperties: false },
+    FIELD_JUNK_CODES_WITH_TYPE_REFUSAL,
+  ],
   [
     "c20",
     "string | a: Tirage",

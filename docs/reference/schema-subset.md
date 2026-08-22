@@ -42,7 +42,10 @@ Explicitly **not** supported (rejected at parse time): `pattern`, `format`,
 declared field is **required** (lowered `required` lists every property;
 `additionalProperties: false` always emitted). Optional fields are `T | null` (no
 `field?: T`; non-existence and explicit-`null` are conflated). Empty body is
-`theta/parse/empty-schema-body`.
+`theta/parse/empty-schema-body`. A body that captures at least one field and then
+reaches a token from which no further field derives is
+`theta/parse/malformed-schema-field`, anchored at that token; the fields
+already captured are retained.
 
 **Wire-name renaming.** `field as "WireName": T` between identifier and type. The
 theta-side name is used everywhere in code; the wire name appears only in the

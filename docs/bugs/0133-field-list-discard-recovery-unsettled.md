@@ -1,7 +1,9 @@
 # Bug 0133 — `parseSchemaObjectBody`'s three recovery arms discard every field the body has already captured, so `finishObjectSchema` reports `theta/parse/empty-schema-body` against the declaration for a body whose FIRST token is a plain `ident: Type` field — outside every clause of the row's *Trigger*, with a *Message* asserting `'S' has no fields` over a source that declares up to three; the same discard suppresses the `by-on-object-schema` line the body earns, turns a same-file declaration into `theta/parse/unresolved-named-type` at a constructor site, and on an unbalanced body consumes the rest of the file — the recovery bug 0095's §Non-goals left unsettled
 
-- **Status:** open. §Fix is not settled: this report exists to pin the
-  disposition of the recovery before any code lands. No ordering dependency in
+- **Status:** fixed (0.203.0). §Fix was not settled at filing: this report existed
+  to pin the disposition of the recovery before any code landed, and the
+  disposition was adjudicated in-run — route **(a)**, Reading A, with the
+  no-prefix family preserved (see §Fix (0.203.0) below). No ordering dependency in
   either direction. Its parent
   [0095](./0095-brace-rooted-union-arm-capture-destroys-context.md) is **fixed
   (0.74.0)** and closed the one route that fed this arm well-formed input; the
@@ -1111,3 +1113,181 @@ anchor, or the anchor without the subject, must red on exactly one of them.
   `parseThetaDocument`. Run on the outputs quoted above, then deleted. No file
   in the tree was written by the probes; `src/`, `tests/`, `docs/bugs/README.md`
   and every other bug document are unmodified by this filing.
+## Fix (0.203.0)
+
+**Route (a) — Reading A, with the no-prefix family preserved.** §Fix was
+unsettled at filing; §Expected behaviour's own adjudication ("**Reading A is
+better supported**", four reasons) was taken as settled and §Fix (a) implemented
+against it. Route (b)'s discard-but-mint variant was rejected because it buys
+the subject and keeps the field-list loss and the three suppressed checks;
+route (c) was rejected because it commits the corpus to a *Message* that
+contradicts the source it describes, with DIAG-4 deferring the reword to theta
+2.0, and leaves two registered rows intentionally silent for inputs inside them.
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parseSchemaObjectBody`'s three recovery
+    arms converge on one new private helper, `recoverMalformedSchemaField`: it
+    runs `skipBraceRemainder` (containment unchanged, §Fix (a)4's
+    keep-today's-scoping option), returns `null` when the captured prefix is
+    EMPTY, and otherwise emits one `theta/parse/malformed-schema-field` anchored
+    at the offending token and returns the captured prefix. The offending token
+    is the non-field-name token (arm 1), the non-string wire-name token (arm 2),
+    and the FIELD-NAME token (arm 3) — not the token standing where `:` belongs,
+    which for `schema S { f: Cat Cat }` is the closing `}` the author wrote
+    correctly. `parseSchemaObjectBody`'s and `finishObjectSchema`'s doc comments
+    restate the premise the fix narrows: `null` means the capture pushed no
+    field, which is exactly the input the row's own first-token clause describes
+    and whose *Message* is true.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the new
+    `theta/parse/malformed-schema-field` row (E / parse), stating the three
+    shapes, the partition with `theta/parse/empty-schema-body`, the
+    offending-token anchor and the retention of the captured prefix (DIAG-2,
+    same commit); plus the **correction** of the
+    `theta/parse/schema-type-not-expression` row, whose sentence asserted that
+    `schema S { a: -1 }` keeps `empty-schema-body` alone "because the malformed
+    field list is dropped whole at parse time" — falsified by this route.
+  - `docs/reference/diagnostics.md` — the mirror row (§Fix constraint 4).
+  - `docs/spec_topics/schemas.md` — the *Spec rule* sentence, in the incumbent
+    home of the `empty-schema-body` row.
+  - `docs/reference/schema-subset.md` — the user-facing clause (§Fix constraint
+    4's mirror check, which this page needed).
+  - `tests/schema-field-discard-prefix-retention.test.ts` — the witness, 58
+    cells in 10 groups, each asserting the whole ordered diagnostic list with
+    exact ranges AND the parsed shape (`fields` present/absent with names,
+    wire names and type sources, the `by` key, the statement list and
+    `doc.body.tail`); messages read from the registry (DIAG-4).
+  - `tests/live/schema-field-discard-recovery-live-cell-.test.ts` — the
+    H8a live cell (this surface had none).
+  - Twelve authorised re-pins in six files (table below).
+- **Gates:** witness RED before (34/58 red at HEAD `f5d0d125`, of which 7 are
+  registry-independent behaviour reds), GREEN after (58/58). Full default suite
+  `npm test` → **388 files / 8066 tests passed** (baseline 387/8008; delta is
+  exactly the new witness's 58 cells). `npm run typecheck` → clean.
+  `npm run lint` → clean. Live: the new cell and its two named neighbours under
+  `config/vitest/vitest.live.config.ts` → 3 files / 3 tests passed.
+- **Review:** 1 round. `bug-fix-reviewer` returned 4 findings and 2 residuals:
+  F1 the live obligation undischarged (`fidelity` — routed to verification, not
+  to a fixer, and discharged there); F2 `docs/reference/schema-subset.md`'s new
+  mirror sentence predicated the row on "a token no field can start from",
+  which is false for arms 2 and 3 (`prose`); F3 five change-narration comments
+  against CLAUDE.md's "no historical references" (`house-rule`); F4 a lost
+  trailing newline (`test`). `bug-fix-fixer-light` fixed F2/F3/F4 and found two
+  further F3 offenders. Every hunk of that round was comment, prose or
+  whitespace — verified against the pre-polish executable content, which was
+  byte-identical — so the confirmation review round was skipped under the
+  post-polish gate-diff rule, with the gates re-run green.
+- **Verification:** SOLID.
+  - *The witness genuinely witnesses.* Neutralised `recoverMalformedSchemaField`
+    to the unconditional discard: 33/58 red including all seven
+    registry-independent group-(0) cells, each on the exact symptom (cell 0a:
+    expected `malformed-schema-field @4:23-4:25`, received `empty-schema-body
+    @4:1-4:36` with `fields: null`). Restored by writing the snapshot bytes
+    back; `git hash-object` equal to the pre-mutation snapshot both times.
+  - *Full default suite green* — 388/8066.
+  - *A live test exercises the fixed path, run for real.* The new H8a cell boots
+    the shipped extension against a live provider, asserts a well-formed control
+    registers, asserts `schema S { a: string, 42: integer }` does NOT register,
+    and asserts the discriminating pair on the `theta-system-note` channel read
+    off the settled in-memory `SessionManager`: the new code's registry-sourced
+    fragment present AND the declaration-subject `'S' has no fields` fragment
+    absent. Both note assertions were proven able to red by two inverted-probe
+    live runs, the first quoting the real channel contents —
+    `b0133livecellf.theta:4:23: theta/parse/malformed-schema-field: malformed
+    schema field; each field is 'name: Type' or 'name as "WireName": Type'` —
+    which also confirms the offending-token anchor end to end. The cell reaches
+    no RFC-0006 child launch (registration only, no drive), and the shared
+    harness sets both child pins at module scope regardless. The live lock was
+    acquired by `mkdir` and released by `rmdir` in one command on every run.
+  - *Lint and typecheck* clean.
+- **GOV-15.** Every input whose diagnostic set moved carries an error-severity
+  diagnostic BEFORE and AFTER, so not one enters or leaves the loads-cleanly set
+  (`source-language-stability.md` §GOV-15-loads-cleanly) and every flip sits
+  inside the diagnostic-registry carve-out that §Fix constraint 5 names. No
+  shipped source moves: `tests/committed-fixture-parse-gate.test.ts` — the
+  authority for that corpus-wide claim — is green.
+- **Protected locks, all green and unmoved:** bug 0095's 37-cell
+  `tests/brace-rooted-union-arm-capture.test.ts` (§Fix constraint 1's predicted
+  outcome — none of its cells drives a discard arm); bug 0045's
+  `tests/inline-empty-object-type.test.ts` including the no-prefix pin e3, and
+  bug 0033's `tests/schema-alias-union-decl.test.ts` cell e2 — the two pins §Fix
+  (a)5 requires to keep their bytes, and both did; bug 0096's
+  `tests/discriminator-field-classifier-brace-group.test.ts`; the 0128 / 0129 /
+  0153 witnesses and registry rows.
+- **The twelve authorised re-pins** (premeasured by prototype before the witness
+  was written; the full suite reddened in exactly these six files and no other,
+  plus `tests/registry-closed-set-corpus-gate.test.ts`, which the new registry
+  and mirror rows clear). Each keeps its subject and its strength; several
+  gained strength, asserting real lowered artefacts where they previously
+  asserted the permissive `{}`.
+
+  | file — cell | before → after | authority |
+  |---|---|---|
+  | `inline-object-quoted-field-name-refusal.test.ts` — B1's b4 row | `empty-schema-body` → `malformed-schema-field` | bug 0176 §Fix **A5**: "`checkObjectSchema` … and `emptySchemaBodyDiagnostic` … are not edited; **0133 owns that path**" |
+  | `schema-body-nontype-text-refusal.test.ts` — f7, f8 | f7 gains `schema-type-not-expression` + `malformed-schema-field`, loses `empty-schema-body`; f8 keeps `unsupported-feature`, loses `empty-schema-body`, gains `malformed-schema-field` | §Fix (a)2 / (a)3 + constraint 5 |
+  | `schema-alias-rhs-malformed.test.ts` — e2, e6 | as f8 / as f7 | §Fix (a)2 / (a)3 + constraint 5 |
+  | `schema-alias-union-decl.test.ts` — n29 | as f7 | §Fix (a)2 / (a)3 + constraint 5 |
+  | `params-literal-sublanguage-lowering.test.ts` — d12 | as f7 | §Fix (a)2 / (a)3 + constraint 5 |
+  | `params-scalar-nontype-text-refusal.test.ts` — c1, c10, c13, c16, c19 | diagnostic sequence as f7, **plus** the lowered `$defs` / `properties` artefact moves from the permissive `{}` to a real one-property object shape | §Fix (a)2 (the gate it names) + §Fix (a)3 (`collectBodyTypes`) + constraint 5 |
+
+- **Residuals:**
+  1. **`skipBraceRemainder`'s end-of-input reach is NOT fixed.** §Fix (a)4 makes
+     the resynchronisation stop "a second decision with its own blast radius",
+     so this fix takes only the misattribution half of §Kind element 3: the
+     surviving line anchors at the offending token instead of spanning four
+     unrelated statements, but an unbalanced body still consumes the document
+     remainder and the lost statements still draw no diagnostic naming them.
+     Pinned as today's behaviour by witness cells 0g / 8b / 8c, which assert the
+     statement list AND `doc.body.tail` and are labelled RESIDUAL in-file. A
+     route that adds a stop at a declaration keyword or a `stmt-sep` reds
+     exactly there.
+  2. **An unclosed body at end of input, after a trailing comma, loads clean.**
+     Measured during review: `schema S { a: string,` at EOF draws ZERO
+     diagnostics — the field loop's `atEnd()` break returns the captured fields
+     with no emission. Byte-identical at HEAD `f5d0d125`, outside all three
+     recovery arms, and therefore outside this fix; adjacent to residual 1 and
+     worth its own filing.
+  3. **A zero-width anchor at end of input on arm 2.** `schema S { a: string,
+     b as` at EOF draws `malformed-schema-field` at a zero-width EOF span.
+     Inside the new row's *Trigger* and renderable, but no witness cell pins the
+     EOF-token anchor shape. Follow-up cell material.
+  4. **Three §Reproduction claims of this report are stale** and are pinned at
+     their HEAD values as controls rather than at the report's quoted values:
+     the keyword-name family draws `theta/parse/reserved-keyword-as-identifier`
+     and retains its fields (bug 0153's arm) rather than loading clean;
+     `schema S { a: string, b: }` draws `theta/parse/schema-type-not-expression`
+     (bug 0061's arm) rather than loading clean, which *removes* a GOV-15
+     obligation §Fix constraint 5 anticipated; and the inline-half row
+     `schema S { a: string, b: {c: integer, 42: string} }` draws
+     `theta/parse/inline-field-name-not-identifier` (bug 0176's family) rather
+     than nothing. Every `src/parser/theta-document.ts` line citation in this
+     report has also moved; the fix uses symbol-form citations throughout.
+  5. **§Non-goals' "Everything below the parse seam" is falsified by this
+     route**, and the falsification is named by §Fix (a) itself, so it is an
+     internal inconsistency of this report rather than a scope extension. §Fix
+     (a)2 authorises the gate — at this HEAD `checkObjectSchema`'s
+     `if (s.fields !== undefined)` block in `walkStmt`'s `schema` arm is the
+     SAME block that runs the per-field `parseTypeExpression` walk and bug
+     0061's `schema-type-not-expression` last resort, so unlocking one unlocks
+     the other in the same statement; and §Fix (a)3 relies on
+     `collectBodyTypes` recording a real field list, which is what gives the
+     lowering a non-empty `$defs` / `properties` fragment. The non-goal's
+     rationale and consequence survive intact: every one of these inputs still
+     carries an `E`, so the registration gate still refuses it and nothing below
+     the seam is author-visible. Only the claim "unreached" is false. The five
+     codes §Fix (a)2 lists are illustrative of the declaration checks, not an
+     exhaustive fence on what the unlocked block emits.
+- **Discharge notes appended:** none. Bug 0176 §Fix A5 already cedes this path
+  to 0133 by name and needs no amendment; bugs 0095, 0045, 0033, 0096, 0129 and
+  0153 keep every cell and every row this report names as theirs.
+- **Pinned dispositions / non-goals:** unchanged. The `fn`-return
+  body-absorption path, the inline half's tolerant field loop, a keyword
+  accepted as a field name, the `<construct>` rendering vocabulary (bug 0063),
+  the multiplicity question (bug 0129), an unterminated field type and the
+  `params:` field list all stay out of scope exactly as §Non-goals fences them.
+  The new *Message* is placeholder-free by design, so no placeholder-category
+  determination arises and the closed `<construct>` table
+  (`placeholder-rendering-a.md` §3) is untouched — bug 0063's subject is not
+  entered. `tests/fixtures/h7a/permitted-codes.json` is unchanged: the
+  determination stands on the measured fact that no H9a fixture declares a
+  schema object body reaching any of the three arms, so the H9a acceptance
+  surface is not on this fix's path.

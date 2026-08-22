@@ -189,6 +189,8 @@ const MALFORMED_ALIAS_RHS = "theta/parse/malformed-alias-rhs";
  * since bug 0042).
  */
 const SCHEMA_TYPE_NOT_EXPRESSION = "theta/parse/schema-type-not-expression";
+/** Bug 0133 §Fix (a) — the retained-prefix row that moves n29's field-position CONTROL below. */
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /** The three codes the unparsed shape is misattributed to today. */
 const RESIDUE_CODES = [
@@ -2423,13 +2425,16 @@ describe("bug 0033 (u) — `-` after a completed arm ends the capture", () => {
     expect(
       diagLines(parse(F_FIELD_NEG_LITERAL)),
       "n29 CONTROL — `schema S { a: -1 }`, the identical `-1` in the object form's field-type " +
-        "position: the field list is dropped whole and the body reads as empty. No `Type` " +
-        "position in the implementation carries a negative numeric literal, and the " +
-        "malformed-right-hand-side rule is a declaration-shape question this field position " +
-        "never reaches. MEASURED UNMOVED by bug 0061 §Fix (the other cell §Fix constraint 7 " +
-        "licenses to move, beside n24 above): the field list is dropped whole before any " +
-        "field-type walk runs, so no fragment ever reaches `theta/parse/schema-type-not-expression`'s " +
-        "judgement here either",
-    ).toEqual([line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "S"]]))]);
+        "position. No `Type` position in the implementation carries a negative numeric literal, " +
+        "and the malformed-right-hand-side rule is a declaration-shape question this field " +
+        "position never reaches, so that non-reach is unmoved. MEASURED MOVED by a DIFFERENT " +
+        "authority — bug 0133 §Fix (a)2/(a)3 + §Fix constraint 5's diagnostic-registry carve-out: " +
+        "the field list is now RETAINED past the offending token, so the retained field's junk " +
+        "type reaches `theta/parse/schema-type-not-expression`'s judgement (the row bug 0061 " +
+        "fixes below at n24) beside the new `malformed-schema-field` line",
+    ).toEqual([
+      line(SCHEMA_TYPE_NOT_EXPRESSION, msg(SCHEMA_TYPE_NOT_EXPRESSION, [["<X>", "S"]])),
+      line(MALFORMED_FIELD, msg(MALFORMED_FIELD, [])),
+    ]);
   });
 });

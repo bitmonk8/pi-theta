@@ -1088,35 +1088,54 @@ describe("bug 0061 (f) — the controls do not move", () => {
     });
   }
 
-  it("GREEN (f7, field): `schema S { a: -1 }` keeps `empty-schema-body` alone", () => {
-    // No field-type walk runs, so the judgement is never handed a fragment. Whether
-    // `-1` should be a `Type` at all is held open by bug 0042 §Non-goals.
+  it("GREEN (f7, field): `schema S { a: -1 }` retains `a` under bug 0133 §Fix (a)", () => {
+    // Bug 0133 §Fix (a)2/(a)3 + §Fix constraint 5's diagnostic-registry
+    // carve-out: the field list is RETAINED past the offending token, so
+    // `a`'s junk type (`-`) reaches the checker-time field-type walk, which an
+    // absent `fields` key would otherwise block from running at all. This
+    // row's own judgement (whether `-1` should be a `Type` at all) is a
+    // separate, still-open question (bug 0042 §Non-goals).
     const label = "f7 (field, -1)";
     const read = readAt(label, "field", "-1");
     expect(
       read.lines,
-      `${label}: the field list is dropped whole, so this row is out of the refusal's reach by ` +
-        `construction rather than by a guard`,
-    ).toEqual([line("theta/parse/empty-schema-body", "<X>", "S")]);
-    expect(read.lowered, `${label}: the dropped body lowers to the permissive fragment`).toEqual(
-      PERMISSIVE,
-    );
+      `${label}: the field list is retained (bug 0133 §Fix (a)), so this row's own field-type ` +
+        `walk now runs beside the new malformed-schema-field line`,
+    ).toEqual([
+      line("theta/parse/schema-type-not-expression", "<X>", "S"),
+      plainLine("theta/parse/malformed-schema-field"),
+    ]);
+    expect(
+      read.lowered,
+      `${label}: the retained field \`a\` lowers under the field-position enclosure, its junk ` +
+        `type as the permissive fragment`,
+    ).toEqual(sField(PERMISSIVE));
   });
 
-  it("GREEN (f8, field): `schema S { f: Cat Cat }` keeps `empty-schema-body` + `unsupported-feature`", () => {
+  it("GREEN (f8, field): `schema S { f: Cat Cat }` retains `f` under bug 0133 §Fix (a)", () => {
+    // `Cat` is one of DECLS' own declared schemas, so the retained field's
+    // type resolves and draws no `unresolved-named-type` beside the comma
+    // rule's own line; the third line is the new code, anchored at the second
+    // `Cat` (bug 0133 §Fix (a)2 + §Fix constraint 5).
     const label = "f8 (field, Cat Cat)";
     const read = readDecl(label, "S", "schema S { f: Cat Cat }");
     expect(
       read.lines,
-      `${label}: the comma rule and the empty-body rule are the whole disposition here; a third ` +
-        `code is over-refusal`,
+      `${label}: the comma rule's own line is unmoved, and the field list is retained rather ` +
+        `than discarded, so the new row replaces the old declaration-subject line`,
     ).toEqual([
-      line("theta/parse/empty-schema-body", "<X>", "S"),
       line("theta/parse/unsupported-feature", "<construct>", "schema fields must be comma-separated"),
+      plainLine("theta/parse/malformed-schema-field"),
     ]);
-    expect(read.lowered, `${label}: the dropped body lowers to the permissive fragment`).toEqual(
-      PERMISSIVE,
-    );
+    expect(
+      read.lowered,
+      `${label}: the retained field \`f: Cat\` lowers as a \$ref to the declared Cat schema`,
+    ).toEqual({
+      type: "object",
+      properties: { f: { $ref: "#/$defs/Cat" } },
+      required: ["f"],
+      additionalProperties: false,
+    });
   });
 });
 

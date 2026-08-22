@@ -161,6 +161,14 @@ const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
 const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
 /** The code the DECLARATION spelling keeps, unmoved (:91). */
 const EMPTY_BODY = "theta/parse/empty-schema-body";
+/**
+ * Bug 0133 §Fix (a): a captured prefix before a quoted-key declaration field
+ * is retained rather than discarded, so the offending token draws this code
+ * instead of `EMPTY_BODY`. 0133 owns this path by name (§Fix A5: "`0133 owns
+ * that path`"), so cell b4 below — the one declaration row with a field
+ * BEFORE the quoted key — moves under that authority.
+ */
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -209,6 +217,11 @@ function dupLine(field: string): string {
 /** The rendering the DECLARATION spelling of a quoted field name keeps. */
 function emptyBodyLine(schema: string): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", schema]]));
+}
+
+/** The rendering a captured-prefix quoted-key declaration draws (bug 0133 §Fix (a)). */
+function malformedFieldLine(): string {
+  return line("error", MALFORMED_FIELD, msg(MALFORMED_FIELD, []));
 }
 
 /** The code bug 0160 adds for an inline `as "WireName"` rename (0.172.0). */
@@ -465,9 +478,12 @@ describe("bug 0176 (B) — the declaration spelling of the same text is byte-ide
       ['schema S { "a": string }', [emptyBodyLine("S")]],
       ['schema S { "a": string, "a": integer }', [emptyBodyLine("S")]],
       ['schema S { "a": string, b: integer }', [emptyBodyLine("S")]],
-      // b4: a quoted name anywhere in the body discards the whole field list,
-      // not only a body whose FIRST token is quoted.
-      ['schema S { b: integer, "a": string }', [emptyBodyLine("S")]],
+      // b4: a quoted name anywhere in the body — not only a body whose FIRST
+      // token is quoted — retains the captured prefix `b: integer` (bug 0133
+      // §Fix (a) owns this path by name, §Fix A5), so the offending quoted key
+      // draws `malformed-schema-field` anchored at itself rather than the
+      // declaration's `empty-schema-body`.
+      ['schema S { b: integer, "a": string }', [malformedFieldLine()]],
       // b5 and b6 bound b1–b4 to the quoted NAME: an identifier field and a
       // rename whose wire name is quoted both load at the declaration position.
       ["schema S { a: string }", []],

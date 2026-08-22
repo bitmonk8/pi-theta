@@ -200,6 +200,10 @@ const EMPTY_BODY = "theta/parse/empty-schema-body";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const UNSUPPORTED = "theta/parse/unsupported-feature";
+/** Bug 0133 §Fix (a) — the retained-prefix row this file's e2/e6 move under. */
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
+/** The field-type walk bug 0133 §Fix (a) newly unlocks for a retained field's junk type. */
+const SCHEMA_TYPE_NOT_EXPR = "theta/parse/schema-type-not-expression";
 const DISCARDED_QUERY = "theta/parse/discarded-query-result";
 const THETALIB_TOP_LEVEL = "theta/parse/thetalib-top-level-statement";
 
@@ -1210,12 +1214,16 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     expect(renderDiags(doc.diagnostics, FM_LINES), "e1 — and it is silent").toEqual([]);
   });
 
-  it("GREEN (e2, fixture 1d): the object body's missing separator keeps its own two codes", () => {
+  it("GREEN (e2, fixture 1d): the object body's missing separator gains bug 0133's row, in place of the declaration line", () => {
     // §Fix constraint 4: a change at the alias position that also moves the
-    // object body's behaviour is out of scope. The object form already rejects
-    // this arrangement through its comma rule, and both of its diagnostics must
-    // be exactly what they are — including the `empty-schema-body` that follows
-    // from the dropped field list.
+    // object body's behaviour is out of scope. This cell moves under a
+    // DIFFERENT authority, bug 0133 §Fix (a)2 + §Fix constraint 5's
+    // diagnostic-registry carve-out: `Cat` is one of this file's own declared
+    // schemas, so the retained field `f: Cat` resolves and the comma rule's
+    // own line is unmoved — what moves is only that the field list is
+    // retained, so `theta/parse/malformed-schema-field` (anchored at the
+    // second `Cat`) fires in place of the declaration-subject
+    // `empty-schema-body` line.
     const doc = parse(F1D);
     expect(stmtSpans(doc, FM_LINES), "e2 — the declaration is one statement").toEqual([
       "schema:Cat@1:1-1:25",
@@ -1224,10 +1232,11 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     ]);
     expect(
       renderDiags(doc.diagnostics, FM_LINES),
-      "e2 — the object position's disposition is untouched, in both codes, order and spans",
+      "e2 — the comma rule's own line is untouched; the retained field list draws bug 0133's row " +
+        "instead of the discard's declaration-subject line",
     ).toEqual([
-      `error ${EMPTY_BODY}: ${msg(EMPTY_BODY, [["<X>", "S"]])} @2:1-2:24`,
       `error ${UNSUPPORTED}: ${msg(UNSUPPORTED, [["<construct>", "schema fields must be comma-separated"]])} @2:19-2:22`,
+      `error ${MALFORMED_FIELD}: ${msg(MALFORMED_FIELD, [])} @2:19-2:22`,
     ]);
   });
 
@@ -1334,22 +1343,23 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     });
   });
 
-  it("GREEN (e6, fixture 3b): `schema S { a: -1 }` keeps `empty-schema-body` alone", () => {
-    // The `-1` at the object form's field-type position: the field list is
-    // dropped whole and the body reads as empty. One code, unchanged — the
-    // alias rule must not add a second one at a position it does not govern.
-    //
-    // MEASURED UNMOVED BY BUG 0061 (the field-position sibling of e5, and the
-    // other cell §Fix constraint 7 licenses to move): `parseSchemaObjectBody`
-    // discards the whole malformed field list before any field-type walk
-    // runs, so no fragment ever reaches `lowerTypeExpr`'s catch-all for
-    // `theta/parse/schema-type-not-expression` to judge — this cell stays
-    // pinned by construction, not by a guard.
+  it("GREEN (e6, fixture 3b): `schema S { a: -1 }` now retains `a` under bug 0133 §Fix (a)", () => {
+    // The `-1` at the object form's field-type position. MEASURED MOVED, and
+    // by a different authority than this file's own rule: bug 0133 §Fix
+    // (a)2/(a)3 + §Fix constraint 5's diagnostic-registry carve-out retains
+    // the field list past the offending token, so the field-type walk, which
+    // an absent `fields` key would otherwise block, runs and draws
+    // `theta/parse/schema-type-not-expression` beside the new
+    // `malformed-schema-field` line. The alias rule this file owns adds
+    // nothing here — it is not the authority for this cell's move.
     const doc = parse(F3B);
     expect(
       renderDiags(doc.diagnostics, FM_LINES),
-      "e6 — exactly the object position's own disposition, unmoved",
-    ).toEqual([`error ${EMPTY_BODY}: ${msg(EMPTY_BODY, [["<X>", "S"]])} @1:1-1:19`]);
+      "e6 — the object position's own field-type walk now runs, beside bug 0133's new row",
+    ).toEqual([
+      `error ${SCHEMA_TYPE_NOT_EXPR}: ${msg(SCHEMA_TYPE_NOT_EXPR, [["<X>", "S"]])} @1:1-1:19`,
+      `error ${MALFORMED_FIELD}: ${msg(MALFORMED_FIELD, [])} @1:16-1:17`,
+    ]);
   });
 
   it("GREEN (e7, fixture 4): a right-hand side that yields NO arm stays `empty-schema-body`", () => {

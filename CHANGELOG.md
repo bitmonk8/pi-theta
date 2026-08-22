@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.203.0]
+
+### Fixed
+
+- **Bug 0133**: `parseSchemaObjectBody`'s three recovery arms discarded every
+  field the body had already captured — a body whose first token was a plain
+  field drew `theta/parse/empty-schema-body` ("'S' has no fields") over a
+  source declaring up to three, suppressed the earned `by-on-object-schema`
+  line, and turned same-file declarations into `unresolved-named-type` at
+  constructor sites. The arms now converge on `recoverMalformedSchemaField`:
+  containment unchanged, `null` only on an EMPTY prefix, else one new
+  `theta/parse/malformed-schema-field` anchored at the offending token with
+  the captured prefix retained — `empty-schema-body`'s Message becomes true
+  as written (DIAG-2: registry + mirrors same commit). Witness:
+  `tests/schema-field-discard-prefix-retention.test.ts` (58 cells) + an H8a
+  live cell.
+
 ## [0.202.0]
 
 ### Fixed

@@ -2793,10 +2793,17 @@ class BodyParser {
    * The `{ ... }` object-body form, retaining an explicit `by <field>` clause
    * when present (`schema X by f { ... }` — illegal, but the clause must
    * reach `checkByClause`, not be discarded: grammar.md §"schema X by
-   * <field>"). `parseSchemaObjectBody`'s own recovery (`skipBraceRemainder`)
-   * already consumes a malformed body in full; a `null` result here means the
-   * declaration yields no fields either way, so it takes the same
-   * `empty-schema-body` disposition as a truly empty `{ }` body.
+   * <field>"). `parseSchemaObjectBody`'s own recovery
+   * (`recoverMalformedSchemaField`) always consumes a malformed body's
+   * remainder in full, and returns `null` only when the capture stopped
+   * before any field was pushed — the empty-object-body clause and the
+   * mis-shaped-first-token clause of `theta/parse/empty-schema-body`'s
+   * *Trigger* (code-registry-parse.md) both describe exactly that input, and
+   * the row's *Message* ("has no fields") is true of it, so `null` keeps the
+   * declaration on this disposition. A captured prefix means the row's
+   * *Trigger* does not describe the input at all — the shape yielded a
+   * field — so `parseSchemaObjectBody` returns that prefix instead and the
+   * offending token draws its own diagnostic there.
    */
   private finishObjectSchema(kw: Token, name: string, by: string | undefined): Stmt {
     const fields = this.parseSchemaObjectBody();
@@ -2966,11 +2973,16 @@ class BodyParser {
    * Returns `null` (and consumes nothing) when the next token is not `{` —
    * unreachable from `parseSchema`'s dispatch, which calls this only after
    * confirming `{`, so this guard is defensive only. A field name is an
-   * `ident` / `keyword` token followed by `:` and a type expression; a body
-   * whose first non-sep token is not a plain `ident: Type` field is skipped
-   * as a balanced brace group (`skipBraceRemainder`) and yields `null` (no
-   * field list retained) — the caller (`finishObjectSchema`) then raises
-   * `theta/parse/empty-schema-body` for the fields-less result.
+   * `ident` / `keyword` token followed by `:` and a type expression. Three
+   * shapes cannot derive a `Field` at the current token: the token where a
+   * field name belongs is neither `ident` nor `keyword`; an `as` rename's
+   * wire-name token is not a `string`; or a field name is not followed by
+   * `:`. Each hands its offending token to `recoverMalformedSchemaField`,
+   * which consumes the balance of the brace group and either returns the
+   * fields already captured (a `theta/parse/malformed-schema-field`
+   * diagnostic names the offending token) or, when nothing was captured yet,
+   * returns `null` so the caller keeps the declaration-subject disposition
+   * that input's Trigger clause already covers.
    */
   private parseSchemaObjectBody(): SchemaFieldSource[] | null {
     if (!(this.peek().kind === "punct" && this.peek().text === "{")) {
@@ -2992,10 +3004,10 @@ class BodyParser {
       const nameTok = this.peek();
       const isFieldName = nameTok.kind === "ident" || nameTok.kind === "keyword";
       if (!isFieldName) {
-        // Not a plain `ident: Type` field list (a set-of / discriminated shape):
-        // consume the balance of the brace group and retain no field list.
-        this.skipBraceRemainder();
-        return null;
+        // Not a plain `ident: Type` field list (a set-of / discriminated
+        // shape): the token itself is what fails to derive a `Field`, so it
+        // is the offending token this iteration names.
+        return this.recoverMalformedSchemaField(fields, nameTok.range);
       }
       this.advance();
       // An optional `as "WireName"` rename sits between the field identifier and
@@ -3009,15 +3021,19 @@ class BodyParser {
         this.advance(); // `as`
         const wireTok = this.peek();
         if (wireTok.kind !== "string") {
-          this.skipBraceRemainder();
-          return null;
+          // A non-string wire name is what fails to derive; the field
+          // identifier that precedes it is not the offending token.
+          return this.recoverMalformedSchemaField(fields, wireTok.range);
         }
         this.advance();
         wireName = wireTok.value ?? wireTok.text;
       }
       if (!this.isPunct(":")) {
-        this.skipBraceRemainder();
-        return null;
+        // The token standing where `:` should be can be a construct the
+        // author wrote correctly (e.g. the body's closing `}`), so the
+        // offending token is the field name itself — the field that carries
+        // no type — not whatever token happens to sit at the cursor.
+        return this.recoverMalformedSchemaField(fields, nameTok.range);
       }
       this.advance(); // `:`
       // lexical.md §Identifiers requires lowercase-first for a schema field
@@ -3120,6 +3136,48 @@ class BodyParser {
         depth -= 1;
       }
     }
+  }
+
+  /**
+   * `parseSchemaObjectBody`'s single recovery point for the three shapes at
+   * which no further `Field` can derive (bug 0133 §Fix (a)): a token where a
+   * field name belongs that is neither `ident` nor `keyword`; an `as`
+   * rename's wire-name token that is not a `string`; or a field name not
+   * followed by `:`. Containment is unchanged — `skipBraceRemainder` still
+   * consumes the balance of the brace group (or the rest of the file on an
+   * unbalanced body, a deliberate unfixed residual) — but the fields already
+   * captured are retained (bug 0133 §Fix (a)2), not discarded with it.
+   *
+   * An EMPTY captured prefix keeps `null`: `SchemaShape ::= "{" Field (","
+   * Field)* ","? "}"` (grammar.md) is a sequence, and when no element of it
+   * derived, `theta/parse/empty-schema-body`'s Trigger (empty body / first
+   * token not a field / no shape) already describes the input and its
+   * Message ("has no fields") is true of it — `finishObjectSchema` keeps that
+   * disposition. Otherwise the prefix DOES derive one or more `Field`s, so
+   * that Trigger no longer describes the input: one
+   * `theta/parse/malformed-schema-field` diagnostic is anchored at the
+   * offending token, and the captured prefix is returned so the
+   * declaration's other checks (`by-on-object-schema`, the wire-name checks,
+   * the field-type walk, the constructor field-set checks) run against what
+   * the author wrote.
+   */
+  private recoverMalformedSchemaField(
+    fields: readonly SchemaFieldSource[],
+    offending: SourceRange,
+  ): SchemaFieldSource[] | null {
+    this.skipBraceRemainder();
+    if (fields.length === 0) {
+      return null;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "theta/parse/malformed-schema-field",
+      file: this.file,
+      range: offending,
+      message:
+        "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'",
+    });
+    return [...fields];
   }
 
   private parseEnum(): Stmt {
