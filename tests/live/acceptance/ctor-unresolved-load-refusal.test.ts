@@ -137,8 +137,8 @@ const CONTROL = [
   "mode: prompt",
   "---",
   "schema Note { text: string }",
-  'let n = Note { text: "papaya" }',
-  "@`What fruit is named in this note: ${n.text}? Answer with just the fruit name, lowercase.`",
+  'let n = Note { text: "941" }',
+  "@`This note carries a number: ${n.text}. What is that number plus 100? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -149,7 +149,7 @@ const CONTROL = [
 // and draws refusals -- the documented sentinel-refusal class.
 const REFUSED = "REFUSED";
 const LOADED = "LOADED";
-const CONTROL_OK = "papaya";
+const CONTROL_OK = "1041";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {
