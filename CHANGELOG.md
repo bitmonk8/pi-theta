@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.181.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0158 — the match-arm and fn-return LUB pages are corrected onto the
+  registered *Triggers*** (route B + B7 option (i), citing 0155's stated law
+  verbatim — both *Triggers* read dominating-member, both implementations
+  match, the three over-claiming rule pages corrected; route A's rewiring
+  premeasured 9 unauthorized reds and was refused). Witness
+  `tests/match-fn-return-lub-dominating-discipline.test.ts` (26 cells, 8 red
+  before) + H8a cell 86.
+
+>>>>>>> 2f5ec57b (fix(bug-0158): match-arm and fn-return LUB pages corrected onto the registered Triggers — v0.181.0)
+
 ## [0.180.0] - 2026-08-27
 
 ### Fixed

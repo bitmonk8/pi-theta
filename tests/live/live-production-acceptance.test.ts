@@ -13969,3 +13969,198 @@ describe("cell 84 (bug 0220): a root `void` fn-return sink supplies no QRY-2 sin
     }
   });
 });
+
+// ===========================================================================
+// Bug 0158 (cell 86) -- `#typeExpr`'s `case "match"` (static-type-inference.ts)
+// routed a heterogeneous `match`'s arm-body types through the array/ternary
+// union LUB `#commonType`, while the checker's own `checkMatchArmTypes` (via
+// `leastUpperBound`, match-result.ts) stayed dominating-member-only and
+// refuses the identical arm-type set with the registered `E`-severity
+// `theta/parse/match-arm-type-mismatch`
+// (docs/bugs/0158-match-arm-and-fn-return-lub-diverge-from-common-type.md).
+// Route B, B7 option (i): `case "match"` now reduces the arm types through
+// the new private `#matchArmType` -- the same dominating-member discipline,
+// falling back to the first arm when none dominates -- so the pass never
+// answers a type the checker refuses on the same node. The 26-cell unit
+// witness (tests/match-fn-return-lub-dominating-discipline.test.ts) proves
+// this offline at the `parseThetaDocument`/raw-`typeOf` boundary (cells B1,
+// B3, D2). This cell proves the SAME disposition end to end through the real
+// production composition root (session_start -> resources_discover ->
+// composeExtensionInstance -> checkTypeLayer): a heterogeneous `match` still
+// REFUSES REGISTRATION under the registered *Trigger* the corrected spec
+// sentences now name, while its dominating-arm twin registers and RUNS --
+// the fixed path had zero live coverage before this addition. ADDITIVE ONLY:
+// no existing cell in this file is weakened, reworded, reordered or deleted.
+// ===========================================================================
+
+const MATCH_ARM_TYPE_MISMATCH_CODE = "theta/parse/match-arm-type-mismatch";
+
+/**
+ * `theta/parse/match-arm-type-mismatch: match arm body type does not match
+ * the common type of the other arms` -- DIAG-4: the message half is read
+ * from the same sharded registry page `ARRAY_NO_COMMON_TYPE_REGISTRY` already
+ * parses (`code-registry-parse.md` carries both rows), mirroring this file's
+ * `arrayNoCommonTypeFragment`. The row carries no `<...>` placeholder, so
+ * this helper substitutes nothing; the trailing assertion is a drift guard,
+ * not a fill check.
+ */
+function matchArmTypeMismatchFragment(): string {
+  const template = registryMessage(
+    ARRAY_NO_COMMON_TYPE_REGISTRY,
+    MATCH_ARM_TYPE_MISMATCH_CODE,
+  ) as string | undefined;
+  expect(
+    template,
+    `${MATCH_ARM_TYPE_MISMATCH_CODE} has no registry row -- the code this ` +
+      "cell asserts is not registered (DIAG-2)",
+  ).toBeTypeOf("string");
+  const message = template as string;
+  expect(
+    message,
+    `${MATCH_ARM_TYPE_MISMATCH_CODE}: the registry row's Message template ` +
+      "grew an unsubstituted <...> placeholder this reader does not fill -- " +
+      "the row changed shape",
+  ).not.toMatch(/<[a-z]+>/);
+  return `${MATCH_ARM_TYPE_MISMATCH_CODE}: ${message}`;
+}
+
+/**
+ * The bug doc's own headline row (SS Reproduction n3/t1): no member of
+ * `[integer, string]` dominates the other, so `leastUpperBound` answers
+ * `undefined` and `checkMatchArmTypes` fires the registered row. Pre-fix the
+ * inference pass answered the union `integer | string` for the same arm-type
+ * array (an internal divergence, invisible at this boundary because the
+ * checker already refused); this theta must NOT register, unchanged by the
+ * fix.
+ */
+function heterogeneousMatchArmTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let m = match 1 { 1 => 1, _ => \"a\" }",
+    "m",
+    "",
+  ].join("\n");
+}
+
+/**
+ * The dominating-arm twin (SS Reproduction t3/d3): `number` is a MEMBER of
+ * `[integer, number]` (TYPE-2 widening), so both `#matchArmType` and
+ * `leastUpperBound` agree and admit it STATICALLY. The scrutinee `1` matches
+ * pattern `1`, so the arm that actually executes at runtime is `1 => 1` --
+ * the integer value the interpolation below asserts on. The match result is
+ * threaded into the top-level query's interpolation so the live drive
+ * actually RUNS the fixed `case "match"` arm at runtime, not merely at
+ * registration.
+ */
+function dominatingMatchArmTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "---",
+    "let m = match 1 { 1 => 1, _ => 2.5 }",
+    "@`Reply with exactly the token THETA-MATCH-DOM-${m} and nothing else.`",
+    "",
+  ].join("\n");
+}
+
+describe("H8a-T -- bug 0158: a heterogeneous `match` still refuses registration under its registered *Trigger*, while its dominating-arm twin registers and runs, live (cell 86) (Convention: live-host acceptance)", () => {
+  it("refuses the heterogeneous `match` at registration and drives the dominating-arm twin to normal completion through the real discovery->registration->checkTypeLayer path (cell 86)", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work -- without this, either
+      // sibling's status could be (wrongly) attributed to a broken workspace
+      // instead of the bug 0158 disposition under test.
+      { source: "project", stem: "b158livectl", text: promptTheta("THETA-LIVE-OK") },
+      // THE REFUSED OBSERVABLE -- no member of `[integer, string]` dominates,
+      // so `checkMatchArmTypes` fires `theta/parse/match-arm-type-mismatch`
+      // (the registered *Trigger* THE STATED LAW makes normative) and
+      // registration is denied before any sink reads the pass's internal
+      // arm-type reduction.
+      { source: "project", stem: "b158livebad", text: heterogeneousMatchArmTheta() },
+      // THE FIXED OBSERVABLE -- a dominating member (`number`) admits on both
+      // the inference pass's `#matchArmType` and the checker's
+      // `leastUpperBound`; the document registers and the match result flows
+      // into a real live turn.
+      { source: "project", stem: "b158livegood", text: dominatingMatchArmTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b158livectl"),
+        "the precondition control did not register -- a broken workspace, not " +
+          "the bug 0158 disposition under test, would explain either " +
+          "sibling's status too. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // THE REFUSED OBSERVABLE (cell 86) -- the heterogeneous `match` does not
+      // register through the REAL production composition root.
+      expect(
+        handle.command("b158livebad"),
+        "`match 1 { 1 => 1, _ => \"a\" }` registered through the live " +
+          "discovery/session_start path -- `theta/parse/match-arm-type-mismatch` " +
+          "did not fire live, so the dominating twin's registration below would " +
+          "prove nothing. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b158livebad");
+
+      // THE FIXED OBSERVABLE -- the dominating-arm twin registers.
+      expect(
+        handle.command("b158livegood"),
+        "`match 1 { 1 => 1, _ => 2.5 }` did not register through the live " +
+          "discovery/session_start path -- the dominating-member reduction " +
+          "(`#matchArmType`) did not admit it live. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // Drive the dominating twin for real: the top-level sentinel query is
+      // the ONLY query in the document, so this is the minimal live exercise
+      // of the fixed `case "match"` arm at runtime, not merely at
+      // registration.
+      const turn = await driveSlashCaptureTurn(handle, "/b158livegood");
+
+      // The theta-system-note channel (AGENTS.md SS"Assert on real
+      // observables"): the dominating twin's drive must carry NO err note --
+      // not merely `prompt()` resolving, which a fail-closed drive would do
+      // too.
+      expect(
+        turn.systemNotes,
+        "the dominating-arm twin's drive carried a theta-system-note entry -- " +
+          "not a normal completion. Notes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([]);
+
+      // The drive's normal completion: the streamed assistant text carries
+      // the sentinel built from the match result, proving the match ran (not
+      // merely registered) and produced the dominating arm's type at
+      // runtime.
+      expect(
+        turn.text.includes("THETA-MATCH-DOM-1"),
+        "the dominating-arm twin's drive did not complete normally -- " +
+          "streamed text: " + JSON.stringify(turn.text),
+      ).toBe(true);
+
+      // The refused sibling's own theta-system-note channel, read off the
+      // planted refusal itself (not the drive above, since the refused
+      // sibling never registered a command to drive): its load-time delta
+      // must carry the registered *Message* verbatim.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = matchArmTypeMismatchFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the match-arm-type-mismatch " +
+          "rejection for the heterogeneous sibling. Notes: " +
+          JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});

@@ -117,7 +117,13 @@ Applying `⊑` to the array/ternary case:
    `theta/parse/array-no-common-type`. Array literal only — see TYPE-9 for what
    a ternary reports instead.
 
-`match` arms and inferred theta/`fn` return types use the same LUB discipline (see
+`match` arms and inferred theta/`fn` return types reduce under a narrower LUB:
+the chosen common type must be a member of the contributing types — one that
+every other contribution is `⊑` — never a computed union, so a set with no
+dominating member has no common type at all and draws
+`theta/parse/match-arm-type-mismatch` or, when no sink narrows the
+contributions, `theta/parse/return-no-common-type`, where an array literal or a
+ternary would union under rule 2 above (see
 [Grammar](./grammar.md) and [Errors and results — final value](./errors-and-results.md)).
 
 ## Runtime value model

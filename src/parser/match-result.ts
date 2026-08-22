@@ -247,7 +247,9 @@ function mismatchDiagnostic(site: MatchResultSite): Diagnostic {
  * The least upper bound of the arm types under type-system.md §"Type
  * compatibility": a candidate arm type that every arm is `⊑`, and that is itself
  * `⊑` every other such candidate (the least). Returns `undefined` when the arms
- * share no common upper bound. A statically-unresolvable arm does not block a
+ * share no common upper bound — unlike `commonType` (`./type-compat.ts`), this
+ * LUB has no union clause, so a non-dominated set here has no candidate rather
+ * than a computed union. A statically-unresolvable arm does not block a
  * candidate (deferred to the runtime AJV safety net).
  */
 function leastUpperBound(

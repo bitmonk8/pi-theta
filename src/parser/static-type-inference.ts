@@ -274,7 +274,14 @@ export class StaticTypeInferencePass {
         // environment before the body runs, ../runtime/statement-executor.ts),
         // never under a same-named ENCLOSING binding — so each arm is typed in
         // `#matchArmScope`'s copy rather than in the caller's `bindings`.
-        return this.#commonType(
+        //
+        // The arm types reduce through `#matchArmType`, the dominating-member
+        // discipline the checker's `checkMatchArmTypes` enforces on the same
+        // node (`./match-result.ts`) — not `#commonType`, whose union clause the
+        // checker refuses here (docs/reference/type-system.md §"Common-type
+        // rules"): this pass owes the walk a type where the checker owes it a
+        // diagnostic, and the two must agree on which candidate sets have one.
+        return this.#matchArmType(
           node.arms.map((arm) => this.#typeExpr(arm.body, env, this.#matchArmScope(arm.pattern, bindings))),
           env,
         );
@@ -495,6 +502,47 @@ export class StaticTypeInferencePass {
       return { kind: "named", name: "unknown" };
     }
     return commonType(candidates, env, this.#checkCompatible) ?? (candidates[0] as CompatType);
+  }
+
+  /**
+   * The `match`-arm common type: a candidate arm type that every arm is `⊑`,
+   * and that is itself `⊑` every other such candidate (the least) — the same
+   * dominating-member discipline the checker's `leastUpperBound`
+   * (./match-result.ts) enforces on the identical arm-type array via
+   * `checkMatchArmTypes`, so this pass never answers a type the checker
+   * refuses on the same node. `leastUpperBound` is not exported: it calls the
+   * production `checkCompatible` import directly rather than accepting an
+   * injectable relation the way `commonType` does (`relate: CompatRelation`,
+   * ./type-compat.ts). The pass therefore keeps its own copy, decided over its
+   * own injected `#checkCompatible`, rather than reach for a copy that would
+   * silently bypass it. Unlike `#commonType`, there is no union clause: a set
+   * with no dominating member falls back to the first arm's type, because the
+   * checker's own row already refuses the node and this pass only owes the
+   * walk a type to keep going past it.
+   */
+  #matchArmType(armTypes: readonly CompatType[], env: TypeEnv): CompatType {
+    if (armTypes.length === 0) {
+      return { kind: "named", name: "unknown" };
+    }
+    const covers = (candidate: CompatType): boolean =>
+      armTypes.every((arm) => {
+        const r = this.#checkCompatible(arm, candidate, env);
+        return r === "compatible" || r === "unknown";
+      });
+    const candidates = armTypes.filter(covers);
+    if (candidates.length === 0) {
+      return armTypes[0] as CompatType;
+    }
+    for (const candidate of candidates) {
+      const isLeast = candidates.every((other) => {
+        const r = this.#checkCompatible(candidate, other, env);
+        return r === "compatible" || r === "unknown";
+      });
+      if (isLeast) {
+        return candidate;
+      }
+    }
+    return candidates[0] as CompatType;
   }
 }
 

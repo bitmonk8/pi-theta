@@ -1,11 +1,12 @@
 # Bug 0158 — Bug 0081's fix gave the shared `commonType` (`type-compat.ts:656`) a union clause and `#typeExpr`'s `case "match"` (`static-type-inference.ts:237–241`) routes arm types through it, so the inference pass types `match 1 { 1 => 1, _ => "a" }` as `integer | string` while the checker-side LUBs for the same two constructs — `leastUpperBound` (`match-result.ts:214`) behind `checkMatchArmTypes` and `computeLub` (`functions.ts:348`) behind `resolveReturnType` — stay dominating-member-only and refuse it: `docs/reference/type-system.md:97` ("`match` arms and inferred theta/`fn` return types use the same LUB discipline") and `docs/spec_topics/functions.md:26` (FN-3, "the same common-upper-bound discipline … that the spec already applies to `match` arms, ternary branches, and array literals") now read false in a new direction, `["a", null]` loads as `array<string | null>` while `match 1 { 1 => "a", _ => null }` and its `fn`-return twin each draw an `E`, and the union already renders into three other rows' `<actual>` placeholders
 
-- **Status:** open. §Fix is not settled: two routes are constraint-pinned with
-  their GOV-15, DIAG-2 and witness consequences enumerated, and the disposition
-  — whether `match` arms and inferred `fn`/theta returns ADOPT the union LUB, or
-  the spec sentences are CORRECTED to scope the union discipline to the
-  array/ternary positions — is left to the run. No ordering dependency blocks
-  it.
+- **Status:** fixed (0.181.0). §Fix was unsettled at filing: two routes were
+  constraint-pinned with their GOV-15, DIAG-2 and witness consequences
+  enumerated, and the disposition — whether `match` arms and inferred
+  `fn`/theta returns ADOPT the union LUB, or the spec sentences are CORRECTED
+  to scope the union discipline to the array/ternary positions — was left to
+  the run. The run selected **route B** (CORRECT), plus route B's B7 option
+  (i); see `## Fix (0.181.0)` below.
 - **Sev/Diff estimate:** S4/D3 — S4 because no admitted program observes a
   wrong value or a wrong diagnostic: the checker's `match` row runs on the same
   node, over the same arm-type reads, as the inference union
@@ -929,3 +930,191 @@ filing: `wc -l` gives 378 / 427 / 2531 / 704 for
 `type-compat.ts`, and
 `diff <(git show 9e797da7:src/parser/type-compat.ts | head -591) <(head -591 src/parser/type-compat.ts)`
 is empty.
+
+
+## Fix (0.181.0)
+
+- **Route selected: B** — the spec is corrected to scope the union discipline to
+  the array/ternary positions; the two registered *Triggers* stand; no emission
+  set moves. The adjudication cites, verbatim, the law bug 0155's fix stated
+  (`0155-…md` `## Fix (0.174.0)`, "THE STATED LAW") rather than restating one:
+  > A registered *Trigger* is the normative statement of a code's emission set
+  > (DIAG-2). Where a rule page's scope exceeds the registered *Trigger* of the
+  > code it names, the *Trigger* governs and the rule page is corrected in the
+  > same commit; no implementation may be wired to emit a code outside its
+  > registered *Trigger*. Narrowing an emission set ONTO its registered
+  > *Trigger* needs no registry edit (the 0084/0139 posture), but where the
+  > *Trigger*'s TEXT presupposes the wider reading, that text is corrected in
+  > the same commit as the narrowing.
+
+  Applied: `theta/parse/match-arm-type-mismatch`'s *Trigger* ("the common type
+  of the other arms", `code-registry-parse.md:85`) and
+  `theta/parse/return-no-common-type`'s ("share no common upper bound and no
+  sink narrows them", `:45`) both read to the dominating-member semantics at
+  this HEAD, and both implementations (`leastUpperBound`, `match-result.ts`;
+  `computeLub`, `functions.ts`) match them. The three rule pages that claimed
+  identity with the array/ternary union discipline exceeded those *Triggers*,
+  so the *Triggers* govern and the pages are corrected in this commit.
+  **Route A (ADOPT) was refused on measured grounds:** a prototype delegating
+  both checker LUBs to `commonType` red 9 tests in 5 files — including four
+  cells of bug 0123's witness (`tests/match-pattern-increment-decrement.test.ts`
+  c1/h1/h2/i3) and bug 0141's g3
+  (`tests/capitalised-bare-match-pattern-refusal.test.ts`) — unauthorised flips
+  in other open reports' witnesses that no §Fix bullet authorises (A8
+  authorises only `tests/match-result.test.ts`). The prototype was reverted
+  byte-exact (`git hash-object` == `git rev-parse HEAD:<path>` for both files).
+  Route A would additionally have made the *Trigger* text follow the rule page,
+  the inverse of the law's first limb.
+- **What shipped:**
+  - `docs/reference/type-system.md` — B1: the "`match` arms and inferred
+    theta/`fn` return types use the same LUB discipline" sentence replaced by
+    the member-restricted statement (the chosen common type is a member of the
+    contributing types, never a computed union; a memberless set has no common
+    type and draws `theta/parse/match-arm-type-mismatch` or, when no sink
+    narrows the contributions, `theta/parse/return-no-common-type`, where an
+    array literal or a ternary would union under rule 2). Both cross-links
+    kept; the return code carries the *Trigger*'s own sink qualifier so the
+    mirror does not out-scope `:45`.
+  - `docs/spec_topics/functions.md` — B2: FN-3 now borrows the `match`-arm
+    discipline (chosen common type is a member of the contributing types),
+    explicitly not the array-literal/ternary rule-2 discipline; "an inferred
+    return type never unions".
+  - `docs/spec_topics/expressions.md` — B3: the Arm-syntax parenthetical states
+    the member restriction for the sink-less case ("the chosen common type is
+    one of the arm types — a member every other arm is `⊑`") and states the
+    sink case as `checkMatchArmTypes`'s sink arm implements it (every arm `⊑`
+    the sink), without claiming the sink path is reachable from source.
+  - `src/parser/match-result.ts` — B5: `leastUpperBound`'s doc comment gains
+    the divergence note `computeLub` already carries (no union clause, unlike
+    `commonType`). Comment-only; 277 → 279 lines; zero executable lines.
+  - `src/parser/static-type-inference.ts` — B7 **option (i)**: `#typeExpr`'s
+    `case "match"` no longer routes arm-body types through the union
+    `#commonType`; it reduces them with the new private `#matchArmType`, the
+    same dominating-member discipline `leastUpperBound` enforces on the
+    identical arm-type array (`"unknown"` counts as covered; the least of
+    several candidates wins), falling back to the first arm type where the
+    checker refuses the node. 518 → 566 lines. `leastUpperBound` is not
+    exported because it hard-binds the production `checkCompatible` import
+    instead of taking an injectable relation, and giving it one is an
+    executable signature change B5 excludes; the pass therefore decides over
+    its own injected `#checkCompatible` rather than a relation that would
+    bypass it. `case "array"`, `case "ternary"` (bug 0155's landed
+    disposition) and `#commonType` are behaviourally untouched.
+  - `tests/match-fn-return-lub-dominating-discipline.test.ts` — new 26-cell
+    witness: corpus-conformance cells A1–A3 over the three corrected
+    sentences, inference-agreement cells B1/B2/B4/B5, the unchanged-behaviour
+    set (n1–n4, v1–v4, o1–o4 including **o2, bug 0155's row**, d1–d4, s1/s2,
+    w9/w10, e2, the registration gate r1/r2, the direct seams tC2–tC6),
+    *Trigger*-fidelity and structural pins D1–D3, and a GOV-15 census cell E1
+    re-measured at this HEAD.
+  - `tests/live/live-production-acceptance.test.ts` — one additive H8a live
+    cell (CELL-E2): through the real production composition root, the
+    heterogeneous `match` still refuses registration under its registered
+    *Trigger* while the dominating-arm twin registers and drives to normal
+    completion (empty `systemNotes` plus a sentinel built from the match
+    result). No existing cell touched.
+- **Gates:** witness RED before (8 cells: A1/A2/A3 on the three false
+  sentences, B1 `integer | string` against `integer`, B2 `string | null`
+  against `string`, B4/B5 the `integer | string`-rendered second diagnostic at
+  p9/p14, D2 the `commonType(` call still wired), GREEN after (26/26). Full
+  default suite `npx vitest run` → **368 files / 7539 tests passed** (baseline
+  367/7513 plus this witness's 26 cells). `npm run typecheck` clean.
+  `npm run lint` clean. Live: `npx vitest run --config
+  config/vitest/vitest.live.config.ts
+  tests/live/live-production-acceptance.test.ts -t "CELL-E2"` → 1 passed / 85
+  skipped, run twice under the live lock (the second after a sentinel rename,
+  see residual 3).
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS: one `house-rule` (the
+  `#matchArmType` doc comment narrated this run's own edit-scope decision) and
+  two `spec` (the corrected arm-syntax parenthetical asserted the member
+  restriction unconditionally, contradicting `checkMatchArmTypes`'s sink arm;
+  the mirror sentence claimed `return-no-common-type` unqualified where the
+  *Trigger* and FN-3 both qualify it with "no sink narrows"), plus one `test`
+  residual (cell E1's exact-list corpus pin). All four fixed in round 2 with
+  zero executable hunks. Round 2 (fast) — CLEAN, no `recommend-deep-review`,
+  two prose residuals; one (a missing article, plus one over-long comment line)
+  was corrected by the orchestrator as a bounded comment-only edit with the
+  gates re-run green — polish verified by gate-diff, confirmation round
+  skipped.
+- **Verification:** SOLID. (1) The witness reds destructively in both lanes:
+  rewiring `case "match"` back to `#commonType` reds B1/B2/B4/B5/D2 with the
+  union signatures the report predicts; reinstating each pre-fix sentence from
+  `git show HEAD:<path>` reds exactly its A cell. Every perturbation was
+  restored by writing the bytes back and hash-verified. (2) Full suite
+  368/7539 green (the documented `inbound-union-arm-dispatch` contention flake
+  appeared in one review-round run and passed 19/19 in isolation; absent from
+  the verifier's and the orchestrator's runs). (3) Live: no pre-existing cell
+  drove a heterogeneous `match`; the new CELL-E2 cell was run for real under
+  the live lock. (4) typecheck and lint clean. (5) §Common obligations
+  re-derived at this HEAD, not copied: d1–d4/t2/t3/tC5/tC6 unchanged, o2
+  unmoved, `tests/fn-arg-type-mismatch-wired.test.ts` (93 cells at this HEAD,
+  84 at filing) green including 0145's u13e,
+  `tests/array-ternary-common-type-union.test.ts` and
+  `tests/division-result-type-number.test.ts` green.
+- **GOV-15 / DIAG-2:** census re-measured at this HEAD — 34 committed
+  `.theta`/`.thetalib` files (32 + 2), zero drawing
+  `theta/parse/match-arm-type-mismatch` or `theta/parse/return-no-common-type`,
+  so no committed source's diagnostic sequence moves. Under route B no
+  emission set moves at all: `leastUpperBound` and `computeLub` are unchanged
+  in behaviour, so DIAG-2 is a no-op and no registry row, mirror row or
+  `docs/reference/diagnostics.md` entry was touched.
+- **Residuals:**
+  1. **The 0081 spillover at three sinks is retired, in the direction §Fix A5
+     did not predict.** B7(i) removes the union from `typeOf` on a `match`
+     node, so rows p9, p11, p14 lose the second code they gained at 0081 and
+     rows p15/p16 render `integer` again instead of `integer | string`
+     (witness cells B4/B5 pin p9 and p14 as the `match` row ALONE). Every
+     affected input already carried an `E` at 1.0.0 and still carries the
+     `match` row, so none is in GOV-15's loads-cleanly set and no input gains
+     a code. 0129's diagnostic-COUNT question at those sinks is untouched and
+     is owed no disclosure: the counts move DOWN and no new code appears.
+  2. **The dead sink arm stays dead.** `checkMatchArmTypes`'s sink arm is
+     still unreachable from `.theta` source — the walk hard-codes
+     `sink: undefined` at its only `checkMatchArmTypes` call site
+     (`type-layer-checks.ts`) — so `expressions.md`'s sink clause remains a
+     statement about a function arm no source input reaches. §Non-goals leaves
+     that open and this fix does not close it; the corrected parenthetical was
+     scoped (round-1 finding F2) so it no longer asserts the member
+     restriction over the sink case it does not govern. A future report owns
+     the reachability question.
+  3. **The live cell's sentinel was renamed after its first green run.** The
+     original sentinel embedded the cell token in a longer string
+     (`CELL-E2-DOM-1`), which is not a strip-safe placement; it is now
+     `THETA-MATCH-DOM-1` and every `CELL-E2` occurrence in the file sits in a
+     parenthesised form. The cell was re-run for real under the live lock
+     after the rename and passed.
+  4. **Induced positional drift, not chased (bug 0134's class).** The
+     `case "match"` comment block grew, shifting
+     `src/parser/static-type-inference.ts:497` → `:504` (`#commonType`'s
+     `?? candidates[0]` line), which a comment in bug 0155's protected witness
+     `tests/ternary-common-type-trigger-adjudication.test.ts` cites twice; and
+     the B5 comment shifted `match-result.ts:253` → `:255`, cited in a comment
+     in this fix's own witness header. Both are comments, no cell asserts on
+     them, and the protected witness is byte-identical to HEAD
+     (hash-verified). No citation sweep was performed.
+  5. **The 0158 line pins are stale and were not restored.** §Fix A9's byte
+     pins (`static-type-inference.ts` at 378, `functions.ts` at 427,
+     `type-layer-checks.ts` at 2531, `type-compat.ts` byte-identical through
+     591) all lapsed across the ~90 minors between filing and this HEAD; the
+     counts at this HEAD before this fix were 518 / 552 / 3216 / 938. Every
+     citation in this record is symbol-anchored for that reason.
+- **Discharge notes appended:** none (no sibling bug document was edited).
+- **Pinned dispositions / non-goals:**
+  - **0195's subject is NOT claimed:** `docs/spec_topics/control-flow.md`'s
+    empty-array iterand claim and registered-row reachability are untouched —
+    the file is not in this diff.
+  - **0155's landed scope corrections are cited, not re-litigated:** rule 2's
+    union clause, the ternary's adjudicated by-rule branch-order dependence
+    and the `integer | string` arms-verbatim spelling are unchanged; witness
+    cell o2 pins the ternary row.
+  - **The ternary and array positions do not move:** `checkCommonType`,
+    `checkArrayLiteral`, the `array-no-common-type` row and `#typeExpr`'s
+    `case "ternary"` are untouched (rows n1/n2/v1/v2/o1/o2 green).
+  - **0145's subject (which binding an arm body reads) is untouched:** the
+    `#matchArmScope` call inside `case "match"` is unchanged; only the
+    reduction of the resulting type SET changed.
+  - **The plain annotated-`fn` return gap stays open** (`fn g(): integer
+    { "a" }` reports `[]`), as §Non-goals requires; row e2's silence is pinned
+    as measured, not as a working sink.
+  - **No *Message* reword, no code rename, no registry edit** (DIAG-4 defers
+    wording; neither row is placeholdered on any input here).
