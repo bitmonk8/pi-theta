@@ -73,6 +73,7 @@ import type { ThetaCompositionInput } from "./theta-composition-producer";
 import { checkToolCallArguments } from "../runtime/tool-call";
 import {
   BOOLEAN_BINARY_OPS,
+  isStaticZeroIntegerDivisor,
   StaticTypeInferencePass,
 } from "../parser/static-type-inference";
 import { annotationToCompatType, collectTypeEnv } from "../parser/type-layer-checks";
@@ -561,14 +562,24 @@ function collectProvableArgTypes(
         // — rather than adding `/` as an exception to it.
         return [pass.typeOf(expr, env)];
       }
-      // Arithmetic (`+`, `-`, `*`, `%`): the value takes one operand's kind or
-      // the two widened together (`integer + number` is a number), all of
-      // which the union of the operand sets covers. Over-approximating is safe
-      // in the one direction that matters — a wider set only makes
-      // disjointness harder to prove, and `kindsDisjoint`
-      // (../runtime/tool-call.ts) already reconciles `integer`/`number` so
-      // `%`'s `NaN` widening (an `integer % 0` divisor, expressions.md
-      // §"Other arithmetic") cannot turn a withheld verdict into a fired one.
+      if (expr.op === "%" && isStaticZeroIntegerDivisor(expr.right)) {
+        // Bug 0152 §Fix (c): mirrors `#typeBinary`'s zero-divisor `%` arm
+        // (../parser/static-type-inference.ts), the same MIRROR precedent bug
+        // 0142 set for `/` immediately above — one owner of the rule, read off
+        // the pass rather than restated here.
+        return [pass.typeOf(expr, env)];
+      }
+      // Arithmetic (`+`, `-`, `*`, and `%` for a non-zero-or-non-integer
+      // divisor): the value takes one operand's kind or the two widened
+      // together (`integer + number` is a number), all of which the union of
+      // the operand sets covers. Over-approximating is safe in the one
+      // direction that matters — a wider set only makes disjointness harder to
+      // prove, and `kindsDisjoint` (../runtime/tool-call.ts) already
+      // reconciles `integer`/`number`, so a `%` divisor this arm still reaches
+      // (any divisor that is not a statically-zero integer literal) cannot turn
+      // a withheld verdict into a fired one. The zero-integer-divisor `NaN`
+      // widening is no longer this arm's concern: the guard above collects it
+      // exactly, ahead of this fallback.
       return collectArmUnion([expr.left, expr.right], env, pass);
     }
     case "array":

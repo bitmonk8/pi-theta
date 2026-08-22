@@ -1,10 +1,11 @@
 # Bug 0152 — `#typeBinary` carries a per-operator arm for `/` and none for `%`, so `1 % 0` types as `integer` against `expressions.md:232`'s "because `NaN` is a `number`, an `integer % 0` result widens to `number`": `let n: integer = 1 % 0`, `fn g(n: integer)` called as `g(1 % 0)`, an `integer`-declared schema field, an `array<integer>` element and a `par for … max` all load with zero diagnostics, the theta registers and runs, the runtime binds `NaN` into each of those positions, and `provableArgType` certifies `integer` as PROVEN — measured by rendering `got integer` at a sink that does fire
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the DECIDABILITY
-  SCOPE is an in-run adjudication with three routes enumerated below
-  (literal-zero divisor only; constant-folded zeros; provably-zero bindings),
-  each with its own GOV-15 and witness consequences, and no route is selected
-  here. No ordering dependency blocks it. Bug
+- **Status:** fixed (0.187.0). §Fix was constraint-pinned, not settled: the
+  DECIDABILITY SCOPE was an in-run adjudication with three routes enumerated
+  below (literal-zero divisor only; constant-folded zeros; provably-zero
+  bindings). The run took **Route A** with **MIRROR = YES** (§Fix (a), §Fix
+  (c)); routes B and C are recorded as residuals with their cells. See §Fix
+  (0.187.0). Bug
   [0142](./0142-division-result-type-not-number.md) is **fixed (0.80.0)** and is
   this report's origin, not its prerequisite: 0142's §Non-goals measured this
   neighbour, excluded it by name, and its fix pinned the current reading as
@@ -1122,3 +1123,123 @@ is determined inside one parse, one offline execution or one offline load.
   `n: number` parameter — a withheld row with no literal-zero divisor. No
   committed test asserts the static type of a `%`-by-zero expression as anything
   other than `integer`.
+
+## Fix (0.187.0)
+
+- **Route adjudicated (§Fix (a)):** **Route A** — the arm fires only for a
+  divisor node that is an `integer`-typed numeric literal denoting zero.
+  Routes B (a constant folder) and C (a provably-zero value channel) were
+  declined: neither has a spec sentence requiring it, each adds a new
+  capability with its own correctness surface, and the input class they buy
+  (`1 % (2 - 2)`, `1 % -0`, `let z = 0` + `1 % z`) is bounded and now pinned
+  as measured residuals rather than left to be discovered. **§Fix (c)
+  sub-decision: MIRROR = YES**, following bug 0142's precedent for `/`.
+- **What shipped:**
+  - `src/parser/static-type-inference.ts` — `#typeBinary` gains the
+    `%`-zero-divisor arm after bug 0142's `/` arm and before the `#commonType`
+    call, returning `{ kind: "prim", name: "number" }`; like the `/` arm it
+    does not consult the left operand. The divisor test is factored into the
+    exported `isStaticZeroIntegerDivisor`.
+  - `src/extension/invoke-static-checks.ts` — `collectProvableArgTypes`
+    mirrors the same guarded arm as `[pass.typeOf(expr, env)]`, importing the
+    predicate rather than restating it, so one function owns the rule; the
+    arithmetic fallback's comment, which justified its over-approximation by
+    naming `%`'s `NaN` widening, is corrected in the same hunk (§Fix (c)).
+  - `tests/division-result-type-number.test.ts` — cells `t9` and `b8`
+    **retaken in place** (§Fix (d)), assertions flipped and both comments
+    rewritten to name this report's adjudication. The other 41 cells stay
+    green, which is the proof the arm reached neither `/`, `-`, `*`, `+` nor a
+    non-zero `%`.
+  - `tests/wire-translation-inbound-retag.test.ts` — one comment line, two
+    `path:line` citations re-pointed for the shift this change caused in
+    `invoke-static-checks.ts` (see Residual 4).
+- **The open sub-question §Fix (a) posed is answered by measurement.** The
+  predicate is `numericType === "integer" && Number(text) === 0`, not
+  `text === "0"`: `00` lexes as `{ numericType: "integer", text: "00" }` and
+  denotes the same value. `0.0` and `0e0` are `numericType: "number"` and are
+  declined — they already widen through the operand reduction. `(0)` reaches
+  the test as the same node as `0` (parentheses are transparent); `-0` is a
+  `binary` negation node and is not.
+- **Gates:** witness `npx vitest run tests/modulo-zero-result-type-number.test.ts
+  tests/division-result-type-number.test.ts` → `Tests 85 passed (85)`; full
+  default suite `npx vitest run` → `Test Files 376 passed (376)`,
+  `Tests 7740 passed (7740)`; `npm run typecheck` (`tsc -p tsconfig.json
+  --noEmit`) clean; `npm run lint` (`eslint --no-error-on-unmatched-pattern
+  "src/**/*.ts"`) clean. Live: `npx vitest run --config
+  config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts
+  -t "bug 0152"` → `Tests 1 passed | 86 skipped (87)`.
+- **Review:** 3 rounds, all clean. Round 1 (deep) — CLEAN, two non-blocking
+  residuals (an unwitnessed non-numeric-left class at the invoke sink; an
+  unobservable predicate raggedness over already-rejected spellings). Round 2
+  (fast) — CLEAN, the first residual closed by a new two-sided invoke cell.
+  Round 3 (fast) — CLEAN, over the permanent live cell.
+- **Verification:** SOLID. Tests witness the bug — both arms removed by local
+  edit, `Tests 28 failed | 57 passed (85)` spanning the raw read, both parse
+  sinks, the a17/a21 rendering flip, the invoke mirror and registration, plus
+  the two retaken cells; restored by writing content back, hashes re-matched
+  (`static-type-inference.ts` = `20b49d8d…`, `invoke-static-checks.ts` =
+  `2d3fd40d…`), green again. Full default suite green. Live: the doc's
+  "no live tier applies" claim was **adjudicated and found too strong for the
+  mechanism** — bug 0142 already carries a live H8a-T registration cell on the
+  identical `#typeBinary` → `checkLetRhsCompat` → `hasLoadParseError` path, so
+  a permanent 0152 sibling was landed and proved in both directions
+  (green with the fix; correct-reason red with the arm neutralised, the broken
+  theta registering anyway). Lint and typecheck clean. GOV-15/DIAG-2:
+  `code-registry-parse.md`, `docs/reference/diagnostics.md` and
+  `docs/reference/errors-and-results.md` blob-hash identical to HEAD and
+  `git diff --stat -- docs/` empty — no registry row added, removed or edited,
+  DIAG-2 not engaged. Corpus sweep re-measured over
+  `git ls-files -- '*.theta' '*.thetalib'`: 34 files, zero `%` operators.
+- **Residuals:**
+  1. **Route-A residuals, pinned as still-silent in both directions.**
+     `1 % -0` (t12 / D4 / b11 / h8 / r5), `1 % (2 - 2)` (t11 / D5 / b7 / h7)
+     and a provably-zero binding, `let z = 0` + `1 % z` (D6 / b8 / b9 / h9).
+     Each still binds `NaN` at an `integer`-annotated position with no
+     diagnostic. This is the adjudicated scope, not an omission: the cells
+     assert the silence *and* the runtime `NaN`, so a later route-B or
+     route-C fix retakes them the way this report retook 0142's `t9` and `b8`.
+  2. **One emission withdrawn**, measured and controlled: `let n: number =
+     "a" % 0` fired `let-rhs-type-mismatch` before this change (reading
+     `string | integer`) and is silent after (reading `number`). That is
+     spec-correct — `"a" % 0` is `NaN`, a `number` — and it is the same class
+     bug 0142's L1–L4 cells settled for `/`. Cell E2 pins it with a `-`
+     control (`let n: number = "a" - "b"`, still firing) so the silence is
+     attributable to the arm and not to a dead sink. The sibling direction —
+     `"a" % 0` at a `string`-shaped sink — keeps firing with the `<actual>`
+     rendering changed from `string | integer` to `number` (E1, E3, E4, E5),
+     and at the invoke sink the class flips the other way, from withheld to
+     firing (r6 / r6c).
+  3. **`isStaticZeroIntegerDivisor` is ragged over reserved numeric
+     spellings.** `0x0` and `0b0` reach the predicate as
+     `{ numericType: "integer" }` (the lexer omits `numericType` and
+     `parsePrimary` defaults it) with `Number("0x0") === 0`, so they are
+     admitted; `0_0` gives `NaN` and is declined. Unobservable: each already
+     carries `theta/parse/unsupported-feature`, an `E`, so no such document
+     loads and no sink's verdict can differ. Recorded so a later lexer change
+     admitting hex literals re-adjudicates the predicate.
+  4. **A bounded citation-only edit outside §Fix**, self-authorized on the
+     record because the `question` tool is unavailable in this run. The
+     question that would have been asked: *may a file outside §Fix be edited to
+     re-point two `path:line` citations that this change's own line-shift
+     invalidated?* Settled by three independent sources: (i) the diff of
+     `tests/wire-translation-inbound-retag.test.ts` is one comment line, zero
+     assertions and zero executable lines; (ii) the arithmetic — this change
+     adds net +11 lines above the cited region of `invoke-static-checks.ts`,
+     and 886+11 = 897, 999+11 = 1010; (iii) `sed -n 897p` / `sed -n 1010p` on
+     the post-change file return the same `Object.create(null)` statements
+     that `sed -n 886p` / `sed -n 999p` return on the HEAD blob. Bound: one
+     file, one comment line, two integers. Stop valve declared and not
+     reached: a second citing file, or any red, would have stopped the run.
+- **Discharge notes appended:** none. Bug 0142's own record is unchanged; its
+  two pinned cells were retaken in its witness file, which is what those cells
+  were written for (§Fix (d)).
+- **Pinned dispositions / non-goals, unmoved:** `/` (bug 0142's arm is
+  byte-identical), the non-zero `%` rows, `+` / `-` / `*` (bug 0072),
+  `#commonType` itself (bug 0081 — noted as having landed since this report was
+  filed: it now unions, which is why `"a" % 0` read `string | integer` rather
+  than the `string` §Fix (e) predicted), `fn`-return-annotation checking, the
+  `literal`-versus-`prim` distinction, and all three runtime `%`
+  implementations. Bug 0234's subject — integer-narrowing deferral at PATTERN
+  position — is untouched: the predicate's only two call sites are the two
+  expression-typing arms, and no pattern-position typing was approached.
+

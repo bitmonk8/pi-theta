@@ -3501,6 +3501,109 @@ describe("H8a-T — bug 0142: a `/` quotient bound to an `integer` annotation dr
   });
 });
 
+/**
+ * The bug doc's own §Reproduction row a1
+ * (docs/bugs/0152-modulo-zero-result-type-not-number.md) verbatim: a typed
+ * `let` binding a `%` remainder of an `integer` literal by a static-zero
+ * `integer` literal divisor to an `integer` annotation. `#typeBinary`'s `%`
+ * arm (src/parser/static-type-inference.ts) reads
+ * `isStaticZeroIntegerDivisor` on the divisor and returns `number`, so
+ * `checkLetRhsCompat` reads the same mismatch bug 0142's `/` arm produces and
+ * draws `theta/parse/integer-narrowing` — the shared code, not a new one.
+ */
+function moduloZeroIntegerNarrowingTheta(): string {
+  return ["---", "mode: prompt", "---", "let n: integer = 1 % 0", "n", ""].join(
+    "\n",
+  );
+}
+
+/**
+ * The same-shape SIBLING with the SAME `1 % 0` remainder, annotation spelled
+ * `number` — must still register, isolating the broken theta's refusal to
+ * the `integer` annotation rather than to "a theta binding a `%` result never
+ * registers here".
+ */
+function moduloZeroNumberTheta(): string {
+  return ["---", "mode: prompt", "---", "let n: number = 1 % 0", "n", ""].join(
+    "\n",
+  );
+}
+
+describe("H8a-T — bug 0152: a `%` remainder by a static-zero integer divisor bound to an `integer` annotation draws integer-narrowing and does not register, live (Convention: live-host acceptance) (cell 87)", () => {
+  it("does not register a theta whose typed `let` narrows a `%`-by-static-zero remainder to `integer`, while its `number`-annotated sibling and an unrelated control both register, through the real discovery→registration path", async () => {
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, proving
+      // the workspace and discovery walk both work — without this, the
+      // broken theta's absence could be (wrongly) attributed to a broken
+      // workspace instead of the `%`-by-static-zero rule under test.
+      { source: "project", stem: "b152livectl", text: promptTheta("THETA-LIVE-OK") },
+      // The same-shape sibling: the SAME `1 % 0` remainder, annotation spelled
+      // `number` — must still register, isolating the refusal to the
+      // `integer` annotation rather than to "a theta binding a `%` result
+      // never registers here".
+      { source: "project", stem: "b152livegood", text: moduloZeroNumberTheta() },
+      // The load-bearing broken theta: the bug doc's own §Reproduction row a1
+      // spelling.
+      { source: "project", stem: "b152livebroken", text: moduloZeroIntegerNarrowingTheta() },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b152livectl"),
+        "the precondition control did not register — a broken workspace, not " +
+          "the `%`-by-static-zero rule under test, would explain the broken " +
+          "theta's absence too. Registered: " + JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+      expect(
+        handle.command("b152livegood"),
+        "the same `1 % 0` remainder under a `number` annotation did not " +
+          "register — a theta binding a `%` result cannot register in this " +
+          "harness at all, independent of this bug. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      // The fixed observable: through the REAL production composition root
+      // (not the offline parseThetaDocument harness the unit witness uses), a
+      // theta narrowing a `%`-by-static-zero remainder to `integer` does NOT
+      // register — `#typeBinary`'s `%` arm (src/parser/static-type-inference.ts)
+      // now reads `number` for a static-zero `integer` divisor,
+      // `checkLetRhsCompat` (src/parser/type-compat.ts) draws
+      // theta/parse/integer-narrowing, and hasLoadParseError un-registers this
+      // theta at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/
+      // 0095/0102/0125/0050/0137/0139/0142 cells above exercise for their own
+      // codes.
+      expect(
+        handle.command("b152livebroken"),
+        "the theta whose typed `let` narrows a `%`-by-static-zero remainder to " +
+          "`integer` registered anyway through the live discovery/session_start " +
+          "path — theta/parse/integer-narrowing did not fire. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()),
+      ).not.toContain("b152livebroken");
+
+      // The theta-system-note channel (AGENTS.md §"Assert on real
+      // observables"), read off the settled in-memory `SessionManager` rather
+      // than off racy events: the diagnostic fires at LOAD time, before any
+      // drive, so the full entry list is the delta (mirrors the bug 0110/
+      // 0084/0089/0095/0102/0125/0050/0137/0139/0142 cells above).
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = integerNarrowingFragment();
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named the integer-narrowing rejection " +
+          "for the broken theta. Notes: " + JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
 
 // ===========================================================================
 // Bug 0148 — `checkName`'s reserved-keyword arm (src/lexer/lexer.ts:819–828) is

@@ -64,7 +64,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //               that a per-operator table did not widen the other three.
 //   t5          a `number` operand already reads `number` and must keep doing
 //               so, by the operator rule rather than by the widening.
-//   t9          `1 % 0` does NOT move (§Non-goals).
+//   t9          `1 % 0` reads `number` — RETAKEN by bug 0152 route A (this
+//               cell pinned the opposite reading while that disposition was
+//               open; see tests/modulo-zero-result-type-number.test.ts).
 //   t10         `+` does NOT move (§Non-goals; bug 0072 owns it).
 //   oi          `/` types `number` for EVERY operand pair, driven from a
 //               table, so a fix that special-cases two `integer` literals reds.
@@ -82,8 +84,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //               directions moves `integer` → `number`.
 //   b1, b7      the typed-`let` sink fires, ranged on the `let` statement.
 //   b2, b5, b6  the controls that establish that sink is live.
-//   b3, b4, b8, the rows at that sink that must not move: the spec-correct
-//   b9          annotation, `-`, `1 % 0` and `+`.
+//   b3, b4, b9  the rows at that sink that must not move: the spec-correct
+//               annotation, `-` and `+`.
+//   b8          `let n: integer = 1 % 0` draws `integer-narrowing` — RETAKEN
+//               by bug 0152 route A, in the same cell (see that report's
+//               witness file for the residual spellings it declines).
 //   c1–c16      the six remaining narrowing steps — schema-constructor field,
 //               `array<integer>` element, index element, ternary, `match`,
 //               unary negation, `par for … max`, array common type — each with
@@ -112,8 +117,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `compatible` and emits nothing (or, at aRender, emits the wrong `<actual>`).
 // Every other cell is GREEN at this HEAD and required to stay green: they are
 // the controls that prove each sink is live, the three operators whose widening
-// must survive, the two §Non-goals rows, the corpus sweep, and the runtime
-// VALUES, which this fix does not touch.
+// must survive, the §Non-goals rows, the corpus sweep, and the runtime VALUES,
+// which this fix does not touch. TWO EXCEPTIONS, both RETAKEN by bug 0152 and
+// therefore RED at this HEAD until that report's fix lands: cell t9 and the b8
+// row of the `b3, b4, b8, b9` cell, which pinned the `%`-by-literal-zero
+// reading while that disposition was open.
 //
 // TIER — unit, offline, provider-free, deterministic. Every parse row settles
 // inside one `parseThetaDocument` call through the house driver `parseDoc`
@@ -753,17 +761,29 @@ describe("bug 0142 — `/` types `number` at the inference pass", () => {
     ).toBe(NUMBER_READING);
   });
 
-  it("t9: `1 % 0` does NOT move — §Non-goals", () => {
-    // expressions.md:232 states a second widening the same arm misses: "because
-    // `NaN` is a `number`, an `integer % 0` result widens to `number`". The bug
-    // doc excludes it because its static decidability depends on the DIVISOR'S
-    // VALUE, where `/`'s rule consults nothing — so it is a different sentence
-    // with a different shape and its own adjudication. A fix to this report
-    // that also moves this row has changed something it did not measure.
+  it("t9: `1 % 0` reads `number` — RETAKEN by bug 0152", () => {
+    // RETAKEN. This cell pinned the OPPOSITE reading while bug 0142's own
+    // §Non-goals left the disposition open: expressions.md:234 states a second
+    // widening the same arm misses — "because `NaN` is a `number`, an
+    // `integer % 0` result widens to `number`" — whose static decidability
+    // depends on the DIVISOR'S VALUE, where `/`'s rule consults nothing. That
+    // made it a different sentence with its own adjudication, which bug 0142
+    // did not carry and this cell recorded as deliberately untaken.
+    //
+    // docs/bugs/0152-modulo-zero-result-type-not-number.md TAKES it, on ROUTE A
+    // of its §Fix (a): `#typeBinary` gains an arm after the `/` arm
+    // (src/parser/static-type-inference.ts:465) and before the `#commonType`
+    // call (:480) that answers `{ kind: "prim", name: "number" }` when the
+    // divisor is a LITERAL integer-typed zero NODE. So this row moves, by
+    // decision and not by accident, and its full witness — including the
+    // residual spellings route A deliberately declines (`1 % -0`,
+    // `1 % (2 - 2)`, a provably-zero binding) — is
+    // tests/modulo-zero-result-type-number.test.ts. This report's own rows are
+    // unaffected: `3 % 2` (cell t3 above) still reads `integer`.
     expect(
       reading("1 % 0\n", "t9"),
-      "t9 — the `%`-by-literal-zero widening is out of scope; this row must read exactly as it does at this HEAD",
-    ).toBe(INTEGER_READING);
+      "t9 — RETAKEN by bug 0152 route A: a literal integer-zero divisor widens the `%` result to `number` (expressions.md:234). If this row reads `integer`, bug 0152's arm is absent or does not see through to the divisor node",
+    ).toBe(NUMBER_READING);
   });
 
   it("t10: `+` does NOT move — §Non-goals", () => {
@@ -1128,11 +1148,23 @@ describe("bug 0142 — the typed-`let` sink judges a `/` initialiser", () => {
     );
   });
 
-  it("b3, b4, b8, b9: the rows at this sink that must NOT move", () => {
+  it("b3, b4, b9 must NOT move; b8 RETAKEN by bug 0152", () => {
     // b3 is the spec-correct annotation for a quotient; b4 is `-`, whose
-    // both-`integer` answer is correct; b8 is the `%`-by-literal-zero neighbour
-    // this report excludes (§Non-goals — a different sentence, decidable only
-    // from the divisor's VALUE); b9 is `+`, which bug 0072 owns.
+    // both-`integer` answer is correct; b9 is `+`, which bug 0072 owns. Those
+    // three must not move.
+    //
+    // b8 is RETAKEN. It pinned `let n: integer = 1 % 0` as SILENT while bug
+    // 0142's §Non-goals left the `%`-by-literal-zero disposition open — a
+    // different sentence, decidable only from the divisor's VALUE.
+    // docs/bugs/0152-modulo-zero-result-type-not-number.md takes that decision
+    // on ROUTE A of its §Fix (a) (a LITERAL integer-typed zero divisor node),
+    // so this row now draws the `integer-narrowing` its `1.5` control (b2
+    // above) has always drawn, anchored on the same `let` statement. The
+    // binding holds `NaN` at runtime, which is what the row is about; the full
+    // witness, including the residual spellings route A declines, is
+    // tests/modulo-zero-result-type-number.test.ts. `3 % 2` at this same sink
+    // (that file's cell b4) stays silent, which is the pin that this arm did
+    // not widen past the carve-out.
     const rows = [
       ["b3 let n: number  = 3 / 2", "let n: number = 3 / 2\nn\n"],
       ["b4 let n: integer = 3 - 2", "let n: integer = 3 - 2\nn\n"],
@@ -1157,8 +1189,18 @@ describe("bug 0142 — the typed-`let` sink judges a `/` initialiser", () => {
     });
     expect(
       verdicts,
-      "b3/b4/b8/b9 — a fix that reds any of these has widened past `/`. b8 in particular is the §Non-goals row whose disposition this report does not carry",
-    ).toEqual(rows.map(([cell]) => `${cell} -> []`));
+      "b3/b4/b9 — a fix that reds any of these three has widened past `/`. b8 is no longer among them: bug 0152 route A retook it, so it draws the same `integer-narrowing` its `1.5` control does",
+    ).toEqual(
+      rows.map(([cell, src]) => {
+        if (!cell.startsWith("b8 ")) {
+          return `${cell} -> []`;
+        }
+        const doc = parse(src);
+        return `${cell} -> ${JSON.stringify([
+          hit(NARROWING_CODE, narrowingMessage(), letRange(doc, "n")),
+        ])}`;
+      }),
+    );
   });
 });
 

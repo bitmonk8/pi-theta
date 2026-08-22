@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.187.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0152 — `%` by a static-zero integer divisor now draws
+  `theta/parse/integer-narrowing` instead of silently binding a
+  `number`-typed `NaN`** (route A + mirror, adjudicated in-run per the
+  constraint-pinned §Fix). `static-type-inference.ts`'s `#typeBinary` gains
+  the zero-divisor arm (exported `isStaticZeroIntegerDivisor`);
+  `invoke-static-checks.ts`'s `collectProvableArgTypes` mirrors it. 0142's
+  `t9`/`b8` cells retaken in place per §Fix (d); one emission deliberately
+  withdrawn (`"a" % 0` is now silent — spec-correct since 0081's union
+  landed, pinned by cell E2). New 42-cell offline witness + H8a cell 87.
+
 ## [0.186.0] - 2026-08-28
 
 ### Fixed

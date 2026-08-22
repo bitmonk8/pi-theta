@@ -465,6 +465,16 @@ export class StaticTypeInferencePass {
     if (op === "/") {
       return { kind: "prim", name: "number" };
     }
+    // expressions.md §"Other arithmetic" (:234): `n % 0` is `NaN`, and
+    // because `NaN` is a `number` an `integer % 0` result widens to
+    // `number`. Unlike `/` this rule is keyed on the DIVISOR'S VALUE, not
+    // the operator alone, so the arm also has to read `right` — the only
+    // reason it is not a one-line sibling of the `/` arm above. It does not
+    // consult `left`: `"a" % 0` is still `NaN` (a `number`), so the arm
+    // fires ahead of either operand being typed, same as `/`.
+    if (op === "%" && isStaticZeroIntegerDivisor(right)) {
+      return { kind: "prim", name: "number" };
+    }
     // Arithmetic narrows the operands to their common type through the `⊑`
     // engine (e.g. `integer + number` narrows to `number`).
     return this.#commonType(
@@ -564,3 +574,30 @@ export const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
   "&&",
   "||",
 ]);
+
+/**
+ * True for a `%` divisor node that is STATICALLY provable zero: an
+ * `integer`-typed numeric literal denoting `0` (bug 0152, Route A). Exported
+ * so `collectProvableArgTypes`
+ * (../extension/invoke-static-checks.ts) can share the one test rather than
+ * restating it — the same precedent `BOOLEAN_BINARY_OPS` sets for that file.
+ *
+ * `numericType === "integer"` excludes `0.0` / `0e0` (`numericType: "number"`):
+ * those already widen to `number` through the operand-common reduction, so
+ * admitting them here would be redundant, not wrong, but the guard keeps the
+ * arm's reach exactly the literal-zero-`integer` class Route A commits to.
+ * `Number(text) === 0` rather than `text === "0"` because `00` also lexes as
+ * an integer-typed zero (`text: "00"`) and denotes the same value; `text`
+ * equality would silently decline it. A unary-negated `-0` is a `binary`
+ * negation node here, not a `NumberExpr` (parentheses are transparent per the
+ * parser, so `(0)` reaches this test as the same node as `0`; negation is not,
+ * per `theta-document.ts`'s `parseUnary`) — Route A's stated residual, not a
+ * gap in this predicate.
+ */
+export function isStaticZeroIntegerDivisor(node: Expr): boolean {
+  return (
+    node.kind === "number" &&
+    node.numericType === "integer" &&
+    Number(node.text) === 0
+  );
+}
