@@ -1,10 +1,11 @@
 # Bug 0108 — A `tools:` Pi-tool entry naming a host tool whose registry name is uppercase-first — `tools: WebSearch` — registers with zero diagnostics and binds the callable `WebSearch`, while `tools: WebSearch as WebSearch`, the identical final name, is refused `theta/load/invalid-tool-rename`: the lowercase-first rule bug 0070 applied to the merged name is scoped to the `.theta` arm, so the one name source that can carry a non-conforming name is the one source with no shape test, and the minted name lands in the PascalCase reference namespace where the collision rule cannot see it (`schema WebSearch` and the callable `WebSearch` coexist parse-clean)
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the diagnostic
-  disposition is left to the run — a new registered code for the host-name case,
-  or a *Trigger* generalisation of `theta/load/invalid-derived-tool-name` — and
-  so is the choice between refusing the `as`-less entry and auto-deriving a
-  conforming presented name. No ordering dependency:
+- **Status:** fixed (0.213.0). §Fix was constraint-pinned, not settled: the
+  diagnostic disposition was left to the run — a new registered code for the
+  host-name case, or a *Trigger* generalisation of
+  `theta/load/invalid-derived-tool-name` — and so was the choice between
+  refusing the `as`-less entry and auto-deriving a conforming presented name.
+  §Fix (0.213.0) records both adjudications: a new code, and refusal. No ordering dependency:
   [0070](./0070-theta-callable-default-name-unvalidated.md) shipped in 0.63.0 and
   its shipped arm is what this report measures against. Whoever closes this
   re-pins cells (C6) and (C6a) of
@@ -801,3 +802,158 @@ position 0070's check occupies.** Route not settled; the constraints below are.
   and both name cases, the parse-gate rows, the arm-4 resolution rows, and the
   PascalCase-overlap rows. Run on the outputs quoted above, then deleted per
   scratch policy. No file in the tree was written by the probes.
+
+## Fix (0.213.0)
+
+- What shipped:
+  - `src/parser/callable-set.ts` — `resolveCallableSet` gains a Pi-tool arm at
+    the merge point, after the `.theta` derived-name arm and before the
+    collision test, guarded on `parsed.rename === undefined` and discriminated
+    on `resolution.callable.kind === "pi-tool"` read off the `EntryResolution`
+    the resolver already computed, never re-derived from `parsed.spec`
+    (§Fix constraint 3). A Pi-tool entry whose presented name — the host
+    registry name verbatim — fails `isLowercaseFirstIdentifier` is refused
+    error-severity and the theta does not register (§Fix constraint 2: refusal,
+    not auto-derivation, because `frontmatter-fields-a.md` binds the presented
+    name to the model-facing name and for a host tool that is the host's).
+    The `.theta` arm's comment no longer claims an exemption that no longer
+    exists; `isLowercaseFirstIdentifier`'s doc comment and the module's three
+    in-module rejection-family enumerations name the new code and count eight.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — the new
+    `theta/load/invalid-pi-tool-name` row (E, load), immediately after
+    `theta/load/invalid-derived-tool-name`. Its *Trigger* states which arm it
+    covers, states the ordering before `theta/load/tool-name-collision`, states
+    the all-or-nothing un-registration, and states the seam against the row
+    above: a separate code rather than a *Trigger* generalisation, because a
+    host tool has no file to rename and the entry performs no basename
+    derivation, so that row's `.theta`-scoped *Trigger*, *Hint* and `<path>`
+    binding stay true of the `.theta` arm alone and DIAG-4 defers the *Message*
+    reword a generalisation would need (§Fix constraint 1, disposition A).
+  - `docs/reference/diagnostics.md` — the DIAG-2 mirror row, same change, at
+    the matching relative position.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` and
+    `docs/reference/frontmatter.md` — the two §`tools` rejection-family
+    enumerations 0069 and 0070 each extended now name the new code.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` and
+    `docs/reference/frontmatter.md` — the Pi-tool naming bullet, the one naming
+    bullet that stated no shape rule, now states it and its `as` remedy.
+  - `tests/uppercase-pi-tool-name-refusal.test.ts` — the offline witness.
+  - `tests/live/uppercase-pi-tool-name-refusal-live.test.ts` — the H8a
+    live cell; `tests/live/harness.ts` gains an additive optional
+    `extraExtensionPaths` on `bootShippedExtension` so a throwaway third-party
+    extension can supply the uppercase-first registry name, the only admission
+    route that can produce one.
+  - `tests/tools-derived-name-shape.test.ts` — cells (C6)/(C6a) re-pinned per
+    §Fix constraint 4: (C6)'s `read` row untouched and green; (C6a) rewritten
+    to the refusal contract, keeping its function as the cell that reds if the
+    Pi-tool arm stops firing.
+- Gates: witness `npx vitest run tests/uppercase-pi-tool-name-refusal.test.ts
+  tests/tools-derived-name-shape.test.ts` → `Tests 42 passed (42)`; full
+  default suite `npm test` → `Test Files 396 passed (396)`, `Tests 8233 passed
+  (8233)` (baseline before this change: 395 / 8210); `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) clean, no output; `npm run lint`
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) clean, no output;
+  bug 0134's citation gate green with its unattributable-continuation residual
+  at its pinned ceiling of 415, unraised.
+- Review: 1 round. Round 1 (`bug-fix-reviewer`) returned four findings and two
+  residuals, walking §Fix constraints 1–7 with per-constraint evidence and
+  three mutation probes. F1 (house-rule, blocking) — the module's three
+  in-module rejection-family enumerations still said "seven" and omitted the
+  new code, the same three sites 0070's own commit extended. F2 (fidelity,
+  blocking) — §Fix constraint 5's fallback divergence recorded nowhere;
+  discharged by this record. F3 (test, blocking) — the offline witness's TIER
+  paragraph denied a reachable live tier while the same change shipped one.
+  F4 (prose) — the new `frontmatter-fields-a.md` bullet hard-wrapped against
+  its siblings' single-line convention. F1/F3/F4 fixed in one
+  `bug-fix-fixer-light` round; that round's diff touches only comments and
+  spec prose, no executable line, so per the convergence policy its polish was
+  verified by gate-diff and the confirmation review round was skipped. A
+  prose-only correction round also ran before round 1 (see Residuals 3).
+- Verification: SOLID on all four obligations, across two dispatches.
+  Obligation 1 (the tests witness the bug) — deleting the whole Pi-tool arm
+  reds 8 of 42 with `registered === true` / `diagnostics: []`, exactly the
+  pre-fix state this report measures; weakening the predicate from
+  `isLowercaseFirstIdentifier` to `isBareIdentifier` also reds 8; every probe
+  restored byte-exact, `git hash-object src/parser/callable-set.ts` equal at
+  every checkpoint. Obligation 2 (default suite) — 396 / 8233 green.
+  Obligation 3 (a live test exercises the fixed path, run for real) — the new
+  H8a cell green under the live lock, and the pre-existing
+  `tests/live/live-production-acceptance.test.ts` green 88/88 including its
+  bug-0070 / 0071 / 0110 `tools:` cells, proving the neighbouring tools-load
+  surface undisturbed; the live cell's red path was proven independently by
+  lowercasing the throwaway extension's tool name, which reproduces the pre-fix
+  signature (theta registered, callable bound). Obligation 4 — typecheck and
+  lint clean. GOV-15 census re-run at the fix baseline and confirmed: zero
+  uppercase-first Pi-tool `tools:` entries across every committed `.theta` /
+  `.thetalib`, and the only uppercase-first names reaching a `resolvePiTool` /
+  `getAllTools` double anywhere in `tests/` are cell (C6a)'s and the two new
+  0108 witnesses' — searched over TypeScript string literals as well as corpus
+  files, as constraint 7 requires. DIAG-4 re-confirmed: both registry diffs are
+  pure additions, no existing *Message* reworded.
+- Residuals:
+  1. **§Fix constraint 5 — `presentedCallableNames`' snapshot-absent fallback
+     is left divergent, and the divergence is recorded here rather than
+     closed.** `src/extension/production-theta-producer.ts`'s
+     `presentedCallableNames` fallback reproduces the Pi-tool arm's verbatim
+     derivation with no shape rule, so a harness fixture with no frozen
+     snapshot still exposes an uppercase-first name the resolver now refuses.
+     Not a production path: production always takes the snapshot arm. Left
+     alone deliberately because open bug
+     [0106](./0106-tools-entry-grammar-derivations-outside-lockstep.md) owns
+     that axis and constraint 5 states the two reports must not both claim it.
+     This report does not claim it.
+  2. **The new code is absent from two `tools:` enumerations that open bug
+     [0109](./0109-tools-diagnostic-enumerations-one-generation-behind.md)
+     owns.** `preEvalCauseOf`'s ERR-6 `tools-resolution` batch in
+     `src/extension/production-composition.ts` does not name
+     `theta/load/invalid-pi-tool-name`, so it falls to the ERR-3 `frontmatter`
+     cause; and `docs/spec_topics/functions.md` FN-7's `with { tools: … }`
+     reuse list names neither it nor `theta/load/invalid-derived-tool-name`.
+     Both are exactly 0109's filed subject and its §Fix is settled as two
+     mechanical edits; 0109's fixer re-derives against this commit and adds a
+     third code. Routing is cause-invariant, so no runtime observable moves in
+     the interim. **A sibling orchestrator closing 0109 must widen its edit by
+     this one code.**
+  3. **A prose-only correction round ran before review round 1.** The new
+     witness's header carried five bare `:NNN` continuations, which raised bug
+     0134's citation gate's unattributable-continuation residual from 415 to
+     420 — the gate is pinned at its ceiling with zero headroom. Remedied the
+     way the gate itself prescribes, by naming `src/parser/callable-set.ts` in
+     full beside the first citation of the run, which restores attribution for
+     the four that follow it. The pin was not raised. Round numbering was
+     unaffected: the following review was still round 1.
+  4. **The new arm's `resolution.callable.kind === "pi-tool"` conjunct is
+     behaviourally inert.** Deleting it reds nothing, because every `.theta`
+     entry `continue`s out at the derived-name arm above it first. It is kept
+     as defensive scoping that states the arm's own subject at the site, and no
+     black-box cell can red on its removal. Recorded so a later reader does not
+     mistake the absence of a witness for an untested branch.
+  5. **One unnamed full-suite flake, in six runs of `npm test` across this
+     fix.** Five runs were `396 passed / 8233 passed`; one reported
+     `1 failed | 8232 passed` and the failing test's name was not captured
+     before the next run overwrote the output. Three consecutive green runs
+     followed, including the final gate. The witness pair, the citation gate
+     and the registry closed-set gate were each green in every run. Recorded
+     rather than dismissed: the failing subject is unknown, so it cannot be
+     attributed to this change or ruled out by name.
+  6. **The report's `code-registry-load.md` row cites have drifted +1 since
+     0.63.0** and are left as filed rather than rewritten: `unknown-tool` is now
+     `:27`, `tool-name-collision` `:30`, `invalid-tool-rename` `:31`,
+     `invalid-derived-tool-name` `:32`; a `theta/load/malformed-tools-field` row
+     now sits at `:26`. Every `src/parser/callable-set.ts` anchor the report
+     gives is still exact, and this fix inserts a row at `:33`, shifting every
+     later row by one again.
+- Discharge notes appended: none. Residual 2's obligation belongs to open bug
+  0109 and is recorded here rather than written into that report, because a
+  sibling lane may hold it.
+- Pinned dispositions / non-goals: §Non-goals holds unchanged and re-measured.
+  `isBareIdentifier`'s arm split is untouched, so `tools: web-search`,
+  `web.search` and `9tool` keep `theta/load/unresolvable-theta-path` with its
+  current message — the misdescription of a Pi-tool name as a `.theta` path
+  remains an unfiled separate defect. `builtinToolDefinition`'s seven-name
+  switch is untouched. `theta/load/invalid-tool-rename` is untouched and stays
+  the control. `theta/load/extension-tool-unreachable`'s disposition is
+  untouched. The model-facing name question is not adjudicated. Two of 0070's
+  residual-3 words are corrected by this report and remain corrected: the
+  minted name was spellable, and its reachability was bounded, not
+  hypothetical.

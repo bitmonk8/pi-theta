@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.213.0]
+
+### Fixed
+
+- **Bug 0108**: `tools: WebSearch` — an uppercase-first HOST tool registry
+  name — registered silently and minted the callable `WebSearch` in the
+  PascalCase reference namespace where the collision rule cannot see it,
+  while the identical rename spelling was refused. `resolveCallableSet`
+  gains a Pi-tool arm at the merge point (after the `.theta` arm, before
+  the collision test): a non-lowercase-first host name now refuses with the
+  NEW registered code `theta/load/invalid-pi-tool-name` (registry +
+  reference mirror + three frontmatter-page sites same commit; the
+  constraint-5 fallback stays with bug 0106). Witness:
+  `tests/uppercase-pi-tool-name-refusal.test.ts` (23 cells) + an H8a live
+  cell reaching the name through a third-party extension's
+  `pi.registerTool` (the harness gains additive `extraExtensionPaths`).
+
 ## [0.212.0]
 
 ### Fixed

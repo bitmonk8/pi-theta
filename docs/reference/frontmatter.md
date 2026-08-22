@@ -155,7 +155,11 @@ Two entry kinds:
 
 - **Pi tool names** (`read`, `bash`, `grep`, ...) — resolve against Pi's tool
   registry at load time (the `pi.getAllTools()` snapshot, in both modes); entry
-  name is the Pi tool name verbatim. Unknown → `theta/load/unknown-tool`.
+  name is the Pi tool name verbatim. Unknown → `theta/load/unknown-tool`. That
+  verbatim registry name is also the presented name, so it must itself obey
+  the lowercase-first identifier rule; a registry name outside it is
+  `theta/load/invalid-pi-tool-name` (a host tool has no file to rename — add
+  `as <name>` instead), checked before the collision rule below.
 - **`.theta` paths** (`./summarise.theta`) — resolve relative to the calling theta's
   directory, forward-slash only, byte-exact lowercase `.theta` extension (else
   `theta/parse/invoke-non-theta-extension`, or `theta/load/unresolvable-theta-path`

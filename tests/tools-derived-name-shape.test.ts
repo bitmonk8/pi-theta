@@ -667,24 +667,64 @@ describe("Bug 0070 (C6) — the Pi-tool arm is untouched", () => {
   });
 });
 
-describe("Bug 0070 (C6a) — the Pi-tool arm's exemption is witnessed on a non-lowercase-first registry name", () => {
-  it("a Pi-tool entry with a non-lowercase-first registry name still resolves under it verbatim", () => {
-    // (C6)'s `read` is already lowercase-first, so it never exercises the
-    // `resolution.callable.kind === "theta"` conjunct that scopes this
-    // rejection away from the Pi-tool arm. The Pi-tool arm's default name is
-    // the host registry name verbatim, so a name outside the lowercase-first
-    // rule there is a host-registry fact with no file to rename and no
-    // basename derivation to describe (bug 0070 §Non-goals). The residual gap
-    // that leaves is recorded here, not closed: this asserts only that the
-    // code raises no claim about `WebSearch`, not that an uppercase-first Pi
-    // tool name is well-formed.
+describe("Bug 0070 (C6a) / bug 0108 — the Pi-tool arm carries its own name-shape rule", () => {
+  /** The Pi-tool arm's own code — bug 0108's, not this file's derived-name one. */
+  const INVALID_PI_TOOL_CODE = "theta/load/invalid-pi-tool-name";
+
+  /**
+   * The Message DIAG-4 makes normative for that code, with the same
+   * registry-first / pinned-fallback discipline `derivedNameTemplate` uses: a
+   * `registryMessage` miss must not turn this cell's red into a rendering
+   * failure. Bug 0108's own witness
+   * (tests/uppercase-pi-tool-name-refusal.test.ts, group (A)) pins registry
+   * and template to the same string.
+   */
+  function invalidPiToolName(name: string): string {
+    const fromRegistry = registryMessage(REGISTRY, INVALID_PI_TOOL_CODE) as
+      | string
+      | undefined;
+    const template =
+      fromRegistry ??
+      "'tools:' entry '<name>' names a Pi tool whose registry name is not " +
+        "lowercase-first; add an 'as' clause";
+    return template.replaceAll("<name>", name);
+  }
+
+  it("a Pi-tool entry with a non-lowercase-first registry name is refused under the Pi-tool code", () => {
+    // (C6)'s `read` is already lowercase-first, so it never exercises the arm
+    // discriminant that scopes THIS file's rejection away from the Pi-tool
+    // arm; this cell is where that scoping is load-bearing, and it reds if the
+    // discriminant is removed or if the Pi-tool arm's own rule stops firing.
+    //
+    // The Pi-tool arm is no longer exempt from the lowercase-first rule: bug
+    // 0108 corrected two words of bug 0070's residual 3. The minted name is
+    // SPELLABLE — `WebSearch` is a lexically valid identifier that reaches the
+    // parse-time root scope and the arm-4 resolution, unlike `2fast` — and it
+    // is therefore non-conforming rather than unreachable, occupying the
+    // PascalCase spelling lexical.md:15 reserves for type-like names while
+    // binding at a value position. Reachability is bounded but not
+    // hypothetical: `resolveRegistryExtensionTool` matches a
+    // `pi.getAllTools()` entry by exact name with no shape constraint, and
+    // frontmatter-fields-a.md:78 states that snapshot is an open set.
+    //
+    // The code raised is the Pi-tool-specific one and NOT this file's
+    // `theta/load/invalid-derived-tool-name`: DIAG-4 freezes that row's
+    // Message, which binds `<path>`, asserts a basename derivation and directs
+    // the author to rename a file — three claims false of a host registry
+    // name.
     const r = resolveList(["WebSearch"], deps({ piTools: ["WebSearch"] }));
-    expect(r.registered).toBe(true);
-    expect(r.callableSet?.entries.has("WebSearch")).toBe(true);
+    const dg = withCode(r.diagnostics, INVALID_PI_TOOL_CODE);
+    expect(
+      dg,
+      `no ${INVALID_PI_TOOL_CODE} for the Pi-tool entry \`WebSearch\`; ` +
+        "diagnostics: " + JSON.stringify(r.diagnostics),
+    ).toBeDefined();
+    expect(dg?.message).toBe(invalidPiToolName("WebSearch"));
+    expect(r.registered).toBe(false);
     expect(
       withCode(r.diagnostics, INVALID_DERIVED_CODE),
-      "the Pi-tool arm derives no basename and rejects no registry name; " +
-        "diagnostics: " + JSON.stringify(r.diagnostics),
+      "the Pi-tool arm derives no basename, so this file's code cannot " +
+        "describe it; diagnostics: " + JSON.stringify(r.diagnostics),
     ).toBeUndefined();
   });
 });

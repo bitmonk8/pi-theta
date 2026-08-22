@@ -206,15 +206,27 @@ export interface LiveExtensionHandle {
 export async function bootShippedExtension(options: {
   readonly workspace: LiveWorkspace;
   readonly provider: LiveProvider;
+  /**
+   * Additional Pi extension entries to load ALONGSIDE the shipped theta entry,
+   * appended after `SHIPPED_EXTENSION_ENTRY` in `additionalExtensionPaths`.
+   * Optional and additive: when absent the list is byte-identical to the
+   * single-entry list every existing caller has always got, so no existing
+   * H8a cell changes behaviour. Its one use is the input class that is
+   * reachable only through a THIRD-PARTY extension's `pi.registerTool` —
+   * a host registry name that is not lowercase-first, which no built-in and
+   * no shipped theta tool can publish (bug 0108's live leg).
+   */
+  readonly extraExtensionPaths?: readonly string[];
 }): Promise<LiveExtensionHandle> {
   const { workspace, provider } = options;
+  const extraExtensionPaths = options.extraExtensionPaths ?? [];
   const agentDir = getAgentDir();
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspace.cwd,
     agentDir,
     // Load theta the way Pi loads it — through the shipped entry — and ONLY it,
     // so no unrelated installed extension shares the flag/command namespace.
-    additionalExtensionPaths: [SHIPPED_EXTENSION_ENTRY],
+    additionalExtensionPaths: [SHIPPED_EXTENSION_ENTRY, ...extraExtensionPaths],
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
