@@ -1,9 +1,25 @@
 # Bug 0235 — `TypeParser.parseObject`'s malformed-field `break` (`type-grammar.ts:694`–`:696`) leaves the shared cursor inside the interior, so the ENCLOSING generic application loses every argument behind it: `Result<{a b: integer}, string>` draws `theta/parse/generic-arity-mismatch` "got 1" for a two-argument spelling, `array<{a b: integer}, string>` draws NOTHING where `array<{a: integer}, string>` is refused for arity, and a `void` in the swallowed tail (`Result<{a b: integer}, void>`) loses its own refusal
 
-- **Status:** open. Blocks on
+- **Status:** fixed (0.189.0) — discharged by bug 0231's fix; see the note
+  below. Originally: open, blocking on
   [0231](./0231-well-formed-field-behind-malformed-entry-unchecked.md), which
   names the same `break` at `type-grammar.ts:694`–`:696`: its route selection
   decides whether the rows here still stand (§Fix (d)).
+
+> **Discharged by bug 0231's fix (0.189.0)** — parent-gate adjudication,
+> measured at `fe3c53cf`: 0231's route 1 (`skipMalformedEntry()` + resync at
+> the next depth-0 comma) closed all three faces. Element 1: a1/a2/a9/a11–a15
+> → `[]`, a10 → `got 3` (true count). Element 2: c1/c3/c5/c6/c7/c9/c10 all
+> draw `array … got 2/3`. Element 3: d1 draws `void-in-non-return-position`
+> identical to control d2. Lowerings e1–e3 byte-identical (0204 invariant
+> intact). The `theta-document.ts:5942`–`:5944` peel-count-agreement claim is
+> now TRUE for every row this report cited (peel 2/3/2 = parser 2/3/2) — no
+> correction owed. NOT covered (filed separately, see bug 0236): the
+> bracket-group carrier class — `Result<enum["a","b"], string>` still
+> miscounts (`got 1` for 2 written) because `parsePrimary` stops at `[`,
+> which neither of this report's §Fix routes reaches; the peel claim remains
+> false for that class only. Evidence: `.pi/tmp/fixes/0235-report.md`
+> §Residuals 1 (pre-measured table).
 - **Sev/Diff estimate:** S1/D3 — S1 because the truncation deletes arguments
   from the count and their subtrees from the walk, so inputs two registered
   rows refuse are accepted with no diagnostic and register:
