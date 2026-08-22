@@ -150,7 +150,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // model, child process or socket is on either path, so an integration tier
 // adds no observable that is not already reachable here. The registration
 // outcome the route changes is additionally witnessed live, on bug 0221's
-// precedent, by tests/live/object-pattern-head-field-set-live-cell-CELL-B.test.ts.
+// precedent, by tests/live/object-pattern-head-field-set-live-cell.test.ts.
 //
 // NO SILENT SKIPPING (CLAUDE.md). Group (r)'s registry lookups throw naming
 // the absent row, group (f)'s corpus sweep fails loudly on an empty

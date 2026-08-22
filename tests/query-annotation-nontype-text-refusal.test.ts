@@ -85,7 +85,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // because `hasLoadParseError` (src/extension/production-composition.ts) denies
 // registration on any error-severity `theta/parse/*` row — is carried by the
 // additive H8a cell in tests/live/live-production-acceptance.test.ts whose
-// title carries the token `CELL-B`.
+// title names bug 0203 (cell 68).
 //
 // WHAT IS RED HERE, AND WHY. Two distinct reasons, and each cell's title says
 // which:
