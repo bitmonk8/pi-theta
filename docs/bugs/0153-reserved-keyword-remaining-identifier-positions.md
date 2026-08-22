@@ -1154,3 +1154,39 @@ is stale (bug 0134's class) — the shipped citations are re-derived.
   positions stay bug 0149's plus the unfiled `enum`-variant case half; the
   discard `_`, the inline object type's field name, and the `mut` recovery's
   own repair are not approached.
+
+## Coordination note — bug 0242 (0.215.0) supersedes the lexer blob freeze
+
+Bug [0242](./0242-reserved-keyword-refusal-misfires-on-three-faces.md) is
+fixed at 0.215.0, and its fix edits `src/lexer/lexer.ts`. Two statements in this
+document therefore no longer describe the tree, and are superseded rather than
+wrong at the time they were written:
+
+- **The blob freeze is over.** This report's §Fix (c) asserts
+  `src/lexer/lexer.ts` = `17f6e1d710ebe4b9c3350130aaa86585f9d4bd45` before and
+  after, and took **route (i)** at the three misfire faces precisely to hold
+  it. Bug 0242 owns that disposition's reversal under its own §Fix constraint
+  2: the file is now `4fb1517df5114740286e8cd63fed9a8c576ec0a3`. The six
+  parser-leaf emissions this report landed are unmoved, ranged exactly as they
+  were; what changed is that `contextualDiagnostics` no longer answers the
+  same source beside them.
+- **The misfire rows are retaken.** Rows `m1`, `m6`, `m8`, `m9`, `w1`–`w7`,
+  `x10` and the sweeps `s1`, `s2`, `s3`, `s5`, `s6`, `s7` in
+  `tests/reserved-keyword-remaining-identifier-positions.test.ts`, and row
+  `e14` in `tests/fn-param-name-reserved-keyword.test.ts`, are retaken in
+  place: each keeps its id, its subject and its ordered whole-list `toEqual`
+  form, and loses only the misfire entry. Row `s4` (the `params:` sweep) does
+  not move. This report's other rows, and the whole of
+  `tests/schema-field-name-case.test.ts` and
+  `tests/reserved-keyword-type-position.test.ts`, are unchanged: the 208-cell
+  lock set is 208 green after.
+- **§Provenance's w4–w7 observation is discharged.** That section records
+  that rows w4–w7 there list `theta/parse/single-line-if` alone, which was the
+  pre-fix reading, and that at HEAD each carried the correct refusal beside
+  it. After bug 0242 each of those shapes reports the correct refusal ALONE,
+  which is the reading the rows now pin.
+- **This report's live cell is unmoved.**
+  `tests/live/reserved-keyword-remaining-positions-live-cell.test.ts` is a
+  LOCK for bug 0242 and was run as a check during that fix: green, `Tests 1
+  passed`. Its `for` fixture names its variable `string`, which is not one of
+  the four dispatch heads, so no misfire face is in its path.

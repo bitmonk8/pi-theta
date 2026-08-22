@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.215.0]
+
+### Fixed
+
+- **Bug 0242**: three lexer-side misfire faces drew a diagnostic on tokens
+  the author wrote correctly — `for let in xs { 1 }` drew
+  `reserved-keyword-as-identifier` against `'in'` beside the correct
+  refusal, `schema S { let as "w": string }` / `import { let as x }` drew
+  it against `'as'`, and `schema S { fn: string }` / `enum E { fn }` /
+  import specifiers drew `single-line-if` at positions with no body. Route
+  A: `contextualDiagnostics` gains a brace-region stack
+  (`classifyBrace`/`startsStatement`/`startsDeclaration`/`isNameSlot`),
+  skipping the declarator arms and the `controlHeads` scan at member-name
+  and `for`-variable slots. The 0148/0153 lexer blob freeze is superseded
+  by design (note appended to 0153). Witness:
+  `tests/reserved-keyword-misfire-faces.test.ts` (112 cells) + an H8a
+  registration-denial live cell; 19 pinned misfire rows retaken in place.
+
 ## [0.214.0]
 
 ### Fixed

@@ -103,9 +103,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     `let mut` skip and both the `schema` and `enum` arms — they are what make
 //     a red above attributable to the parameter position rather than to a dead
 //     code or a broken harness), e11 and e12 (bug 0044's type-position
-//     emissions). Row e14 is no longer a must-not-move row: bug 0153 retook
-//     it, and it now pins the `let`-adjacency misfire SURVIVING beside 0153's
-//     correct diagnostic at the `for` variable's own range.
+//     emissions). Row e14 is no longer a must-not-move row: bug 0153 retook it
+//     once to the two-element misfire list, and bug 0242
+//     (docs/bugs/0242-reserved-keyword-refusal-misfires-on-three-faces.md)
+//     retook it again to the single correct diagnostic at the `for` variable's
+//     own range, once the lexer stopped judging the `in` beside it.
 //   - REGISTRATION: d1 (the pin does not register), d2 (bug 0139's spelling
 //     still does not), d3 (a conformant parameter still does).
 //
@@ -144,11 +146,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - e9a / e9b — both `import` specifier binding forms, emitted in
 //     `parseImportExport`'s specifier loop at the SOURCE and ALIAS slots. Bug
 //     0153's claim.
-//   - e14 — the `let`-adjacency misfire at a `for` variable. Bug 0153 §Fix (c)
-//     route (i) ACCEPTS it: `src/lexer/lexer.ts` stays blob-identical (open
-//     bugs 0051 and 0135 hold citations in it), so the row now pins TWO
-//     diagnostics — 0153's correct one naming `let` at @5:5-5:8, then the
-//     surviving lexer one naming `in` at @5:9-5:11.
+//   - e14 — a `for` variable spelled `let`. Bug 0153 §Fix (c) route (i)
+//     accepted the lexer's `let`-adjacency misfire beside its own correct
+//     diagnostic and pinned both; bug 0242 §Fix ROUTE A removed the misfire by
+//     teaching `contextualDiagnostics` that the token behind a `for` is an
+//     iteration variable and not a declarator head. The row pins ONE
+//     diagnostic: the refusal naming `let` at @5:5-5:8.
 //   - e10 — a keyword in a `fn` parameter's TYPE slot. Bug 0044's family (a
 //     `Type` position governed by `NamedType ::= Ident`), whose four shipped
 //     parser-leaf callers reach the schema-body and `params:` field types
@@ -1017,42 +1020,47 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
     expect(soleRange(doc, RESERVED)).toEqual(range(4, 6, 4, 9));
   });
 
-  it("e14: `for let in xs { 1 }` names `let` at its own range, with the lexer's `in` misfire still beside it", () => {
-    // RETAKEN by bug 0153 §Fix (c) route (i). The lexer's `let` adjacency
-    // treats any `let` keyword token as a `let`-statement head
-    // (src/lexer/lexer.ts:876–882), so it inspects the token AFTER the
-    // for-variable and names `in` where the offending identifier is `let`.
-    // 0153 adds the correct parser-leaf diagnostic at the variable's own range
-    // and deliberately does NOT edit `src/lexer/lexer.ts` — open bugs 0051 and
-    // 0135 hold live citations in that file, and 0148 kept it blob-identical
-    // for the same reason — so the misfiring diagnostic survives BESIDE the
-    // correct one and this row now pins both, in order.
+  it("e14: `for let in xs { 1 }` names `let` at its own range, and names nothing else", () => {
+    // RETAKEN TWICE. Bug 0153 §Fix (c) route (i) took this row to a
+    // two-element list: the lexer's `let` adjacency
+    // (`contextualDiagnostics`, src/lexer/lexer.ts:810, the `let` arm past its
+    // `mut` skip) treats any `let` keyword token as a `let`-statement head, so
+    // it inspected the token AFTER the for-variable and named the grammar's
+    // own `in` — and 0153 left `src/lexer/lexer.ts` unedited on the ground
+    // that open bugs 0051 and 0135 hold live citations in it.
     //
-    // The order is positional, not group order: `assembleDiagnostics`
-    // (src/diagnostics/diagnostic.ts:107–127) stable-sorts by
-    // (file, line, column), so the parser's diagnostic at column 5 precedes
-    // the lexer's at column 9. The same file already showed a parser
-    // diagnostic ahead of a lexer one this way — `for mut let in xs { 1 }`
-    // reports `mut-on-immutable-context` @5:5-5:8 before the lexer's `in`
-    // @5:13-5:15.
+    // Bug 0242
+    // (docs/bugs/0242-reserved-keyword-refusal-misfires-on-three-faces.md) is
+    // the authority for this retake. Its §Expected behaviour 1 states the
+    // rule: `in` is a `ForStmt` terminal (docs/reference/grammar.md:272), not
+    // an identifier position, so `theta/parse/reserved-keyword-as-identifier`'s
+    // registered *Trigger* — "Reserved keyword used in an identifier position"
+    // (docs/spec_topics/diagnostics/code-registry-parse.md:21) — does not hold
+    // of it. Its §Fix ROUTE A gives `contextualDiagnostics` enough context to
+    // tell a declarator head from a name: the token behind a `for` is at the
+    // iteration-variable slot, and at a name slot both the declarator arms and
+    // the `controlHeads` scan are skipped. The row keeps its subject and its
+    // ordered-whole-list form and loses ONLY the misfire entry.
     //
-    // What would be OVER-REACH: dropping the `in` diagnostic (that is a lexer
-    // edit 0153 §Fix (c) route (ii) refuses), or narrowing the lexer's arms to
-    // require an `ident`-kind `k+1` token (route (iii), refuted by row a16
-    // `let let = 1`, which must keep firing).
+    // What is still OVER-REACH, and still reds elsewhere in this file: any
+    // narrowing that also silences a genuine declarator name — row a16
+    // `let let = 1` must keep firing, and bug 0242's own witness
+    // (tests/reserved-keyword-misfire-faces.test.ts group (R)) carries the
+    // same tripwires for `let in = 1`, `fn in(): number {…}` and the inline
+    // block `fn g(): number { let in = 1 }`.
     const doc = theta("let xs = [1]\nfor let in xs { 1 }\n1\n");
     expect(
       codesOf(doc),
-      `bug 0153's correct diagnostic lands beside the surviving \`let\`-adjacency misfire; diagnostics=${render(doc)}`,
-    ).toEqual([RESERVED, RESERVED]);
+      `bug 0242: the \`for\` variable draws the refusal once, and the grammar's own \`in\` draws nothing; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
     expect(
       doc.diagnostics.map((d: Diagnostic) => d.message),
-      `the FIRST names the offending variable \`let\`, the second is the lexer's surviving \`in\`; diagnostics=${render(doc)}`,
-    ).toEqual([reservedMsg("let"), reservedMsg("in")]);
+      `the sole diagnostic names the offending variable \`let\`, not the \`in\` the author had no choice about; diagnostics=${render(doc)}`,
+    ).toEqual([reservedMsg("let")]);
     expect(
       doc.diagnostics.map((d: Diagnostic) => d.range),
-      `the new diagnostic covers the loop variable @5:5-5:8; diagnostics=${render(doc)}`,
-    ).toEqual([range(5, 5, 5, 8), range(5, 9, 5, 11)]);
+      `the diagnostic covers the loop variable @5:5-5:8; diagnostics=${render(doc)}`,
+    ).toEqual([range(5, 5, 5, 8)]);
   });
 });
 

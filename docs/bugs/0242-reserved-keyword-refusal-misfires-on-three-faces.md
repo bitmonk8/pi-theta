@@ -1,6 +1,6 @@
 # Bug 0242 — Three lexer-side faces range a diagnostic on a token the author wrote correctly: `for let in xs { 1 }` draws `theta/parse/reserved-keyword-as-identifier` against `'in'` @5:9-5:11 beside the correct one against `'let'`, `schema S { let as "w": string }` and `import { let as x }` draw it against `'as'`, and `schema S { fn: string }` / `enum E { fn }` / `import { fn }` / `import { a as fn }` draw `theta/parse/single-line-if` — "single-line body not permitted; wrap in { ... }" — at a position that has no body, hint and all
 
-- **Status:** open. Filed as residual 1 of the bug
+- **Status:** fixed (0.215.0). Filed as residual 1 of the bug
   [0153](./0153-reserved-keyword-remaining-identifier-positions.md) fix
   (0.194.0), recorded in that fix's report
   (`.pi/tmp/fixes/0153-report.md` §Residuals 1: "**The three misfire faces are
@@ -510,3 +510,179 @@ Constraints on any route:
   diagnostic cell is that run's output verbatim through the real
   `parseThetaDocument`. The live cell was not run (offline filing); its LOCK
   status is asserted from its content and from bug 0153's recorded green.
+
+## Fix (0.215.0)
+
+- **Route taken:** §Fix **route A — contextual discrimination in
+  `contextualDiagnostics`** (`src/lexer/lexer.ts`). Route B (per-face
+  carve-outs) was declined: the three faces share one cause, and the measured
+  discriminators serve both rules from one place. Route C was already refuted
+  in §Fix.
+- **What shipped:**
+  - `src/lexer/lexer.ts` — `contextualDiagnostics` now carries a brace-region
+    stack beside its template-body toggle, and skips BOTH the declarator arms
+    and the `controlHeads` scan at a NAME slot. Three new module-level helpers
+    decide that: `classifyBrace` (a `{` opens a MEMBER region only for the
+    three declaration forms whose member names bug 0153's parser leaves refuse
+    — an `import` / `export` specifier list at a statement head, and a
+    `schema Ident {` / `enum Ident {` declaration head at a statement head or
+    directly behind a statement-opening `export`), `startsStatement` /
+    `startsDeclaration` (the statement-head tests those arms rest on), and
+    `isNameSlot` (in a member region: after `{`, `,`, `as` or a statement
+    separator; in a block region: the `for` / `par for` iteration variable,
+    past the `mut` recovery spelling). A member's TYPE position and a nested
+    inline object type are deliberately NOT name slots.
+  - `tests/reserved-keyword-misfire-faces.test.ts` — new 112-cell witness:
+    §Reproduction A1–A11 (with the `.thetalib` route A8), B1–B6, C1–C8,
+    the (D) controls, the nine 32-spelling partition rows of (E), the genuine
+    single-line-body subjects (G), the declarator-name refusals that have no
+    parser-leaf backstop (R), and the boundary groups (N), (O), (P), (M), (S)
+    described under Residuals. Every assertion is an ordered whole-list
+    `toEqual` over unfiltered `doc.diagnostics`, every expected message read
+    through `parseRegistry` / `registryMessage` with the `<keyword>` slot
+    filled (DIAG-4), per §Fix constraint 5.
+  - `tests/reserved-keyword-remaining-identifier-positions.test.ts`,
+    `tests/fn-param-name-reserved-keyword.test.ts` — the 19 pinned misfire
+    rows retaken in place, ids and subjects preserved (§Fix constraint 1).
+  - `tests/live/reserved-keyword-misfire-faces-live-cell.test.ts` — a new
+    standalone H8a-T registration-denial cell (zero model turns) asserting
+    that the load-time notes for `for let in xs { 1 }` and
+    `schema S { fn: string }` name the offending NAME and name neither the
+    grammar's `in` nor the single-line-body rule.
+- **Gates:**
+  - Witness, red before: with `src/lexer/lexer.ts` written back to the HEAD
+    blob `17f6e1d710ebe4b9c3350130aaa86585f9d4bd45`,
+    `npx vitest run tests/reserved-keyword-misfire-faces.test.ts
+    tests/reserved-keyword-remaining-identifier-positions.test.ts
+    tests/fn-param-name-reserved-keyword.test.ts` → `Test Files 3 failed (3) /
+    Tests 61 failed | 171 passed (232)`, every red the bug's own symptom
+    (`m1`/`A1`: expected `['let']`, received `['let','in']`; `w4`/`C1`:
+    expected the refusal alone, received `single-line-if` beside it).
+  - Witness, green after (blob restored byte-exact to
+    `4fb1517df5114740286e8cd63fed9a8c576ec0a3`): same three files →
+    `Test Files 3 passed (3) / Tests 232 passed (232)`.
+  - Full default suite: `npx vitest run` → `Test Files 390 passed (390) /
+    Tests 8185 passed (8185)`.
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/reserved-keyword-misfire-faces-live-cell.test.ts
+    tests/live/reserved-keyword-remaining-positions-live-cell.test.ts
+    tests/live/reserved-keyword-object-pattern-head-live-cell.test.ts` →
+    `Test Files 3 passed (3) / Tests 3 passed (3)`. Bug 0153's cell and bug
+    0219's cell are LOCKS and were run as checks (§Fix constraint 6); both
+    green.
+  - Live, red direction: with the lexer written back to the HEAD blob, the new
+    cell reds with `AssertionError: bug-0242: a theta-system-note accused the
+    grammar's own 'in' of being a reserved keyword used as an identifier`,
+    the note list carrying `…:5:9: theta/parse/reserved-keyword-as-identifier:
+    reserved keyword 'in' …` and `…:4:12: theta/parse/single-line-if: …`.
+    Restored byte-exact afterwards.
+  - **The lexer blob freeze is broken by design** (§Fix constraint 2):
+    `src/lexer/lexer.ts` moves from
+    `17f6e1d710ebe4b9c3350130aaa86585f9d4bd45` to
+    `4fb1517df5114740286e8cd63fed9a8c576ec0a3`. Bug 0148's and bug 0153's
+    before/after digest assertions no longer hold of the tree; this report is
+    the authority that moves them, and a coordination note is appended to bug
+    0153's document.
+  - **Shifted open-bug citations, re-derived so the next run does not
+    re-discover them** (both stay unedited under bug 0134's do-not-chase
+    adjudication): bug 0051's `schema` / `enum` adjacency arm
+    (`checkName(k + 1, "type")` inside `contextualDiagnostics`) was
+    `lexer.ts:885–886`, now `:1058`; bug 0135's `schema-case-mismatch` push
+    inside `checkName` was `lexer.ts:842–849`, now `:1003–:1009`.
+    `contextualDiagnostics` itself was `:810`, now `:970`.
+- **Review:** five rounds. Round 1 (deep) — one blocking `correctness`
+  finding: the brace classifier's inherited-member arm turned NESTED
+  inline-object keys into name slots, so `schema S { p: { fn: string } }` went
+  from refused at HEAD to admitted; the arm was removed. Round 2 (fast) — one
+  blocking `correctness` finding of the same class: the schema/enum arm was
+  spoofed by `if (schema) { fn: 1 }`; it now requires an `ident` between the
+  keyword and the brace, and the same probe found and closed the mirror spoof
+  on the import/export arm (`let x = import { fn: 1 }`); the round escalated
+  `recommend-deep-review`. Round 3 (deep) — one blocking `correctness`
+  finding, again the same class: the LEGAL typed object-literal expression
+  `schema T { … }` still satisfied the arm, so
+  `let x = [schema T { a: "s", fn: 1 }]` went refused → admitted; the arm is
+  now anchored to the declaration position. Round 3 also raised a `fidelity`
+  finding on the block branch's `for`-adjacency, settled as a pinned
+  generalization (group P) rather than a code change. Round 4 (deep, closing)
+  — declared the "keyword proximity vs grammar production" class CLOSED by
+  construction and asked for one further pin (the member branch's case
+  sub-arm drops) plus two prose repairs. Round 5 (deep, narrow) — CLEAN.
+  A pre-review correction round (not a review round) made six bare `:NNN`
+  citation continuations in the new prose attributable, so
+  `tests/citation-symbol-form-gate.test.ts` stayed green without raising its
+  pin.
+- **Verification:** SOLID. The witness reds when the fix is neutralised and
+  greens when it is restored, and every red carries the bug's symptom rather
+  than an unrelated error (61 reds / 232 cells). The full default suite is
+  green at 390 files / 8185 tests. An end-to-end live cell exercises the fixed
+  path through the real composition root and was proved to red in the
+  neutralised direction. `npm run typecheck` and `npm run lint` are clean, the
+  208-cell LOCK set (bugs 0044, 0148, 0149, 0153) is 208 green, and
+  `package.json`, `CHANGELOG.md`, `docs/bugs/README.md` and bugs 0051 / 0135
+  are unmodified.
+- **Residuals:**
+  1. **Nested inline-object field keys have no parser-leaf backstop.**
+     `schema S { p: { fn: string } }` is refused today only by the lexer's
+     off-Trigger `theta/parse/single-line-if`, and the other 28 reserved
+     spellings at that key position are admitted at HEAD and still are. The
+     shape is therefore pinned UNCHANGED (group `(N)`), including the
+     off-Trigger emission, because silencing it would turn a refused source
+     into an admitted one. Closing it properly needs a parser-leaf refusal at
+     the inline-object field name — a candidate follow-up filing, outside this
+     report's subject (`grammar.md` `ObjectType` / "Field names are
+     identifiers").
+  2. **The same gap at the typed object-literal expression.**
+     `let x = [schema T { a: "s", fn: 1 }]` is likewise refused only by the
+     lexer's `single-line-if`; group `(O)` pins it unchanged for the same
+     reason. Row `O7` additionally pins the accepted cost of anchoring the
+     declaration arm: a `schema` / `enum` declaration that does NOT start a
+     statement (the single-line `{ schema S { fn: 1 } }` form) keeps its HEAD
+     list, misfire included.
+  3. **The name-slot rule generalizes past the shapes §Reproduction
+     measures**, pinned as group `(P)`. In the block branch, adjacency to
+     keyword `for` also holds at `let y = a.for let X = 1` and
+     `schema S { p: { for fn } }`, where a HEAD diagnostic disappears; in the
+     member branch, skipping a declarator arm takes `checkName`'s case
+     sub-arm with it, so `schema S { let Foo: string }`, `enum E { let B }`,
+     `schema S { schema t: string }` and `import { let X } from …` each lose a
+     HEAD `binding-case-mismatch` / `schema-case-mismatch`. Every one of those
+     sources stays refused at severity `E`, so no registration outcome
+     changes, and every dropped subject was itself a wrong subject. These are
+     the shapes bugs 0051's and 0135's next run over this function must
+     re-derive.
+  4. **A comma-less multiline schema body keeps the misfire** (group `(M)`
+     row `M1`): no `stmt-sep` is emitted at brace depth > 0, so the field
+     name's antecedent is the previous field's type rather than a separator.
+     The spelling is refused independently (`unsupported-feature`: fields must
+     be comma-separated) and the legal comma-separated multiline form is fully
+     repaired.
+  5. **Three imprecisions in this document, found by measurement.**
+     (a) §Fix constraint 1's pinned-row list is under-inclusive: the rows that
+     actually carry the misfire lists are `m1`, `m6`, `m8`, `m9`, `w1`–`w7`,
+     `x10` and SIX 32-spelling sweeps (`s1`, `s2`, `s3`, `s5`, `s6`, `s7`) —
+     `s4`, the `params:` sweep, does not move, and `m9`, `w2`, `w3`, `w5`,
+     `w6` are unnamed there. All 19 were retaken under the same clause's rule.
+     (b) §Fix constraint 4 spells a genuine subject `fn f() 1`, which does not
+     parse to the intended shape; `fn f(): number 1` is what draws
+     `theta/parse/single-line-if`, and that is the spelling the witness uses.
+     (c) §Fix constraint 6 says no live cell is owed; one was added anyway, as
+     the end-to-end obligation of the fix pipeline, and it costs zero tokens.
+  6. **Protocol violation to flag, not to repeat.** The round-2 review
+     subagent ran the live suite although its brief withheld the live lock and
+     forbade live runs. Every later brief restated the prohibition and no
+     further violation occurred; the live runs recorded above are the
+     orchestrator's own, taken and released under the shared lock.
+- **Discharge notes appended:** bug 0153's document (the lexer blob freeze its
+  §Fix (c) route (i) rested on, and its §Provenance w4–w7 observation).
+- **Pinned dispositions / non-goals:** no registry change (§Fix constraint 3;
+  DIAG-2 not engaged — no code added, removed, re-namespaced or re-triggered,
+  and both rows keep their *Trigger*, *Message*, *Hint* and severity). The six
+  correct parser-leaf emissions bug 0153 landed are unmoved. The `mut`-recovery
+  discriminator and its rows `m11`–`m14` are unmoved. No committed fixture
+  reaches any face (§Reproduction F), so
+  `tests/committed-fixture-parse-gate.test.ts` and
+  `tests/registry-closed-set-corpus-gate.test.ts` are green unchanged and no
+  baseline entry is owed. Bug 0051's and bug 0135's own defects are untouched.
+

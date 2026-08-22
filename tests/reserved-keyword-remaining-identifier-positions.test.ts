@@ -87,34 +87,44 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `src/lexer/lexer.ts` is not edited (bug 0148's discipline: open bugs 0051 and
 // 0135 hold live citations in it).
 //
-// THE MISFIRE DISPOSITION — bug 0153 §Fix (c) route (i): ACCEPT the lexer's
-// pre-existing adjacency diagnostic beside the new correct one and PIN the
-// resulting count and ORDER. Route (iii) (requiring the `k+1` token to be
-// `ident`-kind) is refuted by row k1 below, which must keep firing. So three
-// faces report TWO diagnostics after the fix:
-//   - the `for` / `par for` face: `for let in xs { 1 }` reports the NEW correct
-//     diagnostic naming `let` at the variable's own range AND the lexer's
-//     pre-existing one naming `in` (rows m1, m6, m8, m10, m9);
+// THE MISFIRE DISPOSITION, AS IT NOW STANDS — bug 0242
+// (docs/bugs/0242-reserved-keyword-refusal-misfires-on-three-faces.md) is the
+// authority for every row in this file that once pinned a second or third
+// diagnostic beside the correct one. Bug 0153 §Fix (c) took route (i) —
+// ACCEPT the lexer's pre-existing adjacency verdict and pin the resulting
+// count and ORDER — because repairing the faces meant editing
+// `src/lexer/lexer.ts`, which open bugs 0051 and 0135 hold citations in. Bug
+// 0242 filed those three faces as their own defect and took §Fix ROUTE A:
+// `contextualDiagnostics` (src/lexer/lexer.ts:810) now classifies the region a
+// `{` opens and recognises a member NAME slot and a for-iteration-variable
+// slot, and at a name slot BOTH the three declarator arms and the
+// `controlHeads` scan (`:812`) are skipped. So each face now reports ONE
+// diagnostic — the correct one, at the name the author chose:
+//   - the `for` / `par for` face: `for let in xs { 1 }` reports the refusal
+//     naming `let` at the variable's own range and nothing about the grammar's
+//     own `in`, a `ForStmt` terminal (docs/reference/grammar.md:272) and not an
+//     identifier position (rows m1, m6, m8, m9, x10);
 //   - the `as` face: `schema S { let as "w": string }` and
-//     `import { let as x } …` keep the lexer's `as` diagnostic beside the new
-//     field-name / specifier-name one (rows w1–w3);
+//     `import { let as x } …` report the field-name / specifier-name refusal
+//     alone; `as` is the wire-rename keyword (docs/spec_topics/schemas.md:23)
+//     and an `ImportSpec` terminal (grammar.md:36–37) (rows w1–w3);
 //   - the `single-line-if` face: `schema S { fn: string }`, `enum E { fn }`,
-//     `import { fn } …` and `import { a as fn } …` keep the fourth lexer scan's
-//     `theta/parse/single-line-if` (src/lexer/lexer.ts:889–912, `controlHeads`
-//     at `:812`) beside the new one (rows w4–w7).
-// ORDER is not guessed: every group funnels through `assembleDiagnostics`
-// (src/diagnostics/diagnostic.ts:107–127), which stable-sorts by
-// (file, line, column) over the groups collected at
-// src/parser/theta-document.ts:1052 in the order
+//     `import { fn } …` and `import { a as fn } …` draw no
+//     `theta/parse/single-line-if` at all. That row's *Trigger* is a body that
+//     is not a braced block (code-registry-parse.md:23) and a field name, a
+//     variant name and an import specifier have no body (rows w4–w7).
+// Route (iii) as 0153 framed it — requiring the `k+1` token to be `ident`-kind
+// — is still refuted by row k1 below, which must keep firing; 0242's route
+// discriminates on the SLOT, not on the token kind, which is what keeps rows
+// k1–k5 green.
+// ORDER is still not guessed where two diagnostics remain: every group funnels
+// through `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–127), which
+// stable-sorts by (file, line, column) over the groups collected at
+// src/parser/theta-document.ts:1068 in the order
 // [frontmatterDiags, lex.diagnostics, parser.diagnostics, …]. So a strictly
-// left-of diagnostic comes first whatever its group — which is why the new
-// parser diagnostic at the `for` variable precedes the lexer's `in`, and the
-// measured HEAD row `for mut let in xs { 1 }` already shows a PARSER
-// diagnostic (`mut-on-immutable-context` @5:5-5:8) ahead of a LEXER one
-// (@5:13-5:15) — and a diagnostic TYING on (line, column) keeps its collected
-// order, which is why `single-line-if` (lexer, group 2) precedes the new
-// reserved diagnostic (parser, group 3) at the schema-field, enum-variant and
-// import-specifier faces, where both carry the SAME name-token range.
+// left-of diagnostic comes first whatever its group — which is why row m9's
+// `mut-on-immutable-context` @5:5-5:8 (parser) precedes the reserved refusal
+// at the variable beside it.
 //
 // WHAT MUST NOT MOVE (bug 0153 §Fix (e) and §Non-goals), each pinned below:
 // bug 0148's `fn` parameter emission (row k5) and the three enforced lexer
@@ -194,7 +204,6 @@ const REGISTRY = parseRegistry(
 ) as RegistryRow[];
 
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
-const SINGLE_LINE_IF = "theta/parse/single-line-if";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const IMPORT_MALFORMED = "theta/parse/import-malformed-specifier-list";
 
@@ -283,17 +292,6 @@ function reservedAt(keyword: string, line: number, column: number): string {
   return at(RESERVED, reservedMsg(keyword), line, column, column + keyword.length);
 }
 
-/** The fourth lexer scan's verdict (src/lexer/lexer.ts:889–912), name-ranged. */
-function singleLineIfAt(keyword: string, line: number, column: number): string {
-  return at(
-    SINGLE_LINE_IF,
-    msg(SINGLE_LINE_IF, []),
-    line,
-    column,
-    column + keyword.length,
-  );
-}
-
 /** `parseFor` / `parseParFor`'s own modifier verdict, ranged on `mut`. */
 function mutAt(line: number, column: number): string {
   return at(MUT_IMMUTABLE, msg(MUT_IMMUTABLE, []), line, column, column + "mut".length);
@@ -331,22 +329,11 @@ function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
  */
 const SPELLINGS: readonly string[] = [...reservedKeywords()];
 
-/**
- * `controlHeads` (src/lexer/lexer.ts:812) — the fourth lexer scan's set. At the
- * schema-field, enum-variant and import-specifier positions these four draw
- * `theta/parse/single-line-if` today and keep drawing it after the fix, because
- * that scan is a different code from a different rule and the fix does not edit
- * the lexer.
- */
-const CONTROL_HEADS: ReadonlySet<string> = new Set(["fn", "if", "for", "while"]);
-
-/**
- * The four keywords the lexer's adjacency dispatch treats as declarator heads
- * (src/lexer/lexer.ts:876, `:883`, `:885`). At the `for` / `par for` variable
- * these four make the scan read PAST the variable and judge the following `in`,
- * which is the misfire this file accepts beside the new correct diagnostic.
- */
-const DECLARATOR_HEADS: ReadonlySet<string> = new Set(["let", "fn", "schema", "enum"]);
+// The two lexer sub-sets earlier revisions of this file partitioned on —
+// `controlHeads` (src/lexer/lexer.ts:812) and the three declarator arms' heads
+// — no longer divide any sweep: bug 0242's §Fix ROUTE A removed every misfire
+// they used to predict, so each sweep below is stated as one rule over all 32
+// spellings, with only the pre-existing `mut` and `as` recoveries carved out.
 
 /** Run one position's whole 32-spelling sweep into `spelling -> rendered list`. */
 function sweep(
@@ -661,67 +648,43 @@ describe("0153 (s) — the whole reserved list at each position, partitioned exp
   // code ALONE, which draw it beside the pre-existing lexer diagnostic, and
   // which draw a different code entirely.
 
-  it("s1: the `for` variable — 27 draw the code alone, four draw it beside the lexer's `in` misfire, `mut` draws its own code", () => {
-    // The three-way partition, and the one place §Fix (c) route (i) is visible
-    // across the whole list. `mut` is consumed by `parseFor`'s modifier check
-    // BEFORE the name is read, so what reaches the capture is a recovery
-    // artefact and the position must keep `mut-on-immutable-context` alone
-    // (§Fix (e); the failure mode bug 0148's `atParamStart` guard prevents).
+  it("s1: the `for` variable — 31 draw the code alone, `mut` draws its own code", () => {
+    // RETAKEN by bug 0242 §Expected behaviour 1: the four declarator heads
+    // (`let`, `fn`, `schema`, `enum`) no longer drag the grammar's own `in`
+    // into the list, so the two-way partition is all that is left. `mut` is
+    // consumed by `parseFor`'s modifier check BEFORE the name is read, so what
+    // reaches the capture is a recovery artefact and the position keeps
+    // `mut-on-immutable-context` alone (bug 0153 §Fix (e), untouched here; the
+    // failure mode bug 0148's `atParamStart` guard prevents).
     expect(sweep(forSource)).toEqual(
-      expectedSweep((kw) => {
-        if (kw === "mut") {
-          return [mutAt(5, FOR_COL)];
-        }
-        if (DECLARATOR_HEADS.has(kw)) {
-          // The lexer's adjacency reads PAST the variable and judges the `in`
-          // that follows it: `for ` (4) + the keyword + one space.
-          return [
-            reservedAt(kw, 5, FOR_COL),
-            reservedAt("in", 5, FOR_COL + kw.length + 1),
-          ];
-        }
-        return [reservedAt(kw, 5, FOR_COL)];
-      }),
-    );
-  });
-
-  it("s2: the `par for` variable — the same three-way partition, shifted four columns", () => {
-    expect(sweep(parForSource)).toEqual(
-      expectedSweep((kw) => {
-        if (kw === "mut") {
-          return [mutAt(5, PAR_FOR_COL)];
-        }
-        if (DECLARATOR_HEADS.has(kw)) {
-          return [
-            reservedAt(kw, 5, PAR_FOR_COL),
-            reservedAt("in", 5, PAR_FOR_COL + kw.length + 1),
-          ];
-        }
-        return [reservedAt(kw, 5, PAR_FOR_COL)];
-      }),
-    );
-  });
-
-  it("s3: the schema field NAME — 28 draw the code alone, four draw single-line-if ahead of it", () => {
-    // The `controlHeads` scan (src/lexer/lexer.ts:889–912) finds no `{` after
-    // the name before the next stmt-sep and fires its own code on the SAME
-    // token range. Ties on (line, column) keep collected order, and
-    // `lex.diagnostics` precedes `parser.diagnostics` in the group list at
-    // src/parser/theta-document.ts:1052 — hence single-line-if FIRST.
-    expect(sweep(schemaFieldSource)).toEqual(
       expectedSweep((kw) =>
-        CONTROL_HEADS.has(kw)
-          ? [
-              singleLineIfAt(kw, 4, SCHEMA_FIELD_COL),
-              reservedAt(kw, 4, SCHEMA_FIELD_COL),
-            ]
-          : [reservedAt(kw, 4, SCHEMA_FIELD_COL)],
+        kw === "mut" ? [mutAt(5, FOR_COL)] : [reservedAt(kw, 5, FOR_COL)],
       ),
     );
   });
 
+  it("s2: the `par for` variable — the same two-way partition, shifted four columns", () => {
+    expect(sweep(parForSource)).toEqual(
+      expectedSweep((kw) =>
+        kw === "mut" ? [mutAt(5, PAR_FOR_COL)] : [reservedAt(kw, 5, PAR_FOR_COL)],
+      ),
+    );
+  });
+
+  it("s3: the schema field NAME — all 32 draw the code alone", () => {
+    // RETAKEN by bug 0242 §Expected behaviour 3. The `controlHeads` scan used
+    // to find no `{` after `fn` / `if` / `for` / `while` before the next
+    // stmt-sep and push `theta/parse/single-line-if` on the SAME token range;
+    // a field name has no body, so that row's *Trigger*
+    // (docs/spec_topics/diagnostics/code-registry-parse.md:23) never held of
+    // it. With the scan skipped at member name slots the position is uniform.
+    expect(sweep(schemaFieldSource)).toEqual(
+      expectedSweep((kw) => [reservedAt(kw, 4, SCHEMA_FIELD_COL)]),
+    );
+  });
+
   it("s4: the `params:` field NAME — all 32 draw the code alone", () => {
-    // The only position with a UNIFORM partition, because the name never
+    // The position that was uniform from the start, because the name never
     // becomes a token: neither lexer scan can reach it, so nothing else can
     // fire. Bug 0149's case emission in the same loop excludes reserved
     // spellings explicitly (src/parser/frontmatter.ts:775,
@@ -733,27 +696,22 @@ describe("0153 (s) — the whole reserved list at each position, partitioned exp
     );
   });
 
-  it("s5: the `enum` variant NAME — 28 draw the code alone, four draw single-line-if ahead of it", () => {
+  it("s5: the `enum` variant NAME — all 32 draw the code alone", () => {
+    // RETAKEN by bug 0242 §Expected behaviour 3, on the same ground as s3: a
+    // variant name has no body either.
     expect(sweep(enumVariantSource)).toEqual(
-      expectedSweep((kw) =>
-        CONTROL_HEADS.has(kw)
-          ? [
-              singleLineIfAt(kw, 4, ENUM_VARIANT_COL),
-              reservedAt(kw, 4, ENUM_VARIANT_COL),
-            ]
-          : [reservedAt(kw, 4, ENUM_VARIANT_COL)],
-      ),
+      expectedSweep((kw) => [reservedAt(kw, 4, ENUM_VARIANT_COL)]),
     );
   });
 
-  it("s6: the bare `import` specifier — 27 alone, four behind single-line-if, `as` outside the position entirely", () => {
-    // DRIFT from the bug document, recorded rather than papered over: at both
-    // import faces the spelling `as` now draws
+  it("s6: the bare `import` specifier — 31 alone, `as` outside the position entirely", () => {
+    // DRIFT from bug 0153's document, recorded rather than papered over: at
+    // both import faces the spelling `as` now draws
     // `theta/parse/import-malformed-specifier-list` (bugs 0100 / 0211, fixed
     // since 0153 was filed), so this position's partition is 27 / 4 / 1 and not
     // the document's 28 / 4. `as` is excluded from `isSymbolToken`
-    // (src/parser/theta-document.ts:3222, `t.text !== "as"`), so it never
-    // occupies a NAME slot and this fix must NOT reach it — the malformed-list
+    // (src/parser/theta-document.ts:3334, `t.text !== "as"`), so it never
+    // occupies a NAME slot and neither fix may reach it — the malformed-list
     // verdict stays alone, ranged over the whole statement.
     expect(sweep(importBareSource)).toEqual(
       expectedSweep((kw) => {
@@ -768,14 +726,15 @@ describe("0153 (s) — the whole reserved list at each position, partitioned exp
             ),
           ];
         }
-        return CONTROL_HEADS.has(kw)
-          ? [singleLineIfAt(kw, 4, IMPORT_BARE_COL), reservedAt(kw, 4, IMPORT_BARE_COL)]
-          : [reservedAt(kw, 4, IMPORT_BARE_COL)];
+        // RETAKEN by bug 0242 §Expected behaviour 3: an import specifier has no
+        // body, so the four `controlHeads` spellings no longer draw
+        // `theta/parse/single-line-if` ahead of the refusal.
+        return [reservedAt(kw, 4, IMPORT_BARE_COL)];
       }),
     );
   });
 
-  it("s7: the aliased `import` specifier — the same 27 / 4 / 1 partition at the alias slot", () => {
+  it("s7: the aliased `import` specifier — the same 31 / 1 partition at the alias slot", () => {
     expect(sweep(importAliasSource)).toEqual(
       expectedSweep((kw) => {
         if (kw === "as") {
@@ -784,62 +743,61 @@ describe("0153 (s) — the whole reserved list at each position, partitioned exp
           // over the specifier (`a` @4:10-4:11). No NAME slot is occupied.
           return [at(IMPORT_MALFORMED, msg(IMPORT_MALFORMED, []), 4, 10, 11)];
         }
-        return CONTROL_HEADS.has(kw)
-          ? [
-              singleLineIfAt(kw, 4, IMPORT_ALIAS_COL),
-              reservedAt(kw, 4, IMPORT_ALIAS_COL),
-            ]
-          : [reservedAt(kw, 4, IMPORT_ALIAS_COL)];
+        return [reservedAt(kw, 4, IMPORT_ALIAS_COL)];
       }),
     );
   });
 });
 
 // ===========================================================================
-// (m) The misfire faces — §Fix (c) route (i): two diagnostics, pinned in order.
+// (m) The former misfire faces — bug 0242 §Fix ROUTE A: the correct
+//     diagnostic, alone.
 // ===========================================================================
 
-describe("0153 (m) — the wrong-subject faces keep the lexer's verdict beside the new correct one", () => {
-  it("m1: `for let in xs { 1 }` reports `let` at its own range, then the lexer's `in`", () => {
-    // The row bug 0148 pinned as `e14` and this report retakes. The new
-    // parser-leaf diagnostic names the identifier the author actually got wrong
-    // (`let` @5:5-5:8); the lexer's pre-existing adjacency diagnostic naming
-    // `in` @5:9-5:11 survives, because `src/lexer/lexer.ts` is not edited
-    // (bugs 0051 and 0135 hold live citations in it). Order is positional:
-    // column 5 before column 9.
+describe("0153 (m) — the wrong-subject faces report the name the author chose and nothing beside it", () => {
+  it("m1: `for let in xs { 1 }` reports `let` at its own range, alone", () => {
+    // The row bug 0148 pinned as `e14`, bug 0153 retook to a two-element list,
+    // and bug 0242
+    // (docs/bugs/0242-reserved-keyword-refusal-misfires-on-three-faces.md)
+    // retakes here. The parser-leaf diagnostic names the identifier the author
+    // actually got wrong (`let` @5:5-5:8). The lexer's adjacency diagnostic
+    // naming `in` @5:9-5:11 is gone: `in` is a `ForStmt` terminal
+    // (docs/reference/grammar.md:272), not an identifier position, so
+    // code-registry-parse.md:21's *Trigger* never held of it — and 0242 §Fix
+    // ROUTE A teaches `contextualDiagnostics` (src/lexer/lexer.ts:810) to see
+    // the for-iteration-variable slot and skip its arms there.
     expect(lines(theta("let xs = [1]\nfor let in xs { 1 }\n1\n"))).toEqual([
       reservedAt("let", 5, FOR_COL),
-      reservedAt("in", 5, 9),
     ]);
   });
 
-  it("m6: `par for let in xs { 1 }` reports the same ordered pair, shifted", () => {
+  it("m6: `par for let in xs { 1 }` reports the same single diagnostic, shifted", () => {
     expect(lines(theta("let xs = [1]\npar for let in xs { 1 }\n1\n"))).toEqual([
       reservedAt("let", 5, PAR_FOR_COL),
-      reservedAt("in", 5, 13),
     ]);
   });
 
-  it("m8: the braced-over-lines form reports the same ordered pair", () => {
-    // The misfire is the adjacency, not the single-line body scan: moving the
-    // body onto its own lines changes neither diagnostic.
+  it("m8: the braced-over-lines form reports the same single diagnostic", () => {
+    // The face was the adjacency, not the single-line body scan: moving the
+    // body onto its own lines changes nothing, before or after bug 0242.
     expect(lines(theta("let xs = [1]\nfor let in xs {\n1\n}\n1\n"))).toEqual([
       reservedAt("let", 5, FOR_COL),
-      reservedAt("in", 5, 9),
     ]);
   });
 
-  it("m9: `for mut let in xs { 1 }` reports mut, then `let`, then the lexer's `in`", () => {
-    // Three diagnostics ordered strictly by column — and the row that supplies
-    // the ordering evidence for this whole group: at THIS HEAD it already
-    // reports a PARSER diagnostic (`mut` @5:5-5:8) ahead of a LEXER one (`in`
-    // @5:13-5:15), which is `assembleDiagnostics`'s positional sort
-    // (src/diagnostics/diagnostic.ts:116–126) and not group order. The new
-    // emission lands between them at the variable's own range.
+  it("m9: `for mut let in xs { 1 }` reports mut, then `let` — exactly two", () => {
+    // Two diagnostics ordered strictly by column, and the row that supplies
+    // the ordering evidence for this whole group: a PARSER diagnostic (`mut`
+    // @5:5-5:8) ahead of the refusal at the variable @5:9-5:12, which is
+    // `assembleDiagnostics`'s positional sort
+    // (src/diagnostics/diagnostic.ts:116–126) and not group order. Bug 0242
+    // retakes it by dropping the lexer's `in` @5:13-5:15 alone; the `mut`
+    // recovery is that report's §Non-goals and is unmoved. This is also the
+    // row 0242's name-slot predicate needs its `mut` clause for — the variable
+    // sits two tokens behind `for`, not one.
     expect(lines(theta("let xs = [1]\nfor mut let in xs { 1 }\n1\n"))).toEqual([
       mutAt(5, FOR_COL),
       reservedAt("let", 5, 9),
-      reservedAt("in", 5, 13),
     ]);
   });
 
@@ -881,58 +839,56 @@ describe("0153 (m) — the wrong-subject faces keep the lexer's verdict beside t
     ]);
   });
 
-  it("w1: `schema S { let as \"w\": string }` reports the field name, then the lexer's `as`", () => {
-    // The second misfire face: the lexer's `let` arm lands on the `as` of a
-    // wire-rename. Accepted and pinned in order — column 12 before column 16.
+  it("w1: `schema S { let as \"w\": string }` reports the field name alone", () => {
+    // The second face, retaken by bug 0242 §Expected behaviour 2: the lexer's
+    // `let` arm used to land on the `as` of a wire-rename
+    // (docs/spec_topics/schemas.md:23), a keyword of the schema grammar rather
+    // than a name anyone chose. The field-name refusal @4:12-4:15 stays.
     expect(lines(theta('schema S { let as "w": string }\n1\n'))).toEqual([
       reservedAt("let", 4, SCHEMA_FIELD_COL),
-      reservedAt("as", 4, 16),
     ]);
   });
 
-  it("w2: `import { let as x } from …` reports the SOURCE name, then the lexer's `as`", () => {
+  it("w2: `import { let as x } from …` reports the SOURCE name alone", () => {
+    // `as` is an `ImportSpec` terminal (docs/reference/grammar.md:36).
     expect(lines(theta('import { let as x } from "./lib.thetalib"\n1\n'))).toEqual([
       reservedAt("let", 4, IMPORT_BARE_COL),
-      reservedAt("as", 4, 14),
     ]);
   });
 
-  it("w3: `export { let as x } from …` reports the same ordered pair", () => {
+  it("w3: `export { let as x } from …` reports the same single diagnostic", () => {
     expect(lines(theta('export { let as x } from "./lib.thetalib"\n1\n'))).toEqual([
       reservedAt("let", 4, IMPORT_BARE_COL),
-      reservedAt("as", 4, 14),
     ]);
   });
 
-  it("w4: `schema S { fn: string }` reports single-line-if, then the new field-name diagnostic", () => {
-    // The third misfire face. `single-line-if` is a DIFFERENT code from a
-    // different scan (`controlHeads`, src/lexer/lexer.ts:812) and survives the
-    // fix; both carry the name token's range, and the tie is broken by group
-    // order — `lex.diagnostics` precedes `parser.diagnostics`
-    // (src/parser/theta-document.ts:1052).
+  it("w4: `schema S { fn: string }` reports the field-name diagnostic alone", () => {
+    // The third face, retaken by bug 0242 §Expected behaviour 3.
+    // `theta/parse/single-line-if` came from a different scan (`controlHeads`,
+    // src/lexer/lexer.ts:812) asking whether a `{` followed the head before the
+    // next stmt-sep. A field name is not a header and has no body, so that
+    // row's *Trigger* (code-registry-parse.md:23) did not hold of it and its
+    // *Hint* — "Wrap the body in `{ ... }`" — named an edit the author could
+    // not make. The scan is skipped at member name slots now.
     expect(lines(theta("schema S { fn: string }\n1\n"))).toEqual([
-      singleLineIfAt("fn", 4, SCHEMA_FIELD_COL),
       reservedAt("fn", 4, SCHEMA_FIELD_COL),
     ]);
   });
 
-  it("w5: `enum E { fn }` reports single-line-if, then the new variant-name diagnostic", () => {
+  it("w5: `enum E { fn }` reports the variant-name diagnostic alone", () => {
     expect(lines(theta("enum E { fn }\n1\n"))).toEqual([
-      singleLineIfAt("fn", 4, ENUM_VARIANT_COL),
       reservedAt("fn", 4, ENUM_VARIANT_COL),
     ]);
   });
 
-  it("w6: `import { fn } from …` reports single-line-if, then the new SOURCE-name diagnostic", () => {
+  it("w6: `import { fn } from …` reports the SOURCE-name diagnostic alone", () => {
     expect(lines(theta('import { fn } from "./lib.thetalib"\n1\n'))).toEqual([
-      singleLineIfAt("fn", 4, IMPORT_BARE_COL),
       reservedAt("fn", 4, IMPORT_BARE_COL),
     ]);
   });
 
-  it("w7: `import { a as fn } from …` reports single-line-if, then the new ALIAS diagnostic", () => {
+  it("w7: `import { a as fn } from …` reports the ALIAS diagnostic alone", () => {
     expect(lines(theta('import { a as fn } from "./lib.thetalib"\n1\n'))).toEqual([
-      singleLineIfAt("fn", 4, IMPORT_ALIAS_COL),
       reservedAt("fn", 4, IMPORT_ALIAS_COL),
     ]);
   });
@@ -997,7 +953,13 @@ describe("0153 (x) — a `.thetalib` is held to the same rule at the same positi
     ).toEqual([reservedAt("string", 3, FOR_COL)]);
   });
 
-  it("x10: the `.thetalib` `for let` misfire face keeps both diagnostics, ordered", () => {
+  it("x10: the `.thetalib` `for let` face reports the variable alone", () => {
+    // Retaken by bug 0242 on the same ground as row m1: lexical.md:3 applies
+    // the rule to both extensions through one `contextualDiagnostics` call, so
+    // one discrimination serves both. The `fn` header opens a BLOCK region and
+    // the variable is still recognised at the for-iteration slot one region
+    // down — the `.thetalib` route is the row that proves the region tracking
+    // survives nesting.
     expect(
       lines(
         parseDoc(
@@ -1005,7 +967,7 @@ describe("0153 (x) — a `.thetalib` is held to the same rule at the same positi
           "lib.thetalib",
         ),
       ),
-    ).toEqual([reservedAt("let", 3, FOR_COL), reservedAt("in", 3, 9)]);
+    ).toEqual([reservedAt("let", 3, FOR_COL)]);
   });
 
   it("x4: the conformant `.thetalib` control reports nothing", () => {
