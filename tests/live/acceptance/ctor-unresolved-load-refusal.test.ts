@@ -120,7 +120,7 @@ const PROBE = [
   '  Ok(v) => "B25 OFFENDER LOADED",',
   '  Err(e) => "B25 OFFENDER REFUSED"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe finished with verdict: ${verdict}. Extract the last word of the verdict and answer with that single uppercase word only.`",
   "",
 ].join("\n");
 
@@ -137,14 +137,19 @@ const CONTROL = [
   "mode: prompt",
   "---",
   "schema Note { text: string }",
-  'let n = Note { text: "ok" }',
-  "@`Reply with exactly this text and nothing else, no punctuation: B25 CONTROL OK ${n.text}`",
+  'let n = Note { text: "papaya" }',
+  "@`What fruit is named in this note: ${n.text}? Answer with just the fruit name, lowercase.`",
   "",
 ].join("\n");
 
-const REFUSED = "B25 OFFENDER REFUSED";
-const LOADED = "B25 OFFENDER LOADED";
-const CONTROL_OK = "B25 CONTROL OK ok";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text (extract-the-last-word / name-the-fruit): deterministic
+// content a degraded plain-prompt run cannot produce. A verbatim-echo demand
+// ("reply with exactly this") reads as prompt injection to current models
+// and draws refusals -- the documented sentinel-refusal class.
+const REFUSED = "REFUSED";
+const LOADED = "LOADED";
+const CONTROL_OK = "papaya";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {
