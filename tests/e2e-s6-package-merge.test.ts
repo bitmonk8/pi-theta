@@ -18,8 +18,8 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // merge.
 //
 // code-surface.md §5 / Summary point 3: the discovery WALK defers package
-// source (discovery-walk.ts:743,786 "not plumbed into this walk yet"); package
-// thetas are merged in only at the composition root
+// source (`discoverThetas`, `discovery-walk.ts`, "not plumbed into this walk
+// yet"); package thetas are merged in only at the composition root
 // (production-composition.ts:319-334), and ONLY when the package theta's slash
 // name is not already claimed by a higher/lower-priority walk theta. The
 // isolated `discoverPackageThetas` unit tests (tests/package-discovery.test.ts)

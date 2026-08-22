@@ -38,10 +38,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      `topLevelColon` does track brace depth, so each truncated entry still
 //      yields a field — hence a phantom top-level `y`.
 //   B. No lowerer below a root has an inline-object arm. `lowerObjectFields`
-//      lowers every field through `lowerTypeSource` (`:79`), whose arms are the
-//      literal sublanguage and `lowerTypeExpr`; `lowerTypeExpr` drops a
-//      brace-rooted source on its trailing catch-all. A nested inline object
-//      therefore lowers `{}` and none of its names is resolved.
+//      (src/parser/body-type-lowering.ts) lowers every field through
+//      `lowerTypeSource`, whose arms are the literal sublanguage and
+//      `lowerTypeExpr`; `lowerTypeExpr` drops a brace-rooted source on its
+//      trailing catch-all. A nested inline object therefore lowers `{}` and
+//      none of its names is resolved.
 //
 //   1. THE `@<T>` ANNOTATION ROOT MINTS A WRONG FRAGMENT AND ENFORCES IT.
 //      `lowerQueryResponseSchema` (src/runtime/query-schema-lowering.ts:108–113)
@@ -140,8 +141,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE PERMISSIVE `{}` FAMILY KEEPS THE MEMBERS §Fix EXCLUDES BY NAME, and their
 // controls are what keeps the fix from over-reaching: `array<{…}>` keeps
-// `items: {}` because the generic ARGUMENT split stays angle-only
-// (src/parser/params.ts:591–612), an unresolved name keeps its `{}`, and a
+// `items: {}` because `lowerTypeExpr`'s generic ARGUMENT split stays angle-only
+// (src/parser/params.ts), an unresolved name keeps its `{}`, and a
 // LITERAL arm of a mixed union keeps its `{}` (a10, g7). Bug 0039 §Fix
 // constraint 1 admits a permissive lowering and forbids a wrong one, so
 // converting one of those would be a regression, not an improvement.
@@ -1452,7 +1453,7 @@ describe("bug 0039 (f) — the shared lowerers themselves", () => {
     const lowered = lowerTypeSource("{x: Triage}", triageMap(), defs, unresolved);
     expect(
       lowered,
-      `schema-subset.md:73/:76 — the hoist applies in ANY type position, and \`lowerTypeExpr\`'s trailing catch-all (params.ts:409–411) is what swallows this source today; observed ${JSON.stringify(lowered)}`,
+      `schema-subset.md:73/:76 — the hoist applies in ANY type position, and \`lowerTypeExpr\`'s trailing catch-all (params.ts) is what swallows this source today; observed ${JSON.stringify(lowered)}`,
     ).toEqual({ $ref: `#/$defs/${E2_INLINE}` });
     expect(
       defs,
@@ -1830,7 +1831,7 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
     // the whole-source delegation made on it.
     //
     // ONE MEMBER LEFT THE FAMILY LATER: bug 0184 §Fix gives
-    // `lowerBraceGroupUnionArms`' non-brace-arm call (src/parser/params.ts:1208-1209)
+    // `lowerBraceGroupUnionArms`' non-brace-arm call (src/parser/params.ts)
     // the same literal consult it gives `lowerTypeExpr`'s union split — both
     // sites move together, or one type expression's answer would split by
     // whether a SIBLING arm happens to be brace-rooted (bug 0184 §Fix

@@ -29,7 +29,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      `isScalar(item.value)` and substitutes `""` otherwise. YAML parses an
 //      unquoted `{a: Tirage, b: integer}` as a flow mapping, so the author's
 //      type expression is gone before `parseParams` runs (fixtures A / B / C).
-//   2. `lowerTypeExpr` (src/parser/params.ts:291–341) has no inline-object arm,
+//   2. `lowerTypeExpr` (src/parser/params.ts) has no inline-object arm,
 //      so the brace text that DOES survive — the quoted RHS — falls past every
 //      arm to the trailing `return {}` (fixtures F / F′).
 //

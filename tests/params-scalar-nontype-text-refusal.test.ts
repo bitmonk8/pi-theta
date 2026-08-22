@@ -12,8 +12,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no
 // `Type` production spells is recorded verbatim as the field's declared type,
 // falls past every arm of `lowerTypeExpr` to its trailing catch-all
-// (src/parser/params.ts:693–:702 — the sink push at `:701`, the permissive
-// `return {}` at `:702`), lowers the permissive `{}`, and draws no
+// (src/parser/params.ts — the `lowerCtx.unspellable` push and the permissive
+// `return {}`), lowers the permissive `{}`, and draws no
 // diagnostic at any severity — so the theta registers with a param that
 // validates nothing
 // (docs/bugs/0059-params-scalar-nontype-text-recorded-and-permissive.md).
@@ -151,7 +151,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // unchanged and still their subject: at HEAD their argument arms reached
 // `lowerTypeExpr`'s catch-all and landed in the sink, so only the caller's
 // literal decline kept them silent — and that decline is unchanged, because
-// `isUnspellableTextRefusable` (src/parser/params.ts:1317) is what withholds the
+// `isUnspellableTextRefusable` (src/parser/params.ts) is what withholds the
 // refusal and bug 0164 §Fix constraint 7 registers no diagnostic. What that fix
 // changed is where the argument text GOES, so the sink is no longer even fed for
 // these three. The remaining sharpest tripwires are d4 (`array<{a: string}>`)
@@ -745,11 +745,11 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
       // type position reaches — the `schema`-body field and the alias
       // right-hand side through `lowerTypeSource`'s delegation (its own
       // fallback, src/parser/body-type-lowering.ts:320, and the non-brace-arm
-      // dispatch inside `lowerBraceGroupUnionArms`, src/parser/params.ts:1159),
+      // dispatch inside `lowerBraceGroupUnionArms`, src/parser/params.ts),
       // the `@<T>` annotation through that same function
       // (src/runtime/query-schema-lowering.ts:167). The sink
-      // is optional on `LowerCtx` (src/parser/params.ts:421–:510 — the
-      // `unspellable` member and its contract at `:483–:509`) for exactly this
+      // is optional on `LowerCtx` (src/parser/params.ts — the
+      // `unspellable` member and its documented contract) for exactly this
       // reason: a position that threads none collects nothing.
       const read = readAt(position, typeSource);
       expect(
@@ -927,11 +927,11 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  *   - the 0164 tripwire (`array<"x" | "y">`, `array<1 | 2>` and their nested
  *     form): at HEAD their argument arms reached the catch-all and landed in
  *     the sink, so only the caller's literal decline via `parseLiteralArm`
- *     (src/parser/params.ts:1271, reached from `lowerParamsFieldType`'s call to
- *     `lowerLiteralSublanguage` at `:1433`) kept them silent. Bug 0164 §Fix
+ *     (src/parser/params.ts, reached from `lowerParamsFieldType`'s call to
+ *     `lowerLiteralSublanguage`) kept them silent. Bug 0164 §Fix
  *     (v0.123.0) re-routed the generic-ARGUMENT recursion through that same
  *     sublanguage, so their bytes were re-derived here — while the decline that
- *     withholds the refusal, `isUnspellableTextRefusable` (`:1317`), is
+ *     withholds the refusal, `isUnspellableTextRefusable`, is
  *     unchanged and their silence is still what these rows assert.
  *   - constraint 3's grammar-admitted brace-rooted and mixed-union traffic.
  *   - the authorized under-refusal (operator grant, HEAD 948b7814): "the brace

@@ -12,7 +12,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
 // Bug 0075 (headline half) — how `classifyPath`
-// (src/discovery/discovery-walk.ts:316) must classify a discovery candidate
+// (src/discovery/discovery-walk.ts) must classify a discovery candidate
 // that the host resolves through a symlink or a Windows directory junction.
 //
 // GOVERNING SPEC (every line number re-derived against this tree):
@@ -45,11 +45,12 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //   2. A candidate resolving to a regular `.theta` file classifies `file` and
 //      registers, emitting nothing.
 //   3. A DANGLING link routes through the existing `ENOENT` branch
-//      (EnoentPolicy / `ancestorsClean`, discovery-walk.ts:261), so on a clean
+//      (EnoentPolicy / `ancestorsClean`, discovery-walk.ts), so on a clean
 //      ancestor chain it is `theta/load/missing-source` — error for the CLI
-//      row (:51) — NOT `theta/load/wrong-type-source`. The class is re-derived
-//      here from the failure-modes table, since `REQ-DISC-14` (the requirement
-//      id the sibling e2e cell carries) has no anchor under `docs/`.
+//      row of DISC-2's failure-modes table (discovery-sources.md) — NOT
+//      `theta/load/wrong-type-source`. The class is re-derived here from that
+//      table, since `REQ-DISC-14` (the requirement id the sibling e2e cell
+//      carries) has no anchor under `docs/`.
 //   4. `theta/load/wrong-type-source` is PRESERVED for a candidate that
 //      resolves to a genuine non-regular, non-directory entry (fifo, socket,
 //      device) — the only input DISC-2's wrong-type column still admits once
@@ -264,7 +265,7 @@ describe("bug 0075 — a link-resolved discovery candidate classifies by its tar
 
     expect(shape(diagnostics)).toEqual([]);
     // The slash name comes from the operand's own stem (`resolveEntry`'s file
-    // arm, discovery-walk.ts:522-524), not from the link target's.
+    // arm, discovery-walk.ts), not from the link target's.
     expect(names(thetas)).toEqual(["b"]);
   });
 

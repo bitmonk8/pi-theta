@@ -32,7 +32,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   object types answers yes, because the first arm opens the source and the
 //   last arm closes it. `s.slice(1, -1)` then hands
 //   `a: integer} | {b: integer` to `lowerInlineObject` as a field list.
-//   `src/parser/params.ts:997` already holds the structural predicate —
+//   `src/parser/params.ts` already holds the structural predicate —
 //   `isSingleEnclosingBraceGroup`, a depth walk that returns true only when
 //   the index-0 `{` closes at the final index, re-exported by
 //   `src/parser/body-type-lowering.ts:34` — and `lowerTypeSource` (`:339`) is
@@ -809,7 +809,7 @@ describe("bug 0053 (a) — the shapes the root dispatch keeps byte-for-byte, and
   it("CONTROL (a5): the SHREDDED segment set keeps its per-segment permissive `anyOf`", () => {
     // `{ a: string | null } | Cat` splits into `{ a: string`, `null }`, `Cat`,
     // none of them brace-balanced, so `isBraceBalanced`
-    // (src/parser/params.ts:1062) refuses the arm path and every
+    // (`src/parser/params.ts`) refuses the arm path and every
     // segment lowers permissively. Bug 0039 §Fix constraint 1 admits a
     // permissive lowering and forbids a wrong one, so converting this would be
     // a regression rather than an improvement.
@@ -953,7 +953,7 @@ describe("bug 0053 (c) — the inline and named spellings of one union lower ide
   it("RED (c1, fixtures P1/P3b): `@<{a: integer} | {b: integer}>` deep-equals `@<X>` for `schema X = {a: integer} | {b: integer}`", () => {
     // The decisive contrast of the report: the named spelling routes through
     // `buildBodyTypeSchemas` and the alias RHS's per-arm union path
-    // (`lowerBraceGroupUnionArms`, src/parser/params.ts:1140, reached from
+    // (`lowerBraceGroupUnionArms`, `src/parser/params.ts`, reached from
     // `lowerTypeSource`'s call site at src/parser/body-type-lowering.ts:315),
     // the inline spelling through the root brace dispatch, and the two
     // disagree only because the dispatch runs first and never consults the

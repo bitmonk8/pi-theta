@@ -573,8 +573,8 @@ type LoadRow = readonly [string, string, string];
 
 /**
  * DECIDABLE declared half: a primitive or `array<T>` over one, which
- * `paramsDeclaredCompatType` (src/parser/params.ts:408) resolves against the
- * empty environment. Each pairing below is silent at HEAD because the compat
+ * `paramsDeclaredCompatType`, called from `parseParams` (`src/parser/params.ts`),
+ * resolves against the empty environment. Each pairing below is silent at HEAD because the compat
  * relation holds over the LEADING literal's type — the residue is judged by
  * nothing.
  */
@@ -649,8 +649,8 @@ for (const [groupLabel, rows] of LOAD_GROUPS) {
  * The ordering that replaces it is `code-registry-parse.md:50`'s SECOND
  * precedence rule — a field whose default half already drew
  * `theta/parse/default-not-literal` "keeps that diagnostic alone" — implemented
- * by the one-diagnostic-per-field guard at src/parser/params.ts:405, which stops
- * the compat check once the default half has drawn an error.
+ * by `parseParams`'s one-diagnostic-per-field guard (`src/parser/params.ts`),
+ * which stops the compat check once the default half has drawn an error.
  */
 const LOAD_FLIPPED: readonly LoadRow[] = [
   ["c28 (`1x` under `string`)", "string = 1x", "x"],
@@ -818,8 +818,8 @@ describe("bug 0175 (D) — a conformant default keeps its verdict", () => {
   });
 
   it(`GREEN (d8): junk TYPE text with a residue-carrying default keeps ${TYPE_TEXT_CODE} alone`, () => {
-    // bug 0059's suppression guard (src/parser/params.ts:352, `typeRefused`;
-    // code-registry-load.md:19's third precedence rule): a field whose type half
+    // bug 0059's suppression guard in `parseParams` (`src/parser/params.ts`),
+    // `typeRefused`; code-registry-load.md:19's third precedence rule): a field whose type half
     // spells no type expression is reported as such, not by whatever its default
     // half's literal check makes of the same field's recovered bytes. The guard
     // `continue`s before the default-side checks run, so a refusal added inside

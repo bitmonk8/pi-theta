@@ -1833,11 +1833,11 @@ export function lowerParamsFieldType(
  * Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}`
  * nesting and honouring `"`/`'` string escapes: a backslash inside a quoted
  * region consumes the character behind it rather than being tested against
- * the closing quote. This scan and `splitTopLevelSegments` (below,
- * `:1880–1882`) must agree on where a quoted region ends, because the raw
- * key the three inline raw-key rules compare and the property name both
- * lowerers mint are both derived from the entry text this function's colon
- * divides in two (bug 0229).
+ * the closing quote. This scan and `splitTopLevelSegments` (below) must
+ * agree on where a quoted region ends, because the raw key the three
+ * inline raw-key rules compare and the property name both lowerers mint
+ * are both derived from the entry text this function's colon divides in
+ * two (bug 0229).
  */
 export function topLevelColon(entry: string): number {
   let depth = 0;

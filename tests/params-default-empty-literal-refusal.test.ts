@@ -15,8 +15,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // DEFINED but EMPTY default. `splitParamValue` (src/parser/frontmatter.ts:636)
 // cuts at the first top-level `=` and trims both halves, so `p: 'string = '`
 // yields `defaultSource: ""`; `hasDefault` is keyed on definedness alone
-// (:796), the field is dropped from `required` on the same test
-// (src/parser/params.ts:278), and the block lowers. The one checker at the
+// (:796), the field is dropped from `required` on the same test, in
+// `parseParams` (`src/parser/params.ts`), and the block lowers. The one
+// checker at the
 // position, `checkLiteralSublanguage` (src/parser/literal-sublanguage.ts:54),
 // returns `[]` when its parse yields no node (:62), which is what an empty or
 // whitespace-only source produces — so nothing refuses the declaration, the
@@ -27,12 +28,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE SETTLED ROUTE IS §Fix (a): `parseParams`'s per-field default loop gains a
 // THIRD rule, placed BEHIND the bug-0059 type-half suppression guard
-// (src/parser/params.ts:349) and AHEAD of the bug-0102 raw-newline rule (:380)
-// and the is-literal call (:390), `continue`ing so no later default rule
-// double-reports the same field. The predicate is `defaultSource` empty after
-// trim; the emitted code is the NEW registered row
-// `theta/parse/default-without-literal`, and the error gate (:426) then
-// withholds the lowered document.
+// (`typeRefused`, `src/parser/params.ts`) and AHEAD of the bug-0102
+// raw-newline rule and the is-literal call (both in the same loop),
+// `continue`ing so no later default rule double-reports the same field. The
+// predicate is `defaultSource` empty after trim; the emitted code is the NEW
+// registered row `theta/parse/default-without-literal`, and `parseParams`'s
+// `hasError` gate then withholds the lowered document.
 //
 // THIS FILE IS THE WHOLE LOAD-TIME WITNESS for §Fix (d)(6): the four `=`
 // spellings crossed with the six YAML deliveries (A), every declared type (B),
@@ -253,8 +254,8 @@ function recordedHasDefault(doc: ThetaDocument, wireName: string): boolean | und
  * message the registry does not carry cannot pass.
  *
  * The lowered-document expectation is the reachability link: `parseParams`'s
- * error gate (src/parser/params.ts:426) returns without a `loweredSchema` as
- * soon as any diagnostic carries error severity, and `hasLoadParseError`
+ * `hasError` gate (`src/parser/params.ts`) returns without a `loweredSchema`
+ * as soon as any diagnostic carries error severity, and `hasLoadParseError`
  * (src/extension/production-composition.ts:2070) drops the theta on the same
  * predicate over the `theta/parse/` namespace.
  */
@@ -450,7 +451,7 @@ describe("bug 0165 (C) — the conformant declarations keep loading", () => {
       ).toBe(expectedDefault !== undefined);
       expect(
         requiredOf(doc),
-        `${label}: the lowered document survives, and \`required\` (src/parser/params.ts:278) still follows the recorded default's definedness`,
+        `${label}: the lowered document survives, and \`required\` still follows the recorded default's definedness, in \`parseParams\` (src/parser/params.ts)`,
       ).toEqual(expectedRequired);
     });
   }
@@ -465,8 +466,8 @@ describe("bug 0165 (C) — the conformant declarations keep loading", () => {
 // TYPE half; the first also carries an empty default, so it satisfies the new
 // rule's predicate as well.
 //
-// THESE TWO CELLS RED IF THE NEW RULE IS PLACED AHEAD OF THE GUARD AT
-// src/parser/params.ts:349 RATHER THAN BEHIND IT — that placement is what they
+// THESE TWO CELLS RED IF THE NEW RULE IS PLACED AHEAD OF THE GUARD
+// (`typeRefused`, src/parser/params.ts) RATHER THAN BEHIND IT — that placement is what they
 // exist to catch. A rule in front of the guard emits on `d1` in addition to the
 // type-half refusal, turning one report into two for one mistake, and the same
 // count-of-one contract is already pinned for `d2` by cell f1 of
@@ -486,7 +487,7 @@ describe("bug 0165 (D) — a type-refused field draws no default-side diagnostic
       const doc = paramsDoc(paramsBlock);
       expect(
         diagCodes(doc),
-        `${label}: the guard at src/parser/params.ts:349 skips every default-side rule for a field whose type half was refused, and the new rule sits behind it — two diagnostics here means the rule was placed in front. Rendered: ${JSON.stringify(diagLines(doc))}`,
+        `${label}: the guard \`typeRefused\` (src/parser/params.ts) skips every default-side rule for a field whose type half was refused, and the new rule sits behind it — two diagnostics here means the rule was placed in front. Rendered: ${JSON.stringify(diagLines(doc))}`,
       ).toEqual([`error ${TYPE_TEXT_CODE}`]);
       expect(
         diagLines(doc),
@@ -500,9 +501,10 @@ describe("bug 0165 (D) — a type-refused field draws no default-side diagnostic
 // (E) THE CROSS-FIELD ORDERING INTERACTION.
 //
 // Obligation: §Reproduction (j) under the new refusal. The ordering rule
-// (src/parser/params.ts:299–:315) reads `field.defaultSource !== undefined`
-// across every field and is not gated on any field's own default-side verdict,
-// so it keeps firing: the empty default stays authoritative enough to force
+// (`seenDefault`'s loop in `parseParams`, src/parser/params.ts) reads
+// `field.defaultSource !== undefined` across every field and is not gated on
+// any field's own default-side verdict, so it keeps firing: the empty default
+// stays authoritative enough to force
 // declaration order while binding nothing. The two rules therefore COMPOSE
 // rather than replace one another, and the first row is the cell that says so.
 //
@@ -561,7 +563,7 @@ describe("bug 0165 (E) — the refusal composes with the ordering rule", () => {
 // leaves loading". Route (a) leaves NO row loading: the refusal is
 // error-severity and sits in the `theta/parse/` namespace, so `hasLoadParseError`
 // (src/extension/production-composition.ts:2070) drops the theta before any
-// registration, and `parseParams`'s error gate (src/parser/params.ts:426)
+// registration, and `parseParams`'s `hasError` gate (src/parser/params.ts)
 // returns without a `loweredSchema`. There is then no lowered fragment for the
 // binder render to read a `default=` token off, no schema for
 // `#mergeDeclaredDefaults` to compile, and no args entry for `paramBindingsFrom`
@@ -602,8 +604,8 @@ describe("bug 0165 (F) — the refusal removes the record the null bind came fro
 // route taken, and making "the default RHS parses to a literal" a total
 // predicate at the position is a stronger claim than this report measures.
 // `LiteralPosition` is the single value `"default"` (:40) and the function has
-// one production caller (src/parser/params.ts:390), so nothing else depends on
-// the arm either way.
+// one production caller, inside `parseParams` (src/parser/params.ts), so
+// nothing else depends on the arm either way.
 //
 // THIS CELL IS GREEN AT HEAD AND MUST STAY GREEN. It is not a red witness: it
 // converts a branch no committed call reaches into a documented boundary, so a

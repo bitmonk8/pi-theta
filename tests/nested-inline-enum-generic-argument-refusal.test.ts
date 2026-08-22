@@ -15,19 +15,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0217 — an inline `enum[…]` written inside a generic argument draws NO
 // diagnostic at any position (HEAD `e5d760bd`, before this file's fix).
-// `lowerTypeExpr`'s generic-application arm
-// (src/parser/params.ts:699–:729, now :699–:748 post-fix) splits its
-// argument-list interior angle-only (`splitTopLevel(interior, ",")`, :703),
-// classifies the same cut points per segment (`classifyGenericArgumentSegments`,
-// :963 pre-fix / :982 post-fix, called at :714) and recurses every segment
-// that is NOT whole in the source through `withoutUnspellableSink` (:718–:719,
-// :1036 pre-fix / :1055 post-fix). A comma inside a `[…]` group
+// `lowerTypeExpr`'s generic-application arm (src/parser/params.ts) splits its
+// argument-list interior angle-only (`splitTopLevel(interior, ",")`),
+// classifies the same cut points per segment
+// (`classifyGenericArgumentSegments`) and recurses every segment
+// that is NOT whole in the source through `withoutUnspellableSink`.
+// A comma inside a `[…]` group
 // sits at angle depth 0, so `enum["a", "b"]` is cut into `enum["a"` and
 // `"b"]`; both pieces are non-whole, both recurse sink-less, and
 // `LowerCtx.unspellable` — the sink the three refusing positions read
-// (`params.ts:254`, `theta-document.ts:6519`, `:6986`) through the shared
-// decline `isUnspellableTextRefusable` (`params.ts:1476` pre-fix / `:1625`
-// post-fix) — stayed empty pre-fix. So
+// (`refusable`, `params.ts`; `theta-document.ts:6519`, `:6986`) through the
+// shared decline `isUnspellableTextRefusable` (`params.ts`) — stayed empty
+// pre-fix. So
 // `array<enum["a", "b"]>` loads clean at a `schema` field type, an alias arm
 // and a `params:` field, lowers `{}` and REGISTERS, while the bare
 // `enum["a", "b"]` draws `theta/parse/inline-enum` at the two schema positions

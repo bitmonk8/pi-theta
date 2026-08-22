@@ -551,8 +551,9 @@ describe("bug 0166 (A) — the refusal is per offending field", () => {
  * replaces it is `code-registry-parse.md:49`'s SECOND precedence rule — "a
  * field whose default half already drew … `theta/parse/default-not-literal`
  * keeps that diagnostic alone — this row does not run for either" — implemented
- * by the one-diagnostic-per-field guard at src/parser/params.ts:402–404, which
- * stops the compat check once the default half has drawn an error.
+ * by the one-diagnostic-per-field guard on `defaultDiagStart` in `parseParams`
+ * (src/parser/params.ts), which stops the compat check once the default half
+ * has drawn an error.
  */
 const FLIPPED: readonly RefusalRow[] = [
   ["b1 (`-true` under `integer`)", "integer = -true", "-true"],
@@ -739,7 +740,7 @@ describe("bug 0166 (D) — the numeric carve-out keeps its verdicts", () => {
 
 describe("bug 0166 (E) — the refusal sits behind the position's guards", () => {
   it(`GREEN (e1): junk TYPE text with a \`-true\` default keeps ${TYPE_TEXT_CODE} alone`, () => {
-    // bug 0059's suppression guard (src/parser/params.ts:349, `typeRefused`;
+    // bug 0059's suppression guard (`typeRefused`, src/parser/params.ts;
     // code-registry-load.md:19's third precedence rule): a field whose type half
     // spells no type expression is reported as such, "not by whatever its
     // default half's literal check makes of the same field's recovered bytes".
@@ -756,11 +757,12 @@ describe("bug 0166 (E) — the refusal sits behind the position's guards", () =>
 
   it(`GREEN (e2): a raw break inside a negated string span keeps ${NEWLINE_CODE} first`, () => {
     // bug 0102's rule owns the string SPAN and runs BEFORE the is-literal check
-    // in the same per-field loop (src/parser/params.ts:380 then :390), so its
+    // in `parseParams`'s per-field loop (src/parser/params.ts), so its
     // diagnostic keeps the position it holds today. The two rules are
-    // independent pushes — only the compat row at :405–413 sits behind the
-    // one-diagnostic guard — so this cell pins the ORDER and the compat row's
-    // absence, not a total count the settled route does not bound.
+    // independent pushes — only the compat row sits behind `parseParams`'s
+    // one-diagnostic `defaultDiagStart` guard — so this cell pins the ORDER
+    // and the compat row's absence, not a total count the settled route does
+    // not bound.
     const doc = parseDoc(src('  p: |\n    string = -"a\n    b"'), "bug0166.theta");
     expect(
       diagCodes(doc)[0],

@@ -40,8 +40,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // (`src/extension/production-theta-producer.ts:1364–1371`), which `continue`s —
 // so the field never reaches `defaults`, `fillDefaultsAndRevalidate` fills only
 // what it is handed (`src/binder/defaulting.ts:134–139`), and a defaulted field
-// is never in the lowered schema's `required` set
-// (`src/parser/params.ts:277–278`), so the post-default-merge AJV check admits
+// is never in the lowered schema's `required` set, in `parseParams`
+// (`src/parser/params.ts`), so the post-default-merge AJV check admits
 // the absence. The one surface that speaks asserts the opposite:
 // `#emitBinderEchoNote` (`production-theta-producer.ts:947`) recomputes the
 // `(default)` tag from `params.defaultedFields` plus an absent binder key
@@ -1028,8 +1028,8 @@ afterEach(() => {
 // over the fixture layout, and group A compares real diagnostics against it —
 // so the arithmetic is calibrated here against a range the SHIPPED parser
 // emitted for the same fixture shape, never against this file's own prose.
-// `sev: 'Sev = foo()'` is refused by the is-literal check
-// (`src/parser/params.ts:390`) at `field.range`, which is the range group A's
+// `sev: 'Sev = foo()'` is refused by `parseParams`'s is-literal check
+// (`src/parser/params.ts`) at `field.range`, which is the range group A's
 // refusal must also carry.
 // ===========================================================================
 

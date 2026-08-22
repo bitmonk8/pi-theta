@@ -84,7 +84,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // which reuses bug 0059's / 0061's landed sink (`collectUnresolvedNamedTypes`'s
 // fourth out-parameter `unspellable`, src/parser/body-type-lowering.ts:601)
 // filtered through the ONE shared decline (`isUnspellableTextRefusable`,
-// src/parser/params.ts:1274) rather than carrying a private copy of the
+// src/parser/params.ts) rather than carrying a private copy of the
 // type-grammar judgement:
 //   1. Text no `Type` production spells, at a `let` annotation, an `fn`
 //      parameter type or an `fn` return type, draws EXACTLY ONE error-severity
@@ -122,7 +122,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `fn` parameter type, and NOT at the `fn` return slot: there the trailing `|`
 // opens a union arm, so the capture absorbs the body and becomes `integer|{1}`,
 // whose brace-carrying shard the ONE SHARED decline
-// (`isUnspellableTextRefusable`, src/parser/params.ts:1274) declines — the same
+// (`isUnspellableTextRefusable`, src/parser/params.ts) declines — the same
 // mechanism that keeps `fn f(): integer< { 1 }` silent. This is the capture's
 // asymmetry, not a per-position judgement: nothing the refusal adds
 // distinguishes the three positions. Cells `a20 (let)`, `a20 (param)` and
@@ -752,7 +752,7 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
   // brace handling absorbs the BODY and the capture becomes `integer|{1}`.
   // That capture shreds to `integer` plus `{1}`, and the brace-carrying shard is
   // declined by the ONE SHARED decline (`isUnspellableTextRefusable`,
-  // src/parser/params.ts:1274) — the same decline that keeps
+  // src/parser/params.ts) — the same decline that keeps
   // `fn f(): integer< { 1 }` silent in group (e). NOTHING THIS FIX ADDS
   // DISTINGUISHES THE THREE POSITIONS; the capture does.
   it("RED (a20, let): `integer|` draws exactly one refusal", () => {

@@ -132,7 +132,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `parseDeps` double), one direct lowerer call (`lowerQueryResponseSchema`
 // src/runtime/query-schema-lowering.ts:153, `buildBodyTypeSchemas`
 // src/parser/body-type-lowering.ts:428, `lowerParamsFieldType`
-// src/parser/params.ts:1761), one `respondToolWireSchema`
+// src/parser/params.ts), one `respondToolWireSchema`
 // (src/runtime/respond-tool-wire.ts:92) or one real `AjvSchemaValidator.compile`
 // (src/seams/schema-validator.ts:390, `#build` at :441). Two live halves cover
 // the registration-facing surface this tier cannot reach —

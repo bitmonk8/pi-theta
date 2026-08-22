@@ -27,28 +27,27 @@ import { parseDoc } from "./helpers/e2e-s1";
 // THE MECHANISM, one absence replicated to four positions. Two functions own
 // every union arm and neither consults the literal sublanguage:
 //
-//   - `lowerTypeExpr` (src/parser/params.ts:665) splits a union at `:676` and
-//     recurses each arm through ITSELF at `:679-681`. A `LiteralType` arm matches no
-//     branch there and falls to the trailing catch-all (`:778-787`), which
-//     pushes the text on `lowerCtx.unspellable` (`:786`) and returns `{}`
-//     (`:787`). The inlined classification at `:683-690` reads `{}` as
+//   - `lowerTypeExpr` (`src/parser/params.ts`) splits a union and
+//     recurses each arm through ITSELF. A `LiteralType` arm matches no
+//     branch there and falls to the trailing catch-all, which
+//     pushes the text on `lowerCtx.unspellable` and returns `{}`.
+//     The inlined classification reads `{}` as
 //     `non-primitive` (its key count is 0, not a sole `type` naming a
 //     primitive), so `lowerUnion` (src/parser/schema-lowering.ts:175) emits the
 //     `anyOf` form with `{}` as one variant.
-//   - `lowerBraceGroupUnionArms` (`:1188`) hoists each brace-group arm and sends
-//     every OTHER arm — a literal one included — to `lowerTypeExpr` at
-//     `:1208-1209`,
+//   - `lowerBraceGroupUnionArms` (`src/parser/params.ts`) hoists each brace-group
+//     arm and sends every OTHER arm — a literal one included — to `lowerTypeExpr`,
 //     not to the literal-aware `lowerFieldType` it was handed. So
 //     `{ a: string } | "lit"` loses the same emission on a path that never
 //     touches `lowerTypeExpr`'s own union split.
 //
 // The sublanguage is one function away and exported: `lowerLiteralSublanguage`
-// (`:1310`) returns `{"const": <value>}` for a single accepted atom
-// (`:1322-1323`) and `parseLiteralArm` (`:1228`) is its recogniser. Its two
-// callers — `lowerParamsFieldType` (`:1382`, the call at `:1387`) and
+// (`src/parser/params.ts`) returns `{"const": <value>}` for a single accepted
+// atom, and `parseLiteralArm` (`src/parser/params.ts`) is its recogniser. Its two
+// callers — `lowerParamsFieldType` (`src/parser/params.ts`) and
 // `lowerTypeSource` (src/parser/body-type-lowering.ts:254, the call at `:284`) —
-// call it at the TOP of a type source only. A mixed union declines whole
-// (`:1320` — one non-literal arm declines the union) and goes whole to
+// call it at the TOP of a type source only. A mixed union declines whole —
+// one non-literal arm declines the union — and goes whole to
 // `lowerTypeExpr`, whose per-arm recursion never returns to either caller.
 //
 // WHAT THE EMPTY ARM COSTS. An empty schema matches every JSON value, so a
@@ -210,7 +209,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // an all-literal arm set) stayed exactly what it was — the whole of (e), `f2`
 // (the surface-type `Parameters:` line) and `g3`'s `Sev | null` row. NO new
 // diagnostic is asserted anywhere in this file, because
-// `isUnspellableTextRefusable` (src/parser/params.ts:1274) and all three of its
+// `isUnspellableTextRefusable` (`src/parser/params.ts`) and all three of its
 // readers stay byte-unchanged (§Fix constraint 4); what the fix does is make
 // that predicate's stated premise TRUE at an arm.
 //
@@ -731,9 +730,9 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, unknown, stri
     "Sev | true",
     { anyOf: [{ $ref: "#/$defs/Sev" }, { const: true }] },
     "§Fix constraint 1's BOOLEAN row, which is UNCHANGED bytes: bug 0044's fix (0.54.0) gave " +
-      "`lowerTypeExpr`'s atom section its own `true` / `false` arm (params.ts:723-727, the " +
-        "emission at `:727`) ahead of " +
-      "the `IDENTIFIER` test, so this arm already emits :79's `const`. It is a no-op control " +
+      "`lowerTypeExpr`'s (params.ts) atom section its own `true` / `false` arm ahead of " +
+      "the `IDENTIFIER` test, so this arm already emits schema-subset.md :79's `const`. " +
+      "It is a no-op control " +
       "here and the pin that a per-arm consult must not change an emission that already agrees",
   ],
   [
@@ -743,8 +742,8 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, unknown, stri
     { anyOf: [{ const: "x" }, { type: "string" }] },
     "bug 0055 §Non-goals handed this shape to bug 0043 §Non-goals, a CLOSED document: " +
       "`parseLiteralArm` declines `string`, so the whole-source check declines the union and " +
-      "the literal arm reaches `lowerTypeExpr`'s catch-all. :81's own reference vector is this " +
-      "shape with a named arm instead of a literal one",
+      "the literal arm reaches `lowerTypeExpr`'s catch-all. schema-subset.md :81's own " +
+      "reference vector is this shape with a named arm instead of a literal one",
   ],
   [
     "RED",
@@ -768,8 +767,8 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, unknown, stri
     '{ a: string } | "lit"',
     { anyOf: [{ $ref: `#/$defs/${A_STRING_INLINE}` }, { const: "lit" }] },
     "the SECOND recursion site (§Fix constraint 6): `lowerBraceGroupUnionArms` " +
-      "(params.ts:1188) hoists the brace arm and sends every other arm to `lowerTypeExpr` at " +
-      "`:1208-1209`, a path that never touches `lowerTypeExpr`'s own union split — so a fix at one " +
+      "(params.ts) hoists the brace arm and sends every other arm to `lowerTypeExpr`, " +
+      "a path that never touches `lowerTypeExpr`'s own union split — so a fix at one " +
       "site alone would split one type expression's answer by whether a SIBLING arm happens " +
       "to be brace-rooted",
   ],
@@ -1315,10 +1314,11 @@ describe("bug 0184 (d) — every arm the consult declines keeps its bytes", () =
       'array<"x" | "y">',
       { type: "array", items: { type: "string", enum: ["x", "y"] } },
       "BUG 0164's SUBJECT, and the placement adjudication's own control. This ALL-literal union " +
-        "is reached through `lowerTypeExpr`'s GENERIC-ARGUMENT recursion (params.ts:702), not " +
+        "is reached through `lowerTypeExpr`'s (params.ts) GENERIC-ARGUMENT recursion, not " +
         "through either whole-source caller. BUG 0164 §Fix (v0.123.0) HAS NOW DONE EXACTLY WHAT " +
         "THIS CELL SAID ITS REMEDY WOULD: it re-routes that argument recursion through " +
-        "`lowerLiteralSublanguage`, so these bytes are the WHOLE-SOURCE `:80` emission reached " +
+        "`lowerLiteralSublanguage`, so these bytes are the WHOLE-SOURCE " +
+        "schema-subset.md `:80` emission reached " +
         "through the re-routed generic-argument recursion — not a per-arm product. THIS FILE's " +
         "gate is still what keeps the per-ARM consult off an all-literal arm set (§Fix " +
         "constraint 2): without it the argument's union split would lower " +
@@ -1360,8 +1360,8 @@ describe("bug 0184 (d) — every arm the consult declines keeps its bytes", () =
 
   it("CONTROL (d9): an UNRESOLVED-name arm and a `Result<…>` arm keep their `{}` variants AND their diagnostics", () => {
     // §Fix constraint 9 and §Non-goals: these `{}` variants come from
-    // `lowerTypeExpr`'s RESOLUTION arm (params.ts:748-750) and its non-`array`
-    // generic arm (`:706-709`), not from the trailing catch-all the literal
+    // `lowerTypeExpr`'s (`params.ts`) RESOLUTION arm and its non-`array`
+    // generic arm, not from the trailing catch-all the literal
     // recogniser sits in front of — so `parseLiteralArm` declines both texts
     // and neither disposition moves. Bug 0028's inventory owns whether they
     // should exist at all.
@@ -1462,9 +1462,9 @@ describe("bug 0184 (d) — every arm the consult declines keeps its bytes", () =
 // ===========================================================================
 // (e) THE SILENCE, PRESERVED (§Fix constraints 4 and 9) — every moving row and
 // every no-op control loads with ZERO diagnostics at all four positions, before
-// AND after. `isUnspellableTextRefusable` (params.ts:1274) declines any text
+// AND after. `isUnspellableTextRefusable` (`src/parser/params.ts`) declines any text
 // `parseLiteralArm` recognises on the stated ground that it "lowers under its
-// own emission" (`:1256-1257`); the fix makes that premise TRUE at a union arm
+// own emission"; the fix makes that premise TRUE at a union arm
 // rather than changing the predicate, so it and all three of its readers stay
 // byte-unchanged and NO new diagnostic appears anywhere.
 // GREEN at HEAD and required to stay green.

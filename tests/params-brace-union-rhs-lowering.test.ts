@@ -24,12 +24,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // ONE DISPATCH, TWO ELEMENTS.
 //
-//   THE DISPATCH. `lowerParamsFieldType` (src/parser/params.ts:1070) tests
-//   `s.startsWith("{") && s.endsWith("}")` at `:1079`. That question is
+//   THE DISPATCH. `lowerParamsFieldType` (`src/parser/params.ts`) tests
+//   `s.startsWith("{") && s.endsWith("}")`. That question is
 //   POSITIONAL — a `{` at index 0 and a `}` at the last index — not
 //   STRUCTURAL, so `{a: integer} | {b: integer}` answers yes on its FIRST
 //   arm's opening brace and its LAST arm's closing brace, and the whole source
-//   goes to `hoistInlineObjectType` (`:1082`, `:849`) as a field list. The
+//   goes to `hoistInlineObjectType` as a field list. The
 //   other three type positions ask
 //   `isSingleEnclosingBraceGroup` (src/parser/body-type-lowering.ts:214), a
 //   depth walk that answers yes only when the index-0 `{` closes at the final
@@ -48,8 +48,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      enforcement the argument boundary gets. Groups (b), (c), (f).
 //   2. A `NamedType` INSIDE AN ARM RAISES NOTHING AT THIS POSITION. The
 //      `params:` position reports whatever its own lowering appended to
-//      `lowerCtx.unresolved` (`src/parser/params.ts:216`, the diagnostic loop
-//      at `:237`–`:245`). A name lost inside the mis-parsed field's shredded
+//      `lowerCtx.unresolved` (`src/parser/params.ts`, `parseParams`'s
+//      diagnostic loop). A name lost inside the mis-parsed field's shredded
 //      type text never reaches `lowerTypeExpr`'s identifier arm, so nothing is
 //      appended and nothing is reported. Groups (d), (e).
 //
@@ -888,7 +888,7 @@ describe("bug 0097 (a) — the `params:` shapes the dispatch keeps byte-for-byte
     // The per-occurrence posture at this position, pinned so group (e3)'s
     // two-diagnostic expectation is shown to be the position's existing
     // contract rather than something the fix introduces. `parseParams`'s loop
-    // (src/parser/params.ts:237) emits one diagnostic per entry in
+    // (`src/parser/params.ts`) emits one diagnostic per entry in
     // `lowerCtx.unresolved`, and the hoist appends one per field it lowers;
     // the body positions read a de-duplicated name walk instead.
     expectParamsRefused(
@@ -906,8 +906,8 @@ describe("bug 0097 (a) — the `params:` shapes the dispatch keeps byte-for-byte
 
   it("CONTROL (a11): a default beside a union-typed param stays admitted and recorded", () => {
     // The default half is `splitParamValue`'s (src/parser/frontmatter.ts:636)
-    // and is judged by the literal-sublanguage checks
-    // (src/parser/params.ts:349 onward), which read the default text and the
+    // and is judged by `parseParams`'s literal-sublanguage checks
+    // (`src/parser/params.ts`), which read the default text and the
     // declared type's compatibility — neither of which the brace dispatch
     // touches. Group (e2) pins the same shape once the TYPE half refuses.
     const loaded = loadCleanly("a11", paramSrc("{a: integer} | {b: integer} = 7"));
@@ -932,11 +932,13 @@ describe("bug 0097 (a) — the `params:` shapes the dispatch keeps byte-for-byte
 
 describe("bug 0097 (b) — a top-level union of object arms on the `params:` RHS lowers `anyOf` over hoisted arms", () => {
   it("RED (b1): `p: \"{a: integer} | {b: integer}\"` hoists BOTH arms and refs them in source order", () => {
-    // The defect in one line: the dispatch tests the first and last CHARACTERS
-    // (src/parser/params.ts:1079), so the first arm's `{` and the last arm's
-    // `}` are read as one group and `a: integer} | {b: integer` is handed to
-    // `hoistInlineObjectType` as a field list — minting a fragment that
-    // REQUIRES `a`, constrains it to nothing, and refuses `b`.
+    // The defect in one line: `lowerParamsFieldType`'s dispatch
+    // (`src/parser/params.ts`) tests the first and last CHARACTERS — the
+    // inline `s.startsWith("{") && s.endsWith("}")` — so the first arm's `{`
+    // and the last arm's `}` are read as one group and
+    // `a: integer} | {b: integer` is handed to `hoistInlineObjectType` as a
+    // field list — minting a fragment that REQUIRES `a`, constrains it to
+    // nothing, and refuses `b`.
     const loaded = loadCleanly("b1", paramSrc("{a: integer} | {b: integer}"));
     expect(
       loaded.loweredSchema,
@@ -1063,8 +1065,8 @@ describe("bug 0097 (b) — a top-level union of object arms on the `params:` RHS
     // §Fix constraint 1, table row 2. `integer | {b: integer}` never satisfies
     // the naive test — its last character is `}` but its first is `i` — so it
     // lowers per-segment today and the brace arm reaches `lowerTypeExpr`'s
-    // catch-all, which has no inline-object arm at any depth
-    // (src/parser/params.ts:655). The arm dispatch
+    // (`src/parser/params.ts`) catch-all, which has no inline-object arm at
+    // any depth. The arm dispatch
     // (src/parser/body-type-lowering.ts:446–:459) is what descends into it.
     const loaded = loadCleanly("b7", paramSrc("integer | {b: integer}"));
     expect(
@@ -1336,7 +1338,7 @@ describe("bug 0097 (d) — a name inside a union ARM raises unresolved-named-typ
     // The name sits inside the mis-parsed field's shredded type text
     // (`Ghost} | {b: integer`), so it never matches `lowerTypeExpr`'s
     // identifier arm, never lands in `lowerCtx.unresolved`, and
-    // `parseParams`'s loop (src/parser/params.ts:237) has nothing to report.
+    // `parseParams`'s loop (`src/parser/params.ts`) has nothing to report.
     expectParamsRefused(
       "d2",
       paramSrc("{a: Ghost} | {b: integer}"),
@@ -1370,7 +1372,7 @@ describe("bug 0097 (d) — a name inside a union ARM raises unresolved-named-typ
 
 // ===========================================================================
 // (e) THE BUG-0059 INTERPLAY — `parseParams`'s per-field one-diagnostic
-// precedence (src/parser/params.ts:251–:276, the guard extension at :349)
+// precedence (`src/parser/params.ts`, the guard extension in the same loop)
 // meeting a position that begins descending into union arms. Every cell here
 // is about MULTIPLICITY and CODE, not about lowered bytes.
 // RED at HEAD: each `params:` row emits nothing.
@@ -1378,8 +1380,8 @@ describe("bug 0097 (d) — a name inside a union ARM raises unresolved-named-typ
 
 describe("bug 0097 (e) — descending into arms keeps the per-field diagnostic precedence", () => {
   it("RED (e1): a Ghost in one arm and junk in the other renders ONE diagnostic, the Ghost", () => {
-    // The junk-side refusal is suppressed by the same-iteration guard
-    // (src/parser/params.ts:266): a field that already drew an error-severity
+    // The junk-side refusal is suppressed by `parseParams`'s same-iteration
+    // guard (`src/parser/params.ts`): a field that already drew an error-severity
     // diagnostic this iteration keeps that one alone. code-registry-load.md:19
     // states the rule — "a field already carrying an error-severity diagnostic
     // from its own type-side parse or lowering … keeps that diagnostic and
@@ -1393,8 +1395,8 @@ describe("bug 0097 (e) — descending into arms keeps the per-field diagnostic p
   });
 
   it("RED (e2): a junk default beside a refusing type renders ONE diagnostic, the Ghost", () => {
-    // The default half's checks sit behind the type half's disposition
-    // (src/parser/params.ts:349), so a field whose TYPE half refuses draws
+    // The default half's checks sit behind the type half's disposition in
+    // `parseParams` (`src/parser/params.ts`), so a field whose TYPE half refuses draws
     // exactly one diagnostic. CONTROL a11 pins the same shape with a type half
     // that loads.
     expectParamsRefused(

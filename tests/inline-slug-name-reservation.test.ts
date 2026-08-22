@@ -61,8 +61,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      binding matches one of the four §Synthesised names forms with a slug of
 //      EXACTLY 16 lowercase hex characters. Raised at PARSE time, so
 //      `parseThetaDocument` alone witnesses it with no `.thetalib` resolution.
-//   2. `lowerTypeExpr`'s IDENTIFIER arm (src/parser/params.ts:426–435, the
-//      unconditional `lowerCtx.defs[s] = resolved;` at :433) must not write a
+//   2. `lowerTypeExpr`'s IDENTIFIER arm (`src/parser/params.ts`), the
+//      unconditional `lowerCtx.defs[s] = resolved;`, must not write a
 //      reserved-form key: it returns the permissive `{}` and raises nothing of
 //      its own, so the two `$defs` writers agree on key ownership (bug doc §Fix,
 //      "the two writers of `lowerCtx.defs` must agree on key ownership") and
@@ -723,7 +723,7 @@ describe("bug 0040 (d) — the `schema`-declaration spelling keeps its single di
 
 // ===========================================================================
 // (e) THE COMPOSED HAZARD at the `schema`-body position — 0039 §Fix residual
-// (iv) composing with this bug. `hoistNestedDefs` (src/parser/params.ts:274–295)
+// (iv) composing with this bug. `hoistNestedDefs` (`src/parser/params.ts`)
 // lifts nested `$defs` name-keyed and FIRST-WINS with no byte comparison, and it
 // seeds its queue with the TOP-LEVEL entries, so the imported `{}` reaches the
 // key before `S`'s own minted closure entry in BOTH field orders.
@@ -894,8 +894,7 @@ describe("bug 0040 (g) — key ownership at the `lowerCtx.defs` seam", () => {
 
   /**
    * One hand-built lowering scope with the sinks readable afterwards, shaped as
-   * `parseParams` builds it (src/parser/params.ts:148–169, shifted by bug 0059
-   * §Fix's new doc-comment bullet ahead of it): one `defs`, one retention
+   * `parseParams` builds it (`src/parser/params.ts`): one `defs`, one retention
    * pair, one collision sink, all block-shared.
    */
   function seam(bodyTypes: ReadonlyArray<readonly [string, Record<string, unknown>]>): Seam {
@@ -923,7 +922,7 @@ describe("bug 0040 (g) — key ownership at the `lowerCtx.defs` seam", () => {
     // because the only writer that could create that state is the arm under
     // test. The DIRECT ownership property is asserted instead: a resolvable
     // reserved-form name must leave the key unwritten and lower permissively.
-    // At HEAD, src/parser/params.ts:433 writes `defs[s] = resolved`
+    // At HEAD, `lowerTypeExpr` (`src/parser/params.ts`) writes `defs[s] = resolved`
     // unconditionally and returns the `$ref` — that write is arm 2 of the bug.
     const s = seam([[RESERVED, ZZZ_FRAGMENT]]);
     const emitted = lowerTypeExpr(RESERVED, s.ctx);

@@ -5814,12 +5814,12 @@ describe("H8a-T — bug 0166: a params: default's unary `-` over a non-numeric l
 // (docs/bugs/0165-empty-params-default-literal-admitted-and-never-bound.md).
 //
 // THE SETTLED ROUTE IS §Fix (a): `parseParams`'s per-field default loop gains
-// a THIRD rule, behind the bug-0059 type-half suppression guard
-// (src/parser/params.ts:349) and ahead of the bug-0102 raw-newline rule
-// (:380) and the is-literal call (:390) — a `defaultSource` that is empty or
+// a THIRD rule, behind the bug-0059 type-half suppression guard (`typeRefused`,
+// src/parser/params.ts) and ahead of the bug-0102 raw-newline rule and the
+// is-literal call (both in the same loop) — a `defaultSource` that is empty or
 // whitespace-only after trim draws the new registered code
-// `theta/parse/default-without-literal` and the error gate (:426) then
-// withholds the lowered document, so the theta never registers at all.
+// `theta/parse/default-without-literal` and `parseParams`'s `hasError` gate
+// then withholds the lowered document, so the theta never registers at all.
 //
 // No existing live fixture (H8a, H9a, or the hardening probes) declares an
 // empty or whitespace-only `params:` default — the corpus census the bug doc
@@ -8992,8 +8992,8 @@ describe("H8a-T — bug 0197: a params: default whose member-access head resolve
 // Bug 0184 (live) — a literal ARM of a MIXED union now enforces the params:
 // boundary at a real subagent child's marshalled-params intake.
 // `docs/bugs/0184-union-arm-literal-lowers-empty-schema.md`: `lowerTypeExpr`'s
-// per-arm union recursion (`src/parser/params.ts:679-681`) and
-// `lowerBraceGroupUnionArms`'s non-brace-arm call (`:1208-1209`) never consulted the
+// per-arm union recursion (`src/parser/params.ts`) and
+// `lowerBraceGroupUnionArms`'s non-brace-arm call never consulted the
 // literal sublanguage, so a MIXED union's own literal arm (one non-literal arm
 // beside it) fell to `lowerTypeExpr`'s trailing catch-all and lowered the
 // permissive `{}` — an empty schema AJV admits every JSON value against, so
@@ -9370,7 +9370,7 @@ describe("H8a-T — bug 0187: a >cap FINITE terminal Ok payload at the uninferre
 // (cell 53, immediately above) both key off PRESENCE/ABSENCE of a
 // `theta-system-note` naming a `return_validation` refusal — a BOOLEAN
 // observable — and the SNK-i template they both render through
-// (`src/runtime/err-note-render.ts:157`, "`${prefix} returned Err: invoke of
+// (SNK-i, `src/runtime/err-note-render.ts`, "`${prefix} returned Err: invoke of
 // ${e.callee_path} failed (${e.cause})`") carries no `.message` and therefore
 // no VALUE: it cannot show a sign either way. Bug 0188 additionally never
 // refuses anything — §Fix (a) is silent-and-correct, not a new refusal
@@ -9739,7 +9739,7 @@ describe("H8a-T — bug 0201: a non-finite number reachable only through a neste
 // THE OBSERVABLE, TWO-SIDED. Leg A is the report's own §Reproduction (b) row
 // b1: the invoke Errs pre-fix, the parent's `?` propagates it as the whole
 // top-level theta's termination, and SLSH-3 fires exactly one note
-// (`err-note-render.ts:157` — "invoke of <path> failed (<cause>)"). Post-fix
+// (SNK-i, `err-note-render.ts` — "invoke of <path> failed (<cause>)"). Post-fix
 // the invoke binds `Ok`, the theta terminates `Ok`, and
 // runtime-event-channel.md's success-side null-policy emits NO note — so the
 // assertion is ZERO fail-closed notes for leg A. An absence assertion is only
@@ -9854,7 +9854,7 @@ describe("H8a-T — bug 0202: a typed invoke<T> of a prompt-mode callee whose wi
       const legBNote = legBNotes[0] ?? "";
       expect(
         legBNote,
-        "the SNK-i template (`err-note-render.ts:157`) names the cause: " + legBNote,
+        "the SNK-i template (`err-note-render.ts`) names the cause: " + legBNote,
       ).toContain("failed (return_validation)");
       expect(
         legBNote,

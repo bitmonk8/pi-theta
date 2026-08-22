@@ -731,7 +731,8 @@ describe("bug 0231 (D) — an interior deriving from no ObjectType does not load
 // ===========================================================================
 // (F) THE LOWERED VIEW — §Reproduction (f). GREEN now and after: the lowerers
 // key `properties` / `required` on the `splitTopLevel` entries
-// (body-type-lowering.ts:173, params.ts:1259) and never read the loop's arrays,
+// (body-type-lowering.ts:173, `hoistInlineObjectType` in params.ts) and never
+// read the loop's arrays,
 // so route 1 moves neither document. Stated as the mechanism, not as a leak:
 // at the ten refusing positions the document is never built.
 // ===========================================================================

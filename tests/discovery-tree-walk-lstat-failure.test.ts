@@ -17,10 +17,10 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
-// `listTree` (src/discovery/discovery-walk.ts:591-599) classifies an
+// `listTree` (`src/discovery/discovery-walk.ts`) classifies an
 // entry-level `lstat` rejection by code and carries the non-`ENOENT` path out
-// in `TreeWalk.unreadable` so `emitUniverseFailures` (defined :617, invoked
-// :862) reports it; silence there is the defect this witness locks out (bug
+// in `TreeWalk.unreadable` so `emitUniverseFailures` (same file) reports it;
+// silence there is the defect this witness locks out (bug
 // 0113 fix-record residual 1 / bug 0075 §Affected listTree site). The package
 // copy (src/discovery/package-discovery.ts:355-363, `listTree` at :334) holds
 // the same contract, surfaced by the package-side loop at :493-506. An
@@ -64,7 +64,7 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //      reachable rows (:56, :57) — with the offending ENTRY path in `file`.
 //   2. Descriptor: `settings entry index N` for the lowest-index entry owning
 //      the shared universe (`treeFor` caches per static-prefix root,
-//      discovery-walk.ts:759), `` package `<name>` (pi.theta) `` on the
+//      `discovery-walk.ts`), `` package `<name>` (pi.theta) `` on the
 //      package side (package-and-settings.md:27).
 //   3. An `ENOENT` from that `lstat` stays SILENT: the entry vanished between
 //      the enumeration and the probe — a clean leaf under a parent the
@@ -339,7 +339,7 @@ function expectEntryLstatFailure(
       `discovery-sources.md:69 forbids silence for a "traversal failure inside a ` +
       `discovery root that does exist" ("an unreadable-source warning, not ` +
       `silence"), and :57 gives the Settings row's Unreadable cell the severity ` +
-      `warning. listTree (src/discovery/discovery-walk.ts:591-599) must classify ` +
+      `warning. listTree (src/discovery/discovery-walk.ts) must classify ` +
       `an entry whose lstat rejects by \`.code\` and carry the non-ENOENT path out ` +
       `in TreeWalk.unreadable, so a shrunken universe is always reported. ` +
       `Observed diagnostics=${JSON.stringify(diagnostics)}`,
@@ -363,9 +363,8 @@ function expectEntryLstatFailure(
 }
 
 // ===========================================================================
-// Cells 1-4, 7-9 — the settings `thetaPaths` universe
-// (src/discovery/discovery-walk.ts:591-599, reached through treeFor at
-// :759 from addGlob at :816).
+// Cells 1-4, 7-9 — the settings `thetaPaths` universe (`listTree`,
+// `src/discovery/discovery-walk.ts`, reached through `treeFor` from `addGlob`).
 // ===========================================================================
 
 describe("listTree's per-entry lstat rejection reports its traversal failure (settings thetaPaths universe)", () => {
@@ -471,7 +470,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
   });
 
   it("cell 7 (RED): two entries sharing one static-prefix root emit EXACTLY ONE warning, owned by the LOWEST index", async () => {
-    // `treeFor` (src/discovery/discovery-walk.ts:759) caches the universe by
+    // `treeFor` (`src/discovery/discovery-walk.ts`) caches the universe by
     // static-prefix root, so entry 1 reads entry 0's cached tree and never
     // walks. That determinism is the attribution rule: the lowest index that
     // triggered the walk owns the rejection, and the count is one, not one per
@@ -503,9 +502,9 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
   });
 
   it("cell 8 (green control): a path a per-entry classification already reported is NOT reported twice for the same (code, file)", async () => {
-    // Entry 1 is a literal, so `addLiteral` (src/discovery/discovery-walk.ts:792)
+    // Entry 1 is a literal, so `addLiteral` (`src/discovery/discovery-walk.ts`)
     // classifies `/project/.pi/g/sub` directly: its lstat rejects EACCES,
-    // `classifyPath` (:282) answers `unreadable`, and the entry-level warning
+    // `classifyPath` (same file) answers `unreadable`, and the entry-level warning
     // fires with entry 1's descriptor. Entry 0's universe walk crosses the same
     // path in the same pass and must add nothing — discovery-sources.md:69
     // gives "none at all for a path that a per-match or per-source enumeration

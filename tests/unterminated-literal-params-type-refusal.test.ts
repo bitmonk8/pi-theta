@@ -20,14 +20,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (`theta/parse/literal-newline-in-string`, §Reproduction A rows A1–A8) and
 // ADMITTED at `params:` with zero diagnostics, lowering the declared field to
 // the permissive `{}`. `isSingleEnclosingBraceGroup`
-// (src/parser/params.ts:1411) opens a quoted region at `"` and never leaves
+// (src/parser/params.ts) opens a quoted region at `"` and never leaves
 // it, so the author's own closing `}` is counted as literal text, the
 // predicate returns `false`, and `lowerParamsFieldType`'s inline-object
-// intercept (:1770) is not taken for a source the author wrote as one brace
+// intercept is not taken for a source the author wrote as one brace
 // group. `lowerTypeExpr` then lowers permissively and pushes the whole text
-// into `lowerCtx.unspellable` (:822), where `isUnspellableTextRefusable`
-// (:1650) declines any brace-carrying text, so the position's own refusal
-// `theta/load/params-type-not-expression` (:284) is withheld. A well-formed
+// into `lowerCtx.unspellable`, where `isUnspellableTextRefusable`
+// declines any brace-carrying text, so `parseParams`'s own refusal
+// `theta/load/params-type-not-expression` is withheld. A well-formed
 // sibling field is deleted with the offending one (§Reproduction B rows B2/B3
 // against B8): two sources declaring `b` mint no `b` at all. This file is that
 // report's witness.
@@ -41,20 +41,20 @@ import { parseDoc } from "./helpers/e2e-s1";
 // §Fix (b)'s OTHER named arm — "raise `theta/load/params-type-not-expression`
 // from the intercept's decline directly" — living in `src/parser/params.ts`
 // ALONE:
-//   1. `isUnspellableTextRefusable` (src/parser/params.ts:1660) is LEFT
+//   1. `isUnspellableTextRefusable` (src/parser/params.ts) is LEFT
 //      UNCHANGED, byte-for-byte: its brace exemption and its four other
 //      readers (theta-document.ts:7069, :7536, type-layer-checks.ts:1148) are
 //      untouched, so narrowing it never happens and Constraint 3 holds by
 //      construction rather than by a second predicate branch.
 //   2. A new, INDEPENDENT quote/escape-aware predicate,
-//      `hasUnterminatedStringLiteral` (src/parser/params.ts:1687), answers
+//      `hasUnterminatedStringLiteral` (src/parser/params.ts), answers
 //      "does this text carry a string literal that never closes" over the
 //      field's WHOLE type-half source text — not the `unspellable` sink — so it
 //      reaches the nested (`{q: {a as "w: integer}}`) and generic
 //      (`array<{a as "w: integer}>`) spellings the sink never collects.
-//   3. `parseParams`'s per-field loop (`params.ts:254`) raises that position's
+//   3. `parseParams`'s per-field loop (`params.ts`) raises that position's
 //      OWN registered row, `theta/load/params-type-not-expression`
-//      (src/parser/params.ts:284), directly off this new predicate — the
+//      (src/parser/params.ts), directly off this new predicate — the
 //      intercept's decline, made loud — Message unchanged (DIAG-4). No new
 //      registry row is minted and no lex-phase row is moved into a load-time
 //      position.
@@ -518,7 +518,7 @@ describe("bug 0232 (B) — no field the author declared is lost without a diagno
 
 // ===========================================================================
 // (D) §Reproduction (D) — the interior's own rules, at the direct
-// `parseTypeExpression` seam `params:` runs (src/parser/params.ts:212). This
+// `parseTypeExpression` seam `parseParams` runs (src/parser/params.ts). This
 // route's STATED disposition is that they stay WITHHELD for a refused source —
 // one diagnostic per field — so every cell here is asserted UNCHANGED and must
 // be green at HEAD and after. A red here means the route drifted into the type
@@ -594,7 +594,7 @@ describe("bug 0232 (E) — the brace exemption's named subject does not move", (
         "BOUNDARY: `{a: integer` is a genuinely unbalanced brace group with no unterminated " +
         "literal, named normatively as admitted with a permissive lowering at " +
         "frontmatter-fields-a.md:58 and code-registry-load.md:19. A red on E2 means " +
-        "`hasUnterminatedStringLiteral` (src/parser/params.ts:1687) flagged a brace-only " +
+        "`hasUnterminatedStringLiteral` (src/parser/params.ts) flagged a brace-only " +
         "imbalance rather than an unterminated literal, which Constraint 2 forbids without " +
         "editing both prose sites in the same commit",
     ).toEqual({

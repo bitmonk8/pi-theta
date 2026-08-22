@@ -271,7 +271,7 @@ beforeAll(async () => {
   // Cell I's precondition witness: a theta that WOULD register if the discovery
   // walk ever reached the outside directory through the junction. Its absence
   // from the registered set is what proves the junction contributes no active
-  // root of its own (`enumerateDirectory`, `src/discovery/discovery-walk.ts:301`,
+  // root of its own (`enumerateDirectory`, `src/discovery/discovery-walk.ts`,
   // collects `*.theta` files and does not recurse into subdirectories).
   plant(outsideDir, "linkprobe", theta("---", "mode: subagent", "---", "@`hi`"));
 

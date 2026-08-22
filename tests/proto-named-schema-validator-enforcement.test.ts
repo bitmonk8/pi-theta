@@ -58,7 +58,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //     name…],"additionalProperties":false}`. The emission is CORRECT at HEAD
 //     (0212 §"Actual behaviour": "Nothing in `src/` is wrong at the emission");
 //     every document below is either that emission, produced by the shipped
-//     `parseParams` (`src/parser/params.ts:155`), or a hand-built variant the
+//     `parseParams` (`src/parser/params.ts`), or a hand-built variant the
 //     report measures.
 //   - docs/spec_topics/diagnostics/code-registry-parse.md:19 —
 //     `theta/parse/binding-case-mismatch`, the only case rule on the param-name
@@ -154,7 +154,7 @@ function range(line: number): SourceRange {
 
 /**
  * The lowered `params:` document for `fields`, through the shipped `parseParams`
- * (`src/parser/params.ts:155`) — never a hand-built table where the production
+ * (`src/parser/params.ts`) — never a hand-built table where the production
  * producer can be driven instead. Fails LOUDLY on any error-severity diagnostic
  * or a withheld schema: `code-registry-parse.md:19` admits a `_`-leading name,
  * so a diagnostic here is a harness failure, and a withheld document would leave

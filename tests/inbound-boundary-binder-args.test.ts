@@ -67,7 +67,7 @@ import {
 // The captured `paramBindings` map is therefore exactly what the executor
 // installs as the theta's top-level param slots. Everything below the capture
 // is the shipped code: the theta's own `params.loweredSchema`
-// (`src/parser/params.ts:431-441`, surfaced through
+// (`ParamsParseResult`, `src/parser/params.ts`, surfaced through
 // `src/parser/frontmatter.ts:809`), the real `AjvSchemaValidator`, and the real
 // `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts:117`) whose merged
 // `args` the production `runBinder` returns verbatim

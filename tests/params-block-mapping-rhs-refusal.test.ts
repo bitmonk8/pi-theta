@@ -550,7 +550,7 @@ describe("bug 0041 (b) — a params RHS that is no type expression is refused", 
     it(`RED (b, ${label}): exactly one ${CODE} and the theta is refused`, () => {
       // At HEAD this fixture is silent at every severity: the recovered
       // block-YAML text falls past `lowerTypeExpr`'s arms to the trailing
-      // catch-all (src/parser/params.ts:469), `lowerCtx.unresolved` stays
+      // catch-all (`src/parser/params.ts`), `lowerCtx.unresolved` stays
       // empty (`Tirage` inside the block is never read as a name), and the
       // param accepts any JSON value at the argument boundary.
       expectParamsTypeRefused(label, parseDoc(src(paramsBlock), "bug0041.theta"), "p");

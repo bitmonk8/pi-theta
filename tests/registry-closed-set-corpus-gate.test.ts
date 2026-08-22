@@ -123,8 +123,8 @@ const CODE_PREFIX = "theta" + "/";
  */
 const CARVE_OUT: Record<string, string> = {
   "load/cross-source-shadow":
-    "Emitted at src/discovery/discovery-walk.ts:1181 on the different-priority " +
-    "shadow branch of the discovery walk; no test asserts the code or exercises " +
+    "Emitted in `resolveSlashNames` (src/discovery/discovery-walk.ts) on the " +
+    "different-priority shadow branch of the discovery walk; no test asserts the code or exercises " +
     "that emission, and this carve-out table is the code's only occurrence under " +
     "tests/, so no witness exists at HEAD and this entry records the absence " +
     "rather than hiding it.",

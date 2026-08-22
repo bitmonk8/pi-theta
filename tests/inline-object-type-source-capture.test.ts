@@ -20,7 +20,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `parts.join("").trim()` at :4924; the `@<T>` capture's `parts.join("").trim()`
 // at :5085, under the comment at :5068 that calls the result "captured verbatim
 // as the annotation"). At every `Type` position except `params:` — which hands
-// its YAML scalar to `parseTypeExpression` verbatim (`src/parser/params.ts:212`)
+// its YAML scalar to `parseTypeExpression` verbatim, in `parseParams`
+// (`src/parser/params.ts`)
 // — an inline object's interior therefore loses the author's inter-token
 // whitespace before any rule or lowerer sees it: `{a b: integer}` arrives as
 // `{ab:integer}` and loads with zero diagnostics, minting the wire property name

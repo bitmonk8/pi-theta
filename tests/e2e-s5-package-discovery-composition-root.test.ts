@@ -1,7 +1,7 @@
 // e2e-campaign S5 — package-source discovery THROUGH the composition root.
 //
 // code-surface.md §summary gap #3: the discovery WALK defers the package source
-// (discovery-walk.ts:743,786 "not plumbed into this walk yet"); package thetas
+// (`discoverThetas`, discovery-walk.ts, "not plumbed into this walk yet"); package thetas
 // are merged only at the composition root by `discoverPackageThetas`
 // (package-discovery.ts) inside `discoverAndComposeFixtures`
 // (production-composition.ts:319-334), and only when the derived slash name is

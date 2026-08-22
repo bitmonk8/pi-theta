@@ -57,14 +57,14 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //   the `` "package `foo` (pi.theta)" `` descriptor form.
 //
 // THE DEFECT AT HEAD. The walk decides "is this root a directory" with
-// `classifyPath` (src/discovery/discovery-walk.ts:273) and "can this root be
-// enumerated" with `enumerateDirectory` (:301). The first reports its failures;
+// `classifyPath` (src/discovery/discovery-walk.ts) and "can this root be
+// enumerated" with `enumerateDirectory`. The first reports its failures;
 // the second maps every `fs.readdir` rejection to `{ ok: false }` without
-// capturing `.code` (:306-309) and returns `[]` with no diagnostic (:310-312).
+// capturing `.code` and returns `[]` with no diagnostic.
 // A root that passes `lstat` and fails `readdir` therefore yields zero thetas
-// and zero diagnostics through every caller: `resolveEntry`'s `dir` arm (:388,
-// the CLI / project / global roots), the settings literal path `addDir`
-// (:649-653), and the settings glob path `addGlob` (:695-705). The package
+// and zero diagnostics through every caller: `resolveEntry`'s `dir` arm (the
+// CLI / project / global roots), the settings literal path `addDir`, and the
+// settings glob path `addGlob`. The package
 // walker repeats the swallow in `thetasInDirectory`
 // (src/discovery/package-discovery.ts:442-454, via `readdirOr` at :159-164),
 // which serves both the conventional `theta/` fallback (:501) and each
@@ -73,27 +73,27 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // PINNED POST-FIX CONTRACT (bug doc §Fix, Option A — "pass the severity down"
 // and emit from inside the failure branch). On a `readdir` rejection inside the
 // enumeration of a discovery root, the walk emits through the existing
-// `emitSourceFailure` helper (discovery-walk.ts:444-462) at the CALLING
+// `emitSourceFailure` helper (discovery-walk.ts) at the CALLING
 // source's `FailureModes` severity, with `file` = the enumerated root path and
 // the source descriptor in the message:
 //   - rejection code is not `ENOENT`               → `theta/load/unreadable-source`
 //                                                    at `modes.unreadable`
 //   - `ENOENT`, every proper ancestor `lstat`s ok  → `theta/load/missing-source`
-//     as a directory (the :66 clean-leaf walk,       at `modes.missing` (null,
-//     `ancestorsClean` at :243)                      i.e. silent, for the
+//     as a directory (discovery-sources.md's         at `modes.missing` (null,
+//     clean-leaf-`ENOENT` walk, `ancestorsClean`)    i.e. silent, for the
 //                                                    conventional roots)
 //   - `ENOENT`, dirty ancestor chain               → `theta/load/unreadable-source`
 //                                                    at `modes.unreadable`
-// Descriptors are the ones the walk already carries: `"project .pi/theta/"`
-// (:790), `"global thetas directory"` (:803), `"--theta flag #<n>"` 1-based
-// (:770), `"settings entry index <n>"` 0-based (:685); a glob-matched directory
+// Descriptors are the ones the walk already carries: `"project .pi/theta/"`,
+// `"global thetas directory"`, `"--theta flag #<n>"` 1-based,
+// `"settings entry index <n>"` 0-based; a glob-matched directory
 // carries the matching entry's `"settings entry index <n>"`. The package walker
 // carries `` "package `<name>` theta/ directory" `` for the conventional
 // fallback and `` "package `<name>` (pi.theta)" `` for a `pi.theta`-contributed
 // directory.
 //
 // A denied SUBTREE under a settings glob's static prefix (`listTree`,
-// discovery-walk.ts:547 and package-discovery.ts:310) is DEFERRED — no spec
+// discovery-walk.ts, and package-discovery.ts:310) is DEFERRED — no spec
 // text prescribes a disposition for a shrunken glob universe (bug doc §Fix,
 // recommendation). No cell here asserts a diagnostic for that sub-case. The
 // latitude that keeps it free is granted per cell, only where a deferred
@@ -403,7 +403,7 @@ function expectEnumerationFailure(
     hits.length,
     `PRIMARY (bug 0076): ${why} — discovery-sources.md:67 forbids silence here ` +
       `("an unreadable-source warning, not silence"), and :51-56 gives the row a ` +
-      `severity. AT HEAD enumerateDirectory (src/discovery/discovery-walk.ts:306-312) ` +
+      `severity. AT HEAD enumerateDirectory (src/discovery/discovery-walk.ts) ` +
       `discards the readdir rejection without capturing .code and returns [] with no ` +
       `diagnostic, so the root contributes nothing and reports nothing. Observed ` +
       `diagnostics=${JSON.stringify(diagnostics)}`,
@@ -429,8 +429,9 @@ function expectEnumerationFailure(
 describe("bug 0076 — a discovery root whose readdir rejects reports its failure (discovery-sources.md:51-56, :66-67)", () => {
   it("control 0 (green): the same project root denied on EVERY seam member reports the shape cells 1-4 assert (the bug doc's §Reproduction control)", async () => {
     // `lstat` fails here too, so `classifyPath`
-    // (src/discovery/discovery-walk.ts:273-291) returns `unreadable` at :281 and
-    // `resolveEntry` emits at :420. The assertion is byte-identical to cell 1's,
+    // (src/discovery/discovery-walk.ts) returns `unreadable` and
+    // `resolveEntry`'s `unreadable` arm emits through `emitSourceFailure`.
+    // The assertion is byte-identical to cell 1's,
     // which is what makes cell 1's red a delivery gap rather than an
     // over-specified expectation: the code, severity, `file`, and
     // registry-sourced message are all producible by the walk as it stands.
@@ -617,11 +618,12 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
   });
 
   it("RED 6: a settings glob-matched directory denied EPERM on readdir emits an unreadable-source warning naming the matching entry's `settings entry index 0`", async () => {
-    // `addGlob` (src/discovery/discovery-walk.ts:707-717) reaches
+    // `addGlob` (src/discovery/discovery-walk.ts) reaches
     // `enumerateDirectory` once per matched directory; the descriptor it
-    // carries is the matching entry's index, the form :61 already names for the
-    // settings source. The glob UNIVERSE walk (`listTree`, :547) also fails on
-    // this path; that sub-case is deferred, hence the "at least one" pin.
+    // carries is the matching entry's index, the form DISC-2's descriptor
+    // rule (discovery-sources.md) already names for the settings source. The
+    // glob UNIVERSE walk (`listTree`) also fails on this path; that sub-case
+    // is deferred, hence the "at least one" pin.
     const fs = new ReaddirDenied(
       build({
         dirs: { "/project/.pi/g": ["sub"], "/project/.pi/g/sub": ["s.theta"] },

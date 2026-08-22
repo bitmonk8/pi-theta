@@ -19,9 +19,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // source text and never ask whether that text derives from `Type`. A `schema`
 // object-body field type (`schema S { a: string | }`) and a `schema X = …`
 // alias/union arm (`schema X = Cat +`) each record the junk verbatim, fall past
-// every arm of `lowerTypeExpr` to its trailing catch-all
-// (src/parser/params.ts:701–:702 — the `unspellable` sink push at `:701`, the
-// permissive `return {}` at `:702`), lower `{}`, and draw NO diagnostic at any
+// every arm of `lowerTypeExpr` (`src/parser/params.ts`) to its trailing
+// catch-all — the `unspellable` sink push, then the permissive `return {}` —
+// lower `{}`, and draw NO diagnostic at any
 // severity — so `hasLoadParseError`
 // (src/extension/production-composition.ts:2047) never fires and the theta
 // registers with a declaration that validates nothing

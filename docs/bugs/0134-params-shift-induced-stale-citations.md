@@ -1,9 +1,11 @@
 # Bug 0134 — Bug 0102's fix grew `src/parser/params.ts` by 18 lines from `:266` onward, and three `path:line` citations into that file still name the pre-shift positions: two sit inside witnesses bugs 0053 and 0096 own, so no in-scope edit could reach them and the 0102 orchestrator reverted its implementer's partial correction rather than ship half a sweep — an exhaustive audit of every `params.ts` citation in `src/**` and `tests/**` then finds 17 of 19 wrong, which moves the open question from three lines to the convention
 
-- **Status:** open. §Fix is not settled: four routes are enumerated below and
-  none is chosen. This report also carries the pre-authorization a corrective
-  edit needs — the two witness files are otherwise protected surfaces, and that
-  protection is exactly what left the three citations stale.
+- **Status:** fixed (0.198.0). Route (c)-narrow + (d)-tractable, recorded in
+  §Fix (0.198.0) below; constraint 1's authorization is widened there to every
+  citation the route reaches in the two protected witnesses. This report also
+  carries the pre-authorization a corrective edit needs — the two witness files
+  are otherwise protected surfaces, and that protection is exactly what left the
+  three citations stale.
 - **Sev/Diff estimate:** S4/D1 — documentation accuracy only: the cited
   *substance* is right at all three sites (correct file, correct function,
   correct predicate) and no runtime behaviour, diagnostic or test outcome
@@ -362,6 +364,143 @@ a spot check.
    correction values `:784` and `:950` are HEAD-relative facts, not constants.
 5. **Whichever route lands, record the census result**, so a later run does not
    re-derive 305 citations to reach the same 18-of-24 figure.
+
+## Fix (0.198.0)
+
+**The settled convention** (quotable; `docs/STYLE.md` §Citations is the
+normative home, `tests/citation-symbol-form-gate.test.ts` the enforcement):
+
+> A citation into a TypeScript construct names the file and the symbol, never a
+> line. The enforced scope is `src/**`, `tests/**`, the spec pages and
+> `docs/reference/**`. A line number stays legitimate only where the target has
+> no symbol to name — a spec sentence, a reference page, a fixture row — and is
+> then a claim about the HEAD that measured it. The gate holds a converted-file
+> list that is a ratchet: a file enters it when its citing sites have been swept
+> and never leaves. `docs/bugs/**` is outside the gate in both directions,
+> because a bug document is a dated record of one HEAD.
+
+- What shipped:
+  - `docs/STYLE.md` — new §Citations: the convention above, the enforced scope,
+    the continuation-attribution rule, and what the gate does not enforce. Route
+    (c) required the rule to be written down before it could be applied; this is
+    that record.
+  - `tests/citation-symbol-form-gate.test.ts` (new) — the route-(d) gate.
+    Offline, deterministic, provider-free. Three cells: line-form refusal
+    (adjacent and bare-`:NNN` continuation spellings, both quote variants),
+    symbol resolution (every citation of a converted file names a symbol that
+    file declares or carries), and a pinned count of continuations the
+    attribution rule cannot attribute to any file. Each cell names every
+    offender; none skips.
+  - Converted-file list v1 — `src/parser/params.ts`,
+    `src/discovery/discovery-walk.ts`, `src/runtime/err-note-render.ts`.
+  - 41 test files — 156 full-form `path:line` citations and 54 bare-`:NNN`
+    continuations into those three files rewritten to name the symbol.
+  - `src/parser/params.ts` — one comment-only hunk: `topLevelColon`'s doc
+    comment dropped a stale `:1880–1882` reference to `splitTopLevelSegments`
+    (declared at `:1918`). Five ` *` lines, line count unchanged, no executable
+    line. The rest of `src/**` is byte-identical to `c79568be`.
+- Re-derived census at the landing commit (§Fix constraint 4; the report's
+  figures were measured at `1451eb79` and every one had decayed):
+  `[A-Za-z0-9_./-]+\.ts:[0-9]+` over `src/**` and `tests/**` yields **1793**
+  citations (was 305) across 191 targets; **110** name `src/parser/params.ts`
+  (was 19), which is now 1985 lines. `src/**` had already converted itself to
+  symbol form by hand — site (a) included — which is why the convention codifies
+  existing `src/**` practice rather than imposing a new one.
+- Gates: witness RED before / GREEN after, twice by independent means (a stale
+  citation reintroduced into a swept file under a backup-and-hash protocol —
+  `tests/binder-param-line-newline-normalisation.test.ts:144 -> src/parser/params.ts:268`,
+  restored hash `2318113…` matching; and an untracked probe carrying both
+  spellings). `npm test` 387 files / 8008 tests (baseline 386 / 8005 plus the
+  gate's 3). `npm run typecheck` clean. `npm run lint` clean.
+  `tests/registry-closed-set-corpus-gate.test.ts` green with
+  `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` byte-
+  unchanged (`2458d660…`). `tests/committed-fixture-parse-gate.test.ts` green.
+- Review: 4 rounds. R1 (three partitions, per-directory) — two invented symbols
+  that named the wrong construct, 47 surviving bare-`:NNN` continuations, three
+  gate holes (backtick exemption, unreachable REQ-ID token, no continuation
+  rule). R2 — invented symbols and continuations discharged; the widened
+  attribution still hid 24 continuations and could be intercepted by a prose
+  path. R3 — attribution replaced (paragraph → block → string run, antecedent
+  ranking); found one live stale citation (`globMatches`, `:602`) hiding in an
+  unattributable channel of 417 sites, plus a paragraph-pass contradiction of
+  the gate's own documented rule. R4 — CLEAN: symbol-anchored attribution rank
+  added (200 candidate reds narrowed to 2 by requiring module-scope anchors
+  unique to one converted file, both dispositioned), antecedent ranking applied
+  at every scope, the residual channel counted and pinned at 415, the STYLE
+  claim rescoped to what the gate enforces.
+- Verification: SHIP. Witness reds for the right reason and greens after
+  (both directions, two means); default suite green; no live run owed because
+  `src/**` carries one comment-only hunk with zero executable-line changes (the
+  0193/0205 precedent, premise verified mechanically: `git diff --numstat -- src/`
+  is `5 5 src/parser/params.ts`, and every changed `src/` line is ` *`-prefixed);
+  lint and typecheck clean. Zero assertion changes proved mechanically: no
+  `it(`/`describe(`/`test(` line and no `expect(`/matcher line changed anywhere
+  in the diff.
+- Per-directory hunk classification: `src/` — 1 doc-comment hunk, 0 executable
+  lines. `tests/` — comment and doc-comment hunks, plus assertion-MESSAGE
+  strings only (the second argument to `expect`, and `why` table columns
+  consumed inside such messages); no asserted value, no matcher, no test name.
+  `docs/` — §Citations prose, insert-only.
+- Swept sites (rider (b)'s first list): all 110 `params.ts` citations, all 30
+  `discovery-walk.ts` citations and all 16 `err-note-render.ts` citations in
+  `src/**`/`tests/**` (156 full-form) plus 54 continuations; the disclosed drift
+  clusters this covers are 0102/0097/0134's `params.ts` set, 0177's
+  `err-note-render.ts` set (including the three `SNK-i`-anchored
+  live-acceptance citations) and 0075/0078's `discovery-walk.ts` set.
+- Deliberately left (rider (b)'s second list), each with its reason:
+  1. `docs/bugs/**` — outside the convention in both directions (§Non-goals).
+     15 open reports cite the three converted files by line: 0184 (19), 0054
+     (16), 0238 (13), 0239 (11), 0061 (11), 0236 (9), 0197 (8), 0192 (6), 0162
+     (6), 0088 (6), 0098 (4), 0143 (3), 0094 (2), 0092 (2), and this report (20).
+     No append-notes were written: the convention publishes the resolution rule
+     once, in §Citations, rather than 15 times in dated records.
+  2. `docs/reference/type-system.md` and the other prose targets — 256 line-form
+     citations from `tests/**`. A markdown target needs a heading-anchor form and
+     an anchor-stability rule of its own; that is the ratchet's next step, not
+     this pass. The 0144 / 0155 / 0195-era `type-system.md` drift stays
+     disclosed-not-chased.
+  3. 0153's note that the `enum { Ok, … }` fixtures in 0079 / 0114 / 0118 /
+     0196 §Reproduction no longer load — a fixture-semantics disclosure, not a
+     `path:line` citation, and the convention does not reach it. Historical
+     reproductions are not rewritten (§Non-goals).
+  4. Every other citation target in the corpus — 1793 citations over 191 targets
+     minus the 156 swept. Route (b) (sweep all) was declined as unbounded: it
+     buys a corpus correct at one commit, and the ratchet plus the gate is what
+     makes the next sweep cheap.
+  5. Substance drift in fixed-bug witnesses — sentences whose *claim* has aged
+     (e.g. a witness describing a naive dispatch that a later fix replaced).
+     §Non-goals: only the numbers move.
+- Residuals:
+  1. **415 continuations the gate attributes to no file.** Visible, not silent:
+     the count is asserted and reds when it rises, and the failure message states
+     the remedy — name the file beside the number, or name the symbol, rather
+     than raising the pin. Every one was hand-checked as a spec-page or
+     sibling-file anchor; the one converted-file instance the channel hid
+     (`globMatches`, `:602`) was swept in review round 4. The pin is an upper
+     bound with zero slack today; `toBe` would force each movement to be an
+     acknowledged update, and is a one-token strengthening a later pass can take.
+  2. **Two continuation shapes red only through that channel**: a run naming
+     distinctive anchors of two converted files (ambiguous attribution) and a
+     past-EOF number. Past-EOF is provably stale regardless of attribution and
+     could red unconditionally — a later ratchet step.
+  3. **Cell 2's window resolution can be satisfied by a coincidental
+     English-word identifier** (a converted file declaring `quote` or `line`
+     resolves prose using that word). It weakens precision, not the line-form
+     refusal, which is the cell that carries this bug's class.
+  4. **`docs/STYLE.md` §Citations bullet 3 compresses two site kinds** —
+     paragraph → block applies to prose sites, while a code site's run is its
+     concatenated string. The writer-facing rule (name the file beside the number
+     when the antecedent is ambiguous) is exact; the ordering sentence is
+     imprecise.
+- Discharge notes appended: none. The 15 open reports citing the converted files
+  are listed above rather than annotated — a dated record is not rewritten, and
+  §Citations publishes the resolution rule once.
+- Pinned dispositions / non-goals: route (a) (correct the three) is subsumed —
+  all three original sites are gone, two of them retired by intervening fixes
+  before this pass and re-derived here per constraint 4. Route (b) (sweep all
+  1793) is declined as unbounded; the ratchet replaces it. `src/parser/params.ts`
+  as a production surface stays out of scope: no executable line moved. Bug-doc
+  citations stay out of scope in both directions.
 
 ## Provenance
 

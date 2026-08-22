@@ -6,6 +6,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.198.0] - 2026-08-29
+
+### Added
+
+- `docs/STYLE.md` §Citations: a citation into a TypeScript construct names the
+  file and the symbol, never a line. Line numbers stay legitimate only where the
+  target has no symbol to name. `docs/bugs/**` is outside the rule, because a bug
+  document is a dated record of one HEAD (bug 0134).
+- `tests/citation-symbol-form-gate.test.ts`: an offline gate holding a ratchet
+  list of converted files. It refuses any line-form citation into one — adjacent
+  or bare-`:NNN` continuation — requires every citation to name a symbol the
+  cited file declares or carries, and pins the count of continuations it cannot
+  attribute to any file (bug 0134).
+
+### Changed
+
+- Citations into `src/parser/params.ts`, `src/discovery/discovery-walk.ts` and
+  `src/runtime/err-note-render.ts` now name symbols: 156 `path:line` citations
+  and 54 bare-`:NNN` continuations across 41 test files, plus one doc comment in
+  `src/parser/params.ts`. Comment and assertion-message prose only — no
+  executable line, no assertion, no test name (bug 0134).
+
 ## [0.197.0] - 2026-08-28
 
 ### Removed

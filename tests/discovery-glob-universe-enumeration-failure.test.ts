@@ -73,14 +73,14 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //   source of every expected message below (DIAG-4,
 //   docs/spec_topics/diagnostics/diagnostic-shape.md:74).
 //
-// THE DEFECT AT HEAD. `listTree` (src/discovery/discovery-walk.ts:556) maps the
-// `readdir` rejection to `undefined` without capturing `.code` (:559-562) and
-// returns from that subtree in silence (:563); its signature takes no
-// `diagnostics` parameter, so it cannot report. `treeFor` (:697-703) caches the
-// universe per static-prefix root and `addGlob` (:751-761) filters it through
-// `globMatches` (:602) — an entry absent from the universe reaches neither
-// `addDir` (:705) nor `addFile`, so bug 0076's emitter inside
-// `enumerateDirectory` (:315) is never entered for it. The package copy repeats
+// THE DEFECT AT HEAD. `listTree` (`src/discovery/discovery-walk.ts`) maps the
+// `readdir` rejection to `undefined` without capturing `.code` and
+// returns from that subtree in silence; its signature takes no
+// `diagnostics` parameter, so it cannot report. `treeFor` caches the
+// universe per static-prefix root and `addGlob` filters it through
+// `globMatches` — an entry absent from the universe reaches neither
+// `addDir` nor `addFile`, so bug 0076's emitter inside
+// `enumerateDirectory` is never entered for it. The package copy repeats
 // the swallow verbatim (src/discovery/package-discovery.ts:314, via `readdirOr`
 // at :155, called from `resolvePiThetas` at :398).
 //
@@ -97,8 +97,8 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //      code-registry-load.md (DIAG-4).
 //   3. Descriptor: settings side `settings entry index N` where N is the array
 //      index of the glob entry that first triggered the walk that observed the
-//      rejection — the universe is cached per static-prefix root
-//      (discovery-walk.ts:697-703), so when several entries share a prefix the
+//      rejection — the universe is cached per static-prefix root, by
+//      `treeFor` (`discovery-walk.ts`), so when several entries share a prefix the
 //      LOWEST such index owns it (deterministic). Package side:
 //      `` package `<name>` (pi.theta) `` (package-and-settings.md:27).
 //   4. The MISSING arm stays SILENT: a clean-leaf `ENOENT` under the static
@@ -446,9 +446,9 @@ function expectUniverseFailure(
       `"traversal failure inside a discovery root that does exist" ("an ` +
       `unreadable-source warning, not silence"), and :57 gives the Settings row's ` +
       `Unreadable cell the severity warning. AT HEAD listTree ` +
-      `(src/discovery/discovery-walk.ts:556) maps the readdir rejection to undefined ` +
-      `without capturing .code (:559-562) and returns from the subtree in silence ` +
-      `(:563); it takes no diagnostics parameter, so the shrunken universe is ` +
+      `(src/discovery/discovery-walk.ts) maps the readdir rejection to undefined ` +
+      `without capturing .code and returns from the subtree in silence; ` +
+      `it takes no diagnostics parameter, so the shrunken universe is ` +
       `unreported. Observed diagnostics=${JSON.stringify(diagnostics)}`,
   ).toBe(1);
   const diagnostic = hits[0]!;
@@ -471,9 +471,8 @@ function expectUniverseFailure(
 }
 
 // ===========================================================================
-// Cells S0-S12 — the settings `thetaPaths` universe
-// (src/discovery/discovery-walk.ts:556, reached through treeFor at :697-703
-// from addGlob at :751-765).
+// Cells S0-S12 — the settings `thetaPaths` universe (`listTree`,
+// `src/discovery/discovery-walk.ts`, reached through `treeFor` from `addGlob`).
 // ===========================================================================
 
 describe("bug 0113 — a settings glob universe whose readdir rejects reports its failure (discovery-sources.md:69, :57)", () => {
@@ -485,9 +484,10 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
 
   it("control S0 (green): with nothing denied, `g/**/*.theta` DOES select the nested theta and the pass is silent", async () => {
     // The bug doc's §Reproduction control: it establishes that the pattern
-    // selects the file through `globMatches` (:602, bug 0077's conformant
-    // predicate), so every red below is the universe walk losing a path it
-    // enumerated successfully in this cell — not a mis-specified match.
+    // selects the file through `globMatches` (`src/discovery/discovery-walk.ts`,
+    // bug 0077's conformant predicate), so every red below is the universe walk
+    // losing a path it enumerated successfully in this cell — not a
+    // mis-specified match.
     const fs = build(nestedThetaFixture);
 
     const { thetas, diagnostics } = await discoverThetas(
@@ -549,7 +549,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     // ENOENT classifies as *unreadable*, not *missing*. The `lstat` denial is
     // deliberately placed on a path the universe walk itself never `lstat`s
     // (it walks downward from `/project/.pi/g`), so the only consumer of that
-    // rejection is `ancestorsClean` (src/discovery/discovery-walk.ts:252).
+    // rejection is `ancestorsClean` (`src/discovery/discovery-walk.ts`).
     // Cell S9 is the same rejection code with a clean chain and must stay
     // SILENT — the pair is what makes the code classification observable.
     const fs = new ReaddirDenied(build(nestedThetaFixture), DENIED_SUB, "ENOENT", {
@@ -607,7 +607,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
   });
 
   it("RED S5: two entries sharing one static-prefix root emit EXACTLY ONE warning, owned by the LOWEST index", async () => {
-    // `treeFor` (src/discovery/discovery-walk.ts:697-703) caches the universe by
+    // `treeFor` (`src/discovery/discovery-walk.ts`) caches the universe by
     // static-prefix root, so entry 1 never walks: it reads entry 0's cached
     // tree. Adjudication (3) pins that determinism as the attribution rule —
     // the lowest index that triggered the walk owns the rejection — and (5)
@@ -641,8 +641,8 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
   it("RED S6: the glob's own static-prefix ROOT denying readdir EACCES emits one unreadable-source warning", async () => {
     // Sharper than a subtree: `/project/.pi/g` is the directory the entry text
     // names literally, and at HEAD it produces nothing. A glob entry never
-    // reaches `classifyPath` — `resolveSettingsSource` routes it to `addGlob`
-    // (src/discovery/discovery-walk.ts:751), not `addLiteral` (:727) — so the
+    // reaches `classifyPath` — `resolveSettingsSource` (`src/discovery/discovery-walk.ts`)
+    // routes it to `addGlob`, not `addLiteral` — so the
     // entry-level classification that reports a denied literal directory is not
     // on this path either. Adjudication (1) covers the root explicitly.
     const fs = new ReaddirDenied(build(nestedThetaFixture), PREFIX_ROOT, "EACCES");
@@ -665,7 +665,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     // The contrast that makes bug 0113 a residual of bug 0076. `g/*` matches
     // the denied DIRECTORY, which is in the universe (its own `lstat` succeeded
     // while its parent was being walked), so `addGlob` sends it to `addDir`
-    // (:705) → `enumerateDirectory` (:315), which reports after bug 0076.
+    // → `enumerateDirectory`, which reports after bug 0076.
     // `g/**/*.theta` matches only the FILE inside it, which the shrunken
     // universe does not hold, so no arm is entered.
     //
@@ -702,7 +702,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
 
   it("RED S8: a `+` operand recovers the file AND the universe failure is still reported", async () => {
     // Override stage (3) routes a `+` operand through `addLiteral`
-    // (src/discovery/discovery-walk.ts:780-783 → :727), which calls
+    // (`src/discovery/discovery-walk.ts`), which calls
     // `classifyPath` on the file itself; the file's `lstat` succeeds and it
     // registers. That locates the loss precisely — the `.theta` is readable
     // throughout, only the universe that would have found it is short — and it
@@ -1180,7 +1180,7 @@ describe("bug 0113 — the universe-walk warning reaches the theta-system-note c
         `silence. The warning must reach the theta-system-note channel through ` +
         `sink.emitGroup(walk.diagnostics) (production-composition.ts:539) → ` +
         `emitLoadNoteGroup's warning arm (:1280-1284). AT HEAD listTree ` +
-        `(discovery-walk.ts:556-563) produces no diagnostic at all, so nothing is ` +
+        `(discovery-walk.ts) produces no diagnostic at all, so nothing is ` +
         `emitted and nothing is delivered. Observed notes=` +
         `${JSON.stringify(harness.notes)}`,
     ).toBeGreaterThanOrEqual(1);

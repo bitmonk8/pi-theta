@@ -33,7 +33,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // (src/extension/production-theta-producer.ts:3600) exposes as the arm-4
 // callable registry carried a name theta code cannot spell. The digit-leading
 // class is reachable because the discovery stem regex `^[a-z0-9][a-z0-9_-]*$`
-// (`SLASH_NAME`, src/discovery/discovery-walk.ts:82, specified at
+// (`SLASH_NAME`, src/discovery/discovery-walk.ts, specified at
 // docs/spec_topics/discovery/discovery-sources.md:74) admits a leading digit,
 // so `2fast.theta` is a registrable file
 // (docs/bugs/0070-theta-callable-default-name-unvalidated.md).

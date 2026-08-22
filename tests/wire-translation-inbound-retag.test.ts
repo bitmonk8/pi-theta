@@ -303,7 +303,8 @@ describe("translateInbound — re-tag and re-brand end state (runtime-value-mode
 //
 // The end state below is §Fix (a): both records built with `Object.create(null)`,
 // the rule this corpus already applies at five sites
-// (`src/parser/type-layer-checks.ts:330`, `:792`, `src/parser/params.ts:337`,
+// (`src/parser/type-layer-checks.ts:330`, `:792`, `parseParams`
+// (`src/parser/params.ts`),
 // `src/extension/invoke-static-checks.ts:897`, `:1010`, the design note at
 // `type-layer-checks.ts:317`). A key spelled `__proto__` is then an ordinary
 // own enumerable key: `Object.keys` reports it, `JSON.stringify` emits it, and

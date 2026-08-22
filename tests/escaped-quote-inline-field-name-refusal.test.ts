@@ -8,17 +8,17 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { parseDoc } from "./helpers/e2e-s1";
 
-// Bug 0229 — `topLevelColon` (src/parser/params.ts:1790) latches a quoted
-// region without a backslash arm (:1786–1791), while the split that feeds it
+// Bug 0229 — `topLevelColon` (src/parser/params.ts) latches a quoted
+// region without a backslash arm, while the split that feeds it
 // consumes `\` plus the character behind it (`splitTopLevelSegments`,
-// src/parser/params.ts:1880–1882). An inline object entry whose wire-name
+// src/parser/params.ts). An inline object entry whose wire-name
 // string carries an escaped quote — `{a as "w\"x": integer}` — therefore has
 // no `:` at depth 0: the scan closes the literal at the ESCAPED `"`, opens a
-// new one at the `"` behind `x`, and returns `-1` (:1802). Every consumer
+// new one at the `"` behind `x`, and returns `-1`. Every consumer
 // reads `-1` as "no field here": `inlineObjectFieldKeys`
 // (src/parser/type-grammar.ts:752–755) contributes no key, so none of the four
 // raw-key rules behind the shared gates (:1021) judges the entry;
-// `hoistInlineObjectType` (src/parser/params.ts:1267–1270) and
+// `hoistInlineObjectType` (src/parser/params.ts) and
 // `lowerInlineObject` (src/parser/body-type-lowering.ts:183–186) contribute no
 // `properties` member and no `required` entry. The author's field is deleted
 // from the artefact with nothing on any channel
@@ -30,7 +30,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // =====================================================================
 // 0229 §Fix (a) — the escape-aware colon scan — with the rename predicate
 // widened so the returned key reaches a row rather than falling through:
-//   1. `topLevelColon` (src/parser/params.ts:1790) gains the backslash arm its
+//   1. `topLevelColon` (src/parser/params.ts) gains the backslash arm its
 //      sibling split already has, so `a as "w\"x": integer` yields the colon
 //      the author wrote and the key is `a as "w\"x"`.
 //   2. `INLINE_FIELD_RENAME` (src/parser/type-grammar.ts:153) widens its
@@ -50,7 +50,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (0229 §Fix Residuals item 1). CLOSED by bug 0232 (vX.Y.Z): `params:` now
 // raises its own registered `theta/load/params-type-not-expression` directly
 // off a new params.ts-local unterminated-literal predicate
-// (`hasUnterminatedStringLiteral`, src/parser/params.ts:1687), so the field is
+// (`hasUnterminatedStringLiteral`, src/parser/params.ts), so the field is
 // refused rather than silently dropped — see
 // tests/unterminated-literal-params-type-refusal.test.ts. §Fix
 // (c) therefore does not arise, and the four-way precedence fixed at
@@ -97,7 +97,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // tests/helpers/e2e-s1.ts:39, the shipped load path behind the inert offline
 // `parseDeps` double) or one direct lowerer call
 // (`lowerQueryResponseSchema` src/runtime/query-schema-lowering.ts:153,
-// `lowerParamsFieldType` src/parser/params.ts:1761). An integration or live
+// `lowerParamsFieldType` src/parser/params.ts). An integration or live
 // tier reaches no observable this tier cannot: the defect is a character scan
 // over a string, and the artefact it corrupts is returned by value.
 //
@@ -544,15 +544,16 @@ describe("bug 0229 (C) — the lowered artefact carries the field the author wro
       lowerQueryResponseSchema(ESC, [], []),
       "C1 — schema-subset.md:78 keys `properties` by wire names and puts every one of them in " +
         "`required`, and grammar.md:109 makes each inline field required by default. A red here " +
-        "showing an empty `properties` is the silent deletion: `hoistInlineObjectType` skipped " +
-        "the keyless entry (src/parser/params.ts:1267–1270)",
+        "showing an empty `properties` is the silent deletion: `hoistInlineObjectType` " +
+        "(src/parser/params.ts) skipped the keyless entry",
     ).toEqual(ESC_FRAGMENT);
 
     const esc = paramsFragment(ESC);
     expect(
       esc.fragment,
       "C1 — at `params:` the entry hoists to a `$ref` instead of collapsing to the permissive " +
-        "`{}` the `required.length === 0` arm returns (src/parser/params.ts:1281–1283). A `{}` " +
+        "`{}` that `hoistInlineObjectType`'s `required.length === 0` arm returns " +
+        "(src/parser/params.ts). A `{}` " +
         "here is a declared parameter that accepts any JSON at all",
     ).toEqual({ $ref: `#/$defs/${ESC_SLUG}` });
     expect(esc.defs, "C1 — and the hoisted member carries the same bytes").toEqual({

@@ -3,7 +3,7 @@
 // through the real production composition root.
 //
 // This is bug 0113's fix-record residual 1 / bug 0075's §Affected `listTree`
-// site: `listTree` (src/discovery/discovery-walk.ts:591-599,
+// site: `listTree` (src/discovery/discovery-walk.ts,
 // src/discovery/package-discovery.ts:355-363) now classifies a per-entry
 // `lstat` rejection by `.code` and carries any non-`ENOENT` path out in
 // `TreeWalk.unreadable`, which `emitUniverseFailures` reports through the same

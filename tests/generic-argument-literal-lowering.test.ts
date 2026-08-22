@@ -24,42 +24,42 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE MECHANISM, one absence below all four positions. Two functions call the
 // literal sublanguage, and both call it at the TOP of a type source only:
-// `lowerParamsFieldType` (src/parser/params.ts:1428, the call at `:1433`) and
-// `lowerTypeSource` (src/parser/body-type-lowering.ts). An `array<…>` source is
-// neither a literal nor brace-rooted, so both decline it and hand it WHOLE to
-// `lowerTypeExpr` (src/parser/params.ts:665). Its generic-application arm
-// (`:695`) then owns everything below the angle bracket:
+// `lowerParamsFieldType` (src/parser/params.ts, its `lowerLiteralSublanguage`
+// call) and `lowerTypeSource` (src/parser/body-type-lowering.ts). An
+// `array<…>` source is neither a literal nor brace-rooted, so both decline it
+// and hand it WHOLE to `lowerTypeExpr` (src/parser/params.ts). Its
+// generic-application arm then owns everything below the angle bracket:
 //
-//   - `:700` tests `ctor === "array"` at arity 1 and `:702` returns
+//   - its `ctor === "array"` arity-1 arm returns
 //     `{ type: "array", items: lowerTypeExpr(first, lowerCtx) }` — the
 //     SELF-recursion. Nothing on that path can reach a literal rule.
-//   - `:707` is the best-effort loop for every other constructor, also
+//   - its trailing best-effort loop for every other constructor is also
 //     `lowerTypeExpr`.
 //
 // For `array<"x">` the argument is a single literal atom, which matches no arm
 // of `lowerTypeExpr` and falls to its trailing catch-all — `{}`. For
-// `array<"x" | "y">` the argument reaches the union split (`:676`); the arm set
-// is ALL-literal, so `isMixedLiteralArmSet` (`:837`) is false and bug 0184's
-// gated per-arm consult (`lowerLiteralUnionArm`, `:858`, reached at `:681`) does
+// `array<"x" | "y">` the argument reaches the union split (`splitTopLevel` on
+// `|`); the arm set is ALL-literal, so `isMixedLiteralArmSet` is false and bug
+// 0184's gated per-arm consult (`lowerLiteralUnionArm`) does
 // not fire; each arm re-enters `lowerTypeExpr` and returns `{}`; the inlined
 // primitive test reads `{}` as `non-primitive` and `lowerUnion` emits
 // `{"anyOf":[{},{}]}`. That is SUBS-1 applied faithfully to arms carrying no
 // information.
 //
 // The ingredient is one function away and exported: `lowerLiteralSublanguage`
-// (src/parser/params.ts:1356) splits on `|` (`:1357`), requires every arm to
-// parse through `parseLiteralArm` (`:1271`), and emits bug 0055's landed
-// ternary (`:1362-1364`) or the single-atom `const` (`:1369`).
+// (src/parser/params.ts) splits on `|` through `splitTopLevel`, requires every
+// arm to parse through `parseLiteralArm`, and emits bug 0055's landed
+// `type: "string"` / bare-`enum` ternary or the single-atom `const`.
 //
 // THE SETTLED PLACEMENT — §Fix's route (i), AT THE ARGUMENT. Both argument call
-// sites (`:702`'s arity-1 `array` argument and `:707`'s best-effort loop)
+// sites (the arity-1 `array` argument and the best-effort loop)
 // consult `lowerLiteralSublanguage` first and fall back to `lowerTypeExpr` on a
-// decline. `lowerTypeExpr`'s PER-ARM union recursion (`:681`, bug 0184's
+// decline. `lowerTypeExpr`'s PER-ARM union recursion (bug 0184's
 // mixed-gated `lowerLiteralUnionArm`) is UNTOUCHED, which is what leaves
 // `array<"x" | integer>` — a MIXED union whose literal arm bug 0184 already
 // moved — exactly where it is (group (d)). §Fix constraint 1: the argument
 // split's nesting mode does not widen; a remedy changes where the argument text
-// GOES, never what `splitTopLevel`'s angle-only default (`:1607`) hands it.
+// GOES, never what `splitTopLevel`'s angle-only default hands it.
 //
 // WHAT IS RED HERE — every cell whose subject is the moved `items`:
 //   - group (a): all eleven rows and their eleven key-order twins (the
@@ -509,7 +509,8 @@ const RESPOND_ROWS: ReadonlyArray<readonly [string, string, string, string, stri
     '{"type":"array","items":{"enum":[true,false]}}',
     '{"items":{"enum":[true,false]},"type":"array"}',
     "1a105bdd080709e5",
-    "the all-boolean union: bug 0044's atom arm (src/parser/params.ts:723-727) already gave each " +
+    "the all-boolean union: bug 0044's `true` / `false` arm in `lowerTypeExpr`'s atom " +
+      "section (`src/parser/params.ts`) already gave each " +
       "ARM its `const`, so this row is the one literal kind that already constrains at this " +
       "depth — what moves is which ROUTE emits it, and therefore its bytes",
   ],
@@ -636,7 +637,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, unknown, string]> = [
     "array<1 | 2>",
     { type: "array", items: { enum: [1, 2] } },
     "the NUMBER-literal union. §Fix constraint 6: this row inherits whatever " +
-      "`lowerLiteralSublanguage`'s bare-`enum` branch (src/parser/params.ts:1364) emits — bug " +
+      "`lowerLiteralSublanguage`'s bare-`enum` branch (src/parser/params.ts) emits — bug " +
       "0098's subject — rather than choosing new bytes here. The depth-parity group proves the " +
       "inheritance rather than restating it",
   ],
@@ -678,7 +679,8 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, unknown, string]> = [
     "a9",
     "array<true | false>",
     { type: "array", items: { enum: [true, false] } },
-    "the all-boolean union. Bug 0044's atom arm (src/parser/params.ts:723-727) already gives " +
+    "the all-boolean union. Bug 0044's `true` / `false` arm in `lowerTypeExpr`'s atom " +
+      "section (`src/parser/params.ts`) already gives " +
       "each ARM its `{\"const\":…}`, so this is the one literal kind that CONSTRAINS at this " +
       "depth today — and its bytes still diverge from what the same source emits at depth 0. " +
       "What moves is the route, which is why the depth-parity group is the sharper cell",
@@ -705,7 +707,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, unknown, string]> = [
     { type: "array", items: { const: 7 } },
     "the SINGLE-NUMBER-literal argument, the untested half of a2's row: schema-subset.md:79's " +
       "`{ \"const\": <value> }` names `\"foo\" / 42 / true / null` together, and " +
-      "`lowerLiteralSublanguage`'s single-atom branch (src/parser/params.ts:1369) returns " +
+      "`lowerLiteralSublanguage`'s single-atom branch (src/parser/params.ts) returns " +
       "`{ const: lit.value }` with no test on `lit`'s kind, so the number half of the row rides " +
       "the same branch a2 pins for strings. Appended rather than placed beside a2 — inserting it " +
       "there would renumber a3 through a11, which other documents may cite by id",
@@ -792,8 +794,8 @@ const DEPTH_ROWS: ReadonlyArray<readonly [string, string, readonly Position[], s
     "dp4",
     "1 | 2",
     POSITIONS,
-    "the bare-`enum` branch (src/parser/params.ts:1364), whose bytes bug 0098 owns and this " +
-      "report inherits rather than decides (§Fix constraint 6)",
+    "`lowerLiteralSublanguage`'s bare-`enum` branch (src/parser/params.ts), whose bytes bug 0098 " +
+      "owns and this report inherits rather than decides (§Fix constraint 6)",
   ],
   ["dp5", '"x" | 1', POSITIONS, "the mixed-KIND all-literal union, same branch"],
   [
@@ -810,9 +812,10 @@ const DEPTH_ROWS: ReadonlyArray<readonly [string, string, readonly Position[], s
     "7",
     POSITIONS,
     "the single number literal, the untested half of dp2's row: :79's `{\"const\":7}`, the same " +
-      "kind-agnostic single-atom branch (src/parser/params.ts:1369) dp2 pins for strings. Unlike " +
-      "`1.5 | -2` (a5's note above), bare `7` was measured to load with NO diagnostics at all " +
-      "four depth-0 positions, so the four-position comparison this group runs is available here",
+      "kind-agnostic single-atom branch `lowerLiteralSublanguage` (src/parser/params.ts) dp2 pins " +
+      "for strings. Unlike `1.5 | -2` (a5's note above), bare `7` was measured to load with NO " +
+      "diagnostics at all four depth-0 positions, so the four-position comparison this group runs " +
+      "is available here",
   ],
 ];
 
@@ -1068,7 +1071,8 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       "THE MIXED UNION — the most important control in this file, and the one the bug doc's " +
         "§Repro (g) quotes STALE. It quotes `{\"anyOf\":[{},{\"type\":\"integer\"}]}`, measured at " +
         "v0.85.0; bug 0184 §Fix (v0.115.0) then landed the MIXED-gated per-arm consult " +
-        "(`isMixedLiteralArmSet`, src/parser/params.ts:837, reached at `:681`), so at HEAD the " +
+        "(`isMixedLiteralArmSet`, src/parser/params.ts, reached from `lowerTypeExpr`'s " +
+        "union-arm map), so at HEAD the " +
         "literal ARM already lowers schema-subset.md:79's `{\"const\":\"x\"}` while `integer` " +
         "keeps its primitive `{\"type\":\"integer\"}`. Bug 0043 §Non-goals holds the CLASS " +
         "permissive-by-arm-set and bug 0164 §Non-goals restates it; §Fix's route (i) sits at the " +
@@ -1088,7 +1092,7 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       "d6",
       'array<{m: "x" | "y"}>',
       { type: "array", items: { anyOf: [{}, {}] } },
-      "the sharpest brace row: `splitTopLevel`'s angle-only default (src/parser/params.ts:1571) " +
+      "the sharpest brace row: `splitTopLevel`'s angle-only default (src/parser/params.ts) " +
         "cuts the brace group into `{m: \"x\"` and `\"y\"}`, so this `anyOf` arrives from the " +
         "argument SPLIT rather than from the literal check — a fragment that LOOKS like a1's " +
         "HEAD bytes and must not move with them",
@@ -1106,11 +1110,13 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       "d8",
       "array<true>",
       { type: "array", items: { const: true } },
-      "a SINGLE boolean literal: unchanged BYTES, changed ROUTE. Bug 0044's atom arm " +
-        "(src/parser/params.ts:723-727) emits this today; after §Fix the argument reaches " +
-        "`lowerLiteralSublanguage`'s single-atom `const` (`:1369`) instead, and the two spell the " +
-        "same fragment. §Fix constraint 2's table lists the row as `unchanged` for exactly that " +
-        "reason, and this cell is what makes the re-route observable as a no-op",
+      "a SINGLE boolean literal: unchanged BYTES, changed ROUTE. Bug 0044's `true` / " +
+        "`false` arm in `lowerTypeExpr`'s atom section (`src/parser/params.ts`) emits this " +
+        "today; after §Fix the argument reaches `lowerLiteralSublanguage`'s single-atom " +
+        "`const` — its trailing `parseLiteralArm` return — instead, and the two spell the " +
+        "same fragment. §Fix constraint 2's table lists " +
+        "the row as `unchanged` for exactly that reason, and this cell is what makes the " +
+        "re-route observable as a no-op",
     ],
     [
       "d9",
@@ -1122,8 +1128,8 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       "d10",
       'map<"x" | "y">',
       {},
-      "a NON-`array` constructor. `ctor === \"array\"` fails, so the best-effort loop " +
-        "(src/parser/params.ts:707) runs as a RESOLUTION walk and the emission is `{}` " +
+      "a NON-`array` constructor. `ctor === \"array\"` fails, so `lowerTypeExpr`'s best-effort " +
+        "loop (src/parser/params.ts) runs as a RESOLUTION walk and the emission is `{}` " +
         "(§Fix constraint 2 names every non-`array` constructor among the unmoved). Routing that " +
         "loop's arguments through the recogniser changes what it RESOLVES, never what it returns",
     ],
@@ -1150,8 +1156,8 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
   it("CONTROL (d11): `Result<\"x\" | \"y\", string>` keeps its refusal at three positions and its `{}` at the annotation root", () => {
     // §Non-goals: `schema-subset.md:84` makes `Result` unlowerable and
     // `theta/parse/result-in-schema-position` refuses it in a lowered-schema
-    // position BEFORE the pass runs, so the best-effort loop
-    // (src/parser/params.ts:707) is a resolution walk there and not an
+    // position BEFORE the pass runs, so `lowerTypeExpr`'s best-effort loop
+    // (src/parser/params.ts) is a resolution walk there and not an
     // emission. A literal argument written inside it changes nothing: this is
     // the ONE cell in this file that expects a diagnostic, and it expects a
     // PRE-EXISTING one (§Fix constraint 7 registers no new code — DIAG-2, the

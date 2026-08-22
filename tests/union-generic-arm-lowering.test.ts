@@ -15,23 +15,23 @@ import {
 } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 
-// Bug 0043 — `lowerTypeExpr` (src/parser/params.ts:391) tests for a generic
+// Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
 // `>` is consumed whole by the generic arm and never split
 // (docs/bugs/0043-union-nonprimitive-arm-lowers-permissive.md).
 //
 // ONE FRAME, TWO OUTCOMES. The generic predicate is positional, not structural:
-// a `<` past index 0 plus a final `>` (`:395–396`). Every union whose LAST arm
+// a `<` past index 0 plus a final `>` (the generic-application test). Every union whose LAST arm
 // is `array<T>` satisfies it, because that arm's own closing `>` is the source's
 // last character.
 //
 //   - `ctor` is everything before the FIRST `<`. For `integer | array<integer>`
 //     that is `"integer | array"`, which is not `"array"`, so the permissive
-//     return at `:408` fires and the WHOLE union — primitive arms included —
+//     best-effort loop's return fires and the WHOLE union — primitive arms included —
 //     lowers to `{}`.
 //   - When the source begins `array<`, `ctor` IS `"array"` and the mis-sliced
 //     argument (`string> | array<integer`) carries no top-level comma, so the
-//     single-argument branch at `:399–401` matches and the union lowers to the
+//     single-argument `array` branch matches and the union lowers to the
 //     concrete WRONG type `{"type":"array","items":{}}`. The mis-sliced text is
 //     never identifier-shaped, so a `NamedType` written inside it never reaches
 //     the resolution arm and `theta/parse/unresolved-named-type` under-emits.
@@ -518,7 +518,7 @@ describe("bug 0043 (a) — a union whose LAST arm is `array<T>` lowers SUBS-1's 
           fragment,
           `${label} [${position}]: schema-subset.md:81 (SUBS-1) requires \`{"anyOf":[...]}\` in ` +
             `source order for a union with a non-primitive arm, and :77 gives \`array<T>\` its ` +
-            `bytes; the generic-application arm (params.ts:395–408) swallows the whole union ` +
+            `bytes; \`lowerTypeExpr\`'s generic-application arm (params.ts) swallows the whole union ` +
             `instead. observed=${JSON.stringify(fragment)}`,
         ).toEqual(expected);
       });
@@ -591,7 +591,7 @@ describe("bug 0043 (b) — an `array`-headed union lowers each arm, not one mis-
         expect(
           fragment,
           `${label} [${position}]: the mis-sliced single-argument \`array\` branch ` +
-            `(params.ts:399–401) emits arrayness while dropping every arm the author wrote; ` +
+            `(\`lowerTypeExpr\`, params.ts) emits arrayness while dropping every arm the author wrote; ` +
             `SUBS-1 requires the \`anyOf\`. observed=${JSON.stringify(fragment)}`,
         ).toEqual(expected);
       });
@@ -857,7 +857,7 @@ describe("bug 0043 (e) — a name in ANY arm of ANY spelling raises unresolved-n
           `${label} [${position}]: code-registry-parse.md's ` +
             `\`${UNRESOLVED}\` row triggers on any \`NamedType\` resolving to no declaration ` +
             `usable at the position it is written, and each arm lowers through the identifier ` +
-            `arm (params.ts:435–444); observed ${JSON.stringify(read.diags)}`,
+            `arm (\`lowerTypeExpr\`, params.ts); observed ${JSON.stringify(read.diags)}`,
         ).toEqual(EXPECTED);
       });
     }

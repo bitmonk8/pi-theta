@@ -356,8 +356,8 @@ describe("V12b-T — SLSH-5 chain attribution", () => {
 //
 // At HEAD every cell below reds for one of the two measured reasons: a
 // plain-prototype record substitutes as `[object Object]`
-// (`renderLeafKindNote`'s seven interpolating rows, `err-note-render.ts:122`,
-// `:127`, `:132`, `:146`, `:155-156`, `:161`, `:165`), and a null-prototype
+// (`renderLeafKindNote`'s seven interpolating rows — SNK-a, SNK-c, SNK-d,
+// SNK-g, SNK-h, SNK-i, SNK-k, all in `err-note-render.ts`), and a null-prototype
 // record — the shape `rebuildInbound` mints since bug 0173
 // (`src/runtime/wire-translation.ts:370`) — raises
 // `TypeError: Cannot convert object to primitive value` from inside the
@@ -367,8 +367,8 @@ describe("V12b-T — SLSH-5 chain attribution", () => {
 // These cells import nothing that does not exist at HEAD: the new summariser
 // module `src/runtime/err-field-summary.ts` is the implementer's to add, so
 // every assertion here runs through the shipped public entry points
-// `renderLeafKindNote` (`err-note-render.ts:106`) and `renderTopLevelErrNote`
-// (`:179`).
+// `renderLeafKindNote` and `renderTopLevelErrNote`, both declared in
+// `err-note-render.ts`.
 
 /** The one-own-key record every §Reproduction (b) row places at a field. */
 function plainRec(): Record<string, unknown> {
@@ -406,8 +406,7 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
     it(`SNK-k: a record at 'kind' renders as compact JSON, not [object Object] and not a throw — ${proto}`, () => {
       // §Reproduction (b) rows 1-2: plain renders
       // `theta /t returned Err: [object Object] — m`; null-prototype throws.
-      // SNK-k's return is `err-note-render.ts:165`, in the `default:` arm at
-      // `:163`.
+      // SNK-k's return sits in `err-note-render.ts`'s `default:` arm.
       expect(renderLeafKindNote("t", leafOf({ kind: mk(), message: "m" }))).toBe(
         `theta /t returned Err: ${REC_JSON} ${DASH} m`,
       );
@@ -415,28 +414,28 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
 
     it(`SNK-k: a record at 'message' renders as compact JSON — ${proto}`, () => {
       // §Reproduction (b) row 3. Same template, second placeholder
-      // (`err-note-render.ts:165`).
+      // (`err-note-render.ts`).
       expect(renderLeafKindNote("t", leafOf({ kind: "weird", message: mk() }))).toBe(
         `theta /t returned Err: weird ${DASH} ${REC_JSON}`,
       );
     });
 
     it(`SNK-c: a record at transport 'message' renders as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 4; the row's return is `err-note-render.ts:127`.
+      // §Reproduction (b) row 4; the row's return is in `err-note-render.ts`.
       expect(renderLeafKindNote("t", leafOf({ kind: "transport", message: mk() }))).toBe(
         `theta /t returned Err: transport ${DASH} ${REC_JSON}`,
       );
     });
 
     it(`SNK-d: a record at model_tool 'tool_name' renders as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 5; the row's return is `err-note-render.ts:132`.
+      // §Reproduction (b) row 5; the row's return is in `err-note-render.ts`.
       expect(
         renderLeafKindNote("t", leafOf({ kind: "model_tool", tool_name: mk(), message: "m" })),
       ).toBe(`theta /t returned Err: tool ${REC_JSON} failed ${DASH} m`);
     });
 
     it(`SNK-g: a record at code_tool 'cause' renders as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 6; the row's return is `err-note-render.ts:146`.
+      // §Reproduction (b) row 6; the row's return is in `err-note-render.ts`.
       expect(
         renderLeafKindNote(
           "t",
@@ -446,14 +445,14 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
     });
 
     it(`SNK-i: a record at invoke_infra 'callee_path' renders as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 7; the row's return is `err-note-render.ts:161`.
+      // §Reproduction (b) row 7; the row's return is in `err-note-render.ts`.
       expect(
         renderLeafKindNote("t", leafOf({ kind: "invoke_infra", callee_path: mk(), cause: "c" })),
       ).toBe(`theta /t returned Err: invoke of ${REC_JSON} failed (c)`);
     });
 
     it(`SNK-a: a record at validation 'attempts' renders as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 8; the row's return is `err-note-render.ts:122`.
+      // §Reproduction (b) row 8; the row's return is in `err-note-render.ts`.
       expect(
         renderLeafKindNote(
           "t",
@@ -464,9 +463,9 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
 
     it(`SNK-h: records at 'rounds' and at 'last_tool_name' render as compact JSON — ${proto}`, () => {
       // §Reproduction (b) row 9 measures `rounds`; `last_tool_name` reaches the
-      // same template through `e.last_tool_name ?? "respond"`
-      // (`err-note-render.ts:155`), where `??` passes a record through
-      // unchanged. The row's return is `:156`.
+      // same template through `e.last_tool_name ?? "respond"`, where `??`
+      // passes a record through unchanged. Both sit in `err-note-render.ts`'s
+      // `tool_loop_exhausted` case.
       expect(
         renderLeafKindNote(
           "t",
@@ -487,7 +486,8 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
 
     it(`SLSH-3: renderTopLevelErrNote over a direct leaf with a record 'kind' renders as compact JSON — ${proto}`, () => {
       // §Reproduction (b), first `renderTopLevelErrNote` row: the boundary entry
-      // point (`err-note-render.ts:179`) reaches the same coercion.
+      // point, `renderTopLevelErrNote` in `err-note-render.ts`, reaches the
+      // same coercion.
       expect(
         renderTopLevelErrNote({
           thetaName: "t",
@@ -499,7 +499,8 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
 
     it(`SLSH-5: an invoke_callee wrapper is not a shield — the walked-to leaf's record 'kind' renders as compact JSON — ${proto}`, () => {
       // §Reproduction (b), second `renderTopLevelErrNote` row: the wrapper walk
-      // (`err-note-render.ts:183-185`) reaches the leaf before the row renders.
+      // (`renderTopLevelErrNote`'s `while` loop, `err-note-render.ts`) reaches
+      // the leaf before the row renders.
       expect(
         renderTopLevelErrNote({
           thetaName: "t",
@@ -512,7 +513,7 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
 
   it("SNK-e / SNK-f: the two non-interpolating rows are unaffected by a record at 'message'", () => {
     // §Reproduction (b), last two rows, and §Reproduction (g): SNK-e
-    // (`err-note-render.ts:134-138`) and SNK-f (`:139-142`) interpolate no
+    // (`err-note-render.ts`) and SNK-f interpolate no
     // payload field, so no value in one can perturb them. Green at HEAD and
     // green after the fix — the controls that show the defect is the
     // interpolation, not the dispatch.
