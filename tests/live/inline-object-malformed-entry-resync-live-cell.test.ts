@@ -157,10 +157,17 @@ describe("bug 0231 live: a well-formed field's case violation behind a malformed
     // sibling is clean, so neither live observable below can be produced by
     // an unrelated load failure. This reds a neutralised fix before any
     // provider call is made.
+    // Since bug 0233's widen (0.196.0) the malformed `a b` entry inside the
+    // generic argument ALSO draws `theta/parse/inline-field-name-not-identifier`
+    // beside the case refusal this cell witnesses — an entailed second
+    // diagnostic, ratified under 0233's origin authority (matching this cell's
+    // H9a acceptance sibling); the cell's subject (0231's resync reaching
+    // `Zs`'s case rule) is unchanged.
     expect(
       parseDoc(OFFENDER, "b0231livebad.theta").diagnostics.map((d) => d.code),
-      "attribution: the offending theta must carry exactly one diagnostic, " + CASE,
-    ).toEqual([CASE]);
+      "attribution: the offending theta must carry exactly the fixed code set " +
+        "[binding-case-mismatch, inline-field-name-not-identifier]",
+    ).toEqual([CASE, "theta/parse/inline-field-name-not-identifier"]);
     expect(
       parseDoc(CLEAN, "b0231livegood.theta").diagnostics.map((d) => d.code),
       "attribution: the case-fixed sibling must carry zero diagnostics -- the fix must not " +

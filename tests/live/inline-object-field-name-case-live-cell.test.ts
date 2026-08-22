@@ -308,19 +308,22 @@ const RESIDUE_UNDER_GENERIC = [
   "",
 ].join("\n");
 
-describe("a residue field-name key under a generic argument registers and drives cleanly (bug 0227)", () => {
-  it("registers `let r: array<{ éLan: string }> = ...`, carries an EMPTY diagnostic list, and drives a real turn to the live sentinel (bug 0227)", async () => {
+describe("a residue field-name key under a generic argument draws the raw-key refusal alone — the case rule stays silent (bugs 0227 + 0233)", () => {
+  it("refuses `let r: array<{ éLan: string }> = ...` with exactly inline-field-name-not-identifier, never binding-case-mismatch (bug 0227's subject preserved)", async () => {
     // ATTRIBUTION GUARD (offline, token-free, before the live host is
-    // required): the source must parse with an EMPTY diagnostic list under
-    // the shipped fix. If a neutralised latch is in effect this reds right
-    // here, with zero tokens spent, naming the unwanted
-    // `binding-case-mismatch` line rather than a live-only symptom.
+    // required). Since bug 0233's widen (0.196.0) deleted the raw-key rules'
+    // generic-argument carve-out, the non-ASCII key now draws
+    // `inline-field-name-not-identifier` here — an entailed flip ratified
+    // under 0233's origin authority (this cell previously pinned the
+    // carve-out's silence). Bug 0227's OWN subject is unchanged and still
+    // pinned below: the case rule must NOT judge the ASCII residue tail
+    // (`binding-case-mismatch` stays absent, offline and live).
     expect(
       parseDoc(RESIDUE_UNDER_GENERIC, "residuegeneric.theta").diagnostics.map((d) => d.code),
-      "attribution: the residue key under a generic argument must draw NO diagnostic -- " +
-        "neither the case rule (withheld by the per-entry taint latch) nor the raw-key " +
-        "refusal (withheld by its own generic-argument carve-out)",
-    ).toEqual([]);
+      "attribution: the residue key under a generic argument must draw exactly the " +
+        "raw-key refusal (0233's widened row) and never the case rule's residue verdict " +
+        "(0227's entryTainted latch)",
+    ).toEqual(["theta/parse/inline-field-name-not-identifier"]);
 
     const provider = await requireLiveProvider();
     const thetas: PlantedTheta[] = [
@@ -350,14 +353,16 @@ describe("a residue field-name key under a generic argument registers and drives
           JSON.stringify(handle.registeredNames()),
       ).toBeDefined();
 
-      // THE FIXED OBSERVABLE: the residue key under a generic argument must
-      // now REGISTER -- a neutralised `entryTainted` latch draws
-      // `binding-case-mismatch` here and denies registration instead.
+      // THE OBSERVABLE (post-0233): the residue key under a generic argument
+      // is REFUSED at registration by the widened raw-key row — and the
+      // refusal is that row's alone. 0227's subject: the case rule must not
+      // have judged the ASCII tail on the way out.
       expect(
         handle.command("residuegeneric"),
-        "`let r: array<{ éLan: string }> = ...` did not register -- a residue verdict is " +
-          "blocking it. Registered: " + JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
+        "`let r: array<{ éLan: string }> = ...` registered -- 0233's widened raw-key " +
+          "row did not fire under the generic argument. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeUndefined();
 
       const notes = systemNoteContents(handle.sessionManager.getEntries());
       expect(
@@ -366,22 +371,6 @@ describe("a residue field-name key under a generic argument registers and drives
           "generic argument -- the case rule judged the ASCII tail instead of staying silent. " +
           "Notes: " + JSON.stringify(notes),
       ).toBe(false);
-
-      // One real live turn: proves the residue key does not merely fail to
-      // block registration but also does not block a real drive to
-      // completion.
-      const driven = await driveSlashCaptureTurn(handle, "/residuegeneric");
-      expect(
-        driven.text,
-        "the live model reply for the residue-key theta did not contain the deterministic " +
-          "sentinel. Reply: " + JSON.stringify(driven.text),
-      ).toContain(RESIDUE_SENTINEL);
-      expect(
-        driven.systemNotes,
-        "the driven turn over the residue-key theta appended a theta-system-note (a " +
-          "fail-closed ending) -- the fixed path must drive clean. Notes: " +
-          JSON.stringify(driven.systemNotes),
-      ).toEqual([]);
     } finally {
       await handle.dispose();
       workspace.dispose();
