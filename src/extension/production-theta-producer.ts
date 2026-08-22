@@ -323,7 +323,10 @@ import {
 } from "../render/argument-echo";
 import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
 import { renderTopLevelErrNote } from "../runtime/err-note-render";
-import type { QueryError } from "../runtime/query-error";
+import type { InvokeCalleeError, QueryError } from "../runtime/query-error";
+import type { InvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
+import { createInvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
+import type { InvokeCallSite } from "../runtime/invoke-provenance";
 import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
 import {
   PromptToolLoopGovernor,
@@ -743,9 +746,52 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * strictly sequentially (PIC-2): at most one driven turn is in flight.
    */
   #activeRespondCapture: ActiveRespondCapture | null = null;
+  /**
+   * Bug 0088 (slash-invocation.md SLSH-5): this producer instance's invoke-hop
+   * provenance ledger, one per `ProductionThetaProducer` (no module-level /
+   * static state, CLAUDE.md). `undefined` when `input.fileSystem` is absent (a
+   * non-production harness with no `realpath` seam, the same condition
+   * `#recheckCalleeContainment` already skips its own runtime re-check on) —
+   * `#recordInvokeHop` then records nothing and `emitTopLevelErrNote` reads an
+   * empty chain.
+   */
+  readonly #ledger: InvocationProvenanceLedger | undefined;
 
   constructor(input: ProductionProducerInput) {
     this.#input = input;
+    this.#ledger =
+      input.fileSystem !== undefined
+        ? createInvocationProvenanceLedger({ fs: input.fileSystem })
+        : undefined;
+  }
+
+  /**
+   * Bug 0088: the `EffectfulStatementHostDeps.recordInvokeHop` implementation
+   * wired into every host built for `theta`. Resolves `calleePath` (the literal
+   * text from the `invoke(...)` site) against `theta.sourcePath`'s directory
+   * exactly as `#recheckCalleeContainment` does, then hands the ledger the
+   * pre-`realpath` parent/callee paths to canonicalise. Records nothing when
+   * there is no ledger (no `fileSystem` seam) or `theta.sourcePath` is
+   * `undefined` (an in-memory theta has no on-disk parent path to record).
+   */
+  async #recordInvokeHop(
+    theta: ConversationBindInput["theta"],
+    wrapper: InvokeCalleeError,
+    calleePath: string,
+    callSite: InvokeCallSite,
+  ): Promise<void> {
+    const sourcePath = theta.sourcePath;
+    if (this.#ledger === undefined || sourcePath === undefined) {
+      return;
+    }
+    const resolvedCalleePath = isAbsolute(calleePath)
+      ? calleePath
+      : resolvePath(dirname(sourcePath), calleePath);
+    await this.#ledger.attach(wrapper, {
+      parentPath: sourcePath,
+      calleePath: resolvedCalleePath,
+      callSite,
+    });
   }
 
   /**
@@ -1475,18 +1521,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * slash-dispatch entry point, reached only for a slash caller with no invoke
    * parent — calls this when the mode's `surface` yields an `Err`. The
    * `renderTopLevelErrNote` renderer emits the SNK per-kind row verbatim
-   * (em-dash U+2014). `chain: []` renders the correct leaf row for every
-   * reachable kind (including an `invoke_callee` wrapper, which the renderer
-   * walks to its leaf); the SLSH-5 chain suffix is a deferred refinement — no
-   * readily-usable invoke provenance reaches this boundary. Routed through the
-   * same `pi.sendMessage` `theta-system-note` delivery as the SLSH-1 overflow
-   * note.
+   * (em-dash U+2014). Bug 0088 / SLSH-5: `chain` walks the `invoke_callee`
+   * wrapper chain outermost-first through this producer's invoke-hop
+   * provenance ledger (`#ledger`), which every `invoke` hop populated as it
+   * ran (`#recordInvokeHop`); a non-cascaded error, a wrapper the ledger has
+   * no entry for (the model-invoked `.theta`-callable surface, or a wrapper
+   * that crossed the RFC-0006 subagent envelope), or an absent ledger (no
+   * `fileSystem` seam) all yield an empty chain, so the renderer's leaf row is
+   * unaffected either way. Routed through the same `pi.sendMessage`
+   * `theta-system-note` delivery as the SLSH-1 overflow note.
    */
   emitTopLevelErrNote(thetaName: string, error: QueryError): void {
     this.#input.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
-        content: renderTopLevelErrNote({ thetaName, error, chain: [] }),
+        content: renderTopLevelErrNote({
+          thetaName,
+          error,
+          chain: this.#ledger?.chainFor(error) ?? [],
+        }),
         display: true,
         details: { event: {} },
       },
@@ -1792,6 +1845,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
       // session (prompt→prompt) rather than spawning fresh.
       resolveInvoke: (expr, env) => this.#resolveInvoke(theta, expr, env, ctx, chain, signal, "prompt"),
+      // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
+      // with its provenance record.
+      recordInvokeHop: (wrapper, calleePath, callSite) =>
+        this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
       resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(theta, expr, env, ctx, chain, signal, "prompt"),
       // RFC 0001 (`subagent fn`, FN-8): a prompt-mode theta may call a
@@ -2041,6 +2098,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
       resolveInvoke: (expr, env) => this.#resolveInvoke(theta, expr, env, ctx, chain, signal, "subagent"),
+      // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
+      // with its provenance record.
+      recordInvokeHop: (wrapper, calleePath, callSite) =>
+        this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
       resolveCallAsInvoke: (expr, env) =>
         this.#resolveCallAsInvoke(theta, expr, env, ctx, chain, signal, "subagent"),
@@ -2610,6 +2671,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         this.#resolveToolCall(overriddenTheta, expr, env, signal, evaluatedToolArgs),
       resolveInvoke: (expr, env) =>
         this.#resolveInvoke(overriddenTheta, expr, env, isolatedCtx, childChain, signal, "subagent"),
+      // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
+      // with its provenance record.
+      recordInvokeHop: (wrapper, calleePath, callSite) =>
+        this.#recordInvokeHop(overriddenTheta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(overriddenTheta, expr),
       resolveCallAsInvoke: (expr, env) =>
         this.#resolveCallAsInvoke(overriddenTheta, expr, env, isolatedCtx, childChain, signal, "subagent"),

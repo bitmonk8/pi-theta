@@ -1,6 +1,7 @@
 # Bug 0088 — The SLSH-5 chain-attribution suffix is never emitted: both production callers of `renderTopLevelErrNote` pass `chain: []`, and its producer `recordInvocationProvenance` has no `src/` caller, so a failure cascaded three thetas deep renders byte-identical to the same failure raised in the entry theta
 
-- **Status:** open. Live-confirmed against a real provider, zero provider turns.
+- **Status:** fixed (0.205.0). Live-confirmed against a real provider, zero provider
+  turns; the fix carries its own live witness on the same zero-turn cascade.
 - **Kind:** defect. SLSH-5 is a `MUST` on the renderer; the renderer implements
   it correctly and is pinned green by a unit test that hand-builds its input.
   Neither production call site constructs that input, and the seam that would
@@ -278,3 +279,95 @@ direction proven by asserting the pre-fix (suffix-free) string first.
 - Observations: throwaway live vitest probe
   (`tests/live/scratch-conv-chain.test.ts`) over `tests/live/harness.ts` at
   `07ef0271`, deleted after the run.
+
+## Fix (0.205.0)
+
+- What shipped:
+  - `src/runtime/invoke-provenance-ledger.ts` (new) — §Fix (2)'s retention seam:
+    a producer-instance-scoped `WeakMap<InvokeCalleeError, ChainHop>` built by
+    `createInvocationProvenanceLedger` (a factory return, no module state).
+    `attach` pairs a wrapper with the `InvocationRecord`
+    `recordInvocationProvenance` produces and the callee path normalised by the
+    same `FileSystem.realpath` seam call, and never rejects: a `realpath`
+    rejection records no hop rather than converting a returned `Err` value into
+    a thrown abort. `chainFor` walks the wrapper chain outermost-first, the
+    order `ErrNoteInput.chain` documents.
+  - `src/runtime/effectful-statement-host.ts` — §Fix (1): an optional
+    `recordInvokeHop?` seam on `EffectfulStatementHostDeps` (the same
+    progressive-enhancement shape as `classifyCall?`/`resolveCallAsInvoke?`),
+    called in `runInvokeEffect` immediately after the `invoke_callee` wrapper is
+    built, with the `invoke(` token's own position as the call site.
+  - `src/extension/production-theta-producer.ts` — §Fix (1)+(3): one ledger per
+    producer instance, `#recordInvokeHop` resolving the callee against
+    `theta.sourcePath`'s directory exactly as `#recheckCalleeContainment` does,
+    the dep wired into all three `EffectfulStatementHostDeps` construction
+    sites, and `emitTopLevelErrNote` passing the assembled chain instead of the
+    hard-coded `[]`.
+  - `src/extension/theta-composition-producer.ts` — comment only; the SLSH-3
+    call site's code is unchanged (it passes the raw top-level error, and the
+    chain is assembled inside `emitTopLevelErrNote`).
+- Gates: witness `tests/slsh5-invoke-cascade-chain-suffix.test.ts` 4/4 and
+  `tests/slsh5-invoke-ledger-realpath-rejection.test.ts` 2/2 green, each
+  red-proven by neutralising the fix and restored byte-exact; full `npm test`
+  `Test Files 389 passed (389)` / `Tests 8014 passed (8014)`;
+  `npm run typecheck` clean; `npm run lint` clean; live
+  `tests/live/slsh5-invoke-cascade-chain-suffix-live-cell.test.ts` 1/1 green
+  under the shared live lock, also red-proven and restored.
+- Review: 2 rounds. Round 1 (deep) — 5 findings: an unguarded `realpath`
+  rejection able to turn an `Err` value into a thrown abort (fixed, with its own
+  witness); the code-side `.theta`-callable surface uncovered (adjudicated as
+  recorded exclusion, R1); the callee path form (adjudicated: bare `realpath`
+  stays, matching the untouched `recordInvocationProvenance`; prose corrected);
+  stale/pre-fix-world citations in the witness header (re-derived, symbol form);
+  an unverifiable "recorded residual" claim in a doc comment (reworded).
+  Round 2 (fast) — CLEAN, with one non-blocking observation (R6).
+- Verification: SOLID. Witnesses red on neutralisation and green on byte-exact
+  restoration (`git hash-object` quoted both times, no `git checkout`/`restore`/
+  `stash`); default suite green in one unfiltered run; a real H8a live run
+  exercises the one-hop and two-hop cascade and the no-hop control end to end
+  through the shipped extension with zero provider turns; lint and typecheck
+  clean.
+- Residuals:
+  1. The code-side `.theta`-callable bare-identifier call
+     (`InvokeCallSite`'s `theta_callable_bare`) carries no hop: the
+     theta-callable branch of `runToolCallEffect` returns the callee's own
+     `Result` through unchanged (FN-5) and constructs no `invoke_callee`
+     wrapper, so there is nothing for the ledger to key on. Covering it means
+     changing that pass-through — a behavioural change outside this §Fix's three
+     steps — and is excluded here by adjudication, not by oversight. Evidence:
+     the only two `invoke_callee` constructors in `src/` are
+     `surfaceThetaCallableCalleeFailure` (`src/runtime/tool-call.ts`, reached
+     from `runInvokeEffect`) and `subagentCalleeError`
+     (`src/runtime/statement-executor.ts`).
+  2. A cascade that crosses the RFC-0006 subagent envelope renders a PARTIAL
+     chain: a wrapper rebuilt from JSON in another process has no object
+     identity and therefore no ledger entry, so its hop is omitted. Each
+     `ChainHop` is self-contained, so an omitted hop shortens the suffix and
+     never mis-attributes one.
+  3. `src/runtime/invoke-provenance.ts`'s module header states the parent path
+     is obtained "via the shared `canonicalizePath` identity" while its
+     implementation applies a bare `realpath`. Pre-existing prose discrepancy in
+     a file this fix does not touch; the ledger matches the implementation, so
+     both placeholders of one rendered suffix are in one identical form.
+  4. The change adds lines above the cited regions of
+     `production-theta-producer.ts` (+65 before its former `:1489`),
+     `effectful-statement-host.ts` (+24) and `theta-composition-producer.ts`
+     (+1), so pre-existing `path:line` citations into those files from other
+     test files shift. A round-1 14-citation sample found every one of them
+     already stale before this change (the bug-0134 decay class); this fix's own
+     new citations are symbol form.
+  5. The H9a permitted-code gate is untouched and unanswered: the live run was
+     H8a only, and that question is decided by a real H9a run alone.
+  6. `attach`'s rejection-to-`undefined` guard is broader than the ENOENT/EPERM
+     race it documents — any rejection degrades to "no hop recorded". This is
+     the adjudicated remedy (an `attach` that cannot reject) and mirrors the
+     existing `readBytes`/`checkInvokePathAtLoad` idiom in
+     `src/extension/production-composition.ts`.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the renderer
+  (`src/runtime/err-note-render.ts`) is unchanged — it was already conformant.
+  The suffix text, hop ordering and path normalisation are unchanged (§Non-goals).
+  The wrapper's theta-visible `callee_path` field is left as authored. The
+  model-invoked `.theta`-callable exemption holds by construction (that surface
+  builds no wrapper) and `tests/e2e-s5-slsh-chain-suffix.test.ts` stays green and
+  unedited.

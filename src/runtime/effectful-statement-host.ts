@@ -66,8 +66,9 @@ import { ToolReturnShapeDefectError } from "./tool-call-off-surface";
 import type { InvokeChild } from "./invoke-cancellation";
 import { runInvokeChild } from "./invoke-cancellation";
 import { surfaceThetaCallableCalleeFailure } from "./tool-call";
-import type { QueryError } from "./query-error";
+import type { InvokeCalleeError, QueryError } from "./query-error";
 import { summariseErrorField } from "./err-field-summary";
+import type { InvokeCallSite } from "./invoke-provenance";
 
 /**
  * How to drive one `@`-query through the real two-phase query loop: whether the
@@ -148,6 +149,21 @@ export interface EffectfulStatementHostDeps {
     evaluatedToolArgs?: Record<string, ThetaValue>,
   ): CodeSideToolCall;
   resolveInvoke(expr: InvokeExpr, env: LexicalEnvironment): InvokeChild;
+  /**
+   * Bug 0088 (slash-invocation.md SLSH-5): record this executed `invoke` hop's
+   * provenance against the `invoke_callee` wrapper `runInvokeEffect` just built,
+   * so the SLSH-5 chain suffix has a `ChainHop` to render at the slash-dispatch
+   * boundary. `calleePath` is the literal callee path from the `invoke(...)`
+   * expression (the same value on the wrapper's own `callee_path` field);
+   * `callSite` is the call-site token descriptor (invoke-provenance.ts). Absent
+   * dep (a caller with no ledger to record into) leaves the SLSH-5 chain empty
+   * for every hop it would otherwise have covered.
+   */
+  recordInvokeHop?(
+    wrapper: InvokeCalleeError,
+    calleePath: string,
+    callSite: InvokeCallSite,
+  ): Promise<void>;
   /**
    * H8b live-resolver routing. Classify a `<name>(args)` call by its resolved
    * callee against the theta's callable set (frontmatter `tools:`): a name bound
@@ -422,6 +438,14 @@ async function runInvokeEffect(
         result.error as unknown as QueryError,
         `invoke of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
       );
+      // Bug 0088: record this hop's provenance against the wrapper just built,
+      // before the wrapper propagates anywhere. The call-site token is the
+      // `invoke(` keyword's own start position (SLSH-5's `<line>` — never a
+      // receiving binding's).
+      await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, {
+        style: "literal_invoke",
+        invokeToken: expr.range.start,
+      });
       return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
     }
     case "cancelled":

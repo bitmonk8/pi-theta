@@ -520,11 +520,12 @@ export function composeThetaFixture(
           //    through `run`) gets a one-line `theta-system-note` formatted from the
           //    error (SLSH-4 SNK templates). A theta that HANDLES its `Err`
           //    terminates with `outcome === "success"`, so only a
-          //    genuinely-unhandled top-level `Err` surfaces here. `chain: []`
-          //    renders the correct leaf row for every reachable kind; the SLSH-5
-          //    invoke_callee suffix is a deferred refinement (no readily-usable
-          //    invoke provenance at this boundary). A returned `Err` is a VALUE
-          //    (not a throw) — the outer catch never sees it.
+          //    genuinely-unhandled top-level `Err` surfaces here. Bug 0088 /
+          //    SLSH-5: `emitTopLevelErrNote` builds its own `chain` from this
+          //    producer's invoke-hop provenance ledger, keyed on the
+          //    `invoke_callee` wrapper chain rooted at `terminal.error` — this
+          //    call site passes the raw top-level error unchanged. A returned
+          //    `Err` is a VALUE (not a throw) — the outer catch never sees it.
           if (!terminal.ok) {
             deps.emitTopLevelErrNote(theta.slashName, terminal.error as unknown as QueryError);
           }

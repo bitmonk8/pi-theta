@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.205.0]
+
+### Fixed
+
+- **Bug 0088**: the SLSH-5 chain suffix was never emitted — a theta failing
+  through a chain of `invoke` hops reported only the leaf, with no caller
+  chain. A new `src/runtime/invoke-provenance-ledger.ts` records invoke
+  hops (attach never rejects; realpath-keyed), and the SLSH-5 err note now
+  carries the chain suffix (one-hop and two-hop leaf-first witnessed;
+  no-hop stays suffix-free). Witness:
+  `tests/slsh5-invoke-cascade-chain-suffix.test.ts` (4 cells) +
+  `tests/slsh5-invoke-ledger-realpath-rejection.test.ts` (2 cells) + a
+  standalone H8a live cell.
+
 ## [0.204.0]
 
 ### Fixed
