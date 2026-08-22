@@ -134,7 +134,12 @@ const PROBE = [
   "",
 ].join("\n");
 
-const CLEAN_SENTINEL = "H9A CLEAN SENTINEL 0237";
+// The drive discriminator is the ANSWER to the theta's own arithmetic
+// prompt: deterministic content a degraded plain-prompt run (the slash
+// falling through as a user prompt) cannot produce. A verbatim-echo demand
+// ("reply with exactly this") reads as prompt injection to current models
+// and draws refusals -- the documented sentinel-refusal class.
+const CLEAN_SENTINEL = "737";
 
 /**
  * The CLEAN spelling: the case-clean annotation sibling of the same inline
@@ -148,7 +153,7 @@ const CLEAN = [
   "mode: prompt",
   "---",
   "let x: array<{a: integer, zs: string}> | null = null",
-  "@`Reply with exactly this text and nothing else, no punctuation: " + CLEAN_SENTINEL + "`",
+  "@`What is 604 plus 133? Answer with the number only.`",
   "",
 ].join("\n");
 
