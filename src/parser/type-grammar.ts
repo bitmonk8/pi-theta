@@ -140,8 +140,18 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
  * split either spelling admits. Module-scoped and derived once, like
  * `RESERVED_KEYWORDS` above: a regex literal carries no mutable state, so
  * this is not the global CLAUDE.md forbids.
+ *
+ * The wire-name literal alternatives admit the escape `lexical.md`'s
+ * string-literal grammar admits: `\.` inside either quote character, so an
+ * escaped quote in the wire name (bug 0229) reaches this row instead of
+ * defeating the colon scan that finds the entry in the first place. The
+ * alternatives still cannot span an UNESCAPED quote, so a second `as` clause
+ * after the first wire name closes — `{a as "w" as "x": integer}` (bug
+ * 0160's cell g23) — stays outside this row: the first `"w"` ends the
+ * alternative and the trailing ` as "x"` fails the end anchor.
  */
-const INLINE_FIELD_RENAME = /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"[^"]*"|'[^']*')$/;
+const INLINE_FIELD_RENAME =
+  /^([A-Za-z_][A-Za-z0-9_]*?)\s*as\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$/;
 
 /**
  * The `Ident` production a raw inline field-name key must match

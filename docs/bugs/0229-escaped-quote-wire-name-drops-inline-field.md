@@ -1,6 +1,6 @@
 # Bug 0229 — `topLevelColon` (`params.ts:1781`) tracks quotes without honouring backslash escapes, while the split feeding it (`splitTopLevelSegments`, `:1867–1875`) does, so an inline object field whose wire-name string carries an escaped quote — `{a as "w\"x": integer}` — has no top-level `:`, spells no key, and is skipped by all three raw-key rules (`type-grammar.ts:721–724`) AND by both lowerers (`params.ts:1268–1270`, `body-type-lowering.ts:183–186`): the field vanishes from the lowered schema with zero diagnostics at every measured `Type` position, and the theta registers
 
-- **Status:** open
+- **Status:** fixed (0.182.0)
 - **Sev/Diff estimate:** S1/D2 — S1 because the author's field is deleted from
   the artefact with nothing on any channel: `{a as "w\"x": integer}` reports
   `[]` at eight `Type` positions and at `params:` (§Reproduction A), lowers to
@@ -569,3 +569,213 @@ witnesses are the constraint rather than a coordination partner.
   `tests/inline-object-field-name-comparison-key.test.ts` (bug 0159's key
   file); `tests/params-inline-object-lowering.test.ts` (bug 0039's 37-cell
   `params:` byte freeze); `tests/committed-fixture-parse-gate.test.ts`.
+
+## Fix (0.182.0)
+
+Route **§Fix (a) — the escape-aware colon scan — with `INLINE_FIELD_RENAME`
+widened to admit the escape**, and route §Fix (b) DECLINED. The choice was made
+against a full-suite premeasurement at this tree, not from the document's own
+baseline: bug 0228 (0.179.0) landed between the filing and this fix and changed
+both inputs the document reasoned over — inline-object interiors now arrive as
+raw author source at every `Type` position, and a fourth raw-key row
+(`theta/parse/inline-field-name-not-identifier`) refuses a non-`Ident` pre-colon
+key. Every row of §Reproduction was re-derived here before a line of test was
+written.
+
+**What the re-measurement changed about the document.** §Fix (a) says the route
+"must state whether the predicate is widened to admit escapes or whether the
+entry falls through to no row at all, which would close the lowering half and
+leave the diagnostic half open". Post-0228 the fall-through is no longer "no row
+at all": measured, the unwidened predicate leaves the key `a as "w\"x"` to
+0228's fourth row, which refuses it at all eleven positions and names the raw
+key. So BOTH readings close the silent-deletion half. The widened predicate was
+chosen because §Expected is explicit that rows A1–A9 draw
+`theta/parse/renamed-inline-field-name` naming `a`, and because the honest
+identity of the input is a rename spelling (`grammar.md:109`; `lexical.md:13`'s
+string literal admits `\"`) rather than a name that merely fails to be an
+identifier. The unwidened variant was measured too: it moves the same three
+tests and reds nothing else, and its signature is recorded in Verification
+obligation 1 half (b).
+
+**Route §Fix (b) is declined, and no registry row is minted or widened in
+identity.** §Fix (b) asks for an emission on an entry that spells no key while
+its interior is non-empty. Measured at this tree, the remaining shapes in that
+class are already answered: an unterminated literal (`{a as "w\": integer}`)
+draws `theta/parse/literal-newline-in-string` from the lexer at every lexed
+position, and any key that reaches the raw-key loop and declines all three rows
+is 0228's fourth row's subject. One shape survives and is recorded as
+residual 1 below.
+
+- What shipped:
+  - `src/parser/params.ts` — `topLevelColon` gains inside its quoted-region
+    branch the backslash-consume arm its sibling `splitTopLevelSegments`
+    already had: a `\` consumes the character behind it instead of being tested
+    against the closing quote, under the same `i + 1 < length` boundary. The
+    doc comment states why the two scanners must agree — the raw key the four
+    inline raw-key rules compare and the property name both lowerers mint are
+    derived from the same colon. `splitTopLevelSegments` is untouched
+    (Constraint 2), and `src/parser/type-layer-checks.ts`'s separate
+    `topLevelColonIndex` is untouched (a concurrent lane owns that file;
+    residual 2).
+  - `src/parser/type-grammar.ts` — `INLINE_FIELD_RENAME`'s wire-name literal
+    alternatives widen from `"[^"]*"` / `'[^']*'` to `"(?:[^"\\]|\\.)*"` /
+    `'(?:[^'\\]|\\.)*'`. Capture group 1 (the theta-side identifier) and the
+    both-ends anchoring are unchanged, so the *Message* and its rendered
+    subject are unchanged (DIAG-4), and the alternatives still cannot span an
+    UNESCAPED quote — which is why `{a as "w" as "x": integer}` (0160's cell
+    g23) stays outside this row.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2
+    same-commit prose correction the document names. The
+    `theta/parse/renamed-inline-field-name` row's escaped-quote clause was
+    false in two ways: it attributed the escape-blindness to "the shared split"
+    (the split consumes escapes) and it stated that such an entry spells no key
+    and is dropped rather than refused. It now states that the colon scan
+    honours the escape, that the literal alternatives admit the escaped
+    interior, and that the entry is INSIDE the row. The rows at `:98`, `:99`
+    and `:101` were audited: they carry no escape-attribution sentence
+    (`rg "escaped"` hits `:100` alone) and their "spells no key" carve-outs
+    remain true for the unterminated-literal shape.
+  - `docs/reference/diagnostics.md` — audited, NOT edited. The mirror carries
+    the *Message* column only; no *Message* changed, so the DIAG-2 pair reads
+    true byte-for-byte. `placeholder-rendering-b.md` likewise needs no edit:
+    this row still renders its capture group, which is identifier-shaped, so it
+    takes no row-scoped `<field>` carve-out and the page's named three-row
+    carve-out set is unmoved.
+  - `tests/inline-object-wire-name-rename-refusal.test.ts` — the three
+    authorised flips, each re-derived by measurement and commented with this
+    report as the authority (see the flip enumeration below).
+  - `tests/escaped-quote-inline-field-name-refusal.test.ts` — NEW, the witness
+    (12 tests, 33 inventory cells).
+  - `tests/live/escaped-quote-inline-rename-live-cell.test.ts` and
+    `tests/live/acceptance/escaped-quote-inline-rename-load-refusal.test.ts` —
+    NEW, the live pair (H8a + H9a), modelled on 0160's shipped pair.
+- Gates (each re-run independently of every nested report):
+  - Witness, both directions, each half neutralised SEPARATELY with its
+    prediction stated before the run. Half (a) — the backslash arm removed:
+    `Tests 13 failed | 24 passed (37)`, red set `A1 A2 B1 C1 C2 C3 C4 D1 E1 F2
+    G1 G4 H2`, every CTL cell green. Half (b) — the widened predicate reverted:
+    `Tests 6 failed | 31 passed (37)`, red set `A1 A2 B1 F2 G1 H2`, the
+    lowering groups green and the signature the predicted code flip
+    (`renamed-inline-field-name` becomes `inline-field-name-not-identifier`
+    naming `a as "w\"x"`). Restored by writing the bytes back — never
+    `git checkout --`, never `git restore`, never `git stash` — and hash-proven
+    byte-exact both times (`params.ts`
+    `94fc47a53c5bcd7bd6d097f0601be4c82f17ea39`, `type-grammar.ts`
+    `f5415919bd683584c0ad4dc780ff45b023edc9d2`). Restored green:
+    `Tests 37 passed (37)`.
+  - Full default suite: `Test Files 373 passed (373)`,
+    `Tests 7628 passed (7628)` (baseline 372 / 7616; the extra file and its 12
+    tests are this fix's witness — the count is exact, with no drift).
+  - Typecheck: `tsc -p tsconfig.json --noEmit` clean. Lint:
+    `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` clean.
+  - Named LOCK gates, all byte-identical to HEAD by `git hash-object` against
+    `git rev-parse HEAD:<path>` and green:
+    `tests/params-inline-object-lowering.test.ts`
+    (`8bcec9b804f99d92351363a0d5f4a727eead1074`, 0035/0039's 37-cell `params:`
+    byte freeze), `tests/inline-object-quoted-field-name-refusal.test.ts`
+    (`0839ccde1dd3f6e341b2dce7c1db9ab8f31381aa`, 0176's 16),
+    `tests/inline-object-field-name-case.test.ts`
+    (`350a7b5e21850565aeeec99ee10fc6910b21c81c`, 0154's 30),
+    `tests/inline-object-field-name-comparison-key.test.ts`
+    (`dde06c4e18b5041fc5d0b2d08738c0695f208978`, 0159's key file) and
+    `tests/committed-fixture-parse-gate.test.ts`
+    (`4d2e488e534f00c2b7dbf393ce7866778296db5f`, 36 cells). 0228's fresh
+    102-cell capture witness is inside the full-suite green.
+  - GOV-15: the committed corpus is clean — 34 committed `.theta`/`.thetalib`
+    files, ZERO carrying `\"` anywhere (re-verified at this tree) — so the
+    newly-refused spellings take no new refusal in the corpus gate and are
+    disposed of by the
+    [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out).
+  - Live, run for real under the shared live lock: H8a
+    `tests/live/escaped-quote-inline-rename-live-cell.test.ts` 1/1 passed
+    (6.9 s), H9a
+    `tests/live/acceptance/escaped-quote-inline-rename-load-refusal.test.ts`
+    1/1 passed (6.7 s), both first attempt with no stochastic-class red. The
+    H9a MEASUREMENT (`parseSystemNoteCodes(probe.stdout + probe.stderr)`) held
+    at `[]` — this code does not reach the H9a stdout/stderr capture, the same
+    disposition 0160's identical code has — so
+    `tests/fixtures/h7a/permitted-codes.json` is correctly byte-untouched. The
+    clean sibling's stderr was the empty capture.
+- Review: 2 rounds. Round 1 (deep) — FINDINGS times 2, both confined to the new
+  witness file and neither behavioural: the header's declined-§Fix-(b)
+  rationale claimed the lexer covers the unterminated-literal keyless class,
+  which is false at `params:` (`prose`), and the a13 `params:` twin was omitted
+  on a false YAML claim (`test`). Round 2 (fast) — CLEAN, with the corrected
+  rationale, the added a13 `params:` twin (YAML single-quote doubling) and the
+  recomputed 33/25 inventory counts re-measured rather than taken on trust.
+- Verification: SOLID. Obligation 1 discharged in two separable halves, each
+  with a stated prediction matching observation and hash-proven restoration.
+  Obligation 2 discharged with the suite counts and the five byte-identity
+  hashes. Obligation 3 discharged by two real live runs. Obligation 4
+  discharged with both commands quoted clean.
+
+**The flip grant, cell by cell, subjects preserved.** Three tests in ONE file,
+exactly the set the premeasurement predicted and exactly the set §Fix
+Constraint 4 authorises. Every flipped cell was re-derived by measurement, keeps
+witnessing bug 0160's own subject, and carries an inline comment naming this
+report as the authority.
+
+- `RED G1` — cells `g20` (annotation root) and `g21` (`params:`) move from
+  `expected: []` to the renamed row naming `a`. The residual comment above them
+  is corrected on two counts: the escape-blindness was `topLevelColon`'s and
+  not the shared split's, and the class is now CLOSED rather than pinned.
+- `CONTROL G4` — the escaped-quote half moves: the annotation root now mints
+  the property `a as "w\"x"` (required), and `lowerParamsFieldType` hoists the
+  `$defs` member `__inline_68a87e995fbc02c1` instead of returning the
+  permissive `{}`. The `{a as "w" as "x": integer}` half is byte-identical:
+  0160's residual 4 under-refusal is untouched.
+- `RED H2` — the code-level mirror of the same inventory; `g20`/`g21` gain the
+  code. `CONTROL H1`'s named empty-expectation list loses `g20`/`g21`
+  (`["g4","g5","g20","g21"]` becomes `["g4","g5"]`) and its declared counts are
+  recomputed from the file (67 list cells unchanged, 47 becomes 49 naming the
+  row).
+- No other cell in any file moved. The g20/g21 route change is a REFUSAL where
+  there was silence, so 0035/0039's `params:` byte freeze holds by hash: the
+  refused document is never lowered at all.
+
+- Residuals:
+  1. **The unterminated-literal keyless entry still drops silently at
+     `params:`.** `{a as "w\": integer}` draws
+     `theta/parse/literal-newline-in-string` at every position the theta lexer
+     reaches, but at `params:` the YAML scalar never reaches that lexer: the
+     document reports no diagnostic and lowers `p` to
+     `{"type":"object","properties":{"p":{}},"required":["p"],"additionalProperties":false}`
+     — the permissive parameter this report's §Why it matters describes.
+     Evidence: round 1's finding F1, measured twice (reviewer and fixer) and
+     recorded in the witness header as a bound of this route. It is outside
+     this report's measured rows (§Reproduction names no unterminated
+     spelling), and closing it is route §Fix (b)'s own decision, declined here.
+     A candidate filing.
+  2. **`topLevelColonIndex` (`src/parser/type-layer-checks.ts`) tracks no
+     quotes at all** — it is more blind than `topLevelColon` was before this
+     fix, so the two scanners now disagree on any quoted-interior entry.
+     Evidence: round 1's residual R1, which also measured the consequence: its
+     sole consumer (`inlineObjectAnnotationToCompatType`) requires an
+     identifier-shaped name and declines the whole interior otherwise, so a
+     disagreement degrades to the lenient deferring nominal and never to field
+     loss. That file is owned by a concurrent lane and was deliberately not
+     touched.
+  3. **The new `topLevelColon` doc comment carries an absolute line citation**
+     (`:1880–1882`, the sibling split's backslash arm). Evidence: round 1's
+     residual R2 — accurate at this tree, with precedent in
+     `theta-document.ts`, but drift-inviting under
+     [0134](./0134-params-shift-induced-stale-citations.md)'s do-not-chase
+     adjudication.
+- Discharge notes appended:
+  [0160](./0160-inline-object-wire-name-rename-unparsed.md)'s *Residuals*
+  item 1 — the class this report was filed to carry — is discharged and a note
+  is appended there. 0154's *Residuals* item 1 needed no note here: 0228's
+  capture change already discharged it and recorded so.
+- Pinned dispositions / non-goals: the raw-key adjudication is untouched — the
+  key is still the raw pre-colon text after `trim()`, with no unquoting, so
+  `'a'`, `"a"` and `a` remain three keys and the rules' keys remain the property
+  names both lowerers mint (Constraint 1). `splitTopLevelSegments` is untouched
+  (Constraint 2). No new registry row was minted and no *Message* was reworded;
+  0228's fourth row keeps its own subject and is the measured fall-through of
+  the unwidened variant. 0160's residual 4 (`{a as "w" as "x": integer}`) is
+  unmoved and still pinned by cell g23. The declaration-scoped
+  `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name` rows
+  are untouched. The positional drift this change induces in `params.ts` and
+  `type-grammar.ts` is
+  [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+  do-not-chase class: no citation sweep was performed at any phase.

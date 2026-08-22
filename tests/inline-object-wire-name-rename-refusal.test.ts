@@ -697,20 +697,17 @@ function boundaryRows(): Cell[] {
     // g19 — the walk DOES descend into a rename-bearing body's own interior at
     // depth, measured at HEAD the same way.
     { cell: "g19", src: annotSrc('{p: {q: {a as "w": integer}}}'), expected: [REN("a")] },
-    // g20 / g21 — a wire name carrying an ESCAPED quote escapes all three
-    // inline rules, at the annotation root and at `params:` alike. The quote
-    // tracking in the split the three rows share (`splitTopLevel` /
-    // `topLevelColon`, ./params) is escape-blind: it reads `"w\"` as a closed
-    // string and the `"` behind `x` as opening a new one that the entry never
-    // closes, so the entry's `:` is never seen at top level, the entry spells
-    // NO key, and a keyless entry is outside the duplicate row, the quoted row
-    // and this row together. The field is dropped instead of refused (cell G4
-    // pins the bytes). This class is a RECORDED RESIDUAL of the refusal route,
-    // not a decision: closing it means changing the shared split's quote
-    // tracking, which would move the keys the two neighbour rows compare and
-    // is outside this fix.
-    { cell: "g20", src: annotSrc('{a as "w\\"x": integer}'), expected: [] },
-    { cell: "g21", src: paramsSrc('  p: \'{a as "w\\"x": integer}\''), expected: [] },
+    // g20 / g21 — a wire name carrying an ESCAPED quote, at the annotation
+    // root and at `params:` alike. CLOSED by bug 0229: `topLevelColon`
+    // (`params.ts`) was escape-blind while its sibling split,
+    // `splitTopLevelSegments`, already consumed the backslash and the
+    // character behind it — so the entry's `:` was never seen at top level
+    // and the entry spelled no key. `topLevelColon` now shares the split's
+    // escape handling and `INLINE_FIELD_RENAME`'s wire-name alternatives now
+    // admit the escaped interior, so this row judges the entry the same way
+    // it judges the unescaped control.
+    { cell: "g20", src: annotSrc('{a as "w\\"x": integer}'), expected: [REN("a")] },
+    { cell: "g21", src: paramsSrc('  p: \'{a as "w\\"x": integer}\''), expected: [REN("a")] },
     // g22 — a reserved-keyword-shaped theta-side name is INSIDE this row's
     // emission set, deliberately: this row's subject is the raw key the
     // lowering would mint as a property name, not an identifier binding, so it
@@ -750,7 +747,7 @@ function allCells(): Cell[] {
 /** Declared inventory size — cell H1 recomputes it (anti-vacuity). */
 const TOTAL_LIST_CELLS = 67;
 /** Declared count of cells carrying the new row — cell H1 recomputes it. */
-const NEW_ROW_LIST_CELLS = 47;
+const NEW_ROW_LIST_CELLS = 49;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -1330,10 +1327,14 @@ describe("bug 0160 (F) — the suppression family gains the refusal and keeps it
 // RED at HEAD (bug 0160's own baseline): g6, g7, g8, g10, g11, g12, g13, g14,
 // g16, g17, g18, g19, g22.
 // GREEN then (this row's own subject silent) and STILL SILENT ON THIS ROW
-// after bug 0228: g2, g3, g4, g5, g9, g20, g21. g1, g15 and g23 are also
-// silent on THIS row throughout, but since bug 0228's fix each now draws
-// `theta/parse/inline-field-name-not-identifier` instead of nothing at all
-// (§Fix (b)'s newly-refused set), so they carry a non-empty expectation too.
+// after bug 0228: g2, g3, g4, g5, g9. g20/g21 (an escaped quote in the wire
+// name) were silent through bug 0228 too, but bug 0229 closes that class: the
+// colon scan and this row's predicate both now admit the escape, so g20/g21
+// draw the row and move OUT of this silent set into the ones that name it.
+// g1, g15 and g23 are also silent on THIS row throughout, but since bug
+// 0228's fix each now draws `theta/parse/inline-field-name-not-identifier`
+// instead of nothing at all (§Fix (b)'s newly-refused set), so they carry a
+// non-empty expectation too.
 // ===========================================================================
 
 describe("bug 0160 (G) — quote style, precedence, the two gates, and the neighbours' subjects", () => {
@@ -1388,35 +1389,49 @@ describe("bug 0160 (G) — quote style, precedence, the two gates, and the neigh
     });
   });
 
-  it("CONTROL G4: the two spellings that escape the refusal keep their lowered bytes", () => {
-    // The bound on the refusal, pinned so the residual is a measured class
-    // rather than a discovery. Cells g20/g21 (an escaped quote in the wire
-    // name) and g23 (a second rename clause) load with no diagnostic; these are
-    // the artefacts that silence still mints.
+  it("CONTROL G4: the escaped-quote spelling now lowers its field; the double-rename spelling is unaffected", () => {
+    // Bug 0229 closes the escaped-quote half of this cell: `topLevelColon`
+    // now shares `splitTopLevelSegments`' backslash arm, so `a as "w\"x"` is a
+    // colon-bearing entry and `INLINE_FIELD_RENAME`'s widened wire-name
+    // alternatives judge it. g23's double-rename spelling is a different
+    // class — it DOES spell a key today, at HEAD and after — and stays exactly
+    // as it was.
     expect(
       lowerQueryResponseSchema('{a as "w\\"x": integer}', [], []),
-      "G4 — the escape-blind quote tracking in the shared split leaves the entry with no " +
-        "top-level colon, so it spells no key, contributes no property, and is outside all three " +
-        "inline rules: the field is DROPPED rather than refused. Closing that means changing the " +
-        "split the two neighbour rows key on, which is outside this fix",
-    ).toEqual({ type: "object", properties: {}, required: [], additionalProperties: false });
+      "G4 — the escape-aware colon scan yields the colon the author wrote, so the raw key " +
+        '`a as "w\\"x"` is minted as the sole property, required by default — the field is no ' +
+        "longer dropped",
+    ).toEqual({
+      type: "object",
+      properties: { 'a as "w\\"x"': { type: "integer" } },
+      required: ['a as "w\\"x"'],
+      additionalProperties: false,
+    });
 
     const defs: Record<string, Record<string, unknown>> = {};
     const unresolved: string[] = [];
     const ctx: LowerCtx = { bodyTypeMap: new Map(), defs, unresolved };
     expect(
       lowerParamsFieldType('{a as "w\\"x": integer}', ctx),
-      "G4 — and at `params:`, where the raw spelling survives intact, the same keyless entry " +
-        "lowers to the permissive fragment with no `$defs` hoist at all",
-    ).toEqual({});
-    expect(defs, "G4 — no hoisted member is registered for it").toEqual({});
-    expect(unresolved, "G4 — and it resolves no named type").toEqual([]);
+      "G4 — and at `params:`, where the raw spelling survives intact, the entry now hoists a " +
+        "`$defs` member instead of collapsing to the permissive `{}`",
+    ).toEqual({ $ref: "#/$defs/__inline_68a87e995fbc02c1" });
+    expect(defs, "G4 — carrying the hoisted member's own bytes").toEqual({
+      __inline_68a87e995fbc02c1: {
+        type: "object",
+        properties: { 'a as "w\\"x"': { type: "integer" } },
+        required: ['a as "w\\"x"'],
+        additionalProperties: false,
+      },
+    });
+    expect(unresolved, "G4 — a rename resolves no named type").toEqual([]);
 
     expect(
       lowerQueryResponseSchema('{a as "w" as "x": integer}', [], []),
-      "G4 — the double-rename spelling DOES spell a key, and the key is the whole raw text: " +
-        "the under-refusal cell g23 records is a property name no author wrote, left reachable " +
-        "because the predicate admits no trailing text behind the wire-name literal",
+      "G4 — UNAFFECTED by this route: the double-rename spelling DOES spell a key, and the key " +
+        "is the whole raw text — the under-refusal cell g23 records is a property name no author " +
+        "wrote, left reachable because the predicate admits no trailing text behind the wire-name " +
+        "literal",
     ).toEqual({
       type: "object",
       properties: { 'a as "w" as "x"': { type: "integer" } },
@@ -1432,7 +1447,7 @@ describe("bug 0160 (G) — quote style, precedence, the two gates, and the neigh
 // ===========================================================================
 
 describe("bug 0160 (H) — the inventory is counted, and every cell is also asserted without the registry", () => {
-  it("CONTROL H1: 67 diagnostic-list cells, 47 of them naming the new row", () => {
+  it("CONTROL H1: 67 diagnostic-list cells, 49 of them naming the new row", () => {
     const cells = allCells();
     expect(
       cells.length,
@@ -1450,12 +1465,15 @@ describe("bug 0160 (H) — the inventory is counted, and every cell is also asse
     // overall: each now names `theta/parse/inline-field-name-not-identifier`
     // (this file's own row still declines each of them, on its own subject
     // — no repeat, no quote-led, no rename — which is why they moved OUT of
-    // this list rather than out of the boundary group).
+    // this list rather than out of the boundary group). Bug 0229 closes g20/g21
+    // the other direction: both now name this row, so the empty-expectation
+    // list loses them and shrinks to the two gates this row itself withholds
+    // on.
     expect(
       cells.filter((c) => c.expected.length === 0).map((c) => c.cell),
-      "H1 — and the empty-expectation cells are exactly the four silent-by-design boundary " +
-        "rows, named so a future edit cannot add a fifth by accident",
-    ).toEqual(["g4", "g5", "g20", "g21"]);
+      "H1 — and the empty-expectation cells are exactly the two silent-by-design gate rows, " +
+        "named so a future edit cannot add a third by accident",
+    ).toEqual(["g4", "g5"]);
     expect(
       new Set(cells.map((c) => `${c.cell} :: ${c.src}`)).size,
       "H1 — every cell key is distinct, so no whole-map equality silently drops a row",

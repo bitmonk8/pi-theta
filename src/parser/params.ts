@@ -1777,14 +1777,25 @@ export function lowerParamsFieldType(
   return lowerTypeExpr(s, lowerCtx);
 }
 
-/** Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}` nesting. */
+/**
+ * Find the top-level `:` in a `field: Type` entry, respecting `<>`/`{}`
+ * nesting and honouring `"`/`'` string escapes: a backslash inside a quoted
+ * region consumes the character behind it rather than being tested against
+ * the closing quote. This scan and `splitTopLevelSegments` (below,
+ * `:1880–1882`) must agree on where a quoted region ends, because the raw
+ * key the three inline raw-key rules compare and the property name both
+ * lowerers mint are both derived from the entry text this function's colon
+ * divides in two (bug 0229).
+ */
 export function topLevelColon(entry: string): number {
   let depth = 0;
   let quote: string | undefined;
   for (let i = 0; i < entry.length; i += 1) {
     const c = entry[i] ?? "";
     if (quote !== undefined) {
-      if (c === quote) {
+      if (c === "\\" && i + 1 < entry.length) {
+        i += 1;
+      } else if (c === quote) {
         quote = undefined;
       }
       continue;

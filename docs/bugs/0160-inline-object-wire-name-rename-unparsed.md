@@ -1073,6 +1073,20 @@ already does for 0159. Status unchanged (**open**).
      three rows now state. Widening it would move 0052's and 0176's keys and is
      outside this fix; pinned in both directions by cells g20/g21 and
      `CONTROL G4`, and by a *Trigger* sentence. Needs its own report.
+
+     **Discharged by [0229](./0229-escaped-quote-wire-name-drops-inline-field.md)
+     (0.182.0).** The report it asked for was filed and fixed: `topLevelColon`
+     honours string escapes, `INLINE_FIELD_RENAME`'s wire-name literal admits
+     the escaped interior, and `{a as "w\"x": integer}` now draws this row
+     naming `a` at every lexed `Type` position and at `params:`. Cells g20/g21
+     and `CONTROL G4`'s escaped-quote half moved under that report's
+     authority, with their comments corrected; `CONTROL H1`'s
+     empty-expectation list and counts moved with them. One statement of this
+     item is corrected by that measurement: the escape-blindness was
+     `topLevelColon`'s alone — the shared `splitTopLevel` consumes escapes and
+     always did — so closing the class moved neither 0052's nor 0176's keys.
+     0052's repeat spelling and 0176's quote-led spelling are now judged over
+     the escaped interior too, each by its own row.
   2. **This document's root-cause reading is wrong in one part, and was
      corrected by measurement.** §"Actual behaviour / root cause" attributes the
      suppression family (§Reproduction (e)) and the unparsed rename to the

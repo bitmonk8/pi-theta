@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.182.0] - 2026-08-27
+
+### Fixed
+
+- **Bug 0229 — an escaped quote in a wire name no longer drops the field**:
+  `topLevelColon` consumes escapes (the split already did), and
+  `INLINE_FIELD_RENAME` admits the escape, so `{a as "w\"x": integer}` draws
+  0160's `theta/parse/renamed-inline-field-name` refusal at every position
+  instead of silently spelling no key (`{a as "w\"x": integer, b: integer}`
+  was byte-identical to `{b: integer}`). No new registry row; the
+  registry's escape-blindness sentence corrected same commit; raw-key law
+  untouched. Witness `tests/escaped-quote-inline-field-name-refusal.test.ts`
+  (33 cells) + a standalone live cell + a NEW H9a acceptance file.
+
+>>>>>>> 1f06ba4b (fix(bug-0229): an escaped quote in a wire name refuses instead of dropping the field — v0.182.0)
+
 ## [0.181.0] - 2026-08-27
 
 ### Fixed
