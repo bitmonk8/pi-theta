@@ -1,6 +1,6 @@
 # Bug 0232 — an inline object type whose string literal never closes is admitted at `params:` with zero diagnostics and lowers to the permissive `{}`, dropping every field the author declared, while all eight lexed `Type` positions refuse the same text
 
-- **Status:** open
+- **Status:** fixed (0.188.0)
 - **Sev/Diff estimate:** S1/D2 — S1 because a declared `params:` contract is
   deleted with nothing on any channel: `p: '{a as "w\": integer}'` reports `[]`
   and lowers `p` to `{}` inside
@@ -508,6 +508,115 @@ only they, restore and confirm green byte-exact.
 *Residuals* item 1, so a fix here appends a discharge note to
 [0229](./0229-escaped-quote-wire-name-drops-inline-field.md) and corrects that
 record's attribution (§Related) plus the bound recorded in its witness header.
+
+## Fix (0.188.0)
+
+- **Route selected (settled in-run, inside §Fix's constraints):** §Fix **(b)**,
+  its SECOND named arm — "raise `theta/load/params-type-not-expression` from the
+  intercept's decline directly" — confined to `src/parser/params.ts`.
+  §Fix (b)'s FIRST arm (narrowing `isUnspellableTextRefusable`) was attempted
+  and MEASURED to break Constraint 3: that predicate is read at five sites
+  (`params.ts:254`, `params.ts:1205`, `theta-document.ts:7069`, `:7536`,
+  `type-layer-checks.ts:1148`), the lexer's
+  `theta/parse/literal-newline-in-string` is additive rather than fatal, so a
+  narrowed predicate ADDS a second diagnostic at three lexed positions —
+  `schema X = A | {…}` and `schema S { p: {…} }` gain
+  `schema-type-not-expression`, and the `let` / `fn` parameter / `fn` return
+  positions gain `annotation-type-not-expression`. §Fix (a) in the shared type
+  tokeniser was not taken: it lives in `src/parser/type-grammar.ts`, which this
+  change may not touch, and the doc itself names the same second-diagnostic
+  risk for it.
+- **What shipped:**
+  - `src/parser/params.ts` — new pure predicate `hasUnterminatedStringLiteral`
+    (quote/escape discipline identical to `isSingleEnclosingBraceGroup` and
+    `topLevelColon`), asked of the field's WHOLE type-half source in
+    `parseParams`'s per-field loop and OR'd into the existing
+    `theta/load/params-type-not-expression` emission guard, under the unchanged
+    precedence guards (`field.shapeRefused`, no second diagnostic in the same
+    iteration). `isUnspellableTextRefusable` is byte-identical to HEAD, so its
+    four other readers move nothing.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — the
+    `params-type-not-expression` *Trigger*'s brace exemption narrowed (DIAG-2):
+    a brace-carrying fragment carrying an unterminated STRING literal is
+    refused; `{junk}` and the unterminated-BRACE `p: '{a: string'` stay
+    admitted. No row added, no *Message* reworded (DIAG-4).
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md:58` — the same
+    exemption statement narrowed identically.
+  - `docs/reference/diagnostics.md` — no edit required and none made: the
+    mirror carries Code/Sev/Phase/*Message* only, and the *Message* is
+    unchanged.
+  - `tests/unterminated-literal-params-type-refusal.test.ts` — the new witness
+    (5 cells, 27 position cells + 9 lowering cells + 8 direct-parse cells +
+    the 2 boundary cells + an anti-vacuity group).
+  - `tests/escaped-quote-inline-field-name-refusal.test.ts` — comment-only:
+    0229's recorded BOUND at `:41–50` marked CLOSED here. Zero assertion bytes.
+  - `docs/bugs/0229-escaped-quote-wire-name-drops-inline-field.md` — discharge
+    note on *Residuals* item 1 plus the attribution correction (the entry loop
+    is never reached; the hoist intercept declines the whole source first).
+  - `tests/live/params-unterminated-literal-live-cell.test.ts` (H8a) and
+    `tests/live/acceptance/params-unterminated-literal-load-refusal.test.ts`
+    (H9a) — live coverage of the fixed path; no live test previously exercised
+    it.
+- **Constraints discharged:** 1 — the raw-key adjudication is untouched (no key
+  derivation changed; §Reproduction D cells unchanged). 2 — §Reproduction E2
+  `{a: integer` stays admitted with `[]` and the permissive `{}`, asserted in
+  the witness and re-probed independently; the two prose sites were narrowed in
+  the same change. 3 — rows A1–A8 keep their exact ordered code sequences,
+  asserted per column in the witness and green. 4 — the six locks green (169
+  tests) and `tests/params-inline-object-lowering.test.ts` byte-frozen
+  (`git hash-object` = `git rev-parse HEAD:<path>` = `8bcec9b8…`).
+  §Reproduction (D) disposition: the interior's four raw-key rows and the
+  identifier rules stay WITHHELD for a refused source — one diagnostic per
+  offending field.
+- **B7 settled:** `array<{a as "w: integer}>` IS refused. Scanning the whole
+  type-half source reaches it, where the `unspellable` sink provably never does
+  (`classifyGenericArgumentSegments` routes the arity-1 branch through a
+  sink-less context).
+- **Gates:** witness `npx vitest run tests/unterminated-literal-params-type-refusal.test.ts`
+  → `Test Files 1 passed (1) / Tests 5 passed (5)`; full suite `npm test` →
+  `Test Files 376 passed (376) / Tests 7703 passed (7703)` (HEAD baseline
+  375/7698 plus the witness's 5); `npm run typecheck` clean; `npm run lint`
+  clean; live `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/params-unterminated-literal-live-cell.test.ts
+  tests/live/acceptance/params-unterminated-literal-load-refusal.test.ts` →
+  `Test Files 2 passed (2) / Tests 2 passed (2)`.
+- **Review:** 1 round (deep) — two findings, neither blocking: F2 (a version
+  citation with no landed referent) fixed in a prose-only round, F1 recorded as
+  residual 1 below. The prose-only round's diff was inspected hunk-by-hunk
+  (comment/prose only, zero executable lines) and the gates re-run green, so the
+  confirmation review round was skipped by the polish rule and recorded here.
+- **Verification:** SOLID. The witness reds on neutralisation (the OR removed)
+  in exactly groups (A) and (B) and only there, and greens on byte-exact
+  restoration (`git hash-object` equality, restored by writing content back —
+  no `git checkout`/`restore`); the full suite, typecheck and lint are green;
+  the live pair runs green for real under the shared live lock.
+- **Residuals:**
+  1. **The default half of the same RHS.** `p: 'string = "abc'` — an
+     unterminated literal in a `params:` DEFAULT — still parses, draws `[]` and
+     registers, where the junk default `string = @foo` draws
+     `theta/parse/default-not-literal`. Pre-existing and byte-identical to HEAD
+     (`splitParamValue`, `frontmatter.ts:661`, splits at the top-level `=`
+     before the quote opens, so `typeSource` is `string` and this fix's
+     predicate answers `false`). Outside this report's measured input set and
+     outside the settled route, which names the type half. A candidate filing,
+     on the same footing this report had as 0229's *Residuals* item 1.
+  2. **Two §Reproduction inaccuracies corrected by measurement, not chased into
+     the prose above.** Row A8's `CTL` column measures as the rename line ALONE
+     (the doc says "rename line + two `thetalib-top-level-statement`"; the
+     divergence is the fixture's `let a = 1` tail), and
+     `isUnspellableTextRefusable` is at `:1650` at HEAD, not `:1651`. The
+     witness encodes the measured values.
+  3. **Citation drift.** This change shifts absolute line numbers in
+     `src/parser/params.ts`; per §Non-goals that is
+     [0134](./0134-params-shift-induced-stale-citations.md)'s adjudicated
+     do-not-chase class, and no sibling document's citations were rewritten.
+- **Discharge notes appended:**
+  [0229](./0229-escaped-quote-wire-name-drops-inline-field.md) *Residuals*
+  item 1 (discharged, attribution corrected) and its witness header.
+- **Pinned dispositions / non-goals:** §Reproduction E2 admitted, unmoved; the
+  raw-key law unmoved; the eight lexed positions unmoved;
+  `isUnspellableTextRefusable` and its four other readers unmoved;
+  `src/parser/type-grammar.ts` untouched.
 
 ## Provenance
 

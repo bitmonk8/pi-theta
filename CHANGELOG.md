@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.188.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0232 — a `params:` object whose wire-name literal never closes now
+  refuses (`theta/load/params-type-not-expression`) instead of silently
+  collapsing to permissive `{}` and dropping well-formed sibling fields**
+  (route (b), second arm: new `hasUnterminatedStringLiteral` OR'd into the
+  existing guard in `src/parser/params.ts`; `isUnspellableTextRefusable`
+  untouched — the first arm measured red on Constraint 3 at three lexed
+  positions). The brace-exemption boundary `{a: integer` stays normatively
+  admitted (E2 unmoved). The Trigger's brace-exemption sentence is narrowed
+  in `code-registry-load.md` + `frontmatter-fields-a.md` (DIAG-2, no new row,
+  Message unchanged). 0229 discharge note appended. New 5-cell witness +
+  H8a/H9a live pair.
+
 ## [0.187.0] - 2026-08-28
 
 ### Fixed

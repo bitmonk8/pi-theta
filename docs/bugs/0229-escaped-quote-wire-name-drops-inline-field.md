@@ -745,7 +745,15 @@ report as the authority.
      recorded in the witness header as a bound of this route. It is outside
      this report's measured rows (§Reproduction names no unterminated
      spelling), and closing it is route §Fix (b)'s own decision, declined here.
-     A candidate filing.
+     A candidate filing. **DISCHARGED by
+     [0232](./0232-unterminated-literal-params-type-drops-inline-fields.md)**
+     (v0.188.0): `params:` now raises `theta/load/params-type-not-expression`
+     directly off a new `params.ts`-local unterminated-literal predicate
+     (`hasUnterminatedStringLiteral`), and this class's attribution above is
+     corrected there too: the entry does not "spell no key" in the sense that
+     phrase suggests entry-loop attention — measurement showed the entry loop
+     is never reached at all for this class, because the hoist intercept
+     (`isSingleEnclosingBraceGroup`) declines the whole source first.
   2. **`topLevelColonIndex` (`src/parser/type-layer-checks.ts`) tracks no
      quotes at all** — it is more blind than `topLevelColon` was before this
      fix, so the two scanners now disagree on any quoted-interior entry.

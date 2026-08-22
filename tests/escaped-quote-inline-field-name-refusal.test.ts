@@ -45,8 +45,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/spec_topics/diagnostics/code-registry-parse.md:101) backstops a key
 // that is none of the three subjects above it over those same positions. At
 // `params:` the scalar is a YAML string and never reaches the theta lexer, so
-// the unterminated-literal spelling there still spells no key and draws
-// nothing — a recorded BOUND of this route, not a class this fix closes. §Fix
+// the unterminated-literal spelling there still spelled no key and drew
+// nothing at this route's HEAD — recorded then as a BOUND of this route
+// (0229 §Fix Residuals item 1). CLOSED by bug 0232 (vX.Y.Z): `params:` now
+// raises its own registered `theta/load/params-type-not-expression` directly
+// off a new params.ts-local unterminated-literal predicate
+// (`hasUnterminatedStringLiteral`, src/parser/params.ts:1687), so the field is
+// refused rather than silently dropped — see
+// tests/unterminated-literal-params-type-refusal.test.ts. §Fix
 // (c) therefore does not arise, and the four-way precedence fixed at
 // code-registry-parse.md:100–101 — repeat, quote-led, rename, non-identifier —
 // is untouched over the positions it does reach: this route returns a key to

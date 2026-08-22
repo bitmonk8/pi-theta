@@ -252,6 +252,16 @@ export function parseParams(
     // identical class rather than each keeping its own copy: narrowing the
     // predicate narrows every position's refusal at once.
     const refusable = unspellable.filter(isUnspellableTextRefusable);
+    // bug 0232 §Fix (b): a field whose type-half source carries a string
+    // literal that never closes derives from no `Type` production
+    // (lexical.md:26), the same claim the eight lexed positions settle via
+    // the lexer. `params:` reaches no lexer, so this predicate is asked of
+    // the field's WHOLE recovered text directly rather than of the
+    // `unspellable` sink: `hasUnterminatedStringLiteral` covers the nested
+    // and generic spellings the sink never collects (see its doc comment),
+    // and `isUnspellableTextRefusable`'s own brace exemption stays untouched
+    // so the genuinely-unbalanced-brace boundary (Constraint 2) does not move.
+    const unterminatedLiteral = hasUnterminatedStringLiteral(field.typeSource);
     // §Fix constraint 1 ("exactly one diagnostic per offending field"), two
     // guards. `field.shapeRefused` is set at the frontmatter seam when the
     // value NODE was already refused (`paramValueCanCarryType`,
@@ -264,7 +274,7 @@ export function parseParams(
     // `generic-arity-mismatch`, or the unresolved-named-type loop just above)
     // keeps that diagnostic alone.
     if (
-      refusable.length > 0 &&
+      (refusable.length > 0 || unterminatedLiteral) &&
       field.shapeRefused !== true &&
       !diagnostics.slice(fieldDiagStart).some((d) => d.severity === "error")
     ) {
@@ -1649,6 +1659,48 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  */
 export function isUnspellableTextRefusable(text: string): boolean {
   return parseLiteralArm(text) === undefined && !text.includes("{") && !text.includes("}");
+}
+
+/**
+ * Whether `text` carries a string literal that never closes: a `"` or `'`
+ * opens a quoted region (a backslash inside one consumes the character
+ * behind it, as `isSingleEnclosingBraceGroup` and `topLevelColon` above both
+ * scan) and no matching quote closes it before the text ends. This is the
+ * `params:` position's OWN detection (bug 0232 §Fix (b)): the type grammar
+ * never reaches a `params:` field's recovered text, so no lexer arm
+ * (`lexer.ts:522`) ever sees the unterminated literal the eight lexed
+ * positions refuse on sight; this predicate is what stands in for that arm
+ * here.
+ *
+ * Deliberately independent of `isUnspellableTextRefusable`
+ * (`isUnspellableTextRefusable`, above): that predicate's brace exemption is
+ * unmoved by this fix (bug 0232 §Fix Constraint 2 — `{a: integer`, a
+ * genuinely unbalanced BRACE with no unterminated literal, stays admitted),
+ * so this is a second, narrower question asked of the field's WHOLE type-half
+ * source text rather than of the `unspellable` sink: a nested field
+ * (`{q: {a as "w: integer}}`) or a generic argument
+ * (`array<{a as "w: integer}>`) never reaches that sink at all
+ * (`classifyGenericArgumentSegments`'s arity-1 branch routes it sink-less),
+ * but scanning the whole source text finds the open quote regardless of what
+ * brace or angle structure surrounds it.
+ */
+export function hasUnterminatedStringLiteral(text: string): boolean {
+  let quote: string | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < text.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+    }
+  }
+  return quote !== undefined;
 }
 
 /**
