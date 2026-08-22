@@ -284,15 +284,15 @@ describe("bug 0087 — the array and object arms inherit rule 1 through their st
   it("c1: an array element carrying a line break is collapsed, the array shape intact", () => {
     // §"Echo policy" array rule: "Per-element rendering follows the same rules
     // recursively", so the leaf is a `string` arm render.
-    expect(renderEchoValue(["a\nb", "c"], { kind: "array", element: str })).toBe(
-      '["a b", c]',
-    );
+    expect(
+      renderEchoValue(["a\nb", "c"], { kind: "array", elements: [str, str] }),
+    ).toBe('["a b", c]');
   });
 
   it("c2: an array element whose edges trim away renders unquoted", () => {
-    expect(renderEchoValue(["\nplain\n"], { kind: "array", element: str })).toBe(
-      "[plain]",
-    );
+    expect(
+      renderEchoValue(["\nplain\n"], { kind: "array", elements: [str] }),
+    ).toBe("[plain]");
   });
 
   it("c3: an object's first-field value carrying a line break is collapsed", () => {
@@ -308,7 +308,7 @@ describe("bug 0087 — the array and object arms inherit rule 1 through their st
     // rule ever reads it, and :35's empty-string rendering fires on that
     // recursed-into leaf exactly as it does at the top level, so the composed
     // value is `""` rather than an empty unquoted slot inside the shape.
-    expect(renderEchoValue(["   "], { kind: "array", element: str })).toBe('[""]');
+    expect(renderEchoValue(["   "], { kind: "array", elements: [str] })).toBe('[""]');
     const objType: EchoType = { kind: "object", fields: [{ name: "f", type: str }] };
     expect(renderEchoValue({ f: "\n" }, objType)).toBe('{"", …}');
   });

@@ -124,7 +124,7 @@ describe("V11h-T — BNDR-6 reference renderings (defaulting-system-note-echo.md
     const taggedType: EchoType = {
       kind: "object",
       fields: [
-        { name: "tags", type: { kind: "array", element: str } },
+        { name: "tags", type: { kind: "array", elements: [str, str] } },
         { name: "name", type: str },
       ],
     };
@@ -161,15 +161,15 @@ describe("V11h-T — BNDR-6 reference renderings (defaulting-system-note-echo.md
 
   it("BNDR-6m: an empty array renders as `[]`", () => {
     // bndr-6m: `[]` (array) renders as `[]`.
-    expect(renderEchoValue([], { kind: "array", element: str })).toBe("[]");
+    expect(renderEchoValue([], { kind: "array", elements: [] })).toBe("[]");
   });
 
   it("BNDR-6n: a short array renders in full with per-element quoting", () => {
     // bndr-6n: `["a", "b c"]` (array) renders as `[a, "b c"]` — each element
     // quoted by the same predicate as a top-level string.
-    expect(renderEchoValue(["a", "b c"], { kind: "array", element: str })).toBe(
-      '[a, "b c"]',
-    );
+    expect(
+      renderEchoValue(["a", "b c"], { kind: "array", elements: [str, str] }),
+    ).toBe('[a, "b c"]');
   });
 
   it("BNDR-6o: an integer renders as canonical base-10 (composes V2d)", () => {
@@ -249,7 +249,7 @@ describe("V11h-T — echo `(default)` annotation (defaulting-system-note-echo.md
         {
           name: "focus_areas",
           value: [],
-          type: { kind: "array", element: { kind: "string" } },
+          type: { kind: "array", elements: [] },
           tookDefault: true,
         },
       ],
@@ -267,7 +267,7 @@ describe("V11h-T — echo `(default)` annotation (defaulting-system-note-echo.md
         {
           name: "focus_areas",
           value: ["async"],
-          type: { kind: "array", element: { kind: "string" } },
+          type: { kind: "array", elements: [{ kind: "string" }] },
           tookDefault: false,
         },
       ],

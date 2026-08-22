@@ -1,6 +1,7 @@
 # Bug 0092 — `renderObject` reads `value[first.name]` with no own-key guard and no record check, and its own descriptor producer manufactures the mismatch: one array element's shape decides the descriptor for every element, so a `Shape | null` or discriminated-union array aborts a successfully bound slash invocation with a `TypeError` out of the echo path
 
-- **Status:** open. §Fix is constraint-pinned, not settled.
+- **Status:** fixed (0.211.0). The constraint-pinned §Fix is settled and shipped;
+  the record is `## Fix (0.211.0)` at the end of this document.
 - **Kind:** defect — one unguarded read at the renderer, fed by one
   once-per-array descriptor derivation at the producer. Neither half is
   reachable alone: the renderer's read is total whenever the descriptor is
@@ -383,6 +384,98 @@ Regression coverage: the two carriers above as offline rows through the
 group-G rig, the `[null, {…}]` silent row, and the `{undefined, …}` numeric
 row, each asserted on the delivered `theta-system-note` content rather than on
 `runBinder` resolving.
+
+## Fix (0.211.0)
+
+- What shipped:
+  - `src/render/argument-echo.ts` — `EchoType`'s array arm carries a
+    per-element descriptor list (`elements`) in element order, replacing the
+    single `element`; `renderArray` renders element `i` under descriptor `i`
+    and raises the caller-side-construction-bug `RangeError` on a
+    descriptor/element count mismatch; `renderObject` tests both premises
+    before the first-field read — a non-null, non-array object, and
+    `Object.prototype.hasOwnProperty.call(value, first.name)` — each violation
+    raising that same class naming the field and the value's own keys; the
+    `EchoType`, `EchoField`, `renderArray` and `renderObject` doc-comments
+    corrected to what the descriptor actually carries, without settling the
+    field-ORDER question (§Non-goals).
+  - `src/extension/production-theta-producer.ts` — `echoTypeFromValue`'s array
+    arm maps EVERY element through `echoTypeFromValue` with the same
+    `itemProp`, so each element is described by itself and an `anyOf` items
+    schema yields one descriptor per variant; the `{ kind: "string" }`
+    empty-array placeholder is gone (an empty array yields `elements: []`),
+    and the docstring's "VALUE-driven so it can never mismatch" claim is true
+    again.
+  - `tests/argument-echo.test.ts`, `tests/echo-value-rule1-sanitisation.test.ts`
+    — eight array-descriptor literals converted mechanically from the
+    `element:` spelling to `elements: [...]`, one descriptor per element of the
+    value under test. No assertion, expected string, test name or comment
+    claim changed; 26 + 25 pins green.
+  - `tests/echo-array-per-element-descriptor.test.ts` (new) — the regression
+    witness, 12 cells.
+  - `tests/live/live-echo-array-.test.ts` (new) — the H8a live witness
+    for the declared-default carrier.
+- Gates: witness `npx vitest run tests/echo-array-per-element-descriptor.test.ts`
+  → `Test Files 1 passed (1) / Tests 12 passed (12)` (8 of the 12 red before the
+  fix); full default suite `npm test` →
+  `Test Files 395 passed (395) / Tests 8193 passed (8193)`; `npm run typecheck`
+  → clean (`tsc -p tsconfig.json --noEmit`, no output); `npm run lint` → clean
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`, no output).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — no correctness / fidelity /
+  spec finding; two prose findings (a stale `renderArray` doc sentence; a false
+  cast-concession comment in the new test) and two residuals (a dead cast at
+  `renderEchoValue`'s object case; a fixture path `/theta/t.theta` surfacing to
+  the closing-gate extractor as the pseudo-code `theta/t`), all four applied by
+  `bug-fix-fixer-light`. Round 2 (`bug-fix-reviewer-fast`) — clean, one
+  pre-existing prose residual (the `EchoField` doc-comments still claiming
+  declaring-schema order), closed by a comment-only polish round; that polish
+  was gate-diff verified (comment-only hunks, gates green) and its confirmation
+  review round was skipped on that basis.
+- Verification: PASS on all four obligations. (i) Witness reds for the right
+  reason: with `src/render/argument-echo.ts` and
+  `src/extension/production-theta-producer.ts` written back to HEAD content the
+  witness runs `8 failed | 4 passed (12)` with the document's own signatures
+  (`TypeError: Cannot read properties of null (reading 'label')`,
+  `TypeError … (reading 'replace')`, the silent `items=[null, null]` note);
+  restored byte-exactly (`git hash-object` equality against the pre-revert
+  copies) and 12/12 green again. (ii) Full default suite green (above).
+  (iii) Live: `tests/live/live-echo-array-.test.ts` drives the
+  declared-default carrier through the shipped discovery→registration→binder→
+  echo path and asserts the delivered `theta-system-note` carries
+  `items=[{x, …}, null] (default)` with no abort framing — green with the fix,
+  and proved red in the same lock-held run with the two source files reverted:
+  `Notes: ["theta /b0092live aborted with internal error: Cannot read
+  properties of null (reading 'label')"]`. (iv) Lint and typecheck clean.
+- Residuals:
+  1. Field ORDER is unchanged, per §Non-goals: the descriptor still carries the
+     value's own key insertion order, so §"Expected behaviour"'s carrier-2 line
+     `items=[{circle, …}, {square, …}]` is NOT what the fixed tree renders when
+     element 0's own key order puts `label` first — it renders
+     `items=[{x, …}, {square, …}]`. The crash is gone; which order the echo
+     should use (`defaulting-system-note-echo.md:43` asks for the declaring
+     schema block's source order) remains unfiled. Evidence: cell `a2` of
+     `tests/echo-array-per-element-descriptor.test.ts`, and the corrected
+     `renderObject` doc-comment, which records the divergence without settling
+     it.
+  2. The two unguarded reads of the lowered `properties` record
+     (`#emitBinderEchoNote`'s `properties?.[field.wireName]` and
+     `echoTypeFromValue`'s `props?.[name]`) are untouched, as §Non-goals
+     directs; both still fall back cleanly through their
+     `typeof property === "object"` test.
+  3. The new `renderArray` count-mismatch arm and the two `renderObject`
+     premise arms are unreachable from production input: `echoTypeFromValue`
+     derives every descriptor from the value it renders in the same
+     synchronous call. They are witnessed only by direct-renderer cells
+     (`b1`–`b4`), which is the point — the guard exists so the next producer
+     cannot reintroduce the defect silently.
+  4. `EchoType`'s array arm is a breaking shape change for any caller
+     constructing a descriptor by hand; the only such callers in the tree are
+     the two pin files, converted here.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: field order (§Non-goals) stays unsettled;
+  the 0031/0038-class `properties` reads stay out of scope; the BNDR-6 rows,
+  rule-1 pass, quote predicate, 120-scalar cap and `(default)` tag settled by
+  0087 are byte-unchanged.
 
 ## Provenance
 

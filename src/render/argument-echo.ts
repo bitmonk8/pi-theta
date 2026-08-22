@@ -36,8 +36,12 @@ import { renderCanonicalNumber } from "./canonical-number";
  * rendering rule. The formatter is data-driven off this descriptor rather than
  * the value's runtime shape: `integer` vs `number` selects BNDR-4 vs BNDR-5
  * (never runtime integrality); `enum` renders the value's underlying wire
- * string through the string quote predicate; `object` carries its declaring
- * schema's field order so the object rule can pick the first field.
+ * string through the string quote predicate; `array` carries one descriptor
+ * per element in element order, so a heterogeneous array (e.g. a
+ * discriminated-union `anyOf`) describes each element by its own shape
+ * instead of reusing one element's shape for all; `object` carries `fields`
+ * in the order the sole producer supplies (the value's own key insertion
+ * order) so the object rule can pick the first field.
  */
 export type EchoType =
   | { readonly kind: "string" }
@@ -46,12 +50,12 @@ export type EchoType =
   | { readonly kind: "boolean" }
   | { readonly kind: "null" }
   | { readonly kind: "enum" }
-  | { readonly kind: "array"; readonly element: EchoType }
+  | { readonly kind: "array"; readonly elements: readonly EchoType[] }
   | { readonly kind: "object"; readonly fields: readonly EchoField[] };
 
-/** One object field: its theta-side name (declaration order) and its type. */
+/** One object field: its theta-side name and its type, in the order the producer supplies (see `renderObject`). */
 export interface EchoField {
-  /** The field's theta-side name, in the declaring schema block's source order. */
+  /** The field's theta-side name; ordering across fields is whatever the producer supplies (see `renderObject`). */
   readonly name: string;
   /** The field's static type, used to render the field value recursively. */
   readonly type: EchoType;
@@ -120,10 +124,20 @@ function renderString(value: string): string {
  * Render an array per the §"Echo policy" array rule: arrays of 3 or fewer
  * elements in full as `[a, b, c]`; arrays of 4 or more as `[a, b, c, …+N more]`
  * where the prefix is the first three elements and `N = total − 3`; an empty
- * array as `[]`. Each element is rendered recursively by the element type.
+ * array as `[]`. Each element is rendered recursively by its own descriptor.
  */
-function renderArray(elements: readonly ThetaValue[], element: EchoType): string {
-  const rendered = elements.map((el) => renderEchoValue(el, element));
+function renderArray(elements: readonly ThetaValue[], descriptors: readonly EchoType[]): string {
+  if (descriptors.length !== elements.length) {
+    // The producer derives one descriptor per element from the same value it
+    // renders (echoTypeFromValue, src/extension/production-theta-producer.ts);
+    // a count mismatch can only originate from a hand-built or otherwise
+    // malformed descriptor, the same caller-side class the empty-`fields` arm
+    // of `renderObject` below already raises.
+    throw new RangeError(
+      `renderArray: descriptor count ${descriptors.length} does not match element count ${elements.length} (first uncovered index ${Math.min(descriptors.length, elements.length)})`,
+    );
+  }
+  const rendered = elements.map((el, i) => renderEchoValue(el, descriptors[i]!));
   if (rendered.length <= 3) {
     return `[${rendered.join(", ")}]`;
   }
@@ -134,12 +148,16 @@ function renderArray(elements: readonly ThetaValue[], element: EchoType): string
 /**
  * Render an object per the §"Echo policy" object rule: `{first-field-value, …}`
  * — just the first field's value, rendered recursively by that field's static
- * type. The first field is the leading entry of the declaring schema block's
- * source order carried in the descriptor's `fields`. The trailing `, …` is
- * fixed text rendered for every object value, including single-field objects.
+ * type. The first field is `fields[0]`; at the sole producer
+ * (`echoTypeFromValue`, `src/extension/production-theta-producer.ts`) `fields`
+ * carries the value's own key insertion order, not the declaring schema
+ * block's source order — which order the echo should use is an open question
+ * this function does not settle (docs/bugs/0092-renderobject-first-field-unguarded-cast.md
+ * §Non-goals). The trailing `, …` is fixed text rendered for every object
+ * value, including single-field objects.
  */
 function renderObject(
-  value: { readonly [key: string]: ThetaValue },
+  value: unknown,
   fields: readonly EchoField[],
 ): string {
   const first = fields[0];
@@ -150,7 +168,22 @@ function renderObject(
       "renderObject: object EchoType carries no fields; the object rule needs a first field",
     );
   }
-  return `{${renderEchoValue(value[first.name] as ThetaValue, first.type)}, …}`;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    // A descriptor derived from a value always matches that value at the
+    // producer; a non-record value here can only mean the descriptor and the
+    // value it renders come from different sources — the same caller-side
+    // construction-bug class as the empty-`fields` arm above.
+    throw new RangeError(
+      `renderObject: expected a non-null, non-array object for field '${first.name}', got ${value === null ? "null" : Array.isArray(value) ? "an array" : typeof value}`,
+    );
+  }
+  if (!Object.prototype.hasOwnProperty.call(value, first.name)) {
+    throw new RangeError(
+      `renderObject: value has no own field '${first.name}'; its own keys are [${Object.keys(value).join(", ")}]`,
+    );
+  }
+  const record = value as { readonly [key: string]: ThetaValue };
+  return `{${renderEchoValue(record[first.name] as ThetaValue, first.type)}, …}`;
 }
 
 /**
@@ -177,12 +210,9 @@ export function renderEchoValue(value: ThetaValue, type: EchoType): string {
       // same quote predicate as a top-level string value.
       return renderString(String(value));
     case "array":
-      return renderArray(value as readonly ThetaValue[], type.element);
+      return renderArray(value as readonly ThetaValue[], type.elements);
     case "object":
-      return renderObject(
-        value as { readonly [key: string]: ThetaValue },
-        type.fields,
-      );
+      return renderObject(value, type.fields);
   }
 }
 

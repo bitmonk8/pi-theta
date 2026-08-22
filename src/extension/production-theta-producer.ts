@@ -6056,8 +6056,10 @@ async function driveStreamedUserTurn(deps: {
  * wire form throughout, so a named-enum value arrives here as the bare JSON
  * string AJV admitted — never as the runtime's boxed `String` carrier
  * (`makeEnumValue`, `runtime/value.ts`) — and the `string` arm is the one it
- * takes. Object fields are taken from the value's own keys in insertion order
- * (declaration order for a binder-returned object).
+ * takes. Each array element is described by itself, not by element 0's shape, so
+ * a heterogeneous array (an `anyOf` items schema) never misdescribes an element
+ * it did not derive from. Object fields are taken from the value's own keys in
+ * insertion order (declaration order for a binder-returned object).
  */
 function echoTypeFromValue(value: ThetaValue, property: unknown): EchoType {
   if (typeof value === "string") {
@@ -6077,11 +6079,13 @@ function echoTypeFromValue(value: ThetaValue, property: unknown): EchoType {
       typeof property === "object" && property !== null
         ? (property as Record<string, unknown>)["items"]
         : undefined;
-    const element =
-      value.length > 0
-        ? echoTypeFromValue(value[0] as ThetaValue, itemProp)
-        : ({ kind: "string" } as EchoType);
-    return { kind: "array", element };
+    // Every element is described by ITSELF (the same discipline the object arm
+    // below already applies to its fields), so an `anyOf` items schema —
+    // `array<T | null>` or an array of discriminated-union variants — yields
+    // one descriptor per variant instead of element 0's shape misdescribing
+    // the rest (docs/bugs/0092-renderobject-first-field-unguarded-cast.md).
+    const elements = value.map((el) => echoTypeFromValue(el as ThetaValue, itemProp));
+    return { kind: "array", elements };
   }
   // A plain object value: render by its own keys in insertion order.
   const props =

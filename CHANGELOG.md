@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.211.0]
+
+### Fixed
+
+- **Bug 0092**: `renderObject`'s first-field unguarded cast — the argument
+  echo derived ONE descriptor for a whole array default and crashed on
+  heterogeneous element lists (`Cannot read properties of null`).
+  `EchoType`'s array arm now carries a per-element `elements` list;
+  `renderArray` renders per index with a count-mismatch `RangeError`;
+  `renderObject` gains record + own-key premise guards; `echoTypeFromValue`
+  derives one descriptor per element and the empty-array placeholder is
+  gone. Witness: `tests/echo-array-per-element-descriptor.test.ts` (12
+  cells) + an H8a live cell red-proven against the real crash.
+
 ## [0.210.0]
 
 ### Fixed
