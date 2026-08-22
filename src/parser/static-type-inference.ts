@@ -336,6 +336,19 @@ export class StaticTypeInferencePass {
           },
         };
       }
+      case "block":
+        // bug 0082 §Fix constraint 3: a block's static type is its tail expression's
+        // type. Mirrors the `try` arm's pass-through above rather than
+        // threading the block's own `let`s into `bindings` — this pass never
+        // threads a plain (unannotated) `let`'s type to a LATER statement
+        // anywhere else either (a `fn` body's sequential `let`s are not
+        // threaded, `#walkStmt` records each statement's own expression against
+        // `noBindings`), so a block-local name the tail reads resolves exactly
+        // as unthreaded elsewhere: a nominal self-reference the `⊑` engine
+        // defers on, never a false type.
+        return node.body.tail === null
+          ? { kind: "named", name: "unknown" }
+          : this.#typeExpr(node.body.tail, env, bindings);
     }
   }
 

@@ -79,7 +79,7 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 // THE WRITE SITES THIS FILE COVERS (§Fix constraint 5 and 7 — the four paths
 // move together, and the scope over the adjacent sites is stated, not implicit):
 //   1. `evalExpr`'s `expr.kind === "object"` arm, the field write at
-//      src/runtime/statement-executor.ts:667 — every `let`-bound constructor.
+//      src/runtime/statement-executor.ts:714 — every `let`-bound constructor.
 //      Cells (A), (B), (C1-C4), (D), (E), (H) drive it.
 //   2. `evaluatePureExpression`'s `case "object"`, the field write at
 //      src/extension/production-theta-producer.ts:6284 — a constructor written
@@ -93,7 +93,7 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 //      declared field is skipped as absent, and the rebuild re-drops a field
 //      that does arrive. Cell (G1) covers :403 and reds if only the callers are
 //      fixed; cell (G5) covers :408.
-//   4. The two Pi-tool argument records — src/runtime/statement-executor.ts:352
+//   4. The two Pi-tool argument records — src/runtime/statement-executor.ts:373
 //      (cells (I1) / (I2)) and its pure-host twin
 //      src/extension/production-theta-producer.ts:4016 (cell (I3)) — which have
 //      no rebuild downstream, so an object-valued field writes a prototype
@@ -580,7 +580,7 @@ describe("bug 0119 (A) — a declared `__proto__` field survives construction", 
     const value = await finalValue(FM + SCHEMA_Q + CTOR_Q + "[q.keys(), q.values()]\n", "cell A");
     expect(
       value,
-      'PRIMARY (bug 0119, cell A — the declared field never landed): expressions.md §"Object construction" requires every declared field to be present and runtime-value-model.md fixes the value as "JS plain object keyed by theta-side names", so `Q { a: "x", __proto__: 7 }` must answer [["__proto__","a"],[7,"x"]]. HEAD observes [["a"],["x"]]: the constructor field write (src/runtime/statement-executor.ts:667) assigned instead of defining, so it reached `Object.prototype`\'s inherited `__proto__` setter, which ignores a non-object value, and no own property was ever created',
+      'PRIMARY (bug 0119, cell A — the declared field never landed): expressions.md §"Object construction" requires every declared field to be present and runtime-value-model.md fixes the value as "JS plain object keyed by theta-side names", so `Q { a: "x", __proto__: 7 }` must answer [["__proto__","a"],[7,"x"]]. HEAD observes [["a"],["x"]]: the constructor field write (src/runtime/statement-executor.ts:714) assigned instead of defining, so it reached `Object.prototype`\'s inherited `__proto__` setter, which ignores a non-object value, and no own property was ever created',
     ).toEqual([
       ["__proto__", "a"],
       [7, "x"],
@@ -1004,7 +1004,7 @@ describe("bug 0119 (I) — the Pi-tool argument record carries the field, not a 
   }
 
   it("RED (I1): an OBJECT-valued field reaches the host as data on a plain object", async () => {
-    // `preEvaluateToolArgs` (src/runtime/statement-executor.ts:352) writes the
+    // `preEvaluateToolArgs` (src/runtime/statement-executor.ts:373) writes the
     // argument record and has NO rebuild downstream, so the record it builds IS
     // what the host tool receives: an assignment there hands the tool an object
     // whose PROTOTYPE is a theta value. Every theta-side read is own-key-guarded,

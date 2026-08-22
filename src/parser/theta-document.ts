@@ -380,6 +380,22 @@ export interface ParForExpr extends NodeBase {
 }
 
 /**
+ * An expression-position block (grammar.md §"Block expressions",
+ * `BlockExpr ::= "{" Stmt* Expr "}"`): zero or more statements followed by a
+ * REQUIRED tail `Expr`, whose value is the block's value. Admitted at exactly
+ * the two positions grammar.md:114 names — a `let` / `let mut` initialiser and
+ * a `match`-arm body — never in general expression position (bug 0082 §Fix).
+ * A parsed block whose `body.tail` is `null` draws
+ * `theta/parse/block-expr-missing-tail`; `FnBody` / `StmtBlock`'s implicit
+ * `null` tail is a DIFFERENT production (grammar.md :119/:121) and this rule
+ * does not apply to it.
+ */
+export interface BlockExpr extends NodeBase {
+  readonly kind: "block";
+  readonly body: Block;
+}
+
+/**
  * The `Expr` node family. A tail `Expr` of a `ThetaBody` / block, a `let`
  * initialiser, a condition, etc. all use this union.
  */
@@ -402,7 +418,8 @@ export type Expr =
   | MatchExpr
   | ResultCtorExpr
   | MethodCallExpr
-  | ParForExpr;
+  | ParForExpr
+  | BlockExpr;
 
 // --------------------------------------------------------------------------
 // Statement / declaration AST (the `Stmt` node family; grammar.md)
@@ -1807,6 +1824,42 @@ function canStartExpression(t: Token): boolean {
   }
 }
 
+/**
+ * Canonicalise a parsed `{ ... }` body for the ONE position that requires a
+ * structural tail (`BlockExpr`, bug 0082 §Fix): promote a trailing bare
+ * `ExprStmt` to `Block.tail` when `parseForms` left `tail: null`.
+ *
+ * WHY THIS IS NEEDED, NOT COSMETIC. Newline continuation swallows every
+ * `stmt-sep` at bracket depth > 0 (lexer.ts `collapseContinuations`), so
+ * inside ANY `{ ... }` — a `BlockExpr` included — only the FIRST statement in
+ * source order (or one immediately following a postfix `?` / a nested `}`)
+ * ever sees `lineStart: true`; every later line-start expression form reaches
+ * `parseForms`'s tail-promotion test with `lineStart: false` and is recorded
+ * as an ordinary `ExprStmt` instead. `executeBlock`
+ * (../runtime/statement-executor.ts) already treats a trailing bare `expr`
+ * statement as tail-EQUIVALENT for VALUE purposes (its own doc comment states
+ * the rule); this function makes that equivalence STRUCTURAL for `BlockExpr`
+ * specifically, so `Block.tail` genuinely carries the block's value node
+ * (grammar.md:118) rather than leaving grammar.md's REQUIRED tail to a
+ * runtime fallback that this position's `theta/parse/block-expr-missing-tail`
+ * check would otherwise misfire against.
+ *
+ * Scoped to the returned `BlockExpr.body` alone: `parseBlock`'s other callers
+ * (`FnBody` / `StmtBlock` / `ThetaBody`) admit an implicit `null` tail by
+ * design (grammar.md :119/:121) and are untouched — this function is never
+ * called on their result.
+ */
+function promoteTrailingExprToTail(block: Block): Block {
+  if (block.tail !== null) {
+    return block;
+  }
+  const last = block.statements[block.statements.length - 1];
+  if (last === undefined || last.kind !== "expr") {
+    return block;
+  }
+  return { statements: block.statements.slice(0, -1), tail: last.expr };
+}
+
 /** One parsed top-level / block form: its statement node plus tail metadata. */
 interface Form {
   readonly stmt: Stmt;
@@ -2177,7 +2230,7 @@ class BodyParser {
     let init: Expr | null = null;
     if (this.isPunct("=")) {
       this.advance();
-      init = this.parseExpression();
+      init = this.parseExpressionAtBlockSite();
     }
     // A `let x: T = @`…`` (or its `?`-propagating form `let x: T = @`…`?`) binds
     // a typed query: propagate the declared annotation onto the query so the
@@ -3662,6 +3715,61 @@ class BodyParser {
   }
 
   /**
+   * Parse an `Expr` at one of grammar.md:114's two expression-position block
+   * sites (a `let` / `let mut` initialiser, a `match`-arm body) — the ONLY
+   * positions a bare `{` reads as a `BlockExpr` rather than an object literal
+   * (bug 0082 §Fix). Every other expression position calls `parseExpression`
+   * directly and is unaffected: a `{` reached through `parsePrimary` from any
+   * other call graph still parses as today's `ObjectExpr`
+   * (`theta/parse/bare-object-literal` unchanged, DIAG-4).
+   */
+  private parseExpressionAtBlockSite(): Expr | null {
+    if (this.isPunct("{") && this.looksLikeBlockAtBlockSite()) {
+      return this.parseBlockExprNode();
+    }
+    return this.parseExpression();
+  }
+
+  /**
+   * The disambiguation predicate bug 0082 §Fix settles for the two
+   * expression-position block sites: the braces read as an OBJECT LITERAL iff
+   * the token immediately after `{` is `}` (the empty-object reading) or an
+   * ident/string token immediately followed by `:` (a field-list reading);
+   * otherwise they read as a BLOCK. Mirrors `parseObjectLiteral`'s own field-name
+   * token test (ident or string) so the two readings agree on what a field name
+   * looks like.
+   */
+  private looksLikeBlockAtBlockSite(): boolean {
+    const after = this.peek(1);
+    if (after.kind === "punct" && after.text === "}") {
+      return false;
+    }
+    if ((after.kind === "ident" || after.kind === "string") && this.isPunct(":", 2)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Parse a `BlockExpr` — the current token is its opening `{`. Reuses
+   * `parseBlock`'s `Stmt* Expr?` reader (the same `{ ... }` statement-list
+   * parse `FnBody` / `StmtBlock` drive), then enforces grammar.md:118's
+   * TAIL-REQUIRED rule this position adds on top of it: a block whose parsed
+   * `Block.tail` is `null` draws `theta/parse/block-expr-missing-tail`, never
+   * the implicit `null` `FnBody` / `StmtBlock` admit (bug 0082 §Fix, third
+   * constraint).
+   */
+  private parseBlockExprNode(): Expr {
+    const startTok = this.peek(); // `{`, not yet consumed
+    const body = promoteTrailingExprToTail(this.parseBlock());
+    const range = spanRange(startTok.range, this.prevRange());
+    if (body.tail === null) {
+      this.diagnostics.push(blockExprMissingTailDiagnostic(range, this.file));
+    }
+    return { kind: "block", body, range };
+  }
+
+  /**
    * Parse the token stream as a single expression — the same `parseExpression`
    * entry the `let` RHS drives, exposed so a `@`...`` template's `${…}`
    * interpolation body honours the full expression sublanguage
@@ -4244,7 +4352,7 @@ class BodyParser {
         const consumedStmt = this.tryConsumeArmBodyStatement();
         const body = consumedStmt
           ? nullExpr(kw.range)
-          : (this.parseExpression() ?? nullExpr(kw.range));
+          : (this.parseExpressionAtBlockSite() ?? nullExpr(kw.range));
         arms.push({ pattern, body });
         if (this.isPunct(",")) {
           this.advance();
@@ -4786,7 +4894,7 @@ class BodyParser {
       this.scanParForStmt(s, outerMutables, bodyLocals, loopDepth);
     }
     if (block.tail !== null) {
-      this.scanParForExpr(block.tail, outerMutables);
+      this.scanParForExpr(block.tail, outerMutables, bodyLocals, loopDepth);
     }
   }
 
@@ -4799,7 +4907,7 @@ class BodyParser {
     switch (s.kind) {
       case "let":
         if (s.init !== null) {
-          this.scanParForExpr(s.init, outerMutables);
+          this.scanParForExpr(s.init, outerMutables, bodyLocals, loopDepth);
         }
         if (s.name !== "_") {
           bodyLocals.add(s.name);
@@ -4815,7 +4923,7 @@ class BodyParser {
             message: `cannot assign to outer binding '${s.target}' from inside a 'par for' body`,
           });
         }
-        this.scanParForExpr(s.value, outerMutables);
+        this.scanParForExpr(s.value, outerMutables, bodyLocals, loopDepth);
         return;
       case "break":
       case "continue":
@@ -4833,7 +4941,7 @@ class BodyParser {
         }
         return;
       case "if":
-        this.scanParForExpr(s.condition, outerMutables);
+        this.scanParForExpr(s.condition, outerMutables, bodyLocals, loopDepth);
         this.scanParForBlock(s.then, outerMutables, bodyLocals, loopDepth);
         if (s.otherwise !== null) {
           if ("statements" in s.otherwise) {
@@ -4844,11 +4952,11 @@ class BodyParser {
         }
         return;
       case "while":
-        this.scanParForExpr(s.condition, outerMutables);
+        this.scanParForExpr(s.condition, outerMutables, bodyLocals, loopDepth);
         this.scanParForBlock(s.body, outerMutables, bodyLocals, loopDepth + 1);
         return;
       case "for":
-        this.scanParForExpr(s.iterand, outerMutables);
+        this.scanParForExpr(s.iterand, outerMutables, bodyLocals, loopDepth);
         this.scanParForBlock(s.body, outerMutables, bodyLocals, loopDepth + 1);
         return;
       case "query":
@@ -4862,13 +4970,13 @@ class BodyParser {
         });
         return;
       case "tool-call":
-        this.scanParForExpr(s.call, outerMutables);
+        this.scanParForExpr(s.call, outerMutables, bodyLocals, loopDepth);
         return;
       case "invoke":
-        this.scanParForExpr(s.invoke, outerMutables);
+        this.scanParForExpr(s.invoke, outerMutables, bodyLocals, loopDepth);
         return;
       case "expr":
-        this.scanParForExpr(s.expr, outerMutables);
+        this.scanParForExpr(s.expr, outerMutables, bodyLocals, loopDepth);
         return;
       case "return":
         // Refused at EVERY depth, unlike `break` / `continue` above: those stay
@@ -4886,7 +4994,7 @@ class BodyParser {
           message: "'return' is not permitted inside a 'par for' body",
         });
         if (s.operand !== null) {
-          this.scanParForExpr(s.operand, outerMutables);
+          this.scanParForExpr(s.operand, outerMutables, bodyLocals, loopDepth);
         }
         return;
       default:
@@ -4896,8 +5004,22 @@ class BodyParser {
     }
   }
 
-  private scanParForExpr(e: Expr, outerMutables: ReadonlySet<string>): void {
+  private scanParForExpr(
+    e: Expr,
+    outerMutables: ReadonlySet<string>,
+    bodyLocals: Set<string>,
+    loopDepth: number,
+  ): void {
     switch (e.kind) {
+      case "block":
+        // A block expression carries a whole statement list, so the CTRL-4
+        // body restrictions have to reach inside it. It is not a loop, so
+        // `loopDepth` is unchanged and a `break` / `continue` in it still
+        // targets the `par for`. Its `let`s bind in a child scope (the runtime
+        // evaluates the body in `env.child()`), so a COPY of `bodyLocals`
+        // keeps them from masking a sibling's shared-mutation refusal.
+        this.scanParForBlock(e.body, outerMutables, new Set(bodyLocals), loopDepth);
+        return;
       case "query":
         this.diagnostics.push({
           severity: "error",
@@ -4911,59 +5033,59 @@ class BodyParser {
       case "par-for":
         // A nested `par for` emits its own body diagnostics; its iterand / max
         // evaluate in THIS body's scope, so scan those but not its body.
-        this.scanParForExpr(e.iterand, outerMutables);
+        this.scanParForExpr(e.iterand, outerMutables, bodyLocals, loopDepth);
         if (e.max !== null) {
-          this.scanParForExpr(e.max, outerMutables);
+          this.scanParForExpr(e.max, outerMutables, bodyLocals, loopDepth);
         }
         return;
       case "try":
-        this.scanParForExpr(e.operand, outerMutables);
+        this.scanParForExpr(e.operand, outerMutables, bodyLocals, loopDepth);
         return;
       case "binary":
-        this.scanParForExpr(e.left, outerMutables);
-        this.scanParForExpr(e.right, outerMutables);
+        this.scanParForExpr(e.left, outerMutables, bodyLocals, loopDepth);
+        this.scanParForExpr(e.right, outerMutables, bodyLocals, loopDepth);
         return;
       case "ternary":
-        this.scanParForExpr(e.condition, outerMutables);
-        this.scanParForExpr(e.consequent, outerMutables);
-        this.scanParForExpr(e.alternate, outerMutables);
+        this.scanParForExpr(e.condition, outerMutables, bodyLocals, loopDepth);
+        this.scanParForExpr(e.consequent, outerMutables, bodyLocals, loopDepth);
+        this.scanParForExpr(e.alternate, outerMutables, bodyLocals, loopDepth);
         return;
       case "call":
       case "invoke":
         for (const arg of e.args) {
-          this.scanParForExpr(arg, outerMutables);
+          this.scanParForExpr(arg, outerMutables, bodyLocals, loopDepth);
         }
         return;
       case "member":
-        this.scanParForExpr(e.target, outerMutables);
+        this.scanParForExpr(e.target, outerMutables, bodyLocals, loopDepth);
         return;
       case "index":
-        this.scanParForExpr(e.target, outerMutables);
-        this.scanParForExpr(e.index, outerMutables);
+        this.scanParForExpr(e.target, outerMutables, bodyLocals, loopDepth);
+        this.scanParForExpr(e.index, outerMutables, bodyLocals, loopDepth);
         return;
       case "method-call":
-        this.scanParForExpr(e.target, outerMutables);
+        this.scanParForExpr(e.target, outerMutables, bodyLocals, loopDepth);
         for (const arg of e.args) {
-          this.scanParForExpr(arg, outerMutables);
+          this.scanParForExpr(arg, outerMutables, bodyLocals, loopDepth);
         }
         return;
       case "object":
         for (const field of e.fields) {
-          this.scanParForExpr(field.value, outerMutables);
+          this.scanParForExpr(field.value, outerMutables, bodyLocals, loopDepth);
         }
         return;
       case "array":
         for (const el of e.elements) {
-          this.scanParForExpr(el, outerMutables);
+          this.scanParForExpr(el, outerMutables, bodyLocals, loopDepth);
         }
         return;
       case "result-ctor":
-        this.scanParForExpr(e.arg, outerMutables);
+        this.scanParForExpr(e.arg, outerMutables, bodyLocals, loopDepth);
         return;
       case "match":
-        this.scanParForExpr(e.scrutinee, outerMutables);
+        this.scanParForExpr(e.scrutinee, outerMutables, bodyLocals, loopDepth);
         for (const arm of e.arms) {
-          this.scanParForExpr(arm.body, outerMutables);
+          this.scanParForExpr(arm.body, outerMutables, bodyLocals, loopDepth);
         }
         return;
       default:
@@ -5759,6 +5881,13 @@ function walkIdentExpr(
       walkIdentBlock(e.body, inner, walkCtx, file, out);
       return;
     }
+    case "block":
+      // A CHILD scope (bug 0082 §Fix): a name the block's own `let`s
+      // bind must not leak to the read that follows the block — mirrors the
+      // `if` / `while` / `par-for` arms above, which likewise walk their body
+      // over a COPY of `scope`.
+      walkIdentBlock(e.body, new Set(scope), walkCtx, file, out);
+      return;
     default:
       // number / string / bool / null / query — no identifier sites.
       return;
@@ -5840,6 +5969,24 @@ function bareObjectLiteralDiagnostic(range: SourceRange, file: string): Diagnost
     range,
     message:
       "bare object literal not permitted in this position; name the schema (Schema { ... })",
+  };
+}
+
+/**
+ * The registered `theta/parse/block-expr-missing-tail` rejection (bug 0082
+ * §Fix item 4; code-registry-parse.md, adjacent to
+ * `theta/parse/statement-in-arm-body`): a `BlockExpr` at one of the two
+ * admitted expression-position block sites (grammar.md:118
+ * `BlockExpr ::= "{" Stmt* Expr "}"`) whose parsed body carries no tail
+ * expression. `range` spans the block's own `{`…`}`.
+ */
+function blockExprMissingTailDiagnostic(range: SourceRange, file: string): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/block-expr-missing-tail",
+    file,
+    range,
+    message: "block expression must end in a tail expression",
   };
 }
 
@@ -6607,6 +6754,13 @@ function walkCallSiteExpr(
       walkCallSiteBlock(e.body, inner, walkCtx);
       return;
     }
+    case "block":
+      // A CHILD scope, mirroring `walkIdentExpr`'s `case "block"` above: a
+      // call site inside the block still resolves against the enclosing
+      // locals, but a name the block's own `let`s bind must not survive past
+      // it.
+      walkCallSiteBlock(e.body, new Map(locals), walkCtx);
+      return;
     default:
       // number / string / bool / null / ident / query — no call sites (a
       // query's `${…}` interpolations live in its raw template text, not as
@@ -7985,6 +8139,13 @@ function walkExpr(
       }
       walkBlock(e.body, { ...scope, inLoop: true, topLevel: false }, refs, file, out);
       return;
+    case "block":
+      // Descend into the block's own body so a diagnostic raised by a nested
+      // statement or its tail still surfaces (bug 0082 §Fix) — the
+      // block is not a loop, so only `topLevel` is cleared, mirroring the
+      // `if`/`while` arms above.
+      walkBlock(e.body, { ...scope, topLevel: false }, refs, file, out);
+      return;
     default:
       // number / string / bool / null — no nested expressions.
       return;
@@ -8275,6 +8436,12 @@ function typedQueryInExpr(expr: Expr): boolean {
         (expr.max !== null && typedQueryInExpr(expr.max)) ||
         typedQueryInBlock(expr.body)
       );
+    case "block":
+      // grammar.md:118's tail is required, but a parse rejection does not stop
+      // this walk from running over the rejected AST — `typedQueryInBlock`
+      // itself is `tail !== null`-guarded, so a tail-less block contributes
+      // nothing here rather than throwing.
+      return typedQueryInBlock(expr.body);
     case "ident":
     case "number":
     case "string":

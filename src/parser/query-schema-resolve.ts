@@ -430,6 +430,13 @@ class QuerySchemaResolveWalk {
           target: this.rewriteExpr(expr.target, [{ kind: "stop", label: "member" }]),
           args: expr.args.map((arg) => this.rewriteExpr(arg, [{ kind: "call-arg" }])),
         } satisfies MethodCallExpr;
+      case "block":
+        // A block expression's value IS its tail, so the tail sits in the
+        // frames enclosing the block itself — a query written as the tail of a
+        // `let x: T = { … }` resolves against `T` exactly as it would one brace
+        // level up. The block's own statements are fresh contexts, like any
+        // other block's.
+        return { ...expr, body: this.rewriteBlock(expr.body, frames) };
       default:
         // ident / number / string / bool / null — no nested query.
         return expr;

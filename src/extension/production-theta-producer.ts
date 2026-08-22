@@ -6472,6 +6472,17 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
         ? evaluatePureExpression(expr.consequent, env)
         : evaluatePureExpression(expr.alternate, env);
     }
+    case "block": {
+      // A block expression's value is its tail (grammar.md §"Block expressions"),
+      // over the same statements-then-tail evaluation `evaluatePureFnCall`
+      // already performs, in a CHILD scope so the block's own `let`s do not
+      // leak into the enclosing one. An explicit `return` inside the block is
+      // control flow this evaluator has no channel to propagate out of an
+      // expression position, so it falls to the inert `null` the surrounding
+      // pure-host convention uses for the forms it does not model.
+      const outcome = evaluatePureBlock(expr.body, env.child());
+      return outcome.kind === "value" ? outcome.value : null;
+    }
     default:
       // `match` / effect forms are driven by the executor (not the pure host);
       // a query / tool-call / invoke expression reaching here has no pure

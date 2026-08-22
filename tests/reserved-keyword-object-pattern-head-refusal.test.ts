@@ -75,7 +75,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // (§Non-goals) and a route that moved them would be refusing more than element
 // 1. Group (n) MEASURES them instead, so a fix that changes them reds here:
 //   - element 2, the head dropped before dispatch: `toRuntimePattern`'s object
-//     arm (src/runtime/statement-executor.ts:1143–:1147) maps `fields` alone,
+//     arm (src/runtime/statement-executor.ts:1190–:1194) maps `fields` alone,
 //     so a NON-reserved head is still interchangeable (row v6);
 //   - element 3, the unresolved head (`Zed { a: 1 }`, row a8);
 //   - the lowercase object-pattern head (row a7).
@@ -795,7 +795,7 @@ describe("0219 (v) — the S1 headline row no longer registers", () => {
   it("v7: `match Ok(1) { Err { } => … }` is refused at parse, so the wrong-arm value is unreachable", async () => {
     // The S1 band verbatim: at HEAD this theta loads clean, registers, and
     // answers "err-arm" on a SUCCESS Result, because `toRuntimePattern` drops
-    // the head (src/runtime/statement-executor.ts:1143–:1147) and an empty
+    // the head (src/runtime/statement-executor.ts:1190–:1194) and an empty
     // field list is a catch-all over every object-shaped value. §Fix does not
     // touch that dispatch — it refuses the SOURCE, so the theta never
     // registers and the value is never produced by a registered theta.

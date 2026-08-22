@@ -42,15 +42,15 @@ import type { ThetaValue } from "../src/runtime/value";
 // `runParForIteration` folds a body `return` into that ITERATION's
 // `makeOk(flow.value)` — before this fix, `case "normal"` and `case "return"`
 // shared one arm; this fix splits them into separate arms with the identical
-// fold body (src/runtime/statement-executor.ts:1268 and :1269-1273, the
-// switch at `:1266`, the function at `:1209`). So `return <expr>` in a
+// fold body (src/runtime/statement-executor.ts:1315 and :1316-1320, the
+// switch at `:1313`, the function at `:1256`). So `return <expr>` in a
 // `par for` body loaded with
 // zero diagnostics (§Reproduction A, B, G, I, J, K — re-measured at this tree
 // and identical) and meant the opposite of `docs/spec_topics/return.md:3` /
 // RET-1 (`:19`), while the identical statement in a plain `for` body exits the
 // enclosing scope (`executeFor` propagates the flow outward,
-// src/runtime/statement-executor.ts:1677 — the bare `return flow;` that ends
-// `executeFor`'s iteration loop; `executeFor` itself begins at `:1643`).
+// src/runtime/statement-executor.ts:1724 — the bare `return flow;` that ends
+// `executeFor`'s iteration loop; `executeFor` itself begins at `:1690`).
 //
 // ROUTE, operator-adjudicated: §Fix route (a) ENUMERATE-AND-REFUSE. CTRL-4
 // gains `return` as a fourth body restriction and the parse side refuses it, so
@@ -393,8 +393,8 @@ describe("bug 0223 — a `return` in a `par for` body is refused at load (CTRL-4
     // (src/parser/theta-document.ts:4707) because at depth > 0 a `break`
     // targets the inner loop and stays inside the iteration. A `return` at the
     // same depth does NOT stay inside: it propagates out of the plain `for`
-    // (`executeFor`'s outward arm, src/runtime/statement-executor.ts:1677) and
-    // is consumed at the `par for` boundary (`:1269-1273`). So the depth gate
+    // (`executeFor`'s outward arm, src/runtime/statement-executor.ts:1724) and
+    // is consumed at the `par for` boundary (`:1316-1320`). So the depth gate
     // must NOT be copied — this cell reds against a depth-0-only refusal.
     expect(
       diagShapeOf(SRC_K),
@@ -611,7 +611,7 @@ class NoopMutator implements CommittedConversationMutator {
  * literals, the loop-variable identifier, arrays and `+` / `*` binaries — and
  * runs no effects. The `par for` fan-out, flow handling and element collection
  * are the production code paths (`runParForIteration`,
- * src/runtime/statement-executor.ts:1209).
+ * src/runtime/statement-executor.ts:1256).
  */
 class PureHost implements StatementEvalHost {
   evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
@@ -692,7 +692,7 @@ async function runValue(src: string): Promise<unknown> {
 //
 // GREEN BOTH BEFORE AND AFTER THE FIX, BY DESIGN. Route (a) makes
 // `runParForIteration`'s `case "return"` arm
-// (src/runtime/statement-executor.ts:1269-1273) UNREACHABLE from a fresh load —
+// (src/runtime/statement-executor.ts:1316-1320) UNREACHABLE from a fresh load —
 // the parse refusal above denies registration — but the arm KEEPS its
 // behaviour as a defensive fold, exactly as `case "break"` / `case "continue"`
 // already do (`:1274-1277`, whose comment names the parser gate). These cells
@@ -710,7 +710,7 @@ describe("bug 0223 — the runtime fold is RETAINED as a defensive arm (green be
       await runValue(SRC_C),
       "DEFENSIVE FOLD: `runParForIteration` folds `flow.kind === \"return\"` " +
         "into `makeOk(flow.value)`, identically to a normal body " +
-        "completion's own arm (src/runtime/statement-executor.ts:1269-1273), so " +
+        "completion's own arm (src/runtime/statement-executor.ts:1316-1320), so " +
         "the operand becomes the element and the tail `0` never runs",
     ).toEqual({
       present: true,
@@ -744,12 +744,12 @@ describe("bug 0223 — the runtime fold is RETAINED as a defensive arm (green be
 
   it("(f2-control) H: the plain-`for` spelling DOES exit, with the loop body's value", async () => {
     // `executeFor` returns a `return` flow outward unchanged
-    // (src/runtime/statement-executor.ts:1677). One token — `par` — is the
+    // (src/runtime/statement-executor.ts:1724). One token — `par` — is the
     // whole difference between this row and (f2).
     expect(
       await runValue(SRC_H),
       "DEFENSIVE FOLD control: `executeFor` propagates the flow outward " +
-        "(src/runtime/statement-executor.ts:1677), so the theta exits with `1` " +
+        "(src/runtime/statement-executor.ts:1724), so the theta exits with `1` " +
         "and its tail `0` never runs",
     ).toEqual({ present: true, value: 1 });
   });
@@ -772,7 +772,7 @@ describe("bug 0223 — the runtime fold is RETAINED as a defensive arm (green be
     expect(
       await runValue(SRC_K),
       "DEFENSIVE FOLD: the `return` propagates out of the inner plain `for` " +
-        "(src/runtime/statement-executor.ts:1677) and is consumed at the " +
+        "(src/runtime/statement-executor.ts:1724) and is consumed at the " +
         "`par for` boundary — which is why the `break` depth gate does not " +
         "transfer to `return` (cell (b5))",
     ).toEqual({

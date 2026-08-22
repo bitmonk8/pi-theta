@@ -165,6 +165,12 @@ function walkExpr(expr: Expr, out: string[]): void {
       if (expr.max !== null) walkExpr(expr.max, out);
       walkBlock(expr.body, out);
       return;
+    case "block":
+      // A spawn routed through a block expression is a spawn: without this arm
+      // the FN-6 graph loses the edge and a cycle through a block escapes the
+      // load-time refusal.
+      walkBlock(expr.body, out);
+      return;
     default:
       return;
   }

@@ -1,6 +1,6 @@
 # Bug 0082 — The `BlockExpr` production has no AST node: a `{ … }` block expression in `match`-arm-body or `let`-RHS position is parsed as a bare object literal and refused with `theta/parse/bare-object-literal`, so the escape hatch `theta/parse/statement-in-arm-body`'s own message directs authors to does not exist
 
-- **Status:** open.
+- **Status:** fixed (0.191.0).
 - **Kind:** defect. `grammar.md:118` and `:150` define `BlockExpr` and admit it
   as an `ArmBody`; expressions.md §"Arm syntax" and the
   `theta/parse/statement-in-arm-body` message both direct the author to it. No
@@ -221,6 +221,110 @@ Constraints any fix must satisfy:
 - The block's value must be its tail expression, and a block with no tail
   expression in `BlockExpr` position must be an error, not the implicit `null`
   that `FnBody` / `StmtBlock` produce (`:118` vs `:119`/`:121`).
+
+## Fix (0.191.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `BlockExpr { kind: "block"; body: Block }`
+    added to the `Expr` union (§Fix option 1's node); `parseExpressionAtBlockSite`
+    admits the block reading at exactly the two positions `grammar.md`
+    §"Block expressions" names — a `let` / `let mut` initialiser and a `match`
+    arm body (§Fix option 2's position gate) — with `looksLikeBlockAtBlockSite`
+    reading the braces as an object literal iff the token after `{` is `}` or an
+    ident/string immediately followed by `:`; `blockExprMissingTailDiagnostic`
+    enforces the tail-required rule; `scanParForExpr` gained the `"block"` arm
+    (with a copied `bodyLocals` set mirroring the runtime child scope) so the
+    CTRL-4 par-for body restrictions still reach through a nested block.
+  - `src/runtime/statement-executor.ts` — `evalExpr` routes `"block"` to the
+    existing `executeBlock` in `env.child()`; `EvalResult` / `terminalFlow`
+    carry the `return` / `break` / `continue` variants a block's own statements
+    can produce.
+  - `src/parser/static-type-inference.ts`, `src/parser/type-layer-checks.ts`,
+    `src/extension/invoke-static-checks.ts` — a block's type is its tail's type,
+    and every type-layer / call-site walk descends into the new node's body.
+  - `src/extension/extension-tool-reachability.ts`,
+    `src/extension/subagent-fn-static-checks.ts`,
+    `src/parser/query-schema-resolve.ts`,
+    `src/extension/production-theta-producer.ts` — the load-time reachability
+    walk, the FN-6 cycle graph, Option-B query-schema resolution and the pure
+    host each descend into a block body, so a call, a spawn edge, an `@`-query
+    sink or a pure evaluation written inside a block is not silently invisible.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md`,
+    `docs/reference/diagnostics.md` — the DIAG-2 registry row and its mirror for
+    the new `theta/parse/block-expr-missing-tail` (E, parse, message
+    `block expression must end in a tail expression`), placed adjacent to
+    `theta/parse/statement-in-arm-body` so the two arm-body dispositions read
+    together.
+  - The three §Fix constraints hold: `bareObjectLiteralDiagnostic` and its
+    message are untouched and every non-block position still draws it (including
+    `let x = { a: 1 }` and `let x = {}`); `theta/parse/statement-in-arm-body`
+    still fires for an unwrapped statement; a tail-less block is an error, never
+    the implicit `null` `FnBody` / `StmtBlock` produce.
+- Gates:
+  - Witness run: `npx vitest run tests/blockexpr-production.test.ts` — RED at
+    HEAD `1848fb65` (`Tests 10 failed | 7 passed (17)`, every red a
+    `theta/parse/bare-object-literal` where the spec requires a clean parse or a
+    `kind "object"` where `"block"` is required); GREEN after
+    (`Tests 30 passed (30)`).
+  - Full suite: `npm test` — baseline at HEAD `Test Files 375 passed (375)` /
+    `Tests 7698 passed (7698)`; after `Test Files 376 passed (376)` /
+    `Tests 7728 passed (7728)`. No pre-existing test flipped.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - Lint: `npm run lint` — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/blockexpr-production-live-cell.test.ts` —
+    `Tests 1 passed (1)`, and red-direction proved with the parse site
+    neutralised (`did not register … Registered: ["cellemaincontrol"]`) then
+    restored byte-exact.
+- Review: 2 rounds. Round 1 (deep) — six findings: four `correctness`
+  (`scanParForExpr`, `extension-tool-reachability`, `subagent-fn-static-checks`
+  and `query-schema-resolve` each had a `default:` arm that silently swallowed
+  the new `"block"` kind) and two `prose` (a banned word in the new registry
+  Remedy column; in-code comments citing a nonexistent "§Fix item 6/7"), plus
+  two residuals, all fixed in one fixer round. Round 2 (fast) — CLEAN, no
+  findings.
+- Verification: verified.
+  - Witness genuinely reds: five separate temporary neutralisations (both parse
+    sites; the tail-required emission; the par-for `"block"` arm; the
+    extension-tool and subagent-fn walker arms), each RED with quoted output and
+    each restored byte-exact by writing the content back and matching
+    `git hash-object` against the pre-edit hash.
+  - Full default suite green (376 / 7728).
+  - Live: a new H8a cell drives a real theta whose `let` RHS and `match` arm are
+    both block expressions with statements before their tails, asserting real
+    observables (registration off the settled `ExtensionRunner`, the fixture's
+    arithmetic oracle in `userTexts`, no fail-closed `systemNotes`); the two
+    nearest pre-existing H8a cells re-run green. H9a not run: the change is
+    additive at two positions that previously always drew
+    `bare-object-literal`, no committed fixture's disposition moves
+    (`tests/committed-fixture-parse-gate.test.ts` 36/36 green), and no
+    `permitted-codes.json` entry is implicated.
+  - Lint and typecheck clean.
+- Residuals:
+  1. `rewriteExpr` in `src/parser/query-schema-resolve.ts` has no `"par-for"`
+     arm, so an `@`-query inside a `par for` body skips Option-B schema
+     resolution. Pre-existing, unrelated to the block node, found by the
+     round-1 walker sweep and deliberately not touched.
+  2. The block-arm tail rewrite in `query-schema-resolve.ts` passes the
+     enclosing frames straight through with no labelled wrapper frame, where
+     `"try"` and `"ternary"` prepend one for downstream message labelling.
+     Functionally correct (witnessed by the typed-query-in-block cells);
+     recorded as a labelling nicety, not a defect.
+  3. `grammar.md`'s worked block-arm example still lives only inline and is
+     therefore still outside the committed-fixture parse gate (§Why it matters
+     item 3). The witness test now parses that exact source, but promoting the
+     example to a checked-in fixture is a `docs/STYLE.md` obligation this fix
+     did not take on.
+  4. The bug doc's §Reproduction transcribes `grammar.md`'s example with an
+     integer tail `2` where the spec page writes `"fallback"`; the witness
+     fixture uses the doc's `2` so both arms are `integer`.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Non-goals holds unchanged — `StmtBlock`,
+  `FnBody`, `theta/parse/statement-in-arm-body`'s own trigger and `ParForExpr`
+  are untouched, and no third position admits the block reading. The `"block"`
+  arm added to the par-for CTRL-4 scan is not an exception to the `par for`
+  non-goal: it keeps the existing restrictions reaching a block *nested inside*
+  a par-for body, and changes nothing about `ParForExpr` itself.
 
 ## Provenance
 

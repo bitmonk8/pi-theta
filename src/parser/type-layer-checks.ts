@@ -667,6 +667,9 @@ function walkExprForLocalBinders(expr: Expr, names: Set<string>): void {
       }
       walkBlockForLocalBinders(expr.body, names);
       return;
+    case "block":
+      walkBlockForLocalBinders(expr.body, names);
+      return;
     default:
       // ident / number / string / bool / null — no local binder, no nested
       // expression.
@@ -2032,6 +2035,14 @@ class TypeLayerWalk {
         found = true;
         return;
       }
+      if (e.kind === "block") {
+        // `childExprs` has no `"block"` arm (its own leaf default), so a `?`
+        // nested in a `let`-RHS / match-arm-body block's own statements would
+        // otherwise go unseen; descend through the SAME `visitBlock` this
+        // scan already drives its top-level walk through.
+        visitBlock(e.body);
+        return;
+      }
       for (const child of childExprs(e)) {
         visitExpr(child);
       }
@@ -2498,6 +2509,16 @@ class TypeLayerWalk {
         // `operand?` propagates the operand's success type: a proof of the
         // operand is a proof of the `try` expression.
         return this.provableArgType(expr.operand, bindings);
+      case "block":
+        // A block's value is its tail expression's value (bug 0082 §Fix
+        // constraint 3): a proof of the tail, in the SAME `bindings` `typeOf`'s own
+        // `"block"` arm reads (./static-type-inference.ts), is a proof of the
+        // block — mirroring the `try` arm immediately above rather than
+        // threading the block's own `let`s into a wider scope this predicate
+        // does not otherwise build.
+        return expr.body.tail === null
+          ? undefined
+          : this.provableArgType(expr.body.tail, bindings);
       case "ident": {
         // The RECORDED type is the only channel that carries a JUDGED type, so
         // it is read here directly rather than through `typeOf`: `#typeExpr`'s
@@ -2861,6 +2882,14 @@ class TypeLayerWalk {
       }
       case "query":
         this.checkQueryInterpolationResults(e, bindings);
+        return;
+      case "block":
+        // Descend into the block's own body so a nested `type`-phase
+        // diagnostic still surfaces (bug 0082 §Fix), over a COPY of
+        // `bindings` so a name the block's own `let`s bind does not leak into
+        // the enclosing scope's later reads — mirrors the `par-for` arm's
+        // `inner` copy above.
+        this.walkBlock(e.body, new Map(bindings), flow);
         return;
       default:
         // ident / number / string / bool / null — no nested checks.

@@ -246,6 +246,12 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
       if (expr.max !== null) walkExpr(expr.max, out);
       walkBlock(expr.body, out);
       return;
+    case "block":
+      // A `let`-RHS / match-arm-body block (bug 0082 §Fix) is an ordinary
+      // call-site region: an `invoke(...)` / `.theta`-callable call inside it
+      // must still be collected for INV-3/-4/-5.
+      walkBlock(expr.body, out);
+      return;
     // The complete leaf set of the `Expr` union — `ident`, `number`, `string`,
     // `bool`, `null`, `query` — carries no nested `invoke(...)` / call. Every
     // other union member has an explicit arm above; one added without an arm
@@ -528,6 +534,14 @@ function collectProvableArgTypes(
     case "try":
       // `operand?` evaluates to the operand's success value.
       return collectProvableArgTypes(expr.operand, env, pass);
+    case "block":
+      // A block's value IS its tail expression's value (bug 0082 §Fix
+      // constraint 3) — mirrors the `try` arm immediately above. A tail-less block
+      // (already a parse error, `theta/parse/block-expr-missing-tail`) yields
+      // no value-type set to collect.
+      return expr.body.tail === null
+        ? undefined
+        : collectProvableArgTypes(expr.body.tail, env, pass);
     case "binary": {
       // `parseUnary` (../parser/theta-document.ts) models unary `!` / `-` as a
       // binary carrying a SYNTHETIC `null` left operand; the arms below dispatch

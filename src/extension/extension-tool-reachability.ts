@@ -172,6 +172,12 @@ function walkExpr(expr: Expr, out: Set<string>): void {
       if (expr.max !== null) walkExpr(expr.max, out);
       walkBlock(expr.body, out);
       return;
+    case "block":
+      // A block expression's statement list is ordinary code: a call site in it
+      // is as reachable as one a brace-level up, so it must be visible to the
+      // load-time reachability check rather than deferred to a runtime failure.
+      walkBlock(expr.body, out);
+      return;
     default:
       return;
   }

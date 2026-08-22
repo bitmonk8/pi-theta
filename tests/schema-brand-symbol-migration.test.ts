@@ -64,7 +64,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // (src/runtime/value.ts:48), `RESULT_TAG = "__thetaResult"` (:73),
 // `SCHEMA_TAG = "__thetaSchema"` (:177). Both ctor hosts are assign-then-brand:
 // a field loop writes every declared field as an ordinary enumerable data
-// property (statement-executor.ts:664 effectful host;
+// property (statement-executor.ts:711 effectful host;
 // production-theta-producer.ts:5645 pure host) and `brandSchemaValue`
 // (value.ts:186) then installs the brand with an UNCONDITIONAL
 // `Object.defineProperty` (:190–195). The constructor-assigned property is
@@ -142,7 +142,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 //     the interpolation through the PURE host, so a ctor written inline in the
 //     interpolation is built by production-theta-producer.ts:5643–5649, while a
 //     ctor bound by a preceding `let` is built by the EFFECTFUL host
-//     (statement-executor.ts:657–673) and reaches the render as an ident
+//     (statement-executor.ts:704–720) and reaches the render as an ident
 //     resolution. These are the only two `brandSchemaValue` call sites in
 //     `src/`.
 //   - `parseTheta` fails LOUDLY on any error-severity diagnostic: the bug doc
@@ -519,7 +519,7 @@ describe("bug 0026 (a) — brandSchemaValue is additive over a same-named declar
 // ===========================================================================
 // (b) END-TO-END through the production executor — the bug doc's verbatim
 // residual fixture, parse-clean and constructed through the effectful ctor
-// host (statement-executor.ts:657–673).
+// host (statement-executor.ts:704–720).
 // ===========================================================================
 
 describe("bug 0026 (b) — the ctor delivers every declared field (production executor)", () => {

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.191.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0082 — the `BlockExpr` production is implemented end to end** (it was
+  specified but unimplemented — the oldest untouched score-2 item). Parser
+  (`theta-document.ts`), runtime (`statement-executor.ts`),
+  `static-type-inference`, `type-layer-checks`, `query-schema-resolve`, and
+  the four extension-side `Expr` walkers (round-1 review caught four sibling
+  walkers whose `default:` arms silently swallowed the new node). New DIAG-2
+  code `theta/parse/block-expr-missing-tail` with registry + mirror rows.
+  New 30-cell witness + standalone H8a live cell (load, registration, and
+  runtime evaluation through a real session). 13 witness files re-anchored
+  (comment/message-only).
+
 ## [0.190.0] - 2026-08-28
 
 ### Fixed

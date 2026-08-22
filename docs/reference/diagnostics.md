@@ -105,6 +105,7 @@ trigger.
 | `theta/parse/let-rhs-type-mismatch` | E | type | `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/reassign-rhs-type-mismatch` | E | type | `reassignment of '<name>' type mismatch: expected <expected>, got <actual>` |
 | `theta/parse/statement-in-arm-body` | E | parse | `match arm body must be an expression; wrap statements in a block expression { ... }` |
+| `theta/parse/block-expr-missing-tail` | E | parse | `block expression must end in a tail expression` |
 | `theta/parse/by-on-object-schema` | E | parse | `the 'by' clause applies only to discriminated-union schemas (schema X by f = A \| B \| …)` |
 | `theta/parse/doc-comment-misplaced` | E | parse | `'///' doc comment is not legal above this production` |
 | `theta/parse/generic-arity-mismatch` | E | parse | `generic type '<ctor>' expects <expected> type argument(s); got <actual>` |

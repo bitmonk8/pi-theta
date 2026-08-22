@@ -248,26 +248,47 @@ type Flow =
   | { readonly kind: "propagate"; readonly err: ThetaValue }
   | { readonly kind: "cancel" };
 
-/** The outcome of evaluating a single sub-expression (pure or checkpointed). */
+/**
+ * The outcome of evaluating a single sub-expression (pure or checkpointed).
+ * `return` / `break` / `continue` (bug 0082 §Fix) are reachable only
+ * from a `BlockExpr` — the block's own statement list can carry any `Stmt`,
+ * including these three control-flow forms, and `evalExpr`'s `"block"` case
+ * lifts `executeBlock`'s `Flow` onto these matching `EvalResult` variants so
+ * the signal propagates through the ordinary EvalResult chain (every other
+ * `evalExpr` call site already forwards a non-`"value"` result unchanged)
+ * until it reaches a site that converts back to `Flow` via `terminalFlow`.
+ */
 type EvalResult =
   | { readonly flow: "value"; readonly value: ThetaValue }
   | { readonly flow: "fail"; readonly error: ThetaValue }
   | { readonly flow: "propagate"; readonly err: ThetaValue }
+  | { readonly flow: "return"; readonly value: ThetaValue }
+  | { readonly flow: "break" }
+  | { readonly flow: "continue" }
   | { readonly flow: "cancel" };
 
 /**
- * Lift a terminal `EvalResult` (`fail` / `propagate` / `cancel`) onto the
- * matching `Flow`. A `?`-propagation carries its `Err` payload through so the
- * body's terminal `Result` is `Err(err)` (ERR-18 / FN-5 fail path).
+ * Lift a terminal `EvalResult` (every variant but `value`) onto the matching
+ * `Flow`. A `?`-propagation carries its `Err` payload through so the body's
+ * terminal `Result` is `Err(err)` (ERR-18 / FN-5 fail path); `return` /
+ * `break` / `continue` carry a `BlockExpr`'s own non-normal flow back onto the
+ * `Flow` the enclosing statement / block unwinds on (bug 0082 §Fix).
  */
 function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
-  if (result.flow === "fail") {
-    return { kind: "fail", error: result.error };
+  switch (result.flow) {
+    case "fail":
+      return { kind: "fail", error: result.error };
+    case "propagate":
+      return { kind: "propagate", err: result.err };
+    case "return":
+      return { kind: "return", value: result.value };
+    case "break":
+      return { kind: "break" };
+    case "continue":
+      return { kind: "continue" };
+    case "cancel":
+      return { kind: "cancel" };
   }
-  if (result.flow === "propagate") {
-    return { kind: "propagate", err: result.err };
-  }
-  return { kind: "cancel" };
 }
 
 /**
@@ -622,6 +643,32 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
   // and collect one `Result` per element into an input-index-ordered array.
   if (expr.kind === "par-for") {
     return evalParFor(expr, env, deps);
+  }
+  // A `BlockExpr` (grammar.md §"Block expressions", the two grammar.md:114 sites: a
+  // `let`-RHS, a `match`-arm body): run the existing `executeBlock` in a CHILD
+  // scope, so a name the block's own `let`s bind does not leak into `env`, and
+  // the block's value is its tail expression's value — the same `Flow`
+  // conversion `executeIf` / `executeWhile` / `executeFor` apply at their own
+  // `executeBlock` call sites, lifted onto `EvalResult` here because a block is
+  // an EXPRESSION, not a statement.
+  if (expr.kind === "block") {
+    const flow = await executeBlock(expr.body, env.child(), deps);
+    switch (flow.kind) {
+      case "normal":
+        return { flow: "value", value: flow.value };
+      case "return":
+        return { flow: "return", value: flow.value };
+      case "break":
+        return { flow: "break" };
+      case "continue":
+        return { flow: "continue" };
+      case "fail":
+        return { flow: "fail", error: flow.error };
+      case "propagate":
+        return { flow: "propagate", err: flow.err };
+      case "cancel":
+        return { flow: "cancel" };
+    }
   }
   // A `<name>(args)` call whose callee resolves to a user `fn` executes the
   // function body in-process (FN-1…FN-5); it is not a host tool-call / invoke

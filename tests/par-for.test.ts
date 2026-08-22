@@ -1100,10 +1100,10 @@ describe("bug 0118 — the rest of the walk's family fires in a `par for` body, 
 // THE FOLD KNOWLEDGE, RESTATED RATHER THAN DELETED (this group's original
 // countervailing fact, still true): at run, a `return` in the body yields the
 // ITERATION's value, not the enclosing function's — `runParForIteration`
-// (symbol at src/runtime/statement-executor.ts:1209) folds
+// (symbol at src/runtime/statement-executor.ts:1256) folds
 // `flow.kind === "return"` into `makeOk(flow.value)` — this fix splits that
 // case out of `case "normal"`'s arm into its OWN arm with the identical body
-// (`:1269-1273`; the shared-arm shape this describes was the pre-fix state).
+// (`:1316-1320`; the shared-arm shape this describes was the pre-fix state).
 // Route (a) does NOT remove that arm: it makes it UNREACHABLE from a fresh
 // load and keeps it as a DEFENSIVE fold, exactly as `case "break"` /
 // `case "continue"` beside it already are (`:1274-1277`, whose comment names
