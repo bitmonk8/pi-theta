@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.189.0] - 2026-08-28
+
+### Fixed
+
+- **Bug 0231 — a malformed inline-object entry no longer silences every rule
+  behind it** (§Fix route 1: `parseObject`'s malformed-field `break` replaced
+  by a nesting-aware `skipMalformedEntry()` + resync at the next depth-0
+  comma). Later entries now reach the identifier, raw-key, void, arity and
+  empty-schema rules; `fieldNames`/`fieldTypes` stay complete; the
+  order-dependence is gone (`{a b: integer, Zs: string}` draws both refusals
+  at all eleven positions; `array<{a b: integer, Zs: string}> = [1]` refuses
+  instead of registering silently). The resync leaves the cursor on an
+  unconsumed depth-0 `}`/`>` or one past the next depth-0 comma — never
+  mid-entry (recorded for bug 0235). 0160's rename witness re-derived
+  strictly larger. New 64-cell witness + H8a/H9a live pair.
+
 ## [0.188.0] - 2026-08-28
 
 ### Fixed

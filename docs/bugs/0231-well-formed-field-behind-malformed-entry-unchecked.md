@@ -1,6 +1,6 @@
 # Bug 0231 — `TypeParser.parseObject`'s field loop BREAKS at the first entry that does not spell `Ident ":"` (`type-grammar.ts:694–697`), so every field behind it is absent from both `fieldNames` and `fieldTypes` and every check reached through them is silently withheld: `{a b: integer, Zs: string}` draws `theta/parse/inline-field-name-not-identifier` naming `'a b'` and NOTHING on `Zs`, at all eleven `Type` positions including the verbatim `params:` one, while `{a: integer, Zs: string}` and `{Zs: string, a b: integer}` both draw `theta/parse/binding-case-mismatch` — and the withholding covers the sibling case rule, the field-TYPE checks (`void-in-non-return-position`, `generic-arity-mismatch`, `empty-schema-body`) and all four raw-key rules at any nested depth behind the break
 
-- **Status:** open
+- **Status:** fixed (0.189.0)
 - **Sev/Diff estimate:** S1/D3 — S1 by the letter on "declared constraints not
   enforced with no diagnostic": the lowercase-first rule
   (`docs/spec_topics/lexical.md:16`, enforced at this slot by bug
@@ -614,6 +614,129 @@ no input becomes admitted.
 *Residuals* item 1 (the generic-argument carve-out): row d2 shows bug 0154's
 pass firing there today, so route 1 or 2 names `Zs` at that position whether or
 not the carve-out is ever revisited.
+
+## Fix (0.189.0)
+
+- **Route selected (§Fix (a) route 1 — resynchronise the field loop).** Settled
+  in-run, inside §Fix's constraints. Grounds, recorded because §Fix leaves the
+  choice open: routes 1 and 2 necessarily flip the SAME external observables,
+  because those flips ARE the behaviour §Expected requires — so "blast radius"
+  does not separate them; route 1 was premeasured across the whole default
+  suite (7698 tests at the filing tree) and moves exactly ONE existing witness
+  file, while route 2 would need a second type parse per entry plus an
+  undefined disposition for an entry whose post-colon text does not parse, and
+  would leave `fieldTypes` and the raw-key split as two independently-derived
+  views rather than one loop agreeing with the split; route 3 is rejected by
+  §Fix itself as insufficient. No registry row was minted (§Fix (b)): every
+  diagnostic gained is an existing registered code firing where its *Trigger*
+  already says it fires, so DIAG-2 is not owed and the placeholder table is
+  untouched.
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — `TypeParser.parseObject`'s malformed-field
+    `break` becomes `this.skipMalformedEntry(); entryTainted = false;
+    continue;`, plus the new private `skipMalformedEntry()`: a brace- and
+    angle-aware skip to this interior's next depth-0 `,` (consumed), stopping
+    WITHOUT consuming a depth-0 `}` or `>` so `parseObject`'s own
+    `eatPunct("}")` and the enclosing `parseGeneric`'s `eatPunct(">")` still
+    read them. The abandoned entry contributes to neither `fieldNames` nor
+    `fieldTypes` (the retention push already sat behind the colon it never
+    met), and `entryTainted` clears because the skip consumed the whole
+    abandoned entry. Bug 0227's latch semantics are untouched.
+  - `src/parser/type-grammar.ts` prose (§Fix (c)) — the `// Malformed field;
+    stop to stay tolerant.` comment, the `TypeNode` doc comment's stop-shape
+    account (three stops become two stops plus two per-entry exclusions), the
+    `interiorHasTokens` bullet, and both rename-rule passages that described
+    the loop breaking at the `as` token.
+  - `tests/inline-object-malformed-entry-resync.test.ts` — new, 8 `it` blocks /
+    64 whole-list ordered diagnostic cells plus the lowering, registration and
+    LEDGER cells; §Fix (e)'s minimum rows in full.
+  - `tests/inline-object-wire-name-rename-refusal.test.ts` — bug 0160's
+    witness, re-derived (§Fix (d)): cells f1, f3, f5, f7, f9, f15, f16 and g18
+    each gained exactly one line, strictly larger and order-preserving, and
+    the group prose that had counselled against route 1 now states the current
+    law.
+  - `tests/live/inline-object-malformed-entry-resync-live.test.ts` and
+    `tests/live/acceptance/inline-object-malformed-entry-resync-load-refusal.test.ts`
+    — the H8a and H9a end-to-end cover for the generic-argument row d1, which
+    is the position where the load/registration verdict moved.
+- **Gates:** witness `npx vitest run
+  tests/inline-object-malformed-entry-resync.test.ts
+  tests/inline-object-wire-name-rename-refusal.test.ts` → `Test Files 2 passed
+  (2) / Tests 33 passed (33)`; full default suite `npx vitest run` → `Test
+  Files 376 passed (376) / Tests 7706 passed (7706)`; `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) clean, no output; `npm run lint` (`eslint
+  --no-error-on-unmatched-pattern "src/**/*.ts"`) clean, no output. Live, each
+  under the shared lock: H8a `npx vitest run --config
+  config/vitest/vitest.live.config.ts
+  tests/live/inline-object-malformed-entry-resync-live.test.ts` → `1
+  passed`, 22 727 ms, `rc=0`; H9a `… tests/live/acceptance/inline-object-malformed-entry-resync-load-refusal.test.ts`
+  → `1 passed`, 12 654 ms, `rc=0`.
+  `tests/committed-fixture-parse-gate.test.ts` → 36 passed, discharging
+  §Reproduction (g) corpus-wide. The seven §Fix (d) "must not move" witnesses
+  are byte-identical to HEAD by `git hash-object` vs `git rev-parse
+  HEAD:<path>`.
+- **Review:** 2 rounds. Round 1 (deep) — two findings, both a comment claim
+  measured over-broad, no assertion and no executable line at issue: the
+  rewritten `TypeNode` comment called the remaining no-`,` break "the genuine
+  end of the interior" (false when an entry's TYPE position is empty and
+  `parsePrimary`'s tolerant punctuation skip swallows the separator), and
+  `skipMalformedEntry`'s comment claimed its boundary and `splitTopLevel`'s
+  "agree by construction" (false on a stray close token at depth 0, where this
+  skip clamps and `splitTopLevelSegments` underflows); four residuals. A
+  comment-only fixer round scoped both claims, dropped a banned word and
+  re-wrapped one over-length line; the executable diff was confirmed unchanged
+  by inspection. Round 2 (fast) — CLEAN, both corrections re-measured
+  independently, one non-blocking documentation-completeness residual.
+- **Verification:** SOLID. (1) Neutralised by hand-restoring `break;` (no
+  unused-private complaint from `tsc` or `eslint`, so the helper was left
+  defined): 9 cells red across the two witnesses with exactly §Reproduction
+  (b)/(d)'s signature; restored and re-green, byte-exactness proven by
+  `git hash-object` against the pre-neutralisation value
+  (`3e3e59a6f0f13f45fdd9cf3bf3ba8b633545b7b8`). (2) Full default suite green.
+  (3) Both live files run for real, green, under the lock; no open bug's
+  pinned signature matched anything seen. (4) Typecheck and lint clean.
+- **Residuals:**
+  1. *An entry with an EMPTY type position still truncates the interior, and
+     that shape can still load clean.* Measured on the fixed tree:
+     `let x: {a: , b c: integer, Zs: string} = 1` draws
+     `inline-field-name-not-identifier` naming `'b c'` alone (its control
+     `{a: integer, b c: integer, Zs: string}` draws `binding-case-mismatch`
+     beside it), and `let x: {a: , Zs: string} = 1` draws `[]` and loads. The
+     mechanism is NOT this report's break: `parsePrimary`'s tolerant
+     punctuation skip consumes the entry-separating `,` as the empty field's
+     type, so the loop's `!eatPunct(",")` break — the genuine-end stop — fires
+     mid-interior. Pre-existing at the filing tree and out of §Fix's scope; the
+     `TypeNode` doc comment now scopes its claim to name this shape. A
+     candidate filing, not a blocker.
+  2. *The resync boundary and the raw-key split diverge on a stray CLOSE token
+     at depth 0.* `skipMalformedEntry` clamps (a depth-0 `}`/`>` returns
+     without decrementing); `splitTopLevelSegments` (`params.ts`) decrements
+     unconditionally and underflows, after which no later comma is top-level
+     and `topLevelColon` also underflows, so the raw-key view yields ZERO keys.
+     Measured: `let x: {a b > c, Zs: string} = 1` draws
+     `binding-case-mismatch` alone — a refusal where the filing tree drew
+     `[]`, so the direction is toward §Expected, but the two inventories are
+     not identical on that class. Not repaired here: `src/parser/params.ts` is
+     another lane's region this set, and the clamp is the safer of the two
+     rules. The helper's doc comment states the divergence.
+  3. *`permitted-codes.json` unchanged.* The H9a probe measured that
+     `theta/parse/binding-case-mismatch` does not reach `pi -p` print-mode
+     stdout/stderr for this seam — the disposition bug 0154's own H9a file
+     already records — so no regeneration was warranted and none was made.
+  4. *Citation drift.* This change shifts absolute line numbers in
+     `src/parser/type-grammar.ts`; bug 0134's adjudicated do-not-chase class,
+     not chased.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** every §Non-goals item stands. The
+  generic-argument carve-out for the four raw-key rules is untouched (row d1
+  now draws `binding-case-mismatch` and nothing else there); the unclosed-
+  interior class is unmoved and pinned by the new witness's group (J) beside
+  group (J) of `tests/inline-object-field-name-case.test.ts`; the
+  declaration-ranged emission convention is unchanged; bug 0227's
+  `entryTainted` latch is not re-opened, and rows c5/c6 are asserted as
+  no-move controls. **For bug 0235:** at the resync site the cursor stops ON a
+  depth-0 `}` or `>` without consuming it, and otherwise one token past this
+  interior's next depth-0 `,`; it never lands mid-entry.
 
 ## Provenance
 

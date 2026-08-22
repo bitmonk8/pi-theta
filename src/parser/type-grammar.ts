@@ -67,8 +67,9 @@
 //   - `theta/parse/renamed-inline-field-name` (bug 0160) — a non-repeating,
 //     non-quoted entry of the same split whose raw text spells
 //     `Ident "as" String`, an inline `as "WireName"` rename. `parseObject`'s
-//     field loop breaks its tolerant recovery at the `as` token before this
-//     spelling can be retained as a `Field`, so the position holds a rename
+//     field loop meets the `as` token where a `:` is required and
+//     resynchronises at this entry's next depth-0 `,` before this spelling
+//     can be retained as a `Field`, so the position holds a rename
 //     the grammar admits but no `Type` position parses; this rule refuses the
 //     spelling instead of parsing it, leaving `theta/parse/wire-name-collision`
 //     and `theta/parse/redundant-wire-name` declaration-only. Shares the two
@@ -252,8 +253,9 @@ type TypeNode =
       /**
        * `fieldTypes` holds the types that parsed; `fieldNames` holds the names
        * the interior spells at a field-name position as `Ident ":"`, in source
-       * order, for every field ahead of the interior's first stop (the three
-       * stop shapes below). Each name is pushed by `TypeParser.parseObject` the
+       * order, for every field ahead of the interior's first stop (the two
+       * stop shapes below) and not excluded by either per-entry exclusion
+       * further down. Each name is pushed by `TypeParser.parseObject` the
        * moment that colon is consumed — before the type is parsed, and whether
        * or not it parses. So the two arrays are NOT index-aligned: a field with
        * a name and no parseable type contributes to `fieldNames` and not to
@@ -274,30 +276,42 @@ type TypeNode =
        * source range — a field name's own span is bug 0154's open subject,
        * which reuses this retention.
        *
-       * THREE STOP SHAPES END THE CONTRIBUTIONS TO `fieldNames`, reaching every
-       * enclosing body from the third; the cascade bears only on this
-       * identifier list, not on the duplicate-key comparison above. Two of the
-       * three break `TypeParser.parseObject`'s loop: an identifier at a
-       * field-name position with no `:` behind it, and a completed field with
-       * no `,` behind it. The third leaves the loop running and stops the
-       * pushes for the rest of the body — a field whose own parsed type
-       * carries an interior that never closes (`carriesUnclosedInterior`, read
-       * off the field type the moment it parses). `carriesUnclosedInterior`
-       * recurses object field types, generic arguments and union arms, which
-       * is what carries the stop to every enclosing body rather than the
-       * nearest one.
+       * TWO STOP SHAPES END THE CONTRIBUTIONS TO `fieldNames` for every entry
+       * from that point on, reaching every enclosing body from the second; the
+       * cascade bears only on this identifier list, not on the duplicate-key
+       * comparison above. The first breaks `TypeParser.parseObject`'s loop
+       * outright: a completed field with no `,` behind it. This is the genuine
+       * end of the interior only when the preceding field's type parse did not
+       * itself consume the separator; an entry whose TYPE position is empty is
+       * the shape where `parsePrimary`'s tolerant punctuation skip swallows
+       * that `,`, and this break then fires mid-interior instead. The second
+       * leaves the loop running and stops the pushes
+       * for the rest of the body — a field whose own parsed type carries an
+       * interior that never closes (`carriesUnclosedInterior`, read off the
+       * field type the moment it parses). `carriesUnclosedInterior` recurses
+       * object field types, generic arguments and union arms, which is what
+       * carries the stop to every enclosing body rather than the nearest one.
        *
-       * A FOURTH exclusion is per-entry rather than a stop: an entry whose
-       * field-name position holds a token outside `Ident`'s alphabet
-       * (`lexical.md` §Identifiers) DID spell a name — the whole raw key — so
-       * the ASCII tail that `TypeParser.parseObject`'s tolerant skip lands on next
-       * is not that name: it is excluded from this entry's contribution alone,
-       * and the exclusion lifts at the following entry, unlike the three stops
-       * above, which silence every entry from that point on. Such an entry is
-       * `theta/parse/inline-field-name-not-identifier`'s subject instead
-       * (bug 0227 §Fix route 2), so its residue must not also reach this list
-       * for bug 0154's identifier pass to judge under a name the author never
-       * wrote.
+       * TWO exclusions are per-entry rather than a stop, and both lift at the
+       * following entry rather than silencing every entry from that point on
+       * (bug 0231 §Fix route 1). The first: an entry whose field-name position
+       * holds a token outside `Ident`'s alphabet (`lexical.md` §Identifiers)
+       * DID spell a name — the whole raw key — so the ASCII tail that
+       * `TypeParser.parseObject`'s tolerant skip lands on next is not that
+       * name; it is excluded from this entry's contribution alone. Such an
+       * entry is `theta/parse/inline-field-name-not-identifier`'s subject
+       * instead (bug 0227 §Fix route 2), so its residue must not also reach
+       * this list for bug 0154's identifier pass to judge under a name the
+       * author never wrote.
+       *
+       * The second: an entry whose field-name position IS an `ident` but has
+       * no `:` behind it — a malformed entry `TypeParser.parseObject` resyncs
+       * past by skipping to this interior's next depth-0 `,` (bug 0231 §Fix
+       * route 1). No name was ever consumed for this entry (the `ident` was
+       * read, but the retention push sits behind the colon it never met), so
+       * there is no residue to exclude; the entry contributes nothing,
+       * and the entry behind it — one the author did write — keeps its own
+       * name and type in full.
        */
       readonly fieldTypes: TypeNode[];
       readonly fieldNames: string[];
@@ -308,8 +322,9 @@ type TypeNode =
        *   - `interiorHasTokens` — whether the brace interior carried any token,
        *     read off the token immediately after `{`, before the field loop can
        *     consume it. The loop's tolerant recovery (a non-`ident` field name
-       *     is skipped, a missing `:` breaks the loop) also yields an empty
-       *     `fieldTypes` for a malformed-but-non-empty interior (`{ a }`,
+       *     is skipped, a missing `:` resynchronises at the next depth-0 `,`)
+       *     also yields an empty `fieldTypes` for a malformed-but-non-empty
+       *     interior with no such `,` to resynchronise on (`{ a }`,
        *     `{ "a": string }`, `{ a: }`), which the rule must not take with it.
        *   - `braceClosed` — whether a closing `}` was consumed.
        *     `ObjectType ::= "{" Field ("," Field)* ","? "}"` requires it, so an
@@ -692,8 +707,18 @@ class TypeParser {
         continue;
       }
       if (!this.eatPunct(":")) {
-        // Malformed field; stop to stay tolerant.
-        break;
+        // A malformed entry accounts for itself and for nothing else
+        // (code-registry-parse.md:101's count-consequence sentence, scoped to
+        // "that field"): resynchronise at this interior's next depth-0 `,`
+        // instead of ending the loop, so every entry behind this one still
+        // reaches `fieldNames` / `fieldTypes` and every check those arrays
+        // feed. `entryTainted` is cleared because the skip already consumed
+        // the whole abandoned entry — there is no residue left for the latch
+        // to guard — and the entry the skip lands on is one the author did
+        // write.
+        this.skipMalformedEntry();
+        entryTainted = false;
+        continue;
       }
       // The interior has now spelled `Ident ":"` at a field-name position, so
       // the name is retained ahead of its type: `parsePrimary`'s tolerant
@@ -748,6 +773,45 @@ class TypeParser {
       closingBraceSpelled: closingBraceToken !== undefined,
       interiorSource,
     };
+  }
+
+  /**
+   * Resynchronises `parseObject`'s field loop at a malformed entry's next
+   * depth-0 `,`, so the entry behind it is read rather than discarded (bug
+   * 0231). Nesting-aware for the same reason `splitTopLevel(interiorSource,
+   * ",", "angle-and-brace")` (./params) is: the boundary this skip
+   * resynchronises on must be the SAME boundary `inlineObjectFieldKeys`
+   * splits `interiorSource` on, so the loop's view of the interior and the
+   * raw-key view agree for an interior whose brackets are balanced or merely
+   * unclosed. The two diverge on a stray CLOSE token at depth 0: this skip
+   * clamps (a depth-0 `}`/`>` returns without decrementing, below), while
+   * `splitTopLevelSegments` (./params) underflows on the same token, after
+   * which no later comma reads as top-level there. On that class the loop's
+   * field inventory and the raw-key inventory can differ.
+   *
+   * Stops WITHOUT consuming a depth-0 `}` or `>`: the interior's own closing
+   * brace must remain for `parseObject`'s `eatPunct("}")` to read, and a
+   * generic argument's `>` must remain for `parseGeneric` to read. Consuming
+   * either here would hand the enclosing parse a token it still needs.
+   */
+  private skipMalformedEntry(): void {
+    let depth = 0;
+    while (this.peek() !== undefined) {
+      const text = this.peek()?.text;
+      if (depth === 0 && text === ",") {
+        this.next();
+        return;
+      }
+      if (depth === 0 && (text === "}" || text === ">")) {
+        return;
+      }
+      if (text === "{" || text === "<") {
+        depth += 1;
+      } else if (text === "}" || text === ">") {
+        depth -= 1;
+      }
+      this.next();
+    }
   }
 }
 
@@ -881,11 +945,12 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     non-quote-led entry of the same `inlineObjectFieldKeys` split whose raw
  *     text matches `Ident "as" (String)` — an inline `as "WireName"` rename
  *     (`schemas.md:23` fixes the clause's position between the field
- *     identifier and its type). `TypeParser.parseObject`'s field loop breaks
- *     its tolerant recovery at the `as` token before that spelling is ever
- *     retained as a `Field` (the tolerant "malformed field" `break`), so no
- *     `Type` position parses the rename `grammar.md`'s inline-object section
- *     names, and neither `theta/parse/wire-name-collision` nor
+ *     identifier and its type). `TypeParser.parseObject`'s field loop meets
+ *     the `as` token where a `:` is required and resynchronises at this
+ *     entry's next depth-0 `,` before that spelling is ever retained as a
+ *     `Field`, so no `Type` position parses the rename
+ *     `grammar.md`'s inline-object section names, and neither
+ *     `theta/parse/wire-name-collision` nor
  *     `theta/parse/redundant-wire-name` — the two codes that sentence assigns
  *     — can ever fire there. This rule refuses the spelling instead of
  *     teaching `parseObject` to parse it: at ten of the eleven `Type`

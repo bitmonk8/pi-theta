@@ -150,6 +150,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // this route does not do; a red in (G)'s neighbour rows means the precedence
 // above was implemented in the wrong order.
 //
+// SINCE BUG 0231 (route 1, `parseObject`'s field loop resynchronising at a
+// malformed entry's next `,` instead of ending the field list there): a field
+// written BEHIND an inline rename now reaches `fieldTypes`, so cells f1, f3,
+// f5, f7, f9, f15, f16 and g18 each gain the sibling verdict their own
+// single-field control already drew, ALONGSIDE this row's rename refusal —
+// which still fires first, since it is a raw-key-loop emission and the
+// raw-key loop always runs ahead of the `fieldTypes` recursion. No cell here
+// loses a line; every previously-expected line stays, in order.
+//
 // NO SILENT SKIPPING: nothing here early-returns or conditionally skips. The
 // registry lookup asserts its row's presence and its placeholder before any
 // template is used, so a missing or reworded row reds by naming the registry;
@@ -489,25 +498,37 @@ function positionRows(): Cell[] {
 
 /**
  * (F) §Reproduction (e) S1–S13 and §Reproduction (f) S14, re-measured at HEAD,
- * each paired with its control. The suppression family is NOT closed by this
- * route — the refusal is added at the raw-key loop and `parseObject`'s field
- * loop is byte-untouched — so S1/S3/S5/S7/S9 draw the new row and STILL NOT
- * what their controls draw. The emission ORDER of rows S11–S13 follows from the
- * detection site: `walkType`'s `object` arm runs the raw-key loop
- * (type-grammar.ts:999) BEFORE it recurses into `node.fieldTypes` (:1087) and
- * before the lowering's own `unresolved-named-type` sink, which cells f15–f17
- * establish at HEAD through the neighbour rows that already sit at that site.
+ * each paired with its control. Bug 0231 (route 1, `parseObject`'s field loop
+ * resynchronises at a malformed entry's next `,` instead of ending the field
+ * list) touches this family: a field written BEHIND a rename now reaches
+ * `fieldTypes` and draws its own control's row alongside the rename refusal,
+ * so S1/S3/S5/S7/S9 draw the new row AND what their controls draw, in that
+ * order — the rename refusal is a raw-key-loop emission and always precedes
+ * the fieldTypes recursion that carries the field-TYPE checks. The emission
+ * ORDER of rows S11–S13 follows from the same detection site: `walkType`'s
+ * `object` arm runs the raw-key loop BEFORE it recurses into `node.fieldTypes`
+ * and before the lowering's own `unresolved-named-type` sink, which cells
+ * f15–f17 establish at HEAD through the neighbour rows that already sit at
+ * that site.
  */
 function suppressionRows(): Cell[] {
   return [
-    { cell: "f1 (S1)", src: body(`schema S { p: {a as "w": integer, b: void} }`), expected: [REN("a")] },
+    {
+      cell: "f1 (S1)",
+      src: body(`schema S { p: {a as "w": integer, b: void} }`),
+      expected: [REN("a"), VOIDEXP()],
+    },
     { cell: "f2 (S2 control)", src: body("schema S { p: {a: integer, b: void} }"), expected: [VOIDEXP()] },
-    { cell: "f3 (S3)", src: body(`schema S { p: {a as "w": integer, b: {}} }`), expected: [REN("a")] },
+    {
+      cell: "f3 (S3)",
+      src: body(`schema S { p: {a as "w": integer, b: {}} }`),
+      expected: [REN("a"), EMPTYBODY("{}")],
+    },
     { cell: "f4 (S4 control)", src: body("schema S { p: {a: integer, b: {}} }"), expected: [EMPTYBODY("{}")] },
     {
       cell: "f5 (S5)",
       src: body(`schema S { p: {a as "w": integer, b: array<integer,string>} }`),
-      expected: [REN("a")],
+      expected: [REN("a"), ARITY("array", "1", "2")],
     },
     {
       cell: "f6 (S6 control)",
@@ -517,7 +538,7 @@ function suppressionRows(): Cell[] {
     {
       cell: "f7 (S7)",
       src: body(`schema S { p: {a as "w": integer, b: Result<integer,string>} }`),
-      expected: [REN("a")],
+      expected: [REN("a"), RESULTEXP()],
     },
     {
       cell: "f8 (S8 control)",
@@ -527,7 +548,7 @@ function suppressionRows(): Cell[] {
     {
       cell: "f9 (S9)",
       src: annotSrc(`{p: {a as "w": integer}, q: {c: 1, c: 2}}`),
-      expected: [REN("a")],
+      expected: [REN("a"), DUP("c")],
     },
     {
       cell: "f10 (S10 control)",
@@ -557,23 +578,25 @@ function suppressionRows(): Cell[] {
     // 0160 §Reproduction (f)'s `[]` — the code-level restatement in cell H2
     // carries the same measurement without the registry oracle.
     { cell: "f14 (S14)", src: annotSrc(`{a: integer as "w"}`), expected: [QUERYNOTEXPR()] },
-    // f15–f17 — the suppression's CAUSE, measured rather than asserted. f15 is
-    // the quoted-key analogue: no `as` anywhere, no rename, and the `void`
-    // behind it is suppressed just the same, so the stop is `parseObject`'s
-    // field loop failing to read `Ident ":"` at the field head
-    // (type-grammar.ts:639) — not the `as` skip's position and not the
-    // token-join capture. f16 proves the token-join is not the cause from the
-    // other side: `params:` hands the lowerer and the checker the RAW text with
-    // its spaces intact, and the `void` is suppressed there too.
+    // f15–f17 — the suppression's former CAUSE, still measured for the record.
+    // Bug 0231 (route 1) resynchronises `parseObject`'s field loop at a
+    // malformed entry's next `,` rather than ending the field list there, so
+    // `void` behind the malformed head is no longer discarded: f15 gains
+    // `void-in-non-return-position` beside the quoted-key row (no `as`
+    // anywhere, no rename — the fix is at the field loop, not at any
+    // rename-specific site) and f16 gains it beside the rename row too, at
+    // `params:` where the raw spelling `a as "w"` was always intact. The
+    // suppression's cause was `parseObject`'s field loop failing to
+    // resynchronise past `Ident` with no `:` behind it; bug 0231 is that fix.
     {
       cell: "f15 (cause: quoted-key analogue)",
       src: body(`schema S { p: {"a": string, b: void} }`),
-      expected: [QUOTED('"a"')],
+      expected: [QUOTED('"a"'), VOIDEXP()],
     },
     {
       cell: "f16 (cause: params: raw spelling)",
       src: paramsSrc(`  p: '{a as "w": integer, b: void}'`),
-      expected: [REN("a")],
+      expected: [REN("a"), VOIDEXP()],
     },
     {
       cell: "f17 (cause: params: control)",
@@ -684,15 +707,18 @@ function boundaryRows(): Cell[] {
       src: annotSrc('{a as "w": integer, b as "x": string, c: boolean}'),
       expected: [REN("a"), REN("b")],
     },
-    // g18 — the SIBLING of a rename-bearing body is not reached, measured at
-    // HEAD through the neighbour row (`{p: {a as "w": …}, q: {"c": 1}}` draws
-    // nothing today), so this cell claims one line and not two. That
-    // unreachability is 0160 §Reproduction row S9's mechanism and this route
-    // does not repair it.
+    // g18 — the outer object's TWO fields each carry their own single-entry
+    // malformed body. Before bug 0231's fix `parseObject`'s outer loop broke
+    // entirely once `p`'s own `as`-skip left it mid-entry, so `q` was never
+    // parsed and never reached `fieldTypes` — this cell drew `a` alone. Bug
+    // 0231 (route 1) resynchronises at each malformed entry's own closing `}`
+    // instead, so the outer loop reads BOTH `p` and `q` as ordinary fields and
+    // the walk descends into both nested bodies; each nested raw-key loop
+    // draws its own rename line, in source order.
     {
       cell: "g18",
       src: annotSrc('{p: {a as "w": integer}, q: {b as "x": string}}'),
-      expected: [REN("a")],
+      expected: [REN("a"), REN("b")],
     },
     // g19 — the walk DOES descend into a rename-bearing body's own interior at
     // depth, measured at HEAD the same way.
@@ -1238,23 +1264,28 @@ describe("bug 0160 (E) — the duplicate family bug 0159 closed, and the AJV out
 
 // ===========================================================================
 // (F) §Reproduction (e) S1–S13 and §Reproduction (f) S14, re-measured at HEAD,
-// each with its control, plus the suppression family's CAUSE. The refusal does
-// NOT close that family: `parseObject` is byte-untouched, so a field written
-// behind a rename is still unparsed and the four already-registered checks its
-// control draws are still silent. Those rows therefore assert the new line and
-// the CONTINUING absence, which is the honest post-fix statement.
+// each with its control, plus the suppression family's (former) CAUSE. Bug
+// 0231 (route 1) DOES close this family at the field-loop site: a malformed
+// entry accounts for itself and for nothing else
+// (code-registry-parse.md:101's count-consequence sentence), so a field
+// written BEHIND a rename now reaches `fieldTypes` and draws its own
+// control's row alongside the rename refusal, in that order — the rename
+// refusal is a raw-key-loop emission and the raw-key loop always runs before
+// the `fieldTypes` recursion. Those rows therefore assert the new line AND
+// the control's own line, which is the honest post-0231 statement.
 // RED at HEAD: f1, f3, f5, f7, f9, f11, f12, f13, f16.
 // GREEN now and after: f2, f4, f6, f8, f10, f14, f15, f17.
 // ===========================================================================
 
-describe("bug 0160 (F) — the suppression family gains the refusal and keeps its silence, with its cause", () => {
+describe("bug 0160 (F) — the suppression family gains the refusal, and (since bug 0231) the field it used to silence", () => {
   it("RED F1: S1–S13 with their controls, and S14 as the over-reach tripwire", () => {
     expectGroup(
       suppressionRows(),
-      "F1 — a red on an f-row that expects only the new row means the refusal did not fire; a " +
-        "red that ADDS a control's code to one of those rows means `parseObject`'s field loop " +
-        "was changed after all, which is §Fix (a) route 1 and not the settled route — that " +
-        "would be a larger blast radius than this witness pins",
+      "F1 — a red on an f-row missing the rename line means the refusal did not fire; a red on " +
+        "an f-row missing its control's OWN line means bug 0231's field-loop resynchronisation " +
+        "regressed — a malformed entry must account for itself and for nothing else " +
+        "(code-registry-parse.md:101), so the field behind it draws its own verdict exactly as " +
+        "its single-field control does",
     );
   });
 
@@ -1293,28 +1324,29 @@ describe("bug 0160 (F) — the suppression family gains the refusal and keeps it
     });
   });
 
-  it("CONTROL F3: the suppression's cause is the field head, not the `as` skip and not the token join", () => {
-    // Two measurements, both at HEAD, both independent of this fix. (i) The
-    // quoted-key spelling carries no `as` at all and suppresses the following
-    // `void` just the same, so the stop is `parseObject`'s field loop failing
-    // to read `Ident ":"` (src/parser/type-grammar.ts:639). (ii) At `params:`
-    // the raw text keeps its spaces, so the token-join capture is absent — and
-    // the `void` is suppressed there too.
+  it("CONTROL F3: the field-head resynchronisation (bug 0231) reaches `void` at the quoted-key head and at `params:` alike", () => {
+    // Two measurements, both independent of this row's own subject. (i) The
+    // quoted-key spelling carries no `as` at all — no rename anywhere in the
+    // source — and now names the `void` behind it too, so bug 0231's fix is
+    // at the field loop itself (src/parser/type-grammar.ts's `parseObject`),
+    // not at any rename-specific site. (ii) At `params:` the raw text keeps
+    // its spaces, so the token-join capture was never the cause either — the
+    // `void` is named there on the same footing as its control.
     expect(
       lines(body(`schema S { p: {"a": string, b: void} }`)),
-      "F3(i) — the `void` behind a quoted key is suppressed with no rename anywhere in the " +
-        "source; whatever the fix does about renames, this class of silence is upstream of it",
-    ).toEqual(renderAll([QUOTED('"a"')]));
+      "F3(i) — the quoted-key head accounts for itself (`quoted-inline-field-name`) and no " +
+        "longer withholds its sibling's verdict: `void` behind it now draws its own row too",
+    ).toEqual(renderAll([QUOTED('"a"'), VOIDEXP()]));
     expect(
       lines(paramsSrc(`  p: '{a as "w": integer, b: void}'`)).filter((l) =>
         l.includes(VOID_NON_RETURN),
       ),
       "F3(ii) — and at `params:`, where the raw spelling `a as \"w\"` survives intact, the " +
-        "`void` is suppressed identically; the token-join capture is therefore not the cause",
-    ).toEqual([]);
+        "`void` behind the rename is named exactly as its control names it",
+    ).toEqual(renderAll([VOIDEXP()]));
     expect(
       lines(paramsSrc("  p: '{a: integer, b: void}'")),
-      "F3(ii) — with the control at the same position proving the check is reachable there",
+      "F3(ii) — with the control at the same position, unmoved",
     ).toEqual(renderAll([VOIDEXP()]));
   });
 });
@@ -1334,7 +1366,11 @@ describe("bug 0160 (F) — the suppression family gains the refusal and keeps it
 // g1, g15 and g23 are also silent on THIS row throughout, but since bug
 // 0228's fix each now draws `theta/parse/inline-field-name-not-identifier`
 // instead of nothing at all (§Fix (b)'s newly-refused set), so they carry a
-// non-empty expectation too.
+// non-empty expectation too. Since bug 0231's fix g18 draws a SECOND line:
+// the outer object's two malformed-bodied fields (`p` and `q`) were both
+// unreached by `parseObject`'s old outright break, and route 1's
+// resynchronisation reaches both, so the walk descends into both nested
+// interiors and each names its own rename.
 // ===========================================================================
 
 describe("bug 0160 (G) — quote style, precedence, the two gates, and the neighbours' subjects", () => {
