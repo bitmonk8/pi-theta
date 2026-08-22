@@ -1,6 +1,7 @@
 # Bug 0236 — `TypeParser.parsePrimary` skips the `[` of a bracket group as unexpected punctuation (`type-grammar.ts:606–608`) and never leaves it, so the ENCLOSING generic application loses every argument behind the group: `Result<enum["a", "b"], string>` draws `theta/parse/generic-arity-mismatch` "got 1" for a two-argument spelling, `array<enum["a", "b"], string>` draws NOTHING and registers at the `fn` parameter, `fn` return, `let` and query positions where `array<{a: integer}, string>` is refused for arity, and `Result<enum["a", "b"], void>` loses its own `theta/parse/void-in-non-return-position`
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two routes with
+- **Status:** fixed (0.214.0) — §Fix route (a) Route 1 landed; see
+  §Fix (0.214.0). Filed with §Fix constraint-pinned, not settled: two routes with
   their measured costs, the choice left to the run because the recovery point
   is in the one type parser every `Type` position shares and because bug
   [0217](./0217-nested-inline-enum-in-generic-argument-draws-nothing.md)'s
@@ -603,3 +604,217 @@ reproduces unchanged.
 
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+## Fix (0.214.0)
+
+- **Route selected:** §Fix (a) *Route 1 — consume the group in `parsePrimary`*.
+  `TypeParser.parsePrimary` consumes a CLOSED `[…]` bracket group whole, at both
+  of the two places the cursor can meet one: as the primary itself
+  (`[integer]`, and the bare group at a fresh type position) and as a postfix
+  standing directly BEHIND a primary the head arm already returned
+  (`enum["a", "b"]`, whose head is an `Ident`). The group yields a
+  `bracket-group` leaf `TypeNode` carrying nothing — it derives from no `Type`
+  alternative at any depth (`schemas.md:93`, stated with no depth qualifier) —
+  so `walkType` judges nothing about it through its existing `default` arm; the
+  node's whole purpose is that the cursor ends past the group's `]`, which is
+  what stops the group's own interior commas from being read as an enclosing
+  `parseGeneric` argument list's separators. Route 2 (a second, independent
+  token scan of the `<…>` span) was declined on §Fix (a)'s own stated cost: it
+  would add a FOURTH segmentation of one argument list where §Reproduction (f)
+  and `theta-document.ts`'s peel doc already record the multiplicity as the
+  hazard; Route 1 instead makes the parser's own count the count the source
+  spells and leaves the other two counters where bug 0204 §Fix (b)(3) put them.
+- **The two decisions §Fix left to the run, stated:**
+  1. **An UNCLOSED group is never consumed.** `closedBracketGroupEnd` requires
+     the matching `]`, on a `[`/`{` frame stack mirroring bug 0217's
+     `findCutBracketGroupText` (`./params`) rather than a bare bracket counter,
+     so a `{…}` inside the group cannot close it. When no `]` closes the group
+     nothing is advanced and the input keeps the tolerant skip-and-recurse
+     recovery byte-for-byte: `array<enum["a", "b">` is unmoved at all eight
+     measured positions (§Non-goals, "An UNCLOSED bracket group";
+     `code-registry-parse.md:104`'s authorized under-refusal, restated on the
+     parse side for the same reason 0217 states on the lowering side — an
+     unclosed group's extent is unknowable, so no scan can name it).
+  2. **At the schema-feeding positions the arity line REPLACES bug 0217's
+     cut-group refusal rather than joining it** (§Reproduction rows b4, b6, b8,
+     b9). This is not a new disposition and reopens nothing: it is the
+     precedence already registered on
+     `code-registry-parse.md`'s `theta/parse/schema-type-not-expression` row
+     ("a field or declaration that already carries an error-severity diagnostic
+     from its own walk — a position rule (`void`, generic arity, `Result`, an
+     inline `enum[...]`) … keeps that diagnostic alone and draws no refusal"),
+     mirrored for `params:` by `code-registry-load.md`'s
+     `theta/load/params-type-not-expression` row. The same precedence is
+     already visible at the filing HEAD in this document's own rows b12 and
+     b13, where `Result<enum["a", "b"], string>` in a schema field draws the
+     arity line and `result-in-schema-position` and NO refusal — which is why
+     §Expected's binary ("keep bug 0217's refusal as their whole output, or
+     gain an arity line beside it") is falsified by this document's own table:
+     a walk-owned error has always suppressed the push, so once the count is
+     right the third outcome is forced. The subject stays REFUSED at every one
+     of those positions; only the code changes, and it converges on the
+     control's. The last-resort push itself is untouched and still fires
+     wherever no walk error pre-empts it: bug 0217's own registry examples are
+     measured UNMOVED — `array<enum["a", "b"], ???>` keeps its refusal on
+     `???` (the `???` argument yields no node, so the count stays 1 and no
+     arity violation arises), `pair<{a: string}, enum["x", "y"]>` keeps its
+     refusal (`pair` is outside `GENERIC_ARITY`), and the one-argument
+     `array<enum["a", "b"]>` keeps the push as its whole output (row d3). **No
+     `code-registry-parse.md` correction is therefore owed**: no sentence and
+     no example of that row is falsified, and the row's own precedence clause
+     already describes the outcome. No diagnostic code is minted, no registry
+     row is added, `docs/reference/diagnostics.md` needs no amendment and
+     `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged (the real live
+     runs surfaced no unpermitted code).
+- **GOV-15.** The newly refused inputs are exactly §Reproduction rows b1, b2,
+  b3 and b7 — an over-applied constructor carrying a bracket group at the `fn`
+  parameter, `fn` return and query-annotation positions, which registered
+  before. Each is inside the already-registered *Trigger* of
+  `theta/parse/generic-arity-mismatch` (`code-registry-parse.md:65`, "a
+  generic-type application whose type-argument count does not match the
+  constructor's declared arity … e.g. `array<T, U>`"), so no row states the old
+  behaviour and none needed amending. No committed source moves: 34 committed
+  `.theta`/`.thetalib` files, zero hits for
+  `git grep -nE '(array|Result)<[^>]*\['` (row d6, re-confirmed).
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — the `bracket-group` leaf `TypeNode`; the
+    `[`-as-primary arm in `parsePrimary`'s punct branch, ahead of the tolerant
+    skip; the postfix consumption of a closed group trailing a primary; and
+    `closedBracketGroupEnd` / `consumeClosedBracketGroup`, the parse-side
+    sibling of `interiorClosingBraceIndex`'s scan. Bug 0231's
+    `skipMalformedEntry`, bug 0237's `,`-decline and `parseObject`'s field loop
+    are byte-unchanged.
+  - `src/parser/theta-document.ts` — comment-only, discharging §Fix (b)'s last
+    clause. The peel-agreement claim above `unresolvedNamedTypeDiagnostic`, and
+    its restatement in `queryResponseAnnotation`'s own doc block, said the
+    `"angle-and-brace"` mode exists so the peel agrees with the parser
+    computing `theta/parse/generic-arity-mismatch` about the ARGUMENT COUNT.
+    That could not be made TRUE for this class — the split lives in
+    `./params`, which bug 0204 §Fix (b)(3) keeps as it is — so both sites are
+    rewritten to name the residual: the peel stays bracket-blind and counts
+    three where the parser now counts two, takes its non-arity-2 path, and
+    `Result`'s arity goes unreported at the query annotation for that spelling
+    (§Non-goals; row b14, which stays `[]`).
+  - `tests/generic-argument-bracket-group-truncation.test.ts` — the §Fix (d)
+    witness, new. 95 whole-ordered unfiltered `toEqual` diagnostic cells in six
+    groups plus a ledger group that recomputes the inventory from the tables:
+    (A) rows a1–a14 at the `let` annotation, (B) the nine positions of
+    §Reproduction (b) in three columns (`<A>` subject, `<C>` brace control,
+    `<R>` `Result`) plus the `params:` lowering pair, (C) the unwalked tail
+    c1–c5 against its brace and primitive controls, (D) the five bounds,
+    (E) §(e)'s lowerings and §(f)'s `splitTopLevel` counts as the
+    tripwire that no lowered byte moved, (R) §Fix (c) Reach for rows a5, a6, a8
+    and a10 one position over at the `fn` parameter, and (F) the 42-cell fence
+    — the unclosed class at eight positions, bug 0217's four registry examples,
+    and the bare group at eight positions.
+  - `tests/live/generic-argument-bracket-group-truncation-live-cell.test.ts` —
+    the H8a live cover, new. A theta whose `fn` parameter declares
+    `array<enum["a", "b"], string>` must NOT register through the real
+    discovery→registration path (it registered before), while its legal
+    literal-union sibling registers and drives a turn.
+  - `tests/type-grammar.test.ts` — five bracket-carrier cells added to bug
+    0044's `V2a-T` group at the direct `parseTypeExpression` seam, as §Fix (d)
+    requires. Additions only, zero deletions; every pre-existing cell is
+    byte-unmoved.
+  - `tests/nested-inline-enum-generic-argument-refusal.test.ts` — bug 0217's
+    witness, 17 cell EXPECTATIONS updated under §Fix (b)'s authority
+    (enumerated below). Nothing deleted, re-subjected or weakened; the file
+    still runs 190 tests.
+- **Gates:** witness
+  `npx vitest run tests/generic-argument-bracket-group-truncation.test.ts` →
+  `Test Files 1 passed (1) / Tests 10 passed (10)` (at HEAD `ce2c412b`, before
+  the fix: `Tests 4 failed | 6 passed (10)`); full default suite `npm test` →
+  `Test Files 397 passed (397) / Tests 8235 passed (8235)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean;
+  `npm run lint` (`eslint … "src/**/*.ts"`) → clean. Live, under the shared
+  lock: the new H8a cell → `1 passed`, bug 0233's neighbouring live cell →
+  `1 passed`, and the H8a acceptance cell naming this construct at one argument
+  (`live-production-acceptance.test.ts -t "bug 0217 cell 74"`) → `1 passed`,
+  confirming the one-argument spelling is unmoved on the real
+  discovery→registration path.
+- **Review:** two rounds. Round 1 (deep) returned two findings — a `fidelity`
+  blocker, §Fix (d)'s "V2a-T … must gain the bracket-carrier cells" clause
+  having been dropped without a stated deviation, and a `prose` defect (a fence
+  banner claiming 46 cells where the ledger and `TOTAL_LIST_CELLS` say 42) —
+  and independently endorsed the route's fidelity, the 17 authorized flips, the
+  `theta-document.ts` correction, every protected lock and the
+  arity-replaces-refusal disposition, re-measuring bug 0217's registry examples
+  as unmoved. Round 2 (fast), over the remediation only, returned CLEAN with
+  one `test` residual (residual 2 below).
+- **Verification:** SOLID. The witness genuinely reds: with
+  `closedBracketGroupEnd` neutralised to always report "no group", groups A, B,
+  C and R red with the document's own symptom (`generic type 'Result' expects 2
+  type argument(s); got 1`) while D, E, F and the ledger stay green, and four
+  of the five new `V2a-T` cells red too (the unclosed-fence cell correctly does
+  not, being unaffected by design); the mutation was reverted by writing the
+  fixed bytes back and `git hash-object src/parser/type-grammar.ts` re-verified
+  as `1f0cc2cf…`, after which both files are green again. Full default suite
+  green on four independent runs. Live: three real runs, all green, under the
+  lock protocol, no unpermitted diagnostic code, no stochastic-class symptom.
+  Lint and typecheck clean. Protected locks re-run and green individually: bug
+  0231's resync witness, bug 0233's 76-cell witness, bug 0217's 190-test
+  witness, bug 0204's two lowering files, bug 0044's `type-grammar.test.ts`,
+  bug 0237's 127-cell witness, the committed-fixture parse gate, the
+  registry closed-set corpus gate and the citation symbol-form gate.
+- **The 17 authorized cell updates** (all in
+  `tests/nested-inline-enum-generic-argument-refusal.test.ts`, all on
+  `array<enum["a", "b"], integer>` or `array<enum["a", "b"], Cat +>` — an
+  arity-1 constructor applied to two arguments the source spells; subject,
+  position, cell id and DIAG-4 message-through-the-registry form preserved in
+  every one, and each failure prose rewritten to state the post-0236 contract
+  in both directions):
+  - c7 (schema field, alias, `params:`) — the schema-feeding refusal →
+    `theta/parse/generic-arity-mismatch: generic type 'array' expects 1 type
+    argument(s); got 2` alone.
+  - c8 (the same three positions) — "codes must NOT include
+    `generic-arity-mismatch`" → "codes MUST include it".
+  - d3 (the same three positions) — the refusal on `Cat +` → the arity line
+    alone.
+  - f7 and f10 (`let`, `fn` parameter, `fn` return, query annotation, ×2
+    subjects) — `[]` (or the `let` RHS gate alone) → the arity line (at `let`,
+    the arity line then the RHS gate). These are §Reproduction rows b1, b3 and
+    b7 ceasing to register, which §Fix (b) requires by name. The prose those
+    cells carried — that a red there means bug 0124's decline was narrowed —
+    was inapplicable and is corrected: `annotationSourceIsNotTypeExpression` is
+    untouched, and the line these positions gain is the arity POSITION rule,
+    not a type-text refusal.
+- **Residuals:**
+  1. *The three counters are now two-and-a-half, not one.* `parseGeneric`
+     counts the arguments the source spells; `lowerTypeExpr`'s angle-only split
+     and `queryResponseAnnotation`'s `"angle-and-brace"` peel both remain
+     bracket-blind and still count three for `enum["a", "b"], string`
+     (§Reproduction (f), measured byte-identical after the fix). Closing that
+     gap means changing a split in `src/parser/params.ts`, which bug 0204
+     §Fix (b)(3) keeps angle-only on stated grounds and which is outside this
+     report's reach; the disagreement is now NAMED in both
+     `theta-document.ts` doc blocks instead of denied by them. Its whole
+     observable consequence is the one §Non-goals already pins: `Result`'s
+     arity goes unreported at the query annotation for a bracket-carrying
+     spelling (row b14, `[]` before and after).
+  2. *Three of the five new `V2a-T` cells assert the arity code is ABSENT
+     rather than asserting the whole diagnostic list.* Measured non-vacuous
+     today (the real lists are `[]`), and it is the established shape of that
+     group's sibling cells, but it would not catch a future regression adding a
+     DIFFERENT diagnostic beside a correctly-absent arity code. Round 2 raised
+     it as a `test` residual, not a finding.
+  3. *One non-reproducing suite red.* A single heavily-loaded `npm test` run
+     reported `1 failed | 8234 passed` and the failing test's name was lost to
+     an output-tail capture. Six subsequent full runs of the identical tree
+     were `397 files / 8235 tests` green. Round 2's reviewer found nothing
+     order- or load-sensitive in this diff's blast radius and named the suite's
+     pre-existing long-running subagent spawn tests as the likelier candidates.
+     Recorded, unattributed, unreproduced.
+- **Discharge notes appended:** none. Bug 0235 was already discharged by bug
+  0231's landing and handed this class over in its own §Provenance; this
+  document is the hand-off's terminus, so no sibling document needed a note.
+  Bug 0217's landed treatment stands and is unreopened — its witness moved only
+  under §Fix (b)'s own authority, enumerated above.
+- **Pinned dispositions / non-goals:** every §Non-goals clause holds as
+  written. `theta/parse/inline-enum`'s trigger set is untouched (bug 0162);
+  rows a14 and d1 still measure silence at the `let` and `fn` positions. Bug
+  0204's angle-only split and every lowered byte of §Reproduction (e) are
+  byte-identical. `theta/parse/result-in-schema-position` (rows b12, b13) and
+  the `let` RHS gate (row b5) are unchanged rows drawn by unchanged code. The
+  UNCLOSED bracket group stays under-refused with its pieces. Citation drift in
+  `src/parser/type-grammar.ts` is bug 0134's do-not-chase class and was not
+  chased; every citation added by this change is in symbol form.

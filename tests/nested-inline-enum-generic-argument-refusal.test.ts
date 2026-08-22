@@ -851,7 +851,16 @@ const IN_CLASS_ROWS: ReadonlyArray<readonly [string, string, string]> = [
   ["c4", E2_NESTED, "two generic levels — §Expected bullet 3: depth is not a discriminator"],
   ["c5", E2_IN_OBJECT, "inside a derivable `{…}` inside a generic argument: the bracket group is still the illegal unit"],
   ["c6", E2_UNION, "through a union arm, which hands the generic arm the same interior"],
-  ["c7", E2_TWO_ARGS, "two arguments to an arity-1 constructor, which draws no arity diagnostic either (§Actual 4)"],
+  // c7 (`array<enum["a", "b"], integer>`) is EXCLUDED from this generic table by bug
+  // 0236's landing: that fix makes `parseGeneric` count the two arguments the
+  // source spells (the `enum[…]` group as one, `integer` as the other), so the
+  // declaration's OWN walk now carries an error-severity `generic-arity-mismatch`
+  // diagnostic before this sink is even consulted. `code-registry-parse.md`'s
+  // `schema-type-not-expression` row's precedence sentence ("a field or
+  // declaration that already carries an error-severity diagnostic from its own
+  // walk … keeps that diagnostic alone and draws no refusal") then suppresses
+  // THIS row's push, not because the sink is empty but because the position never
+  // reaches it. See the dedicated block below.
   [
     "c9",
     PAIR_BRACE_SIBLING,
@@ -894,18 +903,68 @@ describe("bug 0217 (c) — a nested inline `enum[…]` draws its position's refu
     }
   }
 
+  // c7 and c8 — POST-0236 CONTRACT for `array<enum["a", "b"], integer>`, an
+  // arity-1 constructor over the two arguments the source spells. Before bug
+  // 0236's fix, `parseGeneric` truncated the list to one argument (the `[`
+  // was never consumed, so the group's own comma was read as the argument
+  // separator), which is why an earlier version of this file expected the
+  // sink refusal (c7) and asserted NO arity diagnostic (c8): the declaration's
+  // own walk had nothing to say, so `theta/parse/schema-type-not-expression` /
+  // `theta/load/params-type-not-expression` was the whole verdict. Bug 0236
+  // makes the parser count what the source spells, so the declaration's own
+  // walk now raises `generic-arity-mismatch` — an ARITY POSITION rule, not a
+  // type-text refusal — and `code-registry-parse.md`'s precedence sentence
+  // ( "a field or declaration that already carries an error-severity
+  // diagnostic from its own walk … keeps that diagnostic alone and draws no
+  // refusal") means that diagnostic REPLACES the sink push rather than sitting
+  // beside it. A red on c7 reporting the sink refusal instead of the arity
+  // line is bug 0236 regressing (the parser truncated the list again); a red
+  // on c8 with the arity code ABSENT is the same regression from the other
+  // face. Bug 0124's `annotationSourceIsNotTypeExpression` is untouched by
+  // either row — this pair measures a POSITION's OWN walk, not that decline.
+  const ARITY_ARRAY_TWO = line(ARITY, [
+    ["<ctor>", "array"],
+    ["<expected>", "1"],
+    ["<actual>", "2"],
+  ]);
+
   for (const position of SINK_POSITIONS) {
-    it(`FENCE (c8, ${position}): \`${E2_TWO_ARGS}\` still draws no arity diagnostic`, () => {
+    it(`RED (c7, ${position}): \`${E2_TWO_ARGS}\` draws its own arity diagnostic, not the sink refusal`, () => {
+      const label = `c7 (${position}, ${E2_TWO_ARGS})`;
+      const r = read(label, position, E2_TWO_ARGS);
+      expect(
+        r.lines,
+        `${label}: bug 0236 fixed \`parseGeneric\` to count the two arguments this source ` +
+          `spells (the bracket group as one, \`integer\` as the other), so \`array\` (arity 1) ` +
+          `over-applied to two is the declaration's own arity violation, and ` +
+          `\`code-registry-parse.md\`'s precedence sentence keeps it ALONE — it is the same ` +
+          `precedence that already suppressed this push for the \`Result\`-carrier neighbour at ` +
+          `HEAD. A red reporting \`${position === "params" ? PARAMS_REFUSAL : SCHEMA_REFUSAL}\` ` +
+          `instead is bug 0236 UNfixed: the list truncated back to one argument, the arity rule ` +
+          `read as satisfied, and this sink's last-resort push fired again. ` +
+          `Observed: ${JSON.stringify(r.lines)}`,
+      ).toEqual([ARITY_ARRAY_TWO]);
+      expect(
+        r.gateCount,
+        `${label}: still error-severity in a namespace \`hasLoadParseError\` reads, so this ` +
+          `input does not register either way`,
+      ).toBe(1);
+    });
+  }
+
+  for (const position of SINK_POSITIONS) {
+    it(`FENCE (c8, ${position}): \`${E2_TWO_ARGS}\` draws its own arity diagnostic`, () => {
       const label = `c8 (${position}, ${E2_TWO_ARGS})`;
       const r = read(label, position, E2_TWO_ARGS);
       expect(
         r.codes.includes(ARITY),
-        `${label}: §Actual 4 measures no \`${ARITY}\` here and §Non-goals ("The argument-count ` +
-          `disagreement") keeps it that way — \`parseGeneric\` parses the argument with ` +
-          `\`parseUnion\` and counts ONE argument, so the arity rule is satisfied. Route §Fix ` +
-          `(b)(2) answers this input with the sink refusal, not by minting an arity diagnostic. ` +
-          `Observed codes: ${JSON.stringify(r.codes)}`,
-      ).toBe(false);
+        `${label}: bug 0236 (§Fix (b)) requires the arity row to fire whether or not an ` +
+          `argument derives from \`Type\` — \`parseGeneric\` now counts the two arguments this ` +
+          `source spells, so \`array\`'s own arity check is violated and this position's walk ` +
+          `carries \`${ARITY}\` before the sink is ever consulted. A red reporting \`false\` is ` +
+          `bug 0236 regressing: the count truncated back to one and the arity rule read as ` +
+          `satisfied. Observed codes: ${JSON.stringify(r.codes)}`,
+      ).toBe(true);
     });
   }
 
@@ -974,14 +1033,12 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
       "bug 0204's cell l2, a LOCK: `???` is a whole argument of the same cut list, so it earns " +
         "the one refusal and the last-resort group push does not fire",
     ],
-    [
-      "d3",
-      E2_CAT_ARG,
-      true,
-      "schema",
-      "the same shape with author-written junk beside the group (§Fix (c)(2)'s named row): one " +
-        "refusal, on `Cat +`",
-    ],
+    // d3 (`array<enum["a", "b"], Cat +>`) is EXCLUDED from this generic table by
+    // bug 0236's landing, for the same reason c7 is: `parseGeneric` now counts
+    // the two arguments this source spells, `array` (arity 1) over-applied to
+    // two is its own arity violation, and `code-registry-parse.md`'s
+    // precedence sentence keeps that diagnostic ALONE rather than beside the
+    // sink push. See the dedicated block below.
     [
       "d4",
       E2_BARE,
@@ -1035,6 +1092,41 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
         ).toBe(1);
       });
     }
+  }
+
+  // d3 (`array<enum["a", "b"], Cat +>`) — POST-0236 CONTRACT. `Cat +` beside the
+  // group does not change the argument COUNT: `array` still receives two
+  // arguments (the group, and `Cat +`), so bug 0236's fixed `parseGeneric`
+  // draws the same arity-1-over-two violation as c7's, and
+  // `code-registry-parse.md`'s precedence sentence keeps it alone in place of
+  // the sink push. A red reporting the sink refusal instead is the same
+  // regression c7 and c8 measure — the parser truncating the list back to one
+  // argument. This is not bug 0124's `annotationSourceIsNotTypeExpression`
+  // territory (that decline concerns the four ANNOTATION-side positions, group
+  // (f), not this SINK position's own arity walk).
+  for (const position of SINK_POSITIONS) {
+    it(`RED (d3, ${position}): \`${E2_CAT_ARG}\` draws its own arity diagnostic, not the sink refusal`, () => {
+      const label = `d3 (${position}, ${E2_CAT_ARG})`;
+      const r = read(label, position, E2_CAT_ARG, true);
+      const arityArrayTwo = line(ARITY, [
+        ["<ctor>", "array"],
+        ["<expected>", "1"],
+        ["<actual>", "2"],
+      ]);
+      expect(
+        r.lines,
+        `${label}: two arguments to arity-1 \`array\` (the group, and \`Cat +\`) is the ` +
+          `declaration's own arity violation post-0236, and the registered precedence keeps it ` +
+          `ALONE. A red reporting \`${SCHEMA_REFUSAL}\` / \`${PARAMS_REFUSAL}\` instead means ` +
+          `\`parseGeneric\` truncated the list again and the last-resort sink push fired in the ` +
+          `arity row's place. Observed: ${JSON.stringify(r.lines)}`,
+      ).toEqual([arityArrayTwo]);
+      expect(
+        r.gateCount,
+        `${label}: still error-severity in a namespace \`hasLoadParseError\` reads, so this ` +
+          `input does not register either way`,
+      ).toBe(1);
+    });
   }
 });
 
@@ -1145,10 +1237,19 @@ describe("bug 0217 (f) — the four annotation-side positions do not move", () =
     ["f4", E2_NESTED, false, true],
     ["f5", E2_IN_OBJECT, false, true],
     ["f6", E2_UNION, false, true],
-    ["f7", E2_TWO_ARGS, false, true],
+    // f7 (`array<enum["a", "b"], integer>`) and f10 (the same shape with `Cat +`
+    // beside the group) are EXCLUDED from this generic table by bug 0236's
+    // landing. §Fix (c)(5)'s claim was about bug 0124's
+    // `annotationSourceIsNotTypeExpression` DECLINE, which never judged a `[`
+    // and is untouched here; it was never about the ARITY line, which is a
+    // property of `parseGeneric`'s own count and fires at every `Type`
+    // position alike, annotation-side included. Bug 0236 makes that count the
+    // two arguments this source spells, so `array` (arity 1) now draws its own
+    // violation at these positions too — the arity POSITION rule, not a
+    // type-text refusal, so bug 0124's decline is not narrowed by it. See the
+    // dedicated block below.
     ["f8", E1, false, true],
     ["f9", E2_JUNK_ARG, false, true],
-    ["f10", E2_CAT_ARG, true, true],
     ["f11", E2_BARE, false, false],
     ["f12", E2_BRACE_ROOT, false, false],
     ["f13", T3, false, true],
@@ -1180,6 +1281,50 @@ describe("bug 0217 (f) — the four annotation-side positions do not move", () =
                   "does to the sink can reach it."
             } A red here means the fix narrowed bug 0124's decline, which §Non-goals forbids. ` +
             `Observed: ${JSON.stringify(r.lines)}`,
+        ).toEqual(expected);
+      });
+    }
+  }
+
+  // f7 and f10 — POST-0236 CONTRACT. `array<enum["a", "b"], integer>` (f7) and
+  // `array<enum["a", "b"], Cat +>` (f10) now count TWO arguments at every
+  // position, annotation-side included: `generic-arity-mismatch` is emitted by
+  // `walkType`'s generic arm off `parseGeneric`'s own argument list, which is
+  // not gated by bug 0124's `annotationSourceIsNotTypeExpression` decline at
+  // all — that decline concerns a DIFFERENT refusal
+  // (`annotation-type-not-expression`) at a DIFFERENT test (whether the
+  // source is a theta type expression), asked once, upstream of the type
+  // parse this arity line comes from. So a red here is bug 0236 itself, not a
+  // narrowing of bug 0124's decline: it means `parseGeneric` truncated the
+  // list back to one argument and the arity rule read as satisfied. The `let`
+  // row's ORDER is load-bearing — the arity line first, ahead of that
+  // position's own RHS mismatch — mirroring bug 0236's own control ordering
+  // (§Reproduction (b)).
+  const ARITY_ANNOTATION_ROWS: ReadonlyArray<readonly [string, string, boolean]> = [
+    ["f7", E2_TWO_ARGS, false],
+    ["f10", E2_CAT_ARG, true],
+  ];
+  const arityArrayTwo = line(ARITY, [
+    ["<ctor>", "array"],
+    ["<expected>", "1"],
+    ["<actual>", "2"],
+  ]);
+
+  for (const [id, typeSource, withCat] of ARITY_ANNOTATION_ROWS) {
+    for (const position of ANNOTATION_POSITIONS) {
+      it(`RED (${id}, ${position}): \`${typeSource}\` draws its own arity diagnostic at this annotation-side position too`, () => {
+        const label = `${id} (${position}, ${typeSource})`;
+        const r = read(label, position, typeSource, withCat);
+        const expected =
+          position === "let" ? [ARITY, LET_MISMATCH] : [ARITY];
+        expect(
+          r.codes,
+          `${label}: bug 0236 fixed \`parseGeneric\` to count the two arguments this source ` +
+            `spells, so \`array\`'s own arity check fires here exactly as it does at the sink ` +
+            `positions (group (c)'s c7/c8, group (d)'s d3) — bug 0124's decline is untouched, ` +
+            `because the arity line is not that decline's row. A red reporting \`[]\` (or, at ` +
+            `\`let\`, the RHS-mismatch code alone) means the count truncated back to one and ` +
+            `bug 0236 regressed. Observed: ${JSON.stringify(r.codes)}`,
         ).toEqual(expected);
       });
     }

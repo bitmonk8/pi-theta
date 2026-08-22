@@ -240,6 +240,17 @@ type TypeNode =
   | { readonly kind: "named"; readonly name: string }
   | { readonly kind: "void" }
   | { readonly kind: "literal" }
+  /**
+   * A CLOSED `[…]` bracket group, consumed whole as one type-argument-sized
+   * unit — `enum["a", "b"]`'s tail, or a bare `[integer]`. The group derives
+   * from no `Type` alternative at any depth (schemas.md:93, stated with no
+   * depth qualifier), so there is nothing on it for `walkType` to judge and
+   * it falls to that function's `default` arm like any other leaf. Its whole
+   * purpose is structural: consuming it puts the cursor past the group's `]`,
+   * which is what stops the group's own interior commas from being read as an
+   * ENCLOSING `parseGeneric` argument list's separators (bug 0236).
+   */
+  | { readonly kind: "bracket-group" }
   | { readonly kind: "generic"; readonly ctor: string; readonly args: TypeNode[] }
   | {
       readonly kind: "object";
@@ -603,6 +614,69 @@ class TypeParser {
   }
 
   private parsePrimary(): TypeNode | undefined {
+    const node = this.parsePrimaryHead();
+    if (node === undefined) {
+      return undefined;
+    }
+    // A `[…]` group standing directly BEHIND the primary just produced is the
+    // same carrier one token further right: `enum["a", "b"]`'s head is an
+    // `Ident`, so the ident arm below already returned before the `[` is
+    // reached, and without this the cursor would sit on `[` for `parseGeneric`'s
+    // loop to trip over. The group derives from no `Type` alternative either
+    // way (schemas.md:93), so it is consumed and dropped rather than attached
+    // to the node it trails.
+    while (this.closedBracketGroupEnd() >= 0) {
+      this.consumeClosedBracketGroup();
+    }
+    return node;
+  }
+
+  /**
+   * The token index one past a bracket group's closing `]`, when the cursor
+   * stands on the group's opening `[` and the source goes on to close it —
+   * `-1` when the cursor is not on `[` or the group never closes.
+   *
+   * The frame stack mirrors `findCutBracketGroupText`'s (`./params`, bug
+   * 0217's recovery of the same construct's source text on the lowering side)
+   * rather than a bare bracket counter, so a `{…}` written inside the group
+   * cannot close it. Requiring the matching `]` is bug 0217's own
+   * requirement restated on the parse side: an UNCLOSED group's extent is
+   * unknowable to any scan, so nothing is consumed for it and the cursor
+   * keeps the tolerant skip-and-recurse recovery this parser already has
+   * (`code-registry-parse.md`'s `theta/parse/schema-type-not-expression` row;
+   * bug 0236 §Non-goals, "An UNCLOSED bracket group").
+   */
+  private closedBracketGroupEnd(): number {
+    const opener = this.peek();
+    if (opener === undefined || opener.kind !== "punct" || opener.text !== "[") {
+      return -1;
+    }
+    const frames: string[] = [];
+    for (let i = this.pos; i < this.tokens.length; i += 1) {
+      const token = this.tokens[i];
+      if (token === undefined || token.kind !== "punct") {
+        continue;
+      }
+      if (token.text === "[" || token.text === "{") {
+        frames.push(token.text);
+        continue;
+      }
+      if (token.text === "]" || token.text === "}") {
+        const frame = frames.pop();
+        if (frames.length === 0) {
+          return frame === "[" && token.text === "]" ? i + 1 : -1;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /** Advance the cursor past a closed bracket group standing at it. */
+  private consumeClosedBracketGroup(): void {
+    this.pos = this.closedBracketGroupEnd();
+  }
+
+  private parsePrimaryHead(): TypeNode | undefined {
     const t = this.peek();
     if (t === undefined) {
       return undefined;
@@ -622,6 +696,17 @@ class TypeParser {
       }
       if (t.text === "{") {
         return this.parseObject();
+      }
+      // A closed bracket group standing AS the primary itself (`enum["a"]`'s
+      // bare form has no head to trail, and a comma-free carrier like
+      // `[integer]` is a primary in its own right) is consumed whole here, one
+      // unit of source, rather than one token at a time by the tolerant skip
+      // below: that skip never leaves the group, so its interior commas would
+      // otherwise be read as an ENCLOSING `parseGeneric` argument list's own
+      // separators, truncating that list at the group (bug 0236).
+      if (t.text === "[" && this.closedBracketGroupEnd() >= 0) {
+        this.consumeClosedBracketGroup();
+        return { kind: "bracket-group" };
       }
       // An entry SEPARATOR is the ENCLOSING construct's own text while that
       // construct is mid-read: an open `parseObject` field loop reads the

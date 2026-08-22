@@ -67,6 +67,51 @@ describe("V2a-T — generic-type arity (theta/parse/generic-arity-mismatch)", ()
       "generic type 'Result' expects 2 type argument(s); got 1",
     );
   });
+
+  // A `[…]` bracket group carries one type argument whole, so argument counting
+  // has to see the group as a single item rather than as its comma-separated
+  // pieces. These cells hold the count at the direct `parseTypeExpression`
+  // seam, where no annotation capture can cut the group before the parser
+  // reads it.
+  it("theta/parse/generic-arity-mismatch: `Result<enum[\"a\", \"b\"], string>` (arity 2 spelled with a bracket-group carrier) does not fire", () => {
+    const value: TypePosition = "value";
+    const diags = parseTypeExpression('Result<enum["a", "b"], string>', value, site());
+    expect(
+      withCode(diags, "theta/parse/generic-arity-mismatch"),
+      "a bracket-group carrier is one argument, so Result gets its two",
+    ).toBeUndefined();
+  });
+
+  it("theta/parse/generic-arity-mismatch: `array<enum[\"a\", \"b\"], string>` (arity 1 applied with 2) fires", () => {
+    const value: TypePosition = "value";
+    const diags = parseTypeExpression('array<enum["a", "b"], string>', value, site());
+    const d = withCode(diags, "theta/parse/generic-arity-mismatch");
+    expect(d, "theta/parse/generic-arity-mismatch for array<enum[...], U>").toBeDefined();
+    expect(d?.message).toBe(
+      "generic type 'array' expects 1 type argument(s); got 2",
+    );
+  });
+
+  it("theta/parse/generic-arity-mismatch: `Result<[integer], string>` (a bare bracket-group carrier) does not fire", () => {
+    const value: TypePosition = "value";
+    const diags = parseTypeExpression("Result<[integer], string>", value, site());
+    expect(
+      withCode(diags, "theta/parse/generic-arity-mismatch"),
+      "the carrier need not be an `enum` head to count as one argument",
+    ).toBeUndefined();
+  });
+
+  it("theta/parse/generic-arity-mismatch: an UNCLOSED `array<enum[\"a\", \"b\">` group raises no arity diagnostic", () => {
+    const value: TypePosition = "value";
+    // A group the source never closes is outside the whole-group consumption,
+    // and its under-refusal is recorded by
+    // `theta/parse/schema-type-not-expression`'s registry row.
+    const diags = parseTypeExpression('array<enum["a", "b">', value, site());
+    expect(
+      diags.map((diag) => diag.code),
+      "an unclosed bracket group stays under-refused at this seam",
+    ).toEqual([]);
+  });
 });
 
 // --- grammar.md §"Type grammar" — `void` is return-only -------------------
@@ -88,6 +133,18 @@ describe("V2a-T — void in non-return position (theta/parse/void-in-non-return-
       withCode(okDiags, "theta/parse/void-in-non-return-position"),
       "void is admitted in return position",
     ).toBeUndefined();
+  });
+
+  it("theta/parse/void-in-non-return-position: `Result<enum[\"a\"], void>` (a `void` argument beside a bracket-group carrier) fires", () => {
+    const value: TypePosition = "value";
+    // The `void` face has to survive a bracket-group neighbour: whole-group
+    // consumption must still hand the following argument to the type grammar.
+    const diags = parseTypeExpression('Result<enum["a"], void>', value, site());
+    const d = withCode(diags, "theta/parse/void-in-non-return-position");
+    expect(d, "theta/parse/void-in-non-return-position beside a bracket carrier").toBeDefined();
+    expect(d?.message).toBe(
+      "'void' is only permitted as a function or theta return type",
+    );
   });
 });
 

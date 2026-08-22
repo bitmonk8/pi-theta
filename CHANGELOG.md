@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.214.0]
+
+### Fixed
+
+- **Bug 0236**: a `[...]` bracket group in a generic argument was never
+  closed by `parsePrimary`'s skip, so `parseGeneric` recorded ONE argument —
+  false got-1 arity counts, `array<enum["a","b"], string>` registering at
+  fn param/return and query positions, and a lost `void` refusal. Route 1:
+  `TypeParser.parsePrimary` consumes a CLOSED bracket group whole (as
+  primary and as postfix behind one); an unclosed group is never consumed
+  and that class is unmoved. The arity line now REPLACES 0217's refusal on
+  four doc rows (registered precedence — forced, subjects stay refused; 17
+  cells of 0217's witness updated under §Fix (b)). Witness:
+  `tests/generic-argument-bracket-group-truncation.test.ts` (95 cells) +
+  an H8a live cell + 5 bracket-carrier cells in 0044's V2a-T.
+
 ## [0.213.0]
 
 ### Fixed

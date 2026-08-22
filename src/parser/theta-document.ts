@@ -6294,9 +6294,16 @@ function blockExprMissingTailDiagnostic(range: SourceRange, file: string): Diagn
  * the same text splits into two arguments, the `array` arm does not match, and
  * the form lowers to `{}`, which asserts nothing — matching the fact that
  * nothing about the shape was derived. `queryResponseAnnotation` below is the
- * one caller needing `"angle-and-brace"`: it lowers nothing itself and must
+ * one caller needing `"angle-and-brace"`: it lowers nothing itself and wants to
  * agree with the parser computing `theta/parse/generic-arity-mismatch` about
- * the ARGUMENT COUNT.
+ * the ARGUMENT COUNT. That agreement holds for a brace-carried argument (both
+ * count `ObjectType` as one unit) but not for a `[…]` bracket group
+ * (bug 0236): this split stays bracket-blind by the same angle-only-plus-brace
+ * design that keeps it derivable-shape-only, so it still counts a bracket
+ * group's own interior comma as an argument boundary where `TypeParser` (fixed
+ * for that construct, `type-grammar.ts`) now does not. See
+ * `queryResponseAnnotation`'s own doc block for what that residual
+ * disagreement is observed as.
  */
 function unresolvedNamedTypeDiagnostic(
   name: string,
@@ -6490,6 +6497,19 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * with the parser that computes the arity diagnostic — it saw three arguments
  * where the grammar sees two, took this function's non-arity-2 path, and left
  * the whole `Result<…>` text to be descended.
+ *
+ * This split tracks NEITHER `[…]` bracket depth, and bug 0204 §Fix (b)(3)
+ * keeps it that way on stated grounds (`./params`'s `lowerTypeExpr` stays
+ * angle-only for the same reason) — so for a bracket-group argument
+ * (`Result<enum["a", "b"], string>`) this peel still counts the group's own
+ * interior comma as an argument boundary: three segments, where `TypeParser`
+ * (fixed for that construct, bug 0236) now counts two. `queryResponseAnnotation`
+ * returns `undefined` on any non-2 count, so that spelling takes the same
+ * non-arity-2 path it did before — `Result`'s arity goes unreported at the
+ * query annotation for it, same as any other non-2 count this function
+ * declines. The peel is not made to re-agree for this construct; the earlier
+ * bracket-blind agreement claim above this function is corrected to name the
+ * residual instead.
  */
 function queryResponseAnnotation(schema: string): string | undefined {
   const application = RESULT_APPLICATION.exec(schema.trim());
