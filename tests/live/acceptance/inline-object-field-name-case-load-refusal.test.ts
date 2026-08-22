@@ -100,7 +100,7 @@ const CLEAN = [
   // let-rhs-type-mismatch hazard (bug 0130, TYPE-5) -- the cell's subject is
   // the field-name spelling, not the initialiser shape.
   "let x: {ys: string} | null = null",
-  "@`Reply with exactly this text and nothing else, no punctuation: H9A CLEAN SENTINEL 0154`",
+  "@`What is 220 plus 503? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -141,7 +141,12 @@ const PROBE = [
 
 const REFUSED = "OFFENDER REFUSED";
 const LOADED = "OFFENDER LOADED";
-const CLEAN_SENTINEL = "H9A CLEAN SENTINEL 0154";
+// The drive discriminator is the ANSWER to the theta's own arithmetic
+// prompt: deterministic content a degraded plain-prompt run (the slash
+// falling through as a user prompt) cannot produce. A verbatim-echo demand
+// ("reply with exactly this") reads as prompt injection to current models
+// and draws refusals -- the documented sentinel-refusal class.
+const CLEAN_SENTINEL = "723";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {
