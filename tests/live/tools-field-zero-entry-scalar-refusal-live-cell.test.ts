@@ -19,7 +19,7 @@
 // shipped composition root — over a REAL on-disk `.pi/theta/` discovery walk
 // driven by `bootShippedExtension` (`tests/live/harness.ts`), the same harness
 // the existing "discovery → registration" H8a cells and bug 0104's sibling
-// cell (`tests/live/tools-field-shape-refusal-live-cell.test.ts`, `CELL-C`)
+// cell (`tests/live/tools-field-shape-refusal-live-cell.test.ts`)
 // use. Registration-only observable: no live model turn is driven, so
 // `` spends no tokens beyond `requireLiveProvider`'s credential
 // resolution.

@@ -309,7 +309,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   untouched. Witness `tests/escaped-quote-inline-field-name-refusal.test.ts`
   (33 cells) + a standalone live cell + a NEW H9a acceptance file.
 
->>>>>>> 1f06ba4b (fix(bug-0229): an escaped quote in a wire name refuses instead of dropping the field — v0.182.0)
 
 ## [0.181.0] - 2026-08-27
 
@@ -323,7 +322,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/match-fn-return-lub-dominating-discipline.test.ts` (26 cells, 8 red
   before) + H8a cell 86.
 
->>>>>>> 2f5ec57b (fix(bug-0158): match-arm and fn-return LUB pages corrected onto the registered Triggers — v0.181.0)
 
 ## [0.180.0] - 2026-08-27
 
@@ -340,7 +338,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   live cell; `index-element-alias-unfolded` group (f) re-pinned under §Fix
   (d) with o1/o3/x1 added.
 
->>>>>>> 608b1090 (fix(bug-0157): alias-spelled array sinks draw the concrete spelling's element diagnostics — v0.180.0)
 
 ## [0.179.0] - 2026-08-27
 
@@ -359,7 +356,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/inline-object-type-source-capture.test.ts` (102 cells) + a
   standalone live cell + a NEW H9a acceptance file.
 
->>>>>>> 15ec4992 (fix(bug-0228): inline-object interiors capture raw author source; non-identifier field keys refuse — v0.179.0)
 
 ## [0.178.0] - 2026-08-27
 
@@ -375,7 +371,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   Witness `tests/discovery-cli-entry-override-prefix.test.ts` (13 cells) + a
   standalone live cell with no fault injection.
 
->>>>>>> 24d3d34c (fix(bug-0078): an absent override-prefixed --theta entry draws missing-source, not unreadable-source — v0.178.0)
 
 ## [0.177.0] - 2026-08-27
 
@@ -392,7 +387,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/fn-param-annotation-optional.test.ts` (26 cells) + a standalone live
   cell (`fn-param-annotation-optional-live-cell`).
 
->>>>>>> 10b1b6e9 (fix(bug-0150): fn-parameter annotation optionality adjudicated into the grammar — v0.177.0)
 
 ## [0.176.0] - 2026-08-27
 
@@ -408,7 +402,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/object-pattern-head-field-set-refusal.test.ts` (32 cells) + a
   standalone live registration cell.
 
->>>>>>> 2558493b (fix(bug-0226): a resolved object-pattern head's field list is checked at parse — v0.176.0)
 
 ## [0.175.0] - 2026-08-27
 
