@@ -125,3 +125,66 @@ export function assembleDiagnostics(
     return (a.range?.start.column ?? 0) - (b.range?.start.column ?? 0);
   });
 }
+
+/**
+ * Normalise a parse-time literal-value `<value>` interpolation per
+ * diagnostics/placeholder-rendering-b.md §7's literal-value sub-rule: every
+ * call site listed there answers the same sentence — `message` is a
+ * single-line summary (diagnostic-shape.md "Internal diagnostic shape") and
+ * must not forge the serialised content format's `hint` / related-site /
+ * blank-line-block shapes (diagnostic-shape.md "Serialised content format")
+ * — so the transform lives once here rather than once per call site. This is
+ * unlike bug 0103's binder-prompt collapse, which is deliberately NOT shared
+ * with this one: that collapse answers the system prompt's own per-field
+ * line-shape sentence, a different contract, so it stays local to
+ * `binder-system-prompt.ts` rather than calling this function.
+ *
+ * A `tools:` entry and a YAML scalar are not theta string literals, so bug
+ * 0060's string-literal `\n`-escape arm has no subject here: every break
+ * collapses, together with the horizontal whitespace adjoining it, to one
+ * U+0020. Text containing neither U+000D nor U+000A is returned unchanged
+ * (byte identity), which is what keeps every break-free corpus value and
+ * assertion in the tree unaffected. Leading and trailing U+0020 are then
+ * trimmed, which is what discharges a YAML block scalar's clip-retained
+ * trailing break (`mode: |` / `model: |`) rather than leaving it as a
+ * trailing space. U+00A0 is never touched.
+ */
+export function normaliseLiteralValueLineBreaks(text: string): string {
+  if (!/[\r\n]/.test(text)) {
+    return text;
+  }
+  const n = text.length;
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const c = text[i] ?? "";
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
+      let j = i;
+      let sawBreak = false;
+      while (j < n) {
+        const wc = text[j] ?? "";
+        if (wc !== " " && wc !== "\t" && wc !== "\r" && wc !== "\n") {
+          break;
+        }
+        if (wc === "\r" || wc === "\n") {
+          sawBreak = true;
+        }
+        j += 1;
+      }
+      out += sawBreak ? " " : text.slice(i, j);
+      i = j;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  let start = 0;
+  let end = out.length;
+  while (start < end && out[start] === " ") {
+    start += 1;
+  }
+  while (end > start && out[end - 1] === " ") {
+    end -= 1;
+  }
+  return out.slice(start, end);
+}

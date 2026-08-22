@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.217.0]
+
+### Fixed
+
+- **Bug 0105**: `theta/load/malformed-tool-entry` interpolated the offending
+  `tools:` entry with no line-break transform — a block-mapping item of two
+  or more keys yielded a message carrying raw U+000A where
+  diagnostic-shape.md says single-line, letting an author-chosen second key
+  forge the hint continuation or related-site line and a blank line forge a
+  second batch block. Route B: one shared
+  `normaliseLiteralValueLineBreaks` (`src/diagnostics/diagnostic.ts`,
+  collapse with an identity fast path) applied at all six load-time
+  parse-time-literal `<value>` sites; placeholder-rendering-b amended same
+  commit. Witness: `tests/tools-entry-message-line-break.test.ts` (30
+  cells, DIAG-4 registryMessage seam) + an H8a note-channel live cell.
+
 ## [0.216.0]
 
 ### Fixed

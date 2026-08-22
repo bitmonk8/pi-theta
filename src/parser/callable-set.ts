@@ -31,7 +31,7 @@
 // frontmatter/frontmatter-fields-b-and-templates.md (§Resolution snapshot),
 // lexical.md (§Extension matching, §Path literals).
 
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import { normaliseLiteralValueLineBreaks, type Diagnostic } from "../diagnostics/diagnostic";
 import type { ThetaMode } from "./frontmatter";
 
 /**
@@ -195,7 +195,7 @@ export function resolveCallableSet(
         severity: "error",
         code: "theta/load/malformed-tool-entry",
         file,
-        message: `malformed 'tools:' entry '${raw}'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause`,
+        message: `malformed 'tools:' entry '${normaliseLiteralValueLineBreaks(raw)}'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause`,
       });
       continue;
     }
@@ -249,7 +249,7 @@ export function resolveCallableSet(
         severity: "error",
         code: "theta/load/invalid-derived-tool-name",
         file,
-        message: `'tools:' entry '${parsed.spec}' derives the default name '${name}', which must be lowercase-first; rename the file or add an 'as' clause`,
+        message: `'tools:' entry '${parsed.spec}' derives the default name '${normaliseLiteralValueLineBreaks(name)}', which must be lowercase-first; rename the file or add an 'as' clause`,
       });
       continue;
     }

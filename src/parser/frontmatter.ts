@@ -18,7 +18,7 @@
 // it in.
 
 import {
-  type Diagnostic,
+  normaliseLiteralValueLineBreaks, type Diagnostic,
   type SourceRange,
 } from "../diagnostics/diagnostic";
 import { LineCounter, parseDocument, isMap, isScalar, isSeq, type Node } from "yaml";
@@ -586,7 +586,7 @@ function checkMethodology(
     code: "theta/load/unknown-methodology-value",
     file,
     ...(range !== undefined ? { range } : {}),
-    message: `unknown 'respond_repair.methodology:' value '${value}'; expected 'validator_error', 'schema_repeat', or 'none'`,
+    message: `unknown 'respond_repair.methodology:' value '${normaliseLiteralValueLineBreaks(value)}'; expected 'validator_error', 'schema_repeat', or 'none'`,
   };
 }
 
@@ -1160,8 +1160,8 @@ export function parseFrontmatter(
         code: "theta/load/model-unresolved",
         file,
         ...(modelRange !== undefined ? { range: modelRange } : {}),
-        message: `theta 'model:' value '${renderScalarValue(
-          modelRaw,
+        message: `theta 'model:' value '${normaliseLiteralValueLineBreaks(
+          renderScalarValue(modelRaw),
         )}' resolves to no available model, or is ambiguous across providers`,
       });
     }
@@ -1207,7 +1207,7 @@ export function parseFrontmatter(
       code: "theta/load/unknown-mode-value",
       file,
       ...(modeRange !== undefined ? { range: modeRange } : {}),
-      message: `unknown 'mode:' value '${modeValue}'; expected 'prompt' or 'subagent'`,
+      message: `unknown 'mode:' value '${normaliseLiteralValueLineBreaks(modeValue)}'; expected 'prompt' or 'subagent'`,
     });
   }
 
@@ -1223,7 +1223,7 @@ export function parseFrontmatter(
       code: "theta/load/unknown-bind-context-value",
       file,
       ...(bindContextRange !== undefined ? { range: bindContextRange } : {}),
-      message: `unknown 'bind_context:' value '${bindContextValue}'; expected 'none' or 'session'`,
+      message: `unknown 'bind_context:' value '${normaliseLiteralValueLineBreaks(bindContextValue)}'; expected 'none' or 'session'`,
     });
   }
 

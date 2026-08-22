@@ -1,10 +1,9 @@
 # Bug 0105 — `theta/load/malformed-tool-entry` interpolates the offending `tools:` entry into its message with no line-break transform, so a block-mapping sequence item of two or more keys — whose verbatim YAML source slice the bug 0069 fix recovers instead of dropping — yields a diagnostic `message` carrying a raw U+000A where `diagnostic-shape.md:34` says single-line summary: the shipped renderings then span two or three physical lines, an author-chosen second key forges the `  hint: <hint>` continuation line or the `  <file>:<line>:<col>: <message>` related-site line that the serialised content format reserves, and a blank line inside the item forges a second batch block
 
-- **Status:** open. §Fix is constraint-pinned, not settled: two seams are stated
-  (truncate or summarise the recovered slice at the emission site; normalise
-  breaks in the placeholder renderer so every `<value>` interpolation inherits
-  it) with the constraints each must satisfy, and the choice is an in-run
-  adjudication. No ordering dependency:
+- **Status:** fixed (0.217.0). Route B was the in-run adjudication (see §Fix
+  (0.217.0)): the line-break transform lives in one shared renderer every
+  parse-time literal-value `<value>` interpolation on the load path calls. No
+  ordering dependency:
   [0069](./0069-tools-entry-residue-silently-dropped.md) shipped in 0.62.0 and
   is what makes the multi-line slice reachable at all.
 - **Sev/Diff estimate:** S2/D3 — a registered diagnostic renders text that
@@ -751,6 +750,140 @@ Constraints on either route:
    fixtures that are TypeScript string literals as well as committed corpus
    files — `tests/tools-entry-closed-grammar.test.ts`'s planted workspace is
    exactly such a fixture set and is the one that re-pins.
+
+## Fix (0.217.0)
+
+- What shipped:
+  - `src/diagnostics/diagnostic.ts` — new exported
+    `normaliseLiteralValueLineBreaks`, appended at the end of the file so no
+    existing line in it moves. Byte identity on text carrying neither U+000D
+    nor U+000A; every maximal run of U+0020 / U+0009 / U+000D / U+000A that
+    contains at least one break collapses, run and all, to one U+0020; a
+    break-free run is preserved verbatim; leading and trailing U+0020 are then
+    trimmed. No string-literal escape arm — a `tools:` entry and a YAML scalar
+    are not theta string literals, so 0060's escape arm has no subject
+    (§Fix constraint 1). This is route B, the structural seam: one function
+    answering one spec sentence, not one rule per caller.
+  - `src/parser/callable-set.ts` — the transform wraps `raw` at
+    `theta/load/malformed-tool-entry` and the derived `name` at
+    `theta/load/invalid-derived-tool-name`. The companion `<path>` binding
+    (`parsed.spec`) is left bare: it is a category-5 path placeholder and a
+    whitespace-split token, not this sub-rule's subject.
+  - `src/parser/frontmatter.ts` — the transform wraps the `<value>` binding of
+    `theta/load/unknown-methodology-value`,
+    `theta/load/model-unresolved` (at the message site only, outside
+    `renderScalarValue`, whose result also feeds `resolvedModel` and is a
+    resolution value rather than a rendering),
+    `theta/load/unknown-mode-value`, and
+    `theta/load/unknown-bind-context-value`.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §7's
+    parse-time literal-value `<value>` sub-rule now states the transform
+    normatively for every `theta/load/*` row in its enumeration (the four
+    arms, the disposition of `\r\n` and bare `\r`, the adjoining horizontal
+    whitespace, and the block scalar's clip-retained trailing break), and
+    records that the two `theta/parse/*` rows bind theta source rather than
+    YAML — a cooked string-literal value for `duplicate-enum-value`, a raw
+    source slice for `duplicate-discriminator-value` — and are not governed by
+    it. Two normative test vectors added (the two-key `tools:` slice, the
+    `mode: |` value). The same-commit spec obligation of DIAG-2 / §Fix
+    constraint 3 (`diagnostic-shape.md` §Code registry rules).
+  - `tests/tools-entry-message-line-break.test.ts` — new offline witness,
+    30 cells.
+  - `tests/live/malformed-tool-entry-message-single-line-live-cell.test.ts` —
+    new H8a cell over the real `session_start` → `theta-system-note` path.
+  - No registry *Message* template moved (DIAG-4), no placeholder introduced,
+    retired or moved (`placeholder-rendering-a.md` §Closure, GOV-7 / GOV-8),
+    and no `docs/reference/` edit was needed: `diagnostics.md`'s
+    "single-line summary" line and its serialised-content-format lines become
+    TRUE under this fix, and its *Message* mirror row is unedited because the
+    template is unedited.
+- Gates:
+  - Witness, red before: `npx vitest run tests/tools-entry-message-line-break.test.ts`
+    → `Tests  26 failed | 4 passed (30)`, every red a physical-line count, a
+    forged `  hint: ` / `  <file>:<line>:<col>: ` line, a batch-block count, or
+    an embedded-U+000A assertion — never a compile error.
+  - Witness, green after: `Test Files  1 passed (1)` / `Tests  30 passed (30)`.
+  - Full default suite: `npm test` → `Test Files  404 passed (404)` /
+    `Tests  8406 passed (8406)` (baseline before this fix: 403 / 8376; the
+    delta is this fix's own witness file).
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, no diagnostics.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    no findings.
+  - Live H8a:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/malformed-tool-entry-message-single-line-live-cell.test.ts`
+    → `Tests  1 passed (1)`. Red direction proved in the same session by
+    reverting the `malformed-tool-entry` wrap: the cell reds with
+    "the rendered note carries a line matching `^ {2}hint: ` for a diagnostic
+    with no `hint` field", quoting the real two-line note off the channel;
+    the file was then restored byte-exactly (`git hash-object` equal to the
+    pre-mutation hash) and the cell re-run green.
+  - Live neighbours, unflipped:
+    `tools-field-shape-refusal-live-cell`,
+    `tools-field-zero-entry-scalar-refusal-live-cell` and
+    `uppercase-pi-tool-name-refusal-live-cell` → `Tests  3 passed (3)`.
+  - H9a acceptance: `tests/live/acceptance` → `Test Files  14 passed (14)` /
+    `Tests  24 passed (24)`. `tests/fixtures/h7a/permitted-codes.json` needs
+    no entry and is untouched — no new code, and the real H9a run reaches
+    none.
+- Review: 3 rounds.
+  - Round 1 (deep) — FINDINGS ×1 (`spec`): the spec edit's first draft claimed
+    the normalisation was "the identity transform in practice" on the two
+    `theta/parse/*` rows; measured false, because a string literal's `\n`
+    escape cooks to U+000A and `duplicate-enum-value` interpolates the cooked
+    value bare. Round 1 also verified the transform over 16 inputs, the
+    witness's red path, §Fix constraints 1–8, and the corpus census.
+  - Round 2 (fast) — FINDINGS ×2 (`spec`): the remedy wrongly unified the two
+    `theta/parse/*` rows under one mechanism (the discriminator row binds a
+    RAW source slice), and the topic sentence still scoped the normalisation
+    over all eight rows while it is wired at six.
+  - Round 3 (deep) — CLEAN, with clause-by-clause execution evidence for the
+    landed §7 text and a sibling-interpolation sweep over both parser files.
+- Verification: SOLID.
+  - The witness genuinely reds: two independent sites neutralised by temporary
+    local edit (the `malformed-tool-entry` wrap and the `unknown-mode-value`
+    wrap), 11 of 30 cells red on the symptom, both files restored byte-exactly
+    and proved by `git hash-object`, witness green again.
+  - Full default suite green (404 / 8406).
+  - Live: an H8a cell exercises the fixed path end to end through the real
+    shipped load path, and its red direction was proved and restored.
+  - Lint and typecheck clean.
+  - GOV-15 not engaged (§Fix constraint 7): no code added or removed, every
+    measured input emits the same code with the same severity and un-registers
+    the same theta.
+  - Corpus census re-run at this baseline (§Fix constraint 8): 35 committed
+    `.theta` / `.thetalib`, 14 with `tools:`, zero non-scalar sequence items,
+    zero block-scalar `mode:` / `model:` values — zero committed files change
+    their rendered diagnostic.
+- Residuals:
+  1. **`theta/parse/duplicate-enum-value` remains an open carrier.** Measured
+     during review: an enum whose two variants share the cooked value of a
+     string literal written with a `\n` escape emits a `message` of two
+     physical lines. Its emission site is in `src/parser/schema-declarations.ts`,
+     outside this fix's region, so the transform is not wired there and §7 is
+     silent about that row's break rendering rather than blessing it. A
+     sibling filing is warranted. `theta/parse/duplicate-discriminator-value`
+     is NOT a carrier: it binds the raw source slice of the discriminator's
+     literal annotation, in which a `\n` escape stays two characters.
+  2. **The `<value>` quoting divergence is untouched**, as §Non-goals states: a
+     recovered non-scalar slice still renders bare where the sub-rule's `<key>`
+     arm would double-quote it. This fix changes only the newline axis.
+  3. **A `<path>` binding can still carry a break in principle** (a POSIX
+     filename may contain U+000A). `<path>` is category 5's rule, a different
+     sub-rule, and is outside this report's subject.
+  4. **The imports in `src/parser/callable-set.ts` and
+     `src/parser/frontmatter.ts` are deliberately folded onto existing lines**
+     so both files' net line shift is ZERO and every line-form citation into
+     them — in this fix's own witness, in sibling bug docs, and in the tests —
+     stays valid. Reformatting them into a conventional multi-line import is a
+     regression, not a cleanup.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the closed `tools:` entry grammar, the
+  all-or-nothing un-registration and the ordering against
+  `theta/load/invalid-tool-rename` are 0069's contract and are untouched;
+  whether a non-scalar sequence item is recovered at all stays settled by
+  0069 §Fix constraint 3; the whole-field non-scalar `tools:` value belongs to
+  0104; the serialised content format is not reworked; the 120-code-point
+  system-note cap does not apply to diagnostic content.
 
 ## Provenance
 
