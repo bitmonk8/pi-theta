@@ -1,11 +1,11 @@
 # Bug 0106 — Three `tools:` entry-grammar derivations stayed outside the lock-step bug 0069 closed, each re-deriving a spec or a presented name with its own whitespace split: `toolsEntrySpec` makes the pre-parse callee cache resolve a malformed entry's first token, so `- ./broken.theta junk` draws `theta/load/callee-has-errors` AND `theta/load/malformed-tool-entry` for one entry; `toolCallableName` / `piToolCallableName` derive a presented name from a malformed entry at parse time, so `tools: [- read bash]` plus `read("x")` draws `theta/parse/tool-arg-not-object-literal` naming a Pi tool the resolver rejects and `let read = "s"` plus `read({ … })` draws `theta/parse/shadowed-callable-call` naming a callable-set entry the theta never has — and because an error-severity parse diagnostic drops the theta before `tools:` resolution runs, those two spellings never reach the grammar rejection at all
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three dispositions
-  are left to the run — whether each of the three derivations moves to
-  `parseToolsEntry`, whether the pre-parse callee cache gates on the grammar and
-  where that gate belongs, and whether the parse-time pair keeps its own shape
-  because delegating it substitutes two downstream parse diagnostics for one
-  load-time rejection. No ordering dependency:
+- **Status:** fixed (0.216.0). §Fix was constraint-pinned, not settled: three
+  dispositions were adjudicated in the run — whether each of the three
+  derivations moves to `parseToolsEntry`, whether the pre-parse callee cache
+  gates on the grammar and where that gate belongs, and whether the parse-time
+  pair keeps its own shape because delegating it substitutes two downstream
+  parse diagnostics for one load-time rejection. No ordering dependency:
   [0069](./0069-tools-entry-residue-silently-dropped.md) shipped in 0.62.0 and
   exported the shared grammar (`parseToolsEntry`) this report measures against.
 - **Sev/Diff estimate:** S2/D3 — one authoring mistake draws two error-severity
@@ -956,3 +956,142 @@ Constraints on any implementation:
   `parseThetaDocument`. Run on the outputs quoted above, then deleted per scratch
   policy. No file in the tree was written by the probes; `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug doc are unmodified by this filing.
+
+## Fix (0.216.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` — §Fix (b), **second placement**:
+    the pre-parse callee-cache loop in `resolveThetaToolsAtLoad` skips an entry
+    whose `parseToolsEntry(entry.trim())` is not `ok`, before `toolsEntrySpec`
+    runs. A malformed entry therefore commissions no callee read/parse, so the
+    V15f loop has no cache member for it and only the grammar's own
+    `theta/load/malformed-tool-entry` fires. The site records why: a malformed
+    token sequence is not an entry of either admitted kind
+    (`frontmatter-fields-a.md:88`), so `theta/load/callee-has-errors`' *Trigger*
+    (`code-registry-load.md:40`) has no subject, and the entry's own disposition
+    is already the rejection (`:25`).
+  - `src/extension/production-composition.ts` — `toolsEntrySpec` stays an
+    undelegated **pure first-token projection** (§Fix constraint 7 recorded in
+    its doc comment). Disposition (a)(1) chose the caller-side gate over
+    delegation because the function gained a SECOND caller after this report was
+    written — `checkNestedToolsContainment` (bug 0111), which judges
+    discovery-root containment, not entry well-formedness, and is outside this
+    report's subject.
+  - `src/parser/theta-document.ts` — dispositions (a)(2) and (a)(3):
+    `toolCallableName` and `piToolCallableName` keep their bodies byte-unchanged
+    and record at each site that the wider-than-the-resolver reading is
+    deliberate, with the observable it preserves (§Fix constraint 7).
+  - `tests/tools-entry-grammar-derivations-lockstep.test.ts` (new, 24 cells) —
+    the behavioural witness §Fix constraint 6 requires.
+  - `tests/live/b0106live-cofire-refusal-live-cell.test.ts` (new) — the
+    standalone H8a load/registration live cell over the shipped composition root.
+  - `tests/tools-entry-closed-grammar.test.ts`,
+    `tests/tools-entry-containment.test.ts`,
+    `tests/tools-field-shape-refusal.test.ts`,
+    `tests/tools-field-zero-entry-scalar-refusal.test.ts` — comment-only
+    citation re-derivation for the lines this fix moved (no assertion touched).
+- The parse-time dispositions, and the measurement that settled them. Both
+  parse-time derivations were prototyped and measured over the shipped load
+  path before Phase 1. The observable optimised is REACHABILITY of
+  `theta/load/malformed-tool-entry`, the one diagnostic that names the actual
+  authoring mistake:
+  - Delegating BOTH: `tools: [- read bash]` + `read({ path: "x" })` (bug 0069's
+    load-bearing dropped-comma spelling) draws `theta/parse/unknown-identifier`
+    + `theta/parse/bare-object-literal`, so the drop gate fires and the grammar
+    rejection never runs — where today it does. Same loss for
+    `tools: [- ./x.theta junk]` + a call of the derived name.
+  - Delegating only `piToolCallableName`: restores the rejection for
+    `read("x")` but loses it for the sole-bare-object-argument call. No net
+    reachability gain, a loss on the commonest shape.
+  - Hence the tolerance stays: keeping a malformed entry's body references
+    parse-clean is what lets the entry reach the closed grammar at load. The two
+    false parse-layer messages this leaves (`pshape`, `pshadow`) are pinned as
+    the recorded disposition by cells (C1)/(C2), not closed.
+- Gates (all re-run by the orchestrator independently of every nested worker):
+  - Witness RED before / GREEN after: with the 3-line gate removed, exactly
+    cells (A1)(A2)(A3) red — `expected [ "theta/load/callee-has-errors",
+    "theta/load/malformed-tool-entry" ] to deeply equal
+    [ "theta/load/malformed-tool-entry" ]`, the co-fire pair in the emission
+    order — 21 cells green; restored byte-exact (`git hash-object` 68489153),
+    24/24 green.
+  - Full default suite: `Test Files 401 passed (401) / Tests 8356 passed (8356)`.
+  - `npm run typecheck` clean; `npm run lint` clean;
+    `tests/citation-symbol-form-gate.test.ts` 3/3;
+    `tests/committed-fixture-parse-gate.test.ts` 36/36.
+  - Live, run for real under the shared lock:
+    `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0106live-cofire-refusal-live-cell.test.ts` → 1/1 passed.
+- Review: 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no finding in any of
+  correctness / fidelity / spec / house-rule / test / prose; three non-blocking
+  residuals (a stale `:1702` inside an assertion message, the unrecorded second
+  narrowing of the INV-1 escape loop, and line-form citations of TypeScript
+  constructs in the two new files). All three were then discharged by one
+  `bug-fix-fixer-light` polish round whose every hunk is comment / string /
+  prose; polish verified by gate-diff, confirmation round skipped. One
+  pre-review citation-correction round ran before round 1 (not a review round):
+  it re-derived the citations this fix's line insertions moved and corrected
+  four that were stale at HEAD.
+- Verification (`bug-fix-verifier`): SOLID. (1) The witness reds on the fix's
+  removal and only on cells A1–A3, restored byte-exact. (2) Default suite
+  401/8356 green. (3) Lint, typecheck, citation gate and the committed-fixture
+  parse gate green. (4) The live cell ran for real under the lock (acquired by
+  `mkdir`, no contention, released by the same command chain) and passed.
+- Constraint discharge: 1 — registration unchanged, pinned by cell (A6)
+  (`["ctlgood","zgood"]`). 2 — the four controls stay separable, pinned by (A4).
+  3 — a well-formed entry naming a missing file still draws
+  `theta/load/unresolvable-theta-path` alone, pinned by (A5); the well-formed
+  path through the cache is byte-identical, so `theta/load/prompt-mode-callable`
+  is untouched. 4 — no new code, no registry edit, no spec sentence; no file
+  under `docs/spec_topics/**` or `docs/reference/**` is modified. 5 — GOV-15
+  census re-run at this baseline: 35 committed `.theta` / `.thetalib`, 14 with a
+  top-level `tools:`, 18 entries, every one a single token, zero `as` clauses,
+  zero multi-token entries — zero corpus exposure, and no input moves from
+  loads-cleanly to refused (every input in §Reproduction already un-registers).
+  6 — the witness is offline, provider-free and behavioural, over one
+  `discoverAndComposeFixtures` call and one `parseThetaDocument` call. 7 — all
+  three un-delegated derivations record their disposition at the site. 8 — 0070
+  shipped in 0.63.0; no derivation ownership moves, so no sequencing was needed.
+- Residuals:
+  1. **The parse-time substitution is NOT closed.** `pshape`
+     (`tools: [- read bash]` + `read("x")`) and `pshadow` (+ a shadowing local)
+     still draw parse diagnostics whose DIAG-4 messages name a Pi tool and a
+     callable-set entry the closed grammar rejects, and the grammar rejection is
+     still unreachable for those two spellings. This is the adjudicated
+     disposition, not an oversight: every measured alternative reduced the
+     rejection's reachability elsewhere. Evidence: the prototype matrix above;
+     cells (C1)/(C2) pin the outcome in both directions, so a future route that
+     wants a different trade must red them deliberately. A separable follow-up
+     would have to move the drop gate or the phase ordering, not the
+     derivations.
+  2. **The gate also narrows the INV-1 escape loop.** Both the V15f loop and the
+     `nestedToolsEscapes` escape loop (bug 0110/0111) walk the same
+     `calleeCache`, so a malformed entry whose first token escapes every active
+     root no longer draws `theta/load/invoke-path-escape` either. Trigger-
+     conformant on the same reasoning (`code-registry-load.md:34` presupposes "a
+     `tools:` `.theta` entry") and registration is unchanged, but it is
+     unwitnessed: no cell pairs a malformed entry with an escaping first token.
+     Recorded in the gate comment. A control cell belongs to whoever next owns
+     that surface.
+  3. **69 other test files carry `production-composition.ts:N` /
+     `theta-document.ts:N` citations shifted by this fix's comment insertions**
+     (+1 at `:122`, +16 at `:1658`, +8 at `:1869`; +17 and +11 in
+     `theta-document.ts`). They were NOT renumbered: several were already stale
+     at HEAD independently of this change, and a blind renumber would assert a
+     re-derivation nobody performed. Only citations in files this fix touched
+     were re-derived, each verified by reading the cited line. The durable
+     remedy is symbol form (`docs/STYLE.md` §Citations) as those files are next
+     edited.
+  4. **The `presentedCallableNames` name-shape axis is NOT claimed here.** The
+     last §Affected bullet (the snapshot-absent fallback deriving a presented
+     name without the shape rule bug 0070 added) is left to bug 0108, whose §Fix
+     constraint 5 says the two reports must not both claim it. Untouched by this
+     fix.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: every §Non-goals bullet holds unchanged —
+  the grammar is not reopened; `theta/load/malformed-tool-entry`'s message,
+  severity and all-or-nothing posture are untouched; `preEvalCauseOf`'s ERR-6
+  enumeration is not edited (bug 0109 owns it); the empty `relatedSites` on the
+  `tools:`-surface `callee-has-errors` emission is untouched; the shape of
+  0069's constraint-5 witness is untouched (bug 0107 owns it); the three
+  parse-layer rules are unchanged as rules.
+

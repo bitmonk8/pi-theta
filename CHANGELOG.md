@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.216.0]
+
+### Fixed
+
+- **Bug 0106**: the `tools:` entry grammar's derivations diverged outside
+  the lockstep — a malformed entry reaching `resolveThetaToolsAtLoad`'s
+  callee-cache loop could mint a callable the parse-time grammar refuses.
+  §Fix (b), second placement: a three-line grammar gate (`parseToolsEntry`)
+  in the callee-cache loop keeps the two derivations in lockstep, co-firing
+  with the parse-time refusal where both see the entry. Witness:
+  `tests/tools-entry-grammar-derivations-lockstep.test.ts` (24 cells:
+  co-fire, four controls, tolerance both directions, pre-emption rows) + a
+  standalone H8a load/registration live cell.
+
 ## [0.215.0]
 
 ### Fixed

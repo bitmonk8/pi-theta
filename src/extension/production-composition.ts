@@ -119,6 +119,7 @@ import {
 } from "../parser/theta-document";
 import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
 import {
+  parseToolsEntry,
   resolveCallableSet,
   type CallableSetDeps,
   type CallableSetSnapshot,
@@ -1654,8 +1655,29 @@ async function resolveThetaToolsAtLoad(
   const diagnostics: Diagnostic[] = [];
 
   // Pre-parse each distinct `.theta` callee once, keyed by the spec as written.
+  //
+  // Bug 0106 §Fix (b), second placement: gate on `parseToolsEntry` BEFORE
+  // calling `toolsEntrySpec`. A malformed token sequence is not an entry of
+  // either admitted kind (frontmatter-fields-a.md:88), so it references no
+  // callee — `theta/load/callee-has-errors`' *Trigger*, "a `tools:` `.theta`
+  // entry" (code-registry-load.md:40), presupposes a subject this input does
+  // not have. Without the gate the cache still resolved, read and parsed the
+  // entry's first token, so a malformed entry naming an existing erroneous
+  // callee co-fired `callee-has-errors` alongside the grammar's own
+  // `theta/load/malformed-tool-entry` rejection — one authoring mistake, two
+  // error-severity diagnostics, when the entry's own disposition is already
+  // the grammar rejection (code-registry-load.md:25, "one malformed entry
+  // un-registers the whole theta"). The same narrowing also reaches the
+  // INV-1 escape loop below over this same cache (`nestedToolsEscapes`, bug
+  // 0110/0111): `theta/load/invoke-path-escape`'s *Trigger* (code-registry-
+  // load.md:34) names "a `tools:` `.theta` entry" as one of its two admitted
+  // subjects, and a malformed token sequence is no entry of either admitted
+  // kind, so it is not that subject either.
   const calleeCache = new Map<string, CalleeParse>();
   for (const entry of toolsList) {
+    if (parseToolsEntry(entry.trim()).kind !== "ok") {
+      continue;
+    }
     const spec = toolsEntrySpec(entry);
     if (spec.length > 0 && !isBareToolName(spec) && !calleeCache.has(spec)) {
       calleeCache.set(
@@ -1849,8 +1871,16 @@ async function attachLoadTimeClosureHashes(
 
 /**
  * Extract one `tools:` entry's callable spec (the token before an optional
- * `as <name>` rename). Mirrors the callable-set per-entry grammar
- * (`<spec> ('as' <name>)?`).
+ * `as <name>` rename). A PURE first-token projection — it applies no grammar
+ * decision itself and returns `parts[0]` for any token count, malformed input
+ * included. Each of its two callers applies the grammar decision on its own
+ * side of the call: the pre-parse callee-cache loop (above, bug 0106 §Fix (b))
+ * gates on `parseToolsEntry` before calling this function, and
+ * `checkNestedToolsContainment` (below, bug 0111) applies its own path-shaped
+ * routing (`isBareToolName`) rather than the closed grammar, because it judges
+ * only discovery-root containment, not entry well-formedness. A reader must
+ * not take this function's tolerance for a lock-step gap; it is a deliberate
+ * projection whose callers, not itself, decide what a malformed entry means.
  */
 function toolsEntrySpec(entry: string): string {
   const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);

@@ -79,7 +79,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // row, so there is no normative string to source and no code to report. Group
 // (B)'s six malformed cells red twice each — the theta is in the registered
 // set, and the diagnostic naming its entry text never reaches `ctx.ui.notify`
-// (src/extension/production-composition.ts:193). Group (C)'s five
+// (the error rung of `makeLoadEmit`, `src/extension/production-composition.ts`).
+// Group (C)'s five
 // token-count cells red on `resolveCallableSet` returning `registered: true`
 // with a truncated snapshot instead of the rejection.
 //

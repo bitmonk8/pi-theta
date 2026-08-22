@@ -5656,6 +5656,23 @@ const BUILTIN_VALUE_NAMES: ReadonlySet<string> = new Set([
  * contributes its basename (extension stripped, hyphens → underscores); an
  * `as <name>` rename overrides. Used to seed the identifier root scope so a
  * `<name>(args)` callable call is not flagged as unknown.
+ *
+ * DELIBERATELY wider than `parseToolsEntry`'s closed grammar (bug 0106 §Fix
+ * constraint 7): this runs at parse, strictly before `tools:` resolution
+ * exists, so it still derives a name for a malformed entry (`parts.length >=
+ * 3` rather than `=== 3`, no rejection for two tokens). Delegating to
+ * `parseToolsEntry` would make a malformed entry contribute NO name, turning
+ * every body reference to it into `theta/parse/unknown-identifier` (plus, for
+ * a sole bare-object call, `theta/parse/bare-object-literal`) — trading the
+ * one load-time diagnostic that names the actual authoring mistake
+ * (`theta/load/malformed-tool-entry`) for parse diagnostics that do not, and
+ * making that rejection unreachable for a wider set of spellings than today
+ * (an error-severity parse diagnostic drops the theta before `tools:`
+ * resolution runs). Keeping a malformed entry's body references parse-clean
+ * is what lets the entry reach the closed grammar at load instead of being
+ * pre-empted at parse; the false parse-layer messages this leaves for two
+ * spellings (`- read bash` + `read("x")`, and + a shadowing local) are
+ * recorded in bug 0106, not closed here.
  */
 function toolCallableName(entry: string): string {
   const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
@@ -6122,6 +6139,17 @@ function walkIdentExpr(
  * to `toolCallableName`, which derives the name for EVERY entry kind (the
  * unknown-identifier root scope and the shadowed-callable check below need
  * both kinds).
+ *
+ * DELIBERATELY wider than `parseToolsEntry`'s closed grammar, for the same
+ * reason `toolCallableName` states in full (bug 0106 §Fix constraint 7): this
+ * runs at parse, before any `tools:` resolution, and still admits a malformed
+ * entry (`parts.length >= 3` rather than `=== 3`). Delegating ONLY this
+ * function (leaving `toolCallableName` un-delegated) was measured and
+ * rejected: it restores the grammar rejection for a bare-object call like
+ * `read("x")` but loses it for the sole-bare-object-argument call, the
+ * commonest shape — no net reachability gain, a loss on the common case.
+ * Keeping both tolerant is what lets a malformed entry's body reach the
+ * load-time rejection uncontested.
  */
 function piToolCallableName(entry: string): string | undefined {
   const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);

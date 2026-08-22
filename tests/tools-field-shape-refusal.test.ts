@@ -24,9 +24,9 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // `undefined` for every other kind (:448). The `tools` arm of the frontmatter
 // key walk (:978–:983) records nothing else, and `:1303` spreads `tools` into
 // the returned frontmatter only when it is defined, so `resolveThetaToolsAtLoad`
-// (src/extension/production-composition.ts:1603, the early return at
-// :1622–:1631) cannot distinguish "no `tools:`" from "a `tools:` value that was
-// discarded" and answers `EMPTY_CALLABLE_SET` (:1590) for both. The theta
+// (src/extension/production-composition.ts:1621, the early return at
+// :1643–:1652) cannot distinguish "no `tools:`" from "a `tools:` value that was
+// discarded" and answers `EMPTY_CALLABLE_SET` (:1608) for both. The theta
 // registers with the empty callable set and no diagnostic is emitted at any
 // severity — so `tools: {read: bash}` names `read` in the author's text and
 // delivers a theta whose model cannot call it and whose code raises
