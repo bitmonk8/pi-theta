@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  type ArraySinkContext,
-  checkArrayCommonType,
   parseTypeExpression,
   type TypePosition,
 } from "../src/parser/type-grammar";
@@ -29,26 +27,6 @@ import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 // `checkLiteralSublanguage` / `checkObjectLiteralFields` seams
 // (src/parser/literal-sublanguage.ts).
 //
-// `checkArrayCommonType` (src/parser/type-grammar.ts:1224) is a V2a-era seam
-// with ZERO `src/` callers, so the array-sink cell below measures the seam's
-// own contract and NOT the shipped rule. Bug 0195 adjudicates that contract's
-// `for-iterand` arm out of the language: an empty array literal has no
-// elements, so it reaches no verdict under the registered *Trigger* of
-// `theta/parse/array-no-common-type`
-// (docs/spec_topics/diagnostics/code-registry-parse.md:44), and under DIAG-2
-// (docs/spec_topics/diagnostics/diagnostic-shape.md:72) the *Trigger* governs.
-// The production-path behaviour of `for x in []` — no diagnostic,
-// `array<unknown>`, consumers deferring — is witnessed in
-// tests/for-empty-array-iterand-adjudication.test.ts, not here.
-//
-// Diagnostic *Message* strings are sourced from the diagnostics registry
-// (diagnostics/code-registry-parse.md) per the *Diagnostic message anchors*
-// rule.
-//
-// These tests red because the V2a type-expression parser, is-literal check, and
-// array-sink resolution are absent: every seam is an inert stub returning no
-// diagnostics. Each test reds on its own primary assertion (an absent expected
-// diagnostic), not on a compile error, missing fixture, or harness throw.
 
 /** A throwaway 1:1–1:2 span for the parse-context seam calls. */
 function span(): SourceRange {
@@ -192,30 +170,3 @@ describe("V2a-T — literal-sublanguage violations", () => {
   });
 });
 
-// --- grammar.md §"array<T> literal type-sink rule" ------------------------
-
-describe("V2a-T — the UNWIRED array-sink seam `checkArrayCommonType` (no `src/` caller)", () => {
-  it("the seam's own contract: an `[]` under `for-iterand` yields the registry Message; a binding-annotation sink resolves it — NOT the shipped rule for `for x in []`, see bug 0195", () => {
-    // The seam's `for-iterand` context is defined to leave the literal unsunk
-    // and fire. That contract is the seam's, not the language's: no `src/` file
-    // calls this function, and bug 0195 adjudicates that an empty literal is
-    // owed no refusal on the production path, because it reaches no verdict
-    // under the registered *Trigger* the code's row carries
-    // (docs/spec_topics/diagnostics/code-registry-parse.md:44). What `for x in
-    // []` actually does is pinned in
-    // tests/for-empty-array-iterand-adjudication.test.ts.
-    const forIterand: ArraySinkContext = "for-iterand";
-    const d = checkArrayCommonType(forIterand, [], site());
-    expect(d, "theta/parse/array-no-common-type for a for-iterand `[]`").toBeDefined();
-    expect(d?.code).toBe("theta/parse/array-no-common-type");
-    // Message from code-registry-parse.md.
-    expect(d?.message).toBe(
-      "array elements have no common type; annotate the binding with array<A | B> or use a single schema",
-    );
-
-    // A binding annotation IS a sink: `let xs: array<T> = []` resolves.
-    const bindingAnnotation: ArraySinkContext = "binding-annotation";
-    const ok = checkArrayCommonType(bindingAnnotation, [], site());
-    expect(ok, "a binding-annotation sink resolves `[]`").toBeUndefined();
-  });
-});

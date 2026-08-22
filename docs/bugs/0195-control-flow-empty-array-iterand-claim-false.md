@@ -1,6 +1,21 @@
 # Bug 0195 — `control-flow.md:13` and three sibling corpus sentences state that `for x in []` with no surrounding sink is `theta/parse/array-no-common-type`, "the same diagnostic that `let xs = []` raises in unannotated position", and both measure `[]` at HEAD: the reachable emitter's sink-less arm exempts an empty literal by construction (`type-compat.ts:601`, "Fewer than two branches trivially share one") while the one function written for exactly this class — `checkArrayCommonType` (`type-grammar.ts:890`), whose `for-iterand` and `none` contexts both fire on `[]` — has no `src/` caller and is reached only by a green unit cell asserting the diagnostic the production parser never emits
 
-- **Status:** fixed (0.190.0) — **route (a)**; see `## Fix (0.190.0)`. §Fix was
+- **Status:** fixed (0.190.0) — **route (a)**; see `## Fix limb completed (0.197.0)
+
+The §Fix route-(a) deletion limb deferred at 0.190.0 (the owning lane held
+`src/parser/type-grammar.ts`) landed as a parent edit under this report's own
+authority (the 0200-retirement precedent): `checkArrayCommonType`,
+`ArraySinkContext`, `ArrayLiteralSite` and the file-header restatement of the
+refuted rule are deleted together (type-grammar.ts 1325→1245 lines); the V2a-T
+seam-contract cell in `tests/type-grammar.test.ts` is deleted with its imports;
+cell C1 stays as the permanent tripwire (now pinning zero REFERENCES, not zero
+callers); the two witness comments describing the seam as “retained unwired”
+are updated. The registry row `theta/parse/array-no-common-type` is OUTSIDE
+this report's settled scope and survives; the 0230 corpus gate still counts it
+asserted (this witness's C1 quotes the literal), so no carve-out entry is owed.
+Gates at 0.197.0: suite 386/8005, typecheck, lint clean.
+
+## Fix (0.190.0)`. §Fix was
   constraint-pinned, not settled, at filing: the deliverable was
   the adjudication — either the four corpus sentences are corrected and the
   callerless emitter is disposed of, or the empty-literal refusal is wired and

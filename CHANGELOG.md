@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.197.0] - 2026-08-28
+
+### Removed
+
+- **Bug 0195's deferred §Fix route-(a) deletion limb**: the callerless
+  V2a-era `checkArrayCommonType` seam is deleted together with its
+  `ArraySinkContext` / `ArrayLiteralSite` types, the file-header restatement
+  of the refuted rule, and its seam-contract test cell
+  (`src/parser/type-grammar.ts` 1325→1245 lines). Cell C1 of the 0195
+  witness remains as the permanent tripwire, now pinning zero references.
+  The registry row `theta/parse/array-no-common-type` survives (outside
+  0195's settled scope; still counted asserted by the corpus gate).
+
 ## [0.196.0] - 2026-08-28
 
 ### Fixed

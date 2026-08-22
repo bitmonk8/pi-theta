@@ -53,8 +53,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     subject rows whose silence IS the adjudicated observable. A future wiring
 //     of the refusal reds them, which is the point.
 //   - §(C) THE STRUCTURAL PIN — GREEN before and after: the V2a-era
-//     `checkArrayCommonType` seam has no `src/` caller, and route (a) keeps it
-//     that way. It reds if the seam is silently wired.
+//     `checkArrayCommonType` seam was DELETED under §Fix route (a) (0.197.0);
+//     this cell reds if any `src/` file reintroduces a reference.
 //   - §(D) THE CORPUS CENSUS — GREEN before and after: GOV-15's addition
 //     direction over an input set with no committed member.
 //
@@ -350,10 +350,10 @@ describe("bug 0195 (B) — the behaviour route (a) does not move", () => {
 });
 
 // ===========================================================================
-// (C) THE STRUCTURAL PIN — GREEN before and after. Route (a) leaves the V2a-era
-// `checkArrayCommonType` seam unwired; this cell reds if any `src/` file gains
-// a call to it, which would emit outside the registered *Trigger* and so
-// violate THE STATED LAW this adjudication cites.
+// (C) THE STRUCTURAL PIN — GREEN before and after. Route (a)'s deletion limb landed at
+// 0.197.0: the V2a-era `checkArrayCommonType` seam is gone; this cell reds if
+// any `src/` file reintroduces a reference, which would emit outside the
+// registered *Trigger* and so violate THE STATED LAW this adjudication cites.
 // ===========================================================================
 
 /** Every `.ts` file under `src/`, relative to the repository root. */

@@ -95,13 +95,6 @@
 // A caller may select a narrower rule SET than all eight checks
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
 //
-// The `array<T>` literal type-sink rule of grammar.md fires
-// `theta/parse/array-no-common-type` when an `[]` / `[expr, ...]` literal has no
-// resolving sink and its elements alone cannot determine a common type. The
-// sink set is exhaustive (binding annotation, function parameter, surrounding
-// constructor field, enclosing array element); the `for x in expr` iterand is
-// explicitly NOT a sink.
-//
 // V2a-T (tests-task) declares these seam shapes and stubs the two checks as
 // inert no-ops (no diagnostic produced) so the failing tests compile and red on
 // their own primary assertions (the type-expression parser and sink-resolution
@@ -1249,77 +1242,3 @@ function walkType(
   }
 }
 
-/**
- * The surrounding context of an `[]` / `[expr, ...]` array literal, selecting
- * whether a *type sink* is available (grammar.md §"array<T> literal type-sink
- * rule"). The sink set is exhaustive:
- *
- *   - `binding-annotation`  — `let xs: array<T> = ...`.
- *   - `fn-param`            — a function parameter type at a call site.
- *   - `constructor-field`   — a surrounding constructor field's declared type.
- *   - `array-element`       — the element type of an enclosing array-typed sink
- *                             (recursive descent).
- *   - `for-iterand`         — the iterand of `for x in expr`. NOT a sink: `for`
- *                             cannot supply `T` to `[]`.
- *   - `none`                — no surrounding sink (e.g. `let xs = []`).
- */
-export type ArraySinkContext =
-  | "binding-annotation"
-  | "fn-param"
-  | "constructor-field"
-  | "array-element"
-  | "for-iterand"
-  | "none";
-
-/** A located site at which an array literal's element type is resolved. */
-export interface ArrayLiteralSite {
-  readonly file: string;
-  readonly range: SourceRange;
-}
-
-/**
- * Resolve an array literal's element type against its surrounding sink.
- * Returns `theta/parse/array-no-common-type` when the literal's elements alone
- * cannot determine a common type (an empty literal, or heterogeneous elements
- * with no shared type) and the surrounding `context` supplies no sink — the
- * `for-iterand` and `none` contexts both leave the literal unsunk, so an `[]`
- * in either fires. A real sink (`binding-annotation`, `fn-param`,
- * `constructor-field`, `array-element`) returns `undefined`.
- *
- * V2a-T stubs this as an inert no-op (returns `undefined`); the paired V2a
- * implementation leaf computes the element LUB and the sink resolution.
- */
-export function checkArrayCommonType(
-  context: ArraySinkContext,
-  elementTypes: readonly string[],
-  site: ArrayLiteralSite,
-): Diagnostic | undefined {
-  // A real sink supplies the element type directly; the literal resolves.
-  // The exhaustive sink set is binding-annotation / fn-param /
-  // constructor-field / array-element. The `for` iterand is explicitly NOT a
-  // sink, and `none` is the no-surrounding-sink case (`let xs = []`).
-  const isSink =
-    context === "binding-annotation" ||
-    context === "fn-param" ||
-    context === "constructor-field" ||
-    context === "array-element";
-  if (isSink) {
-    return undefined;
-  }
-  // Unsunk: the elements alone must determine a common type. An empty literal
-  // (no elements) has none; heterogeneous elements (more than one distinct
-  // type) have none. A single shared element type is self-sufficient.
-  const distinct = new Set(elementTypes);
-  if (distinct.size === 1) {
-    return undefined;
-  }
-  return {
-    severity: "error",
-    code: "theta/parse/array-no-common-type",
-    file: site.file,
-    range: site.range,
-    message:
-      "array elements have no common type; annotate the binding with array<A | B> or use a single schema",
-    hint: "Annotate the binding with `array<A | B>` or use a single schema.",
-  };
-}
