@@ -4502,12 +4502,24 @@ class BodyParser {
     const fields: ObjectFieldNode[] = [];
     while (!this.isPunct("}") && !this.atEnd()) {
       const nameTok = this.peek();
-      if (nameTok.kind !== "ident" && nameTok.kind !== "string") {
+      if (nameTok.kind !== "ident" && nameTok.kind !== "string" && nameTok.kind !== "keyword") {
         // Not a field name: drop the token to guarantee progress.
         this.advance();
         continue;
       }
       this.advance();
+      if (nameTok.kind === "keyword") {
+        // lexical.md:20 reserves all 32 spellings from identifier position, and
+        // `FieldEntry ::= Ident ":" Literal` (grammar.md:599) admits an `Ident`,
+        // which a reserved spelling is not. Admitting the token as the field
+        // NAME (rather than dropping it, as the arm above still does for a
+        // punct/number/etc. head) is what keeps it on `fields` for
+        // `checkObjectExpr`'s `present` list, so the field-set checks see the
+        // key instead of re-reading its value as the next field's name.
+        this.diagnostics.push(
+          reservedKeywordAsIdentifierDiagnostic(nameTok.text, nameTok.range, this.file),
+        );
+      }
       if (this.isPunct(":")) {
         this.advance();
       }

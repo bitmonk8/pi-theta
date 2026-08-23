@@ -629,39 +629,52 @@ describe("0154 (C) — the `params:` right-hand side draws the code, and the fro
 });
 
 // ===========================================================================
-// (D) THE RESERVED-SPELLING BOUNDARY — Disposition A, and its cost.
+// (D) THE RESERVED-SPELLING BOUNDARY — Disposition A now routes to the
+// reserved-keyword refusal instead of staying silent (bug 0249 §Fix constraint
+// 2, RETAKEN).
 //
-// A reserved spelling at this slot stays SILENT: it is excluded by membership in
-// the lexer's own `reservedKeywords()`, so it draws no `binding-case-mismatch`.
-// `Ok`, `Err` and `Result` are the three uppercase-first reserved words and
-// therefore the only shapes where the case reading and the keyword reading
-// diverge — a fix guarding on identifier SHAPE alone would draw the wrong code
-// on all three. GREEN now and after.
+// Disposition A itself (`RESERVED_KEYWORDS.has(name)` excludes the NAME slot
+// from the case rule) is UNCHANGED: `Ok`, `Err` and `Result` still draw no
+// `binding-case-mismatch` — the case reading and the keyword reading never
+// converge on the three uppercase-first reserved words. What changes is what
+// bug 0154 deferred behind that exclusion: bug 0249's §Fix edit 1 replaces the
+// bare `continue` on the exclusion with a push of
+// `theta/parse/reserved-keyword-as-identifier` at the pass's `site.range`, so a
+// reserved NAME-slot spelling is no longer silently admitted — it draws the
+// SAME code the field's TYPE slot already draws (row r1 above), at the same
+// declaration-ranged span.
 // ===========================================================================
 
-describe("0154 (D) — a reserved spelling at the inline field-name slot draws nothing", () => {
-  it("c1/c3: `let`, `Ok`, `Err` and `Result` at the inline field-name slot report nothing", () => {
-    const cells: readonly string[] = [
-      "schema S { a: { let: string } }",
-      "fn h(p: { Ok: string }): number { 1 }",
-      "fn h(p: { Err: string }): number { 1 }",
-      "fn h(p: { Result: string }): number { 1 }",
+describe("0154 (D) — a reserved spelling at the inline field-name slot now draws the reserved-keyword refusal (bug 0249)", () => {
+  it("c1/c3: `let`, `Ok`, `Err` and `Result` at the inline field-name slot now report the declaration-ranged refusal", () => {
+    const cells: ReadonlyArray<readonly [string, number]> = [
+      ["schema S { a: { let: string } }", 32],
+      ["fn h(p: { Ok: string }): number { 1 }", 38],
+      ["fn h(p: { Err: string }): number { 1 }", 39],
+      ["fn h(p: { Result: string }): number { 1 }", 42],
     ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};
-    for (const src of cells) {
+    for (const [src, endColumn] of cells) {
+      const keyword = src.includes("let")
+        ? "let"
+        : src.includes("Result")
+          ? "Result"
+          : src.includes("Err")
+            ? "Err"
+            : "Ok";
       actual[src] = rendered(theta(src));
-      expected[src] = [];
+      expected[src] = [diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", keyword]]), 4, 1, endColumn)];
     }
     expect(
       actual,
-      "the inline tokeniser has no keyword kind, so the exclusion must be set membership against the lexer's own reservedKeywords(); a red here means the case rule claimed a spelling the keyword arm owns everywhere else",
+      "bug 0249 edit 1 replaces the exclusion's bare `continue` with the reserved-keyword push, so the keyword arm now owns this spelling here exactly as it does at the TYPE slot (row r1) and the case rule still never sees it (Disposition A holds)",
     ).toEqual(expected);
   });
 
-  it("c4: `void` at the inline field-NAME slot reports nothing — the exclusion, not lowercase-first, is why", () => {
-    // `void` is already lowercase-first, so it would be silent even without
-    // the reserved exclusion; it earns its own cell because it is the one
+  it("c4: `void` at the inline field-NAME slot now reports the refusal — the exclusion routes it, not lowercase-first", () => {
+    // `void` is already lowercase-first, so it drew no `binding-case-mismatch`
+    // even before bug 0249; it earns its own cell because it is the one
     // reserved spelling this file also probes at the TYPE slot (row n7,
     // `theta/parse/void-in-non-return-position`). Pinning it here at the NAME
     // slot pins the same spelling drawing two different dispositions depending
@@ -669,23 +682,27 @@ describe("0154 (D) — a reserved spelling at the inline field-name slot draws n
     const doc = theta('fn h(p: { void: string }): number { 1 }');
     expect(
       rendered(doc),
-      "the NAME slot excludes every reservedKeywords() member regardless of case; void's own silence would hold even without the exclusion, so this cell is about the slot, not the spelling",
-    ).toEqual([]);
+      "the NAME slot's identifier pass now refuses every reservedKeywords() member regardless of case; void's exclusion from the case rule still holds, so this cell is about the slot's new refusal, not lowercase-first",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "void"]]), 4, 1, 40)]);
   });
 
-  it("c2: the `params:` reserved spelling reports nothing AND still lowers its key", () => {
-    // DISPOSITION A'S COST, pinned. The reserved-keyword class at this slot
-    // stays with its own open report, so `let` continues to reach the
-    // provider-facing `$defs` as a property key. Asserting the bytes is what
-    // keeps that cost a recorded fact rather than an unnoticed consequence.
+  it("c2: the `params:` reserved spelling now reports the refusal, and the frontmatter gate withholds the whole object (row p2's own disposition)", () => {
+    // DISPOSITION A'S COST is retired, not merely moved: bug 0154's own row p2
+    // (above) already states the rule this cell now falls under — "the
+    // frontmatter gate withholds the WHOLE frontmatter object on any
+    // error-severity frontmatter diagnostic" — and bug 0249 edit 1 is what
+    // makes this reserved spelling ONE of those diagnostics for the first
+    // time. `let` no longer reaches the provider-facing `$defs` at all: the
+    // silent-admission cost Disposition A left open (verbatim lowering of a
+    // spelling the spec refuses) is what this fix closes.
     const doc = withParams("  p: { let: string }");
-    expect(rendered(doc), "Disposition A: silent at this slot").toEqual([]);
+    expect(rendered(doc), "bug 0249 edit 1 now refuses this NAME-slot spelling").toEqual([
+      diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "let"]]), 4, 6, 21),
+    ]);
     expect(
-      JSON.stringify(doc.frontmatter?.params?.loweredSchema ?? null),
-      "the reserved spelling still lowers verbatim; this is what Disposition A leaves open",
-    ).toBe(
-      '{"type":"object","properties":{"p":{"$ref":"#/$defs/__inline_c3f6969a1b27dbfa"}},"required":["p"],"additionalProperties":false,"$defs":{"__inline_c3f6969a1b27dbfa":{"type":"object","properties":{"let":{"type":"string"}},"required":["let"],"additionalProperties":false}}}',
-    );
+      doc.frontmatter === null,
+      "an error-severity theta/parse/* diagnostic on the params: value withholds the whole frontmatter object, exactly as row p2 states for the case-mismatch sibling",
+    ).toBe(true);
   });
 });
 

@@ -163,6 +163,7 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const UNRESOLVED_TYPE = "theta/parse/unresolved-named-type";
 const BARE_OBJECT = "theta/parse/bare-object-literal";
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
+const EXTRA_FIELD = "theta/parse/extra-object-field";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -233,6 +234,22 @@ function at(
   endColumn: number,
 ): string {
   return `error ${code} @${line}:${column}-${line}:${endColumn}: ${message}`;
+}
+
+/**
+ * One rendered `error`-severity diagnostic line whose range spans more than one
+ * line — the declaration-ranged refusal bug 0249's identifier pass emits
+ * (`site.range`) when the enclosing declaration itself is multiline (N3).
+ */
+function atRange(
+  code: string,
+  message: string,
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): string {
+  return `error ${code} @${startLine}:${startColumn}-${endLine}:${endColumn}: ${message}`;
 }
 
 /**
@@ -660,63 +677,63 @@ describe("0242 (D) — every legal shape keeps the empty diagnostic list it has 
 //     emission the region classifier must not reach.
 // ===========================================================================
 
-describe("0242 (N) — a field key inside a nested inline object type keeps the verdict it has today", () => {
-  // WHY THESE ROWS PIN AN EMISSION THAT IS ITSELF OFF-TRIGGER. A key of an
-  // inline object type (`schema S { p: { fn: string } }`) has no body either,
-  // so the `single-line-if` these rows pin fires outside its registered
-  // *Trigger* exactly as the (C) rows' did. It is pinned UNCHANGED all the
-  // same, because it is the ONLY diagnostic the shape draws: unlike a schema
-  // field, an enum variant or an import specifier, a nested inline-object key
-  // has no parser leaf refusing a reserved spelling behind it. Silencing the
-  // lexer here would not clean up a duplicate — it would turn a source that is
-  // REFUSED (registration blocked) into one that is silently ADMITTED. Adding
-  // that missing parser-leaf backstop is a different subject with a different
-  // owner and is a candidate follow-up filing, not this fix's business; until
-  // it exists the lexer's reach here is the whole refusal and these rows are
-  // what stop a region rule from widening into it.
+describe("0242 (N) — a field key inside a nested inline object type now draws the parser-leaf refusal (bug 0249)", () => {
+  // RETAKEN under bug 0249 §Fix constraint 1's amended enumeration: N1-N5 were
+  // pinned to the off-Trigger `single-line-if` emission because no parser leaf
+  // refused a reserved key of an inline object type. Edit 1
+  // (src/parser/type-grammar.ts, the bug-0154 identifier pass) now pushes
+  // `theta/parse/reserved-keyword-as-identifier` there instead of a bare
+  // `continue`, ranged on the pass's `site.range` — the enclosing declaration's
+  // span, since a `TypeNode` carries no range of its own (the same divergence
+  // `theta/parse/schema-type-not-expression` states). Edit 3
+  // (src/lexer/lexer.ts `isNameSlot`) makes the field-key position a name slot
+  // when the next token is `:`, which is what withdraws `single-line-if`: the
+  // parser leaf is now the whole refusal, so the lexer no longer needs to draw
+  // a second, wrongly-Triggered one beside it.
   //
   // Mechanically: an inline object type opens after a `:`, so its `{` is
   // classified from its own antecedent as a BLOCK region even when the
-  // enclosing region is a member region, and the scans keep the reach they
-  // have at HEAD inside it at every depth.
+  // enclosing region is a member region; edit 3's name-slot predicate now
+  // reaches a colon-followed key there at every depth.
 
-  it("N1: `schema S { p: { fn: string } }` keeps single-line-if @4:17-4:19", () => {
+  it("N1: `schema S { p: { fn: string } }` now reports the declaration-ranged refusal alone", () => {
     expect(
       lines(theta("schema S { p: { fn: string } }\n1\n")),
-      "no parser leaf refuses a reserved key of an inline object type, so this lone emission is the refusal",
-    ).toEqual([singleLineIfAt("fn", 4, 17)]);
+      "the bug-0154 identifier pass now refuses the reserved key itself, so single-line-if no longer needs to stand in for it",
+    ).toEqual([at(RESERVED, reservedMsg("fn"), 4, 1, 31)]);
   });
 
-  it("N2: `schema S { p: { if: string } }` keeps single-line-if @4:17-4:19", () => {
+  it("N2: `schema S { p: { if: string } }` now reports the declaration-ranged refusal alone", () => {
     expect(lines(theta("schema S { p: { if: string } }\n1\n"))).toEqual([
-      singleLineIfAt("if", 4, 17),
+      at(RESERVED, reservedMsg("if"), 4, 1, 31),
     ]);
   });
 
-  it("N3: the multiline nested form keeps single-line-if @5:1-5:3", () => {
-    // The nested `{` and the key sit on different logical lines, which is the
-    // form a region rule keyed on line shape rather than on the antecedent
-    // would get wrong.
+  it("N3: the multiline nested form now reports the declaration-ranged refusal alone", () => {
+    // The nested `{` and the key sit on different logical lines; the refusal's
+    // range is the whole enclosing declaration (`site.range`), which spans every
+    // line of the source, not the key token's own line.
     expect(lines(theta("schema S { p: {\nfn: string\n} }\n1\n"))).toEqual([
-      singleLineIfAt("fn", 5, 1),
+      atRange(RESERVED, reservedMsg("fn"), 4, 1, 6, 4),
     ]);
   });
 
-  it("N4: the depth-2 form `schema S { p: { q: { while: string } } }` keeps single-line-if @4:22-4:27", () => {
-    // Depth ≥ 2: the classification is per brace, so the second nesting is a
-    // block region for the same reason the first one is.
+  it("N4: the depth-2 form `schema S { p: { q: { while: string } } }` now reports the declaration-ranged refusal alone", () => {
+    // Depth ≥ 2: the pass walks `node.fieldNames` at every depth, so the second
+    // nesting is refused for the same reason the first one is.
     expect(lines(theta("schema S { p: { q: { while: string } } }\n1\n"))).toEqual([
-      singleLineIfAt("while", 4, 22),
+      at(RESERVED, reservedMsg("while"), 4, 1, 41),
     ]);
   });
 
-  it("N5: the annotation-position sibling `let x: { fn: string } = 1` is unchanged", () => {
+  it("N5: the annotation-position sibling `let x: { fn: string } = 1` now gains the refusal beside its type-mismatch verdict", () => {
     // The control on the other side: an inline object type in a `let`
     // annotation is a nested brace with NO member region anywhere above it, so
-    // it proves the block-region path is what these keys travel. The
-    // type-mismatch verdict beside it is the RHS's, unrelated to any face here
-    // and pinned so the row is a whole ordered list like every other.
+    // it proves the identifier pass's reach does not depend on region at all.
+    // The identifier pass runs during type parsing, ahead of the checker's RHS
+    // type-mismatch verdict, so the refusal emits first.
     expect(lines(theta("let x: { fn: string } = 1\n1\n"))).toEqual([
+      at(RESERVED, reservedMsg("fn"), 4, 1, 26),
       at(
         LET_RHS_MISMATCH,
         msg(LET_RHS_MISMATCH, [
@@ -728,7 +745,6 @@ describe("0242 (N) — a field key inside a nested inline object type keeps the 
         1,
         26,
       ),
-      singleLineIfAt("fn", 4, 10),
     ]);
   });
 
@@ -759,21 +775,25 @@ describe("0242 (S) — a `{` whose neighbourhood merely contains `schema` / `enu
   // spoofable antecedent test reds here rather than silently ADMITTING source
   // the spec refuses (§Fix constraint 6, §Expected 4/5).
 
-  it("S1: `if (schema) { fn: 1 }` keeps its condition verdict, single-line-if and refusal", () => {
+  it("S1: `if (schema) { fn: 1 }` keeps its condition verdict and refusal, dropping single-line-if (bug 0249)", () => {
+    // RETAKEN under bug 0249's amended enumeration. `fn: 1` inside this block
+    // region is now a name slot (edit 3: the token after `{` here is followed
+    // by `:`), so the `controlHeads` scan is skipped; edit 2
+    // (`parseObjectLiteral`) admits the `keyword`-kind head as the bare
+    // literal's field name and draws the refusal itself. The condition
+    // verdict and the refusal are unmoved — nothing here is admitted.
     expect(
       lines(theta("if (schema) { fn: 1 }\n1\n")),
       "`schema` inside a condition heads no SchemaDecl, so this brace opens a block region",
     ).toEqual([
       at(NON_BOOLEAN, msg(NON_BOOLEAN, [["<type>", "null"]]), 4, 1, 3),
-      singleLineIfAt("fn", 4, 15),
       reservedAt("fn", 4, 15),
     ]);
   });
 
-  it("S2: `if (enum) { for: 1 }` keeps its condition verdict, single-line-if and refusal", () => {
+  it("S2: `if (enum) { for: 1 }` keeps its condition verdict and refusal, dropping single-line-if (bug 0249)", () => {
     expect(lines(theta("if (enum) { for: 1 }\n1\n"))).toEqual([
       at(NON_BOOLEAN, msg(NON_BOOLEAN, [["<type>", "null"]]), 4, 1, 3),
-      singleLineIfAt("for", 4, 13),
       reservedAt("for", 4, 13),
     ]);
   });
@@ -786,35 +806,39 @@ describe("0242 (S) — a `{` whose neighbourhood merely contains `schema` / `enu
     ]);
   });
 
-  it("S4: `schema in { fn: string }` keeps single-line-if beside both refusals", () => {
+  it("S4: `schema in { fn: string }` keeps both refusals, dropping single-line-if (bug 0249)", () => {
     // The consequence the ident requirement accepts and this row pins: a schema
     // whose NAME is itself a reserved spelling spells no `"schema" Ident "{"`
-    // head, so its body classifies as a block region and the scans keep the
-    // reach they have inside it. The declaration is refused either way — the
-    // status quo is preserved and nothing is admitted.
+    // head, so `{ fn: string }` here is not an inline object TYPE and edit 1
+    // (the type-grammar identifier pass) never runs over it — it is a bare
+    // object-literal EXPRESSION instead, and edit 2 (`parseObjectLiteral`)
+    // admits `fn` as its field name and draws the refusal ranged on the token
+    // itself. Edit 3's name-slot predicate reaches `fn: string}`'s
+    // colon-followed head regardless, so the `controlHeads` scan is skipped.
+    // The declaration is refused either way — the status quo is preserved and
+    // nothing is admitted.
     expect(lines(theta("schema in { fn: string }\n1\n"))).toEqual([
       reservedAt("in", 4, 8),
-      singleLineIfAt("fn", 4, 13),
       reservedAt("fn", 4, 13),
     ]);
   });
 
-  it("S5: `let x = import { fn: 1 }` keeps single-line-if beside its two parse verdicts", () => {
+  it("S5: `let x = import { fn: 1 }` keeps its two parse verdicts and the refusal, dropping single-line-if (bug 0249)", () => {
     // The mirror arm. `import` in an expression operand position heads no
-    // `ImportDecl`, so its brace is no specifier list.
+    // `ImportDecl`, so its brace is no specifier list; edit 3's name-slot
+    // predicate reaches `fn: 1`'s colon-followed head regardless, and edit 2
+    // admits it as the bare literal's field name.
     expect(lines(theta("let x = import { fn: 1 }\n1\n"))).toEqual([
       at(LET_NO_INITIALISER, msg(LET_NO_INITIALISER, [["<name>", "x"]]), 4, 1, 8),
       at(IMPORT_NO_FROM, msg(IMPORT_NO_FROM, []), 4, 9, 25),
-      singleLineIfAt("fn", 4, 18),
       reservedAt("fn", 4, 18),
     ]);
   });
 
-  it("S6: `let x = export { fn: 1 }` keeps the same four verdicts", () => {
+  it("S6: `let x = export { fn: 1 }` keeps the same three verdicts, dropping single-line-if (bug 0249)", () => {
     expect(lines(theta("let x = export { fn: 1 }\n1\n"))).toEqual([
       at(LET_NO_INITIALISER, msg(LET_NO_INITIALISER, [["<name>", "x"]]), 4, 1, 8),
       at(IMPORT_NO_FROM, msg(IMPORT_NO_FROM, []), 4, 9, 25),
-      singleLineIfAt("fn", 4, 18),
       reservedAt("fn", 4, 18),
     ]);
   });
@@ -828,9 +852,11 @@ describe("0242 (S) — a `{` whose neighbourhood merely contains `schema` / `enu
     ]);
   });
 
-  it("S8: `if (import) { fn: 1 }` keeps all five verdicts", () => {
-    // The brace here follows `)`, so neither arm is even consulted — the row is
-    // the control that fixes what an unchanged list looks like at this shape.
+  it("S8: `if (import) { fn: 1 }` keeps the same four parse verdicts and the refusal, dropping single-line-if (bug 0249)", () => {
+    // The brace here follows `)`, so neither declarator arm is even consulted;
+    // edit 3's name-slot predicate reaches `fn: 1`'s colon-followed head
+    // regardless, so the `controlHeads` scan is skipped, and edit 2 admits the
+    // token as the bare object literal's field name and draws the refusal.
     expect(lines(theta("if (import) { fn: 1 }\n1\n"))).toEqual([
       at(NON_BOOLEAN, msg(NON_BOOLEAN, [["<type>", "null"]]), 4, 1, 3),
       at(IMPORT_NO_FROM, msg(IMPORT_NO_FROM, []), 4, 5, 11),
@@ -842,7 +868,7 @@ describe("0242 (S) — a `{` whose neighbourhood merely contains `schema` / `enu
         12,
       ),
       at(BARE_OBJECT, msg(BARE_OBJECT, []), 4, 13, 22),
-      singleLineIfAt("fn", 4, 15),
+      reservedAt("fn", 4, 15),
     ]);
   });
 
@@ -890,25 +916,37 @@ describe("0242 (O) — `schema T { … }` in expression position keeps its block
   /** A declaration of `T` on line 4, so each constructor row's body is line 5. */
   const WITH_T = "schema T { a: string }\n";
 
-  it("O1: `let x = [schema T { a: \"s\", fn: 1 }]` keeps single-line-if @5:29-5:31", () => {
+  it("O1: `let x = [schema T { a: \"s\", fn: 1 }]` now reports extra-field and the refusal, dropping single-line-if (bug 0249)", () => {
+    // RETAKEN under bug 0249's amended enumeration. Edit 2 (`parseObjectLiteral`)
+    // admits the `keyword`-kind head as the constructor's field NAME — it
+    // reaches `fields`, so `checkObjectExpr`'s `present` list now names it and
+    // `extra-object-field` fires (§Expected 3), beside the refusal edit 2 draws
+    // itself. Edit 3's name-slot predicate withdraws `single-line-if` for the
+    // same colon-followed head.
     expect(
       lines(theta(WITH_T + 'let x = [schema T { a: "s", fn: 1 }]\n1\n')),
-      "a constructor key has no parser-leaf backstop, so this lone emission is the refusal",
-    ).toEqual([singleLineIfAt("fn", 5, 29)]);
-  });
-
-  it("O2: the same key FIRST keeps single-line-if @5:21-5:23", () => {
-    // Behind the opening `{` rather than behind a `,`: both are member-name
-    // slots inside a member region, so both have to be reached by the region
-    // verdict rather than by the slot predicate.
-    expect(lines(theta(WITH_T + 'let x = [schema T { fn: 1, a: "s" }]\n1\n'))).toEqual([
-      singleLineIfAt("fn", 5, 21),
+      "the constructor key now reaches the field set, so it is an extra field as well as a refused identifier",
+    ).toEqual([
+      at(EXTRA_FIELD, msg(EXTRA_FIELD, [["<field>", "fn"], ["<schema>", "T"]]), 5, 17, 36),
+      reservedAt("fn", 5, 29),
     ]);
   });
 
-  it("O3: an `if`-spelled constructor key keeps single-line-if @5:29-5:31", () => {
+  it("O2: the same key FIRST now reports extra-field and the refusal, dropping single-line-if (bug 0249)", () => {
+    // Behind the opening `{` rather than behind a `,`: both are member-name
+    // slots inside a member region, so both are reached by edit 3's name-slot
+    // predicate the same way; the extra-field verdict is unmoved by the key's
+    // position, since `checkObjectExpr` judges the field SET, not its order.
+    expect(lines(theta(WITH_T + 'let x = [schema T { fn: 1, a: "s" }]\n1\n'))).toEqual([
+      at(EXTRA_FIELD, msg(EXTRA_FIELD, [["<field>", "fn"], ["<schema>", "T"]]), 5, 17, 36),
+      reservedAt("fn", 5, 21),
+    ]);
+  });
+
+  it("O3: an `if`-spelled constructor key now reports extra-field and the refusal, dropping single-line-if (bug 0249)", () => {
     expect(lines(theta(WITH_T + 'let x = [schema T { a: "s", if: 1 }]\n1\n'))).toEqual([
-      singleLineIfAt("if", 5, 29),
+      at(EXTRA_FIELD, msg(EXTRA_FIELD, [["<field>", "if"], ["<schema>", "T"]]), 5, 17, 36),
+      reservedAt("if", 5, 29),
     ]);
   });
 
@@ -919,37 +957,55 @@ describe("0242 (O) — `schema T { … }` in expression position keeps its block
     expect(lines(theta(WITH_T + 'let x = [schema T { a: "s" }]\n1\n'))).toEqual([]);
   });
 
-  it("O5: the unbracketed constructor keeps all three of its verdicts", () => {
-    // Outside an array literal the shape draws its own parse verdicts too, and
-    // a reserved refusal from the constructor leaf; the single-line-if between
-    // them is still the region verdict's subject and still stays.
+  it("O5: the unbracketed constructor keeps its two parse verdicts, dropping single-line-if (bug 0249)", () => {
+    // Outside an array literal the shape still draws its own parse verdicts and
+    // a reserved refusal from the constructor leaf; edit 3's name-slot
+    // predicate withdraws single-line-if for the colon-followed `fn: 1` head
+    // regardless of the enclosing shape.
     expect(lines(theta(WITH_T + "let x = schema T { fn: 1 }\n1\n"))).toEqual([
       at(LET_NO_INITIALISER, msg(LET_NO_INITIALISER, [["<name>", "x"]]), 5, 1, 8),
-      singleLineIfAt("fn", 5, 20),
       reservedAt("fn", 5, 20),
     ]);
   });
 
-  it("O6: `let x = [enum U { fn }]` keeps single-line-if @5:19-5:21", () => {
-    // The enum half of the same arm.
+  it("O6: `let x = [enum U { fn }]` keeps single-line-if AND gains the refusal (bug 0249)", () => {
+    // The enum half of the same arm, and the one row of the seventeen that is
+    // an ADDITION rather than a swap: `fn` here spells no top-level `:` (an
+    // enum variant, not a field), so edit 3's colon-width predicate does not
+    // reach it and `single-line-if` stays. Edit 2's admission in
+    // `parseObjectLiteral` carries no such colon requirement — it pushes the
+    // refusal whenever the head is `keyword`-kind, colon or not — so `fn` is
+    // admitted as this bare literal's sole field and the refusal fires beside
+    // the unmoved single-line-if. Widening edit 3 to also withdraw
+    // single-line-if from colon-less keyword heads would additionally move S3
+    // and S7 (both LOCKS), which is why the width stops here.
     expect(lines(theta("enum U { A }\nlet x = [enum U { fn }]\n1\n"))).toEqual([
       at(UNRESOLVED_TYPE, msg(UNRESOLVED_TYPE, [["<name>", "U"]]), 5, 15, 23),
       singleLineIfAt("fn", 5, 19),
+      reservedAt("fn", 5, 19),
     ]);
   });
 
-  it("O7: the brace-wrapped declaration `{ schema S { fn: 1 } }` keeps single-line-if @4:14-4:16", () => {
-    // THE ACCEPTED CONSEQUENCE of anchoring the arm to declaration position. A
-    // `schema` keyword directly behind a `{` opens no statement, so its body
-    // classifies as a block region and the scans keep their full reach there —
-    // the misfire sits beside the correct verdicts rather than being suppressed.
-    // The shape is refused either way, and it is outside every cell §Expected
-    // requires, so the narrowing costs a duplicate diagnostic and admits
-    // nothing.
+  it("O7: the brace-wrapped declaration `{ schema S { fn: 1 } }` re-parses as a bare literal whose field is `schema` (bug 0249, recovery-shape change)", () => {
+    // THE ACCEPTED CONSEQUENCE of §Fix edit 2 carrying no `typeName !== null`
+    // qualifier (ratified by the parent adjudication, §Fix constraint 1).
+    // `parseObjectLiteral` serves both the named-constructor call site and the
+    // BARE-literal call site, and this source's outer `{` opens a bare object
+    // literal whose head token is now `schema` — a `keyword`-kind token edit 2
+    // admits as the bare literal's field NAME (rather than the whole inner
+    // `schema S { fn: 1 }` being read as the field's key-less VALUE, as it was
+    // at HEAD). The refusal against `schema` fires there; its value expression
+    // is then the named literal `S { fn: 1 }`, whose type name `S` is
+    // unresolved (no same-file declaration), and whose OWN key `fn` draws the
+    // refusal a second time — replacing the duplicate outer `bare-object-literal`
+    // and the off-Trigger `single-line-if` HEAD drew. The shape is refused
+    // either way and nothing here is admitted: this is a diagnostic-identity
+    // and recovery-shape correction on a misfire row, not a weakening.
     expect(lines(theta("{ schema S { fn: 1 } }\n1\n"))).toEqual([
       at(BARE_OBJECT, msg(BARE_OBJECT, []), 4, 1, 23),
-      at(BARE_OBJECT, msg(BARE_OBJECT, []), 4, 12, 21),
-      singleLineIfAt("fn", 4, 14),
+      reservedAt("schema", 4, 3),
+      at(UNRESOLVED_TYPE, msg(UNRESOLVED_TYPE, [["<name>", "S"]]), 4, 10, 21),
+      reservedAt("fn", 4, 14),
     ]);
   });
 

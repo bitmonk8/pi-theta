@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.240.0]
+
+### Fixed
+
+- **Bug 0249** — reserved keywords used as inline-object field keys and as typed object-literal keys finally reach a parser leaf: the lexer's `isNameSlot` gains a colon-gated name-slot branch, 0154's identifier pass in `type-grammar.ts` refuses instead of silently continuing, and `parseObjectLiteral` admits a `keyword`-kind key as a field name and refuses it properly — 28-of-32 silent spellings now judged at both positions, and the literal-position token-by-token key drop that corrupted the field set is gone. Seventeen rows of 0242's misfire witness retaken under the recorded parent adjudication (structurally entailed, floors green, nothing admitted). Locked by `tests/reserved-keyword-inline-object-and-literal-keys.test.ts` (41 cells, 27 red at HEAD) and two new live cells.
+
 ## [0.239.0]
 
 ### Fixed

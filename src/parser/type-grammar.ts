@@ -1448,6 +1448,26 @@ function walkType(
       if (node.closingBraceSpelled) {
         for (const name of node.fieldNames) {
           if (RESERVED_KEYWORDS.has(name)) {
+            // The exclusion above (Disposition A, docs/bugs/0154) keeps this
+            // pass from drawing `binding-case-mismatch` on `Ok` / `Err` /
+            // `Result` — but a reserved spelling still occupies an identifier
+            // position (lexical.md:20), so it draws the reserved-keyword
+            // refusal instead of falling through with none at all
+            // (docs/bugs/0249). Ranged on `site.range`, the same
+            // declaration-ranged site every other rule at this arm uses.
+            // `reservedKeywordAsIdentifierDiagnostic` is `theta-document.ts`
+            // private and that module already imports this one
+            // (`parseTypeExpression`), so the shared shape is reproduced
+            // in-line rather than introduced as a circular import; the
+            // severity/code/message construction matches the builder
+            // byte-for-byte (DIAG-4).
+            out.push({
+              severity: "error",
+              code: "theta/parse/reserved-keyword-as-identifier",
+              file: site.file,
+              range: site.range,
+              message: `reserved keyword '${name}' cannot be used as an identifier`,
+            });
             continue;
           }
           const first = name.charAt(0);

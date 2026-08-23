@@ -1,6 +1,6 @@
 # Bug 0249 — a reserved keyword spelled as an inline object type's field key or as a typed object-literal key reaches no parser leaf: 28 of the 32 spellings load with zero diagnostics at both positions (`schema S { p: { let: string } }`, `let x = [schema T { a: "s", let: 1 }]`), the remaining four (`fn`, `for`, `if`, `while`) are refused only by the lexer's `theta/parse/single-line-if` — a row whose *Trigger* is a non-braced body — and at the literal position the key is not merely unrefused but dropped token-by-token, so `schema T { a: "s", let: nope }` re-reads `nope` as the next field name and reports `extra field 'nope'`
 
-- **Status:** open.
+- **Status:** fixed (0.240.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because both positions accept spellings
   `docs/spec_topics/lexical.md:20` refuses, with no diagnostic on any channel:
   28 of 32 at the inline-object-type key (32 of 32 at the `fn` parameter and
@@ -178,7 +178,7 @@ spellings of `docs/spec_topics/lexical.md:20`, read from `reservedKeywords()`
 | A1 | `schema S { p: { let: string } }` + `1` | `[]` |
 | A2 | `schema S { p: { fn: string } }` + `1` | `error theta/parse/single-line-if @4:17-4:19: single-line body not permitted; wrap in { ... }` |
 | A3 | `schema S { p: { q: { let: string } } }` + `1` | `[]` |
-| A4 | `let x: { let: string } = 1` + `1` | `[]` |
+| A4 | `let x: { let: string } = 1` + `1` | `error theta/parse/let-rhs-type-mismatch @4:1-4:27: let binding 'x' initialiser type mismatch: expected { let: string }, got integer` (corrected 2026-08-23, below) |
 | A5 | `let x: { outer: { let: string } } = 1` + `1` | `error theta/parse/let-rhs-type-mismatch @4:1-4:38: let binding 'x' initialiser type mismatch: expected { outer: { let: string } }, got integer` |
 | A6 | `fn h(p: { outer: { let: string } }): number { 1 }` + `1` | `[]` |
 | A7 | `fn h(): { outer: { let: string } } { 1 }` + `1` | `[]` |
@@ -188,6 +188,19 @@ spellings of `docs/spec_topics/lexical.md:20`, read from `reservedKeywords()`
 | A11 | control, lowercase key: `schema S { p: { ok: string } }` + `1` | `[]` |
 | A12 | control, uppercase key: `schema S { p: { Ys: string } }` + `1` | `error theta/parse/binding-case-mismatch @4:1-4:31: binding name must start with a lowercase letter or _` |
 | A13 | control, the DECLARATION body one level out: `schema S { let: string }` + `1` | `error theta/parse/reserved-keyword-as-identifier @4:12-4:15: reserved keyword 'let' cannot be used as an identifier` |
+
+**Correction, 2026-08-23.** Row A4 as filed stated `[]`. That cell is wrong and
+was wrong at filing: re-measured through the same probe at both `b9cf2f26`
+(the filing HEAD) and `82f9ea05` (v0.238.0), `let x: { let: string } = 1`
+reports `error theta/parse/let-rhs-type-mismatch @4:1-4:27: let binding 'x'
+initialiser type mismatch: expected { let: string }, got integer`. It is an
+internal contradiction with this section's own sweep table, which reports `[]`
+for exactly one spelling (`void`, fenced in §Non-goals) and
+`let-rhs-type-mismatch` for the other 27 non-`controlHead` spellings — and
+`let` is one of those 27. The row above now carries the measured list. Nothing
+else in the report depends on the erroneous cell: the subject, §Expected and
+§Fix are unchanged, and §Fix constraint 6's A4 witness cell asserts the
+measured list.
 
 A12 proves the identifier pass reaches the nested key: an uppercase spelling at
 the identical slot draws bug 0154's case rule. A13 is the position bug 0153
@@ -439,6 +452,51 @@ Constraints:
    pending this filing. `N5`, `N6`, `O4`, `O5`, `O7`–`O12` and every other cell
    of that 112-cell file are LOCKS. `O5` and `O7` state the §Reproduction (C)
    mis-split shapes and must keep their lists exactly.
+
+   **Amended 2026-08-23 by parent adjudication — the lock list above was
+   derived pre-measurement and is superseded by the enumeration below.** The
+   original text is retained verbatim so the amendment is visible rather than
+   silent.
+
+   **Parent adjudication (verbatim).** "The nine locked rows constraint 1
+   fenced — N5, S1, S2, S4, S5, S6, S8, O5, O7 (plus S3/S7 if edit 3's
+   necessary width reaches them — enumerate) — are RATIFIED to flip as
+   STRUCTURALLY ENTAILED by 0249's §Expected 1–4, on the strength of the
+   previous run's measurements: (i) the fix that satisfies §Expected
+   necessarily moves them (non-separability proven, O2/O5); (ii) no admission
+   regression — the registration floors (S9, O12) must stay green and NO
+   spelling may become admitted that §Expected refuses; (iii) each flip is a
+   diagnostic-identity correction on a misfire row (the witness pins misfire
+   faces; the fix retires misfires), not an assertion weakening. CONDITIONS:
+   (1) amend §Fix constraint 1 in the doc ON THE RECORD (dated
+   parent-adjudication note — do not silently rewrite; append the
+   adjudication, then state the amended enumeration: the filing-era lock list
+   was derived pre-measurement; the entailed set is the seventeen rows + any
+   edit-3-width rows, each listed); (2) the fix record lists EVERY flipped row
+   with one line each: old pin → new pin → why entailed; (3) if ANY row's flip
+   would ADMIT a spelling (not re-code its refusal/judgement), that row is NOT
+   covered — STOP again with that row named; (4) the doc correction owed lands
+   in the same record: §Reproduction A4 states [] but measures
+   let-rhs-type-mismatch @4:1-4:27 at both b9cf2f26 and 82f9ea05 (contradicts
+   the doc's own sweep table — correct the doc text with a dated note)."
+
+   **Amended enumeration.** The rows of
+   `tests/reserved-keyword-misfire-faces.test.ts` this report authorises to be
+   retaken in place, ids and subjects preserved, are the seventeen:
+
+   - group `(N)`: `N1`, `N2`, `N3`, `N4` (originally authorised), `N5`
+     (ratified);
+   - group `(S)`: `S1`, `S2`, `S4`, `S5`, `S6`, `S8` (ratified);
+   - group `(O)`: `O1`, `O2`, `O3`, `O6` (originally authorised), `O5`, `O7`
+     (ratified).
+
+   `S3` (`match (schema) { fn }`) and `S7` (`let x = import { fn }`) are
+   **NOT** in the entailed set: edit 3's necessary width requires the next
+   token to be `:`, and both spell a colon-less head, so neither moves. They
+   stay LOCKS, as do `N6`, `O4`, `O8`–`O12`, `S9` and every other cell of the
+   112. The registration floors `S9` and `O12` must stay green: no spelling
+   may become admitted that §Expected refuses. Any row whose flip would ADMIT
+   a spelling rather than re-code its refusal is outside this authority.
 2. **LOCK set.** `tests/inline-object-field-name-case.test.ts` (bug 0154),
    `tests/reserved-keyword-remaining-identifier-positions.test.ts` and
    `tests/fn-param-name-reserved-keyword.test.ts` (0153, 0148),
@@ -518,3 +576,255 @@ Constraints:
   `parseThetaDocument`. No live cell was run (offline filing); the registration
   claim in §Fix constraint 8 rests on the measured empty diagnostic lists, not
   on an observed load.
+
+## Fix (0.240.0)
+
+- **What shipped** (§Fix's three settled edits, nothing wider):
+  - `src/lexer/lexer.ts` — `isNameSlot` gains a colon-gated branch: a key
+    position inside a non-member brace region (`regions.length > 0`, `prev` is
+    `{` / `,` / a statement separator, `tokens[index + 1]` is the punct `:`) is
+    a name slot, which withdraws the off-Trigger `theta/parse/single-line-if`
+    there (§Fix edit 3, §Expected 4). The `:` requirement is the necessary
+    width and is load-bearing: widening it would move rows `S3` and `S7`, which
+    the adjudication leaves LOCKED. `classifyBrace` and its `member` branch are
+    untouched.
+  - `src/parser/type-grammar.ts` — the bug-0154 identifier pass pushes
+    `theta/parse/reserved-keyword-as-identifier` at the pass's existing
+    `site.range` before its `continue`, instead of falling through with no
+    diagnostic (§Fix edit 1, §Expected 1). Disposition A holds: `Ok` / `Err` /
+    `Result` still draw no `binding-case-mismatch`, they draw the refusal. The
+    gate stays `node.closingBraceSpelled`; `tokeniseType` is byte-unmodified.
+  - `src/parser/theta-document.ts` — `parseObjectLiteral` admits a
+    `keyword`-kind head as the field NAME (pushed to `fields`, its `:` and
+    value consumed on the normal path) and emits the refusal through
+    `reservedKeywordAsIdentifierDiagnostic` ranged on `nameTok.range` (§Fix
+    edit 2, §Expected 2 and 3). The progress branch stays for every other token
+    kind. The edit reaches BOTH call sites — named constructor and bare literal
+    — because the settled edit carries no `typeName !== null` qualifier; that
+    is what produces row `O7`'s recovery-shape change.
+  - `tests/reserved-keyword-inline-object-and-literal-keys.test.ts` — new,
+    41 cells, the §Fix constraint 6 witness.
+  - `tests/reserved-keyword-misfire-faces.test.ts` — the seventeen ratified
+    rows retaken in place, ids and subjects preserved; 112 cells before and
+    after.
+  - `tests/inline-object-field-name-case.test.ts` — the three group `(D)` cells
+    retaken under §Fix constraint 2; 43 cells before and after.
+  - `tests/live/inline-object-key-registration-denial-live-cell.test.ts`,
+    `tests/live/reserved-keyword-key-field-boundary-live-cell.test.ts` — new,
+    the §Fix constraint 8 live coverage.
+
+- **Deviation from §Fix's wording, on the record.** §Fix edit 1 says "through
+  the shared builder `reservedKeywordAsIdentifierDiagnostic`". That builder is
+  `theta-document.ts`-private and `theta-document.ts` already imports
+  `parseTypeExpression` from `type-grammar.ts`, so exporting it would close a
+  module cycle. The type-grammar leaf therefore reproduces the diagnostic shape
+  in-line, which is the house disposition the builder's own doc comment records
+  for its second (lexer) site: the identity is "held identical by DIAG-4 rather
+  than by shared code" (bug 0044 §Fix). The witness reads every expected
+  message through `parseRegistry` / `registryMessage`, so any divergence reds.
+
+- **Gates** (run by the orchestrator, not taken on report):
+  - witness — `npx vitest run
+    tests/reserved-keyword-inline-object-and-literal-keys.test.ts` → RED before
+    the fix (`Tests 27 failed | 14 passed (41)`), GREEN after
+    (`Tests 41 passed (41)`).
+  - full default suite — `npm test` → `Test Files 421 passed (421)`,
+    `Tests 8858 passed (8858)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, clean, exit 0.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    clean, exit 0.
+  - live — `npx vitest run --config config/vitest/vitest.live.config.ts` over
+    the two new cells plus the three named surfaces
+    (`reserved-keyword-remaining-positions-live-cell.test.ts`,
+    `reserved-keyword-misfire-faces-live-cell.test.ts`,
+    `inline-object-field-name-case-live-cell.test.ts`) →
+    `Test Files 5 passed (5)`, `Tests 6 passed (6)`.
+
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — 3 findings, none a
+  correctness or spec blocker: F1 (prose) a stale-at-birth
+  `grammar.md:593` citation in a comment this change added, F2 (fidelity) the
+  §Fix constraint 8 live cell still owed, F3 (fidelity) the fix record not yet
+  written. Round 1 adjudicated the in-line-diagnostic question above as NOT a
+  fidelity defect, and verified the ratification bounds by reading every
+  retaken cell. Round 2 (`bug-fix-fixer-light`) — F1 corrected to
+  `grammar.md:599`, verified against the tree; every other spec citation in the
+  added comment blocks re-checked and correct. The round-2 diff touches one
+  `//` comment line and no executable line, and the gate re-run was green, so
+  the confirmation review round was skipped by the charter's post-polish rule:
+  polish verified by gate-diff. F2 discharged in verification; F3 is this
+  record.
+
+- **Verification** (`bug-fix-verifier`, one round, VERIFIED):
+  - The witness genuinely witnesses. Each of the three edits was neutralised
+    ALONE and reds a distinct non-empty set — edit 1 → 19 failed / 22 passed,
+    edit 2 → 8 failed / 33 passed, edit 3 → 25 failed / 128 passed across the
+    witness plus the misfire file. No edit is dead weight. Every restoration
+    was proven byte-exact by `git hash-object` against pre-neutralisation
+    hashes recorded first (the tree is intentionally dirty, so HEAD is not the
+    baseline); restoration was `cp` from out-of-tree backups — no `git stash`,
+    no `git checkout --`, no `git restore`.
+  - Full default suite green (counts above), plus the eleven named LOCK and
+    gate files green (`468 passed`), including
+    `tests/committed-fixture-parse-gate.test.ts` and
+    `tests/registry-closed-set-corpus-gate.test.ts` (§Fix constraint 7: no
+    committed fixture reaches either position, no corpus row moves).
+  - Live coverage exists and was run for real (command and counts above). Both
+    new cells were proven in both directions: with the three `src/` edits
+    neutralised the registration cell reds on `schema S { p: { let: string } }`
+    REGISTERED and the field-boundary cell reds on its attribution assertion,
+    then restored byte-exact and green. Discriminators are task-framed
+    (compute-from-inline-value over the theta's own field), not verbatim echo.
+    Before attributing any live red to this change, `docs/bugs/` was searched
+    for an open report with a matching signature: the two open hits (0098
+    literal-union emission, 0121 `as`-rename key ordering) concern other
+    surfaces.
+  - Lint and typecheck clean.
+  - H9a: no acceptance test was added or reached; the corrected
+    `theta/parse/reserved-keyword-as-identifier` and the withdrawn
+    `theta/parse/single-line-if` never cross an H9a stdout+stderr capture in
+    this change. **No append to the H9a permitted-codes list is owed.**
+  - DIAG-2 not engaged: no code minted, removed, re-namespaced or re-triggered
+    — both leaves reuse `theta/parse/reserved-keyword-as-identifier`
+    (`code-registry-parse.md:21`), so no same-commit spec edit and no registry
+    edit is owed, confirmed by the two corpus gates staying green. The
+    `single-line-if` row (`:23`) is untouched: its emission set shrinks toward
+    its stated *Trigger*, not against it.
+
+- **The ratified flips, one line each** (old pin → new pin → why entailed).
+  All in `tests/reserved-keyword-misfire-faces.test.ts` unless stated. No row
+  ADMITS a spelling: every one keeps at least one `error`-severity refusal, and
+  the registration floors `S9` and `O12` are byte-untouched and green.
+  - `N1` `schema S { p: { fn: string } }` — `single-line-if @4:17` →
+    `reserved 'fn' @4:1-4:31` → edit 1 supplies the parser leaf the row's
+    comment said did not exist; edit 3 withdraws the stand-in. §Expected 1, 4.
+  - `N2` `schema S { p: { if: string } }` — `single-line-if @4:17` →
+    `reserved 'if' @4:1-4:31` → same mechanism, second `controlHead` spelling.
+  - `N3` the multiline nested form — `single-line-if @5:1` →
+    `reserved 'fn' @4:1-6:4` → same mechanism; the range is `site.range`, the
+    enclosing declaration's whole span, because a `TypeNode` carries no range.
+  - `N4` depth-2 — `single-line-if @4:22` → `reserved 'while' @4:1-4:41` →
+    the pass walks `node.fieldNames` at every depth (§Expected 1's "every
+    nesting depth").
+  - `N5` `let x: { fn: string } = 1` — `[let-rhs-type-mismatch,
+    single-line-if @4:10]` → `[reserved 'fn' @4:1-4:26,
+    let-rhs-type-mismatch]` → the identifier pass runs during type parsing,
+    ahead of the checker, so the refusal emits first; the mismatch verdict is
+    unmoved. Entailed because the pass's reach does not depend on brace region
+    at all — no predicate separates it from `N1`.
+  - `S1` `if (schema) { fn: 1 }` — `[non-boolean, single-line-if @4:15,
+    reserved 'fn' @4:15]` → `[non-boolean, reserved 'fn' @4:15]` → a pure
+    withdrawal of the duplicate that sat beside a refusal the row already
+    carried. Entailed: the key is a colon-followed head in a block region, the
+    exact shape of authorised `O2`.
+  - `S2` `if (enum) { for: 1 }` — `[non-boolean, single-line-if @4:13,
+    reserved 'for' @4:13]` → `[non-boolean, reserved 'for' @4:13]` → same.
+  - `S4` `schema in { fn: string }` — `[reserved 'in', single-line-if @4:13,
+    reserved 'fn' @4:13]` → `[reserved 'in', reserved 'fn' @4:13]` → same;
+    the brace here is a bare object-literal EXPRESSION (no `"schema" Ident "{"`
+    head), so edit 2 answers and edit 1 never runs.
+  - `S5` `let x = import { fn: 1 }` — `[… two parse verdicts,
+    single-line-if @4:18, reserved 'fn' @4:18]` → `[… two parse verdicts,
+    reserved 'fn' @4:18]` → same duplicate withdrawal.
+  - `S6` `let x = export { fn: 1 }` — as `S5`, `single-line-if @4:18`
+    withdrawn → same.
+  - `S8` `if (import) { fn: 1 }` — `[… four parse verdicts,
+    single-line-if @4:15]` → `[… four parse verdicts, reserved 'fn' @4:15]` →
+    a swap at the same range: edit 2 supplies the refusal edit 3 withdraws the
+    stand-in for.
+  - `O1` `let x = [schema T { a: "s", fn: 1 }]` — `single-line-if @5:29` →
+    `[extra-object-field 'fn' @5:17-5:36, reserved 'fn' @5:29]` → §Expected 3:
+    the key now reaches `fields`, so `checkObjectExpr`'s `present` list names
+    it. Originally authorised.
+  - `O2` the same key FIRST — `single-line-if @5:21` →
+    `[extra-object-field 'fn' @5:17-5:36, reserved 'fn' @5:21]` → same;
+    `checkObjectExpr` judges the field SET, not its order. Originally
+    authorised.
+  - `O3` an `if`-spelled constructor key — `single-line-if @5:29` →
+    `[extra-object-field 'if' @5:17-5:36, reserved 'if' @5:29]` → same.
+    Originally authorised.
+  - `O5` `let x = schema T { fn: 1 }` — `[let-without-initialiser,
+    single-line-if @5:20, reserved 'fn' @5:20]` → `[let-without-initialiser,
+    reserved 'fn' @5:20]` → duplicate withdrawal. Entailed by
+    non-separability: inside the brace this row is LEXICALLY IDENTICAL to
+    authorised `O2` — both put a `controlHead` spelling immediately after a `{`
+    that `classifyBrace` rules a block region, both followed by `:`; they
+    differ only by an enclosing `[` the region model does not read and by a
+    parser mis-split (§Reproduction C) invisible to the lexer. No lexer-side
+    predicate can withdraw `single-line-if` from `O2` and keep it here.
+  - `O6` `let x = [enum U { fn }]` — `[unresolved-named-type,
+    single-line-if @5:19]` → `[unresolved-named-type, single-line-if @5:19,
+    reserved 'fn' @5:19]` → the one ADDITION rather than a swap: `fn` spells
+    no `:` (an enum variant), so edit 3's colon-gated predicate does not reach
+    it and `single-line-if` stays; edit 2 carries no colon requirement, so the
+    refusal is added beside it. Originally authorised.
+  - `O7` `{ schema S { fn: 1 } }` — `[bare-object @4:1, bare-object @4:12,
+    single-line-if @4:14]` → `[bare-object @4:1, reserved 'schema' @4:3,
+    unresolved-named-type 'S' @4:10-4:21, reserved 'fn' @4:14]` → a
+    RECOVERY-SHAPE change, not a message change, and the accepted consequence
+    of edit 2 carrying no `typeName !== null` qualifier: the outer `{` opens a
+    bare literal whose head `schema` is now admitted as its field NAME (and
+    refused), its value being the named literal `S { fn: 1 }`, whose type name
+    is unresolved and whose own key draws the refusal a second time. Nothing is
+    admitted — the shape is refused either way, and more precisely than before.
+  - `tests/inline-object-field-name-case.test.ts` group `(D)` cells `c1`/`c3`,
+    `c2`, `c4` — silence at an inline key → the declaration-ranged
+    `reserved-keyword-as-identifier` → §Fix constraint 2 authorises exactly the
+    cells of 0154's file that assert a reserved spelling's SILENCE at an inline
+    key. `c2` additionally asserts `doc.frontmatter === null`: that file's own
+    row `p2` states the frontmatter gate withholds the WHOLE frontmatter object
+    on any error-severity frontmatter diagnostic, and the new refusal on the
+    `params:` value is such a diagnostic — a necessary consequence of the rule
+    already witnessed there, not a new assertion.
+  - **Not flipped, and still LOCKS:** `S3` (`match (schema) { fn }`) and `S7`
+    (`let x = import { fn }`) — both colon-less, so edit 3's necessary width
+    does not reach them and both keep `single-line-if`; verified green and
+    byte-untouched. Likewise `N6`, `O4`, `O8`–`O12` and `S9`.
+
+- **Doc correction landed (adjudication condition 4).** §Reproduction (A) row
+  `A4` stated `[]` for `let x: { let: string } = 1`. The measured value at both
+  `b9cf2f26` (the filing HEAD) and `82f9ea05` is
+  `error theta/parse/let-rhs-type-mismatch @4:1-4:27: …`, which the section's
+  own sweep table already implied. The row now carries the measured list and a
+  dated correction note sits beside the table. Nothing in §Expected or §Fix
+  depended on the erroneous cell, and the witness asserts the measured list.
+
+- **Shifted citations (§Fix constraint 9).** The change adds lines: `lexer.ts`
+  +17 after `:977` (1125 → 1142), `theta-document.ts` +12 after `:4504`
+  (8767 → 8779), `type-grammar.ts` +20 after `:1450` (1612 → 1632). Bug
+  [0051](./0051-lowercase-named-type-reference-positions-silent.md) stays
+  unedited under bug 0134's adjudication; its `src/lexer/lexer.ts` citations
+  (`:125`, `:794–796`, `:798`, `:873–874`) all precede the `:977` insertion and
+  are therefore **unmoved by this change**. Its `theta-document.ts` citations
+  `:4663` and `:4718` follow the insertion and shift by +12 (to `:4675` and
+  `:4730`); both were already stale at `82f9ea05` by prior drift, so this
+  change adds +12 to an existing offset rather than turning an accurate
+  citation stale. The same holds for the other open documents citing
+  `theta-document.ts` beyond `:4504`: 0046 (`:5386`, `:5418`, `:5431`,
+  `:5487`) and 0175 (`:5595`) — each +12. No citation anywhere targets
+  `lexer.ts` ≥ `:978` or `type-grammar.ts` ≥ `:1451`.
+
+- **Residuals:**
+  1. The retaken rows of `tests/reserved-keyword-misfire-faces.test.ts` keep
+     that file's pre-existing literal range constants (`at(RESERVED, …, 4, 1,
+     31)`), whereas the new witness derives every range from its row's own
+     source text. Consistent with the file it lives in, so not corrected here;
+     a future change to the declaration range would have to update those
+     constants by hand.
+  2. `tests/inline-object-field-name-case.test.ts` carries 43 cells in this
+     tree, not the 30 this document's §Related records. The count is stated as
+     measured; the discrepancy is filing-era drift in this document, not a
+     change made here.
+  3. During verification a leftover live-lock directory from an earlier run was
+     found empty and removed by the verifier before its own runs. No concurrent
+     holder's lock was removed, and every live run in this fix held a lock it
+     had created itself.
+
+- **Discharge notes appended:** none.
+
+- **Pinned dispositions / non-goals unchanged:** the `void` cell of the
+  `let`-annotation sweep (whatever governs it is a disposition of the mismatch
+  check); the quoted key `{ "let": 1 }` (a `string`-kind token, bug 0176's and
+  0161's subject); bug 0244's colon-less entry, measured disjoint and green at
+  19/19; bug 0154's case rule, whose `Ok` / `Err` / `Result` disposition is
+  preserved by Disposition A and witnessed by cell `a12ok`; the *Trigger*,
+  *Message*, *Hint* and severity of both registry rows.

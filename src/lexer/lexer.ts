@@ -974,6 +974,23 @@ function isNameSlot(tokens: readonly Token[], index: number, regions: readonly B
       (prev.kind === "keyword" && prev.text === "as")
     );
   }
+  // A key position inside a non-member brace region (an inline object type's
+  // field or an object-literal constructor's field, neither of which
+  // `classifyBrace` marks `member`) is also a name slot (bug 0249): the
+  // parser leaf at that position now refuses a reserved spelling itself, so
+  // the lexer's `single-line-if` scan must not draw a second, wrongly-Triggered
+  // diagnostic there. The `:` requirement is the necessary width — a
+  // colon-less head (an enum variant, an import/export specifier) is not this
+  // slot and must keep drawing the control-header scan.
+  if (
+    regions.length > 0 &&
+    (prev.kind === "stmt-sep" || (prev.kind === "punct" && (prev.text === "{" || prev.text === ",")))
+  ) {
+    const next = tokens[index + 1];
+    if (next !== undefined && next.kind === "punct" && next.text === ":") {
+      return true;
+    }
+  }
   if (prev.kind !== "keyword") {
     return false;
   }
