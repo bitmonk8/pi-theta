@@ -6,6 +6,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.246.0]
+
+### Fixed
+
+- Bug 0147: the arg-mismatch per-site emission count divergence is now
+  normative rather than silent — route C (per-row form): new
+  `#argument-mismatch-multiplicity` paragraph appended at EOF of
+  `docs/spec_topics/diagnostics/diagnostic-shape.md` (lines 1–84 numbering
+  preserved; 541 corpus citations intact) states per-slot emission for
+  `invoke-arg-type-mismatch` / `fn-arg-type-mismatch` (both arms) and
+  at-most-one-per-site for `tool-arg-type-mismatch` (whose Message carries no
+  slot placeholder — a DIAG-4-deferred wording change; harmonising is a theta
+  2.0 item). Ownership re-checked first: 0138 made the divergence 3:1, 0146
+  widened the judged set, 0131 discharged only the arity sub-divergence;
+  `.theta`-callable stays the sole outlier (the `break`). Comment-only src
+  correction in `invoke-static-checks.ts` (mechanism = the break; 3:1). New
+  witness `tests/arg-mismatch-diagnostic-count-by-surface.test.ts` (98 cells,
+  registryMessage-sourced, red-proven in four directions with hash-exact
+  restores). No behaviour change; permitted-codes byte-unchanged; no live
+  owed (comment-only src).
 ## [0.245.0]
 
 ### Fixed

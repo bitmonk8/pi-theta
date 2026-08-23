@@ -1,10 +1,10 @@
 # Bug 0147 — One call site passing two mistyped arguments draws a different number of argument-type-mismatch diagnostics on each of the three call spellings — two `theta/parse/invoke-arg-type-mismatch` through `invoke(...)` (per-slot loop, no `break`, `invoke-diagnostics.ts:219–244`), two `theta/parse/fn-arg-type-mismatch` through a same-file `fn` (per-slot loop, no `break`, `type-layer-checks.ts:1599–1626`), and one `theta/parse/tool-arg-type-mismatch` through a `.theta` callable (first-mismatch `break`, `invoke-static-checks.ts:1038`) — and no sentence in the corpus fixes an intra-site diagnostic count for any of the three rows
 
-- **Status:** open. §Fix is constraint-pinned, not settled: three routes with
-  the constraints each has to satisfy, no route selected. No ordering
-  dependency in either direction — every surface named here is wired at HEAD
-  and the divergence is stable under any of the three routes' code being
-  written first.
+- **Status:** fixed (0.246.0). §Fix was constraint-pinned, not settled: three
+  routes with the constraints each has to satisfy, no route selected, and the
+  disposition left to the run. The run selected **Route C, per-row form** —
+  the corpus now adjudicates the count per row and the implementation is
+  unchanged. See §Fix (0.246.0).
 - **Sev/Diff estimate:** S4/D3 — no written sentence is violated by any
   measured count, so no input is admitted that the corpus refuses and no
   rendered message is wrong about the slot it names: all nineteen mistyped
@@ -904,3 +904,173 @@ applies: every observable settles inside one load pass.
   `docs/bugs/0013-…md` (fixed 0.24.0, the note routing),
   `docs/bugs/0045-…md:212–220` (the nearest count clause in the tree),
   `docs/bugs/0132-…md` (open, binding on how the GOV-15 corpus sweep runs).
+
+## Fix (0.246.0)
+
+- **Route selected:** Route C, per-row form — §Fix's own "The ruling can also
+  bless the divergence … the only route that lands inside theta 1.x with no
+  *Message* work and no information loss". Selection authority is §Fix's
+  "The run adjudicates". Route A stays blocked by DIAG-4 (the
+  `theta/parse/tool-arg-type-mismatch` *Message* names neither `<i>` nor
+  `<param>` and the row ranges over the whole call, so per-slot emission there
+  renders byte-identical duplicates; the placeholder addition is a *Message*
+  reword deferred to theta 2.0). Route B was rejected: it now needs a `break`
+  in three emitters rather than two, discards `<i>`/`<param>` detail the two
+  per-slot rows already render correctly, and runs against
+  `diagnostic-shape.md` §*Multi-error reporting*'s purpose clause.
+- **What shipped:**
+  - `docs/spec_topics/diagnostics/diagnostic-shape.md` — one new normative
+    paragraph, `<a id="argument-mismatch-multiplicity"></a>`
+    **Argument-mismatch multiplicity**, plus an in-place
+    `<a id="multi-error-reporting"></a>` anchor on the existing *Multi-error
+    reporting* paragraph so the new rule can cross-link it. The rule is scoped
+    to the three positional per-argument type-mismatch rows and assigns
+    multiplicity per row: `theta/parse/invoke-arg-type-mismatch` and
+    `theta/parse/fn-arg-type-mismatch` (both its same-file and its imported
+    `.thetalib` arms) emit one diagnostic per provably mistyped judged slot in
+    source order with no deduplication; `theta/parse/tool-arg-type-mismatch`
+    emits at most one per call site, at the first provably mistyped judged
+    slot. It states the arity precondition (passed, or withheld at the
+    junk-parameter-table arm), leaves which slots are judged untouched, and
+    excludes `theta/parse/tool-arg-schema-conflict` and the arity rows by name.
+  - `src/extension/invoke-static-checks.ts` — comment-only. The divergence
+    comment above the `checkInvokeCall` push now states the adjudicated rule,
+    gives the mechanism correctly (the `.theta`-callable emitter is called once
+    per slot from inside a loop that `break`s, so the count-limiter is the
+    `break`, not the emitter's shape) and names all four surfaces rather than
+    two. The `break`'s own justification comment now cites the ruling instead
+    of the schema-conflict arm.
+  - `tests/arg-mismatch-diagnostic-count-by-surface.test.ts` — new offline
+    witness, 98 cells, ten cell shapes × four surfaces.
+- **Placement note.** The paragraph is appended at end of file rather than
+  beside the two existing count paragraphs as §Fix suggested. Measured: 541
+  citations of the form `diagnostic-shape.md:NN` for NN in 71–84 exist across
+  the corpus, and an insertion after `:65` shifts every one of them by +2.
+  Lines 1–84 are byte-identical to HEAD except `:65`, which gained only an
+  in-place anchor prefix; the paragraph lands inside §*Code registry rules
+  (normative)*, whose rows it governs.
+- **Premeasure — the doc's own reproduction re-derived at HEAD.** The report
+  was filed at `a314ac83` / 0.78.0 and re-measured here at `dee6de10` /
+  0.240.0 by scratch probe over `discoverAndComposeFixtures`. **Not
+  discharged — the divergence widened.**
+
+  | cell shape (one site unless stated) | S1 `invoke` | S2 same-file `fn` | S3 `.theta` callable | S4 imported `.thetalib` `fn` |
+  | --- | --- | --- | --- | --- |
+  | 2 mistyped slots | 2 | 2 | **1** | 2 |
+  | 3 mistyped slots | 3 | 3 | **1** | 3 |
+  | slot 0 only | 1 | 1 | 1 | 1 |
+  | slot 1 only (boolean) | 1 | 1 | 1 | 1 |
+  | slot 1 only (integer, = the slot-0 control's type) | 1 | 1 | 1 | 1 |
+  | 2 sites × 2 mistyped slots | 4 | 4 | **2** | 4 |
+  | wrong arity, too many | arity row alone, 0 type rows | idem | idem | idem |
+  | wrong arity, too few | arity row alone, 0 type rows | idem | idem | idem |
+  | array literal slot 0 + boolean slot 1 | 2 | 2 | **1** | 2 |
+  | array literals at both slots | 2 | 2 | **1** | 2 |
+
+  Every caller reports `registered :: NO`, so the residue stays
+  author-visible-count-only exactly as §Summary records.
+- **What the two later fixes did to this report, measured:**
+  - **[0138](./0138-imported-thetalib-fn-arg-route-deferred.md) — fixed
+    (0.235.0) — widened the divergence.** It wired a **fourth** surface,
+    `checkImportedFnCallArgs`, the imported `.thetalib` arm of
+    `theta/parse/fn-arg-type-mismatch`'s own *Trigger*. It sided with the
+    per-slot majority, so the arithmetic moved from two-against-one to
+    **three-against-one** and the `.theta`-callable arm is the sole outlier.
+    §Summary's "three call spellings" and §Kind's "three sibling surfaces" are
+    stale on that count.
+  - **[0146](./0146-invoke-arg-provable-set-withholds-true-positives.md) —
+    fixed (0.228.0) — widened the gap rather than closing it.** Array-shaped
+    arguments are now judged on all four surfaces (`got array<integer>`,
+    `got array<boolean>` measured), which raises the per-slot surfaces' counts
+    while the `.theta`-callable arm absorbs every newly judged slot into its
+    `break`. §Non-goals' "Widening any surface's static read" is discharged as
+    a non-goal but its premise — that array shapes defer — is stale.
+  - **[0131](./0131-in-document-fn-call-arity-unchecked.md) — fixed
+    (0.199.0) — discharged one sub-divergence.** §Reproduction (e)'s `f2many`
+    and `f2few` cells are stale: at HEAD all four surfaces put arity first and
+    report the arity row alone with zero type rows, in both directions. §Fix
+    Route B's "It interacts with bug 0131" bullet no longer holds, and
+    shared-constraint 1 now ranges over four surfaces rather than two.
+  - Every `path:line` in §Affected and §Provenance has drifted. Current:
+    `src/parser/invoke-diagnostics.ts:258` (`checkInvokeArgTypes`), per-slot
+    loop `:266–291`, no `break`; `src/parser/type-layer-checks.ts:2538`
+    (`checkFnCallArgs`), loop `:2600–2651`, no `break`;
+    `src/extension/invoke-static-checks.ts:1084–1150` (the `.theta`-callable
+    loop), emitter call `:1114`, **`break;` at `:1149`**; `:1324`
+    (`checkImportedFnCallArgs`), loop `:1393–1444`, no `break`; `:536`
+    (`collectProvableArgTypes`);
+    `src/extension/production-composition.ts:216–238` (`makeLoadEmit`),
+    `:2360–2367` (`hasLoadParseError`);
+    `docs/spec_topics/diagnostics/code-registry-parse.md:137`, `:138`, `:139`
+    (the three rows), `:57` (the Pi-tool schema-conflict row).
+- **Gates (verbatim):**
+  - Witness: `npx vitest run tests/arg-mismatch-diagnostic-count-by-surface.test.ts`
+    → `Test Files  1 passed (1)` / `Tests  98 passed (98)`.
+  - Witness red-proof, four directions, each mutation restored byte-exact
+    (`git hash-object` = `git rev-parse HEAD:<path>`): deleting the `break` at
+    `invoke-static-checks.ts:1149` reds the S3 cells at 2/3/4/2; inserting a
+    `break` at the end of the S1, S2 and S4 loops reds those surfaces' cells at
+    1/1/2/1 (S2 additionally reds its slot-1 controls).
+  - Default suite: `npm test` → `Test Files  423 passed (423)` /
+    `Tests  8986 passed (8986)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, clean.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    clean.
+  - GOV-15 shared-constraint 4: `tests/committed-fixture-parse-gate.test.ts`
+    → `Tests  36 passed (36)` over every git-tracked `.theta` and
+    `.thetalib` (31 + 2), zero diagnostics on the shipped corpus. No committed
+    fixture's diagnostic set changed — no behaviour changed.
+  - DIAG-2 closed-set reconciliation:
+    `tests/registry-closed-set-corpus-gate.test.ts` → `Tests  6 passed (6)`.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings; two
+  non-blocking residuals raised and both fixed in place before verification (a
+  witness header saying "nine shapes" where the grid carries ten, and the
+  paragraph's arity precondition not covering the junk-parameter-table
+  withhold arm). A pre-review correction round ran before round 1: the new
+  paragraph was relocated from after `:65` to end-of-file to protect 541
+  corpus citations, and the witness's three self-inflicted stale `src` line
+  citations were re-derived. Citation/prose only, zero assertion changes.
+- **Verification:** SOLID (`bug-fix-verifier`), no findings. Obligations: the
+  witness bites in four independent directions and every mutation restored
+  byte-exact; default suite green; lint and typecheck green; live tier not
+  engaged — `git diff -U0 src/` shows every `+`/`-` line strictly inside a
+  `//` comment with the `break;` at `:1149` unchanged context, so no executable
+  `src` line moved; the committed-fixture parse gate green; and lines 1–84 of
+  `diagnostic-shape.md` byte-identical to HEAD except the in-place anchor on
+  `:65`.
+- **Residuals:**
+  1. **`theta/parse/tool-arg-schema-conflict`'s multiplicity stays
+     unadjudicated.** §Non-goals declines it (it needs a host exposing
+     registered Pi tools with input schemas, which the offline
+     composition-root harness does not provide) and the new paragraph excludes
+     it by name. Source-read only: `resolveSchemaConflict`
+     (`src/runtime/tool-call.ts`) reduces to the first provably disjoint field
+     and its emitter returns one diagnostic, so the row is first-only twice
+     over. Anyone adjudicating it owns its own witness.
+  2. **Harmonising the family on per-slot multiplicity remains a theta 2.0
+     item.** It needs `theta/parse/tool-arg-type-mismatch`'s *Message* to carry
+     `<i>`/`<param>`, which DIAG-4 defers. The new paragraph records the
+     deferral rather than hiding it.
+  3. **The stale in-tree comment at `src/parser/type-layer-checks.ts`
+     describing `theta/parse/invoke-arg-type-mismatch` as having "its own,
+     separately unwired emitter"** is §Non-goals' declared content drift and
+     was not touched: it sits in a file this fix does not otherwise edit, and
+     editing it would shift that file's line numbers for no behavioural gain.
+  4. **The report's own body is not rewritten to four surfaces.** §Summary,
+     §Kind, §Affected, §Reproduction and §Provenance still describe the
+     three-surface, `a314ac83` tree. The premeasure table and the staleness
+     list above are the corrective record; the body is left as filed so the
+     provenance of the original measurement stays legible.
+  5. **541 corpus citations of `diagnostic-shape.md:71–84` were preserved by
+     the end-of-file placement**, but any future insertion into that file
+     before `:84` invalidates all of them. Recorded so the next editor of that
+     page knows the cost.
+- **Discharge notes appended to sibling docs:** none. 0138, 0146 and 0131 are
+  each already fixed and none of their records is contradicted; their effect on
+  this report is recorded here rather than in their documents.
+- **Pinned dispositions / non-goals:** the Pi-tool schema-conflict count
+  (residual 1); the theta 2.0 *Message* reword (residual 2); which slots are
+  judged (owned by `collectProvableArgTypes` / `provableArgType`, unchanged);
+  the per-error-diagnostic note routing (bug 0013's settled disposition);
+  bug 0129's two-code cascade question and bug 0093's two-range question,
+  both of which the new paragraph is scoped to avoid deciding.

@@ -985,10 +985,18 @@ export async function checkInvokeStaticResolution(
           );
         }
         // `checkInvokeArgTypes` (run by `checkInvokeCall` once arity passes)
-        // emits one diagnostic per mismatched slot, with no `break` — unlike
-        // the `.theta`-callable arm below, which stops at its first mismatch
-        // because it reuses `checkToolCallArguments` per call. This row's own
-        // registered emitter, unchanged by this wiring.
+        // emits one diagnostic per mismatched slot, with no `break`: this
+        // row's *Message* names the slot (`<i>`/`<param>`), so per-slot
+        // emission is the adjudicated rule for it (diagnostic-shape.md
+        // #argument-mismatch-multiplicity). The `.theta`-callable arm below
+        // caps at one emission per call site instead — not because it shares
+        // this loop's shape, but because its own emitter is called once per
+        // slot from inside a loop that `break`s after the first mismatch; see
+        // that loop's own comment for why. `checkFnCallArgs`
+        // (../parser/type-layer-checks.ts) and `checkImportedFnCallArgs`
+        // below side with this per-slot row, not with the capped arm — the
+        // split is 3-per-slot to 1-per-site, not a 1:1 divide between two
+        // surfaces.
         diagnostics.push(
           ...checkInvokeCall({
             callee: invoke.path,
@@ -1131,8 +1139,13 @@ export async function checkInvokeStaticResolution(
             },
           }),
         );
-        // First mismatch only — mirrors the schema-conflict arm's "first
-        // provably-disjoint field fires" below.
+        // First mismatch only: this row's *Message* names neither the slot
+        // index nor the parameter, and its range is the whole call
+        // expression, so a second emission at this site would render
+        // byte-identical to the first — the per-site cap the adjudicated rule
+        // assigns this row (diagnostic-shape.md
+        // #argument-mismatch-multiplicity), distinct from the per-slot rule
+        // the invoke and `fn` rows draw.
         break;
       }
     }
