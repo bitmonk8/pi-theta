@@ -809,3 +809,52 @@ spawned children with all three `#subagent-child-pins` set. Every string in
   lines). The child-side reporting gap is not touched (constraint 8; bug 0178
   owns and fixed it). The `fn`-argument proof-gate asymmetry stays out of scope
   (constraint 6). `theta/parse/bare-object-literal` is untouched.
+
+## Coordination note — bug 0127 adjudicated (0.255.0, 2026-08-23)
+
+Appended by the bug 0127 fix. **Note only — nothing above is altered, this
+report's `Status:` stays `fixed (0.104.0)`, and no code, test or registry row of
+this report's subject is touched.**
+
+**The must-agree-with-0127 clause this record left open is discharged.** The
+§Fix record above states that "the corpus-level `type-system.md:31`-vs-`:48`
+disposition adjudication and the must-agree-with-0127 clause stay open there".
+Bug [0127](./0127-join-element-gate-does-not-defer-on-unresolvable-element.md)
+is now **fixed (0.255.0)** under an operator ruling that took its route (c): the
+two-level asymmetry at `array.join` is INTENDED and is now normative. Two
+sentences were appended in place to the *Unresolvable operands* paragraph
+(`docs/spec_topics/type-system.md` line 48), naming the disposition bug 0144's
+"…and take their own dispositions." clause deferred:
+
+1. `join`'s **element** precondition JUDGES AND REFUSES a provably-unresolvable
+   element type — a `named` that no visible declaration defines, as distinct
+   from a read whose type is merely withheld — as a non-`string` element type
+   (`theta/parse/non-string-array-join`), because the elements are what `join`
+   consumes and a provably-unresolvable element list is a provable author error
+   at that call even where the receiver as a whole would defer.
+2. The `join` **receiver** is outside that judgement and keeps the paragraph's
+   general deferring disposition.
+
+**What this means for this report.** Nothing here moves. 0127's route (c) is
+zero-behaviour-change: `src/` is byte-untouched, no registry *Trigger* or
+*Message* moves, and bug 0089's witness rows `b12`/`b13`/`e1`/`e2` keep their
+values. This report's own subject — `decide`'s TYPE-7 arm and the `array<T>`
+sink's deferral — is a genuine `⊑` compatibility check and therefore squarely
+INSIDE the *Unresolvable operands* paragraph, which its fix relies on and which
+the two new sentences leave untouched. The agreement the clause demanded is
+therefore satisfied by construction rather than by an edit: this report defers
+because it is a compatibility check; 0127's element precondition judges because
+it expressly is not one, and the paragraph now says both. The two dispositions
+are consistent, and the ground distinguishing them is on the page.
+
+**Still open, and not touched by 0127's ruling:** the corpus-level
+`docs/spec_topics/type-system.md` line 31 versus line 48 disposition
+adjudication named in the same bullet above, and bug 0144's wider question.
+0127's ruling names only `join`'s element precondition; the `for` iterand's
+`array<T>` precondition keeps its own unstated disposition under the same
+bug-0144 clause.
+
+Witnessed by `tests/join-element-unresolvable-disposition.test.ts` (23 cells;
+§(A) reads the corpus off disk, §(B) pins the fifteen behaviour rows, §(C) locks
+bug 0089's `b12`/`b13`). `tests/array-sink-unresolvable-deferral.test.ts`, this
+report's own witness, is byte-unchanged and green.

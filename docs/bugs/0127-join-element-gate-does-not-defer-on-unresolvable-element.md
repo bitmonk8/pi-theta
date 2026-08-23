@@ -1,8 +1,11 @@
 # Bug 0127 — The `array.join` gate's **element** test rejects an element type the `TypeEnv` cannot resolve as "not `string`", while the same gate's **receiver** test defers on an unresolvable `named`: `fn f(xs: array<Nope>): string { xs.join(",") }` is an error-severity `theta/parse/non-string-array-join` and `fn f(xs: Nope): string { xs.join(",") }` is `[]`; the class the element arm refuses holds five reachable spellings, including a `.thetalib`-imported element name and the bare `[].join(",")`, and no spec sentence decides which disposition an unresolvable element is owed
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition before any code lands. No ordering dependency on another open
-  report. One coordination constraint is binding —
+- **Status:** fixed (0.255.0). §Fix was settled by operator ruling (fifteenth
+  set, ruling 2) as **route (c)**; the two normative sentences landed on
+  `docs/spec_topics/type-system.md` line 48 and the record is
+  `## Fix (0.255.0)` at the end of this document. The body above is preserved as
+  filed. No ordering dependency on another open report. One coordination
+  constraint is binding —
   [0089](./0089-fn-param-alias-not-unfolded-iterand-join.md) is **fixed
   (0.72.0)** and its 36-cell witness now pins the current disposition at both
   levels (`tests/fn-param-alias-unfolded-at-gates.test.ts:492–509` row `b12`,
@@ -998,3 +1001,420 @@ reachable from a new input class. 0125's row c3 —
 *resolvable* element, which is inside its registered trigger and is not this
 report's subject. The unresolvable-element deferral this report prosecutes is
 unchanged in both directions.
+
+## Re-derivation note — 0.255.0 (2026-08-23), at HEAD `8dd418b9` (0.246.0)
+
+Appended by a re-derivation pass. **Note only — nothing above is altered, no
+code, test or spec file is touched, and this report stays `open` with §Fix
+still unsettled.** `docs/bugs/README.md` is untouched.
+
+**Verdict: the subject face survives intact and is NOT mooted.** Every row of
+§Reproduction was re-measured at this HEAD through the same harness (`parseDoc`,
+`tests/helpers/e2e-s1.ts`, over the production `parseThetaDocument`), in one
+scratch vitest file, written, run and deleted. Twenty-seven rows; twenty-six
+reproduce byte-identically in code list and message list. One drifted, in the
+report's favour — see *Measured drift* below.
+
+### Per-element probe table (re-measured, this HEAD)
+
+`JOIN(T)` is `fn f(xs: T): string { xs.join(",") }` with the `mode: prompt`
+frontmatter prepended and a trailing `1`, exactly as §Reproduction defines it.
+
+| # | Input | Codes at this HEAD | vs §Reproduction |
+|---|---|---|---|
+| A1 | `JOIN("array<Nope>")` — element | `["theta/parse/non-string-array-join"]`, `… got array<Nope>` | same |
+| A2 | `JOIN("Nope")` — receiver | `[]` | same |
+| A3 | `ITER("Nope")` — iterand | `["theta/parse/non-array-iterand"]`, `'for' expects array<T> after 'in'; got Nope` | same |
+| C1 | `JOIN("array<string>")` | `[]` | same (silence control holds) |
+| C2 | `JOIN("array<integer>")` | `["theta/parse/non-string-array-join"]`, `… got array<integer>` | same (trigger control holds) |
+| S1 | undeclared — `JOIN("array<Nope>")` | `["theta/parse/non-string-array-join"]`, `… got array<Nope>` | same |
+| S2 | imported — `import { E } from "./p.thetalib"` + `JOIN("array<E>")` | `["theta/parse/non-string-array-join"]`, `… got array<E>` | same |
+| S3 | enum — `enum Color { red, green }` + `JOIN("array<Color>")` | `["theta/parse/non-string-array-join"]`, `… got array<Color>` | same |
+| S4 | cycle — `schema A = B` / `schema B = A` + `JOIN("array<A>")` | `["theta/parse/type-alias-cycle","theta/parse/non-string-array-join"]` | same |
+| S5 | empty literal — `[].join(",")` | `["theta/parse/non-string-array-join"]`, `… got array<unknown>` | same |
+| R2 | receiver, imported — `JOIN("E")` | `[]` | same |
+| R3 | receiver, enum — `JOIN("Color")` | `[]` | same |
+| R4 | receiver, cycle — `JOIN("A")` | `["theta/parse/type-alias-cycle"]` | same |
+| P1 | imported `array<E>` + `.length` | `[]` | same |
+| P2 | imported `array<E>` + `for x in xs` | `[]` | same |
+| P3 | imported `array<E>` + `.includes("a")` | `[]` | same |
+| D1 | `fn f(xs: array<Nope>): integer { 1 }` | `[]` | same |
+| D2 | `schema L = array<Nope>` + `JOIN("L")` | `["theta/parse/unresolved-named-type","theta/parse/non-string-array-join"]` | same |
+| D3 | `schema E2 = Nope` + `JOIN("array<E2>")` | `["theta/parse/unresolved-named-type","theta/parse/non-string-array-join"]` | same |
+| L1 | `let e: array<Nope> = []` + `e.join(",")` | `["theta/parse/non-string-array-join"]`, `… got array<Nope>` | same |
+| F1 | `schema Nope = string` + `JOIN("array<Nope>")` | `[]` | same (declaring the name still flips it) |
+| **F2** | `schema unknown = string` + `[].join(",")` | `["theta/parse/schema-case-mismatch","theta/parse/non-string-array-join"]` | **DRIFTED** — the join rejection no longer disappears |
+| B1 | `schema P { a: string }` + `JOIN("array<P>")` | `["theta/parse/non-string-array-join"]`, `… got array<P>` | same (TYPE-10 bound holds) |
+| B2 | `schema P { a: string }` + `JOIN("P")` | `["theta/parse/unknown-method"]`, `unknown method 'join' on type P` | same |
+| B3 | `fn f(xs: array<Nope>) { xs.frobnicate() }` | `["theta/parse/unknown-method"]`, `unknown method 'frobnicate' on type array<Nope>` | same |
+| B4 | `schema Sev = "low" \| "high"` + `JOIN("array<Sev>")` | `["theta/parse/non-string-array-join"]`, `… got array<"low" \| "high">` | same (§Non-goals row) |
+| B5 | `let e: array<string> = []` + `e.join(",")` | `[]` | same (bug 0083's `b1` silence control holds) |
+
+All five refusing spellings, all four receiver-level twins, both silence
+controls, both trigger controls and all three bound rows are unchanged. Bug
+0089's witness `tests/fn-param-alias-unfolded-at-gates.test.ts` is byte-unchanged
+and green at 36/36, so rows `b11`/`b12`/`b13`/`e1`/`e2` are intact.
+
+### Measured drift — the sentinel is no longer shadowable (row F2)
+
+§Fix's constraint *"The synthesised `named "unknown"` sentinel is in or out of
+the class explicitly"* rested on the measurement that `schema unknown = string`
+removes the join rejection, making a resolvability-keyed route
+author-declaration-sensitive for the empty-literal case. **That measurement no
+longer holds.** `resolveNamed` (`src/parser/type-compat.ts`) now carries a
+read-seam uppercase-first fence — a name whose first character is not `A`–`Z`
+resolves to no declaration, whatever the env holds — landed for bug 0038's
+`__proto__` witness and deliberately placed at the read seam rather than at
+`collectTypeEnv`'s write seam. So the lowercase sentinel `unknown` is
+unresolvable by construction and cannot be shadowed. **Consequence for §Fix:**
+that constraint's *reason* is discharged. The sentinel is still a decision — it
+remains in the refused class under every route, and route (a) would make
+`[].join(",")` load — but it is no longer author-declaration-sensitive, so the
+argument against keying a route on resolvability alone is one weaker.
+
+### Corpus movement since the filing — two sentences that narrow, neither settles
+
+1. **`docs/spec_topics/type-system.md:48`** now ends: *"The `for` iterand's
+   `array<T>` precondition and `join`'s element precondition are not on the
+   check-site list above, are not compatibility checks and are outside this
+   paragraph, and take their own dispositions."* Landed by
+   [0144](./0144-annotated-unresolvable-arg-structural-param-emits.md) (fixed,
+   0.185.0). This **ratifies Reading A's point 2 in the corpus** — the report's
+   scoping argument is now a spec sentence rather than a reading — and it kills
+   Reading B's point 3 as a *letter* argument. It settles nothing else: "take
+   their own dispositions" names no disposition. 0144's own fix record states
+   the boundary in terms (§*Coordination*, agreement 1): *"0127 stays open and
+   its subject is not fixed … this record decides nothing about them … 0127 is
+   the wider question — whether a non-`⊑` precondition gate owes the same
+   deferral — and remains entirely open."*
+2. **`docs/spec_topics/expressions.md:222`** now states the no-context empty
+   literal's disposition: *"it types as `array<unknown>` and draws no
+   diagnostic; consumers of that element defer under Type System — Type
+   compatibility (Unresolvable operands)."* Landed by
+   [0195](./0195-control-flow-empty-array-iterand-claim-false.md). Read against
+   sentence 1 this is consistent but uncomfortable: `join`'s element
+   precondition is expressly outside *Unresolvable operands*, so it is not one
+   of the deferring consumers, and row S5 (`[].join(",")` refusing) is
+   admissible. 0195's own record reaches the same conclusion — *"Bug 0127's
+   fifth spelling … 0127 is owed no note."* Any route (a) landing must
+   nonetheless reconcile these two sentences explicitly, because a reader
+   arriving at `expressions.md:222` is pointed at a paragraph that disclaims the
+   site.
+
+Also adjacent: [0179](./0179-array-sink-refuses-unresolvable-value-type.md) is
+now **fixed (0.104.0)** and its record leaves *"the must-agree-with-0127 clause
+… open"*. Three landed fixes have now deliberately routed around this
+adjudication rather than making it.
+
+### Citation drift (record only — §Affected and §Provenance are NOT rewritten)
+
+Every cited construct still exists; the line numbers moved. Symbol-form map at
+this HEAD: `checkArrayJoin` is `src/runtime/stdlib-array.ts:100` (unmoved;
+predicate `:107–109`, emission `:115–123`), its `displayType` import
+`src/runtime/stdlib-array.ts:26` (unmoved), the runtime `join` case
+`src/runtime/stdlib-array.ts:67`; `checkMethodCall`'s join branch is
+`src/parser/type-layer-checks.ts:3411–3462` (was `:1417–1459`) — receiver unfold
+`src/parser/type-layer-checks.ts:3421`, receiver test
+`src/parser/type-layer-checks.ts:3422`, element comment
+`src/parser/type-layer-checks.ts:3423–3437`, `checkArrayJoin` call
+`src/parser/type-layer-checks.ts:3441`, receiver-defer comment
+`src/parser/type-layer-checks.ts:3449–3451`, the `"unknown"` return
+`src/parser/type-layer-checks.ts:3453`, the raw render
+`src/parser/type-layer-checks.ts:3461`; `classifyReceiver` is
+`src/parser/type-layer-checks.ts:206` (was `:166`); `collectTypeEnv` is
+`src/parser/type-layer-checks.ts:400` (was `:302`); the `checkArrayJoin` import
+is `src/parser/type-layer-checks.ts:100` (was `:90`); `resolveNamed` is
+`src/parser/type-compat.ts:146` (was `:104`), `unfoldAlias`
+`src/parser/type-compat.ts:226` (was `:155`), `decide`'s `"unknown"` arms
+`src/parser/type-compat.ts:291`, `src/parser/type-compat.ts:318`,
+`src/parser/type-compat.ts:352`; `hasLoadParseError` is
+`src/extension/production-composition.ts:2360` (was `:2045`),
+`parseDiscoveredTheta` `src/extension/production-composition.ts:2394` (was
+`:2079`); `expressions.md`'s imported-name constructor deferral is
+`docs/spec_topics/expressions.md:216` (was `:214`) and the array-literal rule
+`docs/spec_topics/expressions.md:222` (was `:220`);
+`code-registry-parse.md`'s `non-string-array-join` row is
+`docs/spec_topics/diagnostics/code-registry-parse.md:46` (was `:43`),
+`unknown-method` `docs/spec_topics/diagnostics/code-registry-parse.md:70` (was
+`:63`), `unresolved-named-type`
+`docs/spec_topics/diagnostics/code-registry-parse.md:112` (was `:90`);
+`type-system.md`'s TYPE-10 is `docs/spec_topics/type-system.md:54` (was `:52`)
+and TYPE-11 `docs/spec_topics/type-system.md:56` (was `:54`);
+`docs/reference/diagnostics.md`'s mirror row is `docs/reference/diagnostics.md:92`
+(was `:89`). Bug 0089's witness rows are unmoved:
+`tests/fn-param-alias-unfolded-at-gates.test.ts:474` (`b11`),
+`tests/fn-param-alias-unfolded-at-gates.test.ts:493` (`b12`),
+`tests/fn-param-alias-unfolded-at-gates.test.ts:512` (`b13`),
+`tests/fn-param-alias-unfolded-at-gates.test.ts:699` (`e1`),
+`tests/fn-param-alias-unfolded-at-gates.test.ts:716` (`e2`).
+
+**Two substantive citation corrections.** (i) `unresolved-named-type`'s
+registered position list is now **six**, not five:
+`docs/spec_topics/diagnostics/code-registry-parse.md:112` adds a `match`
+object-pattern head. A `fn`-parameter annotation and a `let` annotation are
+still absent, so every §Reproduction row's one-diagnostic outcome and §Why it
+matters' spelling-sensitivity finding stand unchanged; only the count in the
+prose is stale. (ii)
+[0051](./0051-lowercase-named-type-reference-positions-silent.md) is no longer
+**open** — it is discharged as superseded (no version), by the `resolveNamed`
+case fence above. §Related's characterisation of it as "open, adjacent and not
+blocking" is stale in status only; its cited content (that the sentinel was
+shadowable) is exactly what row F2 measures as reversed.
+
+### One behavioural addition since the filing, inside the gate
+
+`checkMethodCall` now withholds the element verdict when the element is read out
+of a WITHHELD binder — `containsWithheldBinderType(joinElement)` guards the
+`checkArrayJoin` call at `src/parser/type-layer-checks.ts:3439–3444` — on the
+stated ground that the predicate "refuses every non-`string` element including
+an unresolvable one, so it cannot defer on a withheld read by itself". This is a
+*withhold*, not a *resolvability* arm: it keys on binder provenance, not on
+whether the `TypeEnv` resolves the element. It touches no row above — none of
+the twenty-seven inputs reads through a withheld binder — and it decides nothing
+here. It does establish precedent that a caller-side pre-test skipping
+`checkArrayJoin` is an accepted shape, which is route (a)'s named mechanism
+(*"its caller pre-tests resolvability … and skips the call"*), so route (a) is
+cheaper to implement than the filing recorded.
+
+### STOP — the route is not adjudicated, and this pass is not entitled to adjudicate it
+
+§Fix is *"Not settled. This report exists to pin the spec disposition first."*
+It offers routes (a), (b) and (c), states that they are "not equally cheap and
+they are not equally safe", and decides none. Nothing landed since the filing
+forces one: sentence 1 above strengthens Reading A's scoping argument without
+answering Reading A's or Reading B's substantive question, and the two remaining
+live tensions — the imported-element program that TYPE-11 makes legal and this
+gate refuses at `E` severity, and the empty-literal pointer at
+`docs/spec_topics/expressions.md:222` into a paragraph that disclaims the site —
+are exactly the tensions §Expected behaviour records as undecided.
+
+Each route is disqualified from bounded self-adjudication on its own terms:
+
+- **(a)** moves bug 0089's `toEqual` witness rows `b12` and `b13` from a refusal
+  to `[]` / `["theta/parse/type-alias-cycle"]`. That is witness-weakening, and
+  it lands a carve-out sentence at `docs/spec_topics/expressions.md:108` plus a
+  DIAG-2 *Trigger* narrowing at
+  `docs/spec_topics/diagnostics/code-registry-parse.md:46`.
+- **(b)** makes three measured currently-clean programs refuse (GOV-15's
+  governed direction), reverses bug 0089's §Fix constraint, and either widens a
+  *Trigger* or mints a registry row.
+- **(c)** changes no observable but lands two normative spec sentences that
+  ratify the disposition — a spec-meaning change by construction, and one whose
+  §Fix text already records that it "owes an answer to Reading B's point 2",
+  which no landed sentence supplies.
+
+All three are spec-meaning-changing; (a) is additionally witness-weakening. The
+operator question this pass would have asked, stated for the record:
+
+> **Which of routes (a), (b) or (c) governs?** Equivalently: is an element type
+> the parser cannot resolve inside "non-string element type"
+> (`docs/spec_topics/expressions.md:108` /
+> `docs/spec_topics/diagnostics/code-registry-parse.md:46`), given that
+> `docs/spec_topics/type-system.md:48` now expressly places `join`'s element
+> precondition outside the corpus's one general deferral rule while naming no
+> disposition in its place; and if it is, on what ground is the receiver
+> position's silence correct?
+
+No code, test or spec file was modified by this pass. `git status --short` lists
+this document alone.
+
+## Fix (0.255.0)
+
+Settled by operator ruling, quoted verbatim as the spec authority for this
+record:
+
+> **OPERATOR RULING (fifteenth set, ruling 2): 0127 = route (c). The shipped
+> two-level asymmetry at join is INTENDED and becomes normative: the element
+> precondition JUDGES AND REFUSES provably-unresolvable element types
+> (rationale: elements are what join consumes — a provably-broken element list
+> is a provable author error even where the receiver as a whole defers), while
+> the receiver keeps the general Unresolvable-operands defer rule. Zero
+> behaviour change; two normative spec sentences land it; this completes
+> type-system.md:48's 'take their own dispositions' clause (bug 0144) by naming
+> the disposition, and discharges open bug 0179's must-agree-with-0127 clause
+> (append a dated coordination note to 0179's doc saying so, version 0.255.0).
+> Routes (a) — defer on elements, weakening 0089's b12/b13 — and (b) — judge
+> the receiver, refusing three clean programs — are REJECTED.**
+
+- **What shipped:**
+  - `docs/spec_topics/type-system.md` line 48 — the two normative sentences,
+    appended IN PLACE to the existing single-line *Unresolvable operands*
+    paragraph. Sentence 1 names the element disposition (`join`'s element
+    precondition "takes the judging disposition"; an element type the parser
+    provably cannot resolve — a `named` no visible declaration defines, as
+    distinct from a read whose type is merely withheld — is a non-`string`
+    element type and is refused as `theta/parse/non-string-array-join`, with
+    the ruling's rationale stated). Sentence 2 names the receiver disposition
+    (the receiver is outside that judgement and keeps this paragraph's
+    deferring disposition, so the two levels are asymmetric by rule). The
+    bug-0144 clause "…and take their own dispositions." is preserved verbatim
+    and completed, not displaced.
+  - `tests/join-element-unresolvable-disposition.test.ts` — new conformance
+    oracle, 23 cells, in the shape of
+    `tests/for-empty-array-iterand-adjudication.test.ts`.
+  - **Nothing else.** `src/` is byte-untouched, so the fix changes no
+    observable — which is route (c)'s defining property.
+
+- **Every page and line touched, enumerated:**
+  | File | Position | Change |
+  |---|---|---|
+  | `docs/spec_topics/type-system.md` | line 48 (the *Unresolvable operands* paragraph) | two sentences appended in place; file still 57 lines, `1 insertion(+), 1 deletion(-)`, **zero line shift** |
+  | `tests/join-element-unresolvable-disposition.test.ts` | new file | the witness |
+  | `docs/bugs/0127-join-element-gate-does-not-defer-on-unresolvable-element.md` | `Status:` line + this record | the fix record |
+  | `docs/bugs/0179-array-sink-refuses-unresolvable-value-type.md` | appended coordination note | discharges its must-agree-with-0127 clause |
+
+  Deliberately NOT touched, each with its reason:
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — **no registry cell
+    edit, and none is entailed.** `theta/parse/non-string-array-join`'s
+    registered *Trigger* ("`arr.join(...)` invoked on an array whose element
+    type is not `string`.") is total over element types and already covers the
+    refusal the ruling ratifies; `theta/parse/unknown-method`'s *Trigger*
+    already scopes the receiver silence. No *Message* moves, so DIAG-4 is not
+    engaged, and no *Trigger* moves, so DIAG-2 entails no mirror edit in
+    `docs/reference/diagnostics.md`. Cell A4 of the witness pins both
+    *Trigger*s byte-exact and reds if a later pass reaches for the registry.
+  - `docs/spec_topics/expressions.md` — the `join` member row (line 108) and
+    the empty-literal sentence (line 222) are byte-unchanged and pinned by cell
+    A5. The reconciliation of line 222's "consumers of that element defer under
+    … (*Unresolvable operands*)" with the new refusal is the bug-0144 clause
+    already on `docs/spec_topics/type-system.md` line 48: `join`'s element
+    precondition is expressly OUTSIDE that paragraph, so `join` is not one of
+    the deferring consumers. Behaviourally pinned by witness row E5
+    (`[].join(",")` refuses, rendering `array<unknown>`) against row S2
+    (`let e: array<string> = []` then `e.join(",")` is silent).
+  - `docs/reference/type-system.md` lines 73–75 — the user-facing mirror still
+    reads "…and take their own dispositions." That sentence stays TRUE, so no
+    divergence is introduced; only the mirror is less complete than the spec.
+    Extending it would insert 3–4 wrapped lines at line 75 and shift every
+    later line of a page that ten open and fixed bug documents cite by line
+    (`docs/reference/type-system.md:76–80`, `:83`, `:90`, `:93–97`, `:111`,
+    `:113`, `:115–119`, `:143–158` are all live citations). The shift hazard
+    outweighs the completeness gain for a page no gate binds to the spec.
+    Recorded as residual 1.
+  - `src/parser/type-layer-checks.ts` — the element comment that asserted the
+    disposition without a spec anchor is now backed by
+    `docs/spec_topics/type-system.md` line 48, but is left byte-unchanged so
+    the fix owes no live run. Residual 2.
+  - `tests/fn-param-alias-unfolded-at-gates.test.ts` — byte-unchanged
+    (`git hash-object` = `git rev-parse HEAD:<path>` =
+    `6aa14fe9fe444e08618762143f23abb66cc666d0`), 36/36 green. Rows `b12` and
+    `b13` KEEP their refusal values: route (a) is rejected, so no value
+    changes. The comment-only restatement was checked for and found **not
+    owed**: neither row's comment claims the disposition is unsettled — `b12`
+    reads "this disposition is the one the gate already reached and must keep"
+    and `b13` reads "fails the `string` test exactly as b12's undeclared name
+    does" — both restate the mechanism and assert the shipped disposition,
+    which the ruling ratifies. §(C) of the new oracle reads those two blocks'
+    bytes and reds if either `toEqual` value moves, which is the same
+    protection a rewritten comment would have documented, made testable.
+
+- **The ruling discharged clause by clause:**
+  1. *"0127 = route (c)"* — routes (a) and (b) are not taken: no `src/` byte
+     moved, no witness value moved, no registry row moved.
+  2. *"the element precondition JUDGES AND REFUSES provably-unresolvable
+     element types"* — sentence 1, cell A1 (red at the old bytes), and witness
+     rows E1–E6 (undeclared name, alias-cycle participant, imported
+     `.thetalib` name, `enum` name, unsunk `[]` sentinel, `let`-annotation
+     route), each a whole-list `toEqual`.
+  3. *"rationale: elements are what join consumes …"* — carried verbatim in
+     sense inside sentence 1's `because` clause.
+  4. *"while the receiver keeps the general Unresolvable-operands defer rule"*
+     — sentence 2, cell A2 (red at the old bytes), and witness rows R1–R4
+     (`JOIN("Nope")`, imported `JOIN("E")`, `enum` `JOIN("Color")`, cycle
+     `JOIN("A")` → the cycle code alone).
+  5. *"Zero behaviour change"* — `git diff --stat -- src/` is empty; all 21
+     non-prose cells pass at the OLD bytes as well as the new (the verifier's
+     neutralisation run), which is what proves the change is prose-only.
+  6. *"two normative spec sentences land it"* — exactly two, on one line of one
+     page.
+  7. *"completes type-system.md:48's 'take their own dispositions' clause"* —
+     cell A3 pins that clause's survival; the new sentences follow it in the
+     same paragraph and name the disposition it defers.
+  8. *"discharges open bug 0179's must-agree-with-0127 clause"* — dated
+     coordination note appended to
+     `docs/bugs/0179-array-sink-refuses-unresolvable-value-type.md`, version
+     `0.255.0`. That document's `Status:` is untouched.
+  9. *"Routes (a) and (b) are REJECTED"* — §(C) of the oracle reds if route (a)
+     is ever taken (it asserts bug 0089's `b12`/`b13` `toEqual` refusal
+     expectations are still in that file's bytes); §(B) rows R1–R4 red if route
+     (b) is ever taken.
+
+- **Gates** (all re-run by the orchestrator, not taken on report):
+  - Witness, at the OLD bytes: 2 failed and 21 passed of 23 — A1 and A2 red,
+    each naming `docs/spec_topics/type-system.md` and quoting the missing
+    sentence. At the new bytes: 23 passed of 23.
+  - Full default suite: `npm test` → 427 test files passed of 427, 9063 tests
+    passed of 9063, 0 failed.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) —
+    clean, no output.
+  - `tests/citation-symbol-form-gate.test.ts` — 3 of 3 green; the pinned
+    residual of 415 unattributable bare-`:NN` continuations did not rise.
+  - `wc -l docs/spec_topics/type-system.md` → 57, unchanged.
+  - **Live: none owed, none run.** `src/` is byte-untouched. The live lock was
+    never acquired and no foreign lock was touched.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned **clean, no
+  findings**, having re-derived the two sentences against
+  `containsWithheldBinderType` and the `checkArrayJoin` guard in
+  `src/parser/type-layer-checks.ts`, `classifyReceiver`'s `"unknown"` arm, and
+  `checkArrayJoin`'s two-shape allow-list in `src/runtime/stdlib-array.ts`;
+  confirmed the `docs/spec_topics/expressions.md` line 222 reconciliation;
+  confirmed every §(B) row is a whole-list `toEqual` with messages sourced from
+  the registry *Message* column per DIAG-4; and confirmed the fail-loud
+  preconditions (missing corpus file, missing registry row, missing paragraph,
+  missing `it(` block each throw naming the unmet precondition — no skips).
+
+- **Verification:** verdict **SOLID**, all four obligations discharged.
+  (1) The witness genuinely reds: the verifier wrote the HEAD bytes of
+  `docs/spec_topics/type-system.md` back by plain file write (never
+  `git checkout`, never `git restore`), hash-verified
+  `8cfc310cf74627be2697c81b59dbd707c07cd1b6` against
+  `git rev-parse HEAD:<path>`, ran RED (2 failed, 21 passed), restored the
+  fixed bytes and hash-verified `e46c79d18c086e267f39f5cb261c828374dd16c3`,
+  then ran GREEN (23 of 23). It also stated which cells red under each rejected
+  route, so the pins are not vacuous. (2) Full suite 427 of 427 files, 9063 of
+  9063 tests. (3) No live owed — `git diff --stat -- src/` empty,
+  `git status --short` names no `src/` path; none run, no lock touched.
+  (4) Typecheck and lint clean.
+
+- **Residuals:**
+  1. `docs/reference/type-system.md` lines 73–75 still say `join`'s element
+     precondition "takes its own disposition" without naming it. Not false,
+     only incomplete. Deferred on the line-shift hazard evidenced above (eight
+     distinct line-cited ranges into that page below line 75). A future pass
+     that rewraps that page can carry the mirror sentence in the same commit.
+  2. `src/parser/type-layer-checks.ts`'s element comment still asserts the
+     disposition citing TYPE-10 rather than the new sentence. Left untouched to
+     keep `src/` byte-clean and the fix live-free; the assertion it makes is now
+     corpus-backed, so the comment is under-cited rather than wrong.
+  3. `theta/parse/unresolved-named-type`'s registered position list still
+     excludes a `fn`-parameter annotation and a `let` annotation, so an author
+     hitting these rows is told the element is not `string` and is not told the
+     name resolves to nothing. That is the third question §Expected behaviour
+     records; it belongs to bug 0028's position list, not to this adjudication,
+     and route (c) does not decide it.
+  4. §Affected and §Provenance above still carry the line numbers measured at
+     `552b4ace`. The full symbol-form remap is in the *Citation drift* section
+     of the re-derivation note above; the body was deliberately not rewritten.
+  5. Lane protocol: no `package.json` bump, no `CHANGELOG.md` entry, no
+     `docs/bugs/README.md` index edit, and no commit were made by this pass.
+     The version placeholder `0.255.0` above and in the 0179 note is literal and
+     is resolved by the integrating pass.
+
+- **Discharge notes appended:**
+  `docs/bugs/0179-array-sink-refuses-unresolvable-value-type.md` — dated
+  coordination note discharging its must-agree-with-0127 clause.
+
+- **Pinned dispositions / non-goals:** the synthesised `named "unknown"`
+  sentinel is **in** the refused class explicitly (sentence 1's "a `named` that
+  no visible declaration defines" reaches it, and the `resolveNamed`
+  uppercase-first fence makes it unresolvable by construction — see the
+  re-derivation note's row F2). An alias-cycle participant is likewise **in**,
+  and its aggregated list stays
+  `["theta/parse/type-alias-cycle","theta/parse/non-string-array-join"]` (row
+  E2). A read whose type is merely WITHHELD is **out**, matching the
+  `containsWithheldBinderType` guard. The receiver-level pair bug 0089 pinned
+  is unmoved. The iterand gate keeps its own disposition — the bug-0144 clause
+  names it alongside `join`'s element precondition, and this ruling names only
+  the latter.

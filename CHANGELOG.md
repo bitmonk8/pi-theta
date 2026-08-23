@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.255.0]
+
+### Fixed
+
+- Bug 0127: the join-element two-level asymmetry is now normative (operator
+  ruling, route (c)): two sentences appended in place to
+  `type-system.md:48`'s *Unresolvable operands* paragraph — the element
+  precondition judges and refuses provably-unresolvable element types
+  (elements are what `join` consumes) while the receiver keeps the general
+  defer rule. Zero behaviour change; `src/` byte-untouched; file stays 57
+  lines (zero line shift). Completes 0144's "take their own dispositions"
+  clause; discharges open bug 0179's must-agree clause (dated coordination
+  note). No registry edit owed (both Triggers already conform — pinned by
+  witness cell A4). New 23-cell conformance oracle
+  `tests/join-element-unresolvable-disposition.test.ts` (A1/A2 red at old
+  bytes; §(C) locks 0089's b12/b13). No live owed.
+
 ## [0.254.0]
 
 ### Fixed
