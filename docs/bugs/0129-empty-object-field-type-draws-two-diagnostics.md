@@ -1374,3 +1374,20 @@ class.
   "records 0129's authority to re-pin them again, and appends a disclosure note
   to 0129." This is that note. This report's adjudication rules the new
   instances and may re-pin them.
+
+### Discharge note — bug 0046 (0.253.0)
+
+Two of this report's witness rows moved, under the authority its own in-cell
+prose names ("Bug 0046 owns what an absent occurrence is worth").
+[0046](./0046-by-clause-undecided-inputs-load-silently.md) §Fix (0.253.0) refuses
+an explicit `by` naming a field at least one variant does not declare, so the
+row "the `by` field absent from the other variant" and row A8 (`by ghost`) in
+`tests/empty-object-discriminator-field-withhold.test.ts` now carry
+`theta/parse/absent-discriminator-field` BESIDE `theta/parse/empty-schema-body`
+rather than the empty-schema-body line alone. That is this report's own
+derived-verdict test applied, not an exception to it: the absent-field verdict
+is earned from the OTHER variant not declaring the field, so it is an
+independent fault rather than a verdict read off the refused `{}` text. The
+withhold itself is untouched — every row whose `by` field resolves in every
+variant, including `{}` on both variants and `{a: {}}`, keeps exactly the
+disposition this report pinned.

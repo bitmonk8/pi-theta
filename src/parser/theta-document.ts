@@ -7530,16 +7530,25 @@ function checkSchemaDeclarationGraph(
       pushDiag(out, checkInlineEnumForm(arm, site));
       out.push(...parseTypeExpression(arm, "schema-feeding", site));
     }
-    // A `by` clause needs a discriminated union under it, and
-    // `UnionRhs ::= Type ("|" Type)+` (grammar.md §"schema X by <field>")
-    // makes that at least two arms: `schema X by f = Cat` declares one
-    // variant, which has no discriminator to select on. That is the same
-    // illegality the object form carries — "object schemas have one variant by
-    // definition and the discriminator concept does not apply"
-    // (schemas.md §Discriminated unions) — so it takes the same code through
-    // the same construction point, `checkByClause`'s non-`"union"` arm, rather
-    // than a second site rendering the same registered Message.
-    const byForm = s.arms.length >= 2 ? "union" : "object";
+    // A `by` clause needs a discriminated union under it: at least two arms
+    // (`UnionRhs ::= Type ("|" Type)+`, grammar.md §"schema X by <field>") AND
+    // every arm an object schema (bug 0046, settled route — schemas.md
+    // §Discriminated unions defines the concept over unions "whose variants are
+    // all object schemas"). `schema X by f = Cat` declares one variant, which
+    // has no discriminator to select on; `schema X by f = string | integer`
+    // declares two variants with no fields to select on — both are the same
+    // illegality the object form carries ("object schemas have one variant by
+    // definition and the discriminator concept does not apply",
+    // schemas.md §Discriminated unions), so all three take the same code
+    // through the same construction point, `checkByClause`'s non-`"union"` arm,
+    // rather than a second site rendering the same registered Message. An
+    // object-schema arm is an inline `ObjectType` (its text opens with `{`), or
+    // a bare identifier resolving to a declared OBJECT-form schema — an alias
+    // declaration does not qualify, so it takes no hop.
+    const byForm =
+      s.arms.length >= 2 && s.arms.every((arm) => isObjectSchemaArm(arm, objectFields))
+        ? "union"
+        : "object";
     // Alias RHS name resolution (bug 0033 §Fix): the alias right-hand side is
     // a further `NamedType`-resolution position under
     // `theta/parse/unresolved-named-type`'s registry row. Reuses the same
@@ -7581,7 +7590,18 @@ function checkSchemaDeclarationGraph(
         .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
     }
     if (s.by !== undefined) {
-      pushDiag(out, checkByClause({ name: s.name, form: byForm, field: s.by }, site));
+      // Withheld when the arm walk above already pushed an error-severity
+      // diagnostic (an unresolved name, a reserved keyword, unspellable text):
+      // that fault is the more specific one, so `schema X by f = Ghost | Dog`
+      // keeps `theta/parse/unresolved-named-type` alone rather than drawing a
+      // second diagnostic for the same written mistake (bug 0046, settled
+      // route). `declDiagStart` bounds the check to THIS declaration's own
+      // arm walk, mirroring the identical guard the alias-unspellable pass
+      // above uses for the same reason.
+      const armWalkHadError = out.slice(declDiagStart).some((d) => d.severity === "error");
+      if (!armWalkHadError) {
+        pushDiag(out, checkByClause({ name: s.name, form: byForm, field: s.by }, site));
+      }
     }
     const variants = buildUnionVariantSchemas(s.arms, objectFields);
     if (variants !== undefined) {
@@ -7637,6 +7657,28 @@ function identifierShapedReferences(typeSources: readonly string[]): string[] {
     }
   }
   return [...seen];
+}
+
+/**
+ * Is `arm` an object schema for the `by`-clause admission cut (bug 0046,
+ * settled route)? Two shapes qualify: an inline `ObjectType` (its trimmed text
+ * opens with `{` — schemas.md §Discriminated unions defines a discriminated
+ * union over unions "whose variants are all object schemas", and an inline
+ * object type is one), or a bare identifier resolving to a declared
+ * OBJECT-form schema in `objectFields`. An identifier resolving to an ALIAS
+ * declaration (`schema Y = string`) is not an object schema at the point of
+ * use — deliberately no hop — and neither is one resolving to nothing or to an
+ * `enum`, since neither populates `objectFields`.
+ */
+function isObjectSchemaArm(
+  arm: string,
+  objectFields: ReadonlyMap<string, readonly SchemaFieldSource[]>,
+): boolean {
+  const trimmed = arm.trim();
+  if (trimmed.startsWith("{")) {
+    return true;
+  }
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed) && objectFields.has(trimmed);
 }
 
 /**

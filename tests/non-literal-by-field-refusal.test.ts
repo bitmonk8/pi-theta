@@ -27,8 +27,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // false (`:505`) and `allLiteral` is false (`:510`) — no occurrence carries a
 // literal — so every one of the three pre-fix gates declined and the function
 // returned `[]`. No gate tested `allLiteral` on its own; the fix adds exactly
-// that gate (`:669`), placed after `anyNested` (`:636`) and before the
-// non-string gate (`:675`).
+// that gate (`src/parser/schema-declarations.ts:681`), placed after `anyNested`
+// (`src/parser/schema-declarations.ts:634`) and before the non-string gate
+// (`src/parser/schema-declarations.ts:687`).
 //
 // THE SETTLED DISPOSITION THIS FILE ENCODES (bug 0128 §Expected behaviour,
 // Reading A; §Fix (b) candidate 1). Detection rule 2
@@ -40,12 +41,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   `discriminator '<field>' on <X> must be a single string-literal type in
 //    every variant`.
 // The gate fires on `presentInAll && !allLiteral`, placed AFTER the `anyNested`
-// gate, so the four neighbouring dispositions are byte-unchanged: an ABSENT
-// field stays silent (bug 0046 class 1, `presentInAll === false`), a nested
+// gate, so three neighbouring dispositions are byte-unchanged: a nested
 // occurrence keeps `theta/parse/nested-discriminator`, a non-string literal
 // keeps `theta/parse/non-string-discriminator`, a duplicate literal keeps
 // `theta/parse/duplicate-discriminator-value`, and the implicit (no-clause)
-// path keeps `theta/parse/missing-discriminator` everywhere it fires today.
+// path keeps `theta/parse/missing-discriminator` everywhere it fires today. An
+// ABSENT field (`presentInAll === false`) was bug 0046 class 1 and stayed
+// silent at the time this file's own fix landed; bug 0046's later settled
+// route added a gate one step earlier for exactly that case
+// (`theta/parse/absent-discriminator-field`), which this file's own seam cell
+// below now asserts rather than the silence.
 //
 // WHY THIS FILE IS RED AT HEAD, AND FOR WHAT. Two reasons, both intended and
 // both cleared by the fix:
@@ -109,6 +114,8 @@ const REGISTRY = parseRegistry(
 
 /** The code this report mints (bug 0128 §Fix (b) candidate 1). */
 const NON_LITERAL = "theta/parse/non-literal-discriminator";
+/** Bug 0046 §Fix, settled route: an explicit `by` naming a field a variant does not declare — the boundary this file's own seam cell owns below. */
+const ABSENT_FIELD = "theta/parse/absent-discriminator-field";
 
 /**
  * The registry row's normative *Message* template for `code`. Definedness is
@@ -140,6 +147,14 @@ function nonLiteralDiscriminatorLine(field: string, schema: string): string {
   return line(
     NON_LITERAL,
     messageTemplate(NON_LITERAL).replace("<field>", field).replace("<X>", schema),
+  );
+}
+
+/** `theta/parse/absent-discriminator-field` rendered for `field` on `schema` (bug 0046). */
+function absentDiscriminatorFieldLine(field: string, schema: string): string {
+  return line(
+    ABSENT_FIELD,
+    messageTemplate(ABSENT_FIELD).replace("<field>", field).replace("<X>", schema),
   );
 }
 
@@ -435,7 +450,7 @@ describe("bug 0128 class 1 — an explicit `by` over a resolved non-literal fiel
 describe("bug 0128 controls — the four neighbouring dispositions stay byte-identical", () => {
   it("A11/A12 keep `nested-discriminator`, A13 stays clean, A14 keeps `non-string-discriminator`", () => {
     // The new gate is placed AFTER the `anyNested` gate
-    // (src/parser/schema-declarations.ts:636), which is why A11 and A12 keep
+    // (src/parser/schema-declarations.ts:634), which is why A11 and A12 keep
     // their present code. A12 is the boundary: `anyNested` is a `.some`
     // (`:505`), so ONE nested occurrence refuses a declaration whose other
     // occurrence is a literal union — a member of class 1 on its own. That
@@ -718,19 +733,20 @@ describe("bug 0128 seam — `checkDiscriminatedUnion` on a `{}`-classified field
     expect(seamLines({}, "kind")).toEqual([nonLiteralDiscriminatorLine("kind", "Animal")]);
   });
 
-  it("an ABSENT `by` field still returns no diagnostic — the bug 0046 boundary", () => {
-    // The non-goal, pinned so the fix cannot over-reach into it. The new gate
-    // fires on `presentInAll && !allLiteral`
-    // (src/parser/schema-declarations.ts:504–510); an explicit `by` naming a
-    // field no variant declares has `presentInAll === false` and is bug 0046
-    // class 1, whose disposition is undecided and is NOT settled here. A gate
-    // written on `!allLiteral` alone would collapse the two classes and red
-    // this cell.
+  it("an ABSENT `by` field now draws its own code — the bug 0046 boundary, moved", () => {
+    // THE BOUNDARY THIS REPORT OWNS, MOVED BY BUG 0046'S SETTLED ROUTE. The new
+    // gate this report's fix adds fires on `presentInAll && !allLiteral`
+    // (src/parser/schema-declarations.ts); an explicit `by` naming a field no
+    // variant declares has `presentInAll === false`, which is bug 0046 class
+    // 1 and is NOT this gate's subject — it is refused one gate earlier, by
+    // `!evaluation.presentInAll`, with `theta/parse/absent-discriminator-field`
+    // rather than staying silent. A gate written on `!allLiteral` alone would
+    // still collapse the two classes and red this cell the other way.
     expect(
       seamCodes({}, "colour"),
-      "an explicit `by` naming no theta-side field of any variant is bug 0046 class 1 and stays silent",
-    ).toEqual([]);
-    expect(seamLines({}, "colour")).toEqual([]);
+      "an explicit `by` naming no theta-side field of any variant is bug 0046 class 1, settled: refused",
+    ).toEqual([ABSENT_FIELD]);
+    expect(seamLines({}, "colour")).toEqual([absentDiscriminatorFieldLine("colour", "Animal")]);
   });
 
   it("the implicit path is unchanged for the same variants", () => {

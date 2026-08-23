@@ -616,16 +616,14 @@ function checkExplicitDiscriminator(
   // `kind` field even where it is written `kind as "Kind": "v1"`, and the
   // constraints below then bind that field's VALUE.
   //
-  // A `by` naming NO theta-side field of the variants resolves to nothing, so
-  // `presentInAll` is false and every constraint below is vacuous — this
-  // function returns clean. That disposition is UNDECIDED by the
-  // specification: schemas.md §Discriminated unions prescribes a code for a
-  // discriminator that is nested, non-string or non-unique, and
-  // `missing-discriminator` for an IMPLICIT detection that finds no candidate,
-  // but says nothing about an explicit `by` naming a field no variant
-  // declares. No code is invented for it here. A field that DOES resolve in
-  // every variant but is not a single literal is DECIDED (bug 0128): the gate
-  // below refuses it.
+  // A `by` naming a field at least one variant does not declare is DECIDED
+  // (bug 0046, settled route): detection rule 1 — "be present in every
+  // variant" (schemas.md §Discriminated unions) — binds the named field the
+  // same way rule 2 already does for a resolved-but-non-literal field (bug
+  // 0128), so `presentInAll === false` is refused below rather than left to
+  // vacate every remaining gate. A field that DOES resolve in every variant
+  // but is not a single literal is the separate, already-decided case (bug
+  // 0128): the gate after this one refuses it.
   const evaluation = evaluateOccurrences(
     field,
     decl.variants.map((v) => thetaNamedFieldInVariant(v, field)),
@@ -645,15 +643,29 @@ function checkExplicitDiscriminator(
     ];
   }
 
+  // A field at least one variant does not declare (bug 0046, settled route,
+  // §Fix constraint 2 answered "absent from ANY variant"): every occurrence
+  // downstream is conjoined with `presentInAll`, so an absent field would
+  // otherwise vacate every remaining gate and silence the four rejections a
+  // misspelled or unresolved field name would draw without the clause.
+  // Ordered AFTER `anyNested` — a nested occurrence is more specific and keeps
+  // its own code (fixtures A6/A10) — and BEFORE the empty-object withhold
+  // below, so an absent field wins over a sibling occurrence's refused `{}`
+  // text rather than being swallowed by it.
+  if (!evaluation.presentInAll) {
+    return [absentFieldDiagnostic(decl.name, field, site)];
+  }
+
   // An empty inline object type (`{}`) is a construct
   // `theta/parse/empty-schema-body` has already refused as ill-formed, and that
   // refusal fires ALONE: every row below reads the field's captured text as a
   // well-formed type, which a refused `{}` does not supply (bug 0129, Reading
   // A). The derived-verdict test: would the occurrence's ABSENCE reach the same
   // verdict? An absent `kind` reaches no nesting verdict at all, so `{}`'s is
-  // derived, and withheld. Ordered after `anyNested` so a sibling's genuinely
-  // nested occurrence — an independent fault — still returns above. The
-  // implicit path reads neither flag, so its pairing is untouched.
+  // derived, and withheld. Ordered after `anyNested` and the absent-field gate
+  // so a sibling's genuinely nested occurrence — an independent fault — still
+  // returns above. The implicit path reads neither flag, so its pairing is
+  // untouched.
   if (evaluation.anyEmptyObject) {
     return [];
   }
@@ -686,6 +698,21 @@ function checkExplicitDiscriminator(
   }
 
   return [];
+}
+
+/** The shared `theta/parse/absent-discriminator-field` diagnostic. */
+function absentFieldDiagnostic(
+  schemaName: string,
+  field: string,
+  site: SchemaDeclSite,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: "theta/parse/absent-discriminator-field",
+    file: site.file,
+    range: site.range,
+    message: `discriminator '${field}' on ${schemaName} must be declared in every variant`,
+  };
 }
 
 /** The shared `theta/parse/non-literal-discriminator` diagnostic. */
@@ -736,20 +763,20 @@ function duplicateValueDiagnostic(
 
 /**
  * A schema declaration carrying a `by <field>` clause. `form` distinguishes
- * what the clause sits on by SHAPE: `"union"` is a right-hand side of TWO OR
- * MORE arms, per `UnionRhs ::= Type ("|" Type)+` (grammar.md §"schema X by
- * <field>"), and is the one legal case here. `"object"` is every other
- * declaration the clause can sit on: an object body (`schema X by f { ... }`)
- * or a right-hand side of fewer than two arms (`schema X by f = Cat`). Both
- * carry one variant, so both fail the same way.
- *
- * The cut is the arm count, NOT whether the arms form a discriminated union:
- * a two-arm primitive union (`schema X by f = string | integer`) classifies
- * as `"union"` and this check admits it. That matches the registry Trigger
- * for `theta/parse/by-on-object-schema` ("A `by` clause on an object body …,
- * or on a right-hand side of fewer than two arms …"); whether a two-or-more-
- * arm union then needs a discriminator is `checkDiscriminatedUnion`'s
- * question, over object-schema arms.
+ * what the clause sits on: `"union"` is a right-hand side of two or more arms
+ * EVERY ONE of which is an object schema — an inline `ObjectType`, or an
+ * identifier resolving to a declared object-form schema, with no alias hop —
+ * and is the one legal case here (schemas.md §Discriminated unions defines the
+ * concept over unions "whose variants are all object schemas"). `"object"` is
+ * every other declaration the clause can sit on: an object body
+ * (`schema X by f { ... }`), a right-hand side of fewer than two arms
+ * (`schema X by f = Cat`), or a two-or-more-arm union with at least one
+ * non-object-schema arm (`schema X by f = string | integer`) — none of these
+ * is a discriminated union for the clause to apply to, so all three fail the
+ * same way (bug 0046, settled route — the cut widened from arm COUNT alone to
+ * arm count AND arm kind). The caller (`checkSchemaDeclarationGraph`,
+ * theta-document.ts) computes `form`, since that is where the arm text and the
+ * declared object-schema names are both in scope.
  */
 export interface ByClauseDecl {
   readonly name: string;
@@ -759,9 +786,15 @@ export interface ByClauseDecl {
 
 /**
  * Check a `by <field>` clause, returning `theta/parse/by-on-object-schema`
- * when the clause sits on a one-variant declaration — an object body, or a
- * right-hand side of fewer than two arms (see `ByClauseDecl.form`). Returns
- * `undefined` for a right-hand side of two or more arms.
+ * when the clause sits on a one-variant declaration or a non-discriminated
+ * union — an object body, a right-hand side of fewer than two arms, or a
+ * two-or-more-arm union not every arm of which is an object schema (see
+ * `ByClauseDecl.form`). Returns `undefined` for a right-hand side of two or
+ * more object-schema arms. The caller withholds this diagnostic when the
+ * declaration's own arm walk already pushed an error-severity diagnostic (an
+ * unresolved name, a reserved keyword, unspellable text), so that fault keeps
+ * its own code alone rather than drawing a second diagnostic for the same
+ * written mistake.
  */
 export function checkByClause(
   decl: ByClauseDecl,

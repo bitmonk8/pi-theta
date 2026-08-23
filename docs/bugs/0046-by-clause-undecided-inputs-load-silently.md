@@ -1,6 +1,6 @@
 # Bug 0046 — `schemas.md` §Discriminated unions prescribes no disposition for two reachable `by <field>` inputs, and the implementation loads both with zero diagnostics: an explicit `by` naming a field no variant declares silences every discriminator rejection the same variants draw under implicit detection, and a `by` over a ≥2-arm union whose arms are not all object schemas is accepted as a clause with no subject
 
-- **Status:** open.
+- **Status:** fixed (0.253.0).
 - **Kind:** spec gap — two input classes on one clause, both reachable and both
   silent. Neither class is a divergence from a stated rule: the spec states no
   rule for either, and the implementation records that silence rather than
@@ -670,6 +670,145 @@ The fixtures above are the acceptance set for either disposition: A6, A10, A12,
 B13, B14 and B15 keep their current diagnostics, the no-clause column of
 S1–S6 stays byte-identical, and the remaining rows converge on one disposition
 that a rule names.
+
+## Fix (0.253.0)
+
+- What shipped:
+  - `src/parser/schema-declarations.ts` — §Fix candidate 2 for class 1:
+    `checkExplicitDiscriminator` gains a gate on `!evaluation.presentInAll`
+    emitting the newly minted `theta/parse/absent-discriminator-field` through
+    an `absentFieldDiagnostic` helper at the declaration's own range (DIAG-1),
+    placed AFTER the `anyNested` gate — so A6 and A10 keep
+    `theta/parse/nested-discriminator` — and BEFORE the `anyEmptyObject`
+    withhold and the non-literal / non-string / duplicate gates. The UNDECIDED
+    paragraph and `ByClauseDecl`'s arm-count paragraph are rewritten to the
+    settled rule (§Fix constraint 6). `evaluateOccurrences` is byte-unchanged:
+    the `.some` / `.every` asymmetry stays as it is.
+  - `src/parser/theta-document.ts` — §Fix candidate 1 for class 2: the
+    `by`-clause admission cut becomes "two or more arms AND every arm an object
+    schema" (`isObjectSchemaArm`), and the emission is withheld when the
+    declaration's own arm walk already pushed an error-severity diagnostic.
+    `buildUnionVariantSchemas` and the object-body call site are unchanged, so
+    `by-on-object-schema`'s existing emission set (§Non-goals) does not move.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2
+    same-commit row for `theta/parse/absent-discriminator-field` (E, parse);
+    the widened `theta/parse/by-on-object-schema` *Trigger* with its *Message*
+    BYTE-IDENTICAL to HEAD (a DIAG-2 Trigger operation, not a DIAG-4 reword);
+    and `theta/parse/non-literal-discriminator`'s fence sentence, which named
+    this report's class as unsettled, now names the new row.
+  - `docs/spec_topics/schemas.md` §Discriminated unions — the sentence binding
+    detection rule 1 to a named field, scoped to a field that does NOT resolve
+    so bug 0128's closed class is not re-settled (its Coordination note).
+  - `docs/reference/diagnostics.md`, `docs/reference/schema-subset.md` — the
+    user-facing mirrors, identical *Message* bytes. `docs/spec_topics/grammar.md`
+    §`schema X by <field>` and `docs/reference/grammar.md` measured and
+    VERIFIED UNAFFECTED: both state the grammar shape
+    (`UnionRhs ::= Type ("|" Type)+`) and the object-body rule, and the widened
+    cut is a checker-level narrowing, not a grammar change.
+  - Placeholder surface untouched and closed: the *Message* reuses `<field>`
+    (placeholder-rendering-b.md category 5) and `<X>` (category 7).
+- Route settled in-run, on the record, inside §Fix's constraints. Class 1 is
+  REFUSED (candidate 2, the new code) and class 2 is REFUSED (candidate 1, the
+  widened Trigger), which discharges constraint 1 with both classes
+  dispositioned. Constraint 2 is answered in the refusing direction: "absent"
+  means absent from ANY variant — detection rule 1 reads "present in every
+  variant", bug 0128 bound rule 2 to a named field on exactly the
+  `presentInAll` partition, and the half-present arrangements are the ones that
+  silence live rejections. Three bounded adjudications the report left open,
+  each recorded because no text settles them:
+  1. **An inline object type is an object schema**, so
+     `schema X by f = Cat | { a: string }` (fixture B7) and
+     `schema S by kind = { kind: "a" } | { kind: "b" }` stay ADMITTED. The
+     registered *Message* would be false of them, which is the same objection
+     §Fix raises against candidate 3, and the second spelling is a well-formed
+     discriminated union. This diverges from §Reproduction's grouping of B7
+     under class 2, deliberately.
+  2. **No alias hop.** An arm naming an alias declaration (fixture B8's `Y`) is
+     not an object schema at the point of use, so `Cat | Y` is refused. §Fix
+     candidate 1 leaves this "one way or the other".
+  3. **Withhold behind an already-refused arm**, so fixture B13 keeps
+     `theta/parse/unresolved-named-type` ALONE.
+- GOV-15: the inputs moved out of the
+  [loads-cleanly set](../spec_topics/governance/source-language-stability.md#gov-15-loads-cleanly)
+  under the
+  [diagnostic-registry carve-out](../spec_topics/governance/source-language-stability.md#diagnostic-registry-carve-out)
+  are, class 1: A1, A2, A3, A4, A5, A7, A8, A9, the `by ghost` column of S1–S6,
+  both `.thetalib` spellings, and the two bug-0129 absent-field rows; class 2:
+  B1, B2, B3, B4, B5, B6, B8, B9, B10, B11, B12 and their `.thetalib` spelling.
+  Unmoved: A6, A10, A11, A12, B7, B13, B14, B15, the no-clause column of
+  S1–S6, and every input carrying no `by` clause.
+- Gates: witness
+  `npx vitest run tests/b0046-by-clause-undecided-inputs.test.ts` →
+  `Test Files 1 passed (1) / Tests 16 passed (16)`; default suite `npm test` →
+  `Test Files 426 passed (426) / Tests 8947 passed (8947)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean; `npm run lint`
+  (`eslint "src/**/*.ts"`) clean. Live, run for real by the orchestrator under
+  the shared lock:
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0046live-by-clause-undecided-inputs-live-cell.test.ts`
+  → `Test Files 1 passed (1) / Tests 1 passed (1)`.
+- Blast radius, premeasured with a prototype gate over the whole default suite
+  BEFORE the witness was written: exactly five pre-existing cells in three
+  files flip, every one authorized by name — cells i2 and n22 (§Fix
+  constraint 5), the bug-0128 seam cell that names this report as the owner of
+  its boundary (0128 §Fix (c)), and the two bug-0129 rows whose in-cell prose
+  reads "Bug 0046 owns what an absent occurrence is worth". No unauthorized
+  flip; `tests/inline-object-field-name-case.test.ts` stays green under
+  adjudication 1 above.
+- Review: 1 round + 1 comment-only polish round. Round 1 (deep) — three
+  findings, none on the gate: two stale gate-line citations in a sibling
+  witness header, a test comment restating `hasLoadParseError`'s predicate
+  without its code-prefix conjunct, and the undischarged obligation to STATE
+  the grammar-page measurement (discharged in this record). Polish round
+  verified by gate-diff — every hunk a comment — so the confirmation review
+  round was skipped and the gates re-run instead.
+- Verification: VERIFIED. (i) The witness reds without the fix — both gates
+  neutralised in place, ten witness cells plus exactly the five authorized
+  pre-existing cells reading `expected ["theta/parse/absent-discriminator-field"], observed []`,
+  then the two source files restored by writing the original bytes back and the
+  restore proved by `git hash-object` against the pre-edit capture
+  (`3282737a55ead5e1673faa7f6def51d2cbfd5ba7`,
+  `623b5d59631bf82ca124cb0d0a3feedfe33084da`). (ii) Default suite green,
+  426/8947. (iii) The live registration cell is green, run under the lock, and
+  its content asserts registration ABSENCE plus both codes on the
+  `theta-system-note` channel with a closed twin driving a real turn.
+  (iv) Lint and typecheck clean. (v) No baseline JSON under `tests/fixtures`
+  was widened (`git diff --stat -- tests/fixtures` empty).
+- Tests that lock it:
+  - `tests/b0046-by-clause-undecided-inputs.test.ts` (new, 16 cells) — class 1
+    rows A1–A12, the suppression pairs S1–S6 in both columns, both `.thetalib`
+    spellings with their control, class 2 rows B1–B15 plus the inline-arm
+    adjudication and the no-clause arm-shape controls, the DIAG-1 range, the
+    two registration cells, the registry reconciliation (the emitted bytes ARE
+    the row's *Message* bytes) and four `checkDiscriminatedUnion` seam cells
+    including the half-present arrangement that answers constraint 2.
+  - `tests/live/b0046live-by-clause-undecided-inputs-live-cell.test.ts` (new,
+    1 cell) — the real shipped load path: both refused thetas absent from the
+    registered names, both codes on the real `theta-system-note` channel, and
+    the well-formed `by kind` twin registering and driving a real turn.
+  - The five rewritten pins keep their in-cell statements, now carrying the
+    citation that decides them rather than "UNDECIDED".
+- Residuals:
+  1. **An all-inline-arm union runs no discriminator check at all.**
+     `buildUnionVariantSchemas` (`src/parser/theta-document.ts`) admits bare
+     identifiers only, so `schema S by kind = { kind: "a" } | { kind: "b" }`
+     is admitted by the clause check (adjudication 1) and then never reaches
+     `checkDiscriminatedUnion`. Evidence: that input loads clean at HEAD and
+     after this fix, asserted as a cell of the new witness. Outside this
+     report's two classes — a capability gap in the variant builder, not a
+     disposition question about the clause.
+  2. **Pre-existing stale `path:line` citations elsewhere in the corpus** into
+     `src/parser/theta-document.ts` and
+     `docs/spec_topics/diagnostics/code-registry-parse.md`, verified stale
+     already at base HEAD (`git show 66892f19:…`) and therefore not touched
+     here.
+- Discharge notes appended: bug 0128 (its §Fix (c) boundary is now settled) and
+  bug 0129 (its two absent-field rows now carry the new code beside
+  `theta/parse/empty-schema-body`).
+- Pinned dispositions / non-goals: `by-on-object-schema`'s existing emission
+  set (fixtures B14, B15), the discriminator rules over a RESOLVED field
+  (cells i1, b5, b6 and bug 0128's twelve cells), the theta-side resolution
+  rule, the arms' own lowering, and the field-name casing question — all
+  unmoved.
 
 ## Provenance
 

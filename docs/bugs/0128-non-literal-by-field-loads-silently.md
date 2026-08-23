@@ -1311,3 +1311,19 @@ widened capture, as bug 0096 §Fix item 4 already assigns them.
   file in the main tree was written by the probe. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+### Discharge note — bug 0046 (0.253.0)
+
+§Fix (c)'s boundary is settled, in the refusing direction, by the report this
+one is coupled to. [0046](./0046-by-clause-undecided-inputs-load-silently.md)
+§Fix (0.253.0) mints `theta/parse/absent-discriminator-field` (E, parse) on
+`!presentInAll`, gated one step earlier than this report's
+`presentInAll && !allLiteral`, so a `by` clause naming a field at least one
+variant does not declare is now refused rather than silent. Two consequences
+here. This file's seam cell "an ABSENT `by` field still returns no diagnostic —
+the bug 0046 boundary" was rewritten in that change to assert the new code; it
+remains the boundary witness, now on the settled side. And the registry
+sentence in `theta/parse/non-literal-discriminator`'s *Trigger* that fenced the
+absent-field class out as "unsettled" now names the new row instead. Nothing
+this report decided moved: the `presentInAll` half of the partition, its twelve
+cells, and its *Message* bytes are unchanged.

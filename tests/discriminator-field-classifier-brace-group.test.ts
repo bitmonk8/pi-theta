@@ -136,7 +136,7 @@ function line(code: string, message: string): string {
  * `theta/parse/nested-discriminator` rendered for `field` on `schema`
  * (code-registry-parse.md:98). This is the whole observable surface of the
  * misclassification: the only reader of `anyNested`
- * (src/parser/schema-declarations.ts:636) emits exactly this.
+ * (src/parser/schema-declarations.ts:634) emits exactly this.
  */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";

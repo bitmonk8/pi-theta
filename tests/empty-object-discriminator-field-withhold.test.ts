@@ -164,6 +164,20 @@ function malformedSchemaFieldLine(): string {
 }
 
 /**
+ * `theta/parse/absent-discriminator-field` rendered for `field` on `schema`
+ * (bug 0046, settled route): an explicit `by` clause naming a field at least
+ * one variant does not declare. Earned from the OTHER variant not declaring
+ * the field, never from the refused `{}` text — the derived-verdict test this
+ * file's own withhold rule applies ("would the construct's ABSENCE reach the
+ * same verdict?") answers YES here, so this row fires BESIDE
+ * `theta/parse/empty-schema-body` rather than being withheld by it.
+ */
+function absentDiscriminatorFieldLine(field: string, schema: string): string {
+  const code = "theta/parse/absent-discriminator-field";
+  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+}
+
+/**
  * `theta/parse/missing-discriminator` rendered for `schema`
  * (code-registry-parse.md:107). The implicit path's second line, which
  * §Non-goals requires to stay byte-identical: it is reached without reading
@@ -294,12 +308,11 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
           `schema Cat { kind: "cat", name: string }\nschema Dog { kind: {}, name: string }\nschema Cow { kind: "cow", name: string }\nschema Animal by kind = Cat | Dog | Cow`,
         ),
       ),
-      // The field ABSENT from the other variant. Bug 0046 owns what an absent
-      // occurrence is worth; this row pins that the refused `{}` contributes no
-      // derived verdict either way, so no constraint row survives the withhold
-      // here — including `non-literal-discriminator`, whose own Trigger
-      // (code-registry-parse.md:111) already excludes a field a variant does not
-      // declare.
+      // The field ABSENT from the other variant. Bug 0046 settled what an
+      // absent occurrence is worth: `Dog` does not declare `kind` at all, so
+      // `theta/parse/absent-discriminator-field` fires — earned from `Dog`'s
+      // own absence, not derived from `Cat`'s refused `{}` text — BESIDE the
+      // empty-schema-body line rather than withheld by it.
       row(
         "the `by` field absent from the other variant",
         thetaSrc(
@@ -335,7 +348,7 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
       },
       {
         label: "the `by` field absent from the other variant",
-        diagnostics: [emptySchemaBodyLine("{}")],
+        diagnostics: [emptySchemaBodyLine("{}"), absentDiscriminatorFieldLine("kind", "Animal")],
       },
     ]);
   });
@@ -412,9 +425,11 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // variant and is not a single literal, and no earlier row refused the
       // text, so the constraint fires on its own merits.
       animalRow("A5 — a literal union", '"a" | "b"', true),
-      // A8 — `by ghost`, naming a field no variant declares (bug 0046 class 1).
-      // Its silence is that report's open question and must stay measured, not
-      // acquired: the empty-schema-body line is the whole disposition already.
+      // A8 — `by ghost`, naming a field no variant declares (bug 0046 class 1,
+      // settled route). Neither variant declares `ghost` at all, so
+      // `theta/parse/absent-discriminator-field` fires BESIDE the
+      // empty-schema-body line — earned independently of the refused `{}` text
+      // on the unrelated `kind` field.
       row(
         "A8 — `by ghost`",
         thetaSrc(
@@ -501,7 +516,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       },
       {
         label: "A8 — `by ghost`",
-        diagnostics: [emptySchemaBodyLine("{}")],
+        diagnostics: [emptySchemaBodyLine("{}"), absentDiscriminatorFieldLine("ghost", "Animal")],
       },
       {
         label: "A14 — `{}` on a field the `by` does not name",

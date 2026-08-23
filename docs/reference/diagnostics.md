@@ -164,6 +164,7 @@ trigger.
 | `theta/parse/missing-discriminator` | E | parse | `<X> is a union of object schemas with no shared single-literal discriminator field. Add a 'kind' (or similar) field to each variant, or declare explicitly with 'by <field>'.` |
 | `theta/parse/duplicate-discriminator-value` | E | parse | `duplicate discriminator value '<value>' across variants of <X>` |
 | `theta/parse/nested-discriminator` | E | parse | `discriminator field '<field>' must be at the top level of each variant of <X>` |
+| `theta/parse/absent-discriminator-field` | E | parse | `discriminator '<field>' on <X> must be declared in every variant` |
 | `theta/parse/non-string-discriminator` | E | parse | `discriminator '<field>' on <X> must be a string-literal type; got <kind>` |
 | `theta/parse/non-literal-discriminator` | E | parse | `discriminator '<field>' on <X> must be a single string-literal type in every variant` |
 | `theta/parse/type-alias-cycle` | E | parse | `type-alias cycle: <path>` |

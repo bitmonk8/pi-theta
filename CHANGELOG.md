@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.253.0]
+
+### Fixed
+
+- Bug 0046: `by`-clause undecided inputs no longer load silently — class 1
+  (a discriminator field absent from at least one union variant) refuses via
+  the NEW registry row `theta/parse/absent-discriminator-field` (E, parse;
+  gate `!presentInAll` after `anyNested`); class 2 (a `by` clause on an
+  object schema) refuses by widening `theta/parse/by-on-object-schema`'s
+  Trigger with its Message byte-unchanged. Bounded adjudications on the
+  record: absent-from-ANY-variant; inline `ObjectType` counts as an object
+  schema (B7 + all-inline union stay clean); no alias hop (B8 refuses);
+  withheld behind an already-refused arm (B13); the two 0129 rows co-emit.
+  DIAG-2: registry + reference mirrors + schemas.md same commit. Witness
+  `tests/b0046-by-clause-undecided-inputs.test.ts` (16 cells, red 11/16 at
+  HEAD) + live cell `b0046live` (green under the lock, RC=0).
+  permitted-codes byte-unchanged.
+
 ## [0.252.0]
 
 ### Fixed

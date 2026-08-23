@@ -1651,8 +1651,8 @@ describe("bug 0140 (g) — the design locks: eight positions that stay silent, a
     // THE NO-OP STATEMENT CLASS. Bug 0033's n11 CONTROL and bug 0042 e1 pin a
     // bare declared-name expression statement silent "wherever it is written";
     // the fixture below is `F_BARE_DECLARED_NAME` verbatim
-    // (tests/schema-alias-union-decl.test.ts:374), asserted there at
-    // `:1893–1901`. A statement-position read is DISCARDED — its value reaches
+    // (tests/schema-alias-union-decl.test.ts:378), asserted there at
+    // `:1900–1908`. A statement-position read is DISCARDED — its value reaches
     // nothing — so the registry *Trigger* excludes it, and `walkIdentStmt`'s
     // `case "expr"` (theta-document.ts:4960–4962) is where the exclusion is
     // spent. The theta's TAIL is a different position (a7 refuses it) because

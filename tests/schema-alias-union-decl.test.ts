@@ -168,6 +168,8 @@ const REGISTRY = parseRegistry(
 ) as RegistryRow[];
 
 const BY_ON_OBJECT = "theta/parse/by-on-object-schema";
+/** Bug 0046 §Fix, settled route: an explicit `by` naming a field a variant does not declare. */
+const ABSENT_FIELD = "theta/parse/absent-discriminator-field";
 const NON_STRING = "theta/parse/non-string-discriminator";
 const AMBIGUOUS = "theta/parse/ambiguous-discriminator";
 const MISSING = "theta/parse/missing-discriminator";
@@ -1459,17 +1461,16 @@ describe("bug 0033 (i) — `by <field>` resolves the theta-side name of a rename
     );
   });
 
-  it("i2: `by Kind` — the wire spelling — is not a theta-side name, and the outcome is UNDECIDED", () => {
-    // PINNED AS THE CURRENT DISPOSITION, NOT AS A SPECIFIED ONE. The by-clause
-    // resolves nothing, so every constraint in `checkExplicitDiscriminator` is
-    // vacuous and the declaration loads clean. schemas.md §Discriminated unions
-    // prescribes codes for a discriminator that is nested, non-string or
-    // non-unique, and `missing-discriminator` for IMPLICIT detection finding no
-    // candidate; it says nothing about an explicit `by` naming a field no
-    // variant declares. No registry code is invented for it here. If the
-    // specification later decides this case, this cell is the one to change.
-    expectLoadsClean(
+  it("i2: `by Kind` — the wire spelling — is not a theta-side name, and bug 0046 settles the outcome", () => {
+    // THE CELL THE PIN NAMED. schemas.md §Discriminated unions detection rule
+    // 1 — "be present in every variant" — now binds a named `by` field the same
+    // way rule 2 already does (bug 0128): `by Kind` resolves in neither
+    // variant (the theta-side name is `kind`, not the wire name `Kind`), so
+    // `presentInAll` is false and `theta/parse/absent-discriminator-field`
+    // refuses (bug 0046, settled route).
+    expectExactly(
       parse(F_BY_WIRE_NAME),
+      line(ABSENT_FIELD, msg(ABSENT_FIELD, [["<field>", "Kind"], ["<X>", "Animal"]])),
       "i2 — an explicit by-clause naming no theta-side field of any variant",
     );
   });
@@ -2153,20 +2154,16 @@ describe("bug 0033 (p) — `!` and the expression-statement keywords end the cap
 // ===========================================================================
 
 describe("bug 0033 (q) — a `by` clause over a two-arm primitive union", () => {
-  it("n22: `schema X by f = string | integer` loads clean — the UNDECIDED disposition", () => {
-    // PINNED AS THE CURRENT DISPOSITION, NOT AS A SPECIFIED ONE, exactly as i2
-    // is. Two arms satisfy `UnionRhs`, so `by-on-object-schema` does not fire;
-    // the arms are primitives, so `checkDiscriminatedUnion` never runs over
-    // them (it is scoped to unions whose arms all resolve to declared object
-    // schemas) and no discriminator code fires either. schemas.md §Discriminated
-    // unions prescribes no code for a `by` clause over a non-object union, so
-    // none is invented here — and the `by-on-object-schema` registry row must
-    // not claim this input, which is why its Trigger reads as the shape cut
-    // (object body / arm count) rather than as "a declaration that is not a
-    // discriminated union". If the specification later decides this case, this
-    // cell is the one to change.
-    expectLoadsClean(
+  it("n22: `schema X by f = string | integer` — bug 0046 widens `by-on-object-schema` to claim it", () => {
+    // THE CELL THE PIN NAMED, its registry-honesty clause rewritten to the
+    // WIDENED Trigger (bug 0046, settled route): the admission cut for `by` is
+    // no longer arm COUNT alone but arm count AND every arm an object schema,
+    // so a two-arm primitive union is no longer a discriminated union and
+    // `theta/parse/by-on-object-schema` claims it — the Trigger widened, the
+    // registered Message is unchanged (a DIAG-2 operation, not DIAG-4).
+    expectExactly(
       parse(F_BY_PRIMITIVE_UNION),
+      line(BY_ON_OBJECT, msg(BY_ON_OBJECT, [])),
       "n22 — an explicit by-clause over two primitive arms",
     );
   });
