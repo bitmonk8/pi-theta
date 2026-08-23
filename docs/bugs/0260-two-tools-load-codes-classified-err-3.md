@@ -1,6 +1,6 @@
 # Bug 0260 — `preEvalCauseOf`'s ERR-6 `tools-resolution` batch names the nine `tools:`-ENTRY codes but not the two remaining `tools:`-surface codes: `theta/load/malformed-tools-field` (the field-shape rejection, bug 0104) and `theta/load/extension-tool-unreachable` (the PIC-64 rung-3 refusal over a callable-set extension tool) both fall through the `theta/load/` arm to the ERR-3 `frontmatter` cause; `functions.md` FN-7's `with { tools: … }` reuse list omits the field-shape code on the same footing
 
-- **Status:** open.
+- **Status:** fixed (0.254.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the mapping has no operator-visible
   divergence today (`routePreEvalFailure` discards its `cause` argument,
   `src/extension/load-pre-eval.ts:107`, so a misclassified code produces a
@@ -216,6 +216,186 @@ moves, so no new code becomes reachable from an ordinary `pi -p` run and no
 - **The two older absences from FN-7's list** —
   `theta/load/callee-has-errors` and `theta/load/invoke-path-escape`'s registry
   trigger — recorded in 0109 §Non-goals and left where they are.
+
+## Fix (0.254.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` — `preEvalCauseOf`'s ERR-6
+    `tools-resolution` disjunction widened by exactly two `===` disjuncts in
+    registry order (§Fix step 1): `theta/load/extension-tool-unreachable`
+    (registry row `code-registry-load.md:13`) before
+    `theta/load/malformed-tool-entry`, and `theta/load/malformed-tools-field`
+    (row `:26`) between `theta/load/malformed-tool-entry` and
+    `theta/load/unknown-tool`. The arm now names all eleven `tools:`-surface
+    error codes. The `theta/parse/` arm, the `theta/load/` ERR-3 arm, the ERR-1 /
+    ERR-4 singletons, the doc comment and the ERR-1…ERR-6 / ERR-16 taxonomy are
+    byte-unchanged; a disjunction of `===` comparisons makes the ordering
+    behaviour-neutral.
+  - `docs/spec_topics/functions.md:70` — FN-7's `with { tools: … }` reuse list
+    widened by `theta/load/malformed-tools-field` ONLY, in registry order
+    (§Fix step 2). `theta/load/extension-tool-unreachable` is deliberately NOT
+    added: it is not a clause-validation rejection — `checkExtensionToolReachability`
+    (`src/extension/extension-tool-reachability.ts`) raises it from the enclosing
+    body's code-side call sites over names already in the callable set, never from
+    the `with` clause's own value — so listing it would WIDEN FN-7's contract
+    rather than complete its enumeration. No `docs/reference/` mirror was owed or
+    edited (`rg "with \{ tools" docs/reference/` → no match;
+    `docs/reference/diagnostics.md`'s `subagent fn` note delegates to FN-7).
+  - `tests/pre-evaluation-failures.test.ts` — bug 0109's table-driven cell
+    extended by one row per code (`cause: "tools-resolution"`), inserted in the
+    same registry order as the source arm; the `theta/load/missing-mode` ERR-3
+    over-widening guard row and the three other guard rows are retained
+    unchanged. Header prose retired and replaced (enumerated below).
+  - `tests/arg-mismatch-diagnostic-count-by-surface.test.ts`,
+    `tests/lex-drop-single-delivery.test.ts`,
+    `tests/live/unterminated-template-registration-live-cell.test.ts` —
+    comment-only `+2` bumps of ten `production-composition.ts:<line>` citation
+    spans the source edit's two inserted lines moved from exact-correct at
+    `60afb295` to stale. Bound to exactly ten spans in exactly three files; each
+    bumped number was re-derived against the post-edit tree. Citations that were
+    ALREADY stale at HEAD were left where they stand, per 0109 §Residual 3's rule.
+  - Not touched, per the lane's delta: `package.json`, `CHANGELOG.md`,
+    `docs/bugs/README.md`. The version above is a placeholder the merge assigns.
+
+- **Header replacement, enumerated** (the retirement §Fix entails — the retired
+  paragraph named exactly the two subject codes as out of scope):
+  1. `"Every code of the \`tools:\`-ENTRY family MUST map…"` → an EXTENSIONAL
+     claim over "the eleven codes named below (registry rows `:13`, `:25`–`:33`,
+     `:41`)". A universal over the `tools:` surface would be FALSE:
+     `theta/load/invoke-path-escape` (row `:35`) also fires on a `tools:` `.theta`
+     entry and still maps to ERR-3.
+  2. `"the eight emitted by resolveCallableSet"` → `"the eight ENTRY-family codes
+     emitted by resolveCallableSet"`; the eight names are unchanged.
+  3. `"— nine codes in all."` retained for paragraph 1's own nine-code list
+     (eight ENTRY + `callee-has-errors`); the eleven-code total is reached only
+     after the family-boundary paragraph.
+  4. NEW family-boundary paragraph: WHY the boundary is the `tools:` SURFACE, not
+     the entry granularity, with each new code's emission site
+     (`src/parser/frontmatter.ts` for the field-shape rejection,
+     `src/extension/extension-tool-reachability.ts` for the PIC-64 rung-3 refusal).
+  5. NEW "NOT NAMED BELOW" paragraph: `theta/load/invoke-path-escape` is a
+     dual-surface code that reaches `preEvalCauseOf` from the `tools:` surface and
+     maps to ERR-3 here. Its FN-7-list absence is what §Non-goals leaves where it
+     stands; its ERR-3 classification is untouched because §Fix names exactly the
+     two codes and does not reclassify it.
+  6. RETIRED (4 comment lines): the "OUT OF SCOPE, deliberately" paragraph naming
+     `theta/load/malformed-tools-field` and `theta/load/extension-tool-unreachable`
+     as out of scope and stating the cell asserts nothing about them. The fix
+     falsifies every clause of it.
+  7. `"WHAT THIS CANNOT PIN: this table restates the ENTRY family…"` →
+     `"… the eleven-code \`tools:\`-surface family…"`. Noun only — the
+     non-derivation substance (0109 §Residual 2, open bug 0107's axis) is intact
+     and still true.
+  8. `it(...)` title: `"every tools:-entry-family code"` → `"the eleven
+     tools:-surface codes named below"`, plus the bug 0260 cross-reference.
+  9. Row-block comment: nine→eleven, with the registry-order note explaining the
+     two insertion points.
+
+- Gates: witness RED before the source edit on exactly the two codes
+  (`theta/load/extension-tool-unreachable` and `theta/load/malformed-tools-field`,
+  each `expected 'frontmatter' to be 'tools-resolution'`) and 9/9 cells,
+  13/13 rows GREEN after; full default suite `428 passed (428)` files /
+  `9049 passed (9049)` tests; `npm run typecheck` clean; `npm run lint` clean.
+  Live: none run — see §Live decision below.
+
+- Review: 2 rounds. Round 1 (deep) — 3 findings, all comment/prose:
+  (F1) the source edit's +2 shift moved TEN `production-composition.ts:<line>`
+  citations from exact-correct to stale in three test files, refuting the
+  orchestrator's narrower spot-check; (F2) the rewritten header's counts
+  contradicted its own enumeration; (F3) the header minted a NEW false totality
+  (`theta/load/invoke-path-escape` is the counterexample) — the same failure mode
+  0109's own round 1 caught. Round 2 (fast, confirmation) — 1 finding: the new
+  exclusion paragraph attributed the ERR-3-classification-unchanged fact to
+  §Non-goals, which is silent on it; reattributed to §Fix. Both fixer rounds were
+  `bug-fix-fixer-light` and touched only comments and one `it(...)` title; no
+  assertion and no executable line moved. The round-2 polish was verified by
+  gate-diff (comment-only hunk, gates green), so no third confirmation round ran.
+
+- Verification: SOLID on all obligations.
+  (1) The witness reds: removing both disjuncts reds naming exactly both codes;
+  mutation probe (a) replacing the ERR-6 arm with a `theta/load/` prefix arm reds
+  the `theta/load/missing-mode` over-widening guard; mutation probe (b) adding only
+  one disjunct reds naming exactly the other — the rows discriminate independently.
+  `src/extension/production-composition.ts` restored byte-exact after each of the
+  three probes (`git hash-object` = `3ec8d80ae1a22dcf5fe23dee62bd89dcb0977401`
+  each time, equal to the pre-probe capture); no other file was mutated.
+  (2) Full default suite green (totals above).
+  (3) Live obligation adjudicated as NOT OWED and CONFIRMED from the diff, leg by
+  leg (below).
+  (4) `npm run typecheck` and `npm run lint` clean.
+  (5) Fidelity and locks hold: registry order correct, `extension-tool-unreachable`
+  absent from FN-7, `tests/fixtures/h7a/permitted-codes.json` and
+  `docs/spec_topics/diagnostics/code-registry-load.md` byte-unchanged, 0109's other
+  cells and 0108's / 0248's witnesses untouched, no version string other than the
+  literal placeholder `0.254.0` introduced.
+
+- **Live decision (on the record): NO live gate owed, none run.** The four legs,
+  each confirmed against the diff:
+  (i) `routePreEvalFailure` still discards its cause (`void cause;`,
+  `src/extension/load-pre-eval.ts`) immediately before `sendSystemNote`, and all
+  seven load-time causes share ONE `theta-system-note` surface with the same fixed
+  options — so every operator-visible note stays BYTE-IDENTICAL across the
+  ERR-3→ERR-6 reclassification. This is the S4 face the report pins, and the fix
+  does not and must not move it.
+  (ii) No emission site moved: `preEvalCauseOf` is pure and total on `string`, and
+  `grep -rn "preEvalCauseOf" src/` returns exactly the definition and the single
+  production call site inside `emitLoadNoteGroup`. No diagnostic is newly emitted
+  or suppressed.
+  (iii) `tests/fixtures/h7a/permitted-codes.json` and the registry page are
+  byte-unchanged, so no code becomes newly reachable from an ordinary `pi -p` run
+  and no H9a permitted-codes append is owed (DIAG-2, DIAG-4 untouched).
+  (iv) The FN-7 edit is spec prose for a clause that emits no `tools:` code today
+  (0109 §Actual behaviour finding 2), so it changes no runtime behaviour.
+  With no observable moved on any live axis, a live run could only re-assert
+  unchanged behaviour. Had any leg failed, the live run would have gone under the
+  shared lock; none did.
+
+- Residuals:
+  1. **The witness still restates the family rather than deriving it.** It reds on
+     any code ALREADY LISTED that diverges from the batch (proven by mutation
+     probe (b)) but cannot red on a future `tools:` code added to the registry and
+     never added to the table. Unchanged from 0109 §Residual 2; a source-derived
+     family gate is open bug [0107](./0107-tools-lockstep-witness-is-source-shape-gate.md)'s
+     axis and stays there.
+  2. **`theta/load/invoke-path-escape` still maps to ERR-3 `frontmatter`.** It is a
+     dual-surface code — registry row `code-registry-load.md:35` triggers on "an
+     `invoke(...)` literal or a `tools:` `.theta` entry" — so an eleven-code
+     `tools:`-surface enumeration is extensional, not universal. Reclassifying it
+     is outside this report's settled §Fix (which names exactly two codes) and its
+     FN-7-list absence is expressly left where it stands by §Non-goals. Recorded
+     verbatim in the witness cell's "NOT NAMED BELOW" paragraph; unowned, no report
+     currently claims it.
+  3. **Pre-existing stale `production-composition.ts:<line>` citations remain.**
+     Roughly forty spans across `tests/**` (notably `:2220` ×43, `:2214`,
+     `:1729`, `:1621`, `:1502`, `:1193–:1213`, `:330`, `:366`) were already stale
+     at `60afb295` and were deliberately NOT re-derived: this fix repairs only what
+     it moved from correct to stale (0109 §Residual 3's rule). The file is not in
+     `tests/citation-symbol-form-gate.test.ts`'s `CONVERTED_FILES` ratchet.
+  4. **This change shifts `src/extension/production-composition.ts` line numbers
+     by +2 below `preEvalCauseOf`.** Any citation into that file authored after
+     `60afb295` must be derived against the post-fix tree.
+
+- Discharge notes appended:
+  [0109](./0109-tools-diagnostic-enumerations-one-generation-behind.md)
+  §Fix *Residuals* item 1 — the item that measured both codes, refused their
+  reclassification as "an unauthorised semantic flip" outside 0109's settled §Fix,
+  and left them "for the owning report". Marked discharged here, with the FN-7
+  one-code-only reasoning restated. No note is owed to
+  [0248](./0248-malformed-escaping-tools-entry-containment-unwitnessed.md): its
+  §Non-goals already scopes this axis out as "pre-existing and orthogonal", and
+  its witnesses and surfaces are byte-unchanged.
+
+- Pinned dispositions / non-goals: §Non-goals holds unchanged.
+  `routePreEvalFailure` still discards its cause and was NOT made to branch on it
+  — this report measured the mapping's fidelity, not the router's shape. No
+  source-derived `tools:` family gate was built (bug 0107's axis). FN-7's
+  `with { tools: … }` load-time validation is still unimplemented and this fix
+  neither widens nor narrows that contract — which is exactly why
+  `theta/load/extension-tool-unreachable` was withheld from FN-7. FN-7's two older
+  absences (`theta/load/callee-has-errors`, `theta/load/invoke-path-escape`'s
+  registry trigger) are left where 0109 §Non-goals left them. No registry row was
+  added, removed or reworded (DIAG-2, DIAG-4); no GOV-15 diagnostic-registry
+  carve-out is engaged, because no code was added or removed.
 
 ## Provenance
 

@@ -298,7 +298,9 @@ export function preEvalCauseOf(code: string): PreEvalFailureCause {
     return "binder-model"; // ERR-4
   }
   if (
+    code === "theta/load/extension-tool-unreachable" ||
     code === "theta/load/malformed-tool-entry" ||
+    code === "theta/load/malformed-tools-field" ||
     code === "theta/load/unknown-tool" ||
     code === "theta/load/unresolvable-theta-path" ||
     code === "theta/load/prompt-mode-callable" ||

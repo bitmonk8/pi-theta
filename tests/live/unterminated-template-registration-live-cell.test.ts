@@ -51,8 +51,8 @@
 // handed its own batch to the V7d seam (src/lexer/lexer.ts:128–132) and the
 // composition root re-delivered the same rows through the drop group
 // (`parseDiscoveredTheta` returns them in `dropped` at
-// src/extension/production-composition.ts:2446, consumed by
-// `sink.emitGroup(parsed.dropped)` at :757). Bug 0255's fix has
+// src/extension/production-composition.ts:2448, consumed by
+// `sink.emitGroup(parsed.dropped)` at :759). Bug 0255's fix has
 // `parseThetaDocument` name the already-delivered subset
 // (`ThetaDocument.deliveredDiagnostics`, src/parser/theta-document.ts) and has
 // the drop group exclude it by object identity before re-delivering, so this
@@ -201,7 +201,7 @@ describe("bug 0246 — an unterminated `@`…`` template draws the lex-phase row
           "still set and nothing tests it, so this count is zero. Post bug 0255 the count is " +
           "exact, not a lower bound: `parseThetaDocument` names the subset `lexTheta` already " +
           "delivered through the V7d seam (src/lexer/lexer.ts:128–132), and the drop group " +
-          "(src/extension/production-composition.ts:2446 → :757) excludes that subset by " +
+          "(src/extension/production-composition.ts:2448 → :759) excludes that subset by " +
           "object identity before re-delivering, so this row reaches the channel exactly once. " +
           "Notes: " + JSON.stringify(allNotes),
       ).toBe(1);

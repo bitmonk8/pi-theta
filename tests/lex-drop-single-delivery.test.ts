@@ -25,14 +25,14 @@ import {
 //     and then RETURNS the same array (src/lexer/lexer.ts:133).
 //   route 2 — the returned rows land in `document.diagnostics`
 //     (src/parser/theta-document.ts:904), `parseDiscoveredTheta` hands them back
-//     as the drop group (src/extension/production-composition.ts:2446), and the
+//     as the drop group (src/extension/production-composition.ts:2448), and the
 //     compose pass delivers that group — `sink.emitGroup(parsed.dropped)`
-//     (src/extension/production-composition.ts:757) → `emitLoadNoteGroup`
-//     (src/extension/production-composition.ts:1279–1295), which routes each
+//     (src/extension/production-composition.ts:759) → `emitLoadNoteGroup`
+//     (src/extension/production-composition.ts:1281–1297), which routes each
 //     error-severity member per-diagnostic through the pre-eval router.
 //
 // Both channels are built off the same `pi.sendMessage` seam — the parse-time
-// channel at src/extension/production-composition.ts:588
+// channel at src/extension/production-composition.ts:590
 // (`buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate)`) and the
 // load-diagnostic `loadSink`/`channel` pair — so the author reads every lex row
 // twice, while the parse-phase rows of the same file appear once.
@@ -386,7 +386,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
       // Constraint 1 (FM-3 / DIAG-1) first: the row must still be PRESENT with
       // its registry code and Message. A fix that silences route 1
       // (src/lexer/lexer.ts:131) without proving route 2
-      // (src/extension/production-composition.ts:757) delivers reds here rather
+      // (src/extension/production-composition.ts:759) delivers reds here rather
       // than passing the count assertion below on a silent drop.
       const row = soleRow(pass.notes, BLOCK_COMMENT_CODE);
       expect(row.severity).toBe("error");
@@ -450,7 +450,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
 
       // diagnostic-shape.md:63 — the two lex rows travel in ONE note, as line
       // blocks separated by a single blank line, in source order. Bug 0013's
-      // severity split (production-composition.ts:1279–1295) keeps the
+      // severity split (production-composition.ts:1281–1297) keeps the
       // parse-phase error on its own per-diagnostic note; §Fix constraint 3
       // forbids collapsing that split, so exactly one note carries two rows and
       // exactly one carries one.

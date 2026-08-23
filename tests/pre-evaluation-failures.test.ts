@@ -237,21 +237,41 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   //
   // WHAT THIS PINS: `preEvalCauseOf` (`src/extension/production-composition.ts`)
   // maps a shipped load-path diagnostic code to the ERR-1…ERR-6 pre-evaluation
-  // failure cause it realises. Every code of the `tools:`-ENTRY family MUST map
-  // to ERR-6 `tools-resolution`: the eight emitted by `resolveCallableSet`
-  // (`src/parser/callable-set.ts`) — `malformed-tool-entry`,
-  // `invalid-tool-rename`, `invalid-derived-tool-name`, `invalid-pi-tool-name`,
-  // `tool-name-collision`, `unknown-tool`, `unresolvable-theta-path`,
-  // `prompt-mode-callable` — plus the `tools:`-surface
-  // `theta/load/callee-has-errors` pushed by `checkCalleeHasErrors` with
-  // `surface: "tools"` in `production-composition.ts` — nine codes in all.
+  // failure cause it realises. The eleven codes named below (registry rows
+  // `code-registry-load.md:13`, `:25`–`:33`, `:41`) map to ERR-6
+  // `tools-resolution`: the eight ENTRY-family codes emitted by
+  // `resolveCallableSet` (`src/parser/callable-set.ts`) —
+  // `malformed-tool-entry`, `invalid-tool-rename`, `invalid-derived-tool-name`,
+  // `invalid-pi-tool-name`, `tool-name-collision`, `unknown-tool`,
+  // `unresolvable-theta-path`, `prompt-mode-callable` — plus the
+  // `tools:`-surface `theta/load/callee-has-errors` pushed by
+  // `checkCalleeHasErrors` with `surface: "tools"` in
+  // `production-composition.ts` — nine codes in all.
   //
-  // WHAT THIS CANNOT PIN: this table restates the ENTRY family rather than
-  // deriving it from source, so it reds (proven by mutation) when any code
-  // ALREADY LISTED here diverges from the batch, but it cannot red on a
-  // resolver code added to `callable-set.ts` and to the registry yet never
-  // added to this table — a source-derived family gate is open bug 0107's
-  // axis, outside bug 0109's settled §Fix.
+  // The family boundary is the `tools:` surface, not the entry granularity, so
+  // two further codes belong beside the nine codes above: the FIELD-shape
+  // rejection `theta/load/malformed-tools-field`, which refuses a declared
+  // `tools:` field whose value is neither admitted spelling
+  // (`src/parser/frontmatter.ts:1259-1268`, bug 0104), and the PIC-64 rung-3
+  // refusal `theta/load/extension-tool-unreachable`, which
+  // `checkExtensionToolReachability`
+  // (`src/extension/extension-tool-reachability.ts:212-231`) raises only for
+  // names in the theta's callable set — i.e. only for `tools:` entries.
+  //
+  // NOT NAMED BELOW: `theta/load/invoke-path-escape` (registry row
+  // `code-registry-load.md:35`) also triggers on a `tools:` `.theta` entry, so
+  // it too reaches `preEvalCauseOf` from the `tools:` surface, but it maps to
+  // ERR-3 `frontmatter` here (the `theta/load/` fall-through arm). This code's
+  // FN-7-list absence is what bug 0260 §Non-goals leaves where it stands; its
+  // ERR-3 classification here is untouched because bug 0260's settled §Fix
+  // names exactly the two codes above and does not reclassify it.
+  //
+  // WHAT THIS CANNOT PIN: this table restates the eleven-code `tools:`-surface
+  // family rather than deriving it from source, so it reds (proven by
+  // mutation) when any code ALREADY LISTED here diverges from the batch, but
+  // it cannot red on a resolver code added to `callable-set.ts` and to the
+  // registry yet never added to this table — a source-derived family gate is
+  // open bug 0107's axis, outside bug 0109's settled §Fix.
   //
   // WHY A DIRECT-CALL CELL: the mapping has no routable observable.
   // `routePreEvalFailure` (`src/extension/load-pre-eval.ts`) discards its cause
@@ -266,18 +286,19 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   // `theta/load/host-incompatible` ERR-1, `theta/load/binder-model-unresolved`
   // ERR-4, and one `theta/parse/` code the ERR-2 `lex-parse-type` arm.
   //
-  // OUT OF SCOPE, deliberately: `theta/load/malformed-tools-field` (the
-  // field-level `tools:` code emitted by `src/parser/frontmatter.ts`, landed by
-  // bug 0104 after 0109 was filed) and `theta/load/extension-tool-unreachable`.
-  // Their classification is not authorised by bug 0109's settled §Fix and is
-  // named as a residual in its fix record; this cell asserts nothing about them.
-  it("ERR-6: preEvalCauseOf maps every tools:-entry-family code to tools-resolution (bug 0109 finding 1)", () => {
+  it("ERR-6: preEvalCauseOf maps the eleven tools:-surface codes named below to tools-resolution (bug 0109 finding 1, bug 0260)", () => {
     const rows: ReadonlyArray<{
       readonly code: string;
       readonly cause: PreEvalFailureCause;
     }> = [
-      // The nine `tools:`-entry-family codes → ERR-6.
+      // The eleven `tools:`-surface codes → ERR-6, in registry order
+      // (`docs/spec_topics/diagnostics/code-registry-load.md`).
+      {
+        code: "theta/load/extension-tool-unreachable",
+        cause: "tools-resolution",
+      },
       { code: "theta/load/malformed-tool-entry", cause: "tools-resolution" },
+      { code: "theta/load/malformed-tools-field", cause: "tools-resolution" },
       { code: "theta/load/unknown-tool", cause: "tools-resolution" },
       { code: "theta/load/unresolvable-theta-path", cause: "tools-resolution" },
       { code: "theta/load/prompt-mode-callable", cause: "tools-resolution" },

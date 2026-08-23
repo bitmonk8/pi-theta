@@ -649,6 +649,14 @@ Existing green cells to keep green:
      Left for the owning report; the witness asserts nothing about it and says so
      in its header. `theta/load/extension-tool-unreachable` is excluded on the
      same footing.
+
+     **Discharged (0.254.0) by [0260](./0260-two-tools-load-codes-classified-err-3.md).**
+     Both codes now name themselves in `preEvalCauseOf`'s ERR-6 arm, in registry
+     order, and the witness cell's "OUT OF SCOPE, deliberately" header paragraph
+     — the text that named exactly these two codes — is retired with them.
+     `theta/load/malformed-tools-field` was added to FN-7's reuse list as well;
+     `theta/load/extension-tool-unreachable` was not, because it fires from
+     code-side call sites rather than from `with`-clause validation.
   2. **The witness cannot red on a future resolver code never added to its
      table.** It restates the family rather than deriving it from source, so it
      discriminates any code it lists (proven by mutation, obligation 1 probe (b))

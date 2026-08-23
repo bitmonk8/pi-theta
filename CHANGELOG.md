@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.254.0]
+
+### Fixed
+
+- Bug 0260: `preEvalCauseOf`'s ERR-6 `tools-resolution` batch now names
+  `theta/load/extension-tool-unreachable` and
+  `theta/load/malformed-tools-field` (registry order) instead of letting
+  them fall through to the ERR-3 `frontmatter` cause; `functions.md` FN-7's
+  with-tools reuse list widens by the FIELD-SHAPE code only (the
+  reachability code fires from code-side call sites, not clause validation
+  — 0109's deferral cited and discharged, note appended to its doc).
+  0109's table-driven witness cell extended by the two rows (red at HEAD on
+  exactly both) and its out-of-scope header paragraph retired. No live owed
+  (routePreEvalFailure discards the cause — notes byte-identical; single
+  call site; permitted-codes + registry byte-unchanged).
+  production-composition.ts +2 below preEvalCauseOf; 10 moved citation
+  spans repaired under a bounded self-authorization.
+
 ## [0.253.0]
 
 ### Fixed
