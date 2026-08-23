@@ -490,8 +490,8 @@ export interface ProductionProducerInput {
     calleePath: string,
   ) => Promise<ThetaCompositionInput | undefined>;
   /**
-   * INV-5 (invocation.md §Resolution, INV-1 seam): the `FileSystem.realpath`
-   * seam and the union of currently-active discovery roots, used by the runtime
+   * INV-1 (invocation.md §Resolution): the `FileSystem.realpath` seam and the
+   * union of currently-active discovery roots, used by the runtime
    * open-time containment re-check. Absent on non-production harnesses, in which
    * case the runtime re-check is skipped (the load-time check remains the
    * primary guard).
@@ -3632,9 +3632,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
   ): Promise<ResultValue> {
-    // INV-5 (invocation.md §Resolution, INV-1 seam): re-run the realpath +
-    // discovery-root containment check at the moment the runtime opens the
-    // callee, against the *currently* active roots. An escape fails closed with
+    // INV-1 (invocation.md §Resolution): re-run the realpath + discovery-root
+    // containment check at the moment the runtime opens the callee,
+    // against the *currently* active roots. An escape fails closed with
     // `Err(InvokeInfraError{cause:"load_failure"})` — the runtime backstop to the
     // load-time `theta/load/invoke-path-escape` guard.
     // Ceiling #4 (hard-ceilings/ceilings-3-and-4.md#ceiling-4-table, the
@@ -3777,11 +3777,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * INV-5 runtime re-check: resolve the callee path against the caller's
-   * directory and re-run the shared realpath + discovery-root containment check
-   * against the currently-active roots. Returns the `load_failure`
-   * `InvokeInfraError` on escape, or `undefined` when contained (or when the
-   * production seams needed for the check are absent).
+   * INV-1 (invocation.md §Resolution) runtime re-check: resolve the callee path
+   * against the caller's directory and re-run the shared realpath +
+   * discovery-root containment check against the currently-active roots. Returns
+   * the `load_failure` `InvokeInfraError` on escape, or `undefined` when
+   * contained (or when the production seams needed for the check are absent).
    */
   async #recheckCalleeContainment(
     theta: ConversationBindInput["theta"],

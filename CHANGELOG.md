@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.237.0]
+
+### Fixed
+
+- **Bug 0112** — the containment records agree with the spec's invariant names: ten mislabelled comments across `invoke-static-checks.ts` / `production-composition.ts` / `production-theta-producer.ts` now cite `INV-1 (invocation.md §Resolution)` (plus one self-authorized shorthand site), and the coverage matrix's INV-1 row gains the bug-0110 closer naming `tests/tools-entry-containment.test.ts`. Records-only: zero executable lines; matrix-edit inertness proved by neutralise→green→restore (hash-verified).
+
 ## [0.236.0]
 
 ### Fixed

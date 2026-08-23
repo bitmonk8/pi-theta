@@ -32,9 +32,9 @@
 //     graph (`theta/load/invocation-cycle`); a self-cycle or an A→B→A cycle
 //     un-registers the entry theta, which is what keeps a self-referential theta
 //     from driving pure unbounded invoke recursion at runtime.
-//   - INV-5 — `checkInvokePathAtLoad` (the shared realpath + discovery-root
-//     containment check) so a callee resolving outside every active discovery
-//     root is `theta/load/invoke-path-escape` and the parent does not register.
+//   - INV-1 (invocation.md §Resolution) — `checkInvokePathAtLoad` (the shared realpath +
+//     discovery-root containment check) so a callee resolving outside every active
+//     discovery root is `theta/load/invoke-path-escape` and the parent does not register.
 //   - bug 0138 — `checkImportedFnCallArgs`, wired once per importing theta from
 //     `checkThetaImports` (../extension/import-static-checks.ts): an imported
 //     `.thetalib` `fn` call's argument COUNT (`theta/parse/fn-arity-too-few` /
@@ -258,8 +258,8 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
       // admits `invoke(...)`, `.theta` callable calls, `subagent fn` calls and
       // Pi-tool calls inside it, so every rule this walk feeds must hold there
       // too. Because the walk is shared, this one arm carries the whole set into
-      // `par for` bodies at once — INV-3 arity over both call surfaces, the
-      // `invoke(...)` surface's INV-5 path-escape and `checkCalleeHasErrors`
+      // `par for` bodies at once — INV-3 arity over both call surfaces, the `invoke(...)`
+      // surface's INV-1 (invocation.md §Resolution) path-escape and `checkCalleeHasErrors`
       // checks, and `buildInvokeGraph`'s INV-4 cycle edges. That breadth is the
       // single-walker invariant paying out rather than a second rule bolted on:
       // one walker cannot drift against itself, so the reachable-node set is
@@ -273,7 +273,7 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
     case "block":
       // A `let`-RHS / match-arm-body block (bug 0082 §Fix) is an ordinary
       // call-site region: an `invoke(...)` / `.theta`-callable call inside it
-      // must still be collected for INV-3/-4/-5.
+      // must still be collected for INV-3 / INV-4 / INV-1.
       walkBlock(expr.body, out);
       return;
     // The complete leaf set of the `Expr` union — `ident`, `number`, `string`,
@@ -824,17 +824,15 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  * Run the load-time invoke static checks for one discovered theta, returning
  * every diagnostic (error-severity entries un-register the theta):
  *
- *   - INV-5 path-escape (`theta/load/invoke-path-escape`) via the shared
- *     realpath + discovery-root containment check — the `invoke(...)` surface
- *     ONLY. The `tools:` `.theta`-entry surface's containment is judged
- *     upstream at `tools:` resolution time (`parseCalleeForTools`), for the
- *     entry itself and for a `tools:`-reached callee's own `tools:` `.theta`
- *     entries alike: an error-severity rejection there un-registers the
- *     caller before this pass runs, so an escaping entry at either depth
- *     never reaches this pass's arity or type loops. For a callee this pass
- *     cannot statically resolve at load — or one reached by an `invoke(...)`
- *     literal, whose own nested entries that judgement does not reach — the
- *     defence is the runtime open-time re-check (`#driveCallee` →
+ *   - INV-1 (invocation.md §Resolution) path-escape (`theta/load/invoke-path-escape`) via
+ *     the realpath + discovery-root containment check — the `invoke(...)` surface ONLY.
+ *     The `tools:` `.theta`-entry surface's containment is judged at `tools:` resolution
+ *     time (`parseCalleeForTools`), for the entry itself and for a `tools:`-reached callee's
+ *     own `tools:` `.theta` entries alike: an error-severity rejection there un-registers
+ *     the caller before this pass runs, so an escaping entry at either depth never reaches
+ *     this pass's arity or type loops. For a callee this pass cannot statically resolve —
+ *     or one reached by an `invoke(...)` literal, whose own nested entries that judgement
+ *     does not reach — the defence is the runtime open-time re-check (`#driveCallee` →
  *     `#recheckCalleeContainment`), which fails the call closed instead;
  *   - INV-3 arity (`theta/parse/invoke-arity-too-{many,few}`) against the
  *     statically-resolved callee's `params:` counts, over BOTH the
@@ -857,8 +855,10 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *     accepts — see that function's own comment.
  *   - INV-4 invocation cycle (`theta/load/invocation-cycle`) via the graph walk.
  *
- * The extension / path-separator (INV-1 / INV-2) and dynamic-path (INV-8) checks
- * already fired during the whole-file parse and are not repeated here.
+ * The extension-matching and forward-slash path-literal checks (lexical.md
+ * §"Extension matching" / §"Path literals", reached via invocation.md §Resolution)
+ * and the dynamic-path rejection (invocation.md §Resolution's string-literal
+ * requirement) already fired during the whole-file parse and are not repeated here.
  */
 export async function checkInvokeStaticResolution(
   input: ThetaCompositionInput,
@@ -905,7 +905,7 @@ export async function checkInvokeStaticResolution(
       const site = { file: callerPath, range: invoke.range };
       const resolvedPath = resolveCalleeAbsolute(callerPath, invoke.path);
 
-      // INV-5 (invocation.md §Resolution): a resolved callee outside every
+      // INV-1 (invocation.md §Resolution): a resolved callee outside every
       // active discovery root un-registers the parent. The containment check
       // consults `realpath`, which THROWS for a callee that does not exist on
       // disk. Per discovery-cli.md §Static resolution, an unreadable callee

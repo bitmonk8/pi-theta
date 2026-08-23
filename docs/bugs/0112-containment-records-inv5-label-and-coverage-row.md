@@ -1,6 +1,6 @@
 # Bug 0112 — Two shipped records disagree with the tree on the `tools:`-containment surface: ten source comments across three `src/extension/` files label the discovery-root containment check `INV-5`, while `invocation.md`'s INV-5 is subagent return-value propagation over the envelope and containment's pin is INV-1 — which one of those same files names correctly eight times; and `docs/plan_topics/coverage-matrix.md` maps that pin as `INV-1 | V15a` alone, so the 37-cell witness now discharging its `tools:`-entry site (`tests/tools-entry-containment.test.ts`) is reachable from no row
 
-- **Status:** open. §Fix is settled: two independent, mechanical edits — ten
+- **Status:** fixed (0.237.0). §Fix is settled: two independent, mechanical edits — ten
   comment tokens rewritten across three `src/extension/` files, one annotation
   added to `docs/plan_topics/coverage-matrix.md:92` — with no executable line
   touched in either. Neither edit adds, removes or renames a `theta/*` code, a
@@ -794,3 +794,113 @@ live-gated readers.
   this report was written; the matrix may have gained unrelated rows since, so
   step 2 re-derives `:92` before editing and treats the highest `cka-<n>` as
   read, not as quoted here.
+
+## Fix (0.237.0)
+
+- **What shipped**
+  - `src/extension/invoke-static-checks.ts` — the four containment comments
+    (module-header bullet, the `par for` arm in `walkExpr`,
+    `checkInvokeStaticResolution`'s first doc-comment bullet, the `invoke(...)`
+    loop's call site) now cite `INV-1 (invocation.md §Resolution)`; the private
+    `INV-1` / `INV-2` / `INV-8` sentence in that same doc comment lost its
+    ordinals and names the rules by spec section instead (`lexical.md`
+    §"Extension matching" / §"Path literals", reached via `invocation.md`
+    §Resolution; the dynamic-path rejection as §Resolution's string-literal
+    requirement), so the file carries `INV-1` on one subject only.
+  - `src/extension/production-composition.ts` — the `activeRoots` derivation,
+    the producer wiring and the `INV-5` element of the compound static-check
+    label inside `runComposePass` cite `INV-1 (invocation.md §Resolution)`; the
+    compound's `INV-3` / `INV-4` elements are byte-exact, so the label reads
+    `INV-3 / INV-4 / INV-1` in non-ascending order by §Fix's own constraint.
+  - `src/extension/production-theta-producer.ts` — `ProductionProducerInput`'s
+    `fileSystem` / `activeRoots` doc, `#driveCallee`'s re-check comment and
+    `#recheckCalleeContainment`'s doc comment cite `INV-1 (invocation.md
+    §Resolution)`; where the text previously carried both the wrong id and the
+    right seam, one citation now stands rather than two.
+    `#spawnSubagentFnSession`'s `INV-5` is untouched — it is correct.
+  - `docs/plan_topics/coverage-matrix.md` — the INV-1 row records both of the
+    pin's load-time closers: `` `V15a` `` stays the cell's only
+    backtick-delimited span and an unbackticked closer in the `PIC-65` … `PIC-69`
+    form names bug 0110's `tools:`-entry site and its witness
+    (`tests/tools-entry-containment.test.ts`).
+  - No executable line, no assertion, no test file, no other doc. All four files
+    keep their HEAD line counts exactly (1200 / 2897 / 6760 / 192), so no
+    `path:line` citation into them shifted.
+- **Gates** (re-run independently by the orchestrator, not taken on report)
+  - Witness: none owed, and the determination was re-derived rather than
+    assumed — no gate, lint or test resolves a `src/**` comment's REQ-ID
+    (`assembleLiveCorpus` supplies no `srcSources` and no `h5bDepsText`; the one
+    `src`-reading arm matches `allow-broad-catch:` tokens; the lint checks token
+    presence, not resolution; `grep -rn 'INV-' tools/` is empty), and the matrix
+    gap is invisible to all seven `CANARY_GAP_KINDS` arms in both directions
+    (the per-facet arm's single-leaf skip). Inertness of the matrix edit was
+    *proved*: the row was neutralised in place to its HEAD text, the two
+    live-gated readers ran green, the edit was restored, and the restoration was
+    hash-verified byte-exact (`c4bbdcb1…` before neutralisation, `64602d2d…` =
+    HEAD's blob while neutralised, `c4bbdcb1…` after restoration). No `git
+    stash`, no `git checkout`/`restore`.
+  - Full suite: `npm test` → 417 files / 8728 tests passed.
+  - Targeted: `npx vitest run tests/live-corpus-release-gate.test.ts
+    tests/warn-only-canary.test.ts tests/tools-entry-containment.test.ts
+    tests/invocation-core.test.ts` → 4 files / 57 tests passed (37 + 10 cells
+    unchanged from HEAD).
+  - `npm run typecheck` clean; `npm run lint` clean;
+    `grep -rn "X\.Y\.Z" tests/ src/ --include=*.ts` empty.
+  - No live run owed: zero executable lines in the diff (verified by the
+    orchestrator's own filter over `git diff -U0`), so no runtime observable can
+    move.
+- **Review**: 2 rounds plus one polish round.
+  - Round 1 (deep) — 3 findings: one *fidelity* (an eleventh containment label,
+    the collapsed shorthand `INV-3/-4/-5` in `walkExpr`'s `block` arm, which the
+    report's `rg -n 'INV-5'` census could not match), two *prose* (the
+    retirement sentence garbled by a triple "and" and a dangling "checks"; four
+    comment paragraphs left ragged by the relabel). It refuted the suggestion
+    that the compound label be reordered to ascending ids: §Fix requires the
+    `INV-3` / `INV-4` tokens byte-exact, so the non-ascending order is mandated.
+  - Round 2 (fast) — CLEAN; confirmed the tightened `checkInvokeStaticResolution`
+    bullet loses no load-bearing claim, and raised one non-blocking *prose*
+    residual (two paragraphs still over the prevailing wrap width).
+  - Polish round (light) — moved one line break so the `` `par for` `` backtick
+    span is not split; established by exhaustive search that the module-header
+    bullet's three-line budget cannot go below ~90 columns without deleting
+    content. Comment-only; polish verified by gate-diff, so the confirmation
+    review round was skipped.
+- **Verification**: PASS, no findings. Witness determination re-derived from the
+  gate sources; default suite 417/8728 green; live run judged not owed on the
+  zero-executable-line evidence (no lock taken, none needed); lint and typecheck
+  clean; line counts and the `INV-5` residual census re-checked.
+- **Residuals**
+  1. *Wrap width in one doc comment.* `checkInvokeStaticResolution`'s first
+     bullet averages ~90 columns against the file's prevailing ~80, because its
+     payload cannot fit the fixed line budget the citation-stability constraint
+     imposes. No lint rule engages it. Relaxing it means letting the file grow,
+     which would stale the `path:line` citations into it from
+     `tests/modulo-zero-result-type-number.test.ts` and
+     `tests/wire-translation-inbound-retag.test.ts`.
+  2. *The eleventh site was outside §Fix's enumeration.* The orchestrator
+     self-authorized the one-line, one-token relabel of the collapsed shorthand
+     on the record: §Fix step 1's object is the containment citation and §Summary's
+     defect is one file labelling one rule two ways; `invocation.md`'s INV-5 is
+     envelope propagation, which call-site collection does not feed; and
+     §Non-goals excludes only *non-containment* `INV-<n>` labels, so the omission
+     was a census-method gap (`rg -n 'INV-5'` cannot match `INV-3/-4/-5`), not a
+     decision. Bound: one line, ordinal tokens only, file line count unchanged.
+  3. *Report facts stale at HEAD* (recorded, not acted on): every `src/**` line
+     number in §Affected is from 0.66.0 and has shifted (the ten sites are at
+     `invoke-static-checks.ts:35`, `:238`, `:803`, `:881`;
+     `production-composition.ts:591`, `:739`, `:849`;
+     `production-theta-producer.ts:493`, `:3635`, `:3780`, with the correct
+     `INV-5` at `:2554`); `production-composition.ts` now carries twelve `INV-1`
+     tokens rather than eight, bug 0111 having widened the correct-label side
+     after filing; and `rg -l 'INV-5' tests/` returns fourteen files, not six —
+     none of which reads these comments (verified by a negative grep on the
+     comment strings).
+  4. *The class this report bounds is untouched*, as §Non-goals directs: the
+     non-containment private ordinals (`INV-6`, `INV-8`, the arity / cycle ids),
+     the other uncited `tools:`-surface witnesses, and the `cka-13` row.
+- **Discharge notes appended**: none.
+- **Pinned dispositions / non-goals**: no `theta/*` code, registry row, REQ-ID or
+  plan leaf added, removed or renamed — DIAG-2's closed registry is not engaged
+  and GOV-15's three observables are untouched. No new `cka-<n>` token; `cka-64`
+  remains the highest. `docs/bugs/README.md`, `package.json` and `CHANGELOG.md`
+  are updated centrally, not here.

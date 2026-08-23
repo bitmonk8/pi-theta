@@ -588,7 +588,7 @@ async function runComposePass(
   const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate);
   const parseDeps = { systemNote, modelMatcher };
 
-  // INV-5 (invocation.md §Resolution): the active discovery-root union threaded
+  // INV-1 (invocation.md §Resolution): the active discovery-root union threaded
   // into the invoke containment check — the parent directory of every discovered
   // theta. Every registrable theta sits inside an active discovery root, so this
   // set is the roots the load-time and runtime containment checks compare
@@ -736,7 +736,7 @@ async function runComposePass(
       parseCalleeTheta(fileSystem, ctx, callerPath, calleePath, parseDeps, () =>
         pi.getAllTools?.() ?? [],
       ),
-    // INV-5 (invocation.md INV-1 seam): the runtime open-time containment
+    // INV-1 (invocation.md §Resolution): the runtime open-time containment
     // re-check consults the same `realpath` seam and active-root union.
     fileSystem,
     activeRoots,
@@ -846,12 +846,12 @@ async function runComposePass(
       continue;
     }
 
-    // INV-3 / INV-4 / INV-5: run the invoke static checks against the resolved
-    // callees and the shared invoke graph, over BOTH the `invoke(...)` call
-    // surface and the `.theta`-callable call surface (tool-calls.md
-    // §"Argument shape" binds INV-3 arity to both by name; bug 0071). An
-    // error-severity diagnostic (an arity error, a discovery-root escape, or an
-    // invocation cycle) un-registers the theta.
+    // INV-3 / INV-4 / INV-1 (invocation.md §Resolution): run the invoke static
+    // checks against the resolved callees and the shared invoke graph, over BOTH
+    // the `invoke(...)` call surface and the `.theta`-callable call surface
+    // (tool-calls.md §"Argument shape" binds INV-3 arity to both by name; bug
+    // 0071). An error-severity diagnostic (an arity error, a discovery-root
+    // escape, or an invocation cycle) un-registers the theta.
     const invokeDiagnostics = await checkInvokeStaticResolution(input, {
       fs: fileSystem,
       activeRoots,

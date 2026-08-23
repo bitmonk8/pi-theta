@@ -89,7 +89,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-67 | bug 0018 fix (shutdown-less runtime invalidation — reload-pass stale probe, permanent quiesce with one designed stderr line, stale-dead note channel, arm-after-teardown suppression) |
 | PIC-68 | bug 0021 fix (repeat-`session_start` supersession — compose-generation zero-touch evidence, supersede-before-publish detach+drain, one-shutdown teardown reach across generations) |
 | PIC-69 | bug 0024 fix (own-registration exclusion from the cross-format collision source set — source-conditioned, ledger-keyed, on the first-start, hot-reload, supersession and start-after-shutdown rebind passes alike; surviving-name re-ownership) |
-| INV-1 | `V15a` |
+| INV-1 | `V15a`, bug 0110 fix (tools: .theta-entry load-time containment site — tests/tools-entry-containment.test.ts) |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |
 | INV-5 | RFC 0006 (child-process theta execution — envelope return propagation) |
