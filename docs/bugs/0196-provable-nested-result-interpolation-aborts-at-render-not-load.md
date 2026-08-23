@@ -1,6 +1,6 @@
 # Bug 0196 — A `Result` nested in an interpolated array or object **literal** is provable at parse time and is still refused only at render: `${[Ok(1)]}`, `${[Ok(1), Err(2)]}`, `${[1, Ok(2), "s"]}`, `${ {r: Ok(1)} }` and — with the `resultBindings` channel extended — `let xs = [Ok(1)]` / `${xs}` and `let xs = [[Ok(1)]]` / `${xs}` load with `diagnostics []` and abort mid-drive with `InterpolatedResultPanic`; that is six of bug 0114's twelve rows, not the two its residual (i) records
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the upgrade re-opens
+- **Status:** wontfix (not a defect) — closed by operator ruling, fifteenth set; see the closure note at the end.
   a route bug [0114](./0114-nested-result-in-interpolated-object-leaks-carrier.md)
   declined on five recorded grounds, so answering those grounds with
   measurements — not restating them — is in-run adjudication work, and two
@@ -697,3 +697,230 @@ of the top-level gate reds here.
   were involved. No file under `src/`, `tests/` or `docs/` was written by this
   filing other than this document; `docs/bugs/README.md` and every other bug
   document are unmodified by it.
+
+## Re-derivation note — 2026-08-23, at HEAD `8dd418b9` (0.246.0)
+
+Appended by a re-derivation pass. **Note only — nothing above is altered, no
+code, test or spec file is touched, and this report stays `open` with §Fix
+still unsettled.** `docs/bugs/README.md` is untouched.
+
+**Verdict: the subject face survives intact and is NOT mooted; the run STOPS
+without implementing, because the route §Fix leaves open cannot be settled
+without changing spec meaning and flipping a sibling witness's asserted
+direction.** The question this report asks for is restated at the end of this
+note, unanswered.
+
+### Per-row probe table (re-measured at this HEAD)
+
+One scratch vitest file, offline and provider-free, reusing this witness's own
+harness verbatim in shape — `parseOnly` (`tests/interpolated-result-gate.test.ts`,
+the real `parseThetaDocument` behind `parseDeps`) and `drive` (same file:
+`createProductionProducerDeps` → `bindPromptConversation` → `executeBody`
+against its `LiveSessionDouble`, prompt text read at `pi.sendUserMessage`).
+Frontmatter `mode: prompt` throughout. Written, run, and deleted; no repository
+file was written by the measurement. `P` abbreviates
+`InterpolatedResultPanic / theta/parse/interpolated-result / "Result value
+cannot be interpolated; unwrap with ? or match first"`.
+
+| # | Input | `diagnostics` | `sent` | `thrown` | vs §Reproduction |
+|---|---|---|---|---|---|
+| A | `${[Ok(1)]}` | `[]` | `[]` | `P` | same |
+| G | `${[Ok(1), Err(2)]}` | `[]` | `[]` | `P` | same |
+| Q | `${[1, Ok(2), "s"]}` | `[]` | `[]` | `P` | same |
+| B | `${ {r: Ok(1)} }` | `[]` | `[]` | `P` | same |
+| C | `let xs = [Ok(1)]` / `${xs}` | `[]` | `[]` | `P` | same |
+| D | `let xs = [[Ok(1)]]` / `${xs}` | `[]` | `[]` | `P` | same |
+| E | `${Ok(1)}` | `[error theta/parse/interpolated-result]` | `[]` | `P` | same |
+| K | annotated-`fn` call inside an array literal | `[]` | `[]` | `P` | same |
+| R | `${ {a: 1, r: Err(2)} }` | `[]` | `[]` | `P` | same |
+| I | `let xs: array<integer> = [Ok(1)]` / `${xs}` | `[]` | `[]` | `P` | same |
+| J | `let xs: array<Result<integer, QueryError>> = [Ok(1)]` / `${xs}` | `[]` | `[]` | `P` | same |
+| H | `S { xs: [Ok(1)] }` / `${s}` | `[]` | `[]` | `P` | same |
+| **L** | `enum St { Ok, Bad }` / `${[St.Ok]}` | `[error theta/parse/reserved-keyword-as-identifier]` | `["x[\"Ok\"]"]` | none | **DRIFTED** — see below |
+| M | `schema F { ok, label }` inside an array literal | `[]` | `["x[{\"ok\":true,\"label\":\"x\"}]"]` | none | same |
+| **N** | `let r = Ok(1)` / `${[r?]}` | `[]` | `["x[1]"]` | none | **DRIFTED** — see below |
+| P | `${[[1, 2], [3]]}` | `[]` | `["x[[1,2],[3]]"]` | none | same |
+| F | `${[1, 2]}` | `[]` | `["x[1,2]"]` | none | same |
+| O | `let o = { r: Ok(1) }` / `${o}` | `[error theta/parse/bare-object-literal]` | `[]` | `P` | same |
+| X1 | `let a = Ok(1)` / `let b = a` / `${b}` | `[error theta/parse/interpolated-result]` | `[]` | `P` | new row |
+| X2 | `let a = [Ok(1)]` / `let b = a` / `${b}` | `[]` | `[]` | `P` | new row |
+| X3 | `for e in [Ok(1)]` with `${e}` in the body | `[]` | `[]` | `P` | new row |
+
+**The six-row provable class is unmoved.** Rows A, G, Q, B, C and D each still
+load with `diagnostics []`, send nothing, and abort the drive with the
+registered code and the registered *Message*. So are the class's two further
+members outside bug 0114's table (K, R) and the three boundary rows no descent
+of the described shape reaches (I, J, H). §Summary, §Reproduction's first
+block, §Expected behaviour and §Why it matters all re-measure true at this HEAD.
+
+### The defect site is structurally unchanged
+
+`interpolationIsResult` (`src/parser/type-layer-checks.ts:3316`, was `:2218`)
+still switches on the interpolated expression's top-level node kind (`:3320`)
+and still returns `false` from its `default` arm (`:3332–3339`) for an `array`
+and an `object` literal, with the same three accepting arms — `result-ctor` /
+`call` (`:3321–3323`), `ident` (`:3324–3327`), `index` (`:3328–3331`) — and the
+same comment scoping the default to expressions that "type as a `named`
+reference built from an author-chosen identifier". `checkQueryInterpolationResults`
+(`:3262`, driven from `walkExpr`'s `query` arm at
+`src/parser/type-layer-checks.ts:3175`) still skips a top-level `try`
+(`:3271–3278`) and still holds the sole static emission (`:3279–3287`). The
+`let` arm still mints a `resultBindings` (`:1423`) membership only under
+`annotation === undefined && this.isCertainResultNode(stmt.init)`
+(guard `:1615`, add `:1642`), and `isCertainResultNode` (`:3356`) still answers
+for exactly two node kinds; `isResultGenericType` (`:3373`) still requires
+`type.kind === "named"`. `ArrayExpr` is now
+`src/parser/theta-document.ts:168–171` and `ObjectExpr`
+`src/parser/theta-document.ts:293–297`.
+
+Both of constraint 5's counts hold at this HEAD: one `code:
+INTERPOLATED_RESULT_CODE` under `src/parser/` and one
+`throw new InterpolatedResultPanic` under `src/` — the raise now sits behind a
+one-line `raiseInterpolatedResult` wrapper
+(`src/extension/production-theta-producer.ts:6291–6292`), still the sole
+`throw`, reached from `src/extension/production-theta-producer.ts:6278` and
+`src/extension/production-theta-producer.ts:6550`.
+
+The committed-corpus flip bound is re-measured and unchanged: 34 committed
+`.theta` / `.thetalib` files, **zero** of which interpolate an array or object
+literal at all (`git ls-files '*.theta' '*.thetalib'`, then a scan of every
+`${…}` source for a leading `[` or `{` — no match).
+
+### The corpus still forecloses the upgrade, in both places
+
+Re-read at this HEAD, verbatim-unchanged in text:
+
+- `docs/spec_topics/query/query-escapes-stringification.md:33` (line unmoved) —
+  "A container's own static type is never `Result<T, E>`, so this is the
+  **runtime** arm of the previous note".
+- The `theta/parse/interpolated-result` registry row, now
+  `docs/spec_topics/diagnostics/code-registry-parse.md:83` (was `:74`; a
+  file-wide shift, *Trigger* text byte-identical) — "this sub-case is reached
+  only at runtime, never at parse".
+- The user-facing mirror, now `docs/reference/frontmatter.md:331–334` (was
+  `:283–287`), stating the same split.
+
+QRY-18's `:32` posture sentence, its `array<T>` (`:26`), Schema-typed-object
+(`:27`) and `Result<T, E>` (`:28`) rows, and DIAG-2 / DIAG-4
+(`docs/spec_topics/diagnostics/diagnostic-shape.md:72`,
+`docs/spec_topics/diagnostics/diagnostic-shape.md:74`) are all unmoved. So
+§Fix's "spec edits owed in the same commit" paragraph is correct as written,
+with the one line-number correction above.
+
+### Dischargers checked, none of which reaches this face
+
+| Candidate | Reaches this face? | Evidence |
+|---|---|---|
+| bug 0247 (v0.227.0, category-1 clause, `placeholder-rendering-a`) | **No** | Its subject is generic *Message* placeholder rendering (`<type>` / `<expected>`); it names neither `interpolationIsResult` nor `INTERPOLATED_RESULT_CODE`, and it edits neither QRY-18 `:33` nor the registry row. |
+| bug 0201 (v0.118.0, envelope walk) | **No** | Its twelve mentions of interpolation all cite bug 0114's containment rule as *precedent* for the subagent-envelope writer's own bounded walks; it modifies neither `query-escapes-stringification.md:33` nor the interpolation registry row. |
+| bug 0202 (v0.119.0, envelope walk) | **No** | Zero occurrences of "interpolat" in the report; its subject is carrier-vs-wire depth counting at the envelope boundary. |
+| bug 0199 (`resultBindings` inherited half) | **Partly, and not into this class** | The inheritance (`src/parser/type-layer-checks.ts:1643`, add at `src/parser/type-layer-checks.ts:1655`) is live for an ident→ident chain of a *certain* `Result` — row X1 is now refused at load — but not for a literal container through an alias (X2) nor for a loop element (X3). One of §Fix's open scope decisions, "how far the binding channel follows a chain", is therefore answered for the certain-`Result` case and still open for the container case. |
+
+### Measured drift — two of the report's control rows
+
+1. **Row L is no longer a load-clean control.** `enum St { Ok, Bad }` now draws
+   one error `theta/parse/reserved-keyword-as-identifier` ("reserved keyword
+   'Ok' cannot be used as an identifier"), because `Ok` is one of
+   `docs/spec_topics/lexical.md:20`'s 32 reserved spellings and bug 0153's fix
+   (0.194.0) closed the enum-variant position that had been silent. The
+   rendered text and the absence of a throw are unchanged (`["x[\"Ok\"]"]`, no
+   throw), so nothing about the runtime arm moves — but §Fix ground 4 calls row
+   L "the discriminating one for a name-keyed implementation", and that
+   spelling can no longer discriminate, since it is refused at load by an
+   unrelated code whether or not a descent fires. **Any implementer of §Fix
+   owes a replacement discriminator for the name-keyed false positive** — an
+   enum whose variant is not itself a reserved keyword, or a `fn` or field
+   named after one.
+2. **Row N's `null` is gone.** `let r = Ok(1)` / `${[r?]}` now renders
+   `x[1]` — the unwrapped payload — rather than `x[null]`. Bug 0116 is **fixed
+   (0.128.0)**, and its symptom is discharged at the nested position too. The
+   row remains a valid must-stay-silent control (`diagnostics []`, no throw)
+   and §Fix's `try`-skip obligation is unchanged; only the §Non-goals sentence
+   describing the row's render, and §Reproduction row N's `sent` value, are
+   stale.
+
+### Sibling-witness state, re-derived by symbol
+
+`tests/interpolated-result-gate.test.ts` is now **2555** lines (was 1679).
+`assertNestedCarrierRefused` is at `tests/interpolated-result-gate.test.ts:1377`,
+and its direction-0 assertion — `doc.diagnostics.map(…)` `.toEqual([])`, failure
+message "bug 0114 §Fix (a) route 2 (settled): the nested disposition is
+RUNTIME-only …" — is at `tests/interpolated-result-gate.test.ts:1378–1383`. The
+nested-row table is `tests/interpolated-result-gate.test.ts:1268–1338`. The six
+cells this fix would have to re-author are at
+`tests/interpolated-result-gate.test.ts:1506` (L02),
+`tests/interpolated-result-gate.test.ts:1510` (L03),
+`tests/interpolated-result-gate.test.ts:1532` (L06),
+`tests/interpolated-result-gate.test.ts:1536` (L07),
+`tests/interpolated-result-gate.test.ts:1547` (L09) and
+`tests/interpolated-result-gate.test.ts:1555` (L10).
+
+The doc's "bug 0079's protected block (lines 1–990)" is stale as a line range
+and as a phrase — no such phrase appears in the file — but the underlying claim
+holds: 0079's `describe` blocks end at
+`tests/interpolated-result-gate.test.ts:1028` and contain none of the six
+cells, which live in the bug 0114 nested-carrier describe at
+`tests/interpolated-result-gate.test.ts:1483–1600`.
+
+The live H8a cell is now at `tests/live/live-production-acceptance.test.ts:1830`
+(fixture `tests/live/live-production-acceptance.test.ts:1815–1827`), and its
+registration precondition
+(`tests/live/live-production-acceptance.test.ts:1837–1849`) still reads "A
+regression that widened the static gate to refuse this shape at load (route 1,
+deliberately declined) would red HERE first". Not run by this pass — no code
+changed, so no live-exercised surface moved.
+`tests/fixtures/h7a/permitted-codes.json` still lists eleven codes, none of
+them `theta/parse/interpolated-result`.
+
+### Why this pass stops rather than implements
+
+§Fix is marked **Not settled** and leaves four open scope decisions plus the
+corpus-direction question itself ("Which way the corpus should read is the
+adjudication this report asks for"). Its own constraints do not force a route.
+Settling it in-run would require both of the things a bounded in-run
+adjudication may not do:
+
+1. **Changing spec meaning.** Two normative sentences currently say the
+   opposite of the proposed disposition —
+   `docs/spec_topics/query/query-escapes-stringification.md:33` and
+   `docs/spec_topics/diagnostics/code-registry-parse.md:83` — and a third
+   mirrors them at `docs/reference/frontmatter.md:331–334`. Re-wording them is
+   a posture change, not a citation repair; DIAG-2 makes the registry touch
+   same-commit-mandatory, so the code cannot land without it.
+2. **Flipping a sibling witness's asserted direction.** Six cells assert, as
+   their direction 0, that these exact sources load with `diagnostics []`, with
+   route 2 named as *settled* in the failure message. Re-authoring them inverts
+   a pin another report deliberately placed, and the live H8a cell's
+   precondition comment records route 1 as "deliberately declined".
+
+**The question, stated and left unanswered:** *does QRY-18 `:32`'s "static
+where possible" posture govern the sub-class whose `Result`-ness is provable
+from the parsed node — carving the four literal rows (L02, L06, L07, L09), and
+optionally the two `resultBindings` rows (L03, L10), out of `:33`'s blanket
+"this is the **runtime** arm" — or does `:33`'s container-ness ground govern the
+whole containment class as bug 0114 settled it, leaving this report a recorded
+non-defect?* Answering it takes named doc authority to re-word
+`docs/spec_topics/query/query-escapes-stringification.md:33`, the registry
+*Trigger* at `docs/spec_topics/diagnostics/code-registry-parse.md:83` and the
+mirror at `docs/reference/frontmatter.md:331–334`, and to re-author the six
+direction-0 pins. Without that authority the correct disposition of this report
+is unchanged: **open, §Fix unsettled, behaviour at HEAD spec-conformant.**
+
+## Closure — wontfix by operator ruling (2026-08-23)
+
+OPERATOR RULING (fifteenth set, ruling 4): 0196 = option 2 — the runtime arm
+stands for the whole container class; bug 0114's settlement (container-ness
+governs) is reaffirmed. The shipped behaviour matches the spec as written
+(query-escapes-stringification.md line 33's blanket runtime-arm rule,
+code-registry-parse.md line 83's Trigger, frontmatter.md lines 331–334's
+mirror) and six direction-0 witness pins; the filed claim rests on QRY-18
+line 32's posture sentence, which line 33 immediately qualifies. Option 1
+(a load-refusal carve-out for the provable sub-class) was REJECTED: three
+spec pages rewritten against their meaning + a DIAG-2 registry change + six
+settled pins flipped, to reopen a settled design for an S4 with a
+fail-closed runtime face. Closed wontfix per the bug 0068 precedent — not a
+defect; the two re-derivation notes above stand as the record (21-row probe
+at 0.246.0: behaviour byte-identical to 0.108.0). Sharpening the line-32
+posture sentence ('static where the rules below make it static') is
+optional residual-filing material, not this report's subject. No code
+moved; no version taken.
