@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.234.0]
+
+### Fixed
+
+- **Bug 0109** — the tools-diagnostic enumerations catch up a generation: `preEvalCauseOf`'s ERR-6 `tools-resolution` disjunction widens by three codes (`malformed-tool-entry`, `unresolvable-theta-path`, `invalid-pi-tool-name`) in registry order — the widened THREE-code form 0108's coordination note required — and `functions.md` FN-7's reuse list widens to match (`malformed-tool-entry`, `invalid-derived-tool-name`, `invalid-pi-tool-name`). Locked by the new table-driven cell in `tests/pre-evaluation-failures.test.ts` (9 entry-family rows + 4 guards).
+
 ## [0.233.0]
 
 ### Fixed

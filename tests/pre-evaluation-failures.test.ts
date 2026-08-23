@@ -23,6 +23,7 @@ import {
   type SystemNoteDetails,
   type SystemNoteSender,
 } from "../src/extension/system-note-channel";
+import { preEvalCauseOf } from "../src/extension/production-composition";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // A recording `theta-system-note` channel. `pi.sendMessage` is the only surface
@@ -229,6 +230,73 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
       const note = onlyNote(sendMessage);
       expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
       expect(note.triggerTurn).toBe(false);
+    }
+  });
+
+  // Bug 0109 finding 1 (widened by bug 0108 §Fix Residual 2 with a third code).
+  //
+  // WHAT THIS PINS: `preEvalCauseOf` (`src/extension/production-composition.ts`)
+  // maps a shipped load-path diagnostic code to the ERR-1…ERR-6 pre-evaluation
+  // failure cause it realises. Every code of the `tools:`-ENTRY family MUST map
+  // to ERR-6 `tools-resolution`: the eight emitted by `resolveCallableSet`
+  // (`src/parser/callable-set.ts`) — `malformed-tool-entry`,
+  // `invalid-tool-rename`, `invalid-derived-tool-name`, `invalid-pi-tool-name`,
+  // `tool-name-collision`, `unknown-tool`, `unresolvable-theta-path`,
+  // `prompt-mode-callable` — plus the `tools:`-surface
+  // `theta/load/callee-has-errors` pushed by `checkCalleeHasErrors` with
+  // `surface: "tools"` in `production-composition.ts` — nine codes in all.
+  //
+  // WHAT THIS CANNOT PIN: this table restates the ENTRY family rather than
+  // deriving it from source, so it reds (proven by mutation) when any code
+  // ALREADY LISTED here diverges from the batch, but it cannot red on a
+  // resolver code added to `callable-set.ts` and to the registry yet never
+  // added to this table — a source-derived family gate is open bug 0107's
+  // axis, outside bug 0109's settled §Fix.
+  //
+  // WHY A DIRECT-CALL CELL: the mapping has no routable observable.
+  // `routePreEvalFailure` (`src/extension/load-pre-eval.ts`) discards its cause
+  // argument (`void cause;`) and delivers every cause over the one
+  // `theta-system-note` surface with the same fixed options, so a `tools:` code
+  // misclassified as ERR-3 `frontmatter` produces a byte-identical note. The
+  // cell therefore asserts `preEvalCauseOf` itself; the function is pure and
+  // total on `string`, so nothing else can witness the divergence.
+  //
+  // The three non-`tools:` rows are guards: `theta/load/missing-mode` MUST stay
+  // ERR-3 `frontmatter` (reds if the batch is over-widened into the ERR-3 arm),
+  // `theta/load/host-incompatible` ERR-1, `theta/load/binder-model-unresolved`
+  // ERR-4, and one `theta/parse/` code the ERR-2 `lex-parse-type` arm.
+  //
+  // OUT OF SCOPE, deliberately: `theta/load/malformed-tools-field` (the
+  // field-level `tools:` code emitted by `src/parser/frontmatter.ts`, landed by
+  // bug 0104 after 0109 was filed) and `theta/load/extension-tool-unreachable`.
+  // Their classification is not authorised by bug 0109's settled §Fix and is
+  // named as a residual in its fix record; this cell asserts nothing about them.
+  it("ERR-6: preEvalCauseOf maps every tools:-entry-family code to tools-resolution (bug 0109 finding 1)", () => {
+    const rows: ReadonlyArray<{
+      readonly code: string;
+      readonly cause: PreEvalFailureCause;
+    }> = [
+      // The nine `tools:`-entry-family codes → ERR-6.
+      { code: "theta/load/malformed-tool-entry", cause: "tools-resolution" },
+      { code: "theta/load/unknown-tool", cause: "tools-resolution" },
+      { code: "theta/load/unresolvable-theta-path", cause: "tools-resolution" },
+      { code: "theta/load/prompt-mode-callable", cause: "tools-resolution" },
+      { code: "theta/load/tool-name-collision", cause: "tools-resolution" },
+      { code: "theta/load/invalid-tool-rename", cause: "tools-resolution" },
+      { code: "theta/load/invalid-derived-tool-name", cause: "tools-resolution" },
+      { code: "theta/load/invalid-pi-tool-name", cause: "tools-resolution" },
+      { code: "theta/load/callee-has-errors", cause: "tools-resolution" },
+      // Guards on the neighbouring arms.
+      { code: "theta/load/host-incompatible", cause: "capability-probe" },
+      { code: "theta/load/binder-model-unresolved", cause: "binder-model" },
+      { code: "theta/load/missing-mode", cause: "frontmatter" },
+      { code: "theta/parse/unterminated-template", cause: "lex-parse-type" },
+    ];
+
+    for (const { code, cause } of rows) {
+      // `expect.soft` so one run's red names every offending code, not just the
+      // first: the defect class is a batch that omits several members at once.
+      expect.soft(preEvalCauseOf(code), code).toBe(cause);
     }
   });
 });

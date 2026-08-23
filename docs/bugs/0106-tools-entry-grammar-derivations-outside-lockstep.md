@@ -700,15 +700,22 @@ entry.
 - **`theta/load/malformed-tool-entry`'s message, severity or all-or-nothing
   posture.** Unchanged under any route, and DIAG-3 / DIAG-4 defer a rename or
   reword to theta 2.0 in any case.
-- **`preEvalCauseOf`'s `tools:` enumeration.** Two of the seven `tools:`
-  rejection codes are absent from its ERR-6 arm
-  (`production-composition.ts:274–282`) and fall to the ERR-3 `frontmatter` arm:
-  `theta/load/unresolvable-theta-path`, which predates 0069, and
-  `theta/load/malformed-tool-entry`. ERR-6 is "`tools:` resolution failure"
-  (`errors-and-results/error-model.md:20`). The mapping drives no routing today
-  (`production-composition.ts:257–260`: the discriminant "is carried for caller /
-  reload-integration reuse rather than driving routing"), and whether either code
-  belongs in the ERR-6 arm is a separate question. Unfiled.
+- **`preEvalCauseOf`'s `tools:` enumeration.** Filed and fixed by
+  [0109](./0109-tools-diagnostic-enumerations-one-generation-behind.md):
+  `preEvalCauseOf`'s ERR-6 arm in `src/extension/production-composition.ts` now
+  names all nine codes of the ENTRY-resolution family — the eight
+  `resolveCallableSet` emits (the two this bullet named,
+  `theta/load/unresolvable-theta-path` and `theta/load/malformed-tool-entry`,
+  plus `theta/load/invalid-pi-tool-name`, widened in by bug 0108, among the
+  others) plus the `tools:`-surface `theta/load/callee-has-errors`. That is
+  not every `tools:`-surface code: `theta/load/malformed-tools-field`, the
+  FIELD-shape code `src/parser/frontmatter.ts` emits (bug 0104), is also a
+  `tools:`-surface code and stays ERR-3 `frontmatter`; it is recorded as a
+  residual in 0109's fix record rather than folded into ERR-6. ERR-6 is
+  "`tools:` resolution failure" (`errors-and-results/error-model.md:20`). The
+  mapping drives no routing today (the discriminant "is carried for caller /
+  reload-integration reuse rather than driving routing"), so 0109's fix is a
+  fidelity correction, not a behavioural one.
 - **The empty `relatedSites` on the `tools:`-surface `callee-has-errors`
   emission.** `production-composition.ts:1437` passes `relatedSites: []` while
   the registry row (`code-registry-load.md:38`) says the "`related` array carries

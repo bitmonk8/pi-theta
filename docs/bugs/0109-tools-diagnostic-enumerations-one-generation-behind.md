@@ -1,6 +1,6 @@
 # Bug 0109 — Two shipped enumerations of the `tools:` diagnostic family are one generation behind the closed registry: `preEvalCauseOf`'s ERR-6 `tools-resolution` batch names six of the eight `tools:`-surface codes, so `theta/load/malformed-tool-entry` and `theta/load/unresolvable-theta-path` are classified as the ERR-3 `frontmatter` cause; and `functions.md` FN-7's `with { tools: … }` reuse list names five of the seven codes the entry resolver emits, omitting `theta/load/malformed-tool-entry` (landed by 0069, 0.62.0) and `theta/load/invalid-derived-tool-name` (landed by 0070, 0.63.0)
 
-- **Status:** open. §Fix is settled: two independent, mechanical edits — two
+- **Status:** fixed (0.234.0). §Fix was settled: two independent, mechanical edits — two
   conditions added to one `if` in `src/extension/production-composition.ts`, two
   codes added to one sentence in `docs/spec_topics/functions.md` — plus one
   witness for the first. Neither edit adds or removes a `theta/*` code, and no
@@ -569,3 +569,112 @@ Existing green cells to keep green:
   [0106](./0106-tools-entry-grammar-derivations-outside-lockstep.md) §Non-goals
   (`:703–711`). Prior sighting of the class:
   [0069](./0069-tools-entry-residue-silently-dropped.md) §Fix (`:125–137`).
+
+## Fix (0.234.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` — `preEvalCauseOf`'s ERR-6
+    `tools-resolution` disjunction widened by THREE codes and put in registry
+    order (§Fix step 1, widened per 0108 §Fix *Residual 2*):
+    `theta/load/malformed-tool-entry`, `theta/load/unresolvable-theta-path` and
+    `theta/load/invalid-pi-tool-name` (0108's row, which post-dates this
+    report's filing). The arm now names all nine codes of the `tools:`
+    ENTRY-resolution family — the eight `resolveCallableSet`
+    (`src/parser/callable-set.ts`) emits plus the `tools:`-surface
+    `theta/load/callee-has-errors` `checkCalleeHasErrors` pushes. The doc
+    comment's contract sentence and the ERR-3 arm are untouched; the reorder is
+    behaviour-neutral (a disjunction of `===` comparisons).
+  - `src/extension/production-composition.ts` — `preEvalCauseOf` gained
+    `export`, the witness's stated prerequisite (§Fix *Witness*). The function
+    is pure and total on `string`; no runtime observable moves.
+  - `tests/pre-evaluation-failures.test.ts` — one table-driven witness cell for
+    the mapping, the §Fix-owed witness for step 1.
+  - `docs/spec_topics/functions.md` — FN-7's `with { tools: … }` reuse list
+    widened by THREE codes in registry order (§Fix step 2, likewise widened by
+    0108's row): `theta/load/malformed-tool-entry`,
+    `theta/load/invalid-derived-tool-name`, `theta/load/invalid-pi-tool-name`.
+    No `docs/reference/` mirror was owed and none was edited:
+    `docs/reference/diagnostics.md`'s `subagent fn` note delegates to FN-7
+    instead of restating the list, and `docs/reference/frontmatter.md`
+    §"Two entry kinds" already carries all three codes.
+  - `docs/bugs/0106-tools-entry-grammar-derivations-outside-lockstep.md` —
+    §Non-goals' `preEvalCauseOf` bullet retensed (§Fix step 3): the subject is
+    recorded as filed and fixed here, the stale
+    `production-composition.ts` line-range citation is replaced with symbol
+    form, and the count is scoped to the entry-resolution family so the bullet
+    states no new totality.
+  - Not touched, per the lane's delta: `package.json`, `CHANGELOG.md`,
+    `docs/bugs/README.md`. The version above is a placeholder the merge
+    assigns.
+- Gates: witness cell RED before step 1 on exactly the three omitted codes
+  (`theta/load/malformed-tool-entry` / `theta/load/unresolvable-theta-path` /
+  `theta/load/invalid-pi-tool-name`, each `expected 'frontmatter' to be
+  'tools-resolution'`) and 9/9 GREEN after; full default suite
+  `415 passed (415)` files / `8710 passed (8710)` tests; `npm run typecheck`
+  clean; `npm run lint` clean. Live: existing H8a
+  `tests/live/live-production-acceptance.test.ts` `89 passed (89)` under the
+  live lock, including the bug 0070 / 0071 / 0110 / 0111 `tools:` cells.
+- Review: 3 rounds. Round 1 (deep) — 2 findings: the witness restates the
+  family rather than deriving it, so it cannot red on a future resolver code
+  never added to its table (narrowing recorded, residual 2 below); and the
+  retensed 0106 bullet minted a fresh false totality by ignoring
+  `theta/load/malformed-tools-field`. Round 2 (fast) — both discharged, one new
+  prose finding: the cell's `it(...)` title still said "every `tools:`-surface
+  code". Round 3 (fast, confirmation) — CLEAN. Both fixer rounds were
+  `bug-fix-fixer-light` and touched only comments, spec/bug prose and one test
+  title; no assertion and no executable branch moved.
+- Verification: SOLID on all four obligations. (1) The witness reds: removing
+  the three added conditions reds naming exactly those three codes; adding a
+  tenth enumerated row for a code absent from the batch reds; replacing the
+  batch with a `theta/load/` prefix arm reds the `theta/load/missing-mode`
+  over-widening guard — every neutralisation restored byte-exact, both mutated
+  files' `git hash-object` values equal to their pre-probe captures
+  (`73c43300b1fe1e34944b65af09373336fe6b4f83`,
+  `a95401237236aef167e33738891e307f721a8e82`). (2) Default suite green,
+  415 / 8710. (3) A live surface exercises the neighbouring tools-load seam for
+  real, green 89/89; the fix adds no emission — `preEvalCauseOf`'s only consumer
+  is `emitLoadNoteGroup`, and `routePreEvalFailure`
+  (`src/extension/load-pre-eval.ts`) discards its cause argument — so no code
+  becomes newly reachable from an ordinary `pi -p` run and no
+  `tests/fixtures/h7a/permitted-codes.json` append is owed. (4) Lint and
+  typecheck clean.
+- Residuals:
+  1. **`theta/load/malformed-tools-field` still maps to ERR-3 `frontmatter`.**
+     It is a `tools:`-surface code — the FIELD-shape rejection
+     `src/parser/frontmatter.ts` emits, landed by bug 0104 after this report was
+     filed — so the ERR-6 arm is complete for the ENTRY family only, not for the
+     whole `tools:` surface. Its classification is outside this report's settled
+     §Fix (which names two codes, widened to three by 0108's authority), and
+     reclassifying it would be an unauthorised semantic flip of a mapping row.
+     Left for the owning report; the witness asserts nothing about it and says so
+     in its header. `theta/load/extension-tool-unreachable` is excluded on the
+     same footing.
+  2. **The witness cannot red on a future resolver code never added to its
+     table.** It restates the family rather than deriving it from source, so it
+     discriminates any code it lists (proven by mutation, obligation 1 probe (b))
+     but not an unlisted one. §Fix's second landing direction ("reds on a future
+     `tools:` code added to the resolver but not the batch") therefore holds for
+     enumerated codes only, and the narrowing is stated verbatim in the cell's
+     header. A source-derived family gate is open bug 0107's axis, out of scope
+     here.
+  3. **This change shifts `src/extension/production-composition.ts` line
+     numbers by +3 below `preEvalCauseOf`.** Pre-existing `path:line` citations
+     into that file from `tests/**` and from bug documents are not re-derived:
+     the file is not in `tests/citation-symbol-form-gate.test.ts`'s
+     `CONVERTED_FILES` ratchet, and it churned repeatedly in the releases
+     between this report's filing and the fix (this report's own line citations
+     were already stale at HEAD — `preEvalCauseOf` had moved from `:267` to
+     `:293`, the `surface: "tools"` push from `:1431` to `:1729`). Every
+     citation this fix authored or moved uses FILE + SYMBOL form.
+- Discharge notes appended: `docs/bugs/0106-…md` §Non-goals (step 3, above).
+  0108 §Fix *Residual 2*'s obligation ("a sibling orchestrator closing 0109 must
+  widen its edit by this one code") is discharged by the three-code widening in
+  both enumerations; that record is left as written.
+- Pinned dispositions / non-goals: §Non-goals holds unchanged. The ERR-1…ERR-6 /
+  ERR-16 cause taxonomy, `preEvalCauseOf`'s prefix-cascade shape and the ERR-3
+  arm's scope are untouched; `routePreEvalFailure` still discards its cause and
+  was not made to branch on it; FN-7's `with { tools: … }` load-time validation
+  is still unimplemented and this fix neither widens nor narrows that contract;
+  FN-7's two older absences (`theta/load/callee-has-errors`,
+  `theta/load/invoke-path-escape`'s registry trigger) are left where they are.
+  No registry row was added, removed or reworded (DIAG-2, DIAG-4).

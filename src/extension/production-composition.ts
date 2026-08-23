@@ -290,7 +290,7 @@ function sinkOverPerDiagnosticEmit(
  * unmatched code falls to the ERR-2 lex/parse/type batch (the default
  * load-phase failure family).
  */
-function preEvalCauseOf(code: string): PreEvalFailureCause {
+export function preEvalCauseOf(code: string): PreEvalFailureCause {
   if (code === "theta/load/host-incompatible") {
     return "capability-probe"; // ERR-1
   }
@@ -298,11 +298,14 @@ function preEvalCauseOf(code: string): PreEvalFailureCause {
     return "binder-model"; // ERR-4
   }
   if (
+    code === "theta/load/malformed-tool-entry" ||
     code === "theta/load/unknown-tool" ||
+    code === "theta/load/unresolvable-theta-path" ||
+    code === "theta/load/prompt-mode-callable" ||
     code === "theta/load/tool-name-collision" ||
     code === "theta/load/invalid-tool-rename" ||
     code === "theta/load/invalid-derived-tool-name" ||
-    code === "theta/load/prompt-mode-callable" ||
+    code === "theta/load/invalid-pi-tool-name" ||
     code === "theta/load/callee-has-errors"
   ) {
     return "tools-resolution"; // ERR-6
