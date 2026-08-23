@@ -1,6 +1,6 @@
 # Bug 0054 — The `__inline_<slug>` `$defs` name is now minted in three scopes that share no retention table, and the two places their fragments meet — `hoistNestedDefs` (the `params:` document) and `pruneDocumentDefs` (the `@<T>` document) — dedup by name first-wins with no byte comparison, while the annotation position's own mint runs after load with nothing reading its collision sink
 
-- **Status:** open. §Fix is constraint-pinned: the constraints and the
+- **Status:** fixed (0.50.0) — discharged: unwitnessable at HEAD (see §Discharged (2026-08-23) below). §Fix is constraint-pinned: the constraints and the
   per-element dispositions are stated, the choice between them is not made
   here.
 - **Kind:** implementation gap against a stated spec posture, two elements on
@@ -586,3 +586,33 @@ entry to an author-declared `__inline_<16hex>` schema. With the synthesised
 namespace reserved and `lowerTypeExpr`'s `IDENTIFIER` arm barred from claiming
 a reserved key, that branch's only remaining reachable input is a cross-scope
 mint — this report's §Element 1. The comment now says so and names this report.
+
+## Discharged (2026-08-23)
+
+The §Fix constraint 4 forward branch (“if 0040 lands first … M1 stops being
+constructible”) fired at 0040’s landing (0.50.0) and was confirmed unwitnessable
+at HEAD 470071d8 by nineteen offline printing probes (a fourteenth-set
+pre-Phase-1 re-derivation; evidence: .pi/tmp/fixes/0054-report.md +
+0054-probe-output.log):
+
+- §Reproduction M1/M1b/M1c are NOT CONSTRUCTIBLE — the spellings now draw
+  error theta/parse/import-reserved-synthesised-name (imports.ts, import
+  route), and params.ts’ mint path never writes a reserved key. M5’s
+  $defs.N = {} no longer reproduces (AJV rejects the probe payload).
+- Every other writer of an __inline_<16hex> key is closed (lexer casing
+  fence; imports reservation; body-type-lowering’s two downstream closures).
+- Cross-scope mints are byte-equal by content-addressing; field-order
+  permutations yield distinct slugs (schema-lowering.ts).
+- Element 2 (annotation $defs author name) was already non-constructible;
+  slugCollisions retains exactly one write with no reader
+  (query-schema-lowering.ts) — a dead-write hygiene note, not a defect.
+
+Residual truth, on the record: both merge sites still dedup on
+hoisted[name] !== undefined without byte comparison (params.ts,
+query-schema-lowering.ts) — reachable only via a genuine 64-bit SHA-256
+cross-scope collision, this report’s own §Non-goals class. The defensive
+byte-check schema-subset.md:112 contemplates remains unimplemented and
+unowed while that class stays out of scope.
+
+Disposition: discharged by 0040 (0.50.0) with later reinforcing closures;
+filed evidence preserved. No code shipped for this report.
