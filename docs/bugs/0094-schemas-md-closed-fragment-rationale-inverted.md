@@ -1,9 +1,6 @@
 # Bug 0094 — `docs/spec_topics/schemas.md:19`'s rationale states the closed empty-object fragment `{type:"object", properties:{}, required:[], additionalProperties:false}` "would silently accept every object"; under the shipped validator that fragment accepts only `{}` and rejects every non-empty object, every array and every scalar — the rule the sentence justifies is correct and, since 0045 (0.57.0), emitted at every position it governs
 
-- **Status:** open. §Fix as settled — one in-place sentence rewrite in
-  `docs/spec_topics/schemas.md` plus the same-commit correction of the one
-  in-tree comment that restates the claim; no behavioural change, no registry
-  row, no test, no `docs/reference/` edit.
+- **Status:** fixed (0.248.0)
 - **Kind:** spec-prose defect where the behaviour is correct. The rule the
   sentence carries — a zero-field `schema X { }` is
   `theta/parse/empty-schema-body` with the message *`'X' has no fields; an empty
@@ -441,3 +438,149 @@ One line replaces one line here, so no anchor moves in either landing order.
   written as a scratch file, run, and deleted; and
   `tests/inline-empty-object-type.test.ts` run (44/44). No scratch file left in
   the tree; no file modified other than this report.
+
+## Fix (0.248.0)
+
+- **What shipped:**
+  - `docs/spec_topics/schemas.md:19` — the second clause of the empty-body
+    paragraph replaced in place with §Fix's settled text: "Empty bodies have no
+    use case: the lowered `{type:"object", properties:{}, required:[],
+    additionalProperties:false}` shape accepts only the empty object `{}` and
+    rejects every non-empty object, so no informative payload satisfies it —
+    almost certainly not what the author intended." The rule clause, the
+    italicised *Message* quotation, the fragment spelling and the closing
+    judgement are byte-unchanged, as are the two later sentences on the line
+    (`theta/parse/malformed-schema-field`, `theta/parse/schema-body-unclosed`).
+    One line replaces one line; the page stays 147 lines.
+  - `src/parser/schema-declarations.ts:93–94` — the comment above the
+    zero-field arm rewritten to §Fix's settled text ("the lowered empty-object
+    shape is closed over nothing, so it admits only `{}`"). Two comment lines
+    in, two out; `emptySchemaBodyDiagnostic` and the zero-field arm are
+    byte-unchanged and the file stays 875 lines.
+  - `tests/schema-body-unclosed-at-eof.test.ts:36–38`, `:525–527` — two comment
+    blocks re-attributed. See *Bounded scope extension* below.
+  - Not changed, as §Fix directs: no `docs/reference/` page, no registry row,
+    no test cell, no `src/` executable line — and, under this lane's protocol,
+    no `package.json`, no `CHANGELOG.md` and no `docs/bugs/README.md`.
+- **Bounded scope extension (self-authorized, on the record).** §Fix names
+  *one* in-tree restatement. At the fix HEAD (`86c28eea`, 0.241.0) the phrase
+  had propagated to two further sites, both comments in
+  `tests/schema-body-unclosed-at-eof.test.ts` (bug 0245's witness file, 0245
+  fixed in 0.226.0), each quoting the corrected sentence as schemas.md's stated
+  rationale. Question that would have been asked: *does the same-commit
+  correction of "the one in-tree comment that restates the claim" extend to
+  restatements that landed after filing?* Settled affirmatively on three
+  independent sources: (i) §Fix's own instruction to correct the in-tree
+  restatement in the same commit, whose purpose is that no in-tree text quote a
+  sentence the page no longer carries; (ii) §Why it matters, "It has one
+  propagation already" — a count of the tree at filing, not a cap; (iii)
+  `docs/STYLE.md` §Claims, "Every claim is testable or is removed" — a comment
+  attributing a removed claim to a live page is a claim that fails that test.
+  Bound declared and held: comments only, in one file, two hunks, 3-for-3 and
+  3-for-7 lines, zero assertions, zero executable lines, file line count
+  unchanged at 773. STOP valve: if any further file were implicated or any gate
+  reddened, stop and report. Neither fired.
+- **Gates** (run by the orchestrator after the change, offline):
+  - Sweep — `rg -no "silently accept every object" docs/spec_topics/ src/
+    tests/ tools/` returns nothing (rc=1). `docs/bugs/**` retains the
+    historical quotations by design (Residual 1).
+  - Witness of the rule the sentence carries — `npx vitest run
+    tests/schema-body-unclosed-at-eof.test.ts
+    tests/inline-empty-object-type.test.ts
+    tests/schema-alias-union-decl.test.ts`: `Test Files 3 passed (3)`,
+    `Tests 143 passed (143)`.
+  - Full default suite — `npm test`: `Test Files 423 passed (423)`,
+    `Tests 8896 passed (8896)`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`): clean, exit 0.
+    `npm run lint` (`eslint "src/**/*.ts"`): clean, exit 0.
+  - Citation-symbol-form gate — `npx vitest run
+    tests/citation-symbol-form-gate.test.ts`: `Tests 3 passed (3)`. The new
+    comment text cites `schemas.md §Object schema` in section form and
+    introduces no bare `:NN` continuation.
+  - Anchor stability — `diff <(git show HEAD:docs/spec_topics/schemas.md)
+    docs/spec_topics/schemas.md` reports `19c19` and nothing else; all three
+    edited files keep HEAD's line counts (147 / 875 / 773). §Fix's
+    inbound-anchor claim holds: `schemas.md:17`, `:19`, `:21`, `:23`, `:39`,
+    `:44`, `:78`, `:93`, `:97` and `:104` were compared line-for-line against
+    HEAD and are identical apart from the rewritten clause on `:19`.
+- **Re-derivation at the fix HEAD.** The report was filed at `9ea93511`
+  (0.57.0); every claim was re-measured at `86c28eea` (0.241.0) before editing.
+  The defect is live and unchanged: the sentence still sits at
+  `docs/spec_topics/schemas.md:19` and the comment still at
+  `src/parser/schema-declarations.ts:93–94`. Drift found and accounted for: the
+  `schemas.md:19` paragraph has grown two sentences (the
+  `malformed-schema-field` and `schema-body-unclosed` rules), so the edit is a
+  clause replacement inside the line rather than the whole-line substitution
+  §Fix quotes; the AJV construction has moved to
+  `src/seams/schema-validator.ts:384` and now has a hardened sibling at
+  `src/seams/schema-validator.ts:386` (`ownProperties: true`), both carrying the
+  same `strict: false, allErrors: true, logger: false` flags;
+  `lowerObjectFields`'s emitted skeleton has moved to
+  `src/parser/body-type-lowering.ts:150–155`, its field loop to
+  `src/parser/body-type-lowering.ts:132–149` and its conditional `$defs` to
+  `src/parser/body-type-lowering.ts:156–158`; the `docs/reference/` rule sites
+  have moved to `docs/reference/schema-subset.md:45`,
+  `docs/reference/schema-subset.md:91`, `docs/reference/schema-subset.md:120`,
+  `docs/reference/diagnostics.md:144` and `docs/reference/grammar.md:243`, and
+  each still carries the rule without a rationale clause, so §Fix's "no
+  `docs/reference/` edit" stands.
+- **AJV verdicts, re-measured** (`ajv` 8.20.0 / `ajv-formats` 3.0.1, production
+  flags, one `node --input-type=module -e` command, no file written), and
+  independently reproduced by the reviewer and the verifier:
+
+  ```console
+  closed  {} -> true   {"a":1} -> false   [] -> false   3 -> false   "s" -> false   null -> false
+  bare {} {} -> true   {"a":1} -> true    [] -> true    3 -> true    "s" -> true    null -> true
+  ```
+
+  The removed claim is false of the fragment the sentence names; the shipped
+  claim is true of it.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings, no
+  residuals; fidelity, correctness (AJV re-derived independently), scope,
+  anchor stability, house rules and the citation gate each discharged with
+  quoted evidence.
+- **Verification:** SOLID (`bug-fix-verifier`). Obligation A — every added and
+  removed line in `src/` and `tests/` has `//` as its first two non-whitespace
+  characters, and the `docs/` hunk is markdown prose. Obligation B — `npm test`
+  423/423 files, 8896/8896 tests. Obligation C — typecheck and lint clean.
+  Obligation D — the closed fragment re-derived under the production flags
+  accepts only `{}`, and `src/parser/body-type-lowering.ts:150–155` still mints
+  it verbatim over an empty field list. Obligation E — one-hunk `19c19` diff,
+  line counts preserved. Obligation F — no live coverage owed. The
+  revert-to-red obligation is inapplicable: §Fix settles that no test witness is
+  owed, so the equivalence proof of Obligation A stands in its place. The
+  verifier's one finding (F1) asked that the third file be named in the record;
+  it is, in *What shipped* and *Bounded scope extension*.
+- **No live run.** The change carries no executable line. `git diff --stat --
+  src/` is non-empty only by a comment-only hunk
+  (`src/parser/schema-declarations.ts | 4 ++--`, every `-`/`+` line
+  `//`-prefixed), which emits no JavaScript and can move no live-observable
+  channel. No live test was run by the orchestrator or by any nested worker.
+- **Residuals:**
+  1. The historical quotations of the removed clause in `docs/bugs/**` are left
+     as written —
+     `docs/bugs/0045-inline-empty-object-type-missing-empty-schema-body.md:792`,
+     `docs/bugs/0244-colon-less-inline-object-entry-silently-discarded.md:306`,
+     `docs/bugs/0245-unclosed-schema-body-at-eof-loads-clean.md:38`,
+     `docs/bugs/0245-unclosed-schema-body-at-eof-loads-clean.md:120`,
+     `docs/bugs/0245-unclosed-schema-body-at-eof-loads-clean.md:414`,
+     `docs/bugs/0257-empty-inline-object-entry-slot-silently-tolerated.md:361`
+     and this report's own §Reproduction. Bug documents are dated records of the
+     tree at their filing; rewriting them would falsify them, and bug 0257 is
+     open and owned elsewhere. Those quotations are to be read against this
+     record.
+  2. `docs/bugs/README.md:116` still carries this report's title, which quotes
+     the removed clause as the defect. It is accurate as a description of the
+     defect and is not edited here; this lane's protocol forbids touching that
+     file in this change.
+  3. No prose/behaviour consistency gate is added, per §Non-goals. Nothing
+     mechanically compares a spec rationale against measured behaviour; the
+     standing gap that
+     [0062](./0062-grammar-trailing-trigger-table-omits-equals.md) §Non-goals
+     and
+     [0037](./0037-placeholder-vector-mislabels-bracket-indexing-as-member-access.md)
+     §Fix *Residuals* (ii) record is unchanged by this fix.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** §Non-goals stands unchanged — the rule,
+  the two lowerings, a prose/behaviour consistency gate and a restyling of
+  §Object schema are all out of scope and none was touched.

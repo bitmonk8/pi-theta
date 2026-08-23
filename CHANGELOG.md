@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.248.0]
+
+### Fixed
+
+- Bug 0094: `docs/spec_topics/schemas.md:19`'s closed-fragment rationale
+  clause is rewritten right-way-round (147 lines in/out; `19c19` the only
+  diff), with the two post-filing comment restatements corrected alongside
+  (`src/parser/schema-declarations.ts:93–94` comment;
+  `tests/schema-body-unclosed-at-eof.test.ts` two stale attributions —
+  comment-only hunks, adjudicated docs-only in substance on the record). No
+  test witness owed per the doc's settled §Fix (phrase sweep 4→0 + mechanical
+  equivalence proof). No live owed. permitted-codes byte-unchanged.
+
 ## [0.247.0]
 
 ### Fixed

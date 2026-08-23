@@ -33,9 +33,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // stops matching the source: `b: {c: integer,` lowers property `b` to the
 // accept-anything `{}` while the closed twin `b: {c: integer}` lowers to a
 // `$ref` into a `$defs` fragment carrying `properties.c` and `required: ["c"]`
-// — and the same fragment written explicitly (`b: {}`) is refused, on the
-// rationale docs/spec_topics/schemas.md §Object schema states (the empty shape
-// "would silently accept every object").
+// — and the same fragment written explicitly (`b: {}`) is refused by the
+// empty-body rule docs/spec_topics/schemas.md §Object schema states, so the
+// permissive `{}` above is reachable only through the truncation.
 //
 // THE CONTRACT THIS FILE PINS — the settled route, one emission per unclosed
 // body, no recovery and no other observable moved:
@@ -533,9 +533,9 @@ describe("b0245 (c) — a truncation inside a nested inline object type is refus
     // refusal matters, not as a thing the fix moves. Property `b` lowers to
     // `{}`, the JSON Schema that accepts every value, where the source declares
     // an object with one required integer field; schemas.md §Object schema
-    // refuses that fragment's explicit spelling precisely because it "would
-    // silently accept every object". The refusal above is what stops this
-    // artefact reaching a provider: nothing that ends mid-body registers.
+    // refuses that fragment's explicit spelling under the empty-body rule. The
+    // refusal above is what stops this artefact reaching a provider: nothing
+    // that ends mid-body registers.
     expect(
       lowered(doc),
       "the truncated nested body lowers `b` to the accept-anything fragment",

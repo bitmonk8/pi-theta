@@ -90,8 +90,8 @@ export function checkObjectSchema(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
 
-  // `schema X { }` with no fields — the lowered empty-object shape would
-  // silently accept every object (schemas.md §Object schema).
+  // `schema X { }` with no fields — the lowered empty-object shape is closed
+  // over nothing, so it admits only `{}` (schemas.md §Object schema).
   if (decl.fields.length === 0) {
     diagnostics.push(emptySchemaBodyDiagnostic(decl.name, site));
     return diagnostics;
