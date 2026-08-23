@@ -692,6 +692,6 @@ ToolField ::= Ident ":" Expr
   before keyword-free statements):
   `docs/bugs/0015-postfix-question-swallows-keyword-free-ternary-stmt.md`
   (fixed 0.21.0, Option 1).
-- Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:152`
+- Implementation confirmation: reserved-keyword set in `src/lexer/lexer.ts:159`
   matches the spec list byte-for-byte; `src/lexer/lexer.ts` trailing/leading
   continuation-trigger sets match the closed trigger table.
