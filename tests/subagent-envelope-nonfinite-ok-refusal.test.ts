@@ -126,9 +126,9 @@ const REFUSAL_CODE = "theta/runtime/subagent-return-value-not-representable";
 
 /**
  * The refusal mapping shape route (b) adds beside the three existing fail-closed
- * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:334`;
- * `mapEnvelopeSchemaSkew`, `:357`; `mapExitWithoutEnvelope`, `:384`), all three
- * returning `EnvelopeFailureMapping` (`:323`). Declared structurally here rather
+ * mappings (`mapEnvelopeParseFailure`, `src/runtime/subagent-envelope.ts:392`;
+ * `mapEnvelopeSchemaSkew`, `:447`; `mapExitWithoutEnvelope`, `:474`), all three
+ * returning `EnvelopeFailureMapping` (`:381`). Declared structurally here rather
  * than imported so this file type-checks against the tree both before and after
  * the export lands.
  */
@@ -578,9 +578,9 @@ describe("bug 0180 (EXPORT) — the envelope module carries the route-(b) refusa
     // failure, envelope schema skew, exit-without-envelope, a non-representable
     // `Ok` payload, and the over-deep `Ok` payload bug 0187 added as *Fail-closed
     // over-deep `Ok` payload* (`subagent.md:115`). Four of the five carry a code
-    // constant (`src/runtime/subagent-envelope.ts:91`, `:94`, `:97`, `:100`) and a
-    // mapping returning `EnvelopeFailureMapping` (`:323`, built at `:334`, `:357`,
-    // `:384`, `:684`); bug 0187 gives the fifth neither, deliberately, because no
+    // constant (`src/runtime/subagent-envelope.ts:97`, `:110`, `:113`, `:116`) and a
+    // mapping returning `EnvelopeFailureMapping` (`:381`, built at `:392`, `:447`,
+    // `:474`, `:795`); bug 0187 gives the fifth neither, deliberately, because no
     // registry row exists for a ceiling-#4 depth breach to pair it with. This cell
     // reads the fourth code-carrying class off the module namespace.
     expect(
@@ -876,11 +876,11 @@ describe("bug 0180 (FENCE-SEAM) — what the representability check must NOT ref
 
 describe("bug 0180 (MECHANISM) — what the envelope does with a non-finite Ok today", () => {
   it("MECHANISM: serializeOkEnvelope substitutes null for every non-finite number, at every depth (green now, green after)", () => {
-    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:121`) still
-    // reaches `JSON.stringify`, via `stringifyPreservingNegativeZero` (`:186`),
+    // `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:138`) still
+    // reaches `JSON.stringify`, via `stringifyPreservingNegativeZero` (`:207`),
     // for every non-finite `number` — bug 0188 §Fix (a) touches only `-0` leaf
     // rendering — and the cost is recorded at the refusal seam:
-    // `mapNonRepresentableReturnValue`'s doc-comment (`:666-668`) names the
+    // `mapNonRepresentableReturnValue`'s declaration (`:829`) names the
     // `null` substituted for a value the callee never produced — the
     // substitution these rows measure; route (b) refuses before reaching it.
     expect(serializeOkEnvelope(Infinity)).toBe('{"theta_result":{"v":1,"ok":null}}\n');

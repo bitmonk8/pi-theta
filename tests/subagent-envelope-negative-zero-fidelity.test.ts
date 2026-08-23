@@ -14,11 +14,11 @@
 // the `-0` form the JSON grammar already admits, so the subagent leg and the
 // prompt→prompt attach leg become identical by construction — which is what
 // `docs/spec_topics/invocation.md:36` requires. The change is confined to
-// `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:121`) and its
-// serialisation call, now `stringifyPreservingNegativeZero` (`:123`) where it
+// `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:138`) and its
+// serialisation call, now `stringifyPreservingNegativeZero` (`:140`) where it
 // was plain `JSON.stringify`. THE PARENT IS UNCHANGED: `parseEnvelopeLine`
-// (`:256`), the driver's parse and settle
-// (`src/runtime/subagent-json-driver.ts:118`, `:121`), the envelope schema, the
+// (`:299`), the driver's parse and settle
+// (`src/runtime/subagent-json-driver.ts:149`, `:152`), the envelope schema, the
 // `v` field and every parse behaviour stay exactly as they are, because
 // `JSON.parse` already recovers `-0` at the root, at a field and in an array
 // (§Reproduction (b)).
@@ -612,7 +612,7 @@ describe("bug 0188 (SPELLING) — the four spellings that mint -0, and the two +
 
 // ===========================================================================
 // (SEAM) The emitted bytes. §Reproduction (c), re-driven at the seam route (a)
-// changes: `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:121`).
+// changes: `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:138`).
 //
 // RED NOW. `JSON.stringify(-0)` is `"0"` and no `replacer` / `toJSON` hook
 // changes that (§Reproduction (b)), so the writer emits a `0` the JSON GRAMMAR
@@ -670,9 +670,9 @@ describe("bug 0188 (SEAM) — serializeOkEnvelope emits the -0 form the JSON gra
   it("RED (SEAM-RESULT-CARRIER): a -0 inside a nested Result carrier serialises as -0 (red now, green after)", () => {
     // A `Result` carrier position, reached by BOTH of the module's two BOUNDED
     // walks and by `JSON.stringify`: `firstNonFiniteNumber`
-    // (`src/runtime/subagent-envelope.ts:544`) and `wireFormExceedsDepthCap`
-    // (`:628`) each classify a node through the shared `classifyWireNode`
-    // (`:467`), which answers `record` for a `Result` — the brand is a
+    // (`src/runtime/subagent-envelope.ts:632`) and `wireFormExceedsDepthCap`
+    // (`:716`) each classify a node through the shared `classifyWireNode`
+    // (`:555`), which answers `record` for a `Result` — the brand is a
     // non-enumerable symbol, so the descent sees only the `makeOk` carrier's
     // own enumerable `ok` / `value` keys, exactly the keys `JSON.stringify`
     // descends (bug 0201 §Fix (a)). Route (a) rides `JSON.stringify`'s
@@ -722,8 +722,8 @@ describe("bug 0188 (TRIP) — the parent re-reads the sign the child wrote", () 
   it("RED (TRIP-POSITIONS): parseEnvelopeLine(serializeOkEnvelope(x)) recovers Object.is(-0) at every position (red now, green after)", () => {
     // PRIMARY. This is the composition that decides what a subagent-leg caller
     // binds: the child's writer, then the parent's reader
-    // (`src/runtime/subagent-envelope.ts:256`), then the driver's settle
-    // (`src/runtime/subagent-json-driver.ts:118`, `:121`). The reader is
+    // (`src/runtime/subagent-envelope.ts:299`), then the driver's settle
+    // (`src/runtime/subagent-json-driver.ts:149`, `:152`). The reader is
     // UNCHANGED by route (a) — the JSON grammar already carries the sign — so
     // every red here is the writer's.
     const rows: readonly {
@@ -1180,7 +1180,7 @@ describe("bug 0188 (FENCE-DEPTH) — bug 0187's depth refusal and its ordering a
     // re-pinned this cell's sibling,
     // `tests/subagent-return-depth-refusal.test.ts:650`'s
     // `CONTROL (FENCE-NESTED-RESULT)`. `wireFormExceedsDepthCap`
-    // (`src/runtime/subagent-envelope.ts:628`) now descends a `Result`'s WIRE
+    // (`src/runtime/subagent-envelope.ts:716`) now descends a `Result`'s WIRE
     // FORM as an ordinary record (`classifyWireNode`), so depth contributed
     // only from inside a nested `Result` counts. This is still a DIFFERENT
     // question from bug 0188's own: that route changes how a number LEAF
@@ -1245,9 +1245,9 @@ describe("bug 0188 (FENCE-DETECTION) — route (a) does not widen bug 0180's fin
     // later reader does not infer that `-0` was overlooked." STATED PLAINLY:
     // route (a) does NOT widen the predicate, and `-0` was NOT overlooked when
     // bug 0180 shipped this search. The shipped leaf test is
-    // `Number.isFinite(value)` (`src/runtime/subagent-envelope.ts:553`) inside
-    // `firstNonFiniteNumber` (`:544`), consulted by
-    // `mapNonRepresentableReturnValue` (`:741`), and `-0` is finite — correctly,
+    // `Number.isFinite(value)` (`src/runtime/subagent-envelope.ts:641`) inside
+    // `firstNonFiniteNumber` (`:632`), consulted by
+    // `mapNonRepresentableReturnValue` (`:829`), and `-0` is finite — correctly,
     // by that search's own stated class. Route (a) closes this report by
     // PRESERVING the value in the writer, not by teaching the detection to
     // refuse it: a refusal would newly turn a today-succeeding call into an

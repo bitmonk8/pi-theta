@@ -86,7 +86,7 @@
 // `wireFormDepthWalk(value: unknown): DepthWalkResult` — a bounded,
 // level-capped, RFC-6901-pointer-producing descent that consults the shared
 // exported classifier bug 0201 shipped, `classifyWireNode`
-// (`src/runtime/subagent-envelope.ts:467`, which answers `scalar` for a boxed
+// (`src/runtime/subagent-envelope.ts:555`, which answers `scalar` for a boxed
 // `String` and `record` for a `Result`). `src/runtime/depth-walk.ts` stays
 // byte-untouched and `depthWalk` keeps serving the parsed-JSON sites. All three
 // theta-value sites move: `enforceInvokeReturnDepth` and
@@ -684,7 +684,7 @@ describe("bug 0202 ARITY — the refusal threshold, bracketed from both sides", 
     // settled route's new walk consults it for.
     expect(
       classifyWireNode(colourRed()),
-      "classifyWireNode (src/runtime/subagent-envelope.ts:467) sorts the carrier as a scalar",
+      "classifyWireNode (src/runtime/subagent-envelope.ts:555) sorts the carrier as a scalar",
     ).toEqual({ kind: "scalar" });
   });
 });
@@ -837,7 +837,7 @@ describe("bug 0202 CROSS-GATE — the child-side gate and the parent's post-pars
   it("CONTROL (CROSS-GATE): the same payload crosses the envelope writer and the parent's post-parse walk (green now, green after)", () => {
     const value = nest(colourRed(), 4);
 
-    // `mapTooDeepReturnValue` (`src/runtime/subagent-envelope.ts:707`) measures
+    // `mapTooDeepReturnValue` (`src/runtime/subagent-envelope.ts:795`) measures
     // the wire form through `classifyWireNode`, so it admits this payload.
     expect(
       mapTooDeepReturnValue(value, CALLEE_PATH),

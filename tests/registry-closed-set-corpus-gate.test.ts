@@ -129,18 +129,21 @@ const CARVE_OUT: Record<string, string> = {
     "tests/, so no witness exists at HEAD and this entry records the absence " +
     "rather than hiding it.",
   "runtime/subagent-wire-parse-failed":
-    "Registered at docs/spec_topics/diagnostics/code-registry-runtime.md:27 with " +
-    "no emitter anywhere in src/ (bug 0086, open), so no test can witness an " +
-    "emission that no code path produces.",
+    "Emitted at src/runtime/subagent-json-driver.ts:145 and genuinely witnessed at " +
+    "tests/subagent-wire-parse-failed-emitter.test.ts:182-207 through a " +
+    "registry-derived code composed from parts (no literal span, per DIAG-4's " +
+    "parseRegistry / registryMessage) and at tests/subagent-json-wire.test.ts:82 " +
+    "through the exported SUBAGENT_WIRE_PARSE_FAILED_CODE constant, which is why the " +
+    "shipped extractor still cannot see the assertion (bug 0086, fixed).",
   "runtime/subagent-envelope-parse-failed":
-    "Emitted at src/runtime/subagent-envelope.ts:348 and genuinely witnessed at " +
-    "tests/subagent-envelope.test.ts:330 and tests/subagent-json-wire.test.ts:129 — " +
+    "Emitted at src/runtime/subagent-envelope.ts:404 and genuinely witnessed at " +
+    "tests/subagent-envelope.test.ts:330 and tests/subagent-json-wire.test.ts:144 — " +
     "both assert through the exported SUBAGENT_ENVELOPE_PARSE_FAILED_CODE constant, " +
     "and the file's prose (tests/subagent-envelope.test.ts:7, " +
-    "tests/subagent-json-wire.test.ts:117) cites the code without its namespace " +
+    "tests/subagent-json-wire.test.ts:132) cites the code without its namespace " +
     "prefix, so the literal span the extractor matches never appears in the test text.",
   "runtime/subagent-envelope-schema-skew":
-    "Emitted at src/runtime/subagent-envelope.ts:374 and genuinely witnessed at " +
+    "Emitted at src/runtime/subagent-envelope.ts:462 and genuinely witnessed at " +
     "tests/subagent-envelope.test.ts:346, which asserts through the exported " +
     "SUBAGENT_ENVELOPE_SCHEMA_SKEW_CODE constant; as above, the code's only prose " +
     "mention (tests/subagent-envelope.test.ts:7) drops the namespace prefix, so the " +

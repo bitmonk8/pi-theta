@@ -26,6 +26,7 @@ import {
 import {
   SUBAGENT_ENVELOPE_PARSE_FAILED_CODE,
   SUBAGENT_EXIT_WITHOUT_ENVELOPE_CODE,
+  SUBAGENT_WIRE_PARSE_FAILED_CODE,
 } from "../src/runtime/subagent-envelope";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError, QueryError, TransportError } from "../src/runtime/query-error";
@@ -54,7 +55,13 @@ describe("RFC-0006 — parent-side subagent json wire: envelope consumption (PIC
     const drive = driveOver(child, abort, emitted);
 
     // Stray, valid `--mode json` event lines and garbage precede the envelope —
-    // the parent ignores every non-`theta_result` line.
+    // the parent ignores every non-`theta_result` line for RESULT purposes.
+    // The raw garbage line is stray-line-tolerance evidence: kept here
+    // deliberately, not narrowed away, to prove the class separation bug 0086
+    // settled — a non-envelope line that fails to parse as JSON gets an
+    // advisory triage diagnostic (the wire-parse sibling of the envelope-parse
+    // row below), not a result-altering failure, so `result` below is
+    // unaffected by it.
     child.emitEventLine({ type: "agent_start" });
     child.emitRawLine("not json at all {");
     child.emitEventLine({ type: "tool_call", name: "read" });
@@ -65,8 +72,16 @@ describe("RFC-0006 — parent-side subagent json wire: envelope consumption (PIC
     if (result.ok) {
       expect(result.value).toEqual({ verdict: "approved", score: 3 });
     }
-    // No failure diagnostic on the clean Ok path.
-    expect(emitted).toHaveLength(0);
+    // The clean Ok path is unaltered: the only diagnostic this stream produces
+    // is the advisory wire-parse row for the garbage line above — no
+    // result-altering failure diagnostic rides alongside a settled `Ok`.
+    // The code is asserted through the exported constant, not through severity
+    // plus a substring: any other error-severity row quoting the line would
+    // satisfy those two alone.
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.code).toBe(SUBAGENT_WIRE_PARSE_FAILED_CODE);
+    expect(emitted[0]?.severity).toBe("error");
+    expect(emitted[0]?.message).toContain("not json at all {");
   });
 
   it("resolves Err(QueryError) from an `err` envelope (transport fidelity preserved across the wire)", async () => {

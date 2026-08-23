@@ -16,7 +16,7 @@
 // fixes the cap as a property of the payload's WIRE FORM
 // (`docs/spec_topics/schema-subset.md:13`, `:22`, the counting algorithm at
 // `:24–30`), so this walk classifies every node through `classifyWireNode`
-// (`./subagent-envelope.ts:467`) — the one function bug 0201 already exported
+// (`./subagent-envelope.ts:555`) — the one function bug 0201 already exported
 // to answer this exact question for the child-side envelope writer — rather
 // than re-deriving a second carrier arm: the carrier decision stays
 // single-sourced in that one function.

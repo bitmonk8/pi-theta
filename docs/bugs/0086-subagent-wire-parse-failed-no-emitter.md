@@ -1,6 +1,6 @@
 # Bug 0086 — `theta/runtime/subagent-wire-parse-failed` is the one registered code with zero occurrences anywhere in `src/`: `lineCarriesReservedKey` swallows the `JSON.parse` throw and returns `false`, so the parent's stdout scan cannot distinguish a valid `--mode json` event from a malformed line and the advisory triage diagnostic PIC-65 registers is never emitted
 
-- **Status:** open.
+- **Status:** fixed (0.230.0).
 - **Kind:** defect — a registered `E`-severity runtime row has **no builder, no
   constant and no emission site** anywhere in the tree. Unlike its five filed
   siblings (0050, 0066, 0072, 0073, 0079), where a conformant implementation
@@ -449,3 +449,129 @@ follows from it.
 - **Mirrors:** `docs/reference/diagnostics.md:248`, `:309`, `:338`.
 - **Tooling read, none changed:** `tools/code-registry/index.js:99`;
   `tests/closing-gate.test.ts:15–26`.
+
+## Fix (0.230.0)
+
+Disposition 1 (wire the emitter), with the emission bound settled as part of the
+fix. Disposition 2 (retire the row) was rejected: the row is cited in three
+normative places and the class separation it describes is a real operator need.
+
+- **What shipped:**
+  - `src/runtime/subagent-envelope.ts` — the classifier's verdict widens from
+    `boolean` to a three-way `classifyChildStdoutLine` (`envelope` /
+    `other-json` / `unparseable`, the third arm carrying the offending line), so
+    the two line classes the registry distinguishes are no longer merged at the
+    only site that can tell them apart. `lineCarriesReservedKey` is retained as a
+    thin `boolean` wrapper over it, so every existing call site and its
+    assertions are unaffected.
+  - `src/runtime/subagent-envelope.ts` — `SUBAGENT_WIRE_PARSE_FAILED_CODE` and
+    the advisory-only builder `mapWireParseFailure` are new; the builder returns
+    a `Diagnostic` alone, never an `Err`, because the row is advisory triage and
+    the result does not change. `<line summary>` renders through the shipped
+    `renderHostDerivedTail` (category 6 first-line truncation) before
+    `summarizeLine`'s length cap; `summarizeLine` and `mapEnvelopeParseFailure`
+    are byte-untouched, so the sibling row's observable does not move (GOV-15).
+  - `src/runtime/subagent-envelope.ts` — `EnvelopeScan` widens so both arms
+    carry `unparseableLines` in stream order, discharging §Actual behaviour
+    item 5: the second scanner no longer merges the class either. It has no
+    `src/` caller, so it emits nothing of its own.
+  - `src/runtime/subagent-json-driver.ts` — the stdout handler classifies each
+    line: `envelope` falls through to the unchanged parse/settle arms,
+    `other-json` returns, and a non-blank `unparseable` line emits the advisory
+    diagnostic. Result semantics are unchanged: the line is still ignored for
+    envelope selection and the invocation still settles only on the envelope,
+    EOF or exit.
+  - **The emission bound** (the decision §Fix left open) — at most one
+    diagnostic per subagent invocation, naming the first offending line, held by
+    a per-drive closure local rather than module state. The stream is shared with
+    other extensions and the severity is `E`, so an unbounded emitter could
+    produce one `E` per line for the life of the child.
+  - **Blank framing is not diagnosed** — a line consisting only of JSON
+    whitespace (space, tab, CR, LF) is stdout framing, not a malformed event.
+    The predicate is deliberately narrower than `String.prototype.trim`, whose
+    ECMAScript whitespace set would also swallow U+2028, U+2029, U+00A0 and
+    U+FEFF — characters the corpus pins as ordinary and never to be stripped.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` and
+    `docs/reference/diagnostics.md` — the DIAG-2 same-commit spec edit carrying
+    both bounds into the row's *Trigger* prose and its mirror note. *Code*,
+    *Sev*, *Phase* and *Message* cells, the mirror table row and the
+    child-process failure-class list are byte-unchanged; the closed
+    placeholder-rendering tables are untouched (`<line summary>` was already
+    correctly bound there).
+  - `tests/subagent-json-wire.test.ts` — the cell that encoded the buggy
+    contract (a zero-diagnostic assertion over a stream containing a raw garbage
+    line) now asserts the `Ok` result is unaltered and that exactly the one
+    advisory diagnostic rides alongside, keyed on the exported code constant.
+    The garbage line is kept: it is the stray-line-tolerance evidence.
+  - `tests/registry-closed-set-corpus-gate.test.ts` — the carve-out reason for
+    this code moves from "no emitter, so no test can witness" to the truthful
+    sibling pattern (emitted and genuinely witnessed; the shipped extractor
+    cannot see the assertion because the witness derives the code from the
+    registry rather than spelling a literal span). The entry is kept rather than
+    deleted: arm (3) still reports the code, and the table is asserted set-equal
+    to the live arm in both directions. Three sibling entries' `path:line`
+    citations were re-derived for the line shift.
+- **Gates:** witness run
+  `npx vitest run tests/subagent-wire-parse-failed-emitter.test.ts tests/subagent-wire-parse-failed-classifier.test.ts`
+  → `Test Files 2 passed (2) / Tests 16 passed (16)`; red before the fix with
+  `AssertionError: expected [] to have a length of 1 but got +0`. Full default
+  suite `npm test` → `Test Files 411 passed (411) / Tests 8613 passed (8613)`.
+  `npm run typecheck` → clean, no output. `npm run lint` → clean, no output.
+  `rg "theta/runtime/subagent-wire-parse-failed" tests/` → zero hits, so the
+  carve-out entry's stated reason stays true.
+- **Review:** 2 rounds plus one comment-only polish round. Round 1 (deep) —
+  three findings: `<line summary>` did not implement category 6's first-line
+  truncation, so a pump-delivered trailing CR reached the operator (spec); the
+  blank-line filter used `String.prototype.trim`, swallowing U+2028-only and
+  U+00A0-only lines the corpus pins as ordinary (spec); the narrowed json-wire
+  cell asserted severity and a message substring but not the code (test). All
+  three fixed. Round 2 (fast) — clean on correctness, fidelity and spec; one
+  residual, six `path:line` citations the round-1 fixer's re-derivation landed on
+  the wrong symbol. Round 3 — comment-only citation repair, re-derived by grep
+  against the declaration lines; polish verified by gate-diff, confirmation
+  round skipped (every hunk inside a doc-comment or `//` comment, gates re-run
+  green).
+- **Verification:** SOLID. (1) The witnesses genuinely witness the bug: four
+  targeted byte neutralisations — the emission itself, the emission bound, the
+  blank-line filter, and the classifier's `unparseable` arm merged back into
+  `other-json` — each red the intended cells (`expected [] to have a length of 1
+  but got +0`; `to have a length of 1 but got 12`; `to have a length of +0 but
+  got 1`; eleven cells red on the classifier merge) and each restored
+  byte-exact, hash-verified; no `git stash`, no `git checkout --`. (2) Full
+  default suite green. (3) Live: the H8a subagent-mode success drive and the H9a
+  non-interactive subagent-mode acceptance cell were both run for real under the
+  shared live lock and both passed — no new `theta-system-note` framing, and the
+  permitted-codes, clean-stderr and no-error-exit assertions all green against an
+  unmodified `permitted-codes.json`. (4) Typecheck and lint clean.
+- **Residuals:**
+  1. The sibling row `theta/runtime/subagent-envelope-parse-failed` has the
+     identical latent `<line summary>` CR non-conformance: `mapEnvelopeParseFailure`
+     renders a trailing CR that category 6's first-line truncation would cut. It
+     is pre-existing and unfiled, and fixing it would move that row's
+     observable, so it was left alone (GOV-15). Worth its own report.
+  2. `scanStreamForEnvelope` carries `unparseableLines` but emits nothing,
+     because it has no `src/` caller (`rg -n "scanStreamForEnvelope" src/` finds
+     only its own definition and the module header). A future caller inherits the
+     class separation rather than having to rediscover it.
+  3. `theta/runtime/subagent-wire-parse-failed` is fault-injection-only, not
+     reachable from ordinary `pi -p` traffic: a healthy child writes strict JSONL
+     and the production pump drops empty lines. Established by real runs — the
+     H8a drive reported an empty system-note array and the H9a acceptance cell
+     passed the permitted-codes and stderr gates unchanged — so
+     `tests/fixtures/h7a/permitted-codes.json` is correctly untouched. A live
+     witness of the emission would need an extension planted into the child that
+     writes non-JSON to fd 1; none exists and none is required here.
+  4. Several `path:line` citations in
+     `tests/subagent-envelope-nonfinite-ok-refusal.test.ts` and
+     `tests/subagent-envelope-result-carriage.test.ts`, and two in
+     `tests/invoke-prompt-cell-enum-return.test.ts` and
+     `tests/invoke-return-enum-carrier-projection.test.ts`, were already stale
+     before this change and were left alone rather than widened into. Neither
+     file is on the citation gate's converted-file ratchet.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the row is WIRED, not retired.
+  `lineCarriesReservedKey` stays `boolean` (a wrapper), so no existing call site
+  or assertion was migrated. PIC-59's stray-line tolerance keeps governing
+  *result* fidelity and is unchanged; only the observability reading of it moved.
+  `summarizeLine`, `mapEnvelopeParseFailure` and the four wired marshalling codes
+  are untouched. The closed placeholder-rendering tables are untouched.

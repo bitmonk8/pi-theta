@@ -8,11 +8,17 @@
 //   - the reserved-key constant and the pinned, versioned envelope schema;
 //   - child-side serialisation of an `Ok` value / an `Err` `QueryError`
 //     (`serializeOkEnvelope` / `serializeErrEnvelope`) as one JSONL line;
-//   - parent-side reserved-key matching + line parsing (`lineCarriesReservedKey`,
-//     `parseEnvelopeLine`) and stray-line-tolerant stream scanning
+//   - parent-side three-way stdout-line classification
+//     (`classifyChildStdoutLine`: envelope / other-json / unparseable) and its
+//     `boolean` wrapper (`lineCarriesReservedKey`), line parsing
+//     (`parseEnvelopeLine`), and stray-line-tolerant stream scanning
 //     (`scanStreamForEnvelope`);
 //   - versioning + skew detection (a version the parent does not recognise is
 //     detected, not tolerated);
+//   - the ADVISORY (non-fail-closed) `theta/runtime/subagent-wire-parse-failed`
+//     diagnostic (`mapWireParseFailure`) for a non-envelope stdout line that did
+//     not parse as JSON — the parent still ignores the line for envelope
+//     selection (bug 0086 §Fix disposition 1);
 //   - the fail-closed mappings for FIVE failure classes. Four each carry their
 //     own pinned diagnostic: envelope parse failure, envelope schema skew and
 //     child exit WITHOUT an envelope map to `Err(InvokeInfraError { cause:
@@ -44,6 +50,7 @@
 // `theta/runtime/subagent-return-value-not-representable`).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { renderHostDerivedTail } from "../diagnostics/placeholder";
 import { DEPTH_VIOLATION_MESSAGE, MAX_JSON_DEPTH } from "./depth-walk";
 import type { InvokeInfraError, QueryError } from "./query-error";
 
@@ -88,6 +95,16 @@ export interface EnvelopeLine {
 
 /** `theta/runtime/subagent-envelope-parse-failed` — a reserved-key line failed the pinned schema. */
 export const SUBAGENT_ENVELOPE_PARSE_FAILED_CODE = "theta/runtime/subagent-envelope-parse-failed";
+
+/**
+ * `theta/runtime/subagent-wire-parse-failed` — a *non-envelope* stdout line was
+ * expected to be a `--mode json` event and did not parse as JSON (bug 0086).
+ * Distinct family from the four RFC 0006 marshalling codes above: this one
+ * covers the line class {@link classifyChildStdoutLine} answers `unparseable`
+ * for, never a reserved-key line (that failure is
+ * {@link SUBAGENT_ENVELOPE_PARSE_FAILED_CODE} instead).
+ */
+export const SUBAGENT_WIRE_PARSE_FAILED_CODE = "theta/runtime/subagent-wire-parse-failed";
 
 /** `theta/runtime/subagent-envelope-schema-skew` — envelope version the parent does not recognise. */
 export const SUBAGENT_ENVELOPE_SCHEMA_SKEW_CODE = "theta/runtime/subagent-envelope-schema-skew";
@@ -225,26 +242,52 @@ export type EnvelopeParse =
   | { readonly kind: "parse-failed"; readonly line: string };
 
 /**
- * Whether one stdout line carries the reserved `theta_result` top-level key.
- * A line that is not JSON, or is JSON but does not carry the reserved key
- * (a valid `--mode json` event, garbage, or partial JSON), returns `false` —
- * the parent ignores it (stray-line tolerance, PIC-59).
+ * The three-way classification of one child `--mode json` stdout line: a
+ * reserved-key `theta_result` envelope line (`envelope`); a line that parses
+ * as JSON but carries no reserved key — a valid non-envelope `--mode json`
+ * event the parent correctly ignores (`other-json`); or a line that does not
+ * parse as JSON at all, carrying the offending line for the advisory
+ * `theta/runtime/subagent-wire-parse-failed` diagnostic (`unparseable`). An
+ * empty or whitespace-only line is not parseable JSON either, so it
+ * classifies `unparseable` here — whether it is worth diagnosing is a
+ * separate, driver-seam question this classifier does not answer (bug 0086
+ * §Fix disposition 1).
+ *
+ * This is the sole `JSON.parse` + reserved-key test for a child stdout line;
+ * {@link lineCarriesReservedKey} is a thin `boolean` wrapper over it kept for
+ * every existing `boolean` call site.
  */
-export function lineCarriesReservedKey(line: string): boolean {
-  // A line that is not JSON, or is JSON but does not carry the reserved key, is
-  // ignored by the parent (stray-line tolerance, PIC-59).
+export type ChildStdoutLineClass =
+  | { readonly kind: "envelope" }
+  | { readonly kind: "other-json" }
+  | { readonly kind: "unparseable"; readonly line: string };
+
+export function classifyChildStdoutLine(line: string): ChildStdoutLineClass {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
   } catch (parseError: unknown) { // allow-broad-catch: stray-line tolerance — pi-integration-contract/subagent.md PIC-59
     void parseError;
-    return false;
+    return { kind: "unparseable", line };
   }
-  return (
+  const carriesReservedKey =
     typeof parsed === "object" &&
     parsed !== null &&
-    Object.prototype.hasOwnProperty.call(parsed, THETA_RESULT_KEY)
-  );
+    Object.prototype.hasOwnProperty.call(parsed, THETA_RESULT_KEY);
+  return carriesReservedKey ? { kind: "envelope" } : { kind: "other-json" };
+}
+
+/**
+ * Whether one stdout line carries the reserved `theta_result` top-level key.
+ * A line that is not JSON, or is JSON but does not carry the reserved key
+ * (a valid `--mode json` event, garbage, or partial JSON), returns `false` —
+ * the parent ignores it (stray-line tolerance, PIC-59). A thin wrapper over
+ * {@link classifyChildStdoutLine}'s three-way verdict, kept `boolean` for its
+ * existing call sites rather than widened, since only the reserved-key
+ * question — not the class of a non-envelope line — is decided here.
+ */
+export function lineCarriesReservedKey(line: string): boolean {
+  return classifyChildStdoutLine(line).kind === "envelope";
 }
 
 /**
@@ -288,10 +331,18 @@ export function parseEnvelopeLine(line: string): EnvelopeParse {
   return { kind: "parse-failed", line };
 }
 
-/** The stream-scan verdict: whether a reserved-key envelope line was found, and its parse. */
+/**
+ * The stream-scan verdict: whether a reserved-key envelope line was found, its
+ * parse, and every unparseable line skipped along the way (stream order,
+ * excluding valid non-envelope JSON) — so this scanner no longer merges the
+ * unparseable class into silence a second time (bug 0086 §Actual behaviour
+ * item 5). `scanStreamForEnvelope` has no `src/` caller at HEAD, so it emits
+ * no diagnostic of its own; the field exists so a future caller inherits the
+ * class separation rather than having to rediscover it.
+ */
 export type EnvelopeScan =
-  | { readonly found: false }
-  | { readonly found: true; readonly parse: EnvelopeParse };
+  | { readonly found: false; readonly unparseableLines: readonly string[] }
+  | { readonly found: true; readonly parse: EnvelopeParse; readonly unparseableLines: readonly string[] };
 
 /**
  * Scan a captured stdout line stream for the reserved-key envelope, ignoring
@@ -303,12 +354,17 @@ export function scanStreamForEnvelope(lines: readonly string[]): EnvelopeScan {
   // Ignore every non-`theta_result` line (valid JSON events, garbage, partial
   // JSON); the reserved-key line cannot be split mid-write, so a single matched
   // line is authoritative (PIC-59).
+  const unparseableLines: string[] = [];
   for (const line of lines) {
-    if (lineCarriesReservedKey(line)) {
-      return { found: true, parse: parseEnvelopeLine(line) };
+    const classified = classifyChildStdoutLine(line);
+    if (classified.kind === "envelope") {
+      return { found: true, parse: parseEnvelopeLine(line), unparseableLines };
+    }
+    if (classified.kind === "unparseable") {
+      unparseableLines.push(classified.line);
     }
   }
-  return { found: false };
+  return { found: false, unparseableLines };
 }
 
 // ---------------------------------------------------------------------------
@@ -348,6 +404,38 @@ export function mapEnvelopeParseFailure(line: string, calleePath: string): Envel
       code: SUBAGENT_ENVELOPE_PARSE_FAILED_CODE,
       message,
     },
+  };
+}
+
+/**
+ * Map a *non-envelope* stdout line {@link classifyChildStdoutLine} answered
+ * `unparseable` for to the advisory `theta/runtime/subagent-wire-parse-failed`
+ * diagnostic (bug 0086 §Fix disposition 1). ADVISORY TRIAGE, not a fail-closed
+ * mapping: unlike every `EnvelopeFailureMapping` builder above, this returns a
+ * `Diagnostic` alone — the registry row states the parent ignores stray
+ * non-envelope lines by construction (PIC-59), so the invocation result does
+ * not change on this line class, and there is no `Err` to reconstruct. The
+ * caller (`driveSubagentChild`) owns the per-invocation emission bound; this
+ * builder answers only what one offending line renders as.
+ */
+export function mapWireParseFailure(line: string): Diagnostic {
+  // `<line summary>` is a category-8 host-derived tail, which
+  // placeholder-rendering-b.md §8 pins to category 6's first-line truncation:
+  // newline-normalise (`\r\n` and bare `\r` become `\n`), then cut at the first
+  // break. The production line pump splits on `\n` alone and leaves a trailing
+  // CR for this parser to trim, so a co-process writing `garbage\r\n` delivers
+  // the line `garbage\r` here and that CR must not reach the operator. The rule
+  // is single-sourced in `renderHostDerivedTail`; `summarizeLine` then applies
+  // the length cap §8 leaves implementation-defined at the byte level. The
+  // rule's `<no message>` empty arm is answered by that shared renderer, so no
+  // arm for it is written here — and the driver's blank-line filter takes every
+  // all-JSON-whitespace line before this builder runs, leaving a leading bare
+  // CR as its only route.
+  const summary = summarizeLine(renderHostDerivedTail(line));
+  return {
+    severity: "error",
+    code: SUBAGENT_WIRE_PARSE_FAILED_CODE,
+    message: `subagent event-stream line parse failed: ${summary}`,
   };
 }
 

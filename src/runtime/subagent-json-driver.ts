@@ -29,10 +29,11 @@ import type { SubagentChildProcess, ChildExitInfo } from "./subagent-launcher";
 import type { Clock } from "../seams/clock";
 import { makeCancelledError } from "./cancellation-core";
 import {
-  lineCarriesReservedKey,
+  classifyChildStdoutLine,
   mapEnvelopeParseFailure,
   mapEnvelopeSchemaSkew,
   mapExitWithoutEnvelope,
+  mapWireParseFailure,
   parseEnvelopeLine,
 } from "./subagent-envelope";
 
@@ -89,6 +90,13 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
   return new Promise<SubagentInvocationResult>((resolve) => {
     let settled = false;
     let lastStderr: string | undefined;
+    // EMISSION BOUND (bug 0086 §Fix disposition 1): the child's stdout is
+    // shared with other extensions (PIC-59) and the diagnostic is `E`, so a
+    // chatty co-extension must not be able to produce one `E` per line — at
+    // most the FIRST offending line is diagnosed per invocation. Scoped to
+    // this drive's own closure, not module state, since the bound is
+    // per-invocation.
+    let wireParseFailureEmitted = false;
     let detachStdout: () => void = () => {};
     let detachStderr: () => void = () => {};
     const settle = (result: SubagentInvocationResult): void => {
@@ -112,7 +120,30 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
       // Stray-line tolerance: ignore every non-`theta_result` line (valid
       // `--mode json` events, garbage, partial JSON) until the reserved-key
       // envelope line — which cannot be split mid-write — is seen (PIC-59).
-      if (!lineCarriesReservedKey(line)) {
+      // A non-envelope line that does not even parse as JSON gets the same
+      // result-fidelity treatment (ignored for envelope selection) but is
+      // additionally diagnosed, once per invocation, as advisory triage (bug
+      // 0086 §Fix disposition 1) — never a result-altering failure.
+      const classified = classifyChildStdoutLine(line);
+      if (classified.kind === "other-json") {
+        return;
+      }
+      if (classified.kind === "unparseable") {
+        // BLANK-LINE FILTER: a line consisting only of JSON whitespace (space,
+        // tab, CR, LF) is LF-delimited stdout framing — including the trailing
+        // CR the line pump leaves on a `\r\n`-terminated write — not a malformed
+        // JSON event, and is never diagnosed. The set is JSON's, not
+        // ECMAScript's `trim`: U+2028, U+2029, U+00A0 and U+FEFF are ORDINARY
+        // characters an implementation must not strip
+        // (diagnostics/placeholder-rendering-b.md category 6), so a line made of
+        // them is malformed stream bytes and is diagnosed like any other.
+        if (/^[ \t\r\n]*$/.test(classified.line)) {
+          return;
+        }
+        if (!wireParseFailureEmitted) {
+          wireParseFailureEmitted = true;
+          emitDiagnostic(mapWireParseFailure(classified.line));
+        }
         return;
       }
       const parse = parseEnvelopeLine(line);

@@ -246,8 +246,8 @@ import { WallClock } from "../src/seams/wall-clock";
 // Shared constants.
 //
 // Both mappers already EXIST as exports at HEAD (`mapTooDeepReturnValue`,
-// `src/runtime/subagent-envelope.ts:707`; `mapNonRepresentableReturnValue`,
-// `:741`) — route (a) changes what they answer, not the module's surface — so
+// `src/runtime/subagent-envelope.ts:795`; `mapNonRepresentableReturnValue`,
+// `:829`) — route (a) changes what they answer, not the module's surface — so
 // they are imported by name here rather than read off the namespace. The one
 // symbol route (a) ADDS is read off the namespace instead (`SHAPE-CLASSIFIER`),
 // because a named static import of a missing export fails the whole FILE at
@@ -490,7 +490,7 @@ function expectDepthRefusal(refusal: unknown, label: string): void {
 describe("bug 0201 (SEAM-NONFINITE) — the non-representability search descends the Result carrier", () => {
   it("RED (SEAM-OK-CARRIER): a non-finite number inside a nested Ok refuses at /0/value, in all three spellings", () => {
     // PRIMARY. §Reproduction row 1. `firstNonFiniteNumber` classifies every node
-    // through `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`), which
+    // through `classifyWireNode` (`src/runtime/subagent-envelope.ts:555`), which
     // answers `record` for a `Result`, so the search descends the carrier's own
     // enumerable fields and names the leaf it finds there. §Actual behaviour 1
     // measures the search stopping AT the carrier instead: it answers
@@ -662,7 +662,7 @@ describe("bug 0201 (SEAM-NONFINITE) — the non-representability search descends
     // §Fix (d)(1) bind every route: a descent that enters the carrier still
     // fast-fails the moment a node's level would exceed `MAX_JSON_DEPTH`.
     // `firstNonFiniteNumber`'s `if (level > MAX_JSON_DEPTH)`
-    // (`src/runtime/subagent-envelope.ts:549`) is the first statement of the
+    // (`src/runtime/subagent-envelope.ts:637`) is the first statement of the
     // function, and route (a) keeps it there — so a non-finite leaf whose WIRE
     // position is past the cap is not this search's to find, exactly as it is
     // not outside a carrier (`CONTROL (FENCE-DEPTH)`,
@@ -721,7 +721,7 @@ describe("bug 0201 (SEAM-NONFINITE) — the non-representability search descends
 describe("bug 0201 (SEAM-DEPTH) — the depth walk counts the Result carrier as one level", () => {
   it("RED (SEAM-DEPTH-CARRIER): a nest contributed only from inside a Result refuses, at the depth the wire document actually has", () => {
     // PRIMARY. §Reproduction row 2. `wireFormExceedsDepthCap` classifies every
-    // node through `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`),
+    // node through `classifyWireNode` (`src/runtime/subagent-envelope.ts:555`),
     // which answers `record` for a `Result`, so the carrier costs the one level
     // its wire form costs and a payload past the cap reaches
     // `mapTooDeepReturnValue`'s refusal. §Actual behaviour 3 measures the walk
@@ -818,7 +818,7 @@ describe("bug 0201 (SEAM-DEPTH) — the depth walk counts the Result carrier as 
 
   it("CONTROL (SEAM-DEPTH-POSITION): a Result at a position already past the cap still refuses on its POSITION (green now, green after)", () => {
     // §Reproduction row 2c, as a fence. The level check
-    // (`src/runtime/subagent-envelope.ts:629`) precedes every classifier
+    // (`src/runtime/subagent-envelope.ts:717`) precedes every classifier
     // consult, so five brackets put the carrier at level 6 and the payload
     // refuses without its own wire form being counted at all. Route (a) keeps
     // that ordering (§Fix (d)(1)), so this row is UNCHANGED — it refuses at HEAD
@@ -1346,7 +1346,7 @@ describe("bug 0201 (WRITER) — the shipped child-side writer over a Result-carr
 // (SIGN) Tier 4 — the bug-0188 rider, in the POSITIVE direction.
 //
 // Bug 0188 shipped `stringifyPreservingNegativeZero`
-// (`src/runtime/subagent-envelope.ts:188`), which rides `JSON.stringify`'s own
+// (`src/runtime/subagent-envelope.ts:205`), which rides `JSON.stringify`'s own
 // traversal and therefore already reaches a `-0` leaf inside a `Result`
 // carrier. Route (a) cannot regress it — that function owns RENDERING while the
 // two walks decide only REFUSAL, and `-0` is finite so neither walk's leaf test

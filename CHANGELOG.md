@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.230.0]
+
+### Fixed
+
+- **Bug 0086** — `theta/runtime/subagent-wire-parse-failed` finally has an emitter: `classifyChildStdoutLine` becomes a three-way classifier in `subagent-envelope.ts` (with `mapWireParseFailure` and a widened `EnvelopeScan`), and `subagent-json-driver.ts` emits the row — bounded — at the parse-failure seam, so malformed child wire lines surface instead of vanishing. DIAG-2: the row's Trigger gains the bound and a JSON-whitespace exemption (Code/Sev/Phase/Message byte-unchanged), mirror updated. Fault-injection-only on real-run evidence → `permitted-codes.json` untouched. Locked by `tests/subagent-wire-parse-failed-emitter.test.ts` + `tests/subagent-wire-parse-failed-classifier.test.ts`.
+
 ## [0.229.0]
 
 ### Fixed

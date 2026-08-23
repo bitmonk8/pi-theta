@@ -9885,7 +9885,7 @@ describe("H8a-T — bug 0188 (b188): a typed invoke<number> binds the sign-prese
 // to enter.
 // `docs/bugs/0201-result-carried-payloads-skip-envelope-walks.md` §Fix (a):
 // both walks now classify every node through one shared exported classifier,
-// `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`), which answers
+// `classifyWireNode` (`src/runtime/subagent-envelope.ts:555`), which answers
 // `record` for a `Result` — the brand is a non-enumerable symbol, so only
 // the carrier's own enumerable `ok` / `value` / `error` keys are visited,
 // exactly as `JSON.stringify` visits them. Neither walk carries a carrier
@@ -10051,7 +10051,7 @@ describe("H8a-T — bug 0201: a non-finite number reachable only through a neste
 // the verdict becomes a function of the payload's WIRE FORM under
 // `docs/spec_topics/schema-subset.md:24–30`'s counting algorithm, computed by a
 // new bounded walk that consults the shared classifier bug 0201 exported,
-// `classifyWireNode` (`src/runtime/subagent-envelope.ts:467`, which answers
+// `classifyWireNode` (`src/runtime/subagent-envelope.ts:555`, which answers
 // `scalar` for a boxed `String`). `depth-walk.ts` keeps serving the
 // parsed-JSON sites unchanged.
 //

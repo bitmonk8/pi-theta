@@ -369,7 +369,10 @@ channel (see [Hard ceilings](./hard-ceilings.md)).
   (now records the crash exit detail on the fail-closed no-envelope path, no
   per-query drive), `subagent-wire-parse-failed` (now a malformed **non-envelope**
   event-stream line — advisory triage, since the parent ignores stray lines; a
-  malformed envelope line is `subagent-envelope-parse-failed` instead), and
+  malformed envelope line is `subagent-envelope-parse-failed` instead; emission is
+  bounded to at most one diagnostic per invocation, naming the first offending
+  line, and a line consisting only of JSON whitespace (space, tab, CR, LF) is
+  stdout framing and never diagnosed), and
   `subagent-model-preflight-mismatch` (the child re-resolves the marshalled
   `--provider`/`--model` reference against its own registry and reports mismatch
   through the return envelope). Operator note: each subagent invocation — and
