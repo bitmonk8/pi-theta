@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.256.0]
+
+### Fixed
+
+- Bug 0117: the error model's closed panic list is scoped rather than
+  widened (operator ruling (a)(2)): `error-model.md`'s §Runtime panics
+  header now enumerates the sources of `theta/runtime/*` panics, with the
+  one exception stated beside it — QRY-18's runtime fallback
+  (`InterpolatedResultPanic`) panics with the parse-namespaced
+  `theta/parse/interpolated-result`, cross-referencing `expressions.md:188`.
+  `expressions.md:9–:10`'s canonical-list claim requalified; GOV-30 mirror
+  updated in `docs/reference/errors-and-results.md`. The namespace ↔ list
+  correspondence stays exact; `code-registry-runtime.md` byte-untouched; no
+  registry cell edited; the list is NOT widened to seven. New 12-cell
+  conformance oracle `tests/b0117-panic-namespace-scoping-gate.test.ts`
+  (7 red at the old page bytes; 5 preservation cells pin six-not-seven and
+  the exact correspondence). Docs+tests only; no live owed.
+
 ## [0.255.0]
 
 ### Fixed

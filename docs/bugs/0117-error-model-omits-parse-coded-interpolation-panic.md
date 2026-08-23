@@ -1,10 +1,11 @@
 # Bug 0117 — `error-model.md` §"Runtime panics" enumerates six panic sources "each carrying its registered `theta/runtime/*` code" and calls the set closed, but a seventh `ThetaPanic` ships: `InterpolatedResultPanic`, QRY-18's runtime fallback, carrying `theta/parse/interpolated-result` — so the enumeration, the four claims keyed off its count, and the four delivery-channel sentences that describe a panic's diagnostic by that prefix (one of which the shipped note contradicts outright) are all one generation behind the shipped panic set, while the panic itself is what QRY-18 and the registry row prescribe
 
-- **Status:** open. §Fix is not settled: this report exists to pin the spec
-  disposition. The choice between the two dispositions in §Fix (a) is an operator
-  decision under [GOV-30](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-30)
-  lock-step. No code change is proposed — the shipped panic is what QRY-18 and
-  the registry row require. No ordering dependency:
+- **Status:** fixed (0.256.0). The operator ruled disposition (a)(2) (fifteenth
+  set, ruling 1, quoted verbatim in §Fix (0.256.0) below); the enumeration is
+  scoped to `theta/runtime/*` panic sources and the QRY-18 fallback is stated
+  beside it as the one exception. The [GOV-30](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-30)
+  lock-step mirror moved with it. No code change was made — the shipped panic is
+  what QRY-18 and the registry row require. No ordering dependency:
   [0079](./0079-interpolated-result-unemitted-private-encoding-rendered.md) is
   **fixed (0.69.0)** and is this report's origin.
 - **Sev/Diff estimate:** S4/D3 — a spec-prose defect where the shipped behaviour
@@ -1010,3 +1011,246 @@ changes either.
   no scratch file was created. `src/`, `tests/`, `docs/spec_topics/`,
   `docs/reference/`, `docs/bugs/README.md` and every other bug document are
   unmodified.
+
+## Re-derivation (2026-08-23, HEAD `3778f4a8`) — not mooted, route still unsettled, STOPPED
+
+An in-run re-derivation at `3778f4a8` (the tree carrying bug 0247's category-1
+clause on `placeholder-rendering-a.md` and every merge up to it) re-ran the
+§Reproduction citation walk against today's corpus. **The defect is live and
+unmoved**, no discharger has landed, and §Fix (a) is still an unmade operator
+decision. No file outside this document was edited, no test was written, no
+scratch file was created, no version shipped. This note is append-only at EOF so
+the sibling citations into this document's own line numbers
+(`0114:1093` cites `0117:196`, `:490`, `:882`) do not shift.
+
+### Probe table
+
+| # | Probe (run at `3778f4a8`) | Result | Bearing |
+|---|---|---|---|
+| 1 | `git log a410f727..HEAD -- docs/spec_topics/errors-and-results/error-model.md` | empty; the file's last touch is `62a848ff` (bug 0032) | The defect site has not been edited since before this report was filed. |
+| 2 | `git log a410f727..HEAD -- docs/reference/errors-and-results.md` | empty | The reference mirror is equally unmoved. |
+| 3 | `awk` over `error-model.md:63–94` | `:65` still reads "V1 panic sources — each carrying its registered `theta/runtime/*` code"; `:67–72` still six bullets; `:74` still "the six closed-list sources above"; `:76` still points at `code-registry-runtime.md` and still says "The six V1 templates"; `:78–85` still six rows; `:91` still "the `theta/runtime/*` diagnostic"; `:92` still the prefix advice | Every §Affected citation into the defect site holds verbatim. |
+| 4 | `rg -n "extends ThetaPanic" src/` | seven classes: `InterpolatedResultPanic` (`src/render/query-render.ts:110`) plus the six enumerated ones | Seven-versus-six is unchanged. |
+| 5 | `rg -n "INTERPOLATED_RESULT_CODE = " src/render/query-render.ts` | `:80` `"theta/parse/interpolated-result"`; `:111` `readonly code = INTERPOLATED_RESULT_CODE` | The seventh panic's code is still `theta/parse/*`. |
+| 6 | `rg -n "interpolated-result" docs/spec_topics/errors-and-results/` | empty | `error-model.md` still does not mention it. |
+| 7 | `rg -n "interpolat" docs/reference/errors-and-results.md` | empty | The mirror still does not mention it. |
+| 8 | `awk` over `runtime-event-channel.md:32`, `:57`, `:91`; `glossary.md:7` | all four prefix claims verbatim as filed | §Fix (b)'s "prose does assert it, and one sentence is contradicted outright" still holds; `:91` is still the sharpest contradiction. |
+| 9 | `awk` over `code-registry-runtime.md:7`, `:22`; `queryerror-variants.md:187` | "exactly six **panic sources** … one row per code in that list" verbatim at `:7`; both negative definitions verbatim | The four count-keyed claims are unchanged. |
+| 10 | `rg -n "new InterpolatedResultPanic" src/` | one raise site, `src/extension/production-theta-producer.ts:6292` | Still one raise site; the `system:` path still returns a diagnostic. |
+| 11 | `rg -n "Each subclass carries\|one of the six closed sources" src/runtime/runtime-panics.ts` | `:65` and `:500` verbatim | Both stale comments survive. |
+| 12 | `rg -n "exactly six" docs/` | `code-registry-runtime.md:7`, `docs/reference/diagnostics.md:255` | The mirror moved line but not content. |
+| 13 | `awk` over `placeholder-rendering-a.md:5–58` (bug 0247's landed clause) | 0247 added category 1's undetermined-static-type token table (`:28`, `:30–42`); category 2's `Result<T, E>` scrutinee rule sits at `:58` | **Bug 0247 does not reach this report.** It governs how a `<type>` / `<scrutinee summary>` placeholder renders, not which panics exist or what code a panic carries. It neither moots the enumeration question nor changes the abort's legality. |
+| 14 | `rg -n "runtime-fallback panic" docs/spec_topics/expressions.md` | `:188` — "`?` … inside a `${...}` query-template interpolation … aborts the theta with QRY-18's runtime-fallback panic (`theta/parse/interpolated-result`)" | **New since filing.** A second spec page now names the parse-coded panic in normative prose while `error-model.md:9`'s "canonical closed list" still omits it — the drift widened rather than closed. |
+
+### Citation drift since `a410f727` (this report's citations, refreshed)
+
+Content-identical, line-moved. `error-model.md` and `docs/reference/errors-and-results.md` citations are **unchanged**.
+
+- `docs/spec_topics/diagnostics/code-registry-parse.md:72` → **`:83`**. The row's
+  *Trigger* also **grew a second runtime arm** (bug 0114, containment at any
+  depth: "the runtime renderer also raises it when `expr`'s static type is
+  `array<T>` or a Schema-typed object and the evaluated value holds a `Result` at
+  any depth"). More inputs reach the seventh panic; the disposition question is
+  unchanged.
+- `docs/spec_topics/query/query-escapes-stringification.md:58` (QRY-21) → **`:59`**;
+  `:16` (QRY-18), `:28`, `:32` unchanged; **`:33` is new** (bug 0114's containment
+  sentence, the runtime arm restated).
+- `docs/reference/diagnostics.md:230` → **`:255`**; `:121` → **`:129`**; `:45`
+  unchanged.
+- `docs/reference/frontmatter.md:264–265` → **`:332`**.
+- `docs/spec_topics/diagnostics/diagnostic-shape.md:72` (DIAG-2), `:73` (DIAG-3),
+  `:74` (DIAG-4), `:80` (column legend) unchanged.
+- `src/extension/production-theta-producer.ts:5680` (the throw) → **`:6292`**;
+  `emitPanicNote` → **`:1563`**.
+- `src/extension/theta-composition-producer.ts:443` (the annotated catch) →
+  **`:542`**; `:463` (`code: thrown.code`) → **`:589`**; `:468` (the framing) →
+  **`:594`**.
+- `src/runtime/statement-executor.ts:468` → **`:490`**; `:1187` → **`:1235`**.
+- `src/runtime/runtime-panics.ts:65`, `:500`, `:502`, `:546`,
+  `src/runtime/invoke-cancellation.ts:138`, `src/render/query-render.ts:80`,
+  `:110`, `:111` unchanged.
+- Test citations unchanged: `tests/absent-member-presence-gate.test.ts:796`,
+  `tests/non-object-receiver-gate.test.ts:923`,
+  `tests/missing-object-key-rendering.test.ts:300`,
+  `tests/runtime-panics.test.ts:113`, `:189` all still cite
+  `error-model.md:71` / "the six closed panic sources".
+
+### Why this run stopped rather than landing a clause
+
+The route is genuinely unsettled and nothing in the corpus at `3778f4a8` forces a
+branch. §Fix (a) offers two dispositions; this report's own Status paragraph calls
+the choice "an operator decision under [GOV-30] lock-step", and §Fix (a) closes
+with "Do not pick by which edit is smaller. The question is what the enumeration
+is *of*." Both branches change what the canonical closed list **means**, and both
+land lock-step prose across five `docs/spec_topics/` pages and four
+`docs/reference/` mirrors. Three candidate forcing constraints were examined and
+none decides:
+
+1. **Bug 0027's precedent** (absorb into `error-model.md:74`'s runtime-defect
+   surface without extending the closed list) is the shape of branch (a)(2), but
+   §Related already rules that route unavailable — 0027's `NonObjectReceiverError`
+   extends `Error` and is **not** a panic, whereas `InterpolatedResultPanic`
+   extends `ThetaPanic` and that subclassing is load-bearing for QRY-21. It
+   argues for (a)(2)'s *shape* without settling whether a panic may sit outside
+   the panic-source list.
+2. **QRY-21's delegation** (`query-escapes-stringification.md:59`, "any of the
+   runtime panics in [Errors and Results — Runtime panics]") reaches the seventh
+   panic automatically under (a)(1) and needs an added clause under (a)(2) — a
+   cost of (a)(2), which §Fix (e) already books as in scope either way.
+3. **`code-registry-runtime.md:7`'s matching rule** survives untouched under
+   (a)(2) and needs a cross-registry clause under (a)(1) — a cost of (a)(1), and
+   exactly the "which edit is smaller" tie-break §Fix (a) forbids.
+
+There is also no branch-neutral partial landing. The delivery-channel prefix
+claims (`runtime-event-channel.md:91`, `:32`, `:57`, `glossary.md:7`,
+`error-model.md:92`) move under either branch, but their replacement wording has
+to characterise the seventh panic — as a seventh list member or as a panic
+outside the list — which is the branch choice restated. The §Fix witness has the
+same property: set equality under (a)(1), subset-plus-allow-list under (a)(2).
+
+**The question, stated for the operator:** *is the `error-model.md`
+§"Runtime panics" enumeration the closed list of panic sources simpliciter
+(→ widen to seven, disposition (a)(1)), or the closed list of `theta/runtime/*`
+panic sources with QRY-18's fallback deliberately outside it (→ scope, and state
+that a registered non-`theta/runtime/*` code may be raised as a panic by a rule
+owned elsewhere, disposition (a)(2))?* Everything downstream — the count-keyed
+claims, the two negative *Trigger*s, the delivery-channel prefix sentences, the
+`:78–85` table, ERR-20's scope, and the shape of the derived-inventory witness —
+follows mechanically once that is answered. Status stays **open**.
+
+## Fix (0.256.0)
+
+**Spec authority — the operator ruling (fifteenth set, ruling 1), verbatim:**
+
+> OPERATOR RULING (fifteenth set, ruling 1): 0117 = (a)(2). error-model.md
+> §Runtime panics enumerates the sources of theta/runtime/* panics — scope the
+> list header accordingly and state the one exception immediately beside it:
+> QRY-18's runtime fallback (InterpolatedResultPanic) panics with the
+> parse-namespaced code theta/parse/interpolated-result, cross-referencing
+> expressions.md:188 which already names it. The namespace ↔ list correspondence
+> stays exact; code-registry-runtime.md:7's matching prose stays true
+> unmodified; the list is NOT widened to seven.
+
+- **What shipped:**
+  - `docs/spec_topics/errors-and-results/error-model.md` — the
+    `**Runtime panics.**` header paragraph (line 65) rewritten *in place, still
+    one line, file still 94 lines*: it now states that the section enumerates
+    the sources of `theta/runtime/*` panics and that the namespace and the list
+    correspond exactly (a source is listed **iff** its registered code sits in
+    the `theta/runtime/*` namespace), then states the one exception immediately
+    beside it — QRY-18's runtime fallback `InterpolatedResultPanic`, carrying
+    the parse-namespaced code `theta/parse/interpolated-result`, whose *Message
+    template* is registered in `code-registry-parse.md` rather than the runtime
+    registry, a panic in every other respect (panic routing kept; contained by
+    neither `match` nor `?` nor `let _ =`, QRY-21) and, being deliberate and
+    registered rather than an unanticipated throw, not on the runtime-defect
+    surface — cross-referencing
+    [Query — QRY-18](../spec_topics/query/query-escapes-stringification.md#qry-18)
+    and [Expressions — `?` operator](../spec_topics/expressions.md#question-operator),
+    which already name it. The six bullets, the closure paragraph, the
+    message-template table and the routing bullets are byte-unchanged.
+  - `docs/reference/errors-and-results.md` — the GOV-30 lock-step mirror: the
+    §"Runtime panics" head sentence rescoped the same way, plus one condensed
+    exception paragraph after the six mirror bullets. Six bullets unchanged.
+    ERR-20 unedited.
+  - `docs/spec_topics/expressions.md` — lines 9 and 10: "the canonical closed
+    list" → "the canonical closed list of `theta/runtime/*` panic sources", the
+    smallest edit that makes the page agree with the scoped meaning. Those are
+    both occurrences of the phrase in the corpus; the file is still 242 lines.
+  - `tests/b0117-panic-namespace-scoping-gate.test.ts` — new 12-cell
+    conformance oracle (0062/0049 shape).
+- **Deliberately NOT edited, enumerated** (each checked against the bytes; none
+  restates the six-item claim in a way (a)(2) falsifies):
+  1. `docs/spec_topics/diagnostics/code-registry-runtime.md` line 7 — pinned by
+     the ruling as true unmodified; its referent list is now the scoped one.
+     Byte-untouched, and oracle cell K asserts its prose survives.
+  2. `code-registry-runtime.md` line 22 (`theta/runtime/internal-error`
+     *Trigger*) — a registry cell; no cell edit is authorized (DIAG-2/DIAG-4),
+     and its exclusion clause is over *unanticipated* throws, which the
+     deliberate registered panic is not.
+  3. `docs/spec_topics/errors-and-results/queryerror-variants.md` line 187 —
+     the same negative definition with the same "unexpected" qualifier; true
+     unmodified.
+  4. `error-model.md` line 74 — scoped to "unexpected interpreter exceptions …
+     the runtime did not anticipate"; the new exception sentence says
+     explicitly that the exception is not on that surface.
+  5. `error-model.md` lines 76, 91 and 92 — their `theta/runtime/*` references
+     are read under the stated exception three sentences above, which names the
+     exception's registry page and its routing. The ruling prescribes two
+     sentences, not quantifier surgery across the section; the operator's own
+     treatment of `code-registry-runtime.md` line 7 is the precedent.
+  6. `docs/reference/diagnostics.md`'s six-panic-sources prose — the mirror of
+     `code-registry-runtime.md` line 7; it moves only if that line moves.
+  7. `docs/reference/errors-and-results.md` ERR-20 — "from any of the six panic
+     sources above" is a sufficient-condition statement, under-prescriptive
+     rather than false, and its understatement predates and is independent of
+     this ruling. Residual 1 below.
+  8. `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` lines
+     32, 57 and 91, and `docs/spec_topics/glossary.md` line 7 — delivery-channel
+     prefix claims. They do not restate the six-item claim, so they fall outside
+     the granted scope; they were already contradicted at HEAD, independent of
+     the ruling. Residual 2 below.
+  9. `docs/spec_topics/expressions.md` line 234 — "integer overflow's deliberate
+     exclusion from the closed panic list" is true under the scoped reading.
+  10. `docs/reference/coverage-matrix.md` line 53 and
+      `docs/reference/frontmatter.md`'s `system:`-field sentence — no six-item
+      claim; accurate as written.
+  11. `src/` — byte-untouched. The stale comments at
+      `src/runtime/runtime-panics.ts` line 65 and line 500 are this report's own
+      named non-goal and no ruling clause reaches them. Residual 3 below.
+- **Gates** (run by the orchestrator at the final tree state):
+  - Witness: `npx vitest run tests/b0117-panic-namespace-scoping-gate.test.ts`
+    → `Test Files 1 passed (1)` / `Tests 12 passed (12)`.
+  - Full default suite: `npm test` → `Test Files 426 passed (426)` /
+    `Tests 8954 passed (8954)`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → exit 0.
+  - `npm run lint` (`eslint "src/**/*.ts"`) → exit 0.
+  - Citation gate `tests/citation-symbol-form-gate.test.ts` → 3 passed.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — **CLEAN**, no findings;
+  two non-blocking residuals (a "quoted verbatim" claim in the witness header
+  that was really citation-normalized, and the out-of-scope prefix claims
+  recorded as residual 2). The first was polished by one comment-only
+  `bug-fix-fixer-light` round, verified by gate-diff (comment lines only);
+  the confirmation review round was skipped per policy.
+- **Verification:** PASS. (1) Each of the seven red-at-HEAD cells re-reddened
+  when its page was reverted to HEAD bytes and greened on restore, every file
+  proven byte-identical afterwards by `git hash-object`; cells H and L proven
+  non-vacuous by a seventh-bullet mutation, cell J by its `toBe(1)` cardinality
+  form over the src-derived subclass set. (2) Default suite green. (3) No live
+  run owed or performed — `git diff --stat -- src/` is empty, so no
+  live-exercised surface moved. (4) Typecheck and lint exit 0.
+- **Residuals:**
+  1. **ERR-20's scope still understates its implementation.**
+     `docs/reference/errors-and-results.md` ERR-20 (now from line 127) scopes
+     the `par for` downgrade to "any of the six panic sources above", while
+     `parForPanicError` downgrades on `isThetaPanic`
+     (`src/runtime/statement-executor.ts` line 1235), which admits the
+     exception panic too. Pre-existing, not falsified by (a)(2), outside the
+     granted scope. Follow-up bug material.
+  2. **The delivery-channel prefix claims remain contradicted.**
+     `runtime-event-channel.md` line 91 ("carrying a single `theta/runtime/*`
+     diagnostic"), line 32, line 57 and `glossary.md` line 7's always-log set
+     still describe a panic's diagnostic by namespace, while the exception
+     panic's group-B note carries `theta/parse/interpolated-result`. Unchanged
+     from HEAD; the ruling did not reach them and they do not restate the
+     six-item claim. Follow-up bug material.
+  3. **Two stale comments in `src/`** — `src/runtime/runtime-panics.ts` line 65
+     ("Each subclass carries its registered `theta/runtime/*` code") and line
+     500 ("one of the six closed sources"). Named as a non-goal by this report;
+     `src/` is byte-untouched by design.
+  4. **Line-shift map for `docs/reference/errors-and-results.md`** (355 → 362
+     lines; +1 from old line 83, +7 from old line 90): old 86→87, 88→89,
+     91→98, 92→99, 108→115, 110→117, 120→127, 123→130, 133→140, 295→302.
+     No `src/` or `tests/` file cites a line of that page; the citing documents
+     are bug reports, whose citations are snapshots taken at a named HEAD.
+     `error-model.md` (94 lines) and `expressions.md` (242 lines) did **not**
+     move, so the five tests citing `error-model.md` line 65, line 69, line 71,
+     line 74 and line 76 are unaffected.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the list is **not** widened to seven;
+  `code-registry-runtime.md` is byte-untouched and its line 7 prose stays true
+  unmodified; no registry cell is edited; the shipped panic, its code, its
+  `ThetaPanic` subclassing and its routing are unchanged.
+- **Lane note:** landed in worktree `lane/g`; no `package.json`, `CHANGELOG.md`
+  or `docs/bugs/README.md` edit and no commit was made here. The version is
+  recorded as the literal placeholder `0.256.0` for the merging parent to resolve.

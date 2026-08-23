@@ -78,8 +78,9 @@ a separate evaluation-time failure of its own,
 ## Runtime panics
 
 Some failures cannot be expressed as a `Result` and are surfaced as **panics** that
-abort the theta immediately, bypassing `?` and `match`. The closed theta 1.0.0
-panic-source list, each with its registered `theta/runtime/*` code:
+abort the theta immediately, bypassing `?` and `match`. This enumerates the sources
+of `theta/runtime/*` panics — namespace and list correspond exactly, listed iff the
+registered code is `theta/runtime/*` — each with its registered code:
 
 - Non-exhaustive `match` — `theta/runtime/match-error`.
 - Array index out of bounds — `theta/runtime/index-out-of-bounds`.
@@ -87,6 +88,12 @@ panic-source list, each with its registered `theta/runtime/*` code:
 - `[i]` access on `null` — `theta/runtime/null-index-access`.
 - Member or indexed access on a missing object key — `theta/runtime/missing-object-key`.
 - `invoke` chain depth exceeded — `theta/runtime/invoke-depth-exceeded`.
+
+One exception: QRY-18's runtime fallback `InterpolatedResultPanic` carries the
+parse-namespaced code `theta/parse/interpolated-result` (Message template
+registered in the parse registry, see [Diagnostics](./diagnostics.md)); it is a
+panic in every other respect — same routing, not contained by `match` / `?` /
+`let _ =` — but is not on the runtime-defect surface, so the list above stays six.
 
 Division by zero, modulo by zero, integer overflow, and explicit author-driven
 panics are deliberately excluded. Separately, *unexpected interpreter exceptions*
