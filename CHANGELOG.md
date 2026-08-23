@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.239.0]
+
+### Fixed
+
+- **Bug 0251** — tolerated junk in a declared `params:` type no longer renders raw into the binder prompt: `renderBinderParamLine`'s type display is PROJECTED from the segments the lowering kept (the render seam; `BypassParamsField.type` stays verbatim for positional readers), so a surviving carrier like `array<{a: b c, d e}>` presents a clean type beside its schema instead of derailing the binder model at random. One normative *Type display* sentence in `binder-bypass-and-envelope.md`; zero of the 34 corpus files change their rendering. Locked by `tests/binder-param-type-projection.test.ts` (30 cells) and the `b0251live` carrier cell (green on 4 independent runs).
+
 ## [0.238.0]
 
 ### Fixed

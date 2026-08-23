@@ -72,6 +72,7 @@ import {
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
 import { runPromptSuspendInvoke } from "../runtime/invoke-prompt-suspend";
 import type { ThetaMode } from "../parser/frontmatter";
+import { projectRenderedParamType } from "../parser/params";
 import type {
   Api,
   AssistantMessage,
@@ -667,15 +668,18 @@ interface BinderForcedToolDispatch {
 
 /**
  * Map one parsed `params:` field to its V11d system-prompt per-field descriptor
- * (binder-bypass-and-envelope.md §System-prompt structure item 4): the surface
- * type verbatim, the requirement token `required` or `default=<literal>` from
- * the parser-retained default RHS. The `params:` syntax carries no per-field
- * description, so that segment is always absent.
+ * (binder-bypass-and-envelope.md §System-prompt structure item 4): the
+ * declared surface type PROJECTED to what the field's lowering kept
+ * (`projectRenderedParamType`, bug 0251 §Fix — the forced-tool envelope
+ * schema is built from the lowering, so the prompt line beside it must
+ * describe the same field), the requirement token `required` or
+ * `default=<literal>` from the parser-retained default RHS. The `params:`
+ * syntax carries no per-field description, so that segment is always absent.
  */
 function binderPromptParamField(field: BypassParamsField): SystemPromptParamField {
   return {
     wireName: field.wireName,
-    type: field.type,
+    type: projectRenderedParamType(field.type),
     requirement:
       field.hasDefault && field.defaultSource !== undefined
         ? { kind: "default", literal: field.defaultSource }

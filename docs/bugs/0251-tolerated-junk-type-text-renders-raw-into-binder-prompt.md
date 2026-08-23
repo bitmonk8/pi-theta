@@ -1,6 +1,6 @@
 # Bug 0251 — a `params:` field type carrying a segment the lowering discarded renders that segment RAW into the binder system prompt, so the prompt's `Parameters:` line and the forced-tool envelope schema state two different contracts over the same field: `p: '{a: integer, b > c, m: integer}'` loads with zero diagnostics, lowers to `{a, m}` with `additionalProperties: false`, and asks the binder model to bind `p ({a: integer, b > c, m: integer})`
 
-- **Status:** open.
+- **Status:** fixed (0.239.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the defect is confined to input that
   is already malformed (a well-formed declared type renders byte-identically,
   and zero committed `.theta` / `.thetalib` files carry a carrier type), but on
@@ -387,3 +387,128 @@ Ownership checked at HEAD: 0238 is fixed and its subject is the depth
 arithmetic, not the prompt; 0244 is open and its subject is the parse-time
 refusal, not the rendering; 0060 is fixed and its subject at this seam is line
 breaks. No open report claims the prompt/schema divergence.
+
+## Fix (0.239.0)
+
+- **What shipped:**
+  - `src/parser/params.ts` — new exported pure `projectRenderedParamType(source)`
+    projects a declared `params:` type to the top-level inline-object segments
+    its lowering kept, mirroring `lowerParamsFieldType`'s dispatch order
+    (literal sublanguage → single enclosing brace group → the
+    `lowerBraceGroupUnionArms` guard, reproduced byte-for-byte → verbatim
+    fallback); module-private `projectBraceGroup` does one group; the per-entry
+    accept/reject decision is factored into `classifyInlineObjectEntry`, now the
+    ONE owner of the drop rule, shared with `hoistInlineObjectType` so the
+    rendering can never drop a different entry set than the schema encodes.
+  - `src/extension/production-theta-producer.ts` — `binderPromptParamField`
+    sets `type: projectRenderedParamType(field.type)`; the sole production call
+    site, per §Fix's render-seam constraint.
+  - `src/binder/binder-system-prompt.ts` — `SystemPromptParamField.type`'s
+    doc-comment states the projection rule. `renderBinderParamLine` unchanged.
+  - `docs/spec_topics/binder/binder-bypass-and-envelope.md` — the one §Fix spec
+    sentence, inside the one-physical-line *Type display* paragraph: the
+    rendered `<type>` denotes the type the field's `args` arm schema fragment
+    encodes; a segment the lowering does not encode is not rendered. File stays
+    152 lines, so every downstream `:NNN` citation is unmoved.
+  - **`BypassParamsField.type` did not move.** `src/parser/frontmatter.ts` and
+    `src/extension/production-composition.ts` are untouched; the verbatim
+    `splitParamValue` slice the per-argument type-mismatch checks read
+    positionally is intact.
+- **Gates:**
+  - Witness RED before: `npx vitest run tests/binder-param-type-projection.test.ts`
+    → `Tests 10 failed | 17 passed (27)`, e.g.
+    `expected '  p ({a: integer, b > c, m: integer}) required' to be '  p ({a: integer, m: integer}) required'`.
+  - Witness GREEN after: `Tests 30 passed (30)`.
+  - Full default suite: `npm test` → `Test Files 421 passed (421)` /
+    `Tests 8847 passed (8847)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, clean.
+  - `npm run lint` → `eslint … "src/**/*.ts"`, clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0251live-tolerated-junk-carrier-live-cell.test.ts`
+    → `Tests 1 passed (1)` on four independent runs (the pre-fix live behaviour
+    §Reproduction (b) records was green 1 of 5, so repeat runs are the check).
+- **Review:** 2 rounds. Round 1 (deep) — 3 findings: the new
+  `InlineObjectEntry` block orphaned `hoistInlineObjectType`'s doc-comment;
+  the production seam was revert-survivable (nothing offline redded when
+  `binderPromptParamField` was reverted to `type: field.type`); an untestable
+  "object identity" claim in `projectBraceGroup`'s doc-comment. Plus 3
+  residuals. All five actioned items closed in one fixer round. Round 2 (fast)
+  — `CLEAN`, no deep-review recommendation.
+- **Verification:** VERIFIED.
+  - The offline tests genuinely witness the bug: two hand-edited
+    neutralisations, each hash-verified byte-exact on restore
+    (`git hash-object`, no `git checkout`/`restore`/`stash`). Reverting the
+    production seam reds the real-dispatch cell alone (`1 failed | 29 passed`);
+    making `projectRenderedParamType` a pass-through reds the divergence
+    cells with the `b > c` signature (`11 failed | 19 passed`).
+  - Full default suite green (above).
+  - Live end-to-end cover added and run for real (above): an H8a cell planting
+    the §Reproduction (a) row-a1 carrier theta, driving one binder pass plus one
+    body turn over the slash argument ` a is 17 and m is 23`, and asserting the
+    deterministic outbound render carries both bound fields, that no
+    fail-closed `theta-system-note` landed, and that the task-framed arithmetic
+    oracle `40` is in the real reply. No live red occurred at any point, so no
+    signature needed attributing to an open report.
+  - Lint and typecheck pass (above).
+- **Residuals:**
+  1. **The doc's §Reproduction (a) rows a2–a4 are no longer carriers.** Bugs
+     0244 and 0252 landed between filing and fix. Re-measured at this HEAD:
+     `{a: integer, bogus, m: integer}`, `{a: integer, ) , m: integer}` and
+     `{a: integer, b ] c, m: integer}` now REFUSE with
+     `theta/parse/malformed-schema-field`, register no field and reach no
+     binder prompt. The surviving carrier class is the `>`-bearing colon-less
+     segment — row a1 `{a: integer, b > c, m: integer}` plus the spellings
+     `b > c > d` and `b >` — together with the nested
+     `{q: {a: integer, b > c, m: integer}, z: string}` and the brace-arm union
+     `{a: integer, b > c} | {m: integer}`. All are pinned, carriers and retired
+     rows alike, in `tests/binder-param-type-projection.test.ts`. The bug was
+     therefore NOT mooted by the ordering dependency §Fix flagged.
+  2. **Generic arguments are deliberately not projected.** Measured:
+     `array<{a: integer, b > c, m: integer}>` lowers to the permissive `{}` —
+     `lowerTypeExpr`'s generic arm never hoists its argument, so NO interior
+     segment is encoded. Projecting the interior would render a property set
+     the schema never asked for, diverging in the opposite direction. Route 4
+     of the projection leaves such a type verbatim; two cells pin it. A group
+     whose every entry is junk (`{b > c, d > e}`, and `q` in
+     `{q: {b > c}, z: string}`) lowers permissively for the same reason and is
+     likewise left verbatim.
+  3. **The spec sentence's word "segment".** Read with this page's vocabulary
+     (a hoist-processed top-level inline-object segment) the sentence is exact;
+     a reader without that vocabulary could misread it as demanding
+     generic-interior projection. §Fix pinned exactly ONE sentence, so a
+     qualifying clause was deferred rather than taken — it needs the owning
+     doc's authority.
+  4. **Citation drift in this document, measured at the rebased HEAD.**
+     `production-theta-producer.ts:868–871` → `862–865`;
+     `:896–905` / `:900` → the `binderPromptParamField` map call at `:894`
+     (pre-fix numbering; `:898` after this fix's import and doc-comment lines);
+     `type-grammar.ts:938` → `skipMalformedEntry` declared at `:1009`;
+     `production-composition.ts:1510–1521` → `:1523`. The corpus is 34
+     committed `.theta`/`.thetalib` files, not 35. Every other cited line
+     verified accurate.
+  5. **Corpus renderings that changed: NONE.** All 34 committed
+     `.theta`/`.thetalib` files declare only `string`, `number` or `Author` in
+     `params:`; zero declare an inline object type, so zero carry tolerated
+     junk and zero renderings move. Discharged by a sweep cell that walks
+     `git ls-files -- *.theta *.thetalib` and fails loudly on a zero-file or
+     zero-field sweep, not by a scratch probe.
+- **Discharge notes appended:** none. One sibling doc-comment was corrected
+  rather than a doc appended: `tests/binder-param-line-newline-normalisation.test.ts`
+  documented its local mirror as reproducing production's "surface type
+  verbatim" mapping and cited a stale `:603–612`. That claim became false with
+  this fix, so the doc-comment was corrected to state that production now
+  projects while the mirror deliberately does not (every fixture there declares
+  a well-formed type, on which the projection is identity, so the file's
+  newline-normalisation assertions are unaffected) and the range was re-derived
+  to `:679–688` (doc block `:669–678`). Comment-only: zero assertions, zero
+  expected strings, zero fixture bytes, zero test names; file still 44/44 green.
+  This was a self-authorized bounded edit to a locked file — recorded here
+  because an invisible self-authorization would itself be a violation.
+- **Pinned dispositions / non-goals:** the tolerance itself is bug 0238's
+  landed behaviour and is not touched; refusing the segment stays bug 0244's
+  parse-layer subject; the lowering's emitted bytes are unchanged
+  (`hoistInlineObjectType`'s refactor is pure factoring, proven by the full
+  suite and the committed-fixture parse gate); the `default=<literal>` half of
+  the same line stays out of scope for want of a measured carrier;
+  `tests/live/acceptance/inline-object-stray-close-token-load.test.ts` keeps its
+  signature-absence assertion — re-taking its content oracle was left to a
+  separate decision rather than folded in here.

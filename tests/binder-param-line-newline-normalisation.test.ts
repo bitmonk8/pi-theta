@@ -417,13 +417,21 @@ function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
 // ===========================================================================
 
 /**
- * Map parsed fields to the system-prompt descriptors exactly as the producer's
- * `binderPromptParamField` (src/extension/production-theta-producer.ts:603–612)
- * does: the surface type verbatim, the requirement token from the retained
- * default RHS, and no `description` (the `params:` syntax carries none, so
- * item 4's ` — <description>` slot is unreachable from a `params:` block).
- * That mapper is module-private, so the mapping is mirrored here; it adds
- * nothing to `type` or to the default literal, which are the bytes under test.
+ * Map parsed fields to the system-prompt descriptors as the producer's
+ * `binderPromptParamField` (src/extension/production-theta-producer.ts:679–688,
+ * doc block :669–678) does: the requirement token from the retained default
+ * RHS, and no `description` (the `params:` syntax carries none, so item 4's
+ * ` — <description>` slot is unreachable from a `params:` block). That mapper
+ * is module-private, so the mapping is mirrored here.
+ *
+ * ONE DELIBERATE DIVERGENCE: production PROJECTS the declared type through
+ * `projectRenderedParamType` (src/parser/params.ts; bug 0251 §Fix) so the
+ * rendered `Parameters:` line describes what the field's lowering encoded,
+ * while this mirror passes `type` verbatim. Every fixture in this file
+ * declares a well-formed type, on which that projection is identity, so the
+ * newline-normalisation bytes under test are the same either way — and the
+ * mirror keeps this file's subject the RENDERER's treatment of line breaks
+ * rather than the projection's.
  */
 function binderParams(fields: readonly BypassParamsField[]): SystemPromptParamField[] {
   return fields.map((f) => ({

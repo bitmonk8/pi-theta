@@ -159,7 +159,14 @@ export interface SystemPromptParamField {
   /**
    * The field's declared Theta type in the *surface syntax* of Type System
    * (e.g. `string`, `array<integer>`, `string | null`, `Author`) — never the
-   * JSON-Schema lowering. Emitted verbatim inside the `(<type>)` parentheses.
+   * JSON-Schema lowering, and PROJECTED to what that lowering kept
+   * (`projectRenderedParamType`, src/parser/params.ts; bug 0251 §Fix): a
+   * top-level inline-object segment the lowering discarded is not carried
+   * here, so this field and the forced-tool envelope's `args` fragment
+   * describe the same set of properties. A well-formed declared type
+   * projects to itself and is emitted verbatim inside the `(<type>)`
+   * parentheses; the caller (`binderPromptParamField`,
+   * production-theta-producer.ts) is the one projection call site.
    */
   readonly type: string;
   /** The requirement token — `required` or `default=<literal>`. */

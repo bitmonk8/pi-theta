@@ -1288,6 +1288,36 @@ function pushCutBracketGroupAsLastResort(
   }
 }
 
+/** One accepted `field: Type` entry of an inline object's interior. */
+interface InlineObjectEntry {
+  readonly fieldName: string;
+  readonly fieldType: string;
+}
+
+/**
+ * Classify one already-top-level-split inline-object entry as its
+ * `{fieldName, fieldType}` pair, or `undefined` for exactly the shapes
+ * `hoistInlineObjectType` (below) has always `continue`d over: no top-level
+ * `:` (bug 0238's tolerated junk segment, `topLevelColon` returning `-1`), or
+ * a colon whose name or type half trims empty. `hoistInlineObjectType` and
+ * `projectRenderedParamType` (bug 0251 §Fix, below `lowerParamsFieldType`)
+ * both call this rather than each keeping its own copy of the accept/reject
+ * decision, so the rendered `Parameters:` line can never drop a different
+ * entry set than the schema the same group lowers to.
+ */
+function classifyInlineObjectEntry(entry: string): InlineObjectEntry | undefined {
+  const colon = topLevelColon(entry);
+  if (colon < 0) {
+    return undefined;
+  }
+  const fieldName = entry.slice(0, colon).trim();
+  const fieldType = entry.slice(colon + 1).trim();
+  if (fieldName.length === 0 || fieldType.length === 0) {
+    return undefined;
+  }
+  return { fieldName, fieldType };
+}
+
 /**
  * Hoist a brace-rooted type source (`{a: Triage, b: integer}`) into a `$ref`
  * against a freshly-minted `__inline_<slug>` entry in `lowerCtx.defs` — the
@@ -1340,15 +1370,11 @@ export function hoistInlineObjectType(
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const entry of splitTopLevel(source.slice(1, -1), ",", "angle-and-brace")) {
-    const colon = topLevelColon(entry);
-    if (colon < 0) {
+    const classified = classifyInlineObjectEntry(entry);
+    if (classified === undefined) {
       continue;
     }
-    const fieldName = entry.slice(0, colon).trim();
-    const fieldType = entry.slice(colon + 1).trim();
-    if (fieldName.length === 0 || fieldType.length === 0) {
-      continue;
-    }
+    const { fieldName, fieldType } = classified;
     // An inline object field name is author-controlled; see
     // `defineRecordField`'s doc-comment for why this must define, not assign.
     defineRecordField(properties, fieldName, lowerFieldType(fieldType, lowerCtx));
@@ -1893,6 +1919,124 @@ export function lowerParamsFieldType(
     return armUnion;
   }
   return lowerTypeExpr(s, lowerCtx);
+}
+
+/**
+ * Project one brace group's rendered text to what `hoistInlineObjectType`
+ * kept: reuse `classifyInlineObjectEntry`'s accept/reject decision entry by
+ * entry, drop a rejected entry, and recurse the projection into an accepted
+ * entry's own field type (a nested inline object can carry the same tolerated
+ * junk one level down). Returns the `group` argument itself — the author's own
+ * bytes, never a reconstruction — whenever no entry was dropped and no nested
+ * field type projected differently.
+ *
+ * ZERO ACCEPTED ENTRIES returns the group VERBATIM rather than the permissive
+ * `{}` `hoistInlineObjectType` itself would emit for it: an empty schema
+ * encodes nothing and forbids nothing (`additionalProperties` is never set),
+ * so there is no lowered contract for the rendered text to contradict, and
+ * bug 0251 §Fix only reconciles a rendering against a contract that exists.
+ *
+ * REBUILDING WITH `", "` IS ONLY EVER REACHED ON A GROUP THAT ACTUALLY LOST A
+ * SEGMENT (`changed`), which is why the reconstruction can never perturb a
+ * well-formed declaration's bytes: a group whose every entry survives
+ * classification and whose every field type projects unchanged returns
+ * `group` itself, untouched.
+ */
+function projectBraceGroup(group: string): string {
+  const interior = group.slice(1, -1);
+  const entries = splitTopLevel(interior, ",", "angle-and-brace");
+  const kept: string[] = [];
+  let changed = false;
+  for (const entry of entries) {
+    const classified = classifyInlineObjectEntry(entry);
+    if (classified === undefined) {
+      changed = true;
+      continue;
+    }
+    const { fieldName, fieldType } = classified;
+    const projectedFieldType = projectRenderedParamType(fieldType);
+    if (projectedFieldType !== fieldType) {
+      kept.push(`${fieldName}: ${projectedFieldType}`);
+      changed = true;
+    } else {
+      // `entry` is already `splitTopLevel`'s trimmed segment text — identical
+      // to re-emitting `${fieldName}: ${fieldType}` byte for byte, kept as the
+      // ORIGINAL text rather than reassembled so an entry this loop never had
+      // to touch never risks a whitespace or quoting difference from the
+      // author's own bytes.
+      kept.push(entry);
+    }
+  }
+  if (kept.length === 0 || !changed) {
+    return group;
+  }
+  return `{${kept.join(", ")}}`;
+}
+
+/**
+ * Project a `params:` field's declared surface type to what the field's
+ * lowering (`lowerParamsFieldType`, above) actually encoded, for the binder
+ * system prompt's `Parameters:` line (bug 0251 §Fix). Byte-identical to
+ * `source` unless the lowering discarded a top-level inline-object segment
+ * somewhere inside it — a well-formed declared type is therefore unaffected,
+ * matching §Fix's identity-on-well-formed-input constraint.
+ *
+ * MIRRORS `lowerParamsFieldType`'s OWN DISPATCH ORDER, because a rendering
+ * that asked a different question of the same source could accept an entry
+ * the lowering rejected (or the reverse), which is the exact divergence this
+ * fix closes:
+ *
+ *   1. the literal sublanguage (`lowerLiteralSublanguage`) on the trimmed
+ *      source — a literal type hoists nothing, so it renders verbatim;
+ *   2. a single enclosing brace group — project it (`projectBraceGroup`);
+ *   3. `lowerBraceGroupUnionArms`'s own guard, reproduced exactly (`arms =
+ *      splitTopLevel(s, "|")`, `arms.length > 1 && arms.every(isBraceBalanced)
+ *      && arms.some(isSingleEnclosingBraceGroup)`) — project only the arms
+ *      that are themselves a single enclosing brace group; every other arm
+ *      lowers through `lowerTypeExpr`, which hoists nothing, so it is left
+ *      untouched here too;
+ *   4. otherwise verbatim.
+ *
+ * ROUTE 4 DOES NOT DESCEND INTO A GENERIC ARGUMENT ON PURPOSE.
+ * `array<{a: integer, b > c, m: integer}>` lowers through `lowerTypeExpr`'s
+ * generic-application arm, which never calls `hoistInlineObjectType` on its
+ * argument and lowers the whole application permissively (`{}`) instead — the
+ * interior is not hoisted AT ALL, tolerated segment and declared fields both.
+ * Projecting the interior here would drop `b > c` from a rendering whose
+ * matching schema is `{}`, encoding a property set the schema never asked
+ * for and making the two diverge in the OTHER direction from the one this
+ * fix closes. `array<...>` is therefore route 4's fallback, identical to
+ * every other shape this dispatch does not recognise.
+ */
+export function projectRenderedParamType(source: string): string {
+  const s = source.trim();
+  if (lowerLiteralSublanguage(s) !== undefined) {
+    return source;
+  }
+  if (isSingleEnclosingBraceGroup(s)) {
+    const projected = projectBraceGroup(s);
+    return projected === s ? source : projected;
+  }
+  const arms = splitTopLevel(s, "|");
+  if (
+    arms.length > 1 &&
+    arms.every((arm) => isBraceBalanced(arm)) &&
+    arms.some((arm) => isSingleEnclosingBraceGroup(arm))
+  ) {
+    let changed = false;
+    const projectedArms = arms.map((arm) => {
+      if (!isSingleEnclosingBraceGroup(arm)) {
+        return arm;
+      }
+      const projected = projectBraceGroup(arm);
+      if (projected !== arm) {
+        changed = true;
+      }
+      return projected;
+    });
+    return changed ? projectedArms.join(" | ") : source;
+  }
+  return source;
 }
 
 /**
