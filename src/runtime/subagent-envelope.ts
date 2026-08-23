@@ -386,11 +386,11 @@ export interface EnvelopeFailureMapping {
 /**
  * Map a reserved-key envelope line that failed the pinned schema to
  * `Err(InvokeInfraError { cause: "internal_error" })` + the
- * `theta/runtime/subagent-envelope-parse-failed` diagnostic (fail-closed;
- * never a fabricated value).
+ * `theta/runtime/subagent-envelope-parse-failed` diagnostic (fail-closed; the
+ * `<line summary>` tail is category-8 host-derived, per the sibling below).
  */
 export function mapEnvelopeParseFailure(line: string, calleePath: string): EnvelopeFailureMapping {
-  const summary = summarizeLine(line);
+  const summary = summarizeLine(renderHostDerivedTail(line));
   const message = `subagent return envelope failed the pinned schema: ${summary}`;
   return {
     error: {

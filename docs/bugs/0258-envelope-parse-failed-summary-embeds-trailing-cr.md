@@ -1,6 +1,6 @@
 # Bug 0258 — `theta/runtime/subagent-envelope-parse-failed` renders its `<line summary>` through `summarizeLine` alone, so a reserved-key child stdout line written `\r\n` reaches the operator with the pump's trailing U+000D still inside the message: the category-8 first-line truncation `placeholder-rendering-b.md:91` pins for the placeholder is applied by the sibling row `theta/runtime/subagent-wire-parse-failed` (`mapWireParseFailure`, wired by bug 0086 at 0.230.0) and by nothing here, and the same CR-bearing string is also the `InvokeInfraError.message` the parent hands an `invoke` caller
 
-- **Status:** open.
+- **Status:** fixed (0.242.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because a registered diagnostic renders a
   cooked control character where `diagnostic-shape.md:34` says single-line
   summary and `placeholder-rendering-b.md:91` states the exact transform that
@@ -478,6 +478,86 @@ Constraints:
    Run the H8a subagent-mode drive and the H9a subagent-mode acceptance cell to
    show the ordinary path is unflipped; a live witness of this emission would
    need a planted child writing a malformed reserved-key line, and none exists.
+
+## Fix (0.242.0)
+
+- What shipped: `src/runtime/subagent-envelope.ts:393` —
+  `const summary = summarizeLine(renderHostDerivedTail(line));`, §Fix
+  constraint 1's first spelling (the call at the interpolation), the same
+  composition and order as the sibling `mapWireParseFailure` at `:434`, which
+  is byte-untouched; `summarizeLine`'s body (`:374–378`) is byte-untouched;
+  the `mapEnvelopeParseFailure` doc comment (`:389–390`) reworded in place to
+  state the tail's category-8 class. `renderHostDerivedTail` was already
+  imported at `:53`, so no import edit. No spec edit, no fixture edit.
+- Gates: witness `npx vitest run
+  tests/b0258-envelope-parse-failed-line-summary-cr.test.ts` — pre-fix
+  `Tests 4 failed | 3 passed (7)`, every red on `expected '…' not to contain
+  '\r'`; post-fix `Tests 7 passed (7)`. Full suite `npm test` —
+  `Test Files 423 passed (423)` / `Tests 8895 passed (8895)`, zero skipped.
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) and `npm run lint`
+  (`eslint … "src/**/*.ts"`) both clean. Live, under the shared live-lock:
+  H8a `tests/live/live-production-acceptance.test.ts -t "subagent-mode"` →
+  `2 passed | 87 skipped`, RC=0; H9a
+  `tests/live/acceptance/noninteractive-acceptance.test.ts -t "subagent-mode"`
+  → `1 passed | 9 skipped`, RC=0.
+- Review: 1 round — `bug-fix-reviewer`, verdict CLEAN, zero findings; it
+  re-derived constraints 1–7, re-ran the pre-fix red path against restored
+  HEAD bytes, and confirmed the registry-gate carve-out arm stays open.
+- Verification: SOLID. (1) Witness reds pre-fix for the CR reason and only for
+  it — the 4 CR cells red, the identity, over-cap and class-separation cells
+  stay green; restore byte-exact (`3 insertions(+), 3 deletions(-)`, 852
+  lines). (2) Default suite green, zero skipped. (3) Live discharged as above;
+  §Fix constraint 8 owes no further live witness — the row is
+  fault-injection-only from ordinary `pi -p` traffic. (4) Lint and typecheck
+  clean. (5) Locks unflipped: `tests/fixtures/h7a/permitted-codes.json`
+  byte-unchanged after a real H9a run (11 codes, this one still absent),
+  bug 0086's `tests/subagent-wire-parse-failed-emitter.test.ts` (10 cells),
+  `tests/subagent-envelope.test.ts` (32) and `tests/subagent-json-wire.test.ts`
+  (7) byte-unchanged and green.
+- Constraint 2 (zero line shift) discharged by measurement:
+  `src/runtime/subagent-envelope.ts` is 852 lines before and after; `:404` is
+  still `code: SUBAGENT_ENVELOPE_PARSE_FAILED_CODE,`, the exact line
+  `tests/registry-closed-set-corpus-gate.test.ts:139` cites, and `:434` is
+  still the sibling's rendering. `tests/registry-closed-set-corpus-gate.test.ts`
+  green, unmodified.
+- Constraint 3 re-confirmed at the fix baseline:
+  `docs/spec_topics/diagnostics/placeholder-rendering-b.md:89` still lists
+  `<line summary>`, `:91` still states the rule, and `:93` still names both
+  carrier rows, so DIAG-2 has no subject and no closed table moves.
+- What locks it: `tests/b0258-envelope-parse-failed-line-summary-cr.test.ts`,
+  7 cells — rows A/C/D asserting no U+000D on both `diagnostic.message` and
+  `error.message` while still naming the offending line, row E's byte-identity
+  control, row F's over-cap rendering held still, row B's interior-bare-CR
+  class separation to `theta/runtime/subagent-wire-parse-failed`, and one
+  `driveSubagentChild` seam cell over a fake child emitting a `\r`-terminated
+  reserved-key line asserting the code, the CR absence and the fail-closed
+  `Err(invoke_infra/internal_error)`. Per §Fix constraint 4 the CR cells use no
+  registry-derived prefix oracle and no whole-message equality, so bug 0261's
+  *Message*-template divergence does not couple to them.
+- Residuals:
+  1. The *Message* template divergence (`subagent return envelope failed the
+     pinned schema: ` shipped versus the registry's `subagent return envelope
+     parse failed: <line summary>`,
+     `docs/spec_topics/diagnostics/code-registry-runtime.md:28`) is untouched
+     and remains bug 0261's subject. Neither side was reworded here.
+  2. The witness file must not spell either registry code with its `theta/`
+     namespace prefix: `tests/registry-closed-set-corpus-gate.test.ts`'s
+     extractor counts any full code-shaped literal under `tests/**` as an
+     asserting witness, which would close the carve-out arm both rows are
+     pinned under and red the gate. The file asserts through the exported
+     constants and carries a header paragraph saying so.
+  3. The other four §8 rows named at `placeholder-rendering-b.md:93`
+     (`<exit detail>`, `<detail>`) were not swept; §Non-goals keeps that a
+     separate subject.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Fix spelling 1 was taken over folding the
+  normalisation into `summarizeLine`, on the operator's "your call on the
+  record" — it keeps `summarizeLine` a pure length cap and leaves `:434`
+  byte-untouched, which is what makes the zero-line-shift and
+  existing-cells-untouched constraints trivially checkable.
+  `normaliseLiteralValueLineBreaks` stays ruled out on the measured
+  trailing-whitespace divergence. The driver's `unparseable`/`envelope` routing
+  and the 120-character cap are untouched.
 
 ## Provenance
 

@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.242.0]
+
+### Fixed
+
+- Bug 0258: `theta/runtime/subagent-envelope-parse-failed` renders its
+  `<line summary>` through `renderHostDerivedTail` before `summarizeLine`
+  (`mapEnvelopeParseFailure`), so a CR-terminated reserved-key child line no
+  longer carries the pump's trailing U+000D into `diagnostic.message` or
+  `InvokeInfraError.message` (category-8 conformance; the sibling wire row's
+  treatment). Message prefix unreworded (bug 0261's subject). New witness
+  `tests/b0258-envelope-parse-failed-line-summary-cr.test.ts` (7 cells, 4
+  red-proven pre-fix). `subagent-envelope.ts` line count preserved (852); the
+  corpus gate's `:404` cite exact.
 ## [0.241.0]
 
 ### Fixed
