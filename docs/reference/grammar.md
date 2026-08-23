@@ -250,7 +250,7 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   failure, exactly as it already does at a colon-gate failure) and is refused when it
   is keyless; the stranding entry itself keeps the colon-present disposition stated
   above and draws no line of its own (bug 0256 §Fix, the operator ruling's OPTION 1 —
-  resync-and-tolerate). Field names are
+  resync-and-tolerate). A leading, doubled or post-trailing comma opens an entry SLOT spelling no token at all (never the one grammar-legal trailing comma, which the loop's own separator read consumes before it exits on `}`): `malformed-schema-field` when a field already derived earlier in the interior (one line per slot), else `empty-schema-body` (at most once per interior); an entry immediately behind the slot that itself qualifies for the keyless refusal above draws that refusal alone, replacing the slot's line (bug 0257 §Fix). Field names are
   identifiers; four rules judge each top-level comma entry's text up to its own top-level
   colon, as written, in precedence order: a repeat is
   `theta/parse/duplicate-inline-field-name`, once per repeat; a quote-led key is

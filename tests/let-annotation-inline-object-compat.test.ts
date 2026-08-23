@@ -181,10 +181,10 @@ const DUP_FIELD = "theta/parse/duplicate-inline-field-name";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const REASSIGN_RHS = "theta/parse/reassign-rhs-type-mismatch";
 const GENERIC_ARITY = "theta/parse/generic-arity-mismatch";
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 const ARRAY_NO_COMMON = "theta/parse/array-no-common-type";
 const ARRAY_ELEMENT = "theta/parse/array-element-type-mismatch";
-const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /** The row this report owns: `let binding '<name>' … expected <expected>, got <actual>`. */
 function mismatch(name: string, expected: string, actual: string): string {
@@ -737,8 +737,12 @@ describe("bug 0130 (e) — R2: `{}` and malformed interiors do not convert", () 
     expect(
       stmtDiags("let x: {a: integer,,} = 1"),
       "e7.6 — a SECOND trailing comma is not grammar-admitted (grammar.md:101 admits one), " +
-        "so the empty part it leaves still declines — the boundary a10 is measured against",
-    ).toEqual([]);
+        "so the empty part it leaves still declines — the boundary a10 is measured against. " +
+        "The CONVERSION still declines (no TYPE-8 line renders here); the one line is the " +
+        "PARSER's own refusal of the empty entry slot the second comma opens, which bug 0257 " +
+        "added at `TypeParser.parseObject`'s field loop — a `Field` derived before the slot, " +
+        "so the slot draws `theta/parse/malformed-schema-field` and not the neighbour row",
+    ).toEqual([line("error", MALFORMED_FIELD, [])]);
   });
 
   it("e6: the `{}` spellings mint no field set (R2 restated at the seam)", () => {

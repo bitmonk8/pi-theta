@@ -322,6 +322,16 @@ function bcm(line: number, endColumn: number, startColumn = 1): string {
   return diag("error", BINDING_CASE, msg(BINDING_CASE, []), line, startColumn, endColumn);
 }
 
+// The two rows an empty entry slot draws beside this file's own (bug 0257's
+// partition, `docs/spec_topics/diagnostics/code-registry-parse.md:98` and
+// `:99`): a slot with no `Field` derived before it takes the empty-body row,
+// one behind a derived `Field` takes the malformed-field row. Sourced from the
+// registry the same way every other message in this file is.
+const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
+const EMPTY_SCHEMA_BODY_MESSAGE = msg(EMPTY_SCHEMA_BODY, [["<X>", "{}"]]);
+const MALFORMED_FIELD_MESSAGE = msg(MALFORMED_FIELD, []);
+
 /**
  * `hasLoadParseError`'s predicate (src/extension/production-composition.ts),
  * restated over a parsed document: a theta registers unless some diagnostic is
@@ -1083,11 +1093,22 @@ describe("0227 (H) — no diagnostic's subject is the ASCII residue of a field n
     // the author's own and this file's own code owns it. A per-entry exclusion
     // that treated any non-`ident` token alike would suppress `Bad` here.
     const cells: ReadonlyArray<readonly [string, string[]]> = [
-      // A leading separator: the interior's first entry is empty.
-      ["schema S { a: { , Bad: string } }", [bcm(4, 34)]],
+      // A leading separator: the interior's first entry is empty. The empty
+      // slot itself draws the parser's own refusal (bug 0257) ahead of this
+      // file's line — no `Field` derived before it, so the neighbour row
+      // fires — and `Bad` still reaches the case rule behind it, which is what
+      // this cell measures.
+      [
+        "schema S { a: { , Bad: string } }",
+        [diag("error", EMPTY_SCHEMA_BODY, EMPTY_SCHEMA_BODY_MESSAGE, 4, 1, 34), bcm(4, 34)],
+      ],
       // A doubled separator behind a conformant entry: the empty entry sits
-      // between two spelled ones.
-      ["schema S { a: { b: string,, Bad: string } }", [bcm(4, 44)]],
+      // between two spelled ones, so a `Field` derived before the slot and the
+      // slot draws the malformed-field row instead.
+      [
+        "schema S { a: { b: string,, Bad: string } }",
+        [diag("error", MALFORMED_FIELD, MALFORMED_FIELD_MESSAGE, 4, 1, 44), bcm(4, 44)],
+      ],
     ];
     const actual: Record<string, string[]> = {};
     const expected: Record<string, string[]> = {};

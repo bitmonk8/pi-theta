@@ -137,7 +137,10 @@ const SPEC_TOPIC_SEGMENTS = 119;
 // Re-pinned 293→299 at 0.253.0 merge: bug 0046 (0.253.0) landed +6 lines in
 // docs/reference/schema-subset.md (its DIAG-2 mirror of the new
 // absent-discriminator-field row); the no-growth invariant holds from 299.
-const REFERENCE_SEGMENTS = 299;
+// Re-pinned 299→307 at 0.258.0 merge: bug 0257 (0.258.0) landed +8 lines in
+// docs/reference/schema-subset.md (its DIAG-2 empty-slot Trigger mirrors);
+// the no-growth invariant holds from 307.
+const REFERENCE_SEGMENTS = 307;
 
 /** The step-3 bullet SUBS-3 is appended into, identified by text, not position. */
 const ENUM_BULLET_TOKEN = "Enum (or string-literal union)";

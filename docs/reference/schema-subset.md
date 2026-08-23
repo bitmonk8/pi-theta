@@ -60,6 +60,14 @@ failure — and is refused when it is keyless, including at a generic argument's
 interior, where the document now refuses instead of registering; the stranding
 entry itself keeps the colon-present disposition stated above and draws no line
 of its own (bug 0256 §Fix, the operator ruling's OPTION 1 — resync-and-tolerate).
+A leading, doubled or post-trailing top-level comma opens an entry SLOT spelling
+no token at all — never the one grammar-legal trailing comma, which the field
+loop's own separator read consumes before the loop exits on `}` — and draws
+`malformed-schema-field` when a field already derived earlier in the interior
+(one line per slot), or `empty-schema-body` when none did, at most once per
+interior; an entry immediately behind the slot that itself qualifies for the
+keyless-entry refusal above draws that refusal alone, replacing the slot's line
+(bug 0257 §Fix).
 A body that captures at least one field and then
 reaches end of input with no closing `}` is `theta/parse/schema-body-unclosed`,
 anchored at the body's opening `{`; the fields already captured are retained

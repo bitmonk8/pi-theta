@@ -1,6 +1,6 @@
 # Bug 0257 — an inline object entry slot spelling NO token — the segment a doubled, leading or lone top-level comma opens (`{a: integer,,b: string}`, `{,a: integer}`, `{,}`) — derives from no `Field` and draws nothing at all twelve `Type` positions, because `TypeParser.parseObject` reads a `,` at a field-name position as a closed empty slot and returns before bug 0244's keyless-entry emission: the theta registers, `let x: {a: integer,,b: string} = 1` withholds the `let-rhs-type-mismatch` its byte-neighbour draws, and `{,}` lowers the byte-identical fragment `{}` is refused for producing
 
-- **Status:** open.
+- **Status:** fixed (0.258.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because the theta LOADS AND REGISTERS with
   zero diagnostics on any channel over source no production derives, and two
   further rows are withheld with it (TYPE-8's `let-rhs-type-mismatch` /
@@ -609,3 +609,191 @@ is unfenced at HEAD.
 
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+## Fix (0.258.0)
+
+- **Re-measurement at HEAD `206e0da9` (0.251.0, bug 0256 landed in the SAME
+  field loop).** Every cell of §Reproduction (a)–(f) was re-derived before any
+  edit. NO cell moved: bug 0256's resync-and-tolerate ruling changed the
+  entry-SEPARATOR read, and every interior this report measures spells a
+  separator between every pair of entries, so 0256's resync is never reached
+  from them (§Non-goals already states this). All twelve §(b) positions still
+  report `[]` for the three subject columns; §(c) c1–c8, §(d) d1–d7, §(e)
+  e1–e9 and §(f) f1–f13 reproduce byte-identically. ONE filed cell was
+  corrected, and by the fixture rather than by 0256: §(e) e8/e9 draw ONE
+  `theta/parse/import-malformed-specifier-list` line, not two — the second line
+  in the filing was that fixture's own trailing `.thetalib` statement. The
+  attribution for every cell is therefore "unmoved by 0256"; no cell is
+  discharged to it.
+- **A stale quotation in the report, corrected.** §(f)'s rationale cites
+  `docs/spec_topics/schemas.md:19` as calling the empty-object fragment a shape
+  that "would silently accept every object". Bug
+  [0094](./0094-schemas-md-closed-fragment-rationale-inverted.md) (0.248.0)
+  rewrote exactly that clause: line 19 of `docs/spec_topics/schemas.md` still
+  resolves to the same `theta/parse/empty-schema-body` rule, but now states
+  that the lowered fragment "accepts only the empty object `{}` and rejects
+  every non-empty object". The RULE the report leans on is unchanged and the
+  §(f) f12 harm stands on its own measurement (a `params:` field lowering to a
+  bare `{}` fragment IS unconstrained), so nothing shipped here repeats the
+  retired wording.
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — `TypeParser.parseObject`'s
+    `if (fieldName?.text === ",")` branch now buffers ONE error-severity
+    diagnostic for the slot the comma opens, through bug 0244's existing
+    `pending` buffer and closing-brace flush gate, before resetting the entry
+    cursor and the refusal latch. Five clauses, all local to that call's own
+    state (no new module state, no second buffer):
+    - **SL1** one buffered line per slot, flushed only under the existing
+      `closingBraceToken !== undefined` gate, so an interior that never closes
+      still emits nothing (bug 0232's class unflipped).
+    - **SL1a** a comma OPENS a slot only when no token has yet been consumed
+      for the current entry (`this.pos === entryStart`) — the report's own
+      definition, an entry "spelling NO token". A comma reached after tokens
+      were consumed is the ordinary separator ending an entry this arm was
+      already discarding one token at a time, and draws nothing: that keeps
+      bug 0238's stray-close class (`{b >, m: integer}`) and bug 0252's
+      colon-present class exactly where they were.
+    - **SL2** the partition `code-registry-parse.md:99` already states and the
+      declaration position already implements (§(e) e1–e4): a `Field` derived
+      earlier in this interior ⇒ `theta/parse/malformed-schema-field` (0244's
+      `discardedEntryRefusal`); none ⇒ `theta/parse/empty-schema-body`
+      rendered with the anonymous `{}` subject
+      (`docs/spec_topics/diagnostics/placeholder-rendering-b.md:55`). No mint.
+    - **SL3** `empty-schema-body` is a per-INTERIOR verdict — "'`<X>`' has no
+      fields" cannot be true twice of one interior — so it is buffered at most
+      once per interior. `{,,}` draws ONE line (the count §Fix asked to be
+      pinned rather than discovered).
+    - **SL4** `malformed-schema-field` is a per-FIELD row: one line per
+      offending slot. `{a: integer,,,b: string}` draws TWO.
+    - **SL5** adjacency collapse (bug 0129's count law,
+      `code-registry-parse.md:104`): an entry standing IMMEDIATELY behind a
+      slot that itself qualifies for 0244's keyless refusal draws that refusal
+      ALONE — its line REPLACES the slot's rather than joining it — so §(c)
+      c1–c3 stay at ONE line and keep their filed code.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — row 98's Trigger
+    covers the inline no-`Field`-derived-yet slot beside `{}` (with SL3's cap
+    and its `{,,}` example); row 99's inline clause names the slot as a third
+    shape inside its stated reach (with SL4's `{a: integer,,,b: string}`
+    example and SL5's replace-not-join rule). Both rows' Messages are
+    unchanged.
+  - `docs/spec_topics/grammar.md` §"Inline object types",
+    `docs/reference/grammar.md`'s `ObjectType` bullet and
+    `docs/reference/schema-subset.md` — the same rule, mirrored where bug 0256
+    mirrored its own.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — the `<X>`
+    anonymous-inline carve-out widened by one clause to cover the slot that
+    renders the same literal `{}`.
+  - `docs/reference/diagnostics.md` and `tests/fixtures/h7a/permitted-codes.json`
+    — untouched, as §Fix requires (no mint, no Message change; verified
+    byte-unchanged).
+- **The reachability bound, re-derived and pinned.** No grammar-legal spelling
+  reaches the branch: a well-formed entry's trailing comma is consumed by the
+  loop's own `eatPunct(",")` and the loop then exits on `}`. §(a) a11–a12,
+  §(e) e5, §(d) d3 and §(f) f5 are unmoved, each fenced as its own group in the
+  witness.
+- **The `let`-annotation layer: divergence KEPT, explicitly.**
+  `inlineObjectAnnotationToCompatType` is untouched and keeps declining the
+  interior as malformation; the parse refusal stands alone, so §(d) d1/d4/d5
+  each carry exactly ONE line and TYPE-8's own row does not additionally fire.
+  That is §Fix's stated honest floor — one line for one written mistake, bug
+  0129's law — and the two layers' verdicts on one interior now AGREE in
+  direction (both refuse) while the conversion's own deferral is unchanged.
+- **Gates** (all re-run by the orchestrator after the last edit):
+  - Witness RED before / GREEN after, proven by neutralisation: with
+    `src/parser/type-grammar.ts` reverted to its HEAD blob `55204fc7`,
+    `npx vitest run tests/inline-object-empty-entry-slot-refusal.test.ts`
+    → `Tests 7 failed | 5 passed (12)`, every red the refusal MISSING; restored
+    by writing the saved bytes back (`git hash-object` `5061496c` before and
+    after the neutralisation — byte-exact), re-run → `12 passed (12)`.
+  - `npm test` → `Test Files 430 passed (430)`, `Tests 9072 passed (9072)`.
+  - `npm run typecheck` → clean, exit 0. `npm run lint` → clean, exit 0.
+  - Live, run by the orchestrator under the exclusive lock, RC=0 each:
+    `tests/live/b0257live-empty-slot-params-refusal-live-cell.test.ts`
+    → `1 passed`; and the enumerated blast-radius surfaces in one run —
+    `b0256live`, `b0244live`, `b0252live`,
+    `inline-object-stray-close-token-live-cell` (0238) and
+    `inline-object-malformed-entry-resync-live-cell` (0231) → `5 passed`.
+- **Review:** 1 round — `bug-fix-reviewer`, verdict CLEAN, zero findings; two
+  non-blocking residuals raised (both since pinned as cells, see Residuals).
+- **Verification:** verified. Witness reds without the fix and greens with it
+  (byte-exact restore proven by hash); default suite green; lint and typecheck
+  clean; the live cell audited as non-vacuous end-to-end coverage of the fixed
+  path (offender absent from the real registered set, byte-neighbour control
+  registers and drives a real turn, task-framed 263+514 oracle, fail-loud on a
+  missing provider); zero flips in all six witness locks; `permitted-codes.json`
+  byte-unchanged; `docs/reference/grammar.md` still 701 lines and
+  `docs/spec_topics/grammar.md` still 223, so no citation shifted.
+- **Tests that lock it:**
+  - `tests/inline-object-empty-entry-slot-refusal.test.ts` — the new witness,
+    twelve groups over `parseDoc`, `lowerQueryResponseSchema`,
+    `frontmatter.params.loweredSchema` and `splitTopLevelSegments` /
+    `topLevelColon`: 92 whole-list diagnostic cells, 14 lowering cells, 6 split
+    observables. Carries §(a)–(f) with every control column, the twelve
+    positions, the legal subset as its own fence group, the split fence, the
+    registry-REUSE fence and the slot-composition group.
+  - `tests/live/b0257live-empty-slot-params-refusal-live-cell.test.ts` — the
+    registration-outcome cell at the verbatim `params:` position, mirroring
+    `b0256live`'s shape.
+- **Residuals:**
+  1. **A slot following an SL5-collapsed run before any `Field` draws nothing.**
+     `{,void,,x: integer}` reports exactly ONE `malformed-schema-field`: slot 1
+     buffers `empty-schema-body`, `void` collapses it per SL5, and the second
+     slot buffers nothing because SL3's per-interior cap already fired. This is
+     inside the shipped rule's letter (buffered once, then replaced) and the
+     document is refused either way, so no silent registration survives. Pinned
+     as a cell in the witness's slot-composition group rather than left to be
+     discovered.
+  2. **`{a: ,,b: string}` and `{a: ,,}` route to `empty-schema-body`.** SL2's
+     test is a DERIVED `Field`, and bug 0237's empty TYPE position derives none
+     (`parseUnion` yields `undefined`), so a slot behind `a: ` is judged as
+     though no field preceded it. It is the same disposition the settled
+     partition already gives `{,a: integer}` (§(e) e3's declaration analogue),
+     the inputs flip from `[]`-and-registering to refused, and the empty TYPE
+     position itself stays bug 0237's §Fix residual 1. Pinned as cells, with the
+     non-slot control `{a: ,b: string}` fenced at its unchanged `[]`.
+  3. **Two cells in other files were re-derived, strictly additively** — see
+     "Adjudications on the record" below.
+  4. **§Non-goals unchased and unmeasured-by-this-fix:** `array<integer,,>`,
+     `S { a: 1,, b: "x" }`, `[1,,2]`, `enum["a",,"b"]`, `tools: "a,,b"`,
+     `g(1,,)` each still register silently. Each needs its own filing.
+- **Adjudications on the record** (the `question` tool is unavailable in this
+  lane; both are stated here rather than left invisible):
+  1. *Question that would have been asked:* "§Fix's §(c) note says c4–c7 are
+     'unchanged', but §Expected behaviour 1 and 5 require the class to be
+     refused at every position — does the slot's line ADD beside those cells'
+     existing sibling-rule line, or is it withheld?" *Decision:* it ADDS.
+     Evidence: (i) §Expected behaviour 1 and 5 demand an error-severity
+     diagnostic for the class at all twelve positions; (ii) the alternative
+     rule — withhold whenever any LATER pass fires on the interior — is not
+     computable at the parser arm §Fix names, since `binding-case-mismatch` and
+     the raw-key rows run over `interiorSource` after `parseObject` returns;
+     (iii) §Fix's own count law scopes the collapse to "an entry that already
+     draws its OWN refusal", which is 0244's keyless refusal (c1–c3), not a
+     different row's line. The cells' existing lines are retained in place and
+     order; nothing is displaced.
+  2. *Question that would have been asked:* "Two test files outside §Fix's named
+     surface pin the pre-fix silence for inputs INSIDE this report's class —
+     may their expectations be re-derived?" *Decision:* yes, bounded to exactly
+     two cells. Evidence: (i) §Fix "What must not move" binds the §Affected
+     witness locks as "re-derived, not weakened", and an ADDED error line is a
+     re-derivation, not a weakening; (ii) both inputs are this report's own
+     class — `let x: {a: integer,,} = 1` is §(a) a7 at §(b) b6, and
+     `schema S { a: { , Bad: string } }` / `{ b: string,, Bad: string }` are the
+     leading- and doubled-comma spellings at nested depth (§(b) b10); (iii) each
+     cell's stated intent survives intact — e7.6 measures that the CONVERSION
+     still declines (it does; no TYPE-8 line renders), and h10 measures that the
+     name behind an empty entry still reaches the case rule (it does; `bcm(...)`
+     is retained). *Bound:* `tests/let-annotation-inline-object-compat.test.ts`
+     cell e7.6 and `tests/inline-object-field-name-case.test.ts` cell h10, two
+     cells, both additive, no assertion removed and no code changed. *Stop
+     valve declared and not tripped:* had a third test file redded, or had any
+     flip dropped or re-coded a pre-existing line, the run would have stopped
+     and reported instead. The full suite is green with no other file touched.
+- **Discharge notes appended to sibling docs:** none. Bug 0256's landed cells
+  are unflipped (its witness and its live cell both green), so it needs no note.
+- **Pinned dispositions / non-goals:** the grammar-legal trailing comma stays
+  admitted (`grammar.md:101`'s `","?`); bug 0238's stray-close class and bug
+  0252's colon-present class keep their tolerant dispositions (SL1a is what
+  keeps them); bug 0237's empty TYPE position stays its own residual;
+  `inlineObjectAnnotationToCompatType`'s decline is KEPT, not closed; the
+  cross-position empty-slot tolerance in other list constructs is unclaimed.

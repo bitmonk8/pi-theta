@@ -852,6 +852,18 @@ class TypeParser {
     let entryStart = this.pos;
     let entryRefused = false;
     const pending: Diagnostic[] = [];
+    // Bug 0257 (operator adjudication) — SL2/SL3/SL4/SL5's own state, additive
+    // to bug 0244's above and cleared on the same events. `pendingSlotIndex` is
+    // the `pending` index of the most recently opened empty entry slot's own
+    // buffered line, valid only until the IMMEDIATELY following entry has been
+    // judged (cleared once a `Field` derives, once a genuine entry separator is
+    // crossed, or once that judgement has run) — the window SL5's adjacency
+    // collapse is scoped to. `emptySlotBodyPushed` guards SL3's per-interior
+    // cap: `theta/parse/empty-schema-body` reads "'{}' has no fields", which
+    // cannot be true twice of one interior, so a second comma-only slot before
+    // any `Field` derives buffers nothing further.
+    let pendingSlotIndex: number | undefined;
+    let emptySlotBodyPushed = false;
     // Open across the whole field loop, so `parsePrimary` declines exactly the
     // entry-separating `,` this loop is still going to read.
     this.openCommaReadingConstructs += 1;
@@ -871,14 +883,64 @@ class TypeParser {
           // entry with no stray close token (0238's tolerant class) and no
           // top-level `:` (0252's and the tolerant skip's business elsewhere).
           if (fieldName?.text === ",") {
-            // An EMPTY entry — a skipped separator closes it, not opens one —
-            // so the taint and the refusal latch both lift here: the entry
-            // behind this comma is one the author did write.
+            // Bug 0257 (operator adjudication): the comma OPENS an empty entry
+            // slot — spelling no `Field` at all — exactly when NO token has
+            // been consumed for the current entry yet (`this.pos ===
+            // entryStart`): a doubled, leading or post-trailing comma
+            // (`ObjectType ::= "{" Field ("," Field)* ","? "}"`,
+            // grammar.md:101). A comma reached with `this.pos` past
+            // `entryStart` is instead the ORDINARY separator ending an entry
+            // this arm has already been discarding one token at a time — a
+            // stray-close-carrying keyless entry (0238's carve-out, `{b >,
+            // m: integer}`) or colon-present junk (0252's) — and draws
+            // nothing new: that entry's own disposition was already decided
+            // when its first token was read, and a slot requires that no
+            // token stood there at all.
+            if (this.pos === entryStart) {
+              // A `Field` already derived earlier in this interior sends the
+              // slot to `malformed-schema-field` (one line per slot, bug
+              // 0129's count-consequence law); no `Field` derived yet sends
+              // it to `empty-schema-body`, buffered at most ONCE per interior
+              // since "'{}' has no fields" cannot be true twice of one
+              // interior. No grammar-legal spelling reaches this branch: a
+              // well-formed entry's trailing comma is consumed by this loop's
+              // own `eatPunct(",")` below, and the loop then exits on `}` —
+              // so `{a: integer,}` / `{a: integer, }` never reach here.
+              if (fieldTypes.length > 0) {
+                pending.push(this.discardedEntryRefusal());
+                pendingSlotIndex = pending.length - 1;
+              } else if (!emptySlotBodyPushed) {
+                pending.push(emptySchemaBodyDiagnostic("{}", this.site));
+                emptySlotBodyPushed = true;
+                pendingSlotIndex = pending.length - 1;
+              }
+            } else {
+              pendingSlotIndex = undefined;
+            }
+            // The taint lifts (the entry behind this comma is one the author
+            // did write) and the refusal latch resets so that entry can draw
+            // its own line, whether this comma opened a slot or merely ended
+            // an entry this arm already judged.
             entryStart = this.pos + 1;
             entryRefused = false;
           } else if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
+            // Bug 0257 SL5 — adjacency collapse: the entry immediately behind
+            // an empty slot is itself keyless, so ITS refusal replaces the
+            // slot's buffered line rather than adding a second
+            // (code-registry-parse.md:104's count law; §Reproduction (c)
+            // c1–c3 stay at one line).
+            if (pendingSlotIndex !== undefined) {
+              pending.pop();
+              pendingSlotIndex = undefined;
+            }
             pending.push(this.discardedEntryRefusal());
             entryRefused = true;
+          } else {
+            // Not a slot-opening comma, and this entry does not qualify for
+            // 0244's refusal (a colon-present entry, or a stray-close-
+            // carrying keyless entry) — the adjacency window for any pending
+            // slot has passed with nothing to collapse into.
+            pendingSlotIndex = undefined;
           }
           entryTainted = fieldName?.text !== ",";
           this.next();
@@ -889,8 +951,18 @@ class TypeParser {
           // other discard arm, refused under the same scoping before the
           // resync below carries the entry away.
           if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
+            // Bug 0257 SL5 — the same adjacency collapse as the non-`ident`
+            // arm's, for the ident-with-no-colon shape (`{,void}`, `{a:
+            // integer,,zs}`): this entry's own refusal replaces an
+            // immediately preceding empty slot's buffered line.
+            if (pendingSlotIndex !== undefined) {
+              pending.pop();
+              pendingSlotIndex = undefined;
+            }
             pending.push(this.discardedEntryRefusal());
             entryRefused = true;
+          } else {
+            pendingSlotIndex = undefined;
           }
           // A malformed entry accounts for itself and for nothing else
           // (code-registry-parse.md:101's count-consequence sentence, scoped to
@@ -905,6 +977,9 @@ class TypeParser {
           if (crossedSeparator) {
             entryStart = this.pos;
             entryRefused = false;
+            // Bug 0257: a genuine entry separator was crossed, so whatever
+            // slot preceded this point is no longer adjacent to anything.
+            pendingSlotIndex = undefined;
           }
           entryTainted = false;
           continue;
@@ -925,6 +1000,10 @@ class TypeParser {
           // ahead of the interior that never closes — stays contributed, and only
           // the names behind it stop.
           namesStopped = namesStopped || carriesUnclosedInterior(fieldType);
+          // Bug 0257: a `Field` derived, so any earlier empty slot is no
+          // longer the immediately adjacent one — nothing left to collapse
+          // into this field.
+          pendingSlotIndex = undefined;
         }
         // Optional `as "WireName"` rename — skip if present.
         if (this.peek()?.kind === "ident" && this.peek()?.text === "as") {
@@ -964,11 +1043,15 @@ class TypeParser {
           entryTainted = false;
           entryStart = this.pos;
           entryRefused = false;
+          pendingSlotIndex = undefined;
           continue;
         }
         entryTainted = false;
         entryStart = this.pos;
         entryRefused = false;
+        // Bug 0257: the loop's own genuine `,` was consumed, so any earlier
+        // empty slot is no longer adjacent to what follows.
+        pendingSlotIndex = undefined;
       }
     } finally {
       this.openCommaReadingConstructs -= 1;

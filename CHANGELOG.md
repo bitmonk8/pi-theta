@@ -6,6 +6,29 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.258.0]
+
+### Fixed
+
+- Bug 0257: empty inline-object entry slots are refused —
+  `TypeParser.parseObject`'s comma-at-field-name branch buffers one line per
+  empty slot through bug 0244's pending/flush gate (SL1a slot-opens only at
+  the entry start; SL2 partition: a derived Field ⇒
+  `theta/parse/malformed-schema-field`, else `theta/parse/empty-schema-body`
+  with subject `{}`; SL3 one empty-body per interior; SL4 one line per slot;
+  SL5 adjacency collapse). `{a: integer,,b: string}`, `{,a: integer}`,
+  `{,}`, `{,,}` no longer load silently at any Type position; the legal
+  single trailing comma (`{a: integer,}`, grammar.md's `","?`) stays
+  admitted. Re-measured first at 206e0da9: NO cell moved by 0256's resync
+  (none of these interiors reach the separator read); one filed cell
+  corrected by fixture (e8/e9 are one line). Witnesses:
+  `tests/inline-object-empty-entry-slot-refusal.test.ts` (92 diagnostic
+  cells + 14 lowerings + 6 splits; red 7/5 under HEAD-blob neutralisation)
+  + `tests/live/b0257live-empty-slot-params-refusal-live-cell.test.ts`.
+  Blast-radius live pack green under the lock (b0256live, b0244live,
+  b0252live, 0238's, 0231's). Two strictly-additive re-derivations outside
+  the named surface under §Fix's re-derived-not-weakened clause (e7.6,
+  h10 — adjudications in the doc). permitted-codes byte-unchanged.
 ## [0.257.0]
 
 ### Fixed
