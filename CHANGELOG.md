@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.245.0]
+
+### Fixed
+
+- Bug 0121: the integer-like wire-rename escape's ordering is now stated
+  rather than silent — route (c): QRY-18
+  (`docs/spec_topics/query/query-escapes-stringification.md`) states the
+  declaration-vs-integer-like key order at the ctor boundary, and
+  `src/runtime/value.ts`'s comment corrects the false in-tree claim
+  (comment-only; zero executable lines moved; `value.ts` 598 lines / spec 59
+  lines — both at HEAD counts). Defect re-derived at dee6de10 across all 19
+  probe rows before fixing (boundary 2^32−2 / 2^32−1 intact). Witness
+  `tests/ctor-declaration-order.test.ts` 16→27 cells; no behaviour change so
+  red-proof by 5 mutations, each applied and restored hash-exact. Routes
+  (a)/(b)/(d) pinned as non-goals in the fix record. permitted-codes
+  byte-unchanged; no live owed (comment-only src).
 ## [0.244.0]
 
 ### Fixed

@@ -327,14 +327,14 @@ export interface SchemaFieldOrder {
  * statement-executor.ts and `evaluatePureExpression`'s `case "object"` in
  * production-theta-producer.ts — so the two sites cannot drift on the
  * ordering rule (the lockstep obligation bug 0027 records for its four read
- * entry points). Every downstream consumer of the returned record —
- * `evaluateObjectMember`'s `keys()` / `values()` (stdlib-object.ts), the
- * QRY-18 outbound `Object.entries` walk (`translateInterpolationOutbound`,
- * production-theta-producer.ts), and `JSON.stringify` — then observes
- * declaration order with no further change: theta field names are
- * identifiers (`[A-Za-z_][A-Za-z0-9_]*`), never integer-like, so JS own-key
- * order for them is exactly insertion order, with none of `Object.keys`'s
- * numeric-key reordering in play.
+ * entry points). The returned record's own-key order IS declaration order:
+ * theta field names are identifiers (`[A-Za-z_][A-Za-z0-9_]*`), never
+ * integer-like, so JS orders them by insertion. `evaluateObjectMember`'s
+ * `keys()`/`values()` (stdlib-object.ts) and a bare `JSON.stringify` see
+ * that unconditionally; the QRY-18 walk (`translateInterpolationOutbound`,
+ * production-theta-producer.ts) does not — it reads in order but writes
+ * a FRESH record keyed by WIRE names, where an `as`-renamed array-index
+ * key fronts (the exception query-escapes-stringification.md states).
  *
  * `constructedFields` is the field record already built, keyed by
  * theta-side field name, in the constructor's OWN source order — each

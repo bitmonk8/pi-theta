@@ -1,7 +1,8 @@
 # Bug 0121 — An integer-like `as` wire rename escapes the declaration-order guarantee bug 0080 established for the QRY-18 wire record: `b as "0"` parses with zero diagnostics, the outbound walk re-keys a fresh record by wire names, and `JSON.stringify` fronts the numeric key — so a field declared second renders first, and no spec sentence fixes the wire record's key order at all
 
-- **Status:** open. §Fix is not settled: this report exists to pin whether the
-  QRY-18 wire record's key order is guaranteed at all before any code lands. No
+- **Status:** fixed (0.245.0). §Fix is settled on **route (c)** — the QRY-18 wire
+  record's key order is now stated at QRY-18, and the false in-tree claim is
+  corrected; see §Fix (0.245.0). No
   ordering dependency —
   [0080](./0080-keys-values-construction-order-not-declaration-order.md) is
   **fixed (0.70.0)** and owns the single construction point
@@ -670,7 +671,12 @@ arm (`:5673` ← `:5657`). The lowered-schema and inbound halves of
 
 ## Fix
 
-**Not settled. This report exists to pin the disposition first**, because the
+**Settled on route (c)** (see §Fix (0.245.0) for the adjudication and its
+evidence). The four routes below are retained as filed, because the reasons
+they were weighed are the reasons (c) was chosen. Routes (a), (b) and (d) are
+pinned non-goals.
+
+**Originally not settled. This report existed to pin the disposition first**, because the
 primary question — whether the QRY-18 wire record's key order is guaranteed at
 all — has no answer in the corpus (§Expected behaviour). Four routes, with their
 consequences; the constraints after them bind whichever is chosen.
@@ -864,3 +870,193 @@ controls.
   No file in the tree was written by the probe. `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug document are unmodified by this
   filing.
+
+## Fix (0.245.0)
+
+- **Route adjudicated: (c)** — accept the escape, state the wire record's key
+  order at QRY-18, correct the false in-tree claim. No behaviour change, no
+  diagnostic code, no DIAG-2 registry row, no narrowing of admitted input, no
+  `docs/reference/` mirror edit. The adjudication rests on this report's own
+  §Expected behaviour, which concludes that **Reading A is better supported and
+  Reading B is the stronger claim this report declines to assert**, and gives
+  three reasons: QRY-18 names a serialiser, a formatting constraint and a
+  transformation but never an order, where the corpus states an order twice
+  elsewhere and names its subject both times; JSON member order is not semantic
+  for the model that reads the render; and cell O is a test pin whose input
+  (`as "B"`) cannot distinguish the two readings. Routes (a) and (b) would
+  narrow input `docs/spec_topics/lexical.md:16` admits in terms and foreclose
+  the case `docs/spec_topics/schemas.md:39` says the mechanism exists for;
+  route (d) owes a byte-equivalence argument for a bespoke emitter across every
+  object and array interpolation and is the only route that asserts Reading B
+  as behaviour. All three are **pinned non-goals**.
+
+- **Re-derivation at HEAD (mandatory: this report was filed at `bb5206a6` /
+  0.70.0 and its line citations are stale).** Every §Reproduction row was
+  re-measured through the real production composition drive at HEAD `dee6de10`
+  / 0.240.0. **The defect survives unchanged.**
+
+  | Row | Input | As filed (`bb5206a6`) | At `dee6de10` | Verdict |
+  |---|---|---|---|---|
+  | R1 | `schema P { a: string, b as "0": integer }`, ctor decl-order | `J{"0":1,"a":"x"}` | `J{"0":1,"a":"x"}` | unchanged |
+  | R2 | same, ctor reversed | `J{"0":1,"a":"x"}` | `J{"0":1,"a":"x"}` | unchanged |
+  | R3 | control `as "B"` | `J{"a":"x","B":1}` | `J{"a":"x","B":1}` | unchanged |
+  | R4 | control, no rename | `J{"a":"x","b":1}` | `J{"a":"x","b":1}` | unchanged |
+  | R5 | `keys()` / `values()` under the same rename | `[["a","b"],["x",1]]` | `[["a","b"],["x",1]]` | unchanged |
+  | R6 | `a as "2"`, `b as "10"`, `c as "1"`, `d` | `J{"1":true,"2":"x","10":1,"d":"y"}` | `J{"1":true,"2":"x","10":1,"d":"y"}` | unchanged |
+  | R7 | `01` / `1.0` / `-1` / `" 0"` / `0x1` / `1e2` | all ordinary string keys | all ordinary string keys | unchanged |
+  | R7 | `4294967294` / `4294967295` | fronts / does not | fronts / does not | unchanged |
+  | R8 | nested `Inner { i, j as "0" }` | `J{"o":{"0":7,"i":"s"},"z":"t"}` | `J{"o":{"0":7,"i":"s"},"z":"t"}` | unchanged |
+  | R9 | `as "0"` / `as '0'` / `as ""` | codes `[]` | codes `[]` | unchanged |
+  | R9 | `as 0` / `as zero` (non-string token) | `empty-schema-body` + `unresolved-named-type` | `malformed-schema-field` + `extra-object-field` | **drifted** (non-material: the token kind is still refused) |
+  | E1 | the escape spelling of `0` | retained wire name `0`, codes `[]` | retained wire name `0`, codes `[]` | unchanged |
+  | R10 | `@<P>` lowering | `properties`/`required` theta-keyed, no `"0"` | `properties`/`required` theta-keyed, no `"0"` | unchanged |
+
+- **Re-derived surface map (the §Affected citations above are as-filed at
+  `bb5206a6`; these supersede them at `dee6de10`).**
+  `translateInterpolationOutbound` is
+  `src/extension/production-theta-producer.ts:6333`; the re-key loop is
+  `:6377–6382` and now writes through `defineRecordField`
+  (`Object.defineProperty`, the bug 0119 / 0210 prototype-slot work) rather than
+  plain assignment — which does **not** change integer-key ordering, as R1
+  measures. `stringifyInterpolation` is `:6244` and its `JSON.stringify(lowered)`
+  is `:6264`. The parser's wire-name retention is
+  `src/parser/theta-document.ts:3103`. The overclaiming comment is
+  `src/runtime/value.ts:330–337`.
+
+- **Reachability bound re-derived, and one premise of it has changed.**
+  `buildSidecar` (`src/parser/schema-lowering.ts:361`) now **does** have a
+  production caller (`:676`), and `translateInbound` **is** reachable in
+  production via `src/runtime/inbound-boundary.ts:77` — both statements this
+  report made to the contrary are stale. The bound nevertheless holds, for a
+  narrower reason: `translateOutbound` (`src/render/query-render.ts:423`) is
+  gated on `type.sidecars !== undefined`, and no site in `src/` sets that field,
+  so the wire rename is still applied at exactly **one** production site. R10
+  re-measures the other half: the lowered schema is still theta-keyed.
+
+- **What shipped:**
+  - `docs/spec_topics/query/query-escapes-stringification.md:34` — the QRY-18
+    Notes wire-name bullet extended (its two original sentences byte-identical)
+    with the ordering rule: the rendered member order is the value's own key
+    order (schema declaration order for a named-schema value, insertion order
+    otherwise) with wire names substituted, because the outbound pass is a
+    rename and not a reordering; **exception, and intentional**, a wire name the
+    host orders as an array index — a canonical decimal string in `0 … 2³²−2` —
+    takes the host's own-key position ascending numerically ahead of every
+    non-index key, so the rendered member order is **unspecified** for that
+    class; key set, key count and values are unaffected, and the theta-side
+    `keys()` / `values()` clause is untouched.
+  - `src/runtime/value.ts:330–337` — the false claim on `buildObjectSchemaValue`
+    corrected. **Comment-only**: `git diff -U0 src/` contains zero non-comment
+    changed lines. The returned record's own-key order is still stated as
+    declaration order for the identifier reason, `keys()` / `values()` and a
+    bare `JSON.stringify` of that record are named as the consumers that see it
+    unconditionally, and the QRY-18 walk is now described as it behaves — it
+    reads this record in order but writes a fresh record keyed by wire names,
+    where an `as`-renamed array-index key fronts.
+  - `tests/ctor-declaration-order.test.ts` — one new `describe` block, 11 cells
+    (R1, R2, R3, R4, R5, R6, R7-boundary, R7-non-canonical, R8, R9/E1, R10),
+    the full §Witness list, each asserting exact bytes through the existing
+    production-composition harness. File goes 16 → 27 cells.
+
+- **Line-count discipline.** Both edited non-test files return to their HEAD
+  line counts — `src/runtime/value.ts` 598, the spec file 59 — so **no sibling
+  document's line citation shifted**. An intermediate implementation grew the
+  `value.ts` comment by 7 lines, which would have staled roughly twenty
+  citations in bug docs 0020, 0027, 0032, 0067, 0114, 0119, 0120, 0173 and 0177
+  and in three test files; a pre-review citation-correction round compressed it
+  back to its original 8-line span, and the spec note was folded into the
+  existing line-34 bullet instead of inserted as a new one.
+
+- **Red-proof is by MUTATION, not by reverting a fix** — route (c) changes no
+  behaviour, so there is nothing to revert. Every cell reds under at least one
+  named mutation of the production code it claims to observe, each applied and
+  then restored byte-exact (`git hash-object` verified against
+  `git rev-parse HEAD:<path>`; no `git checkout`, no `git restore`):
+  - M1 `Object.entries(value)` → `.reverse()` at the re-key loop → reds R3, R4,
+    R7-boundary, R7-non-canonical, R8.
+  - M2 `const wireKey = thetaKey` (rename dropped) → reds R1, R2, R3, R6,
+    R7-boundary, R7-non-canonical, R8.
+  - M3 `[...decl.fields].reverse()` in `buildObjectSchemaValue` → reds R3, R4,
+    R5, R7-boundary, R7-non-canonical, R8.
+  - M4 `wireName = wireTok.text` (source spelling, not the decoded value) →
+    reds R1, R2, R3, R6, R7-boundary, R7-non-canonical, R8, R9/E1.
+  - M5 lowering keyed by `wireName ?? name` → reds R10, and the received value
+    exhibits §Why it matters' forward hazard verbatim: `properties` fronts
+    `"0"` while `required` keeps `["a","0"]`, breaking `schema-subset.md:85`'s
+    stated pairing.
+
+- **Gates:** witness `npx vitest run tests/ctor-declaration-order.test.ts` →
+  `Test Files 1 passed (1) / Tests 27 passed (27)`; full default suite
+  `npm test` → `Test Files 423 passed (423) / Tests 8902 passed (8902)`;
+  `npm run typecheck` → clean, no output; `npm run lint` → clean, no output.
+
+- **Live:** none owed and none run. `git diff -U0 src/` contains zero executable
+  changed lines — the entire `src/` delta is block-comment text — so no
+  live-exercised surface moves. The cell that would be the gate if one were
+  owed is bug 0080's additive H8a cell,
+  `tests/live/live-production-acceptance.test.ts:1945`
+  (*H8a-T — bug 0080: constructor field order follows the schema's DECLARATION
+  order, live*); it is untouched and its subject is unchanged. Independently
+  audited and confirmed by the verifier.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned **clean** with two
+  non-blocking residuals. One prose polish round closed the first (a dangling
+  "the value's declaration order" referent for an anonymous object); the second
+  is declined on the record (residual 1 below). A pre-review
+  citation-correction round ran before round 1 and is not counted as a review
+  round.
+
+- **Verification:** **SOLID**. Obligation 1 (tests witness) — all five mutations
+  re-run independently, red sets quoted, all files restored hash-exact.
+  Obligation 2 (default suite) — green. Obligation 3 (live) — the no-live-owed
+  adjudication independently audited against the diff and **confirmed**.
+  Obligation 4 — lint and typecheck clean. Both truth claims the fix rests on
+  were re-measured independently: the spec sentence is true against the real
+  production drive, and every clause of the corrected comment is true at HEAD.
+
+- **Residuals:**
+  1. **Cell O's own comment is still unqualified.** `RED (O)` in
+     `tests/ctor-declaration-order.test.ts` says "this cell pins both at once"
+     (the rename and the position). Route (c) makes that obligation non-uniform
+     across wire names. The qualification is stated in three places a reader
+     reaches — the QRY-18 note, the corrected `buildObjectSchemaValue` comment,
+     and the new bug-0121 block's header in the same test file, which names cell
+     O — but not in cell O itself. **Declined deliberately**: editing it shifts
+     `tests/ctor-declaration-order.test.ts` lines that bug docs 0119 and 0173
+     cite. Fold the pointer in when a line-shifting edit to that file is next
+     unavoidable.
+  2. **`as ""` is still admitted with zero diagnostics.**
+     `docs/spec_topics/schemas.md:43` requires "a single non-empty string
+     literal"; R9 measures `[]`. Fenced in §Non-goals as filed; unchanged here.
+  3. **The un-wired half of wire-name translation persists.** The lowered
+     schema is theta-keyed (R10) against `schema-subset.md:78`, so a rename
+     never reaches `properties`. §Non-goals fences it, and M5 measures what
+     re-opens this defect at the `properties` position if it is ever wired:
+     `properties` fronts `"0"` while `required` keeps declaration order,
+     breaking `schema-subset.md:85`.
+  4. **Three stale claims inside this report, corrected above rather than
+     rewritten in place**: `buildSidecar` has no production caller (it does
+     now), `translateInbound` is unreached in production (it is reached now, via
+     `src/runtime/inbound-boundary.ts:77`), and the `as 0` / `as zero` code
+     pair. The §Affected and §Provenance line citations remain as filed at
+     `bb5206a6`; the re-derived surface map above supersedes them.
+  5. **The mutation blast radii for M3 and M4 are broader than first
+     predicted** (predicted R5-only and R9/E1-only respectively). The verifier
+     measured the true sets, recorded above. This makes the cells more sensitive
+     witnesses, not less; it is recorded so the mapping is not taken as
+     authoritative without re-measurement.
+
+- **Discharge notes appended:** none. No sibling bug document was edited: both
+  non-test files returned to their HEAD line counts, so no citation elsewhere
+  needed correcting.
+
+- **Pinned dispositions / non-goals:** routes (a), (b) and (d) of §Fix; the
+  inline-object-annotation route (which at HEAD now reaches a load refusal —
+  `tests/live/acceptance/inline-object-wire-name-rename-load-refusal.test.ts` —
+  a drift from this report's §Non-goals observation); `as ""`; the un-wired
+  validation-boundary half of wire-name translation; and JS engine key ordering
+  itself (`runtime-value-model.md:45` makes it a non-checked invariant).
+
+- **Lane protocol:** this change is left **uncommitted** in the lane worktree.
+  No `package.json` bump, no `CHANGELOG.md` entry, no `docs/bugs/README.md`
+  edit; the version above is the literal placeholder `0.245.0`.

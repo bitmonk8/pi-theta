@@ -14,8 +14,10 @@ import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/fro
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
+  type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
+import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
 import { brandSchemaValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
@@ -870,5 +872,341 @@ describe("bug 0080 (E, N, S) — non-goals: equality, bare objects, and the read
       evaluateObjectMember(branded, "values", []),
       "`values()` is `Object.values` of the same record, so it is order-correlated with `keys()` by construction",
     ).toEqual([1, "x"]);
+  });
+});
+
+// ===========================================================================
+// BUG 0121 — an integer-like `as` wire rename escapes the declaration-order
+// guarantee cell O states for the QRY-18 wire record
+// (docs/bugs/0121-integer-like-wire-rename-escapes-order-guarantee.md).
+//
+// WHAT THE BLOCK BELOW PINS, AND WHY IT IS CHARACTERISATION RATHER THAN A
+// RED-THEN-GREEN WITNESS. Bug 0080's fix orders the THETA-KEYED record at
+// `buildObjectSchemaValue` (src/runtime/value.ts:400-410, the `ordered`
+// rebuild). The QRY-18 outbound walk then builds a SECOND, FRESH record keyed
+// by WIRE names — `translateInterpolationOutbound`
+// (src/extension/production-theta-producer.ts:6333), whose re-key loop is
+// :6377-6382:
+//
+//     const result: Record<string, unknown> = {};
+//     for (const [thetaKey, fieldValue] of Object.entries(value)) {
+//       const field = fields.get(thetaKey);
+//       const wireKey = field?.wire ?? thetaKey;
+//       defineRecordField(result, wireKey, translateInterpolationOutbound(…));
+//     }
+//
+// and `stringifyInterpolation` (:6244) serialises it at :6264
+// (`return JSON.stringify(lowered)`). The loop READS in declaration order, but
+// the destination is a fresh JS object, and JS own-key order fronts any key
+// that is a canonical array index (a decimal string in 0 … 2^32-2) ahead of
+// every string key, whatever the insertion order. `defineRecordField`'s
+// `Object.defineProperty` (bug 0119 / 0210) does not change that.
+//
+// A theta-side field name can never be integer-like — the schema field-name
+// gate admits only `ident` / `keyword` tokens and `isIdentStart`
+// (src/lexer/lexer.ts) admits only `A-Za-z_` — so the escape is reachable ONLY
+// through the `as "WireName"` rename, whose retained value is the DECODED
+// string (src/parser/theta-document.ts:3103,
+// `wireName = wireTok.value ?? wireTok.text`).
+//
+// THE SETTLED DISPOSITION IS §Fix ROUTE (c): accept the escape and document it.
+// Behaviour does NOT change. The rule these cells lock is the one the QRY-18
+// note states: the rendered object's key order is DECLARATION order with wire
+// names substituted, EXCEPT that a wire name JS orders as an array index takes
+// the host's own-key position, so member order is unspecified for that class.
+// Every row below therefore asserts CURRENT bytes as the newly-stated rule, not
+// as a defect: a change that silently perturbs either half of the rule reds
+// here.
+//
+// SPEC ANCHORS (each verified against the corpus in this tree).
+//   - docs/spec_topics/query/query-escapes-stringification.md:16 (QRY-18) and
+//     :27, the Schema-typed-object row: "`JSON.stringify` of the value,
+//     **compact** (no pretty-printing), with wire-name translation applied
+//     recursively"; :34, "There is no second translation map for
+//     interpolation". This is where route (c)'s order note lands.
+//   - docs/spec_topics/expressions.md:118 — `keys()`: "Theta-side field names,
+//     in schema declaration order for named schemas; insertion order
+//     otherwise"; :119 — `values()` "in the same order as `keys()`".
+//     THETA-SIDE, and unaffected by the rename: row R5.
+//   - docs/spec_topics/lexical.md:16 — the field's wire name "may be any string
+//     via the `as \"WireName\"` rename clause". This is why the input class is
+//     admitted and route (c) narrows nothing.
+//   - docs/spec_topics/schemas.md:39 — the rename is "the only mechanism for
+//     expressing schemas whose property names are not
+//     theta-identifier-compatible", so a numeric property name is the
+//     mechanism's own use case; :43 — "The wire name is a single non-empty
+//     string literal … escape sequences as in any other string literal", which
+//     is why the `\u{30}` spelling is the same wire name as `"0"` (row E1).
+//   - docs/spec_topics/schema-subset.md:110 — "the emitted lowered schema
+//     retains the theta-source declaration order of fields". That clause
+//     governs the LOWERED fragment, which this render path never builds; row
+//     R10 is the reachability bound that keeps it out of scope.
+//
+// MEASURED AT HEAD dee6de10 / 0.240.0 (offline, the same drive as rows A-O):
+//   R1  ctor decl-order, `b as "0"`      -> J{"0":1,"a":"x"}
+//   R2  ctor rev-order, same schema      -> J{"0":1,"a":"x"}
+//   R3  control `b as "B"`               -> J{"a":"x","B":1}
+//   R4  control, no rename               -> J{"a":"x","b":1}
+//   R5  [p.keys(), p.values()]           -> [["a","b"],["x",1]]
+//   R6  `2` / `10` / `1` + plain `d`     -> J{"1":true,"2":"x","10":1,"d":"y"}
+//   R7  `4294967294` (2^32-2)            -> J{"4294967294":1,"a":"x"}  (fronts)
+//       `4294967295` (2^32-1)            -> J{"a":"x","4294967295":1}  (does not)
+//       `01` / `1.0` / `-1` / `1e2`      -> the key keeps its declared position
+//   R8  nested `j as "0"` inside `Inner` -> J{"o":{"0":7,"i":"s"},"z":"t"}
+//   R9/E1 `as "0"` and `as "\u{30}"`     -> codes [] and wire name `0` for both
+//   R10 lowerQueryResponseSchema("P", …) -> theta-keyed properties / required
+// ===========================================================================
+
+/** The `schema` statements of a parsed fixture, as `lowerQueryResponseSchema` takes them. */
+function schemaDeclsOf(src: string): readonly SchemaDecl[] {
+  const doc = parseOnly(src);
+  const decls = doc.body.statements.filter(
+    (s): s is SchemaDecl => (s as { readonly kind?: string }).kind === "schema",
+  );
+  if (decls.length === 0) {
+    throw new Error(
+      "harness: rows R9/E1/R10 read a parsed `schema` statement; the fixture retained none, so the cell would assert nothing",
+    );
+  }
+  return decls;
+}
+
+/**
+ * The retained `[thetaName, wireName]` pairs of the first `schema` decl in
+ * `src`, read off the PARSED declaration — the decoded wire name the runtime
+ * uses, not the source spelling. A decl with no object body fails LOUDLY.
+ */
+function wirePairsOf(src: string): (string | null)[][] {
+  const decl = schemaDeclsOf(src)[0] as SchemaDecl;
+  const fields = decl.fields;
+  if (fields === undefined || fields.length === 0) {
+    throw new Error(
+      `harness: rows R9/E1 read the retained wire names off the parsed schema body; \`${decl.name}\` retained no fields`,
+    );
+  }
+  return fields.map((f) => [f.name, f.wireName ?? null]);
+}
+
+/** `a` is declared FIRST; `b`'s wire name is the integer-like one. */
+const SCHEMA_P_ZERO = 'schema P { a: string, b as "0": integer }\n';
+
+/** One `b as "<wire>"` fixture rendered through the QRY-18 object arm. */
+function renamedFixture(wire: string): string {
+  return (
+    FM +
+    `schema P { a: string, b as "${wire}": integer }\n` +
+    'let p = P { a: "x", b: 1 }\n' +
+    "@`J${p}`\n"
+  );
+}
+
+describe("bug 0121 — the QRY-18 wire record's key order: declaration order, except for array-index wire names", () => {
+  it("CHARACTERISATION (R1): an integer-like wire name leads, though its field is declared second", async () => {
+    // The measurement. `a` is declared first and renders second, because
+    // `result` (production-theta-producer.ts:6377) is a fresh object and `"0"`
+    // is a canonical array index.
+    const turn = await renderedTurn(
+      FM + SCHEMA_P_ZERO + 'let p = P { a: "x", b: 1 }\n' + "@`J${p}`\n",
+      "row R1",
+    );
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R1 — the array-index exception to the QRY-18 key-order rule): query-escapes-stringification.md:27 renders a Schema-typed object as compact `JSON.stringify` with wire-name translation applied. The wire record is FRESH (production-theta-producer.ts:6377-6382), so a wire name JS orders as an array index takes the host\'s own-key position: `schema P { a: string, b as "0": integer }` renders J{"0":1,"a":"x"}, where declaration order with names substituted would be J{"a":"x","0":1}',
+    ).toBe('J{"0":1,"a":"x"}');
+  });
+
+  it("CHARACTERISATION (R2): the CONSTRUCTOR's own order changes nothing — the escape is not bug 0080's", async () => {
+    // The pre-existence argument. Bug 0080's reorder
+    // (src/runtime/value.ts:400-410) has already put the theta-keyed record in
+    // declaration order before the walk runs, so no constructor order avoids the
+    // fronting and 0080 neither caused nor worsened it. Byte-identical to R1.
+    const turn = await renderedTurn(
+      FM + SCHEMA_P_ZERO + 'let p = P { b: 1, a: "x" }\n' + "@`J${p}`\n",
+      "row R2",
+    );
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R2 — the escape is pre-existing, not a bug 0080 regression): constructing `P { b: 1, a: "x" }` renders the SAME bytes as row R1\'s `P { a: "x", b: 1 }`, because `buildObjectSchemaValue` (src/runtime/value.ts:400-410) normalises the theta-keyed record to declaration order before `translateInterpolationOutbound` re-keys it. If these two rows ever disagree, the constructor\'s order has become observable on the wire again',
+    ).toBe('J{"0":1,"a":"x"}');
+  });
+
+  it("CONTROL (R3): a non-array-index wire name keeps its DECLARED position", async () => {
+    // The half of the rule route (c) still guarantees, and cell O's obligation at
+    // the mirror-image declaration (`a` first here, `b as "B"` first there).
+    // `"B"` is an ordinary string key, so insertion order — which is declaration
+    // order, read off the already-ordered theta record — survives.
+    const turn = await renderedTurn(renamedFixture("B"), "row R3");
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R3 — the guaranteed half of the QRY-18 key-order rule): for every wire name that is NOT an array index the render is declaration order with the wire name substituted, so `schema P { a: string, b as "B": integer }` must render J{"a":"x","B":1}',
+    ).toBe('J{"a":"x","B":1}');
+  });
+
+  it("CONTROL (R4): an unrenamed schema is unaffected", async () => {
+    // The no-rename baseline: theta field names are identifiers (`isIdentStart`,
+    // src/lexer/lexer.ts, admits only `A-Za-z_`), so the wire keys are the theta
+    // keys and no key can ever be integer-like.
+    const turn = await renderedTurn(
+      FM + "schema P { a: string, b: integer }\n" + 'let p = P { a: "x", b: 1 }\n' + "@`J${p}`\n",
+      "row R4",
+    );
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R4 — the no-rename baseline): with no `as` clause the wire keys ARE the theta keys, which the schema field-name gate (src/parser/theta-document.ts, `ident` / `keyword` tokens only) can never make integer-like, so the render is declaration order: J{"a":"x","b":1}',
+    ).toBe('J{"a":"x","b":1}');
+  });
+
+  it("CONTROL (R5): the THETA-SIDE order guarantee is intact under the very same rename", async () => {
+    // expressions.md:118-119 orders `keys()` / `values()` over THETA-side names,
+    // and route (c) leaves that clause untouched: the two surfaces of one value
+    // legitimately disagree about position because they are keyed differently.
+    // Theta code never sees a wire name (runtime-value-model.md).
+    const value = await finalValue(
+      FM + SCHEMA_P_ZERO + 'let p = P { b: 1, a: "x" }\n' + READ_KEYS_VALUES,
+      "row R5",
+    );
+    expect(
+      value,
+      'PRIMARY (bug 0121, row R5 — the theta-side clause must not weaken): expressions.md:118 fixes `keys()` as "Theta-side field names, in schema declaration order for named schemas" and :119 fixes `values()` "in the same order as `keys()`". Under `b as "0"` — the rename that fronts the WIRE key — the theta-side reads must still answer [["a","b"],["x",1]]',
+    ).toEqual([
+      ["a", "b"],
+      ["x", 1],
+    ]);
+  });
+
+  it("CHARACTERISATION (R6): several array-index wire names order by NUMERIC VALUE, ahead of every string key", async () => {
+    // Declared `a`, `b`, `c`, `d`; rendered `1`, `2`, `10`, `d`. `10` follows `2`
+    // because the host sorts array-index keys numerically, so the rendered order
+    // matches neither the declaration nor the constructor. This is the concrete
+    // cost the QRY-18 note has to state.
+    const turn = await renderedTurn(
+      FM +
+        'schema Q { a as "2": string, b as "10": integer, c as "1": boolean, d: string }\n' +
+        'let q = Q { a: "x", b: 1, c: true, d: "y" }\n' +
+        "@`J${q}`\n",
+      "row R6",
+    );
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R6 — array-index wire names sort numerically): declared `a as "2"`, `b as "10"`, `c as "1"`, `d`; the render is J{"1":true,"2":"x","10":1,"d":"y"} — the three index keys ascend by VALUE ahead of the one ordinary key, so member order for that class follows neither declaration nor construction',
+    ).toBe('J{"1":true,"2":"x","10":1,"d":"y"}');
+  });
+
+  it("CHARACTERISATION (R7, boundary): the class is exactly the array-index range — 2^32-2 fronts, 2^32-1 does not", async () => {
+    // The predicate the QRY-18 note's exception names, pinned at its exact edge:
+    // a canonical decimal in 0 … 2^32-2 is an array index; 4294967295 is not. A
+    // note (or, later, a check) using a looser "all digits" predicate reds on the
+    // second row here.
+    expect(
+      await renderedTurn(renamedFixture("4294967294"), 'row R7 (as "4294967294")'),
+      'PRIMARY (bug 0121, row R7 — the array-index upper bound, inclusive side): `4294967294` is 2^32-2, the largest canonical array index, so it takes the host\'s own-key position and leads: J{"4294967294":1,"a":"x"}',
+    ).toBe('J{"4294967294":1,"a":"x"}');
+    expect(
+      await renderedTurn(renamedFixture("4294967295"), 'row R7 (as "4294967295")'),
+      'PRIMARY (bug 0121, row R7 — the array-index upper bound, exclusive side): `4294967295` is 2^32-1 and is NOT an array index, so it is an ordinary string key and keeps its DECLARED position: J{"a":"x","4294967295":1}. This row is what stops the QRY-18 exception being read as "any all-digit wire name"',
+    ).toBe('J{"a":"x","4294967295":1}');
+  });
+
+  it("CHARACTERISATION (R7, non-canonical spellings): only a CANONICAL decimal escapes", async () => {
+    // Four spellings that read as numbers to a human and are ordinary string keys
+    // to the host. Each keeps its declared position, so the guaranteed half of
+    // the rule covers them.
+    for (const [wire, expected] of [
+      ["01", 'J{"a":"x","01":1}'],
+      ["1.0", 'J{"a":"x","1.0":1}'],
+      ["-1", 'J{"a":"x","-1":1}'],
+      ["1e2", 'J{"a":"x","1e2":1}'],
+    ] as const) {
+      expect(
+        await renderedTurn(renamedFixture(wire), `row R7 (as "${wire}")`),
+        `PRIMARY (bug 0121, row R7 — the non-canonical numeric spelling \`as "${wire}"\` is NOT an array index): a leading zero, a decimal point, a sign and an exponent each fail the canonical-decimal test, so the key is an ordinary string key and the render is declaration order with the wire name substituted: ${expected}`,
+      ).toBe(expected);
+    }
+  });
+
+  it("CHARACTERISATION (R8): the escape recurses — the inner level fronts, the outer keeps declaration order", async () => {
+    // `translateInterpolationOutbound` recurses inside the re-key loop
+    // (production-theta-producer.ts:6377-6382), so every nesting level builds its
+    // own fresh record and each fronts independently. The outer record's keys are
+    // ordinary, so this row shows both halves of the rule in one render.
+    const turn = await renderedTurn(
+      FM +
+        'schema Inner { i: string, j as "0": integer }\n' +
+        "schema Outer { o: Inner, z: string }\n" +
+        'let v = Outer { o: Inner { i: "s", j: 7 }, z: "t" }\n' +
+        "@`J${v}`\n",
+      "row R8",
+    );
+    expect(
+      turn,
+      'PRIMARY (bug 0121, row R8 — the rule applies per nesting level): the recursion at production-theta-producer.ts:6377-6382 re-keys a fresh record at EVERY depth, so `Inner`\'s `j as "0"` fronts inside `o` while `Outer`, whose keys are ordinary, keeps declaration order: J{"o":{"0":7,"i":"s"},"z":"t"}',
+    ).toBe('J{"o":{"0":7,"i":"s"},"z":"t"}');
+  });
+
+  it('CHARACTERISATION (R9, E1): `as "0"` and the escape spelling `as "\\u{30}"` both parse clean and retain the DECODED wire name `0`', () => {
+    // The admission side, and the reason any future check must run on the DECODED
+    // value: the parser retains `wireTok.value ?? wireTok.text`
+    // (src/parser/theta-document.ts:3103), where `value` is the lexer's decoded
+    // content. schemas.md:43 admits "escape sequences as in any other string
+    // literal", so `"\u{30}"` is the same wire name as `"0"`. A check that
+    // inspected source text instead of the decoded value reds on the E1 rows.
+    const plain = FM + SCHEMA_P_ZERO + 'let p = P { a: "x", b: 1 }\n' + "@`J${p}`\n";
+    const escaped =
+      FM +
+      'schema P { a: string, b as "\\u{30}": integer }\n' +
+      'let p = P { a: "x", b: 1 }\n' +
+      "@`J${p}`\n";
+    expect(
+      severityCodes(parseOnly(plain)),
+      'PRIMARY (bug 0121, row R9 — the input class is ADMITTED): lexical.md:16 says the wire name "may be any string via the `as "WireName"` rename clause", and the only wire-name checks in the tree are collision and redundancy (src/parser/schema-declarations.ts), so `b as "0"` must load with ZERO diagnostics. Route (c) narrows nothing; a route that started rejecting this input reds here and owes a DIAG-2 registry row plus the lexical.md / grammar.md edits',
+    ).toEqual([]);
+    expect(
+      wirePairsOf(plain),
+      'PRIMARY (bug 0121, row R9 — the retained wire name): the parsed declaration retains [["a",null],["b","0"]] — `a` unrenamed, `b` carrying the decoded wire name `0` — which is what `translateInterpolationOutbound` builds its theta→wire map from',
+    ).toEqual([
+      ["a", null],
+      ["b", "0"],
+    ]);
+    expect(
+      severityCodes(parseOnly(escaped)),
+      'PRIMARY (bug 0121, row E1 — the ESCAPE spelling is the same input): schemas.md:43 admits "escape sequences as in any other string literal", so `b as "\\u{30}"` is theta\'s escape form for the same wire name and must also load with ZERO diagnostics',
+    ).toEqual([]);
+    expect(
+      wirePairsOf(escaped),
+      'PRIMARY (bug 0121, row E1 — the wire name is the DECODED string, not the source spelling): `as "\\u{30}"` retains the wire name `0`, identical to `as "0"`, because the parser keeps `wireTok.value ?? wireTok.text` (src/parser/theta-document.ts:3103). Any predicate over wire names must therefore run on this decoded value; one inspecting the source text would see `\\u{30}` and miss the class',
+    ).toEqual([
+      ["a", null],
+      ["b", "0"],
+    ]);
+  });
+
+  it("BOUND (R10): the LOWERED response schema is keyed by THETA names — no wire name reaches `properties`", () => {
+    // The reachability bound, and the reason schema-subset.md:110's stated
+    // wire-key order ("the emitted lowered schema retains the theta-source
+    // declaration order of fields") cannot break today: `lowerObjectFields`
+    // (src/parser/body-type-lowering.ts:121-148) keys `properties` and pushes
+    // `required` from `field.name`, never from a wire name. So AJV never compiles
+    // a property named `"0"` and the inbound rebuild is never handed one — the
+    // escape reaches prompt text only.
+    //
+    // §Fix "Do not close the bound by accident": a change that wires renames into
+    // lowering re-opens bug 0121 at the `properties` position, where an order IS
+    // stated (and where `required`, an array, would keep declaration order while
+    // `properties` fronted the index key). This cell is that alarm.
+    const lowered = lowerQueryResponseSchema(
+      "P",
+      schemaDeclsOf(FM + SCHEMA_P_ZERO + 'let p = P { a: "x", b: 1 }\n' + "@`J${p}`\n"),
+      [],
+    );
+    expect(
+      JSON.stringify(lowered),
+      'PRIMARY (bug 0121, row R10 — the reachability bound): `lowerQueryResponseSchema("P", …)` over `schema P { a: string, b as "0": integer }` must emit THETA-keyed `properties` and `required` with no `"0"` anywhere. A red here means a change has started emitting wire names into the lowered fragment, which re-opens bug 0121 at the one position where schema-subset.md:110 and :85 DO state an order',
+    ).toBe(
+      '{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"integer"}},"required":["a","b"],"additionalProperties":false}',
+    );
+    expect(
+      JSON.stringify(lowered).includes('"0"'),
+      "bug 0121 row R10, restated as the bound itself: the integer-like WIRE name must appear NOWHERE in the lowered fragment",
+    ).toBe(false);
   });
 });
