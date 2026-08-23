@@ -638,3 +638,29 @@ line in the prompt for any theta that registers past a `W`.
     non-empty test (`src/parser/frontmatter.ts:1079–1091`) is untouched — so
     BOTH-nl still emits no advisory, as measured. The parser's recording and the
     U+2028 / U+2029 question are unchanged §Non-goals.
+
+## Coordination note (2026-08-23, at bug 0091's fix, v0.257.0)
+
+[0091](./0091-rule1-set-excludes-u2028-u2029-line-breaks.md) is fixed, so the
+deferral this record carries is discharged.
+
+This record's §Non-goals deferred the two code points explicitly — "**U+2028 /
+U+2029.** Outside the transform's `[\r\n]` predicate, as 0103's §Non-goals
+require, and neither collapses to empty. Rule 1's character set is 0091's
+subject" — and its §Fix (0.143.0) *Pinned dispositions* repeated that "the
+U+2028 / U+2029 question" was an unchanged §Non-goal. Bug 0091 resolved by
+**disposition 2**: rule 1's whitespace set stays closed at the six ASCII
+characters, and `docs/spec_topics/binder/defaulting-system-note-echo.md` rule 1
+now states normatively that the closure is deliberate — the replacement
+sub-step is defined over the CR/LF class (U+000A, U+000D, and the U+000D U+000A
+pair) only, and U+2028 and U+2029 are ordinary characters that implementations
+MUST NOT split on, MUST NOT strip, and MUST NOT promote into U+000A.
+Disposition 1 (widening the set) was rejected.
+
+The deferred question therefore resolves in the direction this record already
+assumed: `normalisePromptTextLineBreaks`'s `[\r\n]` predicate needs no
+widening, no cell of
+`tests/binder-prompt-all-break-description-hint-empty-line.test.ts` moves, and
+the §Non-goal stands as a settled statement rather than a pending one. 0091's
+fix changed prose only and no source byte, so nothing this record measures is
+re-measured.

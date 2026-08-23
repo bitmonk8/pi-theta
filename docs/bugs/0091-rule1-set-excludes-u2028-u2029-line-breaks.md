@@ -1,10 +1,9 @@
 # Bug 0091 — System-note rendering rule 1 closes its whitespace set at six ASCII characters, so U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR survive the echo's rule-1 pass by spec: the delivered `Running /<name>: …` note renders as two physical lines to a consumer that treats the JavaScript line terminators as line breaks, and no sentence says whether rule 3's one-line contract is meant to hold against them
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The decision this
-  report asks for is the adjudication between two dispositions — widen rule 1's
-  whitespace set to cover the two non-ASCII line terminators, or state that the
-  six-character closure is deliberate and the two-line render through them is
-  accepted — not the wording of one of them. No fix-ordering dependency:
+- **Status:** fixed (0.257.0). The adjudication this report asked for was made by
+  operator ruling in favour of **disposition 2** — the six-character closure is
+  deliberate and the two-line render through a non-ASCII line terminator is
+  accepted. See §Fix (0.257.0) below. No fix-ordering dependency:
   [0087](./0087-echo-note-newline-unsanitised.md) is fixed (0.56.0) and this is
   its recorded residual.
 - **Kind:** spec gap. `docs/spec_topics/binder/defaulting-system-note-echo.md:18`
@@ -177,6 +176,27 @@ line. This is 0087's forging vector at one remove: same shape, narrower carrier.
 | `classifyModelContent({ message: "  " })` (control) | `empty-malformed` | unchanged |
 | `renderEmptyShortCircuit("\u2028")` | `undefined` (a turn is issued) | `Err(ValidationError{cause:"empty_template"})` via QRY-6 |
 | `renderEmptyShortCircuit(" \t ")` (control) | `empty_template` | unchanged |
+
+**(d′) The two failure-arm renderers, re-measured at HEAD `ade1dfec`** (added
+by the adjudication pass; the original filing measured the success echo only,
+so these two rows widen the filing's own §Affected list of
+`sanitizeSystemNoteSubstring` call sites from named to measured). Both
+confirm the same posture the success echo carries.
+
+| Probe | Result today | Result if the set widens |
+| --- | --- | --- |
+| `renderFailureNote` with suffix `a\u2028b` | `theta /t: argument binding needs more info — a\u2028b`; LF lines 1, JS lines **2** | one line |
+| `renderAmbiguousSuffix({ message: "a\u2028b" })` | `a\u2028b`; LF lines 1, JS lines **2** | one line |
+
+Rule 3's `theta /<name>: <fixed-phrase> — <sanitised-suffix>` grammar is
+therefore violable through the same two code points on the failure arms, not
+only on the success echo. Two further confirmations measured in the same pass,
+on surfaces landed after this report was filed: `normaliseLiteralValueLineBreaks`
+(`src/diagnostics/diagnostic.ts`, bugs 0105 / 0250) returns byte identity on
+`a\u2028b` because its predicate is `[\r\n]`, and `renderHostDerivedTail`
+(`src/diagnostics/placeholder.ts`, bug 0258) leaves `a\u2028b` intact while
+cutting `a\nb` at the first U+000A. Neither discharges this report; both decide
+these two code points the same way §Fix (0.257.0) below ratifies.
 
 ## Expected behaviour
 
@@ -385,3 +405,135 @@ terminator is accepted. The code and the `a10` pin follow the text.
   `tests/helpers/e2e-s1.ts`, and direct calls on `classifyModelContent` and
   `renderEmptyShortCircuit`; deleted after the run. Every `path:line` above was
   re-verified at this HEAD.
+
+## Fix (0.257.0)
+
+**Spec authority.** This report asked for an adjudication, not an
+implementation, and the adjudication was made by operator ruling. The ruling is
+recorded verbatim because it, not this record's reading of it, is the authority
+the resolution rests on:
+
+> OPERATOR RULING (fifteenth set, ruling 3): 0091 = disposition 2 — state the
+> closure as deliberate. Rule1's sanitisation set is the CR/LF class only, by
+> design; U+2028 and U+2029 are ordinary characters on every render surface
+> (echo values, notes, failure notes, ambiguous suffixes, host-derived tails —
+> the six accreted sites' posture is ratified). One normative sentence states
+> this where rule1 is defined, with mirrors per DIAG-2 only if that definition
+> lives on a registry page (expect not). The JS-line-terminator forging vector
+> (the /^Running \//gm 2-vs-1 row) is recorded as the ACCEPTED RESIDUAL — real
+> only for downstream consumers honouring JS line terminators, none shipped; a
+> real consumer face reopens it as a new filing. The two landed explicit
+> deferrals (their fix records deferred these codepoints to 0091) get dated
+> coordination notes pointing at this disposition (version 0.257.0). Disposition 1
+> (widen) is REJECTED — it would flip witness a10, change behaviour at d6/d7's
+> surfaces, and contradict six landed sites.
+
+- What shipped:
+  - `docs/spec_topics/binder/defaulting-system-note-echo.md` — the one normative
+    sentence-set, appended inline to rule 1's own paragraph (the physical line
+    opening `1. **Single line.**`, line 18), which is where rule 1 is defined.
+    It states four things: the six-ASCII closure is deliberate, not an
+    oversight; the replacement sub-step's line terminators are U+000A, U+000D
+    and the U+000D U+000A pair, and rule 1 together with rule 3's one-line
+    contract is defined against that CR/LF class only; U+2028 and U+2029 are
+    ordinary characters for these rules and implementations MUST NOT split on
+    them, MUST NOT strip them, and MUST NOT promote them into U+000A, matching
+    the posture the "Category 6 line-separator scope" bullet already states in
+    [Placeholder rendering b — Edge cases](../spec_topics/diagnostics/placeholder-rendering-b.md#edge-cases);
+    and the accepted residual named below. The append is **inline** by design:
+    the page's total line count is 82 before and after, so every corpus citation
+    into lines 19–82 of that page is byte-stable.
+  - No mirror was written. Per DIAG-2 a mirror is owed only where the definition
+    lives on a registry page; rule 1 is defined on a binder spec-topic page, so
+    the ruling's mirror condition ("expect not") is not met. No `theta/*` code
+    is added, removed or reworded and no registry row moves.
+  - `tests/b0091-rule1-ascii-terminator-closure-gate.test.ts` — new six-cell
+    conformance oracle over the edited page (cells 1–4 the prose obligations,
+    cell 5 an anti-widening ratchet on the unchanged six-character enumeration,
+    cell 6 the behavioural mirror on both code points).
+  - This document — §Reproduction gains block (d′); §Status becomes fixed.
+  - Two dated coordination notes (below, and in the two deferring records).
+- **Zero source bytes changed.** `git diff --name-only HEAD -- src` is empty.
+  Disposition 2 ratifies the implementation as it stands; the code was already
+  conformant, as §Actual behaviour states.
+- Gates: witness `tests/b0091-rule1-ascii-terminator-closure-gate.test.ts`
+  6/6 green (RED 4/6 at the pre-fix bytes, cells 1–4, restored byte-exact —
+  blob `18c7e769` before and after the revert probe); full default suite
+  `npm test` **428 files / 9050 tests passed**; `npm run typecheck` clean;
+  `npm run lint` clean. No live test owed or run: no runtime path moved.
+- Review: 2 rounds. Round 1 (deep) — one `fidelity` finding, that the forward
+  citations to "§Fix (0.257.0)" and the two coordination notes' "is fixed" claims
+  dangled while §Fix still read "Not yet decided"; fixed by this record. One
+  non-blocking `test` residual (the behavioural mirror pinned U+2028 only),
+  fixed by adding the U+2029 assertion to cell 6. Round 2 (fast) — clean; it
+  re-ran the gates independently and re-derived the record's own claims (82-line
+  page count, empty `src` diff, the `a7`/`a10` blob) against the tree. Round 2
+  raised one `prose` residual against an earlier draft of this bullet, which
+  asserted its verdict before the round had run; this wording records the
+  sequence instead.
+- Verification: SOLID. Witness reds at the pre-fix bytes and greens at the fix
+  bytes with a hash-verified byte-exact restore; default suite green; live not
+  owed and not run, with the zero-src-diff claim verified rather than asserted;
+  typecheck and lint clean; the locked cells `a7`/`a10`
+  (`tests/echo-value-rule1-sanitisation.test.ts`) byte-identical to the baseline
+  (blob `01e06ca4` on both sides).
+- Residuals:
+  1. **The accepted residual (ruling, verbatim scope).** The forging observable
+     of §Reproduction row (b) 3 stands: a downstream consumer that honours the
+     JavaScript line-terminator set reads two anchored `Running /` matches on
+     one note's content, the second a complete fabricated echo for a theta that
+     never ran. It is accepted because it is real only for such a consumer and
+     none ships — Pi's own `theta-system-note` surface is not one, and this
+     report's §Non-goals already declined to measure any particular renderer.
+     **Reopen condition:** a real consumer face honouring JS line terminators
+     reopens this as a **new filing**, not as a reopening of 0091.
+  2. **`placeholder-rendering-b.md`'s category-6 parenthetical is false at
+     HEAD, and is left standing.** §Fix constraint 6 required a resolution
+     citing that precedent to re-check the parenthetical "authors cannot
+     introduce them through a regular string literal". It was re-checked and it
+     is false: §Reproduction rows (c) 1 and (c) 2 measure a `\u{2028}` escape
+     and a raw U+2028 both lexing clean inside a theta string literal. It was
+     **not edited**: the ruling authorises one sentence where rule 1 is defined,
+     and that page is a different rule's definition site. The precedent's *rule*
+     is unaffected either way — constraint 6 concedes this — and the new
+     cross-reference cites the posture, which is true, not the justification,
+     which is not. **Owed as a separate filing**: a one-clause correction of
+     that parenthetical on its own page.
+  3. **The filing's §Affected and §Provenance line numbers are stale at HEAD**
+     and are deliberately not refreshed: per `docs/STYLE.md` §Citations,
+     `docs/bugs/**` is outside the citation gate in both directions and a bug
+     document is a dated record of one HEAD. A reader resolving a stale position
+     reads by symbol. The measured drift is recorded in the adjudication pass's
+     working notes, not here.
+- Discharge notes appended: two dated coordination notes, both pointing at this
+  disposition — bug
+  [0103](./0103-binder-description-argument-hint-lines-forgeable-by-newline.md)
+  (fixed 0.131.0; its §Fix alternatives item (b) and *Residuals* item 4 deferred
+  these code points here) and bug
+  [0209](./0209-binder-description-hint-all-break-value-emits-labelled-empty-line.md)
+  (fixed 0.143.0; its §Non-goals and *Pinned dispositions* deferred them here).
+  Both deferrals are discharged in the direction those records already assumed;
+  neither record's measurements or witness cells move.
+- Pinned dispositions / non-goals:
+  - **Disposition 1 is rejected, and cell 5 of the new witness is the ratchet.**
+    Rule 1's enumeration stays exactly {U+0009, U+000A, U+000B, U+000C, U+000D,
+    U+0020}; the "exactly the ASCII whitespace set" framing, the `\s`-class
+    prohibition and the U+00A0 clause are byte-unchanged. A future edit adding
+    U+2028 or U+2029 to that set reds cell 5 deliberately.
+  - `src/binder/system-note.ts`, `src/render/argument-echo.ts`,
+    `src/render/query-render.ts` and
+    `src/extension/production-theta-producer.ts` are untouched. QRY-6's
+    by-reference clause (`docs/spec_topics/query/query-forms.md`) needs no edit:
+    it points at rule 1's set, and the set did not move.
+  - The two §Reproduction row (d) outcomes do **not** flip:
+    `classifyModelContent({ message: "\u2028" })` stays `present` and
+    `renderEmptyShortCircuit("\u2028")` stays `undefined`. Block (d′)'s
+    `renderFailureNote` and `renderAmbiguousSuffix` likewise stay as measured —
+    the ruling ratifies those two surfaces rather than changing them.
+  - `tests/echo-value-rule1-sanitisation.test.ts` cells `a7` and `a10` are
+    byte-unchanged and are now anchored by normative text rather than by a test
+    comment, which is what §Why it matters item 2 asked for.
+  - Bug [0060](./0060-binder-parameters-line-shape-violable-by-embedded-newlines.md)
+    is untouched, as §Non-goals requires: its renderer has no rule-1 pass on any
+    path, so nothing in this resolution reaches it.
+

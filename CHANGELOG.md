@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.257.0]
+
+### Fixed
+
+- Bug 0091: rule 1's CR/LF-only sanitisation set is now stated as a
+  deliberate closure (operator ruling, disposition 2): one normative
+  sentence appended inline to rule 1's paragraph
+  (`docs/spec_topics/binder/defaulting-system-note-echo.md:18`; page stays
+  82 lines) — the set is the CR/LF class by codepoint; U+2028/U+2029 are
+  ordinary characters on every render surface (MUST NOT split/strip/
+  promote); the JS-line-terminator forging vector is the recorded accepted
+  residual. Rows d6/d7 (renderFailureNote, renderAmbiguousSuffix) folded in
+  as confirmations; dated coordination notes answer 0103's and 0209's
+  explicit deferrals. No DIAG-2 mirror owed (rule 1 is not on a registry
+  page). New oracle `tests/b0091-rule1-ascii-terminator-closure-gate.test.ts`
+  (6 cells: prose conformance + anti-widening ratchet + behavioural mirror;
+  4 red at old bytes). a7/a10 byte-identical. Docs+tests only; no live owed.
 ## [0.256.0]
 
 ### Fixed

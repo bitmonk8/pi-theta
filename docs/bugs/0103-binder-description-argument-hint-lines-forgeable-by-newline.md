@@ -1096,3 +1096,41 @@ contains the author's non-whitespace content in order, on one physical line.
   unchanged; `sanitizeSystemNoteSubstring` and `src/render/argument-echo.ts`
   unchanged; no rule-1 set widening (0091); no diagnostic added, removed or
   reworded.
+
+## Coordination note (2026-08-23, at bug 0091's fix, v0.257.0)
+
+[0091](./0091-rule1-set-excludes-u2028-u2029-line-breaks.md) is fixed, so the
+deferral this record carries is discharged and its subject is now settled prose.
+
+This record's §Fix (0.131.0) alternatives-considered item (b) deferred to 0091
+on the ground that `sanitizeSystemNoteSubstring`'s "character set is 0091's open
+subject, which would couple this line's shape to that adjudication", and its
+*Residuals* item 4 pinned "U+2028 / U+2029 unchanged" as a §Non-goals
+obligation. Bug 0091 resolved by **disposition 2**: rule 1's set stays closed at
+the six ASCII characters, and
+`docs/spec_topics/binder/defaulting-system-note-echo.md` rule 1 now states
+normatively that the closure is deliberate — the replacement sub-step is defined
+over the CR/LF class (U+000A, U+000D, and the U+000D U+000A pair) only, and
+U+2028 and U+2029 are ordinary characters that implementations MUST NOT split
+on, MUST NOT strip, and MUST NOT promote into U+000A. Disposition 1 (widening
+the set) was rejected.
+
+Consequences for this record, all confirming rather than moving it:
+
+- Item (b)'s coupling worry is spent. The set did not move, so the shape of this
+  line was never coupled to the adjudication in fact; the reason to keep a
+  module-local transform rather than share `sanitizeSystemNoteSubstring` now
+  rests on its first two stated grounds alone (byte-identity for a break-free
+  value, and channel separation), both of which are unaffected.
+- *Residuals* item 4 stands as measured and is no longer a deferral. Its
+  `[\r\n]`-only predicate is now the corpus-wide posture rather than a local
+  accident, and its re-measured row (one `Description:` line, `phys 17`) needs
+  no revisit.
+- This record's §Related entry still marks 0091 **open**, and stays that way.
+  Per `docs/STYLE.md` §Citations a bug document is a dated record of one HEAD
+  and is not rewritten in place; this dated note is the update, and a reader
+  resolving 0091's status reads 0091's own §Status line.
+- Nothing in this record is edited beyond this note. No cell of
+  `tests/binder-prompt-description-hint-line-forgery.test.ts` moves, and
+  `normaliseParamLineBreaks` and `normalisePromptTextLineBreaks` are untouched
+  by 0091's fix, which changed prose only and no source byte.
