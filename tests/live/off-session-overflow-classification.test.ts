@@ -221,10 +221,16 @@ describe("bug 0182 (live) — a real off-session overflow reaches the author's c
       // rendered `UNEXPECTED_OK` proves the off-session query ran, succeeded,
       // and that the `match` dispatched — on the identical code path the
       // overflow cell drives.
+      //
+      // Drive discriminators are ANSWERS to task questions over the theta's own
+      // computed text -- deterministic content a degraded plain-prompt run
+      // cannot produce. A verbatim-echo demand ("reply with exactly this") reads
+      // as prompt injection to current models and draws refusals: the
+      // sentinel-refusal class filed as bug 0243.
       const driven = await driveVerdict({
         provider,
         stem: "ovfctl",
-        queryText: "Reply with exactly the word: ok",
+        queryText: "What is 337 plus 455? Answer with the number only.",
       });
 
       expect(

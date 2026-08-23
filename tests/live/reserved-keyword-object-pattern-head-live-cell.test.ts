@@ -73,6 +73,12 @@ const RESERVED_STEM = "cellareservedhead";
 const DECLARED_STEM = "celladeclaredhead";
 
 /** The arm value the declared-head sibling's `match` selects, echoed outbound. */
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243. `${label}` stays in the rendered text as the selected-arm
+// context (asserted off the outbound render, not the reply).
 const DECLARED_LABEL = "declaredheadarm";
 
 /**
@@ -89,7 +95,7 @@ function objectPatternTheta(head: string, label: string): string {
       "schema Q { a: integer }",
       "let d = Q { a: 1 }",
       `let label = match d { ${head} { a: 1 } => "${label}", _ => "other" }`,
-      "@`Reply with exactly this word and nothing else: ${label}`",
+      "@`Selected arm ${label}. What is 327 plus 572? Answer with the number only.`",
     ].join("\n") + "\n"
   );
 }

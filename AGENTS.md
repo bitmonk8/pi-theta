@@ -121,6 +121,15 @@ vacuous. Deterministic observables:
   (stochastic — only assert against a fixture-pinned sentinel). See the header
   of `tests/live/hardening/probe-harness.ts` for the full channel inventory.
 
+Do not discriminate a drive with a verbatim-echo demand (`Reply with exactly
+…`, `Say exactly …`, a trailing `and nothing else`). Current models read that
+shape as prompt injection and refuse it, so the reply is a coin-flip, not an
+observable (bug 0243). Use a task-framed form instead: fixed-pair arithmetic
+(`What is 263 plus 514? Answer with the number only.`) when the drive only
+needs to prove a real turn ran, or compute-from-inline-value (a question over
+a theta-computed number or field) when the discriminator must also prove the
+theta's own computation reached the prompt.
+
 ### Verify both directions when adding or strengthening an assertion
 
 A live assertion that cannot red is worthless. After strengthening, prove the

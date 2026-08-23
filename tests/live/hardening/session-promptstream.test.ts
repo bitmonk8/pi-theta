@@ -16,10 +16,13 @@
 // original DIVERGENCE rationale does not hold.
 //
 // The load-bearing SLSH-2/QTL-1 claim ("both queries dispatch a user-visible
-// turn") is pinned on `userTexts` (model-independent), NOT on the model obeying
-// "Reply with exactly" — live models do not reliably obey that, so asserting
-// `assistantText` contains the sentinel is flaky. `assistantText` is only
-// checked non-empty to confirm each turn streamed.
+// turn") is pinned on `userTexts` (model-independent), NOT on the model's
+// reply text. Both queries are phrased as task questions (arithmetic over a
+// fixed pair) rather than a verbatim-echo demand: live models do not reliably
+// obey "reply with exactly this" — it reads as prompt injection and draws
+// refusals (the sentinel-refusal class, bug 0243) — so asserting
+// `assistantText` contains a demanded token would be flaky either way.
+// `assistantText` is only checked non-empty to confirm each turn streamed.
 //
 // NOTE (QRY-19): the FIRST query must NOT be a bare non-tail `@`-query — that is
 // a `theta/parse/discarded-query-result` (must-use Result discarded) ERROR that
@@ -54,8 +57,8 @@ describe("prompt-mode user-visible streaming for every query (SLSH-2 / QTL-1)", 
             "description: twostream",
             "mode: prompt",
             "---",
-            "let _ = @`Reply with exactly: AAA`",
-            "@`Reply with exactly: BBB`",
+            "let _ = @`What is 384 plus 215? Answer with the number only.`",
+            "@`What is 456 plus 329? Answer with the number only.`",
           ]),
         ],
         drives: ["/twostream"],
@@ -70,15 +73,16 @@ describe("prompt-mode user-visible streaming for every query (SLSH-2 / QTL-1)", 
         // BOTH queries dispatched a real user-visible turn (deterministic,
         // model-independent): the exact theta-computed prompt text appears as a
         // user turn. Pre-fix, the trailing query ran off-session (no turn).
-        expect(t.userTexts.join("\n")).toContain("Reply with exactly: AAA");
-        expect(t.userTexts.join("\n")).toContain("Reply with exactly: BBB");
+        expect(t.userTexts.join("\n")).toContain("What is 384 plus 215?");
+        expect(t.userTexts.join("\n")).toContain("What is 456 plus 329?");
         // Guard the QRY-19 fall-through regression: an unregistered slash would
         // send the literal "/twostream" to the model instead.
         expect(t.userTexts.join("\n")).not.toContain("/twostream");
         // Each dispatched turn streamed a non-empty reply into the transcript.
-        // (NOT asserting the sentinel content — live models do not reliably obey
-        // "Reply with exactly", so a content assert is flaky; dispatch is the
-        // SLSH-2/QTL-1 contract and is pinned by userTexts above.)
+        // (NOT asserting the reply content — a verbatim-echo demand reads as
+        // prompt injection and live models do not reliably obey it (bug 0243), so
+        // a content assert would be flaky; dispatch is the SLSH-2/QTL-1 contract
+        // and is pinned by userTexts above.)
         expect(t.assistantText.length).toBeGreaterThan(0);
         expect(t.error).toBeUndefined();
       } finally {

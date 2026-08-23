@@ -132,15 +132,15 @@ const PROBE = [
   "---",
   'let r = invoke("./cellbcmoffender.theta")',
   "let verdict = match r {",
-  '  Ok(v) => "OFFENDER LOADED",',
-  '  Err(e) => "OFFENDER REFUSED"',
+  '  Ok(v) => "245",',
+  '  Err(e) => "846"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe reported code ${verdict}. What is that code plus 100? Answer with the number only.`",
   "",
 ].join("\n");
 
-const REFUSED = "OFFENDER REFUSED";
-const LOADED = "OFFENDER LOADED";
+const REFUSED = "946";
+const LOADED = "345";
 // The drive discriminator is the ANSWER to the theta's own arithmetic
 // prompt: deterministic content a degraded plain-prompt run (the slash
 // falling through as a user prompt) cannot produce. A verbatim-echo demand

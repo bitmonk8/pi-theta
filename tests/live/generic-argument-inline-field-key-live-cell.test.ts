@@ -56,7 +56,7 @@
 // regardless (`./harness`), which is the AGENTS.md requirement for any
 // in-process harness that can reach the RFC-0006 child launch.
 //
-// Token cost: ONE live turn (the conformant sibling's sentinel echo). The BAD
+// Token cost: ONE live turn (the conformant sibling's task-question answer). The BAD
 // half is registration-only.
 //
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
@@ -146,7 +146,12 @@ const BAD = [
   "",
 ].join("\n");
 
-const GOOD_SENTINEL = "GENERICARGKEY0233LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "877";
 
 /**
  * GOOD — the conformant generic sibling: `array<{ab: string}>` in place of
@@ -158,7 +163,7 @@ const GOOD = [
   "mode: prompt",
   "---",
   "let ok: array<{ab: string}> | null = null",
-  "@`Reply with exactly this text and nothing else, no punctuation: " + GOOD_SENTINEL + "`",
+  "@`What is 526 plus 351? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -215,7 +220,7 @@ describe("bug 0233 live: an inline field key inside a generic argument is refuse
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0233 CONTROL and nothing else.`",
+          "@`What is 172 plus 787? Answer with the number only.`",
           "",
         ].join("\n"),
       },

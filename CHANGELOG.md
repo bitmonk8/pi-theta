@@ -6,7 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [0.219.0]
+## [0.220.0]
+
+### Fixed
+
+- **Bug 0243**: live drive discriminators of the shape ``@`Reply with exactly
+  this text and nothing else: <token>` `` read as prompt injection to current
+  models and drew refusals — 14 logged instances across 8 cells in one
+  campaign, and 47 files carrying 95 occurrences of the template. Every
+  carrying site across the census is now a task-framed discriminator: fixed-pair
+  arithmetic where the drive only proves a real turn ran, and
+  compute-from-inline-value wherever the sentinel was interpolated, so the
+  expected value stays computable only from theta-supplied content and every
+  vacuity guard survives. Each cell's subject — which theta registers, which
+  refusal fires, which note appears — is untouched: refusal halves,
+  registration halves, empty-capture gates and note assertions are
+  byte-unchanged, and the two H9a typed-query stdout anchors are byte-identical.
+  `AGENTS.md` now warns against the verbatim-echo discriminator beside its
+  deterministic-channel inventory, so the template does not regrow. Tests and
+  fixtures only; `src/` unchanged. Every converted file re-ran green live under
+  the lock, and the discriminator's red path is proven by neutralising one
+  theta-computed verdict.
 
 ### Fixed
 

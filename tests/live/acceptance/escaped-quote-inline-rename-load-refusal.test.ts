@@ -92,7 +92,7 @@ const CLEAN = [
   // let-rhs-type-mismatch hazard (bug 0130, TYPE-5) -- the cell's subject is
   // the field spelling, not the initialiser shape.
   "let x: {wire: string} | null = null",
-  "@`Reply with exactly this text and nothing else, no punctuation: H9A CLEAN SENTINEL 0229`",
+  "@`What is 372 plus 254? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -126,16 +126,21 @@ const PROBE = [
   "---",
   'let r = invoke("./escoffender.theta")',
   "let verdict = match r {",
-  '  Ok(v) => "OFFENDER LOADED",',
-  '  Err(e) => "OFFENDER REFUSED"',
+  '  Ok(v) => "214",',
+  '  Err(e) => "815"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe reported code ${verdict}. What is that code plus 1000? Answer with the number only.`",
   "",
 ].join("\n");
 
-const REFUSED = "OFFENDER REFUSED";
-const LOADED = "OFFENDER LOADED";
-const CLEAN_SENTINEL = "H9A CLEAN SENTINEL 0229";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const REFUSED = "1815";
+const LOADED = "1214";
+const CLEAN_SENTINEL = "626";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {

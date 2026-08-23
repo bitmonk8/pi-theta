@@ -35,7 +35,7 @@
 //       NOT register, and its note must carry `theta/parse/fn-arity-too-many`
 //       with the registry *Message*.
 //   (b) ADMITTED (control) — the same callee called with the correct arity
-//       (`f(1)`) registers and DRIVES a real turn to a sentinel echo.
+//       (`f(1)`) registers and DRIVES a real turn to a task-question answer.
 //
 // DIAG-4: every asserted message half is READ from
 // docs/spec_topics/diagnostics/code-registry-parse.md through `parseRegistry` /
@@ -53,7 +53,7 @@
 // harness sets both #subagent-child-pins at module scope regardless
 // (`./harness`).
 //
-// Token cost: ONE live turn (the admitted control's sentinel echo). The
+// Token cost: ONE live turn (the admitted control's task-question answer). The
 // refused half is registration-only, so no drive is attempted and no tokens
 // are spent on it.
 //
@@ -144,11 +144,16 @@ const REFUSED = [
   "",
 ].join("\n");
 
-const ADMITTED_SENTINEL = "FNCALLARITY0131LIVEADMITTED";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const ADMITTED_SENTINEL = "589";
 
 /**
  * ADMITTED (control) — the same callee called at the correct arity. A plain
- * sentinel-echo prompt rather than a typed query, so no AJV schema is
+ * task-question prompt rather than a typed query, so no AJV schema is
  * registered under a name this extension host's other document also declares.
  */
 const ADMITTED = [
@@ -157,7 +162,7 @@ const ADMITTED = [
   "---",
   "fn f(p: integer): integer { 1 }",
   "let r = f(1)",
-  "@`Reply with exactly the token " + ADMITTED_SENTINEL + " and nothing else.`",
+  "@`What is 371 plus 218? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -217,7 +222,7 @@ describe("bug 0131 live: a same-file `fn` call with too many arguments does not 
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0131 CONTROL and nothing else.`",
+          "@`What is 394 plus 545? Answer with the number only.`",
           "",
         ].join("\n"),
       },

@@ -44,8 +44,8 @@
 // module scope regardless (`./harness`), the AGENTS.md requirement for any
 // in-process harness that can reach the RFC-0006 child launch.
 //
-// Token cost: ONE live turn (the CLEAN sibling's typed query + sentinel
-// echo). The OFFENDER half is registration-only.
+// Token cost: ONE live turn (the CLEAN sibling's typed query + task-question
+// answer). The OFFENDER half is registration-only.
 //
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
 // capture (`thetaOwnedStderrLines`) must be empty.
@@ -88,7 +88,12 @@ const OFFENDER = [
   "",
 ].join("\n");
 
-const CLEAN_SENTINEL = "H8A CLEAN SENTINEL 0231";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const CLEAN_SENTINEL = "857";
 
 /**
  * CLEAN -- the case-fixed sibling: `zs` in place of `Zs`, `a` in place of
@@ -103,7 +108,7 @@ const CLEAN = [
     'one object of the shape {"a": 1, "zs": "' +
     CLEAN_SENTINEL +
     '"} and nothing else, no other text.`?',
-  "@`Reply with exactly this text and nothing else, no punctuation: " + CLEAN_SENTINEL + "`?",
+  "@`What is 274 plus 583? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -186,7 +191,7 @@ describe("bug 0231 live: a well-formed field's case violation behind a malformed
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0231 CONTROL and nothing else.`",
+          "@`What is 449 plus 540? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -237,9 +242,9 @@ describe("bug 0231 live: a well-formed field's case violation behind a malformed
       ).toBeDefined();
 
       // "still drives": one real live turn, proving the case-fixed sibling's
-      // typed query completes against a live model and echoes the sentinel
-      // planted through the literal array element, no query on the
-      // generic-argument annotation itself.
+      // typed query completes against a live model and answers the paired
+      // arithmetic question, no query on the generic-argument annotation
+      // itself.
       const driven = await driveSlashCaptureTurn(handle, "/b0231livegood");
       expect(
         driven.text,

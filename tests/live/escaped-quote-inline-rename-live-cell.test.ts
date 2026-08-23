@@ -41,7 +41,7 @@
 // regardless (`./harness`), which is the AGENTS.md requirement for any
 // in-process harness that can reach the RFC-0006 child launch.
 //
-// Token cost: ONE live turn (the GOOD sibling's typed query + sentinel echo).
+// Token cost: ONE live turn (the GOOD sibling's typed query + task-question answer).
 // The BAD half is registration-only.
 //
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
@@ -134,7 +134,13 @@ const BAD = [
   "",
 ].join("\n");
 
-const GOOD_SENTINEL = "ESCAPEDQUOTEINLINERENAME0229LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "927";
+const GOOD_EXPECTED = "1027";
 
 /**
  * GOOD — the escape-free sibling: `{wire: string}` in place of
@@ -148,7 +154,7 @@ const GOOD = [
   "let answer: {wire: string} = @`Set the field wire to exactly the text " +
     GOOD_SENTINEL +
     " and return only that JSON object, nothing else.`?",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${answer.wire}`?",
+  "@`The prior step produced the number ${answer.wire}. What is that number plus 100? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -201,7 +207,7 @@ describe('bug 0229 live: an inline "as \\"w\\\\"x\\"" escaped-quote wire-name re
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0229 CONTROL and nothing else.`",
+          "@`What is 285 plus 644? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -259,9 +265,9 @@ describe('bug 0229 live: an inline "as \\"w\\\\"x\\"" escaped-quote wire-name re
       const driven = await driveSlashCaptureTurn(handle, "/b0229livegood");
       expect(
         driven.text,
-        "the live model reply for the escape-free sibling did not contain the deterministic " +
-          "sentinel echoed through `answer.wire`. Reply: " + JSON.stringify(driven.text),
-      ).toContain(GOOD_SENTINEL);
+        "the live model reply for the escape-free sibling did not contain the arithmetic " +
+          "answer computed from the value carried in `answer.wire`. Reply: " + JSON.stringify(driven.text),
+      ).toContain(GOOD_EXPECTED);
       expect(
         driven.systemNotes,
         "the driven turn over the escape-free sibling appended a theta-system-note (a " +

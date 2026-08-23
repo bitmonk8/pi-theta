@@ -53,7 +53,7 @@
 // harness sets both AGENTS.md #subagent-child-pins at module scope regardless
 // (`./harness`).
 //
-// Token cost: ONE live turn (the registered control's sentinel echo). Half (a)
+// Token cost: ONE live turn (the registered control's task-question answer). Half (a)
 // is registration-only, so no drive is attempted and no tokens are spent on it.
 //
 // NO SILENT SKIPPING: a missing live provider/model fails loudly through
@@ -157,18 +157,24 @@ const REFUSED = [
   "",
 ].join("\n");
 
-const CONTROL_SENTINEL = "IDXSENTINEL0135LIVECONTROL";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const CONTROL_SENTINEL = "587";
 
 /**
- * REGISTERED (control) — a clean theta in the same workspace, driven to a
- * deterministic sentinel. A plain sentinel echo rather than a typed query, so no
- * AJV schema is registered under a name the other planted document declares.
+ * REGISTERED (control) — a clean theta in the same workspace, driven to the
+ * answer of a fixed-pair arithmetic question. A plain task-question prompt
+ * rather than a typed query, so no AJV schema is registered under a name the
+ * other planted document declares.
  */
 const CONTROL = [
   "---",
   "mode: prompt",
   "---",
-  "@`Reply with exactly the token " + CONTROL_SENTINEL + " and nothing else.`",
+  "@`What is 405 plus 182? Answer with the number only.`",
   "",
 ].join("\n");
 

@@ -110,7 +110,7 @@ const CLEAN = [
   "---",
   "fn mk(): integer { 1 }",
   "let xs = par for i in [1, 2] { 1 }",
-  "@`Reply with exactly this text and nothing else, no punctuation: H9A NFPF CLEAN SENTINEL`",
+  "@`What is 463 plus 122? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -127,16 +127,21 @@ const PROBE = [
   "---",
   'let r = invoke("./nfpfoffender.theta")',
   "let verdict = match r {",
-  '  Ok(v) => "NFPF OFFENDER LOADED",',
-  '  Err(e) => "NFPF OFFENDER REFUSED"',
+  '  Ok(v) => "573",',
+  '  Err(e) => "874"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe reported code ${verdict}. What is that code plus 1000? Answer with the number only.`",
   "",
 ].join("\n");
 
-const REFUSED = "NFPF OFFENDER REFUSED";
-const LOADED = "NFPF OFFENDER LOADED";
-const CLEAN_SENTINEL = "H9A NFPF CLEAN SENTINEL";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const REFUSED = "1874";
+const LOADED = "1573";
+const CLEAN_SENTINEL = "585";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {

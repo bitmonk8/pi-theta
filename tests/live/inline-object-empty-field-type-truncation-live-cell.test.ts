@@ -70,7 +70,7 @@
 // module scope regardless (`./harness`), the AGENTS.md requirement for any
 // in-process harness that can reach the RFC-0006 child launch.
 //
-// Token cost: ONE live turn (the CLEAN sibling's typed query + sentinel echo).
+// Token cost: ONE live turn (the CLEAN sibling's typed query + task-question answer).
 // Parts (1) and (2) are registration-only.
 //
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
@@ -161,7 +161,12 @@ const GOOD_PARAMS = [
   "",
 ].join("\n");
 
-const CLEAN_SENTINEL = "H8A CLEAN SENTINEL 0237";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const CLEAN_SENTINEL = "777";
 
 /**
  * CLEAN -- the case-clean annotation sibling: every entry spells a type and
@@ -177,7 +182,7 @@ const CLEAN = [
     'one object of the shape {"a": 1, "zs": "' +
     CLEAN_SENTINEL +
     '"} and nothing else, no other text.`?',
-  "@`Reply with exactly this text and nothing else, no punctuation: " + CLEAN_SENTINEL + "`?",
+  "@`What is 462 plus 315? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -330,7 +335,8 @@ describe("bug 0237 live: a params: field whose inline object type has an empty t
 
       // "still drives": one real live turn, proving the case-clean sibling's
       // typed query over a two-field inline object inside a generic argument
-      // completes against a live model and echoes the sentinel.
+      // completes against a live model and answers the paired arithmetic
+      // question.
       const driven = await driveSlashCaptureTurn(handle, "/b237liveclean");
       expect(
         driven.text,

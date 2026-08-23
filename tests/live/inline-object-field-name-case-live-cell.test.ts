@@ -37,7 +37,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` -- but the harness
 // sets both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the GOOD sibling's typed query + sentinel echo).
+// Token cost: ONE live turn (the GOOD sibling's typed query + task-question answer).
 // The BAD half is registration-only -- it must not register, so no drive is
 // attempted and no tokens are spent on it.
 //
@@ -122,7 +122,13 @@ const BAD = ["---", "mode: prompt", "---", "let r: { Ys: string } | null = null"
   "\n",
 );
 
-const GOOD_SENTINEL = "BINDINGCASE0154LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "913";
+const GOOD_EXPECTED = "1013";
 
 /**
  * GOOD -- the lowercase-first sibling: `{ ys: string }` instead of
@@ -136,7 +142,7 @@ const GOOD = [
   "let answer: {ys: string} = @`Set the field ys to exactly the text " +
     GOOD_SENTINEL +
     " and return only that JSON object, nothing else.`?",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${answer.ys}`?",
+  "@`The prior step produced the number ${answer.ys}. What is that number plus 100? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -191,7 +197,7 @@ describe("bug 0154 live: an ill-cased inline object field name is refused at reg
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0154 CONTROL and nothing else.`",
+          "@`What is 350 plus 629? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -247,9 +253,9 @@ describe("bug 0154 live: an ill-cased inline object field name is refused at reg
       expect(
         driven.text,
         "the live model reply for the lowercase-first sibling did not contain the " +
-          "deterministic sentinel echoed through `answer.ys`. Reply: " +
+          "arithmetic answer computed from the value carried in `answer.ys`. Reply: " +
           JSON.stringify(driven.text),
-      ).toContain(GOOD_SENTINEL);
+      ).toContain(GOOD_EXPECTED);
       expect(
         driven.systemNotes,
         "the driven turn over the lowercase-first sibling appended a theta-system-note " +
@@ -304,7 +310,7 @@ const RESIDUE_UNDER_GENERIC = [
     'one object of the shape {"éLan": "' +
     RESIDUE_SENTINEL +
     '"} and nothing else, no other text.`?',
-  "@`Reply with exactly this text and nothing else, no punctuation: " + RESIDUE_SENTINEL + "`?",
+  "@`What is 815 plus 214? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -337,7 +343,7 @@ describe("a residue field-name key under a generic argument draws the raw-key re
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token RESIDUEGENERICCONTROL and nothing else.`",
+          "@`What is 904 plus 155? Answer with the number only.`",
           "",
         ].join("\n"),
       },

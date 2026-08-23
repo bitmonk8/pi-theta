@@ -36,7 +36,7 @@
 //
 // TWO HALVES:
 //   (1) ADMITTED — `let xs: array<array<A | B>> = [[A { a: 1 }, B { b: "x" }]]`
-//       registers and DRIVES a real turn to a sentinel echo. Absent the fix the
+//       registers and DRIVES a real turn to a task-question answer. Absent the fix the
 //       theta is refused outright (the inner literal takes `walkExpr`'s
 //       sink-less array route), so the drive is the direction the fix opens.
 //       This half is expected RED before the fix lands.
@@ -58,7 +58,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` — but the harness sets
 // both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the admitted theta's sentinel echo). The refused
+// Token cost: ONE live turn (the admitted theta's task-question answer). The refused
 // half is registration-only, so no drive is attempted and no tokens are spent
 // on it.
 //
@@ -176,14 +176,19 @@ const REFUSED = [
   "",
 ].join("\n");
 
-/** The deterministic echo token the admitted drive is pinned to — */
-const ADMITTED_SENTINEL = "NESTEDSINK0241LIVEADMITTED-";
+// The answer to the admitted drive's fixed-pair arithmetic question (316 +
+// 261). Drive discriminators are ANSWERS to task questions over the theta's
+// own computed text -- deterministic content a degraded plain-prompt run
+// cannot produce. A verbatim-echo demand ("reply with exactly this") reads as
+// prompt injection to current models and draws refusals: the sentinel-refusal
+// class filed as bug 0243.
+const ADMITTED_SENTINEL = "577";
 
 /**
  * ADMITTED — §Reproduction row A1: the binding annotation's element type
  * `array<A | B>` is the inner literal's sink under `grammar.md:221`'s fourth
  * bullet, so rule 3's union is admitted one level down exactly as it is flat. A
- * plain sentinel-echo prompt rather than a typed query, so no AJV schema is
+ * plain task-question prompt rather than a typed query, so no AJV schema is
  * registered under a name this extension host's other document also declares.
  */
 const ADMITTED = [
@@ -198,7 +203,7 @@ const ADMITTED = [
   "}",
   'let xs: array<array<A | B>> = [[A { a: 1 }, B { b: "x" }]]',
   "xs",
-  "@`Reply with exactly the token " + ADMITTED_SENTINEL + " and nothing else.`",
+  "@`What is 316 plus 261? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -253,7 +258,7 @@ describe("bug 0241 live: the nested element sink admits its rule-3 literal so th
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0241 CONTROL and nothing else.`",
+          "@`What is 617 plus 392? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -329,8 +334,8 @@ describe("bug 0241 live: the nested element sink admits its rule-3 literal so th
       const driven = await driveSlashCaptureTurn(handle, `/${STEM_ADMITTED}`);
       expect(
         driven.text,
-        "the live model reply for the nested-sink document did not contain the deterministic " +
-          "sentinel. Reply: " + JSON.stringify(driven.text),
+        "the live model reply for the nested-sink document did not contain the arithmetic " +
+          "answer to the drive's task question. Reply: " + JSON.stringify(driven.text),
       ).toContain(ADMITTED_SENTINEL);
       expect(
         driven.systemNotes,

@@ -205,21 +205,31 @@ const PROBE = [
   'let g = invoke("./pgood.theta")',
   'let o = invoke("./poffender.theta")',
   "let gv = match g {",
-  '  Ok(v) => "GOOD LOADED",',
-  '  Err(e) => "GOOD REFUSED"',
+  '  Ok(v) => "131",',
+  '  Err(e) => "132"',
   "}",
   "let ov = match o {",
-  '  Ok(v) => "OFFENDER LOADED",',
-  '  Err(e) => "OFFENDER REFUSED"',
+  '  Ok(v) => "241",',
+  '  Err(e) => "242"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${gv} ${ov}`",
+  // Both verdicts ride ONE code and ONE addition: asking for two sums in one
+  // turn leaves the model free to add the constant to only one of them, and a
+  // second query's answer does not reach the H9a capture. `100100` shifts the
+  // leading and trailing halves together, so neither expected value occurs in
+  // the prompt and only the two `match` arms can produce them.
+  "@`A load probe reported code ${gv}${ov}. What is that code plus 100100? Answer with the number only.`",
   "",
 ].join("\n");
 
-const GOOD_LOADED = "GOOD LOADED";
-const GOOD_REFUSED = "GOOD REFUSED";
-const OFFENDER_REFUSED = "OFFENDER REFUSED";
-const OFFENDER_LOADED = "OFFENDER LOADED";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_LOADED = "231";
+const GOOD_REFUSED = "232";
+const OFFENDER_REFUSED = "342";
+const OFFENDER_LOADED = "341";
 
 /**
  * The argument the CLEAN spawn binds to `p`, and the only answer a turn that

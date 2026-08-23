@@ -104,9 +104,15 @@ function inlineEnumFragment(): string {
   return template as string;
 }
 
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243. `sentinel` stays interpolated as a context token.
+
 /** An unrelated control `.theta`: no `params:` at all, plain untyped query. */
 function controlTheta(sentinel: string): string {
-  return ["---", "mode: prompt", "---", "@`Reply with exactly the token " + sentinel + " and nothing else.`", ""].join(
+  return ["---", "mode: prompt", "---", "@`Context token " + sentinel + ". What is 193 plus 856? Answer with the number only.`", ""].join(
     "\n",
   );
 }

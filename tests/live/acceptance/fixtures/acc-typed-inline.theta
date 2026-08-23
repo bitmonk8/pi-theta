@@ -11,5 +11,13 @@ mode: prompt
 // run's LAST assistant message — the `pi -p` stdout observable the suite
 // parses. The sentinel can only appear if the typed binding resolved Ok (past
 // AJV and past `?`).
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243. The rendering line below asks the model to REPORT the
+// already-validated value rather than parrot an attacker-chosen token, while
+// the anchor literal `ACC TYPED INLINE RESULT` stays byte-identical for
+// `noninteractive-acceptance.test.ts`'s `parseJsonAfterSentinel` call.
 let r: { ok: boolean, label: string } = @`Return an object: set ok to true and label to a short descriptive string.`?
-@`Reply with exactly this text and nothing else, no markdown, no code fences: ACC TYPED INLINE RESULT ${r}`?
+@`A tool produced this JSON value: ${r}. Report it on one line: the label ACC TYPED INLINE RESULT, one space, then the JSON value unchanged. Plain text, no code fences.`?

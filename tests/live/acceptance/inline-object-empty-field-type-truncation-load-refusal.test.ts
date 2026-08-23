@@ -127,10 +127,10 @@ const PROBE = [
   "---",
   'let r = invoke("./b237offender.theta")',
   "let verdict = match r {",
-  '  Ok(v) => "OFFENDER LOADED",',
-  '  Err(e) => "OFFENDER REFUSED"',
+  '  Ok(v) => "537",',
+  '  Err(e) => "738"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe reported code ${verdict}. What is that code plus 1000? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -157,8 +157,8 @@ const CLEAN = [
   "",
 ].join("\n");
 
-const REFUSED = "OFFENDER REFUSED";
-const LOADED = "OFFENDER LOADED";
+const REFUSED = "1738";
+const LOADED = "1537";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {

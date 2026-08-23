@@ -36,7 +36,7 @@
 //       registration cannot red on this fix's subject, since the outer code
 //       alone already refuses without it — so the note text is asserted too.
 //   (2) ADMITTED — `schema U = array<A | B>` + `let xs: U = [A { … }, B { … }]`
-//       registers and DRIVES a real turn to a sentinel echo. Absent this fix
+//       registers and DRIVES a real turn to a task-question answer. Absent this fix
 //       this theta is refused outright, so the drive is the direction the fix
 //       opens.
 //
@@ -48,7 +48,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` — but the harness sets
 // both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the admitted theta's sentinel echo). The refused
+// Token cost: ONE live turn (the admitted theta's task-question answer). The refused
 // half is registration-only, so no drive is attempted and no tokens are spent
 // on it.
 //
@@ -144,12 +144,17 @@ const REFUSED = [
   "",
 ].join("\n");
 
-const ADMITTED_SENTINEL = "ALIASSINK0157LIVEADMITTED";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const ADMITTED_SENTINEL = "699";
 
 /**
  * ADMITTED — the report's o1 subject: an alias of `array<A | B>` over a literal
  * of one `A` and one `B`. Rule 1 admits both elements against the unfolded
- * element type, so this loads and drives. A plain sentinel-echo prompt rather
+ * element type, so this loads and drives. A plain task-question prompt rather
  * than a typed query, so no AJV schema is registered under a name this
  * extension host's other document also declares.
  */
@@ -165,7 +170,7 @@ const ADMITTED = [
   "}",
   "schema U = array<A | B>",
   'let xs: U = [A { a: "x" }, B { b: "y" }]',
-  "@`Reply with exactly the token " + ADMITTED_SENTINEL + " and nothing else.`",
+  "@`What is 213 plus 486? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -223,7 +228,7 @@ describe("bug 0157 live: an alias-spelled array sink refuses with the element di
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0157 CONTROL and nothing else.`",
+          "@`What is 419 plus 490? Answer with the number only.`",
           "",
         ].join("\n"),
       },

@@ -33,7 +33,7 @@
 //       ANY reason.
 //   (2) GOOD — the literal-discriminator sibling (`kind: "cat"` / `kind:
 //       "dog"`) under the same `by kind` clause registers and DRIVES a real
-//       turn to a sentinel-echo completion — the valid-discriminator control
+//       turn to a task-question answer — the valid-discriminator control
 //       that proves the withheld gate does not disturb a genuinely valid
 //       explicit discriminator.
 //
@@ -41,7 +41,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` — but the harness sets
 // both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the GOOD sibling's typed query + sentinel echo).
+// Token cost: ONE live turn (the GOOD sibling's fixed-pair arithmetic answer).
 // The BAD half is registration-only — it must not register, so no drive is
 // attempted and no tokens are spent on it.
 //
@@ -137,13 +137,18 @@ const BAD = [
   "",
 ].join("\n");
 
-const GOOD_SENTINEL = "EMPTYOBJ0129LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "499";
 
 /**
  * GOOD — the literal-discriminator sibling: `kind: "cat"` / `kind: "dog"`
  * under the same explicit `by kind` clause, mirroring
  * `live-production-acceptance.test.ts` cell 78's `literalByFieldTheta`. A
- * plain sentinel-echo prompt rather than a typed query over `Animal` — a
+ * plain task-question prompt rather than a typed query over `Animal` — a
  * typed return keyed on the schema NAME `Animal` would register a second AJV
  * schema under a name the BAD document (parsed in the same extension host)
  * already declared, which is an unrelated collision this cell must not
@@ -157,7 +162,7 @@ const GOOD = [
   'schema Cat { kind: "cat", name: string }',
   'schema Dog { kind: "dog", name: string }',
   "schema Animal by kind = Cat | Dog",
-  "@`Reply with exactly the token " + GOOD_SENTINEL + " and nothing else.`",
+  "@`What is 152 plus 347? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -212,7 +217,7 @@ describe("bug 0129 live: an empty inline object field type under an explicit `by
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0129 CONTROL and nothing else.`",
+          "@`What is 176 plus 743? Answer with the number only.`",
           "",
         ].join("\n"),
       },

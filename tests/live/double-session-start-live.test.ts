@@ -95,6 +95,11 @@ const SHUTTING_DOWN_NOTE = `theta /${SURVIVING_SLASH_NAME}: extension shutting d
 const COLLISION_CODE = "theta/load/cross-format-collision";
 
 /** The one-token sentinel the planted theta's `@`-query pins (the outbound-render witness). */
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
 const OUTBOUND_SENTINEL = "LIVE-0021";
 
 /**
@@ -165,7 +170,7 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
         source: "project",
         stem: SURVIVING_SLASH_NAME,
         text: promptTheta(
-          `Reply with exactly the token ${OUTBOUND_SENTINEL} and nothing else.`,
+          `A supersession probe is labelled ${OUTBOUND_SENTINEL}. What is 359 plus 247? Answer with the number only.`,
         ),
       },
     ]);
@@ -274,7 +279,7 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
       writeFileSync(
         thetaPath,
         promptTheta(
-          `Reply with exactly the token ${OUTBOUND_SENTINEL}-EDIT and nothing else.`,
+          `A supersession probe is labelled ${OUTBOUND_SENTINEL}-EDIT. What is 415 plus 283? Answer with the number only.`,
         ),
         "utf8",
       );
@@ -295,7 +300,7 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
       writeFileSync(
         thetaPath,
         promptTheta(
-          `Reply with exactly the token ${OUTBOUND_SENTINEL}-POST and nothing else.`,
+          `A supersession probe is labelled ${OUTBOUND_SENTINEL}-POST. What is 528 plus 164? Answer with the number only.`,
         ),
         "utf8",
       );

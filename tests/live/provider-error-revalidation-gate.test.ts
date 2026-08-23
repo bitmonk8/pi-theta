@@ -243,10 +243,15 @@ describe("bug 0065 (live) — the `onResponse` re-validation gate for the anthro
       );
       const authOptions = await requireAuthOptions(registry, model);
 
+      // Drive discriminators are ANSWERS to task questions over the theta's
+      // own computed text -- deterministic content a degraded plain-prompt run
+      // cannot produce. A verbatim-echo demand ("reply with exactly this") reads
+      // as prompt injection to current models and draws refusals: the
+      // sentinel-refusal class filed as bug 0243.
       const captured = await completeCapturing({
         model,
         authOptions,
-        prompt: "Reply with exactly the word: ok",
+        prompt: "What is 486 plus 209? Answer with the number only.",
       });
       reportCapture("a", captured);
 
@@ -293,7 +298,7 @@ describe("bug 0065 (live) — the `onResponse` re-validation gate for the anthro
       const captured = await completeCapturing({
         model,
         authOptions,
-        prompt: "Reply with exactly the word: ok",
+        prompt: "What is 574 plus 123? Answer with the number only.",
         extraOptions: { temperature: 0 },
       });
       reportCapture("b", captured);

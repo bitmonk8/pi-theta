@@ -45,8 +45,8 @@
 // regardless (`./harness`), which is the AGENTS.md requirement for any
 // in-process harness that can reach the RFC-0006 child launch.
 //
-// Token cost: ONE live turn (the space-free sibling's typed query + sentinel
-// echo). The BAD half is registration-only.
+// Token cost: ONE live turn (the space-free sibling's typed query + task-question
+// answer). The BAD half is registration-only.
 //
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
 // capture (`thetaOwnedStderrLines`) must be empty.
@@ -138,7 +138,13 @@ const BAD = [
   "",
 ].join("\n");
 
-const GOOD_SENTINEL = "INLINEFIELDNOTIDENT0228LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "946";
+const GOOD_EXPECTED = "1046";
 
 /**
  * GOOD — the space-free sibling: `{ab: string}` in place of `{a b: string}`.
@@ -152,7 +158,7 @@ const GOOD = [
   "let answer: {ab: string} = @`Set the field ab to exactly the text " +
     GOOD_SENTINEL +
     " and return only that JSON object, nothing else.`?",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${answer.ab}`?",
+  "@`The prior step produced the number ${answer.ab}. What is that number plus 100? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -205,7 +211,7 @@ describe("bug 0228 live: an inline field name spelling two identifiers is refuse
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0228 CONTROL and nothing else.`",
+          "@`What is 261 plus 708? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -263,9 +269,9 @@ describe("bug 0228 live: an inline field name spelling two identifiers is refuse
       const driven = await driveSlashCaptureTurn(handle, "/b0228livegood");
       expect(
         driven.text,
-        "the live model reply for the space-free sibling did not contain the deterministic " +
-          "sentinel echoed through `answer.ab`. Reply: " + JSON.stringify(driven.text),
-      ).toContain(GOOD_SENTINEL);
+        "the live model reply for the space-free sibling did not contain the arithmetic " +
+          "answer computed from the value carried in `answer.ab`. Reply: " + JSON.stringify(driven.text),
+      ).toContain(GOOD_EXPECTED);
       expect(
         driven.systemNotes,
         "the driven turn over the space-free sibling appended a theta-system-note (a " +

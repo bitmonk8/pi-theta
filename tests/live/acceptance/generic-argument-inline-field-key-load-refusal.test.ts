@@ -98,7 +98,7 @@ const CLEAN = [
   "mode: prompt",
   "---",
   "let x: array<{ab: string}> | null = null",
-  "@`Reply with exactly this text and nothing else, no punctuation: H9A CLEAN SENTINEL 0233`",
+  "@`What is 418 plus 371? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -130,16 +130,21 @@ const PROBE = [
   "---",
   'let r = invoke("./gaoffender.theta")',
   "let verdict = match r {",
-  '  Ok(v) => "OFFENDER LOADED",',
-  '  Err(e) => "OFFENDER REFUSED"',
+  '  Ok(v) => "326",',
+  '  Err(e) => "927"',
   "}",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${verdict}`",
+  "@`A load probe reported code ${verdict}. What is that code plus 1000? Answer with the number only.`",
   "",
 ].join("\n");
 
-const REFUSED = "OFFENDER REFUSED";
-const LOADED = "OFFENDER LOADED";
-const CLEAN_SENTINEL = "H9A CLEAN SENTINEL 0233";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const REFUSED = "1927";
+const LOADED = "1326";
+const CLEAN_SENTINEL = "789";
 
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 function diagnosticsOf(text: string, path: string): readonly string[] {

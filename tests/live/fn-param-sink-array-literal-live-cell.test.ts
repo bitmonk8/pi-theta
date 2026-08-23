@@ -37,7 +37,7 @@
 //
 // TWO HALVES:
 //   (1) ADMITTED — `fn f(xs: array<A | B>)` called with `[A { … }, B { … }]`
-//       registers and DRIVES a real turn to a sentinel echo. Absent this fix
+//       registers and DRIVES a real turn to a task-question answer. Absent this fix
 //       the theta is refused outright, so the drive is the direction the fix
 //       opens. This half is expected RED before the fix lands.
 //   (2) REFUSED — the same literal with NO sink anywhere must NOT register, and
@@ -54,7 +54,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` — but the harness sets
 // both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the admitted theta's sentinel echo). The refused
+// Token cost: ONE live turn (the admitted theta's task-question answer). The refused
 // half is registration-only, so no drive is attempted and no tokens are spent
 // on it.
 //
@@ -154,12 +154,17 @@ const REFUSED = [
   "",
 ].join("\n");
 
-const ADMITTED_SENTINEL = "FNPARAMSINK0156LIVEADMITTED";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const ADMITTED_SENTINEL = "689";
 
 /**
  * ADMITTED — the report's a1 subject: a `fn` parameter declaring `array<A | B>`
  * called with one `A` and one `B`. A sink in scope expects exactly the union
- * rule 3 asks about, so this loads and drives. A plain sentinel-echo prompt
+ * rule 3 asks about, so this loads and drives. A plain task-question prompt
  * rather than a typed query, so no AJV schema is registered under a name this
  * extension host's other document also declares.
  */
@@ -175,7 +180,7 @@ const ADMITTED = [
   "}",
   "fn f(xs: array<A | B>): integer { 1 }",
   'let y = f([A { a: 1 }, B { b: "x" }])',
-  "@`Reply with exactly the token " + ADMITTED_SENTINEL + " and nothing else.`",
+  "@`What is 264 plus 425? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -228,7 +233,7 @@ describe("bug 0156 live: a union-typed `fn` parameter supplies the array sink so
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0156 CONTROL and nothing else.`",
+          "@`What is 483 plus 466? Answer with the number only.`",
           "",
         ].join("\n"),
       },

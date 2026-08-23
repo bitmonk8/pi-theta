@@ -55,13 +55,36 @@ import { fileURLToPath } from "node:url";
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import { INTERPOLATED_RESULT_CODE } from "../../src/render/query-render";
 
-/** A minimal prompt-mode `.theta` whose single untyped query names a deterministic sentinel. */
-function promptTheta(sentinel: string): string {
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+//
+/**
+ * A minimal prompt-mode `.theta` whose single untyped query names a
+ * deterministic sentinel as documentary data and asks a fixed-pair arithmetic
+ * question. `sentinel` keeps its documentary role for the 54 registration-only
+ * callers below (never driven, so the model never sees the string); the ONE
+ * driven caller (the H8a-T prompt-mode-turn `it`, below) proves the turn ran
+ * via the answer, not an echo.
+ */
+function promptTheta(
+  sentinel: string,
+  addends: readonly [number, number] = [263, 514],
+): string {
+  const [a, b] = addends;
   return [
     "---",
     "mode: prompt",
     "---",
-    "@`Reply with exactly the token " + sentinel + " and nothing else.`",
+    "@`A registration probe is labelled " +
+      sentinel +
+      ". What is " +
+      a +
+      " plus " +
+      b +
+      "? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -85,9 +108,13 @@ function typedQueryTheta(): string {
     "mode: prompt",
     "---",
     "let answer: { ok: boolean, label: string } = @`Return an object describing whether the sky is blue.`?",
-    "@`Reply with exactly this text and nothing else, no markdown, no code fences: " +
+    // Channel-preserving reframing (bug 0243): the model's reply still carries
+    // the sentinel-anchored JSON `jsonAfterSentinel` parses, but as a reporting
+    // task over theta-supplied data rather than a verbatim-echo demand -- the
+    // demand this class of sentinel-refusal reads as prompt injection.
+    "@`Write a one-line status report: the label " +
       LIVE_TYPED_SENTINEL +
-      " ${answer}`?",
+      " followed by this JSON object as given -- ${answer} -- and no commentary.`?",
     "",
   ].join("\n");
 }
@@ -191,7 +218,7 @@ function forgedIngressParentTheta(): string {
     "---",
     "schema Forged { __thetaEnum: string, x: integer }",
     'let v = invoke<Forged>("./forgedchild.theta")?',
-    "@`FORGED=${v}|END reply with exactly: OK`",
+    "@`FORGED=${v}|END What is 372 plus 215? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -322,7 +349,9 @@ describe("H8a-T — prompt-mode turn against a live model (Convention: live-host
       // Post-H8a: one real prompt-mode turn against the live model; the
       // streamed assistant response carries the sentinel.
       const response = await driveSlashCaptureText(handle.session, "/sentinel");
-      expect(response).toContain(sentinel);
+      // 263 + 514 = 777: computable only from the theta's own arithmetic
+      // question, not from the model parroting an attacker-shaped token.
+      expect(response).toContain("777");
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -1908,7 +1937,7 @@ function ctorDeclarationOrderTheta(): string {
     "---",
     "schema P { b: integer, a: string }",
     'let p = P { a: "x", b: 1 }',
-    '@`SITE1=J${p}|SITE2=J${P { a: "x", b: 1 }}|END reply with exactly: OK`',
+    '@`SITE1=J${p}|SITE2=J${P { a: "x", b: 1 }}|END What is 418 plus 361? Answer with the number only.`',
     "",
   ].join("\n");
 }
@@ -1948,7 +1977,7 @@ describe("H8a-T — bug 0080: constructor field order follows the schema's DECLA
         "the outbound query text must carry both construction sites' fields " +
           "in the schema's DECLARATION order. Outbound user texts: " +
           JSON.stringify(turn.userTexts),
-      ).toEqual(['SITE1=J{"b":1,"a":"x"}|SITE2=J{"b":1,"a":"x"}|END reply with exactly: OK']);
+      ).toEqual(['SITE1=J{"b":1,"a":"x"}|SITE2=J{"b":1,"a":"x"}|END What is 418 plus 361? Answer with the number only.']);
       const failureNotes = turn.systemNotes.filter((n) =>
         /^theta \/b80liveorder (returned Err|cancelled|aborted)/.test(n),
       );
@@ -4850,7 +4879,7 @@ function literalParamsInvokeCheckTheta(): string {
     '  Ok(_) => "ACCEPTED",',
     '  Err(e) => "REJECTED " + e.cause,',
     "}",
-    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "@`An intake probe reports GOOD=${okOutcome} BAD=${badOutcome}. Restate that pair, then answer: what is 284 plus 473?`",
     "",
   ].join("\n");
 }
@@ -5497,7 +5526,7 @@ function incompatibleDefaultBinderTheta(): string {
     "  topic: string",
     "  pick: '\"x\" | \"y\" = \"zzz\"'",
     "---",
-    "@`" + B66_SENTINEL + " topic=${topic} pick=${pick}. Reply with exactly: done.`",
+    "@`" + B66_SENTINEL + " topic=${topic} pick=${pick}. What is 634 plus 115? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -5665,7 +5694,7 @@ function b67SevEnumParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev>("./b67livesevkid.theta")?',
-    "@`SEVCROSS=${v == Sev.High}|END reply with exactly: OK`",
+    "@`SEVCROSS=${v == Sev.High}|END What is 526 plus 142? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -5859,7 +5888,7 @@ function numericNegDefaultBinderTheta(): string {
     "  topic: string",
     "  p: 'integer = -1'",
     "---",
-    "@`" + B166_SENTINEL + " topic=${topic} p=${p}. Reply with exactly: done.`",
+    "@`" + B166_SENTINEL + " topic=${topic} p=${p}. What is 358 plus 426? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -6097,7 +6126,7 @@ function wellFormedDefaultBinderTheta(): string {
     "  topic: string",
     '  p: \'string = "ok"\'',
     "---",
-    "@`" + B165_SENTINEL + " topic=${topic} p=${p}. Reply with exactly: done.`",
+    "@`" + B165_SENTINEL + " topic=${topic} p=${p}. What is 275 plus 318? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -6577,7 +6606,7 @@ function b172liveB2ParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     "let v = b172liveb2kid()?",
-    "@`B2CROSS=${v == Sev.High}|END reply with exactly: OK`",
+    "@`B2CROSS=${v == Sev.High}|END What is 233 plus 644? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -6718,7 +6747,7 @@ function b174livePpParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev>("./b174liveppkid.theta")?',
-    "@`PPCROSS=${v == Sev.High}|END reply with exactly: OK`",
+    "@`PPCROSS=${v == Sev.High}|END What is 385 plus 112? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -6925,7 +6954,7 @@ function braceUnionParamsInvokeCheckTheta(): string {
     '  Ok(_) => "ACCEPTED",',
     '  Err(e) => "REJECTED " + e.cause,',
     "}",
-    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "@`An intake probe reports GOOD=${okOutcome} BAD=${badOutcome}. Restate that pair, then answer: what is 396 plus 225?`",
     "",
   ].join("\n");
 }
@@ -7096,7 +7125,7 @@ function b0172Face2UnionEnumParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev | null>("./b0172f2livekid.theta")?',
-    "@`SEVCROSS=${v == Sev.High}|END reply with exactly: OK`",
+    "@`SEVCROSS=${v == Sev.High}|END What is 471 plus 318? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -7268,7 +7297,7 @@ function enumAccessDefaultBinderTheta(): string {
     'enum Sev { High = "high", Low = "low" }',
     "@`" +
       B181_SENTINEL +
-      " topic=${topic} sev=${sev} tagged=${sev == Sev.High}. Reply with exactly: done.`",
+      " topic=${topic} sev=${sev} tagged=${sev == Sev.High}. What is 462 plus 107? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -9256,7 +9285,7 @@ function mixedUnionParamsInvokeCheckTheta(): string {
     '  Ok(_) => "ACCEPTED",',
     '  Err(e) => "REJECTED " + e.cause,',
     "}",
-    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "@`An intake probe reports GOOD=${okOutcome} BAD=${badOutcome}. Restate that pair, then answer: what is 449 plus 334?`",
     "",
   ].join("\n");
 }
@@ -10632,7 +10661,7 @@ function literalArrayParamsInvokeCheckTheta(): string {
     '  Ok(_) => "ACCEPTED",',
     '  Err(e) => "REJECTED " + e.cause,',
     "}",
-    "@`Reply with exactly: GOOD=${okOutcome} BAD=${badOutcome}`",
+    "@`An intake probe reports GOOD=${okOutcome} BAD=${badOutcome}. Restate that pair, then answer: what is 512 plus 276?`",
     "",
   ].join("\n");
 }
@@ -11156,7 +11185,7 @@ function forgedDescriptionBinderTheta(): string {
     "params:",
     "  p: integer",
     "---",
-    "@`" + CELL_C2_SENTINEL + " p=${p}. Reply with exactly: done.`",
+    "@`" + CELL_C2_SENTINEL + " p=${p}. What is 539 plus 224? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -11310,7 +11339,7 @@ function ctorProtoNamedFieldTheta(): string {
     "---",
     "schema Q { __proto__: integer, a: string }",
     'let q = Q { a: "x", __proto__: 7 }',
-    '@`SITE1=J${q}|SITE2=J${Q { a: "x", __proto__: 7 }}|END reply with exactly: OK`',
+    '@`SITE1=J${q}|SITE2=J${Q { a: "x", __proto__: 7 }}|END What is 553 plus 241? Answer with the number only.`',
     "",
   ].join("\n");
 }
@@ -11352,7 +11381,7 @@ describe("H8a-T — bug 0119 (cell 66): a schema field named `__proto__` survive
           "declared `__proto__` field. Outbound user texts: " +
           JSON.stringify(turn.userTexts),
       ).toEqual([
-        'SITE1=J{"__proto__":7,"a":"x"}|SITE2=J{"__proto__":7,"a":"x"}|END reply with exactly: OK',
+        'SITE1=J{"__proto__":7,"a":"x"}|SITE2=J{"__proto__":7,"a":"x"}|END What is 553 plus 241? Answer with the number only.',
       ]);
       const failureNotes = turn.systemNotes.filter((n) =>
         /^theta \/b119liveproto (returned Err|cancelled|aborted)/.test(n),
@@ -12098,7 +12127,7 @@ function reexportChainDeliveryTheta(): string {
     "---",
     'import { greet } from "./b101livemid.thetalib"',
     'let r = greet("x")',
-    '@`VALUE=${r}|END reply with exactly: OK`',
+    '@`VALUE=${r}|END What is 617 plus 152? Answer with the number only.`',
     "",
   ].join("\n");
 }
@@ -12148,7 +12177,7 @@ describe("H8a-T — bug 0101 (cell 71): a from-bearing re-export chain delivers 
         turn.userTexts,
         "the outbound query text must carry the value the re-exported `greet` " +
           "returned. Outbound user texts: " + JSON.stringify(turn.userTexts),
-      ).toEqual(["VALUE=x|END reply with exactly: OK"]);
+      ).toEqual(["VALUE=x|END What is 617 plus 152? Answer with the number only."]);
       const failureNotes = turn.systemNotes.filter((n) =>
         /^theta \/b101livechain (returned Err|cancelled|aborted)/.test(n),
       );
@@ -13088,6 +13117,11 @@ function nonLiteralByFieldTheta(): string {
  * must not disturb. Drives a real turn so "still loads AND still drives" is
  * proven end to end, not merely by registration.
  */
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
 function literalByFieldTheta(sentinel: string): string {
   return [
     "---",
@@ -13096,7 +13130,7 @@ function literalByFieldTheta(sentinel: string): string {
     'schema Cat { kind: "cat", name: string }',
     'schema Dog { kind: "dog", name: string }',
     "schema Animal by kind = Cat | Dog",
-    "@`Reply with exactly the token " + sentinel + " and nothing else.`",
+    "@`What is 316 plus 445? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -13104,7 +13138,7 @@ function literalByFieldTheta(sentinel: string): string {
 describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal field is refused live, and the valid-discriminator spelling still registers and drives (Convention: live-host acceptance)", () => {
   it('cell 78: does not register schema Animal by kind = Cat | Dog over kind: string, the theta-system-note channel carries non-literal-discriminator, and the kind: "cat"/kind: "dog" sibling under the same clause registers and drives to the live sentinel', async () => {
     const provider = await requireLiveProvider();
-    const sentinel = "cell 78 LIVE SENTINEL";
+    const sentinel = "761";
     const thetas: PlantedTheta[] = [
       // Precondition control: an ordinary theta in the SAME workspace, proving
       // the workspace and discovery walk both work — without this, a
@@ -13164,9 +13198,11 @@ describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal 
       // completion against a live model — the good-path non-regression end to
       // end, not just at load time.
       const driven = await driveSlashCaptureTurn(handle, "/b128livegood");
+      // 316 + 445 = 761: computable only from the theta's own arithmetic
+      // question, not from the model parroting an attacker-shaped token.
       expect(
         driven.text,
-        "cell 78: the live model reply for the valid-discriminator sibling did not contain the deterministic sentinel. Reply: " +
+        "cell 78: the live model reply for the valid-discriminator sibling did not contain the deterministic answer. Reply: " +
           JSON.stringify(driven.text),
       ).toContain(sentinel);
       expect(
@@ -13632,7 +13668,7 @@ const NESTED_FN_UNDER_PAR_FOR_CELL_B2 = [
   "  fn mk(): integer { 1 }",
   "  1",
   "}",
-  "@`Reply with exactly the token PARFORNESTEDFN-UNREACHED and nothing else.`",
+  "@`What is 683 plus 114? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -13643,7 +13679,7 @@ const NESTED_FN_HOISTED_CELL_B2 = [
   "---",
   "fn mk(): integer { 1 }",
   "let xs = par for i in [1, 2] { 1 }",
-  "@`Reply with exactly the token PARFORNESTEDFN-CLEAN and nothing else.`",
+  "@`What is 347 plus 236? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -13795,7 +13831,7 @@ const UNDECLARED_NAME_UNDER_PAR_FOR_CELL_B = [
   "let xs = par for i in [1, 2] {",
   "  Zzz",
   "}",
-  "@`Reply with exactly the token PARFORUNKNOWNIDENT-UNREACHED and nothing else.`",
+  "@`What is 425 plus 152? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -13805,7 +13841,7 @@ const CLEAN_PAR_FOR_LOOP_VAR_ONLY_CELL_B = [
   "mode: prompt",
   "---",
   "let xs = par for i in [1, 2] { i }",
-  "@`Reply with exactly the token PARFORUNKNOWNIDENT-CLEAN and nothing else.`",
+  "@`What is 591 plus 207? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -14136,8 +14172,13 @@ function voidInNonReturnFragmentCellB2(): string {
   return `${VOID_IN_NON_RETURN_CODE_CELL_B2}: ${message as string}`;
 }
 
-/** The sentinel a successful drive of the subject theta must echo verbatim. */
-const VOID_SINK_SENTINEL_CELL_B2 = "VOIDSINKQUERY-DONE";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+/** The deterministic answer a successful drive of the subject theta must contain. */
+const VOID_SINK_SENTINEL_CELL_B2 = "782";
 
 /**
  * The subject (bug 0220 §Reproduction v1): a root `void`-returning `fn` whose
@@ -14153,7 +14194,7 @@ const VOID_RETURN_QUERY_TAIL_CELL_B2 = [
   "fn f(): void {",
   "  @`hi`",
   "}",
-  "@`Reply with exactly the token " + VOID_SINK_SENTINEL_CELL_B2 + " and nothing else.`",
+  "@`What is 254 plus 528? Answer with the number only.`",
   "",
 ].join("\n");
 
@@ -14224,7 +14265,8 @@ describe("cell 84 (bug 0220): a root `void` fn-return sink supplies no QRY-2 sin
       ).toEqual([]);
 
       // The drive's normal completion: the streamed assistant text carries the
-      // sentinel the top-level query asked for verbatim.
+      // deterministic answer to the arithmetic question the top-level query
+      // asked (254 + 528 = 782).
       expect(
         turn.text.includes(VOID_SINK_SENTINEL_CELL_B2),
         "the drive did not complete normally -- streamed text: " +
@@ -14328,7 +14370,10 @@ function dominatingMatchArmTheta(): string {
     "mode: prompt",
     "---",
     "let m = match 1 { 1 => 1, _ => 2.5 }",
-    "@`Reply with exactly the token THETA-MATCH-DOM-${m} and nothing else.`",
+    // COMPUTE-FROM-INLINE-VALUE (bug 0243): the answer is producible only from
+    // the theta-computed `m`, so a degraded plain-prompt run (where `m` never
+    // exists) cannot green this drive.
+    "@`A match produced the value ${m}. What is that value plus 478? Answer with the number only.`",
     "",
   ].join("\n");
 }
@@ -14405,11 +14450,12 @@ describe("H8a-T -- bug 0158: a heterogeneous `match` still refuses registration 
       ).toEqual([]);
 
       // The drive's normal completion: the streamed assistant text carries
-      // the sentinel built from the match result, proving the match ran (not
-      // merely registered) and produced the dominating arm's type at
-      // runtime.
+      // the arithmetic answer computed from the match result, proving the
+      // match ran (not merely registered) and produced the dominating arm's
+      // type at runtime.
+      // 1 + 478 = 479, computable only from the runtime match result `m`.
       expect(
-        turn.text.includes("THETA-MATCH-DOM-1"),
+        turn.text.includes("479"),
         "the dominating-arm twin's drive did not complete normally -- " +
           "streamed text: " + JSON.stringify(turn.text),
       ).toBe(true);

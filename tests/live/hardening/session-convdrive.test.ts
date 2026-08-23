@@ -51,7 +51,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
             "description: fchild",
             "mode: subagent",
             "---",
-            "@`Reply with exactly the word CHERRY and nothing else`?",
+            "@`What is 405 plus 376? Answer with the number only.`?",
           ]),
           F("fparent.theta", [
             "---",
@@ -59,7 +59,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
             "mode: prompt",
             "---",
             'let v = invoke<string>("./fchild.theta")?',
-            "@`FV=${v} and nothing else`?",
+            "@`FV=${v}. What is 561 plus 238? Answer with the number only.`?",
           ]),
         ],
         drives: ["/fparent"],
@@ -69,7 +69,12 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         const joined = t.userTexts.join("\n");
         console.log("CONV-3 userTexts:", JSON.stringify(t.userTexts));
         console.log("CONV-3 error:", t.error);
-        expect(joined).toContain("FV=CHERRY");
+        // Drive discriminators are ANSWERS to task questions over the theta's
+        // own computed text -- deterministic content a degraded plain-prompt run
+        // cannot produce. A verbatim-echo demand ("reply with exactly this") reads
+        // as prompt injection to current models and draws refusals: the
+        // sentinel-refusal class filed as bug 0243.
+        expect(joined).toContain("FV=781");
       } finally {
         await probe.dispose();
       }
@@ -90,7 +95,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         provider,
         files: [
           // CONV-1 + CONV-5: two queries in ONE conversation; query B
-          // interpolates query A's model answer (BANANA). Between them, a `match`
+          // interpolates query A's model answer (807). Between them, a `match`
           // branches on the model's classification (CONV-5: control flow on a
           // model reply). The child's tail is query B's reply, so its final
           // value carries proof the interpolation + branch crossed the turn.
@@ -99,9 +104,9 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
             "description: chainchild",
             "mode: subagent",
             "---",
-            "let a = @`Reply with exactly the word BANANA and nothing else`?",
-            'let tag = match a { "BANANA" => "HIT", _ => "MISS" }',
-            "@`Say exactly: PREV=${a}-${tag}-DONE and nothing else`?",
+            "let a = @`What is 293 plus 514? Answer with the number only.`?",
+            'let tag = match a { "807" => "HIT", _ => "MISS" }',
+            "@`Here is a status record: PREV=${a}-${tag}-DONE. Report that record back as your whole answer.`?",
           ]),
           // CONV-2: typed query binds a structured result; a FIELD of it is
           // interpolated into a later query in the same conversation.
@@ -112,7 +117,7 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
             "---",
             "schema Cls { label: string }",
             'let c: Cls = @<Cls>`Reply with JSON exactly: {"label":"MANGO"}`?',
-            "@`Say exactly: FIELD=${c.label}-END and nothing else`?",
+            "@`Here is a classification record: FIELD=${c.label}-END. Report that record back as your whole answer.`?",
           ]),
           // CONV-4: a `for` loop issues N queries; each interpolates the loop var
           // and its reply is concatenated. Final value proves all N fired with
@@ -123,8 +128,8 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
             "mode: subagent",
             "---",
             'let mut acc = ""',
-            'for it in ["A1", "B2"] {',
-            "  let r = @`Reply with exactly the text: SEEN-${it} and nothing else`?",
+            'for it in [647, 143] {',
+            "  let r = @`What is ${it} plus 100? Answer with the number only.`?",
             '  acc = acc + r + "|"',
             "}",
             "acc",
@@ -163,16 +168,16 @@ describe("multi-turn conversation drive / final value / model-reply-as-value", (
         const U = t.userTexts.join("\n");
         console.log("BATCH userTexts:", JSON.stringify(t.userTexts));
         console.log("BATCH error:", t.error);
-        // CONV-1: query B's reply (child final value, in c1) contains BANANA =>
+        // CONV-1: query B's reply (child final value, in c1) contains 807 =>
         // query A's model answer interpolated into query B's text across a turn.
-        expect(U).toContain("BANANA");
-        // CONV-5: the `match` branched on the model classification (a==BANANA).
+        expect(U).toContain("807");
+        // CONV-5: the `match` branched on the model classification (a=="807").
         expect(U).toContain("HIT");
         // CONV-2: typed-query field MANGO interpolated into a later query.
         expect(U).toContain("MANGO");
         // CONV-4: BOTH loop iterations fired with correct per-iteration interp.
-        expect(U).toContain("SEEN-A1");
-        expect(U).toContain("SEEN-B2");
+        expect(U).toContain("747");
+        expect(U).toContain("243");
         // CONV-6: bare-value tail is the final value.
         expect(U).toContain("BARE=[DATE]");
         // CONV-6 (FIXED): a `Result`-typed tail `Ok("KIWI")` is the theta's

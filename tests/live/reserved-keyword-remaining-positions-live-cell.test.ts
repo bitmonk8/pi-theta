@@ -177,6 +177,12 @@ const PARAMS_GOOD_STEM = "d2celllivepgood";
 const FOR_BROKEN_STEM = "d2celllivefbad";
 const FOR_GOOD_STEM = "d2celllivefgood";
 
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+
 /** A `mode: prompt` theta whose only content is one `@`-query. */
 function controlTheta(): string {
   return (
@@ -184,7 +190,7 @@ function controlTheta(): string {
       "---",
       "mode: prompt",
       "---",
-      "@`Reply with exactly this word and nothing else: ok`",
+      "@`What is 371 plus 718? Answer with the number only.`",
     ].join("\n") + "\n"
   );
 }

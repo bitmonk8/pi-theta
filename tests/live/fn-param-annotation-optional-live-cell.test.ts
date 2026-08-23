@@ -104,6 +104,12 @@ import {
 /** Bug 0139's row — live at HEAD, the note-channel precondition. */
 const CASE_CODE = "theta/parse/binding-case-mismatch";
 /** The value the unannotated parameter carries through to the outbound render. */
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243. `${z}` stays in the rendered text as a context token
+// (asserted off the outbound render, not the reply).
 const SENTINEL = "unannotatedparamok";
 
 /** A `mode: prompt` `.theta` whose body is the given lines. */
@@ -125,7 +131,7 @@ describe("bug 0150 — a `fn` parameter with no type annotation is the blessed s
         text: promptTheta([
           "fn echoback(p): string { p }",
           `let z = echoback("${SENTINEL}")`,
-          "@`Reply with exactly this token and nothing else: ${z}`",
+          "@`Context token ${z} was produced upstream. What is 365 plus 472? Answer with the number only.`",
         ]),
       },
       // The note-channel precondition: an already-refused parse fault whose

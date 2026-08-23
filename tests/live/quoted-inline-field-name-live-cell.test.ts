@@ -37,7 +37,7 @@
 // both thetas are `mode: prompt` and drive no `invoke` — but the harness sets
 // both #subagent-child-pins at module scope regardless (`./harness`).
 //
-// Token cost: ONE live turn (the GOOD sibling's typed query + sentinel echo).
+// Token cost: ONE live turn (the GOOD sibling's typed query + task-question answer).
 // The BAD half is registration-only — it must not register, so no drive is
 // attempted and no tokens are spent on it.
 //
@@ -122,7 +122,13 @@ function systemNoteContents(entries: readonly unknown[]): readonly string[] {
  */
 const BAD = ["---", "mode: prompt", "---", 'let r = @<{"a": string}>`hi`', "r", ""].join("\n");
 
-const GOOD_SENTINEL = "QUOTED0176LIVEGOOD";
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+const GOOD_SENTINEL = "958";
+const GOOD_EXPECTED = "1058";
 
 /**
  * GOOD — the identifier-spelled sibling: `{a: string}` instead of
@@ -138,7 +144,7 @@ const GOOD = [
   "let answer: {a: string} = @`Set the field a to exactly the text " +
     GOOD_SENTINEL +
     " and return only that JSON object, nothing else.`?",
-  "@`Reply with exactly this text and nothing else, no punctuation: ${answer.a}`?",
+  "@`The prior step produced the number ${answer.a}. What is that number plus 100? Answer with the number only.`?",
   "",
 ].join("\n");
 
@@ -192,7 +198,7 @@ describe("bug 0176 live: a quoted inline field-name key is refused at registrati
           "---",
           "mode: prompt",
           "---",
-          "@`Reply with exactly the token bug 0176 CONTROL and nothing else.`",
+          "@`What is 726 plus 293? Answer with the number only.`",
           "",
         ].join("\n"),
       },
@@ -250,8 +256,8 @@ describe("bug 0176 live: a quoted inline field-name key is refused at registrati
       expect(
         driven.text,
         "the live model reply for the identifier-spelled sibling did not contain the " +
-          "deterministic sentinel echoed through `answer.a`. Reply: " + JSON.stringify(driven.text),
-      ).toContain(GOOD_SENTINEL);
+          "arithmetic answer computed from the value carried in `answer.a`. Reply: " + JSON.stringify(driven.text),
+      ).toContain(GOOD_EXPECTED);
       expect(
         driven.systemNotes,
         "the driven turn over the identifier-spelled sibling appended a theta-system-note " +

@@ -141,11 +141,16 @@ function wireShapeTheta(input: {
     "---",
     ...input.decls,
     `let bound = @<${input.annotation}>\`${input.ask}\`?`,
-    "@`Reply with exactly this text and nothing else: " +
+    // Drive discriminators are ANSWERS to task questions over the theta's own
+    // computed text -- deterministic content a degraded plain-prompt run
+    // cannot produce. A verbatim-echo demand ("reply with exactly this") reads
+    // as prompt injection to current models and draws refusals: the
+    // sentinel-refusal class filed as bug 0243.
+    "@`Status line: " +
       input.sentinel +
       " <<${" +
       input.echo +
-      "}>>`",
+      "}>>. What is 218 plus 639? Answer with the number only.`",
     "",
   ].join("\n");
 }

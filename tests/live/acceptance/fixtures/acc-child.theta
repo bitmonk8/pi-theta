@@ -3,4 +3,10 @@ mode: subagent
 ---
 // H9a acceptance area (g) support — a subagent-mode `.theta` callable invoked by
 // acc-imports-invoke.theta (a `.theta` callee must be subagent-mode).
-@`Reply with exactly: CHILD OK`
+//
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+@`What is 268 plus 431? Answer with the number only.`

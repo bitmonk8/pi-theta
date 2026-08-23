@@ -5,4 +5,10 @@ mode: prompt
 // One prompt-mode untyped query drives a single user-visible turn through the
 // real `pi -p` binary. Invariant set: no-error exit + emitted codes subset of
 // the committed permitted-code list.
-@`Reply with exactly this text and nothing else, no punctuation: ACC SENTINEL OK`
+//
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+@`What is 482 plus 315? Answer with the number only.`

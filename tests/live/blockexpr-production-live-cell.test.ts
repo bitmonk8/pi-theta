@@ -110,7 +110,7 @@ const BLOCK_THETA = (
     "  },",
     "  _ => 0,",
     "}",
-    "@`Reply with exactly this word and nothing else: blockexpr-${selected}`",
+    "@`Context tag blockexpr-${selected}. What is 318 plus 549? Answer with the number only.`",
   ].join("\n") + "\n"
 );
 
@@ -130,9 +130,17 @@ const CONTROL_THETA = (
     "  2 => 12,",
     "  _ => 0,",
     "}",
-    "@`Reply with exactly this word and nothing else: blockexpr-${selected}`",
+    "@`Context tag blockexpr-${selected}. What is 318 plus 549? Answer with the number only.`",
   ].join("\n") + "\n"
 );
+
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed text -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243. The oracle `blockexpr-${selected}` stays in the rendered
+// text as a context tag (asserted off the outbound render, not the reply), so
+// the block computation is still proven independently of the arithmetic ask.
 
 /**
  * The fail-closed markers a top-level theta drive lands on the
