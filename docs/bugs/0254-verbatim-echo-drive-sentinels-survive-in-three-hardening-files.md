@@ -1,6 +1,6 @@
 # Bug 0254 — Three live hardening files still drive the verbatim-echo sentinel shape that bug 0243 retired corpus-wide in 0.220.0: 7 prompt sites across `session-invoke-attach.test.ts`, `session-promptloop.test.ts` and `session-subagent-toolloop.test.ts`, left unconverted because they sat outside 0243's 47-file census and two of them pin the echoed token in a live assertion
 
-- **Status:** open.
+- **Status:** fixed (0.243.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because no runtime behaviour is wrong: the
   shape produces false reds on live gates, not silent passes; the cost is gate
   reliability and operator time, and each red is indistinguishable from a real
@@ -233,3 +233,78 @@ the authority for those assertion moves; the files have no other owner.
   `session-subagent-toolloop.test.ts:170` (`capAbsorbed`).
 - No live run was performed for this report: the shape's consequence is
   probabilistic, and the census is static.
+
+## Fix (0.243.0)
+
+- What shipped (tests only; no `src/` byte touched):
+  - `tests/live/hardening/session-invoke-attach.test.ts` — §Fix item 1: the four
+    `reply with exactly: OK` tails became fixed-pair arithmetic tasks
+    (`:67` 314+259, `:76` 407+186, `:102` 528+231, `:111` 163+372). The four
+    sentinel labels and the `RET=${v}` interpolation survive byte-identically;
+    no assertion moved and `RET=42` is unchanged.
+  - `tests/live/hardening/session-promptloop.test.ts` — §Fix item 2: `ch3.txt`
+    plants `3193` instead of a marker token (`:48`), `CHAIN_QUERY`'s tail became
+    `Report that number plus 2000. Answer with the number only.` (`:55`), and
+    both consumers re-pinned to the computed sum `5193` — negatively at `:115`,
+    positively at `:159`.
+  - `tests/live/hardening/session-subagent-toolloop.test.ts` — §Fix item 3: the
+    same conversion (`ch3.txt` plants `4271` at `:79`; `CHAIN_INSTRUCTION` asks
+    for that number plus 3000 at `:85`), with `:127` and the `capAbsorbed` probe
+    at `:180` re-pinned to `7271`; the `Repeat verbatim` parent query became
+    `OUTCOME[${outcome}] What is 731 plus 154? Answer with the number only.`
+    (`:157`), carrying the interpolation byte-identically so `capEnforced` and
+    `expect(capEnforced).toBe(true)` are untouched.
+  - §Fix item 4: both chain instructions keep the sequencing clause `Read
+    exactly ONE file at a time, following the chain` byte-unchanged.
+  - §Fix item 5: each of the three files carries the per-file rationale comment
+    in the landed 0243 idiom, and the two chain files state the non-vacuity
+    property.
+- Gates:
+  - Witness (§Fix item 6, both directions, live): green on the landed bytes —
+    `npx vitest run --config config/vitest/vitest.live.config.ts` over the three
+    files, `Test Files 3 passed (3)` / `Tests 6 passed (6)`, RC=0. Red proven
+    once per re-pinned assertion under five simultaneous neutralisations, RC=1,
+    `Test Files 3 failed (3)` / `Tests 5 failed | 1 passed (6)`, each for the
+    right reason (`expected '5193' to contain '5194'`; `expected 'Say ok.
+    MR=\n\n\n7271' to contain '7272'`; `expected false to be true` for the
+    temporarily asserted `capAbsorbed`; `expected 'theta /ploop1 returned Err:
+    tool-call…' not to contain 'tool-call loop exhausted'` for the negative
+    assertion, whose channel cannot be reddened by flipping its constant;
+    `expected 'NUMCHILD_SENTINEL What is 163 plus 37…' to contain 'RET=41'`).
+    Restoration was by byte-write and hash-verified.
+  - Default suite: `npm test` — `Test Files 422 passed (422)` /
+    `Tests 8888 passed (8888)`. `vitest.config.ts:12` excludes `tests/live/**`,
+    so this change cannot reach that suite.
+  - `npm run typecheck` — clean. `npm run lint` — clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — FINDINGS: two prose defects
+  (a toolloop header sentence that called the `OUTCOME[]` interpolation a sum
+  and claimed it occurs in no prompt, and five surviving "marker" references
+  after the marker→number conversion, including the STL-1 test title). Round 2
+  (`bug-fix-reviewer-fast`, after a comment/prose-only fixer round) — CLEAN, no
+  findings, no deep-review recommendation.
+- Verification: SOLID. Witness genuineness — the five reds cover every re-pinned
+  assertion and each quoted message names the right cause; landed hashes
+  re-derived independently. Default suite — green, 422/8888. Live coverage —
+  the three converted files are the live coverage; `PL-1-control assistantText:
+  "5193"`, `STL-1 parent userTexts: "Say ok. MR=\n\n\n7271"`, `STL-2 parent
+  userTexts: "OUTCOME[tool_loop_exhausted] What is 731 plus 154? …"` with
+  cap-enforced true and cap-absorbed false. Lint and typecheck — clean.
+- Residuals:
+  1. `tests/live/hardening/session-subagent-toolloop.test.ts`'s parent query
+     `@\`Say ok. MR=${r}\`` keeps its narrative framing. It is not one of the
+     seven enumerated sites, carries no verbatim-echo demand, and the STL-1
+     re-pin works through the `MR=${r}` interpolation — the live capture
+     `"Say ok. MR=\n\n\n7271"` shows the computed value reaching `userTexts`
+     regardless. Left byte-unchanged as out of this report's scope.
+  2. Line-citation drift: each file gained a header rationale comment, so
+     `path:line` citations into them from other documents point a few lines low.
+     The §Fix record above cites post-fix lines; §Affected's pre-fix lines are
+     left as measured.
+  3. The default suite reds intermittently with `Error: Hook timed out in
+     10000ms` on files this change does not touch when sibling worktrees run
+     concurrently on the same machine; every such file passes in isolation and
+     the verifier's own full run was green.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `tests/fixtures/h7b-invalid/malformed.theta`
+  is unchanged (parse-gate-only input, never driven); the response-FORMAT
+  constraints 0243 §Residuals item 2 fenced off are unchanged.

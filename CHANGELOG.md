@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.243.0]
+
+### Fixed
+
+- Bug 0254: the seven verbatim-echo drive prompts that survived bug 0243's
+  corpus-wide retirement (outside its census) in
+  `tests/live/hardening/session-invoke-attach.test.ts`,
+  `session-promptloop.test.ts` and `session-subagent-toolloop.test.ts` are
+  converted to task-framed computed discriminators (7/7 class-(d) census now
+  zero; `CHAINDONE777` gone from `tests/`). Assertion re-pins under the
+  filing's own authority: promptloop 3193+2000→5193 both sites; toolloop
+  4271+3000→7271 (`capAbsorbed` + OUTCOME query task-framed). Non-vacuity:
+  expected values occur in no prompt and no planted file. Both-directions
+  live verification under the lock (green/red-with-5-neutralisations/green,
+  restores hash-verified). Tests-only; src byte-untouched.
 ## [0.242.0]
 
 ### Fixed

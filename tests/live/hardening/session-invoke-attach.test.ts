@@ -12,6 +12,12 @@
 // cell ("Child attaches to caller's current conversation (the user's session).
 // Child's queries are user-visible turns.").
 //
+// Drive discriminators are answers to task questions, never a verbatim-echo
+// demand: "reply with exactly …" reads as prompt injection to current models
+// and draws refusals (the sentinel-refusal class, bug 0243; this file swept by
+// bug 0254). The assertions match on the drive's transcript text (the query),
+// not on the reply, so only the prompt tails change here.
+//
 // Deterministic discriminator: `runProbe`'s per-turn `userTexts` collects the
 // exact user-turn text of every user-visible turn committed into the user
 // session during that drive. If prompt→prompt attaches, the CHILD's rendered
@@ -58,7 +64,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
           "prompt",
           [
             'let v = invoke("./ppchild.theta")?',
-            "@`PARENT_TURN_SENTINEL reply with exactly: OK`",
+            "@`PARENT_TURN_SENTINEL What is 314 plus 259? Answer with the number only.`",
           ].join("\n"),
         ),
       },
@@ -67,7 +73,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
         path: "ppchild.theta",
         text: P(
           "prompt",
-          ["let _ = @`CHILD_TURN_SENTINEL reply with exactly: OK`", "1"].join("\n"),
+          ["let _ = @`CHILD_TURN_SENTINEL What is 407 plus 186? Answer with the number only.`", "1"].join("\n"),
         ),
       },
     ];
@@ -93,7 +99,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
           "prompt",
           [
             'let v: number = invoke<number>("./ppnum.theta")?',
-            "@`RET=${v}|reply with exactly: OK`",
+            "@`RET=${v}|What is 528 plus 231? Answer with the number only.`",
           ].join("\n"),
         ),
       },
@@ -102,7 +108,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
         path: "ppnum.theta",
         text: P(
           "prompt",
-          ["let n = @`NUMCHILD_SENTINEL reply with exactly: OK`", "42"].join("\n"),
+          ["let n = @`NUMCHILD_SENTINEL What is 163 plus 372? Answer with the number only.`", "42"].join("\n"),
         ),
       },
     ];
