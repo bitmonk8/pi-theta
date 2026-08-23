@@ -10,8 +10,8 @@
 // always-run black-box capture of the real `pi -p` process tree's stderr.
 // Without the gate this file locks, every assertion that scores that capture
 // scores stream CONTENT, never line PRESENCE:
-// `assertCodesSubsetOfPermitted` (all nine areas) extracts
-// `theta/{load,parse,runtime}/<slug>` substrings out of `stdout + "\n" + stderr`
+// `assertCodesSubsetOfPermitted` (all nine areas) extracts the
+// `parseSystemNoteCodes` slug scan's substrings out of `stdout + "\n" + stderr`
 // and checks them against `tests/fixtures/h7a/permitted-codes.json`, and area
 // (e) adds `/cancel|aborted/i` plus a `theta/runtime/internal-error` absence
 // check. The three theta-owned stderr line classes are prefix-marked plain
@@ -70,7 +70,11 @@
 // this belongs in the default `npm test` (vitest.config.ts) and never in
 // `tests/live/**`.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error — JS code-registry module, no type declarations.
+import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { STALE_QUIESCE_STDERR_PREFIX as SRC_STALE_QUIESCE_STDERR_PREFIX } from "../src/extension/stale-ctx";
 import {
   ACCEPTANCE_STDERR_ALLOWLIST,
@@ -448,4 +452,168 @@ describe("bug 0030 fix — `thetaOwnedStderrLines` is the H8a spy filter", () =>
       ].sort(),
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// Bug 0047 — the same two-direction lock for the `theta/host/*` namespace.
+//
+// The rows above are all `theta/runtime/*` or slug-less, so nothing in the
+// default suite scores a host code against the permitted-code gate. The
+// registry's namespace set is closed and has four members — `theta/parse/*`,
+// `theta/load/*`, `theta/runtime/*`, `theta/host/*`
+// (docs/spec_topics/diagnostics/diagnostic-shape.md, §"Code namespaces") — and
+// the committed permitted list carries one host entry,
+// `theta/host/session-start-supersession-detach-failed`, appended by bug 0029's
+// fix as coordination with this gate. A permission the gate cannot consult
+// grants nothing, so both rows below are scored with the real
+// `parseSystemNoteCodes` + `loadPermittedCodes` predicates: the permitted row
+// must pass BECAUSE it is permitted, the unpermitted row must red.
+//
+// The shape scored is note CONTENT, not a stderr line: the supersession row is
+// the one registered host row routed through the persistent-diagnostic
+// channel's system-note fallback chain, and a location-less diagnostic renders
+// as `<code>: <message>` (`renderDiagnosticLine`, `src/diagnostics/diagnostic.ts`)
+// into one `theta-system-note` (`emitDiagnosticBatch`,
+// `src/extension/system-note-channel.ts`). That surface is scored by the code
+// gate alone, which is why the stderr gate above cannot substitute for it.
+// ---------------------------------------------------------------------------
+
+/** One parsed row of the sharded diagnostics registry (`tools/code-registry`). */
+interface HostRegistryRow {
+  readonly code: string;
+  readonly namespace: string;
+  readonly severity: string;
+  readonly phase: string;
+  readonly trigger: string;
+  readonly message: string;
+}
+
+/**
+ * The live `theta/host/*` registry shard, read from the spec corpus. Only the
+ * host shard is read: both codes below live there, and a row that moved off the
+ * page SHOULD red here rather than be silently found elsewhere.
+ */
+const HOST_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL("../docs/spec_topics/diagnostics/code-registry-host.md", import.meta.url),
+    ),
+    "utf8",
+  ),
+) as HostRegistryRow[];
+
+/**
+ * DIAG-4: the *Message* column is normative, so the synthetic note text is
+ * rendered from the registry template rather than transcribed. A missing row
+ * fails loudly naming the page and the code (AGENTS.md §"No silent skipping"),
+ * never degrading into a note whose text is `undefined`.
+ */
+function hostNoteContent(code: string, placeholders: Readonly<Record<string, string>>): string {
+  const template = registryMessage(HOST_REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-host.md must carry the ` +
+        `Message row for ${code}`,
+    );
+  }
+  let message = template;
+  for (const [placeholder, value] of Object.entries(placeholders)) {
+    if (!message.includes(placeholder)) {
+      throw new Error(
+        `DIAG-4 anchor: the registry Message for ${code} on ` +
+          `docs/spec_topics/diagnostics/code-registry-host.md no longer carries the ` +
+          `${placeholder} placeholder this row interpolates`,
+      );
+    }
+    message = message.split(placeholder).join(value);
+  }
+  // The location-less diagnostic render form (`renderDiagnosticLine`,
+  // `src/diagnostics/diagnostic.ts`) — the exact bytes the code gate scores.
+  return `${code}: ${message}`;
+}
+
+/** The permitted host entry (`tests/fixtures/h7a/permitted-codes.json`, bug 0029's append). */
+const PERMITTED_HOST_CODE = "theta/host/session-start-supersession-detach-failed";
+
+/** A registered host code deliberately absent from the committed list. */
+const UNPERMITTED_HOST_CODE = "theta/host/session-shutdown-teardown-step-failed";
+
+/** One row of the bug 0047 §Reproduction table: a host-namespace system note and its scoring. */
+interface HostRow {
+  readonly n: 1 | 2;
+  /** Which registered host row the note stands for. */
+  readonly what: string;
+  /** The note content, rendered from the registry Message template. */
+  readonly content: string;
+  /** Whether the committed permitted list sanctions the code. */
+  readonly permitted: boolean;
+  /** The code the extraction must yield — the namespace segment is the whole cut. */
+  readonly code: string;
+}
+
+const HOST_ROWS: readonly HostRow[] = [
+  {
+    n: 1,
+    what: "supersession detach failure, system-note routed and PERMITTED",
+    content: hostNoteContent(PERMITTED_HOST_CODE, {
+      "<call>": "hotReloadHandle.detach",
+      "<error>": "boom",
+    }),
+    permitted: true,
+    code: PERMITTED_HOST_CODE,
+  },
+  {
+    n: 2,
+    what: "teardown sub-step failure, NOT permitted",
+    content: hostNoteContent(UNPERMITTED_HOST_CODE, {
+      "<step>": "4",
+      "<call>": "discoveryWatcher.close",
+      "<error>": "boom",
+    }),
+    permitted: false,
+    code: UNPERMITTED_HOST_CODE,
+  },
+];
+
+describe("bug 0047 — premises the two host-namespace rows rest on", () => {
+  it("the committed permitted-code list still SANCTIONS the supersession host code (row 1)", () => {
+    expect(
+      loadPermittedCodes(),
+      "row 1 must witness a permission that is actually consulted; were the entry " +
+        "dropped, the row would pass on absence instead and the gate would look fixed",
+    ).toContain(PERMITTED_HOST_CODE);
+  });
+
+  it("the committed permitted-code list still EXCLUDES the teardown-step host code (row 2)", () => {
+    expect(
+      loadPermittedCodes(),
+      "row 2 is the red direction; permitting the code would restore the blindness " +
+        "through a different mechanism",
+    ).not.toContain(UNPERMITTED_HOST_CODE);
+  });
+});
+
+describe("bug 0047 — the H9a permitted-code gate scores the `theta/host/*` namespace", () => {
+  for (const r of HOST_ROWS) {
+    it(`row ${r.n} (${r.what}): the extraction yields the host code`, () => {
+      expect(
+        parseSystemNoteCodes(capture(r.content)),
+        `row ${r.n} is a location-less host diagnostic rendered into note content; ` +
+          "the extraction is what decides whether the gate can see it at all",
+      ).toStrictEqual([r.code]);
+    });
+  }
+
+  for (const r of HOST_ROWS) {
+    it(`row ${r.n} (${r.what}): the subset gate ${r.permitted ? "passes it because it is permitted" : "reds and names the code"}`, () => {
+      expect(
+        codesOutsidePermitted(printResult(capture(r.content))),
+        r.permitted
+          ? "row 1 must be admitted BECAUSE the committed list sanctions it, not " +
+              "because the gate cannot see the namespace at all"
+          : "a host-lifecycle anomaly is not expected in an acceptance run; a gate " +
+              "that cannot red on it scores nothing in this namespace",
+      ).toStrictEqual(r.permitted ? [] : [r.code]);
+    });
+  }
 });

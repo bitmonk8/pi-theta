@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.223.0]
+
+### Fixed
+
+- **Bug 0047** — the H9a acceptance code gate is no longer blind to the host namespace: `parseSystemNoteCodes` in the acceptance harness widens its alternation to `(?:load|parse|runtime|host)`, so `theta/host/*` diagnostics surfacing in a real `pi -p` run are extracted and checked against the permitted set instead of passing invisibly. Locked by the bug-0047 host-namespace section of `tests/acceptance-stderr-gate.test.ts` (red-proven: host codes previously extracted `[]`).
+
 ## [0.222.0]
 
 ### Fixed
@@ -629,7 +635,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   registry edit. `inline-object-field-name-case` grows 39→62 cells + one
   live cell.
 
-
 ## [0.182.0] - 2026-08-27
 
 ### Fixed
@@ -644,7 +649,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   untouched. Witness `tests/escaped-quote-inline-field-name-refusal.test.ts`
   (33 cells) + a standalone live cell + a NEW H9a acceptance file.
 
-
 ## [0.181.0] - 2026-08-27
 
 ### Fixed
@@ -656,7 +660,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   premeasured 9 unauthorized reds and was refused). Witness
   `tests/match-fn-return-lub-dominating-discipline.test.ts` (26 cells, 8 red
   before) + H8a cell 86.
-
 
 ## [0.180.0] - 2026-08-27
 
@@ -672,7 +675,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/alias-sink-array-element-check.test.ts` (28 cells) + a standalone
   live cell; `index-element-alias-unfolded` group (f) re-pinned under §Fix
   (d) with o1/o3/x1 added.
-
 
 ## [0.179.0] - 2026-08-27
 
@@ -691,7 +693,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/inline-object-type-source-capture.test.ts` (102 cells) + a
   standalone live cell + a NEW H9a acceptance file.
 
-
 ## [0.178.0] - 2026-08-27
 
 ### Fixed
@@ -705,7 +706,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `code-registry-load.md` since 0113 declined them (zero line movement).
   Witness `tests/discovery-cli-entry-override-prefix.test.ts` (13 cells) + a
   standalone live cell with no fault injection.
-
 
 ## [0.177.0] - 2026-08-27
 
@@ -722,7 +722,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/fn-param-annotation-optional.test.ts` (26 cells) + a standalone live
   cell (`fn-param-annotation-optional-live-cell`).
 
-
 ## [0.176.0] - 2026-08-27
 
 ### Fixed
@@ -736,7 +735,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   boundary did not move. Registry row + expressions.md same commit. Witness
   `tests/object-pattern-head-field-set-refusal.test.ts` (32 cells) + a
   standalone live registration cell.
-
 
 ## [0.175.0] - 2026-08-27
 
@@ -2492,7 +2490,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   both counts populated. `mistral` shares the widened gate by construction; no
   mistral credential exists in this environment, so its live behaviour remains
   unmeasured and nothing claims otherwise.
-
 
 ## [0.99.0] - 2026-08-16
 

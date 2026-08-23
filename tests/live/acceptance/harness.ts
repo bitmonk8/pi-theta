@@ -537,12 +537,18 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
 }
 
 /**
- * Extract the `theta/{load,parse,runtime}/*` codes present in a captured
- * `pi -p` stream. The H9a call sites pass a stdout+stderr concatenation, so a
- * code surfacing on either stream is scored.
+ * Extract the `theta/{parse,load,runtime,host}/*` codes present in a
+ * captured `pi -p` stream — the four registered diagnostic namespaces
+ * (`docs/spec_topics/diagnostics/diagnostic-shape.md` §"Code namespaces").
+ * `theta/typecheck/*` is deliberately excluded: per that page's §"Out of
+ * scope: `theta/typecheck/*`" it is a build-time `tsc` brand surface
+ * carrying no registry row, flowing through no delivery channel, with an
+ * explicit audit-gate carve-out, so matching it would produce codes with no
+ * permission semantics. The H9a call sites pass a stdout+stderr
+ * concatenation, so a code surfacing on either stream is scored.
  */
 export function parseSystemNoteCodes(output: string): readonly string[] {
-  const codes = output.match(/theta\/(?:load|parse|runtime)\/[a-z0-9-]+/g) ?? [];
+  const codes = output.match(/theta\/(?:load|parse|runtime|host)\/[a-z0-9-]+/g) ?? [];
   return Array.from(new Set(codes));
 }
 
@@ -592,7 +598,7 @@ function knownStderrClassOf(line: string): string | undefined {
  * Assert one H9a spawn's captured stderr is clean under the measured-baseline
  * empty-capture gate (bug 0030 §Fix). Reads `result.stderr` ONLY. Note CONTENT
  * on stdout stays governed by `assertCodesSubsetOfPermitted` — content only,
- * through its `theta/{load,parse,runtime}/<slug>` scan. The PRESENCE of a
+ * through `parseSystemNoteCodes`'s slug scan. The PRESENCE of a
  * theta-owned line on stdout is scored by no gate: a quiesce line, a
  * rebuild-rejected line, and a slug-less cascade carry no slug, so the scan
  * extracts `[]` from each and passes.

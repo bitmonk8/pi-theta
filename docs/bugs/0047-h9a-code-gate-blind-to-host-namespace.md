@@ -1,6 +1,6 @@
 # Bug 0047 — H9a's permitted-code gate cannot see the `theta/host/*` namespace: `parseSystemNoteCodes` enumerates `load|parse|runtime` only, so the `theta/host/session-start-supersession-detach-failed` entry bug 0029 wrote into `tests/fixtures/h7a/permitted-codes.json` grants a permission the gate never consults, and no host-namespace code is scored on either captured stream
 
-- **Status:** open.
+- **Status:** fixed (0.223.0).
 - **Kind:** defect — test infrastructure. A gate gap against H9a's documented
   gating role, not a divergence in runtime behaviour; the same class as
   [bug 0030](./0030-h9a-stderr-gate-gap-and-stale-intended-red-header.md). The
@@ -434,3 +434,94 @@ Constraints on the change:
   `979e3fce` against the checked-in `permitted-codes.json` with the predicate
   transcribed from `harness.ts:464`; plus the three `rg` inventory commands.
   Nothing was written to the tree.
+
+## Fix (0.223.0)
+
+- **What shipped:**
+  - `tests/live/acceptance/harness.ts` — `parseSystemNoteCodes`'s extraction
+    alternation widened to `(?:load|parse|runtime|host)`, so the fourth
+    registered namespace enters the scored set (§Fix, first clause). Its doc
+    comment now names all four registered namespaces and records why
+    `theta/typecheck/*` stays out (build-time `tsc` brand surface, no registry
+    row, no delivery channel, explicit audit-gate carve-out). `assertStderrClean`'s
+    doc comment, which described the scan by enumeration, now cites
+    `parseSystemNoteCodes` so it cannot go stale independently of it.
+  - `tests/acceptance-stderr-gate.test.ts` — the offline both-directions lock
+    §Fix requires, appended as its own block: two premise assertions (the
+    committed list sanctions `theta/host/session-start-supersession-detach-failed`
+    and excludes `theta/host/session-shutdown-teardown-step-failed`), two
+    extraction assertions, and two subset-gate assertions derived from each row's
+    `permitted` flag. Note text is rendered from the `theta/host/*` registry
+    shard through `parseRegistry` / `registryMessage` (DIAG-4), never transcribed,
+    and a missing row or vanished placeholder fails loudly naming the page and
+    the code. The five bug-0030 rows and every pre-existing expectation in the
+    file are byte-identical.
+  - No spec change, no minted code, no registry row moved, and
+    `tests/fixtures/h7a/permitted-codes.json` is untouched — the four
+    non-permitted host rows stay non-permitted (§Fix consequence 2).
+- **Gates:**
+  - Witness RED before the fix: `npx vitest run tests/acceptance-stderr-gate.test.ts`
+    → `Tests 3 failed | 35 passed (38)`, each failure naming a host code with
+    `expected [] to strictly equal [ Array(1) ]`. GREEN after: `38 passed (38)`.
+  - Red-path re-proof during verification: the widened alternation was
+    neutralised by writing the file (never `git checkout`/`restore`/`stash`),
+    reproducing the same three failures, then restored and hash-verified —
+    `git hash-object tests/live/acceptance/harness.ts` =
+    `7d70e92e10c1977bf2182e700ac809dce38aa76d` both before neutralisation and
+    after restoration.
+  - Full default suite: `npm test` → `Test Files 408 passed (408)`,
+    `Tests 8587 passed (8587)`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+    `npm run lint` clean; `npx vitest run tests/citation-symbol-form-gate.test.ts`
+    → `3 passed (3)`.
+- **Review:** 2 rounds. Round 1 (deep) — FINDINGS: one `house-rule` (the new
+  row type's `permitted` field was read by nothing while the two subset-gate
+  assertions hard-coded their expectations) and one `prose` (two passages in the
+  touched files still described the extraction by three-namespace enumeration and
+  had become false). No `correctness`, `fidelity` or `spec` finding. Round 2
+  (fast, confirmation after the fixer round) — CLEAN, with one non-blocking
+  observation: the permitted branch of the loop's failure message names row 1
+  literally, which is exact while `HOST_ROWS` has one permitted row.
+- **Verification:** solid on the fix's own obligations. Witness reds and
+  restores byte-exact (above); default suite green; typecheck and lint clean; the
+  extraction has exactly one site (`rg -n "load\|parse\|runtime" -g '*.ts'
+  -g '*.js' src tests tools` returns only the widened line); `permitted-codes.json`
+  shows no diff; no scratch artefacts left. Live: one run of
+  `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/`
+  under the shared live lock — 24 of 25 tests green across 14 of 15 files, with
+  `grep -c theta/host` = 0 over both the full-suite and the isolated-re-run logs,
+  so no host code reached any capture and no area newly red on the widened
+  predicate. The one red is residual 1 below.
+- **Residuals:**
+  1. `tests/live/acceptance/inline-object-empty-field-type-truncation-load-refusal.test.ts`
+     is red on the live axis, independently of this change. First run: the
+     drive-content assertion `probe.stdout` `toContain` the refusal sentinel
+     observed `738` against the expected `1738`. The permitted isolated re-run
+     stalled at the 180s per-test cap instead of deciding. The failing assertion
+     does not call `parseSystemNoteCodes`; the two assertions in that file which
+     do call it expect the empty list, and the widening is monotone (old matches
+     ⊆ new matches, the additions being `theta/host/*` strings alone), with
+     `grep -c theta/host` = 0 on both logs. The signature is a stochastic
+     drive-discriminator red on bug 0243's freshly converted arithmetic sentinel,
+     not a consequence of this fix, and needs its own triage.
+  2. Thirteen live acceptance files (`tests/live/acceptance/*-load-refusal.test.ts`
+     and siblings) still enumerate `theta/{load,parse,runtime}/*` in assertion
+     MESSAGE strings. The assertions themselves became strictly stronger under
+     the widening — each expects the empty list — so the strings only
+     under-describe what they score, and they surface on a red alone. A prose
+     sweep, deliberately out of this fix's scope (§Fix touches one regex, one doc
+     comment and one offline test file).
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the four non-permitted `theta/host/*`
+  rows are NOT added to `tests/fixtures/h7a/permitted-codes.json` — permitting
+  them would restore the blindness through a different mechanism (§Fix
+  consequence 2), and any future addition stays honest through
+  `tests/integration-acceptance.test.ts`'s registry-Message check. Area (e)'s
+  `theta/runtime/internal-error` absence check is a fixed-string membership test
+  over the extracted list, so adding host elements cannot flip it (§Fix
+  consequence 3, re-derived at HEAD). `assertStderrClean` keeps scoring stderr
+  line presence only (§Fix consequence 4). Bug-document line citations for
+  `harness.ts` were already stale at HEAD `f3be3b4c` (the regex had moved from
+  `:464` to the current `parseSystemNoteCodes` body); the fix's own prose uses
+  file+symbol form, and historical bug documents are dated records of a past
+  HEAD and were left untouched.
