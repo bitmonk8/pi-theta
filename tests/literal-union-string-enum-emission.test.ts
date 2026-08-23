@@ -55,8 +55,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     it, and group (d)'s d5 holds it still.
 //   - :81 — SUBS-1 governs a union of `PrimitiveType` arms and emits
 //     `{ "type": [...] }`. A string-literal union is `LiteralType` arms
-//     (docs/spec_topics/grammar.md:102), so `:81` is NOT its rule; group (e)'s
-//     e4 pins the primitive-union arm as untouched by `:80`.
+//     (docs/spec_topics/grammar.md:102), so `:81` is NOT its rule; SUBS-3
+//     (`:80`, anchor `#subs-3`) is; group (e)'s e4 pins the primitive-union arm as untouched by `:80`.
 //   - :85 — *Array element order*: the `enum` array carries wire values in
 //     source enumeration order, which the current arm already satisfies.
 //   - :94–:108 — §Canonical schema hash: the `__inline_<slug>` recipe the
@@ -141,9 +141,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // the MECHANISM the old message described — a recursion that re-enters
 // `lowerTypeExpr` and reaches no literal rule — is exactly what the later fix
 // removed. `e4` (the SUBS-1 control) stays byte-frozen. `1 | 2`,
-// `"x" | 1`, `true | false` and `"x" | null` keep the bare `enum` because `:80`
-// spells the emission for an enum or a STRING-literal union only, and
-// `{"type":"string","enum":[1,2]}` would refuse every value `1 | 2` declares.
+// `"x" | 1`, `true | false` and `"x" | null` keep the bare `enum` under SUBS-3
+// (schema-subset.md:80, the anchor `#subs-3`), which governs a literal union
+// not all of whose arms are strings; the string-typed form refuses non-strings.
 //
 // THE SLUG ORACLE IS INDEPENDENT. `schemaSlug` (src/parser/schema-lowering.ts)
 // is deliberately NOT imported: an oracle taken from the implementation under
@@ -657,16 +657,16 @@ describe("bug 0055 (d) — a non-string literal form keeps its current fragment"
     ["booleans", "true | false", { enum: [true, false] }],
     ["a string and a number", '"x" | 1', { enum: ["x", 1] }],
   ] as const) {
-    it(`CONTROL (d, ${label}): \`${source}\` keeps the bare \`enum\` — no rule spells a \`type\` for it`, () => {
+    it(`CONTROL (d, ${label}): \`${source}\` keeps the bare \`enum\` — SUBS-3 spells it`, () => {
       const lowered = lowerSource("d", source);
       expect(
         lowered,
-        `schema-subset.md:80 covers an enum or a STRING-literal union; ` +
+        `SUBS-3 (schema-subset.md:80, anchor #subs-3) elects the bare enum form for a literal union not all of whose arms are strings; ` +
           `\`{"type":"string","enum":${JSON.stringify(
             (expected as { readonly enum: readonly unknown[] }).enum,
           )}}\` would refuse every value \`${source}\` declares, and :81 (SUBS-1) governs ` +
           `unions of \`PrimitiveType\`, not \`LiteralType\` arms (grammar.md:102). The ` +
-          `emission stays as it is; observed ${JSON.stringify(lowered)}`,
+          `emission stays as SUBS-3 elects; observed ${JSON.stringify(lowered)}`,
       ).toEqual(expected);
     });
   }

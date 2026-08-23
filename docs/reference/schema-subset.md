@@ -191,7 +191,7 @@ Each theta file is lowered to a JSON Schema document at parse time:
    `{ "type": "array", "items": <T-lowered> }`; object →
    `{ "type": "object", "properties": {...wire names...}, "required": [...every wire name...], "additionalProperties": false }`;
    literal → `{ "const": <value> }`; enum / string-literal union →
-   `{ "type": "string", "enum": [...wire values...] }`.
+   `{ "type": "string", "enum": [...wire values...] }`. **SUBS-3** (literal union not all of whose arms are strings): lowers to the bare `{ "enum": [...values...] }` form, no `type` keyword.
    - **SUBS-1** (union of primitives only): a union all of whose arms are
      primitive (treating `null` as primitive) lowers to `{ "type": [...] }`; a
      union with any non-primitive arm lowers to `{ "anyOf": [...] }`. Vectors:

@@ -1,10 +1,10 @@
 # Bug 0098 — No step-3 emission rule covers a union of non-string literals: since 0055 (0.59.0) `lowerTypeSource` emits `{"enum":[1,2]}`, `{"enum":[true,false]}` and `{"enum":["x",null]}` from a deliberate branch that two test files pin and no normative sentence states, so the bytes, the `__theta_respond_<slug>` name and the `__inline_<slug>` name a second implementation mints for `schema X = 1 | 2` are underdetermined
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The decision this
-  report asks for is which emission `docs/spec_topics/schema-subset.md` step 3
-  prescribes for a literal union that is not all strings — the disposition the
-  implementation already takes, or a typed emission per literal kind — not the
-  wording of one of them.
+- **Status:** fixed (0.252.0). §Fix disposition 1 landed: step 3 of
+  `docs/spec_topics/schema-subset.md` gained the normative rule SUBS-3, which
+  elects the bare `{ "enum": [...values...] }` emission the implementation
+  already takes for a literal union that is not all strings. See
+  [§Fix (0.252.0)](#fix-xyz) for the route adjudication and the shipped record.
 - **Kind:** spec gap. Step 3 of the Lowering Algorithm gives an emission for a
   single literal of any kind (`docs/spec_topics/schema-subset.md:79`,
   `{ "const": <value> }`), for an enum or a string-literal union (`:80`,
@@ -654,3 +654,115 @@ text.
   `node:crypto` canonical-hash oracle; sixteen direct lowerings, eight
   positions, seven slug rows, seven eleven-payload AJV rows, five issue lists,
   three unreached positions. Deleted after the run.
+
+## Fix (0.252.0)
+
+Disposition 1, docs-only lawful fill. Every citation in the sections above was
+re-derived at HEAD `cd8e2eee` before any edit; the gap survived verbatim
+(`docs/spec_topics/schema-subset.md:80` still read "Enum (or string-literal
+union)" and nothing else reached the case), and its REACH had grown: bug 0056's
+fix routed the `params:` position through `lowerLiteralSublanguage`, and bug
+0164's routed the generic ARGUMENT through it at every depth, so the two
+positions §Affected lists as "does not reach" now emit the bare form too
+(`params: p: 1 | 2` → `{"enum":[1,2]}`; `array<1 | 2>` →
+`{"type":"array","items":{"enum":[1,2]}}`). The ternary itself moved from
+`src/parser/body-type-lowering.ts` into `lowerLiteralSublanguage`
+(`src/parser/params.ts`) and is byte-unchanged. Every shipped (bare-form) slug
+§Reproduction records is still correct; the TYPED-alternative slugs are stale
+because bug 0099 landed and `respondSchemaSlug` now hashes the canonical form
+(`{"type":"integer","enum":[1,2]}` → `f7c7a4659ddb1441`, not
+`4bed5da6973ead51`). The AJV verdict tables re-measured identical.
+
+- **Route adjudication.** §Fix left the route unsettled between disposition 1
+  (state the shipped bytes) and disposition 2 (a typed emission per literal
+  kind, or a parse-time refusal). The report's own constraints force
+  disposition 1: constraint 1 — disposition 2 has no derivable answer for
+  `"x" | 1` and `1 | 1.5`, and each of the three sub-variants it offers is an
+  invention no corpus line supports; constraint 7 — the refusal sub-variant
+  needs a diagnostic-registry row, and
+  [DIAG-2](../spec_topics/diagnostics/diagnostic-shape.md#diag-2) closes the
+  registry, making a code addition a spec change with its own GOV-15
+  disposition rather than something a bug fix may take; §Why it matters item 7
+  plus the measured reach growth — disposition 2's byte-moving cost has risen
+  across every set since 0.59.0, and bug 0164 §Fix constraint 6 obliges any
+  byte move to re-derive 0164's rows as well. Disposition 1 moves no byte,
+  weakens no witness, and matches the 0063 (0.233.0) lawful-fill precedent.
+- **What shipped**
+  - `docs/spec_topics/schema-subset.md` — step 3's enum / string-literal-union
+    bullet gained `SUBS-3` (anchor `#subs-3`): a union of two or more
+    `LiteralType` arms not all of which are strings MUST lower to the bare
+    `{ "enum": [...values...] }` form with no `type` keyword; the `enum` array
+    defers to the existing *Array element order* clause; a `null` arm is
+    carried by SUBS-3 rather than by SUBS-1. Constraint 1 and constraint 2 are
+    discharged by construction — the rule names `"x" | 1` and `1 | 1.5` and the
+    `null`-arm boundary explicitly.
+  - `docs/reference/schema-subset.md` — the user-facing mirror restates SUBS-3
+    in the same commit (constraint 3).
+  - `docs/plan_topics/coverage-matrix.md` — SUBS-3 joins the existing
+    `SUBS-1 | V5f` row. Required mechanically: the closing gate's REQ-ID
+    discipline arm treats a new `**PREFIX-N.**` spec anchor as an executable
+    REQ-ID needing a matrix mapping.
+  - `src/parser/params.ts`, `src/parser/body-type-lowering.ts` — doc-comment
+    only. The two statements that argued the bare form from `:80`'s SILENCE now
+    cite SUBS-3. No executable line changed.
+  - `tests/literal-union-string-enum-emission.test.ts` — header prose, one
+    `it()` title and one failure message re-anchored on SUBS-3. No assertion
+    and no `expected` value touched (constraint 5).
+  - `tests/nonstring-literal-union-emission-subs3.test.ts` — new, 33 tests.
+- **Nil citation shift (constraint 4).** Every pre-existing file this fix
+  touches keeps its HEAD line count: `schema-subset.md` 118, the reference
+  mirror 289, `coverage-matrix.md` 192, `params.ts` 2214,
+  `body-type-lowering.ts` 629, the 0055 regression file 764. SUBS-3 was
+  appended INTO line 80 rather than inserted as a new line, and the matrix row
+  was merged into the SUBS-1 row rather than added beneath it, because 271
+  inbound citations point at `schema-subset.md` lines ≥ 81, 35 at
+  `coverage-matrix.md` lines ≥ 35 and 14 at `params.ts` lines ≥ 1826. Two
+  intermediate drafts did shift `params.ts` (+2) and `coverage-matrix.md` (+1);
+  both were reflowed back to the HEAD count before the record was written.
+- **Gates.** Witness 33/33 green; `npm test` 426 files / 8964 tests green;
+  `npm run typecheck` clean; `npm run lint` clean.
+- **Review.** Two rounds. Round 1 (deep): three findings — two fidelity
+  (`lowerTypeSource`'s doc comment and the 0055 file's header still argued from
+  silence) and one prose (SUBS-3's first rationale clause claimed a typed form
+  "would refuse values the union declares", false for `1 | 2` and
+  `true | false`, whose typed and bare verdict sets are identical); all three
+  fixed. Round 2 (fast): CLEAN. A subsequent comment-only correction round
+  restored `params.ts` to its HEAD line count; its diff is doc-comment lines
+  only and the gates re-ran green, so no confirmation round was dispatched.
+- **Verification.** VERIFIED. The witness reds on demand: with SUBS-3 stripped
+  from line 80 (file restored afterwards by writing the captured bytes back,
+  byte-equality proven with `git hash-object`), group (a) reds naming the
+  missing anchor while groups (b)–(h) stay green — the behaviour controls
+  witness shipped bytes, not spec text. No second gap: `1 | 1` (duplicate
+  arms), `-1 | 2` (signed) and `1 | true | null` (three-arm mix) all lower to
+  the bare form SUBS-3 names. `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged (constraint 7).
+- **No live run is owed.** Not by inheritance from 0063's "byte-untouched
+  `src/`" antecedent, which does not hold here, but on direct evidence: every
+  changed `src/` line is a `*`-prefixed doc-comment line
+  (`git diff -- src/ | grep -E '^\+' | grep -v '^\+\+\+' | grep -v '^\+\s*\*'`
+  is empty), so no rendered byte, emitted schema, diagnostic code, severity or
+  range can move.
+- **Residuals**
+  1. `tests/reserved-keyword-type-position.test.ts` (bug 0044's `d2` row) was
+     deliberately NOT touched. Its failure message argues the adjacent
+     `true | string` row and never argued from `:80`'s silence, so it needed no
+     re-anchor, and editing it would have risked shifting a file bug 0098 and
+     bug 0044 both cite by line.
+  2. The §Reproduction *Slugs and envelope* typed-alternative slugs above are
+     stale post-0099 (the shipped bare-form slugs are correct). Left as filed:
+     they describe a disposition that was not taken.
+  3. One unnamed test failed on the first full-suite run of this fix and did
+     not recur across four subsequent full-suite runs (8964/8964 each). The
+     name was not captured before the run scrolled; treated as a transient.
+  4. A `params:` field whose declared type contains a bare `"` breaks YAML
+     frontmatter parsing outright — `p: "a" | "b"` yields
+     `theta/load/missing-mode` and no diagnostic naming the type. It hits the
+     all-STRING literal union equally, so it is not this report's subject and
+     is unfiled; the witness fixture quotes the whole scalar (`'"x" | null'`).
+- **Discharge notes appended:** none. Bug 0056 and bug 0164 both defer to this
+  report for WHICH BYTES the branch owes; SUBS-3 ratifies the bytes they
+  already emit, so neither's rows move and neither's record needed amending.
+- **Pinned dispositions / non-goals:** unchanged. Disposition 2 is declined,
+  not deferred — the rationale is the route adjudication above. §Non-goals
+  stands as written.

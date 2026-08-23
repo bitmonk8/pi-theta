@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.252.0]
+
+### Fixed
+
+- Bug 0098: the nonstring-literal-union emission is now specified —
+  disposition 1 (docs-only lawful fill, 0063 precedent, forced by the doc's
+  own constraints): normative SUBS-3 lands inside `schema-subset.md:80`
+  (the shipped bare-enum emission stated for every literal kind), mirrored
+  in `docs/reference/`, with the `SUBS-1, SUBS-3 | V5f` coverage-matrix row
+  and two comment-only `src/` doc-comment re-anchors. Reach re-derived at
+  HEAD (params: via 0056 and `array<1|2>` via 0164 now reach the branch —
+  the doc's stale section corrected). Nil citation shift enforced (271
+  citations ≥ schema-subset.md:81 all hold; six files' line counts
+  unchanged vs HEAD). New witness
+  `tests/nonstring-literal-union-emission-subs3.test.ts` (33 tests; 3 red
+  at HEAD; bare-enum bytes pinned at every reaching position + 7 controls).
+  No live owed (comment-only src). permitted-codes byte-unchanged.
+
 ## [0.251.0]
 
 ### Fixed

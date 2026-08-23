@@ -199,8 +199,8 @@ export function lowerInlineObject(
  * string-literal union (`"a" | "b"`) lowers to `{ "type": "string", "enum":
  * [...] }` (schema-subset.md:80); a union whose arms are literals of any
  * other kind (numbers, `true`/`false`, `null`, or a mix) lowers to the bare
- * `enum` form, because `:80` spells the added `type` keyword for the enum /
- * string-literal-union case only; a single literal of any kind lowers to a
+ * `enum` form per SUBS-3 (schema-subset.md:80, the anchor `#subs-3`), which
+ * governs exactly that case; a single literal of any kind lowers to a
  * `const` (`:79`). A SINGLE ENCLOSING BRACE GROUP (an inline object type, at
  * any depth) hoists into `defs` under `__inline_<slug>` (bug 0039 §Fix part
  * B); a union CARRYING such a group as one of its arms lowers arm by arm

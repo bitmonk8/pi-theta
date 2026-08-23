@@ -31,7 +31,7 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | ERR-18 | `V4a` |
 | ERR-19 | `V4d`, `V13c` |
 | ERR-20 | RFC 0003 (`par for`) |
-| SUBS-1 | `V5f` |
+| SUBS-1, SUBS-3 | `V5f` |
 | BNDR-1, BNDR-2, BNDR-3 | `V11c` |
 | BNDR-4, BNDR-5 | `V2d` |
 | BNDR-6 | `V11h` |

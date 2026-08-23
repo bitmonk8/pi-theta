@@ -1822,8 +1822,8 @@ export function hasUnterminatedStringLiteral(text: string): boolean {
  * returns schema-subset.md:79's `const` when accepted, and declines
  * otherwise. The union form's KEY ORDER is CONTRACTUAL, not cosmetic: `type`
  * first when every value is a string (schema-subset.md:80), the bare `enum`
- * otherwise (`:81` scopes SUBS-1's own primitive-union rule away from
- * `LiteralType` arms). That order is contractual as EMITTED BYTES — the bytes
+ * otherwise per SUBS-3 (schema-subset.md:80, the anchor `#subs-3`). That
+ * order is contractual as EMITTED BYTES — the bytes
  * schema-subset.md:80 spells, and the bytes the model is shown — but it is not
  * slug-bearing: every mint hashes the canonical form, whose keys are code-point
  * sorted, so `type`-first and `enum`-first collapse onto one slug (bug 0055 §Fix;
