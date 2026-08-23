@@ -162,6 +162,7 @@ const UNSUPPORTED = "theta/parse/unsupported-feature";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const UNRESOLVED_TYPE = "theta/parse/unresolved-named-type";
 const BARE_OBJECT = "theta/parse/bare-object-literal";
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -1038,8 +1039,22 @@ describe("0242 (P) — a keyword directly behind keyword `for` is a name slot wh
     ]);
   });
 
-  it("P2: `schema S { p: { for fn } }` reports single-line-if @4:17-4:20 alone", () => {
+  it("P2: `schema S { p: { for fn } }` reports malformed-schema-field then single-line-if", () => {
+    // Bug 0244 (operator adjudication) flip: `tokeniseType`
+    // (src/parser/type-grammar.ts) has no keyword token kind — its kind union
+    // is `"ident" | "str" | "num" | "punct"` — so `for` reaches the inner
+    // interior's field-name position as an `ident` and is accepted there. The
+    // COLON GATE behind it is what fails: the next token is `fn`, not `:`. The
+    // entry `for fn` spells no top-level `:` and carries no stray close token,
+    // so `TypeParser.parseObject`'s colon-gate arm now refuses it — an ADDED
+    // line ahead of the name-slot rule's own
+    // `single-line-if` verdict on `for`, which is unmoved. The refusal's range
+    // is the enclosing declaration's site (`TypeCheckSite`, `schema S { ... }`
+    // spans column 1 to the end of the closing `}`), not the entry's own token:
+    // a `TypeNode` carries no range of its own, the same divergence
+    // `theta/parse/schema-type-not-expression` already states.
     expect(lines(theta("schema S { p: { for fn } }\n1\n"))).toEqual([
+      at(MALFORMED_FIELD, msg(MALFORMED_FIELD, []), 4, 1, 27),
       singleLineIfAt("for", 4, 17),
     ]);
   });

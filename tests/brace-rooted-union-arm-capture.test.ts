@@ -773,12 +773,21 @@ describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
     // Since bug 0228's fix the absorbed `{ 1 }` body-turned-arm is a raw
     // slice of the author's own source bytes, so its interior spacing
     // survives too.
+    //
+    // Bug 0244 (operator adjudication) flip: the absorbed `{ 1 }` arm is an
+    // inline object type whose lone entry `1` spells no top-level `:` —
+    // keyless — so it now draws `theta/parse/malformed-schema-field`. An
+    // ADDED diagnostic, not a route change to the arm capture itself: the
+    // shape observables below (params/returnType/body) are unmoved.
     expect(
       observeFn(body("fn f(): integer | { 1 }")),
       "3f — a loads-cleanly source can move its RETURN type's arm count and the document's own " +
-        "tail together, with zero diagnostics on either side of the fix",
+        "tail together; bug 0244 now refuses the arm's keyless entry `1`",
     ).toEqual({
-      diagnostics: [],
+      diagnostics: [
+        "error theta/parse/malformed-schema-field: malformed schema field; each field is 'name: " +
+          "Type' or 'name as \"WireName\": Type'",
+      ],
       shape: {
         params: [],
         returnType: "integer|{ 1 }",

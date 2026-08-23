@@ -240,7 +240,13 @@ LiteralType   ::= STRING | NUMBER | BOOLEAN | NULL
   field spelled `ident as "WireName": Type` is `theta/parse/renamed-inline-field-name`,
   keyed on the same raw entry text as the rows below, once per renamed field in source
   order; `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name` stay
-  declaration-only. Empty `{}` is `theta/parse/empty-schema-body`. Field names are
+  declaration-only. Empty `{}` is `theta/parse/empty-schema-body`. A top-level comma
+  entry spelling no top-level colon is `theta/parse/malformed-schema-field` wherever the
+  inline field loop's own entry walk reaches it, one line per such entry, ranged at the
+  enclosing declaration; an entry carrying a stray depth-0 close token keeps its own
+  tolerant registration, and an entry stranded behind the field loop's exit on a missing
+  entry separator — behind an earlier entry whose type text carries a junk tail — is
+  unvisited and draws nothing, an unfixed residual of bug 0244. Field names are
   identifiers; four rules judge each top-level comma entry's text up to its own top-level
   colon, as written, in precedence order: a repeat is
   `theta/parse/duplicate-inline-field-name`, once per repeat; a quote-led key is

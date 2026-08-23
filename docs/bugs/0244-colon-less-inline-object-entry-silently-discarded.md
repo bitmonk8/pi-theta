@@ -1,6 +1,6 @@
 # Bug 0244 — an inline object entry that spells no top-level `:` is discarded by `TypeParser.parseObject`'s resync and is invisible to every rule: `{a: ,void}` and `{a: integer,void}` both report `[]` and register at twelve `Type` positions, the entry reaches neither `fieldNames`/`fieldTypes` (the resync consumes it) nor `inlineObjectFieldKeys` (no top-level colon, no key), so the eight refusals the same entry draws once a `:` is added — `void-in-non-return-position`, `generic-arity-mismatch`, `empty-schema-body`, `binding-case-mismatch` and all four raw-key rows — are withheld, and `{void}` lowers the byte-identical fragment `{}` draws `theta/parse/empty-schema-body` for
 
-- **Status:** open.
+- **Status:** fixed (0.238.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the theta LOADS AND REGISTERS with
   zero diagnostics on any channel while junk stands at a `Type` position:
   `fn f(p: {a: integer, array<integer, integer>}): integer { 1 }` reports `[]`,
@@ -398,6 +398,13 @@ admits it at all twelve `Type` positions measured.
   sibling behind a discarded entry keeps its refusal (§(a) a4–a5) is a no-move.
 - The lowering's field division. §(e) records what the lowerers do; a refusal
   added here refuses the document before its bytes matter.
+- A keyless entry carrying a STRAY CLOSE TOKEN — a `}` or `>` whose innermost
+  open frame is of another kind or absent, bug
+  [0238](./0238-stray-close-token-underflows-top-level-split.md)'s
+  typed-opener-stack class. `{a: integer, b > c, m: integer}` at `params:`
+  registers and lowers `{a, m}`, and the keyless entry drops silently, which is
+  0238's own landed design (0.218.0) and not a defect this report claims. Added
+  by the operator adjudication below.
 
 ## Fix
 
@@ -440,6 +447,65 @@ Binding on the fix:
   reaches a provider-facing schema — §(e) rows e7–e8 say it does, by refusing
   the document that produced them.
 
+### Operator adjudication (2026-08-23)
+
+A premeasure of the §Fix above, implemented exactly as written, measured that it
+collides with two shipped sibling contracts: it WITHDRAWS the registration bug
+[0238](./0238-stray-close-token-underflows-top-level-split.md) promises at its
+own cells (0.218.0), and it SUBSTITUTES its own code for the one bug
+[0252](./0252-brace-and-angle-annotation-junk-exempt-from-refusal.md) settled at its
+annotation cells (0.225.0). Neither report is named anywhere above — this one
+was filed at 0.219.0 — so the flips carried no authorizing clause. The operator
+settled it as a carve-out. The adjudication, verbatim:
+
+> 1. AMEND 0244's §Expected 2 on the record: the emission stays
+>    text-independent EXCEPT one discriminator — a keyless entry containing a
+>    STRAY CLOSE TOKEN (0238's typed-opener-stack class) routes to 0238's
+>    tolerance (no emission; the entry drops as 0238's fix promises).
+> 2. SCOPE the emission to KEYLESS entries only (an entry that contributes no
+>    key). Colon-PRESENT entries with junk tails stay whatever they are today
+>    (0252's business at annotations; the tolerant skip elsewhere) — 0244's
+>    emission must never fire on them.
+> 3. Under that scoping: `{void}`, `{zs}`, `{Zs}`, `{zs, ys}`, `{a: ,void}`,
+>    `{a: integer,void}`, `{a: integer, b c}`, `{a: integer, "q"}`,
+>    `{a: integer, 3}`, `{a: integer, a}`, `{a: integer, Zs}`,
+>    `{a: integer, array<integer, integer>}`, `{a: integer, {}}`,
+>    `{a: integer, w as "x"}`, `{a: integer, Élan}` REFUSE with the settled
+>    registry disposition (REUSE `theta/parse/malformed-schema-field`; widen its
+>    `code-registry-parse.md` Trigger from the schema object body to the inline
+>    interior, mirror into `docs/reference/diagnostics.md` and
+>    `docs/reference/schema-subset.md`; the Trigger must also state the RANGE
+>    divergence — at an inline interior the diagnostic carries the enclosing
+>    declaration's range, the same statement
+>    `theta/parse/schema-type-not-expression` already makes).
+>    `{a: integer, b > c, m: integer}` and every stray-close-carrying keyless
+>    entry KEEPS 0238's silent tolerant registration — record that class as
+>    0244's §Non-goal (0238's documented design).
+> 4. ZERO flips at 0238's witness
+>    (`tests/inline-object-stray-close-token-split.test.ts` W-cells + E2) and
+>    ZERO flips at 0252's witness/cells — they are LOCKS for this run.
+
+**The amended rule.** §Expected 2 now reads: the refusal is one line per
+discarded entry (bug 0129's count-consequence law) and does not depend on the
+entry's own text — `{a: integer, void}`, `{a: integer, Zs}` and
+`{a: integer, "q"}` are refused alike — with exactly one discriminator. An
+entry that contributes no key AND carries a stray close token is not this
+report's subject: it keeps bug 0238's silent tolerant registration (§Non-goals).
+An entry that DOES contribute a key is out of reach whatever junk stands behind
+its colon; that text is bug 0252's business at an annotation and the tolerant
+skip elsewhere. Every cell of §Reproduction (a)–(e) above is unaffected by the
+carve-out: none of its interiors carries a stray close token.
+
+**"Contributes no key" is the repository's own test, not a paraphrase.**
+`inlineObjectFieldKeys` keys each entry of
+`splitTopLevel(interiorSource, ",", "angle-and-brace")` on `topLevelColon`
+(`src/parser/params.ts`), and bug
+[0159](./0159-inline-field-name-stop-masks-duplicate.md)'s route (a)
+makes the two lowerers' agreement with that split structural. So the parser's
+scoping test is at parity with `topLevelColon` — which tracks `(` as nesting —
+and not merely with "spells a `:` somewhere": `{(b: c)}` contributes no key, no
+property, and is refused.
+
 ## Provenance
 
 Filed as the forward filing of bug 0237's §Fix *Residuals* item 4
@@ -473,3 +539,169 @@ fragment `{}` is refused for producing (§(e) rows e1–e3, e7–e8).
 
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+
+## Fix (0.238.0)
+
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — `parseTypeExpression` constructs the
+    diagnostics array up front and constructor-injects it, with the
+    `TypeCheckSite`, into `TypeParser` (explicit injection; no module state).
+    `TypeParser.parseObject`'s two discard arms — the colon-gate failure arm and
+    the non-`ident` field-name-position arm — each buffer exactly one
+    `theta/parse/malformed-schema-field` for a SOURCE entry that contributes no
+    key and carries no stray close token, before `skipMalformedEntry` /
+    `this.next()` carries the entry away (§Fix "emission at the loop, not at
+    `walkType`"). `TypeParser.classifyEntry` decides that with two typed stacks
+    in one pass: one carrying `(`, `<` and `{` for the top-level-`:` test, at
+    parity with `topLevelColon`; one carrying `{` and `<` only, parens
+    transparent, for the entry `,` boundary and bug 0238's stray-close class, at
+    parity with `splitTopLevelSegments` and `skipMalformedEntry`. An
+    `entryRefused` latch, reset only when an entry separator is consumed, holds
+    §Fix's one-line-per-entry law; `skipMalformedEntry` returns whether it
+    crossed one. Buffered refusals flush only when the interior's closing `}` is
+    spelled — the same grammar gate the empty-schema and raw-key rules read,
+    which is what leaves the unclosed-interior class unmoved.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the registry
+    disposition is REUSE, not a mint: `theta/parse/malformed-schema-field`'s
+    Trigger is widened from the `schema` object body to the inline interior at
+    any `Type` position and any nesting depth, states the RANGE divergence (an
+    inline interior carries the enclosing declaration's range, because a
+    `TypeNode` carries none — the same statement
+    `theta/parse/schema-type-not-expression` already makes), and states the
+    three bounded exclusions (colon-present entry; stray-close-carrying keyless
+    entry; the stranded-entry residual below).
+  - `docs/reference/schema-subset.md`, `docs/spec_topics/grammar.md`
+    §"Inline object types", `docs/reference/grammar.md`'s `ObjectType` bullet —
+    the same statement mirrored in each page's register, in the same change
+    (DIAG-2). `docs/reference/diagnostics.md` needs no edit: that table carries
+    code, severity, phase and Message only — no Trigger column — and the Message
+    is unchanged. `tests/fixtures/h7a/permitted-codes.json` needs none either:
+    it holds load/runtime/host codes and no `theta/parse/` code.
+  - `tests/inline-object-keyless-entry-refusal.test.ts` — the new witness
+    (below).
+  - Ten sibling witnesses updated at fourteen cells, each strictly ADDITIVE and
+    stated at the cell (§Fix "any cell this fix flips is flipped by an ADDED
+    diagnostic and stated at the cell"): `annotation-nontype-text-refusal`
+    (0124, a20 return), `brace-rooted-union-arm-capture` (0095, 3f),
+    `empty-object-discriminator-field-withhold` (0129, the exotic-whitespace
+    row), `inline-empty-object-type` (0045, d-value / d-return /
+    d-schema-feeding / f1 / f4), `inline-object-empty-field-type-truncation`
+    (0237, r16 / r16c, its own `EMPTY_LIST_CELLS` re-derived 12 to 10),
+    `inline-object-field-name-comparison-key` (0159, C1),
+    `inline-object-quoted-field-name-refusal` (0176, H1 twice),
+    `let-annotation-inline-object-compat` (0130, e1),
+    `params-scalar-nontype-text-refusal` (0059, d10),
+    `reserved-keyword-misfire-faces` (0242, P2). No assertion weakened, no cell
+    deleted, every stated count re-derived.
+- **Gates:** witness RED at HEAD `537c274c` (7 failed / 8 passed, every red a
+  missing `theta/parse/malformed-schema-field` line or an absent lowering, no
+  fence or control cell red) and GREEN after (19/19 at the sealed state).
+  Default suite `npx vitest run` — 420 files / 8817 tests passed.
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean. `npm run lint`
+  (`eslint "src/**/*.ts"`) clean. Locks green standalone:
+  `tests/inline-object-stray-close-token-split.test.ts` (0238) and
+  `tests/brace-and-angle-annotation-junk-refusal.test.ts` (0252), 27/27, zero
+  flips — the adjudication's clause 4. `tests/code-registry.test.ts`,
+  `tests/citation-symbol-form-gate.test.ts`,
+  `tests/registry-closed-set-corpus-gate.test.ts` and
+  `tests/committed-fixture-parse-gate.test.ts` 50/50, which is what discharges
+  the corpus-wide "no shipped source moves" claim.
+- **Review:** 4 rounds.
+  - Round 1 (deep) — 7 findings: a no-progress fallback in the colon-gate arm
+    that cleared `entryTainted` and so flipped the COLON-PRESENT entry
+    `{a > Zs: integer}` from one line to two (deleted; its stated WHY was false
+    and the arm trace proves the loop already terminates); `classifyEntry`
+    ignoring parens where `topLevelColon` tracks them, leaving `{(b: c)}` silent
+    and lowering the permissive `{}`; a `docs/reference/grammar.md` mirror gap;
+    a false "spins forever" comment; a wrong mechanism recorded at 0242's P2
+    (`tokeniseType` has no keyword kind); three historical comments; a
+    duplicated range statement in the Trigger.
+  - Round 2 (fast) — 1 correctness finding: round 1's paren remedy used a
+    counter separate from the `{`/`<` stack and so lost parity with
+    `topLevelColon` on CROSSED brackets — `{( < ) > : x, a: integer}` reported
+    `[]` and silently dropped the entry from the lowering. Remedied with the
+    two-stack pass described above.
+  - Round 3 (deep) — 1 correctness finding, arbitrated as an unfixed residual
+    (residual 1 below) and remedied non-behaviourally: zero executable `src/`
+    lines changed (`git hash-object src/parser/type-grammar.ts` identical before
+    and after).
+  - Round 4 (deep confirmation) — CLEAN, no finding on any axis, three
+    non-blocking residuals recorded below.
+- **Verification:** SOLID.
+  - Red path: `src/parser/type-grammar.ts` neutralised to HEAD's blob
+    (`8f860c92…`), witness 11 of 19 tests RED; the tests that stay green are the
+    designed fences (§(e)'s direct-lowerer half, all of group (G), the
+    termination guard (I), the inventory check (L)), and group (K)'s residual
+    cells are byte-unmoved under neutralisation — only its discriminator cells
+    move, which is what proves the fix's reach. Restored and hash-verified back
+    to `19a8b30a…`, witness 19/19 green.
+  - Default suite green, both locks green standalone (above).
+  - Live: one new standalone cell,
+    `tests/live/b0244live-keyless-entry-params-refusal-live-cell.test.ts`,
+    exercising the `params:`-position refusal against a real provider — the
+    surface §(e) rows e7–e8 name — plus the four existing H8a cells over the
+    same parse/registration surface (0231, 0237, 0238, 0252). All five green;
+    no open bug document carries a matching red signature. Fixture stems and
+    slash-names use the `b0244live-` stem; the discriminator is fixed-pair
+    arithmetic over two `params:`-bound values, never a verbatim-echo demand
+    (bug 0243). The inline-object acceptance files were not touched.
+  - Lint and typecheck clean.
+- **Residuals:**
+  1. **The break-residue class is not closed.** `TypeParser.parseObject`'s
+     refusal arms fire only on entries the field loop VISITS. Where an entry's
+     type text is followed by no entry separator — a junk tail such as `a: b c`
+     — the loop takes `if (!this.eatPunct(","))` and breaks, and every source
+     entry behind that exit is left unvisited even though the raw-key split
+     still spells it. At eleven of §(b)'s twelve positions a recogniser gate
+     backstops it; at the generic-argument position there is none, so
+     `params:` `p: 'array<{a: b c, d e}>'` reports `[]`, registers, and lowers
+     the permissive `{}`. Evidence that this is a residual and not a regression:
+     the cell is `[]` at HEAD `537c274c` and `[]` under this change (no flip);
+     §Fix names the emission site as exactly the two arms, and an unvisited
+     entry reaches neither; and the stranding interior's first entry
+     (`a: b c`, a colon-present junk tail) is bug 0252's subject class, which
+     the adjudication's clause 2 pins as unmoved and clause 4 makes a lock.
+     Pinned by the witness's RESIDUAL FENCE group (K) at its measured values,
+     labelled as measured-not-desired, with the byte-neighbour control
+     `array<{a: b, d e}>` refusing beside it to prove the distinction is the
+     loop's REACH and not the entry's shape. A change that closes it is
+     expected to red group (K) loudly.
+  2. **The zero-token entry draws nothing.** `{a: integer,,b: string}` and
+     `{,}` report `[]`; a zero-token segment contributes no key, but the
+     `,`-at-a-field-name-position arm reads it as a skipped separator. `[]` at
+     HEAD and `[]` under this change — no flip, and no cell of §Reproduction
+     claims it.
+  3. **§Fix's "What must not move" is wrong about §(e) row e9.** It lists e9
+     among the lowered bytes of a well-formed interior, but e9's interior is
+     `{a: integer,void}` — a SUBJECT spelling, and one the adjudication's
+     clause 3 lists among the fifteen that must refuse. The document is
+     therefore refused and no envelope survives; the witness encodes the
+     measurement and says so at the cell. The well-formed bytes §Fix means are
+     e5's and e6's, pinned green at the direct-lowerer fence.
+  4. **Group (L)'s inventory check is table-derived for groups A, B, C and F
+     (97 of 133 list cells) and constant-versus-constant for D, G, J and K,
+     whose cells are inline in their `describe` blocks.** Deleting an inline
+     cell would shrink coverage without redding (L). The file scopes its own
+     claim honestly.
+  5. **Verifier process note.** One live invocation released the lock with a
+     `; rmdir` that was not scoped inside the parenthesised group the protocol
+     requires. No lock belonging to another run was removed — both locks
+     released were created by that run — and the lock directory is absent at the
+     sealed state.
+  6. **Bug 0134's stale-citation class is untouched.** This change shifts line
+     numbers in `src/parser/type-grammar.ts`, so `type-grammar.ts:NNN`
+     citations elsewhere shift with it. Several were already stale at HEAD.
+     Every citation authored here is BY SYMBOL, which is why 0134 is the
+     do-not-chase class (§Related).
+- **Discharge notes appended:** none. Bug 0238's and bug 0252's witnesses are
+  byte-unmoved, so neither report needs a note; bug 0237's witness gains two
+  added lines at r16 / r16c, stated at those cells, which its own §Fix
+  anticipates.
+- **Pinned dispositions / non-goals:** the stray-close-carrying keyless entry
+  keeps bug 0238's silent tolerant registration (new §Non-goals bullet, added by
+  the operator adjudication); a colon-PRESENT entry with a junk tail keeps
+  today's verdict, which at an annotation is bug 0252's
+  `theta/parse/annotation-type-not-expression` and elsewhere the tolerant skip;
+  the empty type position stays bug 0237's residual 1; the reserved-keyword
+  class stays bug 0242's.

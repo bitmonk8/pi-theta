@@ -113,6 +113,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      at the price of a line HEAD drew by accident, and both cells are
 //      asserted rather than left to be discovered.
 //
+//      Bug 0244 (operator adjudication) lands on top of that `[]`: the dropped
+//      bare `void` entry is exactly bug 0237's own seed row for 0244
+//      (docs/bugs/0244 §Fix residual 4), so both r16 and r16c now draw ONE
+//      `malformed-schema-field` line apiece instead of `[]` — the pair still
+//      agrees with itself, and §Expected behaviour point 1 still holds.
+
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/grammar.md:101 — `ObjectType ::= "{" Field ("," Field)*
 //     ","? "}"`; :109 — §"Inline object types": the inline `Field` reuses the
@@ -317,6 +323,7 @@ const MALFORMED_ALIAS = "theta/parse/malformed-alias-rhs";
 const FN_PARAM_NOT_IDENT = "theta/parse/fn-param-not-identifier";
 const LET_NO_INIT = "theta/parse/let-without-initialiser";
 const UNSUPPORTED = "theta/parse/unsupported-feature";
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -327,6 +334,8 @@ interface Exp {
 
 /** Bug 0154's lowercase-first pass over `TypeNode.fieldNames` — the withheld row. */
 const CASE: Exp = { severity: "error", code: BINDING_CASE, fills: [] };
+/** Bug 0244 (operator adjudication)'s refusal for a discarded keyless entry. */
+const MALF: Exp = { severity: "error", code: MALFORMED_FIELD, fills: [] };
 /** The `let` RHS gate — that position's own row, §Non-goals. */
 function LETRHS(name: string, expected: string, actual: string): Exp {
   return {
@@ -1159,16 +1168,22 @@ function otherCallerCells(): Cell[] {
       // BARE `void` with no `:`, so once the `,` stands the entry is
       // colon-less and bug 0231's `skipMalformedEntry` drops it. HEAD drew
       // `void-in-non-return-position` here only because the eaten `,` handed
-      // `void` back as field `a`'s type. Its control measures `[]` at HEAD and
-      // after, so the pair is §Expected behaviour point 1 holding.
+      // `void` back as field `a`'s type.
+      //
+      // Bug 0244 (operator adjudication) flip: that dropped `void` entry is
+      // KEYLESS and carries no stray close token, so it now draws one
+      // `malformed-schema-field` line — this is bug 0237's own seed row for
+      // 0244 (docs/bugs/0244 §Fix residual 4), stated here rather than at a
+      // silent `[]`. The pair still agrees with each other, both gaining the
+      // same ADDED line.
       cell: "r16 empty type position ahead of a bare `void` entry, HEAD's line lost ",
       src: theta("fn f(p: {a: ,void}): integer { 1 }"),
-      expected: [],
+      expected: [MALF],
     },
     {
       cell: "r16c control, a spelled type ahead of the same bare `void` entry ",
       src: theta("fn f(p: {a: integer,void}): integer { 1 }"),
-      expected: [],
+      expected: [MALF],
     },
     {
       // r17 — the empty-union-arm-AHEAD-of-an-owned-`,` class: the union arm's
@@ -1256,8 +1271,13 @@ function allCells(): Cell[] {
 
 /** Declared inventory size — 5 + 30 + 9 + 12 + 30 + 6 + 28, recomputed below. */
 const TOTAL_LIST_CELLS = 120;
-/** Declared count of cells whose specified list is EMPTY. */
-const EMPTY_LIST_CELLS = 12;
+/**
+ * Declared count of cells whose specified list is EMPTY. Bug 0244 (operator
+ * adjudication) moves r16/r16c off this count — each now expects `[MALF]`,
+ * not `[]` — so the ten no-move silences (g2–g5, r3, r5, r6 and e4's three
+ * `fn` columns) are all that remain.
+ */
+const EMPTY_LIST_CELLS = 10;
 /** Declared count of cells whose specified list carries the withheld case row. */
 const CASE_BEARING_CELLS = 60;
 
@@ -1271,9 +1291,9 @@ describe("bug 0237 (L) — the inventory this file asserts", () => {
     ).toBe(TOTAL_LIST_CELLS);
     expect(
       cells.filter((c) => c.expected.length === 0).length,
-      "only twelve cells expect nothing — the ten no-move silences (g2–g5, r3, r5, r6 and e4's " +
-        "three `fn` columns) plus group (R)'s r16 pair, where the subject joins its control's " +
-        "measured silence (divergence 5); " +
+      "only ten cells expect nothing — the no-move silences (g2–g5, r3, r5, r6 and e4's three " +
+        "`fn` columns); bug 0244 (operator adjudication) moves r16/r16c off this count onto " +
+        "[MALF] apiece (divergence 5, amended), so " +
         "every other cell asserts a non-empty ordered list, so a harness that stopped reaching " +
         "the parser fails loudly rather than passing vacuously",
     ).toBe(EMPTY_LIST_CELLS);

@@ -153,6 +153,17 @@ function nonLiteralDiscriminatorLine(field: string, schema: string): string {
 }
 
 /**
+ * `theta/parse/malformed-schema-field`, unparameterised (bug 0244, operator
+ * adjudication): the exotic-whitespace row's interior holds one keyless entry
+ * (a non-`ident` token with no top-level `:` behind it), so `TypeParser.parseObject`
+ * now refuses it before the surrounding `nested-discriminator` verdict is reached.
+ */
+function malformedSchemaFieldLine(): string {
+  const code = "theta/parse/malformed-schema-field";
+  return line(code, messageTemplate(code));
+}
+
+/**
  * `theta/parse/missing-discriminator` rendered for `schema`
  * (code-registry-parse.md:107). The implicit path's second line, which
  * §Non-goals requires to stay byte-identical: it is reached without reading
@@ -476,7 +487,13 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       },
       {
         label: "exotic whitespace — `{\u00A0}` (U+00A0)",
-        diagnostics: [nestedDiscriminatorLine("kind", "Animal")],
+        // Bug 0244 (operator adjudication) flip: the U+00A0 token occupies the
+        // field-name position with no `ident` kind and no top-level `:` behind
+        // it — a keyless entry with no stray close token — so `parseObject`'s
+        // non-`ident` discard arm now refuses it, ahead of the nesting verdict
+        // this row keeps. ADDED line, not a substitution: `nested-discriminator`
+        // is unmoved.
+        diagnostics: [malformedSchemaFieldLine(), nestedDiscriminatorLine("kind", "Animal")],
       },
       {
         label: "A5 — a literal union",

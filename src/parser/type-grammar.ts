@@ -224,12 +224,18 @@ export function parseTypeExpression(
   rules: TypeCheckRules = "all",
 ): Diagnostic[] {
   const tokens = tokeniseType(source);
-  const parser = new TypeParser(tokens, source);
+  // Built before the parser runs and handed in by the constructor (explicit
+  // dependency injection, no module-level state): `TypeParser.parseObject`
+  // (bug 0244, operator adjudication) needs both `site` — a `TypeNode` carries
+  // no range of its own, so a keyless-entry refusal raised mid-parse must
+  // borrow the enclosing declaration's — and this same array, so its refusal
+  // lands ahead of `walkType`'s own diagnostics in emission order.
+  const diagnostics: Diagnostic[] = [];
+  const parser = new TypeParser(tokens, source, site, diagnostics);
   const node = parser.parse();
   if (node === undefined) {
-    return [];
+    return diagnostics;
   }
-  const diagnostics: Diagnostic[] = [];
   walkType(node, true, position, rules, site, diagnostics);
   return diagnostics;
 }
@@ -571,6 +577,13 @@ class TypeParser {
   constructor(
     private readonly tokens: readonly TypeToken[],
     private readonly source: string,
+    // Bug 0244 (operator adjudication): the enclosing declaration's site and
+    // the caller's diagnostics array, both explicit constructor dependencies
+    // so `parseObject`'s discard arms can raise the keyless-entry refusal
+    // where it happens rather than threading it back out through `parse()`'s
+    // return value.
+    private readonly site: TypeCheckSite,
+    private readonly diagnostics: Diagnostic[],
   ) {}
 
   private peek(): TypeToken | undefined {
@@ -825,6 +838,20 @@ class TypeParser {
     // lifts there too — otherwise the following entry's own field name, which
     // the author did write, would be suppressed.
     let entryTainted = false;
+    // Bug 0244 (operator adjudication): the SOURCE entry the loop is currently
+    // reading, and the buffered refusals for entries this interior has already
+    // discarded. `entryStart` is the token index the CURRENT entry began at;
+    // `entryRefused` latches once this entry has already drawn its one
+    // refusal and is reset only when an entry SEPARATOR is consumed (a
+    // genuine `,` between two source entries), so a later entry the author
+    // did write is free to draw its own. `pending` buffers rather than pushes
+    // to `this.diagnostics` directly: the refusal must be withheld when the
+    // interior never closes, which keeps bug 0232's unterminated-literal class
+    // unflipped (the flush below reads the same `closingBraceToken !==
+    // undefined` gate the empty-schema and raw-key rules read).
+    let entryStart = this.pos;
+    let entryRefused = false;
+    const pending: Diagnostic[] = [];
     // Open across the whole field loop, so `parsePrimary` declines exactly the
     // entry-separating `,` this loop is still going to read.
     this.openCommaReadingConstructs += 1;
@@ -837,11 +864,34 @@ class TypeParser {
         if (fieldName !== undefined && fieldName.kind === "ident") {
           this.next();
         } else {
+          // Bug 0244 (operator adjudication): a field-name position holding a
+          // non-`ident` token discards the whole entry the same way the
+          // colon-gate failure below does. Refuse it here, before `this.next()`
+          // carries it away, scoped by `entryQualifiesForRefusal` to a KEYLESS
+          // entry with no stray close token (0238's tolerant class) and no
+          // top-level `:` (0252's and the tolerant skip's business elsewhere).
+          if (fieldName?.text === ",") {
+            // An EMPTY entry — a skipped separator closes it, not opens one —
+            // so the taint and the refusal latch both lift here: the entry
+            // behind this comma is one the author did write.
+            entryStart = this.pos + 1;
+            entryRefused = false;
+          } else if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
+            pending.push(this.discardedEntryRefusal());
+            entryRefused = true;
+          }
           entryTainted = fieldName?.text !== ",";
           this.next();
           continue;
         }
         if (!this.eatPunct(":")) {
+          // Bug 0244 (operator adjudication): the colon-gate failure is the
+          // other discard arm, refused under the same scoping before the
+          // resync below carries the entry away.
+          if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
+            pending.push(this.discardedEntryRefusal());
+            entryRefused = true;
+          }
           // A malformed entry accounts for itself and for nothing else
           // (code-registry-parse.md:101's count-consequence sentence, scoped to
           // "that field"): resynchronise at this interior's next depth-0 `,`
@@ -851,7 +901,11 @@ class TypeParser {
           // the whole abandoned entry — there is no residue left for the latch
           // to guard — and the entry the skip lands on is one the author did
           // write.
-          this.skipMalformedEntry();
+          const crossedSeparator = this.skipMalformedEntry();
+          if (crossedSeparator) {
+            entryStart = this.pos;
+            entryRefused = false;
+          }
           entryTainted = false;
           continue;
         }
@@ -883,6 +937,8 @@ class TypeParser {
           break;
         }
         entryTainted = false;
+        entryStart = this.pos;
+        entryRefused = false;
       }
     } finally {
       this.openCommaReadingConstructs -= 1;
@@ -890,6 +946,15 @@ class TypeParser {
     const braceClosed = this.eatPunct("}");
     const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
     const closingBraceToken = closingBraceIndex >= 0 ? this.tokens[closingBraceIndex] : undefined;
+    // Bug 0244 (operator adjudication): the buffered refusals flush only when
+    // this interior's own closing `}` is spelled — the same grammar gate the
+    // empty-schema and raw-key rules read off `closingBraceSpelled` below —
+    // which keeps bug 0232's unterminated-literal class and the unclosed-
+    // interior class unflipped: an interior that never closes pushes no
+    // refusal onto `this.diagnostics` at all.
+    if (closingBraceToken !== undefined) {
+      this.diagnostics.push(...pending);
+    }
     // The text between this node's own `{` and the depth-0 `}`
     // `closingBraceToken` names, in `this.source` — empty when the interior
     // never closes, since there is then no such span to slice (`TypeNode`'s
@@ -934,17 +999,23 @@ class TypeParser {
    * `eatPunct("}")` to read, and a generic argument's `>` must remain for
    * `parseGeneric` to read. Consuming either here would hand the enclosing
    * parse a token it still needs.
+   *
+   * Returns whether an entry SEPARATOR (a depth-0 `,`) was crossed — bug 0244
+   * (operator adjudication) resets `parseObject`'s `entryRefused` latch on
+   * that boundary and not on a bare stop at `}` / `>`, since only crossing a
+   * separator proves the loop has moved on to an entry the author actually
+   * wrote.
    */
-  private skipMalformedEntry(): void {
+  private skipMalformedEntry(): boolean {
     const open: string[] = [];
     while (this.peek() !== undefined) {
       const text = this.peek()?.text;
       if (open.length === 0 && text === ",") {
         this.next();
-        return;
+        return true;
       }
       if (open.length === 0 && (text === "}" || text === ">")) {
-        return;
+        return false;
       }
       if (text === "{" || text === "<") {
         open.push(text);
@@ -956,6 +1027,151 @@ class TypeParser {
       }
       this.next();
     }
+    return false;
+  }
+
+  /**
+   * Bug 0244 (operator adjudication)'s discarded-entry refusal: one
+   * `theta/parse/malformed-schema-field` line, sharing the declaration
+   * position's registered row and message text
+   * (`theta-document.ts`'s `recoverMalformedSchemaField`, the sibling
+   * emission this arm mirrors) rather than importing the test-only
+   * `registryMessage` helper (`tools/code-registry`), which exists for a test
+   * to assert against the registry and is not a runtime dependency.
+   *
+   * The range is the enclosing declaration's site (`this.site`), not the
+   * offending token's: a `TypeNode` carries no range of its own, the same gap
+   * `theta/parse/schema-type-not-expression` already crosses the same way
+   * (`theta-document.ts`'s `schemaTypeNotExpressionDiagnostic`, which renders
+   * the declaration's own identifier for the same structural reason).
+   */
+  private discardedEntryRefusal(): Diagnostic {
+    return {
+      severity: "error",
+      code: "theta/parse/malformed-schema-field",
+      file: this.site.file,
+      range: this.site.range,
+      message:
+        "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'",
+    };
+  }
+
+  /**
+   * Bug 0244 (operator adjudication)'s scoping predicate, applied at the two
+   * discard arms of `parseObject`'s field loop: an entry qualifies for the
+   * refusal above exactly when it is KEYLESS — spells no top-level `:`, the
+   * same depth-0 boundary rule `inlineObjectFieldKeys` / `topLevelColon` /
+   * `splitTopLevel(…, "angle-and-brace")` use — AND carries no STRAY CLOSE
+   * TOKEN of bug 0238's typed-opener-stack class (a `}` or `>` whose innermost
+   * open frame, tracked from this entry's own start, is of another kind or
+   * absent). An entry that spells a top-level `:` (colon-present — `{: x}` is
+   * colon-present too, whatever its pre-colon text trims to) is out of this
+   * fix's reach regardless of its text: that is bug 0252's business at the
+   * annotation recogniser, or the tolerant skip elsewhere. A stray-close-
+   * carrying keyless entry keeps bug 0238's silent tolerant registration —
+   * the entry drops as that fix's own §Fix promises — so nothing is drawn
+   * here for it, and whatever position-specific disposition 0238 or 0252
+   * already settled for that class is not displaced by a second diagnostic.
+   */
+  private entryQualifiesForRefusal(entryStart: number, interiorStart: number): boolean {
+    const { hasColon, hasStrayClose } = this.classifyEntry(entryStart, interiorStart);
+    return !hasColon && !hasStrayClose;
+  }
+
+  /**
+   * Scans `[entryStart, closingBraceIndex)` — EXCLUDING the interior's own
+   * real closing `}` — for the same reason `interiorSource` (`TypeNode`'s doc
+   * comment) is sliced off the same bound: within that span every `}` or `>`
+   * this scan meets is inside the text `interiorSource`-keyed consumers
+   * (`inlineObjectFieldKeys`, `splitTopLevelSegments`, `topLevelColon`) would
+   * see too, so a genuinely stray token and this interior's own terminator
+   * are never confused for one another — `{void}`'s lone entry never reaches
+   * its own `}` inside this scan and is not misclassified as stray-close-
+   * carrying.
+   *
+   * TWO STACKS, because the repository runs TWO scans over one interior and
+   * they disagree about parens deliberately — this scan must mirror BOTH or
+   * its inventory of an interior stops agreeing with the raw-key split's
+   * (bug 0159's by-construction agreement, bug 0238 §Fix):
+   *
+   *   - `colonOpen` mirrors `topLevelColon` (`src/parser/params.ts`), the
+   *     function that decides whether this same entry text contributes a key
+   *     to `inlineObjectFieldKeys` and a property to the two lowerers. ONE
+   *     typed opener stack carrying `(` beside `<` and `{`; a close token
+   *     pops only when it matches the current top and is otherwise INERT; a
+   *     `:` is top-level only when that stack is EMPTY. A separate paren
+   *     counter cannot express this, because it cannot see a `<` stacked
+   *     above an open `(` and so treats a CROSSED sequence's inert `)`
+   *     (`( < ) > : x`) as closing the paren, reading a `:` as top-level that
+   *     `topLevelColon` reads as nested — the keyed consumers would then mint
+   *     no property while this scan withheld the refusal, and an interior of
+   *     nothing but such entries would lower the permissive `{}`.
+   *   - `boundaryOpen` mirrors `splitTopLevelSegments(…, ",",
+   *     "angle-and-brace")` (`src/parser/params.ts`) and
+   *     `skipMalformedEntry` (above): a BRACE-AND-ANGLE-only typed stack in
+   *     which parens are wholly transparent — `(` and `)` neither push nor
+   *     pop nor mark anything. A `,` ends the entry only when that stack is
+   *     empty, so `{(a, b)}` is two entries here exactly as it is for the raw
+   *     key split, while `{({a, b})}` is one. The same stack defines bug
+   *     0238's STRAY CLOSE class: a `}` or `>` whose innermost BRACE/ANGLE
+   *     frame is of another kind or absent.
+   *
+   * An unmatched `)` is therefore never a stray close token, exactly as it is
+   * never one for the split, which keeps bug 0238's stray-close class defined
+   * by `}` and `>` alone.
+   */
+  private classifyEntry(
+    entryStart: number,
+    interiorStart: number,
+  ): { hasColon: boolean; hasStrayClose: boolean } {
+    const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
+    const end = closingBraceIndex >= 0 ? closingBraceIndex : this.tokens.length;
+    const colonOpen: string[] = [];
+    const boundaryOpen: string[] = [];
+    let hasStrayClose = false;
+    for (let i = entryStart; i < end; i += 1) {
+      const token = this.tokens[i];
+      if (token === undefined) {
+        break;
+      }
+      if (boundaryOpen.length === 0 && token.text === ",") {
+        break;
+      }
+      if (colonOpen.length === 0 && token.kind === "punct" && token.text === ":") {
+        return { hasColon: true, hasStrayClose };
+      }
+      if (token.text === "(") {
+        colonOpen.push(token.text);
+        continue;
+      }
+      if (token.text === ")") {
+        if (colonOpen[colonOpen.length - 1] === "(") {
+          colonOpen.pop();
+        }
+        continue;
+      }
+      if (token.text === "{" || token.text === "<") {
+        colonOpen.push(token.text);
+        boundaryOpen.push(token.text);
+        continue;
+      }
+      if (token.text === "}" || token.text === ">") {
+        const colonTop = colonOpen[colonOpen.length - 1];
+        if ((token.text === "}" && colonTop === "{") || (token.text === ">" && colonTop === "<")) {
+          colonOpen.pop();
+        }
+        const boundaryTop = boundaryOpen[boundaryOpen.length - 1];
+        if (
+          (token.text === "}" && boundaryTop === "{") ||
+          (token.text === ">" && boundaryTop === "<")
+        ) {
+          boundaryOpen.pop();
+        } else {
+          hasStrayClose = true;
+        }
+      }
+    }
+    return { hasColon: false, hasStrayClose };
   }
 }
 

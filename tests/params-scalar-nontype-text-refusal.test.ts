@@ -1072,7 +1072,10 @@ const DECLINED_ROWS: ReadonlyArray<readonly [string, string, unknown, readonly s
     [],
   ],
   ["d9 (unbalanced generic arguments)", "array<{x: integer, y: string}>", {}, []],
-  ["d10 (authorized under-refusal, brace-rooted junk)", "{junk}", {}, []],
+  // d10 is held OUT of this loop — bug 0244 (operator adjudication) supersedes
+  // its "authorized under-refusal" for this ONE row (see the standalone `it`
+  // below): `junk`'s lone entry is keyless, so it now draws a refusal, where
+  // this loop asserts `[]` uniformly.
   ["d11 (authorized under-refusal, unterminated brace)", "{a: string", {}, []],
   [
     "d13 (authorized under-refusal, brace-carrying generic argument holding junk)",
@@ -1108,6 +1111,41 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
       ).toEqual(defsKeys);
     });
   }
+
+  it("RED (d10, bug 0244 supersedes the authorized under-refusal): `{junk}` now draws bug 0244's refusal", () => {
+    // `{junk}`'s brace-rooted text reaches `isUnspellableTextRefusable`'s
+    // decline whole and silent — the "authorized under-refusal" this file's own
+    // header records (operator grant), and the reason this cell reports `[]` at
+    // HEAD `537c274c`. Bug 0244 (operator adjudication) supersedes that grant
+    // for exactly this shape, so the flip observed under this change is an
+    // ADDED refusal: `junk` is a
+    // KEYLESS inline-object entry (no top-level `:`, no stray close token)
+    // reached at a `Type` position through the same recursive parse, so
+    // `TypeParser.parseObject` refuses it before the catch-all's own silence is
+    // reached. The LOWERED bytes are unmoved — the document is refused, but the
+    // direct `lowerTypeExpr` bytes this loop's other rows assert are a separate
+    // observable this row keeps too.
+    const label = "d10 (authorized under-refusal, brace-rooted junk)";
+    const doc = paramsDoc("{junk}");
+    expect(
+      diagLines(doc),
+      `${label}: bug 0244 refuses the keyless entry \`junk\`; a red reporting \`[]\` is a route ` +
+        `that lost that refusal`,
+    ).toEqual([
+      "error theta/parse/malformed-schema-field: malformed schema field; each field is 'name: " +
+        "Type' or 'name as \"WireName\": Type'",
+    ]);
+    // The document as a whole is now refused (an error-severity diagnostic
+    // stands), so the frontmatter gate withholds `params.loweredSchema`
+    // entirely (§Non-goals, "a refusal added here refuses the document before
+    // its bytes matter") — there is no fragment left at the field for
+    // `fragmentAtP` to read, unlike this loop's other rows.
+    expect(
+      doc.frontmatter?.params?.loweredSchema,
+      `${label}: bug 0244 refuses the whole document, so no \`params:\` fragment reaches the ` +
+        `frontmatter at all`,
+    ).toBeUndefined();
+  });
 
   it("MOVED (d5, bug 0097 §Fix): `string | {a: string}` stays silent, and its brace arm hoists", () => {
     // Held OUT of the invariance loop above because this row's BYTES are the

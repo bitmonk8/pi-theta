@@ -763,12 +763,17 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
     expectRefused("a20 (param, integer|)", "param", "integer|");
   });
 
-  it("GREEN (a20, return): `integer|` keeps HEAD's silence — the SHARED brace decline", () => {
+  it("RED (a20, return): `integer|`'s absorbed brace shard now draws bug 0244's refusal", () => {
     // The capture is `integer|{1}`, not `integer|`: the return slot's `|` takes
-    // the body into the annotation. Its brace-carrying shard is declined, so the
-    // refusal does not fire, and the fn loses its body and the following
-    // statements exactly as it does at HEAD. Pinned as the measurement it is,
-    // not as a desired posture — the capture over-run is bug 0124 §Non-goals'.
+    // the body into the annotation. The brace-carrying shard `{ 1 }` is
+    // declined by the shared brace decline (`isUnspellableTextRefusable`,
+    // src/parser/params.ts), which is why this cell reports `[]` — GREEN at
+    // HEAD `537c274c`. The same shard is a KEYLESS inline-object entry (`1`
+    // spells no top-level `:`) reached at a `Type` position through that
+    // decline's recursive parse, so bug 0244's operator-adjudicated scoping
+    // refuses it too — an ADDED diagnostic, not a narrowing of the decline
+    // (bug 0059's and bug 0061's refusals are untouched; see groups (d)/(e)
+    // there). Flip observed under this change; not re-argued at any other cell.
     const label = "a20 (return, integer|)";
     const doc = parseDoc(srcAt("return", "integer|", "1"), "bug0124.theta");
     // Since bug 0228's fix the absorbed `{ 1 }` body is a raw slice of the
@@ -785,11 +790,15 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
     ).toEqual(["schema", "fn"]);
     expect(
       diagLines(doc),
-      `${label}: the brace-carrying shard is declined by the ONE decline shared with ` +
-        `theta/parse/schema-type-not-expression and theta/load/params-type-not-expression, so a ` +
-        `refusal appearing here would mean the decline was narrowed and bug 0059's and bug ` +
-        `0061's landed refusals narrowed with it`,
-    ).toEqual([]);
+      `${label}: bug 0244 (operator adjudication) refuses the absorbed brace shard's keyless ` +
+        `entry \`1\` with \`theta/parse/malformed-schema-field\`; a red reporting \`[]\` here is a ` +
+        `route that lost that refusal, and a red reporting a DIFFERENT code is a route that ` +
+        `widened the shared brace decline itself, which bug 0059's and bug 0061's landed ` +
+        `refusals must not move`,
+    ).toEqual([
+      "error theta/parse/malformed-schema-field: malformed schema field; each field is 'name: " +
+        "Type' or 'name as \"WireName\": Type'",
+    ]);
   });
 });
 

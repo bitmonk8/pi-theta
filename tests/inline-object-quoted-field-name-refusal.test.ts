@@ -1007,12 +1007,20 @@ describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic arg
     const cells: ReadonlyArray<
       readonly [type: string, lines: readonly string[], lowered: Record<string, unknown>]
     > = [
-      // h1 / h2 — 0045's reserved shapes: silent, and minting NO property. That
+      // h1 / h2 — 0045's reserved shapes: minting NO property either way. That
       // is the observable that keeps them a different class from this report's
       // subject, which mints one whose name carries quote characters.
+      //
+      // Bug 0244 (operator adjudication) flip: `{ a }`'s and `{ a, b: integer
+      // }`'s `a` entry each spell no top-level `:` and carry no stray close
+      // token, so `TypeParser.parseObject` now refuses each with one
+      // `malformed-schema-field` line — ADDED, not a substitute for this row's
+      // own quoted-key claim, which stays about `h4` alone. `{ a: }` is
+      // colon-PRESENT (its `:` stands even with nothing after it) and stays
+      // out of bug 0244's reach, so it is the one h-row that keeps `[]`.
       [
         "{ a }",
-        [],
+        [malformedFieldLine()],
         { type: "object", properties: {}, required: [], additionalProperties: false },
       ],
       [
@@ -1022,7 +1030,7 @@ describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic arg
       ],
       [
         "{ a, b: integer }",
-        [],
+        [malformedFieldLine()],
         {
           type: "object",
           properties: { b: { type: "integer" } },
@@ -1048,10 +1056,12 @@ describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic arg
     }
     expect(
       actualLines,
-      "H1 — a refusal at `inlineObjectFieldKeys` sees no key at all for `{ a }`, an identifier " +
-        "key for `{ a: }`; a red on either means the fix was keyed at `parseObject`'s tolerant " +
-        "`else` branch instead (§Fix A1 site (i)) and widened into 0045's reserved family. A `[]` " +
-        "on the generic-argument cell is bug 0233's withheld gate returning",
+      "H1 — `inlineObjectFieldKeys` sees no key at all for `{ a }`'s and `{ a, b: integer }`'s " +
+        "keyless `a` entry, and bug 0244 (operator adjudication) now refuses each at the loop " +
+        "before the raw-key split ever runs; `{ a: }` is colon-present and stays silent, so a " +
+        "red there means the fix was keyed at `parseObject`'s tolerant `else` branch instead " +
+        "(§Fix A1 site (i)) and widened into 0045's reserved family. A `[]` on the generic-" +
+        "argument cell is bug 0233's withheld gate returning",
     ).toEqual(expectedLines);
     expect(
       actualLowered,

@@ -184,6 +184,7 @@ const GENERIC_ARITY = "theta/parse/generic-arity-mismatch";
 const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 const ARRAY_NO_COMMON = "theta/parse/array-no-common-type";
 const ARRAY_ELEMENT = "theta/parse/array-element-type-mismatch";
+const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 
 /** The row this report owns: `let binding '<name>' … expected <expected>, got <actual>`. */
 function mismatch(name: string, expected: string, actual: string): string {
@@ -197,6 +198,11 @@ function mismatch(name: string, expected: string, actual: string): string {
 /** Bug 0045's line for an empty inline object type in any `Type` position. */
 function emptyInline(): string {
   return line("error", EMPTY_SCHEMA, [["<X>", "{}"]]);
+}
+
+/** Bug 0244 (operator adjudication)'s refusal for a discarded keyless entry. */
+function malformedField(): string {
+  return line("error", MALFORMED_FIELD, []);
 }
 
 // ===========================================================================
@@ -604,11 +610,18 @@ describe("bug 0130 (d) — the R3 deferral controls and the GOV-15 corpus fixtur
 // ===========================================================================
 
 describe("bug 0130 (e) — R2: `{}` and malformed interiors do not convert", () => {
-  it("e1: `let x: { a } = 1` stays silent — no colon, no field set", () => {
-    // tests/inline-empty-object-type.test.ts:808–817 (bug 0045 control f4) pins
-    // this silent today and it must stay byte-identical: a name with no type is
-    // no `Field`, so R2 declines the whole interior rather than inventing a type.
-    expect(stmtDiags("let x: { a } = 1"), "e1 — R2 declines a colon-less entry").toEqual([]);
+  it("e1: `let x: { a } = 1` now draws bug 0244's keyless-entry refusal", () => {
+    // A name with no type is no `Field`, so R2 still declines to convert this
+    // interior into a field set (it invents no type for `a`). Bug 0244
+    // (operator adjudication) is a SEPARATE, earlier refusal: the entry `a`
+    // spells no top-level `:` and carries no stray close token, so
+    // `TypeParser.parseObject` refuses it at the loop before R2 ever runs.
+    // ADDED line, not a substitute for R2's own silence.
+    expect(
+      stmtDiags("let x: { a } = 1"),
+      "e1 — bug 0244 refuses the colon-less entry `a`; R2 itself still declines to convert it " +
+        "into a field set",
+    ).toEqual([malformedField()]);
   });
 
   it("e2: `let x: { a: } = 1` stays silent — empty field type", () => {

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.238.0]
+
+### Fixed
+
+- **Bug 0244** — a colon-less (keyless) inline-object entry no longer vanishes silently: `TypeParser.parseObject`’s discard loop emits the widened `theta/parse/malformed-schema-field` for keyless entries at all twelve Type positions — `{void}`, `{a: ,void}`, `{a: integer, b c}` and kin now refuse instead of lowering to permissive `{}` at `params:`. Scoped per the operator’s carve-out adjudication (option b): a keyless entry carrying a stray close token keeps bug 0238’s tolerant registration (recorded §Non-goal), and colon-present junk tails stay bug 0252’s business — both sibling witnesses locked at zero flips. DIAG-2: Trigger widened onto the inline interior with the range-divergence statement, both mirrors updated. Locked by `tests/inline-object-keyless-entry-refusal.test.ts` (19 tests) and the `b0244live` params:-refusal cell.
+
 ## [0.237.0]
 
 ### Fixed

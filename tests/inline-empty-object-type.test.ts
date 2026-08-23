@@ -184,6 +184,21 @@ function declLine(name: string): string {
   return line(EMPTY_BODY, msg(EMPTY_BODY, [["<X>", name]]));
 }
 
+/**
+ * Bug 0244 (operator adjudication)'s refusal for a discarded KEYLESS inline
+ * object entry. `{ a }`'s lone entry `a` reaches the field-name position as an
+ * `ident` and then spells no `:`, so `TypeParser.parseObject`'s COLON-GATE arm
+ * now refuses it. The seam table's §(d) framing keys the malformed-but-
+ * non-empty family on `fieldTypes.length === 0` rather than on "draws
+ * nothing", so this added line falsifies no key that framing states: the cells
+ * report `[]` at HEAD `537c274c` and the flip observed under this change is an
+ * ADDED code, distinct from `inlineLine()`'s.
+ */
+function malformedFieldLine(): string {
+  const code = "theta/parse/malformed-schema-field";
+  return line(code, "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'");
+}
+
 /** The code bug 0176 §Fix route A adds for a QUOTED inline field-name key. */
 const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
 
@@ -648,20 +663,26 @@ describe("bug 0045 (c) — the rule is unqualified by depth or arm position", ()
  * The seam table: each source paired with the number of registry-sourced lines
  * it must draw, in one order shared by the three position cells.
  */
-const SEAM_SOURCES: ReadonlyArray<readonly [source: string, lineCount: number]> = [
-  ["{}", 1],
-  ["{   }", 1],
-  ["{ a: {} }", 1],
-  ["array<{}>", 1],
-  ["{} | null", 1],
-  ["{ a }", 0],
-  ["{ a: }", 0],
-  ["{", 0],
-  ["{ ", 0],
-  ["array<{", 0],
-  ["null | {", 0],
-  ["{ a: {", 0],
-  ["{ a: {}", 1],
+// Bug 0244 (operator adjudication) flip: `{ a }`'s lone entry is keyless and
+// carries no stray close token, so it now draws `malformedFieldLine()` — an
+// ADDED line, distinct from `inlineLine()`'s empty-schema-body row (which
+// remains the seven `EMPTY_BODY`-drawing sources' own line). `expectedLines`
+// carries the exact expected array per source rather than a repeat count, so
+// the two codes are not conflated.
+const SEAM_SOURCES: ReadonlyArray<readonly [source: string, expectedLines: readonly string[]]> = [
+  ["{}", [inlineLine()]],
+  ["{   }", [inlineLine()]],
+  ["{ a: {} }", [inlineLine()]],
+  ["array<{}>", [inlineLine()]],
+  ["{} | null", [inlineLine()]],
+  ["{ a }", [malformedFieldLine()]],
+  ["{ a: }", []],
+  ["{", []],
+  ["{ ", []],
+  ["array<{", []],
+  ["null | {", []],
+  ["{ a: {", []],
+  ["{ a: {}", [inlineLine()]],
 ];
 
 /** One position's whole column, actual beside expected, as a single comparison. */
@@ -671,9 +692,9 @@ function seamColumn(position: TypePosition): {
 } {
   const actual: Record<string, string[]> = {};
   const expected: Record<string, string[]> = {};
-  for (const [source, lineCount] of SEAM_SOURCES) {
+  for (const [source, expectedLines] of SEAM_SOURCES) {
     actual[source] = seamLines(source, position);
-    expected[source] = Array.from({ length: lineCount }, () => inlineLine());
+    expected[source] = [...expectedLines];
   }
   return { actual, expected };
 }
@@ -789,12 +810,16 @@ describe("bug 0045 (e) — the declaration positions keep their name and their b
 // ===========================================================================
 
 describe("bug 0045 (f) — a malformed or unterminated brace is not an empty one", () => {
-  it("CONTROL f1: `schema S { f: { a } }` stays silent", () => {
+  it("RED f1: `schema S { f: { a } }` now draws bug 0244's keyless-entry refusal", () => {
+    // Bug 0244 (operator adjudication) flip: `{ a }`'s lone entry `a` spells no
+    // top-level `:`, so it is refused ahead of — not instead of — this rule's
+    // own empty-schema-body check, which still stays silent (the interior
+    // carries a token). The whole-list assertion states both facts at once.
     expectList(
       body("schema S { f: { a } }"),
-      [],
-      "f1 — the interior carries a token, so this is not the empty case; a rule keyed on " +
-        "`fieldTypes.length === 0` would take this shape with it",
+      [malformedFieldLine()],
+      "f1 — the interior carries a token, so this is not the empty case; the field IS discarded " +
+        "as a keyless entry and draws bug 0244's refusal, added rather than substituted",
     );
   });
 
@@ -823,14 +848,14 @@ describe("bug 0045 (f) — a malformed or unterminated brace is not an empty one
     );
   });
 
-  it("CONTROL f4: `let x: { a } = 1` stays silent", () => {
-    // The same family at a second position, so the key is pinned as a property
-    // of the rule rather than of the schema-field call site.
+  it("RED f4: `let x: { a } = 1` now draws bug 0244's keyless-entry refusal", () => {
+    // The same family at a second position: bug 0244's scoping is
+    // position-independent, exactly as §(b) of its own witness states.
     expectList(
       body("let x: { a } = 1"),
-      [],
-      "f4 — the malformed-interior exclusion is position-independent, exactly as the rule it " +
-        "bounds is",
+      [malformedFieldLine()],
+      "f4 — the malformed-interior exclusion from THIS rule (empty-schema-body) is " +
+        "position-independent; bug 0244's own refusal is position-independent too",
     );
   });
 

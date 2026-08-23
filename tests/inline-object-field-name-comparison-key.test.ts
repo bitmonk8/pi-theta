@@ -653,16 +653,25 @@ describe("bug 0159 (C) — no line where no fragment repeats a `required` entry"
       ["{ a: }", { type: "object", properties: {}, required: [], additionalProperties: false }],
       ["{ a }", { type: "object", properties: {}, required: [], additionalProperties: false }],
     ];
+    // Bug 0244 (operator adjudication) flip: `{ a }`'s lone entry spells no
+    // top-level `:` and carries no stray close token, so `TypeParser.parseObject`
+    // now refuses it with `malformed-schema-field` — an ADDED line on that one
+    // cell, distinct from this group's own `duplicate-inline-field-name` claim
+    // (0159), which stays about the LOWERED bytes below and is unmoved.
+    const MALFORMED_FIELD_LINE =
+      "error theta/parse/malformed-schema-field: malformed schema field; each field is 'name: " +
+      "Type' or 'name as \"WireName\": Type'";
     const actualLines: Record<string, string[]> = {};
     const expectedLines: Record<string, string[]> = {};
     for (const [type] of cells) {
       actualLines[type] = lines(annotSrc(type));
-      expectedLines[type] = [];
+      expectedLines[type] = type === "{ a }" ? [MALFORMED_FIELD_LINE] : [];
     }
     expect(
       actualLines,
       "C1 — a comparison keyed on the lowerers' own split can only ever name a key that split " +
-        "produced, so a line on any of these four would be false of the source",
+        "produced, so a line on any of the OTHER three would be false of the source; `{ a }` is " +
+        "bug 0244's own subject and now draws its refusal",
     ).toEqual(expectedLines);
 
     const actualLowered: Record<string, unknown> = {};

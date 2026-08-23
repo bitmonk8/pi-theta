@@ -45,7 +45,19 @@ declared field is **required** (lowered `required` lists every property;
 `theta/parse/empty-schema-body`. A body that captures at least one field and then
 reaches a token from which no further field derives is
 `theta/parse/malformed-schema-field`, anchored at that token; the fields
-already captured are retained. A body that captures at least one field and then
+already captured are retained. The same row also refuses a KEYLESS entry (one
+spelling no top-level `:`) of an inline `ObjectType` interior in any `Type`
+position and at any nesting depth, over the entries the inline field loop's own
+entry walk reaches, one diagnostic per such entry, anchored at the ENCLOSING
+DECLARATION's range there rather than at the offending token (an inline type
+carries no range of its own); a colon-PRESENT entry is out of this row's reach
+whatever its trailing text, a keyless entry carrying a stray depth-0 close token
+keeps its own tolerant registration instead, and an entry stranded behind the
+field loop's exit on a missing entry separator (behind an earlier entry whose
+type text carries a junk tail) is never visited and draws nothing — an unfixed
+residual of bug 0244, which at a generic argument's interior leaves the document
+registering.
+A body that captures at least one field and then
 reaches end of input with no closing `}` is `theta/parse/schema-body-unclosed`,
 anchored at the body's opening `{`; the fields already captured are retained
 there too.
