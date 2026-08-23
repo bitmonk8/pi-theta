@@ -599,7 +599,7 @@ function typeOfTail(src: string, cell: string): RawRead {
     tail,
     `PRECONDITION (${cell}): the fixture must end in a trailing expression, which is the node the read is taken on. Diagnostics: ${render(doc)}`,
   ).not.toBeNull();
-  const type = new StaticTypeInferencePass({ checkCompatible }).typeOf(
+  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
     tail as Expr,
     EMPTY_ENV,
   );

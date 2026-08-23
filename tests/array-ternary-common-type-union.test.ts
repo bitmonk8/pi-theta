@@ -491,7 +491,10 @@ function tailSpelling(src: string, kind: Expr["kind"], cell: string): string {
     `PRECONDITION (${cell}): the trailing expression must parse as a \`${kind}\` node. Diagnostics: ${render(doc)}`,
   ).toBe(kind);
   return displayType(
-    new StaticTypeInferencePass({ checkCompatible }).typeOf(tail as Expr, EMPTY_ENV),
+    new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+      tail as Expr,
+      EMPTY_ENV,
+    ),
   );
 }
 

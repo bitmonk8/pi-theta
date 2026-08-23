@@ -30,6 +30,7 @@ import type { Block, Expr, IfStmt, MemberExpr, PatternNode, ThetaBody, Stmt } fr
 import {
   commonType,
   displayType,
+  enumVariantType,
   resolveNamed,
   unfoldAlias,
   withheldBinderType,
@@ -69,6 +70,24 @@ export interface InferredTypeMap {
 export interface StaticTypeInferenceDeps {
   /** The `V2b` type-compatibility engine (`⊑`). */
   readonly checkCompatible: CheckCompatible;
+  /**
+   * The whole file's declared `enum` names (bug 0191 §Fix route 1;
+   * `collectEnumNames`, ./type-layer-checks.ts). `#memberType` consults this
+   * BEFORE resolving the member-access receiver against the `TypeEnv`, so a
+   * member access whose TARGET IDENT names a declared enum and binds no local
+   * types as `enumVariantType(name)` (./type-compat.ts) whether or not a
+   * same-file `schema` shares the spelling — the same shape, and the same
+   * local-first precedence, `evalExpr`'s member arm applies before it resolves
+   * the enum variant (../runtime/statement-executor.ts). Explicit dependency injection,
+   * no default: both production construction sites
+   * (./type-layer-checks.ts's `checkTypeLayer`,
+   * ../extension/invoke-static-checks.ts's `checkInvokeStaticResolution`)
+   * have `body.statements` in scope and must pass the real set, so a missing
+   * value is a wiring bug caught at the call site, not a silent empty-set
+   * fallback that would let a production path mis-resolve a shadowed enum
+   * variant.
+   */
+  readonly enumNames: ReadonlySet<string>;
 }
 
 /**
@@ -77,9 +96,11 @@ export interface StaticTypeInferenceDeps {
  */
 export class StaticTypeInferencePass {
   readonly #checkCompatible: CheckCompatible;
+  readonly #enumNames: ReadonlySet<string>;
 
   constructor(deps: StaticTypeInferenceDeps) {
     this.#checkCompatible = deps.checkCompatible;
+    this.#enumNames = deps.enumNames;
   }
 
   /**
@@ -422,28 +443,69 @@ export class StaticTypeInferencePass {
    * provenance reads only `type` (`typeOf`, `#typeExpr`'s `case "member"`).
    *
    * When the receiver resolves to no declaration, `declared` is `false` and
-   * `type` is the receiver's OWN `named` rather than `node.field`. For
-   * `Enum.Variant` this is schemas.md's Enum declarations section's
-   * "statically typed as `Enum`" for free — the receiver is `named <Enum>`,
-   * no `enum` entry ever enters the `TypeEnv`, so it stays unresolved and the
-   * expression defers exactly as the Unresolvable operands paragraph
-   * prescribes. The same branch is also the provably-inert answer for every
-   * other unresolvable receiver: `node.field` might resolve by accident
-   * against an unrelated declaration that happens to share its spelling,
-   * where the receiver has just been proven to resolve to nothing.
+   * `type` is the receiver's OWN `named` rather than `node.field`. For an
+   * `Enum.Variant` receiver naming NO same-file `schema` this is schemas.md's
+   * Enum declarations section's "statically typed as `Enum`" for free — the
+   * receiver is `named <Enum>`, no `enum` entry ever enters the `TypeEnv`, so
+   * it stays unresolved and the expression defers exactly as the
+   * Unresolvable operands paragraph prescribes. The same branch is also the
+   * provably-inert answer for every other unresolvable receiver: `node.field`
+   * might resolve by accident against an unrelated declaration that happens
+   * to share its spelling, where the receiver has just been proven to
+   * resolve to nothing.
+   *
+   * A same-file `schema` spelled like the enum removes that branch —
+   * `resolveNamed` would answer the schema, not `undefined` — which is why
+   * the enum test below runs BEFORE the receiver is resolved at all (bug 0191
+   * §Fix route 1). A conformant `schema` can never own a field spelled like a
+   * variant (variant names are PascalCase, field names lowercase-first,
+   * lexical.md:15; the ill-cased spelling draws `binding-case-mismatch`), so
+   * without the enum test the arm would fall through every time to the
+   * closing fabrication below and adopt an unrelated declaration's type
+   * (docs/bugs/0191-enum-name-shadowed-by-schema-fabricates-member-type.md).
+   *
+   * That test keys on the variant-access SHAPE, never on the receiver's
+   * inferred TYPE, because the two passes it mirrors both key on the shape and
+   * a type-keyed test captures a strictly wider set of nodes than either:
+   * `evalExpr`'s `case "member"` fires only for `expr.target.kind === "ident"`
+   * whose name does not resolve to a `"local"` arm before it calls
+   * `env.resolveEnumVariant` (../runtime/statement-executor.ts), and the
+   * structural checker reads `refs.enums.get(e.target.name)` over the target
+   * ident (./theta-document.ts). A type-keyed test additionally swallows every
+   * member read off a VALUE whose declared type is the shadowing schema — the
+   * `ident` arm above answers `named "Color"` for a `c: Color` parameter and
+   * for the enum name itself alike — which silently drops a declared
+   * field read on a resolvable object schema (bug 0136's field route, a §Non-
+   * goal here) and admits a field-typed `array<T>` iterand the enum answer
+   * then refuses. `bindings` is the local view the shape test needs:
+   * `walkFn`'s parameter loop and the `let` / loop-variable scopes
+   * (./type-layer-checks.ts) record exactly the names the runtime resolves to
+   * a `"local"` arm, so an ident carrying a `bindings` entry is a value, not a
+   * declaration reference, whatever its type spells.
    *
    * An absent field, a `fields` record the schema declaration carries none
    * of, and a field whose `typeSource` failed to convert all fall through to
    * the closing nominal fallback (`declared: false`) rather than reporting:
    * expressions.md's Member access bullet assigns an absent theta-side name a
    * RUNTIME `theta/runtime/missing-object-key` panic, not a parse
-   * diagnostic, so answering here would pre-empt it.
+   * diagnostic, so answering here would pre-empt it. That fallback is
+   * unguarded by the enum test and stays reachable for a genuinely absent
+   * field colliding with an unrelated declaration with no enum in sight
+   * (bug 0191's recorded residual, its §Reproduction row f4) — §Fix route 1
+   * closes the enum half only.
    */
   #memberType(
     node: MemberExpr,
     env: TypeEnv,
     bindings: ReadonlyMap<string, CompatType>,
   ): { readonly type: CompatType; readonly declared: boolean } {
+    if (
+      node.target.kind === "ident" &&
+      !bindings.has(node.target.name) &&
+      this.#enumNames.has(node.target.name)
+    ) {
+      return { type: enumVariantType(node.target.name), declared: false };
+    }
     const receiver = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
     if (receiver.kind === "named") {
       const decl = resolveNamed(env, receiver.name);

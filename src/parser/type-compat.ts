@@ -46,13 +46,24 @@ export type PrimitiveName = "string" | "number" | "integer" | "boolean" | "null"
  *                 in expression position, which drives TYPE-3.
  *   - `named`   — a `NamedType` reference, resolved through `TypeEnv`; an
  *                 object-schema declaration is nominal (TYPE-10), an alias
- *                 declaration is transparent (TYPE-11). `withheld` is
- *                 provenance, not grammar: it distinguishes the engine's own
- *                 mint of the withheld-binder sentinel (`withheldBinderType()`
- *                 below) from an author-spelled type slice that happens to
- *                 carry the same ten characters (bug 0143) — the withhold
- *                 decision keys on this marker, never on `name` alone. Only
- *                 `withheldBinderType()` may set it.
+ *                 declaration is transparent (TYPE-11). `withheld` and
+ *                 `enumRef` are both provenance, not grammar, and both work
+ *                 the same way: each distinguishes the engine's own mint
+ *                 (`withheldBinderType()` / `enumVariantType()` below) from an
+ *                 author-spelled type slice that happens to carry the same
+ *                 name (bug 0143's `withheld` finding, generalised) — the
+ *                 corresponding decision keys on the marker, never on `name`
+ *                 alone. Only `withheldBinderType()` may set `withheld`, and
+ *                 only `enumVariantType()` may set `enumRef` (bug 0191 §Fix
+ *                 route 1): a `named` marked `enumRef` names a declared
+ *                 `enum`, by spelling, for DISPLAY only — `resolveNamedRef`
+ *                 below resolves it to no declaration, whatever a same-file
+ *                 `schema` of that spelling holds, so an enum-variant access a
+ *                 same-file schema shadows is never adopted as a lookupable
+ *                 nominal (bug 0191 §Fix constraint A: a lookupable answer
+ *                 there is not inert — it trades one wrong verdict for
+ *                 another, docs/bugs/0191-enum-name-shadowed-by-schema-fabricates-member-type.md
+ *                 §Reproduction (g)).
  *   - `array`   — `array<T>`, covariant in its `element` (TYPE-7).
  *   - `union`   — `T₁ | T₂ | …`, widening (TYPE-5) and distributive (TYPE-6).
  *   - `object`  — an inline anonymous object type `{ f: T, … }`, field-wise
@@ -61,7 +72,12 @@ export type PrimitiveName = "string" | "number" | "integer" | "boolean" | "null"
 export type CompatType =
   | { readonly kind: "prim"; readonly name: PrimitiveName }
   | { readonly kind: "literal"; readonly typesAs: PrimitiveName }
-  | { readonly kind: "named"; readonly name: string; readonly withheld?: true }
+  | {
+      readonly kind: "named";
+      readonly name: string;
+      readonly withheld?: true;
+      readonly enumRef?: true;
+    }
   | { readonly kind: "array"; readonly element: CompatType }
   | { readonly kind: "union"; readonly arms: readonly CompatType[] }
   | {
@@ -136,6 +152,31 @@ export function resolveNamed(env: TypeEnv, name: string): NamedDecl | undefined 
 }
 
 /**
+ * Resolve a `named` `CompatType`'s own reference to its declaration, honouring
+ * the `enumRef` provenance marker (bug 0191 §Fix route 1): a `named` minted by
+ * `enumVariantType()` below resolves to NO declaration, unconditionally,
+ * whatever a same-file `schema` spelled like the enum holds in `env`. Every
+ * other `named` — `enumRef` absent — resolves exactly as `resolveNamed` above
+ * answers for its `name`.
+ *
+ * This is the ONE seam that must see the marker: every resolution site whose
+ * argument is a `named` `CompatType`'s OWN name (as opposed to a bare
+ * annotation-spelled string, which `resolveNamed` still serves directly —
+ * `declaredFieldsOf`, ./type-layer-checks.ts) reads through here instead, so a
+ * marked enum-variant reference stays unresolvable everywhere the unmarked
+ * shadowing schema would otherwise answer: `unfoldAlias` and `decide`'s
+ * TYPE-7 / TYPE-8 / TYPE-10 arms below, `classifyIndexReceiver` and
+ * `isObjectBranch` in this module, and `classifyOperand` / `classifyReceiver`
+ * / `isResultGenericType` in ./type-layer-checks.ts.
+ */
+export function resolveNamedRef(
+  env: TypeEnv,
+  type: { readonly name: string; readonly enumRef?: true },
+): NamedDecl | undefined {
+  return type.enumRef === true ? undefined : resolveNamed(env, type.name);
+}
+
+/**
  * The outcome of a directed compatibility check `sub ⊑ sup`:
  *
  *   - `"compatible"`        — the relation holds.
@@ -192,7 +233,7 @@ export function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
   // diagnostic — that rejection is reported alongside this pass, not before
   // it, so it gates nothing here.
   while (current.kind === "named") {
-    const decl = resolveNamed(env, current.name);
+    const decl = resolveNamedRef(env, current);
     if (decl === undefined || decl.kind !== "alias") {
       return current;
     }
@@ -246,7 +287,7 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   // AJV net (type-system.md §"Unresolvable operands"), the same posture
   // `unfoldAlias`'s own design note states for this module.
   if (sup.kind === "array") {
-    if (sub.kind === "named" && resolveNamed(env, sub.name) === undefined) {
+    if (sub.kind === "named" && resolveNamedRef(env, sub) === undefined) {
       return "unknown";
     }
     if (sub.kind !== "array") {
@@ -273,7 +314,7 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   // below — TYPE-10's cross-form rule (type-system.md:52): an inline-object
   // sup is never `⊑` structurally from a named schema, resolvable or not.
   if (sup.kind === "object") {
-    if (sub.kind === "named" && resolveNamed(env, sub.name) === undefined) {
+    if (sub.kind === "named" && resolveNamedRef(env, sub) === undefined) {
       return "unknown";
     }
     if (sub.kind !== "object") {
@@ -307,11 +348,11 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   // schema by name identity (TYPE-1). It never relates structurally to an
   // inline object or to a distinct named schema.
   if (sup.kind === "named") {
-    if (resolveNamed(env, sup.name) === undefined) {
+    if (resolveNamedRef(env, sup) === undefined) {
       return "unknown";
     }
     if (sub.kind === "named") {
-      if (resolveNamed(env, sub.name) === undefined) {
+      if (resolveNamedRef(env, sub) === undefined) {
         return "unknown";
       }
       return sub.name === sup.name ? "compatible" : "incompatible";
@@ -321,7 +362,7 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
 
   // A `named` sub against a non-named, non-union sup: nominal, never structural.
   if (sub.kind === "named") {
-    return resolveNamed(env, sub.name) === undefined ? "unknown" : "incompatible";
+    return resolveNamedRef(env, sub) === undefined ? "unknown" : "incompatible";
   }
 
   // TYPE-2 / TYPE-3 — primitive and literal-to-primitive against a primitive
@@ -434,7 +475,7 @@ export function classifyIndexReceiver(
     case "union":
       return "unknown";
     case "named": {
-      const decl = resolveNamed(env, type.name);
+      const decl = resolveNamedRef(env, type);
       if (decl === undefined) {
         return "unknown";
       }
@@ -755,7 +796,7 @@ function isObjectBranch(branch: CompatType, env: TypeEnv): boolean {
   const unfolded = unfoldAlias(branch, env);
   return (
     unfolded.kind === "object" ||
-    (unfolded.kind === "named" && resolveNamed(env, unfolded.name)?.kind === "object-schema")
+    (unfolded.kind === "named" && resolveNamedRef(env, unfolded)?.kind === "object-schema")
   );
 }
 
@@ -983,4 +1024,30 @@ export const WITHHELD_BINDER_TYPE_NAME = "<withheld>";
  */
 export function withheldBinderType(): CompatType {
   return { kind: "named", name: WITHHELD_BINDER_TYPE_NAME, withheld: true };
+}
+
+/**
+ * Mint the engine's enum-variant `CompatType` — the ONLY admitted mint of the
+ * `enumRef` marker (bug 0191 §Fix route 1, the companion decision to bug
+ * 0143's `withheld` marker). `enumName` becomes the DISPLAY spelling
+ * (`displayType` renders `type.name` verbatim, unchanged for this arm), but
+ * `resolveNamedRef` above answers `undefined` for a marked reference
+ * unconditionally, so the value never resolves to whatever a same-file
+ * `schema` spelled like the enum holds — `Color.Red` under
+ * `enum Color { Red }` beside `schema Color { a: string }` types as this
+ * mint, named `"Color"`, and every `⊑` consumer treats it exactly as it
+ * treats an unresolvable `named "Color"` (deferred, `type-system.md:48`),
+ * never as the shadowing schema's own nominal (§Fix constraint A).
+ *
+ * `static-type-inference.ts`'s `#memberType` is the sole caller: it mints this
+ * when the member access has the variant-access SHAPE — an ident target naming
+ * a declared `enum` and binding no local — ahead of the `TypeEnv` schema
+ * lookup, mirroring the runtime's own predicate (`evalExpr`'s `case "member"`
+ * tests `expr.target.kind === "ident"` and a non-`"local"` resolution before
+ * calling `env.resolveEnumVariant`, ../runtime/statement-executor.ts). No
+ * other call site may construct a `named` `CompatType` with `enumRef: true`
+ * set.
+ */
+export function enumVariantType(enumName: string): CompatType {
+  return { kind: "named", name: enumName, enumRef: true };
 }

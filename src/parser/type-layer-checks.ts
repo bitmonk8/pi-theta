@@ -68,6 +68,7 @@ import {
   checkReassignRhsCompat,
   displayType,
   resolveNamed,
+  resolveNamedRef,
   unfoldAlias,
   withheldBinderType,
   type CompatType,
@@ -172,7 +173,7 @@ function classifyOperand(type: CompatType, env: TypeEnv): OperandCategory {
     case "union":
       return "other";
     case "named": {
-      const decl = resolveNamed(env, type.name);
+      const decl = resolveNamedRef(env, type);
       if (decl === undefined) {
         return "unknown";
       }
@@ -215,7 +216,7 @@ function classifyReceiver(type: CompatType, env: TypeEnv): BuiltinReceiver {
     case "union":
       return "unknown";
     case "named": {
-      const decl = resolveNamed(env, type.name);
+      const decl = resolveNamedRef(env, type);
       if (decl === undefined) {
         return "unknown";
       }
@@ -300,7 +301,10 @@ export function checkTypeLayer(
   file: string,
   paramsFields: readonly ParamsFieldSource[] = [],
 ): Diagnostic[] {
-  const pass = new StaticTypeInferencePass({ checkCompatible });
+  const pass = new StaticTypeInferencePass({
+    checkCompatible,
+    enumNames: collectEnumNames(body.statements),
+  });
   const env = collectTypeEnv(body.statements);
   const fnReturns = collectFnReturnAnnotations(body.statements);
   const fnDecls = collectTopLevelFns(body.statements);
@@ -422,6 +426,32 @@ export function collectTypeEnv(statements: readonly Stmt[]): TypeEnv {
     }
   }
   return env;
+}
+
+/**
+ * The whole file's declared `enum` names (bug 0191 §Fix route 1), collected
+ * over the same `statements` `collectTypeEnv` and `checkStructural`
+ * (../parser/theta-document.ts) already walk. Threaded into
+ * `StaticTypeInferencePass` so its member-access arm (`#memberType`,
+ * ./static-type-inference.ts) can recognise an `Enum.Variant` receiver AHEAD
+ * of the `TypeEnv` schema lookup — an enum name never entered `TypeEnv` itself
+ * (bug 0038 residual (iii), a deliberate §Non-goal this report does not
+ * reopen), so this is a second, narrower record next to it, not a widening of
+ * it.
+ *
+ * Deliberately NOT a `TypeEnv`-shaped record: the one consumer needs only
+ * membership, never a declaration to resolve through, and a same-file
+ * `enum X` / `schema X` pair (legal, lexical.md:18) would otherwise force a
+ * choice about which of the two collections owns the key `X`.
+ */
+export function collectEnumNames(statements: readonly Stmt[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "enum") {
+      names.add(stmt.name);
+    }
+  }
+  return names;
 }
 
 /**
@@ -3343,7 +3373,7 @@ class TypeLayerWalk {
   private isResultGenericType(type: CompatType): boolean {
     return (
       type.kind === "named" &&
-      resolveNamed(this.env, type.name) === undefined &&
+      resolveNamedRef(this.env, type) === undefined &&
       isResultGenericTypeName(type.name)
     );
   }
@@ -3443,6 +3473,21 @@ class TypeLayerWalk {
     e: Expr & { kind: "member" },
     bindings: ReadonlyMap<string, CompatType>,
   ): void {
+    // Bug 0191 §Fix route 1: `e` ITSELF (not `e.target`) is the node
+    // `#memberType` (./static-type-inference.ts) types, so its own answer
+    // already carries the `enumRef` provenance marker when `e.target` names a
+    // declared enum. An object-schema shadow already bypasses this whole
+    // check through the `"object"` kind below — field access on an object
+    // value is not a stdlib-member question — but a shadow that unfolds to a
+    // primitive or union (`schema Color = string`, e1–e3) does not, and
+    // without this test `Red` would be judged as a `string` / stdlib member
+    // of the SCHEMA's own unfolded type, which is exactly the fabrication
+    // §Fix removes: an enum variant access is never a stdlib-member read, so
+    // it defers here the same way an unresolved receiver does.
+    const ownType = this.typeOf(e, bindings);
+    if (ownType.kind === "named" && ownType.enumRef === true) {
+      return;
+    }
     const receiverType = this.typeOf(e.target, bindings);
     const kind = classifyReceiver(receiverType, this.env);
     if (kind === "unknown" || kind === "object") {

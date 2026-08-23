@@ -95,6 +95,7 @@ import {
 import {
   annotationSourceIsNotTypeExpression,
   annotationToCompatType,
+  collectEnumNames,
   collectLocalBinderNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
@@ -890,7 +891,10 @@ export async function checkInvokeStaticResolution(
     // `StaticTypeInferencePass` instance and whole-file `TypeEnv`, derived once
     // per theta from `input.body` — never per call site.
     const typeEnv = collectTypeEnv(input.body.statements);
-    const typePass = new StaticTypeInferencePass({ checkCompatible });
+    const typePass = new StaticTypeInferencePass({
+      checkCompatible,
+      enumNames: collectEnumNames(input.body.statements),
+    });
 
     for (const invoke of callSites.invokeExprs) {
       // A dynamic path (empty literal) or a non-`.theta` extension already
@@ -1317,7 +1321,10 @@ export function checkImportedFnCallArgs(
   const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
   const { callExprs } = collectCallSites(importingBody);
   const importerEnv = collectTypeEnv(importingBody.statements);
-  const importerPass = new StaticTypeInferencePass({ checkCompatible });
+  const importerPass = new StaticTypeInferencePass({
+    checkCompatible,
+    enumNames: collectEnumNames(importingBody.statements),
+  });
   // One `TypeEnv` per resolved library body, cached by statement-list
   // identity so two calls of the same imported `fn` do not rebuild the
   // DECLARING library's env twice; the cache key is the library body

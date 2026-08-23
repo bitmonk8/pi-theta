@@ -2213,7 +2213,7 @@ describe("RFC-0003 par-for — nesting is legal (CTRL-2)", () => {
 const EMPTY_TYPE_ENV: TypeEnv = {};
 
 function makeInferencePass(): StaticTypeInferencePass {
-  const deps: StaticTypeInferenceDeps = { checkCompatible };
+  const deps: StaticTypeInferenceDeps = { checkCompatible, enumNames: new Set() };
   return new StaticTypeInferencePass(deps);
 }
 

@@ -277,7 +277,10 @@ function typeOfMatchTail(cell: string, src: string, wantHits: string[]): string 
     (tail as Expr).kind,
     `PRECONDITION (${cell}): the tail must be a \`match\` expression, or this cell reads a node whose type \`#typeExpr\`'s \`case "match"\` never answers. Diagnostics: ${JSON.stringify(hitsOf(doc))}`,
   ).toBe("match");
-  const type = new StaticTypeInferencePass({ checkCompatible }).typeOf(tail as Expr, ENV);
+  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+    tail as Expr,
+    ENV,
+  );
   return displayType(type);
 }
 

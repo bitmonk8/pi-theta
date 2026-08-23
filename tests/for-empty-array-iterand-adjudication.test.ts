@@ -340,7 +340,10 @@ describe("bug 0195 (B) — the behaviour route (a) does not move", () => {
       `B/d2 PRECONDITION: the trailing expression must parse as an \`array\` node. Diagnostics: ${render(doc)}`,
     ).toBe("array");
     const spelling = displayType(
-      new StaticTypeInferencePass({ checkCompatible }).typeOf(tail as Expr, {} as TypeEnv),
+      new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+        tail as Expr,
+        {} as TypeEnv,
+      ),
     );
     expect(
       spelling,

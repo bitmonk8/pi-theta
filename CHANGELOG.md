@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.236.0]
+
+### Fixed
+
+- **Bug 0191** — an enum whose name is shadowed by a same-spelled schema no longer fabricates a member type under the double collision: the nominal carries provenance (`named` + `enumRef`, sole mint `enumVariantType`, one resolution seam `resolveNamedRef`, shape-gated mint in `#memberType`), so variant access through the shadow resolves the ENUM's member type instead of inventing one from the schema. Route 1 adjudicated on the record (routes 3/4/5 declined). Locked by `tests/enum-shadow-member-type.test.ts` (39 rows, 16 red at HEAD) and the `b0191live` registration cell.
+
 ## [0.235.0]
 
 ### Fixed

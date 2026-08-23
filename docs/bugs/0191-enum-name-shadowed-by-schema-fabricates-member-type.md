@@ -1,6 +1,6 @@
 # Bug 0191 — `#typeExpr`'s `case "member"` (`src/parser/static-type-inference.ts:242–279`) routes `Enum.Variant` into its field branch whenever a `schema` shadows the enum's name: `resolveNamed(env, "Color")` answers the schema, the variant is no own field of it and can never be one (variant names are PascalCase, field names lowercase-first), so the arm falls through to the pre-0136 fabrication `named <variant>` and a third declaration spelled like the variant is adopted as the expression's static type — against `schemas.md:97`'s "statically typed as `Enum`", five registered `E`-severity codes refuse spec-legal input, and one correct refusal disappears into a loop that loads and iterates zero times
 
-- **Status:** open. §Fix is not settled: five constraint-pinned routes, and the
+- **Status:** fixed (0.236.0). §Fix was not settled at filing: five constraint-pinned routes, and the
   choice turns on one adjudication this report asks for rather than makes —
   whether a same-file `enum X` / `schema X` pair stays legal. No prerequisite:
   bug 0136 shipped this arm at 0.106.0 and nothing blocks this report. Fix
@@ -830,3 +830,128 @@ is absent.
   `tests/member-access-declared-field-type.test.ts:1155–1249`; 38 parse rows and
   8 runtime rows, re-measured at a `git status --short`-clean tree at
   `6942ef27`, then deleted.
+
+## Fix (0.236.0)
+
+**Route adjudicated: §Fix route 1**, with the companion decision the route left
+open answered as a **provenance-marked nominal** — a third option beside the two
+that section names (a `<withheld>`-class unspellable name, or a new `CompatType`
+shape). The adjudication §Fix asked for is answered **yes, a same-file
+`enum X` / `schema X` pair stays legal**: nothing refuses the pair (rows b1–b4
+stay clean), and the member read under it is typed as the enum. Route 4 (refuse
+the collision) is declined — it would move `lexical.md:18`'s
+only-enforced-naming-constraints sentence and add a GOV-15 refusal of programs
+that load cleanly today. Route 3 (enums in the `TypeEnv`) is declined as bug
+0038 residual (iii)'s territory and this report's own §Non-goal. Route 5
+(neutralise the fallback) is declined because the withheld sentinel is
+*suppressed* by `containsWithheldBinderType` at the iterand position, which
+would erase the `theta/parse/non-array-iterand` refusal this report requires be
+restored (constraint B).
+
+- What shipped:
+  - `src/parser/type-compat.ts` — `CompatType`'s `named` arm gains a second
+    provenance marker beside bug 0143's `withheld`, minted only by the new
+    `enumVariantType`; the new `resolveNamedRef` is the single seam that honours
+    it, so a marked nominal resolves to **no declaration** at every resolution
+    site (`unfoldAlias`, `decide`'s TYPE-7 / TYPE-8 / TYPE-10 arms and its
+    `named`-sub arm, `classifyIndexReceiver`, `isObjectBranch`) while
+    `displayType` still renders the ENUM's theta-side identifier
+    (`placeholder-rendering-a.md:19`) — constraints A and B together.
+    `resolveNamed` keeps bug 0038's own-key guard and bug 0135's case fence
+    unchanged, and the one bare-string caller (`declaredFieldsOf`, an
+    author-spelled constructor annotation) is untouched.
+  - `src/parser/static-type-inference.ts` — `#memberType` mints the marked
+    nominal when the member target is an **ident** that names a same-file
+    declared `enum` and is not a local binding, ahead of the `TypeEnv` lookup.
+    The gate is the *shape* predicate the two already-correct passes use
+    (`evalExpr`'s member case resolves the variant before evaluating the target
+    as a value; the structural checker keys on the target ident against the
+    file's enum map), not the receiver's inferred type — the type-keyed form was
+    round 1's blocker: it reclassified any value typed by the shadowing schema,
+    losing an owed `let-rhs-type-mismatch` on a declared-field read and adding a
+    `non-array-iterand` refusal on a field-typed array iterand. The enum-name
+    set arrives by constructor dependency injection (`StaticTypeInferenceDeps`,
+    required, no default in production). Bug 0136's receiver route, its field
+    route and the closing nominal fallback are unmoved.
+  - `src/parser/type-layer-checks.ts` — new `collectEnumNames` beside
+    `collectTypeEnv` over the same `statements`; `checkTypeLayer` threads it into
+    the pass; `classifyOperand`, `classifyReceiver` and `isResultGenericType`
+    read through `resolveNamedRef`; `checkMemberAccess` defers when the member
+    node's own type carries the marker (the one consumer that classifies a bare
+    member receiver independently of `#memberType`, and the only reader needed
+    for the alias / union shadow spellings).
+  - `src/extension/invoke-static-checks.ts` — the second production
+    construction site threads the same collector.
+  - Constraint C holds: one arm, one mint, one resolution seam. No registry row,
+    no spec edit, no new diagnostic code (DIAG-2 untouched; the registry stays
+    closed). Constraint E: the change removes refusals from the
+    double-collision class and adds none — verified by the witness's control
+    halves and by `tests/committed-fixture-parse-gate.test.ts`.
+- Gates: witness `tests/enum-shadow-member-type.test.ts` 39/39 (16/39 red before
+  the fix, red for the fabrication and erasure signatures); full default suite
+  `npm test` 411 files / 8662 tests passed; `npm run typecheck` clean;
+  `npm run lint` clean; live cell
+  `tests/live/b0191live-enum-shadow-registration-live-cell.test.ts` 1/1 passed
+  for real against a live provider.
+- Review: 3 rounds. Round 1 (deep) — one `correctness` blocker (the mint was
+  keyed on the receiver's inferred type, losing an owed emission on a declared
+  field read and adding an E-severity refusal on a field-typed array iterand,
+  both outside this report's input class), one `test` finding (the witness
+  dropped the runtime disposition the fix newly admits) and one `prose` finding
+  (two stale citations); all three fixed. Round 2 (fast) — clean, with one
+  optional residual (imported enums, R1 below). Round 3 (fast, scoped to the
+  live cell after I raised a banned verbatim-echo drive prompt myself) — one
+  `fidelity` finding: the control fixture's prose described a theta that is not
+  the one shipped; fixed comment-only, and the polish verified by gate-diff
+  (comment/JSDoc hunks only), so no further confirmation round was dispatched.
+- Verification: SOLID. (i) The witness genuinely witnesses — two independent
+  targeted neutralisations (the mint branch made unreachable; `resolveNamedRef`
+  made marker-blind) drove it to 17/39 red with the fabrication and erasure
+  signatures, and both files restored byte-exact (`git hash-object` equality
+  recorded; no `git stash`, no `git checkout`/`restore`). (ii) Full default
+  suite green. (iii) Lint and typecheck clean. (iv) End-to-end live coverage
+  added and run for real: the double-collision carrier now **registers** and
+  drives a real turn to a task-framed arithmetic oracle, where pre-fix an
+  `E`-severity `theta/parse/*` denied registration file-wide
+  (`hasLoadParseError`); the cell fails loudly on a missing provider, reaches no
+  subagent child launch (both fixtures are `mode: prompt`), and
+  `tests/fixtures/h7a/permitted-codes.json` is unchanged because no new code
+  becomes reachable.
+- Residuals:
+  1. **Row f4 still fabricates** — a genuinely absent field whose spelling
+     matches a declaration (`schema Color { a: string }` + `schema Red =
+     array<integer>` + `Color.Red.join(",")`, no enum) keeps the closing
+     nominal fallback and now draws `theta/parse/type-as-value` +
+     `theta/parse/non-string-array-join`. Deliberate: routes 1–3 close the enum
+     half only, §Fix route 5 is the route that would close f4 too, and this
+     report's §Non-goals keep the absent-field disposition. Pinned as measured
+     by the witness's group (f) so a later change to it is deliberate.
+     (Measured divergence from the filing: f4 gained
+     `theta/parse/type-as-value` when bug 0140 landed at 0.122.0.)
+  2. **Imported enums are outside `collectEnumNames`** — it walks same-file
+     `enum` statements, symmetric with `collectTypeEnv`'s same-file `schema`
+     walk and the structural checker's own file-local enum map. An imported
+     enum's variant access therefore keeps its pre-fix disposition; the
+     colliding case cannot reach a well-formed program because
+     `imports.md:59`'s `theta/parse/import-name-collision` refuses an imported
+     name that collides with a top-level declaration. No witness row.
+  3. **Line-citation decay** — the new doc comments in `type-compat.ts`,
+     `type-layer-checks.ts` and `static-type-inference.ts` shift lines that
+     roughly 150 pre-existing `path:line` citations in unrelated test files
+     point at. Not swept: `tests/citation-symbol-form-gate.test.ts` is a
+     ratchet whose converted-file list does not include these modules, and bug
+     0134's convention widens the gate by sweep rather than by fix commit. All
+     citations this fix *adds* use the symbol form.
+  4. **Runtime row r1 divergence from the filing** — the erased-refusal `for`
+     row runs to `value=null`, not `value=1`: the zero-iteration `for` is the
+     theta's tail. The observable (loads, iterates zero times, reports nothing)
+     is unchanged.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: bug 0136's field route and its 72-row
+  witness (`tests/member-access-declared-field-type.test.ts`) unmoved; its two
+  parent-granted protected re-pins (`tests/ctor-field-type-check.test.ts`
+  r3a/r3b, `tests/question-operand-defect.test.ts` m6) unmoved; bug 0038's
+  `tests/typeenv-prototype-names.test.ts` and bug 0135's `resolveNamed` case
+  fence unmoved; bug 0143's `withheld` marker semantics unmoved (the new marker
+  is a sibling, never a re-use); enums stay absent from the `TypeEnv` (bug 0038
+  residual (iii), this report's §Non-goal).
