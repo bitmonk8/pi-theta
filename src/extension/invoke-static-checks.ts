@@ -596,14 +596,46 @@ function collectProvableArgTypes(
       // exactly, ahead of this fallback.
       return collectArmUnion([expr.left, expr.right], env, pass);
     }
-    case "array":
-      // Bail rather than reduce the elements: `displayType` renders an array as
-      // `array<…>`, which `subsetKinds` (../runtime/tool-call.ts) never admits,
-      // so the Pi-tool arm can prove nothing from it either way and the
-      // element-reduction question does not arise. On the `.theta`-callable arm
-      // an array argument defers to the callee's own AJV load, the same net
-      // every other unrepresentable shape here defers to.
-      return undefined;
+    case "array": {
+      // The Pi-tool arm's own bail is untouched by this arm: `subsetKinds`
+      // (../runtime/tool-call.ts) admits no `array<…>` kind, so that consumer
+      // still proves nothing from an array member and stands down on its own
+      // "an unrepresentable arm makes the whole union unprovable" rule whatever
+      // this arm answers. The invoke and `.theta`-callable arms compare
+      // `CompatType`s through `checkCompatible` instead, which decides
+      // `array<string> ⋢ string` — so for those two consumers an unconditional
+      // bail withheld a decidable case, not an undecidable one.
+      //
+      // An EXACTNESS-TESTED mirror of `#typeExpr`'s own array arm
+      // (../parser/static-type-inference.ts): trusting `pass.typeOf`'s reduced
+      // element type outright would repeat bug 0072's false-`E` species — that
+      // reduction runs through `#commonType`, which can bless an unresolvable
+      // sibling or fall back to `candidates[0]`, either of which erases a
+      // member the runtime can still produce. Collecting the elements through
+      // `collectArmUnion` and requiring their rendering to equal the reduction's
+      // element rendering is the set-wise analogue of the parser-layer sibling's
+      // own exactness test (`isProvenReduction`, `provableArgType`'s `array` arm
+      // in ../parser/type-layer-checks.ts), and is what keeps this function's
+      // own header invariant true: a collected member can never render
+      // differently from the type the pass itself assigns.
+      const reduced = pass.typeOf(expr, env);
+      if (reduced.kind !== "array") {
+        // An empty element list reduces to a nominal `unknown`, not an
+        // `array` — `#commonType`'s empty-candidate-set fallback — so this
+        // narrowing is also what keeps `[]` withheld, the same silence the
+        // same-file `fn` surface already shows on `he([])`.
+        return undefined;
+      }
+      const elements = collectArmUnion(expr.elements, env, pass);
+      if (elements === undefined) {
+        // An element past the parser's static view (e.g. an `ident`) withholds
+        // the whole literal rather than reducing around it.
+        return undefined;
+      }
+      return renderCollectedTypes(elements) === displayType(reduced.element)
+        ? [reduced]
+        : undefined;
+    }
     case "ident":
     case "member":
     case "call":

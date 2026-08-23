@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.228.0]
+
+### Fixed
+
+- **Bug 0146** — the invoke-arg provable set no longer withholds array-literal true positives: `collectProvableArgTypes` gains an `array` arm (an exactness-tested mirror of `#typeExpr`'s array arm, restricted per the settled route — nominal-group and `index`/`par-for` arms stay withheld and recorded), so a provably mistyped array-literal invoke argument draws the wired mismatch instead of passing silently. Locked by `tests/invoke-arg-array-literal-provable.test.ts` (29 cells), the pre-authorized a3 flip in `tests/invoke-arg-type-mismatch-wired.test.ts` (§Fix (d)), and the `b0146live` H8a cell (refused + admitted-and-drives).
+
 ## [0.227.0]
 
 ### Fixed

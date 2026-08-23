@@ -1,12 +1,11 @@
 # Bug 0146 — `theta/parse/invoke-arg-type-mismatch`'s registered *Trigger* covers any "`invoke(...)` argument [that] does not type-check against the callee's declared `params` schema (when the callee is statically resolvable)" (`code-registry-parse.md:114`), and bug 0137's wiring gates emission on `collectProvableArgTypes` (`invoke-static-checks.ts:505`), which returns `undefined` for the `array`-literal (`:560–567`), `ident` (`:568–580`), `index` and `par-for` (`:581–589`) arms: `invoke("./c.theta", ["a"])` and `let n: integer = 1` + `invoke("./c.theta", n)` at a `params: x: string` callee both load clean and register, while the byte-identical mistype through a same-file `fn` call is refused at `E` — three shapes measured silent on the invoke surface and refused on the `fn` one (array literal, typed-`let` read, index read), plus a `par for` argument silent on the invoke surface
 
-- **Status:** open. §Fix is not settled: three routes are enumerated with their
-  consequences and the constraints are pinned, but the disposition — widen the
-  extension-layer collector, add a sink-local provable read, or narrow the
-  *Trigger* under DIAG-2 — is left to the run. No ordering dependency blocks
-  it. [0137](./0137-invoke-arg-type-mismatch-unreachable.md) is **fixed
-  (0.78.0)** and is this report's substrate; the coordination constraints on its
-  witness are in §Fix (d).
+- **Status:** fixed (0.228.0). §Fix was not settled at filing: three routes were
+  enumerated with their consequences and the constraints pinned, and the
+  disposition was left to the run. The run took Reading A and route 1 restricted
+  to the `array` arm — see §Fix (0.228.0). [0137](./0137-invoke-arg-type-mismatch-unreachable.md)
+  is **fixed (0.78.0)** and is this report's substrate; the coordination
+  constraints on its witness are in §Fix (d).
 - **Sev/Diff estimate:** S3/D3 — whole argument-shape classes named by a
   registered `E`-severity row's *Trigger* have no emission at the invoke sink
   (measured: four shapes — array literal, typed-`let` read, index read, `par for`
@@ -1041,3 +1040,151 @@ construction, and neither has a `/` fixture in
 `tests/tool-calls.test.ts`, `tests/tool-arg-schema-conflict.test.ts` or
 `tests/tool-arg-shape-enforcement.test.ts`. A coverage pass here is its natural
 home.
+
+## Fix (0.228.0)
+
+**Route taken, on the record.** §Fix (a): **Reading A** — the registered
+*Trigger* is accurate and the extension-layer read was incomplete. §Fix (b):
+**route 1, restricted to the `array` arm**, the arm §Fix (b) itself prices as
+"the cheapest". Route 3 was not taken, so no registry row and no `docs/` page
+moved and DIAG-2 is not engaged. The nominal group (`ident`, `member`, `call`,
+`invoke`, `query`, `object`, `result-ctor`, `method-call`) and the `index` /
+`par-for` arm stay withheld: those need the scope-aware binding carriage §Fix (b)
+prices as "not an arm edit", which the extension layer still does not build.
+Residual 1 below carries that half.
+
+**Why the `array` arm was severable from the other three.** Its stated reason
+was a fact about a DIFFERENT consumer — `displayType` renders an array as
+`array<…>`, which `subsetKinds` (`src/runtime/tool-call.ts`) never admits — and
+that consumer's verdicts do not move whatever this arm answers: `subsetKinds`
+returns `undefined` for any non-primitive arm, so a collected `array<…>` member
+makes the whole union unprovable exactly as a withheld set did (measured below).
+The invoke and `.theta`-callable consumers compare `CompatType`s through
+`checkCompatible`, which decides `array<string> ⋢ string` — the decision the
+same-file `fn` surface already renders (§Reproduction row C-farr). So on this
+arm the withhold was a shared-collector consequence, which §Expected behaviour
+had already isolated, and not a decidability one.
+
+- **What shipped:**
+  - `src/extension/invoke-static-checks.ts` — the `array` arm of
+    `collectProvableArgTypes` is an EXACTNESS-TESTED mirror of `#typeExpr`'s own
+    array arm: read the reduction (`pass.typeOf`), withhold unless it is
+    `array`-kinded, collect the elements through `collectArmUnion`, and return
+    the reduction only when `renderCollectedTypes(elements)` equals
+    `displayType(reduced.element)`. The rendering comparison is the set-wise
+    analogue of the parser-layer sibling's own exactness test
+    (`isProvenReduction`, read by `provableArgType`'s `array` arm in
+    `src/parser/type-layer-checks.ts`), so an inexact `#commonType` reduction —
+    an unknown-blessed sibling or the `candidates[0]` fallback — withholds
+    instead of erasing a member the runtime can still produce. No fabricated
+    `CompatType`; the every-member-incompatible rule (`buildInvokeArgSlot`), the
+    emitter's `"compatible"` / `"unknown"` deferral (`checkInvokeArgTypes`) and
+    the sink are untouched, so the flip §Reproduction FLIP measured is the whole
+    mechanism.
+  - `tests/invoke-arg-array-literal-provable.test.ts` — new witness, 29 cells on
+    this report's own harness shape (one `discoverAndComposeFixtures` load, three
+    channels, one callee per caller, every absence cell gated on a live positive
+    control, every expected message read through `registryMessage` per DIAG-4).
+  - `tests/invoke-arg-type-mismatch-wired.test.ts` — cell a3 flipped from a
+    silence cell to an expected emission, the response §Fix (d) pre-authorized
+    verbatim, with the header's reason paragraph rewritten in the same change.
+    Cell a4 is untouched and still pins the `ident` arm's deferral.
+  - `tests/live/b0146live-invoke-array-arg-live-cell.test.ts` — new H8a cell: the
+    array-literal mistype is refused end-to-end through the shipped composition
+    root, and its well-typed twin registers and drives one real turn.
+  - `tests/wire-translation-inbound-retag.test.ts` — comment-only citation
+    repair, the two `Object.create(null)` line citations this change shifted.
+- **Behaviour, measured through the shipped composition root** (`<actual>`
+  renderings verbatim): `invoke("./c.theta", ["a"])` at `params: x: string` now
+  draws `invoke argument 0 ('x') type mismatch: expected string, got
+  array<string>` and its caller does not register — §Reproduction row A-iarr
+  flipped, with the exact string §Reproduction FLIP predicted. `[[1]]` draws `got
+  array<array<integer>>`, `[1, "a"]` draws `got array<integer | string>`,
+  `[flag ? 1 : "a"]` at `x: array<string>` draws `expected array<string>, got
+  array<integer | string>`, and `["a"]` at `x: array<integer>` draws `expected
+  array<integer>, got array<string>`. The `.theta`-callable twin moved with it
+  (row B-tarr): `y(["a"])` at `x: string` draws `tool 'y' argument type
+  mismatch: expected string, got array<string>`. Every one of those `<actual>`
+  strings is the one the `fn` surface already rendered, so the shapes measured in
+  §Reproduction group (C) now decide alike on all three surfaces.
+  Withheld by the exactness test, each pinned as a boundary cell: `[]` (the empty
+  literal reduces to a nominal, not an `array` — the `fn` surface's own silence),
+  `[n]` for a typed-`let` element (the element is an `ident`), and `[1, "a", 1]`
+  (`renderCollectedTypes` deduplicates while `#commonType`'s union arms are
+  verbatim, so the two renderings differ). Compatible arrays stay silent (`["a"]`
+  at `x: array<string>`, `[["a"]]` at `x: array<array<string>>`). The Pi-tool
+  provable-disjointness arm is unmoved: `read({ path: ["a"] })` stays silent and
+  `read({ path: 1 })` still fires `theta/parse/tool-arg-schema-conflict`.
+  §Fix (c)'s row A-ictl keeps firing and un-registering its caller.
+- **GOV-15, addition direction (`source-language-stability.md`).** Swept
+  explicitly rather than cited, bug 0132 being binding: `git ls-files --
+  '*.theta' '*.thetalib'` → 34 files, whose only `invoke(` site is
+  `tests/live/acceptance/fixtures/acc-imports-invoke.theta` with zero arguments,
+  and whose only two array literals are a `for`-iterand `let` and a frontmatter
+  `tools:` list — neither at an argument slot. No tracked corpus file gains an
+  `E`; `tests/committed-fixture-parse-gate.test.ts` is green.
+- **Gates:** witness `npx vitest run tests/invoke-arg-array-literal-provable.test.ts
+  tests/invoke-arg-type-mismatch-wired.test.ts` → 2 files, 69 tests passed (RED
+  before the fix: 8 assertions across e1–e6, e5 and a3). Full default suite
+  `npm test` → 409 files, 8610 tests passed. `npm run typecheck` clean, `npm run
+  lint` clean. Live `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/b0146live-invoke-array-arg-live-cell.test.ts` → 2 passed; the
+  pre-existing H8a cell over this surface
+  (`tests/live/live-production-acceptance.test.ts`, bug 0137's) → 88 passed,
+  unmoved.
+- **Review:** 2 rounds. Round 1 (deep) — no correctness, fidelity or spec
+  finding: the exactness test survived a construction hunt over `#commonType`'s
+  unknown-blessing and `candidates[0]` fallback, nested arrays, literal-versus-
+  primitive rendering, named and object elements, and integer narrowing; one
+  blocker (`test`) — the live cell's stale-placeholder guard matched the correct
+  output `array<string>`, so its refused half could not pass — plus three
+  residuals (a prose omission, one absence cell without an intra-cell control,
+  two unwitnessed behaviour classes). Round 2, after the light fixer round that
+  answered all four — CLEAN, with the soundness of the new e6 emission and the
+  stated reason of the new s9 withhold both re-derived from source.
+- **Verification:** SOLID. The witnesses genuinely witness: the `array` arm
+  neutralised to an unconditional withhold reds exactly e1–e6, e5 and a3 while
+  every silence and boundary cell stays green, and the live cell's refused half
+  reds while its admitted half stays green; restored byte-exact (`git
+  hash-object` verified, no `git stash` and no `git checkout`). Full suite green
+  (one unrelated `beforeAll` hook timeout under full-suite contention in
+  `tests/production-tools-load-resolution.test.ts`, 50/50 green in isolation).
+  Live run for real, under the shared live lock. Lint and typecheck clean.
+- **Residuals:**
+  1. **The other three arm groups still withhold.** The nominal group and
+     `index` / `par-for` return `undefined` unconditionally, so §Reproduction
+     rows A-ilet, A-iidx, A-ipar and B-tlet stay silent while the `fn` surface
+     refuses the three of them measured there. Cell a4 of
+     `tests/invoke-arg-type-mismatch-wired.test.ts` and cells s4–s7 of the new
+     witness pin that boundary, so a later widening reds rather than sliding. The
+     mechanism is the one §Fix (b) states: the extension layer builds no binding
+     table (`collectCallSites` discards scope, and every `pass.typeOf` call takes
+     the default empty `bindings` map), and bug 0050's laundered-binding identity
+     channel (`unprovableBindings`) has no counterpart here. Route 2 remains the
+     one-implementation answer, and the 0142 discharge note above states what it
+     would subsume.
+  2. **Bug 0144's premise was re-checked, not appended to.** Its bug-0137
+     discharge note concludes that its `named ⊑ array<…>` arm-order asymmetry is
+     structurally unreachable through `invoke(...)` because the collector
+     withholds every shape that types as `named`. That premise stands: this
+     change admits an `array`-kinded sub, never a `named` one, and an array
+     literal whose elements are constructors or member reads withholds through
+     `collectArmUnion`. No note was appended to that document, or to 0138, 0142
+     or 0147, because each is an open report a sibling run may own; the re-checks
+     are recorded here instead.
+  3. **Bug 0147's input set is now wider**, as §Non-goals predicted:
+     array-shaped arguments are decidable at the invoke and `.theta`-callable
+     sinks, so a site with two decidable mistypes can now be spelled with them.
+     The per-site diagnostic counts are untouched — no first-mismatch `break` was
+     added or removed.
+  4. **The `/`-mirror coverage gap recorded in the 0142 discharge note is
+     untouched.** The `.theta`-callable and Pi-tool consumers still have no `/`
+     fixture; this change adds array fixtures at both, not division ones.
+- **Discharge notes appended:** none. Residual 2 states why.
+- **Pinned dispositions / non-goals:** bug 0072's soundness rule is unweakened —
+  emission still requires every member of a collected set to answer
+  `"incompatible"`, and `"unknown"` still defers. No sentinel `CompatType` is
+  minted (§Fix (c)). The *Message* template is unchanged, so DIAG-4 is not
+  engaged. `type-system.md`'s *Unresolvable operands* deferrals stand, including
+  the unresolvable-callee arm and cell d1. One `StaticTypeInferencePass` and one
+  `TypeEnv` per theta, unchanged.

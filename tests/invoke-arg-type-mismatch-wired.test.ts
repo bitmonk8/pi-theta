@@ -57,18 +57,23 @@ import type { PrimitiveName } from "../src/parser/type-compat";
 // naming the registry page rather than degrading an assertion into a comparison
 // against `undefined`.
 //
-// A3/A4 ARE SILENCE CELLS, deliberately. The bug's §Expected behaviour reads
-// "a1–a5 should report", but its §Fix binds the emission to
-// `collectProvableArgTypes`, whose `array` arm and `ident` arm both return
-// `undefined` — an array literal proves nothing a `subsetKinds`-style kind
-// comparison can use, and an identifier types as a nominal reference because
-// both consumers read types with an empty bindings map. Under the §Fix
-// constraint "reuse the sibling arm's three mechanisms verbatim", a3's array
-// literal and a4's `ident` therefore DEFER, and `type-system.md`
-// §"Unresolvable operands" is the rule they defer under. Widening the static
-// read to reach them is refused by §Non-goals, so they are pinned as SILENT.
+// A3 IS A CORRECTNESS PIN, A4 IS A DEFERRAL PIN. `collectProvableArgTypes`'
+// `array` arm is an EXACTNESS-TESTED mirror of `#typeExpr`'s own array arm: the
+// literal is reduced through `pass.typeOf`, and a collected set is returned only
+// when the reduction is `array`-kinded and the collected elements render exactly
+// as the reduction's element type. So a3's array literal at a `string` param is
+// DECIDED, and the `<actual>` it reports is the same `array<string>` rendering
+// the same-file `fn` surface produces for the identical mistype. a4's `ident`
+// still DEFERS: the arm that would judge it needs a scope-aware binding table,
+// and the extension layer builds none — `collectCallSites` discards scope and
+// every `pass.typeOf` call here takes the default empty bindings map — so
+// `type-system.md` §"Unresolvable operands" is the rule it defers under and the
+// callee's runtime AJV load is its net. Bug 0146's own witness
+// (`tests/invoke-arg-array-literal-provable.test.ts`) carries the widening's
+// boundary rows, including the empty literal and the element-`ident` literal the
+// exactness test declines.
 //
-// EXPECTED COLOUR. Every presence cell (a1, a2, a5, a7, the four
+// EXPECTED COLOUR. Every presence cell (a1, a2, a3, a5, a7, the four
 // non-`string`-primitive cells, u1, u2) is RED until the arm is wired: the code
 // is constructed nowhere, so each expects one message and gets none, and each
 // mistyped caller registers. Every absence cell is RED too, because each one
@@ -802,38 +807,36 @@ describe("bug 0137 cells u1, u2 — an all-incompatible multi-arm set reports it
 });
 
 // ===========================================================================
-// Cells a3, a4 — the two argument shapes `collectProvableArgTypes` WITHHOLDS.
-// Its `array` arm returns `undefined` because an array renders as `array<…>`,
-// which no kind-set comparison admits; its `ident` arm returns `undefined`
-// because both consumers read types with an empty bindings map, so even a
-// `let`-bound name is a nominal reference. `type-system.md` §"Unresolvable
-// operands" is the rule these defer under, and the callee's runtime AJV load is
-// the net. Both cells are read on the per-caller channel: a4's would-be message
-// is byte-identical to a1's, the row's *Message* naming no callee.
+// Cells a3, a4 — the array literal the collector DECIDES, and the identifier it
+// withholds. The `array` arm reduces the literal and returns a collected set
+// when the reduction is `array`-kinded and the elements render exactly as its
+// element type, so a3 emits with an `array<string>` `<actual>`; the `ident` arm
+// returns `undefined` because both consumers read types with an empty bindings
+// map, so even a `let`-bound name is a nominal reference and `type-system.md`
+// §"Unresolvable operands" is the rule a4 defers under. Both cells are read on
+// the per-caller channel: a4's would-be message is byte-identical to a1's, the
+// row's *Message* naming no callee.
 // ===========================================================================
-describe("bug 0137 cells a3, a4 — an argument past the parser's static view defers, silently", () => {
-  it("a3: an array literal at a `string` param draws no diagnostic and the caller registers", () => {
-    assertRowSurfaceLive();
+describe("bug 0137 cells a3, a4 — a provable array literal reports, an identifier defers", () => {
+  it("a3: an array literal at a `string` param reports `expected string, got array<string>` and un-registers its caller", () => {
     expect(
-      linesForCode("a3arr", CODE),
-      `${CODE} fired on an array-literal argument, whose value-type set ` +
-        "`collectProvableArgTypes` withholds: an emission there is a static read the " +
-        "sibling arm does not make. Lines for this caller: " +
-        JSON.stringify(linesFor("a3arr")),
-    ).toEqual([]);
+      outcome.notifications,
+      `${CODE} did not surface for an array-literal argument at a \`string\` param: the ` +
+        "`array` arm reduces the literal and collects its elements, so the mismatch is " +
+        "decided here exactly as it is at the same-file `fn` surface. Notified: " +
+        JSON.stringify(outcome.notifications),
+    ).toContain(invokeArgMessage(0, "x", "string", "array<string>"));
     expect(
-      outcome.notifications.filter((n) =>
-        n.startsWith(invokeArgMessage(0, "x", "string", "array")),
-      ),
-      "an `array<…>` `<actual>` reached the notify channel, so the array arm's " +
-        "deferral was replaced by a judgement",
-    ).toEqual([]);
+      linesForCode("a3arr", CODE).length,
+      `no diagnostic line attributes ${CODE} to the array-literal caller, so the emission ` +
+        "is not this caller's. Lines for this caller: " + JSON.stringify(linesFor("a3arr")),
+    ).toBeGreaterThan(0);
     expect(
       outcome.registered,
-      "the array-literal caller must keep registering: the deferral is to the callee's " +
-        "runtime AJV load, not to a load-time refusal. Registered: " +
-        JSON.stringify(outcome.registered),
-    ).toContain("a3arr");
+      "the array-literal caller registered: the row is E-severity, so `hasLoadParseError` " +
+        "must deny registration exactly as it does for the integer-literal cell a1. " +
+        "Registered: " + JSON.stringify(outcome.registered),
+    ).not.toContain("a3arr");
   });
 
   it("a4: a typed `let` read at a `string` param draws no diagnostic and the caller registers", () => {
