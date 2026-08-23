@@ -3314,8 +3314,8 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
   });
 
   it("u13r: a COMPOSITE built from a withheld read keeps its verdict, and renders the sentinel", () => {
-    // The disclosed render residual, pinned at an UNANNOTATED `fn` parameter.
-    // Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) binds the
+    // The rendering bug 0247's clause admits, pinned at an UNANNOTATED `fn`
+    // parameter. Bug 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) binds the
     // plain `for` loop variable to its iterand's element type, so a `for`-fed
     // composite built from a PROVEN iterand renders that real type instead of
     // the sentinel — pinned over this exact composite shape by
@@ -3342,8 +3342,9 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // by a different route.
     //
     // This cell reds if the sentinel's spelling changes, which is the point:
-    // the one place a user-visible message can carry it is pinned rather than
-    // discovered.
+    // the rendering is admitted by placeholder-rendering-a.md §1's closed
+    // undetermined-static-type table (bug 0247's §Fix), and the pin is what
+    // makes a spelling change deliberate rather than silent.
     const doc = parse(U13R_NESTED_RENDER);
     expect(
       letRange(doc, "r"),

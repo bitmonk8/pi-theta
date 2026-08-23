@@ -1,6 +1,6 @@
 # Bug 0247 — no clause of category 1 admits a rendering for a static type the parse layer cannot determine, so two engine fabrications reach user-visible *Message* strings unadmitted: the withheld-binder sentinel renders `array<<withheld>>` into four `E` rows and `#typeExpr`'s index / object fabrications render `got index` and `got object` into a fifth, and the resolution is a spec clause, not a render change
 
-- **Status:** open
+- **Status:** fixed (0.227.0)
 - **Sev/Diff estimate:** S4/D2 — no verdict, code, severity or range is wrong at
   any measured row; the defect is that the corpus states no rule for the bytes
   the renderer already emits, so `placeholder-rendering-a.md:5`'s
@@ -515,3 +515,197 @@ crosses a provider and every observable is determined inside one parse.
   `tests/plain-for-loop-variable-element-type.test.ts` (`b4`);
   `tests/helpers/e2e-s1.ts:39` (`parseDoc`). No test scores a rendered type name
   against category 1 on a row that still renders a fabrication.
+
+## Fix (0.227.0)
+
+- **What shipped:**
+  - `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — an eighth clause
+    under category 1's *Rule*, admitting a rendering where a registered
+    *Trigger* has already decided to emit and the operand's static type is one
+    the parse layer did not determine, and stating that where the verdict itself
+    depends on the undetermined type nothing renders (`type-system.md`'s
+    *Unresolvable operands* plus the `for` iterand's and `join` element's own
+    preconditions), so the two dispositions are not read as competing; the
+    closed `**Undetermined-static-type tokens (closed).**` table (`<withheld>`,
+    `index`, `object`, `query`, `unknown`), keyed on the rendered bytes rather
+    than on provenance and carrying the same GOV-7 / GOV-8 posture the
+    subsection's opening paragraph already gives category 3's token-name table
+    and category 7's value tables; a composition paragraph (`array<<withheld>>`
+    via the `array<T>` clause, `array<Result<unknown, QueryError>>` via the
+    `array<T>` and `Result<T, E>` clauses); a boundary paragraph answering
+    §Fix's scope test; and two test vectors. 17 lines, no existing line deleted.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — one *Edge cases*
+    bullet, first in the list: a conformance test over a row that renders an
+    undetermined static type asserts the byte-exact token from the closed table,
+    whose extension is itself GOV-7 / GOV-8-governed.
+  - `tests/helpers/category1-clause-oracle.ts` (new, 283 lines) — the shared
+    category-1 conformance oracle. `readAdmittedStandInTokens()` PARSES the
+    closed table out of the spec page, so a sixth engine-fabricated name reds
+    without anyone remembering to add a test row; `nonConformantTypeNames` is
+    0135's scorer moved unchanged plus one `admitted` parameter;
+    `fillsOf(registry, code, message)` keeps the DIAG-4
+    read-from-the-registry discipline. No module-scope mutable state, no
+    globals.
+  - `tests/index-sentinel-typeenv-case-fence.test.ts` — the private oracle
+    helpers replaced by imports (the group-(c) cell passes `EMPTY_ADMITTED`, so
+    its fence is scored against the seven original clauses alone and its
+    `toEqual([])` / `toBe(0)` are byte-unmoved); a new cell scoring the face-1
+    rows `a1`, `a2`, `b1`, `f1` against the enlarged clause list, anti-vacuity
+    count 4.
+  - `tests/withheld-sentinel-mooting-and-render-pins.test.ts` — a new cell
+    scoring the `f2a`–`f2d` carriers' fills against the same spec-read list,
+    anti-vacuity count 6.
+  - `src/**` is BYTE-UNTOUCHED. `git diff --stat -- src/` is empty. The clause
+    records the bytes the renderer already emits; `displayType` does not move.
+- **Placement deviation, deliberate.** §Fix says the clause "lands in the
+  *Rule*'s list (`:21–27`), beside the `named` clause at `:25`". It landed at
+  the END of that list instead. Lines `:21`, `:24`, `:25`, `:26` and `:27` carry
+  33+ line-form citations across `tests/**`, `src/**` and `docs/**`; an
+  end-of-list insertion leaves every one of them exact, where an insertion after
+  `:25` would falsify `:26` and `:27` (10 citations to `:27` alone). The clause
+  is in the *Rule*'s list, which is what §Fix requires of it.
+- **Governance, verified not assumed.** The clause coins no placeholder, retires
+  none and moves none between categories, so `placeholder-rendering-a.md`'s
+  *Closure* paragraph engages none of its three GOV-7 / GOV-8-governed
+  operations; that paragraph already states the disposition in terms
+  ("codifying, in this closure, a placeholder the registry has already rendered
+  since a shipped release is a pure rewording under GOV-8's *Pure rewording*
+  boundary"). GOV-8's substantive test (`req-id-prefix-table-active-b.md:58`) is
+  unmet: no input newly accepted, no output newly produced, no diagnostic newly
+  fired, no invariant newly held — `src/**` and the registry are both untouched
+  and every message pin is byte-unmoved. Neither placeholder-rendering page
+  carries a `**DIAG-N.**` paragraph, so no REQ-ID retires; none was coined.
+  GOV-15 observable (c) is unmoved because the fixed renderings' bytes are
+  unmoved. DIAG-2 and DIAG-4 are untouched. Two nested workers verified this
+  independently and both agreed with the report's analysis; no versioned change
+  shipped.
+- **Gates:** witness RED before / GREEN after on two independent
+  neutralisations of the FIX (the whole closed-table block deleted → both new
+  cells red naming the missing anchor; the single `index` body row deleted → the
+  face-1 cell reds naming the three unadmitted `<type>=index` fills), each
+  restored byte-exact with `git hash-object` equal before and after
+  (`e7136b35…`); anti-vacuity proved separately (a carrier swap moved `scored`
+  from 4 to 5 and red the count while `offenders` stayed `[]`), restored
+  byte-exact (`2d5a162f…`); full default suite 408 files / 8583 tests passed;
+  `npm run typecheck` clean; `npm run lint` clean;
+  `tests/citation-symbol-form-gate.test.ts` 3/3 green (the lock, unweakened).
+- **No live run is owed, and the claim is discharged with evidence.**
+  `git diff --stat -- src/` is empty, so no executable path and therefore no
+  live-exercised surface moved — the 0193 / 0205 precedent for a spec-only fix.
+  The one `tests/live/**` file in the diff
+  (`tests/live/generic-argument-bracket-group-truncation-live-cell.test.ts`)
+  changes one doc-comment citation (`placeholder-rendering-a.md:89` → `:106`)
+  and no executable line, so it owes none either.
+- **Review:** 2 rounds, preceded by two pre-review correction rounds (prose and
+  comment text only, gates re-run green after each: spec-page register — the
+  dated "measured at this HEAD" framing removed from a normative page — a false
+  claim that three CLOSED reports "own" the boundary class, and two stale test
+  comments). Round 1 (deep): three findings — `fidelity`, the declined-face
+  framing surviving in a second GROUP F2 banner and in the four `f2a`–`f2d`
+  assertion-message tails; `spec`, the closed table's `unknown` row describing
+  only the `par for` producer where four mint sites render it; `fidelity`, the
+  face-1 banner and SCOPE comment in
+  `tests/index-sentinel-typeenv-case-fence.test.ts` still naming 0143 as the
+  open owner. Round 2 (fixer, then fast review): all three discharged — the
+  fixer also corrected round 1's own mis-attribution, the absent-tail `unknown`
+  being `#typeExpr`'s `block` arm and not its `par-for` arm — verdict CLEAN, no
+  escalation.
+- **Verification:** SOLID on all four obligations, each with quoted evidence —
+  both witness directions plus anti-vacuity on two independent neutralisations
+  with hash-proven restoration, the full suite (three unrelated hook-timeout
+  flakes re-run green in isolation, 127/127), the no-live-run discharge with the
+  `src/**` evidence and the live file's comment-only hunk quoted, and lint /
+  typecheck / the citation lock.
+- **The cells restated, every one enumerated for ratification. Subjects
+  preserved, zero assertion weakening: no `.toBe(…)` / `.toEqual(…)` argument,
+  no fixture source and no rendered string moved anywhere in `tests/**`
+  (verified by diffing every changed assertion call site against HEAD).**
+  - `tests/withheld-sentinel-mooting-and-render-pins.test.ts` — the file-top
+    summary line; the GROUP F2 file-header block (its three decline grounds
+    rewritten: the rendering is clause-admitted, and the DIAG-2
+    *Trigger*-removal ground against suppression stands unchanged); the second
+    GROUP F2 section banner; the group-F2 `describe` title and its SCOPE
+    comment; and the assertion-message tails of `f2a`, `f2b`, `f2c`, `f2d`.
+    `f2e` and `f2f` keep their subject — they pin the deferral the new clause's
+    condition names.
+  - `tests/withheld-sentinel-author-twin-provenance.test.ts` — the file-header
+    "WHAT IS *NOT* CLAIMED HERE" line and `w2a`'s comment. `w2c` carried no
+    decline language and is untouched (measured, not assumed).
+  - `tests/fn-arg-type-mismatch-wired.test.ts` — `u13r`'s comment, twice: it
+    stops calling the render a disclosed residual and cites the clause. Its
+    byte-exact string and its two header-list lines are unmoved.
+  - `tests/index-sentinel-typeenv-case-fence.test.ts` — the file-header face-1
+    paragraph; the face-1 section banner; the face-1 `describe`'s SCOPE
+    comment; the four assertion-message strings of `a1`, `a2`, `b1`, `f1`; the
+    `b1` and `f1` `it()`-body comments; and the PRE-EXISTING group-(c) oracle
+    cell's SCOPE comment, whose claim that extending the oracle over the face-1
+    rows "would assert a contract no open fix is delivering" this fix falsifies.
+  - `tests/plain-for-loop-variable-element-type.test.ts` — `b4` inspected for
+    label drift and left UNTOUCHED: its comment contrasts the pre-/post-0126
+    binder state, not the clause-admission question, and misdescribes nothing.
+  - `tests/fn-param-not-identifier.test.ts` (2 sites) and
+    `tests/live/generic-argument-bracket-group-truncation-live-cell.test.ts`
+    (1 site) — the three line-form citations into `placeholder-rendering-a.md`
+    that THIS change's +17-line insertion shifted: `:56` → `:73` (the closed
+    `<construct>` token-name table sentence) and `:89` → `:106` (the
+    `generic-arity-mismatch` numeric-scope paragraph), both verified against the
+    post-edit content. Comment text only.
+- **Residuals:**
+  1. **The boundary class is stated, not closed.** A rendered name derived from
+     author source text at an undetermined position is admitted by no clause of
+     category 1, and this fix fixes no rendering for it. It is real and measured
+     at this HEAD: `fn frobnicate(): integer { 1 }` with
+     `for y in frobnicate() { y }` renders
+     `'for' expects array<T> after 'in'; got frobnicate`, and `let s = "ab"`
+     with `for y in s.length() { y }` renders `… got length` — the `call` and
+     `method-call` arms of `#typeExpr` (`src/parser/static-type-inference.ts`)
+     type an expression by the author's own identifier. The clause states this
+     as a boundary rather than leaving the class half-closed by omission, which
+     is what §Fix's scope test asks. No report is filed for it here; it is a
+     filing candidate.
+  2. **Deleting the `query` or `unknown` row from the closed table reds no
+     test.** The scored carriers render only `<withheld>`, `index` and `object`,
+     so those two rows are held by the same review discipline the *Closure*
+     paragraph states for the other closed tables. `query` and `unknown` were
+     measured reachable at this HEAD (`got query` at `non-array-iterand`;
+     `array<unknown>` at `mixed-plus-operands`, `non-boolean-condition` and
+     `let-rhs-type-mismatch`; and `array<Result<unknown, QueryError>>` at
+     `let-rhs-type-mismatch`) but §Fix scopes the oracle to the emitting rows it
+     enumerates, so no cell was added for them.
+  3. **Citation churn.** The 17-line insertion shifts every line below category
+     1's clause list in `placeholder-rendering-a.md` by +17. The three citations
+     this change itself invalidated were repaired (above). Seven further
+     line-form citations into that page were ALREADY stale at HEAD before this
+     change — five `:49` sites
+     (`tests/params-default-unresolvable-enum-variant.test.ts` ×4,
+     `tests/live/live-production-acceptance.test.ts`) whose target sentence sat
+     at `:55` and now sits at `:72`, and two `:79` sites
+     (`tests/subagent-envelope-negative-zero-fidelity.test.ts` ×2) whose target
+     sat at `:85` and now sits at `:102` — plus `src/parser/theta-document.ts`'s
+     `:49`, which this fix may not touch. They were deliberately left unrepaired
+     rather than silently "fixed", per the policy 0135's record set.
+     `docs/bugs/**` citations are outside the gate in both directions and stay
+     as filed.
+  4. **§Reproduction's producer counts are stale as filed** and are corrected
+     here rather than in the tables: `#typeExpr` has FOUR `unknown` arms at this
+     HEAD, not two, and they are the `par-for` element arm, the `block`
+     absent-tail arm, `#commonType`'s empty-candidate-set arm and
+     `#matchArmType`'s empty-arm-set arm. The `par-for` arm's ABSENT TAIL is a
+     `null` literal, not `unknown`. The closed table's `unknown` row states the
+     corrected class.
+  5. **The withheld carriers supply six scored fills, not four.** `f2b` and
+     `f2c` each render two category-1 placeholders; the second is `integer`, a
+     conformant primitive. A reader taking §Summary's "four `E` rows" as four
+     fills would set the anti-vacuity count wrong.
+- **Discharge notes appended:**
+  `docs/bugs/0135-index-sentinel-leaks-into-messages-and-typeenv.md` (residual 2
+  — its conformance oracle now ranges over the face-1 rows) and
+  `docs/bugs/0143-withheld-sentinel-author-twin-and-render-leakage.md`
+  (residual 1 — face 2's owner, the category-1 clause, has landed).
+- **Pinned dispositions / non-goals:** every §Non-goals item stands. No rendered
+  spelling moved, so GOV-15 observable (c) is untouched; no emission was
+  suppressed, so no DIAG-2 *Trigger* moved; the withhold gate's coverage is
+  still `containsWithheldBinderType`'s question, settled by 0143 and pinned by
+  `f2e` / `f2f`; `#typeExpr`'s fabrication family as a NAMING question stays
+  0135's and 0136's; and 0124, 0126 and 0130 are named in the boundary paragraph
+  as the reports that carried its carriers, not adjudicated.

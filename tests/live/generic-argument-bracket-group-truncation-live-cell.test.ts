@@ -110,7 +110,7 @@ const REGISTRY = parseRegistry(
  * `generic type 'array' expects 1 type argument(s); got 2` — DIAG-4: the
  * message half is read from the registry row rather than copied, and `<actual>`
  * renders the count of type arguments the SOURCE spells
- * (`placeholder-rendering-a.md:89`), which is why the fill is `2` and not the
+ * (`placeholder-rendering-a.md:106`), which is why the fill is `2` and not the
  * `1` `parseGeneric` records at HEAD.
  */
 function arityFragment(ctor: string, expected: string, actual: string): string {

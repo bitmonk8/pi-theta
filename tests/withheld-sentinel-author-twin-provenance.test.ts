@@ -48,7 +48,8 @@ import {
 // byte-untouched, so face 2's rendering does not move.
 //
 // WHAT IS *NOT* CLAIMED HERE. Face 2 (the sentinel rendering verbatim into a
-// *Message*) is DECLINED by §Fix (a) as settled in-run and is pinned in
+// *Message*) is CLAUSE-ADMITTED by bug 0247's eighth clause under
+// docs/spec_topics/diagnostics/placeholder-rendering-a.md §1 and is pinned in
 // tests/withheld-sentinel-mooting-and-render-pins.test.ts, together with the
 // group M mooting locks: the report's §Reproduction (b) differential between
 // `<withheld>` and `<foo>` no longer exists, because the 0124 / 0061 capture
@@ -268,9 +269,10 @@ describe("0143 w2 — the marker is carried through composition: every genuine e
   it("w2a: the `fn`-parameter carrier's four surviving emissions are byte-unmoved", () => {
     // These four verdicts are decidable from the composite's OUTER kind, so the
     // withhold gate never suppresses them and the settled fix must not either.
-    // Their RENDERED type is 0143 face 2, which §Fix (a) DECLINES; the strings
-    // are pinned here and in tests/withheld-sentinel-mooting-and-render-pins.test.ts
-    // so a render change is deliberate.
+    // Their RENDERED type is 0143 face 2, which bug 0247's clause now admits;
+    // the strings are pinned here and in
+    // tests/withheld-sentinel-mooting-and-render-pins.test.ts so a render
+    // change is deliberate.
     expect(
       rowsOf(fnParamCarrier(["  if [p] { let r = 1 }", "  1"])),
       "code-registry-parse.md:37 — a decidable non-`boolean` condition; the provenance change must not move it",

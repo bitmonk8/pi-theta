@@ -25,11 +25,28 @@ The registry's *Message* column carries `<…>` placeholders that the renderer i
 - Named schemas, enums, and type aliases by their theta-side identifier (no wire-name translation; the identifier shape is fixed by [Lexical — Identifiers](../lexical.md)).
 - `Result<T, E>` rendered as written, with the inner types recursing this rule.
 - Inline anonymous object types as `{ f₁: T₁, f₂: T₂ }`, fields in declaration order, single space after each `:` and after each `,`.
+- Where a registered *Trigger* has already decided to emit and the operand's static type is one the parse layer did not determine, render the stand-in token the layer carries in that position, byte-exact, from the closed table below. Where the verdict itself depends on the undetermined type, nothing renders: the compatibility check is skipped per [Type System — *Unresolvable operands*](../type-system.md), and the `for` iterand's and `join` element's own preconditions withhold on the same ground. The two dispositions are not read as competing — one governs a decidable verdict's rendering, the other governs whether a verdict fires at all.
+
+**Undetermined-static-type tokens (closed).** The table below is keyed on the rendered bytes, not on the token's provenance — an engine-fabricated name and an author-written identifier that happens to spell the same bytes render the same admitted token. It carries the same GOV-7 / GOV-8 governance posture this subsection's opening paragraph already gives category 3's closed token-name table and category 7's closed value tables: a sixth stand-in token is not admitted by silence.
+
+| Rendered token | Stands for |
+|---|---|
+| `<withheld>` | A binder the parse layer cannot type (an unannotated `fn` parameter, a `match`-arm binder); the sentinel `WITHHELD_BINDER_TYPE_NAME` (`src/parser/type-compat.ts`). |
+| `index` | An index read whose receiver did not determine as `array<T>`. |
+| `object` | An object literal carrying no schema name. |
+| `query` | A `query` expression carrying no schema annotation. |
+| `unknown` | An element, tail or common type the layer did not determine: a `par for` over a non-`array` iterand, a block expression with no tail expression, or an empty candidate set (`#typeExpr`'s `par-for` and `block` arms, `#commonType`, `#matchArmType` — `src/parser/static-type-inference.ts`). |
+
+A token from this table appearing inside a composite renders through the clauses above and needs no second rule: `array<<withheld>>` via the `array<T>` clause, `array<Result<unknown, QueryError>>` via the `array<T>` and `Result<T, E>` clauses. The second form arises where a `par for` value — [CTRL-3](../control-flow.md#ctrl-3)'s `array<Result<T, QueryError>>`, with `T` undetermined — reaches a typed sink: `let r: integer = par for y in p { y }` over an unannotated parameter renders `expected integer, got array<Result<unknown, QueryError>>`. Because the table is keyed on bytes, a position whose author-written identifier happens to spell a table token renders the same admitted bytes as the engine's own fabrication of that token — a legal `fn index()` call renders `got index`, byte-identical to the fabrication an unresolvable receiver's index read produces.
+
+This clause admits the tokens in the table and nothing else. A rendered name derived from author source text at an undetermined position is not a stand-in token from this table: a callee's or method's own identifier, an `invoke` path, a captured non-`Type` source slice, a binder's own identifier, or an inline object annotation lowered to a pseudo-named form. Where such a name is not a conformant identifier under the `named` clause, it is admitted by no clause of this category, and this subsection fixes no rendering for it. [Bug 0124](../../bugs/0124-parsetype-trailing-punctuation-leniency.md)'s carrier was a captured non-`Type` source slice, [bug 0126](../../bugs/0126-plain-for-binds-no-loop-variable.md)'s was a loop variable's own identifier, and [bug 0130](../../bugs/0130-let-rhs-type-mismatch-declines-object-union.md)'s was an inline object annotation rendered as a pseudo-`named`; all three reports are closed. This class is non-empty: `fn frobnicate(): integer { 1 }` with `for y in frobnicate() { y }` renders `'for' expects array<T> after 'in'; got frobnicate`, and `let s = "ab"` with `for y in s.length() { y }` renders `'for' expects array<T> after 'in'; got length`. Neither is an admitted token of this table.
 
 **Test vectors.**
 
 - A binding typed `array<integer | string>` renders as `array<integer | string>`.
 - A binding typed `Foo | null` renders as `Foo | null`.
+- A condition on an array built from an unannotated `fn` parameter renders `condition must be boolean; got array<<withheld>>`.
+- A `for` whose iterand is an index read on a receiver that did not determine as `array<T>` renders `'for' expects array<T> after 'in'; got index`.
 
 ### 2. Runtime-value placeholders
 

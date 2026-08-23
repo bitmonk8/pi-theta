@@ -86,7 +86,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      row stays byte-exact and a second row lands beside it (a DIAG-2
 //      addition, diagnostic-shape.md:72, in the fix's own commit). The
 //      *Message* is placeholder-free BY DESIGN, so the closed `<construct>`
-//      token-name table (docs/spec_topics/diagnostics/placeholder-rendering-a.md:56)
+//      token-name table (docs/spec_topics/diagnostics/placeholder-rendering-a.md:73)
 //      is not engaged and bug 0063's open surface is not widened — bug 0151
 //      Decision 3 / bug 0042's precedent.
 //   4. WITHHELD UNDER BUG 0124's `closeParenAbsorbed` (`let closeParenAbsorbed
@@ -374,7 +374,7 @@ describe("0225 registry — the new row is a DIAG-2 addition in the fix's own co
     // under DIAG-4 (`:74`) and is false on this class, because the author DID
     // close the list. Placeholder-free BY DESIGN — the diagnostic names the
     // position, not the token — so the closed `<construct>` table at
-    // placeholder-rendering-a.md:56 is not engaged and bug 0063's open surface
+    // placeholder-rendering-a.md:73 is not engaged and bug 0063's open surface
     // is not widened.
     const template = registryMessage(REGISTRY, NOTID) as string | undefined;
     expect(

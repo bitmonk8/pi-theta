@@ -5,15 +5,24 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
+import {
+  CATEGORY1_PLACEHOLDERS,
+  fillsOf,
+  nonConformantTypeNames,
+  readAdmittedStandInTokens,
+} from "./helpers/category1-clause-oracle";
 import { collectTypeEnv } from "../src/parser/type-layer-checks";
 import { resolveNamed, WITHHELD_BINDER_TYPE_NAME } from "../src/parser/type-compat";
 
-// Bug 0143 — the MOOTING locks (group M) and the DECLINED render face (group
-// F2). This file carries no claim that reds at HEAD: every cell here is GREEN
-// by design and exists so that a later relaxation of the capture, or a later
-// unannounced render change, reds deliberately rather than passing.
+// Bug 0143 — the MOOTING locks (group M) and the render face bug 0247 later
+// clause-admitted (group F2). This file carries no claim that reds at HEAD:
+// every cell here is GREEN by design and exists so that a later relaxation of
+// the capture, or a later unannounced render change, reds deliberately rather
+// than passing.
 // (docs/bugs/0143-withheld-sentinel-author-twin-and-render-leakage.md
-// §Reproduction (a)/(b)/(c), §Fix (a) as settled in-run.)
+// §Reproduction (a)/(b)/(c), §Fix (a) as settled in-run;
+// docs/bugs/0247-untypeable-static-type-has-no-category-1-rendering-clause.md
+// §Fix for the clause that admits group F2's rendering.)
 //
 // The witness proper — that the engine's `<withheld>` mint must be
 // DISTINGUISHABLE from the same ten characters written by an author — lives in
@@ -56,22 +65,21 @@ import { resolveNamed, WITHHELD_BINDER_TYPE_NAME } from "../src/parser/type-comp
 // bug 0050's soundness argument rests on — still true, now witnessed.
 //
 // ───────────────────────────────────────────────────────────────────────────
-// GROUP F2 — THE DECLINED FACE, PINNED.
+// GROUP F2 — THE CLAUSE-ADMITTED FACE, PINNED.
 //
 // The report's face 2 (the sentinel rendering verbatim into a *Message*) is
-// DECLINED by 0143 §Fix (a) as settled in-run, on governance grounds:
-//   - no clause of docs/spec_topics/diagnostics/placeholder-rendering-a.md §1
-//     admits ANY rendering for a binder the layer cannot type, so there is no
-//     conformant string to move to;
-//   - minting one would be new placeholder-rendering vocabulary, a GOV-7 /
-//     GOV-8 spec-versioned breaking change (placeholder-rendering-a.md:7);
-//   - suppressing the four surviving emissions would drop decidable verdicts
-//     and is a *Trigger* removal under DIAG-2
-//     (docs/spec_topics/diagnostics/diagnostic-shape.md:72).
-// So f2a–f2f pin the rendered strings BYTE-EXACT as the current, deliberately
-// unfixed state. A future fix to the render face reds them ON PURPOSE and
-// restates them with its reason — exactly the discipline §Fix (d) asks of cell
-// u13r in tests/fn-arg-type-mismatch-wired.test.ts.
+// now CLAUSE-ADMITTED: bug 0247 added an eighth clause to
+// docs/spec_topics/diagnostics/placeholder-rendering-a.md §1 ("Static-type
+// placeholders") plus a closed table of undetermined-static-type stand-in
+// tokens, and `<withheld>` is one of them. f2a–f2d pin the four surviving
+// renderings as strings the clause now admits, byte-exact and unmoved — the
+// clause records the bytes the renderer already emitted rather than changing
+// them. Suppressing those four emissions would still drop decidable verdicts
+// and is still a *Trigger* removal under DIAG-2
+// (docs/spec_topics/diagnostics/diagnostic-shape.md:72); that ground is
+// unaffected by the new clause and stands unchanged. f2e/f2f pin the
+// deferral the clause's own condition names: where the verdict depends on the
+// undetermined type, nothing renders.
 //
 // The carriers moved since the report was written. Bug 0126 (0.107.0) gave the
 // plain-`for` variable the iterand's element type, so §Reproduction c1–c4's
@@ -359,7 +367,7 @@ describe("0143 group M — every author type-slice position refuses `<withheld>`
 });
 
 // ===========================================================================
-// GROUP F2 — the DECLINED render face, pinned byte-exact.
+// GROUP F2 — the CLAUSE-ADMITTED render face, pinned byte-exact.
 // ===========================================================================
 
 /** An unannotated `fn` parameter read inside an `array<…>`, plus a call. */
@@ -367,23 +375,25 @@ function fnParamCarrier(body: readonly string[]): readonly string[] {
   return ["fn f(p) {", ...body, "}", "let z = f(1)", "1"];
 }
 
-describe("0143 face 2 — the sentinel's rendering is DECLINED by §Fix (a) and pinned unmoved", () => {
+describe("0143 face 2 — the sentinel's rendering is CLAUSE-ADMITTED and pinned unmoved", () => {
   // SCOPE. Every cell below asserts the CURRENT rendering, deliberately. Bug
-  // 0143 §Fix (a) as settled in-run closes face 1's ROOT only and DECLINES face
-  // 2: placeholder-rendering-a.md §1 admits no rendering for an untypeable
-  // binder, minting one is a GOV-7 / GOV-8 spec-versioned breaking change
-  // (placeholder-rendering-a.md:7), and suppressing these four emissions would
+  // 0143 §Fix (a) as settled in-run closed face 1's ROOT only; bug 0247 then
+  // supplied the render rule face 2 needed — an eighth clause under
+  // placeholder-rendering-a.md §1 plus its closed undetermined-static-type
+  // table, admitting `<withheld>` byte-exact where a registered *Trigger*
+  // already decided to emit. Suppressing these four emissions would still
   // drop decidable verdicts — a DIAG-2 *Trigger* removal
-  // (diagnostic-shape.md:72). These strings are therefore pinned so that a
-  // future render fix reds them ON PURPOSE, with its reason restated, rather
-  // than moving them silently. `displayType`'s `case "named"`
+  // (diagnostic-shape.md:72); that ground is untouched by the new clause.
+  // These strings are pinned so that a future render change reds them ON
+  // PURPOSE, with its reason restated, rather than moving them silently.
+  // `displayType`'s `case "named"`
   // (src/parser/type-compat.ts `displayType`'s `named` arm) is BYTE-UNTOUCHED by
-  // the settled fix, which is what keeps these green across it.
+  // either fix, which is what keeps these green across both.
 
   it("f2a: `non-boolean-condition` renders the sentinel through an `array<…>` composite", () => {
     expect(
       rowsOf(fnParamCarrier(["  if [p] { let r = 1 }", "  1"])),
-      "code-registry-parse.md:37 — the condition's type is decidable as non-`boolean` from the composite's OUTER kind, so the verdict is owed; only its rendered `<type>` is non-conformant, and that is the declined face",
+      "code-registry-parse.md:37 — the condition's type is decidable as non-`boolean` from the composite's OUTER kind, so the verdict is owed; its rendered `<type>` is admitted by category 1's eighth clause and its closed undetermined-static-type table (placeholder-rendering-a.md)",
     ).toEqual([
       [
         "theta/parse/non-boolean-condition",
@@ -395,7 +405,7 @@ describe("0143 face 2 — the sentinel's rendering is DECLINED by §Fix (a) and 
   it("f2b: `mixed-plus-operands` renders it at `<left>`", () => {
     expect(
       rowsOf(fnParamCarrier(["  let r = [p] + 1", "  r"])),
-      "code-registry-parse.md:39 — an `array` operand against an `integer` is a decidable mismatch whatever the element type is; the rendering is 0143 face 2 and is declined",
+      "code-registry-parse.md:39 — an `array` operand against an `integer` is a decidable mismatch whatever the element type is; the rendering is admitted by category 1's eighth clause and its closed undetermined-static-type table (placeholder-rendering-a.md)",
     ).toEqual([
       [
         "theta/parse/mixed-plus-operands",
@@ -410,7 +420,7 @@ describe("0143 face 2 — the sentinel's rendering is DECLINED by §Fix (a) and 
   it("f2c: `non-orderable-operands` renders it at `<left>`", () => {
     expect(
       rowsOf(fnParamCarrier(["  let r = [p] < 1", "  r"])),
-      "code-registry-parse.md:40 — `array<T>` is named in the row's own *Trigger* as non-orderable, so the verdict is owed; the rendering is declined face 2",
+      "code-registry-parse.md:40 — `array<T>` is named in the row's own *Trigger* as non-orderable, so the verdict is owed; the rendering is admitted by category 1's eighth clause and its closed undetermined-static-type table (placeholder-rendering-a.md)",
     ).toEqual([
       [
         "theta/parse/non-orderable-operands",
@@ -426,7 +436,7 @@ describe("0143 face 2 — the sentinel's rendering is DECLINED by §Fix (a) and 
   it("f2d: `unknown-method` renders it at `<type>`", () => {
     expect(
       rowsOf(fnParamCarrier(['  let r = [p].frobnicate()', "  r"])),
-      "code-registry-parse.md:70 — `frobnicate` is on no built-in type at all, so the verdict does not depend on the element type; the rendering is declined face 2",
+      "code-registry-parse.md:70 — `frobnicate` is on no built-in type at all, so the verdict does not depend on the element type; the rendering is admitted by category 1's eighth clause and its closed undetermined-static-type table (placeholder-rendering-a.md)",
     ).toEqual([
       [
         "theta/parse/unknown-method",
@@ -458,5 +468,63 @@ describe("0143 face 2 — the sentinel's rendering is DECLINED by §Fix (a) and 
       rowsOf(fnParamCarrier(["  for y in p { y }", "  1"])),
       "type-system.md:48 — the iterand type IS the withheld mint, so `walkStmt`'s `case \"for\"` iterand withhold gate (src/parser/type-layer-checks.ts) defers rather than refusing a non-`array` iterand",
     ).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// 0247 — the conformance oracle over the four surviving withheld renderings.
+// ===========================================================================
+
+describe("0247 — the withheld renderings scored against category 1's closed stand-in table", () => {
+  it("scores the f2a–f2d carriers' category-1 fills against the clause list read from placeholder-rendering-a.md", () => {
+    // WHAT THIS ADDS BESIDE f2a–f2d. Those cells pin the rendered strings
+    // byte-exact; they say nothing about whether any clause admits them. Bug
+    // 0247 is that question: category 1's Rule states seven clauses
+    // (placeholder-rendering-a.md:21–27), every one presupposing a determined
+    // static type, and the withheld-binder sentinel renders where the layer
+    // determined none. Its §Fix adds an eighth clause plus a CLOSED table of
+    // admitted stand-in tokens. This cell reads that table off the spec page and
+    // scores the four surviving renderings against the enlarged list, so the
+    // clause — rather than a pinned literal in this file — is what admits the
+    // bytes.
+    //
+    // WHY IT REDS AT THIS HEAD, AND FOR WHICH REASON.
+    // `readAdmittedStandInTokens` (tests/helpers/category1-clause-oracle.ts)
+    // fails loudly naming the missing anchor: the category-1 subsection carries
+    // no such table. That failure IS bug 0247's witness. It never falls back to
+    // an empty set, so the offenders list below cannot pass vacuously.
+    const admitted = readAdmittedStandInTokens();
+    const carriers: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ["f2a", fnParamCarrier(["  if [p] { let r = 1 }", "  1"])],
+      ["f2b", fnParamCarrier(["  let r = [p] + 1", "  r"])],
+      ["f2c", fnParamCarrier(["  let r = [p] < 1", "  r"])],
+      ["f2d", fnParamCarrier(['  let r = [p].frobnicate()', "  r"])],
+    ];
+    const offenders: string[] = [];
+    let scored = 0;
+    for (const [label, source] of carriers) {
+      for (const diagnostic of diagsOf(source)) {
+        for (const [name, value] of fillsOf(REGISTRY, diagnostic.code, diagnostic.message)) {
+          if (!CATEGORY1_PLACEHOLDERS.has(name)) continue;
+          scored += 1;
+          for (const bad of nonConformantTypeNames(value, admitted)) {
+            offenders.push(`${label} ${diagnostic.code} ${name}=${JSON.stringify(bad)}`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      "bug 0247 §Fix — every byte a category-1 placeholder can carry must be fixed by a clause (placeholder-rendering-a.md:5). A carrier here rendered a token that neither the seven original clauses nor the closed stand-in table admit, so the sentinel (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-compat.ts) reaches a user-visible Message through no rule",
+    ).toEqual([]);
+    // ANTI-VACUITY. Measured, not assumed: six category-1 fills across the four
+    // carriers — one `<type>` at f2a, `<left>` and `<right>` at f2b and again at
+    // f2c, one `<type>` at f2d. The `<op>` and `<method>` fills belong to
+    // category 7 and are filtered out. A lower count means the carriers stopped
+    // reaching the render arm and the empty offenders list above proves nothing.
+    expect(
+      scored,
+      "bug 0247 §Reproduction (a) — the four surviving withheld renderings must still supply six category-1 fills; a lower count means the oracle scored nothing",
+    ).toBe(6);
   });
 });

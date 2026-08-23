@@ -5,6 +5,13 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  CATEGORY1_PLACEHOLDERS,
+  EMPTY_ADMITTED,
+  fillsOf,
+  nonConformantTypeNames,
+  readAdmittedStandInTokens,
+} from "./helpers/category1-clause-oracle";
 
 // Bug 0135 face 2 — a `schema <lowercase>` declaration the case rule refuses
 // must not decide static checks
@@ -77,13 +84,16 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //     in the equivalence promise's input set and the code-list moves owe no
 //     carve-out.
 //
-// FACE 1 IS NOT THIS FILE'S SUBJECT AND IS PINNED UNMOVED. The render leak —
+// FACE 1 IS NOT THIS FILE'S SUBJECT AND IS PINNED UNMOVED. The rendering —
 // `displayType`'s `case "named"` returning a fabricated lowercase name verbatim
 // (src/parser/type-compat.ts:368–382, the `named` arm `:374–375`) — stays
-// reachable: rows a1, a2, b1 and f1 assert it, deliberately, because bug 0143
-// owns the `displayType` arm's disposition for engine-minted non-conformant
-// names. A fence at the read seam cannot close it: those four sources contain no
-// declaration for the fence to refuse.
+// reachable: rows a1, a2, b1 and f1 assert it, deliberately. Bug 0247 added the
+// eighth clause under placeholder-rendering-a.md §1 that admits it (`index` and
+// `object` are both in the closed undetermined-static-type table), and the
+// "0247 — the conformance oracle over the FACE-1 rows" describe block below
+// scores exactly these four rows against it. A fence at the read seam cannot
+// close the render: those four sources contain no declaration for the fence to
+// refuse.
 //
 // RED / GREEN LEDGER at the pre-fix tree. RED: c1, c3, c5 (each still carries a
 // second, trigger-less code decided by the refused declaration) and the
@@ -428,110 +438,11 @@ describe("0135 (c) — a `schema <lowercase>` declaration the case rule refuses 
 // The conformance oracle over group (c)'s rendered type placeholders.
 // ===========================================================================
 
-/**
- * The five source-grammar primitive spellings category 1 admits
- * (placeholder-rendering-a.md:21).
- */
-const PRIMITIVES: ReadonlySet<string> = new Set(["string", "integer", "number", "boolean", "null"]);
-
-/** The six placeholders category 1 governs (placeholder-rendering-a.md:17). */
-const CATEGORY1_PLACEHOLDERS: ReadonlySet<string> = new Set([
-  "<type>",
-  "<expected>",
-  "<actual>",
-  "<left>",
-  "<right>",
-  "<element>",
-]);
-
-function escapeForRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Split on `separator` at bracket depth 0 only, so nested forms stay whole. */
-function splitTopLevel(rendered: string, separator: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < rendered.length; i += 1) {
-    const ch = rendered[i];
-    if (ch === "<" || ch === "{") depth += 1;
-    else if (ch === ">" || ch === "}") depth -= 1;
-    else if (depth === 0 && rendered.startsWith(separator, i)) {
-      parts.push(rendered.slice(start, i));
-      i += separator.length - 1;
-      start = i + 1;
-    }
-  }
-  parts.push(rendered.slice(start));
-  return parts;
-}
-
-/**
- * The tokens in `rendered` that no clause of category 1
- * (placeholder-rendering-a.md:21–27) admits. The `named` clause (`:25`) fixes
- * the identifier shape by reference to lexical.md, whose `:15` requires an
- * uppercase first letter for every type-like binding — so a lowercase-initial
- * name that is not a primitive spelling is outside the closed clause list.
- */
-function nonConformantTypeNames(rendered: string): string[] {
-  const t = rendered.trim();
-  const arms = splitTopLevel(t, " | ");
-  if (arms.length > 1) return arms.flatMap(nonConformantTypeNames);
-  if (t.startsWith("array<") && t.endsWith(">")) {
-    return nonConformantTypeNames(t.slice("array<".length, -1));
-  }
-  if (t.startsWith("Result<") && t.endsWith(">")) {
-    return splitTopLevel(t.slice("Result<".length, -1), ", ").flatMap(nonConformantTypeNames);
-  }
-  if (t.startsWith("{") && t.endsWith("}")) {
-    return splitTopLevel(t.slice(1, -1).trim(), ", ").flatMap((field) =>
-      nonConformantTypeNames(field.slice(field.indexOf(":") + 1)),
-    );
-  }
-  if (PRIMITIVES.has(t)) return [];
-  // Literal types as their literal source (placeholder-rendering-a.md:22).
-  if (/^"[^"]*"$/.test(t) || /^-?\d+(?:\.\d+)?$/.test(t) || t === "true" || t === "false") {
-    return [];
-  }
-  // The `named` clause, shape fixed by lexical.md:13 + :15.
-  if (/^[A-Z][A-Za-z0-9_]*$/.test(t)) return [];
-  return [t];
-}
-
-/**
- * The registry template's placeholder fills, recovered from a rendered message.
- * The template is turned into an anchored pattern with one capture per
- * placeholder, so a template reword fails the match and reds by naming the
- * registry rather than silently extracting nothing.
- */
-function fillsOf(code: string, message: string): ReadonlyArray<readonly [string, string]> {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  const t = template as string;
-  const names: string[] = [];
-  let pattern = "";
-  let last = 0;
-  const placeholder = /<[A-Za-z]+>/g;
-  let hit: RegExpExecArray | null;
-  while ((hit = placeholder.exec(t)) !== null) {
-    pattern += escapeForRegExp(t.slice(last, hit.index));
-    names.push(hit[0]);
-    pattern += "(.+?)";
-    last = hit.index + hit[0].length;
-  }
-  pattern += escapeForRegExp(t.slice(last));
-  const matched = new RegExp(`^${pattern}$`).exec(message);
-  expect(
-    matched,
-    `DIAG-4: the ${code} message must be the registry template with placeholders interpolated. template=${JSON.stringify(t)} message=${JSON.stringify(message)}`,
-  ).not.toBeNull();
-  const groups = matched as RegExpExecArray;
-  return names.map((name, index) => [name, groups[index + 1] as string] as const);
-}
+// The oracle helpers — `CATEGORY1_PLACEHOLDERS`, `nonConformantTypeNames`,
+// `fillsOf` — now live in tests/helpers/category1-clause-oracle.ts, unchanged in
+// semantics: bug 0247 needs one scorer over both engine producers' rows, and the
+// withheld-sentinel rows live in another file. `EMPTY_ADMITTED` is what keeps the
+// group-(c) cell below scoring against the seven original clauses alone.
 
 describe("0135 — the conformance oracle: no group (c) message may interpolate a non-conformant type name", () => {
   it("scores every rendered category-1 placeholder in group (c) against placeholder-rendering-a.md's closed clause list", () => {
@@ -539,9 +450,9 @@ describe("0135 — the conformance oracle: no group (c) message may interpolate 
     // ones whose rendered type names are decided by a declaration the case rule
     // refuses. It deliberately does NOT range over the face-1 rows a1, a2, b1
     // and f1, which render `index` and `object` from an engine mint with no
-    // declaration anywhere: bug 0143 owns the `displayType` arm's disposition
-    // for those names, and extending this oracle over them would assert a
-    // contract no open fix is delivering.
+    // declaration anywhere: this cell stays scored against the seven original
+    // clauses alone (`EMPTY_ADMITTED`); the face-1 rows are scored by the 0247
+    // cell below against the enlarged clause list.
     //
     // WHY THIS EXISTS beside the code-list cells: the code lists say WHICH
     // diagnostics fire, and a future change that re-resolved a lowercase
@@ -561,10 +472,10 @@ describe("0135 — the conformance oracle: no group (c) message may interpolate 
     let scored = 0;
     for (const [label, source] of sources) {
       for (const diagnostic of diagsOf(source)) {
-        for (const [name, value] of fillsOf(diagnostic.code, diagnostic.message)) {
+        for (const [name, value] of fillsOf(REGISTRY, diagnostic.code, diagnostic.message)) {
           if (!CATEGORY1_PLACEHOLDERS.has(name)) continue;
           scored += 1;
-          for (const bad of nonConformantTypeNames(value)) {
+          for (const bad of nonConformantTypeNames(value, EMPTY_ADMITTED)) {
             offenders.push(`${label} ${diagnostic.code} ${name}=${JSON.stringify(bad)}`);
           }
         }
@@ -584,6 +495,62 @@ describe("0135 — the conformance oracle: no group (c) message may interpolate 
       scored,
       "the fence removes every category-1 placeholder fill from group (c); a non-zero count means a refused declaration still reaches a rendered type position",
     ).toBe(0);
+  });
+});
+
+describe("0247 — the conformance oracle over the FACE-1 rows, scored against the closed stand-in table", () => {
+  it("scores a1, a2, b1 and f1 against category 1's clause list plus the closed undetermined-static-type table", () => {
+    // WHAT THIS DISCHARGES. Bug 0135 residual 2: its oracle ranges over group
+    // (c), where after the read-seam fence no category-1 fill survives, so the
+    // face-1 rows — the ones that still render an engine fabrication — were
+    // scored by nothing. Bug 0247 supplies the clause those rows need: an eighth
+    // clause under category 1's Rule plus a CLOSED table of admitted stand-in
+    // tokens for a static type the parse layer did not determine. This cell
+    // reads that table off placeholder-rendering-a.md and scores the four rows
+    // against the enlarged clause list.
+    //
+    // WHY IT REDS AT THIS HEAD, AND FOR WHICH REASON. The table does not exist:
+    // category 1's Rule states seven clauses (placeholder-rendering-a.md:21–27),
+    // every one presupposing a determined static type, and
+    // `readAdmittedStandInTokens`
+    // (tests/helpers/category1-clause-oracle.ts) fails loudly naming the missing
+    // anchor rather than falling back to an empty set. Reading the table rather
+    // than listing it here is what makes a sixth engine-fabricated name red
+    // without anyone adding a row to a test.
+    const admitted = readAdmittedStandInTokens();
+    const sources: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ["a1", A1],
+      ["a2", A2],
+      ["b1", B1],
+      ["f1", F1],
+    ];
+    const offenders: string[] = [];
+    let scored = 0;
+    for (const [label, source] of sources) {
+      for (const diagnostic of diagsOf(source)) {
+        for (const [name, value] of fillsOf(REGISTRY, diagnostic.code, diagnostic.message)) {
+          if (!CATEGORY1_PLACEHOLDERS.has(name)) continue;
+          scored += 1;
+          for (const bad of nonConformantTypeNames(value, admitted)) {
+            offenders.push(`${label} ${diagnostic.code} ${name}=${JSON.stringify(bad)}`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      "bug 0247 §Fix — every byte a category-1 placeholder can carry must be fixed by a clause (placeholder-rendering-a.md:5). A row here rendered a token that neither the seven original clauses nor the closed stand-in table admit, so `#typeExpr`'s fabrication family (src/parser/static-type-inference.ts) reaches a user-visible Message through no rule",
+    ).toEqual([]);
+    // ANTI-VACUITY. Measured, not assumed: the four rows supply exactly four
+    // category-1 fills — `got index` from a1, a2 and b1, `got object` from f1.
+    // The second row f1 draws, `bare-object-literal`, carries no category-1
+    // placeholder, so it adds none. A drift in either direction means the
+    // harness stopped reaching the render arm and the offenders list above went
+    // empty for the wrong reason.
+    expect(
+      scored,
+      "bug 0247 §Reproduction (c) — the face-1 rows must still render four category-1 fills; a lower count means the oracle scored nothing and its empty offenders list is vacuous",
+    ).toBe(4);
   });
 });
 
@@ -689,17 +656,20 @@ describe("0135 (b) — `index` is a legal author identifier at three positions, 
 });
 
 // ===========================================================================
-// (a)/(b1)/(f1) The face-1 pins — the render leak stays reachable, by design.
+// (a)/(b1)/(f1) The face-1 pins — the clause-admitted render, pinned byte-exact.
 // ===========================================================================
 
 describe("0135 face 1 — the engine-minted lowercase render stays reachable and is pinned unmoved", () => {
-  // SCOPE: these four rows assert the PRE-EXISTING render, deliberately. Bug
-  // 0143 owns the `displayType` `named` arm's disposition for engine-minted
-  // non-conformant names (src/parser/type-compat.ts:368–382, the arm
-  // `:374–375`); face 2's read-seam fence cannot reach them because none of
-  // these sources contains a declaration for the fence to refuse. They are held
-  // here so a fix that silently changed the render — rather than closing 0143
-  // deliberately — reds instead of passing.
+  // SCOPE: these four rows assert the PRE-EXISTING render, deliberately. The
+  // admitting rule is bug 0247's eighth category-1 clause and its closed
+  // undetermined-static-type table (placeholder-rendering-a.md), which reaches
+  // `displayType`'s `named` arm returning an engine-minted lowercase name
+  // verbatim (src/parser/type-compat.ts:368–382, the arm `:374–375`), and the
+  // "0247 — the conformance oracle over the FACE-1 rows" describe above is what
+  // scores these four rows against that table. Face 2's read-seam fence cannot
+  // reach them because none of these sources contains a declaration for the
+  // fence to refuse. They are held here so a render change that moved the bytes
+  // without restating the clause reds instead of passing.
   it("a1: an UNRESOLVABLE receiver's index read still renders the fabricated name", () => {
     const diags = diagsOf(A1);
     expect(
@@ -708,7 +678,7 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toEqual([NON_ARRAY_ITERAND]);
     expect(
       messageFor(diags, NON_ARRAY_ITERAND),
-      "bug 0143 owns this render: the index arm's fabricated name (src/parser/static-type-inference.ts:294) reaches `<type>` with no declaration present, so the read-seam fence leaves it unchanged",
+      "bug 0247's clause admits this render: the index arm's fabricated name (src/parser/static-type-inference.ts:294) reaches `<type>` with no declaration present, so the read-seam fence leaves it unchanged",
     ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "index"]]));
   });
 
@@ -720,7 +690,7 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toEqual([NON_ARRAY_ITERAND]);
     expect(
       messageFor(diags, NON_ARRAY_ITERAND),
-      "bug 0143 owns this render: the object-receiver reach carries no declaration either, so the read-seam fence leaves it unchanged",
+      "bug 0247's clause admits this render: the object-receiver reach carries no declaration either, so the read-seam fence leaves it unchanged",
     ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "index"]]));
   });
 
@@ -728,8 +698,10 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     // The call arm (src/parser/static-type-inference.ts:296) mints a `named`
     // from the callee's name, which lexical.md:16 requires to be
     // lowercase-first — so this rendered string is byte-identical to a1's while
-    // naming the author's code rather than an engine fabrication. Bug 0143's
-    // subject; no declaration is present, so the fence does not reach it.
+    // naming the author's code rather than an engine fabrication. Bug 0247's
+    // clause admits this render because the closed table is keyed on rendered
+    // bytes rather than on provenance; no declaration is present, so the fence
+    // does not reach it.
     const diags = diagsOf(B1);
     expect(
       diags.map((d: Diagnostic) => d.code),
@@ -737,15 +709,15 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toEqual([NON_ARRAY_ITERAND]);
     expect(
       messageFor(diags, NON_ARRAY_ITERAND),
-      "bug 0143 owns this render: a conformant lowercase FUNCTION name reaches `<type>` through the call arm, unchanged by the read-seam fence",
+      "bug 0247's clause admits this render: a conformant lowercase FUNCTION name reaches `<type>` through the call arm, unchanged by the read-seam fence",
     ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "index"]]));
   });
 
   it("f1: the second engine fabrication renders at the same gate", () => {
     // `#typeExpr`'s object arm mints `named "object"` on the same pass. It
     // reaches the identical *Message*, so it is the row that shows face 1 is a
-    // class rather than one name — and the row that reds if 0143's fix covers
-    // one fabrication and not the other.
+    // class rather than one name — and the row that reds if bug 0247's closed
+    // table admitted one fabrication and not the other.
     const diags = diagsOf(F1);
     expect(
       diags.map((d: Diagnostic) => d.code),
@@ -753,7 +725,7 @@ describe("0135 face 1 — the engine-minted lowercase render stays reachable and
     ).toEqual(["theta/parse/bare-object-literal", NON_ARRAY_ITERAND]);
     expect(
       messageFor(diags, NON_ARRAY_ITERAND),
-      "bug 0143 owns this render: the object arm's fabricated name reaches `<type>` for the same reason the index arm's does",
+      "bug 0247's clause admits this render: the object arm's fabricated name reaches `<type>` for the same reason the index arm's does",
     ).toBe(msg(NON_ARRAY_ITERAND, [["<type>", "object"]]));
   });
 });

@@ -1083,3 +1083,47 @@ face 1 here; no fresher document owns the subject.
   0126's and is closed, and the sibling internal names at the same render arm
   are 0135's and are untouched. The `displayType` arm is byte-untouched, so
   0124, 0126, 0130 and 0135 are unaffected by this landing.
+
+## Discharge note — residual 1 (appended by bug 0247)
+
+Residual 1 above ("Face 2 stays open, by decision") is **discharged by 0247's fix
+(0.227.0):** the owner this record named — "a spec-level change … a category-1 clause
+admitting a rendering for an untypeable static type" — has landed.
+`docs/spec_topics/diagnostics/placeholder-rendering-a.md` category 1 gained an
+eighth clause under its *Rule* plus a closed
+`**Undetermined-static-type tokens (closed).**` table, and `<withheld>` is one of
+its five admitted tokens. The four *Message* strings still render
+`array<<withheld>>`, byte-identical: the clause records the bytes the renderer
+already emits, so nothing was suppressed, no spelling moved, and `displayType`
+stays byte-untouched (`git diff --stat -- src/` empty across 0247's landing).
+
+One premise of this record's decline is corrected on the record by 0247. Face 2
+was declined partly on the reading that minting a rendering "would be new
+placeholder-rendering vocabulary, a GOV-7 / GOV-8 spec-versioned breaking
+change". `placeholder-rendering-a.md`'s *Closure* paragraph places three
+operations under GOV-7 / GOV-8 — introducing a placeholder, retiring one, moving
+one between categories — and a clause fixing how an EXISTING category-1
+placeholder is filled is none of them; that paragraph already states in terms
+that codifying a rendering the registry has shipped is a pure rewording under
+GOV-8's *Pure rewording* boundary, and GOV-8's substantive test
+(`req-id-prefix-table-active-b.md:58`) is unmet by a clause that alters no
+accepted input, no produced output, no fired diagnostic and no invariant. The
+DIAG-2 ground of the decline — that suppressing the four emissions would remove
+decidable verdicts under registered *Triggers* — stands unchanged and is why the
+resolution was a clause and not a render change.
+
+Cells `f2a`–`f2d` therefore did NOT red: they keep their expected strings and are
+restated as assertions of a clause-admitted rendering rather than of a declined
+face. `f2e` and `f2f` keep their own subject — they pin the deferral the new
+clause's condition names. Ratification surface for the restatement: in
+`tests/withheld-sentinel-mooting-and-render-pins.test.ts`, the file-top summary
+line, the GROUP F2 file-header block, the second GROUP F2 section banner, the
+group-F2 `describe` title and its SCOPE comment, and the assertion-MESSAGE tails
+of `f2a`–`f2d`; in `tests/withheld-sentinel-author-twin-provenance.test.ts`, the
+"WHAT IS *NOT* CLAIMED HERE" header line and `w2a`'s comment (`w2c` carried no
+decline language and is untouched); in `tests/fn-arg-type-mismatch-wired.test.ts`,
+`u13r`'s comment. No `.toBe(…)` / `.toEqual(…)` argument and no fixture source
+changed. Residual 2 (the marker predicate's missing in-tree red path) and residual
+4 (citation churn) are untouched by 0247. Full details, gates and residuals:
+`docs/bugs/0247-untypeable-static-type-has-no-category-1-rendering-clause.md`
+§Fix (0.227.0).

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.227.0]
+
+### Fixed
+
+- **Bug 0247** — `placeholder-rendering-a` gains its eighth category-1 clause: undetermined/untypeable static types now have a NORMATIVE rendering (closed 5-token byte table, composition + boundary paragraphs, two test vectors), so the pinned renderings 0143 and 0135 shipped stop being spec-silent — they are clause-admitted and oracle-checked (new shared `tests/helpers/category1-clause-oracle.ts` parses the closed table off the page). Discharges 0135 residual 2 and 0143 residual 1 (notes appended). GOV-7/8: a fill clause admitting already-shipped pinned behaviour, not a versioned breaking change.
+
 ## [0.226.0]
 
 ### Fixed

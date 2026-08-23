@@ -998,3 +998,38 @@ this one's is a name inside the author's namespace.
   `NamedType` *reference* positions, the three sink-routing siblings, and
   `bare-object-literal` in `f1`. The `displayType` arm is byte-untouched, so
   0124, 0126, 0130 and 0143 are unaffected by this landing.
+
+## Discharge note — residual 2 (appended by bug 0247)
+
+Residual 2 above ("The report's own §Witness conformance row is only half-supplied")
+is **discharged by 0247's fix (0.227.0):** the corpus now carries the clause the
+residual was waiting for. `docs/spec_topics/diagnostics/placeholder-rendering-a.md`
+category 1 gained an eighth clause under its *Rule* plus a closed
+`**Undetermined-static-type tokens (closed).**` table (`<withheld>`, `index`,
+`object`, `query`, `unknown`) admitting a rendering for a static type the parse
+layer did not determine. The conformance oracle in
+`tests/index-sentinel-typeenv-case-fence.test.ts` was therefore extended: its
+scorer moved to the shared `tests/helpers/category1-clause-oracle.ts`, whose
+`readAdmittedStandInTokens()` reads the closed table off the spec page, and a new
+cell scores the face-1 rows `a1`, `a2`, `b1` and `f1` against the enlarged clause
+list (offenders empty, anti-vacuity count 4 — three `got index` fills and one
+`got object`).
+
+Residual 1's face-1 rows keep their strings byte-exact; nothing was suppressed
+and no spelling moved. The pre-existing group-(c) oracle cell is unchanged and
+still scored with an EMPTY admitted set, so its fence is exactly as sharp as it
+was and its zero-fill anti-vacuity companion assertion (`scored` `toBe(0)`) is
+byte-unmoved — the "revisited deliberately" the residual asked for is this
+paragraph, and the answer is that group (c) still renders no category-1 fill.
+Their SCOPE comment, which claimed that extending the oracle over the face-1 rows
+"would assert a contract no open fix is delivering", is restated: 0247 delivers
+that contract.
+
+Ratification surface for that restatement: the file-header face-1 paragraph, the
+face-1 section banner, the face-1 `describe`'s SCOPE comment, the four
+assertion-MESSAGE strings of `a1`/`a2`/`b1`/`f1`, the `b1` and `f1` `it()`-body
+comments, and the group-(c) oracle cell's SCOPE comment. No `.toBe(…)` /
+`.toEqual(…)` argument and no fixture source changed. `src/**` is byte-untouched
+by 0247, so this record's own fix is unaffected. Full details, gates and
+residuals: `docs/bugs/0247-untypeable-static-type-has-no-category-1-rendering-clause.md`
+§Fix (0.227.0).
