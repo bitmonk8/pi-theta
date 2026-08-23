@@ -1,8 +1,7 @@
 # Bug 0049 — `grammar.md:54`'s *Forbidden inside a literal* bullet heads both `obj.field` and `arr[i]` with "Member access", the name `expressions.md:9` reserves for `a.b` and `:10` separates from "Indexed access"; the rule the bullet states is correct, and whether the shared head is a mislabel or an intended umbrella is unadjudicated
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The decision this
-  report asks for is the adjudication between two dispositions — relabel or
-  leave — not the wording of one of them.
+- **Status:** fixed (0.241.0). The adjudication settled on disposition 1
+  (relabel), the disposition this report recommends; see §Fix (0.241.0).
 - **Kind:** spec-doc defect, disposition open — a normative page applies one
   access-form name to two access forms. Not an implementation defect and not a
   spec gap about the *rule*: both spellings the bullet names are dispositioned
@@ -323,6 +322,79 @@ so a single head word attaches a dot-form carve-out to a form that has none.
    behavioural (`tests/e2e-s1-grammar-literal-sublang.test.ts:34`, `:42`) and
    read no prose. A prose-matching assertion would invert DIAG-4's direction
    for expected strings (`diagnostic-shape.md:74`).
+
+## Fix (0.241.0)
+
+- **Adjudication.** Disposition 1 (relabel). The report left the choice open
+  and recommended disposition 1; the three facts it rests on were re-derived at
+  the fixing HEAD (0.240.0) and all three still hold: (a) the naming authority
+  still gives the two forms separate bullets and separate names
+  (`docs/spec_topics/expressions.md:9`, `:10`) and
+  `docs/spec_topics/glossary.md` still defines neither, so a relabel coins no
+  term; (b) the corpus sweep is unchanged — `rg -in "member access"` returns 15
+  lines under `docs/spec_topics/` and 4 under `docs/reference/`, no narrative
+  page repeats the head word, and no site other than the one under adjudication
+  applies the name to a bracket spelling; (c) the implementation still splits
+  where the carve-out does — `src/parser/literal-sublanguage.ts:553`
+  (`case "member":`, head must be a bare identifier) admits `Sev.High` while the
+  `default:` arm at `:572` rejects every `index` node, so `Sev["High"]` reds
+  `theta/parse/default-not-literal` (probe at the fixing HEAD through
+  `tests/helpers/e2e-s1.ts`).
+- **What shipped.**
+  - `docs/spec_topics/grammar.md:54` — the *Forbidden inside a literal* bullet
+    now names both forms in the authority's vocabulary: "Member access on
+    anything other than `Enum.Variant`, and indexed access in any form (no
+    `obj.field`, no `arr[i]`)." In-place, one line; the carve-out stays
+    textually attached to the member-access half.
+  - `docs/reference/grammar.md:616` — the mirror clause moves in the same
+    change (§Fix constraint 5): "member access other than `Enum.Variant`, and
+    indexed access in any form." The page's own definition of the terms is at
+    `:404` at this HEAD, not `:302`.
+  - `tests/grammar-literal-forbidden-access-naming.test.ts` — new
+    corpus-conformance oracle, in the shape bug 0062's
+    `tests/grammar-trailing-trigger-equals.test.ts` established.
+- **Constraints discharged.** 1 — both names come from `expressions.md:9`–`:10`;
+  neither that page nor the glossary moves. 2 — `obj.field`, `arr[i]` and
+  `Enum.Variant` are byte-preserved, the four sibling bullets (`:50`–`:53`) and
+  the `## Theta literal sublanguage` heading are byte-identical. 3 — both files
+  keep their exact line counts (223 / 697) and both edited lines keep their
+  numbers, so no inbound citation goes stale. 4 — no code, *Trigger*, severity,
+  namespace or *Message* changes; no registry page is touched; DIAG-2 and DIAG-4
+  stay unengaged and GOV-15 is not reached (`git diff --stat -- src/` is empty).
+  5 — discharged by the mirror edit above. 6 — the closing gate was re-proved,
+  not assumed: `tests/live-corpus-release-gate.test.ts` and
+  `tests/warn-only-canary.test.ts` green after the edit. 7 — the report held
+  that no witness is constructible; bug 0062's oracle pattern, filed later,
+  shows one is. It asserts diagnostic *codes* only and no rendered *Message*
+  string, so DIAG-4's direction for expected strings is not inverted.
+- **Tests that lock it.** `tests/grammar-literal-forbidden-access-naming.test.ts`
+  — §(A) A1/A2 behaviour anchor (`Sev.High` admits, `Sev["High"]` and `arr[i]`
+  red `theta/parse/default-not-literal`), green before and after; §(B) B1/B2
+  corpus conformance, red at the pre-fix corpus and green after; §(C) C1 the
+  naming authority and the glossary's silence, C2 the four sibling bullets
+  byte-identical, C3 the three quoted spellings plus the carve-out's scoping,
+  C4 the 223 / 697 line pins — all four green in both states, so none
+  presupposes the fix. Every reader throws naming its unmet precondition; no
+  skip, no early return.
+- **Gates.** Witness 8/8 green; red-ability proved by writing the pre-fix bytes
+  back and re-running (B1/B2 red, A and C green), then restoring hash-verified.
+  Full default suite 423 files / 8896 tests green. `npm run typecheck` and
+  `npm run lint` clean. No live run is owed: the change is documentation-only
+  and `git diff --stat -- src/` is empty.
+- **Residuals.**
+  1. The non-goal *dot half's implementation divergence* has closed on its own
+     since the filing. At the filing `x: string = obj.field` parsed with zero
+     diagnostics; at the fixing HEAD it reds `theta/parse/unknown-identifier`,
+     so the bullet's "no `obj.field`" is now enforced (by identifier
+     resolution rather than by the is-literal check). Recorded, not acted on —
+     the code is a different one from `theta/parse/default-not-literal`, and
+     which code should govern is outside this report's naming question.
+  2. Bug 0037's residual (ii) — the corpus still has no vocabulary-consistency
+     gate. This fix adds a conformance oracle for one bullet, not a gate.
+  3. C3's carve-out-ordering conjunct compares first-occurrence positions in
+     flattened text rather than parsing the clause structure. It pins the
+     shipped wording; a bullet that repeated `Enum.Variant` after the
+     indexed-access clause would still pass.
 
 ## Non-goals
 

@@ -613,7 +613,7 @@ NamedObjectLit::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
 - Forbidden inside a literal (each rejected by the is-literal check): identifier
   references other than `Enum.Variant`; operators other than unary `-` on a
   numeric literal; function and tool calls; `${...}` and `@`...`` templates;
-  member access other than `Enum.Variant`.
+  member access other than `Enum.Variant`, and indexed access in any form.
 
 <a id="pi-tool-argument-grammar"></a>
 

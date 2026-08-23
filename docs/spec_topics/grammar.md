@@ -51,7 +51,7 @@ NamedObjectLit ::= Ident "{" (FieldEntry ("," FieldEntry)* ","?)? "}"
 - Operators other than the unary `-` carve-out for numeric literals (no `+`, no `&&`, no comparison, no ternary).
 - Function and tool calls (no `f(x)`, no `<tool>(args)`).
 - Template interpolation `${...}` and `@`...`` query templates.
-- Member access on anything other than `Enum.Variant` (no `obj.field`, no `arr[i]`).
+- Member access on anything other than `Enum.Variant`, and indexed access in any form (no `obj.field`, no `arr[i]`).
 
 The is-literal check runs at parse time against the Theta AST; it does not require a separate parser. Authors who need expressions inside a `params:` default should bind them via `let` first and pass them through a typed `params:` callee or use `invoke(...)`. (Inside a Pi-tool argument, field-value expressions are admitted directly — see the [`ToolArg` grammar](#pi-tool-argument-grammar) below.)
 

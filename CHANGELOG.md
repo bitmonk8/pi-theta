@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.241.0]
+
+### Fixed
+
+- Bug 0049: the *Forbidden inside a literal* access-naming bullet in
+  `docs/spec_topics/grammar.md` and its `docs/reference/grammar.md` mirror now
+  names indexed access in any form alongside non-enum member access, matching
+  the shipped refusal (`expressions.md` authority; both pages
+  line-count-preserved). New corpus-conformance witness
+  `tests/grammar-literal-forbidden-access-naming.test.ts` (b0049, 8 cells,
+  B1/B2 red-proven at the old bytes). Docs+tests only; no runtime change.
+
 ## [0.240.0]
 
 ### Fixed
