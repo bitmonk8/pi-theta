@@ -437,9 +437,14 @@ function resolveEntry(
 /**
  * The default name for a `.theta` path entry: the file's basename without the
  * `.theta` extension, with hyphens replaced by underscores
- * (`./code-review.theta` → `code_review`).
+ * (`./code-review.theta` → `code_review`). The SINGLE implementation of
+ * `frontmatter-fields-a.md` §default name — exported for the same reason
+ * `parseToolsEntry` above is: the producer's snapshot-absent fallback
+ * (`src/extension/production-theta-producer.ts`) derives a `.theta` entry's
+ * default name from this function rather than re-implementing the rule, so
+ * the two readers cannot diverge on a hyphenated stem (bug 0253).
  */
-function thetaDefaultName(thetaPath: string): string {
+export function thetaDefaultName(thetaPath: string): string {
   const basename = thetaPath.slice(thetaPath.lastIndexOf("/") + 1);
   const stem = basename.endsWith(".theta") ? basename.slice(0, -".theta".length) : basename;
   return stem.replace(/-/g, "_");

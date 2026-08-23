@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.222.0]
+
+### Fixed
+
+- **Bug 0253** — the fallback callable-name derivation agrees with the resolver: `thetaDefaultName` is exported from `callable-set.ts` as the single implementation of the default-name rule, `thetaCallableName` is deleted, and both fallback consumer sites (`presentedCallableNames` and the `thetaCalleePath` dispatch fallback) call it — a hyphenated un-renamed theta no longer presents `code-review` where the resolver derives `code_review`, and the dispatch misroute face is closed. Locked by the 0107 lockstep witness (11 → 13 cells, (D4) flipped to belt-fired under the doc's authority) and an additive H8a live cell.
+
 ## [0.221.0]
 
 ### Fixed

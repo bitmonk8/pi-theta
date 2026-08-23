@@ -1,6 +1,6 @@
 # Bug 0253 — The producer's snapshot-absent fallback derives a hyphenated `.theta` entry's default callable name without the hyphen→underscore remap the spec states: for `tools: - ./code-review.theta` the fallback presents `code-review` while the resolver (`thetaDefaultName`), the parse gate (`toolCallableName`) and `frontmatter-fields-a.md:84` all derive `code_review`, so a fixture-borne theta's arm-4 callable registry holds a name the parse gate never derives and the same entry's callee-path lookup misses
 
-- **Status:** open.
+- **Status:** fixed (0.222.0).
 - **Sev/Diff estimate:** S2/D1 — S2 because two shipped components disagree on
   the callable name of a well-formed entry, with two measured consequences (the
   bug-0016 dispatch belt is silent on a shadowed call the parse gate rejects,
@@ -329,3 +329,89 @@ fix implements, and no diagnostic code, message text or registry row moves.
   `tests/tools-entry-closed-grammar-lockstep.test.ts` (11 passed).
 - Every citation in this report was re-derived at HEAD `b9cf2f26` by `rg` over
   the tree; the line numbers in bug 0107 predate it and were not copied.
+
+## Fix (0.222.0)
+
+- What shipped:
+  - `src/parser/callable-set.ts` — §Fix step 1: `thetaDefaultName` is exported,
+    its doc comment naming it the single implementation of
+    `frontmatter-fields-a.md` §default name and its producer-side consumer, on
+    the export rationale `parseToolsEntry` already carries.
+  - `src/extension/production-theta-producer.ts` — §Fix step 2:
+    `thetaCallableName` deleted; `presentedCallableNames`' default-name
+    derivation and `thetaCalleePath`'s snapshot-absent match both call the
+    imported `thetaDefaultName`, so the producer holds no default-name
+    derivation of its own. The `\`→`/` normalisation is gone with it, per
+    §Fix step 2 (backslash path literals are rejected by the parse gate,
+    `theta/parse/invalid-path-separator`, and no `frontmatter.tools` fixture in
+    the tree carries one). Both stale doc comments now describe the shared
+    derivation.
+  - `tests/tools-entry-closed-grammar-lockstep.test.ts` — §Fix steps 3 and 4:
+    cell (D4) flipped to `belt-fired` and moved into (D3) (its resolver-side
+    assertion and its `./b0107-code-review.theta` stem intact), the (D4)
+    describe gone, the file header's PINNED DIVERGENCE paragraph rewritten as
+    "hyphenated stems agree too", and a new `calleeRouteFor` harness plus a
+    (D3) callee-route pair (hyphen-free control + hyphenated cell) witnessing
+    the second call site.
+  - `tests/live/live-production-acceptance.test.ts` — additive live cell for the
+    agreement face end to end (no existing cell weakened, reworded, reordered
+    or deleted).
+  - No spec edit. No diagnostic code, message or registry row moved.
+- Gates:
+  - Witness before the fix: `npx vitest run
+    tests/tools-entry-closed-grammar-lockstep.test.ts` → `Tests  2 failed | 11
+    passed (13)`; the reds were `expected 'drive-completed' to be 'belt-fired'`
+    and `expected 'pi-tool' to be 'theta-callee'`.
+  - Witness after: `Test Files  1 passed (1)` / `Tests  13 passed (13)`.
+  - Full default suite: `npm test` → `Test Files  408 passed (408)` /
+    `Tests  8583 passed (8583)`.
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` → clean.
+  - Lint: `npm run lint` → clean.
+- Review: 2 rounds.
+  - Round 1 (deep): one prose finding — `thetaCalleePath`'s doc comment stacked
+    two em-dash appositives so the trailing clause attached to
+    `thetaDefaultName`; plus one non-blocking test residual — `calleeRouteFor`
+    did not pin the `invoke_infra` error's `callee_path` to the entry. No
+    correctness, fidelity or spec finding; §Non-goals verified honoured.
+  - Fixer round 1 applied both: the comment split into two sentences, and the
+    `callee_path === entry` pin with a loud throw on mismatch, its red direction
+    proved by perturbation and restored by writing the content back.
+  - Round 2 (fast): clean, no escalation.
+- Verification: SOLID.
+  - Witness genuineness — the deleted un-remapped derivation was re-introduced
+    at both call sites by a targeted byte edit; exactly the two hyphenated cells
+    reproduced their named disagreement (`drive-completed` / `pi-tool`) and
+    every other cell stayed green; the file was restored by writing the content
+    back and `git hash-object` matched the pre-edit snapshot
+    (`999542ecc100710ae4611352f28243766d0f54c6`), 13/13 green after. No
+    `git stash`, no `git checkout --`, no `git restore`.
+  - Full default suite green (408 files / 8583 tests).
+  - Live coverage — no `tests/live/**` cell planted a hyphenated `.theta`
+    `tools:` entry with no `as` rename, so one was added to
+    `tests/live/live-production-acceptance.test.ts`: a discovered caller whose
+    `tools:` names `./b0253live-code-review.theta` and whose body calls
+    `b0253live_code_review()?`, asserting the marker-anchored rendered value is
+    the callee's own literal and that no fail-closed `theta-system-note` fired,
+    with a task-framed arithmetic discriminator. Run under the live lock:
+    `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/live-production-acceptance.test.ts -t "bug 0253"` →
+    `Tests  1 passed | 88 skipped (89)`.
+  - Lint and typecheck clean, re-run after the live cell landed.
+- Residuals:
+  1. The live cell witnesses the AGREEMENT face only, not the repaired arm.
+     Discovery always attaches a snapshot
+     (`src/extension/production-composition.ts`), so a real `pi -p` run takes
+     the snapshot arm and the fallback cannot be reached live; the fallback's
+     own witness is the offline (D3) pair, whose red direction was proved twice
+     (Phase 1 and verification).
+  2. One comment-only trim was made by the orchestrator after verification: the
+     live cell's leading comment carried the clause "Added during bug-0253 fix
+     verification to close this live-coverage gap", historical narration the
+     house rules forbid. Removed; typecheck, lint and the offline witness
+     re-run green afterwards. No assertion and no executable line touched.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Non-goals stand unchanged — the derived-name
+  validity check (bug 0070) is still resolver-only and was NOT added to the
+  fallback; the snapshot-absent arm is kept and made to agree; (D1)'s
+  source-shape scan and `presentedCallableNames`' non-export stay as bug 0107
+  left them.

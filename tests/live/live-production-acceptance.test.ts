@@ -6676,6 +6676,148 @@ describe("H8a-T — bug 0172 boundary 2: a .theta-callable tool-call return perf
 });
 
 // ===========================================================================
+// Bug 0253 — the producer's snapshot-absent fallback derived a HYPHENATED
+// `.theta` `tools:` entry's default callable name without the spec'd
+// hyphen→underscore remap (`docs/spec_topics/frontmatter/frontmatter-fields-a.md`
+// §default name), so a hyphenated stem presented an unspellable name on that
+// arm while the resolver (`thetaDefaultName`, `src/parser/callable-set.ts`) and
+// the parse gate (`toolCallableName`, `src/parser/theta-document.ts`) both
+// derived the underscored one
+// (`docs/bugs/0253-fallback-hyphenated-theta-default-name-diverges.md`).
+//
+// `src/extension/production-composition.ts`'s discovery pass always attaches a
+// callable-set snapshot to a discovered theta, so the divergent fallback arm
+// is never reached live — the fix routes the fallback to the resolver's own
+// `thetaDefaultName` (`src/extension/production-theta-producer.ts`), and every
+// discovered theta already took the snapshot arm before and after the fix.
+// This cell therefore witnesses the AGREEMENT the fix keeps intact end to end:
+// a discovered, hyphenated `.theta` `tools:` entry with NO `as` rename presents
+// the underscored default name, and a call of that underscored name from the
+// caller's body dispatches through the real discovery→registration→dispatch
+// path to the callee's own computed value.
+//
+// NO EXISTING LIVE CELL PLANTS A HYPHENATED `.theta` `tools:` ENTRY. Every
+// `tools:` occurrence across `tests/live/**` before this cell is either the
+// bare Pi-tool identifier `read`, a digit-leading stem (bug 0070's
+// `2fastbug0070`), or a hyphen-free `.theta` stem (bug 0071/0110/0111/0172's
+// `b*livekid`/`b*livecallee`/`b*livechild` families) — none exercises the
+// hyphen→underscore remap this fix keeps agreeing on.
+//
+// SHAPE mirrors the bug 0172 boundary-2 cell immediately above: a `mode:
+// subagent` callee whose sole statement is a bare literal tail (zero model
+// turns), named in the parent's `tools:` with no rename, called as a bare
+// `.theta`-callable from the parent's body and bound into a `let`, then
+// rendered between markers so the rendered text — not the model's reply — is
+// the deterministic observable that the call actually dispatched to the
+// callee's own value. A trailing fixed-pair arithmetic question (bug 0243's
+// convention) proves a real model turn ran.
+//
+// Token cost: one dispatched query in the parent; the callee spends none.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded,
+// reordered, or deleted.
+// ===========================================================================
+
+/**
+ * The `mode: subagent` callee: a bare integer-literal tail, zero model
+ * turns — the callee's OWN computed value the parent's dispatched call must
+ * return unchanged.
+ */
+function b0253LiveCodeReviewKidTheta(): string {
+  return ["---", "mode: subagent", "---", "771"].join("\n");
+}
+
+/**
+ * The `mode: prompt` parent: `tools:` names the callee by its HYPHENATED
+ * `.theta` path (`./b0253live-code-review.theta`) with NO `as` rename, and the
+ * body calls it by the underscored default name
+ * (`b0253live_code_review`) `frontmatter-fields-a.md`'s remap derives. If the
+ * registered/dispatched name diverged from the underscored one, this call
+ * would not resolve to the `.theta` callee at all and the caller's own load
+ * would fail (an unresolved bare identifier call), so reaching the rendered
+ * marker below already witnesses the agreement; the returned value equalling
+ * the callee's own literal witnesses that the dispatch reached the CORRECT
+ * callee rather than some other route.
+ */
+function b0253LiveCodeReviewParentTheta(): string {
+  return [
+    "---",
+    "mode: prompt",
+    "tools:",
+    "  - ./b0253live-code-review.theta",
+    "---",
+    "let v = b0253live_code_review()?",
+    "@`R=${v}|END What is 233 plus 644? Answer with the number only.`",
+  ].join("\n");
+}
+
+describe("H8a-T — bug 0253: a hyphenated .theta tools: entry's underscored default name dispatches live", () => {
+  it("a call of the underscored default name for a hyphenated, un-renamed tools: entry resolves through the real discovery→registration→dispatch path to the callee's own value", async () => {
+    const provider = await requireLiveProvider();
+    const workspace = plantThetaWorkspace([
+      { source: "project", stem: "b0253live-code-review", text: b0253LiveCodeReviewKidTheta() },
+      { source: "project", stem: "b0253livecodeboss", text: b0253LiveCodeReviewParentTheta() },
+    ]);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      // Precondition: the parent command must exist before a live turn is
+      // driven, so a discovery/parse/registration failure reds with zero
+      // tokens. Registering at all already witnesses that the hyphenated
+      // entry's presented name was spellable by the parent's own call site —
+      // an unspellable presented name (the pre-fix divergent fallback's shape)
+      // would leave the call site unresolved and the caller un-registered,
+      // but that arm is unreached in production regardless (see the header
+      // comment); this precondition is the load-time half of the agreement.
+      expect(
+        handle.command("b0253livecodeboss"),
+        "no bug-0253 parent command to invoke — the hyphenated tools: entry's " +
+          "underscored call site failed discovery/parse/registration. Registered: " +
+          JSON.stringify(handle.registeredNames()),
+      ).toBeDefined();
+
+      const turn = await driveSlashCaptureTurn(handle, "/b0253livecodeboss");
+      const outbound = turn.userTexts.join("\n");
+      // Marker-anchored extraction of the rendered `${v}` segment — the exact
+      // text theta code computed from the dispatched call's return value
+      // (fails loudly when the query never rendered, e.g. the call did not
+      // resolve Ok).
+      const anchored = /R=([\s\S]*?)\|END/.exec(outbound);
+      expect(
+        anchored,
+        "the parent query's rendered text (R=…|END) is absent — the " +
+          "tools:-routed underscored call did not resolve Ok. Outbound user " +
+          "texts: " + JSON.stringify(turn.userTexts) + "; system notes: " +
+          JSON.stringify(turn.systemNotes),
+      ).not.toBeNull();
+      // THE FIXED-SURFACE AGREEMENT OBSERVABLE: the dispatched call of the
+      // spec'd underscored name returned the callee's own literal unchanged —
+      // the registered/dispatched name for a hyphenated, un-renamed entry is
+      // the underscored one, live, end to end.
+      expect(
+        anchored![1],
+        "the hyphenated tools: entry's underscored call must return the " +
+          "callee's own literal (771) unchanged; a different rendered value " +
+          "means the dispatched call resolved a callee OTHER than the entry's " +
+          "own. Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("771");
+      // No fail-closed ending of the drive (invoke infra errors and Err tails
+      // land here — absence is the success observable).
+      const failureNotes = turn.systemNotes.filter((n) =>
+        /^theta \/b0253livecodeboss (returned Err|cancelled|aborted)/.test(n),
+      );
+      expect(
+        failureNotes,
+        "the bug-0253 agreement drive surfaced fail-closed system note(s): " +
+          JSON.stringify(failureNotes),
+      ).toEqual([]);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
 // Bug 0174 — a typed `invoke<T>` of a `mode: prompt` callee fails
 // return-validation for every named-enum position: on the prompt→prompt
 // ATTACH cell (guard `callerMode === "prompt" && callee.frontmatter.mode ===

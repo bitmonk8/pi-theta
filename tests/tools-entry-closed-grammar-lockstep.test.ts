@@ -70,39 +70,47 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 //         Belt fires ⇒ the name IS in the arm-4 registry the fallback populated;
 //         the drive completing ⇒ it is not. Each cell states what the resolver
 //         answers for the same entry, so a red names the disagreement.
-//   (D4) — the ONE pinned divergence between the readers at HEAD (see below).
+//         Two cells read a second observable instead of the belt: the ROUTE a
+//         call of a presented name takes. A snapshot-absent fixture whose entry
+//         names a `.theta` file the fixture directory does not hold fails with
+//         `invoke_infra` / `load_failure` when `thetaCalleePath`
+//         (`src/extension/production-theta-producer.ts`) resolves the entry to a
+//         callee path, and returns the ambient Pi-tool sentinel when it resolves
+//         none. That is the second consequence of the same derivation, and bug
+//         0253 §Fix step 4 requires a witness for it.
 //
-// WHAT IS GREEN AT HEAD: every cell in (D1), (D2), (D3) and (D4). The fallback
+// WHAT IS GREEN AT HEAD: every cell in (D1), (D2) and (D3). The fallback
 // delegates the grammar, so malformed entries (`read bash`, `read as`,
 // `read as file_read junk`) contribute no presented name on either side, and the
 // well-formed shapes agree.
 //
-// THE PINNED DIVERGENCE (D4): for a HYPHENATED `.theta` entry the two readers
-// still disagree. The resolver's `thetaDefaultName` (`src/parser/callable-set.ts`)
-// maps hyphens to underscores; the fallback's default-name derivation calls
-// `thetaCallableName` (`src/extension/production-theta-producer.ts`), which does
-// not. `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §default name
-// ("hyphens replaced by underscores", `./code-review.theta` → `code_review`) makes
-// the resolver's answer the specified one, and the parse gate's `toolCallableName`
-// (`src/parser/theta-document.ts`) agrees with the resolver. (D4) PINS the current
-// divergent state — it is NOT an endorsement of it: the divergence is recorded as
-// filed-separately in bug 0107 §Fix constraint 4 (residual disposition "records it
-// as filed-separately"), and closing it (one line: reuse the resolver's derivation
-// in the fallback) MUST red (D4) so that this record is updated in the same change.
+// HYPHENATED STEMS AGREE TOO (bug 0253): a HYPHENATED `.theta` entry has ONE
+// default name on both readers, because the fallback's default-name derivation
+// calls the resolver's `thetaDefaultName` (`src/parser/callable-set.ts`) instead
+// of holding a second implementation of the rule.
+// `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §default name ("hyphens
+// replaced by underscores", `./code-review.theta` → `code_review`) is that rule,
+// the parse gate's `toolCallableName` (`src/parser/theta-document.ts`) derives it
+// too, and both of the fallback's consumers of the name — the presented-name list
+// and `thetaCalleePath`'s entry match — read the single implementation. The two
+// (D3) cells over `- ./b0107-code-review.theta` and `- ./b0253-code-review.theta`
+// hold that agreement: a second derivation reintroduced in the producer reds them
+// while leaving every hyphen-free cell green.
 //
 // TIER: unit, offline, provider-free, deterministic. (D1) scans shipped source on
 // the footing `tests/di-seam-skeleton.test.ts` uses for its ambient-primitive scan
 // of the real `src/**` tree, because `presentedCallableNames` appears in no
-// `export`. (D3)/(D4) reach the same function behaviourally through the producer
+// `export`. (D3) reaches the same function behaviourally through the producer
 // drive — the harness shape of `runSource` in
 // `tests/conformance/production-conformance.test.ts` (snapshot-absent
 // `ThetaCompositionInput`) plus the producer-level belt harness of
 // `tests/shadowed-callable-call.test.ts`. No live model, no provider.
 //
 // NO SILENT SKIPPING: (D1) throws by name if the function it scans cannot be
-// located in the shipped source, so a rename can never read as a pass. (D3)/(D4)
-// fail loudly on any unexpected error-severity parse diagnostic, so a red is
-// always a dispatch verdict and never a fixture typo.
+// located in the shipped source, so a rename can never read as a pass. (D3)
+// fails loudly on any unexpected error-severity parse diagnostic, and on a drive
+// that ends in neither of the two routes it discriminates, so a red is always a
+// dispatch verdict and never a fixture typo.
 
 // --- The shipped source under scan -----------------------------------------
 
@@ -239,7 +247,7 @@ describe("Bug 0069 (D2) — the presented names of the well-formed entry shapes"
 });
 
 // ===========================================================================
-// Groups (D3)/(D4) — the behavioural half (bug 0107 §Fix (b)): what the
+// Group (D3) — the behavioural half (bug 0107 §Fix (b)): what the
 // SNAPSHOT-ABSENT FALLBACK presents, read through the bug-0016 dispatch belt.
 // ===========================================================================
 
@@ -375,6 +383,111 @@ async function beltVerdictFor(entry: string, shadowed: string): Promise<BeltVerd
   return "drive-completed";
 }
 
+/**
+ * The two routes a call of a name can leave the snapshot-absent fallback by.
+ * `theta-callee` means `thetaCalleePath`
+ * (`src/extension/production-theta-producer.ts`) matched the `tools:` entry and
+ * the call went out over the invoke path; `pi-tool` means it matched nothing and
+ * the call fell through to Pi-tool dispatch.
+ */
+type CalleeRoute = "theta-callee" | "pi-tool";
+
+/**
+ * The one parse code the route fixture legitimately carries: the bare-object
+ * argument form its call uses. It has no shadow, so the bug-0016 parse rejection
+ * of `beltVerdictFor`'s fixtures must NOT appear here either.
+ */
+const EXPECTED_ROUTE_PARSE_CODES: ReadonlySet<string> = new Set([
+  "theta/parse/bare-object-literal",
+]);
+
+/**
+ * One `tools:` ENTRY and one call of `called` with NO local shadowing it, driven
+ * through the real parse + the production producer with NO `callableSet`, which
+ * selects the same snapshot-absent fallback arm `beltVerdictFor` reads — here
+ * through `thetaCalleePath` rather than through the dispatch belt.
+ *
+ * Returns `theta-callee` when the drive fails with the `invoke_infra`
+ * `load_failure` whose `callee_path` is the entry AS WRITTEN: the fixture
+ * directory holds no such file, so reaching the load attempt at all is what
+ * witnesses that the entry resolved to a `.theta` callee, and pinning the path
+ * is what makes it the ENTRY's callee rather than some other absent file.
+ * Returns `pi-tool` when the call instead dispatches through the ambient Pi-tool
+ * double and yields its sentinel. Any other ending — including a `load_failure`
+ * for a path that is not the entry — throws by name rather than being read as
+ * either route.
+ */
+async function calleeRouteFor(entry: string, called: string): Promise<CalleeRoute> {
+  const src =
+    ["---", "mode: prompt", "tools:", `  - ${entry}`, "---", `${called}({ path: "p" })?`].join(
+      "\n",
+    ) + "\n";
+  const source: ThetaSource = {
+    path: "b0253lockstep.theta",
+    bytes: new TextEncoder().encode(src),
+  };
+  const document = parseThetaDocument(source, parseDeps());
+  const unexpected = document.diagnostics
+    .filter((d) => d.severity === "error" && !EXPECTED_ROUTE_PARSE_CODES.has(d.code))
+    .map((d) => d.code);
+  expect(
+    unexpected,
+    `the route fixture for \`- ${entry}\` must parse clean apart from the expected ` +
+      "bare-object code, so a red below is a routing verdict and never a fixture " +
+      "defect; unexpected error codes: " + JSON.stringify(unexpected),
+  ).toEqual([]);
+  expect(
+    document.frontmatter,
+    `the route fixture for \`- ${entry}\` must carry parseable frontmatter`,
+  ).not.toBeNull();
+  const theta: ThetaCompositionInput = {
+    // NO `callableSet`, as in `beltVerdictFor`: absent snapshot selects the
+    // producer-wide fallback (src/extension/reload-wiring.ts,
+    // `ParsedTheta.callableSet?`).
+    slashName: "b0253lockstep",
+    sourcePath: "/fixtures/b0253lockstep.theta",
+    frontmatter: document.frontmatter!,
+    body: document.body,
+  };
+  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
+  const binding = producerDeps().bindPromptConversation(bindInput);
+  const execution = await executeBody(theta.body, binding.executeDeps);
+  const ending =
+    `terminal outcome ${execution.outcome}, error ${JSON.stringify(execution.error)}, ` +
+    `final value ${JSON.stringify(execution.result.value)}`;
+  if (execution.outcome === "fail") {
+    const error = execution.error as {
+      readonly kind?: unknown;
+      readonly cause?: unknown;
+      readonly callee_path?: unknown;
+    } | null;
+    if (error?.kind === "invoke_infra" && error.cause === "load_failure") {
+      // A `load_failure` alone only says SOME callee load was attempted. The
+      // route verdict is about THIS entry, so the failing path must be the entry
+      // as written; anything else means the match resolved a different callee and
+      // must red rather than pass as the entry's route.
+      if (error.callee_path !== entry) {
+        throw new Error(
+          `the route fixture for \`- ${entry}\` failed to load a DIFFERENT callee than the ` +
+            `entry: \`callee_path\` is ${JSON.stringify(error.callee_path)}, expected ` +
+            `${JSON.stringify(entry)} (${ending}), so the \`.theta\` route this witnesses is ` +
+            "not the entry's",
+        );
+      }
+      return "theta-callee";
+    }
+    throw new Error(
+      `the route fixture for \`- ${entry}\` failed for something other than the absent ` +
+        `callee file (${ending}), so neither route is witnessed`,
+    );
+  }
+  if (execution.result.value === AMBIENT_SENTINEL) return "pi-tool";
+  throw new Error(
+    `the route fixture for \`- ${entry}\` reached neither route (${ending}): the drive did ` +
+      "not reach the call site, so its ending is evidence of nothing",
+  );
+}
+
 /** The resolver's presented names for a single-entry `tools:` list. */
 function resolverNames(
   entry: string,
@@ -423,6 +536,76 @@ describe("Bug 0107 (D3) — the fallback and the resolver agree on which entries
     ).toBe("belt-fired");
   });
 
+  // Bug 0253 — a HYPHENATED `.theta` entry, the last measured disagreement
+  // between the two readers, now an agreement cell. The resolver's
+  // `thetaDefaultName` (`src/parser/callable-set.ts`) maps hyphens to underscores
+  // per `docs/spec_topics/frontmatter/frontmatter-fields-a.md` §default name ("the
+  // default name is the file's basename without the `.theta` extension, with
+  // hyphens replaced by underscores", `./code-review.theta` → `code_review`,
+  // mirrored at docs/reference/frontmatter.md), and the parse gate's
+  // `toolCallableName` (`src/parser/theta-document.ts`) derives it too. The
+  // fallback must present the same name, which it does by calling that one
+  // implementation rather than deriving the stem again: a hyphen-bearing presented
+  // name is spellable by no call site, so a second derivation puts an unreachable
+  // row in the arm-4 registry and omits the row the source names. The entry stem
+  // stays in bug 0107's fixture namespace — it is the cell 0107 pinned, flipped
+  // by bug 0253 §Fix step 3.
+  it("hyphenated `.theta`: `- ./b0107-code-review.theta` presents `b0107_code_review` on both readers — ", async () => {
+    const entry = "./b0107-code-review.theta";
+    const resolver = resolverNames(entry, [], [entry]);
+    expect(
+      resolver,
+      "the RESOLVER's side of the agreement moved: " +
+        "docs/spec_topics/frontmatter/frontmatter-fields-a.md §default name maps " +
+        "hyphens to underscores, so `thetaDefaultName` must still answer " +
+        "`b0107_code_review` here",
+    ).toEqual(["b0107_code_review"]);
+    expect(await beltVerdictFor(entry, "b0107_code_review"),
+      `the FALLBACK presented no \`b0107_code_review\` for \`- ${entry}\` (the bug-0016 ` +
+      "dispatch belt stayed silent for a shadowed call of it), while the RESOLVER " +
+      `presents ${JSON.stringify(resolver)}. The producer is deriving the default name ` +
+      "a second time instead of calling `thetaDefaultName`, so it presents the " +
+      "hyphenated stem — a name no theta expression can spell — and the name the " +
+      "source does call is absent from the arm-4 registry (bug 0253).",
+    ).toBe("belt-fired");
+  });
+
+  // Bug 0253 §Fix step 4 — the SECOND consumer of the same derivation:
+  // `thetaCalleePath`'s snapshot-absent match against `frontmatter.tools`. The
+  // observable is the route, not the belt (see the group note above): a call whose
+  // name the match recognises leaves over the invoke path and dies on the
+  // fixture's absent file; a call it does not recognise falls through to Pi-tool
+  // dispatch and silently succeeds against whatever `resolvePiTool` supplies. The
+  // hyphen-free control comes first, so a green hyphenated cell can never be a
+  // route observable that is inert.
+  it("positive control: a call of `b0253plain` for `- ./b0253plain.theta` routes to the `.theta` callee — ", async () => {
+    const entry = "./b0253plain.theta";
+    expect(await calleeRouteFor(entry, "b0253plain"),
+      `a call of \`b0253plain\` under \`- ${entry}\` dispatched through the Pi-tool route ` +
+      "instead of the `.theta` callee, so `thetaCalleePath` resolved no path for an entry " +
+      "whose stem needs no remap at all. Either the fallback stopped matching " +
+      "`frontmatter.tools`, or the route observable this pair reads through is inert.",
+    ).toBe("theta-callee");
+  });
+
+  it("hyphenated `.theta`: a call of `b0253_code_review` for `- ./b0253-code-review.theta` routes to the `.theta` callee — ", async () => {
+    const entry = "./b0253-code-review.theta";
+    const resolver = resolverNames(entry, [], [entry]);
+    expect(
+      resolver,
+      "the RESOLVER's side of the agreement moved: `thetaDefaultName` must still " +
+        "answer `b0253_code_review` for this entry",
+    ).toEqual(["b0253_code_review"]);
+    expect(await calleeRouteFor(entry, "b0253_code_review"),
+      `a call of \`b0253_code_review\` under \`- ${entry}\` dispatched through the Pi-tool ` +
+      "route and returned the ambient sentinel, so `thetaCalleePath`'s fallback match " +
+      `resolved no callee path for the entry the RESOLVER presents as ${JSON.stringify(resolver)}. ` +
+      "The match is deriving the entry's default name itself instead of calling " +
+      "`thetaDefaultName`, so the same entry routes one way with a snapshot and the " +
+      "other way without one, and nothing reports the substitution (bug 0253).",
+    ).toBe("theta-callee");
+  });
+
   // The three MALFORMED shapes. The resolver rejects each outright
   // (`theta/load/malformed-tool-entry`) and un-registers the theta, presenting
   // NOTHING; a lock-stepped fallback presents nothing either, so no belt fires.
@@ -461,50 +644,4 @@ describe("Bug 0107 (D3) — the fallback and the resolver agree on which entries
       }
     });
   }
-});
-
-describe("Bug 0107 (D4) — the ONE pinned divergence: a hyphenated `.theta` default name", () => {
-  // KNOWN, DOCUMENTED DIVERGENCE — PINNED, NOT ENDORSED. 
-  //
-  // For `- ./b0107-code-review.theta` the two readers derive DIFFERENT presented
-  // names at HEAD:
-  //   resolver  → `b0107_code_review`  (`thetaDefaultName`, src/parser/callable-set.ts:
-  //               `stem.replace(/-/g, "_")`) — and the parse gate's
-  //               `toolCallableName` (src/parser/theta-document.ts) agrees with it;
-  //   fallback  → `b0107-code-review`  (`thetaCallableName`,
-  //               src/extension/production-theta-producer.ts — no hyphen mapping).
-  // The SPECIFIED answer is the resolver's:
-  // docs/spec_topics/frontmatter/frontmatter-fields-a.md §default name — "the
-  // default name is the file's basename without the `.theta` extension, with
-  // hyphens replaced by underscores (`./code-review.theta` → `code_review`)",
-  // mirrored at docs/reference/frontmatter.md. So the state this cell pins is
-  // WRONG BY THE SPEC and is recorded as filed-separately per bug 0107 §Fix
-  // constraint 4 (route "record it as filed-separately"); the fallback's own doc
-  // comment even claims the mapping ("post-`as` / post-hyphen→underscore").
-  //
-  // The pin is deliberate: closing the divergence (one line — reuse the
-  // resolver's derivation in the fallback) MUST red this cell, which forces the
-  // record above to be corrected in the same change instead of leaving a stale
-  // "known divergence" note behind. Do NOT weaken it to `.toBeDefined()` or to a
-  // both-ways assertion; flip it to `belt-fired` when the divergence closes and
-  // move the cell into (D3).
-  it("pins the fallback presenting the hyphenated stem where the resolver presents the underscored one — ", async () => {
-    const entry = "./b0107-code-review.theta";
-    const resolver = resolverNames(entry, [], [entry]);
-    expect(
-      resolver,
-      "the RESOLVER's side of the pinned divergence moved: " +
-        "docs/spec_topics/frontmatter/frontmatter-fields-a.md §default name maps " +
-        "hyphens to underscores, so `thetaDefaultName` must still answer " +
-        "`b0107_code_review` here",
-    ).toEqual(["b0107_code_review"]);
-    expect(await beltVerdictFor(entry, "b0107_code_review"),
-      "the bug-0016 dispatch belt FIRED for a shadowed call of `b0107_code_review`, " +
-      `so the snapshot-absent fallback now presents the SPEC'd name for \`- ${entry}\` ` +
-      "and agrees with the resolver. That is the divergence bug 0107 §Fix " +
-      "constraint 4 left filed-separately being CLOSED. This cell pins the old " +
-      "state: flip it to `belt-fired`, move it into (D3), and update " +
-      "the file header's PINNED DIVERGENCE paragraph.",
-    ).toBe("drive-completed");
-  });
 });

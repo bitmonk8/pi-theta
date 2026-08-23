@@ -235,7 +235,7 @@ import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-bounda
 import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema, SchemaValidator } from "../seams/schema-validator";
-import { parseToolsEntry, type ResolvedCallable } from "../parser/callable-set";
+import { parseToolsEntry, thetaDefaultName, type ResolvedCallable } from "../parser/callable-set";
 import { canonicalForm, toLoweredJsonValue } from "../parser/schema-lowering";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
@@ -708,12 +708,6 @@ type InvokeReturnTyping =
 interface InvokeReturnSite {
   readonly annotation: string;
   readonly declarations: ThetaBody;
-}
-
-/** The basename of a `.theta`-callable path, minus its `.theta` extension. */
-function thetaCallableName(path: string): string {
-  const base = path.slice(path.replace(/\\/g, "/").lastIndexOf("/") + 1);
-  return base.endsWith(".theta") ? base.slice(0, -".theta".length) : base;
 }
 
 /**
@@ -4139,12 +4133,14 @@ const ZERO_BODY_RANGE: SourceRange = {
  * code-driven `<name>(args)` path and the model-driven adapter.
  *
  * A theta carrying NO snapshot (an in-memory harness fixture built with
- * `frontmatter.tools` but no `callableSet`) falls back to the pre-Gap-2 basename
- * match against `frontmatter.tools` — the same snapshot-absent fallback pattern
- * `#resolvePiToolForTheta` uses. Production discovered thetas always carry a
- * (possibly empty) snapshot, so the fallback never serves a real theta and thus
- * cannot re-open the Gap-2 hole for production (renamed / hyphenated resolve
- * from the snapshot).
+ * `frontmatter.tools` but no `callableSet`) falls back to matching
+ * `frontmatter.tools` by the resolver's own `thetaDefaultName`, the shared
+ * derivation `presentedCallableNames` uses, so the fallback agrees with the
+ * snapshot arm on a hyphenated stem (bug 0253). This is the same
+ * snapshot-absent fallback pattern `#resolvePiToolForTheta` uses. Production
+ * discovered thetas always carry a (possibly empty) snapshot, so the fallback
+ * never serves a real theta and thus cannot re-open the Gap-2 hole for
+ * production (renamed / hyphenated resolve from the snapshot).
  */
 function thetaCalleePath(
   theta: ConversationBindInput["theta"],
@@ -4157,7 +4153,7 @@ function thetaCalleePath(
   }
   const tools = theta.frontmatter.tools ?? [];
   return tools.find(
-    (entry) => entry.endsWith(".theta") && thetaCallableName(entry) === calleeName,
+    (entry) => entry.endsWith(".theta") && thetaDefaultName(entry) === calleeName,
   );
 }
 
@@ -4209,7 +4205,10 @@ function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<st
  * re-tokenising the entry itself, so the two cannot disagree about a malformed
  * entry (bug 0069 §Fix constraint 5): a malformed entry has no presented name
  * and contributes nothing to the returned list, matching the resolver
- * un-registering the theta outright rather than truncating it to a name.
+ * un-registering the theta outright rather than truncating it to a name. A
+ * `.theta` entry's default name is the resolver's shared `thetaDefaultName`
+ * (`src/parser/callable-set.ts`), so a hyphenated stem presents the same
+ * underscored name on both the snapshot and fallback arms (bug 0253).
  */
 function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly string[] {
   const set = theta.callableSet;
@@ -4227,7 +4226,7 @@ function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly
       continue;
     }
     names.push(
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.spec) ? parsed.spec : thetaCallableName(parsed.spec),
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec),
     );
   }
   return names;
