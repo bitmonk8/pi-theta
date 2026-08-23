@@ -137,12 +137,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     (docs/bugs/0129-empty-object-field-type-draws-two-diagnostics.md,
 //     code-registry-parse.md:104): RED, all 30 count observables.
 //   - (I) the termination guard: GREEN at HEAD and after, all 3.
-//   - (K) THE RESIDUAL FENCE: the measured values of bug 0244's unfixed
-//     break-residue residual — an entry stranded behind the field loop's exit
-//     on a missing entry separator. GREEN at HEAD and after, all 6 diagnostic
-//     cells and 4 lowering cells, because the cells record what the code does
-//     rather than what the fix promises; the group's own header states the
-//     obligation a change closing the residual carries.
+//   - (K) THE DELIVERED REACH: bug 0256 (the operator ruling, OPTION 1 —
+//     resync-and-tolerate) closes the break-residue class this group used to
+//     fence at its measured, unfixed values. k1, k3, k4, k7, k9, k10 flip from
+//     silence/permissive to the refusal/`null`; k5, k6 flip a CODE (the
+//     parser loop's structural refusal now pre-empts the recogniser's own
+//     refusal at those two positions, one line either way); k2 and k8 are
+//     unmoved, the discriminator that already reached its entry before this
+//     ruling.
 //
 // ORDERING IS PART OF THE ASSERTION. Every diagnostic cell is an ordered
 // whole-list `toEqual` over the UNFILTERED `doc.diagnostics`, so neither an
@@ -1132,47 +1134,44 @@ describe("bug 0244 (I) — parsing an interior with a depth-0 stray close token 
 });
 
 // ===========================================================================
-// (K) THE RESIDUAL FENCE — bug 0244's UNFIXED break-residue residual.
+// (K) THE DELIVERED REACH — bug 0256 closes the break-residue class the
+// header above once recorded as bug 0244's unfixed residual.
 //
-// THESE CELLS RECORD MEASURED CURRENT VALUES, NOT DESIRED BEHAVIOUR. The
-// refusal above fires on the entries `TypeParser.parseObject`'s field loop
-// VISITS. Where an entry's type text is followed by a token that is neither an
-// entry separator nor the interior's closer — a junk tail, `a: b c` — the loop
-// exits, and every source entry standing behind that exit is unvisited: a
-// keyless entry stranded there draws nothing, although the raw-key split still
-// spells it. Eleven of the twelve `Type` positions of group (B) have a
-// recogniser gate behind the loop that refuses the document anyway (k5, k6);
-// the GENERIC-ARGUMENT position has none, so there the document registers and
-// the field lowers to the permissive `{}` (k1, k7).
+// THESE CELLS NOW RECORD THE FIX'S DELIVERED REACH, ATTRIBUTED TO BUG 0256 AND
+// TO THE OPERATOR RULING (OPTION 1 — resync-and-tolerate,
+// docs/bugs/0256-generic-argument-stranded-entry-registers-permissive.md). The
+// refusal above used to fire only on entries `TypeParser.parseObject`'s field
+// loop VISITED. Where an entry's type text is followed by a token that is
+// neither an entry separator nor the interior's closer — a junk tail, `a: b
+// c` — the loop used to exit, stranding every source entry standing behind
+// it. Under the ruling the loop RESYNCS depth-aware at that failure (reusing
+// `skipMalformedEntry`'s bug-0238 machinery) instead of breaking, so the
+// stranded entry is now reached and bug 0244's own refusal fires on it when it
+// is keyless — the starvation face heals by parsing, not by refusal.
 //
-// The scope that leaves this open is on the record: bug 0244's §Fix names two
-// emission arms — the colon-gate failure arm and the non-`ident`
-// field-name-position arm — and an unvisited entry reaches neither; the cell
-// reads the same before and after the fix, so it is an unfixed residual of the
-// bug class rather than a move; and the stranding interior's own first entry is
-// a colon-present junk tail, which is bug 0252's subject class
-// (docs/bugs/0252-brace-and-angle-annotation-junk-exempt-from-refusal.md) and
-// is locked by the operator adjudication this file encodes. The registry states
-// the same bound as a third exclusion
-// (docs/spec_topics/diagnostics/code-registry-parse.md, the
-// `theta/parse/malformed-schema-field` row).
+// The STRANDING entry itself (the colon-present junk tail, `a: b c`) keeps its
+// own disposition and draws no line of its own: that is bug 0252's landed
+// class and bug 0244's adjudication clauses 2 and 4, unmoved by this ruling
+// (a3 parity, §Non-goals of both reports).
 //
-// A change that closes the residual is EXPECTED to red this group, and must
-// update it to the new values. A red here is never a licence to widen the
-// emission without the operator: the widening reaches into the locked
-// colon-present class.
+// k5 AND k6 FLIP A CODE, NOT A LINE COUNT. At HEAD the unwrapped interior
+// reached its own recogniser gate first (`theta/parse/annotation-type-not-expression`
+// at an annotation, `theta/parse/schema-type-not-expression` at a schema
+// field) because the parser loop had nothing to say about the stranded entry.
+// Under the ruling the parser loop now refuses the stranded entry itself,
+// before the recogniser is even consulted, and the one-diagnostic-per-position
+// discipline the load/parse precedence rules already keep
+// (code-registry-load.md:19's own precedence rule 1, mirrored at the parse
+// stage) lets that earlier, structural refusal pre-empt the later recogniser
+// refusal rather than stack beside it — so k5 and k6 report
+// `theta/parse/malformed-schema-field` where they used to report the
+// recogniser's own code, with no second line added.
 //
-// k2 is the discriminator: the byte-neighbour interior whose first entry
-// carries no junk tail, at the SAME position, is refused — so the residual is
-// about the loop's REACH, not about the stranded entry's shape.
+// k2 remains the discriminator: the byte-neighbour interior whose first entry
+// carries no junk tail, at the SAME position, was already refused before this
+// ruling and stays refused after it — the ruling does not touch a route that
+// already reached the entry.
 // ===========================================================================
-
-/** Bug 0252's row at a schema field type, one of the eleven backstops. */
-const SCHEMA_NOT_EXPR = "theta/parse/schema-type-not-expression";
-
-function SCHEMA_ANNOT(subject: string): Exp {
-  return { severity: "error", code: SCHEMA_NOT_EXPR, fills: [["<X>", subject]] };
-}
 
 /** The stranding interior: a junk tail ahead of a keyless entry. */
 const STRANDED = "{a: b c, d e}";
@@ -1183,50 +1182,52 @@ const STRANDED_VOID = "{a: b c, void}";
 /** The same stranding with a two-token junk tail behind a primitive type. */
 const STRANDED_TYPED_TAIL = "{a: integer x, d e}";
 
-/** The permissive fragment a stranded interior hands a `params:` field. */
-const PERMISSIVE_P =
-  '{"type":"object","properties":{"p":{}},"required":["p"],"additionalProperties":false}';
-
-describe("bug 0244 (K) RESIDUAL FENCE — an entry stranded behind the field loop's exit is unvisited", () => {
-  it("k1–k6: the residual is silent at the generic-argument position and backstopped elsewhere ", () => {
+describe("bug 0256 (K) — the ruling's delivered reach: the stranded entry is visited and judged", () => {
+  it("k1–k6: the generic-argument position refuses, and k5/k6 flip the code that refuses ", () => {
     expectGroup(
       [
-        { cell: `k1 stranded entry, generic argument, params: ${STRANDED} `, src: paramsSrc(`array<${STRANDED}>`), expected: [] },
-        // k2 — the discriminator. The loop reaches `d e` here and refuses it.
+        { cell: `k1 stranded entry, generic argument, params: ${STRANDED} `, src: paramsSrc(`array<${STRANDED}>`), expected: [MALF] },
+        // k2 — the discriminator, unmoved: the loop already reached `d e` here
+        // before this ruling and refuses it exactly as it did before.
         {
           cell: `k2 CONTROL no junk tail, generic argument, params: ${STRANDED_CONTROL} `,
           src: paramsSrc(`array<${STRANDED_CONTROL}>`),
           expected: [MALF],
         },
-        { cell: `k3 stranded reserved keyword ${STRANDED_VOID} `, src: paramsSrc(`array<${STRANDED_VOID}>`), expected: [] },
+        { cell: `k3 stranded reserved keyword ${STRANDED_VOID} `, src: paramsSrc(`array<${STRANDED_VOID}>`), expected: [MALF] },
         {
           cell: `k4 stranded behind a typed junk tail ${STRANDED_TYPED_TAIL} `,
           src: paramsSrc(`array<${STRANDED_TYPED_TAIL}>`),
-          expected: [],
+          expected: [MALF],
         },
-        // k5, k6 — two of the eleven backstopped positions. The interior is the
-        // stranding one, unwrapped: the recogniser gate refuses the document,
-        // so the residual is not observable there.
+        // k5, k6 — a CODE flip, not a line gain: the parser loop's own
+        // structural refusal of the stranded entry now pre-empts the
+        // recogniser's refusal of the whole unwrapped interior at these two
+        // positions (the one-diagnostic-per-position discipline), so the row
+        // reads `theta/parse/malformed-schema-field` in place of the
+        // recogniser's code, still exactly one line.
         {
-          cell: `k5 backstopped at the fn parameter type ${STRANDED} `,
+          cell: `k5 fn parameter type, code flip ${STRANDED} `,
           src: theta(`fn f(p: ${STRANDED}): integer { 1 }`),
-          expected: [ANNOT("p")],
+          expected: [MALF],
         },
         {
-          cell: `k6 backstopped at a schema field type ${STRANDED} `,
+          cell: `k6 schema field type, code flip ${STRANDED} `,
           src: theta(`schema S { a: ${STRANDED} }`),
-          expected: [SCHEMA_ANNOT("S")],
+          expected: [MALF],
         },
       ],
-      "these are MEASURED values, not a promise: the field loop exits at the junk tail and " +
-        "never visits the entry behind it. A red at k1, k3 or k4 reporting a refusal is the " +
-        "residual closing — update this group rather than reading it as a licence. A red at k2 " +
-        "reporting `[]` is the reach the fix DOES deliver being lost. A red at k5 or k6 is a " +
-        "recogniser gate moving, which changes where the residual is observable",
+      "bug 0256's operator ruling (OPTION 1, resync-and-tolerate) closes the break-residue class " +
+        "this group used to fence: the field loop now resyncs past the missing entry separator " +
+        "instead of breaking, reaches the stranded entry, and bug 0244's own refusal fires on it. " +
+        "A red at k1, k3 or k4 reporting `[]` is the ruling not landed. A red at k2 reporting `[]` " +
+        "is the reach the fix already delivered being lost. A red at k5 or k6 reporting the " +
+        "recogniser's own code (rather than the parse-time refusal that now pre-empts it) is the " +
+        "parser loop not yet reaching the stranded entry at that position",
     );
   });
 
-  it("k7–k10: the unbackstopped residual lowers the permissive fragment its control withholds ", () => {
+  it("k7–k10: no stranded carrier lowers the permissive fragment any longer ", () => {
     expect(
       {
         k7: loweredParams(`array<${STRANDED}>`),
@@ -1234,12 +1235,12 @@ describe("bug 0244 (K) RESIDUAL FENCE — an entry stranded behind the field loo
         k9: loweredParams(`array<${STRANDED_VOID}>`),
         k10: loweredParams(`array<${STRANDED_TYPED_TAIL}>`),
       },
-      "the wire consequence of the residual, measured: a `params:` field whose interior strands " +
-        "a keyless entry registers and reaches the provider unconstrained, while its " +
-        "junk-tail-free byte neighbour k8 withholds the frontmatter. A red at k7, k9 or k10 " +
-        "reporting `null` is the residual closing; a red at k8 reporting a fragment is the " +
-        "delivered refusal being withdrawn",
-    ).toEqual({ k7: PERMISSIVE_P, k8: "null", k9: PERMISSIVE_P, k10: PERMISSIVE_P });
+      "the wire consequence of bug 0256's ruling: a `params:` field whose interior used to strand " +
+        "a keyless entry now refuses and withholds the frontmatter, exactly as its junk-tail-free " +
+        "byte neighbour k8 already did. A red at k7, k9 or k10 reporting the permissive fragment " +
+        "is the ruling not landed; a red at k8 reporting a fragment is the delivered refusal being " +
+        "withdrawn",
+    ).toEqual({ k7: "null", k8: "null", k9: "null", k10: "null" });
   });
 });
 

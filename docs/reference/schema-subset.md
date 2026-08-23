@@ -51,12 +51,15 @@ position and at any nesting depth, over the entries the inline field loop's own
 entry walk reaches, one diagnostic per such entry, anchored at the ENCLOSING
 DECLARATION's range there rather than at the offending token (an inline type
 carries no range of its own); a colon-PRESENT entry is out of this row's reach
-whatever its trailing text, a keyless entry carrying a stray depth-0 close token
-keeps its own tolerant registration instead, and an entry stranded behind the
-field loop's exit on a missing entry separator (behind an earlier entry whose
-type text carries a junk tail) is never visited and draws nothing — an unfixed
-residual of bug 0244, which at a generic argument's interior leaves the document
-registering.
+whatever its trailing text, and a keyless entry carrying a stray depth-0 close token
+keeps its own tolerant registration instead. An entry stranded behind the field
+loop's exit on a missing entry separator (behind an earlier entry whose type text
+carries a junk tail) is now reached — the loop resynchronises depth-aware to the
+next top-level `,` at that failure, exactly as it already does at a colon-gate
+failure — and is refused when it is keyless, including at a generic argument's
+interior, where the document now refuses instead of registering; the stranding
+entry itself keeps the colon-present disposition stated above and draws no line
+of its own (bug 0256 §Fix, the operator ruling's OPTION 1 — resync-and-tolerate).
 A body that captures at least one field and then
 reaches end of input with no closing `}` is `theta/parse/schema-body-unclosed`,
 anchored at the body's opening `{`; the fields already captured are retained

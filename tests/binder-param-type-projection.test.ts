@@ -414,7 +414,23 @@ describe("bug 0251 — retired carriers refuse at load", () => {
 // These shapes lower to the permissive `{}` — the schema forbids nothing, so
 // there is no contract for the rendered text to contradict and bug 0251 §Fix
 // leaves the declared text standing.
-const PERMISSIVE = ["array<{a: b c, d e}>", "array<{a: integer, b > c, m: integer}>"] as const;
+//
+// `array<{a: b c, d e}>` is RE-VEHICLED here (bug 0256, the operator ruling's
+// clause (iii), the bug 0165 re-vehicle precedent): under the ruling's
+// OPTION 1 (resync-and-tolerate), `TypeParser.parseObject`'s field loop now
+// resyncs past the missing entry separator instead of breaking, reaches the
+// keyless entry `d e` bug 0244's landed refusal already judges, and the
+// carrier REFUSES — it no longer lowers permissively, so it can no longer
+// stand as this cell's subject. The replacement carrier,
+// `array<{a: integer, b > c}>`, is measured (not merely argued) to still load
+// under the same route: its stray `>` closes nothing (bug 0238's
+// typed-opener-stack class), `skipMalformedEntry` stops at that depth-0 `>`
+// without crossing a separator, so the loop breaks exactly as it always has
+// and the interior still reports `[]` and still lowers `{}` — measured
+// directly against the shipped `parseDoc` / `loweredFragmentsOfP` path.
+// SUBJECT preserved (a permissive lowering leaves the declared type verbatim)
+// and COUNT preserved (two cells); only the vehicle changed.
+const PERMISSIVE = ["array<{a: integer, b > c}>", "array<{a: integer, b > c, m: integer}>"] as const;
 
 describe("bug 0251 — a permissive lowering leaves the declared type verbatim", () => {
   for (const declared of PERMISSIVE) {

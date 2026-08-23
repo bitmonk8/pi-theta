@@ -1,6 +1,6 @@
 # Bug 0256 — an inline object entry stranded behind `TypeParser.parseObject`'s exit on a missing entry separator is never visited, so `params:` `p: 'array<{a: b c, d e}>'` reports `[]`, registers, and lowers `p` to the permissive `{}` that accepts every argument — the keyless-entry refusal bug 0244 landed (0.238.0) fires only on entries the field loop reaches, and every one of the twelve `Type` positions is silent once the interior sits inside a generic argument, because the recogniser that backstops the unwrapped interior declines brace-and-angle text that is not a single enclosing brace group
 
-- **Status:** open.
+- **Status:** fixed (0.251.0).
 - **Sev/Diff estimate:** S1/D3 — S1 because a `params:` field declaring junk
   registers with zero diagnostics on every channel and lowers to the permissive
   `{}`, the accept-anything schema (§Reproduction (a), (c)); D3 because closing
@@ -427,7 +427,9 @@ pages describe rather than intend.
 
 ## Fix
 
-**Blocked on an operator boundary adjudication.** The fix does not begin until
+**The operator boundary adjudication is settled** — it is recorded verbatim in
+the fix record below, which is the flip authority for every cell this change
+moves. The blocking condition, as filed: the fix did not begin until
 the operator settles the boundary against bug
 [0252](./0252-brace-and-angle-annotation-junk-exempt-from-refusal.md), for the
 reason bug 0244's own adjudication established: closing this class necessarily
@@ -562,3 +564,231 @@ declared field rather than only withholding a diagnostic.
 
 `src/`, `tests/`, `docs/bugs/README.md` and every other bug document are
 unmodified by this filing.
+
+## Fix (0.251.0)
+
+The boundary adjudication §Fix routes to the operator is SETTLED, recorded here
+verbatim as the flip authority for every cell this change moves:
+
+> OPERATOR RULING (fifteenth set kickoff, recorded by the parent orchestrator):
+> OPTION 1 — resync-and-tolerate. On TypeParser.parseObject's entry-separator
+> read failure, do not break: resync depth-aware to the next top-level ',' or
+> the closing '}' (reusing bug 0244's skipMalformedEntry machinery + its
+> hang-trap next() fallback), TOLERANTLY SKIPPING the stranding colon-present
+> junk-tail entry — it keeps drawing no line, exactly as its visited twin does
+> today (a3 parity; 0252's decline and 0244's adjudication clauses 2+4 are
+> preserved verbatim — the boundary between the contracts does not move, the
+> loop just stops dying at it). The loop then reaches the previously-stranded
+> entries and 0244's already-landed keyless-entry refusal fires on them;
+> well-formed fields behind the junk (m: integer) are parsed and lowered — the
+> starvation face heals by parsing, not by refusal. The ruling explicitly
+> covers: (i) the stranding colon-present tail stays line-less (a3 parity);
+> (ii) 0244's witness group (K) flips under its own red-when-fixed pin +
+> 0256's §Expected, and its group-(L) inventory constants are re-derived;
+> (iii) bug 0251's break-residue-vehicle cells (its witness + b0251live carrier
+> cell use array<{a: b c, d e}> as their vehicle) are RE-VEHICLED onto the
+> stray-close-in-generic carrier array<{a: integer, b > c, m: integer}> (which
+> still loads under this route), subjects preserved — ratified as part of this
+> ruling (the 0165 re-vehicle precedent); (iv) the 0238 offender-leg
+> content-oracle retake stays UNAVAILABLE (f1 unmoved) — state it by
+> measurement in the fix record; (v) DIAG-2 same-commit rewrite of the four
+> register pages' residual exclusion (code-registry-parse.md:99, spec
+> grammar.md:109, reference/grammar.md:247–249,
+> reference/schema-subset.md:55–57).
+
+- **What shipped:**
+  - `src/parser/type-grammar.ts` — `TypeParser.parseObject`'s entry-separator
+    read no longer ends the field loop. Where `eatPunct(",")` fails it calls
+    `skipMalformedEntry()`, the depth-aware resync the colon-gate-failure arm
+    already runs, whose typed opener stack agrees with
+    `splitTopLevelSegments`'s (bug 0238) so the loop's inventory of an interior
+    and the raw-key split's stay one inventory. Crossing a depth-0 `,` resets
+    the per-entry state (`entryTainted`, `entryStart`, `entryRefused`) exactly
+    as the ordinary separator read does, and the loop continues onto the entry
+    the junk tail used to strand, where bug 0244's already-landed keyless-entry
+    refusal decides it. A resync that crosses no separator — stopping at a
+    depth-0 `}` or `>`, or exhausting the tokens — breaks as before, leaving
+    that token for `parseObject`'s own `eatPunct("}")` or the enclosing
+    `parseGeneric` to read. Termination: `skipMalformedEntry` either consumes
+    at least the `,` it returns `true` for, or returns `false` without
+    consuming, so the arm cannot spin. No new emission site, no new code, and
+    no change to `discardedEntryRefusal`, `entryQualifiesForRefusal` or
+    `classifyEntry` — the stranding colon-present entry itself still draws no
+    line (ruling clause (i)).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2, clause (v).
+    `theta/parse/malformed-schema-field`'s Trigger now bounds the inline reach
+    with TWO exclusions, not three: the stranded-entry exclusion is replaced by
+    a statement of the missing-separator resync and of the generic-argument
+    position now refusing instead of registering, and the colon-present
+    exclusion absorbs the stranding entry's own no-line disposition (0252's
+    decline, 0244's adjudication clauses 2 and 4). Rows
+    `theta/parse/schema-type-not-expression` and
+    `theta/parse/annotation-type-not-expression` name the inline interior's own
+    `theta/parse/malformed-schema-field` among the diagnostics that suppress
+    their refusal, and the schema row distinguishes its body-level co-firing
+    emission (ranged at the offending token) from the inline-interior
+    suppressing one (ranged at the enclosing declaration).
+  - `docs/spec_topics/grammar.md`, `docs/reference/grammar.md`,
+    `docs/reference/schema-subset.md` — the three mirrors of that exclusion,
+    rewritten in the same change (clause (v)). §"Inline object types" now
+    states ONE entry class outside the reach, the stray-close-token entry.
+  - `tests/inline-object-stranded-entry-refusal.test.ts` — NEW offline witness
+    over `parseDoc`, `doc.frontmatter.params.loweredSchema`,
+    `lowerQueryResponseSchema`, `annotationSourceIsNotTypeExpression` and
+    `isSingleEnclosingBraceGroup`, carrying §Reproduction (a)–(f) with both
+    columns per row plus an anti-vacuity inventory group; (g) is discharged by
+    `tests/committed-fixture-parse-gate.test.ts` and not re-probed.
+  - `tests/live/b0256live-stranded-entry-params-refusal-live-cell.test.ts` —
+    NEW H8a live cell for §Fix's owed live cover.
+  - `tests/inline-object-keyless-entry-refusal.test.ts` (clause (ii)) and
+    `tests/binder-param-type-projection.test.ts` (clause (iii)) — the two
+    flipped witnesses, enumerated below.
+- **Gates:**
+  - Witness, red before: `npx vitest run
+    tests/inline-object-stranded-entry-refusal.test.ts` → `Tests 6 failed | 5
+    passed (11)`, a1 reporting `Array []` where the refusal is expected.
+  - Witness, green after: `Test Files 1 passed (1) / Tests 11 passed (11)`.
+  - Full default suite: `Test Files 423 passed (423) / Tests 8899 passed
+    (8899)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, clean.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    clean.
+  - `npx vitest run tests/committed-fixture-parse-gate.test.ts` → `36 passed`
+    (the corpus-wide no-shipped-source-moves claim, §Reproduction (g)).
+  - Live, one lock acquisition, RC=0 on the first attempt, log
+    `live-0256-merge.log`: `npx vitest run --config
+    config/vitest/vitest.live.config.ts` over
+    `tests/live/b0256live-stranded-entry-params-refusal-live-cell.test.ts`,
+    `tests/live/b0244live-keyless-entry-params-refusal-live-cell.test.ts`,
+    `tests/live/b0251live-tolerated-junk-carrier-live-cell.test.ts`,
+    `tests/live/inline-object-stray-close-token-live-cell.test.ts` and
+    `tests/live/acceptance/inline-object-stray-close-token-load.test.ts` →
+    `Test Files 5 passed (5) / Tests 5 passed (5)`.
+  - `tests/fixtures/h7a/permitted-codes.json` byte-unchanged (`git diff
+    --quiet` exit 0): it holds no `theta/parse/` code, and the disposition here
+    is a REUSE of one.
+- **Review:** 2 rounds. Round 1 (deep) — 5 findings: two process references, in
+  the new `src` comment and in the group-(K) header (house-rule); the sibling
+  registry rows `:106` / `:107` not prescribing the suppression cells k5 and k6
+  now observe (spec); both new test files narrating the pre-rewrite "third
+  exclusion" registry shape (test); an inverted k8 direction in the k7–k10
+  failure message (test). All five fixed. Round 2 (fast) — CLEAN, with the
+  `:106` / `:107` prose re-measured against the shipped behaviour and every
+  lock re-run green.
+- **Verification:** SOLID. (1) Neutralising ONLY the parser arm back to a bare
+  `break;` reds the witness (`6 failed | 5 passed`) with a1 reporting `Array
+  []` — the bug's own signature — and reds group (K)'s two `it` blocks at their
+  pre-fix values; the file was restored by writing the original bytes back and
+  `git hash-object` matches the fix-landed blob exactly. (2) Full default suite
+  green. (3) Live cover verified from the merged log: the carrier is absent
+  from the registered set while its byte-neighbour control registers and
+  completes a real turn over a task-framed arithmetic oracle. (4) Typecheck,
+  lint and the committed-fixture gate green. (5) Locks unmoved: bugs 0244
+  (non-(K) groups), 0252, 0238 and 0028's `RESULT-LET-BRACE` cell are each
+  untouched by the diff and green. (6) Clause (iv) re-derived independently: f1
+  and f2 byte-identical to this document's recorded values.
+- **Flips, old → new → why:**
+  1. §Reproduction (a) a1 `array<{a: b c, d e}>` at `params:`: `[]` +
+     `PERMISSIVE` → one `theta/parse/malformed-schema-field`, frontmatter
+     withheld. The loop reaches `d e` and bug 0244's refusal fires.
+     §Expected 1.
+  2. §(b) b1–b12, subject column: `[]` (b6 its mismatch alone) →
+     `theta/parse/malformed-schema-field` at every position, and at b6 that
+     line ahead of the `let-rhs-type-mismatch`. Same cause; the control column
+     is byte-unmoved.
+  3. §(c) c1–c13: `[]` plus a permissive or permissive-carrying lowering → one
+     `theta/parse/malformed-schema-field` and no lowering at all. c8 and c9's
+     declared field `m` is now parsed rather than dropped in silence, and the
+     document is refused, so §Expected 2's "either lowered or refused" is met
+     by refusal.
+  4. §(a) a5 `{a: b c, d e}` and §(e) e1–e3 at `params:`:
+     `theta/load/params-type-not-expression` →
+     `theta/parse/malformed-schema-field`. A CODE substitution at cells that
+     refused before and refuse after: the load row's own precedence rule 1
+     (`code-registry-load.md:19` — "a field already carrying an error-severity
+     diagnostic from its own type-side parse or lowering … keeps that
+     diagnostic and draws no text refusal") pre-empts the text stage once the
+     loop refuses the stranded entry. This CONTRADICTS §Expected 5 and §Fix
+     "What must not move", which predicted a5 and e1–e3 unmoved; the
+     prediction was wrong, not the route — the unwrapped and union-arm
+     carriers spell the same stranding interior, so no route reaching a1
+     through `parseObject` can leave them at the sink's code. The disposition
+     (refuse, withhold the frontmatter, do not register) is unmoved at all
+     four cells, and no test asserted the old codes. Under GOV-15's
+     diagnostic-registry carve-out this is a Trigger change — in scope as a
+     removal for the code taken out and as an addition for the code brought in
+     — and not a DIAG-3 rename or a DIAG-4 reword.
+  5. Bug 0244's witness group (K), ruling clause (ii): k1, k3 and k4 `[]` → one
+     `theta/parse/malformed-schema-field`; k5
+     `theta/parse/annotation-type-not-expression` → the same code; k6
+     `theta/parse/schema-type-not-expression` → the same code; k7, k9 and k10
+     `PERMISSIVE_P` → `null`. k2 and k8, the discriminator pair, are
+     byte-unmoved. The group's header is rewritten from a residual fence
+     recording measured-not-desired values into the delivered reach, attributed
+     here; no cell was deleted. The group-(L) inventory constants were
+     re-derived from the tables and are unchanged (`groupK = 6`,
+     `TOTAL_LIST_CELLS = 133`, `TOTAL_LOWERING_CELLS = 21`,
+     `TOTAL_COUNT_OBSERVABLES = 30`, `TOTAL_TERMINATION_OBSERVABLES = 3`): the
+     flips move values, not counts.
+  6. Bug 0251's witness `tests/binder-param-type-projection.test.ts`, ruling
+     clause (iii): the `PERMISSIVE` vehicle `array<{a: b c, d e}>` no longer
+     lowers permissively, so it is re-vehicled onto
+     `array<{a: integer, b > c}>` — a second stray-close-in-generic carrier,
+     measured `[]` plus the permissive `{}` under this change — beside the
+     already-present `array<{a: integer, b > c, m: integer}>`. Subject (a
+     permissive lowering leaves the declared type verbatim) and cell count are
+     preserved; the assertion is not weakened.
+- **Clause discharge:**
+  - (i) The stranding colon-present tail stays line-less: §(a) a3
+    `array<{a: b c}>` is byte-unmoved (`[]`, lowering
+    `{"type":"array","items":{}}`), and no cell of this change emits on
+    `a: b c`. 0252's decline and 0244's clauses 2 and 4 are untouched — 0252's
+    11-cell witness and its live cell are green and undiffed.
+  - (ii) Discharged at flip 5.
+  - (iii) Discharged at flip 6. MEASURED CORRECTION to the ruling's premise:
+    `tests/live/b0251live-tolerated-junk-carrier-live-cell.test.ts` does NOT
+    carry `array<{a: b c, d e}>` as its vehicle — it carries the UNWRAPPED
+    `{a: integer, b > c, m: integer}`, this document's §(f) f1 row, which this
+    route leaves byte-unmoved. It therefore needed no re-vehicling, was not
+    edited, and is green live.
+  - (iv) The bug 0238 offender-leg content-oracle retake stays UNAVAILABLE, by
+    measurement: f1 `{a: integer, b > c, m: integer}` still reports `[]` and
+    still lowers `$ref → __inline_6ab13cdeb4b48b5a` with fragment `{a, m}` and
+    `required ["a","m"]`, byte-identical to §Reproduction (f); f2 is likewise
+    unmoved at `[]` plus `PERMISSIVE`. The offender registers before and after,
+    so "absent from the registered set" is not available to it as an oracle,
+    and both legs of bug 0238's live pair stay as landed — both green in this
+    change's live run.
+  - (v) Discharged at *What shipped*: `code-registry-parse.md:99` plus the
+    three mirrors, all in this change. `docs/reference/diagnostics.md` carries
+    no Trigger column and needed no edit;
+    `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
+- **Residuals:**
+  1. The two reference mirrors keep a change-narrating frame — "an entry
+     stranded behind the field loop's exit … is now reached"
+     (`docs/reference/grammar.md`, `docs/reference/schema-subset.md`) — where
+     the registry row uses the cleaner "a missing entry separator no longer
+     strands the entry behind it". The content is true against measurement;
+     only the phrasing differs. Raised in review round 1 and dispositioned as a
+     residual rather than widened into a rewrite of the two pages.
+  2. Those two rewrites lengthen wrapped paragraphs by +4 and +3 lines, so
+     absolute line citations INTO the two files past the edit shift. No
+     currently-accurate citation is broken: the citations at risk were already
+     stale at HEAD — `docs/reference/grammar.md:302` (cited by bugs 0032, 0049
+     and 0141 as member access) held `par for` prose, and `:273–281` (bug 0033,
+     schema alias forms) held `StmtBlock` / `ParForBody`;
+     `docs/reference/schema-subset.md:56–59` (bug 0033, discriminated unions)
+     and `:56–58` (bug 0042) held the stranded-entry residual prose itself, and
+     `:151–152` and `:163–164` (bug 0055, literal-union bytes) held `maxDepth`
+     error-shape prose. Bug 0134 is the adjudicated do-not-chase class; no
+     citation was chased.
+  3. §Expected 5 and §Fix "What must not move" are wrong about a5 and e1–e3
+     (flip 4). Recorded here rather than edited into the report's body.
+- **Discharge notes appended:** none. Bugs 0238, 0244, 0251 and 0252 are all
+  *fixed*; their witnesses were updated in place where a ruling clause required
+  it (0244's group (K), 0251's vehicle cell) and left byte-unmoved otherwise.
+- **Pinned dispositions / non-goals:** unchanged. The colon-present entry's own
+  verdict, the stray-close class, the prompt rendering of tolerated junk, the
+  deferring nominal's rendering at §(b) b6, the zero-token entry, the empty
+  type position and citation drift all stay as this document's §Non-goals
+  states them.

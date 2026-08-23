@@ -6,6 +6,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.251.0]
+
+### Fixed
+
+- Bug 0256: the stranded-entry class is closed — `TypeParser.parseObject`'s
+  entry-separator read RESYNCS via `skipMalformedEntry()` instead of
+  breaking (operator ruling OPTION 1, resync-and-tolerate), so entries
+  behind a colon-present junk tail are reached and bug 0244's landed
+  keyless refusal fires on them; well-formed sibling fields are parsed and
+  lowered (starvation healed by parsing). `params: p: 'array<{a: b c, d
+  e}>'` no longer registers with a permissive `{}`; the stranding
+  `a: b c` itself stays line-less (a3 parity; 0252's decline + 0244's
+  clauses 2+4 preserved verbatim). DIAG-2 rewrite of the four register
+  pages' residual exclusion. Entailed GOV-15 Trigger flips recorded and
+  ratified at merge: a5/e1–e3 now draw `theta/parse/malformed-schema-field`
+  (was `theta/load/params-type-not-expression`) — still refusing, still
+  withholding, no test asserted the old codes; unavoidable on any route
+  reaching a1 through `parseObject`. Authorized flips per the ruling:
+  0244 witness group (K) k1/k3–k7/k9/k10 (k2/k8 unmoved); 0251's
+  PERMISSIVE vehicle re-vehicled onto `array<{a: integer, b > c}>`
+  (b0251live needed NO re-vehicling — it carries the unwrapped f1
+  interior; ruling clause (iii)'s premise corrected by measurement).
+  Clause (iv) by measurement: f1/f2 byte-identical — 0238's offender-leg
+  retake stays unavailable; both 0238 live legs unmoved. New witnesses:
+  `tests/inline-object-stranded-entry-refusal.test.ts` (RED 6/11 at HEAD)
+  + `tests/live/b0256live-stranded-entry-params-refusal-live-cell.test.ts`
+  (carrier absent from the registered set; control registers and drives).
+  permitted-codes byte-unchanged.
 ## [0.250.0]
 
 ### Fixed

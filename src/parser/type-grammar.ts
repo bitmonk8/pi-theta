@@ -934,7 +934,37 @@ class TypeParser {
           }
         }
         if (!this.eatPunct(",")) {
-          break;
+          // Bug 0256 (operator ruling: OPTION 1 — resync-and-tolerate). A
+          // missing entry separator does not end the loop: it resyncs
+          // depth-aware to this interior's next top-level `,`, reusing
+          // `skipMalformedEntry`'s bug-0238 typed-opener-stack machinery and
+          // its `next()` hang-trap fallback — the same resync the
+          // colon-gate-failure arm above runs. The STRANDING entry itself
+          // (a colon-present junk tail like `a: b c`) draws NO line here: bug 0252's landed decline and bug
+          // 0244's adjudication clauses 2 and 4 keep that class's
+          // disposition unmoved (a3 parity), so this arm only resyncs and
+          // never refuses. Crossing the separator proves the loop moved on
+          // to an entry the author actually wrote, so the per-entry state
+          // resets exactly as it does at the ordinary separator read below;
+          // once resumed, 0244's own refusal fires on whatever it finds
+          // there, including a keyless entry standing behind the junk tail.
+          // A bare stop at a depth-0 `}` or `>` with nothing left to cross
+          // leaves that token unconsumed for `parseObject`'s own
+          // `eatPunct("}")` or the enclosing `parseGeneric` to read — the
+          // boundary this loop stops at, never a `next()` past a close
+          // token — so the loop still breaks there. Termination:
+          // `skipMalformedEntry` either consumes at least the `,` it returns
+          // `true` for, or runs out of tokens / stops on an unconsumed `}` /
+          // `>` (bug 0238's clamp against a no-progress spin), so this arm
+          // cannot spin on a stranding entry.
+          const crossedSeparator = this.skipMalformedEntry();
+          if (!crossedSeparator) {
+            break;
+          }
+          entryTainted = false;
+          entryStart = this.pos;
+          entryRefused = false;
+          continue;
         }
         entryTainted = false;
         entryStart = this.pos;
