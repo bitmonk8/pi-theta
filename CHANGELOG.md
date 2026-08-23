@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.229.0]
+
+### Fixed
+
+- **Bug 0048** — `tests/live/double-session-start-live.test.ts`'s quiescence assertion can now actually red: a warm-up structural churn (`b0048warmup.theta`) before the second `bindExtensions` plus retried writes and polling of the settled in-memory `SessionManager` for the delivered structural-change note (`failLoudly` on a 30 s cap) replace the vacuous pass — red-path proven twice against neutralised `factory.ts` delivery, restored hash-exact. Every pre-existing assertion and `DEBOUNCE_SETTLE_MS` byte-unchanged.
+
 ## [0.228.0]
 
 ### Fixed

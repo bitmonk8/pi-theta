@@ -51,6 +51,16 @@
 // production debounce is 250 ms REAL clock, so each churn is followed by a
 // ~1000 ms real-time wait to let any (leaked) reload pass cross its boundary.
 //
+// The bug-0021 arm below is an ABSENCE assertion over a `console.error`
+// capture, so it is only evidence about the leak once this generation's
+// watcher is known to deliver: `PiFileWatcher` arms chokidar with
+// `ignoreInitial: true` (src/seams/pi-file-watcher.ts:31), which drops a write
+// to any path its initial walk has not yet reached, and the seam exposes no
+// readiness signal (src/seams/file-watcher.ts:46-50). The warm-up churn below
+// establishes delivery as a proven precondition before the supersession, and
+// fails loudly when it is unmet
+// (docs/bugs/0048-double-session-start-live-vacuous-quiesce-witness.md).
+//
 // Live-suite conventions (AGENTS.md): fail loudly when the live provider
 // precondition is unmet (never skip); assert on real observables (the
 // `theta-system-note` channel read off the settled in-memory `SessionManager`
@@ -77,6 +87,25 @@ const STALE_QUIESCE_PREFIX = "theta hot-reload quiesced:";
 
 /** The slash name planted below — the SURVIVING name bug 0024's re-bind pass must re-own. */
 const SURVIVING_SLASH_NAME = "greetlive";
+
+/**
+ * Stem of the warm-up theta planted to PROVE generation 1's watcher delivers
+ * (bug 0048). Deliberately distinct from `SURVIVING_SLASH_NAME`: both bug-0024
+ * filters below cut on that name, so a warm-up registration can neither
+ * satisfy nor defeat them.
+ */
+const WARMUP_SLASH_NAME = "b0048warmup";
+
+/**
+ * The structural-change `theta-system-note` a closed debounce window emits when
+ * the registered theta SET changed (`structuralChangeNote`,
+ * src/extension/reload-wiring.ts:477; sent at
+ * src/extension/hot-reload.ts:271-273). Split around the substituted count so
+ * the assertion reads the operator-visible template, not an internal.
+ */
+const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
+const STRUCTURAL_NOTE_SUFFIX =
+  "file(s) added or removed; run /reload to refresh the slash command list";
 
 /**
  * The drain-state arm-(b) note for the surviving name (`drain-state.ts`
@@ -135,6 +164,32 @@ function collectSystemNotes(entries: readonly unknown[]): readonly string[] {
  */
 const DEBOUNCE_SETTLE_MS = 1000;
 
+/**
+ * Poll granularity for reading the durable structural-change note, and the
+ * unit the retry cadence is built from: WARMUP_POLLS_PER_WRITE * this is the
+ * gap between retried warm-up writes, sized to let one debounce window close.
+ */
+const WARMUP_POLL_INTERVAL_MS = 250;
+
+/**
+ * Polls between two retried warm-up writes. Keeps the gap between consecutive
+ * writes at 2x the production 250 ms debounce, so a retry cannot perpetually
+ * re-schedule the drop-and-reschedule debouncer and starve the reload pass
+ * whose note is the awaited observable.
+ */
+const WARMUP_POLLS_PER_WRITE = 2;
+
+/**
+ * Cap on the warm-up precondition. Sized an order above the measured
+ * first-delivery latency — about 2.5 s of settle before the first `add`
+ * reached the handler in this repo's in-process live harness (recorded during
+ * the bug 0034 verification), and about 272 ms after two retried writes over
+ * the bare production seam. The cap bounds a LOUD failure, not a settle
+ * budget: over-sizing costs wall time only when the precondition is genuinely
+ * unmet, and the loop exits at first delivery.
+ */
+const WARMUP_DELIVERY_CAP_MS = 30_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -183,6 +238,72 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
     const handle = await bootShippedExtension({ workspace, provider });
     let handleDisposed = false;
     try {
+      // ---- Watcher-delivery precondition (bug 0048): the bug-0021 arm at the
+      // end of this test asserts an ABSENCE, and an absence is also what a
+      // watcher that delivered NOTHING produces. Prove generation 1's watcher
+      // is past its initial scan by churning STRUCTURALLY (a content-only edit
+      // emits no note — `structuralChangeNote` suppresses empty windows,
+      // src/extension/reload-wiring.ts:467-471) and awaiting the DELIVERED
+      // structural-change note off the settled in-memory `SessionManager`.
+      // Runs before the second bind because after the supersession that
+      // watcher is correctly gone and its delivery is no longer demonstrable;
+      // before the `console.error` spy so warm-up reload diagnostics cannot
+      // enter the quiesce capture; before `entriesBeforeSecondBind` so warm-up
+      // notes cannot enter the bug-0024 rebind slice.
+      const entriesBeforeWarmup = handle.sessionManager.getEntries().length;
+      const warmupPath = join(
+        workspace.cwd,
+        ".pi",
+        "theta",
+        `${WARMUP_SLASH_NAME}.theta`,
+      );
+      const warmupText = promptTheta(
+        "Warm-up churn: never dispatched, planted only to prove watcher delivery.",
+      );
+      const warmupDeadline = Date.now() + WARMUP_DELIVERY_CAP_MS;
+      let warmupDelivered = false;
+      while (!warmupDelivered && Date.now() < warmupDeadline) {
+        // Retry the write: chokidar attaches a path's `fs` watcher only when
+        // its initial walk reaches the path and suppresses the walk's own
+        // `add` under `ignoreInitial: true`, so a write landing inside the
+        // scan is delivered as nothing at all and must be re-issued rather
+        // than waited on. Every retry keeps the file a valid prompt-mode theta
+        // so each reload pass can publish.
+        writeFileSync(warmupPath, warmupText, "utf8");
+        for (let poll = 0; poll < WARMUP_POLLS_PER_WRITE; poll += 1) {
+          await sleep(WARMUP_POLL_INTERVAL_MS);
+          const warmupNotes = collectSystemNotes(
+            handle.sessionManager.getEntries().slice(entriesBeforeWarmup),
+          );
+          if (
+            warmupNotes.some(
+              (note) =>
+                note.includes(STRUCTURAL_NOTE_PREFIX) &&
+                note.includes(STRUCTURAL_NOTE_SUFFIX),
+            )
+          ) {
+            warmupDelivered = true;
+            break;
+          }
+        }
+      }
+      if (!warmupDelivered) {
+        failLoudly(
+          "live-host precondition unmet: the watcher armed by this generation " +
+            `delivered no event within ${WARMUP_DELIVERY_CAP_MS} ms of ` +
+            `retried structural churn (no "${STRUCTURAL_NOTE_PREFIX}<N> ` +
+            `${STRUCTURAL_NOTE_SUFFIX}" note reached the transcript), so the ` +
+            "zero-quiesce-line witness below would be vacuous — an absence " +
+            "produced by a delivery chain that never ran, not by the absent " +
+            "bug-0021 leak. Notes seen since boot: " +
+            JSON.stringify(
+              collectSystemNotes(
+                handle.sessionManager.getEntries().slice(entriesBeforeWarmup),
+              ),
+            ),
+        );
+      }
+
       // Spy BEFORE the second bind so every stderr line the superseded
       // generation could ever emit — including a leaked watcher's
       // post-invalidation quiesce — is captured. `vi.spyOn` records calls and
@@ -272,10 +393,12 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
           "Outbound user texts: " + JSON.stringify(turn.userTexts),
       ).toContain(OUTBOUND_SENTINEL);
 
-      // Churn 1 (session live): rewrite the `.theta` body and cross the real
-      // 250 ms debounce. Post-fix only generation 2's watcher fires (a normal
-      // live reload); pre-fix generation 1's leaked watcher ALSO rebuilds —
-      // silently, since the shared runtime is still live.
+      // Churn 1 (session live): rewrite the `.theta` body and advance the
+      // session past one real 250 ms debounce window before the shutdown, so
+      // the shutdown-then-churn-2 sequence below runs on a session that has
+      // already crossed a debounce boundary while live. Nothing is asserted on
+      // this churn: generation 2's watcher has its own unproven initial scan
+      // (bug 0048 §Fix residual (i)), so no delivery is claimed here.
       writeFileSync(
         thetaPath,
         promptTheta(

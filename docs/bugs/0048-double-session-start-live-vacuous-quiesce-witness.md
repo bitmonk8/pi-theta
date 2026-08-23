@@ -1,6 +1,6 @@
 # Bug 0048 — The live bug-0021 leak witness asserts an absence with no proof that any watcher delivered an event: under chokidar's `ignoreInitial: true` a churn landing before the initial scan completes is dropped, so `tests/live/double-session-start-live.test.ts`'s zero-quiesce-line assertion is satisfied by a watcher that delivered nothing, and the same test guards its *other* zero-assertion against exactly this vacuity
 
-- **Status:** open.
+- **Status:** fixed (0.229.0).
 - **Kind:** defect — test infrastructure, one assertion in one live test. Not a
   runtime divergence: the supersession and teardown behaviour the witness
   observes is correct at HEAD (bugs
@@ -205,8 +205,10 @@ precedent.
 **C — show the green survives the defect it is meant to catch.** Neutralise the
 supersession pass's handling of the outgoing generation so generation 1's
 watcher leaks: remove the mark-and-quiesce block
-(`src/extension/factory.ts:813–814`, bug 0034's fix) and the isolated
-`outgoingHandle?.detach()` (:868, bug 0021's fix). Both are required — the mark
+(`src/extension/factory.ts:815–816`, bug 0034's fix) and the isolated
+`outgoingHandle?.detach()` (:870, bug 0021's fix; re-derived at HEAD — unrelated
+factory.ts edits since this report was filed shifted both citations by two
+lines). Both are required — the mark
 alone stops generation 1's debouncer from starting a new rebuild, which
 suppresses the quiesce line for a second reason. Then run the witness twice:
 
@@ -398,7 +400,8 @@ precedent.
 
 **Red-direction proof (required before the fix is considered done).** Per
 AGENTS.md §"Verify both directions", run §Reproduction C: with
-`src/extension/factory.ts:813–814` and :868 neutralised, the witness must red with
+`src/extension/factory.ts:815–816` and :870 neutralised (re-derived at HEAD;
+see §Reproduction C), the witness must red with
 exactly one captured `theta hot-reload quiesced:` line — the signature bug 0021
 §Verification :132–134 records — and must do so with the model turn's duration
 made irrelevant. Restore the source, confirm green, and confirm
@@ -474,3 +477,105 @@ no source, so it can land in any order.
   its one recorded red-proof at `ea5de328`); bug 0023 §Fix :250–254; bug 0029
   §Fix :179–182; bug 0030 §Fix "Measured baseline" and *Residuals* (i)
   (:200–204); bug 0034 §Fix "Live." :245–256.
+
+## Fix (0.229.0)
+
+- **What shipped:** `tests/live/double-session-start-live.test.ts` (325 → 448
+  lines, the only file changed; `git diff -- src/` empty) — a watcher-delivery
+  precondition for the bug-0021 arm, per §Fix. Between `bootShippedExtension`
+  and the second `bindExtensions({})`, and ahead of both the `console.error`
+  spy install and the `entriesBeforeSecondBind` sample: a **structural** churn
+  plants `b0048warmup.theta` in `<workspace.cwd>/.pi/theta/`
+  (`WARMUP_SLASH_NAME`, a stem neither bug-0024 filter cuts on), re-issued on a
+  fixed cadence while polling the settled in-memory `SessionManager` through
+  the existing `collectSystemNotes` reader for the delivered structural-change
+  note (`src/extension/reload-wiring.ts:477`, sent at
+  `src/extension/hot-reload.ts:271–273`); on cap expiry `failLoudly` names the
+  unmet precondition — the watcher armed by this generation delivered no event,
+  so the witness below would be vacuous. `DEBOUNCE_SETTLE_MS = 1000` unchanged;
+  no model turn added (cost stays ONE turn); the churn-1 comment now states
+  what churn 1 does (advance the session past one debounce window before the
+  shutdown, nothing asserted) instead of claiming an unverified delivery.
+  Citation-only: §Reproduction C and §Fix's neutralisation anchors re-derived
+  at HEAD (`factory.ts:813–814`/:868 → `:815–816`/:870).
+- **Measured baseline** (bug 0030 §Fix precedent). Bare production seam,
+  chokidar@4.0.3, one watched root over a freshly planted `.pi/theta`: a single
+  write issued at `t = 0` immediately after `PiFileWatcher.watch()` delivered
+  **nothing at all** by `t = 4000 ms`; a later write at `t = 4000 ms` delivered
+  `change +4021 ms`. With the same write **retried every 250 ms**, first
+  delivery was `add +272 ms` after two retried writes. In this repo's
+  in-process live harness the 0034 verification measured about 2.5 s of settle
+  before the first `add` reached the handler. An un-retried early write is lost
+  outright, so the retry loop is load-bearing rather than defensive, and
+  `DEBOUNCE_SETTLE_MS = 1000` does not cover the omitted scan term. Chosen cap:
+  `WARMUP_DELIVERY_CAP_MS = 30_000` (an order above the 2.5 s in-harness
+  figure); it bounds a loud failure, not a settle budget, and the loop exits at
+  first delivery. Retry cadence `WARMUP_POLL_INTERVAL_MS (250) ×
+  WARMUP_POLLS_PER_WRITE (2) = 500 ms`, i.e. twice the production debounce
+  window: `ReloadDebouncer.onWatcherEvent` is unconditional
+  drop-and-reschedule, so a retry cadence equal to the window can re-arm the
+  timer indefinitely and starve the reload pass whose note is the awaited
+  observable.
+- **Assertions touched.** None changed in form or semantics. The bug-0021 arm
+  `expect(quiesceLines, …).toStrictEqual([])` is byte-unchanged — the fix makes
+  it falsifiable, not different. The registration sanity read and the three
+  bug-0024 `expect.soft` arms (collision notes, shutting-down notes, outbound
+  sentinel) are byte-unchanged. One non-`expect` precondition was **added**:
+  the warm-up `failLoudly`, mirroring the PIC-58 guard.
+- **Gates.** `npm test` → `Test Files 409 passed (409)` / `Tests 8605 passed
+  (8605)`; `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+  `npm run lint` (`eslint … "src/**/*.ts"`) clean. Live witness, one lock hold:
+  RED under the §Reproduction C injection then GREEN restored (below).
+- **Red-direction proof** (AGENTS.md §"Verify both directions"). With
+  `src/extension/factory.ts:815–816` (`markTornDown` + `quiesceOutgoingRebuild`)
+  and :870 (`outgoingHandle?.detach()`) commented out, the hardened witness
+  failed on the quiesce arm with **exactly one** captured line — `theta
+  hot-reload quiesced: extension runtime invalidated without session_shutdown
+  (bare AgentSession.dispose()); watcher detached, hot reload halted for this
+  extension instance (bug 0018, PIC-67)` — the signature bug 0021
+  §Verification :132–134 records, with no `failLoudly` precondition message in
+  the output (so the red is the leak, not a broken warm-up). The source was
+  restored by writing the original bytes back (no `git checkout`/`restore`/
+  `stash`): `git hash-object src/extension/factory.ts` ==
+  `git rev-parse HEAD:src/extension/factory.ts` ==
+  `10be4af95f266df96510f159b4c2c295a1d46c39`, and `git diff -- src/` empty.
+  The restored tree then ran GREEN (`Test Files 1 passed (1)`, 6.1 s). The pair
+  was produced twice independently — once at implementation, once at
+  verification.
+- **Review.** Two rounds. Round 1 (deep): one fidelity finding — the §Fix
+  "Cap magnitude" measured-baseline record was still unwritten (discharged by
+  the *Measured baseline* bullet above) — plus one prose residual on the
+  `WARMUP_POLL_INTERVAL_MS` docstring, which claimed "sub-debounce" for a value
+  equal to the debounce. Round 2 (polish, comment-only): docstring corrected;
+  verified by gate diff, confirmation round skipped because no executable line
+  was touched.
+- **Verification.** PASS. Red-then-green pair under the injection with a
+  byte-exact restore (quoted above); default suite 409/8605 green; live
+  coverage is this cell itself — the doc's own witness on the lifecycle surface
+  — run under the live lock; H9a not owed (the diff touches no acceptance
+  surface); typecheck and lint clean; no silent skip, no added model turn, no
+  racy event subscription, no surviving scratch artifact.
+- **Residuals.**
+  1. As §Fix records: the warm-up proves generation 1's watcher delivers, not
+     generation 2's (armed at the second bind) when churn 1 lands. Nothing is
+     asserted on churn 1, and the reconciled comment says so.
+  2. The warm-up leaves `b0048warmup.theta` in the workspace, so generation 2
+     registers two slash names and its structural baseline covers both. The
+     bug-0024 arms cut on `SURVIVING_SLASH_NAME` and were green in every live
+     run.
+  3. The witness still covers only the 0021 leak class (§Non-goals).
+  4. The test file grew 325 → 448 lines, so line citations into it from other
+     documents (this report's §Affected and §Provenance, bug 0030 §Fix
+     *Residuals* (i), bug 0243's record) are stale below the warm-up block.
+     Those anchors are pinned to the HEADs their own reports name and were not
+     rewritten here.
+  5. Pre-existing citation drift left untouched: this report's `tests/live/harness.ts`
+     anchors (`:70` `failLoudly` → `:80`; `:238` first `bindExtensions` →
+     `:260`; `:147–171` `plantThetaWorkspace` → from `:157`) predate this fix —
+     `harness.ts` was not touched.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals.** The runtime is untouched:
+  `ignoreInitial: true`, the `FileWatcher` seam's missing readiness member and
+  the 250 ms debounce all stand (§Non-goals). The re-literalised quiesce prefix
+  stays a separate filing. A larger `DEBOUNCE_SETTLE_MS` was rejected by §Fix
+  and not taken: it restates the same unpinned assumption at another magnitude.
