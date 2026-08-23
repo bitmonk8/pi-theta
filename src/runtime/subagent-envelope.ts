@@ -93,7 +93,7 @@ export interface EnvelopeLine {
 // Diagnostic codes (RFC 0006 marshalling codes).
 // ---------------------------------------------------------------------------
 
-/** `theta/runtime/subagent-envelope-parse-failed` — a reserved-key line failed the pinned schema. */
+/** `theta/runtime/subagent-envelope-parse-failed` — a reserved-key line did not parse against the pinned return-envelope schema. */
 export const SUBAGENT_ENVELOPE_PARSE_FAILED_CODE = "theta/runtime/subagent-envelope-parse-failed";
 
 /**
@@ -384,14 +384,14 @@ export interface EnvelopeFailureMapping {
 }
 
 /**
- * Map a reserved-key envelope line that failed the pinned schema to
+ * Map a reserved-key envelope line that fails return-envelope parsing to
  * `Err(InvokeInfraError { cause: "internal_error" })` + the
  * `theta/runtime/subagent-envelope-parse-failed` diagnostic (fail-closed; the
  * `<line summary>` tail is category-8 host-derived, per the sibling below).
  */
 export function mapEnvelopeParseFailure(line: string, calleePath: string): EnvelopeFailureMapping {
   const summary = summarizeLine(renderHostDerivedTail(line));
-  const message = `subagent return envelope failed the pinned schema: ${summary}`;
+  const message = `subagent return envelope parse failed: ${summary}`;
   return {
     error: {
       kind: "invoke_infra",

@@ -375,13 +375,14 @@ measured are the `Diagnostic` fields and the `content` input that
 - **The *Message* template divergence.** The registry states
   `subagent return envelope parse failed: <line summary>`
   (`docs/spec_topics/diagnostics/code-registry-runtime.md:28`, mirrored at
-  `docs/reference/diagnostics.md:277`); the shipped prefix is
-  `subagent return envelope failed the pinned schema: `
-  (`src/runtime/subagent-envelope.ts:394`). This is a DIAG-4 question
-  (`diagnostic-shape.md:74`) about which of the two moves, it is measured here
-  only because a registry-derived witness oracle collides with it (§Fix
-  constraint 4), and it is not this report's subject. No open report owns it
-  (`rg -n 'failed the pinned schema'` matches `src/` only).
+  `docs/reference/diagnostics.md:277`); the shipped prefix at the time this
+  report was filed was `subagent return envelope failed the pinned schema: `.
+  This was a DIAG-4 question (`diagnostic-shape.md:74`) about which of the two
+  moves, measured here only because a registry-derived witness oracle collides
+  with it (§Fix constraint 4), and it was not this report's subject. Bug 0261
+  (0.249.0) resolved it under branch A: the code aligned to the registry, so
+  `src/runtime/subagent-envelope.ts:394` now reads `subagent return envelope
+  parse failed: ${summary}` and neither registry cell moved.
 - **`summarizeLine`'s 120-character cap.** `placeholder-rendering-b.md:91`
   leaves the length bound implementation-defined; the cap and the U+2026 marker
   are untouched, and the ordering (normalise, then cut) is the sibling's.
@@ -440,13 +441,18 @@ Constraints:
 4. **The witness asserts the CR property independently of the prefix.**
    0086's cells anchor on a registry-derived prefix (`messagePrefixOf`,
    `tests/subagent-wire-parse-failed-emitter.test.ts:132–147`). The shipped
-   prefix for this row diverges from its registry template (§Non-goals), so a
+   prefix for this row diverged from its registry template (§Non-goals), so a
    cell copied from 0086 would red for two reasons at once and stay red after
    the fix. Assert `not.toContain("\r")` on the message and the tail's content
    by `toContain`, without a whole-message equality and without a
    registry-derived prefix anchor, unless the prefix divergence is dispositioned
    first — in which case that disposition is a separate change with its own
-   record.
+   record. **DISCHARGED by bug 0261 (0.249.0), branch A:** the shipped prefix now
+   matches the registry template prefix, so the exception this constraint
+   states no longer applies; this file's CR cells still carry no
+   registry-derived prefix anchor, on the narrower and still-current ground
+   that a prefix check and a CR check are separate properties (see
+   `tests/b0258-envelope-parse-failed-line-summary-cr.test.ts`'s header).
 5. **The witness pins both directions.** Required cells: the reachable
    trailing-CR line (rows A, C, D of §Reproduction) asserting the rendered
    `message` and `error.message` carry no U+000D and still name the offending
@@ -533,13 +539,21 @@ Constraints:
   reserved-key line asserting the code, the CR absence and the fail-closed
   `Err(invoke_infra/internal_error)`. Per §Fix constraint 4 the CR cells use no
   registry-derived prefix oracle and no whole-message equality, so bug 0261's
-  *Message*-template divergence does not couple to them.
+  *Message*-template divergence does not couple to them. **DISCHARGED note
+  (bug 0261, 0.249.0):** the divergence this constraint routed around no longer
+  exists; the same-file `SHIPPED_PREFIX` literal at cells (b) and (c) was
+  flipped to the new shipped prefix by the 0261 change, under this report's own
+  fix-record pre-authorization for that flip (`.pi/tmp/fixes/0258-report.md`).
 - Residuals:
   1. The *Message* template divergence (`subagent return envelope failed the
      pinned schema: ` shipped versus the registry's `subagent return envelope
      parse failed: <line summary>`,
-     `docs/spec_topics/diagnostics/code-registry-runtime.md:28`) is untouched
-     and remains bug 0261's subject. Neither side was reworded here.
+     `docs/spec_topics/diagnostics/code-registry-runtime.md:28`) was untouched
+     here and remained bug 0261's subject. Bug 0261 (0.249.0) resolved it under
+     branch A: the code was aligned to the registry, neither registry cell
+     moved, and cells (b) and (c) of this file's witness had their
+     `SHIPPED_PREFIX` literal updated in the same change, per this report's own
+     fix-record pre-authorization for that flip.
   2. The witness file must not spell either registry code with its `theta/`
      namespace prefix: `tests/registry-closed-set-corpus-gate.test.ts`'s
      extractor counts any full code-shaped literal under `tests/**` as an

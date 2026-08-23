@@ -6,6 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.249.0]
+
+### Fixed
+
+- Bug 0261: `theta/runtime/subagent-envelope-parse-failed`'s shipped message
+  prefix now matches its registry *Message* template — branch A (code →
+  registry, no spec edit; a registry-cell reword is DIAG-4/GOV-15
+  theta-2.0-deferred, which is branch B exactly): one literal at
+  `mapEnvelopeParseFailure` renders
+  `subagent return envelope parse failed: <line summary>` (852 lines
+  preserved; `:404` cite exact). New registry-derived prefix witness
+  `tests/b0261-envelope-parse-failed-message-prefix-registry.test.ts`
+  (5 cells, `messagePrefixOf` oracle off the registry page, prefix-only
+  anchor; (a)/(b) red pre-fix). ONE authorized flip pre-declared by 0258's
+  fix record: `SHIPPED_PREFIX` in the 0258 witness old→new (red-proven).
+  0258's constraint-4 exception marked DISCHARGED (dated coordination note).
+  Live under the lock: H8a subagent-mode 2 passed; H9a permitted-codes cell
+  1 passed — permitted-codes byte-unchanged.
+
 ## [0.248.0]
 
 ### Fixed

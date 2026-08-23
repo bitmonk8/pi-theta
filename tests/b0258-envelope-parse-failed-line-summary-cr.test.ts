@@ -28,17 +28,17 @@
 //   (e) one driver-level cell through the real `driveSubagentChild` over a fake
 //       child emitting a `\r`-terminated reserved-key line — RED pre-fix.
 //
-// Constraint 4 is binding on the CR cells: the shipped prefix
-// (`subagent return envelope failed the pinned schema: `) diverges from the
-// registry template `subagent return envelope parse failed: <line summary>`
-// (`docs/spec_topics/diagnostics/code-registry-runtime.md:28`). That divergence
-// is a separate, unowned DIAG-4 question, so a registry-derived prefix oracle
-// (the discipline bug 0086's cells use) would red these cells for two reasons
-// at once and keep them red after this fix. The CR property is therefore
-// asserted INDEPENDENTLY of the prefix — `not.toContain("\r")` plus a
-// `toContain` on the offending line's content, never whole-message equality.
-// The identity cells (b) and (c) do assert the literal shipped string, because
-// their whole subject is "byte-identical to today".
+// Constraint 4 is binding on the CR cells: the shipped prefix used to diverge
+// from the registry template `subagent return envelope parse failed: <line
+// summary>` (`docs/spec_topics/diagnostics/code-registry-runtime.md:28`).
+// Bug 0261 dispositioned that divergence under branch A: the shipped prefix
+// now equals the registry template prefix. The registry-derived prefix
+// anchor for this row lives in
+// `tests/b0261-envelope-parse-failed-message-prefix-registry.test.ts`, not
+// here — the CR cells stay anchor-free because a prefix check and a CR check
+// are one property each, and mixing them would blur which assertion reds for
+// which reason. The identity cells (b) and (c) do assert the literal shipped
+// string, because their whole subject is "byte-identical to today".
 //
 // Prose here names both registry rows WITHOUT their `theta/` namespace prefix,
 // as `tests/subagent-envelope.test.ts` and `tests/subagent-json-wire.test.ts`
@@ -68,10 +68,11 @@ const CR = "\r";
 /**
  * The shipped Message prefix, spelled as a literal ON PURPOSE. It is used only
  * by the identity cells, which assert today's bytes; the CR cells must not
- * anchor on it (§Fix constraint 4) — nor on the registry template it diverges
- * from, since that divergence belongs to no report this file witnesses.
+ * anchor on it (§Fix constraint 4) — the prefix and the CR are separate
+ * properties, each with its own anchor, so this file keeps them apart even
+ * though bug 0261 brought the shipped bytes into agreement with the registry.
  */
-const SHIPPED_PREFIX = "subagent return envelope failed the pinned schema: ";
+const SHIPPED_PREFIX = "subagent return envelope parse failed: ";
 
 /** Mirror of `tests/subagent-json-wire.test.ts`'s `driveOver` fake-child harness. */
 function driveOver(

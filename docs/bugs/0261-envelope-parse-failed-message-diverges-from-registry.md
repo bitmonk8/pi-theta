@@ -1,6 +1,6 @@
 # Bug 0261 — the shipped message prefix of `theta/runtime/subagent-envelope-parse-failed` diverges from its registry *Message* template: `mapEnvelopeParseFailure` renders `subagent return envelope failed the pinned schema: <summary>` where the registry row and its reference mirror template `subagent return envelope parse failed: <line summary>`, so DIAG-4's byte-identical-prefix rule is violated and a registry-derived prefix oracle (`messagePrefixOf`, 0086's pattern) cannot witness this row without going red against the shipped bytes
 
-- **Status:** open.
+- **Status:** fixed (0.249.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the only operator-visible effect is
   one reworded prefix on a fail-closed triage message; no result, code, or
   severity differs, and no shipped test asserts either spelling. D1 because the
@@ -239,6 +239,130 @@ Whichever branch lands:
 6. **No code, severity, phase, or trigger moves.** DIAG-2 and DIAG-3 have no
    subject in either branch: the change is confined to the *Message* bytes on
    one row.
+
+## Fix (0.249.0)
+
+- Branch adjudication: **branch A** (align the code to the registry; no spec
+  edit). Measured, not assumed. (i) Branch B is a DIAG-4 *Message* reword,
+  which `docs/spec_topics/diagnostics/diagnostic-shape.md:74` classes as a
+  spec-versioned breaking change deferred to theta 2.0 and outside the GOV-15
+  carve-out, and which
+  `docs/spec_topics/governance/source-language-stability.md:25` names
+  explicitly — "a *Message* **reword** (DIAG-4) alters the identity or rendered
+  content observed by every in-scope input that already emits the code and is
+  therefore deferred to theta 2.0 migration". Branch A edits no registry cell,
+  so neither rule has a subject. (ii) The sibling builder forty-four lines down
+  (`src/runtime/subagent-envelope.ts:438`) already quotes its own *Message*
+  cell byte for byte, so branch A restores the module's own convention where
+  branch B would enshrine the one deviation from it. (iii) Branch A is one
+  literal on one line and preserves 0258 §Fix constraint 2's zero net line
+  shift; branch B is a two-file spec edit that must keep shard and mirror
+  identical. (iv) Branch A discharges 0258 §Fix constraint 4 and unblocks the
+  registry-derived prefix oracle for this row.
+- What shipped:
+  - `src/runtime/subagent-envelope.ts` — `:394`'s literal now reads
+    `subagent return envelope parse failed: ${summary}`, byte-identical to the
+    row's *Message* template prefix; one string still feeds both `error.message`
+    (`:398`) and `diagnostic.message` (`:405`). Two trigger doc-comments (`:96`,
+    `:387`) that echoed the retired spelling were reworded to the registry's own
+    trigger prose — comment-only, net zero lines. File remains 852 lines and
+    `:404` is still `code: SUBAGENT_ENVELOPE_PARSE_FAILED_CODE,`, the line
+    `tests/registry-closed-set-corpus-gate.test.ts:138–145` cites.
+  - `tests/b0261-envelope-parse-failed-message-prefix-registry.test.ts` — new
+    witness (§Fix constraints 2 and 3).
+  - `tests/b0258-envelope-parse-failed-line-summary-cr.test.ts` — the
+    pre-authorized `SHIPPED_PREFIX` literal flip plus header prose recording the
+    discharge.
+  - [`0258`](./0258-envelope-parse-failed-summary-embeds-trailing-cr.md) — dated
+    coordination note discharging its §Fix constraint 4, per §Fix constraint 5.
+    Its `Status` and its own §Fix verdicts and gate evidence are untouched; this
+    is not a reopen.
+- Neither *Message* cell moved (§Fix constraint 1):
+  `git diff -- docs/spec_topics/ docs/reference/` is empty. No code, severity,
+  phase, or trigger moved (§Fix constraint 6).
+- Authorized flip set (the only assertion that moved anywhere in the change):
+  1. `tests/b0258-envelope-parse-failed-line-summary-cr.test.ts:74`
+     `SHIPPED_PREFIX` — old `"subagent return envelope failed the pinned
+     schema: "` → new `"subagent return envelope parse failed: "`, consumed by
+     that file's identity cells (b) and (c). Why authorized: 0258's own fix
+     record pre-authorizes it verbatim — "cells (b) and (c) of this witness
+     assert the shipped string byte-exactly and will need their literal updated
+     in the same change". Those cells' subject is the *tail* rendering being
+     byte-identical to today, which the flip preserves; only the prefix literal
+     moves. Both cells were proven to red under the reverted literal and green
+     after restore, so the coupling was real and not merely asserted.
+  No other assertion in the tree moved. 0258's cells (a)/(d)/(e), 0086's
+  witnesses, the corpus gate and its surfaces, and the permitted-codes list are
+  byte-unchanged.
+- Registry-derived witness (§Fix constraint 2, never copy-pasted prose): the new
+  file parses all four registry shards through `parseRegistry` /
+  `registryMessage` (`tools/code-registry/index.js`), looks the row up under a
+  key composed from parts, and cuts the template at the `<line summary>`
+  placeholder — the `messagePrefixOf` shape 0086 established
+  (`tests/subagent-wire-parse-failed-emitter.test.ts:132–147`). A missing row or
+  a missing placeholder throws a loud harness error naming the unmet
+  precondition: no skip, no early return, no hard-coded fallback. The anchor is
+  prefix-only (`toMatch(/^…/)`), never strict equality — `<line summary>` is a
+  category-8 host-derived tail and
+  `docs/spec_topics/diagnostics/placeholder-rendering-b.md:91` prohibits
+  equality against it. Cell (c) pins the sibling wire row against the same
+  oracle (§Fix constraint 3) and cell (d) proves the two derived prefixes are
+  distinct, so a "fix" collapsing both rows onto one template cannot pass.
+- Registry-gate hazard held: no full span of either code appears in the new
+  witness or the modified 0258 witness — code, comments, or test names.
+  `rg` over both files returns nothing, and
+  `tests/registry-closed-set-corpus-gate.test.ts` stays green, so the carve-out
+  arm both rows are pinned under is not closed.
+- Gates:
+  - Witness: `npx vitest run tests/b0261-envelope-parse-failed-message-prefix-registry.test.ts`
+    → RED pre-fix, `expected 'subagent return envelope failed the p…' to match
+    /^subagent return envelope parse faile…/` on cells (a) and (b) — the byte
+    divergence of §Reproduction step 3, not a compile error and not a harness
+    throw. GREEN post-fix, `Tests 5 passed (5)`.
+  - Default suite: `npm test` → `Test Files 425 passed (425)`,
+    `Tests 8908 passed (8908)`.
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live (run by the orchestrator under the shared live mutex; reviewers and
+    verifiers ran none):
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/live-production-acceptance.test.ts -t "subagent-mode"`
+    → RC 0, `Tests 2 passed | 87 skipped (89)`; and
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/noninteractive-acceptance.test.ts -t "subagent-mode"`
+    → RC 0, `Tests 1 passed | 9 skipped (10)`. The second is the real H9a
+    acceptance run whose "no-error success terminal with permitted codes only"
+    invariant decides that the permitted-codes list is byte-unchanged by this
+    *Message* edit.
+- Review: 1 round — CLEAN, no findings. The reviewer re-derived both registry
+  cells, executed the oracle to confirm the derived prefix's bytes, proved
+  red-ability without editing files, grepped the registry-gate hazard, and
+  verified the 852-line count and the `:404` citation mechanically.
+- Verification: VERIFIED. The witness genuinely reds (source literal reverted,
+  both witnesses red on the prefix assertions, source restored byte-exact and
+  both green); default suite green; lint and typecheck green; zero line shift
+  and citation integrity confirmed; the shipped prefix proven byte-equal to an
+  independently derived registry prefix; the flip enumeration matched the
+  authorized set exactly.
+- Residuals:
+  1. §Reproduction step 4's claim that no shipped test pins either spelling was
+     true at the filing HEAD `5fdac660` and is stale from 0.242.0 on: 0258's
+     witness landed and pins the shipped prefix in its identity cells. The flip
+     set was therefore not empty; it was the one pre-authorized literal
+     enumerated above. The §Fix cost analysis is unaffected — no *assertion
+     shape* moved, only a literal the authoring report had already delegated.
+  2. The remaining four category-8 subagent rows named at
+     `placeholder-rendering-b.md:93` are still unaudited for the same
+     divergence class (§Non-goals). This change measures and fixes one of five.
+  3. No corpus-wide gate compares a rendered message against its *Message* cell,
+     so a future divergence on any other row remains undetectable by the suite
+     (§Non-goals, "A message-template conformance gate"). Unchanged by this fix.
+- Discharge notes appended:
+  [`0258`](./0258-envelope-parse-failed-summary-embeds-trailing-cr.md) — §Fix
+  constraint 4 marked discharged, §Non-goals *Message*-divergence bullet and
+  §Fix residual 1 updated to record the branch-A resolution and the literal
+  flip.
+- Pinned dispositions / non-goals: branch B is not taken, and this record makes
+  no DIAG-4 deferral disposition — no registry *Message* cell moved, so the
+  theta-2.0 deferral has no subject here. `summarizeLine`'s cap, the code
+  identifier, and the other four category-8 rows remain untouched.
 
 ## Provenance
 
