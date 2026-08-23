@@ -1,6 +1,6 @@
 # Bug 0259 — An `enum` variant list that reaches end of input with at least one variant captured draws ZERO diagnostics: `parseEnumVariants`'s loop bound `!this.atEnd() && depth > 0` exits silently, so `enum E { A,` at EOF loads clean, registers, and lowers `E` to `{"type":"string","enum":["A"]}` — the sibling position bug 0245's fix fenced in its §Non-goals and its fix record named as "worth its own filing"
 
-- **Status:** open
+- **Status:** fixed (0.244.0)
 - **Sev/Diff estimate:** S2/D1 — silence only: measured at HEAD, every truncated
   variant list lowers exactly as the closed twin of the same prefix, so no
   lowered artefact diverges from the source's own captured text and no
@@ -427,3 +427,143 @@ this change moves, and the flip is the fix's own subject rather than a
 weakening. The new witness covers the subject and its closed control on all
 three channels, the class rows above, the two brace-accounting rows and their
 closed twins, the empty-prefix fence, and one co-firing row.
+
+## Fix (0.244.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parseEnumVariants` retains the body's own
+    opening `{` (`const openTok = this.advance()`) and, on the variant loop
+    leaving with `depth > 0`, emits the newly minted
+    `theta/parse/enum-body-unclosed` ranged on `openTok.range`, under the single
+    guard `depth > 0 && names.length > 0` (§Fix constraints 1 and 2). The loop
+    body carries no `break` and no `return`, so `depth > 0` at the exit implies
+    `atEnd()`; `names` and `variantDecls` are pushed at one site together and
+    cannot diverge. No withhold (§Fix constraint 3). The same
+    `return { names, values, variantDecls }` still returns the captured prefix,
+    so `parseEnum`, `checkEnumDeclaration`, `lowerEnumToSchema` and
+    `buildBodyTypeSchemas` are byte-untouched and the lowering does not move
+    (§Fix constraint 5). The function's doc-comment gained a second-exit
+    paragraph in the register of `parseSchemaObjectBody`'s fourth-exit one.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — minted
+    `theta/parse/enum-body-unclosed` (E, parse; placeholder-free *Message*
+    `enum variant list is not closed by '}'`; *Remedy* ``Close the variant list
+    with `}`.``) beside `theta/parse/empty-enum-body`. A same-commit DIAG-2
+    addition; the *Message* is placeholder-free, so the closed
+    placeholder-rendering tables need no entry. `theta/parse/schema-body-unclosed`'s
+    *Trigger* gained a pointer to the sibling row and kept its own scope,
+    severity, hint, *Message* and emission set unchanged.
+  - `docs/reference/diagnostics.md`, `docs/reference/schema-subset.md`
+    §Enum, `docs/spec_topics/schemas.md` §Enum declarations — the three mirrors
+    that enumerate this family. `docs/spec_topics/grammar.md` is untouched on a
+    VERIFIED NEGATIVE: it carries no `EnumDecl` / enum-body production (its one
+    `EnumDecl` mention is a bare name in the `///`-placement list, not a
+    `::=` rule), so the rule's prose home is `schemas.md` §Enum declarations,
+    which the new row's *Spec* column cites. `docs/reference/grammar.md`
+    mentions neither unclosed row and is likewise untouched.
+- **Adjudications settled in-run** (the question tool is unavailable; both are
+  recorded here rather than asked):
+  1. *Registry disposition — sibling row, not a Message generalisation.* §Fix
+     left the choice open. A *Message* reword of
+     `theta/parse/schema-body-unclosed` (whose text, `schema object body is not
+     closed by '}'`, is FALSE of an enum body) is a DIAG-4 reword;
+     `diagnostic-shape.md` §DIAG-4 and `source-language-stability.md`
+     §Diagnostic-registry carve-out both classify a *Message* reword as
+     altering the rendered content every in-scope input already observes and
+     therefore deferred to theta 2.0 migration — inadmissible inside theta 1.x.
+     So the fix mints a sibling row and keeps both *Triggers* mutually
+     exclusive, which is the route bug 0245 §Fix adjudication 1 took for
+     `theta/parse/fn-param-list-unclosed` on the same ground.
+  2. *The pointer edit to 0245's row is not a widening.* That row's *Trigger*
+     still reads "Scoped to the `schema` object body alone"; only the enum
+     clause's phrasing moved from "not judged by this row" to "judged by the
+     sibling row … instead". Its emission set is unchanged, which the landed
+     0245 cells and the new cell `b0259-f1` pin from both sides.
+- **Witness flip — the one pre-declared cell.**
+  `tests/schema-body-unclosed-at-eof.test.ts` cell `b0245-f1` flips under this
+  document's named authority (§Witness pre-declares it). Enumerated:
+  1. `triples(truncated)`: `[]` → `[{error, theta/parse/enum-body-unclosed,
+     4:8-4:9}]` — the refusal is the fix's own subject.
+  2. `registered(truncated)`: `true` → `false` — an error-severity
+     `theta/parse/*` denies registration.
+  3. ADDED `expect(registered(closed)).toBe(true)` — the closed twin's control,
+     absent before because the cell asserted silence on both sides.
+  4. Unchanged in value, reworded in message only: `triples(closed)` `[]`,
+     `enumOf(truncated).variants` `["A"]`, both `lowered(...)` fragments — the
+     fix moves no lowering.
+  5. Ledger prose: the file header's clause 6, the group-(f) ledger line, the
+     section banner, the `describe`/`it` titles and the cell comment now record
+     the fence as RETIRED by bug 0259 and cite this document; the header's
+     anti-vacuity count moved fourteen → fifteen as the arithmetic consequence.
+  6. A new `const ENUM_UNCLOSED` beside the file's existing code constants.
+  The other 19 cells of that file are byte-unchanged on every assertion line,
+  certified by hunk audit against `HEAD`.
+- **Tests that lock it:**
+  - `tests/enum-body-unclosed-at-eof.test.ts` — NEW, 28 cells, whole-list
+    ordered equality over the unfiltered diagnostics with every *Message*
+    sourced from the registry module: the subject and its closed control on all
+    three channels (`b0259-a1`/`a2`), the eight class rows (`b0259-b1..b8`), the
+    three brace-accounting rows and their three closed twins
+    (`b0259-c1..c6` — the measurement that justifies the absent withhold), the
+    five empty-prefix fence rows (`b0259-d1..d5`), three co-firing rows
+    (`b0259-e1..e3`), the two registry cells (`b0259-R1`/`R2`, the second
+    proving the new *Message* differs from 0245's — the ground for minting) and
+    the two cross-form symmetry controls (`b0259-f1`/`f2`).
+  - `tests/schema-body-unclosed-at-eof.test.ts` — the flipped `b0245-f1`.
+  - `tests/live/b0259live-enum-body-unclosed-at-eof-live-cell.test.ts` — NEW
+    standalone H8a cell over the real `.pi/theta/` discovery walk →
+    `composeExtensionInstance` → `pi.registerCommand`: `b0259livetrunc`
+    (`enum E { A,`) must be absent from the registered set and the new code must
+    appear by name on the `theta-system-note` channel; `b0259liveclosed` must
+    register and drive a real turn (task-framed arithmetic, `408 + 523`,
+    sentinel `931`); `b0259livenotechannel` is the fail-loud channel
+    precondition so the note assertion can never pass vacuously.
+- **Gates:**
+  - Witness RED at HEAD before the fix: `Tests 18 failed | 30 passed (48)`,
+    every red naming the absent `theta/parse/enum-body-unclosed` emission or
+    the absent registry row. GREEN after: `Tests 48 passed (48)`.
+  - Verifier's independent red-proof (guard neutralised to `false && …`, file
+    restored byte-exact, sha256 equal before and after):
+    `Tests 16 failed | 32 passed (48)` — 16 rather than 18 because the two
+    registry cells stay green once the row is minted.
+  - Default suite: `Test Files 423 passed (423)`, `Tests 8916 passed (8916)`
+    (HEAD baseline `422` / `8888`; the delta is exactly the new witness file).
+  - `npx tsc -p tsconfig.json --noEmit` — clean. `npm run lint` — clean.
+  - Live, under the machine-wide lock:
+    `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0259live-enum-body-unclosed-at-eof-live-cell.test.ts
+    tests/live/schema-body-unclosed-at-eof-live-cell.test.ts` → `RC=0`,
+    `Test Files 2 passed (2)`, `Tests 2 passed (2)`.
+  - Lock audit: `tests/fixtures/h7a/permitted-codes.json` byte-unchanged;
+    `tests/committed-fixture-parse-gate.test.ts` green (no shipped `.theta` /
+    `.thetalib` moved); bug 0133's witness untouched and green.
+- **Review:** 2 rounds. Round 1 (deep) — two `spec` findings: the new row's
+  GOV-15 carve-out sentence claimed "every input this row newly names loaded
+  cleanly before it", which its own co-firing sentence contradicts, and the row
+  carried the page's only raw line-number citations; plus one `prose` residual
+  on Remedy-column backtick style. All three remediated. Round 2 (fast) —
+  CLEAN, no escalation.
+- **Verification:** SOLID, no findings — witness red-proof with byte-exact
+  restore, default suite, live evidence certified from source and log, lint and
+  typecheck, lock audit, and GOV-15 / DIAG-2 conformance all discharged.
+- **Residuals:**
+  1. `code-registry-parse.md:106` (`theta/parse/schema-type-not-expression`)
+     carries a raw line-number citation `[schemas.md:93](../schemas.md)` — the
+     page's only remaining one, present at HEAD and predating this change. The
+     round-1 fixer rewrote it as an anchor; the edit was REVERTED to HEAD bytes
+     because that row belongs to bug 0217 / 0204's subject and is outside this
+     document's §Fix. Byte-equality of the reverted line against
+     `git show HEAD:` was proved by hash in review round 2. Worth its own
+     filing as a citation-form debt.
+  2. Three default-suite files (`invoke-arg-type-mismatch-wired`,
+     `production-tools-load-resolution`, `theta-callable-call-arity`) failed
+     once with `Hook timed out in 10000ms` and ZERO assertion failures under
+     concurrent machine load; all three passed on isolated re-run, and the
+     verifier's own full-suite run showed the signature not at all. Infra
+     flake, not attributable to this change.
+- **Discharge notes appended:** none — bug 0245's fix record already named this
+  filing as its residual 1's successor, and its witness ledger now records the
+  flip in the test file itself.
+- **Pinned dispositions / non-goals:** unchanged. The empty-prefix DIAG-4
+  wording question, the `schema` / `fn` sibling positions, bug 0133's recovery
+  arms, every other `enum` body rule and the remainder-consuming unbalanced
+  body all stay fenced exactly as §Non-goals states.

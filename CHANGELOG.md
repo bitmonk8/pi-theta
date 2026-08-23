@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.244.0]
+
+### Fixed
+
+- Bug 0259: an `enum` variant list reaching end of input with at least one
+  variant captured now draws the NEW registry row
+  `theta/parse/enum-body-unclosed` (E, parse; ranged on the body's opening
+  `{`; captured prefix retained; co-fires with variant-level refusals) and
+  the theta does not register — `enum E { A,` at EOF no longer loads clean.
+  Sibling-row route chosen over a Message generalisation of
+  `theta/parse/schema-body-unclosed` (DIAG-4; 0245 adjudication precedent);
+  that row's Trigger now names the enum sibling. DIAG-2 same-commit:
+  registry + reference/diagnostics + reference/schema-subset + schemas.md
+  (grammar.md untouched — no enum-body production, verified negative). New
+  witness `tests/enum-body-unclosed-at-eof.test.ts` (28 cells, 18 red
+  pre-fix) + live cell
+  `tests/live/b0259live-enum-body-unclosed-at-eof-live-cell.test.ts`. ONE
+  pre-declared fence flip under 0259's authority: `b0245-f1` in
+  `tests/schema-body-unclosed-at-eof.test.ts` (triples []→[enum-body-unclosed],
+  registered true→false, ledger retired); 0245's other 19 cells
+  byte-unchanged. permitted-codes byte-unchanged.
 ## [0.243.0]
 
 ### Fixed

@@ -3281,6 +3281,20 @@ class BodyParser {
    * mapping") is captured as that variant's wire value. A non-string explicit
    * value is not captured (the name stands as the wire value; the strictness
    * diagnostic is a separate check). A non-brace enum shape yields no variants.
+   *
+   * A second exit — `atEnd()` reached with `depth > 0`, no closing `}` ahead —
+   * is schemas.md §Enum declarations' closing terminal never arriving (bug
+   * 0259 §Fix). `theta/parse/enum-body-unclosed` fires there, ranged on the
+   * body's own opening `{` (mirroring `schema-body-unclosed`'s `openTok`),
+   * under one guard: an EMPTY captured prefix keeps `theta/parse/empty-enum-body`
+   * ALONE, since that row's Trigger already covers it. No withhold applies —
+   * the `}` arm is the only place a `}` punct token is consumed and it always
+   * decrements `depth`, and a `}` carried inside a string token is never
+   * counted by these punct-only depth arms, so every closer the loop could
+   * have absorbed instead was one the author wrote for the body itself. The
+   * captured names, values and variant decls are returned unchanged either
+   * way, so the emission joins a variant's own refusal rather than replacing
+   * it.
    */
   private parseEnumVariants(): {
     readonly names: readonly string[];
@@ -3297,7 +3311,7 @@ class BodyParser {
     if (!this.isPunct("{")) {
       return { names: [], values: {}, variantDecls: [] };
     }
-    this.advance(); // `{`
+    const openTok = this.advance(); // `{`
     const names: string[] = [];
     const values: Record<string, string> = {};
     // The full per-variant decls (name + explicit-value kind/text) in source
@@ -3372,6 +3386,15 @@ class BodyParser {
       }
       // Any other in-variant token: skip; the next comma re-arms name capture.
       this.advance();
+    }
+    if (depth > 0 && names.length > 0) {
+      this.diagnostics.push({
+        severity: "error",
+        code: "theta/parse/enum-body-unclosed",
+        file: this.file,
+        range: openTok.range,
+        message: "enum variant list is not closed by '}'",
+      });
     }
     return { names, values, variantDecls };
   }

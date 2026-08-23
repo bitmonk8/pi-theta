@@ -99,8 +99,11 @@ model-produced string (`Low` → `"Low"`); explicit values override
 (`theta/parse/non-string-enum-value`). Duplicate explicit values across variants:
 `theta/parse/duplicate-enum-value`. Two variants sharing an identifier:
 `theta/parse/duplicate-enum-variant-name` (name check runs first). Empty body:
-`theta/parse/empty-enum-body`. `Enum.Variant` evaluates to the underlying string
-value but is statically typed `Enum`; unknown variant is
+`theta/parse/empty-enum-body`. A variant list that captures at least one variant
+and then reaches end of input with no closing `}` is
+`theta/parse/enum-body-unclosed`, anchored at the body's opening `{`; the
+variants already captured are retained there too. `Enum.Variant` evaluates to
+the underlying string value but is statically typed `Enum`; unknown variant is
 `theta/parse/unknown-variant`.
 
 ### Discriminated unions

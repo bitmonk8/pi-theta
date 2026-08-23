@@ -68,9 +68,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      registration gate (`hasLoadParseError`,
 //      `src/extension/production-composition.ts`, whose predicate is
 //      `!diagnostics.some(d => d.severity === "error")`) denies registration.
-//   6. The `enum` sibling stays SILENT: `parseEnumVariants`' loop bound has the
-//      same shape and the same EOF exit, and the bug document's §Non-goals
-//      keeps it out of scope. Group (f) asserts that silence as a fence.
+//   6. The `enum` sibling stayed SILENT under this bug: `parseEnumVariants`'
+//      loop bound has the same shape and the same EOF exit, and this bug
+//      document's §Non-goals kept it out of scope. That fence was RETIRED by
+//      bug 0259 (docs/bugs/0259-unclosed-enum-variant-list-at-eof-loads-clean.md),
+//      which mints the sibling row `theta/parse/enum-body-unclosed` for
+//      `parseEnumVariants`' EOF exit. Group (f) now asserts that refusal under
+//      bug 0259's authority; the whole-list witness for it is
+//      tests/enum-body-unclosed-at-eof.test.ts.
 //
 // GOVERNANCE. The addition is covered by the diagnostic-registry carve-out
 // (docs/spec_topics/governance/source-language-stability.md
@@ -98,7 +103,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     `array<enum["a", "b"> }` fence), so a route that emitted here would red
 //     them too. Its third row fences the withhold's own limit: a `}` inside a
 //     string token is not a consumed closer.
-//   - (f): MUST NOT MOVE — the `enum` §Non-goals fence.
+//   - (f): FLIPPED BY BUG 0259 — this bug's `enum` §Non-goals fence, retired by
+//     docs/bugs/0259-unclosed-enum-variant-list-at-eof-loads-clean.md, whose
+//     §Witness pre-declared the flip of cell `b0245-f1`. The row now asserts
+//     bug 0259's refusal, not this bug's silence.
 //   - (g): the cross-form symmetry control — `fn f(a: string,` at EOF, already
 //     refused by bug 0151's landed row.
 //
@@ -118,9 +126,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 // diagnostic nor one at the wrong position can hide. The structural
 // (severity, code, range) list is asserted BEFORE the registry-message list in
 // each row, so a missing emission reds as a missing diagnostic rather than as a
-// missing registry row. Fourteen of the twenty rows expect a non-empty list, so
-// a harness that stopped reaching the parser fails loudly rather than turning
-// the empty-list fence rows into silent passes.
+// missing registry row. Fifteen of the twenty rows expect a non-empty list
+// (fourteen before bug 0259 flipped group (f)), so a harness that stopped
+// reaching the parser fails loudly rather than turning the empty-list fence
+// rows into silent passes.
 //
 // TIER: unit, offline, deterministic, provider-free. Every observable settles
 // inside one `parseThetaDocument` call over a source string plus one
@@ -194,6 +203,8 @@ const FN_UNCLOSED = "theta/parse/fn-param-list-unclosed";
 const SINGLE_LINE_IF = "theta/parse/single-line-if";
 /** The inline-`enum[...]` refusal, which the string-token fixture in (e) also draws. */
 const INLINE_ENUM = "theta/parse/inline-enum";
+/** Bug 0259's row — the `enum` sibling, which retired this file's group (f) fence. */
+const ENUM_UNCLOSED = "theta/parse/enum-body-unclosed";
 
 // ===========================================================================
 // Parse harness — the same shape as tests/fn-param-list-unclosed.test.ts.
@@ -714,33 +725,47 @@ describe("b0245 (e) — a field type that swallowed the body's `}` withholds the
 });
 
 // ===========================================================================
-// (f) MUST NOT MOVE — the `enum` §Non-goals fence.
+// (f) FLIPPED BY BUG 0259 — the `enum` fence, retired.
 // ===========================================================================
 
-describe("b0245 (f) — the `enum` variant loop stays silent", () => {
-  it("b0245-f1: `enum E { A,` at EOF stays observationally identical to its closed twin", () => {
-    // Clause (6). `parseEnumVariants` (`src/parser/theta-document.ts`) has the
-    // same loop shape and the same silent EOF exit, and the bug document's
-    // §Non-goals keeps it out of scope: it is a different function with a
-    // different registry row (`theta/parse/empty-enum-body`,
-    // docs/spec_topics/schemas.md §Enum declarations), and widening this fix to
-    // it would put two capture loops under one route.
+describe("b0245 (f) — the `enum` variant loop, no longer silent (retired by bug 0259)", () => {
+  it("b0245-f1: `enum E { A,` at EOF draws bug 0259's `theta/parse/enum-body-unclosed`", () => {
+    // FLIPPED under bug 0259's named authority
+    // (docs/bugs/0259-unclosed-enum-variant-list-at-eof-loads-clean.md, whose
+    // §Witness pre-declares this cell as "the one existing test this change
+    // moves", and whose §Fix adjudication 1 mints the sibling row rather than
+    // widening this file's). Clause (6) as originally written asserted the
+    // silence of `parseEnumVariants`' EOF exit as this bug's §Non-goals fence;
+    // bug 0259 is that fence's own filing, so the silence is gone. This file's
+    // row is UNCHANGED: `theta/parse/schema-body-unclosed` still scopes itself
+    // to the `schema` object body and says nothing here — the emission below
+    // carries bug 0259's separately minted code, ranged on the enum body's own
+    // opening `{` (line 4, column 8). The whole-list witness for bug 0259 is
+    // tests/enum-body-unclosed-at-eof.test.ts; this cell keeps only the
+    // cross-bug tripwire, so a regression of either row is visible from both
+    // files.
     const truncated = theta("enum E { A,");
     const closed = theta("enum E { A }");
     expect(
       triples(truncated),
-      `the enum loop is fenced by §Non-goals; diagnostics=${render(truncated)}`,
-    ).toEqual([]);
-    expect(triples(closed), `diagnostics=${render(closed)}`).toEqual([]);
-    expect(enumOf(truncated).variants, "the captured variant").toEqual(["A"]);
+      `bug 0259 refuses an enum variant list that reaches EOF unclosed; diagnostics=${render(truncated)}`,
+    ).toEqual([{ severity: "error", code: ENUM_UNCLOSED, at: "4:8-4:9" }]);
+    expect(triples(closed), `the closed twin stays clean; diagnostics=${render(closed)}`).toEqual(
+      [],
+    );
+    expect(enumOf(truncated).variants, "the captured prefix is retained").toEqual(["A"]);
     expect(enumOf(closed).variants, "the closed twin's variant").toEqual(["A"]);
-    expect(lowered(truncated), "the truncated enum lowers as its closed twin does").toEqual({
-      E: { type: "string", enum: ["A"] },
-    });
+    expect(lowered(truncated), "bug 0259 moves no lowering — the refusal is the whole fix").toEqual(
+      { E: { type: "string", enum: ["A"] } },
+    );
     expect(lowered(closed), "the closed twin's lowering").toEqual({
       E: { type: "string", enum: ["A"] },
     });
-    expect(registered(truncated), "the enum fence keeps HEAD's clean load").toBe(true);
+    expect(
+      registered(truncated),
+      `bug 0259's E denies registration; diagnostics=${render(truncated)}`,
+    ).toBe(false);
+    expect(registered(closed), "the closed twin still registers").toBe(true);
   });
 });
 

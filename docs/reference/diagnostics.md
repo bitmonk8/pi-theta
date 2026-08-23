@@ -153,6 +153,7 @@ trigger.
 | `theta/parse/annotation-type-not-expression` | E | parse | `'<name>' declares a type that is not a theta type expression` |
 | `theta/parse/query-annotation-type-not-expression` | E | parse | `` `@<...>` query annotation declares a type that is not a theta type expression `` |
 | `theta/parse/empty-enum-body` | E | parse | `'<X>' has no variants; an empty enum cannot be validated.` |
+| `theta/parse/enum-body-unclosed` | E | parse | `enum variant list is not closed by '}'` |
 | `theta/parse/unknown-variant` | E | parse | `unknown variant '<variant>' on enum '<enum>'` |
 | `theta/parse/unresolved-named-type` | E | parse | `unresolved named type '<name>'` |
 | `theta/parse/duplicate-enum-value` | E | parse | `duplicate enum value '<value>' across variants of enum '<enum>'` |
