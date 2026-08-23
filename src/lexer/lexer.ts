@@ -329,6 +329,11 @@ function scanTokens(
   // an interpolation, so a `}` returning it to 0 resumes prose).
   let inTemplateProse = false;
   let interpDepth = 0;
+  // Position of the opening backtick of the currently-open `@`...`` template,
+  // or `null` when none is open. Threaded so the EOF branch below can span the
+  // diagnostic's range from that backtick rather than pointing only at EOF
+  // (QRY-17; code-registry-parse.md's `theta/parse/unterminated-template` row).
+  let templateOpenStart: Pos | null = null;
 
   const pos = (): Pos => ({ line, column });
   const advance = (): string => {
@@ -361,6 +366,7 @@ function scanTokens(
         advance();
         tokens.push({ kind: "punct", text: "`", range: { start, end: pos() } });
         inTemplateProse = false; // closing delimiter — resume code lexing
+        templateOpenStart = null; // the template closed; no longer owed an EOF diagnostic
         continue;
       }
       if (c === "\\") {
@@ -717,6 +723,7 @@ function scanTokens(
       // `${...}` interpolation a backtick is ordinary punctuation, matching the
       // parser, which stops its template walk at the first backtick token.
       inTemplateProse = true;
+      templateOpenStart = start; // recovered if EOF arrives before the closing backtick
     } else if (interpDepth > 0 && c === "{") {
       interpDepth += 1;
     } else if (interpDepth > 0 && c === "}") {
@@ -725,6 +732,36 @@ function scanTokens(
         inTemplateProse = true; // interpolation closed — resume template prose
       }
     }
+  }
+
+  // EOF reached while a `@`...`` query template was still open (QRY-17,
+  // query-escapes-stringification.md#qry-17; code-registry-parse.md's
+  // `theta/parse/unterminated-template` row, phase `lex`). Both `inTemplateProse`
+  // (prose region, never re-entered a `${...}` interpolation) and `interpDepth >
+  // 0` (EOF arrived mid-interpolation, so the flag was cleared at `${` but the
+  // template is still open — the row's Trigger, "EOF reached while scanning a
+  // @`...` query template", covers this sub-case without naming it separately)
+  // are open-template states at loop exit. Mirrors the `theta/parse/unterminated-string`
+  // EOF/newline split above, minus the newline branch: a template has no
+  // single-line restriction, so only EOF ends it unterminated.
+  if (inTemplateProse || interpDepth > 0) {
+    if (templateOpenStart === null) {
+      // Unreachable by construction: both open-template states are entered only
+      // where `templateOpenStart` is set to the opening backtick's position, and
+      // cleared only where the template actually closes. A null here would mean
+      // the state machine's invariant broke, not a legitimate EOF — fail loudly
+      // rather than mint a diagnostic with a fabricated range.
+      throw new Error(
+        "lexer invariant violated: open @\`...\` template at EOF with no recorded opening backtick position",
+      );
+    }
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/unterminated-template",
+      file,
+      range: { start: templateOpenStart, end: pos() },
+      message: "unterminated @\`...\` query template",
+    });
   }
 
   return { tokens, diagnostics };

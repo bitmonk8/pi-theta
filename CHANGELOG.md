@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.224.0]
+
+### Fixed
+
+- **Bug 0246** — `theta/parse/unterminated-template` now actually fires: the whole-file lexer's EOF branch emits it when the template-prose region (or an open interpolation) is still active at end of input, so a query template that swallowed the rest of the file is refused instead of loading clean. The dead push inside `lexQueryTemplate` stays; the swallow-repair itself is scoped out per the doc. Locked by `tests/unterminated-template-lexer-emission.test.ts` (18 cells through `parseDoc`) and `tests/live/unterminated-template-registration-live-cell.test.ts` (real discovery→registration→drive path).
+
 ## [0.223.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0246 — `theta/parse/unterminated-template` is registered (`code-registry-parse.md:80`, phase `lex`) with no emission site reachable from `parseDoc`: the sole push lives in `lexQueryTemplate` (`src/render/query-render.ts:258–264`), whose three callers read `.parts` and drop `.diagnostics`, and the lexer's template-prose region (`src/lexer/lexer.ts:358–392`) returns at EOF with no diagnostic — so an unterminated `` @` `` template loads with zero diagnostics, swallows every remaining statement in the body into a template it then mints as `template: ""`, and the swallowed statements' own diagnostics vanish with them
 
-- **Status:** open.
+- **Status:** fixed (0.224.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the primary consequence is a
   missing registered diagnostic on an input QRY-17
   (`docs/spec_topics/query/query-escapes-stringification.md:12`) names
@@ -366,3 +366,160 @@ Recorded there as unfiled and out of scope. Independently fenced by
 (`:708–715`) at 0.149.0. Every measurement in this report was re-taken at HEAD
 `b9cf2f26` (0.219.0) with a scratch `parseDoc` probe under `tests/`, removed
 after the run; no line number is copied from either prior report.
+
+## Fix (0.224.0)
+
+- **What shipped:**
+  - `src/lexer/lexer.ts` — `scanTokens` carries the opening backtick's position
+    in a new `templateOpenStart: Pos | null` beside `inTemplateProse` /
+    `interpDepth` (set on the opening-backtick punct arm, cleared on the
+    genuine closing-backtick arm, deliberately not cleared on entering a
+    `${…}` interpolation), and a new branch after the main `while (i < n)` loop
+    pushes exactly one `theta/parse/unterminated-template` — severity `error`,
+    `file` set, the registry *Message* verbatim, range spanning the opening
+    backtick to EOF — when the loop exits with `inTemplateProse ||
+    interpDepth > 0`. That is §Fix's one route, at the phase the registry row
+    already fixes as `lex`, mirroring the `theta/parse/unterminated-string`
+    sibling's `if (!closed)` shape. Touched spans: the declaration block, the
+    prose closing-backtick arm, the opening-backtick arm, and the new EOF
+    branch before `return { tokens, diagnostics }` — 37 inserted lines, all
+    inside the template-prose / EOF region, none in `isNameSlot` or
+    `contextualDiagnostics`.
+  - §Fix constraint 1 — `src/render/query-render.ts` and its three callers are
+    unmodified; the existing `.diagnostics` array is not routed.
+  - §Fix constraint 2 — the interpolation sub-case is in class through the
+    `interpDepth > 0` disjunct: `` @`abc ${x `` at EOF leaves the flag clear
+    and the depth at 1, and the row's *Trigger* covers it with no rewording,
+    so no spec edit is owed.
+  - §Fix constraint 5 — the registry, `docs/reference/diagnostics.md` and
+    QRY-17 are unedited, and the row is not added to the closed-set gate's
+    `CARVE_OUT`: after the fix it is genuinely asserted by an emission witness
+    rather than by three literal-carrying cells.
+  - `tests/unterminated-template-lexer-emission.test.ts` — new, 18
+    offline cells: `M-1` reads severity `E`, phase `lex` and the *Message*
+    from the shipped registry through `registryMessage` (DIAG-4, never copied
+    prose); `U-1`–`U-5` and `I-1`–`I-3` witness the emission through
+    `parseDoc` (§Fix constraint 3), one occurrence each, `range.start` pinned
+    at the opening backtick; `N-1`–`N-6` are the negative controls, `N-5`
+    being the §Fix-constraint-1 trap (four well-formed `@`-queries drawing the
+    row zero times, which the array-forwarding mis-fix reds); `R-1`–`R-3` pin
+    the §Reproduction (C) residual.
+  - `tests/live/unterminated-template-registration-live-cell.test.ts` — new H8a
+    cell: the row reaches the author through the real `.pi/theta/` discovery
+    walk and the composition root's load-diagnostic delivery, read off the
+    settled in-memory `SessionManager`; the note names the offender file; an
+    error-severity load diagnostic keeps the offender out of
+    `registeredNames()`; the closed control draws the row zero times and
+    drives for real.
+- **Gates:**
+  - Witness (neutralised): `if (false && (inTemplateProse || interpDepth > 0))`
+    → `Tests 8 failed | 10 passed (18)`, the failing set exactly `U-1`–`U-5`
+    and `I-1`–`I-3`. Restored byte-exact, `git hash-object src/lexer/lexer.ts`
+    `44a8e5c15c7338fdfa0d8fa1aed5ea9fab2b30bd` before and after.
+  - Witness (restored): `Test Files 1 passed (1)`, `Tests 18 passed (18)`.
+  - Full default suite: `Test Files 409 passed (409)`,
+    `Tests 8599 passed (8599)`, exit 0.
+  - Typecheck: `tsc -p tsconfig.json --noEmit` — clean. Lint:
+    `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` — clean.
+  - Live H8a: `✓ tests/live/unterminated-template-registration-live-cell.test.ts
+    (1 test) 5611ms`.
+  - Live H9a acceptance:
+    `✓ tests/live/acceptance/noninteractive-acceptance.test.ts (10 tests)
+    55972ms`, and `theta/parse/unterminated-template` appears nowhere in its
+    captures — so the code is not reachable from an ordinary `pi -p` run and
+    `tests/fixtures/h7a/permitted-codes.json` is unchanged.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) returned one `prose`
+  finding — a banned word in the new declaration comment — and cleared, with
+  quoted evidence, all five §Fix constraints, the state machine's throw as
+  unreachable from author input, the false-positive enumeration, DIAG-4
+  compliance, range semantics and the live-suite conventions. The finding went
+  to `bug-fix-fixer-light`; that round's diff is comment-only, so the polish
+  was verified by gate-diff and the confirmation round skipped.
+- **Verification:** VERIFIED. Obligation 1 — both directions proven by the
+  targeted neutralisation above, restored byte-exact and hash-verified.
+  Obligation 2 — the default suite green at 409/8599. Obligation 3 — the H8a
+  cell passes for real, and the H9a acceptance run supplies the reachability
+  evidence for leaving `permitted-codes.json` alone. Obligation 4 — typecheck
+  and lint clean. Every lock re-run green and unmodified:
+  `tests/query-render.test.ts` (including the render-seam unit cell §Fix
+  constraint 3 preserves), 0085's 26-cell witness (its `S-7` / `S-8`
+  unterminated cells filter for the empty-template code alone and so do not
+  flip), 0122's witness, the closed-set corpus gate and its `CARVE_OUT`, the
+  citation-symbol-form gate, the committed-fixture parse gate, the
+  pre-evaluation-failures router cells, and both locked live surfaces.
+- **Residuals:**
+  1. **The swallow is not repaired** (§Fix constraint 4). The prose region
+     still consumes the remainder of the file, so the statements after an
+     unterminated template stay absent from the AST, their own diagnostics stay
+     lost, and an unbalanced `fn` body brace stays unreported — only the loss
+     is now reported. Pinned by `R-1`–`R-3`: one statement parsed, the tail
+     absent, `template: ""`, and no `theta/parse/unknown-identifier` for the
+     swallowed `let`. A resynchronise decision is owed elsewhere; a recovery
+     change reds those cells.
+  2. **Lex-phase diagnostics double-deliver on a theta that drops
+     registration.** `lexTheta` calls `emitDiagnosticBatch` itself
+     (`src/lexer/lexer.ts:128–132`) and the composition root re-delivers the
+     same `document.diagnostics` through `parsed.dropped`
+     (`src/extension/production-composition.ts:2417` → `:754`), so the
+     `theta-system-note` channel carries two identical lines. Pre-existing,
+     independent of this row (it applies to `theta/parse/unterminated-string`,
+     `theta/parse/stray-backslash` and every other lex-phase row on a dropped
+     theta), and out of §Fix's scope, which specifies the lexer-side push and
+     not the delivery channel. Measured, not inferred: the live cell observed
+     two identical notes for one push, and the push was confirmed single by
+     instrumentation. Consequence for coverage: the live cell asserts the
+     channel count as a lower bound, following
+     `tests/live/params-default-unterminated-literal-live-cell.test.ts`, which
+     asserts presence for the same reason; the exact-one discipline is held
+     offline at `parseThetaDocument` level by `U-1`–`U-5` and `I-1`–`I-3`.
+     Unfiled — a candidate report of its own.
+  3. **`lexer.ts` line citations across the corpus are stale by the inserted
+     block's length** and are deliberately left so. Nine files carry
+     `lexer.ts:<N>` citations above the insertion points (`src/parser/params.ts`,
+     `tests/fn-arg-type-mismatch-wired.test.ts`,
+     `tests/fn-param-list-unclosed.test.ts`,
+     `tests/fn-param-name-reserved-keyword.test.ts`,
+     `tests/fn-param-not-identifier.test.ts`,
+     `tests/live/fn-param-list-unclosed-live-cell.test.ts`,
+     `tests/live/fn-param-not-identifier-live-cell.test.ts`,
+     `tests/live/live-production-acceptance.test.ts`,
+     `tests/pattern-field-literal-integer-narrowing-refusal.test.ts`). A
+     mid-run correction of them was reverted byte-exact, hash-verified against
+     `HEAD`, because a sibling lane is inserting into the same file's
+     `contextualDiagnostics` / `isNameSlot` region: the combined offsets are
+     computable only after both lanes merge. Offsets from this change alone:
+     original `332`–`366` shift `+5`, `367`–`725` shift `+6`, `726`–`736`
+     shift `+7`, and `≥737` shift `+37`. Open bug 0051's citations into this
+     file are subject to the same re-derivation. This report also found the
+     §Affected citation of the `return { tokens, diagnostics }` line one line
+     stale at `f3be3b4c`: it is `:730`, not `:729`.
+  4. **`theta/parse/illegal-template-escape` stays unreachable** (§Non-goals):
+     the second row discarded at the same three call sites is untouched, and
+     `` @`a \q b `` at EOF now draws only the EOF row.
+  5. **The default suite carries a contention flake.**
+     `tests/invoke-arg-type-mismatch-wired.test.ts` failed once with
+     `Error: Hook timed out in 10000ms.` when the suite ran alongside a
+     typecheck, and passes `40 passed (40)` in isolation and in every
+     uncontended full run. Unrelated to this change.
+- **Discharge notes appended:** none. 0085, 0122, 0151, 0050 and 0230 are all
+  fixed and shipped, and none of their witnesses moved.
+- **Pinned dispositions / non-goals:**
+  - **An unterminated backtick with no `@` prefix draws this row.** The
+    lexer's template model keys `inTemplateProse` off the bare backtick punct
+    at `interpDepth === 0`, as the parser's own template walk keys off the
+    first backtick token; the model predates this change, and the same input
+    previously swallowed the remainder of the file in silence. Emitting where
+    `inTemplateProse` survives to EOF is what §Fix prescribes, so the row
+    covers that spelling too. Adjudicated in review round 1 and accepted.
+  - **The `terminated`-is-always-false call convention is untouched**
+    (§Non-goals, bug 0122's recorded trap): all three callers still pass the
+    interior slice, and `N-5` plus the live cell's control both red if the
+    array is ever forwarded.
+  - **Bug 0085's two-tick guard is untouched** — `theta/parse/empty-template`
+    stays silent on the `""` an unterminated capture mints, and its `S-7` /
+    `S-8` cells still assert only the negative.
+  - **`tests/fixtures/h7a/permitted-codes.json` is unchanged**, on the H9a run
+    evidence above: no committed `.theta` or `.thetalib` carries an
+    unterminated template (all 34 have even backtick counts), so the code is
+    not reachable from an ordinary `pi -p` run and does not belong on the
+    permitted list.
