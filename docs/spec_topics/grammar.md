@@ -176,7 +176,7 @@ AliasRhs     ::= Type ("|" Type)*                              // single-type al
 UnionRhs     ::= Type ("|" Type)+                              // discriminated union (≥2 variants)
 ```
 
-The `by <field>` clause is admitted **only** on the union form (the alternative beginning with `=`). A `schema X by f { ... }` declaration with an object body is `theta/parse/by-on-object-schema`; the diagnostic message is *`"the 'by' clause applies only to discriminated-union schemas (schema X by f = A | B | …)"`*. Object schemas have one variant by definition and the discriminator concept does not apply.
+The `by <field>` clause is admitted **only** on the union form (the alternative beginning with `=`). A `schema X by f { ... }` declaration with an object body is `theta/parse/by-on-object-schema`; the diagnostic message is *`"the 'by' clause applies only to discriminated-union schemas (schema X by f = A | B | …)"`*. Object schemas have one variant by definition and the discriminator concept does not apply. `SchemaShape`'s object form spells the closing `}` as a required terminal with no alternative; an object body whose field capture derives at least one field and then reaches end of input with no `}` closing it is `theta/parse/schema-body-unclosed`.
 
 ## `///` placement
 

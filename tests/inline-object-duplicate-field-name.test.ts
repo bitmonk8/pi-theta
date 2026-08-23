@@ -268,6 +268,14 @@ function emptyInlineLine(): string {
   return line("error", EMPTY_BODY, msg(EMPTY_BODY, [["<X>", "{}"]]));
 }
 
+/** bug 0245's row: the OUTER `schema` body itself never closes at the `body(...)` fixture's EOF. */
+const UNCLOSED = "theta/parse/schema-body-unclosed";
+
+/** The rendering of bug 0245's unclosed-body row, placeholder-free. */
+function unclosedLine(): string {
+  return line("error", UNCLOSED, msg(UNCLOSED, []));
+}
+
 /** The rendering of the surface an unusable frontmatter block resolves to. */
 function missingModeLine(): string {
   return line("error", MISSING_MODE, msg(MISSING_MODE, []));
@@ -1692,7 +1700,14 @@ describe("bug 0052 (l) — an interior that never closes is no inline object typ
       ];
       for (const [label, src] of cells) {
         actual[`${label} :: ${type}`] = lines(src);
-        expected[`${label} :: ${type}`] = [];
+        // `duplicate-inline-field-name` stays silent at every position (l1's own
+        // subject, unmoved) — but the "schema field" fixture's `body(...)`
+        // wrapper never supplies the OUTER schema body's own closing `}` (unlike
+        // the other four positions, which sit inside a `Type` slot a closed
+        // construct bounds), so that row alone also carries bug 0245's
+        // independently-faulted missing `}` (src/parser/theta-document.ts). The
+        // never-closing INTERIOR this cell is about is unmoved either way.
+        expected[`${label} :: ${type}`] = label === "schema field" ? [unclosedLine()] : [];
       }
     }
     expect(

@@ -1993,6 +1993,31 @@ class BodyParser {
     return net;
   }
 
+  /**
+   * How many punct `}` tokens the half-open span `[from, to)` consumed beyond
+   * its own punct `{` tokens — the `unmatchedCloseParens` sibling for
+   * `parseSchemaObjectBody`'s own withhold (bug 0245 §Fix): a field-TYPE
+   * capture that swallowed the enclosing object body's own `}` took a closer
+   * that was not its own, under the same unfloored `<`/`>` depth counter in
+   * `parseType`. Only `punct` tokens count, so a `}` character inside a string
+   * or template token's text is excluded by construction.
+   */
+  private unmatchedCloseBraces(from: number, to: number): number {
+    let net = 0;
+    for (let i = from; i < to; i += 1) {
+      const t = this.tokens[i];
+      if (t?.kind !== "punct") {
+        continue;
+      }
+      if (t.text === "{") {
+        net -= 1;
+      } else if (t.text === "}") {
+        net += 1;
+      }
+    }
+    return net;
+  }
+
   // --- body / block -------------------------------------------------------
 
   public parseBody(): Block {
@@ -3003,18 +3028,47 @@ class BodyParser {
    * diagnostic names the offending token) or, when nothing was captured yet,
    * returns `null` so the caller keeps the declaration-subject disposition
    * that input's Trigger clause already covers.
+   *
+   * A fourth exit — `atEnd()` reached between fields, with no `}` ahead — is
+   * `SchemaShape ::= "{" Field ("," Field)* ","? "}"`'s closing terminal never
+   * arriving (bug 0245 §Fix). `theta/parse/schema-body-unclosed` fires there,
+   * ranged on the body's own opening `{` (mirroring `fn-param-list-unclosed`'s
+   * `openTok`), under two guards: an EMPTY captured prefix keeps
+   * `theta/parse/empty-schema-body` ALONE — its Trigger already describes that
+   * input, and this row says nothing about the missing `}`; and a field-TYPE
+   * capture that swallowed an unmatched `}` withholds the verdict, since the
+   * closer was spent inside the type rather than omitted (the
+   * `fn-param-list-unclosed` absorbed-`)` withhold, mirrored here for `{`/`}`
+   * via `unmatchedCloseBraces`). A truncation inside the last field's own
+   * type position (`b:` at EOF) withholds nothing: the absent `}` is a fault
+   * independent of the type's own, so both codes are named — the pairing `fn
+   * f(a:` at EOF already draws, where `theta/parse/fn-param-list-unclosed`
+   * fires beside the parameter's own refusal.
    */
   private parseSchemaObjectBody(): SchemaFieldSource[] | null {
     if (!(this.peek().kind === "punct" && this.peek().text === "{")) {
       return null;
     }
-    this.advance(); // opening `{`
+    const openTok = this.advance(); // opening `{`
     const fields: SchemaFieldSource[] = [];
+    // Sticky for the whole body, mirroring `closeParenAbsorbed`: once a field
+    // type has swallowed one of the body's own `}` characters, the withhold
+    // applies regardless of which later exit the loop takes.
+    let closeBraceAbsorbed = false;
     for (;;) {
       while (this.peek().kind === "stmt-sep") {
         this.advance();
       }
       if (this.atEnd()) {
+        if (fields.length > 0 && !closeBraceAbsorbed) {
+          this.diagnostics.push({
+            severity: "error",
+            code: "theta/parse/schema-body-unclosed",
+            file: this.file,
+            range: openTok.range,
+            message: "schema object body is not closed by '}'",
+          });
+        }
         break;
       }
       if (this.isPunct("}")) {
@@ -3109,7 +3163,11 @@ class BodyParser {
           });
         }
       }
+      const typeStart = this.pos;
       const typeSource = this.parseType(true);
+      if (this.unmatchedCloseBraces(typeStart, this.pos) > 0) {
+        closeBraceAbsorbed = true;
+      }
       fields.push({
         name: nameTok.text,
         typeSource,

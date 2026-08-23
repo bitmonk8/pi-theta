@@ -143,6 +143,7 @@ trigger.
 | `theta/parse/wire-name-collision` | E | parse | `wire name '<name>' collides with another field on schema '<schema>'` |
 | `theta/parse/empty-schema-body` | E | parse | `'<X>' has no fields; an empty schema cannot be validated.` |
 | `theta/parse/malformed-schema-field` | E | parse | `malformed schema field; each field is 'name: Type' or 'name as "WireName": Type'` |
+| `theta/parse/schema-body-unclosed` | E | parse | `schema object body is not closed by '}'` |
 | `theta/parse/duplicate-inline-field-name` | E | parse | `duplicate field name '<field>' within one inline object type` |
 | `theta/parse/quoted-inline-field-name` | E | parse | `quoted field name '<field>' within one inline object type; field names are identifiers` |
 | `theta/parse/renamed-inline-field-name` | E | parse | `wire-name rename on field '<field>' within one inline object type` |

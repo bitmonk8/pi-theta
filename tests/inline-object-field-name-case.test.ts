@@ -257,6 +257,7 @@ const EMPTY_BODY = "theta/parse/empty-schema-body";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const RESULT_POSITION = "theta/parse/result-in-schema-position";
 const NOT_IDENTIFIER = "theta/parse/inline-field-name-not-identifier";
+const SCHEMA_BODY_UNCLOSED = "theta/parse/schema-body-unclosed";
 
 // ===========================================================================
 // Parse harness. `parseDoc` (tests/helpers/e2e-s1.ts) is the shipped whole-file
@@ -1012,11 +1013,21 @@ describe("0227 (H) — no diagnostic's subject is the ASCII residue of a field n
     // not the declaration's, so an unterminated `schema` body whose inline
     // interior IS closed still reaches both passes. This cell keeps the fix from
     // being gated on the outer declaration parsing cleanly.
+    //
+    // The source spells the INNER `}` but never the OUTER one (`schema S {` is
+    // never closed), which is bug 0245's independently-faulted missing `}` —
+    // ranged on the declaration's own opening `{` (col 10), disjoint from the
+    // raw-key refusal's range. The h7 subject (the residue verdict at an
+    // unspelled declaration brace) is unmoved; this is a second, unrelated
+    // fault the same source now also carries.
     const doc = theta("schema S { a: { éLan: string }");
     expect(
       rendered(doc),
       "the inline interior closed, so the raw-key refusal holds; the tail is still nobody's subject",
-    ).toEqual([nid("éLan", 4, 31)]);
+    ).toEqual([
+      nid("éLan", 4, 31),
+      diag("error", SCHEMA_BODY_UNCLOSED, msg(SCHEMA_BODY_UNCLOSED, []), 4, 10, 11),
+    ]);
   });
 
   it("h8/h9: under a GENERIC ARGUMENT the raw-key refusal now fires beside the residue pass's silence (bug 0233)", () => {

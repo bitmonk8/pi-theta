@@ -168,6 +168,8 @@ const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
 const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
+/** bug 0245's row — fires beside the A3 U1/U2 lexer arm below (see `positionRows`). */
+const SCHEMA_BODY_UNCLOSED = "theta/parse/schema-body-unclosed";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -223,6 +225,9 @@ function LETNOINIT(name: string): Exp {
 }
 function FNUNCLOSED(): Exp {
   return { severity: "error", code: FN_PARAMS_UNCLOSED, fills: [] };
+}
+function UNCLOSED(): Exp {
+  return { severity: "error", code: SCHEMA_BODY_UNCLOSED, fills: [] };
 }
 
 // ===========================================================================
@@ -374,11 +379,24 @@ function controlPositionCells(): Cell[] {
 }
 
 function positionRows(): Cell[] {
-  return [
+  const cells = [
     ...unterminatedPositionCells("U1", U1),
     ...unterminatedPositionCells("U2", U2),
     ...controlPositionCells(),
   ];
+  // A3 U1/U2 (`schema S { p: ${type} }`) spells only the INNER unterminated
+  // literal's own escape trouble — the run-on string swallows the OUTER
+  // schema body's own closing `}` too (visible in the field's retained
+  // `typeSource`, src/parser/theta-document.ts), so the declaration reaches
+  // EOF unclosed and bug 0245's row fires FIRST, ahead of the lexer's own
+  // `literal-newline-in-string`. The A3 CTL row (a properly-escaped literal)
+  // keeps its own `}` and is unmoved; this is a fault of U1/U2's OWN unescaped
+  // spelling, not a widening of what this route touches.
+  return cells.map((c) =>
+    c.cell === "A3 U1 schema body field" || c.cell === "A3 U2 schema body field"
+      ? { ...c, expected: [UNCLOSED(), ...c.expected] }
+      : c,
+  );
 }
 
 describe("bug 0232 (A) — the ninth position answers as the eight lexed ones do", () => {

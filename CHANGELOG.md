@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.226.0]
+
+### Fixed
+
+- **Bug 0245** — an unclosed `schema`/inline-object body at end of input no longer loads clean: `parseSchemaObjectBody`'s EOF exit emits a diagnostic instead of returning the captured prefix silently, so `schema S { a: string,` at EOF (and the nested truncation that dropped a declared field and lowered to accept-anything `{}`) is refused. Spec: code-registry-parse row + schemas/grammar pages + reference mirrors in the same change. Locked by `tests/schema-body-unclosed-at-eof.test.ts` (20 cells) and `tests/live/schema-body-unclosed-at-eof-live-cell.test.ts` (both directions, red-proven).
+
 ## [0.225.0]
 
 ### Fixed

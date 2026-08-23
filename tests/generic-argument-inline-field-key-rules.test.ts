@@ -237,6 +237,8 @@ const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const RESULT_IN_SCHEMA = "theta/parse/result-in-schema-position";
+/** bug 0245's row — the OUTER declaration's own missing `}`, disjoint from f3's subject. */
+const SCHEMA_BODY_UNCLOSED = "theta/parse/schema-body-unclosed";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
@@ -270,6 +272,8 @@ function EMPTY(subject: string): Exp {
 }
 /** The `Result`-in-schema-position row — c7's own position rule, §Non-goals. */
 const RESULTPOS: Exp = { severity: "error", code: RESULT_IN_SCHEMA, fills: [] };
+/** bug 0245's row, placeholder-free. */
+const UNCLOSED: Exp = { severity: "error", code: SCHEMA_BODY_UNCLOSED, fills: [] };
 /** The `let` RHS gate — b8's own position rule, §Non-goals. */
 function LETRHS(name: string, expected: string, actual: string): Exp {
   return {
@@ -559,9 +563,15 @@ function boundsCells(): Cell[] {
       // under route 1 (verified against the experimental application), so
       // §Non-goals' unclosed-interior exclusion still holds — this fixture was
       // simply never a member of it.
+      // The interior's OWN `}` closes (`TypeNode.closingBraceSpelled` is true,
+      // which is f3's subject), but the OUTER `schema` declaration's `{` never
+      // does — `array<{ éLan: string }` runs to EOF with no closing `}` for the
+      // declaration itself. Bug 0245's row names that independently, ranged on
+      // the declaration's own opening brace; f3's own claim (which gate owns
+      // the interior's silence) is unmoved.
       cell: "f3 apparently-unclosed interior, brace gate not the owner",
       src: theta("schema S { a: array<{ éLan: string }"),
-      expected: [NOTIDENT("éLan")],
+      expected: [NOTIDENT("éLan"), UNCLOSED],
     },
   ];
 }

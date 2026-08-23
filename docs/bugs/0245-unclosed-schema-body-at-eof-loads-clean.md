@@ -1,6 +1,6 @@
 # Bug 0245 — A `schema` object body that reaches end of input with at least one field captured draws ZERO diagnostics: `parseSchemaObjectBody`'s `atEnd()` break returns the captured prefix with no emission, so `schema S { a: string,` at EOF loads clean, registers, and lowers `S` to a real object schema — and when the truncation falls inside a nested inline object type (`b: {c: integer,`) the declared field `c` is dropped and `b` lowers to the permissive `{}` fragment that the same spelling written out (`b: {}`) is refused for
 
-- **Status:** open
+- **Status:** fixed (0.226.0)
 - **Sev/Diff estimate:** S1/D2 — a truncated source registers as a valid theta
   and the nested case ships a lowered property that accepts any JSON value where
   the source declares an object with one required integer field, so a model
@@ -448,3 +448,160 @@ therefore outside this fix … worth its own filing". Re-measured at HEAD
 `b9cf2f26` (0.219.0) before filing: the subject is byte-identical to 0133's
 recorded observation, and the nested-lowering element and the class boundary are
 new measurements taken for this report.
+
+## Fix (0.226.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — `parseSchemaObjectBody`'s fourth loop exit
+    (`atEnd()`, previously a bare `break`) now emits the newly minted
+    `theta/parse/schema-body-unclosed`, ranged on the body's own opening `{`
+    (`openTok`, mirroring `parseFn`'s `fn-param-list-unclosed`), under two
+    guards: a NON-EMPTY captured field prefix, and a withhold when a field-TYPE
+    capture consumed an unmatched `}`. The captured prefix is still returned, so
+    `finishObjectSchema`, the three recovery arms,
+    `recoverMalformedSchemaField`, `skipBraceRemainder` and `parseEnumVariants`
+    are byte-untouched and every other observable is unmoved. §Kind element 2 —
+    the nested `{}` lowering — is closed by the refusal rather than by a
+    lowering change: an error-severity diagnostic denies registration, so no
+    `{}` property fragment from a truncated body reaches a provider.
+  - `src/parser/theta-document.ts` — new private `unmatchedCloseBraces`, the
+    `{`/`}` sibling of `unmatchedCloseParens`. It counts `punct` tokens only, so
+    a `}` inside a string or template token is excluded by construction and a
+    balanced `{...}` the type carries withholds nothing.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — minted the
+    `theta/parse/schema-body-unclosed` row (E, parse; placeholder-free *Message*
+    `schema object body is not closed by '}'`), beside
+    `theta/parse/malformed-schema-field`. A same-commit DIAG-2 addition; the
+    *Message* is placeholder-free by design, so the CLOSED
+    placeholder-rendering tables need no entry.
+  - `docs/reference/diagnostics.md`, `docs/reference/schema-subset.md`,
+    `docs/spec_topics/schemas.md` §Object schema, `docs/spec_topics/grammar.md`
+    §"schema X by <field>" — the four mirrors that enumerate this family.
+    `docs/reference/grammar.md`'s §"schema X by <field>" carries neither
+    `empty-schema-body` nor `malformed-schema-field` and delegates to the
+    schema-subset page, so it is NOT in lock-step and is untouched.
+  - Four sibling witnesses each gained ONE independently-faulted line (below).
+- **Adjudications settled in-run** (§Expected behaviour left both open):
+  1. *Which code.* A NEW row, not a widening of
+     `theta/parse/fn-param-list-unclosed`. That row's *Trigger* self-fences
+     ("Scoped to `fn` parameter lists alone; no other unbalanced bracket is
+     judged by this row"); its *Message* is FALSE of a schema body, and
+     rewording it is a DIAG-4 reword deferred to theta 2.0 under
+     `source-language-stability.md` §Diagnostic-registry carve-out; and the
+     reword would flip bug 0151's 35-cell witness, which may not move.
+  2. *How far the row reaches.* The schema object body's field-loop EOF exit
+     ALONE — the doc's letter. The `enum` sibling stays silent (§Non-goals);
+     `schema S {` keeps `empty-schema-body` alone (§Non-goals' DIAG-4 wording
+     fence); bug 0133's residual 1 is unreached, since a remainder-consuming
+     unbalanced body exits through `recoverMalformedSchemaField` and never
+     reaches this exit (0133's cells 0g / 8b / 8c green throughout).
+  3. *Co-firing, not suppression.* An implementation guard that suppressed the
+     row when the last field's type capture was empty (`schema S { a: string,
+     b:` at EOF) was removed on review. The absent `}` is a fault independent of
+     the field type's own — bug 0129's count-consequence discriminating test
+     (delete the refused construct and the body is still unclosed) — the
+     *Message* is true of the input, and the guard bought no confinement, since
+     `b: array<integer` co-fires under either design. `fn f(a:` at EOF already
+     draws `fn-param-list-unclosed` beside the parameter's own refusal.
+  4. *The withhold.* A field-type capture that swallowed the body's own `}`
+     took a closer the author DID write, so the verdict would be false — bug
+     0151's landed absorbed-`)` precedent, mirrored for `{`/`}`. Measured: it is
+     what keeps bug 0236's group (f) and bug 0217's fence h1 green with no
+     co-edit at all.
+- **Gates:** witness RED before (`Tests 9 failed | 11 passed (20)`, every red
+  naming the absent `theta/parse/schema-body-unclosed` emission or the absent
+  registry row) and GREEN after (`Tests 20 passed (20)`); full default suite
+  `Test Files 409 passed (409)` / `Tests 8601 passed (8601)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean; `npm run lint`
+  (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) clean.
+- **Review:** 2 rounds. Round 1 (deep) — three findings: the unbriefed
+  empty-capture guard (fidelity), its false non-stickiness comment (house-rule),
+  and the *Trigger*'s self-contradiction between that withhold and its own
+  co-firing sentence (spec); plus one residual, the string/template-token
+  exclusion clause having no witness cell, closed by new cell b0245-e3. Round 2
+  (fast) — CLEAN, with its own probe sweep over the `by` form, two-level
+  nesting, a balanced-brace field type, a template literal carrying `}` and a
+  closed control, all measured correct. A following prose-only round corrected
+  two further sentences the fixer surfaced rather than reworded: the withhold
+  enumeration miscounted one withhold plus its exclusion as "two shapes", and
+  the GOV-15 sentence claimed every newly-refused input had loaded cleanly
+  before, which is false of the two co-firing inputs.
+- **Verification:** SOLID.
+  - *The witness witnesses.* Two hash-proven neutralisation cycles against
+    `src/parser/theta-document.ts` (pre-edit `git hash-object`
+    `d7aee0daf83ec085ba5295cd69780c95b57423cd`, restored byte-exact to the same
+    hash both times). Deleting the emission reds 9 of 20 cells; forcing
+    `closeBraceAbsorbed` false reds the two withhold cells — so both the
+    emission and its withhold are proven able to fail.
+  - *Full default suite green* — 409 files / 8601 tests.
+  - *Live, run for real.* New standalone cell
+    `tests/live/schema-body-unclosed-at-eof-live-cell.test.ts` mirroring bug
+    0151's live precedent: the truncated body does NOT register and surfaces the
+    refusal, its closed twin DOES register and drives a real turn (task-framed
+    arithmetic discriminator per the bug-0243 convention). GREEN in 5.8 s; its
+    red path proven by re-neutralising the emission (the truncated theta
+    registered, `Registered: ["b0245liveclosed", "b0245livetrunc"]`) and
+    restored hash-exact. H8a regression
+    `tests/live/live-production-acceptance.test.ts` 88/88 green. Bug 0133's and
+    bug 0151's own live cells re-run green.
+  - *Lint and typecheck* clean.
+- **Sibling witness flips — ENUMERATED FOR RATIFICATION.** Each fixture below IS
+  an unclosed `schema` declaration body, so each legitimately gains ONE new
+  independent diagnostic line. In every case the cell's own asserted subject is
+  unchanged and no assertion was weakened, reordered or deleted:
+  1. `tests/inline-object-duplicate-field-name.test.ts` — bug 0052 cell l1's
+     three `schema field ::` rows. The claim that
+     `theta/parse/duplicate-inline-field-name` stays silent on an interior that
+     never closes is untouched.
+  2. `tests/inline-object-field-name-case.test.ts` — bug 0227 cell h7, whose own
+     title is "the residue verdict goes even when the DECLARATION's own brace is
+     unspelled". `theta/parse/inline-field-name-not-identifier` still asserted
+     first.
+  3. `tests/unterminated-literal-params-type-refusal.test.ts` — bug 0232 cell A,
+     rows "A3 U1/U2 schema body field". This STRENGTHENS the cell's
+     cross-position symmetry claim: the schema position now answers exactly as
+     the already-green "A4 U1/U2 fn parameter" rows do with
+     `theta/parse/fn-param-list-unclosed`.
+  4. `tests/generic-argument-inline-field-key-rules.test.ts` — bug 0233 cell f3.
+     `theta/parse/inline-field-name-not-identifier` still asserted first.
+  No LOCKED file moved: `tests/schema-field-discard-prefix-retention.test.ts`
+  (0133, 58 cells), `tests/fn-param-list-unclosed.test.ts` (0151, 35 cells),
+  `tests/brace-rooted-union-arm-capture.test.ts` and bug 0095's recovery cells,
+  and `tests/fixtures/h7a/permitted-codes.json` are all absent from the diff.
+  `tests/fixtures/h7a/permitted-codes.json` is deliberately unedited: the new
+  code is delivered on the ordinary in-session `theta-system-note` channel, not
+  the bootstrap `console.error` fallback that file gates, and
+  `tests/committed-fixture-parse-gate.test.ts` establishes that no shipped
+  `.theta` or `.thetalib` is a truncated source that could reach it.
+- **Residuals:**
+  1. *The `enum` sibling stays silent.* `enum E { A,` at EOF is still
+     observationally identical to `enum E { A }` — `parseEnumVariants`'s loop
+     bound has the same silent EOF exit. §Non-goals fenced it and the scope call
+     kept the doc's letter, so it is untouched and asserted as a fence by
+     witness cell b0245-f1. Worth its own filing; a row reading "a declaration
+     body not closed by a matching `}`" would reach it.
+  2. *Bug 0133's residual 1 is untouched.* An unbalanced body that consumes the
+     file remainder still exits through `recoverMalformedSchemaField` and
+     carries `malformed-schema-field` alone. That report's cells 0g / 8b / 8c
+     stay green and stay 0133's.
+  3. *`schema S {` still says only "has no fields".* Whether
+     `theta/parse/empty-schema-body`'s *Message* should also name the missing
+     `}` is §Non-goals' DIAG-4 wording question and is not opened here.
+  4. *Line-shift staleness in citing documents.* This change adds roughly 65
+     lines to `src/parser/theta-document.ts` from line 1997 onward, so
+     `path:line` citations into that file from 15 open bug documents — 0046,
+     0051, 0062, 0063, 0109, 0112, 0121, 0175, 0191, 0245 (this document's own
+     §Affected anchors), 0246, 0249, 0250, 0252, 0253 — are now off by +25 to
+     +60. Not re-derived: `tests/citation-symbol-form-gate.test.ts` does not
+     carry `theta-document.ts` in its ratchet and holds `docs/bugs/**` out of
+     scope in both directions, each bug document being a dated record of one
+     HEAD. The post-fix anchors are `parseSchemaObjectBody` (`:3048`), its
+     emission (`:3066`) and `unmatchedCloseBraces` (`:2005`).
+- **Discharge notes appended:** none. Bug 0133's §Fix residual 2 named this
+  filing as its successor and is discharged by this record; no sibling document
+  was edited.
+- **Pinned dispositions / non-goals:** the `enum` variant loop; the
+  remainder-consuming unbalanced body (0133's residual 1); the three recovery
+  arms and `recoverMalformedSchemaField`; the inline object type's own
+  tolerances (0052, 0129); and `empty-schema-body`'s wording. The new row is
+  scoped to the `schema` object body alone and its *Trigger* says so.
