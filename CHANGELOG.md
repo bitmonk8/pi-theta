@@ -6,6 +6,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.250.0]
+
+### Fixed
+
+- Bug 0057: `docs/spec_topics/glossary.md:57`'s callee wire-name tail now
+  spells `__<post-rename-name>` (was `__<name>`), matching schema-subset —
+  one code-span token; the page stays 72 lines so every inbound cite holds.
+  No test owed per the doc's settled §Fix (a prose-matching assertion would
+  invert DIAG-4); the designated substitute discharged twice (full closing
+  gate over live vs reverted corpus: 2263 = 2263 findings, outputs
+  identical). Mirror check: grammar.md:111 + schema-subset.md:254 already
+  correct — no mirror edit. 0063's C3 17-row pin not engaged. Docs-only; no
+  live owed.
 ## [0.249.0]
 
 ### Fixed

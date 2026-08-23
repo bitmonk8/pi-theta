@@ -1,6 +1,6 @@
 # Bug 0057 — `glossary.md:57` spells the callee tool name's tail `__theta_callee_<actual-16-hex-chars>__<name>` where schema-subset.md `:108` — the page it cites as owning the set — spells it `__<post-rename-name>`; the two names differ whenever a `tools:` entry carries an `as` rename, and `<name>` is separately bound, one page away, to the local import binding in the reserved-name row's own Message
 
-- **Status:** open. §Fix is settled — the implementation's one construction
+- **Status:** fixed (0.250.0). §Fix is settled — the implementation's one construction
   site and every other occurrence in the corpus agree on one spelling, so the
   drifting phrase has a determined replacement. One phrase, one line, one file;
   no behavioural, registry, mirror, or test change. No ordering dependency:
@@ -492,3 +492,82 @@ which the gate-inertness check above is what establishes.
   both run and reported. One scratch vitest probe written under `tests/`, run
   once, output transcribed verbatim into §Reproduction, and deleted; no other
   file in the tree was written.
+
+## Fix (0.250.0)
+
+- What shipped: `docs/spec_topics/glossary.md:57` — the **schema slug** entry's
+  callee wire-name tail respelled `__theta_callee_<actual-16-hex-chars>__<name>`
+  → `__theta_callee_<actual-16-hex-chars>__<post-rename-name>`, matching the
+  declared owner `schema-subset.md:108` and the one construction site
+  (`src/runtime/tool-registration.ts:311`, which splices `entry.postRenameName`).
+  That token is the whole edit: one file, one line, one code span. §Non-goals
+  honoured — both `<actual-16-hex-chars>` occurrences, the sibling
+  `__theta_respond_<actual-16-hex-chars>`, the `<slug>`-placeholder clause, the
+  SUBS-2 cross-reference and the trailing `See:` link keep their bytes. Docs-only:
+  `git diff --stat -- src/` is empty.
+- Gates: `npm test` — `Test Files 427 passed (427)`, `Tests 9044 passed (9044)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — no output, exit clean;
+  `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) — no
+  output, exit clean. Byte stability: `wc -l` 72 before and after, so line 57 is
+  still line 57 and every inbound `path:line` citation into the page — including
+  0040's residual (ii) — stays valid.
+- Witness: none, and none owed. §Fix settles it (a prose-matching assertion
+  would invert DIAG-4, `diagnostics/diagnostic-shape.md`), and `glossary.md`
+  carries no REQ-IDs
+  (`governance/req-id-prefix-table-active-b.md:9`). The designated substitute —
+  gate-inertness over an in-memory corpus clone, the pattern sanctioned at
+  `tests/warn-only-canary.test.ts` — was run twice independently, each time via
+  a scratch file run once and deleted, the live tree never written:
+  `assembleLiveCorpus` post-fix vs. an in-memory clone reverted to the defective
+  spelling, both through the full unfiltered `runClosingGate`, gave
+  `post-fix findings count = 2263`, `pre-fix findings count = 2263`,
+  `outputs identical = true`. The closing gate cannot see the substitution.
+- Review: 1 round — `bug-fix-reviewer`, verdict CLEAN, zero findings across
+  fidelity, correctness, non-goals, style and collateral.
+- Verification: PASS. Fidelity/byte-stability (word-diff isolates the one token;
+  72 lines both sides; one modified file tree-wide). Census — `rg -n
+  '__theta_callee' --glob '!node_modules' --glob '!docs/bugs/**' .` leaves no
+  `__<name>` tail anywhere, and `rg -n 'actual-16-hex-chars' --glob
+  '!node_modules' --glob '!docs/bugs/**' .` returns exactly one line,
+  `glossary.md:57`, now spelling `__<post-rename-name>`; `docs/bugs/**` still
+  quotes the defective spelling verbatim, as §Fix requires. Gate-inertness as
+  above. Gates green. No live test owed: the diff touches zero `src/` bytes, so
+  no runtime path changed.
+- Mirror check (the conditional §Fix keeps): `rg -n '__theta_callee'
+  docs/reference/` returns exactly `grammar.md:111` and `schema-subset.md:254`,
+  both already spelling `<post-rename-name>`. No mirror correction owed, none
+  made.
+- Residuals:
+  1. **§Affected's "no test opens the page" claim is stale at fix time.** The
+     report states `rg -n 'glossary' tools/ tests/ src/` returns nothing; at the
+     fix baseline it returns
+     `tests/grammar-literal-forbidden-access-naming.test.ts:148`, `:253`,
+     `:281`, `:284`, `:294`, `:296` — bug 0037's cell C1, which reads
+     `glossary.md` and asserts it contains neither `member access` nor
+     `indexed access`. The substituted token contains neither string, so the
+     assertion is undisturbed; the file was run and passed 8/8, and the full
+     suite is green. The claim's *conclusion* (no test witnesses this line)
+     survives; its *premise* does not.
+  2. **Line-number drift in §Affected, pre-existing and not corrected here.**
+     The report was filed at `aef82bde`/0.50.0; at the fix baseline the cited
+     lines have moved: `code-registry-parse.md:111` → `:135`,
+     `docs/reference/schema-subset.md:201` → `:254`,
+     `docs/reference/grammar.md:50` → `:111`, `CHANGELOG.md:33` → `:4684`,
+     `src/runtime/tool-registration.ts:308–313` → `:311`. Substance identical
+     at every one; re-derived and quoted in `.pi/tmp/fixes/0057-report.md`.
+     Left as found — correcting a filed report's historical citations is not
+     this fix's subject and would churn a page no gate reads.
+  3. **Corpus census grew since filing**, with no bearing on the fix:
+     `src/parser/schema-lowering.ts:832` (prefix `__theta_callee_` only, no
+     placeholder tail) and `docs/bugs/0099-…md` (7 hits) now also match
+     `__theta_callee`. Neither carries a `__<name>` tail.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `<actual-16-hex-chars>` stays as found on
+  both wire names. `code-registry-parse.md` keeps its bytes, its own `<name>`
+  placeholder and the sentence binding it to the LOCAL import binding — the
+  collision is resolved by moving the glossary side, which is the wrong one.
+  The reserved set is unchanged (`src/parser/synthesised-names.ts:35` matches
+  the tail as a shape). No restatement gate proposed. The callee registration
+  path's absence of a production caller is out of scope. Bug 0063's oracle cell
+  C3 (`diagnostics/placeholder-rendering-a.md` §3, 17 rows) is byte-untouched
+  and does NOT flip: the fix never reaches that file.
