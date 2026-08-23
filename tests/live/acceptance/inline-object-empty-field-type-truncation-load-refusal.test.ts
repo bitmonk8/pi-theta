@@ -130,7 +130,7 @@ const PROBE = [
   '  Ok(v) => "537",',
   '  Err(e) => "738"',
   "}",
-  "@`A load probe reported code ${verdict}. What is that code plus 1000? Answer with the number only.`",
+  "@`What is ${verdict} plus 1000? Answer with the number only.`",
   "",
 ].join("\n");
 
