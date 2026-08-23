@@ -146,9 +146,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     trees: W14 bounds the class by POSITION within the entry, W17 is bug
 //     0232's distinct spelling, W18/W19 are bug 0042's alias-RHS site, which
 //     refuses ahead of the segment count §Fix constraint 4 protects.
-//   - (P) W20/W21/W22, the `let`-annotation position. W20 GREEN, W21 GREEN and
-//     pinned as a FENCE for a value this report explicitly does NOT attribute
-//     (see the cell), W22 RED.
+//   - (P) W20/W21/W22, the `let`-annotation position. W20 GREEN, W21 now
+//     ATTRIBUTED to bug 0252 and carrying that report's refusal (see the cell;
+//     this report still attributes nothing there), W22 RED.
 //   - (E) E1/E2, the AJV cells over the shipped validator's configuration
 //     (`new Ajv({ strict: false, allErrors: true })`,
 //     src/seams/schema-validator.ts:384). E1 GREEN, E2 RED — the registered
@@ -241,6 +241,11 @@ const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const SCHEMA_NOT_EXPR = "theta/parse/schema-type-not-expression";
 const MISSING_DISCRIMINATOR = "theta/parse/missing-discriminator";
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
+/**
+ * Bug 0252's row (code-registry-parse.md:106), which now ATTRIBUTES W21 below.
+ * Added for that one cell; every other cell in this file is unmoved.
+ */
+const ANNOTATION_NOT_EXPR = "theta/parse/annotation-type-not-expression";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -287,6 +292,10 @@ function MISSINGDISC(subject: string): Exp {
 }
 function PARAMSNOTEXPR(param: string): Exp {
   return { severity: "error", code: PARAMS_NOT_EXPR, fills: [["<param>", param]] };
+}
+/** Bug 0252's refusal, naming the `let` binder — W21's attributed line. */
+function ANNOTATIONNOTEXPR(name: string): Exp {
+  return { severity: "error", code: ANNOTATION_NOT_EXPR, fills: [["<name>", name]] };
 }
 
 /** One rendered diagnostic, in the shape `diagLines` produces. */
@@ -732,7 +741,7 @@ describe("bug 0238 (D) — the boundaries this report measures and must not move
 // ===========================================================================
 
 describe("bug 0238 (P) — the same class at a second position", () => {
-  it("W20 FENCE and W21 FENCE: the control refuses, and the subject's measured silence is pinned UNATTRIBUTED ", () => {
+  it("W20 FENCE and W21: the control refuses, and the subject's row is bug 0252's refusal ", () => {
     expectGroup(
       [
         {
@@ -744,26 +753,42 @@ describe("bug 0238 (P) — the same class at a second position", () => {
           expected: [LETRHS("y", "{ a: integer, m: integer }", "integer")],
         },
         {
-          // W21 — A FENCE, NOT A CLAIM. §Reproduction (D) measures this row's
-          // missing `let-rhs-type-mismatch` and explicitly does NOT attribute
-          // it to the split: "the annotation's structural type is built off the
-          // type parse, and this report claims no cause for that row"
-          // (§Non-goals, "The `let`-annotation structural type"). The parent
-          // run's prototype measured it STILL `[]` after route (a), and that
-          // measured non-goal is what is pinned here — a fence so a later route
-          // that does restore the RHS gate at this position reds visibly rather
-          // than landing unnoticed. This cell asserts NOTHING about whether
-          // `[]` is correct.
-          cell: "W21 let annotation, stray close token — UNATTRIBUTED non-goal",
+          // W21 — THE FENCE IS NOW ATTRIBUTED, not deleted. This report
+          // measured the row's missing `let-rhs-type-mismatch` and explicitly
+          // claimed no cause for it (§Non-goals, "The `let`-annotation
+          // structural type"); route (a) left it `[]`, and the cell was pinned
+          // as a fence so "a later route that does restore the RHS gate at this
+          // position reds visibly rather than landing unnoticed". That route
+          // has arrived, and the fence did its job.
+          //
+          // BUG 0252
+          // (docs/bugs/0252-brace-and-angle-annotation-junk-exempt-from-refusal.md)
+          // OWNS THIS ROW. Its cause is not the split at all: the annotation
+          // text carries both a brace and an angle bracket, so
+          // `annotationSourceIsNotTypeExpression`
+          // (src/parser/type-layer-checks.ts) declined to judge it before the
+          // refusable-text sink ran, and the `let` annotation was admitted as a
+          // deferring nominal. Under 0252's route the interior IS judged — the
+          // stray `>` closes nothing inside a brace group the author wrote
+          // whole, which derives from no `Type` production
+          // (docs/reference/grammar.md:215) — so the annotation is REFUSED at
+          // the recogniser and the row draws
+          // `theta/parse/annotation-type-not-expression` alone. Nothing about
+          // THIS report's claim moved: the RHS gate is still not restored at
+          // this position, because there is no longer an annotation to gate
+          // against (code-registry-parse.md:106 seeds the binding withheld).
+          // The cell is 0252's witness's mirror here, kept so a route that
+          // withdraws that refusal reds in both files.
+          cell: "W21 let annotation, stray close token — bug 0252's refusal",
           src: theta("let y: {a: integer, b > c, m: integer} = 1"),
-          expected: [],
+          expected: [ANNOTATIONNOTEXPR("y")],
         },
       ],
-      "W20 is §Expected behaviour 5's no-move row. W21 is the report's own explicitly " +
-        "UNATTRIBUTED measurement (§Reproduction (D), §Non-goals): route (a) leaves it `[]`, " +
-        "and it is pinned as a fence rather than claimed — a red here means the position's " +
-        "structural type moved, which no cell in this file claims and which must be stated " +
-        "before it lands",
+      "W20 is §Expected behaviour 5's no-move row. W21 is bug 0252's row, not this report's: a " +
+        "red reporting `[]` is that report's brace-AND-angle exemption still admitting junk at " +
+        "the `let` annotation; a red reporting `theta/parse/let-rhs-type-mismatch` is a route " +
+        "that made the interior CONVERTIBLE instead of refusing it (0252 §Fix route (b)), " +
+        "which must be stated at both cells before it lands",
     );
   });
 

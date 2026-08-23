@@ -1,6 +1,6 @@
 # Bug 0252 — `annotationSourceIsNotTypeExpression`'s SHRED decline exempts every annotation text carrying BOTH a brace and an angle bracket, so junk that refuses when written with braces alone (`{a: integer--}`) or angles alone (`array<integer-->`) loads clean when both appear (`{a: integer--, c: array<integer>}`, `{a: integer, b > c, m: integer}`), the interior then declines in `letAnnotationToCompatType` to the deferring nominal, and TYPE-8's `let-rhs-type-mismatch` plus `reassign-rhs-type-mismatch` are withheld with nothing on any channel
 
-- **Status:** open
+- **Status:** fixed (0.225.0)
 - **Sev/Diff estimate:** S2/D2 — S2 because no value is corrupted and no wrong
   verdict is emitted: what is lost is the check. `let y: {a: integer, b > c,
   m: integer} = 1` draws `[]` where its byte-neighbour control draws
@@ -473,3 +473,129 @@ cell is owed if the route changes a registration outcome — every (A), (B) and
 - **Scratch probes.** Four files under `tests/`, named `scratch-0252-*`, and one
   scratch directory `.pi/tmp/0252/`, both deleted after measurement;
   `git status --short` carries no `tests/` entry from this filing.
+
+## Fix (0.225.0)
+
+**Route (a) was taken, narrowed to the author-written brace group.** Route (b)
+is rejected on §Fix's own record: it re-opens bug 0130's landed decline
+decision and leaves B2/B3 silent, failing §Expected behaviour 1. Route (a)
+alone is not sufficient either, and the measurement that shows it is the
+adjudication's hinge: with the brace-and-angle decline hypothetically removed,
+the shared sink returns an EMPTY refusable set for A2's interior
+(`sinkRefusable("{a: integer, b > c, m: integer}")` → `[]`, against
+`["integer--"]` for B2's), because `lowerInlineObject`'s keyless-entry skip
+drops `b > c` before the sink can see it. Narrowing the decline therefore
+closes B2/B3 and not A2/A3/A4, so the recogniser gains a positive structural
+judgement beside the narrower decline.
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — `annotationSourceIsNotTypeExpression`'s
+    brace-AND-angle decline is narrowed to the shape a split can still cut. A
+    brace-and-angle text that is not a SINGLE ENCLOSING brace group
+    (`isSingleEnclosingBraceGroup`, `src/parser/params.ts` — the predicate the
+    shared sink itself decides its brace-group entry with, so the two agree by
+    construction) declines exactly as bug 0124 landed it; a text that IS one is
+    a group the author wrote whole and no traversal here cuts, so a quote-aware
+    KIND-MATCHED scan of it (`braceGroupCarriesUnmatchedCloseToken`, new,
+    module-private) refuses a close token that closes nothing or closes a kind
+    its nearest unclosed opener did not open — text deriving from no `Type`
+    production; anything else falls through to the refusable-text sink
+    unchanged. The `[` / `]` decline is untouched (§Non-goals).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the same-commit
+    DIAG-2 edit: the `theta/parse/annotation-type-not-expression` row's
+    *Trigger* sentence stating the SHRED decline now states the narrowed
+    boundary, and the `theta/parse/query-annotation-type-not-expression` row's
+    sentence — which inherits that boundary verbatim rather than copying it —
+    moves in lock-step. No code minted, no row added or removed, every
+    *Message* and *Remedy* column byte-identical.
+  - `tests/brace-and-angle-annotation-junk-refusal.test.ts` (new) — §Fix's
+    witness: A1–A5, B1/B2 and B4/B5 as byte-neighbour pairs plus B3 and B6,
+    C1/C2, C3/C4, C5/C6, D1/D2 over `loweredSchema` byte-equality, the F-group
+    anti-widening fences, the constraint-3 one-line-per-annotation cell, and a
+    direct unit cell over the recogniser. Whole-list ordered `toEqual` over the
+    unfiltered diagnostics through `parseDoc`; every expected message read
+    through the `registryMessage` oracle (DIAG-4).
+  - `tests/live/b0252live-brace-and-angle-annotation-refusal-live-cell.test.ts`
+    (new) — the live cell §Fix's witness clause owes, since route (a) changes a
+    registration outcome: the offender annotation is absent from the registered
+    set at live production load while its byte-neighbour control registers and
+    drives a real turn, discriminated by an arithmetic oracle over two bound
+    field values (the bug 0243 convention, no verbatim echo).
+  - `tests/inline-object-stray-close-token-split.test.ts` — §Fix constraint 4:
+    bug 0238's W21 fence is re-attributed to this report's refusal rather than
+    deleted. 16 `it` blocks, unmoved.
+  - `tests/let-annotation-inline-object-compat.test.ts` — bug 0130 cell e7 rows
+    e7.1–e7.4 (`{a: integer>}`, `{a: b>c}`, `{a: array<b>c>}`,
+    `{a: {b: integer>}}`) now expect the registered refusal. e7.5
+    (`{a: Result<integer>}`, bug 0130 *Residuals* item 4) and e7.6
+    (`{a: integer,,}`) are byte-untouched.
+  - `tests/generic-argument-shredded-group-refusal.test.ts`,
+    `tests/query-annotation-nontype-text-refusal.test.ts` — comment-only: two
+    prose mirrors of the pre-fix blanket boundary stated a universal that is
+    now measurably false; each points at the one copy (the registry row read
+    with the recogniser) instead of restating the boundary.
+- Gates: witness RED before / GREEN after, with the neutralisation run by the
+  verifier (the blanket `return false` restored in place, every red exactly `[]`
+  where the refusal is owed, then written back byte-exact —
+  `git hash-object` `cf033301182720e7f5d71ef580b847e17d30977a` before and
+  after; no `git stash`, no `git checkout`, no `git restore`); full default
+  suite 409 files / 8592 tests green (three files needing an isolated re-run for
+  the repository's documented `Hook timed out` load-contention class, green
+  there); `npm run typecheck` clean; `npm run lint` clean; live —
+  `b0252live-…-live-cell` green under the live lock and its red direction proved
+  by a restored byte edit, and `tests/live/live-production-acceptance.test.ts`
+  88/88 green.
+- Review: 2 rounds. Round 1 (deep) — three findings: the new helper was placed
+  between the recogniser's doc comment and the recogniser (house-rule), the
+  owed live cell was missing (fidelity), and three prose mirrors of the old
+  boundary were stale (prose). Round 2 (fast) — clean, with the round-1
+  remedies re-derived independently (including its own red-direction proof of
+  the live cell).
+- Verification: SOLID. The witness reds on neutralisation with the
+  missing-refusal signature and greens on restore, hash-verified; the default
+  suite is green; the live cell and the H8a acceptance file were run for real
+  under the lock; typecheck and lint pass; §Fix constraint 5's five locks are
+  green at their pinned cell counts (bug 0028's RESULT-LET-BRACE included), and
+  §Reproduction F was re-measured at this tree (34 committed `.theta` /
+  `.thetalib` files, parse gate 36 green) rather than cited.
+- Residuals:
+  1. **§Expected behaviour 4's "C3 keeps its code" does not hold under route
+     (a), and §Expected behaviour 1 is what overrides it.** Once A2's
+     annotation is refused, the registry row's own withhold census seeds the
+     binding WITHHELD, so the `non-array-iterand` line that read the deferring
+     nominal is gone and C3 is the refusal alone; C5 and C6 lose their silence
+     for the same reason. The clause holds only under route (b). Bug 0247's
+     class is not closed here — it is no longer reachable through THIS
+     annotation, since the nominal is never built (B5 still builds one, and
+     that row is unmoved).
+  2. **Bug 0130's cell e7 rows e7.1–e7.4 flip, enumerated for ratification.**
+     B2 refuses only through the shared sink over a keyed junk tail
+     (`integer--`); e7.1's `integer>` is the same shape and draws the same sink
+     verdict, and no predicate separates them that is not arbitrary. The flip
+     is a strengthening (silence → a registered refusal); bug 0130's conversion
+     decline is UNTOUCHED (the interior still declines to the deferring
+     nominal — the refusal now runs before that deferral is read) and its
+     *Residuals* item 4 set is unmoved. Bug 0130's own document is not edited
+     by this change.
+  3. **A third prose mirror of the pre-fix boundary is left stale on purpose:**
+     `src/runtime/query-schema-lowering.ts`'s module header still states that
+     brace-and-angle text "is declined before judgement … left exactly as
+     landed", which is now false at the `@<T>` position (measured:
+     `@<{a: integer--, c: array<integer>}>` draws
+     `theta/parse/query-annotation-type-not-expression`). Four OPEN bug
+     documents name that file (0054, 0098, 0121, 0244), so it was not edited
+     here. Whichever of those lands next owns the reword.
+  4. **The third untyped copy of the depth arithmetic is untouched**, as
+     §Non-goals directs: `splitTopLevelObjectFields` and `topLevelColonIndex`
+     still decrement unconditionally, measured non-causal for every row here.
+  5. **The `@<T>` position inherits the narrowing by design.** The recogniser
+     is shared and row `:107` says so; a depth-0 stray `>` inside `@<…>`
+     terminates the capture itself, so the scan's arm is hard to reach there
+     while the sink half is reachable and measured. No test moved at that
+     position.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the `[` / `]` decline, the rendering of the
+  deferring nominal (bug 0247), grammar-admitted interiors the converter
+  declines (bug 0130 *Residuals* item 4), `splitTopLevelUnion`'s
+  brace-blindness (bug 0130 *Residuals* item 3), the two `fn` positions and the
+  QRY-4 reader, and citation drift (bug 0134) all stay exactly as filed.

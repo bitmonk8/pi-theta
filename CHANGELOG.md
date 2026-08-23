@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.225.0]
+
+### Fixed
+
+- **Bug 0252** — annotations carrying BOTH a brace and an angle bracket are no longer exempt from refusal: the brace-and-angle SHRED decline in `annotationSourceIsNotTypeExpression` stands only where a split can still cut a group; a single enclosing brace group the author wrote whole is judged by a quote-aware kind-matched scan, and the interior otherwise reaches the shared sink — `{a: integer--}`-with-`array<…>` junk now refuses instead of loading as a deferring nominal that withholds TYPE-8 mismatches. W21 of 0238's witness re-attributed per its §Fix constraint 4; 0130's e7.1–e7.4 flipped to the registered refusal under 0252 §Expected behaviour 1 (ratified at merge). Locked by `tests/brace-and-angle-annotation-junk-refusal.test.ts` (11 cells) and the `b0252live` registration live cell.
+
 ## [0.224.0]
 
 ### Fixed

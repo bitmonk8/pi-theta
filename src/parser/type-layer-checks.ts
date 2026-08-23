@@ -82,7 +82,7 @@ import {
 } from "../runtime/expression-evaluator";
 import { checkForIterand } from "./control-flow";
 import { collectUnresolvedNamedTypes } from "./body-type-lowering";
-import { isUnspellableTextRefusable } from "./params";
+import { isSingleEnclosingBraceGroup, isUnspellableTextRefusable } from "./params";
 import { STRING_MEMBERS } from "../runtime/stdlib-string";
 import { ARRAY_MEMBERS } from "../runtime/stdlib-array";
 import { OBJECT_MEMBERS } from "../runtime/stdlib-object";
@@ -1085,6 +1085,51 @@ function topLevelColonIndex(part: string): number {
 const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
 
 /**
+ * Whether a kind-matched scan of `text` finds a close token that closes
+ * nothing, or closes a kind its nearest unclosed opener did not open — a
+ * token no `Type` production derives (grammar.md `Type`).
+ *
+ * Only ever called on a group nothing in this traversal cuts (see THE SHRED
+ * DECLINE on `annotationSourceIsNotTypeExpression` below), so an unmatched
+ * close token the scan finds is the author's own text and never an artefact
+ * of a split. The quoted-region handling mirrors `isSingleEnclosingBraceGroup`
+ * (./params) — the predicate deciding the caller's single-enclosing test — so
+ * the two agree on what a quoted region is by construction rather than by
+ * coincidence over whichever spellings happen to be measured.
+ */
+function braceGroupCarriesUnmatchedCloseToken(text: string): boolean {
+  const stack: string[] = [];
+  let quote: string | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i] ?? "";
+    if (quote !== undefined) {
+      if (c === "\\" && i + 1 < text.length) {
+        i += 1;
+      } else if (c === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "<" || c === "{") {
+      stack.push(c);
+      continue;
+    }
+    if (c === ">" || c === "}") {
+      const opener = c === ">" ? "<" : "{";
+      if (stack.length === 0 || stack[stack.length - 1] !== opener) {
+        return true;
+      }
+      stack.pop();
+    }
+  }
+  return false;
+}
+
+/**
  * Whether `src` — a captured `let` annotation, `fn` parameter type, `fn`
  * return type, or (bug 0203 §Fix) an author-written `@<T>` / bare `@Ident`
  * query ascription — derives from none of `Type`'s six alternatives
@@ -1124,34 +1169,55 @@ const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
  * that guard (bug 0124 §Fix constraint 3 — the empty annotation is a separate
  * answer this function does not give).
  *
- * THE SHRED DECLINE — mandatory, and sound in only one direction: it can
- * refuse LESS than the sink otherwise would, never more. `splitTopLevel`'s
- * generic-argument and union splits (./params) still never track bracket
- * depth, so a source combining a brace group with an angle bracket COULD
- * hand the sink a SHARD of a group the author wrote as one unit:
- * `Result<{a: string, b: integer, c: boolean}, QueryError>` used to shred to
- * `["{a: string", "b: integer", "c: boolean}"]`, with the brace-free middle
- * shard refusable entirely on its own. Declining any source carrying a `[`
- * or `]`, or carrying BOTH a brace and an angle bracket, before the sink
- * ever runs is what keeps that shard from reaching judgement — without it
- * this recogniser falsely refuses a LEGAL annotation and reds bug 0028's
- * witness (tests/unresolved-annotation-lowering.test.ts, RESULT-LET-BRACE).
+ * THE SHRED DECLINE — mandatory for the `[`/`]` half, and narrowed for the
+ * brace-and-angle half to the shape that can actually shred (bug 0252 §Fix
+ * route (a)). `splitTopLevel`'s generic-argument and union splits (./params)
+ * never track bracket depth, so a source combining a brace group with an
+ * angle bracket COULD hand the sink a SHARD of a group the author wrote as
+ * one unit: `Result<{a: string, b: integer, c: boolean}, QueryError>` used
+ * to shred to `["{a: string", "b: integer", "c: boolean}"]`, with the
+ * brace-free middle shard refusable entirely on its own. Declining any
+ * source carrying a `[` or `]` before the sink ever runs is what keeps that
+ * class of shard from reaching judgement — without it this recogniser
+ * falsely refuses a LEGAL annotation and reds bug 0028's witness
+ * (tests/unresolved-annotation-lowering.test.ts, RESULT-LET-BRACE).
  *
- * POST-BUG-0204, THIS DECLINE'S OWN CONSEQUENCE IS NARROWER THAN THE
- * PARAGRAPH ABOVE STATES, measured (not reasoned) by neutralising both
- * declines in a scratch copy of this function and comparing the pre-0204 and
- * post-0204 traversal: the GENERIC-ARGUMENT half of the hazard — the
- * `Result<{...}, QueryError>` example above, and `array<{a: string, b:
- * integer, c: boolean}>` — now yields an EMPTY refusable set with the
- * decline removed, where the identical probe against the pre-0204 traversal
- * yielded `["b: integer"]`: `lowerTypeExpr`'s generic-application arm
- * (params.ts, bug 0204 §Fix (b)(3)) already stops a shard the split cuts
- * from a `{...}`/`[...]` group before it can reach the sink this decline
- * guards, so this decline no longer has that half of the hazard to protect
- * against. The decline itself is NOT narrowed — both bracket tests stay
- * exactly as written — because the UNION-split half (a brace group whose own
- * top-level `|` a union split can shred) is untouched by bug 0204's fix and
- * this decline still bears it alone.
+ * The brace-and-angle half declined on the same bare presence, but the
+ * SHARD property those splits threaten is a group the split CUTS, and only
+ * two shapes put a brace group where either split reaches it: nested inside
+ * a `GenericType` argument list, or standing beside a top-level `|` in a
+ * union. A brace group that is neither — a SINGLE ENCLOSING brace group,
+ * `isSingleEnclosingBraceGroup` (./params, the same predicate the shared
+ * sink's own brace-group entry decides membership with, so the two agree by
+ * construction) — sits at neither split's cut point: the author wrote it as
+ * one unit, and no traversal here divides it into pieces. Nothing about
+ * bracket depth needs protecting there, so a KIND-MATCHED scan of that
+ * group's interior — `<`/`{` pushed, `>`/`}` checked against the top of that
+ * same stack, a quoted region skipped exactly as `isSingleEnclosingBraceGroup`
+ * skips one — replaces the blanket admission: a close token the scan finds
+ * closing nothing, or closing a kind its own nearest unclosed opener did not
+ * open, derives from no `Type` production (grammar.md `Type`) and is refused
+ * directly, without ever reaching the refusable-text sink below. A brace
+ * group that IS nested in a generic argument or beside a top-level `|` keeps
+ * the decline exactly as bug 0124 landed it, since that is the one shape
+ * either split can still cut.
+ *
+ * POST-BUG-0204, THE DECLINE'S REMAINING (non-single-enclosing) REACH IS
+ * NARROWER THAN THE PARAGRAPH ABOVE STATES ON ITS OWN, measured (not
+ * reasoned) by neutralising both declines in a scratch copy of this function
+ * and comparing the pre-0204 and post-0204 traversal: the GENERIC-ARGUMENT
+ * half of the hazard — the `Result<{...}, QueryError>` example above, and
+ * `array<{a: string, b: integer, c: boolean}>` — now yields an EMPTY
+ * refusable set with the decline removed, where the identical probe against
+ * the pre-0204 traversal yielded `["b: integer"]`: `lowerTypeExpr`'s
+ * generic-application arm (params.ts, bug 0204 §Fix (b)(3)) already stops a
+ * shard the split cuts from a `{...}`/`[...]` group before it can reach the
+ * sink this decline guards, so this decline no longer has that half of the
+ * hazard to protect against for a text that is not a single enclosing brace
+ * group. The UNION-split half (a brace group whose own top-level `|` a
+ * union split can shred) is untouched by bug 0204's fix, and is exactly the
+ * reason a non-single-enclosing brace-and-angle text still declines: the
+ * kind-matched scan above only ever runs on a group nothing here can cut.
  */
 export function annotationSourceIsNotTypeExpression(src: string): boolean {
   const text = src.trim();
@@ -1164,7 +1230,12 @@ export function annotationSourceIsNotTypeExpression(src: string): boolean {
   const hasBrace = text.includes("{") || text.includes("}");
   const hasAngle = text.includes("<") || text.includes(">");
   if (hasBrace && hasAngle) {
-    return false;
+    if (!isSingleEnclosingBraceGroup(text)) {
+      return false;
+    }
+    if (braceGroupCarriesUnmatchedCloseToken(text)) {
+      return true;
+    }
   }
   const unspellable: string[] = [];
   collectUnresolvedNamedTypes(text, NO_DECLARED_TYPE_NAMES, undefined, unspellable);

@@ -33,9 +33,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Meanwhile the grammar's own argument reader (`parseGeneric`, one `parseUnion`
 // per argument) counts ONE argument, so `theta/parse/generic-arity-mismatch`
 // does not fire, and the byte-identical text is admitted at bug 0124's three
-// positions, whose recogniser (`annotationSourceIsNotTypeExpression`) declines
-// any source carrying both a brace and an angle bracket before consulting the
-// same sink.
+// positions, whose recogniser (`annotationSourceIsNotTypeExpression`,
+// src/parser/type-layer-checks.ts) declines a brace-and-angle source only where
+// a split can still shred it, not on the bare presence of the two characters.
+// The boundary itself is stated in one place, and this file does not restate
+// it: the `theta/parse/annotation-type-not-expression` row of
+// docs/spec_topics/diagnostics/code-registry-parse.md, read with that
+// recogniser.
 // (docs/bugs/0204-bracket-blind-split-shreds-inline-object-in-generic.md)
 //
 // SPEC ANCHORS (the contract, not the current code):
@@ -592,11 +596,14 @@ describe("bug 0204 (c) — the CONTROL rows keep their clean load", () => {
 // directions. §Reproduction (c), §Non-goals ("Bug 0124's immune positions",
 // "The `@<T>` position's absent sink").
 //
-// Bug 0124's recogniser (`annotationSourceIsNotTypeExpression`) declines any
-// source carrying both a brace and an angle bracket before consulting the same
-// sink, and the `@<T>` position threads no sink at all. Neither is narrowed
-// here: these cells are the fence proving the fix removed refusals without
-// touching the positions that never had one.
+// Bug 0124's recogniser (`annotationSourceIsNotTypeExpression`,
+// src/parser/type-layer-checks.ts) admits the brace-and-angle text these rows
+// spell, on the boundary its own doc comment and the
+// `theta/parse/annotation-type-not-expression` registry row
+// (docs/spec_topics/diagnostics/code-registry-parse.md) state — not on the bare
+// presence of a brace and an angle bracket. The `@<T>` position threads no sink
+// at all. Neither is narrowed here: these cells are the fence proving the fix
+// removed refusals without touching the positions that never had one.
 // ===========================================================================
 
 describe("bug 0204 (d) — the four already-admitting positions are untouched", () => {

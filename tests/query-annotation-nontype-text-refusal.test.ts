@@ -682,9 +682,13 @@ describe("bug 0203 (f) — grammar-admitted annotations keep their bytes and the
 // (g) THE R10 / BUG 0204 BOUNDARY. `@<Ghost{>` and `@<Ghost}>` stay SILENT
 // under bug 0124's SHARED brace decline, which every sibling position carries
 // too. This fix inherits that decline verbatim and writes no second copy, so
-// the shred-decline boundary — the sentence saying `[`/`]`-carrying or
-// brace-and-angle text is ADMITTED because `splitTopLevel` never tracks
-// bracket depth — is left exactly as landed. Narrowing it is bug 0204's
+// the shred-decline boundary is left exactly as landed, wherever it now runs.
+// That boundary is stated in one place and is not restated here: the
+// `theta/parse/annotation-type-not-expression` row of
+// docs/spec_topics/diagnostics/code-registry-parse.md, read with
+// `annotationSourceIsNotTypeExpression` (src/parser/type-layer-checks.ts) —
+// which declines `[`/`]`-carrying text outright and declines brace-and-angle
+// text only where a split can still shred the group. Narrowing it is bug 0204's
 // subject (docs/bugs/0204-bracket-blind-split-shreds-inline-object-in-generic.md),
 // NOT this fix's, and these cells are the pins bug 0204 must re-derive.
 // GREEN at HEAD and after the fix.

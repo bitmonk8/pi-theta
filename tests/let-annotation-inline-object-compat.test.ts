@@ -666,20 +666,50 @@ describe("bug 0130 (e) — R2: `{}` and malformed interiors do not convert", () 
     // category 1 has no rendering for `{ a: integer> }`), so an unrecognised
     // tail declines back to the deferring pseudo-`named` — the SAFE direction,
     // status-quo silence, which also keeps GOV-15 still on inputs outside the
-    // premeasured set. HEAD (pre-fix) baseline for every row below: exactly the
-    // list asserted here.
-    expect(stmtDiags("let x: {a: integer>} = 1"), "e7.1 — a stray `>`").toEqual([]);
-    expect(stmtDiags("let x: {a: b>c} = 1"), "e7.2 — punctuation between two atoms").toEqual(
-      [],
-    );
+    // premeasured set.
+    //
+    // ROWS e7.1–e7.4 NOW DRAW A REFUSAL, and THIS ROUTE'S DECLINE IS UNCHANGED
+    // by that. Bug 0252
+    // (docs/bugs/0252-brace-and-angle-annotation-junk-exempt-from-refusal.md)
+    // measured that `annotationSourceIsNotTypeExpression`
+    // (src/parser/type-layer-checks.ts) DECLINED to judge any annotation text
+    // carrying both a brace and an angle bracket, so junk it refuses when
+    // written with braces alone (`{a: integer--}`) was admitted here — the four
+    // interiors below are that exemption's own spellings. Under 0252's route
+    // the recogniser judges them (§Expected behaviour 1: refused "whatever
+    // brackets its text happens to carry") and each draws
+    // `theta/parse/annotation-type-not-expression` for its `let` binder.
+    //
+    // WHAT DID NOT MOVE: this route's conversion decline. The interior still
+    // declines to the deferring pseudo-`named` for an unrecognised tail — R2's
+    // direction is untouched and no bogus field set is minted from text the
+    // type grammar does not spell. What moved is ORDER: the refusal now runs
+    // BEFORE that deferral is ever read, so the silence these rows recorded is
+    // replaced by a registered refusal rather than by a mismatch line. The
+    // flip is a strengthening — silence to a diagnostic — and the theta no
+    // longer registers.
+    //
+    // e7.5 and e7.6 are UNMOVED, and deliberately so: e7.5's
+    // `{a: Result<integer>}` is this report's *Residuals* item 4 set (a
+    // grammar-admitted interior the converter declines) and a §Non-goal of bug
+    // 0252, whose annotation walk already draws the arity row alone; e7.6
+    // spells no angle bracket at all, so 0252's conjunct never reached it.
+    expect(
+      stmtDiags("let x: {a: integer>} = 1"),
+      "e7.1 — a stray `>`: bug 0252 refuses it at the recogniser",
+    ).toEqual([line("error", "theta/parse/annotation-type-not-expression", [["<name>", "x"]])]);
+    expect(
+      stmtDiags("let x: {a: b>c} = 1"),
+      "e7.2 — punctuation between two atoms",
+    ).toEqual([line("error", "theta/parse/annotation-type-not-expression", [["<name>", "x"]])]);
     expect(
       stmtDiags("let x: {a: array<b>c>} = 1"),
       "e7.3 — recursion: an `array<…>` element must itself be recognised",
-    ).toEqual([]);
+    ).toEqual([line("error", "theta/parse/annotation-type-not-expression", [["<name>", "x"]])]);
     expect(
       stmtDiags("let x: {a: {b: integer>}} = 1"),
       "e7.4 — recursion: a nested brace interior must itself convert",
-    ).toEqual([]);
+    ).toEqual([line("error", "theta/parse/annotation-type-not-expression", [["<name>", "x"]])]);
     expect(
       stmtDiags("let x: {a: Result<integer>} = 1"),
       "e7.5 — a generic application is not an identifier-shaped `NamedType`; the arity row " +
