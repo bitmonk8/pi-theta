@@ -30,11 +30,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 //        `<required>` is the callee's DECLARED parameter count in BOTH arms —
 //        required equals total at a `fn` callee, since no `fn` parameter carries
 //        a default — so the two arms differ only in direction and *Hint*.
-//   §(b) Resolution ARM (2) only — a same-file top-level `fn`, `subagent fn`
-//        included. ARM (3), an imported `.thetalib` symbol, is DEFERRED on the
-//        record: the parser holds no imported `fn`'s parameter list and the
-//        cross-file signature is open bug 0138's plumbing at this identical
-//        boundary (cell e1).
+//   §(b) Resolution ARM (2) at PARSE — a same-file top-level `fn`, `subagent fn`
+//        included. ARM (3), an imported `.thetalib` symbol, is judged too, but
+//        at a different SEAM: bug 0138 §Fix Route 2 closed the residual this
+//        file originally deferred by wiring `checkImportedFnCallArgs`
+//        (src/extension/invoke-static-checks.ts) into `checkThetaImports`
+//        (src/extension/import-static-checks.ts), where the resolved library
+//        already exists as a parsed document — the parser itself still holds
+//        no cross-file `fn` signature and never will under this route. Cell
+//        `e-imported-arm3` below stays green for that reason: the PARSE tier's
+//        silence on arm (3) is now the pinned, correct answer, not a stand-in
+//        for future work, and the load-pass positive coverage lives in
+//        tests/imported-thetalib-fn-call-args-checked.test.ts.
 //   §(c) Hosted in `checkFnCallArgs` (`src/parser/type-layer-checks.ts`) — 0050's
 //        landed resolution ladder, which already holds the resolved `FnDecl` and
 //        the argument list and is reached from the type walk's `case "call"` arm.
@@ -65,7 +72,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //       c-subagent-fn, c-par-for,    discardable element `Err` — so it is the
 //       c-plain-for, c-if-false      one position no channel reports at HEAD.
 //   (d) d-never-called               a `fn` declared and never called: silent.
-//   (e) e-imported-arm3              arm (3) deferral, recorded not dropped.
+//   (e) e-imported-arm3              arm (3)'s PARSE-tier silence, now pinned as
+//                                    correct rather than as a deferral (bug 0138
+//                                    §Fix Route 2 serves the arm at the load pass).
 //   (f) f-junk-param-table           the §(c) withhold: `fn-param-not-identifier`
 //                                    alone, no arity row.
 //   (g) g-arity-before-type          a call BOTH mis-arity and mis-typed draws
@@ -732,35 +741,41 @@ describe("bug 0131 (d) — a `fn` declared and never called stays silent", () =>
 });
 
 // ===========================================================================
-// (e) Arm (3) — the imported `.thetalib` symbol. Deferred, on the record.
+// (e) Arm (3) — the imported `.thetalib` symbol. CLOSED at the load pass (bug
+//     0138 §Fix Route 2); the PARSE tier this file exercises stays silent by
+//     design, not by an open deferral.
 // ===========================================================================
 
-describe("bug 0131 (e) — the imported-`.thetalib` arm defers, recorded not dropped", () => {
-  it("e-imported-arm3: an imported symbol called with the wrong count draws NOTHING", () => {
-    // §(b): arm (2) only. Arm (3) is DEFERRED and the deferral is recorded
-    // rather than silently dropped — the failure mode bug 0071 produced when a
-    // *Trigger* named an arm the emitter did not serve, which is why §(a)'s
-    // minted *Trigger* says so in its own words.
+describe("bug 0131 (e) — the imported-`.thetalib` arm is judged at the load pass, not at parse", () => {
+  it("e-imported-arm3: an imported symbol called with the wrong count draws NOTHING AT PARSE", () => {
+    // §(b): arm (2) is the PARSE tier's whole reach. Arm (3) is served, but at
+    // the load pass: bug 0138 §Fix Route 2 wired `checkImportedFnCallArgs`
+    // (src/extension/invoke-static-checks.ts) into `checkThetaImports`
+    // (src/extension/import-static-checks.ts), where the resolved library
+    // already exists as a parsed document and the mis-arity call this fixture
+    // spells DOES draw `theta/parse/fn-arity-too-many` there — see
+    // tests/imported-thetalib-fn-call-args-checked.test.ts cell c2. Naming the
+    // route in the registry *Trigger* without dropping it silently is the
+    // discipline bug 0071 named; this cell is the parse-tier half of that
+    // discipline, not a record of an open gap.
     //
-    // The reason is mechanical: a single-file parse carries no imported `fn`'s
+    // The reason THIS tier stays silent is mechanical and permanent, not a
+    // stand-in for future work: a single-file parse carries no imported `fn`'s
     // parameter list, and `checkFnCallArgs`
-    // (`src/parser/type-layer-checks.ts`) already returns early on
+    // (`src/parser/type-layer-checks.ts`) still returns early on
     // `importedSymbols.has(...)` for exactly that reason at the argument-TYPE
-    // route. The cross-file signature is the plumbing OPEN BUG 0138 must build
-    // at this identical boundary
-    // (docs/bugs/0138-imported-thetalib-fn-arg-route-deferred.md),
-    // so wiring arity across files would land inside 0138's region. This cell is
-    // the residual's witness: it must stay silent until that deferral closes,
-    // and it must be revisited — not deleted — when it does.
+    // route, unchanged by bug 0138's fix. The cross-file signature is read at
+    // compose instead, where the resolved library is already in hand — never
+    // inside this single-file parse.
     const doc = expectCodes(
       FM + 'import { helper } from "./x.thetalib"\nlet r = helper(1, 2, 3)\nr\n',
       3,
       [],
-      "e-imported-arm3 — arm (3) is out of this fix's scope by §(b); a diagnostic here would be a cross-file verdict the parser cannot support",
+      "e-imported-arm3 — arm (3) is out of the PARSE tier's reach by §(b); the load pass is where bug 0138 serves it (tests/imported-thetalib-fn-call-args-checked.test.ts)",
     );
     expectNoArityCode(
       doc,
-      "e-imported-arm3 — neither minted code may reach an imported callee under §(b)'s deferral",
+      "e-imported-arm3 — neither minted code may reach an imported callee at the PARSE tier; the load pass draws them instead",
     );
   });
 });
@@ -975,7 +990,7 @@ const CORPUS: ReadonlyArray<{
     file: "docs/examples/import-thetalib.theta",
     callee: "rate_strictness",
     declaredIn: "docs/examples/personas.thetalib",
-    arm: "arm (3), the imported route §(b) defers",
+    arm: "arm (3), the imported route — judged at the load pass under bug 0138, not at this PARSE-tier probe",
   },
   {
     cell: "i-corpus-ralph-inline",
@@ -996,7 +1011,7 @@ const CORPUS: ReadonlyArray<{
     file: "tests/live/acceptance/fixtures/acc-imports-invoke.theta",
     callee: "tagline",
     declaredIn: "tests/live/acceptance/fixtures/acc-lib.thetalib",
-    arm: "arm (3), the imported route §(b) defers",
+    arm: "arm (3), the imported route — judged at the load pass under bug 0138, not at this PARSE-tier probe",
   },
 ];
 

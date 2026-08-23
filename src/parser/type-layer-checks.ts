@@ -128,6 +128,20 @@ const NO_SUNK_ARRAYS: ReadonlySet<Expr> = new Set();
 const FN_PARAM_NAME_IS_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * Whether every name in a `fn`'s parameter list is `Ident`-shaped
+ * (lexical.md: `[A-Za-z_][A-Za-z0-9_]*$`) — i.e. a genuine parameter list
+ * rather than one a `fn-param-not-identifier` recovery (bug 0225) captured a
+ * non-identifier token into, whose recorded COUNT the author never wrote.
+ * Exported so the compose-layer imported-`fn`-call-argument route (bug 0138,
+ * `checkImportedFnCallArgs`, ../extension/invoke-static-checks.ts) shares this
+ * withhold with the same-file `checkFnCallArgs` site below rather than
+ * re-deriving it — one predicate serves both routes.
+ */
+export function fnParamNamesAreIdentifiers(params: readonly FnParam[]): boolean {
+  return params.every((p) => FN_PARAM_NAME_IS_IDENT.test(p.name));
+}
+
+/**
  * The additive-operand category of a static type, for the `+` (A5) and ordering
  * (A6) operand-type checks:
  *
@@ -547,7 +561,7 @@ function collectImportedSymbols(statements: readonly Stmt[]): ReadonlySet<string
  * Withholding can only suppress an emission, never produce one, the asymmetry
  * this module's header already states.
  */
-function collectLocalBinderNames(
+export function collectLocalBinderNames(
   body: ThetaBody,
   paramsFieldNames: readonly string[],
 ): ReadonlySet<string> {
@@ -2506,11 +2520,17 @@ class TypeLayerWalk {
       return sunkArgs;
     }
     if (this.importedSymbols.has(e.callee)) {
-      // A documented deferral, not a dropped route: the registry Trigger
-      // names a same-file OR imported `.thetalib` function call, but a
-      // single-file parse carries no imported `fn`'s parameter types.
-      // type-system.md §"Unresolvable operands" defers a check whose operand
-      // is past the parser's static view.
+      // A permanent, by-design silence at THIS seam, not a dropped route: a
+      // single-file parse carries no imported `fn`'s parameter types, and
+      // never will under bug 0138's settled disposition (Route 2) — the
+      // registry Trigger names a same-file OR imported `.thetalib` function
+      // call, and the imported half is judged at the LOAD pass instead, where
+      // the resolved library already exists as a parsed document
+      // (`checkImportedFnCallArgs`, ../extension/invoke-static-checks.ts,
+      // wired once per importing theta from `checkThetaImports`,
+      // ../extension/import-static-checks.ts). This arm keeps returning
+      // because the operand stays past THIS pass's static view even though
+      // the pipeline resolves it a few hundred lines later in the same run.
       return sunkArgs;
     }
     const fn = this.fnDecls.get(e.callee);
@@ -2528,7 +2548,7 @@ class TypeLayerWalk {
     // refused parameter ANNOTATION being absent from the callee's parameter
     // table. Falls through to the per-argument loop unchanged so 0225's own
     // row stays the only diagnostic this callee draws.
-    const paramsAreIdents = fn.params.every((p) => FN_PARAM_NAME_IS_IDENT.test(p.name));
+    const paramsAreIdents = fnParamNamesAreIdentifiers(fn.params);
     if (paramsAreIdents) {
       // Bug 0131 §(c): arity is decided BEFORE per-argument type
       // (invocation.md §Argument arity) — the same

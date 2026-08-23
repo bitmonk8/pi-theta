@@ -1316,30 +1316,36 @@ describe("bug 0050 — the excluded callee kinds stay outside the check", () => 
 });
 
 // ===========================================================================
-// i1 — the imported-`.thetalib` route. GREEN at this HEAD vacuously, and
-// DELIBERATELY green after the fix.
+// i1 — the imported-`.thetalib` route. GREEN at this HEAD, and GREEN after the
+// fix — but for a different reason. Bug 0138 settled the disposition as
+// Route 2: the check runs at the COMPOSE layer, inside `checkThetaImports`
+// (src/extension/import-static-checks.ts), calling the new
+// `checkImportedFnCallArgs` (src/extension/invoke-static-checks.ts) once the
+// resolved library already exists as a parsed `ThetaDocument`. The PARSE tier
+// this file exercises never sees the imported signature and never will under
+// that route, so this cell's silence is now the CORRECT, PINNED answer rather
+// than a stand-in for a future flip. The positive, emitting-direction coverage
+// of `rate_strictness(3)` against `docs/examples/personas.thetalib`'s
+// `Author` lives in tests/imported-thetalib-fn-call-args-checked.test.ts
+// (cell b1), not here.
 // ===========================================================================
 
-describe("bug 0050 — the imported-`.thetalib` route defers on an unresolved signature", () => {
-  it("i1: `rate_strictness(3)` on an imported symbol draws no fn-arg-type-mismatch", () => {
+describe("bug 0050 — the imported-`.thetalib` route is judged at the load pass, not at parse", () => {
+  it("i1: `rate_strictness(3)` on an imported symbol draws no fn-arg-type-mismatch AT PARSE", () => {
     // WHY this cell expects silence even though the Trigger names the route.
-    // The check needs the imported `fn`'s signature and the declaring file's
-    // declarations; a single-file parse carries neither — `collectTypeEnv`
-    // (src/parser/type-layer-checks.ts) does not cross files. Deferring on an
-    // unresolved imported signature is admissible under type-system.md:48
-    // §Unresolvable operands, which is why the §Fix leaves the Trigger prose in
-    // place rather than narrowing it.
-    //
-    // This cell is therefore a DEFERRAL pin, not a correctness pin: a later
-    // change that resolves imported signatures SHOULD red it, and the right
-    // response then is to flip it to an expected emission
-    // (`fn 'rate_strictness' argument 0 ('a') type mismatch: expected Author,
-    // got integer` against docs/examples/personas.thetalib:7), not to weaken it.
+    // Bug 0138 route 2 keeps the check off the single-file parse entirely: the
+    // imported `fn`'s signature and the declaring file's declarations are
+    // read from the resolved library body at compose
+    // (`checkImportedFnCallArgs`), never carried into `collectTypeEnv`
+    // (src/parser/type-layer-checks.ts), which still does not cross files.
+    // Silence at THIS tier is therefore permanent by design, not a stand-in
+    // for an unresolved signature (type-system.md §"Unresolvable operands" no
+    // longer needs to license it — the operand is resolved, just not here).
     const doc = parse(I1);
     argRange(doc, "rate_strictness", 0);
     expectNoFnArgMismatch(
       doc,
-      "i1 — the imported signature is outside the single-file parse's static view; silence here is the documented deferral, not the defect this bug reports",
+      "i1 — the parse tier never carries an imported signature across the file boundary; the load-pass compose check (bug 0138) is where `rate_strictness(3)` is now judged, and it fires there (tests/imported-thetalib-fn-call-args-checked.test.ts cell b1)",
     );
   });
 });

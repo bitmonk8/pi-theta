@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.235.0]
+
+### Fixed
+
+- **Bug 0138** — imported-`.thetalib` `fn` calls are statically checked: a new compose-layer `checkImportedFnCallArgs` (over an import callee map built in `checkThetaImports`) refuses wrong-arity and provably mistyped arguments at load through the existing fn-arity/type rows (DIAG-2 Trigger amendments on three rows), closing bug 0131's deferred arm (3) on the same seam — an imported `fn` called wrong no longer loads clean only to throw `ThetaFnArityError` at runtime. Locked by `tests/imported-thetalib-fn-call-args-checked.test.ts` (31 cells) and the `b0138live` H8a refusal cell.
+
 ## [0.234.0]
 
 ### Fixed

@@ -1,9 +1,10 @@
 # Bug 0138 — `theta/parse/fn-arg-type-mismatch`'s registered Trigger names "a same-file **or imported `.thetalib`** function call", and bug 0050's wiring covers only the same-file half: `checkFnCallArgs` returns on `importedSymbols.has(e.callee)` (`type-layer-checks.ts:1582`), so `rate_strictness(3)` against an imported `fn rate_strictness(a: Author)` loads clean while the byte-identical same-file call is refused at `E`
 
-- **Status:** open. §Fix is not settled: three routes are enumerated with their
-  consequences and the constraints are pinned, but the disposition — parse-layer
-  carriage, compose-layer check, or a DIAG-2 Trigger narrowing — is left to the
-  run. No ordering dependency blocks it;
+- **Status:** fixed (0.235.0). §Fix was not settled at filing: three routes were
+  enumerated with their consequences and the constraints pinned, and the
+  disposition — parse-layer carriage, compose-layer check, or a DIAG-2 Trigger
+  narrowing — was left to the run. The run took Reading A / route 2; see
+  §Fix (0.235.0) below. No ordering dependency blocks it;
   [0050](./0050-fn-arg-type-mismatch-unreachable-mistyped-args-silent.md) is
   **fixed (0.77.0)** and is this report's substrate, and the coordination
   constraints on its witness are in §Fix (e).
@@ -833,3 +834,179 @@ disjoint by *Trigger* and by emitter, with no ordering constraint either
 direction. The invoke arm resolves its callee by opening the callee file during
 the caller's load pass and never consults the caller's import graph, so it
 neither widens nor narrows this report's imported-`.thetalib` callee set.
+
+## Fix (0.235.0)
+
+**The adjudication §Fix left to the run.** Re-derived at the fix baseline (lane
+worktree, `8762eb7f`, offline scratch probes since deleted): the imported route
+is still judged by nothing. `import { rate_strictness } from
+"./personas.thetalib"` + `rate_strictness(3)` draws `[]` at parse and `[]`
+through `checkThetaImports`, while the same-file control draws `error
+theta/parse/fn-arg-type-mismatch: fn 'rate_strictness' argument 0 ('a') type
+mismatch: expected Author, got integer`; the structural pair (`helper("s")`
+against `fn helper(n: number)`) and the `as`-alias spelling behave the same, and
+an imported call at the wrong arity draws `[]` where the same-file control draws
+`theta/parse/fn-arity-too-few`. So the report is neither mooted nor owned by a
+fresher document. §Fix (a): **Reading A** — the information exists in the run
+and the check was in the wrong place, so the *Trigger* prose was already correct
+about the route's existence and DIAG-2 is engaged only where the corpus
+mis-described *where* the judgement happens. §Fix (b): **route 2** — the check
+runs at the load pass, where `checkThetaImports` already resolves and parses the
+library, computes its export set and materialises its symbols, and already runs
+two cross-file static checks over the parsed body. Route 1 was rejected on the
+cost the report itself prices: `parseThetaDocument` is synchronous and
+file-local while import resolution is asynchronous and I/O-bearing, so a
+parse-layer carriage inverts the pipeline order. Route 3 was rejected because
+the corpus edit would leave an author's mistyped imported argument permanently
+unreported in every phase while the runtime binds it with no test. §Fix (d):
+**both halves close** — structural parameter types from the signature alone, and
+`named` parameter types by resolving the expected side through a `TypeEnv` built
+from the DECLARING library's own statements, which is bug 0072's namespace rule
+honoured rather than worked around. Bug 0131's arm (3) — imported-`.thetalib`
+`fn` ARITY, deferred to this report BY NAME in its residual 1 and in the two
+minted arity *Trigger*s — closes on the same seam in the same change.
+
+- **What shipped:**
+  - `src/extension/invoke-static-checks.ts` — new exported
+    `checkImportedFnCallArgs` + `ImportedFnCallee`, appended beside the existing
+    compose-layer call-site checks and reusing this file's own machinery
+    unchanged: `collectCallSites` (bug 0071's one-walker rule), the importing
+    file's `TypeEnv` / `StaticTypeInferencePass`, `collectProvableArgTypes`'s
+    type-SET discipline, `dedupeArgType`, and the parser's own unchanged
+    emitters `checkFnCallArity` and `checkFnArgCompat`. Arity before type; a
+    mis-arity call draws the arity row alone; `<name>` renders the CALL-SITE
+    local spelling (the `as`-alias where written) per
+    `placeholder-rendering-b.md`'s source-verbatim rule; the expected side
+    resolves through the declaring library's env and the argument side through
+    the importer's; a type set that is not refused in EVERY member withholds.
+    The junk-parameter-table artefact withholds the ARITY verdict alone and the
+    per-slot type loop still runs, the same partition `checkFnCallArgs` applies.
+    The header check inventory names the new route.
+  - `src/extension/import-static-checks.ts` — inside `checkThetaImports`, the
+    existing per-`import`-decl specifiers loop (the one `materializeChain`
+    already runs in) now also records local binding name →
+    `{ library FnDecl, library statements }` for a specifier whose SOURCE name
+    names a top-level `fn` in the DIRECTLY resolved library body, and
+    `checkImportedFnCallArgs` runs ONCE over the importing theta's body after
+    that loop. `params:` field names are keyed by `wireName`, citing the
+    NAME-KEYING ADJUDICATION at `parseThetaDocument`'s own `checkTypeLayer` call
+    site rather than re-deriving it.
+  - `src/parser/type-layer-checks.ts` — two additive exports so the compose
+    route shares the parse route's discipline instead of duplicating it:
+    `collectLocalBinderNames` (unchanged behaviour, the shadowing set that makes
+    `expressions.md` arm (1) outrank arm (3)) and the new
+    `fnParamNamesAreIdentifiers`, which the existing same-file arity site now
+    calls. The `importedSymbols` arm of `checkFnCallArgs` still returns — its
+    comment now names the load-pass check by symbol instead of stating an open
+    deferral.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2 *Trigger*
+    amendments on three rows, Sev / Phase / *Hint* / *Message* columns
+    byte-identical. `theta/parse/fn-arity-too-few` and `-too-many` no longer
+    defer the imported arm to this report: they state that the arm is judged at
+    the load pass against the library's declared parameter count, name the
+    call-site `<name>` spelling, and state the two fences. The
+    `theta/parse/fn-arg-type-mismatch` row keeps its promise (its *Trigger*
+    already named the imported half) and its now-false "always parse-time"
+    framing is replaced by the split: same-file at parse, imported at the load
+    pass, declaring-library env, the two fences, and the junk-table sentence.
+  - `tests/imported-thetalib-fn-call-args-checked.test.ts` — the new offline
+    witness, 31 cells over both tiers.
+  - `tests/live/b0138live-imported-fn-arg-refusal-live-cell.test.ts` — the new
+    H8a live cell, both directions, one live turn.
+  - `tests/fn-arg-type-mismatch-wired.test.ts` and
+    `tests/fn-call-arity-unchecked.test.ts` — COMMENT/PROSE ONLY. Both files'
+    deferral cells (`i1`, `e-imported-arm3`) measure the PARSE tier, which route
+    2 leaves silent by design, so both stay green as written with ZERO
+    assertion, fixture, expected-value or cell-name change; their comments,
+    which instructed a future change to flip them, now record that the
+    parse-tier silence is the correct permanent answer and name the load-pass
+    check and this fix's witness. Authorised by this report's §Fix (e) and by
+    bug 0131 residual 1, which names this report as the owner of that seam.
+- **Gates:** witness `tests/imported-thetalib-fn-call-args-checked.test.ts`
+  31/31 green (10 of 31 red under neutralisation with the "expected an emission
+  on the imported route, ACTUAL: []" signature, green again after byte-exact
+  restoration — `git hash-object` `a1af1029716a80852fa8778eeb3ea73df135e082`
+  before and after; cell `j1` likewise red under a hand-reverted *Trigger* and
+  green after, hash `a809f0170803375031c5159227110340edd0fd36` both ways); full
+  default suite `414 files / 8716 tests passed` (baseline before the change
+  `414 / 8711`, the delta being the five cells the review round added);
+  `npm run typecheck` clean; `npm run lint` clean; live H8a
+  `tests/live/b0138live-imported-fn-arg-refusal-live-cell.test.ts` green with
+  its red path proven; real H9a
+  `tests/live/acceptance/noninteractive-acceptance.test.ts` 10/10 green with
+  `assertStderrClean` and `assertCodesSubsetOfPermitted` clean on every cell.
+- **Review:** 3 rounds. Round 1 (deep) — FINDINGS(3), all fixed in one fixer
+  round: (i) *correctness* — the imported half withheld the `integer-narrowing`
+  mismatch class the same-file emitter refuses, so `fn f(n: integer)` + `f(1.5)`
+  loaded clean across the file boundary and was refused in-file; the per-member
+  predicate now mirrors `checkFnArgCompat`'s own contract (refused unless
+  `compatible` or `unknown`), and a mixed set still withholds; (ii) *fidelity* —
+  the junk-parameter-table guard withheld the whole call site where the
+  same-file route withholds arity only, now partitioned identically; (iii)
+  *spec* — the re-export-chain withhold was stated in code comments only, now
+  normative in all three *Trigger*s and pinned by cells. Round 2 (fast) —
+  CLEAN. Round 3 (fast, scoped to the live cell added during verification) —
+  CLEAN, with one non-blocking house-rule residual (below).
+- **Verification:** SOLID. The witness reds under neutralisation on exactly the
+  ten emitting cells and greens after byte-exact restoration; the withhold and
+  fence cells stay green under neutralisation, which is what proves they measure
+  a withhold rather than the route's absence; the default suite is green; the
+  live cell witnesses both directions — the mistyped imported call does not
+  register and its refusal is read off the settled `SessionManager`'s
+  `theta-system-note` channel with the message sourced from the registry, while
+  its well-typed twin registers and drives one real turn to a task-framed
+  arithmetic answer — with a workspace precondition control closing the
+  broken-workspace confound; lint and typecheck are clean.
+  `tests/fixtures/h7a/permitted-codes.json` needs **no** append, decided by the
+  real H9a run (10/10, both gate assertions clean) and not by prediction: this
+  fix mints no code, and no shipped corpus theta carries a mistyped or mis-arity
+  imported call (cells `h1` / `h2` pin both corpus call sites byte-exact).
+- **Residuals:**
+  1. **A callee reached only through the library's own `export … from`
+     re-export chain is a WITHHOLD.** Resolution reads the directly-resolved
+     library's own top-level body, so `import { f } from "./mid.thetalib"` where
+     `mid` re-exports `prim`'s `f` is silent at both tiers and loads. Stated in
+     all three *Trigger*s and pinned by cells `l1` / `l2` behind a
+     materialisation precondition. Closing it means following the same chain
+     `materializeChain` walks, at a second call site.
+  2. **A call site INSIDE a `.thetalib` body is out of reach** (this report's
+     row d3): the check walks the importing theta's own body only. Stated in the
+     three *Trigger*s and pinned by cell `g1`.
+  3. **The array-literal element sink is not part of this route.** The
+     whole-argument row only; a parameter-typed array literal's per-element
+     judgement (bugs 0156 / 0146) stays a parse-tier facility, and a
+     mixed-element literal still draws its own sink-less
+     `theta/parse/array-no-common-type` at parse.
+  4. **The imported-*schema* surface does not move** (§Non-goals): row d1's
+     typed-`let` silence is unchanged, because the library env this fix builds is
+     scoped to the callee's parameter judgement and is never merged into the
+     importing file's `TypeEnv`.
+  5. **The compose tier's argument-side withholding differs from the parse
+     tier's on a mixed reduction** — `helper(flag ? 1 : "a")` withholds here and
+     refuses in-file — because the two tiers use different, deliberately chosen
+     substrates (`collectProvableArgTypes`'s type SET versus `provableArgType`'s
+     single reduction). Measured and pinned in both directions by cells `e1` /
+     `e2`; the compose tier is the strictly more conservative of the two.
+  6. **House-rule residual in the live cell** (round 3): `fnArgFragment`
+     validates a `Map.get` result with a loud `expect(...).toBeTypeOf("string")`
+     rather than an explicit `!== undefined` narrowing. Functionally equivalent
+     and loud, never silent.
+  7. **Bug 0131 residual 2 stays open.** `placeholder-rendering-b.md`'s
+     Category-7 `<callee>` fallback still names a `.thetalib` `fn` callee as a
+     rendering arm of `theta/parse/invoke-arity-too-few` — a code this fix does
+     not widen — so that sentence is untouched here.
+- **Discharge notes appended:** none in this lane. Bug 0131's residual 1
+  (arm (3) deferred, `ThetaFnArityError` still reachable from legal source) is
+  closed by this fix and its document is owed a dated discharge note; the note
+  is left to the merge, where the version is assigned.
+- **Pinned dispositions / non-goals:** the parse-layer `importedSymbols` arm
+  keeps returning and 0050's withholding discipline (`provableArgType` /
+  `isProvenReduction`) is untouched; the `invoke(...)`, `.theta`-callable and
+  Pi-tool argument surfaces are untouched; no runtime AJV net is added at this
+  position; `docs/reference/diagnostics.md`, `docs/reference/type-system.md`,
+  `docs/spec_topics/type-system.md` (TYPE-9 / TYPE-10),
+  `docs/spec_topics/imports.md` and both placeholder-rendering pages were each
+  checked and needed no edit — the first two carry no *Trigger* column and no
+  Code / Sev / Phase / Message value moved, TYPE-9 and TYPE-10 never
+  distinguished the two halves, and `placeholder-rendering-a.md` already lists
+  both arity codes in its category-4 numeric scope.

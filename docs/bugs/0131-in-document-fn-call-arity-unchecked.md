@@ -1306,6 +1306,11 @@ run, not by prediction.
      `theta/runtime/internal-error` at runtime. The minted *Trigger*s say so.
      Cell `e-imported-arm3` of the witness pins the silence. The cross-file
      signature is 0138's plumbing.
+     **Discharged by 0138's fix (0.235.0):** the compose-layer check
+     (`checkImportedFnCallArgs` over the import callee map) now refuses
+     wrong-arity and provably mistyped imported-`fn` calls at load; cell
+     `e-imported-arm3`'s silence subject was re-vehicled under 0138's
+     witness authority (see `tests/imported-thetalib-fn-call-args-checked.test.ts`).
   2. **`placeholder-rendering-b.md`'s Category-7 fallback still names a
      `.thetalib` `fn` callee as a rendering arm of
      `theta/parse/invoke-arity-too-few`.** That sentence is untouched here: it is

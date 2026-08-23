@@ -73,6 +73,7 @@ import {
 import {
   parseThetaDocument,
   resolveSubagentSessionConfigAt,
+  type FnDecl,
   type ImportDecl,
   type ThetaBody,
   type ThetaDocument,
@@ -86,6 +87,7 @@ import {
   checkSubagentFnStaticResolution,
   collectSubagentFns,
 } from "./subagent-fn-static-checks";
+import { checkImportedFnCallArgs, type ImportedFnCallee } from "./invoke-static-checks";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
 function normalizePath(path: string): string {
@@ -591,6 +593,11 @@ export async function checkThetaImports(
   // wins shadowing. Per-decl checking would only see one specifier at a time and
   // miss the import-vs-import collision the import-vs-local arm already catches.
   const allSpecifiers: ImportSpecifier[] = [];
+  // Bug 0138 route 2's callee map, local binding name → the directly-resolved
+  // library's own `FnDecl` plus that library's statement list. Populated
+  // below, in the SAME specifiers loop that already holds each resolved and
+  // parsed library body (`materializeChain`'s own loop) — no separate walk.
+  const importedFns = new Map<string, ImportedFnCallee>();
 
   for (const decl of importDecls) {
     const spec = decl.path;
@@ -651,6 +658,22 @@ export async function checkThetaImports(
     // when the resolved lib's own body carries no matching declaration, and
     // bound under its local (`as`) name.
     for (const specifier of specifiers) {
+      // Bug 0138 route 2: resolve the specifier's SOURCE name against the
+      // directly-resolved library's own top-level body ONLY — no re-export
+      // chain follow-through here (`ImportedFnCallee`'s own doc comment,
+      // ../extension/invoke-static-checks.ts, states the deferral this
+      // restriction records: a symbol reached only through a re-export
+      // chain stays silent under this route, a withhold rather than a
+      // duplicated chain-walk of `materializeChain`'s own logic below).
+      const fnDecl = parsed.document.body.statements.find(
+        (stmt): stmt is FnDecl => stmt.kind === "fn" && stmt.name === specifier.source,
+      );
+      if (fnDecl !== undefined) {
+        importedFns.set(specifier.local, {
+          fn: fnDecl,
+          libraryStatements: parsed.document.body.statements,
+        });
+      }
       const materialized = await materializeChain(
         specifier.source,
         specifier.local,
@@ -667,6 +690,22 @@ export async function checkThetaImports(
     // Seed the cycle graph from this resolved `.thetalib`.
     await walkThetaLib(resolvedPath);
   }
+
+  // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
+  // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedFns` map. `input.frontmatter?.params?.fields
+  // ?? []` mapped to `wireName` is the same NAME-KEYING ADJUDICATION
+  // `parseThetaDocument`'s `checkTypeLayer` call site uses
+  // (../parser/theta-document.ts) — the body-visible identifier a `params:`
+  // field binds, cited rather than re-derived.
+  diagnostics.push(
+    ...checkImportedFnCallArgs(
+      input.body,
+      input.sourcePath,
+      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      importedFns,
+    ),
+  );
 
   // Re-export chain resolution, phases 1–3 (imports.md §Re-exports): collect the
   // `export … from` closure of every resolved entry lib, settle the fixpoint over

@@ -35,6 +35,19 @@
 //   - INV-5 — `checkInvokePathAtLoad` (the shared realpath + discovery-root
 //     containment check) so a callee resolving outside every active discovery
 //     root is `theta/load/invoke-path-escape` and the parent does not register.
+//   - bug 0138 — `checkImportedFnCallArgs`, wired once per importing theta from
+//     `checkThetaImports` (../extension/import-static-checks.ts): an imported
+//     `.thetalib` `fn` call's argument COUNT (`theta/parse/fn-arity-too-few` /
+//     `-too-many`, bug 0131's arm (3), deferred to this bug by name) and
+//     per-slot TYPE (`theta/parse/fn-arg-type-mismatch`, whose *Trigger*
+//     already named the imported half). No new diagnostic code; the three
+//     existing rows carry the route, judged HERE — at the load pass, where the
+//     resolved library already exists as a parsed `ThetaDocument` — because
+//     the same-file parse (`checkFnCallArgs`, ../parser/type-layer-checks.ts)
+//     never crosses a file boundary. Reuses this file's own `collectCallSites`
+//     (bug 0071's one-walker lesson), `collectProvableArgTypes` and
+//     `dedupeArgType` below, plus the parser's unchanged `checkFnCallArity` /
+//     `checkFnArgCompat` emitters.
 //
 // The invoke-graph is keyed by discovered slash name (unique per registration),
 // so the cycle message renders `invocation cycle: A → B → A` per the spec prose.
@@ -49,12 +62,15 @@ import type {
   Block,
   CallExpr,
   Expr,
+  FnDecl,
+  FnParam,
   InvokeExpr,
   ThetaBody,
   Stmt,
 } from "../parser/theta-document";
 import type { CallableSetSnapshot } from "../parser/callable-set";
 import {
+  checkFnCallArity,
   checkInvokeArity,
   checkInvokeCall,
   checkCalleeHasErrors,
@@ -76,9 +92,16 @@ import {
   isStaticZeroIntegerDivisor,
   StaticTypeInferencePass,
 } from "../parser/static-type-inference";
-import { annotationToCompatType, collectTypeEnv } from "../parser/type-layer-checks";
+import {
+  annotationSourceIsNotTypeExpression,
+  annotationToCompatType,
+  collectLocalBinderNames,
+  collectTypeEnv,
+  fnParamNamesAreIdentifiers,
+} from "../parser/type-layer-checks";
 import {
   checkCompatible,
+  checkFnArgCompat,
   displayType,
   type CompatType,
   type TypeEnv,
@@ -1196,5 +1219,209 @@ export async function checkInvokeStaticResolution(
     diagnostics.push(cycle);
   }
 
+  return diagnostics;
+}
+
+/**
+ * One imported `.thetalib` callee `checkImportedFnCallArgs` may judge: the
+ * library's own `FnDecl` (ordinary or `subagent fn`) resolved by SOURCE name
+ * in the DIRECTLY-resolved library's own top-level body, plus that body's
+ * whole statement list (for `collectTypeEnv` — bug 0072's namespace rule: the
+ * EXPECTED side must resolve through the DECLARING library's `TypeEnv`, never
+ * the importing file's). Resolution does not follow a re-export chain: a
+ * specifier whose source name names no direct top-level declaration in the
+ * resolved library (it is provided only through that library's own
+ * `export … from`) is absent from this map, which withholds the route for
+ * that callee rather than widening resolution to chase the chain — a
+ * deferral recorded in the three rows' own *Trigger*s (a call through a
+ * re-exported `fn` stays silent, never a false emission), not an attempt to
+ * duplicate `materializeChain`'s own
+ * chain-following (../extension/import-static-checks.ts) at a second call
+ * site.
+ */
+export interface ImportedFnCallee {
+  readonly fn: FnDecl;
+  readonly libraryStatements: readonly Stmt[];
+}
+
+/**
+ * Bug 0138 route 2 — judge an imported-`.thetalib` `fn` call's ARGUMENTS
+ * (count and per-slot type) at the COMPOSE layer, where the resolved library
+ * already exists as a parsed `ThetaDocument`. No new diagnostic code: the
+ * three existing rows carry the route — `theta/parse/fn-arity-too-few` /
+ * `-too-many` (bug 0131 arm (3), deferred to this bug by name) and
+ * `theta/parse/fn-arg-type-mismatch` (whose *Trigger* already names the
+ * imported half). `checkFnCallArgs`'s parse-tier arm 2
+ * (../parser/type-layer-checks.ts) still returns on an imported callee — this
+ * function is where that route is served, not where it moves.
+ *
+ * `importedFns` keys by the call-site LOCAL binding name (the `as`-alias
+ * where written, else the source name) — the same key `collectImportedSymbols`
+ * (../parser/type-layer-checks.ts) uses for the parse-tier `Set`. A call whose
+ * callee is not a key withholds, whether because it names a same-file `fn`, a
+ * non-`fn` imported symbol (`schema` / `enum`), an unresolved name, or a
+ * symbol reached only through a re-export chain (`ImportedFnCallee`'s own
+ * deferral, above).
+ *
+ * Shadowing outranks import resolution (expressions.md §"Identifier
+ * resolution" arm (1) over arm (3)): a callee name bound anywhere in the
+ * importing body as a `let`, loop variable, match-arm pattern, `fn` parameter
+ * or frontmatter `params:` field is never judged here, mirroring
+ * `checkFnCallArgs`'s own `shadowedNames` test via the shared
+ * `collectLocalBinderNames`.
+ *
+ * ARITY BEFORE TYPE (invocation.md §Argument arity, the same ordering
+ * `checkFnCallArgs` / `checkInvokeCall` apply): a mis-arity call draws the
+ * arity row alone via the parser's own, UNCHANGED `checkFnCallArity`. A
+ * library `fn` whose parameter list fails `fnParamNamesAreIdentifiers` (bug
+ * 0131 §(c) / bug 0225) withholds the ARITY verdict alone for that callee and
+ * falls through to the per-argument loop, exactly as `checkFnCallArgs` does on
+ * the same-file route: the recorded parameter COUNT is a recovery artefact the
+ * author never wrote, while each surviving annotation is still the author's own
+ * text and is judged per slot behind that loop's own
+ * `annotationSourceIsNotTypeExpression` / `annotationToCompatType` guards.
+ *
+ * The per-argument TYPE loop's EXPECTED side resolves through a `TypeEnv`
+ * built from the callee's OWN library statements (bug 0072's namespace rule)
+ * — never the importing file's — so an importer's unrelated same-named
+ * `schema` cannot decide a verdict about the library's contract, and a
+ * library parameter type the library itself never declares withholds rather
+ * than resolving against the wrong file. The ARGUMENT side reuses
+ * `collectProvableArgTypes`'s every-member-incompatible SET discipline over
+ * the IMPORTING file's own `TypeEnv` / `StaticTypeInferencePass`, unchanged
+ * from the invoke / `.theta`-callable routes above, and the parser's own
+ * `checkFnArgCompat` emits, also unchanged.
+ *
+ * `<name>` on every diagnostic this function may push renders `call.callee` —
+ * the CALL-SITE spelling, alias included (placeholder-rendering-b.md §"5.
+ * Source-derived placeholders": `<name>` is identifier-shaped and taken from
+ * the offending source text).
+ *
+ * DEFERRED, by construction: a call site INSIDE a `.thetalib` body is never
+ * reached, because this function walks the IMPORTING THETA's own body only,
+ * never a library body — a call inside a library against a symbol THAT
+ * library itself imported is therefore out of this route's reach (bug 0138
+ * row d3), a fence stated in the registry *Trigger*s this fix amends, not a
+ * dropped route.
+ */
+export function checkImportedFnCallArgs(
+  importingBody: ThetaBody,
+  importingFile: string,
+  paramsFieldNames: readonly string[],
+  importedFns: ReadonlyMap<string, ImportedFnCallee>,
+): Diagnostic[] {
+  if (importedFns.size === 0) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
+  const { callExprs } = collectCallSites(importingBody);
+  const importerEnv = collectTypeEnv(importingBody.statements);
+  const importerPass = new StaticTypeInferencePass({ checkCompatible });
+  // One `TypeEnv` per resolved library body, cached by statement-list
+  // identity so two calls of the same imported `fn` do not rebuild the
+  // DECLARING library's env twice; the cache key is the library body
+  // reference `ImportedFnCallee.libraryStatements` carries, which is stable
+  // across every call this route judges against the same callee.
+  const libraryEnvCache = new Map<readonly Stmt[], TypeEnv>();
+  const libraryEnvFor = (statements: readonly Stmt[]): TypeEnv => {
+    const cached = libraryEnvCache.get(statements);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const env = collectTypeEnv(statements);
+    libraryEnvCache.set(statements, env);
+    return env;
+  };
+
+  for (const call of callExprs) {
+    if (shadowedNames.has(call.callee)) {
+      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
+      // a call of a locally-bound name is never an imported-`fn` call at this
+      // site — the same test `checkFnCallArgs`'s `shadowedNames` arm applies.
+      continue;
+    }
+    const callee = importedFns.get(call.callee);
+    if (callee === undefined) {
+      // Not an imported `fn` this route reaches: a same-file `fn`, a
+      // non-`fn` imported symbol, an unresolved name, or a re-export-chain
+      // callee `ImportedFnCallee`'s own doc comment defers on.
+      continue;
+    }
+    const site = { file: importingFile, range: call.range };
+    // Bug 0131 §(c) / bug 0225: a junk parameter table's recorded COUNT is a
+    // recovery artefact the author never wrote, so the ARITY verdict alone is
+    // withheld — the annotation half is the author's own text and stays judged
+    // per slot below, which is the same partition `checkFnCallArgs` applies on
+    // the same-file route (../parser/type-layer-checks.ts).
+    if (fnParamNamesAreIdentifiers(callee.fn.params)) {
+      const arityDiags = checkFnCallArity({
+        name: call.callee,
+        requiredCount: callee.fn.params.length,
+        providedCount: call.args.length,
+        site,
+      });
+      if (arityDiags.length > 0) {
+        // Arity BEFORE type (invocation.md §Argument arity): a mis-arity call
+        // draws the arity row alone and never reaches the per-argument loop.
+        diagnostics.push(...arityDiags);
+        continue;
+      }
+    }
+    const libraryEnv = libraryEnvFor(callee.libraryStatements);
+    const matchedCount = Math.min(call.args.length, callee.fn.params.length);
+    for (let i = 0; i < matchedCount; i += 1) {
+      const param = callee.fn.params[i] as FnParam;
+      if (param.type.length > 0 && annotationSourceIsNotTypeExpression(param.type)) {
+        // The library's own parameter annotation derives from none of
+        // `Type`'s six alternatives — treated as absent rather than as an
+        // opaque nominal reading of the junk text, mirroring
+        // `checkFnCallArgs`'s identical guard on the same-file route.
+        continue;
+      }
+      const paramType = annotationToCompatType(param.type);
+      if (paramType === undefined) {
+        // An unannotated library parameter has no declared type to judge
+        // against (type-system.md §"Absent operands").
+        continue;
+      }
+      const argExpr = call.args[i] as Expr;
+      const argTypes = collectProvableArgTypes(argExpr, importerEnv, importerPass);
+      if (argTypes === undefined) {
+        // A value-contributing position past the parser's static view defers
+        // to no runtime AJV net (this position registers none) — see this
+        // file's `collectProvableArgTypes` doc comment.
+        continue;
+      }
+      const everyMemberRefused = argTypes.every((argType) => {
+        const verdict = checkCompatible(argType, paramType, libraryEnv);
+        return verdict !== "compatible" && verdict !== "unknown";
+      });
+      if (!everyMemberRefused) {
+        // One arm the library's parameter type accepts — or answers
+        // `"unknown"` for — means the argument may well type-check, so the
+        // slot withholds. Every OTHER verdict is a refusal at parity with the
+        // row's own emitter: `checkFnArgCompat` (../parser/type-compat.ts)
+        // routes a `number ⊑ integer` narrowing through
+        // `fn-arg-type-mismatch` too, so a set of narrowings must reach it
+        // here rather than be filtered out as "not incompatible" — the invoke
+        // and `.theta`-callable routes can defer such a set to a runtime AJV
+        // load of the callee's `params:` schema, and this position registers
+        // no such net.
+        continue;
+      }
+      diagnostics.push(
+        ...checkFnArgCompat({
+          fnName: call.callee,
+          index: i,
+          paramName: param.name,
+          paramType,
+          argType: dedupeArgType(argTypes),
+          env: libraryEnv,
+          site: { file: importingFile, range: argExpr.range },
+        }),
+      );
+    }
+  }
   return diagnostics;
 }
