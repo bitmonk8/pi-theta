@@ -371,6 +371,88 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
+// ===========================================================================
+// Group (D) fixtures — bug 0248's additional plant (out-of-root dependent).
+// ===========================================================================
+//
+// Bug 0248 (docs/bugs/0248-malformed-escaping-tools-entry-containment-
+// unwitnessed.md) is bug 0106 §Fix residual 2's filing: the cache-head
+// `parseToolsEntry` gate also removes `theta/load/invoke-path-escape` from
+// every MALFORMED entry, and no cell paired a malformed entry with an escaping
+// first token. Group (D) plants that pairing at BOTH depths: the entry text
+// `<out-of-root>/…far.theta junk` written by the discovered caller (depth 0)
+// and written by a `tools:`-reached callee (depth 1). One subject test governs
+// both — a malformed token sequence is not a `tools:` `.theta` entry, so it is
+// not the containment rule's subject wherever it is written.
+//
+// These fixtures cannot join `THETAS`: their entry text interpolates the
+// out-of-root directory, which does not exist until `beforeAll` runs. They are
+// planted into their OWN workspace and read through their OWN production load,
+// because the depth-1 composed caller REGISTERS (it draws no diagnostic — cell
+// (D3)) while bug 0106's cell (A6) pins its own walk's registered set to
+// `["ctlgood", "zgood"]` exactly. Two walks keep that set byte-identical and
+// still let group (D) assert its own registration outcome, so neither group's
+// invariant is expressed in terms of the other group's plant.
+
+/** The out-of-root callee's stem — clean, `mode: subagent`, never discovered. */
+const OUT_OF_ROOT_CALLEE = "b0248far";
+
+/** The out-of-root callee's `tools:`-entry spelling: absolute, forward-slash. */
+function outSpec(outDir: string): string {
+  return `${outDir.replaceAll("\\", "/")}/${OUT_OF_ROOT_CALLEE}.theta`;
+}
+
+/** The three malformed spellings of the escaping entry (bug 0248 §Fix (d) 1). */
+function b0248MalformedEntries(outDir: string): readonly string[] {
+  const spec = outSpec(outDir);
+  return [`${spec} junk`, `${spec} as`, `${spec} as r junk`];
+}
+
+/** Stems, in the same order, for the three malformed spellings. */
+const B0248_MALFORMED_STEMS = [
+  "b0248mesc2",
+  "b0248mescas",
+  "b0248mesc4",
+] as const;
+
+/** The group's own clean callee and the clean caller naming it (cell (D0)). */
+const B0248_CLEAN_CALLEE = "b0248zgood";
+const B0248_CLEAN_CALLER = "b0248ctlgood";
+
+function b0248Thetas(outDir: string): readonly PlantedTheta[] {
+  const spec = outSpec(outDir);
+  const caller = (entry: string): string =>
+    theta("---", "mode: subagent", "tools:", `  - ${entry}`, "---", "@`hi`");
+  const malformed = b0248MalformedEntries(outDir);
+  return [
+    // (D0) this walk's clean registering control: a contained, error-free
+    // callee and a well-formed entry naming it. Every un-registration and
+    // every empty-code-list assertion in the group is vacuous in a walk that
+    // registered nothing, so the group carries its own.
+    {
+      stem: B0248_CLEAN_CALLEE,
+      text: theta("---", "mode: subagent", "---", "@`good`"),
+    },
+    { stem: B0248_CLEAN_CALLER, text: caller(`./${B0248_CLEAN_CALLEE}.theta`) },
+    // (D1) depth 0, COMPOSED: malformed AND escaping, three spellings.
+    ...B0248_MALFORMED_STEMS.map((stem, i) => ({
+      stem,
+      text: caller(malformed[i] as string),
+    })),
+    // (D2) depth 0, CONTROL: the same escaping path, WELL-FORMED. Without it,
+    // (D1) passes when the escape surface is dead.
+    { stem: "b0248ctlesc", text: caller(spec) },
+    // (D3) depth 1, COMPOSED: the callee's OWN entry is malformed and escaping;
+    // the caller names the callee with a WELL-FORMED entry.
+    { stem: "b0248nestmesc", text: caller(`${spec} junk`) },
+    { stem: "b0248callnestmesc", text: caller("./b0248nestmesc.theta") },
+    // (D4) depth 1, CONTROL: bug 0111's shipped class — the callee's escaping
+    // entry is well-formed, so the caller keeps the containment refusal.
+    { stem: "b0248nestwesc", text: caller(spec) },
+    { stem: "b0248callnestwesc", text: caller("./b0248nestwesc.theta") },
+  ];
+}
+
 interface LoadOutcome {
   /** Slash names the production compose helper returned, sorted. */
   readonly registered: readonly string[];
@@ -398,6 +480,25 @@ function stemOf(file: string): string {
 
 let outcome: LoadOutcome;
 let workspaceDir: string;
+/**
+ * Group (D)'s own planted workspace and its own production load. Separate from
+ * the groups (A)/(C) workspace because the depth-1 composed caller registers
+ * (cell (D3)) and cell (A6) pins its own walk's registered set exactly; one
+ * shared walk would express each group's invariant in terms of the other
+ * group's plant.
+ */
+let b0248WorkspaceDir: string;
+let b0248Outcome: LoadOutcome;
+/**
+ * The bug-0248 out-of-root directory: a `mkdtempSync` sibling of group (D)'s
+ * workspace that no active discovery root contains, so a `tools:` entry naming
+ * a `.theta` inside it is the INV-1 escape subject
+ * (docs/spec_topics/invocation.md:12, and the
+ * `theta/load/invoke-path-escape` *Trigger* at
+ * docs/spec_topics/diagnostics/code-registry-load.md:35). Created in the same
+ * `beforeAll`, removed in the same `afterAll`.
+ */
+let outOfRootDir: string;
 
 async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
   const chunks: string[] = [];
@@ -467,10 +568,34 @@ beforeAll(async () => {
   // ABSENT one is silent, so this is hermeticity rather than noise suppression.
   writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outcome = await runProductionLoad(workspaceDir);
+
+  // Group (D)'s plant: its own workspace, its own out-of-root directory (the
+  // entry text interpolates a path that does not exist until now, which is why
+  // these fixtures cannot be static members of `THETAS`), and its own walk.
+  b0248WorkspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0248-"));
+  const b0248ThetaDir = join(b0248WorkspaceDir, ".pi", "theta");
+  mkdirSync(b0248ThetaDir, { recursive: true });
+  writeFileSync(join(b0248WorkspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  outOfRootDir = mkdtempSync(join(tmpdir(), "theta-bug0248-out-"));
+  writeFileSync(
+    join(outOfRootDir, `${OUT_OF_ROOT_CALLEE}.theta`),
+    theta("---", "mode: subagent", "---", "@`far`"),
+    "utf8",
+  );
+  for (const planted of b0248Thetas(outOfRootDir)) {
+    writeFileSync(
+      join(b0248ThetaDir, `${planted.stem}.theta`),
+      planted.text,
+      "utf8",
+    );
+  }
+  b0248Outcome = await runProductionLoad(b0248WorkspaceDir);
 });
 
 afterAll(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  rmSync(b0248WorkspaceDir, { recursive: true, force: true });
+  rmSync(outOfRootDir, { recursive: true, force: true });
 });
 
 /** The codes one planted stem drew, in emission order (`[]` when clean). */
@@ -961,5 +1086,383 @@ describe("bug 0106 (C2) — the grammar rejection is PRE-EMPTED for the two erro
       outcome.registered,
       "same for the shadowing row." + observed("pshadow"),
     ).not.toContain("pshadow");
+  });
+});
+
+// ===========================================================================
+// Group (D) — bug 0248: the gate's escaping-entry input set, at both depths.
+// ===========================================================================
+//
+// docs/bugs/0248-malformed-escaping-tools-entry-containment-unwitnessed.md
+// §Fix (d). One entry shape — a `tools:` `.theta` path that lies outside every
+// active discovery root, written with residue the closed grammar rejects — and
+// the two depths that judge it.
+//
+// SPEC ANCHORS (verified at this HEAD):
+//   - docs/spec_topics/diagnostics/code-registry-load.md:35 — the
+//     `theta/load/invoke-path-escape` row: its *Trigger* ("An `invoke(...)`
+//     literal or a `tools:` `.theta` entry resolves (post-realpath) to a path
+//     that lies outside every active discovery root"), its `load, runtime`
+//     phase column and its *Hint*. That *Trigger*'s subject is an ENTRY OF AN
+//     ADMITTED KIND, and bug 0111 settled that it names the entry kind, not
+//     the entry's depth — so the subject test cannot answer differently at
+//     depth 0 and depth 1.
+//   - docs/spec_topics/frontmatter/frontmatter-fields-a.md:88 — the closed
+//     per-entry grammar. A malformed token sequence is not an entry of either
+//     admitted kind, so it is not that *Trigger*'s subject at ANY depth.
+//   - docs/spec_topics/diagnostics/code-registry-load.md:25 — the
+//     `theta/load/malformed-tool-entry` row, the rejection every malformed
+//     entry keeps drawing on its OWN file.
+//   - docs/spec_topics/diagnostics/diagnostic-shape.md:74 (DIAG-4) — every
+//     expected Message and Hint below is sourced from the registry, never
+//     pasted prose.
+//
+// ONE SUBJECT TEST AT BOTH DEPTHS is what these cells pin. Both containment
+// loops in src/extension/production-composition.ts gate on `parseToolsEntry`
+// before `toolsEntrySpec` runs: the cache-head loop in
+// `resolveThetaToolsAtLoad`, so a malformed entry is never a `calleeCache` key
+// and the INV-1 loop over `calleeCache.values()` has no member for it — (D1);
+// and `checkNestedToolsContainment`, the depth-1 surface, so the SAME bytes one
+// level in draw no refusal at the caller either — (D3). (D2) and (D4) are the
+// separability controls: a WELL-FORMED escaping entry keeps the refusal at
+// depth 0 and at depth 1 respectively, so neither absence above is the absence
+// of a live escape surface.
+//
+// TIER: unit, offline, provider-free (bug 0248 §Fix constraint 6 — "no
+// integration or live tier is reachable for a load-time observable that settles
+// before any model or transport exists"). One `discoverAndComposeFixtures` call
+// over this group's own planted workspace.
+
+const INVOKE_PATH_ESCAPE = "theta/load/invoke-path-escape";
+
+/** The codes one group-(D) stem drew in its own walk, in emission order. */
+function b0248CodesFor(stem: string): readonly string[] {
+  return b0248Outcome.codes.get(stem) ?? [];
+}
+
+/** The rendered `<code>: <message>` lines one group-(D) stem drew, in order. */
+function b0248LinesFor(stem: string): readonly string[] {
+  return b0248Outcome.lines.get(stem) ?? [];
+}
+
+/** `observed`, read off group (D)'s walk. */
+function b0248Observed(stem?: string): string {
+  const mirror =
+    stem === undefined
+      ? b0248Outcome.raw
+      : b0248Outcome.raw.filter((l) => l.includes(`${stem}.theta`));
+  return (
+    ` Registered: ${JSON.stringify(b0248Outcome.registered)}` +
+    ` Mirror${stem === undefined ? "" : `(${stem})`}: ${JSON.stringify(mirror)}`
+  );
+}
+
+/**
+ * The *Hint* column of one `code-registry-load.md` row, prose-rendered the way
+ * a diagnostic carries it: markdown links reduced to their link text and code
+ * spans unbacktracked. DIAG-4's registry-sourcing discipline applied to the
+ * Hint (the `registryHint` shape of
+ * tests/match-pattern-increment-decrement.test.ts, whose `HINT_CELL_INDEX` is
+ * this same column 5). Never pasted prose.
+ */
+const HINT_CELL_INDEX = 5;
+const LOAD_REGISTRY_TEXT = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../docs/spec_topics/diagnostics/code-registry-load.md",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
+
+function registryHint(code: string): string {
+  for (const line of LOAD_REGISTRY_TEXT.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) continue;
+    const cells = trimmed
+      .replace(/^\|/, "")
+      .replace(/\|\s*$/, "")
+      .split(/(?<!\\)\|/)
+      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
+    if (cells[0] !== `\`${code}\``) continue;
+    const hint = cells[HINT_CELL_INDEX];
+    if (hint === undefined || hint === "" || hint === "\u2014") {
+      throw new Error(
+        `harness: the ${code} row at docs/spec_topics/diagnostics/` +
+          `code-registry-load.md carries no Hint cell (cell ${HINT_CELL_INDEX} ` +
+          `is ${JSON.stringify(hint)}) — bug 0248 §Fix (d) 2 asserts the Hint ` +
+          "reaches the author, so an empty cell is a harness failure, never a skip",
+      );
+    }
+    return hint.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replaceAll("`", "");
+  }
+  throw new Error(
+    "harness: docs/spec_topics/diagnostics/code-registry-load.md carries no " +
+      `row for ${code} — this file's Hint oracle is stale`,
+  );
+}
+
+/**
+ * The planted file's path as group (D)'s discovery walk built it, which is what
+ * `renderDiagnosticLine` prints: the `mkdtempSync` workspace prefix verbatim,
+ * then forward-slash joins for the segments discovery appended.
+ */
+function plantedPath(stem: string): string {
+  return `${b0248WorkspaceDir}/.pi/theta/${stem}.theta`;
+}
+
+/**
+ * The line:column a `tools:`-surface diagnostic is located at:
+ * `TOOLS_DIAGNOSTIC_RANGE` (src/extension/production-composition.ts) is the
+ * caller's file head, because a `tools:` entry carries no body range. Held as
+ * its own constant so the expected mirror line interpolates it rather than
+ * spelling a colon-digit run inline (the bug-0134 citation-form gate,
+ * `tests/citation-symbol-form-gate.test.ts`, reads comment and string text and
+ * cannot tell a rendered location from a line citation).
+ */
+const FILE_HEAD_LOCATION = "1:1";
+
+/** The escape refusal rendered for one entry spec AS WRITTEN (category 5). */
+function escapeMessage(spec: string): string {
+  return rendered(LOAD_REGISTRY, INVOKE_PATH_ESCAPE, { "<path>": spec });
+}
+
+/**
+ * Every mirror line naming one stem, each followed by its indented
+ * continuation line when it has one — `renderDiagnosticLine`
+ * (src/diagnostics/diagnostic.ts) puts the *Hint* on `  hint: …` after the
+ * located line, and the harness's `lines` map keeps only the coded head.
+ */
+function mirrorWithContinuations(stem: string): readonly string[] {
+  const out: string[] = [];
+  b0248Outcome.raw.forEach((line, i) => {
+    if (!line.includes(`${stem}.theta`)) return;
+    out.push(line);
+    const next = b0248Outcome.raw[i + 1];
+    if (next !== undefined && /^\s/.test(next)) out.push(next);
+  });
+  return out;
+}
+
+// The precondition every group-(D) cell rests on, in the style of (A0).
+describe("bug 0248 (D0) — group (D)'s own production load discovered its own planted workspace", () => {
+  it(`registers the clean control (${B0248_CLEAN_CALLER}) and its contained callee`, () => {
+    expect(
+      b0248Outcome.registered.length,
+      "group (D)'s `.pi/theta/` discovery walk registered nothing — the setup " +
+        "precondition is unmet and every code-set and un-registration " +
+        "assertion in this group would pass vacuously." + b0248Observed(),
+    ).toBeGreaterThan(0);
+    expect(
+      b0248Outcome.registered,
+      `the clean \`- ./${B0248_CLEAN_CALLEE}.theta\` control did not register, ` +
+        "so no red in this group can be attributed to the entry grammar or the " +
+        "containment rule." + b0248Observed(),
+    ).toContain(B0248_CLEAN_CALLER);
+    expect(
+      b0248CodesFor(B0248_CLEAN_CALLER),
+      "the clean control must draw no load diagnostic at all." +
+        b0248Observed(B0248_CLEAN_CALLER),
+    ).toEqual([]);
+  });
+});
+
+describe("bug 0248 (D1) — depth 0: a malformed AND escaping entry draws the grammar rejection alone", () => {
+  const spellings = [
+    { label: "two-token", index: 0 },
+    { label: "dangling-`as`", index: 1 },
+    { label: "four-token", index: 2 },
+  ] as const;
+  for (const { label, index } of spellings) {
+    it(`${MALFORMED}: the ${label} spelling of an out-of-root entry draws no ${INVOKE_PATH_ESCAPE}`, () => {
+      const stem = B0248_MALFORMED_STEMS[index] as string;
+      const entry = b0248MalformedEntries(outOfRootDir)[index] as string;
+      expect(
+        b0248CodesFor(stem),
+        `bug 0248: the malformed entry \`${entry}\` names a path outside every ` +
+          "active discovery root, but a malformed token sequence is not a " +
+          "`tools:` `.theta` entry (frontmatter-fields-a.md:88), so it is not " +
+          `${INVOKE_PATH_ESCAPE}'s *Trigger* subject ` +
+          "(code-registry-load.md:35) and the closed grammar's rejection is the " +
+          "entry's only disposition (code-registry-load.md:25)." +
+          b0248Observed(stem),
+      ).toEqual([MALFORMED]);
+      expect(
+        b0248LinesFor(stem),
+        "DIAG-4: the rejection renders the registry Message with the entry " +
+          "text verbatim." + b0248Observed(stem),
+      ).toEqual([`${MALFORMED}: ${malformedMessage(entry)}`]);
+      expect(
+        b0248Outcome.registered,
+        "the grammar rejection un-registers the whole theta " +
+          "(code-registry-load.md:25), so the caller of a malformed entry is " +
+          "absent from the registered set." + b0248Observed(stem),
+      ).not.toContain(stem);
+    });
+  }
+});
+
+describe("bug 0248 (D2) — depth 0 control: the WELL-FORMED escaping entry keeps the containment refusal", () => {
+  it(`${INVOKE_PATH_ESCAPE}: located 1:1 at the caller's file, with the registered Hint`, () => {
+    // Without this cell (D1) passes when the escape surface is dead: the
+    // composed rows' silence would be indistinguishable from a missing
+    // precondition. The 1:1 location is `TOOLS_DIAGNOSTIC_RANGE`
+    // (src/extension/production-composition.ts) — a `tools:` entry carries no
+    // body range, so the refusal is ranged at the caller's file head.
+    const spec = outSpec(outOfRootDir);
+    expect(
+      b0248CodesFor("b0248ctlesc"),
+      "bug 0248 precondition: a well-formed entry naming the same out-of-root " +
+        `path must draw ${INVOKE_PATH_ESCAPE} alone, or every absence ` +
+        "assertion in this group holds vacuously." +
+        b0248Observed("b0248ctlesc"),
+    ).toEqual([INVOKE_PATH_ESCAPE]);
+    const mirror = mirrorWithContinuations("b0248ctlesc");
+    expect(
+      mirror[0] ?? "",
+      "the refusal is LOCATED at the caller's file head (1:1) and `<path>` " +
+        "renders the entry spec AS WRITTEN — the way the stderr mirror carries " +
+        "`renderDiagnosticLine`'s located triple." +
+        b0248Observed("b0248ctlesc"),
+    ).toBe(
+      `theta: ${plantedPath("b0248ctlesc")}:${FILE_HEAD_LOCATION}: ` +
+        `${INVOKE_PATH_ESCAPE}: ${escapeMessage(spec)}`,
+    );
+    expect(
+      mirror[1] ?? "",
+      "the registered *Hint* (code-registry-load.md:35) reaches the author on " +
+        "the mirror's continuation line." + b0248Observed("b0248ctlesc"),
+    ).toBe(`  hint: ${registryHint(INVOKE_PATH_ESCAPE)}`);
+    expect(
+      b0248Outcome.registered,
+      "tool-calls.md:14: an escaping `tools:` `.theta` entry is rejected and " +
+        "the callable is not created, so this caller does not register." +
+        b0248Observed("b0248ctlesc"),
+    ).not.toContain("b0248ctlesc");
+  });
+});
+
+describe("bug 0248 (D3) — depth 1: a contained callee whose OWN entry is malformed and escaping draws no containment refusal at its caller, and the caller registers", () => {
+  it(`${INVOKE_PATH_ESCAPE} is NOT raised at the caller, the caller registers, and the callee keeps ${MALFORMED} on its own file`, () => {
+    const entry = `${outSpec(outOfRootDir)} junk`;
+    expect(
+      b0248CodesFor("b0248callnestmesc"),
+      "bug 0248 PRIMARY: the caller's own entry `- ./b0248nestmesc.theta` is " +
+        "well-formed, in-root and error-free; the only escaping path in reach " +
+        `belongs to the callee's MALFORMED entry \`${entry}\`, which is not a ` +
+        "`tools:` `.theta` entry (frontmatter-fields-a.md:88) and therefore not " +
+        `${INVOKE_PATH_ESCAPE}'s *Trigger* subject at either depth ` +
+        "(code-registry-load.md:35; bug 0111 settled that the *Trigger* names " +
+        "the entry kind, not its depth). It is no subject for " +
+        `${CALLEE_HAS_ERRORS} either: that *Trigger* (code-registry-load.md:41) ` +
+        "presupposes a callee that failed its OWN parse or structural checks, " +
+        "which `parseCalleeForTools`' `hasErrors` input — computed from " +
+        "`parseThetaDocument`'s diagnostics alone — cannot see for an " +
+        "entry-grammar rejection raised later by `resolveCallableSet`." +
+        b0248Observed("b0248callnestmesc"),
+    ).toEqual([]);
+    expect(
+      b0248Outcome.registered,
+      "drawing no diagnostic, this caller REGISTERS — which is what the shipped " +
+        "IN-ROOT class already does for the same shape (a caller whose " +
+        "well-formed entry names a contained callee whose own `tools:` entry is " +
+        "malformed), so the out-of-root class now agrees with it. Nothing " +
+        "out-of-root becomes callable: the callee's own callable-set resolution " +
+        "rejects the malformed entry by the same closed grammar, and the callee " +
+        "itself does not register." + b0248Observed("b0248callnestmesc"),
+    ).toContain("b0248callnestmesc");
+    expect(
+      b0248CodesFor("b0248nestmesc"),
+      "the callee still draws the grammar rejection on its OWN file when it is " +
+        "discovered, so no input loses its refusal (bug 0248 §Fix (a))." +
+        b0248Observed("b0248nestmesc"),
+    ).toEqual([MALFORMED]);
+    expect(
+      b0248LinesFor("b0248nestmesc"),
+      "DIAG-4: the callee's rejection names its own entry text verbatim." +
+        b0248Observed("b0248nestmesc"),
+    ).toEqual([`${MALFORMED}: ${malformedMessage(entry)}`]);
+    expect(
+      b0248Outcome.registered,
+      "code-registry-load.md:25: one malformed entry un-registers the whole " +
+        "theta, so the callee is absent from the registered set." +
+        b0248Observed("b0248nestmesc"),
+    ).not.toContain("b0248nestmesc");
+  });
+});
+
+describe("bug 0248 (D4) — depth 1 control: bug 0111's shipped class keeps the containment refusal at the caller's file", () => {
+  it(`${INVOKE_PATH_ESCAPE}: a callee whose escaping entry is WELL-FORMED still un-registers its caller`, () => {
+    // §Fix constraint 2: the gate skips an input class neither containment
+    // witness file plants, so the WELL-FORMED surface is byte-identical at both
+    // depths. This is the separability control for (D3): it proves the escape
+    // surface is live at depth 1 IN THE SAME RUN in which (D3) observes silence.
+    const spec = outSpec(outOfRootDir);
+    expect(
+      b0248CodesFor("b0248callnestwesc"),
+      "bug 0248 precondition: the depth-1 containment surface must stay live " +
+        "for a WELL-FORMED nested entry, or (D3)'s absence proves nothing." +
+        b0248Observed("b0248callnestwesc"),
+    ).toEqual([INVOKE_PATH_ESCAPE]);
+    expect(
+      mirrorWithContinuations("b0248callnestwesc")[0] ?? "",
+      "bug 0111's disposition: the refusal is located at the CALLER's file head " +
+        "and `<path>` renders the NESTED entry spec as written." +
+        b0248Observed("b0248callnestwesc"),
+    ).toBe(
+      `theta: ${plantedPath("b0248callnestwesc")}:${FILE_HEAD_LOCATION}: ` +
+        `${INVOKE_PATH_ESCAPE}: ${escapeMessage(spec)}`,
+    );
+    expect(
+      b0248Outcome.registered,
+      "invocation.md:12: a `tools:` `.theta` entry that escapes fails to " +
+        "register the callable, and the refusal is error-severity at the " +
+        "caller's file, so this caller does not register either — the half that " +
+        "separates (D3)'s registration from a dead containment surface." +
+        b0248Observed("b0248callnestwesc"),
+    ).not.toContain("b0248callnestwesc");
+    expect(
+      b0248CodesFor("b0248nestwesc"),
+      "the callee, discovered in its own right, draws the same refusal on its " +
+        "own file." + b0248Observed("b0248nestwesc"),
+    ).toEqual([INVOKE_PATH_ESCAPE]);
+  });
+});
+
+describe("bug 0248 (D5) — the group's whole registration outcome, exactly", () => {
+  it("only the composed depth-1 caller and the clean control pair register", () => {
+    // The set, not a per-stem sample: every row carrying an error-severity
+    // diagnostic is absent, and the two rows that carry none are present. The
+    // depth-1 composed caller is among the latter — it draws no diagnostic
+    // (cell (D3)), and a theta that draws none registers. That mints no
+    // out-of-root callable: the malformed entry is rejected by the same closed
+    // grammar inside the callee's own callable-set resolution, so the callee
+    // never becomes a callable of anything.
+    expect(
+      b0248Outcome.registered,
+      "the registered set of group (D)'s own walk." + b0248Observed(),
+    ).toEqual(["b0248callnestmesc", B0248_CLEAN_CALLER, B0248_CLEAN_CALLEE]);
+    for (const stem of [
+      ...B0248_MALFORMED_STEMS,
+      "b0248ctlesc",
+      "b0248nestmesc",
+      "b0248nestwesc",
+      "b0248callnestwesc",
+      OUT_OF_ROOT_CALLEE,
+    ]) {
+      expect(
+        b0248Outcome.registered,
+        `\`${stem}\` carries an error-severity load diagnostic — the grammar ` +
+          "rejection (code-registry-load.md:25) or the containment refusal " +
+          "(:35) — so it must not register." + b0248Observed(),
+      ).not.toContain(stem);
+    }
+    expect(
+      b0248Outcome.registered,
+      "the clean control must register in the SAME run, or every " +
+        "un-registration assertion above holds for a load that registered " +
+        "nothing." + b0248Observed(),
+    ).toContain(B0248_CLEAN_CALLER);
   });
 });

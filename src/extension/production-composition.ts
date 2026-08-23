@@ -1660,7 +1660,7 @@ async function resolveThetaToolsAtLoad(
   // calling `toolsEntrySpec`. A malformed token sequence is not an entry of
   // either admitted kind (frontmatter-fields-a.md:88), so it references no
   // callee — `theta/load/callee-has-errors`' *Trigger*, "a `tools:` `.theta`
-  // entry" (code-registry-load.md:40), presupposes a subject this input does
+  // entry" (code-registry-load.md:41), presupposes a subject this input does
   // not have. Without the gate the cache still resolved, read and parsed the
   // entry's first token, so a malformed entry naming an existing erroneous
   // callee co-fired `callee-has-errors` alongside the grammar's own
@@ -1670,7 +1670,7 @@ async function resolveThetaToolsAtLoad(
   // un-registers the whole theta"). The same narrowing also reaches the
   // INV-1 escape loop below over this same cache (`nestedToolsEscapes`, bug
   // 0110/0111): `theta/load/invoke-path-escape`'s *Trigger* (code-registry-
-  // load.md:34) names "a `tools:` `.theta` entry" as one of its two admitted
+  // load.md:35) names "a `tools:` `.theta` entry" as one of its two admitted
   // subjects, and a malformed token sequence is no entry of either admitted
   // kind, so it is not that subject either.
   const calleeCache = new Map<string, CalleeParse>();
@@ -1873,14 +1873,13 @@ async function attachLoadTimeClosureHashes(
  * Extract one `tools:` entry's callable spec (the token before an optional
  * `as <name>` rename). A PURE first-token projection — it applies no grammar
  * decision itself and returns `parts[0]` for any token count, malformed input
- * included. Each of its two callers applies the grammar decision on its own
- * side of the call: the pre-parse callee-cache loop (above, bug 0106 §Fix (b))
- * gates on `parseToolsEntry` before calling this function, and
- * `checkNestedToolsContainment` (below, bug 0111) applies its own path-shaped
- * routing (`isBareToolName`) rather than the closed grammar, because it judges
- * only discovery-root containment, not entry well-formedness. A reader must
- * not take this function's tolerance for a lock-step gap; it is a deliberate
- * projection whose callers, not itself, decide what a malformed entry means.
+ * included. Grammar-free by design: EVERY caller gates on `parseToolsEntry`
+ * before calling this function (bug 0248 §Fix (a)/(b)), so a malformed token
+ * sequence never reaches this projection at either depth — the pre-parse
+ * callee-cache loop in `resolveThetaToolsAtLoad` (above) and
+ * `checkNestedToolsContainment` (below) share the one gate. A reader must not
+ * take this function's tolerance for a lock-step gap; the gate, not this
+ * projection, decides what a malformed entry means.
  */
 function toolsEntrySpec(entry: string): string {
   const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
@@ -1998,14 +1997,15 @@ async function parseCalleeForTools(
  * `parseCalleeForTools` resolves its own spec. Reached only for a callee that
  * already passed its own containment check and whose bytes parsed to
  * non-null frontmatter (`parseCalleeForTools` above) — an escaping or
- * unreadable callee's contents are never read (§Fix constraint 2). Bare
- * Pi-tool names and empty specs are routed away exactly like the depth-0 loop
- * in `resolveThetaToolsAtLoad`; a full callable-set resolution is deliberately
- * not run here — only the path-shaped rule this report's Fix scopes to — so no
- * content-derived diagnostic can be produced for an entry this function does
- * not otherwise inspect. `undefined` when the callee declares no `tools:`, or
- * `activeRoots` is `undefined` (the nested-callee dispatch parse), or none of
- * its entries escape.
+ * unreadable callee's contents are never read (§Fix constraint 2). A
+ * malformed entry is gated on `parseToolsEntry` before the loop body runs
+ * (bug 0248 §Fix (a)); bare Pi-tool names and empty specs are routed away
+ * next, exactly like the depth-0 loop in `resolveThetaToolsAtLoad`. A full
+ * callable-set resolution is deliberately not run here — only the path-shaped
+ * rule this report's Fix scopes to — so no content-derived diagnostic can be
+ * produced for an entry this function does not otherwise inspect. `undefined`
+ * when the callee declares no `tools:`, or `activeRoots` is `undefined` (the
+ * nested-callee dispatch parse), or none of its entries escape.
  */
 async function checkNestedToolsContainment(
   fs: FileSystem,
@@ -2020,6 +2020,21 @@ async function checkNestedToolsContainment(
   const escapes: Diagnostic[] = [];
   const judged = new Set<string>();
   for (const entry of calleeTools) {
+    // Bug 0248 §Fix (a): gate on `parseToolsEntry` BEFORE `toolsEntrySpec`,
+    // the same three lines in the same position as the depth-0 cache loop in
+    // `resolveThetaToolsAtLoad` above. `theta/load/invoke-path-escape`'s
+    // *Trigger* (code-registry-load.md:35) names "a `tools:` `.theta` entry"
+    // as its admitted subject, and a malformed token sequence is not an entry
+    // of either admitted kind (frontmatter-fields-a.md:88) at either depth —
+    // bug 0111 ruled the *Trigger* names the entry kind, not the entry's
+    // depth, so the same subject test governs this loop and the depth-0 one.
+    // The callee still draws `theta/load/malformed-tool-entry` on its own
+    // file when it is discovered in its own right, so no input loses its
+    // refusal — this gate only stops the caller from ALSO refusing it under
+    // the wrong *Trigger*.
+    if (parseToolsEntry(entry.trim()).kind !== "ok") {
+      continue;
+    }
     const spec = toolsEntrySpec(entry);
     if (spec.length === 0 || isBareToolName(spec) || judged.has(spec)) {
       continue;

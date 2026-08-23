@@ -1,6 +1,6 @@
 # Bug 0248 — The bug-0106 grammar gate suppresses the INV-1 containment refusal for a malformed `tools:` entry at depth 0 while the bug-0111 nested loop still reports it at depth 1: the identical `<out-of-root>.theta junk` entry draws `theta/load/malformed-tool-entry` alone when the caller writes it and `theta/load/invoke-path-escape` when a callee writes it, and no cell in the tree pins either half
 
-- **Status:** open
+- **Status:** fixed (0.231.0)
 - **Sev/Diff estimate:** S3/D1 — the primary defect is a verification gap: the
   0.216.0 gate narrowed the escape loop's input set and the fix record says so
   ("it is unwitnessed: no cell pairs a malformed entry with an escaping first
@@ -384,6 +384,110 @@ Constraints on the implementation:
 7. **No ordering dependency.** Bugs 0106, 0110 and 0111 are fixed and shipped
    (0.216.0, 0.66.0, 0.206.0); their witness rows are unmodified by this fix, so
    no pinned-byte coordination is required.
+
+## Fix (0.231.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` —
+    `checkNestedToolsContainment`'s entry loop gates on
+    `parseToolsEntry(entry.trim()).kind !== "ok"` before `toolsEntrySpec` runs,
+    the same three lines in the same position as the depth-0 cache-head gate
+    (§Fix (a); the loop body's `judged` set is reached only by entries the
+    grammar admits, so a malformed spelling can no longer pre-empt a
+    well-formed duplicate's judgement).
+  - `src/extension/production-composition.ts` — `toolsEntrySpec`'s doc comment
+    states ONE rule: the projection is grammar-free and every caller gates on
+    `parseToolsEntry` first (§Fix (b)). The adjoining `parseCalleeForTools` /
+    `checkNestedToolsContainment` doc comments name where that gate now sits.
+  - `src/extension/production-composition.ts` — the depth-0 cache-head gate
+    comment's two off-by-one citations repaired, `code-registry-load.md:34` →
+    `:35` and `:40` → `:41` (§Fix (c)), both rows re-read at the fix baseline
+    (`:34` is `theta/load/invocation-cycle`, `:40` is
+    `theta/load/argument-hint-not-displayed`).
+  - `tests/tools-entry-grammar-derivations-lockstep.test.ts` — group (D),
+    insert-only (+503/−0), with its OWN planted workspace, out-of-root
+    `mkdtemp` directory and production load, so bug 0106's plant set, its
+    shared outcome and its (A6) registration lock are untouched: (D0) the
+    walk-discovered precondition, (D1) the three malformed escaping spellings
+    draw `[theta/load/malformed-tool-entry]`, (D2) the well-formed escaping
+    control draws `[theta/load/invoke-path-escape]` at the file head with its
+    registered *Hint*, (D3) the depth-1 composed row draws no containment
+    refusal, (D4) bug 0111's shipped class keeps it, (D5) the group's exact
+    registration outcome.
+  - `tests/live/b0248live-nested-malformed-escape-live-cell.test.ts` — new live
+    sibling of bug 0106's own live cell: the same observable through the
+    shipped composition root (`session_start` → `resources_discover` →
+    `composeExtensionInstance`), read off the settled `theta-system-note`
+    channel and the real registration step. No `prompt()` drive, so no tokens
+    beyond credential resolution.
+  - No spec sentence, no registry row, no new diagnostic code, and
+    `tests/fixtures/h7a/permitted-codes.json` unmodified — the fix REMOVES an
+    emission (§Fix constraint 4).
+- Gates: witness `npx vitest run
+  tests/tools-entry-grammar-derivations-lockstep.test.ts` → 32 passed (24
+  pre-existing 0106 cells + group (D)); constraint-2 files
+  `tests/tools-entry-containment.test.ts` (37) and
+  `tests/nested-tools-entry-containment.test.ts` (29) unmodified and green;
+  full default suite `npm test` → 409 files / 8607 tests passed;
+  `npm run typecheck` clean; `npm run lint` clean;
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/b0248live-nested-malformed-escape-live-cell.test.ts` → 1 passed.
+- Review: 1 round — clean, no findings. The reviewer re-derived the five
+  registry-row citations, proved the 0106 file's diff carries zero deleted
+  lines, and red-pathed both gates (removing the depth-1 gate reds (D3)/(D5);
+  removing the depth-0 gate reds (D1) and 0106's (A1)–(A3)). One correction
+  round preceded review: the group's cells were moved onto their own workspace
+  and their registration expectations corrected (below).
+- Verification: SOLID. Witness validity — the depth-1 gate neutralised by
+  targeted byte edit reds (D3) and (D5) with the depth-1
+  `theta/load/invoke-path-escape` signature, restored byte-exact
+  (`git hash-object` re-matched) and green. Default suite green. Live — the
+  live cell passes with the fix, reds under the same neutralisation (the
+  composed caller un-registers and the escape note appears), restored
+  byte-exact and green again; no open bug doc carries a matching pinned
+  signature. Lint and typecheck clean.
+- Residuals:
+  1. **§Fix constraint 1 is factually wrong about registration, and the fix
+     record supersedes it.** Post-fix the depth-1 composed caller — a
+     well-formed, in-root, error-free entry naming a contained callee whose OWN
+     entry is malformed and escaping — draws no diagnostic and REGISTERS, where
+     before the fix the escape refusal un-registered it. This is forced by
+     §Fix (a) rather than chosen: `parseCalleeForTools` derives `hasErrors`
+     from `parseThetaDocument`'s diagnostics, while
+     `theta/load/malformed-tool-entry` is raised later by `resolveCallableSet`,
+     so `theta/load/callee-has-errors`' V15f input can never see an
+     entry-grammar rejection at any depth. Measured evidence that this is the
+     shipped class and not a new one: a caller naming a callee whose own entry
+     is malformed but IN-ROOT already registers today and is untouched by the
+     gate, so the fix makes the out-of-root class agree with the in-root class.
+     GOV-15 direction is a removed refusal, not a new one. Cells (D3) and (D5)
+     pin the outcome; the live cell pins it through the shipped root.
+  2. **No out-of-root callable is minted by that registration.** The callee's
+     own callable-set resolution rejects the malformed entry by the same closed
+     grammar at its own load and again on the dispatch parse, where an
+     error-severity diagnostic leaves the child with the empty callable set; the
+     runtime open-time re-check remains the backstop. Traced, not measured by a
+     dedicated cell.
+  3. **Whether a caller SHOULD be told that its callee's own `tools:` entry is
+     malformed** is untouched here. Neither depth reports it, in-root or
+     out-of-root, because the V15f input cannot see it. Widening
+     `callee-has-errors` to entry-grammar rejections would move an input class
+     from loads-cleanly to refused (GOV-15) and needs its own report.
+  4. **Bug 0106 §Fix residual 3** (the 69 files carrying shifted line
+     citations) stays open: only the two citations inside the gate comment this
+     fix edits were repaired.
+- Discharge notes appended: none. Bug 0106 §Fix residual 2 — "a control cell
+  belongs to whoever next owns that surface" — is discharged by (D1)/(D2)
+  here; the residual's own `code-registry-load.md:34` citation is corrected in
+  the gate comment rather than in 0106's record.
+- Pinned dispositions / non-goals: the entry grammar, its message, severity and
+  all-or-nothing posture; bug 0106's depth-0 `callee-has-errors` disposition and
+  its cells (A1)–(A6); bug 0106 §Fix residual 1 (`pshape`/`pshadow`); bug 0111's
+  scope bound (an `invoke(...)`-reached callee's nested `tools:` stays
+  unjudged); the empty `relatedSites` on the `tools:`-surface
+  `callee-has-errors` emission and `preEvalCauseOf`'s ERR-6 enumeration.
+  Containment-before-grammar was rejected at filing and stays rejected: it
+  re-opens the co-fire bug 0106 closed on the same *Trigger* reasoning.
 
 ## Provenance
 

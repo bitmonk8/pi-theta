@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.231.0]
+
+### Fixed
+
+- **Bug 0248** — the tools-entry grammar gate reaches depth 1: `checkNestedToolsContainment`'s entry loop applies the same `parseToolsEntry` gate 0106 landed at depth 0, so grammar-vs-containment ordering agrees at BOTH depths (grammar first — the pre-adjudicated order) and a malformed ESCAPING nested entry is witnessed instead of unchecked. One-rule `toolsEntrySpec` doc comment; two off-by-one spec citations in the depth-0 gate comment repaired. Locked by group (D) D0–D5 of `tests/tools-entry-grammar-derivations-lockstep.test.ts` (insert-only; 0106's 24 cells untouched) and the `b0248live` nested-malformed-escape live cell.
+
 ## [0.230.0]
 
 ### Fixed
