@@ -70,7 +70,7 @@ This clause admits the tokens in the table and nothing else. A rendered name der
 **Rule.**
 
 - For `<expr>` in `theta/parse/default-not-literal`, render the offending source span verbatim, copied byte-for-byte from the source file between the offending sub-expression's start and end token positions (post-newline-normalisation per [Lexical — Encoding](../lexical.md)), with internal whitespace preserved.
-- For `<construct>` in `theta/parse/unsupported-feature`, the offending site is a whole node category with no single source-span anchor (e.g. `=>` lambdas span the entire arrow form, including the body). Use the closed token-name table below.
+- For `<construct>` in `theta/parse/unsupported-feature`, the offending site is either a whole node category with no single source-span anchor (e.g. `=>` lambdas span the entire arrow form, including the body) or a well-formedness violation of a Theta construct with no narrower placeholder. Use the closed token-name table below.
 
 | Construct | Token name |
 |---|---|
@@ -89,6 +89,8 @@ This clause admits the tokens in the table and nothing else. A rendered name der
 | `void` operator | `void` |
 | `yield` expression | `yield` |
 | `await` expression | `await` |
+| a punctuation token in statement position that begins no statement or expression form (an `ident`, `keyword` or literal token in that position starts a form and is silent) | `stray '<t>' in statement position` (where `<t>` is the source token verbatim) |
+| a schema object body whose fields are not comma-separated | `schema fields must be comma-separated` |
 
 **Test vectors.**
 

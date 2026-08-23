@@ -1,7 +1,8 @@
 # Bug 0063 — Two `<construct>` values the parser emits — `stray '<t>' in statement position` (`theta-document.ts:1757`) and `schema fields must be comma-separated` (`:2598`) — are absent from the closed token-name table that `placeholder-rendering-a.md` §3 makes the whole rendering vocabulary of `theta/parse/unsupported-feature`, and the closed table predates both emission sites by two months at its current path
 
-- **Status:** open. §Fix states two dispositions with the constraints that hold
-  either way, and a recommendation; the choice is not made here.
+- **Status:** fixed (0.233.0). §Fix stated two dispositions with the constraints
+  that hold either way, and a recommendation; disposition 1 was chosen and
+  shipped — see `## Fix (0.233.0)` at the end of this document.
 - **Kind:** defect — a closed normative surface over-states the implementation,
   in two elements.
   1. *The rendering vocabulary is closed and does not contain the emitted
@@ -619,3 +620,116 @@ is drawn identically before and after 0095, on
 `schema S { f: {} g: string }` and on the one comma-missing row of
 `tests/discriminator-field-classifier-brace-group.test.ts` item 3. Its reachability
 is unchanged; only which fixtures draw it alongside `empty-schema-body` moved.
+
+## Fix (0.233.0)
+
+Disposition 1, docs-only. `src/` is byte-untouched (`git diff --stat -- src/`
+empty), so no rendered byte, code, severity or range moved and no live run is
+owed (0193 / 0205 precedent).
+
+**Re-derivation at HEAD (the citations above are ~160 minors stale).** The
+defect survives. Measured offline through `parseDoc`
+(`tests/helpers/e2e-s1.ts`), four-line frontmatter prelude, body line 1 = file
+line 5: `| 1` renders
+`unsupported syntactic feature: stray '|' in statement position` @5:1; a
+`schema S {` body whose `a` and `b` fields are newline-separated renders
+`unsupported syntactic feature: schema fields must be comma-separated` @7:3;
+the same defect on one line renders it @5:22; the comma-present control renders
+nothing. Neither value was in any of the 15 rows in force. Re-anchored:
+
+| §Affected claim | HEAD `8ad7402f` |
+|---|---|
+| §3 heading `:43`, placeholder list `:45`, rule sentence `:50`, table `:52–68`, `bitwise <op>` `:59`, vectors `:70–73` | `:66`, `:68`, `:73`, `:75–91`, `:82`, `:93–96` |
+| emission site 1 `theta-document.ts:1757` | `:2076` (`parseForms`, no-progress arm) |
+| emission site 2 `theta-document.ts:2598` | `:3198` (`parseSchemaObjectBody`, comma rule) |
+| pins `schema-alias-rhs-malformed.test.ts:702` / `:1212`, comment `:699–701` | `:722` / `:1239`, comment `:715–721` |
+| pin `schema-alias-union-decl.test.ts:2406` | `:2422` |
+
+**Authority for the fill.** Both tails have shipped since `d23c22be`
+(2026-07-13), so this codifies a rendering the registry already produces rather
+than coining a new one — the page's own opening paragraph makes that a pure
+rewording under GOV-8's *Pure rewording* boundary ("it leaves every rendered
+byte, every code, and every severity identical"), and its *Winner rule* states
+the closure "is closed against coining a new placeholder, not against describing
+one the registry already renders". DIAG-2 is not engaged: no code is added,
+removed, renamed or re-triggered. Precedent: bug 0247 added a closed table plus
+an eighth clause to category 1 admitting bytes the renderer already emitted.
+
+- **What shipped:**
+  `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — §3's
+  `<construct>` lead-in widened to admit "a well-formedness violation of a Theta
+  construct with no narrower placeholder" beside the node-category
+  characterisation (§Fix "The cost, stated"); the closed token-name table gains
+  row A (`stray '<t>' in statement position`, parametrised in the `bitwise <op>`
+  gloss form, stating the `punct`-only restriction) and row B
+  (`schema fields must be comma-separated`, fixed string); 111 → 113 lines, the
+  15 pre-existing rows byte-unchanged.
+  `tests/construct-token-table-tails.test.ts` — new offline conformance oracle
+  (below).
+  `tests/schema-alias-rhs-malformed.test.ts` — comment only: the note recording
+  the tail as rendered by the emission site rather than by the closed table now
+  cites the §3 row (§Fix constraint 4; both assertion cells are byte-identical).
+  `tests/live/generic-argument-bracket-group-truncation-live-cell.test.ts` —
+  comment only: the inbound citation `placeholder-rendering-a.md:106` → `:108`,
+  the sole repo-wide citation into a line the two new rows shifted.
+  No registry row, no `docs/reference/` page (`rg -n "token-name"
+  docs/reference/` empty), nothing else.
+- **Gates:** witness RED before (B1, B2, B3, C1, C3 failed; A1–A4, C2 passed),
+  GREEN after (`10 passed (10)`); `npm test` → `Test Files 417 passed (417)` /
+  `Tests 8727 passed (8727)`; `npm run typecheck` (`tsc -p tsconfig.json
+  --noEmit`) clean; `npm run lint` (`eslint … "src/**/*.ts"`) clean.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings: it
+  read both emission sites against the row prose, checked the 0084 and 0095
+  coordination notes for over-statement, confirmed the four pins unmoved,
+  re-derived the GOV-8 authority from the page and
+  `req-id-prefix-table-active-b.md`, judged C3's exact-17 count a defensible
+  ratchet, and proved the red direction by an in-place revert with
+  `git hash-object` before and after.
+- **Verification:** SOLID. (i) The witness reds per item, not only in bulk: full
+  revert → B1/B2/B3/C1/C3 red; rows-only revert → B1/B2/C1/C3 red with B3 green;
+  lead-in-only revert → B3 alone red; every restore byte-exact
+  (`ca5e569a6f956af492bcdeb0e1f154c73cc3c444`). (ii) Default suite 417 / 8727.
+  (iii) No live run owed — `git diff --stat -- src/` empty and the only new
+  executable code is `readFileSync` plus `parseDoc`; the edited live file's hunk
+  sits inside a block comment. (iv) typecheck and lint clean. Also: `git stash
+  list` empty, no scratch file, page 113 lines, exactly one inbound citation at
+  a line ≥ 92 and it lands where it claims.
+- **Tests that lock it:** `tests/construct-token-table-tails.test.ts`, 10 cells,
+  offline and provider-free in the default suite. (A1–A4) behaviour anchor — the
+  three §Reproduction fixtures plus the comma-present control through
+  `parseDoc`, each expected message composed from the registry *Message*
+  template with the tail substituted (DIAG-4 direction). (B1–B2) each emitted
+  tail must be admitted by some row of §3's table, read by heading region and
+  header cells with no line numbers. (B3) the lead-in must name the widened
+  subject. (C1) exactly one row may admit the stray tail and that row must be
+  parametrised — scored over `|`, `&`, `%`, `§` (§Fix constraint 2: the token
+  text is an open set). (C2) the 15 pre-existing token names must all survive.
+  (C3) the table carries exactly 17 rows ("What else moves. Nothing.").
+- **Residuals:**
+  1. The nine other unlisted `<construct>` tails of §Reproduction's
+     emission-site census remain outside the table — §Non-goals, unfiled, and
+     deliberately scored by no cell of the oracle. C3's exact-17 count is the
+     cell a later filing that widens the table must move; its comment says so.
+  2. `code-registry-parse.md`'s `theta/parse/unsupported-feature` *Trigger*
+     prose ("A theta 1.0-deferred or non-Theta syntactic construct … appears in
+     source") still under-describes these two emissions. A *Trigger* meaning
+     change is a DIAG-2 spec-meaning change and was out of scope; raised by the
+     round-1 reviewer as pre-existing, neither created nor worsened here.
+  3. `src/parser/theta-document.ts` carries a doc-comment citation
+     `placeholder-rendering-a.md:49` that points at a category-2 test vector
+     rather than the category-3 rule it describes. Pre-existing (`src/` is
+     byte-untouched by this fix), unclaimed by any open bug as far as this run
+     measured; material for a citation sweep.
+  4. `renderConstruct` (`src/diagnostics/placeholder.ts`) still has no
+     production caller and still takes a free string, so the closed vocabulary
+     has no representation in the implementation — §Non-goals, unchanged.
+  5. §Non-goals' failing §3 test vector (`let f = (x) => x + 1` renders four
+     other diagnostics, not `arrow function`) is untouched; it is bug 0050's
+     class at this surface and needs its own adjudication.
+- **Discharge notes appended:** none. Bug 0042's §Fix *Residuals* item (iv) is
+  the origin of this filing and is discharged by this record; no sibling
+  document was edited (0042's residual list is a dated record).
+- **Pinned dispositions / non-goals:** disposition 2 (re-routing both emissions
+  to new registered codes) was NOT taken — it moves observables (b) and (c) for
+  every §Reproduction input. Neither tail was reworded (DIAG-4 defers rewording
+  to theta 2.0). No pin was deleted; only the comment above one pin moved.

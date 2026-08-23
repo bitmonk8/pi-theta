@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.233.0]
+
+### Fixed
+
+- **Bug 0063** — the closed `<construct>` token-name table in `placeholder-rendering-a.md` §3 fills its two omitted-but-shipped unsupported-feature tails (15 → 17 rows; §3 lead-in widened) — a lawful shipped-behaviour fill under the page's Pure-rewording clause and the 0247 precedent, not a new freeform tail (DIAG-2 untouched). Docs-only. Locked by `tests/construct-token-table-tails.test.ts` (10-cell conformance oracle; C3 pins the table at exactly 17 rows).
+
 ## [0.232.0]
 
 ### Fixed

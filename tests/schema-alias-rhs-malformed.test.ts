@@ -715,9 +715,10 @@ describe("bug 0042 (b) — same-line residue after a complete right-hand side is
       prelude: FM_LINES,
       acceptedSpans: ["1:13-1:14"],
       otherDiagnostics: [
-        // The `<construct>` tail is rendered by the emission site, not by the
-        // closed placeholder table (bug doc §Non-goals) — the registry frame is
-        // still the source of the message, so a reworded row reds here.
+        // The `<construct>` tail is admitted by the closed token-name table's
+        // parametrised stray-token row (docs/spec_topics/diagnostics/placeholder-rendering-a.md
+        // §3, bug 0063) — the registry frame is still the source of the message,
+        // so a reworded row reds here.
         `error ${UNSUPPORTED}: ${msg(UNSUPPORTED, [["<construct>", "stray '|' in statement position"]])} @1:15-1:16`,
       ],
     });
