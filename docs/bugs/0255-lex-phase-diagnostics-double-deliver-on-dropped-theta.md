@@ -1,7 +1,7 @@
 # Bug 0255 — A dropped theta's lex-phase diagnostics reach the `theta-system-note` channel twice: `lexTheta` delivers its own batch through the V7d seam (`src/lexer/lexer.ts:131`) and the composition root re-delivers the same rows in the drop group (`src/extension/production-composition.ts:2435` → `:757`), so one `theta/parse/block-comment` (or any other lexer-surfaced row) renders as two notes on one load pass, against `diagnostic-shape.md:65`'s one-`pi.sendMessage`-per-`.theta` rule
 
-- **Status:** open. §Fix is constraint-pinned, not settled: the single-delivery
-  discipline is required, the dedup point is left to the fix.
+- **Status:** fixed (0.247.0). The dedup point §Fix left open was adjudicated
+  in-run to candidate 2 (the drop group); see `## Fix (0.247.0)`.
 - **Sev/Diff estimate:** S2/D2 — S2 because the author-visible output is wrong
   in count, not in content: every lexer-surfaced row on a theta that fails to
   register is presented twice (measured: `n` lex rows produce `n + 1` notes and
@@ -279,3 +279,100 @@ pre-existing. Re-reproduced here at HEAD `53cd0d86` with the scratch probe of
 §Reproduction, which also established the `n + 1` delivery shape, the
 lex/parse asymmetry, the fifteen-code scope, and route 1's neutralisation
 witness.
+
+## Fix (0.247.0)
+
+- Route adjudication (§Fix left the dedup point open; decided in-run on the
+  record): **candidate 2 — the drop group**. Candidate 1 (silencing the
+  lexer's emit) was rejected because route 1 is the ONLY delivery for the five
+  secondary `parseThetaDocument` callers that discard `document.diagnostics`
+  (`src/extension/production-composition.ts` `resolveCalleeArity`,
+  `parseCalleeForTools`, `parseCalleeTheta`, the closure-source walk, and
+  `src/extension/import-static-checks.ts`'s `.thetalib` parse), so removing it
+  turns those into silent drops (§Fix constraint 1), and because it would flip
+  the V7d seam assertions of `tests/lexer-core.test.ts` ("fires through the V7d
+  seam … not a direct out-of-band `pi.sendMessage`"). Candidate 3 (a per-pass
+  delivered-set in the channel) adds state to a stateless seam and must reason
+  about hot-reload passes. Candidate 2 changes neither seam contract, leaves
+  `emitLoadNoteGroup` byte-unchanged (constraint 3), and keeps the surviving
+  delivery batched per file (constraint 4, `diagnostic-shape.md:63`/`:65`).
+- What shipped:
+  - `src/parser/theta-document.ts` — `ThetaDocument` gains
+    `deliveredDiagnostics`, the subset of `diagnostics` `lexTheta` already
+    delivered through the V7d seam, set from the lex result at the single
+    `parseThetaDocument` return site.
+  - `src/extension/production-composition.ts` — `parseDiscoveredTheta`'s drop
+    arm excludes `deliveredDiagnostics` from `dropped` by object identity (a
+    code prefix cannot discriminate: `theta/parse/*` spans both phases);
+    `subagentFnFraming` is never lexer-produced and always ships. The
+    registering arm needs no filter (every lexer-surfaced code is
+    error-severity, so a delivered lex row always took the drop arm).
+  - `tests/lex-drop-single-delivery.test.ts` (new) — the constraint-5 witness.
+  - `tests/live/unterminated-template-registration-live-cell.test.ts` —
+    constraint 5's live half (see the flip enumeration below).
+- Gates: witness `npx vitest run tests/lex-drop-single-delivery.test.ts` →
+  4 passed (RED before the fix: 2-vs-1 and 4-vs-2, restored byte-exact,
+  `git hash-object` matched); full default suite
+  `npx vitest run --poolOptions.threads.maxThreads=3` → 423 files /
+  8892 tests passed; `npm run typecheck` → clean; `npm run lint` → clean;
+  live `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/unterminated-template-registration-live-cell.test.ts
+  tests/live/params-default-unterminated-literal-live-cell.test.ts` → RC=0,
+  2 files / 3 tests passed.
+- Authorized witness flips (no other protected cell changed):
+  1. `tests/live/unterminated-template-registration-live-cell.test.ts` —
+     `toBeGreaterThanOrEqual(1)` → `toBe(1)` on the occurrence count, its
+     failure message rewritten, and its stale route citations corrected
+     (`production-composition.ts:2417` → `:2446`, `:754` → `:757`). Authority:
+     this report's §Fix constraint 5 and bug 0246's `## Fix (0.224.0)`
+     §Residuals item 2, which names the tightening as this report's to make.
+     Bug 0246's offline witness (`tests/unterminated-template-lexer-emission.test.ts`)
+     and the rest of its cell set are untouched and green.
+  2. Bug 0013's landed shape and surfaces: untouched —
+     `emitLoadNoteGroup` (`:1279–1295` pre-shift) carries no hunk, the
+     error-per-diagnostic / warning-batched split is unchanged.
+- Review: 1 round (`bug-fix-reviewer`) — CLEAN, no blocking finding; residuals
+  R1–R4 below. One comment-only polish round (`bug-fix-fixer-light`) resolved
+  the R2 prose pointer; polish verified by gate-diff (comment-only hunk,
+  gates re-run green), confirmation round skipped.
+- Verification: SOLID. Red-proof by in-place neutralisation of the drop-arm
+  hunk and byte-exact restoration (hash `ff169e84211c48094656ced52ea4ffa661b758df`
+  before and after); full suite green; live evidence judged to discharge the
+  end-to-end obligation (the tightened exact-one assertion runs the real load
+  path); lint and typecheck clean; tree carries exactly the four expected
+  paths and `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
+- Residuals:
+  1. The `theta/load/invalid-encoding` drop variant is verified by reading
+     (`src/lexer/lexer.ts` emits the encoding row before returning the same
+     array, so the identity filter cannot silence it) but is not witnessed by
+     a planted non-UTF-8 fixture; §Fix constraint 5 asks only for single-row
+     and multi-row lex drops.
+  2. Out of this route's scope: a malformed `.theta` that is BOTH discovered
+     and reached as a `tools:` callee / imported `.thetalib` still puts its lex
+     rows on the channel once per parsing walk, because those re-parse paths
+     pass the real note channel and discard `document.diagnostics`
+     (`production-composition.ts` `resolveCalleeArity` / `parseCalleeForTools`
+     / `parseCalleeTheta` / the closure walk, `import-static-checks.ts`).
+     Pre-existing, byte-untouched here, filing material for a separate report.
+  3. Line-number drift: this fix inserts 8 lines into
+     `src/parser/theta-document.ts` below its `ThetaDocument.diagnostics`
+     declaration and 11 lines into `src/extension/production-composition.ts`
+     below `parseDiscoveredTheta`'s drop arm, so `path:line` citations below
+     those points shift. This report's own pre-fix citations are affected
+     (`theta-document.ts:897` → `:904`, `production-composition.ts:2435` →
+     `:2446`) and are left as the pre-fix record they describe. Nine other
+     OPEN reports cite past the insertion points and were NOT edited (foreign
+     documents): 0046, 0051, 0061, 0104, 0121, 0140, 0192, 0197, 0259.
+  4. Under full-parallelism `npm test`, `tests/production-tools-load-resolution.test.ts`
+     intermittently trips a `beforeAll` timeout under worker contention; green
+     standalone and green in every throttled full run. Not attributable to
+     this change.
+- Discharge notes appended: none (0246's residual item 2 is discharged by the
+  flip above; its document was not edited in this lane).
+- Pinned dispositions / non-goals: the V7d producer-facing seam contract
+  (`src/lexer/lexer.ts` module and `lexTheta` docstrings) is deliberately
+  unchanged; the three no-op-channel `lexTheta` callers are untouched
+  (§Fix constraint 2); no diagnostic code was added, removed or reclassified,
+  so the GOV-15 registry carve-out is not engaged and
+  `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
+

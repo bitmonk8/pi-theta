@@ -844,6 +844,13 @@ export interface ThetaDocument {
    * diagnostics.md §"Multi-error reporting".
    */
   readonly diagnostics: readonly Diagnostic[];
+  /**
+   * The {@link diagnostics} subset `lexTheta` already delivered through the
+   * V7d seam (bug 0255: same `Diagnostic` objects, unmapped by
+   * `assembleDiagnostics` — a re-delivering caller must exclude this subset
+   * by object identity, not by code prefix, to avoid double-delivery).
+   */
+  readonly deliveredDiagnostics: readonly Diagnostic[];
 }
 
 /** Construction dependencies the whole-file parser consumes. */
@@ -1111,6 +1118,7 @@ export function parseThetaDocument(
     frontmatter,
     body: { statements: configuredStatements, tail: resolvedTail },
     diagnostics,
+    deliveredDiagnostics: lex.diagnostics,
   };
 }
 

@@ -6,6 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.247.0]
+
+### Fixed
+
+- Bug 0255: a dropped theta's lex-phase diagnostics no longer reach the
+  `theta-system-note` channel twice — route: §Fix candidate 2 (the drop
+  group): `ThetaDocument.deliveredDiagnostics` names the subset `lexTheta`
+  already delivered through the V7d seam, and `parseDiscoveredTheta`'s drop
+  arm excludes it by object identity (candidate 1 would silently drop rows
+  for five secondary `parseThetaDocument` callers and flip the V7d seam
+  assertions; candidate 3 rejected as state in a stateless seam). n lex rows
+  now render n notes, parse rows once; 0013's severity split preserved. New
+  witness `tests/lex-drop-single-delivery.test.ts` (red 2-vs-1 / 4-vs-2 at
+  HEAD). Authorized flip (0246 §Residuals item 2 / 0255 §Fix 5):
+  `tests/live/unterminated-template-registration-live-cell.test.ts`
+  `toBeGreaterThanOrEqual(1)` → `toBe(1)` + stale cites corrected. Live
+  under the lock RC=0 (2 files / 3 tests). permitted-codes byte-unchanged.
+  Line drift recorded: theta-document.ts +8 below ~:844,
+  production-composition.ts +11 below ~:2435.
 ## [0.246.0]
 
 ### Fixed

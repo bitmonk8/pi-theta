@@ -46,19 +46,26 @@
 // the pre-fix red is that one. Post-fix the batch carries the row and the
 // offender is un-registered.
 //
-// WHY THE CHANNEL COUNT IS NOT PINNED EXACTLY. The load path delivers a dropped
-// theta's lex-phase diagnostics twice: `lexTheta` hands its own batch to the V7d
-// seam (src/lexer/lexer.ts:128–132) and the composition root re-delivers the
-// same rows through the drop group (`parseDiscoveredTheta` returns them in
-// `dropped` at src/extension/production-composition.ts:2417, consumed by
-// `sink.emitGroup(parsed.dropped)` at :754). That duplication is a property of
-// the delivery channel, not of the lexer push, so the exact-one discipline for
-// this row lives in the offline witness at `parseThetaDocument` level
-// (the `unterminated-template-lexer-emission` file under `tests/`, cells
-// U-1…U-5 and I-1…I-3); this cell claims real-load-path REACHABILITY of the
-// same row.
+// WHY THE CHANNEL COUNT IS PINNED EXACTLY (post bug 0255). Pre-0255 the load
+// path delivered a dropped theta's lex-phase diagnostics twice: `lexTheta`
+// handed its own batch to the V7d seam (src/lexer/lexer.ts:128–132) and the
+// composition root re-delivered the same rows through the drop group
+// (`parseDiscoveredTheta` returns them in `dropped` at
+// src/extension/production-composition.ts:2446, consumed by
+// `sink.emitGroup(parsed.dropped)` at :757). Bug 0255's fix has
+// `parseThetaDocument` name the already-delivered subset
+// (`ThetaDocument.deliveredDiagnostics`, src/parser/theta-document.ts) and has
+// the drop group exclude it by object identity before re-delivering, so this
+// row now reaches the channel exactly once — the count below is exact, not a
+// lower bound, and reds again if either delivery route regresses to
+// double-delivery.
 // The sibling `tests/live/params-default-unterminated-literal-live-cell.test.ts`
-// asserts presence rather than a count for the same reason.
+// still asserts presence rather than a count: its `theta/parse/unterminated-string`
+// row is pushed by the frontmatter `params:` default parse (`parseParams`'s
+// per-field default loop, `src/parser/params.ts`, bug 0239), never by
+// `lexTheta`, so it only ever travelled the drop-group route and was never
+// doubled — its presence assertion (that file's second `it`, the
+// `notes.some(...)` check) is unaffected by bug 0255.
 //
 // Token-bounded: one live turn, a fixed-pair arithmetic question over the
 // control theta (bug 0243 retired the verbatim-echo drive sentinel; the
@@ -190,13 +197,14 @@ describe("bug 0246 — an unterminated `@`…`` template draws the lex-phase row
         occurrences,
         `PRIMARY (bug 0246): lexTheta must push ${UNTERMINATED_TEMPLATE_CODE} at its EOF ` +
           "exit, reaching the theta-system-note channel through the real load path. AT HEAD " +
-          "(pre-fix) the main loop falls out of `while (i < n)` with `inTemplateProse` still " +
-          "set and nothing tests it, so this count is zero. The count is a lower bound because " +
-          "the load path delivers a dropped theta's lex-phase rows twice " +
-          "(src/lexer/lexer.ts:128–132 and src/extension/production-composition.ts:2417 → " +
-          ":754); exact-one lives in the offline parseThetaDocument witness. Notes: " +
-          JSON.stringify(allNotes),
-      ).toBeGreaterThanOrEqual(1);
+          "(pre-0246-fix) the main loop falls out of `while (i < n)` with `inTemplateProse` " +
+          "still set and nothing tests it, so this count is zero. Post bug 0255 the count is " +
+          "exact, not a lower bound: `parseThetaDocument` names the subset `lexTheta` already " +
+          "delivered through the V7d seam (src/lexer/lexer.ts:128–132), and the drop group " +
+          "(src/extension/production-composition.ts:2446 → :757) excludes that subset by " +
+          "object identity before re-delivering, so this row reaches the channel exactly once. " +
+          "Notes: " + JSON.stringify(allNotes),
+      ).toBe(1);
 
       // The emission is located: the line the author reads names the offending
       // file, so a batch that reported the row against the wrong theta reds.

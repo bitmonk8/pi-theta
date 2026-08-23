@@ -2432,7 +2432,18 @@ async function parseDiscoveredTheta(
             file: theta.path,
             parseDiagnostics: document.diagnostics,
           });
-    return { dropped: [...document.diagnostics, ...subagentFnFraming] };
+    // Bug 0255: `lexTheta` already delivered `document.deliveredDiagnostics`
+    // through the V7d seam (`src/lexer/lexer.ts:131`/`:109`) before this parse
+    // ran; re-delivering them here (`:757`'s `sink.emitGroup`) would double-
+    // deliver every lex row. Exclude by object identity (a `Set`, not a code-
+    // prefix test — `theta/parse/*` spans both the lex and parse phases, so a
+    // prefix cannot tell them apart). `subagentFnFraming` is computed here, not
+    // by the lexer, so it is never in `deliveredDiagnostics` and always ships.
+    const delivered = new Set<Diagnostic>(document.deliveredDiagnostics);
+    const undeliveredDocumentDiagnostics = document.diagnostics.filter(
+      (diagnostic) => !delivered.has(diagnostic),
+    );
+    return { dropped: [...undeliveredDocumentDiagnostics, ...subagentFnFraming] };
   }
   return {
     fixture: {
@@ -2443,7 +2454,11 @@ async function parseDiscoveredTheta(
     },
     // The registering path's document batch (warning-severity by the gate
     // above); the caller forwards it into the load-diagnostic sink as one
-    // per-file group.
+    // per-file group. No `deliveredDiagnostics` filter needed here: every
+    // lexer-surfaced code is error-severity (bug 0255 §Affected), so any row
+    // in `document.deliveredDiagnostics` would have tripped `hasLoadParseError`
+    // above and taken the dropped arm instead — this arm's `document.diagnostics`
+    // can only hold warning-severity rows the lexer never produces.
     diagnostics: document.diagnostics,
   };
 }
