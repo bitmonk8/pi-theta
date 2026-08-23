@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.232.0]
+
+### Fixed
+
+- **Bug 0062** — the grammar's trailing-Trigger table names `=`: `trailingTriggers()` ships 15 tabled texts plus `"="` but three closed enumerations omitted it — `grammar.md`'s trailing row now names it, the leading row is re-pinned trailing-only, `lexical.md`'s prose enumeration gains "a trailing `=`", and the reference mirror carries both edits. Docs-only (`src/` byte-untouched, no live owed). Locked by `tests/grammar-trailing-trigger-equals.test.ts` (8-cell corpus-conformance oracle, red-proven per file).
+
 ## [0.231.0]
 
 ### Fixed

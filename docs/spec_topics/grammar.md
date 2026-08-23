@@ -201,9 +201,9 @@ Statements are separated by newlines. A statement implicitly continues across on
 | Trigger | Position | Example |
 |---|---|---|
 | Open bracket without a matching close | the line ends with an unmatched `(` / `[` / `{` | `let x = [\n  1, 2, 3\n]` |
-| Trailing binary or ternary operator | the line ends with one of `+ - * / % == != < <= > >= && \|\| ? :` | `let x = a +\n  b` |
+| Trailing binary or ternary operator, or `=` | the line ends with one of `+ - * / % == != < <= > >= && \|\| ? :`, or with the binding / assignment / alias-head `=` | `let x = a +\n  b`; `let x =\n  1` |
 | Trailing comma | the line ends with `,` (inside any open `(` / `[` / `{`) | `f(a,\n  b)` |
-| Leading binary or ternary operator | the next non-blank line begins with one of the operators above | `let x = a\n  + b` |
+| Leading binary or ternary operator | the next non-blank line begins with one of the binary or ternary operators above (`=` is trailing-only) | `let x = a\n  + b` |
 
 **The `?` trigger is the ternary head only.** In both operator rows, `?` triggers continuation solely as the ternary-conditional head (`cond ?\n  a : b`). The postfix error-propagation `?` (ERR-18) is a complete-expression terminator that desugars to `return Err(e)`, so it never triggers continuation and always closes the statement — see the [StmtBlock tail-`?` carve-out](#block-expressions).
 

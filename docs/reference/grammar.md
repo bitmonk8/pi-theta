@@ -177,9 +177,9 @@ trigger set is closed:
 | Trigger | Position |
 |---|---|
 | Open bracket without matching close | line ends with unmatched `(` / `[` / `{` |
-| Trailing binary/ternary operator | line ends with one of `+ - * / % == != < <= > >= && \|\| ? :` |
+| Trailing binary/ternary operator, or `=` | line ends with one of `+ - * / % == != < <= > >= && \|\| ? :`, or with the binding/assignment/alias-head `=` |
 | Trailing comma | line ends with `,` inside any open `(` / `[` / `{` |
-| Leading binary/ternary operator | next non-blank line begins with one of the operators above |
+| Leading binary/ternary operator | next non-blank line begins with one of the binary/ternary operators above (`=` is trailing-only) |
 
 - The `?` trigger is the **ternary head only**; the postfix error-propagation `?`
   is a complete-expression terminator (it desugars to `return Err(e)`) and never

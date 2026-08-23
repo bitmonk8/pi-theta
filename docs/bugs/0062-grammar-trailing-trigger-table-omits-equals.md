@@ -1,7 +1,8 @@
 # Bug 0062 — The closed trailing-trigger row at `grammar.md:204` omits the bare `=` that `trailingTriggers()` implements: `let x =`, `x =` and `schema X =` continue onto the next line at HEAD, the same section's own `let x =\n\n  foo` example depends on that continuation, and `docs/reference/grammar.md:576–578` asserts the two sets match
 
-- **Status:** open. §Fix as settled — two table rows on each of two grammar
-  pages plus one prose clause; no `src/`, registry, or test change.
+- **Status:** fixed (0.232.0). §Fix as settled — two table rows on each of two
+  grammar pages plus one prose clause; no `src/` or registry change (one
+  additive test file locks it; see §Fix (0.232.0)).
 - **Kind:** spec-doc defect — a normative closed table under-states the
   implemented trigger set. Not an implementation defect: the lexer's behaviour
   is the one the section's own worked example and three in-tree surfaces
@@ -507,3 +508,111 @@ following newline.
 So this report's finding stands unmoved: the sets still hold the bare `=` the
 spec table omits, with the same membership 0084 read and left alone. Nothing in
 0.71.0 alters the row count on either side of the comparison this report makes.
+
+## Fix (0.232.0)
+
+- **Re-derivation at HEAD `5a3463f8` (0.227.0).** The defect survived ~160
+  minors of churn. `trailingTriggers()` still returns the fifteen tabled
+  operator texts plus `"="`; `leadingTriggers()` still returns the fifteen
+  alone. Measured offline through `tests/helpers/e2e-s1.ts`: `a =` then `b`
+  continues (1 `stmt-sep`), `let x = a` then `= b` closes (2), depth-0 `,`
+  closes (2), `!` closes (2). Citations re-anchored: `docs/spec_topics/`
+  `grammar.md` and `lexical.md` line numbers are unmoved (table `:201–206`,
+  trailing row `:204`, leading row `:206`, prose clause `lexical.md:22`);
+  `docs/reference/grammar.md` drifted — the table is now `:177–182` (trailing
+  row `:180`, leading row `:182`, not `:119` / `:121`) and the
+  implementation-confirmation claim is now `:689–691`, not `:576–578`. The
+  page is 691 lines, not the 578 this report's §Fix pinned.
+- **What shipped**
+  - `docs/spec_topics/grammar.md:204` — §Fix item 1: the trailing row's
+    *Trigger* and *Position* cells name the binding / assignment / alias-head
+    `=`; the *Example* cell gains `let x =\n  1`.
+  - `docs/spec_topics/grammar.md:206` — §Fix item 2: the leading row's referent
+    re-pinned to "the binary or ternary operators above (`=` is
+    trailing-only)", so naming `=` above does not widen the leading set that
+    `leadingTriggers` does not implement.
+  - `docs/reference/grammar.md:180`, `:182` — §Fix item 3: the same two edits
+    in the mirror's two-column register. `:689–691`'s
+    implementation-confirmation claim needed no edit; the row edit is what
+    makes its trailing half true.
+  - `docs/spec_topics/lexical.md:22` — §Fix item 4: the closed prose
+    enumeration gains "a trailing `=`" as its own item. The normative deferral
+    to the grammar table, the `let x =\n\n  foo` example and the
+    `single-line-if` tail are byte-unchanged.
+  - `tests/grammar-trailing-trigger-equals.test.ts` — new, additive: a
+    corpus-conformance oracle (8 cells). (A1/A2) the behaviour anchor —
+    trailing `=` continues, leading `=` closes. (B1–B3) each of the three
+    closed enumerations names `=`. (C1–C3) the leading row/prose is not
+    widened to admit `=`; C1/C2's second conjunct arms only once (B) lands, so
+    an implementer editing the trailing row alone reds on it.
+- **Gates** (run by the orchestrator, not taken on report): witness
+  `npx vitest run tests/grammar-trailing-trigger-equals.test.ts` — RED before
+  (`Tests 3 failed | 5 passed (8)`, B1/B2/B3 failing on the page's own
+  extracted operator set missing `=`), GREEN after (`Tests 8 passed (8)`);
+  `npm test` — `Test Files 413 passed (413)`, `Tests 8664 passed (8664)`;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean;
+  `npm run lint` (`eslint "src/**/*.ts"`) clean. `git diff --stat -- src/`
+  empty. Line counts unchanged: 223 / 691 / 28, so every inbound `path:line`
+  citation into the three pages survives.
+- **Review**: 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings; it
+  verified §Fix's "pinned bytes that do not move" checklist item by item, swept
+  `docs/` for further closed-enumeration sites naming the trigger set (none
+  beyond the three fixed), re-read `expressions.md:147` and confirmed §Fix's
+  out-of-scope judgement holds (it claims no closure), and audited the witness
+  for loud-failure preconditions, line-number-free assertions and DIAG-4
+  direction.
+- **Verification** (`bug-fix-verifier`): SOLID. (i) The witness genuinely reds:
+  each of the three edited regions was reverted in place, one at a time, to its
+  verbatim `git show HEAD:<path>` wording — each single-file revert produced
+  exactly its own red (B1 / B2 / B3, 7/8 green) and each file was then restored
+  byte-exact, proven by `git hash-object` matching the pre-revert hash
+  (`878f2ad7…`, `eb716f64…`, `a66fd6bd…`). (ii) Default suite green (413 /
+  8664). (iii) No live run owed: `src/` byte-untouched and the only new
+  executable code is the offline witness (0193 / 0205 precedent). (iv)
+  Typecheck and lint clean. Also green and quoted:
+  `tests/committed-fixture-parse-gate.test.ts` (36), the
+  `tests/citation-symbol-form-gate.test.ts` LOCK (3).
+- **Residuals**
+  1. **§Fix's "No test witness is owed" clause is superseded, not violated.**
+     That clause argued a prose-matching assertion over the table "would invert
+     DIAG-4's direction for expected strings". DIAG-4
+     (`docs/spec_topics/diagnostics/diagnostic-shape.md:74`) governs diagnostic
+     *Message* strings sourced from the registry; the shipped oracle matches no
+     *Message* anywhere — it reads table-cell membership, section-scoped, with
+     the *Example* column deliberately excluded. Two in-tree precedents settle
+     the shape: `tests/fn-param-annotation-optional.test.ts` (bug 0150) and
+     `tests/for-empty-array-iterand-adjudication.test.ts` both assert spec-page
+     prose against the shipped parser. The oracle also closes the gap this
+     report's §"Actual behaviour / root cause" named as the reason the
+     divergence survived — "no test or tool opens either grammar page as a
+     file".
+  2. **`docs/reference/grammar.md:689`'s `src/lexer/lexer.ts:152`
+     sub-citation is stale** — `reservedKeywords()` sits at `:159` at HEAD, and
+     `:152` is the head of its doc comment. The claim's substance holds (the
+     32-member set was diffed against `lexical.md:20` and matches). §Fix pins
+     `:689–691` as not moving, so it is deliberately untouched; it is material
+     for a line-form-citation sweep, and the file is not in the
+     `citation-symbol-form-gate` ratchet.
+  3. **This report's own §Affected / §Provenance line numbers for
+     `docs/reference/grammar.md` remain as filed** (`:119`, `:121`,
+     `:576–578`, "578 lines"). They are a dated record of HEAD `9c961f7f`; the
+     re-derivation above carries the HEAD-accurate anchors. No edit was made to
+     the historical sections.
+  4. **Process note for siblings.** The round-1 reviewer used `git stash` to
+     prove the red direction despite the prohibition. It restored the tree and
+     no work was lost — `git stash list` empty and `git diff --stat` identical,
+     both re-checked by the orchestrator immediately afterwards. The verifier
+     was dispatched with an explicit revert-in-place-and-hash protocol instead.
+- **Discharge notes appended**: none. Bug
+  [0049](./0049-grammar-member-access-head-covers-bracket-indexing.md), the
+  other open defect on this page, pins an in-place one-line rewrite above the
+  table; this fix adds and removes no line, so neither report's anchors moved.
+- **Pinned dispositions / non-goals** (unchanged, all four honoured): the
+  trigger taxonomy is not rewritten — `=` sits inside the existing trailing
+  row, the table still has four rows and `:210`'s "any of the four triggers"
+  and `:208`'s "In both operator rows" both still read correctly; the `?`
+  carve-out is untouched; `expressions.md:147` is untouched (it claims no
+  closure); no spec/implementation consistency gate was built — the shipped
+  oracle is scoped to this one row on the three pages, not to the general
+  problem. GOV-15 is honoured in the other direction: `"="` stays in
+  `trailingTriggers()`, so no observable moves.
