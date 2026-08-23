@@ -1,6 +1,7 @@
 # Bug 0051 — A lowercase `NamedType` at a reference position draws no case diagnostic at any of the sixteen probed positions: `theta/parse/schema-case-mismatch` is a token-adjacency check on the identifier after `schema` / `enum` (`lexer.ts:873–874`) whose registered Trigger names declaration positions only, so `let a: nope = 3` is observationally identical to `let a: Nope = 3`, while `grammar.md:98` annotates the reference production `NamedType ::= Ident` "(PascalCase)"
 
-- **Status:** open. §Fix is constraint-pinned, not settled. The decision this
+- **Status:** fixed (0.202.0) — discharged as superseded; see the Parent
+  adjudication note at the end. §Fix was constraint-pinned, not settled. The decision this
   report asks for is the adjudication between two dispositions — widen the
   registered Trigger to reference positions, or record the reference position
   as unconstrained by case in the spec prose.
@@ -743,3 +744,179 @@ Two of the shared facts it rests on have moved, and one has not.
    `thisisnotatype` and the trailer `integer1` as NOT refused precisely because
    each is an `Ident`, so refusing them would need a resolvability test at these
    positions, which is this report's and that row's territory rather than 0124's.
+
+### Partial-discharge note — re-derivation at 0.243.0 (2026-08-23)
+
+Appended by a triage pass that re-derived every cell of §Reproduction at HEAD
+`99928fb4` (0.243.0) with a scratch `parseDoc` probe, written, run and deleted.
+**This report is NOT closed and its headline subject is NOT mooted**: at all
+sixteen reference positions a lowercase `NamedType` and its PascalCase twin
+still produce byte-identical diagnostic lists, and `grammar.md:98` still reads
+`NamedType ::= Ident // schema or enum name (PascalCase)` (`grammar.md` is
+still 223 lines). What HAS moved is the report's supporting evidence: bug
+[0135](./0135-index-sentinel-leaks-into-messages-and-typeenv.md)'s §Fix
+(0.202.0) read-seam case fence discharges the report's *hazard* rationale and
+falsifies one of the four measurements §Fix's recommendation rests on. The
+remaining live surface is one line of spec prose whose disposition this report
+declines to settle, so the pass stopped rather than adjudicating it.
+
+**1. Re-measured reference positions.** Same fixtures, same harness
+(`tests/helpers/e2e-s1.ts` `parseDoc`), each row run once per case.
+
+| # | position | `nope` | `Nope` | vs filed |
+|---|---|---|---|---|
+| r1 | `let` annotation | SILENT | SILENT | unchanged |
+| r2 | `fn` parameter | SILENT | SILENT | unchanged |
+| r3 | `fn` return | SILENT | SILENT | unchanged |
+| r4 | generic argument | SILENT | SILENT | unchanged |
+| r5 | `invoke<T>` | SILENT | SILENT | unchanged |
+| r6 | union arm in a `let` annotation | SILENT | SILENT | unchanged |
+| r7 | union arm in an `fn` parameter | SILENT | SILENT | unchanged |
+| r8 | `Result` argument | SILENT | SILENT | unchanged |
+| r9 | inline object field under an `fn` parameter | SILENT | SILENT | unchanged |
+| r10 | inline object field under `params:` (`x: { g: N }`) | `unresolved-named-type: unresolved named type 'nope'` | same, `'Nope'` | **MOVED** — filed SILENT |
+| r11 | `@<T>` query annotation | `unresolved-named-type` naming the written spelling | same | unchanged |
+| r12 | `schema` body field type | same | same | unchanged |
+| r13 | `params:` right-hand side | same | same | unchanged |
+| r14 | alias right-hand side | same | same | unchanged |
+| r15 | alias/union right-hand side | same | same | unchanged |
+| r16 | object-constructor name | same | same | unchanged |
+
+The split is now **nine silent, seven diagnosing**, not ten and six. r10's
+filed fixture spelling — the nested-map form `params:` → `x:` → `g: N` — no
+longer reaches a type position at all: it draws
+`theta/load/params-type-not-expression: 'params:' field 'x' right-hand side is
+not a theta type expression`, for both cases. The inline-object spelling
+`x: { g: N }` is the one that reaches the `params:` type expression, and it
+diagnoses. Either way the row stays **case-identical**, which is the only
+property this report's argument uses it for. The three derived rows are
+unchanged (inline object under a `schema` field, `array<nope>` under a schema
+field and under `@<T>`, and a `let`-annotated bare query, `let r: nope = @…`), all
+`unresolved-named-type` naming the written spelling. Declaration rows d1–d6 are
+unchanged, including the unenforced `enum` variant position (d4, d5 both
+SILENT) that §Non-goals records.
+
+**2. What bug 0135 discharged.** Its §Fix (0.202.0) put a case fence at the
+READ seam: `resolveNamed` (`src/parser/type-compat.ts:146–152`) answers
+`undefined` for any name whose first character is not `A`–`Z`, before the
+own-key lookup. Every `TypeEnv` read in the tree routes through it, so a
+lowercase-declared name can no longer decide any static check. The
+lowercase-declaration round-trip rows collapse:
+
+| # | fixture | filed (0.48.0) | at 0.243.0 |
+|---|---|---|---|
+| x1 | `schema nope { a: number }` + `let c: nope = 3` | `schema-case-mismatch` **and** `let-rhs-type-mismatch` | `schema-case-mismatch` **alone** |
+| x2 | `schema nope = number` + `let c: nope = "s"` | same pair | `schema-case-mismatch` alone |
+| x3 | `schema nope { a: number }` + `let v = nope { a: 1 }` | `schema-case-mismatch` alone | unchanged |
+| x4 | `schema nope = number` + `let xs: array<nope> = ["s"]` | case code **and** `let-rhs-type-mismatch` **and** `array-element-type-mismatch` | `schema-case-mismatch` alone |
+| x5 | `let xs: array<nope> = ["s"]` (no declaration) | SILENT | unchanged |
+| x6 | `schema Nope = number` + `let xs: array<Nope> = ["s"]` (control) | two type-layer codes, no case code | unchanged |
+| x7 | `schema nope { a: number }` + `fn f(x: nope): number { 1 }` + `let r = f(3)` | `schema-case-mismatch` alone | unchanged |
+
+Three consequences for this report's argument:
+
+- **§Actual behaviour / root cause item 2 is now wrong in its last clause.**
+  "a lowercase key resolves if a lowercase declaration wrote one (x1–x4, x7)"
+  no longer holds: a lowercase key resolves to nothing, unconditionally.
+  `annotationToCompatType`'s fallback (now
+  `src/parser/type-layer-checks.ts:974`, function at `:906`) is byte-unchanged
+  in the respect this report cares about — it still mints
+  `{ kind: "named", name: text }` with no case test — but what that `named`
+  can resolve to downstream is now case-fenced.
+- **§Actual behaviour / root cause item 4 is superseded.** "The declaration
+  gate does not bound the type engine's input" was measured by x1–x4; at HEAD
+  the read-seam fence bounds it. The remaining unbounded step is the mint, not
+  the resolution.
+- **§Why it matters, third bullet is discharged.** "The gap is a recorded
+  enabling condition for a shipped defect" — 0038's two symptoms both required
+  an author-chosen lowercase name to be *resolvable* inside the type engine.
+  0135 closed that at the read seam. What remains of the gap is a name that is
+  minted and then resolves to nothing, i.e. the same disposition an undeclared
+  PascalCase name already gets.
+
+**3. Why the pass did not implement §Fix's recommendation.** §Fix is explicitly
+unsettled ("Not yet decided"), and disposition 2's *first* supporting
+measurement — "the implementation is uniformly case-blind at references" — is
+no longer true as stated. At HEAD the reference production IS case-constrained,
+at the resolution seam rather than at a diagnostic: a lowercase `NamedType`
+denotes no declared type by construction (`type-compat.ts:146–152`). That is
+closer to `grammar.md:98`'s parenthetical read as a *descriptive* claim about
+what a `NamedType` can resolve to — reading 2 — but it is now an *enforced*
+property rather than an inference from `lexical.md:15`'s declaration rule, and
+neither `lexical.md`, `grammar.md` nor
+`docs/spec_topics/diagnostics/code-registry-parse.md` states it. So the live
+remainder is narrower than filed and its shape has changed:
+
+> The corpus does not state, anywhere, that a `NamedType` whose head is not
+> `A`–`Z` resolves to no declaration — the property `resolveNamed` now
+> enforces for every `TypeEnv` consumer in the tree.
+
+Whether the remedy is disposition 2's one-line in-place rewrite of
+`grammar.md:98`'s comment, a sentence added beside `lexical.md:15`, or
+disposition 1 after all is an adjudication this report asks its operator for
+and this pass had no authority to make. Recorded rather than taken.
+
+**4. Constraint 5 re-run (the blast-radius sweep).** At HEAD the tree holds the
+same 33 committed `.theta` and 2 `.thetalib` (35 files). Both sweeps re-run
+green: the structured sweep over every annotation-bearing site returns **0
+lowercase-headed type atoms**, and the higher-recall `: <lowercase-identifier>`
+sweep returns only comment prose, frontmatter values (`mode: prompt`,
+`mode: subagent`) and object-literal keys. Two grep hits that survive the
+primitive filter are false positives — `docs/examples/personas.thetalib:8`
+(`@<integer>` inside a query template) and `docs/examples/refine-inline.theta:13`
+(a `//` comment). Disposition 1 still reddens no in-tree input.
+
+**5. Citation drift, measured.** Every `src/` citation in §Affected,
+§Actual behaviour and §Provenance has drifted; the *content* at each site is
+unchanged unless noted above. Correct at 0.243.0:
+
+- `src/lexer/lexer.ts` — `contextualDiagnostics` at `:1024` (filed `:798`),
+  called from `lexTheta` at `:125` (unchanged); `checkName` at `:1028`
+  (filed `:802–839`); the `schema-case-mismatch` emission at `:1056` (filed
+  `:830–837`); the declarator dispatch at `:1102–1113`, with the
+  `schema` / `enum` arm at `:1112–1113` (filed `:864–875` / `:873–874`).
+- `src/parser/type-layer-checks.ts` — `annotationToCompatType` at `:906`
+  (filed `:454–476`), its `named` fallback at `:974` (filed `:475`);
+  `collectTypeEnv` at `:400` (filed `:294–295`).
+- `src/parser/type-compat.ts` — `resolveNamed` at `:146–152` (filed `:104`),
+  now carrying the 0135 case fence at `:147–150`.
+- `src/parser/theta-document.ts` — the closed five-position doc comment at
+  `:6301` (filed `:4663–4672`); `unresolvedNamedTypeDiagnostic` at `:6406`
+  (filed `:4718–4730`).
+
+The header's own `lexer.ts:873–874` citation is stale by the same drift. Two
+sibling fix records (bug 0148's, at `docs/bugs/0148-reserved-keyword-fn-parameter-position-silent.md`
+line 741, and bug 0149's, at `docs/bugs/0149-field-name-case-positions-unenforced.md`
+line 869) assert "zero citation drift in bug docs 0051 (`lexer.ts:873–874`)";
+that claim was scoped to those fixes' own edits, and the drift measured here
+accumulated across the intervening landings.
+
+**6. Evidence.** Two scratch `npx tsx` probes over `parseDoc`, written, run and
+deleted (scratch token `b0051scratch`, swept once); two corpus sweeps by `grep`
+over the 35 committed `.theta` / `.thetalib`; every `path:line` above read from
+the tree at `99928fb4`. Offline, no model, no live provider. No source file,
+test or spec page was modified by this pass — only this note was appended.
+
+### Parent adjudication — discharged as superseded (2026-08-23, recorded at merge)
+
+The adjudication this report's Status block asks for is settled on the record
+by the campaign orchestrator, under the operator's standing best-effort-
+adjudication guidance, as follows: **neither disposition is implementable as
+filed.** Disposition 2's first supporting measurement ("uniformly case-blind
+at references") is false at HEAD — bug 0135's read-seam fence
+(`resolveNamed`, 0.202.0) makes every reference position case-constrained at
+resolution. Disposition 1 (widening the `schema-case-mismatch` Trigger to
+reference positions) would add a case-specific code to positions whose
+measured behaviour is now case-INDEPENDENT: the note above shows all sixteen
+probed positions observationally identical for `nope` vs `Nope` (nine silent,
+seven `theta/load/unresolved-named-type`), so the surviving defect is the
+nine-position silence for ANY unresolvable named-type head, which is not this
+report's subject and deserves its own correctly-framed filing rather than a
+rewrite of this one (the 0143/0135 face-split precedent).
+
+Disposition: **discharged as superseded** — the case-specific claims by bug
+0135 (0.202.0), the case-blindness premise dissolved by the same fix, the
+case-independent nine-position silence re-filed fresh in this set's residual
+wave with the note above as its source measurements. Status flipped to fixed
+(0.202.0) per the discharged-row precedent (bug 0054 / bug 0040). No code
+moved under this report's number.
