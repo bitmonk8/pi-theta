@@ -27,7 +27,7 @@
 // V5a-T (tests-task) declared these seam shapes; V5a (this leaf) implements
 // every check.
 
-import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { normaliseLiteralValueLineBreaks, type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 
 /** A located site at which a schema/enum declaration or access is checked. */
 export interface SchemaDeclSite {
@@ -266,7 +266,7 @@ export function checkEnumDeclaration(
         code: "theta/parse/duplicate-enum-value",
         file: site.file,
         range: site.range,
-        message: `duplicate enum value '${value}' across variants of enum '${decl.name}'`,
+        message: `duplicate enum value '${normaliseLiteralValueLineBreaks(value)}' across variants of enum '${decl.name}'`,
       });
     }
   }

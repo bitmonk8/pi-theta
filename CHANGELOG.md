@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.221.0]
+
+### Fixed
+
+- **Bug 0250** — `theta/parse/duplicate-enum-value`'s Message no longer embeds the cooked newline from a multi-line enum value literal: `checkEnumDeclaration` routes `variant.value.text` through the shared `normaliseLiteralValueLineBreaks` before interpolation, keeping every diagnostic single-line (spec: placeholder-rendering-b exclusion sentence re-taken with a normative vector). Locked by `tests/duplicate-enum-value-message-line-break.test.ts` (16 cells) and the `b0250live` H8a note-channel cell.
+
 ## [0.220.0]
 
 ### Fixed

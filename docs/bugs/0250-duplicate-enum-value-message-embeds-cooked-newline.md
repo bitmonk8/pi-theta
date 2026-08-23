@@ -1,6 +1,6 @@
 # Bug 0250 — `theta/parse/duplicate-enum-value` interpolates the COOKED value of an enum variant's string literal with no line-break transform, so a `\n` escape in the shared value renders a `message` of two physical lines where `diagnostic-shape.md:34` says single-line summary, and an author-chosen value forges the `  hint: <hint>` continuation line, the `  <file>:<line>:<col>: <message>` related-site line, or a second batch block — the one carrier of bug 0105's defect class left unwired when 0.217.0 closed the six load-time sites
 
-- **Status:** open.
+- **Status:** fixed (0.221.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because a registered diagnostic renders text
   that breaks its own stated shape and forges the structural lines of the
   serialised content format consumers parse, but only on input that already
@@ -547,3 +547,127 @@ Constraints:
   each measured value. Run on the outputs quoted above, then deleted per scratch
   policy. No file in the tree was written by the probes; `src/`, `tests/`,
   `docs/bugs/README.md` and every other bug doc are unmodified by this filing.
+
+## Fix (0.221.0)
+
+- What shipped:
+  - `src/parser/schema-declarations.ts` — the `theta/parse/duplicate-enum-value`
+    interpolation (`:269`, inside `checkEnumDeclaration`'s value-duplication arm,
+    `:190–274`) now renders `normaliseLiteralValueLineBreaks(value)`; the
+    `../diagnostics/diagnostic` import (`:30`) gained the value binding folded
+    onto its existing single line, mirroring `callable-set.ts:34`. `decl.name`
+    stays unwrapped (§Non-goals). Net line count 875 → 875 (§Fix constraint 1),
+    so every line-form citation into the file stays valid. This is the seventh
+    site in `placeholder-rendering-b.md` §7's enumeration, answering the same
+    sentence with the same function rather than a local rule.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — the DIAG-2
+    same-commit spec edit (§Fix constraint 2). The `<value>` sub-rule's closing
+    sentence is re-taken: `theta/parse/duplicate-enum-value` binds a cooked
+    string-literal value and PASSES the normalisation, with the `\n` escape
+    named as its only reachable break because a raw newline draws
+    `theta/parse/literal-newline-in-string` and the duplicate-value check never
+    runs; `theta/parse/duplicate-discriminator-value` binds a raw source slice in
+    which a `\n` escape stays two characters, so the normalisation has no
+    subject there. One normative test vector added beside 0105's two: the shared
+    value `a<U+000A>b` renders `duplicate enum value 'a b' across variants of
+    enum 'E'`.
+  - `tests/duplicate-enum-value-message-line-break.test.ts` — new offline
+    witness, 16 cells.
+  - `tests/live/duplicate-enum-value-message-single-line-live-cell.test.ts` —
+    new H8a cell over the real discovery → `session_start` →
+    `theta-system-note` path, mirroring 0105's cell (stems `b0250live` /
+    `b0250ctl`).
+  - Unmoved, confirmed rather than assumed: no registry *Message* template edit
+    (`code-registry-parse.md:111`, `docs/reference/diagnostics.md:157`,
+    `docs/reference/schema-subset.md:85` unedited — DIAG-4), no placeholder
+    introduced, retired or moved (`placeholder-rendering-a.md` §Closure,
+    GOV-7 / GOV-8), `src/diagnostics/diagnostic.ts` untouched,
+    `tests/schema-declarations.test.ts` untouched and green (§Fix constraint 4),
+    GOV-15 not engaged and `tests/fixtures/h7a/permitted-codes.json` untouched
+    (§Fix constraint 6 — 11 codes, this one absent; a whole-word `enum` search
+    over `tests/fixtures/h7a` and `tests/live/acceptance` finds no declaration,
+    so the code is unreachable from an ordinary `pi -p` run and the
+    empty-capture H9a stderr gate needs no entry). Census re-run at this
+    baseline (§Fix constraint 7): 35 committed `.theta` / `.thetalib`, zero
+    declaring an `enum`, so zero committed files change their rendered
+    diagnostic.
+- Gates:
+  - Reproduction re-derived at the fix baseline before any edit, by scratch
+    probe over `checkEnumDeclaration` with the real `renderDiagnosticLine` /
+    `renderDiagnosticBatch`: §Reproduction's matrix reproduced exactly (the
+    two-line `\n`-escape message, the forged hint line, the forged related-site
+    line, the three-line blank-line value rendering as two batch blocks, the
+    two-line `\r\n` value, and the single-line plain and tab-escape controls).
+    Probe deleted.
+  - Witness, red before: `npx vitest run tests/duplicate-enum-value-message-line-break.test.ts`
+    → `Tests  11 failed | 5 passed (16)`, every red a physical-line count, a
+    forged `  hint: ` / `  <file>:<line>:<col>: ` line, a batch-block count or a
+    registry-sourced message-string mismatch — never a compile error. The 5
+    greens are the identity half and the two measured non-carriers.
+  - Witness, green after: `Test Files  1 passed (1)` / `Tests  16 passed (16)`.
+  - `tests/schema-declarations.test.ts` → `Tests  10 passed (10)`, unmodified.
+  - 0105's locked witness `tests/tools-entry-message-line-break.test.ts` →
+    `Tests  30 passed (30)`.
+  - Full default suite: `npm test` → `Test Files  409 passed (409)` /
+    `Tests  8597 passed (8597)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, no diagnostics.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`, no
+    findings.
+  - Live H8a, red before:
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/duplicate-enum-value-message-single-line-live-cell.test.ts`
+    → `Tests  1 failed (1)`, quoting the real note off the settled
+    `SessionManager` channel: `b0250live.theta:4:1:
+    theta/parse/duplicate-enum-value: duplicate enum value 'x` then
+    `  hint: forged' across variants of enum 'E'` — the forged `  hint: ` line
+    on a diagnostic with no `hint` field. Green after: `Tests  1 passed (1)`.
+  - Live neighbours, unflipped: 0105's note-channel cell
+    `malformed-tool-entry-message-single-line-live-cell` and
+    `tools-field-shape-refusal-live-cell` → `Tests  3 passed (3)` in the
+    verifier's run; the 0105 cell re-run green beside this one in an independent
+    orchestrator live run (`Tests  2 passed (2)`).
+- Review: 1 round.
+  - Round 1 (deep) — CLEAN. Verified with quoted evidence: the zero net line
+    shift and the deliberately folded import; the re-taken spec sentence and its
+    resolving `#code-registry` anchor; the new test vector's rendered string by
+    computation against the registry template; the registry / placeholder /
+    `permitted-codes.json` / `diagnostic.ts` non-edits; the grouping key still
+    using the raw cooked value so which values collide is unchanged; the
+    witness's registryMessage sourcing (DIAG-4) and its pre-fix red direction
+    per cell; the live cell's non-vacuity via the `b0250ctl` control and its
+    absence of any retired verbatim-echo discriminator; the
+    citation-symbol-form gate green.
+- Verification: SOLID.
+  - The witness genuinely witnesses the bug: `:269` neutralised by a targeted
+    byte edit (transform call unwrapped, import left in place so it still
+    compiles) → `Tests  11 failed | 5 passed (16)` with the same red reasons;
+    restored by writing the content back, byte-exactness proved by
+    `git hash-object` `6a90d0c7f1a67f06eb8e8543c0a78a59b9bf9d9d` before and
+    after (re-confirmed independently by the orchestrator); witness re-run
+    `16 passed (16)`. No `git stash`, no `git checkout --`, no `git restore`.
+  - Full default suite green at the stated baseline (409 / 8597).
+  - Live coverage of the fixed path run for real, green, with the two locked
+    neighbours unflipped; the H9a acceptance directory and the whole live suite
+    correctly not run, since no new code is emitted and no H9a fixture declares
+    an enum.
+  - Lint and typecheck clean.
+- Residuals:
+  1. The `<value>` quoting divergence is untouched, as §Non-goals scoped: this
+     site still renders the value bare where the category-5 `<key>` arm would
+     double-quote a non-identifier-shaped value, and `renderParseLiteralValue`
+     (`src/parser/schema-declarations.ts:459–461`) still sits uncalled in the
+     same file. Only the newline axis moved. Evidence: the witness's post-fix
+     expectations are bare-rendered (`duplicate enum value 'a b' …`), and the
+     registry template is unedited.
+  2. `theta/parse/duplicate-discriminator-value` remains unwired and is a
+     measured non-carrier both before and after; the witness's group-D cell pins
+     its two-character `\n` so a future change to `renderParseLiteralValue`
+     cannot silently make it one.
+  3. The §Affected citation `tests/live/acceptance/harness.ts:571` for the
+     `stderr.split(/\r?\n/)` line had drifted by one; it is `:572` at this
+     baseline. The cited `:570–575` span still contains it, so no span is wrong
+     — recorded so the next reader does not re-measure. That file is unedited.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `decl.name` is not wrapped; the enum check's
+  ordering, grouping and whole-declaration range are untouched; the serialised
+  content format is not reworked; no other `theta/parse/*` message was swept.
+
