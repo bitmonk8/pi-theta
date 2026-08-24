@@ -573,8 +573,11 @@ export interface LowerCtx {
    * (grammar.md:98) bars a reserved spelling from ever being one, so this sink
    * and `unresolved` never name the same spelling. Like `unresolved`, the
    * caller owns the array's lifetime and this module never reads it back:
-   * each of the four callers renders an entry as
-   * `theta/parse/reserved-keyword-as-identifier`.
+   * four callers render every hit as
+   * `theta/parse/reserved-keyword-as-identifier`, and five more filter hits
+   * through `admittedReservedKeywords` first, withholding `Result` and
+   * `array`, which head a `GenericType`, and `Result`'s own value
+   * constructors `Ok` and `Err` beside them.
    *
    * OPTIONAL because a caller threading no sink collects nothing and the
    * lowering stays permissive (`{}`) regardless — matching every other sink
@@ -697,8 +700,12 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
  *     atom at the top level); `void` lowers `{}` and records
  *     nothing (its own registered row, `void-in-non-return-position`, is the
  *     rejection); every other reserved spelling lowers `{}` and records the
- *     spelling on a second sink, which each of the four callers renders as
- *     `theta/parse/reserved-keyword-as-identifier` (bug 0044 §Fix);
+ *     spelling on a second sink: four callers render every hit as
+ *     `theta/parse/reserved-keyword-as-identifier` (bug 0044 §Fix); five more
+ *     first filter hits through `admittedReservedKeywords`, which withholds
+ *     the two `GenericType` heads `Result` and `array` and the two `Result`
+ *     value constructors `Ok` and `Err`, and render the remainder the same
+ *     way (bug 0274 §Fix route (a));
  *   - an identifier-shaped atom that is NEITHER a primitive NOR a reserved
  *     keyword is a genuine `NamedType`: it resolves against the body
  *     declarations, lowering to an in-document `{ "$ref": "#/$defs/<name>" }`
@@ -834,8 +841,11 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     // Every other reserved spelling is not a `NamedType`, so it is not a
     // resolution failure either: the registered disposition for a keyword
     // written where an identifier is read is `reserved-keyword-as-identifier`
-    // (code-registry-parse.md:21), rendered by each of the four callers from
-    // this sink.
+    // (code-registry-parse.md:21). Nine callers read this sink: four render
+    // every entry directly; five more (bug 0274 §Fix route (a)) render only
+    // the entries `admittedReservedKeywords` does not withhold, since a
+    // `GenericType` head and a `Result` value constructor are admitted
+    // spellings at those five sites.
     lowerCtx.reservedKeywords?.push(s);
     return {};
   }

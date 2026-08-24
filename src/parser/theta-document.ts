@@ -7467,6 +7467,34 @@ function withBuiltinErrorModelNames(typeNames: ReadonlySet<string>): ReadonlySet
 }
 
 /**
+ * Bug 0274 §Fix route (a)'s scoping: the reserved-keyword spellings withheld
+ * at the five newly-wired `collectUnresolvedNamedTypes` sinks (the `let`
+ * annotation, the `fn` parameter type, the `fn` return type, the
+ * `invoke<Type>` ascription, and this capture's own `E` argument). `array` and
+ * `Result` are legal type heads — `GenericType ::= "array" "<" Type ">" |
+ * "Result" "<" Type "," Type ">"` (grammar.md's Type grammar), whose prose
+ * states both constructor heads are reserved keywords and are reachable in
+ * type position for exactly that reason; `fn step(): Result { … }` is the
+ * shape the production-conformance suite's V20g-T theta drives as legal
+ * source. `Ok` / `Err` are `Result`'s own value constructors, withheld by the
+ * same conservative enumeration rather than by a grammar clause. The four
+ * already-wired callers (the `schema` alias/union right-hand side, the
+ * `schema` body field type, the query annotation's response part, and
+ * `params:`'s own lowering) are untouched by this set: it is consulted only at
+ * the five new sites, so `@<Result>` keeps refusing exactly as it does today.
+ */
+const WITHHELD_TYPE_HEAD_KEYWORDS: ReadonlySet<string> = new Set(["Result", "array", "Ok", "Err"]);
+
+/**
+ * Filter a `collectUnresolvedNamedTypes` `reservedKeywords` sink's hits down to
+ * the spellings this bug's five new sites admit, preserving the sink's own
+ * dedup order.
+ */
+function admittedReservedKeywords(hits: readonly string[]): string[] {
+  return hits.filter((keyword) => !WITHHELD_TYPE_HEAD_KEYWORDS.has(keyword));
+}
+
+/**
  * The propagating captures, keyed by capture identity. Null-prototyped: the key
  * is composed from a capture kind and a source range, and every read is
  * own-key-guarded (`propagatedToQuery`), so no `Object.prototype` name can
@@ -8140,10 +8168,15 @@ function walkStatement(
             s.range,
           )
         ) {
+          const letReservedKeywords: string[] = [];
           const letUnresolved = collectUnresolvedNamedTypes(
             s.annotation,
             withBuiltinErrorModelNames(refs.typeNames),
+            letReservedKeywords,
           );
+          for (const keyword of admittedReservedKeywords(letReservedKeywords)) {
+            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+          }
           for (const name of letUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
           }
@@ -8250,10 +8283,15 @@ function walkStatement(
             !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
             !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
           ) {
+            const paramReservedKeywords: string[] = [];
             const paramUnresolved = collectUnresolvedNamedTypes(
               p.type,
               withBuiltinErrorModelNames(refs.typeNames),
+              paramReservedKeywords,
             );
+            for (const keyword of admittedReservedKeywords(paramReservedKeywords)) {
+              out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+            }
             for (const name of paramUnresolved) {
               out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
             }
@@ -8289,10 +8327,15 @@ function walkStatement(
           !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
           !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
         ) {
+          const returnReservedKeywords: string[] = [];
           const returnUnresolved = collectUnresolvedNamedTypes(
             s.returnType,
             withBuiltinErrorModelNames(refs.typeNames),
+            returnReservedKeywords,
           );
+          for (const keyword of admittedReservedKeywords(returnReservedKeywords)) {
+            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+          }
           for (const name of returnUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
           }
@@ -8712,10 +8755,15 @@ function walkExpr(
             e.range,
           )
         ) {
+          const invokeReservedKeywords: string[] = [];
           const invokeUnresolved = collectUnresolvedNamedTypes(
             e.returnSchema,
             withBuiltinErrorModelNames(refs.typeNames),
+            invokeReservedKeywords,
           );
+          for (const keyword of admittedReservedKeywords(invokeReservedKeywords)) {
+            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
+          }
           for (const name of invokeUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
           }
@@ -8877,15 +8925,32 @@ function walkExpr(
           // This runs for the propagated route too (clause (iv)(2)'s withhold
           // above gates only `parseTypeExpression`, not this loop) because the
           // query arm is the propagated text's sole emitter — withholding this
-          // as well would leave the `E` head unrefused everywhere. No reserved-
-          // keyword sink is passed: widening that diagnostic's registered
-          // trigger to this argument slot is outside this fix's scope.
+          // as well would leave the `E` head unrefused everywhere. Bug 0274
+          // §Fix route (a): a reserved-keyword sink IS now passed, admitted
+          // through `admittedReservedKeywords` at this bug's scoping (`Result` /
+          // `array` / `Ok` / `Err` withheld, `WITHHELD_TYPE_HEAD_KEYWORDS`
+          // above) exactly as the four new sites are.
           const errorModelAnnotation = queryErrorModelAnnotation(e.schema);
           if (errorModelAnnotation !== undefined) {
+            const errorModelReservedKeywords: string[] = [];
             const errorModelUnresolved = collectUnresolvedNamedTypes(
               errorModelAnnotation,
               withBuiltinErrorModelNames(refs.typeNames),
+              errorModelReservedKeywords,
             );
+            // The two argument slots are two `collectUnresolvedNamedTypes`
+            // calls, and that function dedupes only within a single call, so a
+            // keyword spelled in BOTH slots of one annotation would otherwise
+            // draw two byte-identical lines at one range. Filtered against the
+            // response part's own hits above (`annotationReservedKeywords`),
+            // mirroring the name loop's own per-annotation seen-set below.
+            const reportedKeywordForThisAnnotation = new Set(annotationReservedKeywords);
+            for (const keyword of admittedReservedKeywords(errorModelReservedKeywords)) {
+              if (reportedKeywordForThisAnnotation.has(keyword)) {
+                continue;
+              }
+              out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
+            }
             // One written name draws one diagnostic. The two argument slots
             // are two `collectUnresolvedNamedTypes` calls and that function
             // dedupes only within a single call, so a head spelled in BOTH

@@ -1325,21 +1325,31 @@ describe("bug 0044 (h) — the untouched surfaces stay untouched", () => {
     ).toEqual(expected);
   });
 
-  it("h5: `let a: match = 1` and `fn f(p: match): integer { 1 }` stay silent", () => {
-    // §Non-goals: positions OUTSIDE the row. 0028 §Fix's negative boundary
-    // ("`let x: Nope = 1`, `fn f(a: Nope)`, a union arm and `invoke<Nope>` all
-    // stay silent") was reached for named types; nothing here revisits it for
-    // keywords, so neither sink may acquire these positions.
+  it("h5: `let a: match = 1` and `fn f(p: match): integer { 1 }` are now bug 0274's refusals, not this row's", () => {
+    // §Non-goals: THIS row's own four registered positions are unmoved. 0028
+    // §Fix's negative boundary ("`let x: Nope = 1`, `fn f(a: Nope)`, a union
+    // arm and `invoke<Nope>` all stay silent") was reached for named types;
+    // nothing here revisits it for keywords at THIS row's own sink, so this
+    // row's own emission set does not acquire the `let` annotation or the `fn`
+    // parameter position.
+    //
+    // Both fixtures' OWN silence, however, is [bug
+    // 0274](../docs/bugs/0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+    // §Fix route (a)'s subject, A-SCOPED under the operator's re-ruling: that
+    // fix wires the `reservedKeywords` sink at the `let` annotation and the
+    // `fn` parameter type at version 0.272.0, two of its five newly-wired
+    // captures, entirely outside this row's own four-position sink. `kw("match")`
+    // is the same rendering this row's own emissions use (DIAG-4), reused
+    // rather than duplicated.
     expectList(
       `${FM}let a: match = 1\na\n`,
-      [],
-      "h5 — a `let` annotation is not one of the row's five positions, and the fix adds no " +
-        "position to either sink",
+      [kw("match")],
+      "h5 — the `let` annotation is bug 0274's own capture now, not this row's",
     );
     expectList(
       `${FM}fn f(p: match): integer { 1 }\n${TAIL}`,
-      [],
-      "h5 — a `fn` parameter type is likewise outside the row",
+      [kw("match")],
+      "h5 — the `fn` parameter TYPE slot is bug 0274's own capture now, not this row's",
     );
   });
 });

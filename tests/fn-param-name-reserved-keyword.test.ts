@@ -113,10 +113,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // OVER-REACH TRIPWIRES. lexical.md:20 bounds itself by no position list, so a
 // classification widened past `parseFn`'s parameter loop reaches positions
-// this report does not claim. Rows e7 and e10 below are still that: the
-// disposition bug 0148 §Fix (b) records, where a reader finding one red should
-// widen the fix's scope question rather than the row. Rows e4, e4p, e5, e6,
-// e8, e9a, e9b and e14 are no longer dispositions — they are DELIVERIES,
+// this report does not claim. Row e7 below is still that: the disposition
+// bug 0148 §Fix (b) records, where a reader finding it red should widen the
+// fix's scope question rather than the row. Row e10 is no longer such a
+// disposition — [bug
+// 0274](../docs/bugs/0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+// §Fix route (a) retook the `fn` parameter TYPE slot at version 0.272.0, one of
+// its five newly-wired captures, and e10 now pins that delivery instead of
+// the withhold. Rows e4, e4p, e5, e6, e8, e9a, e9b and e14 are no longer
+// dispositions either — they are DELIVERIES,
 // RETAKEN by bug 0153
 // (docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md), which
 // claimed all six of the positions 0148 left out and closed each at its own
@@ -152,10 +157,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     teaching `contextualDiagnostics` that the token behind a `for` is an
 //     iteration variable and not a declarator head. The row pins ONE
 //     diagnostic: the refusal naming `let` at @5:5-5:8.
-//   - e10 — a keyword in a `fn` parameter's TYPE slot. Bug 0044's family (a
-//     `Type` position governed by `NamedType ::= Ident`), whose four shipped
-//     parser-leaf callers reach the schema-body and `params:` field types
-//     (rows e11, e12) and not this one. Orthogonal to the NAME slot.
+//   - e10 — a keyword in a `fn` parameter's TYPE slot, bug 0044's family (a
+//     `Type` position governed by `NamedType ::= Ident`). Bug 0274's own
+//     §Fix route (a) wires this slot at version 0.272.0, alongside the
+//     schema-body and `params:` field types (rows e11, e12) that were already
+//     wired; the NAME slot and the TYPE slot of one parameter remain
+//     different rules' subjects, so this delivery does not touch the NAME
+//     slot's a-rows.
 //   - ck1 / ck2 / ck3 — `par`, `with` and `subagent` at the parameter name.
 //     They are CONTEXTUAL keywords, absent from `reservedKeywords()`
 //     (src/lexer/lexer.ts:159–166), and their non-firing is separately pinned
@@ -980,17 +988,26 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
     expect(soleRange(doc, RESERVED)).toEqual(range(4, 15, 4, 18));
   });
 
-  it("e10: a keyword in a `fn` parameter's TYPE slot reports nothing", () => {
+  it("e10: a keyword in a `fn` parameter's TYPE slot now reports it, bug 0274's subject at this same parameter", () => {
     // Bug 0044's family — a `Type` position governed by `NamedType ::= Ident`,
-    // whose four shipped parser-leaf callers reach the schema-body and
-    // `params:` field types (rows e11, e12) and not this one. The NAME slot and
-    // the TYPE slot of the same parameter are different rules' subjects, so
-    // widening one must not reach the other.
+    // whose four shipped parser-leaf callers reached the schema-body and
+    // `params:` field types (rows e11, e12) and not this one. [Bug
+    // 0274](../docs/bugs/0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+    // §Fix route (a), A-SCOPED under the operator's re-ruling, threads the
+    // `reservedKeywords` sink at the `fn` parameter TYPE slot at version
+    // 0.272.0, one of the five newly-wired captures, so this slot now draws the
+    // same code the NAME slot draws — ranged on the whole `fn` declaration,
+    // since that slot carries no binder of its own. The NAME slot and the TYPE
+    // slot of one parameter remain different rules' subjects: this cell pins
+    // only the TYPE slot's own new emission and does not touch the NAME
+    // slot's a-rows above.
     const doc = theta("fn h(x: let): number { 1 }\n");
     expect(
       codesOf(doc),
-      `the parameter's TYPE slot is bug 0044's family, not this position; diagnostics=${render(doc)}`,
-    ).toEqual([]);
+      `the parameter's TYPE slot is bug 0274's subject now; diagnostics=${render(doc)}`,
+    ).toEqual([RESERVED]);
+    expect(messageFor(doc, RESERVED)).toBe(reservedMsg("let"));
+    expect(soleRange(doc, RESERVED)).toEqual(range(4, 1, 4, 27));
   });
 
   it("e11: a schema field TYPE spelled `let` still reports it, unmoved", () => {

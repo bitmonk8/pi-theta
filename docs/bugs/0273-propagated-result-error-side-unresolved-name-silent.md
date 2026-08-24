@@ -384,3 +384,29 @@ residual wave. All rows above re-measured at HEAD `76489c61`, v0.266.0.
   selection is unchanged: `T` remains what the response is validated against.
   Bug 0272's subject — the enclosing-refusal swallow over
   `captureWindowAlreadyRefused` — is untouched by every hunk.
+
+## Coordination note (0.272.0) — adjudication B(2) and residual D(1) closed
+
+2026-08-24. [Bug 0274](./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+§Fix route (a), taken A-SCOPED under the operator's re-ruling, wires a
+`reservedKeywords` sink at this report's own `E`-side block and at the four
+captures bug 0262 wired for the name class alone. That closes this report's
+adjudication B(2) — the declined `reservedKeywordAsIdentifierDiagnostic`
+emission for `args[1]` — and its residual D(1), "a reserved-keyword spelling
+written in the `E` argument at this capture stays silent": such a spelling now
+draws that row at the query's own range and the theta does not register. The
+declining source comment this report shipped is replaced by the sink's own
+statement of the admission.
+
+The admission is scoped rather than blanket: at the five newly-wired sites the
+sink withholds the two `GenericType` heads `Result` and `array` and the two
+`Result` value constructors `Ok` and `Err`, so no spelling the type grammar
+admits as a type head is refused there.
+
+This report's own subject is untouched. The `E`-side unresolved-name walk, its
+per-annotation seen-set and its one-diagnostic-per-written-name count are
+byte-preserved; the keyword loop stands beside that walk with a seen-set of its
+own over the response part's hits, so one written keyword still draws one line
+per annotation. All ten cells of
+`tests/b0273-query-result-error-side-unresolved-name.test.ts` and live H8a cell
+89 are green and unreworded.

@@ -981,3 +981,38 @@ proving the untouched positions stay untouched.
   `lowerTypeSource` beside `lowerTypeExpr` over thirteen atoms for the lowered
   bytes and sink contents. Run on the outputs quoted above, then deleted per
   scratch policy.
+
+## Coordination note (0.272.0) — cell h5's silence flipped to a refusal
+
+2026-08-24. [Bug 0274](./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+§Fix route (a), taken A-SCOPED, is authorised by the operator's re-ruling,
+which wires the reservedKeywords sink at all five sinkless
+collectUnresolvedNamedTypes call sites, admits at the new sites only
+never-legal-as-type keywords (match, fn, let, …, excluding Result/Ok/Err/array)
+while keeping V20g-T green, and authorises the seven tripwire flips as a batch
+(0262 D3a/D3b/D3c/D3d, 0148 e10, inline-object r5, 0044 h5), re-vehicled/flipped
+with dated coordination notes, subjects preserved (0165/0251 precedent). This
+report's own §Non-goals did not foresee that
+re-ruling: row h5 stated "a `let` annotation is not one of the row's five
+[registered] positions" and "a `fn` parameter type is likewise outside the
+row" — a statement about THIS report's own four-position sink, not a claim
+that either position stays silent forever.
+
+At version 0.272.0, `tests/reserved-keyword-type-position.test.ts` cell h5 (`let
+a: match = 1` — the `let` annotation — and `fn f(p: match): integer { 1 }` —
+the `fn` parameter type) is flipped: both fixtures now pin
+`theta/parse/reserved-keyword-as-identifier` (rendered through this file's own
+`kw()` helper, reused rather than duplicated) where each previously pinned an
+empty list. The scoping is withheld rather than blanket: `Result`, `array`,
+`Ok` and `Err` remain silent at these same positions, pinned by group (X) of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`.
+
+This report's own subject — this report's own four registered positions (the
+`schema X = …` alias/union right-hand side, the `schema` body field type, the
+`params:` right-hand side, and the `@<T>` query annotation) — is untouched:
+every one of h1 through h4, and every other cell of this file, is
+byte-preserved and green. Bug 0274 wires the `reservedKeywords` sink at the
+`let` annotation and the `fn` parameter type, two of its five newly-wired
+captures, entirely outside this report's own sink; it does not touch this
+report's own emission sites or *Message* bytes. Every other assertion in
+`tests/reserved-keyword-type-position.test.ts` is byte-unmodified.

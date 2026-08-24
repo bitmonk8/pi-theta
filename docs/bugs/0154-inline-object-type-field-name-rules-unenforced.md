@@ -1142,3 +1142,36 @@ report's residual 2 and is now **fixed (0.183.0)**. Consequences for this report
   `array<{ "Élan": string }>` are silent there too). Residual 1 of this report
   (row w2) and the `params:` KEY position are untouched by 0227 and stay as
   recorded.
+
+## Coordination note (0.272.0) — cell r5's silence flipped to a refusal
+
+2026-08-24. [Bug 0274](./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+§Fix route (a), taken A-SCOPED, is authorised by the operator's re-ruling,
+which wires the reservedKeywords sink at all five sinkless
+collectUnresolvedNamedTypes call sites, admits at the new sites only
+never-legal-as-type keywords (match, fn, let, …, excluding Result/Ok/Err/array)
+while keeping V20g-T green, and authorises the seven tripwire flips as a batch
+(0262 D3a/D3b/D3c/D3d, 0148 e10, inline-object r5, 0044 h5), re-vehicled/flipped
+with dated coordination notes, subjects preserved (0165/0251 precedent). This
+report's own §(E) group did not foresee that
+re-ruling: row r5 was pinned "measured, not endorsed… the TYPE slot's
+asymmetry between positions belongs to the reports that own it," precisely
+because no lowering sink reached the `fn` parameter's inline-object TYPE slot
+at that time.
+
+At version 0.272.0, `tests/inline-object-field-name-case.test.ts` cell r5 (`fn h(p:
+{ ys: let }): number { 1 }`, the `fn` parameter's TYPE slot) is flipped: it now
+pins `theta/parse/reserved-keyword-as-identifier`, ranged on the whole `fn`
+declaration (`@4:1-4:35`), and no longer the empty list. The scoping is
+withheld rather than blanket: `Result`, `array`, `Ok` and `Err` remain silent
+at this same position, pinned by group (X) of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`.
+
+This report's own subject — the inline object field's NAME slot, and its case
+rule — is untouched: every cell in groups (A) through (D), and every other
+cell of group (E) (r1, r3, n1b, n2, n3, n7, n8), is byte-preserved and green.
+Bug 0274 wires a sink at the `fn` parameter TYPE slot this report's own fix
+left unwired (this report's own §(E) explicitly declined to endorse or repair
+that asymmetry); it does not touch the NAME-slot rule this report claims. Every
+other assertion in `tests/inline-object-field-name-case.test.ts` is
+byte-unmodified.

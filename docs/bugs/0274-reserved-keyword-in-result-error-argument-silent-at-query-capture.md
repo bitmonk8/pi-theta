@@ -1,6 +1,6 @@
 # Bug 0274 — a reserved-keyword spelling written where a `NamedType` is read draws `theta/parse/reserved-keyword-as-identifier` at the `@<T>` query capture's `T` argument and nothing at the same annotation's `E` argument: ``let r = @<Result<integer, match>>`q` `` and ``let a: Result<integer, return> = @`q` `` load with zero diagnostics and register, while ``@<Result<match, QueryError>>`` refuses — `collectUnresolvedNamedTypes` computes the keyword class and discards it wherever the caller passes no `reservedKeywords` out-parameter, which is the `E`-side block bug 0273 landed (`src/parser/theta-document.ts:8859`–`8880`) and the four captures bug 0262 wired (`:8120`, `:8230`, `:8269`, `:8691`)
 
-- **Status:** open.
+- **Status:** fixed (0.272.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because a spelling
   `docs/spec_topics/lexical.md:20` refuses as an identifier is accepted at a
   type-name position with no diagnostic on any channel and the theta registers
@@ -333,3 +333,162 @@ seventeenth session's residual wave. Every row of §Reproduction measured at
 HEAD `bb7546e0`, v0.267.0; the wider face at rows F1–F8 is the same missing
 sink at the four captures bug 0262 §Fix (0.266.0) wired for the name class
 alone (`./0262-unresolved-named-type-silent-at-nine-reference-positions.md`).
+
+## Fix (0.272.0)
+
+Route (a), taken A-SCOPED under the operator's re-ruling: the sink is wired at
+all five sinkless call sites, and at those five sites it admits only reserved
+spellings the type grammar never admits as a type head.
+
+- **What shipped:**
+  `src/parser/theta-document.ts` — a `reservedKeywords` out-parameter at the
+  five sinkless `collectUnresolvedNamedTypes` call sites (the `let` annotation,
+  the `fn` parameter type, the `fn` return type, the `invoke<Type>` ascription
+  and the `@<T>` query capture's `E` argument), each emitting
+  `reservedKeywordAsIdentifierDiagnostic` per admitted hit at the range its
+  site's sibling `unresolvedNamedTypeDiagnostic` call already passes, inside
+  that site's pre-existing guard block; a module-level
+  `WITHHELD_TYPE_HEAD_KEYWORDS` set and the pure `admittedReservedKeywords`
+  filter carrying the scoping; a per-annotation keyword seen-set over the
+  response part's own hits at the query capture, mirroring the name class's;
+  and the source comment that declined the sink replaced by the admission's own
+  statement. `src/parser/params.ts` — comment-only: the sink's three doc
+  comments state the caller set as it now is (nine consumers, five of them
+  filtered) rather than four.
+  `tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`,
+  `tests/live/b0274live-reserved-keyword-type-head-registration.test.ts` — the
+  offline witness and the live registration cell.
+  Four existing witnesses carry the ruling's authorized 7-cell flip; four
+  owning reports carry a dated coordination note each.
+
+- **The withheld set, derived:** at the five new sites the sink withholds
+  `Result`, `array`, `Ok` and `Err`, admitting the other twenty spellings that
+  reach it (`let`, `mut`, `fn`, `if`, `else`, `for`, `in`, `while`, `break`,
+  `continue`, `return`, `match`, `schema`, `enum`, `import`, `export`, `from`,
+  `as`, `by`, `invoke`). Three independent sources settle the membership.
+  (1) The type grammar: `GenericType ::= "array" "<" Type ">" | "Result" "<"
+  Type "," Type ">"` (`docs/spec_topics/grammar.md` §Type grammar) makes
+  `array` and `Result` constructor heads, and the same section states that both
+  heads are reserved keywords reachable in type position for that reason; the
+  same page's `PrimitiveType ::= "string" | "number" | "integer" | "boolean" |
+  "null"` covers five further spellings, which never reach the sink because
+  `src/parser/params.ts`'s atom arm tests `PRIMITIVE_TYPES` ahead of
+  `RESERVED_KEYWORDS`, and `true` / `false` / `void` are dispositioned inside
+  that reserved branch before the push. (2) The committed corpus spells both
+  constructor heads at these positions — `docs/examples/personas.thetalib`'s
+  `fn rate_strictness(a: Author): Result<integer, QueryError>` and
+  `docs/examples/summarise-doc.theta`'s `themes: array<string>` — and
+  `tests/committed-fixture-parse-gate.test.ts` covers every shipped fixture,
+  36/36. (3) The production-conformance corpus drives a bare `Result` return
+  annotation, `fn step(): Result { … }`, at V20g-T; the premeasure recorded in
+  `.pi/tmp/fixes/0274-report.md` measured an unscoped sink refusing exactly
+  that source. `Ok` and `Err` are `Result`'s value constructors: no `Type`
+  production spells either, and neither the committed corpus nor the
+  conformance corpus writes either in a type position, so withholding them is
+  the ruling's conservative enumeration rather than a grammar clause.
+
+- **Gates:** witness red before the change (`7 failed | 7 passed (14)`,
+  "expected [theta/parse/reserved-keyword-as-identifier], received []") and
+  green after (`14 passed (14)`); the same file red under a neutralised
+  `admittedReservedKeywords` and green on byte-exact restoration
+  (`git hash-object src/parser/theta-document.ts` round-tripping to
+  `9e8d97f680e5140124eed22bab38a66cf6ec6b74`); full default suite
+  `449 test files passed | 9302 tests passed`, zero failures;
+  `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean; `npm run lint`
+  (`eslint "src/**/*.ts"`) clean; `tests/committed-fixture-parse-gate.test.ts`
+  36/36; `tests/conformance/production-conformance.test.ts` 27/27 with V20g-T
+  green; `tests/fixtures/h7a/permitted-codes.json` byte-unchanged
+  (`a4a8da04209f90e13d815edd92c1fc682e2a2236`).
+
+- **Live:** `tests/live/b0274live-reserved-keyword-type-head-registration.test.ts`
+  green under the fix (1 passed) and red under the neutralised build at both
+  carriers, restored byte-exact between the two runs. Bug 0273's live H8a cell
+  89 re-run green and unreworded. The carrier stems are all-lowercase because
+  the composition root refuses a slash name that is not lowercase kebab/snake
+  before this bug's own diagnostic can decide the theta's fate; an uppercase
+  stem made one carrier's absence unattributable, which the red-direction run
+  exposed and the cell now records.
+
+- **Review:** one round. `bug-fix-reviewer` returned prose-only findings — a
+  section banner, a header bullet and a describe title left asserting the
+  flipped cells' old silence, and one banned word in the new witness — with no
+  correctness, fidelity or spec finding; a `bug-fix-fixer-light` round closed
+  them together with the coordination notes' misquotation of the ruling.
+  Post-polish diff inspected: comments, titles and prose only, gates re-run
+  green, so the confirmation round was skipped and is recorded here instead.
+
+- **Verification:** solid. The witness reds on the fix's neutralisation and on
+  the scoping's neutralisation separately (the second also reds V20g-T, which
+  is what makes the withheld-spelling group a lock rather than a vacuous
+  group); restoration hash-verified on every cycle; the default suite, lint and
+  typecheck green; the live obligation discharged by the orchestrator's own
+  runs under the shared lock, with the live cell's assertions judged for
+  vacuity and one such assertion fixed.
+
+- **The seven flips, all authorized as a closed batch by the re-ruling:**
+  `tests/b0262-unresolved-named-type-reference-positions.test.ts` cell D3's
+  four rows (D3a–D3d), `tests/fn-param-name-reserved-keyword.test.ts` cell
+  e10, `tests/inline-object-field-name-case.test.ts` cell r5, and
+  `tests/reserved-keyword-type-position.test.ts` cell h5's two fixtures. Each
+  keeps its subject and its file's own assertion idiom; every other assertion
+  in those four files is byte-preserved. No eighth cell moved — the full-suite
+  premeasure under the scoped change flipped exactly these four `it`s and
+  nothing else. Each owning report carries a dated coordination note.
+
+- **No registry edit owed, measured:** the *Trigger* of the
+  `theta/parse/reserved-keyword-as-identifier` row
+  (`docs/spec_topics/diagnostics/code-registry-parse.md:21`) enumerates no
+  position, and the four prior widenings of that row's emission set — bug 0044
+  (0.54.0), bug 0148 (0.81.0), bug 0153 (0.194.0, six positions) and bug 0249
+  (0.240.0) — each landed with no registry edit at all. The `:112` sentence in
+  the `theta/parse/unresolved-named-type` row becomes true unedited at the
+  example it names: `let a: match = 3` now draws the sibling row.
+
+- **Residuals:**
+  1. **Finding (4), unfixed and out of scope by the ruling.** A bare `Result`
+     head is refused at the four already-wired callers and admitted at the five
+     newly-wired ones: measured at this HEAD, ``let r = @<Result>`q` `` draws
+     `theta/parse/reserved-keyword-as-identifier 'Result'` while
+     `fn step(): Result { Ok(700) }`, `let a: Result = Ok(1)`,
+     `let r = invoke<Result>("./x.theta", "hi")` and ``@<Result<integer, Ok>>``
+     all load clean and register (witness group (X), 13 rows). The same
+     position-decided reading of one spelling this report describes for
+     `match`, at a spelling this report never measured. The parent files it.
+  2. **`Ok` and `Err` are silent at the five new sites by the ruling's
+     withhold**, so `docs/spec_topics/diagnostics/code-registry-parse.md:112`'s
+     "at every position alike" stays an over-claim for those two spellings
+     there. Same subject as residual 1; no same-commit spec edit is authorized
+     under this §Fix.
+  3. **Composed dispositions not locked.** `fn f(p: match, q: return)` and
+     `fn f(p: match, q: Nope)` each draw one line while
+     `fn f(p: Nope, q: match)` draws two — the pre-existing clause (iv)(3)
+     cover semantics composing unchanged, measured but pinned by no cell in
+     either witness.
+  4. **Stale line citations in this report's own §Affected and §Actual
+     behaviour**, derived at `bb7546e0`: `src/parser/theta-document.ts`'s
+     numbers are low by roughly twenty lines at the fixed HEAD and the builder
+     is at `:6485`, not `:6486`; `src/parser/params.ts`'s atom classification
+     is at `:811`–`:841`. The citations above are not rewritten; this entry is
+     the appended correction.
+
+- **Discharge notes appended:**
+  `./0273-propagated-result-error-side-unresolved-name-silent.md` —
+  adjudication B(2) and residual D(1) closed;
+  `./0262-unresolved-named-type-silent-at-nine-reference-positions.md`,
+  `./0148-reserved-keyword-fn-parameter-position-silent.md`,
+  `./0154-inline-object-type-field-name-rules-unenforced.md` and
+  `./0044-unresolved-named-type-fires-for-keyword-shaped-text.md` — the flipped
+  cells, their authority and what stayed byte-preserved. Every existing text in
+  all five reports is unmodified.
+
+- **Pinned dispositions / non-goals held:** the four already-wired callers are
+  behaviourally byte-identical, so `@<Result>` and `@<match>` refuse exactly as
+  they did (rows C1–C5 unmoved) and finding (4) is not repaired in passing; bug
+  0273's `E`-side name walk, its seen-set and its emission count are
+  byte-preserved; bug 0262 clause (iv)(2)'s propagation withhold and clause
+  (iv)(3)'s capture-absorption suppression carry the new emissions unchanged,
+  because each one sits inside its site's existing guard chain; bug 0272's
+  containment filter composes through that same chain and no second suppression
+  path was minted; row E10's non-arity-2 path still descends nothing; row E9
+  still draws one line; the `fn` / `for` / `if` / `while` `single-line-if`
+  misfire is untouched; no *Message* byte and no registry row moved.

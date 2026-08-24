@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.272.0]
+
+### Fixed
+
+- Bug 0274 (operator ruling, a-scoped): reserved-keyword spellings
+  written as type heads loaded clean and registered at the query
+  capture's `E` argument, `fn` returns (both slots), `fn` params,
+  non-query `let`s and `invoke<Type>` while the query `T` side refused —
+  an asymmetry inside one annotation. The `reservedKeywords` sink is now
+  wired at all five previously-sinkless `collectUnresolvedNamedTypes`
+  call sites, scoped to never-legal-as-type keywords (20 admitted;
+  `Result`/`array` withheld by the type grammar, `Ok`/`Err` as `Result`'s
+  value constructors per the ruling) with a cross-slot seen-set — one
+  emission per written keyword. Conformance V20g-T (`fn step(): Result`)
+  stays green; no registry edit owed (position-free Trigger). Seven
+  tripwire cells across 0262/0148/0154/0044 flipped under the ruling's
+  batch authorization with dated notes. Witness: 14 cells + b0274live.
+
 ## [0.271.0]
 
 ### Fixed

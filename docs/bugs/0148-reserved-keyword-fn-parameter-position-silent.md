@@ -1208,3 +1208,34 @@ outside this fix's own diff.
   the contextual keywords `subagent` / `with` / `par` at the parameter name
   (`ck1`–`ck3`); and the seven out-of-scope identifier positions (`e4`, `e4p`,
   `e5`, `e6`, `e7`, `e8`, `e9a`, `e9b`, `e10`).
+
+## Coordination note (0.272.0) — cell e10's silence flipped to a refusal
+
+2026-08-24. [Bug 0274](./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+§Fix route (a), taken A-SCOPED, is authorised by the operator's re-ruling,
+which wires the reservedKeywords sink at all five sinkless
+collectUnresolvedNamedTypes call sites, admits at the new sites only
+never-legal-as-type keywords (match, fn, let, …, excluding Result/Ok/Err/array)
+while keeping V20g-T green, and authorises the seven tripwire flips as a batch
+(0262 D3a/D3b/D3c/D3d, 0148 e10, inline-object r5, 0044 h5), re-vehicled/flipped
+with dated coordination notes, subjects preserved (0165/0251 precedent). This
+report's own §Non-goals did not foresee that
+re-ruling: row e10 was pinned as "bug 0044's family… orthogonal to the NAME
+slot" this report's own fix does not reach, a statement about this report's
+own scope rather than a claim that the TYPE slot stays silent forever.
+
+At version 0.272.0, `tests/fn-param-name-reserved-keyword.test.ts` cell e10 (`fn
+h(x: let): number { 1 }`, the `fn` parameter's TYPE slot) is flipped: it now
+pins `theta/parse/reserved-keyword-as-identifier`, ranged on the whole `fn`
+declaration (that slot carries no binder of its own), and the theta no longer
+registers. The scoping is withheld rather than blanket: `Result`, `array`,
+`Ok` and `Err` remain silent at this same position, pinned by group (X) of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`.
+
+This report's own subject — the `fn` parameter NAME slot — is untouched: every
+a-row above (a1 through a21), every d-row, and rows e11/e12 (bug 0044's own
+already-wired TYPE-slot emissions this report pinned as must-not-move) are
+byte-preserved and green. Bug 0274 wires a sink at the TYPE slot this report's
+own fix left unwired; it does not touch the NAME-slot rule this report claims.
+Every other cell in `tests/fn-param-name-reserved-keyword.test.ts` is
+byte-unmodified.

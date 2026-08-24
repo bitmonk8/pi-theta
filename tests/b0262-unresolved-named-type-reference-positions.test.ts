@@ -58,14 +58,17 @@ import { lexBytes, parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 //   The count stays at exactly one under the widening, and does not rise to
 //   two.
 //
-//   D3 — a reserved-keyword head stays byte-unchanged (SILENT) at the four new
-//   captures. `collectUnresolvedNamedTypes` partitions reserved spellings into
-//   a separate caller-owned sink (its doc comment,
-//   `src/parser/body-type-lowering.ts`), so an unthreaded sink means a reserved
-//   head is never MISreported as an unresolved named type and draws nothing
-//   new. Widening `theta/parse/reserved-keyword-as-identifier`
-//   (docs/spec_topics/diagnostics/code-registry-parse.md line 21) is a second
-//   registry row's *Trigger* edit the §Fix does not authorise.
+//   D3 — a reserved-keyword head at the four new captures is bug 0274's
+//   subject, not this report's. [Bug
+//   0274](../docs/bugs/0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+//   §Fix route (a), taken A-SCOPED under the operator's re-ruling, threads the
+//   `reservedKeywords` sink at these same four captures at version 0.272.0, so a
+//   spelling this report's own §Fix left unthreaded now draws
+//   `theta/parse/reserved-keyword-as-identifier`
+//   (docs/spec_topics/diagnostics/code-registry-parse.md line 21) instead of
+//   nothing. This report's own widening of `theta/parse/unresolved-named-type`
+//   is untouched by that fix: bug 0274 threads a second sink beside the one
+//   this report wired, it does not re-open this row's own emission.
 //
 //   D4 — per-capture guard. A capture whose own type walk already drew an
 //   error-severity diagnostic keeps that diagnostic ALONE, the landed guard
@@ -133,6 +136,7 @@ const REGISTRY = parseRegistry(
 
 /** The row the widening emits at all sixteen positions; its *Message* does not move. */
 const UNRESOLVED = "theta/parse/unresolved-named-type";
+const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 /** D4's first guard cell: the position rule the `let` capture's own walk draws. */
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 /** D4's second guard cell: the inline interior's own entry-walk refusal. */
@@ -647,23 +651,26 @@ describe("b0262 (D2) — a `let` annotation propagated onto a bare query draws E
 });
 
 // ===========================================================================
-// (D3) A reserved-keyword head stays SILENT at the four new captures.
+// (D3) A reserved-keyword head is REFUSED at the four new captures, wired by
+// bug 0274.
 // ===========================================================================
 
-describe("b0262 (D3) — a reserved-keyword head is byte-unchanged at the four new captures", () => {
-  it("b0262-D3: `match` as a type head draws nothing, before and after", () => {
-    // `collectUnresolvedNamedTypes` (`src/parser/body-type-lowering.ts`)
-    // partitions reserved spellings into a separate caller-owned sink, stated
-    // in its own doc comment at src/parser/body-type-lowering.ts lines 583
-    // through 596. Threading only the unresolved sink at the four new captures
-    // therefore leaves a reserved head drawing nothing: it is never MISreported
-    // as an unresolved named type, and widening
-    // `theta/parse/reserved-keyword-as-identifier`
-    // (docs/spec_topics/diagnostics/code-registry-parse.md line 21) would be a
-    // second registry row's *Trigger* edit the §Fix does not authorise. Green
-    // before the widening and under it; a route that fed the reserved sink
-    // here would red with a code
-    // this bug's §Fix never mentions.
+describe("b0262 (D3) — a reserved-keyword head is refused, wired by bug 0274", () => {
+  it("b0262-D3: `match` as a type head is refused at the four captures, re-vehicled from this report's own tripwire", () => {
+    // Bug 0274 §Fix route (a), A-SCOPED (0.272.0): the operator's re-ruling wires
+    // the `reservedKeywords` sink at these four sinkless
+    // `collectUnresolvedNamedTypes` call sites (among the five its batch
+    // names), so a spelling this row's own D3 group used to pin SILENT now
+    // draws `theta/parse/reserved-keyword-as-identifier`
+    // (docs/spec_topics/diagnostics/code-registry-parse.md line 21) and denies
+    // registration, the GOV-15 loads-cleanly reading. The tripwire this group
+    // served — that widening this registry row's *Trigger* is outside a §Fix's
+    // authorisation — is retained, re-vehicled, as the withheld-spelling
+    // silence group (X) of
+    // `tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`
+    // now pins: `Result`, `array`, `Ok` and `Err` stay silent at these same
+    // four positions, so a route that fed the FULL reserved set here would red
+    // there instead of here.
     const rows = [
       theta("D3a — let annotation `match`", 'let a: match = 3\n"ok"'),
       theta("D3b — fn parameter `match`", 'fn f(x: match): number { 1 }\n"ok"'),
@@ -671,11 +678,24 @@ describe("b0262 (D3) — a reserved-keyword head is byte-unchanged at the four n
       theta("D3d — invoke ascription `match`", 'let r = invoke<match>("./x.theta")\n"ok"'),
     ];
     expectCaptured(rows, []);
-    expectRows(rows, [[], [], [], []], () => [[], [], [], []]);
+    expectRows(
+      rows,
+      rows.map(() => [RESERVED]),
+      () => rows.map(() => [line(RESERVED, [["<keyword>", "match"]])]),
+    );
+    expect(
+      rows.map((r) => [r.label, startPositions(r)]),
+      "each site's keyword refusal sits at the range its site's own sibling name refusal already uses",
+    ).toEqual([
+      [rows[0]?.label, ["6:1"]],
+      [rows[1]?.label, ["6:1"]],
+      [rows[2]?.label, ["6:1"]],
+      [rows[3]?.label, ["6:9"]],
+    ]);
     expect(
       rows.map((r) => [r.label, registered(r)]),
-      "a reserved head draws nothing new, so these four keep registering",
-    ).toEqual(rows.map((r) => [r.label, true]));
+      "an error-severity keyword refusal denies registration at all four captures",
+    ).toEqual(rows.map((r) => [r.label, false]));
   });
 });
 

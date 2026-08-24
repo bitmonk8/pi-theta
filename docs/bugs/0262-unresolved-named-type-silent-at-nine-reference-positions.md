@@ -801,3 +801,41 @@ exactly as this document records them. All 26 cells of
 unchanged, verified byte-for-byte with an empty diff over that file; bug 0272's
 verification additionally reds and restores the fix in both directions to prove
 those cells are not passing vacuously.
+
+## Coordination note (0.272.0) — cell D3's silence flipped to a refusal
+
+2026-08-24. [Bug 0274](./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+§Fix route (a), taken A-SCOPED, is authorised by the operator's re-ruling,
+which wires the reservedKeywords sink at all five sinkless
+collectUnresolvedNamedTypes call sites, admits at the new sites only
+never-legal-as-type keywords (match, fn, let, …, excluding Result/Ok/Err/array)
+while keeping V20g-T green, and authorises the seven tripwire flips as a batch
+(0262 D3a/D3b/D3c/D3d, 0148 e10, inline-object r5, 0044 h5), re-vehicled/flipped
+with dated coordination notes, subjects preserved (0165/0251 precedent). This
+report's own §Fix constraint above did not foresee
+that re-ruling: D3 was pinned as a boundary this fix's own widening must NOT
+cross, on the ground that widening `theta/parse/reserved-keyword-as-identifier`
+would be a second registry row's *Trigger* edit outside this §Fix's authority.
+Bug 0274 is that second, separately-adjudicated edit.
+
+At version 0.272.0, `tests/b0262-unresolved-named-type-reference-positions.test.ts`
+cell D3 (sub-rows D3a–D3d: the `let` annotation, the `fn` parameter type, the
+`fn` return type, and the `invoke<Type>` ascription, each at the spelling
+`match`) is flipped: each now pins `theta/parse/reserved-keyword-as-identifier`
+at the same range its sibling `theta/parse/unresolved-named-type` capture
+already used (column 1 for the `let` and `fn` sites, the `invoke` expression's
+own start for the ascription site), and the theta no longer registers. The
+scoping is withheld rather than blanket: `Result`, `array`, `Ok` and `Err`
+remain silent at these same four positions, so this report's own `QueryError`
+admission (D1) and every other row are unaffected — the withheld set is pinned
+by group (X) of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`.
+
+This report's own subject is untouched by this flip. This report's own
+`theta/parse/unresolved-named-type` emission — its ranges, its *Message*
+bytes, and every one of D1, D2 and D4's boundary cells — is byte-preserved and
+green; bug 0274 threads a second, independent sink beside the one this report
+wired, at the same four captures, and does not reopen this report's own
+widening or its count. Every other cell in
+`tests/b0262-unresolved-named-type-reference-positions.test.ts` is
+byte-unmodified.

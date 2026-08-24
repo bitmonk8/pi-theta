@@ -125,11 +125,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     the TYPE slot, so the pair pins one spelling drawing two dispositions by
 //     slot) and c2, all `[]`, plus c2's lowered `$defs` bytes — the cost of
 //     Disposition A, pinned rather than left implied.
-//   - (E) OVER-REACH TRIPWIRES, byte-unchanged: r1, r3, r5 and n1b (the field's
-//     TYPE slot, a different report's subject), n2 (a non-identifier field name
-//     the field loop skips outright), n3, n7, n8 (the rules already reaching this
-//     leaf, and the four measurements that make the chosen range the
-//     established one).
+//   - (E) OVER-REACH TRIPWIRES: r1, r3 and n1b (the field's TYPE slot, a
+//     different report's subject) stay byte-unchanged; r5, the `fn` parameter
+//     TYPE slot, is re-vehicled by bug 0274 §Fix route (a) at version 0.272.0, so
+//     it now fires. n2 (a non-identifier field name the field loop skips
+//     outright), n3, n7, n8 (the rules already reaching this leaf, and the
+//     four measurements that make the chosen range the established one) are
+//     byte-unchanged.
 //   - (F) THE QUOTED-KEY NEIGHBOUR: a quoted key draws its own row's line ONLY.
 //     A quoted key is a `str` token, so it never enters `fieldNames` — there is
 //     no double report. This row is what makes the route choice falsifiable: a
@@ -720,12 +722,17 @@ describe("0154 (D) — a reserved spelling at the inline field-name slot now dra
 // (E) THE OVER-REACH TRIPWIRES — the field's TYPE slot, and the rules already
 // at this leaf.
 //
-// These cells are byte-unchanged by the fix. They are also the measurement that
-// makes the chosen declaration range the ESTABLISHED one rather than a novel
-// precision loss: n3, n7, n8 and n1b all carry `@4:1`. GREEN now and after.
+// These cells are byte-unchanged by THIS report's own fix, with one exception:
+// r5 is re-vehicled by [bug
+// 0274](../docs/bugs/0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md)
+// §Fix route (a), which wires the `fn` parameter TYPE slot's own sink at
+// version 0.272.0 under the operator's re-ruling; r1 and r3 are the measurement
+// that makes the chosen declaration range the ESTABLISHED one rather than a
+// novel precision loss for r5's new emission: n3, n7, n8 and n1b all carry
+// `@4:1`.
 // ===========================================================================
 
-describe("0154 (E) — the field's TYPE slot and the leaf's existing rules do not move", () => {
+describe("0154 (E) — the field's TYPE slot: r1/r3/n1b hold, r5 re-vehicled by bug 0274", () => {
   it("r1: a reserved keyword in the field's TYPE slot keeps its own code and range", () => {
     // A different report's shipped sink, reached through the LOWERING of the
     // field's type. The NAME slot and the TYPE slot of one inline field are two
@@ -758,12 +765,19 @@ describe("0154 (E) — the field's TYPE slot and the leaf's existing rules do no
     ]);
   });
 
-  it("r5: the `fn` parameter position has no lowering sink, so its TYPE slot stays silent", () => {
-    // Measured, not endorsed: the TYPE slot's asymmetry between positions
-    // belongs to the reports that own it. This row exists so a fix at the NAME
-    // slot cannot quietly close it.
+  it("r5: the `fn` parameter position now has a lowering sink, bug 0274's subject at this same TYPE slot", () => {
+    // Bug 0274 §Fix route (a), A-SCOPED under the operator's re-ruling, wires
+    // the `reservedKeywords` sink at the `fn` parameter TYPE slot at version
+    // 0.272.0, one of its five newly-wired captures. What this row locks is the
+    // NAME slot / TYPE slot boundary, not silence: the NAME slot's own
+    // refusal above (this describe block's own subject) is a different
+    // rule's emission from this TYPE-slot one, so a fix at the NAME slot
+    // still must not be read as reaching this slot, and vice versa.
     const doc = theta("fn h(p: { ys: let }): number { 1 }");
-    expect(rendered(doc), "no sink at this position, so no emission").toEqual([]);
+    expect(
+      rendered(doc),
+      "bug 0274 wires this TYPE-slot sink; the emission is ranged on the whole `fn` declaration, which carries no binder of its own at this slot",
+    ).toEqual([diag("error", RESERVED_KEYWORD, msg(RESERVED_KEYWORD, [["<keyword>", "let"]]), 4, 1, 35)]);
   });
 
   it("n1b: a PascalCase name in the field's TYPE slot draws the named-type code, not this one", () => {
