@@ -60,8 +60,8 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // (`src/extension/production-composition.ts`), with the fake `pi` / `ctx` shape
 // `tests/invoke-arg-type-mismatch-wired.test.ts:443` establishes and `hasUI`
 // ABSENT, so `makeLoadEmit`'s per-diagnostic stderr mirror
-// (`src/extension/production-composition.ts:216–238`, the no-UI write at
-// `:233–235`) is live. That mirror is the only channel carrying the EMITTING
+// (`src/extension/production-composition.ts:222–243`, the no-UI write at
+// `:239–241`) is live. That mirror is the only channel carrying the EMITTING
 // FILE, and neither the invoke row's *Message* nor the callable row's names the
 // caller, so it is the only channel on which a COUNT can be attributed to one
 // caller. Every caller below therefore gets its own callee stem / `fn` name, and

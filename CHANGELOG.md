@@ -6,6 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.271.0]
+
+### Fixed
+
+- Bug 0276: the caller-side depth walk (0.270.0) re-judged a shared
+  subtree once per simple path — ≈2× per diamond layer, 12,261
+  judgements/≈12.5s at a 12-layer ladder of 25 healthy files while a
+  depth-12 linear chain loads in ~45ms. A per-pass cycle-free verdict
+  memo (src/extension/pass-verdict-memo.ts) now stores untainted
+  verdicts keyed by registry-snapshot closure identity + activeRoots
+  identity + normalised absolute path with a byte-identity guard; the
+  branch-dependent withhold taints its frame and ancestors so only
+  branch-independent verdicts are reused; the per-branch visited set
+  stays as cycle state. k=12 ladder: 12,261 → 45 judgements. Same-commit
+  per-pass cost bound sentence in invocation.md + discovery-cli mirror.
+  No registration outcome changes; verdict-identity proven by a 4-shape
+  outcome-preservation probe. Witness: 7 cells (judgement counts, not
+  wall-clock).
+
 ## [0.270.0]
 
 ### Fixed

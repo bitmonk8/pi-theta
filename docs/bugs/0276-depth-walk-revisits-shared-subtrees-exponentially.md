@@ -1,6 +1,6 @@
 # Bug 0276 — Bug 0271's `callee-has-errors` depth walk bounds termination but not cost: the visited set threaded through `calleeFailsOwnStructuralChecks` (`production-composition.ts:2172`) is PER-BRANCH, so a shared subtree is re-judged once per simple path that reaches it, and a k-layer two-wide diamond ladder of legal, healthy files costs on the order of 2^k judgements — measured 0.99 s at k = 9, 10.5 s at k = 12 and 68.2 s at k = 15 over 19, 25 and 31 distinct files, against 43 ms for a linear chain of depth 12
 
-- **Status:** open.
+- **Status:** fixed (0.271.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the input is legal, healthy and
   fully registering (every file in every measured ladder registers), and the
   load pass stalls on it: 10.5 s at 25 files, 68.2 s at 31, doubling per added
@@ -349,3 +349,106 @@ material." Recorded, not owned — the same residual appears as residual 2 of bu
 §Fix (0.270.0). Seventeenth set. Filed at HEAD `1e7e4321`, v0.270.0, from an
 offline `composeExtensionInstance` probe over the ladders, controls and
 broken-leaf row tabulated in §Reproduction.
+
+## Fix (0.271.0)
+
+- What shipped:
+  - `src/extension/pass-verdict-memo.ts` (new) — the per-pass, cycle-free
+    verdict memo §Fix constraint 3 route (a) names: `createPassVerdictMemo`
+    keyed by (registry-snapshot closure IDENTITY, `activeRoots` array IDENTITY,
+    separator-normalised absolute path) with a byte-identity hit guard, plus
+    `PassVerdictDeps` widening `PassParseDeps` with one optional field. Pass
+    -scoped and explicitly injected, mirroring bug 0264's
+    `pass-parse-cache.ts`; the innermost store is a `Map` because its keys are
+    author-controlled resolved paths. The module doc-comment carries the
+    soundness argument and the scope contract.
+  - `src/extension/production-composition.ts` — `calleeFailsOwnStructuralChecks`
+    split into three layers: the walk itself, unchanged in what it judges but
+    returning `{ fails, consultedVisited }`; a thin per-frame wrapper that
+    consults the memo (byte-guarded), runs the walk on a miss and writes the
+    verdict back ONLY when `consultedVisited === false`; and the
+    boolean-returning entry point both call sites keep (§Fix constraint 6, one
+    predicate, both sites), now taking the callee's already-read bytes. The
+    recursion goes through the wrapper, so a hit deep in one branch
+    short-circuits the rest of it. Taint is set by the withhold-(c) branch and
+    inherited from every recursive child. One pass-scoped verdict memo and one
+    pass-scoped registry-snapshot closure are created beside the pass parse
+    cache, so a load-side verdict is reusable for the whole pass; the drive-time
+    dispatch gate builds a FRESH registry closure per dispatch, so gate-side
+    reuse spans exactly one walk.
+  - `docs/spec_topics/invocation.md` (§Static resolution) and
+    `docs/reference/discovery-cli.md` — the same-commit spec amendment (§Fix
+    constraint 7): the per-branch visited set is termination, and cost carries
+    a separate per-pass bound — a judgment that consulted no visited-path
+    member is path-independent and is recorded once per pass and reused for the
+    same file, bytes, active roots and tool registry; a judgment that consulted
+    the set is branch-dependent and is never reused.
+  - `tests/shared-subtree-judged-once-per-pass-not-once-per-path.test.ts` (new)
+    — the seven-cell witness (below).
+  - `tests/arg-mismatch-diagnostic-count-by-surface.test.ts` — comment-only:
+    one `makeLoadEmit` citation re-derived for the line shift this diff caused
+    (`:222–243`, no-UI write `:239–241`). Zero assertion changes.
+- Gates: witness `7 passed (7)`; full default suite `Test Files 449 passed
+  (449) / Tests 9295 passed (9295)`; `tsc -p tsconfig.json --noEmit` clean;
+  `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` clean; live lock
+  `tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts`
+  `1 passed (1)` at the final tree state.
+- Cost, measured on the fix machine (judgement count = one `resolveCallableSet`
+  over one file's `tools:`, counted through the host double's `getAllTools`):
+  the k = 12 diamond ladder falls from 12 261 judgements / ≈12.5 s to 45
+  judgements / 93 ms, and the ladder-to-chain ratio from 157.2 to 2.0 against
+  the depth-12 linear chain (78 → 23 judgements). Pre-fix ladder curve on this
+  machine: k = 3, 32 ms; k = 6, 221 ms; k = 9, 1 599 ms; k = 12, 11 583 ms —
+  the doc's §Reproduction doubling reproduced, absolute figures 15–60 % higher
+  than the filing machine's.
+- Review: 2 rounds plus one comment-only polish. Round 1 (deep) — five
+  findings: the memo rode `parseDeps`, which the drive-time `parseCallee`
+  closure captures, so gate-side verdicts were reused across drives under one
+  registry key (stale after a drive-time `pi.registerTool`, and blind to edits
+  in out-of-root subtree members, whose bytes the guard does not cover); no
+  cell could red on unconditional memoisation; two historical references in
+  comments; one mechanically-bumped citation. Round 2 (fast) — clean on
+  correctness, fidelity and spec, two stale line citations this diff had
+  introduced. Polish — those two citations; comment-only, verified by
+  gate-diff, so no confirmation round was owed.
+- Verification: SOLID. Neutralisation (a), memo removed from `parseDeps`: cell
+  (COST) reds at 12 261 judgements / ratio 157.2; restored byte-exact
+  (`git hash-object` `fb633f93…` both sides) and green. Neutralisation (b),
+  memo write made unconditional: cell (IDENT-TAINT-DIVERGES) reds on the
+  registered set; restored to the same hash and green. Full suite, typecheck
+  and lint green on the restored tree; the four locks unmodified and green.
+  Outcome preservation beyond the witness: a scratch probe over four shapes the
+  cells do not cover — a diamond whose shared leaf fails a `.thetalib` import,
+  a shared subtree containing an escaping entry reached from two callers, a
+  three-member cycle with a structurally-failing member, and one shared file
+  reached from a prompt-mode and a subagent-mode caller — produced byte-identical
+  registered sets and diagnostic codes with and without the memo. Live: no live
+  test is owed (registration outcomes change for no input); the nearest lock was
+  re-run green.
+- Residuals:
+  1. No cell covers `parseCalleeTheta`'s dispatch gate (`activeRoots ===
+     undefined`), because reaching it offline needs a drive path the load-pass
+     harness does not have and no new production seam was minted for it. The
+     scope keying separates gate from load by construction (an absent
+     `activeRoots` can never share a path store with a concrete array), and the
+     gate's per-dispatch registry closure bounds gate-side reuse to one walk.
+  2. The read at `:2221` still precedes the visited-set guard, so a guard hit
+     still costs one file read. Deliberately NOT hoisted: hoisting changes the
+     verdict for a visited member deleted mid-pass (unreadable ⇒
+     `theta/load/unresolvable-theta-path` ⇒ fails; skipped ⇒ passes), and with
+     the memo in place the remaining re-reads are bounded by edge count, so
+     §Fix constraint 4 outranks the win.
+  3. The pre-existing `production-composition.ts` citation debt bug 0271's fix
+     record residual 7 names is untouched and unquantified here; the round-2
+     sweep confirmed this diff shifted no correct citation into staleness once
+     the two it had introduced were corrected.
+- Discharge notes appended: bug 0271's document — residual 2, this report's
+  subject, closed. Appended and dated, nothing rewritten.
+- Pinned dispositions / non-goals: the per-branch visited set, the guard at
+  `:2237` and withhold (c) are unchanged as cycle-detection state, and bug
+  0271's cells (CYC1)/(CYC2), (ESC2)/(ESC3) are byte-unchanged and green; no
+  diagnostic code was minted, so the registry pages and
+  `tests/fixtures/h7a/permitted-codes.json` are byte-unchanged; route (b), the
+  bounded cap, stays declined — every outcome is preserved instead; bug 0271's
+  residual 3 (the dispatch gate's absent containment judgement) and bug 0275
+  are untouched.

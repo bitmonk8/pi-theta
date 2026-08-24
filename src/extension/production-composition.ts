@@ -122,6 +122,7 @@ import {
   parseViaPassCache,
   type PassParseDeps,
 } from "./pass-parse-cache";
+import { createPassVerdictMemo, type PassVerdictDeps } from "./pass-verdict-memo";
 import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
 import {
   parseToolsEntry,
@@ -598,7 +599,32 @@ async function runComposePass(
   // reached by more than one walk in THIS pass is parsed once and its lex rows
   // delivered once by construction; a later `composeExtensionInstance` pass
   // (a watcher-triggered reload) gets a fresh cache and re-delivers.
-  const parseDeps: PassParseDeps = { systemNote, modelMatcher, passParseCache: createPassParseCache() };
+  const parseDeps: PassVerdictDeps = {
+    systemNote,
+    modelMatcher,
+    passParseCache: createPassParseCache(),
+    // Bug 0276: one pass-scoped verdict memo, created here (never
+    // module-level) beside the parse cache above and carried on the same
+    // `parseDeps` object, so `calleeFailsOwnStructuralChecks` judges a shared
+    // `tools:` subtree once per pass instead of once per simple path that
+    // reaches it (see `pass-verdict-memo.ts` for the key and the
+    // cycle-free-verdict soundness argument).
+    passVerdictMemo: createPassVerdictMemo(),
+  };
+  // Bug 0276 §Fix constraint 3: ONE registry-snapshot closure for the LOAD
+  // pass, shared by every discovered theta's own walk in the per-file loop
+  // below. The closure is stateless — it always forwards to the live
+  // `pi.getAllTools?.()` call, so hoisting it changes nothing it returns —
+  // but the verdict memo above keys one of its scope dimensions on this
+  // function's IDENTITY, so one shared reference is what lets a verdict
+  // memoised inside one file's walk be reused by another file's walk in the
+  // same pass. SCOPE CONTRACT: load-side reuse spans the pass, because the
+  // pass runs to completion synchronously with respect to the registry and
+  // the active-root union it was seeded from, and a later pass gets a fresh
+  // memo. The drive-time dispatch gate cannot make that claim and therefore
+  // builds its own closure per dispatch — see the `parseCallee` closure
+  // below.
+  const registrySnapshot: GetAllToolsSnapshot = () => pi.getAllTools?.() ?? [];
 
   // INV-1 (invocation.md §Resolution): the active discovery-root union threaded
   // into the invoke containment check — the parent directory of every discovered
@@ -743,7 +769,21 @@ async function runComposePass(
     // per-diagnostic arm; runtime emits are not per-file scan batches).
     emitDiagnostic: sink.emit,
     // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
-    // directory, reusing the shared parser deps.
+    // directory, reusing the shared parser deps. Bug 0276 SCOPE CONTRACT: a
+    // FRESH registry-snapshot closure per dispatch, deliberately NOT the
+    // hoisted load-pass one above, so gate-side verdict reuse spans exactly
+    // one dispatch walk. The two scopes differ because the memo's registry key
+    // is this closure's IDENTITY while the closure itself forwards to the live
+    // registry — a memo entry filed under a longer-lived closure would keep
+    // answering for a registry a drive-time `pi.registerTool` has since
+    // changed — and because the memo's byte guard covers only the queried
+    // file's own bytes, while a gate-side walk (`activeRoots === undefined`)
+    // recurses into files outside every discovery root that no watcher
+    // re-composes for. Reuse must therefore not outlive the walk that
+    // established the registry and the subtree it was computed against. Inside
+    // ONE dispatch the recursion still shares this single reference, so the
+    // shared-subtree collapse (§Fix constraint 6, cost profile) holds for the
+    // gate's own walk.
     parseCallee: (callerPath, calleePath) =>
       parseCalleeTheta(fileSystem, ctx, callerPath, calleePath, parseDeps, () =>
         pi.getAllTools?.() ?? [],
@@ -818,7 +858,11 @@ async function runComposePass(
       // Bug 0001 (frontmatter-fields-a.md §`tools`): admission resolves against
       // the `pi.getAllTools()` registry snapshot in BOTH modes.
       // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
-      () => pi.getAllTools?.() ?? [],
+      // Bug 0276: the hoisted load-pass `registrySnapshot`, not a fresh
+      // closure per iteration — a fresh closure here would give every
+      // discovered theta's own walk a distinct verdict-memo registry scope,
+      // and no walk would ever share a memoised verdict with another file's.
+      registrySnapshot,
       // INV-1 (invocation.md §Resolution) / bug 0110: thread the active-root
       // union so an out-of-root `tools:` `.theta` entry is rejected here,
       // strictly before `checkInvokeStaticResolution` runs below — the
@@ -2025,6 +2069,7 @@ async function parseCalleeForTools(
     getAllTools,
     activeRoots,
     new Set([absolute]),
+    bytes,
   );
   return {
     fileExists: true,
@@ -2159,8 +2204,50 @@ async function parseCalleeForTools(
  * (bug 0264's note-count witness, verified unchanged). The SAME helper is
  * called at `parseCalleeTheta`'s dispatch gate (§Fix constraint 5), so one
  * predicate serves both sites and every depth beneath them.
+ *
+ * Bug 0276 §Fix (route (a), a per-pass cycle-free verdict memo,
+ * `pass-verdict-memo.ts`): this predicate is split into three layers so a
+ * verdict can be reused across branches WITHOUT ever reusing one computed
+ * under withhold (c) above — the one branch-dependent input.
+ *   - {@link calleeFailsOwnStructuralChecksBody} is the walk above, unchanged
+ *     in what it judges, but returning `{ fails, consultedVisited }` instead
+ *     of a bare boolean: `consultedVisited` is true iff THIS frame took
+ *     withhold (c) for any entry, OR any recursive child (reached through
+ *     {@link calleeFailsOwnStructuralChecksWithTaint}, not this function
+ *     directly) reported `consultedVisited: true`.
+ *   - {@link calleeFailsOwnStructuralChecksWithTaint} is the thin per-frame
+ *     wrapper: it consults `deps.passVerdictMemo` for `(getAllTools,
+ *     activeRoots, calleeAbsolutePath)` byte-guarded by `bytes`; a HIT
+ *     returns `{ fails, consultedVisited: false }` without running the body
+ *     at all — a hit contributes no visited-set consultation of its own,
+ *     by construction. A MISS runs the body and, only when the body reports
+ *     `consultedVisited === false`, writes the verdict back. This is the
+ *     function the recursive call at withhold (c)'s sibling site below now
+ *     calls, so a memo hit deep in one branch can short-circuit the rest of
+ *     that branch's own recursion.
+ *   - `calleeFailsOwnStructuralChecks` (below) is the unchanged
+ *     boolean-returning entry point `parseCalleeForTools` and
+ *     `parseCalleeTheta`'s dispatch gate call, now taking the callee's
+ *     `bytes` too (both call sites already hold them) so the memo can
+ *     byte-guard at the top of the recursion exactly as it does at every
+ *     depth beneath it.
+ *
+ * SOUNDNESS (why memoising an untainted verdict is safe — the full argument
+ * lives in `pass-verdict-memo.ts`'s module doc-comment): an untainted verdict
+ * for file X means no frame beneath X's own walk consulted the visited set,
+ * so X's whole reachable set was judged with no branch skipped. If a LATER
+ * query reached X from a different branch and that branch's own ancestor A
+ * were also reachable from X, X would reach A and A would reach X (the later
+ * branch's edge into X), so X would reach X — and X's own untainted walk,
+ * seeded with X in `visited`, would have hit X and been tainted. Contradiction.
+ * An untainted verdict is therefore a function of X's bytes and its
+ * acyclic-from-X subtree alone: path-independent, hence memoisable, and
+ * serving it can never introduce or elide a withhold-(c) hit that a full
+ * recomputation would not also have produced. The argument composes by
+ * induction over memo hits consulted inside another frame's own untainted
+ * computation, because a hit itself contributes `consultedVisited: false`.
  */
-async function calleeFailsOwnStructuralChecks(
+async function calleeFailsOwnStructuralChecksBody(
   fs: FileSystem,
   ctx: ExtensionContext,
   deps: PassParseDeps,
@@ -2170,7 +2257,7 @@ async function calleeFailsOwnStructuralChecks(
   getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
-): Promise<boolean> {
+): Promise<{ fails: boolean; consultedVisited: boolean }> {
   const calleeInput: ThetaCompositionInput = {
     slashName: thetaBasename(calleeAbsolutePath),
     sourcePath: calleeAbsolutePath,
@@ -2183,13 +2270,18 @@ async function calleeFailsOwnStructuralChecks(
     claimDelivery: false,
   });
   if (importCheck.diagnostics.some((d) => d.severity === "error")) {
-    return true;
+    return { fails: true, consultedVisited: false };
   }
 
   const toolsList = frontmatter.tools;
   if (toolsList === undefined || toolsList.length === 0) {
-    return false;
+    return { fails: false, consultedVisited: false };
   }
+
+  // Bug 0276 §Fix constraint 4: true iff THIS frame took withhold (c) for any
+  // entry, or a recursive child reported it took (or inherited) one — the
+  // taint that gates whether this frame's own verdict may be memoised.
+  let consultedVisited = false;
 
   // Bug 0270 pre-resolution / bug 0271 recursive judgement, ONE loop, ONE read
   // per spec: probe each of the callee's OWN `.theta` entries for
@@ -2233,8 +2325,11 @@ async function calleeFailsOwnStructuralChecks(
     // WITHHOLD (c) — termination bound: a resolved absolute path already on
     // this walk's own recursion stack closes a `tools:` cycle here rather than
     // recursing again. The read above still stands (bug 0270's route is
-    // unaffected); only the recursive structural judgement is bounded.
+    // unaffected); only the recursive structural judgement is bounded. This is
+    // the predicate's one branch-dependent input (bug 0276 §Fix), so taking
+    // this branch taints this frame's verdict against memoisation.
     if (visited.has(nestedAbsolute)) {
+      consultedVisited = true;
       continue;
     }
 
@@ -2264,10 +2359,13 @@ async function calleeFailsOwnStructuralChecks(
       grandchildFails.set(spec, true);
       continue;
     }
-    // Admitted route (iii): the same predicate, one level deeper. WITHHOLD (b)
-    // — the grandchild's declared mode is never read here; the stub below
-    // keeps reporting `subagent` regardless of this verdict.
-    const recursiveFails = await calleeFailsOwnStructuralChecks(
+    // Admitted route (iii): the same predicate, one level deeper, through the
+    // memo-consulting wrapper (bug 0276 §Fix) rather than this function
+    // directly — a memo hit here can short-circuit the rest of this branch's
+    // own recursion. WITHHOLD (b) — the grandchild's declared mode is never
+    // read here; the stub below keeps reporting `subagent` regardless of this
+    // verdict.
+    const recursive = await calleeFailsOwnStructuralChecksWithTaint(
       fs,
       ctx,
       deps,
@@ -2277,8 +2375,10 @@ async function calleeFailsOwnStructuralChecks(
       getAllTools,
       activeRoots,
       new Set([...visited, nestedAbsolute]),
+      bytes,
     );
-    grandchildFails.set(spec, recursiveFails);
+    grandchildFails.set(spec, recursive.fails);
+    consultedVisited = consultedVisited || recursive.consultedVisited;
   }
 
   const stubDeps: CallableSetDeps = {
@@ -2317,13 +2417,94 @@ async function calleeFailsOwnStructuralChecks(
   // judgement of the callee's own `tools:` entries — never a general
   // `registered` verdict, and never an entry-grammar code (bug 0248 D3/D5 stay
   // out).
-  return (
+  const fails =
     result.diagnostics.some(
       (d) =>
         d.severity === "error" &&
         (d.code === "theta/load/unknown-tool" || d.code === "theta/load/unresolvable-theta-path"),
-    ) || [...grandchildFails.values()].some((fails) => fails)
+    ) || [...grandchildFails.values()].some((f) => f);
+  return { fails, consultedVisited };
+}
+
+/**
+ * Bug 0276 §Fix: the thin per-frame memo wrapper — see
+ * {@link calleeFailsOwnStructuralChecksBody}'s doc-comment for the split and
+ * the soundness argument. Consults `deps.passVerdictMemo` (when present) for
+ * `(getAllTools, activeRoots, calleeAbsolutePath)` byte-guarded by `bytes`;
+ * on a HIT, returns the memoised verdict with `consultedVisited: false`
+ * without recomputing anything. On a MISS, runs the body and, only when the
+ * body itself reports `consultedVisited === false`, writes the fresh verdict
+ * back — a verdict computed under withhold (c) anywhere beneath it is never
+ * stored.
+ */
+async function calleeFailsOwnStructuralChecksWithTaint(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: PassVerdictDeps,
+  calleeAbsolutePath: string,
+  frontmatter: ThetaCompositionInput["frontmatter"],
+  body: ThetaBody,
+  getAllTools: GetAllToolsSnapshot | undefined,
+  activeRoots: readonly string[] | undefined,
+  visited: ReadonlySet<string>,
+  bytes: Uint8Array,
+): Promise<{ fails: boolean; consultedVisited: boolean }> {
+  const memo = deps.passVerdictMemo;
+  if (memo !== undefined) {
+    const hit = memo.read(getAllTools, activeRoots, calleeAbsolutePath, bytes);
+    if (hit !== undefined) {
+      return { fails: hit, consultedVisited: false };
+    }
+  }
+  const result = await calleeFailsOwnStructuralChecksBody(
+    fs,
+    ctx,
+    deps,
+    calleeAbsolutePath,
+    frontmatter,
+    body,
+    getAllTools,
+    activeRoots,
+    visited,
   );
+  if (memo !== undefined && !result.consultedVisited) {
+    memo.write(getAllTools, activeRoots, calleeAbsolutePath, bytes, result.fails);
+  }
+  return result;
+}
+
+/**
+ * Bug 0276 §Fix constraint 6: the unchanged boolean-returning entry point
+ * `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate call, now
+ * taking the callee's already-read `bytes` so
+ * {@link calleeFailsOwnStructuralChecksWithTaint} can byte-guard the memo at
+ * the top of the recursion exactly as it does at every depth beneath it.
+ */
+async function calleeFailsOwnStructuralChecks(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: PassVerdictDeps,
+  calleeAbsolutePath: string,
+  frontmatter: ThetaCompositionInput["frontmatter"],
+  body: ThetaBody,
+  getAllTools: GetAllToolsSnapshot | undefined,
+  activeRoots: readonly string[] | undefined,
+  visited: ReadonlySet<string>,
+  bytes: Uint8Array,
+): Promise<boolean> {
+  const { fails } = await calleeFailsOwnStructuralChecksWithTaint(
+    fs,
+    ctx,
+    deps,
+    calleeAbsolutePath,
+    frontmatter,
+    body,
+    getAllTools,
+    activeRoots,
+    visited,
+    bytes,
+  );
+  return fails;
 }
 
 /**
@@ -2613,6 +2794,7 @@ async function parseCalleeTheta(
       getAllTools,
       undefined,
       new Set([absolute]),
+      bytes,
     )
   ) {
     return undefined;
@@ -2813,7 +2995,7 @@ async function parseDiscoveredTheta(
           });
     // Bug 0255: `lexTheta` already delivered `document.deliveredDiagnostics`
     // through the V7d seam (`src/lexer/lexer.ts:131`/`:109`) before this parse
-    // ran; re-delivering them here (`:768`'s `sink.emitGroup`) would double-
+    // ran; re-delivering them here (`:808`'s `sink.emitGroup`) would double-
     // deliver every lex row. Exclude by object identity (a `Set`, not a code-
     // prefix test — `theta/parse/*` spans both the lex and parse phases, so a
     // prefix cannot tell them apart). `subagentFnFraming` is computed here, not

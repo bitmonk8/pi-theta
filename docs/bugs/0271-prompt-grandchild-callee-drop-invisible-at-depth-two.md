@@ -479,3 +479,26 @@ set. Filed at HEAD `76489c61`, v0.266.0, from an offline
   byte-unchanged; closure-hash equality across §Reproduction's rows is correct
   per RFC-0005 and was neither chased nor asserted; the prompt-mode grandchild
   route stays a withhold (bug 0267 §Fix-record residual 2).
+
+## Discharge note — bug 0276 (0.271.0)
+
+Residual 2 of the record above is discharged by the 0276 fix
+(`docs/bugs/0276-depth-walk-revisits-shared-subtrees-exponentially.md`
+§Fix (0.271.0)). The remedy is the cycle-free-verdict memo that residual named,
+not the depth cap: a per-pass store keyed by (registry-snapshot closure
+identity, active-root array identity, resolved absolute path) with a
+byte-identity hit guard records a file's verdict only when neither its own
+frame nor any frame beneath it consulted the visited set, so the
+branch-dependence residual 2 correctly attributed to a re-entered ancestor is
+excluded from the store rather than assumed away. The per-branch visited set is
+unchanged as cycle-detection state, and cells (CYC1)/(CYC2) are byte-unchanged
+and green. Measured on the fix machine, the k = 12 two-wide diamond ladder falls
+from 12 261 judgements (≈12.5 s) to 45 judgements (93 ms), and every registered
+set and diagnostic code is identical with and without the memo across the
+witness's outcome-preservation cells and four further probe shapes.
+
+The readability probe residual 2 lists among the re-run per-visit work still
+runs ahead of the visited-set guard, so a guard hit still costs one file read:
+hoisting the guard would change the verdict for a visited member deleted
+mid-pass, and with the memo in place the remaining re-reads are bounded by edge
+count. Recorded as residual 2 of the 0276 fix record rather than shipped.
