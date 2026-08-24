@@ -753,3 +753,24 @@ REPORTS what it already does and changes nothing it writes onto any query;
 `inferQuerySchema`'s behaviour is preserved. STOP valve: any change to what the
 pass writes stops the expansion. Review rounds 4 and 5 both judged the expansion
 justified.
+
+### Coordination note (2026-08-24, 0.267.0) — Residuals item 3 closed
+
+*Residuals* item 3 above — "A propagated `Result` E-side name stays silent",
+``let a: Result<integer, Nope> = @`q` `` drawing nothing — is CLOSED by
+[bug 0273](./0273-propagated-result-error-side-unresolved-name-silent.md) §Fix
+(0.267.0). That fix resolves names in the `E` argument of a `Result<T, E>`
+annotation reaching the `@<T>` query capture, beside the `T` walk this document
+recorded as row r11's untouched peel disposition. The propagated route and the
+author-written `@<Result<T, E>>` ascription both refuse an undeclared `E` head
+now, and the theta does not register.
+
+Nothing recorded above is withdrawn. Clause (iv)(2)'s withhold is untouched:
+the `let` capture still withholds its own resolution of the propagated text and
+the query arm remains that text's sole emitter, so one written annotation still
+draws exactly one refusal — bug 0273 raised that arm's coverage from one
+`Result` argument to two, not the emission count from one to two. The builtin
+error-model admission of clause (iv)(1) is what bug 0273's new `E`-side
+resolution consults, so a `Result<T, QueryError>` value type stays silent. All
+26 cells of `tests/b0262-unresolved-named-type-reference-positions.test.ts`
+stay green unchanged, verified byte-for-byte with an empty diff over that file.

@@ -6628,15 +6628,20 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * `Result<T, QueryError>` (QRY-1) — so `let r: Result<string, QueryError> =
  * @`…`` arrives here as the full `Result<…>` text. Its `E` side is a builtin
  * observed only by theta code and never lowered to a JSON Schema fragment
- * (grammar.md §"Generic-application constructors"), so it resolves to no
- * declaration by design and must not be reported: `Result` is admitted there
- * by the grammar and is never itself resolved as a `NamedType` atom
- * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
- * never through the identifier-resolution arm), and bug 0262 §Fix clause
- * (iv)(2) withholds the `let` capture's own resolution of this SAME
- * propagated text, leaving this arm its sole emitter. The `T` side — the
- * shape the response is validated against — is still checked, so a typo in
- * `let r: Result<Tirage, QueryError> = @`…`` is still refused.
+ * (grammar.md §"Generic-application constructors"). `Result` is admitted
+ * there by the grammar and is never itself resolved as a `NamedType` atom
+ * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name
+ * structurally, never through the identifier-resolution arm), and bug 0262
+ * §Fix clause (iv)(2) withholds the `let` capture's own resolution of this
+ * SAME propagated text, leaving this arm its sole emitter. What this peel
+ * protects is the BUILTIN `QueryError`, by the same builtin error-model
+ * admission the `let`, `fn` parameter, `fn` return and `invoke<Type>`
+ * captures carry (`withBuiltinErrorModelNames`) — not the argument slot: the
+ * `"query"` arm resolves names in `args[1]` beside the response part it reads
+ * from this function (bug 0273 §Fix), so an undeclared head written there is
+ * still refused. The `T` side — the shape the response is validated against
+ * — is still checked, so a typo in `let r: Result<Tirage, QueryError> =
+ * @`…`` is still refused.
  *
  * `undefined` means "this annotation has no response part to check": a `Result`
  * application whose argument count is not 2 is
@@ -6674,6 +6679,30 @@ function queryResponseAnnotation(schema: string): string | undefined {
   }
   const args = splitTopLevel(application[1] ?? "", ",", "angle-and-brace");
   return args.length === 2 ? args[0] : undefined;
+}
+
+/**
+ * The `E` side of the same `Result<T, E>` application `queryResponseAnnotation`
+ * peels `T` from — its sibling, not its replacement (bug 0273 §Fix).
+ * `queryResponseAnnotation`'s return value and signature are untouched by this
+ * function's existence: the response-schema reads, the position-rule walk and
+ * the `annotationSourceIsNotTypeExpression` refusal keep consuming `T` alone,
+ * and this is the ONLY thing that also looks at `args[1]`.
+ *
+ * `undefined` means "this annotation has no `E` argument to resolve": either
+ * `schema` is not a `Result` application at all (a bare response schema with
+ * no error side ever written), or it is one whose argument count is not 2, in
+ * which case `theta/parse/generic-arity-mismatch` owns the interior and which
+ * argument would have been `E` is not determinable, same as
+ * `queryResponseAnnotation`'s own non-arity-2 declination.
+ */
+function queryErrorModelAnnotation(schema: string): string | undefined {
+  const application = RESULT_APPLICATION.exec(schema.trim());
+  if (application === null) {
+    return undefined;
+  }
+  const args = splitTopLevel(application[1] ?? "", ",", "angle-and-brace");
+  return args.length === 2 ? args[1] : undefined;
 }
 
 /**
@@ -8818,6 +8847,36 @@ function walkExpr(
           }
           for (const name of annotationUnresolved) {
             out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
+          }
+          // Bug 0273 §Fix: the `E` side of the same `Result<T, E>` application,
+          // resolved beside the response part above rather than instead of it.
+          // This runs for the propagated route too (clause (iv)(2)'s withhold
+          // above gates only `parseTypeExpression`, not this loop) because the
+          // query arm is the propagated text's sole emitter — withholding this
+          // as well would leave the `E` head unrefused everywhere. No reserved-
+          // keyword sink is passed: widening that diagnostic's registered
+          // trigger to this argument slot is outside this fix's scope.
+          const errorModelAnnotation = queryErrorModelAnnotation(e.schema);
+          if (errorModelAnnotation !== undefined) {
+            const errorModelUnresolved = collectUnresolvedNamedTypes(
+              errorModelAnnotation,
+              withBuiltinErrorModelNames(refs.typeNames),
+            );
+            // One written name draws one diagnostic. The two argument slots
+            // are two `collectUnresolvedNamedTypes` calls and that function
+            // dedupes only within a single call, so a head spelled in BOTH
+            // slots of one annotation would otherwise draw two byte-identical
+            // lines at one range where every other capture of the same text
+            // draws one. The unit is the one written annotation: names already
+            // reported for a DIFFERENT annotation or statement are not
+            // suppressed here.
+            const reportedForThisAnnotation = new Set(annotationUnresolved);
+            for (const name of errorModelUnresolved) {
+              if (reportedForThisAnnotation.has(name)) {
+                continue;
+              }
+              out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
+            }
           }
         }
       }

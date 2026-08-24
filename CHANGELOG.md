@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.267.0]
+
+### Fixed
+
+- Bug 0273: an unresolvable `NamedType` written in the `E` argument of a
+  `Result<T, E>` annotation that reaches the `@<T>` query capture drew
+  nothing — `queryResponseAnnotation` handed only the `T` argument to the
+  resolution pass, so both the propagated `let a: Result<integer, Nope> =
+  @`q`` route and the author-written `@<Result<integer, Nope>>`q`` route
+  loaded clean while the same head refused at `fn` returns (the r8-vs-r11
+  asymmetry). The `"query"` arm now resolves the `E` argument beside the
+  existing `T` walk (per-annotation seen-set; no new resolver, no new
+  admission predicate; builtin error-model names stay admitted). No
+  registry edit owed — the registry sentence already promises every
+  `Result` argument. Offline witness (10 cells incl. both-slots parity)
+  plus H8a live cell 89.
+
 ## [0.266.0]
 
 ### Fixed

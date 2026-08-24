@@ -1,6 +1,6 @@
 # Bug 0273 — an unresolvable `NamedType` written in the `E` argument of a `Result<T, E>` annotation that reaches the `@<T>` query capture draws nothing: ``let a: Result<integer, Nope> = @`q` `` and ``let r = @<Result<integer, Nope>>`q` `` both load clean, while the same `E`-side head refuses at an `fn` return (`fn f(): Result<integer, Nope>`), an `fn` parameter, and a non-query `let` — `queryResponseAnnotation` (`src/parser/theta-document.ts:6670`) hands only the `T` argument to the resolution pass
 
-- **Status:** open.
+- **Status:** fixed (0.267.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because a written, unresolvable head is
   accepted at one position-face after bug 0262 closed the position-silence
   class, and the widened registry row already promises the opposite for this
@@ -188,3 +188,199 @@ Bug 0262 §Fix (0.266.0), *Residuals* item 3
 §Residuals 3, which record the measurement as identical at pre-fix r11 and
 therefore outside that bug's r1–r9 mandate. Filed in the sixteenth set's
 residual wave. All rows above re-measured at HEAD `76489c61`, v0.266.0.
+
+## Fix (0.267.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — a sibling `queryErrorModelAnnotation`
+    beside `queryResponseAnnotation`, running the same `RESULT_APPLICATION`
+    match and the same `splitTopLevel(…, ",", "angle-and-brace")` and returning
+    `args[1]` on the arity-2 path alone (`undefined` for a non-`Result` schema
+    and for every other argument count), per §Fix's "split the peel's two
+    jobs". `queryResponseAnnotation`'s signature, body and return value for
+    every input are byte-identical to the pre-fix function; only its doc block
+    changed.
+  - `src/parser/theta-document.ts` — `walkExpr`'s `"query"` arm now resolves
+    the `E` argument beside the response part: `collectUnresolvedNamedTypes`
+    over `queryErrorModelAnnotation(e.schema)` against
+    `withBuiltinErrorModelNames(refs.typeNames)`, pushing
+    `unresolvedNamedTypeDiagnostic` per name at the query expression's range.
+    The block sits AFTER the response-side loop, so bug 0203's
+    `annotationSourceIsNotTypeExpression` early `return` — the annotation's
+    whole disposition — still short-circuits it; and it is NOT gated by
+    `e.schemaFromLetAnnotation`, because bug 0262 §Fix clause (iv)(2) makes
+    this arm the propagated text's sole emitter.
+  - `src/parser/theta-document.ts` — a per-annotation seen-set filters the
+    `E`-side names against the response-side loop's own result, so a head
+    spelled in BOTH `Result` slots of one annotation draws one line, at parity
+    with the `fn`-return, `fn`-parameter and non-query-`let` siblings. §Fix's
+    pin is literal: "An `E`-side name adds one diagnostic for one written name,
+    not a second diagnostic for a name already reported." The set is local to
+    one annotation walk — nothing dedupes across annotations or statements.
+  - `src/parser/theta-document.ts` — `queryResponseAnnotation`'s doc block
+    corrected in place: the peel protects the BUILTIN `QueryError`, through the
+    same `withBuiltinErrorModelNames` admission the `let`, `fn` parameter, `fn`
+    return and `invoke<Type>` captures carry, rather than the argument SLOT. The
+    arity rationale, the brace-depth rationale and the bug-0204/0236 bracket
+    residual are unchanged.
+  - `tests/b0273-query-result-error-side-unresolved-name.test.ts` — new, 10
+    cells (see *Tests that lock it* below).
+  - `tests/live/live-production-acceptance.test.ts` — additive H8a cell 89.
+    No existing cell reworded, reordered, renumbered or deleted (242
+    insertions, 0 deletions).
+  - No registry or spec edit. See *Adjudications* item 3.
+
+- **Gates:**
+  - Witness, pre-fix (RED for the right reason):
+    `Test Files 1 failed (1) / Tests 3 failed | 5 passed (8)` — rows a–d
+    observed `Array []` where one `theta/parse/unresolved-named-type` was
+    expected, i.e. the §Reproduction silence, with every control cell passing.
+  - Witness, post-fix: `Test Files 1 passed (1) / Tests 10 passed (10)`.
+  - Full default suite: `Test Files 445 passed (445) / Tests 9263 passed
+    (9263)`.
+  - `npx tsc -p tsconfig.json --noEmit` — no output, exit 0.
+  - `npm run lint` — no output, exit 0.
+  - Live H8a cell 89 (orchestrator, under the shared live lock):
+    `Test Files 1 passed (1) / Tests 1 passed | 89 skipped (90)`.
+  - `tests/fixtures/h7a/permitted-codes.json` byte-unchanged —
+    `git hash-object` = `a4a8da04209f90e13d815edd92c1fc682e2a2236`, the
+    pre-change blob. `theta/parse/unresolved-named-type` is a pre-existing
+    code, so no H9a permitted-codes movement was possible.
+
+- **Review:** 2 rounds, clean at round 2.
+  - Round 1 (deep) — findings. One `correctness` blocker: the `T`-side and
+    `E`-side resolutions are two `collectUnresolvedNamedTypes` calls and that
+    function dedupes only within a call, so `Result<Nope, Nope>` drew two
+    byte-identical lines at the query capture where the sibling captures draw
+    one — a violation of §Fix's not-a-second-diagnostic pin and a re-opening of
+    the very asymmetry axis this bug closes. One `test` residual: the witness's
+    group-(E) comment named the bare `refs.typeNames` universe where the code
+    uses the widened one. Both fixed in the same round.
+  - Round 2 (fast) — clean, no escalation. It re-probed the filter's bounds
+    offline (`Result<Array<Nope>, Nope | Gone>` → two lines; `Result<integer,
+    Nope | Gone>` → two; `Result<integer, { x: Nope }>` → one; two separate
+    statements → one each, no cross-statement bleed) and confirmed the delta
+    neither pre-fixes nor half-fixes bug 0272's `captureWindowAlreadyRefused`
+    surface.
+
+- **Verification:** solid.
+  - The witness genuinely witnesses. Neutralisation (a) — the whole `E`-side
+    block removed — reds rows a–d and the count cell with `Array []` against
+    the expected single code. Neutralisation (b) — only the seen-set filter
+    removed — reds the (both) cell alone with two identical codes where one
+    is expected, (both-distinct) staying green. Both restored by writing the
+    original bytes back, hash-verified identical
+    (`6f6d504dfcb16906b3df3b7c4b6205a5b7890527` before and after each), and
+    green afterwards. No `git stash`, no `git checkout`, no `git restore`.
+  - Full default suite green; bug 0262's 26-cell lock green and its `git diff`
+    EMPTY; `tests/committed-fixture-parse-gate.test.ts`,
+    `tests/let-annotation-query-double-emission.test.ts` and
+    `tests/citation-symbol-form-gate.test.ts` green.
+  - Typecheck and lint green.
+  - All thirteen §Reproduction rows independently re-measured post-fix through
+    `parseDoc`: a–d each one refusal and not registering; e–k byte-identical to
+    the pre-fix baseline; l and m silent and registering. Matches §Expected
+    behaviour exactly.
+  - Live: exercised by cell 89, run only by the orchestrator under the lock.
+
+- **Tests that lock it:**
+  - `tests/b0273-query-result-error-side-unresolved-name.test.ts` — groups
+    (E) and (E-registration) for rows a–d at both the `Nope` and `nope`
+    spellings; (both) and (both-distinct) for the one-diagnostic-per-written-name
+    parity against the `fn`-return sibling; (count) for row a's single
+    emission at the query's range rather than the `let`'s; (asym) for rows e–i,
+    the r8-vs-r11 face; (T) for rows j–k; (neg) for rows l–m; (arity) for the
+    untouched non-arity-2 path; (DIAG-2) for registry-row presence. Every
+    expected message is read through `registryMessage`, never transcribed.
+  - `tests/live/live-production-acceptance.test.ts` cell 89 — the offender
+    (``let a: Result<integer, Nope> = @`q` ``) is absent from
+    `registeredNames()` and the reason is read off the settled in-memory
+    `SessionManager`'s `theta-system-note` entries; the declared-`E` twin
+    registers and drives one real turn to normal completion with an empty
+    per-drive note slice and a fixture-pinned sentinel over the theta's own
+    computed value. Two asserted-first real registrations keep the absence
+    assertion non-vacuous.
+
+- **Adjudications on the record:**
+  1. **The `E`-argument name universe is
+     `withBuiltinErrorModelNames(refs.typeNames)`, not the bare set.** §Fix's
+     phrase "the same `refs.typeNames` universe" names the source; its next
+     sentence settles the admission, and §Expected behaviour (fixture m
+     silent), §Non-goals ("The builtin admission") and §Fix's own
+     `tests/committed-fixture-parse-gate.test.ts` constraint over
+     `docs/examples/personas.thetalib`'s `Result<integer, QueryError>` each red
+     under the bare set. Reusing the existing helper is what "no new admission
+     predicate is minted" means.
+  2. **No reserved-keyword emission for the `E` side.** §Fix names one
+     builder, `unresolvedNamedTypeDiagnostic`. Emitting
+     `reservedKeywordAsIdentifierDiagnostic` for `args[1]` would widen that
+     code's registered *Trigger*, a DIAG-2 same-commit spec edit outside this
+     §Fix. No `reservedKeywords` sink is passed. See *Residuals* item 1.
+  3. **No registry or spec edit is owed** — the measurement §Fix asks for.
+     `docs/spec_topics/diagnostics/code-registry-parse.md` line 112, the
+     `theta/parse/unresolved-named-type` row's *Trigger*, already reads
+     "together with every generic type argument, union arm, `Result` argument,
+     and inline object field nested inside one of those ten", and "the `@<T>`
+     query annotation" is among the ten. The row promised this face before the
+     fix; the change makes the code match the row rather than the row match the
+     code. Verified at HEAD by the implementer, the round-1 reviewer and the
+     verifier independently. No `docs/spec_topics/**` or `docs/reference/**`
+     file is touched.
+
+- **Residuals:**
+  1. **A reserved-keyword spelling written in the `E` argument at this capture
+     stays silent.** Scope, not defect: §Fix authorises one diagnostic builder
+     for this slot, and DIAG-2 makes any trigger widening for
+     `theta/parse/reserved-keyword-as-identifier` a same-commit spec edit,
+     which §Fix does not open. The response part's own reserved-keyword loop is
+     unchanged. Evidence: the new `E`-side call passes no `reservedKeywords`
+     sink, and `collectUnresolvedNamedTypes` exports keyword hits only through
+     that optional parameter.
+  2. **`queryErrorModelAnnotation` re-runs the `RESULT_APPLICATION` match and
+     the argument split that `queryResponseAnnotation` already ran.** §Fix's
+     "beside it" was implemented as a sibling rather than as a shared-split
+     refactor, on the ground that a refactor risks moving
+     `queryResponseAnnotation`'s observable return value, which §Fix requires
+     byte-stable. Both functions decline identically on every non-arity-2
+     input, so the two calls cannot disagree. Evidence: the (arity) group is
+     green, and the bracket-blind residual of bug 0204 §Fix (b)(3) and bug 0236
+     is inherited unchanged by the sibling.
+  3. **Live cell 89 red once out of three runs, at the drive sentinel only.**
+     Failure name: "the declared-`E` twin's drive did not answer the task
+     question over its own computed value" — the assertion at the very end of
+     the cell, reached only after the offender's absence from the registered
+     set and the note naming the head had both already passed. This is the
+     known prober-arithmetic-variance mode of the live axis, not a
+     registration-path failure. One isolated re-run under the lock was green,
+     as was the first run: 2 of 3 green, the red confined to the stochastic
+     assertion.
+  4. **Pre-existing stale `src/parser/theta-document.ts` line citations in
+     unrelated test files.** The round-1 reviewer swept every such citation at
+     or after this change's first shifted line
+     (`tests/type-name-as-value-refusal.test.ts`,
+     `tests/non-literal-by-field-refusal.test.ts`, `tests/par-for.test.ts`,
+     `tests/let-annotation-query-double-emission.test.ts`,
+     `tests/live/live-production-acceptance.test.ts`, and ten further sites)
+     against the pre-change file and established that every stale one was
+     ALREADY stale before this change. No citation was made stale by this
+     change, so no correction round was owed and no test file was edited for
+     it. `tests/citation-symbol-form-gate.test.ts` is green.
+
+- **Discharge notes appended:**
+  `./0262-unresolved-named-type-silent-at-nine-reference-positions.md` — its
+  §Fix *Residuals* item 3 (the propagated `Result` `E`-side silence) is closed
+  by this fix; a dated closure note is appended there, its existing text
+  unmodified.
+
+- **Pinned dispositions / non-goals held:**
+  Bug 0262 §Fix clause (iv)(2)'s landed withhold is untouched — the `let`
+  capture still withholds and the query arm is still the propagated text's sole
+  emitter; this fix raises that arm's coverage from one `Result` argument to
+  two, not the emission count from one to two. Bug 0093's per-query rule holds.
+  The `T`-side behaviour (rows j–k) is byte-stable. The builtin admission
+  stands (rows l–m silent). The non-arity-2 path still returns `undefined` and
+  descends nothing, so `theta/parse/generic-arity-mismatch` keeps its interior.
+  No `E`-side text is lowered to a JSON Schema fragment and the response-schema
+  selection is unchanged: `T` remains what the response is validated against.
+  Bug 0272's subject — the enclosing-refusal swallow over
+  `captureWindowAlreadyRefused` — is untouched by every hunk.

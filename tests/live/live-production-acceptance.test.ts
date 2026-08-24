@@ -49,6 +49,10 @@ import {
   type LoweredSchema,
 } from "../../src/seams/schema-validator";
 import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+// The offline attribution guard of cell 89: the shipped whole-file parse entry
+// wrapped in inert deps, so an unrelated load failure cannot be mistaken for
+// the disposition that cell's live observables read.
+import { parseDoc } from "../helpers/e2e-s1";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -14613,6 +14617,244 @@ describe("H8a-T -- bug 0158: a heterogeneous `match` still refuses registration 
         "no theta-system-note entry named the match-arm-type-mismatch " +
           "rejection for the heterogeneous sibling. Notes: " +
           JSON.stringify(notes),
+      ).toBe(true);
+    } finally {
+      await handle.dispose();
+      workspace.dispose();
+    }
+  });
+});
+
+// ===========================================================================
+// Bug 0273 (cell 89) -- `queryResponseAnnotation` (`src/parser/theta-document.ts`)
+// peels a `Result<T, E>` annotation down to `T` before `walkExpr`'s `"query"`
+// arm resolves names in it, so an author-written head in the `E` argument was
+// never presented to the resolver: ``let a: Result<integer, Nope> = @`q` ``
+// loaded with an EMPTY diagnostic list and REGISTERED, while the identical
+// `E`-side head refuses at an `fn` return, an `fn` parameter and a non-query
+// `let` (docs/bugs/0273-propagated-result-error-side-unresolved-name-silent.md
+// SS Reproduction rows a and e-i). SS Fix keeps the peel as the text the
+// position-rule walk consumes and resolves `args[1]` beside it, through the new
+// sibling `queryErrorModelAnnotation`, against
+// `withBuiltinErrorModelNames(refs.typeNames)` -- so
+// `theta/parse/unresolved-named-type` now fires at the query expression's range
+// and the theta is not registered.
+//
+// WHAT THIS COVERS THAT THE OFFLINE WITNESS DOES NOT.
+// `tests/b0273-query-result-error-side-unresolved-name.test.ts` pins the
+// diagnostic bytes, the emission count, the position of the surviving line and
+// every SS Non-goals bound at the `parseThetaDocument` boundary. No offline cell
+// observes the real discovery -> registration path deciding whether a `.theta`
+// carrying an undeclared `E` head becomes a slash command at all, nor the
+// declared-`E` twin still registering and DRIVING a real model turn. This cell
+// drives both through the shipped production composition root
+// (`bootShippedExtension`: session_start -> resources_discover ->
+// composeExtensionInstance -> the registration gate), on cell 86's idioms.
+//
+// WHY THE DECLARED-`E` TWIN, NOT THE BUILTIN `QueryError` SPELLING, IS THE
+// CONTROL. SS Reproduction offers both negative controls (rows l and m). Row l --
+// `schema Nope { a: number }` beside the same annotation -- differs from the
+// offender by the DECLARATION ALONE, so the registration delta between the two
+// planted thetas is attributable to name resolution and to nothing else. Row
+// m's `Result<integer, QueryError>` differs by the HEAD as well and is admitted
+// by the builtin error-model admission rather than by resolution, so it would
+// leave "the new resolution refuses every `E` head" indistinguishable from the
+// settled behaviour. Row m's no-move is already discharged corpus-wide by
+// `tests/committed-fixture-parse-gate.test.ts` over the shipped
+// `docs/examples/personas.thetalib`.
+//
+// THE POSITIVE CONTROL FOR THE ABSENCE ASSERTION. An absence assertion that
+// cannot red is worthless, so two registrations are asserted BEFORE the
+// offender's absence is read: an ordinary sibling theta in the SAME workspace
+// (`b0273livectl`, cell 81/82/84/86's precondition control) and the
+// declared-`E` twin itself. A broken workspace or a dead discovery walk reds on
+// those instead of passing silently as an "absent" offender.
+//
+// TOKEN COST: ONE live turn (the declared-`E` twin's task-question answer). The
+// offender half is registration-only -- its refusal is decided at load, before
+// any drive is attempted, so it spends nothing.
+//
+// SUBAGENT CHILD PINS: both thetas are `mode: prompt` and drive no `invoke`, so
+// the RFC-0006 child launch is not reached; the shared `./harness` sets BOTH
+// #subagent-child-pins plus the parent-pid carriage at module scope regardless,
+// which is AGENTS.md's requirement for any in-process harness that CAN reach it.
+//
+// ADDITIVE ONLY: no existing cell in this file is weakened, reworded, reordered
+// or deleted.
+// ===========================================================================
+
+/** The row the `E`-side resolution emits (`code-registry-parse.md`); its *Message* does not move. */
+const UNRESOLVED_NAMED_TYPE_CODE_CELL_89 = "theta/parse/unresolved-named-type";
+
+/**
+ * `theta/parse/unresolved-named-type: unresolved named type 'Nope'` -- DIAG-4:
+ * the message half is READ from the registry row and its `<name>` placeholder
+ * filled, never transcribed, from the same sharded page
+ * `ARRAY_NO_COMMON_TYPE_REGISTRY` already parses (mirrors cell 86's
+ * `matchArmTypeMismatchFragment`). The placeholder assertion fails loudly on a
+ * row that changed shape rather than letting an unsubstituted template through.
+ */
+function unresolvedNamedTypeFragmentCell89(name: string): string {
+  const template = registryMessage(
+    ARRAY_NO_COMMON_TYPE_REGISTRY,
+    UNRESOLVED_NAMED_TYPE_CODE_CELL_89,
+  ) as string | undefined;
+  expect(
+    template,
+    `${UNRESOLVED_NAMED_TYPE_CODE_CELL_89} has no registry row -- the code this cell asserts is not registered (DIAG-2) (cell 89)`,
+  ).toBeTypeOf("string");
+  const message = template as string;
+  expect(
+    message,
+    `${UNRESOLVED_NAMED_TYPE_CODE_CELL_89}: the registry row's Message template no longer carries the <name> placeholder this reader fills -- the row changed shape (cell 89)`,
+  ).toContain("<name>");
+  return `${UNRESOLVED_NAMED_TYPE_CODE_CELL_89}: ${message.replace("<name>", name)}`;
+}
+
+/**
+ * THE OFFENDER (SS Reproduction row a): the propagated route. The `let`
+ * annotation is written verbatim onto the bare-query initialiser, so the whole
+ * `Result<integer, Nope>` text reaches the `@<T>` query capture; `Nope` is
+ * declared nowhere in the fixture. Never driven -- the refusal is decided at
+ * load -- so its query text costs nothing.
+ */
+const E_SIDE_UNDECLARED_CELL_89 = [
+  "---",
+  "mode: prompt",
+  "---",
+  "let a: Result<integer, Nope> = @`What is 306 plus 218? Answer with the number only.`",
+  '"ok"',
+  "",
+].join("\n");
+
+// Drive discriminators are ANSWERS to task questions over the theta's own
+// computed value -- deterministic content a degraded plain-prompt run cannot
+// produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
+// injection to current models and draws refusals: the sentinel-refusal class
+// filed as bug 0243.
+/** 306 + 218 = 524 is theta-computed; 524 + 341 = 865 is the answer only that value affords. */
+const DECLARED_E_SENTINEL_CELL_89 = "865";
+
+/**
+ * THE DECLARED-`E` TWIN (SS Reproduction row l): the offender plus a
+ * declaration of the head, which is the only delta. The `E`-side resolution
+ * admits it, so the document registers and drives. The final untyped query is
+ * the drive discriminator: it interpolates the theta-computed `n`, so the
+ * answer is producible only from a run in which the theta's own arithmetic
+ * reached the prompt. The `Result`-annotated query above it is bound WITHOUT
+ * `?`, so its outcome is a value rather than a fail-closed ending -- the note
+ * channel below therefore reads the drive's completion, not the provider's luck
+ * on a typed response.
+ */
+const DECLARED_E_HEAD_CELL_89 = [
+  "---",
+  "mode: prompt",
+  "---",
+  "schema Nope { a: number }",
+  "let a: Result<integer, Nope> = @`What is 306 plus 218? Answer with the number only.`",
+  "let n = 306 + 218",
+  "@`A computation produced the value ${n}. What is that value plus 341? Answer with the number only.`",
+  "",
+].join("\n");
+
+describe("H8a-T -- bug 0273: an undeclared head in a `Result<T, E>` annotation's `E` argument denies registration at the query capture, while the declared-`E` twin registers and drives, live (cell 89) (Convention: live-host acceptance)", () => {
+  it("refuses the undeclared `E` head at registration with theta/parse/unresolved-named-type on the theta-system-note channel, and drives the declared-`E` twin to normal completion through the real discovery->registration path (cell 89)", async () => {
+    // ATTRIBUTION GUARD (offline, token-free, ahead of the live host): the
+    // offender must carry exactly the one refusal and the twin must be clean,
+    // so neither live observable below can be produced by an unrelated load
+    // failure. Without the `E`-side resolution the offender's list is EMPTY,
+    // which is bug 0273's symptom, and this guard is what reds first, with zero
+    // tokens spent.
+    expect(
+      parseDoc(E_SIDE_UNDECLARED_CELL_89, "b0273livebad.theta").diagnostics.map((d) => d.code),
+      "attribution: the undeclared-`E` offender must carry exactly one diagnostic, " +
+        UNRESOLVED_NAMED_TYPE_CODE_CELL_89 +
+        " -- an EMPTY list here IS bug 0273's symptom (the peel handed the arm `T` alone, so `Nope` never reached the resolver) (cell 89)",
+    ).toEqual([UNRESOLVED_NAMED_TYPE_CODE_CELL_89]);
+    expect(
+      parseDoc(DECLARED_E_HEAD_CELL_89, "b0273livegood.theta").diagnostics.map((d) => d.code),
+      "attribution: the declared-`E` twin must carry zero diagnostics -- resolving the `E` argument must refuse an UNRESOLVABLE head, never the position (SS Non-goals: the builtin admission and a declared head stay silent) (cell 89)",
+    ).toEqual([]);
+
+    const provider = await requireLiveProvider();
+    const thetas: PlantedTheta[] = [
+      // Precondition control: an ordinary theta in the SAME workspace, so an
+      // absent offender cannot be misattributed to a broken workspace instead
+      // of the bug 0273 disposition under test.
+      { source: "project", stem: "b0273livectl", text: promptTheta("B0273-LIVE-OK") },
+      // THE REFUSED OBSERVABLE -- the `E`-side head resolves against no
+      // declaration, so the E-severity row blocks the registration gate.
+      { source: "project", stem: "b0273livebad", text: E_SIDE_UNDECLARED_CELL_89 },
+      // THE ADMITTED OBSERVABLE -- the same annotation with its head declared.
+      { source: "project", stem: "b0273livegood", text: DECLARED_E_HEAD_CELL_89 },
+    ];
+    const workspace = plantThetaWorkspace(thetas);
+    const handle = await bootShippedExtension({ workspace, provider });
+    try {
+      expect(
+        handle.command("b0273livectl"),
+        "the precondition control did not register -- a broken workspace, not the resolved `E` argument, would explain the offender's absence too. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 89)",
+      ).toBeDefined();
+      // The positive control for the absence assertion below: a REAL
+      // registration the same detector sees, in the same workspace, through the
+      // same walk.
+      expect(
+        handle.command("b0273livegood"),
+        "the declared-`E` twin did not register -- with no observable registration in this workspace the offender's absence proves nothing. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 89)",
+      ).toBeDefined();
+
+      // OBLIGATION 1 -- the offender is ABSENT from the registered set: no
+      // command object, and the name is not in the registered list. A theta
+      // whose error-model head resolves to nothing is not registrable and so
+      // not drivable.
+      expect(
+        handle.command("b0273livebad"),
+        "``let a: Result<integer, Nope> = @`q` `` registered through the live discovery/session_start path -- the `E` argument is still peeled away unresolved, so an annotation naming a declaration-free type became a slash command. Registered: " +
+          JSON.stringify(handle.registeredNames()) +
+          " (cell 89)",
+      ).toBeUndefined();
+      expect(
+        handle.registeredNames(),
+        "Registered: " + JSON.stringify(handle.registeredNames()) + " (cell 89)",
+      ).not.toContain("b0273livebad");
+
+      // The refusal's own text, off the settled in-memory `SessionManager`
+      // (AGENTS.md SS "Assert on real observables"): the load-time diagnostic
+      // fires before any drive, so the full entry list already carries it. The
+      // rendered head is `Nope` -- a note naming anything else would mean the
+      // resolution is reporting text the source does not contain.
+      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const expectedFragment = unresolvedNamedTypeFragmentCell89("Nope");
+      expect(
+        notes.some((note) => note.includes(expectedFragment)),
+        "no theta-system-note entry named " +
+          UNRESOLVED_NAMED_TYPE_CODE_CELL_89 +
+          " with the head `Nope` for the offender -- its absence from the registered set alone does not show WHY it is absent. Notes: " +
+          JSON.stringify(notes) +
+          " (cell 89)",
+      ).toBe(true);
+
+      // OBLIGATION 2 -- the declared-`E` twin drives one real turn to normal
+      // completion. `driveSlashCaptureTurn` reads the per-drive
+      // `theta-system-note` slice and the streamed text off the settled
+      // transcript; a fail-closed drive resolves too, so the notes are what
+      // separate completion from failure.
+      const turn = await driveSlashCaptureTurn(handle, "/b0273livegood");
+      expect(
+        turn.systemNotes,
+        "the declared-`E` twin's drive appended a theta-system-note (an err note, a cancelled note or a panic framing) -- not a normal completion. Notes: " +
+          JSON.stringify(turn.systemNotes) +
+          " (cell 89)",
+      ).toEqual([]);
+      expect(
+        turn.text.includes(DECLARED_E_SENTINEL_CELL_89),
+        "the declared-`E` twin's drive did not answer the task question over its own computed value (306 + 218 = 524, then + 341) -- streamed text: " +
+          JSON.stringify(turn.text) +
+          " (cell 89)",
       ).toBe(true);
     } finally {
       await handle.dispose();
