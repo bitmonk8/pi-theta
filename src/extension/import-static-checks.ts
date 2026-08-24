@@ -71,14 +71,13 @@ import {
   type ThetaLibModuleForms,
 } from "../parser/imports";
 import {
-  parseThetaDocument,
   resolveSubagentSessionConfigAt,
   type FnDecl,
   type ImportDecl,
   type ThetaBody,
   type ThetaDocument,
-  type ParseThetaDocumentDeps,
 } from "../parser/theta-document";
+import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import type { ParsedFrontmatter } from "../parser/frontmatter";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
@@ -293,6 +292,16 @@ export interface ThetaImportCheck {
   readonly diagnostics: Diagnostic[];
   /** The resolved `.thetalib` symbols materialised into the runtime environment (IMP-6 / IMP-7). */
   readonly imports: MaterializedImport[];
+  /**
+   * Bug 0264: the {@link diagnostics} subset the caller may still put on the
+   * channel this pass — `diagnostics` itself is unfiltered (the registration
+   * decision reads it whole, per §Fix) but some of its rows are the SAME
+   * `Diagnostic` objects `lexTheta` already delivered for this `.thetalib`
+   * earlier in the pass (this importer's own parse, or an earlier importer's).
+   * Computed once via `deps.parseDeps.passParseCache?.claimUndelivered`; equal
+   * to `diagnostics` when no pass cache is threaded (non-production callers).
+   */
+  readonly undelivered: readonly Diagnostic[];
 }
 
 /**
@@ -309,14 +318,14 @@ export async function checkThetaImports(
   input: ThetaCompositionInput,
   deps: {
     readonly fs: FileSystem;
-    readonly parseDeps: ParseThetaDocumentDeps;
+    readonly parseDeps: PassParseDeps;
   },
 ): Promise<ThetaImportCheck> {
   const diagnostics: Diagnostic[] = [];
   const imports: MaterializedImport[] = [];
   const importDecls = collectImports(input.body);
   if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return { diagnostics, imports };
+    return { diagnostics, imports, undelivered: diagnostics };
   }
 
   const fromFile = normalizePath(input.sourcePath);
@@ -337,7 +346,11 @@ export async function checkThetaImports(
       .readBytes(resolvedPath)
       .then(
         (bytes) => ({
-          document: parseThetaDocument({ path: resolvedPath, bytes }, deps.parseDeps),
+          // Bug 0264: this `.thetalib` may already be parsed this pass — by an
+          // earlier importer's own `parseThetaLib` cache miss, the discovery
+          // walk, or a closure walk — so route through the pass-scoped cache
+          // instead of parsing unconditionally.
+          document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
         }),
         () => undefined,
       );
@@ -789,5 +802,10 @@ export async function checkThetaImports(
     }
   }
 
-  return { diagnostics, imports };
+  // Bug 0264: compute the undelivered remainder ONCE, after every diagnostic
+  // this importer's checks produce has been pushed — `diagnostics` is
+  // complete at this point, so `claimUndelivered` sees the whole set this
+  // caller is about to hand `runComposePass`, not a partial prefix.
+  const undelivered = deps.parseDeps.passParseCache?.claimUndelivered(diagnostics) ?? diagnostics;
+  return { diagnostics, imports, undelivered };
 }

@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.261.0]
+
+### Fixed
+
+- Bug 0264: a malformed `.thetalib`/callee's lex rows delivered once per
+  parsing walk (lib+1 importer emitted 2 lex deliveries, 2 importers 4,
+  subagent callee 3). Route: a pass-scoped parse cache
+  (`src/extension/pass-parse-cache.ts`, one per compose pass, five parse
+  sites routed) plus the import-check drop group emitting only
+  `undelivered` rows — one delivery per file per load pass
+  (diagnostic-shape.md line 65), re-scan carve-out preserved.
+  Registration decisions still read the full unfiltered diagnostics.
+  Four-cell witness `tests/thetalib-reparse-walk-single-delivery.test.ts`
+  red at the measured over-counts, green at exactly 1; 0255's witness and
+  drop-arm filter byte-untouched; 0013's severity split held.
+
 ## [0.260.0]
 
 ### Fixed

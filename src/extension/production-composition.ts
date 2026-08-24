@@ -117,6 +117,11 @@ import {
   parseThetaDocument,
   type ThetaBody,
 } from "../parser/theta-document";
+import {
+  createPassParseCache,
+  parseViaPassCache,
+  type PassParseDeps,
+} from "./pass-parse-cache";
 import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
 import {
   parseToolsEntry,
@@ -588,7 +593,12 @@ async function runComposePass(
     return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
   };
   const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate);
-  const parseDeps = { systemNote, modelMatcher };
+  // Bug 0264: one pass-scoped parse cache, created here (never module-level —
+  // no global/static/singleton) and carried on `parseDeps` itself so a file
+  // reached by more than one walk in THIS pass is parsed once and its lex rows
+  // delivered once by construction; a later `composeExtensionInstance` pass
+  // (a watcher-triggered reload) gets a fresh cache and re-delivers.
+  const parseDeps: PassParseDeps = { systemNote, modelMatcher, passParseCache: createPassParseCache() };
 
   // INV-1 (invocation.md §Resolution): the active discovery-root union threaded
   // into the invoke containment check — the parent directory of every discovered
@@ -748,10 +758,9 @@ async function runComposePass(
   // surfaces its load/parse diagnostics (FM-3 / DIAG-1) and does not register.
   const parsedInputs: ThetaCompositionInput[] = [];
   for (const theta of discovered) {
-    const parsed = await parseDiscoveredTheta(fileSystem, theta, {
-      systemNote,
-      modelMatcher,
-    });
+    // Bug 0264: pass the pass-scoped `parseDeps` so this discovery parse
+    // rides the same pass cache every other walk below does.
+    const parsed = await parseDiscoveredTheta(fileSystem, theta, parseDeps);
     if ("dropped" in parsed) {
       // FM-3: surface the load/parse diagnostics that un-registered this theta,
       // as ONE per-file group — errors route per-diagnostic; any warnings
@@ -917,7 +926,13 @@ async function runComposePass(
       fs: fileSystem,
       parseDeps,
     });
-    sink.emitGroup(importCheck.diagnostics);
+    // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
+    // already excludes rows the pass cache saw `lexTheta` deliver for this
+    // library earlier in the same pass (route 1). The registration decision
+    // below still tests the FULL, unfiltered `importCheck.diagnostics`
+    // (§Fix: filtering the decision input would change a registration
+    // outcome, which this report does not license).
+    sink.emitGroup(importCheck.undelivered);
     if (importCheck.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       continue;
     }
@@ -1495,7 +1510,7 @@ export function checkThetaTypedQueryProviderSupport(input: {
 async function resolveCalleeArity(
   fs: FileSystem,
   absolutePath: string,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassParseDeps,
 ): Promise<CalleeArity | undefined> {
   const bytes = await fs.readBytes(absolutePath).then(
     (value) => value,
@@ -1504,7 +1519,10 @@ async function resolveCalleeArity(
   if (bytes === undefined) {
     return undefined;
   }
-  const document = parseThetaDocument({ path: absolutePath, bytes }, deps);
+  // Bug 0264: route through the pass-scoped cache — this callee may already
+  // have been parsed this pass (a discovered theta, or another `.theta`-callable
+  // arity check reaching the same file).
+  const document = parseViaPassCache({ path: absolutePath, bytes }, deps);
   if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
     return undefined;
   }
@@ -1917,7 +1935,7 @@ async function parseCalleeForTools(
   fs: FileSystem,
   callerDir: string,
   spec: string,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassParseDeps,
   activeRoots?: readonly string[],
 ): Promise<CalleeParse> {
   const absolute = isAbsolute(spec) ? spec : resolvePath(callerDir, spec);
@@ -1974,7 +1992,9 @@ async function parseCalleeForTools(
     }
   }
 
-  const document = parseThetaDocument({ path: absolute, bytes }, deps);
+  // Bug 0264: this callee may already be parsed this pass — the discovery
+  // walk, or another `tools:` entry naming the same `.theta`.
+  const document = parseViaPassCache({ path: absolute, bytes }, deps);
   if (document.frontmatter === null) {
     // The file exists but produced no parseable frontmatter — an existing callee
     // that failed its own structural checks (callee-has-errors), not a path that
@@ -2228,7 +2248,7 @@ async function parseCalleeTheta(
   ctx: ExtensionContext,
   callerPath: string | undefined,
   calleePath: string,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassParseDeps,
   // Bug 0001 (frontmatter-fields-a.md §`tools`): the callee's own `tools:`
   // resolves against the `pi.getAllTools()` registry snapshot mode-independently,
   // exactly like a discovered theta.
@@ -2243,7 +2263,9 @@ async function parseCalleeTheta(
   if (bytes === undefined) {
     return undefined;
   }
-  const document = parseThetaDocument({ path: absolute, bytes }, deps);
+  // Bug 0264: this callee's own dispatch parse may re-reach a path already
+  // parsed this pass (e.g. a callee named by two `invoke(...)` call sites).
+  const document = parseViaPassCache({ path: absolute, bytes }, deps);
   if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
     return undefined;
   }
@@ -2307,7 +2329,7 @@ async function resolveCallableClosureHash(
 async function collectCallableClosureSources(
   fs: FileSystem,
   ctx: ExtensionContext,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassParseDeps,
   callerPath: string | undefined,
   calleePath: string,
 ): Promise<readonly ClosureSource[]> {
@@ -2329,7 +2351,11 @@ async function collectCallableClosureSources(
       return;
     }
     sources.push({ path: absPath, content: decoder.decode(bytes) });
-    const document = parseThetaDocument({ path: absPath, bytes }, deps);
+    // Bug 0264: this closure walk re-parses each member on its own
+    // (doc-comment above); route through the pass cache so a member already
+    // parsed this pass — by the discovery walk, an importer, or another
+    // closure walk — is not re-parsed and does not re-trigger `lexTheta`'s emit.
+    const document = parseViaPassCache({ path: absPath, bytes }, deps);
     for (const statement of document.body.statements) {
       // Invariant: `statement.path` is `""` only for a statement already
       // refused at parse time (`theta/parse/import-missing-from-clause`,
@@ -2396,7 +2422,7 @@ type ParsedDiscoveredTheta =
 async function parseDiscoveredTheta(
   fs: FileSystem,
   theta: DiscoveredTheta,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassParseDeps,
 ): Promise<ParsedDiscoveredTheta> {
   const bytes = await fs.readBytes(theta.path).then(
     (value) => value,
@@ -2405,7 +2431,10 @@ async function parseDiscoveredTheta(
   if (bytes === undefined) {
     return { dropped: [] };
   }
-  const document = parseThetaDocument({ path: theta.path, bytes }, deps);
+  // Bug 0264: this is the discovery parse; when a `tools:` callee walk (or an
+  // importer) reaches the SAME file first this pass, the cache returns that
+  // parse instead of re-triggering `lexTheta`'s emit.
+  const document = parseViaPassCache({ path: theta.path, bytes }, deps);
   if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
     // A well-formed `.theta` carries `mode:` frontmatter and produces no
     // error-severity load/parse diagnostic; a frontmatter-less file cannot be
@@ -2436,7 +2465,7 @@ async function parseDiscoveredTheta(
           });
     // Bug 0255: `lexTheta` already delivered `document.deliveredDiagnostics`
     // through the V7d seam (`src/lexer/lexer.ts:131`/`:109`) before this parse
-    // ran; re-delivering them here (`:757`'s `sink.emitGroup`) would double-
+    // ran; re-delivering them here (`:768`'s `sink.emitGroup`) would double-
     // deliver every lex row. Exclude by object identity (a `Set`, not a code-
     // prefix test — `theta/parse/*` spans both the lex and parse phases, so a
     // prefix cannot tell them apart). `subagentFnFraming` is computed here, not

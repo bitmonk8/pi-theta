@@ -1,6 +1,9 @@
 # Bug 0264 — A malformed `.thetalib` (or callee `.theta`) puts its lex rows on the `theta-system-note` channel once per PARSING WALK, not once per file: `checkThetaImports`' `parseThetaLib`, the import-check drop group, `collectCallableClosureSources`' `visit` and `parseCalleeForTools` each reach `parseThetaDocument` with the real note channel, and bug 0255's object-identity filter sits only in `parseDiscoveredTheta`'s drop arm — one importer delivers the same lex row twice, two importers four times
 
-- **Status:** open
+- **Status:** fixed (0.261.0). The dedup point §Fix left open was adjudicated
+  in-run to candidate 2 (a pass-scoped parse cache) PLUS candidate 1 (the
+  import-check drop group's identity filter) — neither suffices alone; see
+  `## Fix (0.261.0)`.
 - **Sev/Diff estimate:** S3/D2 — author-visible: the same rendered line
   (`<file>:<line>:<col>: theta/parse/unterminated-template: …`) repeats 2×, 3×
   or 4× in one load pass, scaling with the number of importers and of callee
@@ -278,3 +281,117 @@ R3 of that run. Reproduced independently at HEAD `a6816b96` (v0.258.0) with the
 `b0264scratch` harness of §Reproduction, which established the per-importer
 scaling, the emitting-walk attribution by captured stack, and the (D)
 path-spelling divergence. Fifteenth set of bug 0255's lane find.
+
+## Fix (0.261.0)
+
+- Route adjudication (§Fix left the dedup point open; decided in-run on the
+  record): **candidate 2 (a pass-scoped parse cache) TOGETHER WITH candidate 1
+  (the import-check drop group's identity filter)**. Neither is sufficient
+  alone, and the reason is the lex/emit asymmetry the report measures:
+  - Candidate 1 alone cannot see (B), (C) or (D). A second *parse* mints fresh
+    `Diagnostic` objects, so bug 0255's object-identity test — the only test
+    §Non-goals permits, a code prefix being unable to separate the lex and
+    parse phases of `theta/parse/*` — has nothing of the first parse's
+    identity left to compare against.
+  - Candidate 2 alone cannot see (A) or (B)'s import-check surplus. That
+    surplus is a second *emit* of ONE parse's rows (`checkThetaImports` copies
+    the parsed library's registration-error rows into its returned group and
+    `runComposePass` emits that group once per importer), which a parse cache
+    does not touch.
+  Candidate 3 (a delivered-set inside the channel) stays rejected for the
+  reason 0255 recorded — state in a stateless seam — and is not needed: the
+  delivered-set this fix does keep lives in an explicitly injected,
+  pass-scoped object at the composition layer, not in the V7d seam.
+- What shipped:
+  - `src/extension/pass-parse-cache.ts` (new) — a pass-scoped, explicitly
+    injected `PassParseCache` pairing the two operations: `parse` memoises
+    `parseThetaDocument` for one compose pass, keyed by the
+    separator-normalised absolute path, with a cache HIT requiring
+    byte-identical bytes (a changed file always re-parses, never serves a
+    stale document); `claimUndelivered` returns and records, by object
+    identity, the subset of a diagnostic array not yet surfaced this pass,
+    seeded from every parse's `deliveredDiagnostics`. Also `PassParseDeps`
+    (`ParseThetaDocumentDeps` widened with the optional cache field) and
+    `parseViaPassCache`, which parses directly when the field is absent, so
+    every non-production / inert-channel caller is unaffected (constraint 4).
+  - `src/extension/production-composition.ts` — `runComposePass` constructs
+    exactly one cache per pass and carries it on `parseDeps` (no global,
+    static or singleton), so the cache rides the object already threaded to
+    every walk instead of a new parameter on six call sites. The five in-file
+    production parse sites (`resolveCalleeArity`, `parseCalleeForTools`,
+    `parseCalleeTheta`, `collectCallableClosureSources`' `visit`,
+    `parseDiscoveredTheta`) route through `parseViaPassCache`; the discovery
+    call site now passes `parseDeps` rather than an equivalent fresh literal.
+    The import-check emit becomes `sink.emitGroup(importCheck.undelivered)`
+    while the un-registration decision on the next line still tests the FULL,
+    unfiltered `importCheck.diagnostics` — filtering the decision input would
+    let a theta importing a broken library register, a registration-outcome
+    change this report does not license.
+  - `src/extension/import-static-checks.ts` — `ThetaImportCheck` gains
+    `undelivered`, computed once at the single return after every check's rows
+    are pushed (so the claim sees the complete set, not a prefix) and equal to
+    `diagnostics` when no cache is threaded; the inner `parseThetaLib` routes
+    through the pass cache while keeping its own per-call map. Bug 0013's
+    `isRegistrationError` severity split is byte-untouched: `undelivered` is an
+    identity subset of `diagnostics`, so no warning can enter the importer's
+    group and no error leaves it except one already on the channel this pass.
+  - `tests/thetalib-reparse-walk-single-delivery.test.ts` (new) — the
+    constraint-6 witness, offline and provider-free, driving the shipped
+    `composeExtensionInstance` over all four §Reproduction fixtures.
+- Gates: witness `npx vitest run
+  tests/thetalib-reparse-walk-single-delivery.test.ts` → 4 passed, RED at
+  `616c6d0e` on all four cells with the measured over-counts (A) 2, (B) 4,
+  (C) 3, (D) 2 against the expected 1 (re-verified in round 2 from a scratch
+  worktree at `616c6d0e`, removed afterwards); 0255's protected witness
+  `tests/lex-drop-single-delivery.test.ts` → 4 passed, file unmodified; full
+  default suite `npm test` → 436 files / 9166 tests passed; `npm run
+  typecheck` → clean; `npm run lint` → clean;
+  `tests/citation-symbol-form-gate.test.ts` → 3 passed with its pin
+  unchanged.
+- Live: none owed, decided on the record. The change moves note counts only —
+  no registration outcome, no diagnostic code, no severity, and no rendered
+  row content changes, and the whole defect is observable on `pi.sendMessage`
+  counts through host doubles. The nearest live surface is
+  `tests/live/unterminated-template-registration-live-cell.test.ts`, whose
+  exact-one assertion this fix must keep at exactly 1: its fixture is a single
+  discovered malformed `.theta`, so its one discovery parse is always a cache
+  MISS, `lexTheta` emits once, and 0255's drop-arm filter still removes the
+  re-delivery — the assertion cannot move. Read to confirm, not run.
+- Residuals:
+  1. The two observations §Actual flags are left as observations, unchased and
+     unfixed: a prompt-mode caller registering over a dropped subagent callee,
+     and the (D) path-spelling divergence (normalised vs Win32 separators for
+     one file across two walks). The cache KEY is separator-normalised so the
+     duplicate collapses, but no rendered path spelling is changed; the
+     witness's occurrence oracle normalises separators before counting for the
+     same reason. Filing material.
+  2. The cache instance is captured by the H8b `parseCallee` closure, so it
+     outlives the compose pass into runtime dispatch: a dispatch-time parse of
+     a byte-identical file reuses the load pass's document instead of
+     re-triggering `lexTheta`'s emit. Constraint 5 is unaffected — every
+     `runComposePass` invocation builds a fresh cache, so a watcher-triggered
+     reload re-parses and re-delivers — and no spec sentence pins
+     dispatch-time re-emission. Recorded because the retention is wider than
+     the pass.
+  3. The witness cannot red on a fix that silences route 1 entirely, because
+     in all four §Reproduction fixtures the broken file is also reached by a
+     drop group or the discovery drop arm. That route is fenced twice over
+     (§Non-goals forbids touching `src/lexer/**`; constraint 6 prescribes
+     exactly these four fixtures), so the gap is recorded, not closed.
+  4. Line-number drift: this fix grows
+     `src/extension/production-composition.ts` from 2914 to 2943 lines and
+     `src/extension/import-static-checks.ts` from 793 to 811, the shift
+     accumulating from each file's import block downwards, so `path:line`
+     citations into either file below that point are off by the amount that
+     has accumulated above them. The decay in these two
+     files is pre-existing and large — 65 citations spell
+     `production-composition.ts:2220` for `hasLoadParseError`, whose line was
+     already 2362 before this fix — and neither file is in the
+     `tests/citation-symbol-form-gate.test.ts` `CONVERTED_FILES` ratchet, so
+     the sweep is that ratchet's job, not this fix's. Corrected here: the two
+     citations in `tests/arg-mismatch-diagnostic-count-by-surface.test.ts` and
+     the one self-citation in `production-composition.ts`'s drop-arm comment,
+     each demonstrably accurate before this fix. NOT corrected: the stale
+     citations now carried by `tests/lex-drop-single-delivery.test.ts` and
+     `tests/live/unterminated-template-registration-live-cell.test.ts`, which
+     are 0255's protected witnesses and stay byte-unmodified.
