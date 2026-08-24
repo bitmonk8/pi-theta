@@ -19,7 +19,7 @@
 // discovery→registration path deciding whether a `.theta` carrying either shape
 // becomes a slash command, nor the note channel the settled `SessionManager`
 // carries — which is where the registration consequence of a `E`-severity code
-// (`hasLoadParseError`, src/extension/production-composition.ts:1502) is felt.
+// (`hasLoadParseError`, src/extension/production-composition.ts) is felt.
 // This cell drives both through the shipped production composition root
 // (`bootShippedExtension`), mirroring
 // `tests/live/empty-object-discriminator-field-withhold-live-cell.test.ts`, and

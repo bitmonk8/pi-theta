@@ -46,12 +46,12 @@ import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
 // A standing acceptance suite that drives the FULL documented language surface
 // THROUGH the production composition — the reload-less production compose
 // helper `discoverAndComposeFixtures`
-// (`src/extension/production-composition.ts:366`), which runs the same
-// `runComposePass` (`:433`) the shipped `session_start` composition root
-// `composeExtensionInstance` (`:1214`, wired by `extensions/index.ts` →
-// `src/extension/factory.ts:1146`) re-runs per pass, but without its
-// registration, `theta-system-note` load routing, hot reload, PIC-69
-// own-registration ledger, or PIC-59 envelope writer, the
+// (`src/extension/production-composition.ts`), which runs the same
+// `runComposePass` the shipped `session_start` composition root
+// `composeExtensionInstance` (wired by `extensions/index.ts` → the
+// `composeInstance` closure in `src/extension/factory.ts`) re-runs per pass,
+// but without its registration, `theta-system-note` load routing, hot reload,
+// PIC-69 own-registration ledger, or PIC-59 envelope writer, the
 // production `ThetaProducerDeps` (`createProductionProducerDeps` + `executeBody`),
 // and the real whole-file parser (`parseThetaDocument`) — rather than through the
 // isolated per-module seams. It is the regression net for the meta-failure the

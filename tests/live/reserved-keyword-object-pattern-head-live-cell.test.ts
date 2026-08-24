@@ -10,7 +10,7 @@
 // docs/spec_topics/diagnostics/code-registry-parse.md:21) whether or not a `{`
 // follows, and an error-severity `theta/parse/*` diagnostic denies
 // registration (`hasLoadParseError`,
-// src/extension/production-composition.ts:2220). The `{`-gated object arm
+// src/extension/production-composition.ts). The `{`-gated object arm
 // inside `parsePattern` (src/parser/theta-document.ts:4258–:4304) sits ABOVE
 // the tail-arm emission at :4314; before this fix the arm carried no guard of
 // its own, so the following `{` alone decided whether

@@ -95,7 +95,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // initialiser — so the declaration reaches the AST with `type: ""`.
 //
 // REGISTRATION is computed by replicating the composition root's own gate,
-// `hasLoadParseError` (src/extension/production-composition.ts:2220–2226): an
+// `hasLoadParseError` (src/extension/production-composition.ts): an
 // `error`-severity diagnostic whose code starts `theta/load/` or
 // `theta/parse/`. Every unannotated row below carries none, so each registers.
 //
@@ -466,8 +466,8 @@ function topKinds(doc: ThetaDocument): string[] {
  * The composition root's own registration gate, replicated: an
  * `error`-severity diagnostic whose code starts `theta/load/` or
  * `theta/parse/` denies registration (`hasLoadParseError`,
- * src/extension/production-composition.ts:2220–2226; the call site that drops
- * the document is `:2108`).
+ * src/extension/production-composition.ts; the call site that drops
+ * the document is `parseDiscoveredTheta`).
  */
 function registered(doc: ThetaDocument): boolean {
   return !doc.diagnostics.some(

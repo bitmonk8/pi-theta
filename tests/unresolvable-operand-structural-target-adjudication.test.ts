@@ -114,7 +114,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - src/parser/type-compat.ts:139 (`checkCompatible`), :218–226 (the TYPE-7
 //     arm and its unresolvable-`named` escape at :219–221), :246–248 (the
 //     TYPE-8 twin), :429 (`checkLetRhsCompat`), :478 (`checkFnArgCompat`).
-//   - src/extension/production-composition.ts:2220–2227 (`hasLoadParseError`) —
+//   - src/extension/production-composition.ts (`hasLoadParseError`) —
 //     why an `E`-severity parse code denies registration, i.e. why the group
 //     (B) silences are the difference between a theta that loads and one that
 //     does not.
@@ -797,7 +797,7 @@ describe("bug 0144 (E) — the value the parameter actually binds", () => {
   it("f2: the body parses clean and `g` receives `[1]`", async () => {
     // The parse verdict is asserted FIRST because an error-severity
     // `theta/parse/*` denies registration outright
-    // (src/extension/production-composition.ts:2220–2227), so it is what
+    // (`hasLoadParseError`, src/extension/production-composition.ts), so it is what
     // decides whether the body ever runs. The value is asserted second: it is
     // the measurement the report's original emission contradicted — a value
     // that satisfies `array<integer>` at a parameter declared `array<integer>`.

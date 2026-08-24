@@ -996,6 +996,39 @@ registration-denial cell in
 planted thetas isolating the refusal to the field's case, registration-only so
 it spends zero tokens.
 
+### Correction note — citation drift in the vouched-for sites (2026-08-24, recorded by the comment-repair maintenance pass at 616c6d0e, v0.258.0)
+
+This fix's own premise stands: **(a)**'s chosen site, `parseSchemaObjectBody`
+(`src/parser/theta-document.ts`), touches no line of `src/lexer/lexer.ts`, and
+that remains true at HEAD. What the sentence above additionally vouched for —
+that not touching `lexer.ts` left the two named citations stable — is false at
+HEAD. The drift accumulated across other, intervening fixes' edits to
+`lexer.ts`, not from this fix's own edits, which never touched that file.
+
+- **Bug 0051's `lexer.ts:873–874`.** At HEAD those two lines are doc-comment
+  prose inside the `BraceRegion`-classification comment above `classifyBrace`,
+  not the `schema` / `enum` arm the citing sentence names. That arm —
+  `contextualDiagnostics`'s declarator dispatch, the
+  `else if (t.text === "schema" || t.text === "enum") { checkName(k + 1,
+  "type"); }` branch — is at lines 1111–1112 of `src/lexer/lexer.ts` (the
+  `else if` header and the `checkName` call; the enclosing dispatch runs
+  1102–1113). Bug 0051's own appended correction note counts the same arm as
+  `:1112–1113` (body line plus closing brace, rather than header plus body);
+  both counts land on the same two-statement arm, and the one-line difference
+  is a boundary convention this note does not resolve either way.
+- **Bug 0135's `lexer.ts:842–849`.** Also stale at HEAD, independently: that
+  span straddles three constructs — the tail of the `BraceRegion` doc comment,
+  the `BraceRegion` declaration itself (a code line, not comment prose), and the
+  head of `classifyBrace`'s doc comment — so it is not the
+  `schema-case-mismatch` diagnostic push the citing sentence describes. That
+  push is the `else if (kind === "type" && !isUpper)` arm inside the `checkName`
+  closure declared in `contextualDiagnostics`, at lines 1056–1064 of
+  `src/lexer/lexer.ts`.
+
+Neither correction changes what this fix did or did not edit; both record
+that the sites it vouched for as unmoved have since moved, for reasons
+outside this fix's own diff.
+
 ## Provenance
 
 - **Origin:** residual 2 of bug 0139's fix report

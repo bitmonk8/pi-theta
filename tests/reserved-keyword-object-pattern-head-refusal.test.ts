@@ -47,7 +47,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // THE NODE SHAPE DOES NOT MOVE — still `{ kind: "object", typeName: t.text,
 // fields }` with the fields walked as today. The refusal is carried by the
 // error-severity diagnostic, which `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) turns into a registration
+// (src/extension/production-composition.ts) turns into a registration
 // denial; dropping the node would strand the field binders
 // `collectPatternBindings` (src/parser/theta-document.ts:5090, object arm at
 // :5098) puts in the arm-body scope and draw spurious
@@ -217,7 +217,7 @@ function expectDiagnostics(
 
 /**
  * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) is module-private — `rg -n
+ * (src/extension/production-composition.ts) is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
  * mirrored here clause for clause: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns

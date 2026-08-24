@@ -295,10 +295,10 @@ describe("H8a-T — bug 0242: a reserved keyword at a `for` variable or a schema
 
       // ---- Registration is UNCHANGED by this fix (§Fix constraint 6): both
       // fixtures carry an error-severity `theta/parse/*` diagnostic before and
-      // after, so `hasLoadParseError`
-      // (src/extension/production-composition.ts:2220, applied at `:2267`)
-      // drops them either way. These rows are what prove the fix removes a
-      // duplicate diagnostic and not a refusal.
+      // after, so `hasLoadParseError`, applied inside `parseDiscoveredTheta`
+      // (both in src/extension/production-composition.ts), drops them either
+      // way. These rows are what prove the fix removes a duplicate diagnostic
+      // and not a refusal.
       expect(
         handle.command(FOR_REFUSED_STEM),
         "bug-0242: a theta whose `for` iteration variable is the reserved " +

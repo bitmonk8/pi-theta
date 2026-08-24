@@ -10,7 +10,7 @@
 // must draw `theta/parse/unresolved-named-type` (Sev E, phase `parse`,
 // docs/spec_topics/diagnostics/code-registry-parse.md:101) at the head's range,
 // and an error-severity `theta/parse/*` diagnostic denies registration
-// (`hasLoadParseError`, src/extension/production-composition.ts:2220). The
+// (`hasLoadParseError`, src/extension/production-composition.ts). The
 // `{`-gated object arm inside `parsePattern` (symbol
 // `BodyParser.parsePattern`, src/parser/theta-document.ts:4284; arm gate
 // `if (this.isPunct("{"))` at :4355) ran bug 0219's token-kind guard at :4356

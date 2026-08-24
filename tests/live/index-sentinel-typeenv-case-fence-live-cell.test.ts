@@ -25,7 +25,7 @@
 // command, and what the `theta-system-note` channel a settled `SessionManager`
 // carries actually says about it. That channel is where an author meets this
 // defect, and `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) is module-private, so the
+// (src/extension/production-composition.ts) is module-private, so the
 // registration decision is only observable end to end. This cell drives the
 // shipped production composition (`bootShippedExtension`) and asserts on real
 // observables — `handle.command(...)`, `handle.registeredNames()`, and the note
@@ -242,7 +242,7 @@ describe("bug 0135 live: a `schema <lowercase>` declaration is refused for its c
       ).toBeDefined();
 
       // (a) REFUSED — the casing refusal is `E`, so `hasLoadParseError`
-      // (src/extension/production-composition.ts:2220) denies registration.
+      // (src/extension/production-composition.ts) denies registration.
       expect(
         handle.command("b0135livref"),
         "the lowercase-declaration document registered — code-registry-parse.md:20 carries E " +

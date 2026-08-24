@@ -11,7 +11,7 @@
 // `theta/parse/extra-object-field` (Sev E, phase `parse`,
 // docs/spec_topics/diagnostics/code-registry-parse.md:47) at the pattern's
 // range, and an error-severity `theta/parse/*` diagnostic denies registration
-// (`hasLoadParseError`, src/extension/production-composition.ts:2220).
+// (`hasLoadParseError`, src/extension/production-composition.ts).
 //
 // WHY the field list is unjudged today: bug 0221's landed check resolves the
 // head's NAME against a whole-file token scan (symbol

@@ -206,7 +206,7 @@ function messageFor(diags: readonly Diagnostic[], code: string): string | undefi
 
 /**
  * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) by construction: that function
+ * (src/extension/production-composition.ts) by construction: that function
  * is module-private — `rg -n 'export.*hasLoadParseError' src/` matches nothing —
  * so it cannot be imported, and the predicate is mirrored here instead, the
  * technique tests/index-element-alias-runtime-disposition.test.ts:185 already
@@ -399,7 +399,7 @@ describe("0135 (c) — a `schema <lowercase>` declaration the case rule refuses 
     // The bound on this face, asserted rather than assumed. The rows above
     // REMOVE a code, so the claim "the exposure is a wrong diagnostic on a
     // document that is already refused" has to survive the removal:
-    // `hasLoadParseError` (src/extension/production-composition.ts:2220) still
+    // `hasLoadParseError` (src/extension/production-composition.ts) still
     // has the `E`-severity casing refusal to act on in every one of them.
     const sources: ReadonlyArray<readonly [string, readonly string[]]> = [
       ["c1", C1],

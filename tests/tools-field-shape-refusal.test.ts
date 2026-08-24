@@ -23,14 +23,14 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // two node kinds — `isScalar` (:429) and `isSeq` (:436) — and answers
 // `undefined` for every other kind (:448). The `tools` arm of the frontmatter
 // key walk (:978–:983) records nothing else, and `:1303` spreads `tools` into
-// the returned frontmatter only when it is defined, so `resolveThetaToolsAtLoad`
-// (src/extension/production-composition.ts:1621, the early return at
-// :1643–:1652) cannot distinguish "no `tools:`" from "a `tools:` value that was
-// discarded" and answers `EMPTY_CALLABLE_SET` (:1608) for both. The theta
-// registers with the empty callable set and no diagnostic is emitted at any
-// severity — so `tools: {read: bash}` names `read` in the author's text and
-// delivers a theta whose model cannot call it and whose code raises
-// `theta/parse/unknown-identifier` on it
+// the returned frontmatter only when it is defined, so
+// `resolveThetaToolsAtLoad` (`src/extension/production-composition.ts`, on its
+// early no-`tools:` return) cannot distinguish "no `tools:`" from "a `tools:`
+// value that was discarded" and answers the same module's `EMPTY_CALLABLE_SET`
+// for both. The theta registers with the empty callable set and no diagnostic
+// is emitted at any severity — so `tools: {read: bash}` names `read` in the
+// author's text and delivers a theta whose model cannot call it and whose code
+// raises `theta/parse/unknown-identifier` on it
 // (docs/bugs/0104-tools-field-nonscalar-value-loads-empty-callable-set.md).
 //
 // This group is bug 0104's witness and is the field-level sibling of bug 0069's

@@ -3331,15 +3331,14 @@ describe("H8a-T — bug 0137: a literal invoke(...) call's provably mistyped arg
 // Bug 0139 — `docs/spec_topics/lexical.md:16` requires a lowercase-first `fn`
 // PARAMETER name and `code-registry-parse.md:19`'s Trigger already names the
 // parameter position, but the sole enforcer, `contextualDiagnostics`
-// (src/lexer/lexer.ts:810-851), reaches only the `let` / `let mut`, `fn`-NAME
-// and `schema`/`enum`-NAME positions through its keyword-adjacency dispatch
-// (`:876-886`) — a parameter name follows `(` or `,`, not a keyword, so no
-// call reaches it, and `parseFn`'s parameter loop
-// (src/parser/theta-document.ts:2151) took the name token and dropped
-// everything but its `.text`
-// (docs/bugs/0139-fn-parameter-name-case-rule-unenforced.md).
-// `fn h(P: string): number { 1 }` loaded with zero diagnostics and
-// registered.
+// (`src/lexer/lexer.ts`), reaches only the `let` / `let mut`, `fn`-NAME and
+// `schema`/`enum`-NAME positions through its keyword-adjacency dispatch (its
+// `let` / `fn` / `schema` / `enum` branches, same function) — a parameter name
+// follows `(` or `,`, not a keyword, so no call reaches it, and `parseFn`'s
+// parameter loop (src/parser/theta-document.ts:2151) took the name token and
+// dropped everything but its `.text`
+// (docs/bugs/0139-fn-parameter-name-case-rule-unenforced.md). `fn h(P: string):
+// number { 1 }` loaded with zero diagnostics and registered.
 //
 // The fix captures the parameter-name TOKEN rather than its bare text and
 // tests its first character against the same `[A-Z]` predicate `checkName`'s
@@ -3800,14 +3799,15 @@ describe("H8a-T — bug 0152: a `%` remainder by a static-zero integer divisor b
 });
 
 // ===========================================================================
-// Bug 0148 — `checkName`'s reserved-keyword arm (src/lexer/lexer.ts:819–828) is
-// reached through a three-branch keyword scan (`:876–886`) that no parameter
-// name enters, so a reserved spelling at a `fn` parameter name — a
-// `keyword`-kind token (src/lexer/lexer.ts:677) — is the parser leaf's to
-// classify: `parseFn`'s parameter loop draws the code on its keyword arm,
-// beside the `ident` guard (src/parser/theta-document.ts:2211) that carries bug
-// 0139's case code, as docs/spec_topics/lexical.md:20 and the position-free
-// *Trigger* at docs/spec_topics/diagnostics/code-registry-parse.md:21 require
+// Bug 0148 — `checkName`'s reserved-keyword arm (`src/lexer/lexer.ts`) is
+// reached through a three-branch keyword scan (`contextualDiagnostics`) that no
+// parameter name enters, so a reserved spelling at a `fn` parameter name — a
+// `keyword`-kind token (the `reserved.has(value) ? "keyword" : "ident"` tagging
+// in `scanTokens`, `src/lexer/lexer.ts`) — is the parser leaf's to classify:
+// `parseFn`'s parameter loop draws the code on its keyword arm, beside the
+// `ident` guard (src/parser/theta-document.ts:2211) that carries bug 0139's
+// case code, as docs/spec_topics/lexical.md:20 and the position-free *Trigger*
+// at docs/spec_topics/diagnostics/code-registry-parse.md:21 require
 // (docs/bugs/0148-reserved-keyword-fn-parameter-position-silent.md). The fix
 // classifies the parameter-name token in `checkName`'s own keyword-first order
 // at that leaf; the 44-cell unit witness
@@ -10257,7 +10257,7 @@ describe("H8a-T — bug 0202: a typed invoke<T> of a prompt-mode callee whose wi
 // WHAT THIS CELL ADDS OVER AN OFFLINE ROW. A `parseThetaDocument` row observes
 // the diagnostic array and stops there; it cannot observe the consequence the
 // report's §Why it matters leads with — the suppressed `E` leaves
-// `hasLoadParseError` (src/extension/production-composition.ts:2214–2221) with
+// `hasLoadParseError` (`src/extension/production-composition.ts`) with
 // nothing to act on through the REAL production composition root (session_start
 // → resources_discover → composeExtensionInstance → checkTypeLayer), so the
 // slash command is created and the mistyped call is bound unchecked at runtime.
@@ -10447,7 +10447,7 @@ describe("H8a-T — bug 0199: a withhold recorded for one `let` binding does not
 // (tests/annotation-nontype-text-refusal.test.ts) observes the diagnostic array
 // and stops there; it cannot observe the consequence the report's §Why it
 // matters leads with — the absent `E` leaves `hasLoadParseError`
-// (src/extension/production-composition.ts:2214) with nothing to act on through
+// (`src/extension/production-composition.ts`) with nothing to act on through
 // the REAL production composition root (session_start → resources_discover →
 // composeExtensionInstance → checkTypeLayer), so the slash command is created
 // and the theta runs with its declared constraint unenforced. REGISTRATION is
@@ -10573,7 +10573,7 @@ describe("H8a-T — bug 0124: a `let` annotation carrying a junk suffix does not
 // refusal.
 //
 // THE CODE-SPECIFIC OBSERVABLE. `hasLoadParseError`
-// (production-composition.ts:2214) is severity-and-namespace-only — it denies
+// (`production-composition.ts`) is severity-and-namespace-only — it denies
 // registration for ANY error-severity `theta/parse/*` diagnostic, not for this
 // one specifically. A bare registration-boolean assertion alone therefore
 // cannot attribute the subject's refusal to `theta/parse/type-as-value` rather

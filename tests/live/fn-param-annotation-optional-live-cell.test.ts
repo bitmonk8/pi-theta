@@ -42,8 +42,8 @@
 //   1. `handle.command(stem)` / `handle.registeredNames()` off the real
 //      `ExtensionRunner` — the unannotated-parameter theta must be PRESENT
 //      (an error-severity `theta/parse/*` diagnostic would deny registration:
-//      `hasLoadParseError`, src/extension/production-composition.ts:2220–2226,
-//      applied at `:2108`).
+//      `hasLoadParseError`, src/extension/production-composition.ts,
+//      applied in `parseDiscoveredTheta`).
 //   2. The driven turn's `userTexts` — the deterministic outbound-render
 //      channel — must carry the sentinel the theta computed by calling the
 //      unannotated-parameter function. This is the positive observable: it

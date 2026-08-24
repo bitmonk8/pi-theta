@@ -203,7 +203,7 @@
 // injected `deps.emitDiagnostic` recorder — with one bug-0034 delta:
 //
 //   Production's `rediscover` closure is built inside `composeExtensionInstance`
-//   (`src/extension/production-composition.ts:1193–1213`) and is not gateable
+//   (`src/extension/production-composition.ts`) and is not gateable
 //   from outside, so parking a rebuild deterministically needs a seam. This
 //   file takes the returned `ExtensionInstanceWiring` and replaces ONLY its
 //   `installHotReload` member with a call to the REAL

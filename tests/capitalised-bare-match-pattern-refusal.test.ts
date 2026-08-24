@@ -52,7 +52,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // THE RETURNED NODE IS UNCHANGED in both refusal cases — still
 // `{ kind: "identifier", name: t.text }`. The refusal is carried by the
 // error-severity diagnostic, which `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) turns into a registration
+// (src/extension/production-composition.ts) turns into a registration
 // denial. Two consequences this file asserts directly, because they are what
 // separates this route from "return a wildcard instead":
 //   - the binder still enters the arm-body scope
@@ -261,7 +261,7 @@ function expectDiagnostics(
 
 /**
  * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) is module-private — `rg -n
+ * (src/extension/production-composition.ts) is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
  * mirrored here clause for clause: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. It is what makes an

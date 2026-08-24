@@ -15,9 +15,9 @@
 // variable, the schema field name, the `params:` frontmatter field name, the
 // `enum` variant name, and both `import` / `export` specifier name slots. An
 // `error`-severity `theta/parse/*` diagnostic denies registration
-// (`hasLoadParseError`, src/extension/production-composition.ts:2220, applied
-// at `:2267`), so closing those positions is exactly what stops the refused
-// spellings registering and running.
+// (`hasLoadParseError`, applied inside `parseDiscoveredTheta` — both in
+// src/extension/production-composition.ts), so closing those positions is
+// exactly what stops the refused spellings registering and running.
 //
 // WHICH TWO FACES THIS CELL DRIVES, and why those two:
 //   - the `params:` FRONTMATTER FIELD NAME — the face that reaches the wire.

@@ -272,9 +272,9 @@ function mutAt(line: number, column: number): string {
 }
 
 /**
- * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:2220, applied at `:2267`) by
- * construction: that function is module-private — `rg -n
+ * Whether `diagnostics` blocks registration. This replicates, by construction,
+ * `hasLoadParseError` (src/extension/production-composition.ts) as applied
+ * inside `parseDiscoveredTheta` in that file: it is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so it cannot be imported,
  * and the predicate is mirrored here the same way and for the same reason
  * tests/reserved-keyword-remaining-identifier-positions.test.ts and

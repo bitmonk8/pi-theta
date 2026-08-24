@@ -816,9 +816,9 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     // `NamedType ::= Ident` (grammar.md:98) and lexical.md §Reserved keywords
     // bars every one of these 32 spellings from identifier position — the
     // split the lexer's own `keyword` / `ident` token-kind tagging already
-    // makes (lexer.ts:665). `IDENTIFIER` below does not make it, so a
-    // reserved spelling has to be dispositioned here, before it can reach —
-    // and always miss — the resolution map below (bug 0044 §Fix).
+    // makes (`scanTokens`, `src/lexer/lexer.ts`). `IDENTIFIER` below does not
+    // make it, so a reserved spelling has to be dispositioned here, before it
+    // can reach — and always miss — the resolution map below (bug 0044 §Fix).
     if (s === "true" || s === "false") {
       // `LiteralType ::= ... BOOLEAN ...` (grammar.md:102): a `Type` atom,
       // not a `NamedType`, matching what `parseLiteralArm` (below) already
@@ -1755,14 +1755,14 @@ export function isUnspellableTextRefusable(text: string): boolean {
 
 /**
  * Whether `text` carries a string literal that never closes: a `"` or `'`
- * opens a quoted region (a backslash inside one consumes the character
- * behind it, as `isSingleEnclosingBraceGroup` and `topLevelColon` above both
- * scan) and no matching quote closes it before the text ends. This is the
- * `params:` position's OWN detection (bug 0232 §Fix (b)): the type grammar
- * never reaches a `params:` field's recovered text, so no lexer arm
- * (`lexer.ts:522`) ever sees the unterminated literal the eight lexed
- * positions refuse on sight; this predicate is what stands in for that arm
- * here.
+ * opens a quoted region (a backslash inside one consumes the character behind
+ * it, as `isSingleEnclosingBraceGroup` and `topLevelColon` above both scan)
+ * and no matching quote closes it before the text ends. This is the `params:`
+ * position's OWN detection (bug 0232 §Fix (b)): the type grammar never reaches
+ * a `params:` field's recovered text, so no lexer arm (the
+ * `theta/parse/unterminated-string` arm of `scanTokens`, `src/lexer/lexer.ts`)
+ * ever sees the unterminated literal the eight lexed positions refuse on
+ * sight; this predicate is what stands in for that arm here.
  *
  * Deliberately independent of `isUnspellableTextRefusable`
  * (`isUnspellableTextRefusable`, above): that predicate's brace exemption is

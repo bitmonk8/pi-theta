@@ -29,18 +29,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 // them matching `NamedType ::= Ident`". lexical.md:3 applies every rule on that
 // page to `.theta` and `.thetalib` alike.
 //
-// WHERE THE CODE IS ENFORCED. `contextualDiagnostics` (src/lexer/lexer.ts:810)
-// owns the lexer half through its `checkName` worker (`:814`), whose FIRST arm
-// is this code: a `keyword`-kind token draws it and returns (`:819–828`), ahead
-// of the non-`ident` bail (`:829–831`) and the first-letter case tests
-// (`:832–850`). Everything positional lives in the caller, and the caller is a
-// keyword scan (`:876–886`) with exactly three branches — the identifier after
-// `let` (past the `mut` skip), after `fn`, and after `schema` / `enum`. A
-// parameter name's predecessor is `(` or `,`, punctuation, so no call reaches
-// it: the SHAPE of the scan excludes the position, not an omitted branch.
-// `contextualDiagnostics`'s own scope note (`:806–808`) hands the remainder
-// over in terms — "full identifier-position coverage (every reserved word in
-// every identifier slot) is a parser-leaf obligation".
+// WHERE THE CODE IS ENFORCED. `contextualDiagnostics` (`src/lexer/lexer.ts`)
+// owns the lexer half through its `checkName` worker, whose FIRST arm is this
+// code: a `keyword`-kind token draws it and returns, ahead of the non-`ident`
+// bail and the first-letter case tests later in `checkName`. Everything
+// positional lives in the caller, and the caller is a keyword scan with
+// exactly three branches — the identifier after `let` (past the `mut` skip),
+// after `fn`, and after `schema` / `enum`. A parameter name's predecessor is
+// `(` or `,`, punctuation, so no call reaches it: the SHAPE of the scan
+// excludes the position, not an omitted branch. `contextualDiagnostics`'s own
+// doc comment hands the remainder over in terms — "full identifier-position
+// coverage (every reserved word in every identifier slot) is a parser-leaf
+// obligation".
 //
 // WHY THE PARSER LEAF IS THE SITE. `parseFn`'s parameter loop
 // (src/parser/theta-document.ts:2151, loop `:2180–2242`) captures the name
@@ -50,14 +50,14 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `parseFn` serves the `subagent fn` form through its flag and both file
 // extensions through one call, so one branch there covers rows a10 and a11.
 // The `ident` guard at `:2211` is the classification's second arm: reserved
-// spellings lex as `kind: "keyword"` (`src/lexer/lexer.ts:677`,
-// `reserved.has(value) ? "keyword" : "ident"`, against the 32-member set at
-// `:159–166`), so the one token kind this code exists for is the one kind that
-// guard excludes. The guard is correct for the code it guards —
-// `binding-case-mismatch`'s *Trigger* (code-registry-parse.md:19) reads
-// "**Identifier** in a binding / parameter / fn-name / field-name position" —
-// which is why the keyword arm sits BESIDE it in `checkName`'s own
-// keyword-first order rather than inside it. `FnParam`
+// spellings lex as `kind: "keyword"` (the `reserved.has(value) ? "keyword" :
+// "ident"` tagging in `scanTokens`, `src/lexer/lexer.ts`, against the
+// 32-member set at `src/lexer/lexer.ts:159–166`), so the one token kind this
+// code exists for is the one kind that guard excludes. The guard is correct
+// for the code it guards — `binding-case-mismatch`'s *Trigger*
+// (code-registry-parse.md:19) reads "**Identifier** in a binding / parameter /
+// fn-name / field-name position" — which is why the keyword arm sits BESIDE it
+// in `checkName`'s own keyword-first order rather than inside it. `FnParam`
 // (src/parser/theta-document.ts:409–412) carries no range of its own, so the
 // name token's range is the only one a diagnostic at this position can carry,
 // which is what makes the range assertions below load-bearing.
@@ -441,7 +441,7 @@ describe("0148 (a) — a reserved keyword as a `fn` parameter name is a parse er
     // the two parameter-position codes are disjoint: bug 0139's case rule reads
     // the first letter and would judge `Ok` a violation if it saw it, and
     // `checkName`'s keyword-first order with its early return
-    // (src/lexer/lexer.ts:819–831) is why exactly one code lands.
+    // (`src/lexer/lexer.ts`) is why exactly one code lands.
     const doc = theta("fn h(Ok: string): number { 1 }\n");
     expect(
       codesOf(doc),
@@ -611,9 +611,9 @@ describe("0148 (a13)–(a21) — the conformant spelling and the enforced positi
   });
 
   it("a15: `let match = 1` reports it (control — the `let` adjacency)", () => {
-    // src/lexer/lexer.ts:876–882. This row and its five siblings are what make
-    // a red in group (a) attributable to the parameter POSITION: they prove the
-    // code, its message, its `E` severity and the harness all work.
+    // `contextualDiagnostics`'s `let` branch (`src/lexer/lexer.ts`). This row
+    // and its five siblings prove the code, its message, its `E` severity and
+    // the harness work, so a group (a) red is the parameter POSITION's alone.
     const doc = theta("let match = 1\n");
     expect(
       codesOf(doc),
@@ -636,7 +636,7 @@ describe("0148 (a13)–(a21) — the conformant spelling and the enforced positi
   });
 
   it("a17: `let mut match = 1` reports it (control — past the `mut` skip)", () => {
-    // The same adjacency with the modifier skipped (src/lexer/lexer.ts:877–882).
+    // The same `let` adjacency (`contextualDiagnostics`, `src/lexer/lexer.ts`).
     const doc = theta("let mut match = 1\n");
     expect(
       codesOf(doc),
@@ -647,10 +647,10 @@ describe("0148 (a13)–(a21) — the conformant spelling and the enforced positi
   });
 
   it("a18: `fn match(): number { 1 }` reports it (control — the `fn` NAME adjacency)", () => {
-    // src/lexer/lexer.ts:883–884 — the position immediately beside the
-    // parameter list yet enforced at the other site, and the reason the split
-    // is invisible from the spec: which keyword precedes the identifier is the
-    // whole discriminator for the lexer's scan.
+    // `contextualDiagnostics`'s `fn` branch (`src/lexer/lexer.ts`) — the position
+    // immediately beside the parameter list yet enforced at the other site, and
+    // the reason the split is invisible from the spec: which keyword precedes
+    // the identifier is the whole discriminator for the lexer's scan.
     const doc = theta("fn match(): number { 1 }\n");
     expect(
       codesOf(doc),
@@ -671,9 +671,9 @@ describe("0148 (a13)–(a21) — the conformant spelling and the enforced positi
   });
 
   it("a20: `schema Ok = string` reports it (control — the `schema` adjacency)", () => {
-    // src/lexer/lexer.ts:885–886, `checkName`'s `\"type\"` call. Its keyword arm
-    // is the same one, ahead of the PascalCase test, so a reserved spelling
-    // draws this code and not `schema-case-mismatch`.
+    // `checkName`'s `\"type\"` call (`src/lexer/lexer.ts`). Its keyword arm is
+    // the same one, ahead of the PascalCase test, so a reserved spelling draws
+    // this code and not `schema-case-mismatch`.
     const doc = theta("schema Ok = string\n");
     expect(
       codesOf(doc),
@@ -777,7 +777,7 @@ describe("0148 (c) — the type layer's verdict is unchanged and the two paramet
   it("coexistence: an uppercase parameter beside a reserved one draws both codes, ordered by column", () => {
     // The only form in which the two parameter-position codes can be observed
     // together. `checkName`'s order is keyword-first with an early return
-    // (src/lexer/lexer.ts:819–831), so ONE parameter is never both: the three
+    // (`src/lexer/lexer.ts`), so ONE parameter is never both: the three
     // uppercase-first reserved spellings `Ok` / `Err` / `Result` are claimed
     // by the keyword arm (row a3) before the case test runs. Two parameters
     // side by side is therefore the coexistence proof.
@@ -1023,7 +1023,7 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
   it("e14: `for let in xs { 1 }` names `let` at its own range, and names nothing else", () => {
     // RETAKEN TWICE. Bug 0153 §Fix (c) route (i) took this row to a
     // two-element list: the lexer's `let` adjacency
-    // (`contextualDiagnostics`, src/lexer/lexer.ts:810, the `let` arm past its
+    // (`contextualDiagnostics`, `src/lexer/lexer.ts`, the `let` arm past its
     // `mut` skip) treats any `let` keyword token as a `let`-statement head, so
     // it inspected the token AFTER the for-variable and named the grammar's
     // own `in` — and 0153 left `src/lexer/lexer.ts` unedited on the ground

@@ -373,8 +373,8 @@ function expectLines(
 }
 
 /**
- * `hasLoadParseError`'s predicate (src/extension/production-composition.ts:2214
- * — module-private, so restated rather than imported), evaluated over the
+ * `hasLoadParseError`'s predicate (src/extension/production-composition.ts —
+ * module-private, so restated rather than imported), evaluated over the
  * diagnostics a fixture actually emitted: a theta registers unless some
  * diagnostic is an error-severity `theta/load/*` or `theta/parse/*`. This is the
  * reachability link between the refusal and a theta that does not run — the
@@ -1345,7 +1345,7 @@ async function runClean(label: string, body: string): Promise<BodyExecution> {
 //
 // The FIX does not touch any of that. What it changes is whether the theta LOADS:
 // an error-severity `theta/parse/*` diagnostic makes `hasLoadParseError`
-// (src/extension/production-composition.ts:2214) deny registration, so the body
+// (src/extension/production-composition.ts) deny registration, so the body
 // never runs in production and none of e1 / e3 / e5 is reachable. e1/e3/e5
 // therefore assert the parse and the registration predicate; asserting their
 // executor values would pin a runtime this fix deliberately leaves alone.

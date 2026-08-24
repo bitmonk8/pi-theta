@@ -70,9 +70,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //   (`docs/spec_topics/diagnostics/placeholder-rendering-a.md:49`).
 //   REGISTRATION (group G) — the same eight fixtures, projected through the
 //   predicate the discovery parse-drop gate applies to a discovered `.theta`
-//   (`hasLoadParseError`, `src/extension/production-composition.ts:2214–2221`,
-//   at `:2261`): red because none of them carries the error-severity
-//   `theta/parse/*` that gate consumes.
+//   (`hasLoadParseError`, applied inside `parseDiscoveredTheta` — both in
+//   `src/extension/production-composition.ts`): red because none of them
+//   carries the error-severity `theta/parse/*` that gate consumes.
 //   ECHO (group E) — `e1` is group B's `s1` fixture driven as an in-memory
 //   theta (no `sourcePath`), the recovery's FIRST best-effort arm and the one
 //   arm a load refusal does not remove from the invocation path. It is red
@@ -148,10 +148,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // POST-FIX, the observables these rows pin: each of the eight load fixtures
 // draws ONE error-severity `theta/parse/default-not-literal` at the `params:`
 // field's own range, so `hasLoadParseError`
-// (`src/extension/production-composition.ts:2214–2221`, consumed by the
-// discovery parse-drop gate at `:2261`) denies registration and no binder call
-// is reachable for the spelling at all; and the echo reads the fill step's own
-// `defaultedWireNames`, so a field that took no default renders UNTAGGED
+// (`src/extension/production-composition.ts`), consumed by the discovery
+// parse-drop gate `parseDiscoveredTheta`, denies registration and no binder
+// call is reachable for the spelling at all; and the echo reads the fill step's
+// own `defaultedWireNames`, so a field that took no default renders UNTAGGED
 // (`Running /e1: topic=hello, sev=null`) while a field that genuinely took its
 // declared default keeps its tag (group B's `s1` / `s14`, byte-identical).
 //
@@ -684,15 +684,15 @@ function locatedRefusals(doc: ThetaDocument): LocatedRefusal[] {
 }
 
 /**
- * Whether these diagnostics deny the theta registration. This MIRRORS the
- * production predicate `hasLoadParseError`
- * (`src/extension/production-composition.ts:2214–2221`) rather than calling it:
- * `rg -n "export function hasLoadParseError" src/` matches nothing, so the
- * function is module-private and no test can reach it. The predicate is consumed
- * at three sites, of which the discovery parse-drop gate (`:2261`) is the one
- * that decides whether a discovered `.theta` becomes a runnable slash command;
- * the other two are the `.theta`-callable arity read (`:1496`) and the callee
- * composition step (`:2102`), both of which drop the file the same way.
+ * Whether these diagnostics deny the theta registration. This MIRRORS
+ * `hasLoadParseError` (`src/extension/production-composition.ts`) rather than
+ * calling it: `rg -n "export function hasLoadParseError" src/` matches nothing,
+ * so it is module-private and no test can reach it. It is consumed at four
+ * sites, three of which drop the file: the discovery parse-drop gate
+ * (`parseDiscoveredTheta`), which decides whether a discovered `.theta` becomes
+ * a runnable slash command, the `.theta`-callable arity read
+ * (`resolveCalleeArity`), and the callee composition step (`parseCalleeTheta`).
+ * The fourth (`parseCalleeForTools`) records a callee's `hasErrors` instead.
  *
  * Mirrored, not restated: an `error`-severity diagnostic whose code sits in the
  * `theta/load/` or `theta/parse/` namespace. Warnings never deny registration.
@@ -1054,9 +1054,9 @@ describe("bug 0185 (R) — the `params:` field's own range, calibrated against t
 // grammar.md:26 makes both identifier resolutions side conditions of the
 // `NamedValueLit` production itself, so a `params:` default is the same
 // reference the body draws the diagnostic for. Severity is `error` because
-// production-composition.ts:1729 registers a theta "iff no error-severity
-// diagnostic was raised" — a warning would leave the theta registered and the
-// invocation abort in place.
+// `resolveThetaToolsAtLoad` (`src/extension/production-composition.ts`)
+// registers a theta "iff no error-severity diagnostic was raised" — a warning
+// would leave the theta registered and the invocation abort in place.
 // ===========================================================================
 
 describe("bug 0185 (A1) — the bare annotated field refuses at load", () => {
@@ -1362,11 +1362,11 @@ describe("bug 0185 (B3) — CONTROL: a VALUE outside the variant set stays refus
 // `Running /m11: topic=hello, sev=null (default)` and `binderCalls = 1`. They
 // are not weakened, they are UNREACHABLE: an error-severity `theta/parse/*`
 // denies the theta registration (`hasLoadParseError`,
-// `src/extension/production-composition.ts:2214–2221`, at the discovery
-// parse-drop gate `:2261`), so production never composes a runnable command for
-// this fixture and no envelope, merge or echo exists for it. This cell therefore
-// does not drive: `parseDrivenCell` refuses a fixture that does not parse
-// cleanly, which is the harness's own statement of the same fact.
+// `src/extension/production-composition.ts`, at the discovery parse-drop gate
+// `parseDiscoveredTheta`), so production never composes a runnable command for
+// this fixture and no envelope, merge or echo exists for it. This cell
+// therefore does not drive: `parseDrivenCell` refuses a fixture that does not
+// parse cleanly, which is the harness's own statement of the same fact.
 //
 // The end state those five assertions described — a declared default admitted at
 // load and then absent from the merged args, with the echo claiming it was

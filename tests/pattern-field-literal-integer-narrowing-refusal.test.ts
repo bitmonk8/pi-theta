@@ -55,12 +55,12 @@ import type { ThetaValue } from "../src/runtime/value";
 //     filter above was not even reached.
 //
 // The spelling was DROPPED, not absent: `Token.numericType`
-// (src/lexer/lexer.ts:54, computed at src/lexer/lexer.ts:636 as
-// `isFractional ? "number" : "integer"`, pushed at src/lexer/lexer.ts:660) is
-// carried onto `NumberExpr` by the EXPRESSION path
-// (src/parser/theta-document.ts:4278, `numericType: t.numericType ?? "integer"`,
-// the field declared at src/parser/theta-document.ts:141) and, before this
-// fix, discarded by `BodyParser.parsePattern`'s number branch
+// (src/lexer/lexer.ts:54, computed in `scanTokens`'s number branch as
+// `isFractional ? "number" : "integer"`, pushed onto the token in that same
+// branch) is carried onto `NumberExpr` by the EXPRESSION path
+// (src/parser/theta-document.ts:4278, `numericType: t.numericType ??
+// "integer"`, the field declared at src/parser/theta-document.ts:141) and,
+// before this fix, discarded by `BodyParser.parsePattern`'s number branch
 // (src/parser/theta-document.ts:4628, then a bare `return { kind: "literal",
 // value: Number(t.text) }`), so the `PatternNode` literal variant
 // (src/parser/theta-document.ts:304) carried the parsed value alone. This fix
@@ -85,7 +85,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // `valuesEqual` in src/runtime/value.ts) stays byte-identical, so `1.0` keeps
 // matching the field value `1`. The greenable form of a wrong-arm claim is
 // therefore the registration DENIAL (`hasLoadParseError`,
-// src/extension/production-composition.ts:2220), never a changed value — which
+// `src/extension/production-composition.ts`), never a changed value — which
 // is why every (a) cell below asserts the denial and carries the arm the body
 // ANSWERS in its failure payload (A2 and A3 answer `"n-arm"` at HEAD).
 //
@@ -233,13 +233,13 @@ describe("0234 (r) — the registered row the refusal renders from, and the defe
     // — "The pattern-position TYPE-2 outcome (`theta/parse/integer-narrowing`)
     // is a deferral at that position: a pattern literal carries no lexed
     // numeric spelling to distinguish `1` from `1.0` …" — a cause that holds of
-    // the node bug 0226 built and not of the token at the site
-    // (src/lexer/lexer.ts:660 against src/parser/theta-document.ts:4628). Under
-    // disposition 1 that sentence is replaced by the emission rule, so the
-    // exact anchor required here is the ABSENCE of the substring
-    // "is a deferral at that position" from the WHOLE registry page — not only
-    // from this row — so the sentence cannot survive by moving elsewhere on the
-    // page.
+    // the node bug 0226 built and not of the token at the site (the lexer's
+    // `Token.numericType` field, `src/lexer/lexer.ts`, against
+    // src/parser/theta-document.ts:4628). Under disposition 1 that sentence is
+    // replaced by the emission rule, so the exact anchor required here is the
+    // ABSENCE of the substring "is a deferral at that position" from the WHOLE
+    // registry page — not only from this row — so the sentence cannot survive
+    // by moving elsewhere on the page.
     const found = row(TYPE_MISMATCH);
     expect(
       TYPE_MISMATCH_TEMPLATE,
@@ -432,7 +432,7 @@ function expectDiagnostics(
 
 /**
  * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) is module-private — `rg -n
+ * (`src/extension/production-composition.ts`) is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
  * mirrored here clause for clause: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns

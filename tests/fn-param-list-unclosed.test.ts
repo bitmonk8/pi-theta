@@ -29,9 +29,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // reaching EOF without a `)` is indistinguishable from finding one. The lexer
 // removes the boundary that would otherwise stop the loop —
 // `collapseContinuations` swallows a newline run while bracket depth is open
-// (src/lexer/lexer.ts:766, `depth > 0`), which is the spec's own first
-// continuation trigger and is correct for a bracket that CLOSES — so the file's
-// remainder joins the parameter list. Measured at HEAD:
+// (its `swallow = depth > 0 || …` test, `src/lexer/lexer.ts`), which is the
+// spec's own first continuation trigger and is correct for a bracket that
+// CLOSES — so the file's remainder joins the parameter list. Measured at HEAD:
 // `fn h(p: string { 1 }` loads with ZERO diagnostics, records the function's
 // own body `{`, `1` and `}` as three further parameters, and REGISTERS.
 //
@@ -54,7 +54,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      class): both the verdict and the recovery are withheld and the input
 //      keeps HEAD's exact behaviour.
 // The code is `E`, so `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) denies registration — the
+// (`src/extension/production-composition.ts`) denies registration — the
 // `registered` predicate asserted per row below is that gate's own
 // `!diagnostics.some(d => d.severity === "error")`.
 //
@@ -294,7 +294,7 @@ function tailKind(doc: ThetaDocument): string | null {
 
 /**
  * The composition root's own registration gate
- * (`hasLoadParseError`, src/extension/production-composition.ts:2220):
+ * (`hasLoadParseError`, `src/extension/production-composition.ts`):
  * `!diagnostics.some(d => d.severity === "error")`.
  */
 function registered(doc: ThetaDocument): boolean {
@@ -556,12 +556,12 @@ describe("0151 (b) — an unclosed list truncated at EOF is refused, beside the 
 
   it("c7: `fn h(a: string` + `let x = 1` — the `stringletx` capture is unchanged, and now reported", () => {
     // The one point where this defect reaches bug 0124's function: with the
-    // `stmt-sep` suppressed at depth > 0 (lexer.ts:766), `parseType`'s first
-    // stop is unreachable and the capture runs through the keyword `let` and
-    // the ident `x` to the depth-0 `=`, yielding the parameter type
-    // `stringletx`. That capture is 0124's business and is NOT changed here
-    // (bug 0151 §Non-goals); what changes is that the unclosed list is now
-    // named.
+    // `stmt-sep` suppressed at depth > 0 (`collapseContinuations`'s `swallow`
+    // test, `src/lexer/lexer.ts`), `parseType`'s first stop is unreachable and
+    // the capture runs through the keyword `let` and the ident `x` to the
+    // depth-0 `=`, yielding the parameter type `stringletx`. That capture is
+    // 0124's business and is NOT changed here (bug 0151 §Non-goals); what
+    // changes is that the unclosed list is now named.
     const doc = theta("fn h(a: string\nlet x = 1");
     expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([
       e(SINGLE_LINE_IF, "4:1-4:3"),

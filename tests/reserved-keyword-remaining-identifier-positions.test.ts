@@ -172,8 +172,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // value and buy no reach, and a live tier would make a fully determined value
 // stochastic. The one thing this tier cannot reach is the composition root's
 // registration decision, which the `blocksRegistration` rows mirror by
-// construction (`hasLoadParseError`,
-// src/extension/production-composition.ts:2220, applied at `:2267`) and which
+// construction (`hasLoadParseError`, applied inside `parseDiscoveredTheta` —
+// both in src/extension/production-composition.ts) and which
 // the standalone live cell
 // (tests/live/reserved-keyword-remaining-positions-live-cell.test.ts)
 // exercises end to end.
@@ -299,14 +299,14 @@ function mutAt(line: number, column: number): string {
 
 /**
  * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) by construction: that function
+ * (src/extension/production-composition.ts) by construction: that function
  * is module-private — `rg -n 'export.*hasLoadParseError' src/` matches nothing —
  * so it cannot be imported, and the predicate is mirrored here instead, the same
  * way and for the same reason tests/fn-param-name-reserved-keyword.test.ts and
  * tests/index-element-alias-runtime-disposition.test.ts mirror it. Its clauses
  * are the whole of the original: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. `parseDiscoveredTheta` applies it
- * at `:2267` and drops the theta.
+ * and drops the theta.
  */
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
   return diagnostics.some(
@@ -1064,8 +1064,8 @@ describe("0153 (L) — the AST and the lowered schema still carry the keyword ve
 // ===========================================================================
 
 describe("0153 (d) — each of the six positions stops registering, and the conformant controls do not", () => {
-  // The S1 cell: `hasLoadParseError`
-  // (src/extension/production-composition.ts:2220, applied at `:2267`) drops a
+  // The S1 cell: `hasLoadParseError`, applied inside `parseDiscoveredTheta`
+  // (both in src/extension/production-composition.ts), drops a
   // theta carrying any error-severity `theta/load/*` or `theta/parse/*`
   // diagnostic, so the emission the a-rows require is exactly what stops the
   // spellings lexical.md:20 refuses from loading, registering and running.

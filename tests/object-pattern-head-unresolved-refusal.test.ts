@@ -64,7 +64,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // runtime `Pattern` object variant (src/runtime/match-result.ts:113–:116) and
 // the bare-object-pattern arm (src/parser/theta-document.ts:4465) stay
 // byte-identical. The refusal is carried by the error-severity diagnostic that
-// `hasLoadParseError` (src/extension/production-composition.ts:2220) turns
+// `hasLoadParseError` (src/extension/production-composition.ts) turns
 // into a registration denial, so the wrong-arm rows are witnessed as
 // REGISTRATION DENIALS with the wrong arm's value carried in the failure
 // payload — never as a changed dispatch, which would be un-greenable under the
@@ -285,7 +285,7 @@ function expectDiagnostics(
 
 /**
  * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) is module-private — `rg -n
+ * (src/extension/production-composition.ts) is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
  * mirrored here clause for clause: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns

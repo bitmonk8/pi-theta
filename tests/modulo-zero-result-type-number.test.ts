@@ -1918,7 +1918,7 @@ describe("bug 0152 §Fix (c) — the `collectProvableArgTypes` mirror at the inv
 
 describe("bug 0152 — the registration consequence through the shipped composition root", () => {
   it("reg1: `let n: integer = 1 % 0` no longer registers, beside its two controls", () => {
-    // `hasLoadParseError` (src/extension/production-composition.ts:2220) drops a
+    // `hasLoadParseError` (src/extension/production-composition.ts) drops a
     // theta carrying an error-severity `theta/load/*` or `theta/parse/*`. Every
     // code this report is owed is `E`, so at this HEAD there is nothing for it
     // to act on and the affected theta REGISTERS AND RUNS — measured end to end

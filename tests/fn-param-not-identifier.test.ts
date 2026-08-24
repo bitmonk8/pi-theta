@@ -48,8 +48,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // epilogue consumed that token, and the emission gated on
 // `unclosed && !closeParenAbsorbed` (theta-document.ts:2515) did not run.
 // The lexer's
-// `collapseContinuations` (src/lexer/lexer.ts:742, `const swallow = depth > 0
-// || …` at `:766`) joins the following lines into the open list, so whole
+// `collapseContinuations` (its `const swallow = depth > 0 || …` test,
+// `src/lexer/lexer.ts`) joins the following lines into the open list, so whole
 // author statements are consumed token by token — but it is not necessary to
 // the defect (A4 and A5 below are single physical lines). Measured at HEAD
 // (v0.163.0, `3b11f739`): `fn h(a: string,` + `x = 1` + `) { 1 }` reports `[]`,
@@ -104,10 +104,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      string)` keeps `theta/parse/mut-on-immutable-context` ALONE (bug 0148
 //      §Fix (d), X2), while the NEXT iteration's token is judged normally (X3).
 // The new code is `E`, so `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) denies registration, and the
-// per-row `registered` predicate below is the composition root's own gate
-// (`const registered = !diagnostics.some((d) => d.severity === "error")`,
-// src/extension/production-composition.ts:1735).
+// (`src/extension/production-composition.ts`) denies registration, and the
+// per-row `registered` predicate below mirrors the composition root's own gate
+// inside `resolveThetaToolsAtLoad` (same file), which registers a theta iff no
+// error-severity diagnostic was raised.
 //
 // THE LEDGER — what each group pins:
 //   - (a) THE CLASS, newly refused (A1–A9): the deferred emission on the
@@ -353,9 +353,9 @@ function topKinds(doc: ThetaDocument): string[] {
 
 /**
  * The composition root's own registration gate
- * (`hasLoadParseError`, src/extension/production-composition.ts:2220):
- * `!diagnostics.some(d => d.severity === "error")`
- * (src/extension/production-composition.ts:1735).
+ * (`hasLoadParseError`, `src/extension/production-composition.ts`):
+ * `resolveThetaToolsAtLoad`'s `registered` predicate registers a theta iff no
+ * error-severity diagnostic was raised.
  */
 function registered(doc: ThetaDocument): boolean {
   return !doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
@@ -472,7 +472,7 @@ describe("0225 (a) — a parameter-name position holding a token no `Ident` deri
 
   it("A4: the ONE-LINE spelling `fn h(a: string, = 1) { 1 }` is refused — no newline continuation involved", () => {
     // This row removes the lexer from the argument. One physical line, so
-    // `collapseContinuations` (lexer.ts:742) suppresses nothing: the defect is
+    // `collapseContinuations` (`src/lexer/lexer.ts`) suppresses nothing: the defect is
     // the unconditional capture at theta-document.ts:2423, not the newline
     // rule. Columns on line 4: `f`=1, `n`=2, ` `=3, `h`=4, `(`=5, `a`=6,
     // `:`=7, ` `=8, `string`=9–14, `,`=15, ` `=16, `=`=17 → 4:17–4:18.

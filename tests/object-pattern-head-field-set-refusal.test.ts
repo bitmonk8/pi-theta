@@ -114,7 +114,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // NOTE on the type-half row's PHASE: `theta/parse/object-field-type-mismatch`
 // is registered phase `type` (:49) while its CODE sits in the `theta/parse/`
 // namespace, which is what `hasLoadParseError`
-// (src/extension/production-composition.ts:2220) keys on. So the type half
+// (src/extension/production-composition.ts) keys on. So the type half
 // denies registration exactly as the name half does — asserted in group (r)
 // and relied on by cells a3, a4, b8b, x6.
 //
@@ -460,7 +460,7 @@ function expectDiagnostics(
 
 /**
  * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts:2220) is module-private — `rg -n
+ * (src/extension/production-composition.ts) is module-private — `rg -n
  * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
  * mirrored here clause for clause: error severity, and a code in the
  * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns

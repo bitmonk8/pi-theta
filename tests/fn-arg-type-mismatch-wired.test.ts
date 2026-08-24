@@ -2602,12 +2602,12 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // `while` condition, the `match`-arm common type. What the entry IS therefore
 // decides what those rows say, and two properties are needed of it.
 //
-// (1) IT MUST NOT BE JUDGEABLE NOMINALLY. An entry minted from the binder's own
-// spelling resolves through `resolveNamed` wherever an author declared a schema
-// of that name, and TYPE-10 judges the read against a declaration the value
-// never touches. Measured over this fixture set, one route per row: a let-rhs
-// `expected integer, got P`, an object-field `expected string, got P`, a
-// `mixed-plus-operands` `P and integer`, a `non-orderable-operands`, an
+// (1) IT MUST NOT BE JUDGEABLE NOMINALLY. An entry minted from the binder's
+// own spelling resolves through `resolveNamed` wherever an author declared a
+// schema of that name, and TYPE-10 judges the read against a declaration the
+// value never touches. Measured over this fixture set, one route per row: a
+// let-rhs `expected integer, got P`, an object-field `expected string, got P`,
+// a `mixed-plus-operands` `P and integer`, a `non-orderable-operands`, an
 // `unknown-method 'frobnicate' on type P`, a `non-string-object-index`, a
 // `match-arm-type-mismatch`. So the entry carries a SENTINEL name
 // (`WITHHELD_BINDER_TYPE_NAME`, src/parser/type-layer-checks.ts:388) that no
@@ -2615,12 +2615,12 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
 // (`parseSchema` takes the declaration name with a single `advance().text`,
 // src/parser/theta-document.ts:2355, and `collectTypeEnv` keys the env by it,
 // src/parser/type-layer-checks.ts:346, :351), and no token text equals a
-// ten-character run that starts with `<` — an `ident` / `keyword` is
-// `[A-Za-z_][A-Za-z0-9_]*` (src/lexer/lexer.ts:666–682), a `punct` is one
-// character or a two-character operator from a fixed table (:704–714), a
-// `number` is digits and `.`, a `string`'s text is the RAW source slice and so
-// begins with its own quote (:544–549), `stmt-sep` is `\n`
-// and `eof` is empty. A casing
+// ten-character run that starts with `<` — in `src/lexer/lexer.ts` an
+// `ident`/`keyword` is `[A-Za-z_][A-Za-z0-9_]*` (`isIdentStart` /
+// `isIdentPart`), a `punct` is one character or a two-character operator from
+// a fixed table (`twoCharOperators`), a `number` is digits and `.`, a
+// `string`'s text is the RAW source slice and so begins with its own quote
+// (`scanTokens`'s `raw`), `stmt-sep` is `\n` and `eof` is empty. A casing
 // convention would not do the same work: lexical.md:16 scopes lowercase-first
 // to `let` / `let mut`, parameters, `fn` names and schema field names, so a
 // `for` / `par for` variable and a `match` binder are outside it — the two

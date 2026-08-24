@@ -140,12 +140,12 @@ import { parseDoc } from "./helpers/e2e-s1";
 // text, fully determined before any turn runs. The registration consequence is
 // reached the way the sibling unit locks reach it — by asserting the two
 // properties the shipped drop gate reads, error severity and the `theta/parse/`
-// namespace (`hasLoadParseError`,
-// src/extension/production-composition.ts:2214; the registration test
-// `!diagnostics.some((d) => d.severity === "error")` at `:1729`) — rather than by
-// re-driving discovery, which witnesses nothing more. The ONE observable a unit
-// row cannot reach, a real slash command that stops being created, is carried by
-// the additive H8a cell in tests/live/live-production-acceptance.test.ts.
+// namespace (`hasLoadParseError`, src/extension/production-composition.ts; and
+// `resolveThetaToolsAtLoad`'s `registered` predicate there, which registers a
+// theta iff no error-severity diagnostic was raised) — not by re-driving
+// discovery, which witnesses nothing more. The ONE observable a unit row cannot
+// reach, a real slash command that stops being created, is carried by the
+// additive H8a cell in tests/live/live-production-acceptance.test.ts.
 //
 // THE BASELINE THIS FILE PINS IS HEAD, NOT THE BUG DOCUMENT. §Reproduction was
 // measured at 0.71.0, fifty minors ago, and four of its rows do not re-derive:
@@ -533,7 +533,7 @@ function expectRefused(
 
 /**
  * The predicate `hasLoadParseError`
- * (src/extension/production-composition.ts:2214) computes, evaluated over the
+ * (src/extension/production-composition.ts) computes, evaluated over the
  * diagnostics this fixture actually emitted. This is the reachability link
  * between the refusal and a theta that does not register: without an
  * error-severity `theta/load/` or `theta/parse/` diagnostic the drop arm is not

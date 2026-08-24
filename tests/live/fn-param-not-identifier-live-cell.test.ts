@@ -13,9 +13,9 @@
 // author wrote for the list itself must now be REFUSED at parse under the new
 // registered row `theta/parse/fn-param-not-identifier` (Sev E, phase parse,
 // placeholder-free *Message* `fn parameter name must be an identifier`, ranged
-// on the FIRST refused token), and an error-severity `theta/parse/*`
-// diagnostic denies registration (`hasLoadParseError`,
-// src/extension/production-composition.ts:2220; the gate itself at `:1735`).
+// on the FIRST refused token), and an error-severity `theta/parse/*` diagnostic
+// denies registration — `hasLoadParseError` and the `registered` gate inside
+// `resolveThetaToolsAtLoad` (src/extension/production-composition.ts).
 // At HEAD (v0.163.0 `3b11f739`) `parseFn`'s loop takes the next token
 // unconditionally (`const pTok = this.advance();`,
 // theta-document.ts:2423) and pushes it as a `FnParam` (`params.push({ name: pTok.text, type: pType
@@ -112,10 +112,10 @@ describe("bug 0225 — a `fn` parameter name that no `Ident` derives is refused 
     const thetas: PlantedTheta[] = [
       // The refused shape: bug 0225 §Reproduction (A) A1's exact bytes. The
       // lexer joins the lines while bracket depth is open
-      // (src/lexer/lexer.ts:766), the `=` and the `1` are recorded as
-      // parameters, and the `)` on the third line is consumed as the list's
-      // closer. Pre-fix this registered with zero diagnostics; post-fix it
-      // must be absent from the registered set.
+      // (`collapseContinuations`'s `swallow` test, `src/lexer/lexer.ts`), the
+      // `=` and the `1` are recorded as parameters, and the `)` on the third
+      // line is consumed as the list's closer. Pre-fix this registered with
+      // zero diagnostics; post-fix it must be absent from the registered set.
       {
         source: "project",
         stem: "cellenotident",

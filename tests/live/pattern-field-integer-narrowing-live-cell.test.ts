@@ -15,7 +15,7 @@
 // (src/parser/theta-document.ts) now carries onto the `PatternNode` literal
 // variant, exactly as the expression path already carries it onto
 // `NumberExpr`. An error-severity `theta/parse/*` diagnostic denies
-// registration (`hasLoadParseError`, src/extension/production-composition.ts:2220).
+// registration (`hasLoadParseError`, src/extension/production-composition.ts).
 //
 // WHY the position was silent before this fix (docs/bugs/
 // 0234-pattern-field-literal-integer-narrowing-deferred.md §Root cause): the

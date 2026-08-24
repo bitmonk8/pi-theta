@@ -1016,14 +1016,14 @@ describe("bug 0113 — a package `pi.theta` universe whose readdir rejects repor
 // `severity === "warning"` with no code allow-list. Harness shape mirrors
 // tests/load-warning-delivery.test.ts:280-362 (the bug-0013 pin at :564).
 //
-// The composition root builds its own `PiFileSystem` from `ctx.cwd`
-// (production-composition.ts:330) and `ComposeSeamOverrides` (:175-194) carries
-// no filesystem seam, so this cell cannot inject the `ReaddirDenied` decorator.
-// It reaches the SAME universe-walk swallow on the real filesystem instead: the
-// static-prefix root of `g/**/*.theta` is `<ws>/.pi/g`, and a REGULAR FILE at
-// that path makes the real `fs.readdir` reject `ENOTDIR` — one of the three
-// codes discovery-sources.md:68 classifies as *unreadable* — with no ACL
-// manipulation and no platform branch. A glob entry never reaches
+// The composition root builds its own `PiFileSystem` from `ctx.cwd` inside
+// `buildRuntimeRoot` (production-composition.ts), and `ComposeSeamOverrides`
+// carries no filesystem seam, so this cell cannot inject the `ReaddirDenied`
+// decorator. It reaches the SAME universe-walk swallow on the real filesystem
+// instead: the static-prefix root of `g/**/*.theta` is `<ws>/.pi/g`, and a
+// REGULAR FILE at that path makes the real `fs.readdir` reject `ENOTDIR` — one
+// of the three codes discovery-sources.md:68 classifies as *unreadable* — with
+// no ACL manipulation and no platform branch. A glob entry never reaches
 // `classifyPath`, so no wrong-type arm sees this path either; under
 // adjudication (1)/(2) it is an unreadable-source warning.
 // ===========================================================================

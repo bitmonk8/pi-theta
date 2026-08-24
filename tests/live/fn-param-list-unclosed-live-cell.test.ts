@@ -10,14 +10,14 @@
 // `theta/parse/fn-param-list-unclosed` (Sev E, phase parse, ranged on the
 // opening `(`), and an error-severity `theta/parse/*` diagnostic denies
 // registration (`hasLoadParseError`,
-// src/extension/production-composition.ts:2220) — where at HEAD (pre-fix)
+// src/extension/production-composition.ts) — where at HEAD (pre-fix)
 // `parseFn`'s parameter loop (src/parser/theta-document.ts:2353) exits on `)`
 // or EOF indistinguishably, the lexer swallows every `stmt-sep` while bracket
-// depth is open (src/lexer/lexer.ts:766), and `fn h(p: string { 1 }` loaded
-// with ZERO diagnostics, recorded the function's own body `{`, `1` and `}` as
-// three further parameters, and REGISTERED
-// (docs/bugs/0151-unclosed-fn-parameter-list-accepted.md §Reproduction (a)
-// a2).
+// depth is open (`collapseContinuations`'s `swallow = depth > 0 || …` test,
+// `src/lexer/lexer.ts`), and `fn h(p: string { 1 }` loaded with ZERO
+// diagnostics, recorded the function's own body `{`, `1` and `}` as three
+// further parameters, and REGISTERED
+// (docs/bugs/0151-unclosed-fn-parameter-list-accepted.md §Reproduction (a) a2).
 //
 // This cell proves the fix through the real shipped load path —
 // `session_start` (→ `resources_discover`) → `composeExtensionInstance`, the
