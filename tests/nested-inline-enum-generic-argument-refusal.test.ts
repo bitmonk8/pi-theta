@@ -280,8 +280,8 @@ const DECL_NAME: Record<SinkPosition, string> = { field: "S", alias: "X", params
  * writes `f: 'T'`, which cannot carry a `T` containing an apostrophe — the
  * single-quoted spelling `array<enum['a', 'b', 'c']>` is one of the bug's own
  * in-class rows, and embedding it single-quoted yields an unrelated
- * `theta/load/missing-mode` from the broken YAML rather than this bug's
- * verdict. A type text carrying BOTH quote forms has no plain scalar spelling
+ * `theta/load/malformed-frontmatter-yaml` (bug 0263) from the broken YAML
+ * rather than this bug's verdict. A type text carrying BOTH quote forms has no plain scalar spelling
  * at all, so this THROWS naming that precondition rather than emitting a
  * fixture whose diagnostics belong to the quoting.
  */

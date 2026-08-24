@@ -177,9 +177,6 @@ const WIRE_COLLISION = "theta/parse/wire-name-collision";
 const REDUNDANT_WIRE = "theta/parse/redundant-wire-name";
 /** The sibling rule of the same `"inline-object-shape"` set (:86), group (i)'s probe. */
 const EMPTY_BODY = "theta/parse/empty-schema-body";
-/** The frontmatter surface an unusable YAML block resolves to (code-registry-load.md:17). */
-const MISSING_MODE = "theta/load/missing-mode";
-
 /**
  * The registry row's normative *Message* template with its named placeholders
  * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
@@ -276,9 +273,21 @@ function unclosedLine(): string {
   return line("error", UNCLOSED, msg(UNCLOSED, []));
 }
 
-/** The rendering of the surface an unusable frontmatter block resolves to. */
-function missingModeLine(): string {
-  return line("error", MISSING_MODE, msg(MISSING_MODE, []));
+/** The code bug 0263 §Fix adds for a frontmatter block the YAML parser rejects. */
+const MALFORMED_YAML = "theta/load/malformed-frontmatter-yaml";
+
+/** The rendering of a YAML-parse-failure diagnostic (bug 0263), fully located. */
+function malformedYamlLine(loc: { line: number; column: number }, text: string, scope: string): string {
+  return line(
+    "error",
+    MALFORMED_YAML,
+    msg(MALFORMED_YAML, [
+      ["<line>", String(loc.line)],
+      ["<column>", String(loc.column)],
+      ["<text>", text],
+      ["<scope>", scope],
+    ]),
+  );
 }
 
 // ===========================================================================
@@ -558,9 +567,13 @@ describe("bug 0052 (a) — every `Type` position refuses a repeated inline field
     // MEASURED, and not in the bug doc's §Reproduction, which probes the quoted
     // spelling only (C3). The unquoted spelling of THIS input is a YAML flow
     // mapping whose two `a` keys are a duplicate key, so the `yaml` parse
-    // errors and FM-5 (src/parser/frontmatter.ts:838–:851) discards the
-    // recovered contents: `map` becomes undefined and the block resolves to
-    // `theta/load/missing-mode`, with `frontmatter` null. The theta type
+    // errors and FM-5 (src/parser/frontmatter.ts, the discard around the
+    // `parseDocument` call) discards the recovered contents: `map` becomes
+    // undefined and the block resolves to `theta/load/malformed-frontmatter-yaml`,
+    // named at the `params:` field the duplicate key sits on, with `frontmatter`
+    // null (bug 0263 §Fix constraint 1 — the general frontmatter-parse-failure
+    // row now reports the parser's own `DUPLICATE_KEY` verdict in place of the
+    // `theta/load/missing-mode` this cell used to assert). The theta type
     // grammar never sees the body, so no rule of this walk can fire and this
     // spelling cannot carry a10's line. §Non-goals records the same disposition
     // for the sibling shape (two `p:` keys in one block) and leaves it to the
@@ -573,9 +586,15 @@ describe("bug 0052 (a) — every `Type` position refuses a repeated inline field
     // and not the flow mapping.
     expectList(
       paramsSrc(`  p: ${DUP}`),
-      [missingModeLine()],
-      "a11 — a duplicate YAML key drops the whole frontmatter before the theta type grammar " +
-        "runs, so the inline rule has no input at this spelling",
+      [
+        malformedYamlLine(
+          { line: 4, column: 19 },
+          "p: {a: integer, a: string}",
+          " (in 'params:' field 'p')",
+        ),
+      ],
+      "a11 — a duplicate YAML key breaks the block as YAML before the theta type grammar runs, " +
+        "so the inline rule has no input at this spelling",
     );
     expectList(
       paramsSrc("  p: {a: integer, b: string}"),

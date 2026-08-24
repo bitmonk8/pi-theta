@@ -13,7 +13,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // suite (frontmatter-contract.test.ts covered missing-mode / model-unresolved /
 // unknown-frontmatter-field / bind_context retention; these fill the remaining
 // value-validation load errors). Each drives the real `parseFrontmatter`
-// production entry (src/parser/frontmatter.ts:665). Expected diagnostic
+// production entry (src/parser/frontmatter.ts:980). Expected diagnostic
 // *Message* strings are sourced from the shipped emitter (the same string the
 // registry Message column pins).
 //

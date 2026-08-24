@@ -201,6 +201,7 @@ trigger.
 | `theta/load/invalid-encoding` | E | lex | `invalid UTF-8 encoding at byte offset <offset>` |
 | `theta/load/unknown-frontmatter-field` | W | load | `unknown frontmatter field '<field>'` |
 | `theta/load/deferred-frontmatter-field` | W | load | `frontmatter field '<field>' is reserved for a deferred theta 1.0 feature` |
+| `theta/load/malformed-frontmatter-yaml` | E | load | `frontmatter block is not valid YAML: parse error at line <line>, column <column> near '<text>'<scope>` |
 | `theta/load/missing-mode` | E | load | `frontmatter is missing required field 'mode:'` |
 | `theta/load/params-null` | E | load | `'params: null' is not permitted; omit 'params:' or use 'params: {}'` |
 | `theta/load/params-type-not-expression` | E | load | `'params:' field '<param>' right-hand side is not a theta type expression` |

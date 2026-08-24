@@ -21,7 +21,15 @@ import {
   normaliseLiteralValueLineBreaks, type Diagnostic,
   type SourceRange,
 } from "../diagnostics/diagnostic";
-import { LineCounter, parseDocument, isMap, isScalar, isSeq, type Node } from "yaml";
+import {
+  LineCounter,
+  parseDocument,
+  isMap,
+  isScalar,
+  isSeq,
+  type Node,
+  type YAMLError,
+} from "yaml";
 import { type LoweredSchema } from "../seams/schema-validator";
 import {
   parseParams,
@@ -351,6 +359,91 @@ function rangeOf(
   return {
     start: { line: start.line + lineOffset, column: start.col },
     end: { line: end.line + lineOffset, column: end.col },
+  };
+}
+
+/** The count of leading space/tab characters on `line`. */
+function indentOf(line: string): number {
+  return line.length - line.replace(/^[ \t]+/, "").length;
+}
+
+/**
+ * The YAML scalar key `line`'s trimmed text spells, when it spells one
+ * (bare, or single-/double-quoted) followed by `:`. `undefined` when the
+ * trimmed text is not shaped as a mapping-entry key.
+ */
+function yamlKeyOf(line: string): string | undefined {
+  const match = /^([A-Za-z0-9_-]+|'[^']*'|"[^"]*")\s*:/.exec(line.trim());
+  if (match === null) {
+    return undefined;
+  }
+  const raw = match[1] as string;
+  return raw.startsWith("'") || raw.startsWith('"') ? raw.slice(1, -1) : raw;
+}
+
+/**
+ * The `params:` field name that encloses `blockLines[targetIdx]`, for bug
+ * 0263's `<scope>` clause: the failing line is inside a `params:` block only
+ * when a top-level (zero-indent) `params:` line precedes it with nothing but
+ * indented (or blank) lines in between, and the failing line itself spells a
+ * field key. `undefined` for a top-level failure, or one inside some other
+ * block.
+ */
+function enclosingParamsField(
+  blockLines: readonly string[],
+  targetIdx: number,
+): string | undefined {
+  const targetLine = blockLines[targetIdx] ?? "";
+  if (targetLine.trim() === "" || indentOf(targetLine) === 0) {
+    return undefined;
+  }
+  for (let i = targetIdx - 1; i >= 0; i -= 1) {
+    const line = blockLines[i] ?? "";
+    if (line.trim() === "") {
+      continue;
+    }
+    if (indentOf(line) === 0) {
+      return line.trim() === "params:" ? yamlKeyOf(targetLine) : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * FM-5's report for a frontmatter block the YAML parser rejects (bug 0263):
+ * one diagnostic keyed to `doc.errors[0]`, naming the position and the
+ * offending source line it carries. Multiple `YAMLParseError`s from the same
+ * authoring mistake (bug 0263 §Fix constraint 8) all key to this one — only
+ * `firstError` is read. A report is always produced, so the refusal never
+ * loses its only error-severity diagnostic: the position field is optional on
+ * the error type, and an error carrying none falls back to the block's own
+ * first character, which keeps the row's rendering total and lets the
+ * required-`mode:` arm key on the rejection itself.
+ */
+function malformedFrontmatterYamlDiagnostic(
+  blockYaml: string,
+  firstError: YAMLError,
+  lineOffset: number,
+  file: string,
+): Diagnostic {
+  const pos = firstError.linePos?.[0] ?? { line: 1, col: 1 };
+  const blockLines = blockYaml.split("\n");
+  const targetIdx = pos.line - 1;
+  const rawLine = blockLines[targetIdx] ?? "";
+  const text = normaliseLiteralValueLineBreaks(rawLine.trim());
+  const line = pos.line + lineOffset;
+  const column = pos.col;
+  const param = enclosingParamsField(blockLines, targetIdx);
+  const scope = param === undefined ? "" : ` (in 'params:' field '${param}')`;
+  return {
+    severity: "error",
+    code: "theta/load/malformed-frontmatter-yaml",
+    file,
+    // End-exclusive per the diagnostic shape: a one-column span at the
+    // reported position, the narrowest located extent the parser's verdict
+    // supports — the failure is a position, not a token the parser recovered.
+    range: { start: { line, column }, end: { line, column: column + 1 } },
+    message: `frontmatter block is not valid YAML: parse error at line ${line}, column ${column} near '${text}'${scope}`,
   };
 }
 
@@ -902,18 +995,34 @@ export function parseFrontmatter(
   // FM-5: refuse a partially-recovered YAML parse. The `yaml` lib recovers from
   // malformed input (e.g. `x: : :`) and exposes the damage in `doc.errors`;
   // consuming its partial `contents` as if well-formed would register a theta
-  // built from frontmatter the parser itself rejected. The closed diagnostics
-  // registry (docs/reference/diagnostics.md) has NO dedicated malformed-YAML
-  // code, so a YAML parse failure degrades to the documented "no recognised
-  // frontmatter mapping" surface: discard the recovered `contents` so `map`
-  // becomes undefined and `theta/load/missing-mode` fires (the same surface
-  // `extractFrontmatterBlock` resolves an unusable frontmatter block to).
+  // built from frontmatter the parser itself rejected. Discard the recovered
+  // `contents` so `map` stays undefined and no recognised field is read off a
+  // partial parse; `doc.errors[0]` carries the position and offending text
+  // the diagnostic below is built from (bug 0263), so the report names the
+  // parser's own verdict rather than falling through to the "no recognised
+  // frontmatter mapping" surface `theta/load/missing-mode` covers.
   const yamlErrored = doc !== undefined && doc.errors.length > 0;
   const map =
     doc !== undefined && !yamlErrored && isMap(doc.contents)
       ? doc.contents
       : undefined;
   const lineOffset = block?.lineOffset ?? 0;
+  if (yamlErrored) {
+    // `yamlErrored` is true only for a non-empty error list, so the first
+    // element is present; the report is total, which is what lets the
+    // required-`mode:` arm below key on the rejection alone.
+    const firstError = doc?.errors[0];
+    if (firstError !== undefined) {
+      diagnostics.push(
+        malformedFrontmatterYamlDiagnostic(
+          block?.yaml ?? "",
+          firstError,
+          lineOffset,
+          file,
+        ),
+      );
+    }
+  }
 
   // The recognised fields the contract pins behaviour for.
   let modeValue: string | undefined;
@@ -1107,8 +1216,12 @@ export function parseFrontmatter(
     }
   }
 
-  // Required `mode:`.
-  if (modeValue === undefined) {
+  // Required `mode:`. A block the YAML parser rejected already drew
+  // `theta/load/malformed-frontmatter-yaml` above and never reached the field
+  // loop, so `modeValue === undefined` there is a statement about the
+  // discard, not the source (bug 0263 §Fix constraint 1) — gate this arm to
+  // a block that parsed and genuinely omits `mode:`.
+  if (modeValue === undefined && !yamlErrored) {
     diagnostics.push({
       severity: "error",
       code: "theta/load/missing-mode",

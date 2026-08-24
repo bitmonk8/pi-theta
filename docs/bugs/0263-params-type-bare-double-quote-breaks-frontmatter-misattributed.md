@@ -1,6 +1,6 @@
 # Bug 0263 — A `params:` field type whose text STARTS with a quote character — the unwrapped literal union `p: "a" | "b"` — is not valid YAML, so FM-5 discards the whole recovered frontmatter document and the sole diagnostic is `theta/load/missing-mode` with `mode: prompt` literally present: the three `YAMLParseError`s naming line, column and the offending text are dropped unread, no diagnostic names `params:`, the field, or the type text, and the author's actual mistake — one pair of enclosing single quotes — is invisible
 
-- **Status:** open
+- **Status:** fixed (0.262.0)
 - **Sev/Diff estimate:** S3/D2 — a wrong-attribution diagnostic on a common
   authoring shape (the spec's own literal-union type text written on a
   `params:` line), fail-closed and total: the theta does not register, and
@@ -241,6 +241,117 @@ Constraints, whichever route is taken:
 8. **Multiple errors reduce deterministically.** The first row produces three
    `YAMLParseError`s for one authoring mistake. One diagnostic per frontmatter
    block, keyed to the first error in `doc.errors` order.
+
+## Fix (0.262.0)
+
+- **Re-measurement at HEAD `616c6d0e` (v0.258.0), before any edit.** Every
+  §Reproduction row reproduces as filed, with two corrections to the report.
+  (1) Row 1's three `doc.errors` entries are two `UNEXPECTED_TOKEN` plus a
+  third whose code is `MISSING_CHAR` at block line 4, column 1 — the COUNT
+  (three) and the FIRST error's position (block line 3, column 10) are exact,
+  and §Fix constraint 8 keys on the first error, so nothing shipped depends on
+  the third. (2) The positions `doc.errors` carries are BLOCK-relative; the
+  frontmatter block's line offset is 1 for a leading `---` fence, so the file
+  coordinate is the block line plus one with the column carried through — the
+  same transform `parseFrontmatter` already applies to its other ranges.
+- **Route: the general row, not a `params:`-scoped pre-check.** §Fix left the
+  choice adjudicable; the general row is taken, for three reasons on the
+  record. (a) Constraint 7 requires `BLOCK_AS_IMPLICIT_KEY` to be covered
+  together with `UNEXPECTED_TOKEN`; a report keyed on the parser's own verdict
+  covers every error class by construction, where a `params:`-scoped quoting
+  pre-check would have to re-implement YAML's quoting rules separately for
+  each. (b) The trigger is the parser's verdict rather than a prediction of
+  it, which is §Fix's own stated reason for preferring this route. (c) The
+  discard is reached from spellings that are not `params:` fields at all — an
+  unquoted comma-leading `tools:` scalar and a duplicate top-level key both
+  land there — and constraint 1 demands that every collapsing block with a
+  present `mode:` stop drawing `theta/load/missing-mode`, which a
+  `params:`-scoped route cannot deliver.
+- **What shipped:**
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — one new row,
+    `theta/load/malformed-frontmatter-yaml` (E, load), with *Trigger*, *Spec
+    rule*, *Hint* and *Message*. The *Trigger* states the parser's rejection,
+    the refusal of the partially-recovered parse, the one-diagnostic-per-block
+    rule keyed to the first reported error, the non-registration, the
+    suppression of every other frontmatter diagnostic for the same block
+    (`theta/load/missing-mode` included, whose own *Trigger* is unamended),
+    and the full rendering of `<line>`, `<column>`, `<text>` and `<scope>`
+    including `<scope>`'s empty-string arm. The *Hint* names the quoting
+    remedy for the leading-quote class (constraint 3).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — the four new
+    placeholders admitted into the closed placeholder vocabulary in the same
+    file-set as the row, per the closure's same-commit rule: `<line>` and
+    `<column>` join the numeric category with a scope clause pinning them to
+    1-indexed file coordinates, and `<text>` and `<scope>` are admitted as a
+    new bespoke closure clause (h) whose rendering lives inline in the row's
+    own *Trigger*, the same shape the existing bespoke `<list>`, `<read>` and
+    `<binder>` clauses take. Clause (h) also states the thing no prior clause
+    had to: `<scope>` is CONDITIONAL, so an admitted interpolation may render
+    zero bytes.
+  - `docs/reference/diagnostics.md` — the DIAG-2 mirror row, same relative
+    position, carrying the stable-contract columns only.
+  - `src/parser/frontmatter.ts` — FM-5's discard now builds the report from
+    the first error it already holds: the file-coordinate position, the
+    offending source line trimmed and line-break-normalised through the
+    existing `theta/load/*` normalisation (constraint 4, so an embedded break
+    cannot reach a single-line message), and a `(in 'params:' field
+    '<param>')` clause when the failing line sits inside the `params:` block
+    and itself spells a field key (constraint 2). Exactly one such diagnostic
+    per block (constraint 8), located as a one-column end-exclusive span at
+    the reported position. The report is TOTAL for a rejected block: the
+    position field is optional on the parser's error type, and an error
+    carrying none falls back to the block's own first character rather than
+    yielding no report — so the required-`mode:` arm gates on the rejection
+    alone, the registry's statement that `theta/load/missing-mode` fires only
+    on a block that PARSES holds without qualification, and no path exists on
+    which a rejected block loses its only error-severity diagnostic
+    (constraint 5). The FM-5 comment no longer cites the registry's lack of a
+    malformed-YAML code, which is no longer true.
+  - `tests/frontmatter-yaml-parse-failure-diagnostic.test.ts` — 33 cells: a
+    green oracle group deriving every expected coordinate from the parser's
+    own reported position rather than a hand count; the five collapsing
+    §Reproduction rows including the `BLOCK_AS_IMPLICIT_KEY` one; the
+    located-ness and the single-line-message check; two non-`params:` failures
+    proving the empty `<scope>` arm; the one-diagnostic-per-block rule; the
+    six constraint-6 fences (the `p: '"a" | "b"'` control's `enum` lowering
+    among them) and the §Non-goals `p: "a"` fence; the constraint-1 fence that
+    a genuinely absent `mode:` keeps its own code and message; the
+    constraint-5 non-registration fences; and the two DIAG-2 mirror cells.
+  - `tests/live/b0263live-frontmatter-yaml-parse-failure-live-cell.test.ts` —
+    the live cell for the registration-side statement: the unquoted offender
+    stays out of the registered set through the real discovery → load →
+    `pi.registerCommand` path under the new located code, while its
+    byte-neighbour (the one pair of enclosing single quotes the *Hint* names)
+    registers and drives a real turn over both bound `params:` fields.
+  - Four protected FM-5 witness cells flipped under constraint 1's
+    pre-authorization, each from `theta/load/missing-mode` to the new located
+    code: `tests/params-block-mapping-rhs-refusal.test.ts` (d5, fixture I),
+    `tests/params-inline-object-lowering.test.ts` (e7, now sourcing its
+    expected message from the registry per DIAG-4 instead of copied prose),
+    `tests/inline-object-duplicate-field-name.test.ts` (a11, first assertion
+    only) and `tests/tools-field-zero-entry-scalar-refusal.test.ts` (E4, four
+    rows; `registered === false` unchanged, and bug 0206's own rule for that
+    group is untouched). The remaining test-file edits are comment-only:
+    prose that named the collapse's old code, and citations into
+    `src/parser/frontmatter.ts` made stale by this diff's line shift.
+- **Constraint 7 — `BLOCK_AS_IMPLICIT_KEY` is covered.** The report keys on
+  the first error whatever its class, so `p: array<{a: string}>` draws the
+  same located diagnostic as the leading-quote rows and names the `params:`
+  field. **Bug [0028](./0028-unresolved-annotation-silent-permissive-lowering.md)
+  §Residuals (iv) is discharged**, and with it the deferrals bugs
+  [0035](./0035-params-rhs-inline-object-under-emission.md),
+  [0041](./0041-params-block-mapping-rhs-silent-permissive.md) and
+  [0056](./0056-params-literal-sublanguage-absent-lowers-permissive.md) each
+  recorded against it. Coordination notes are appended to all four.
+- **§Non-goals held.** The unquoted spelling is still not admitted — the
+  authored form stays `p: '"a" | "b"'`. The adjacent `p: "a"` row keeps
+  exactly `theta/parse/unresolved-named-type 'a'` on its well-formed
+  frontmatter, fenced by its own cell. No row with an empty error list moved.
+- **Not H9a-reachable.** A real H9a acceptance run (15 files, 25 cells, all
+  green) captured no emission of the new code: nothing in the shipped fixture
+  corpus spells a frontmatter block the YAML parser rejects, so the code is
+  reachable only from an authored mistake or fault injection.
+  `tests/fixtures/h7a/permitted-codes.json` is therefore byte-unchanged.
 
 ## Provenance
 

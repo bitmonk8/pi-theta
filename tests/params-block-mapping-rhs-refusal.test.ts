@@ -52,7 +52,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     a 1.x minor; the row's trigger is the post-hoc in-scope input set.
 //
 // THE PINNED POST-FIX CONTRACT (bug doc §Fix, route settled at the frontmatter
-// read — `extractParsedParams`, src/parser/frontmatter.ts:652, the one point
+// read — `extractParsedParams`, src/parser/frontmatter.ts:817, the one point
 // that still holds the YAML value node; RED now, GREEN after):
 //   1. ADMIT a `params:` field whose YAML value node is a scalar or a FLOW
 //      mapping (`isMap(node) && node.flow === true` — the inline object type);
@@ -72,10 +72,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      accept-anything param registered; phase load), raised per offending
 //      field with the category-5 `<param>` placeholder.
 //   3. The field is RETAINED in `fieldInputs` / `bypassFields`, so the
-//      `system:` seam (`toSystemParamType`, frontmatter.ts:534) and
+//      `system:` seam (`toSystemParamType`, frontmatter.ts:695) and
 //      `parseParams` behave exactly as at baseline and the input yields exactly
 //      ONE new diagnostic — no cascade (group (f)). Registration is withheld by
-//      the existing error-severity gates (frontmatter.ts:1153 nulls the
+//      the existing error-severity gates (frontmatter.ts:1489 nulls the
 //      frontmatter; `hasLoadParseError`,
 //      src/extension/production-composition.ts:1894–1901, drops the theta).
 //
@@ -214,14 +214,29 @@ function unresolvedMessage(name: string): string {
   return templateMessage("theta/parse/unresolved-named-type", "<name>", name);
 }
 
-/** The `theta/load/missing-mode` message (control I; no placeholder). */
-function missingModeMessage(): string {
-  const template = registryMessage(REGISTRY, "theta/load/missing-mode") as string | undefined;
+/**
+ * The `theta/load/malformed-frontmatter-yaml` message (bug 0263 §Fix) for one
+ * located failure. `<line>` / `<column>` / `<text>` / `<scope>` are the four
+ * placeholders that row's registry template carries.
+ */
+function malformedYamlMessage(
+  loc: { line: number; column: number },
+  text: string,
+  scope: string,
+): string {
+  const template = registryMessage(REGISTRY, "theta/load/malformed-frontmatter-yaml") as
+    | string
+    | undefined;
   expect(
     template,
-    "DIAG-4 anchor: code-registry-load.md must carry the Message row for theta/load/missing-mode",
+    "DIAG-4 anchor: code-registry-load.md must carry the Message row for " +
+      "theta/load/malformed-frontmatter-yaml",
   ).toBeDefined();
-  return template as string;
+  return (template as string)
+    .replace("<line>", String(loc.line))
+    .replace("<column>", String(loc.column))
+    .replace("<text>", text)
+    .replace("<scope>", scope);
 }
 
 // ===========================================================================
@@ -399,7 +414,7 @@ function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
  * diagnostic — the registered code at error severity, its message the
  * registry's with `<param>` rendered as the field name — and the theta refused
  * (`frontmatter === null`, the same collapse the params-owned error of control
- * F already produces, because frontmatter.ts:1153 withholds the frontmatter on
+ * F already produces, because frontmatter.ts:1489 withholds the frontmatter on
  * any error-severity diagnostic).
  *
  * The count/code/severity assertion runs FIRST so the red at HEAD names the
@@ -799,16 +814,28 @@ describe("bug 0041 (d) — the working routes and the fail-closed neighbour do n
     );
   });
 
-  it("GREEN (d5, fixture I): the brace-under-generic spelling keeps its single missing-mode collapse", () => {
+  it("GREEN (d5, fixture I): the brace-under-generic spelling keeps its single fail-closed YAML-frame collapse", () => {
     // The fail-closed neighbour (0028 §Residuals (iv)): braces inside a
-    // generic's angle brackets break the YAML frame outright, FM-5 discards the
-    // recovered document, and the load fails before the params read — so no
-    // check added at `extractParsedParams` can reach or improve it.
+    // generic's angle brackets break the YAML frame outright, and FM-5
+    // (src/parser/frontmatter.ts, the discard around the `parseDocument` call)
+    // discards the recovered document before the params read — so no check
+    // added at `extractParsedParams` can reach or improve it. Bug 0263 §Fix
+    // constraint 1 moved WHICH code that collapse reports — the general
+    // frontmatter-parse-failure row now names the `BLOCK_AS_IMPLICIT_KEY`
+    // verdict and locates it at the `params:` field, in place of the
+    // `theta/load/missing-mode` this cell used to assert on a file whose
+    // `mode:` line is present and correct — not WHETHER it collapses.
     const doc = parseDoc(src("  p: array<{a: string}>"), "bug0041.theta");
     expect(
       diagLines(doc),
-      "fixture I: fail-closed on the YAML frame, exactly one missing-mode with `mode: prompt` literally present",
-    ).toEqual([`error theta/load/missing-mode: ${missingModeMessage()}`]);
+      "fixture I: fail-closed on the YAML frame, exactly one located malformed-frontmatter-yaml naming the `params:` field 'p'",
+    ).toEqual([
+      `error theta/load/malformed-frontmatter-yaml: ${malformedYamlMessage(
+        { line: 4, column: 6 },
+        "p: array<{a: string}>",
+        " (in 'params:' field 'p')",
+      )}`,
+    ]);
     expect(doc.frontmatter, "fixture I: FM-5 collapse").toBeNull();
   });
 });
@@ -921,7 +948,7 @@ describe("bug 0041 (e) — the residual spellings keep their measured dispositio
 
 describe("bug 0041 (f) — the refused field is retained at the `system:` seam", () => {
   it(`RED (f1, fixture L): block-mapping param + system \"\${p}\" yields EXACTLY the one ${CODE}`, () => {
-    // The retention witness. `toSystemParamType` (frontmatter.ts:534) types the
+    // The retention witness. `toSystemParamType` (frontmatter.ts:695) types the
     // recovered block text as a string, so `${p}` is admitted at baseline with
     // zero diagnostics (probed). If the fix DROPPED the field from
     // `fieldInputs` instead of retaining it, `${p}` would name an unknown

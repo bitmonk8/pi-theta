@@ -301,8 +301,9 @@ const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
 /**
  * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
  * whole type expression in a YAML single-quoted scalar. The unquoted spelling
- * is not valid YAML and collapses the load to `theta/load/missing-mode` (bug
- * 0056 §Reproduction *Spelling*), which is a different frame.
+ * is not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
+ * (bug 0056 §Reproduction *Spelling*; bug 0263 names the code this collapse now
+ * reports), which is a different frame.
  */
 function yamlQuoted(typeSource: string): string {
   return `'${typeSource.replace(/'/g, "''")}'`;

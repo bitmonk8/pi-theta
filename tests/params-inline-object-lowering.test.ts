@@ -25,7 +25,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Two independent frames drop the same declaration, so the fix needs both, and
 // this file pins both:
 //
-//   1. `extractParsedParams` (src/parser/frontmatter.ts:645) reads only
+//   1. `extractParsedParams` (src/parser/frontmatter.ts:841) reads only
 //      `isScalar(item.value)` and substitutes `""` otherwise. YAML parses an
 //      unquoted `{a: Tirage, b: integer}` as a flow mapping, so the author's
 //      type expression is gone before `parseParams` runs (fixtures A / B / C).
@@ -205,6 +205,41 @@ function emptySchemaBodyMessage(subject: string): string {
 /** The one rendered line an empty inline object type produces (bug 0045 §Fix). */
 function emptySchemaBodyLine(subject: string): string {
   return `error ${EMPTY_SCHEMA_BODY}: ${emptySchemaBodyMessage(subject)}`;
+}
+
+/** `theta/load/malformed-frontmatter-yaml` — the code bug 0263 §Fix adds at the FM-5 discard. */
+const MALFORMED_YAML = "theta/load/malformed-frontmatter-yaml";
+
+/**
+ * The registry row's normative *Message* template for `MALFORMED_YAML`, its
+ * `<line>` / `<column>` / `<text>` / `<scope>` placeholders filled
+ * (DIAG-4). Definedness is asserted first so a missing row reds by naming the
+ * registry rather than by a bare `undefined` comparison.
+ */
+function malformedYamlMessage(
+  loc: { line: number; column: number },
+  text: string,
+  scope: string,
+): string {
+  const template = registryMessage(REGISTRY, MALFORMED_YAML) as string | undefined;
+  expect(
+    template,
+    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry the Message row for ${MALFORMED_YAML}`,
+  ).toBeDefined();
+  return (template as string)
+    .replace("<line>", String(loc.line))
+    .replace("<column>", String(loc.column))
+    .replace("<text>", text)
+    .replace("<scope>", scope);
+}
+
+/** The one rendered line a frontmatter block the YAML parser rejects produces (bug 0263 §Fix). */
+function malformedYamlLine(
+  loc: { line: number; column: number },
+  text: string,
+  scope: string,
+): string {
+  return `error ${MALFORMED_YAML}: ${malformedYamlMessage(loc, text, scope)}`;
 }
 
 // ===========================================================================
@@ -971,16 +1006,25 @@ describe("bug 0035 (e) — controls the fix must leave byte-unchanged", () => {
 
   it("SCOPE BOUND (e7): the UNQUOTED `p: array<{a: string}>` stays fail-closed on the YAML frame (0028 §Residuals (iv))", () => {
     // A distinct open shape: braces inside a generic's angle brackets break the
-    // YAML parse outright (`BLOCK_AS_IMPLICIT_KEY`), FM-5 collapses the
-    // frontmatter, and the load fails closed on `theta/load/missing-mode`. Bug
-    // 0035 recovers the value of a WELL-FORMED YAML node; it does not make an
-    // unparseable frontmatter document parse.
+    // YAML parse outright (`BLOCK_AS_IMPLICIT_KEY`), and FM-5
+    // (src/parser/frontmatter.ts, the discard around the `parseDocument` call)
+    // collapses the frontmatter. Bug 0263 §Fix constraint 1 moved WHICH code
+    // that collapse reports — the general frontmatter-parse-failure row now
+    // names the parser's own `BLOCK_AS_IMPLICIT_KEY` verdict and locates it at
+    // the `params:` field, in place of the `theta/load/missing-mode` this cell
+    // used to assert on a file whose `mode:` line is present and correct — the
+    // load still fails closed. Bug 0035 recovers the value of a WELL-FORMED
+    // YAML node; it does not make an unparseable frontmatter document parse.
     const doc = parseDoc(src("  p: array<{a: string}>"), "bug0035.theta");
     expect(
       diagLines(doc),
       "fail-closed, not silent: the whole frontmatter collapses and the theta does not load",
     ).toEqual([
-      "error theta/load/missing-mode: frontmatter is missing required field 'mode:'",
+      malformedYamlLine(
+        { line: 4, column: 6 },
+        "p: array<{a: string}>",
+        " (in 'params:' field 'p')",
+      ),
     ]);
     expect(doc.frontmatter, "FM-5 collapse").toBeNull();
   });

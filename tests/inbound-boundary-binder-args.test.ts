@@ -68,7 +68,7 @@ import {
 // installs as the theta's top-level param slots. Everything below the capture
 // is the shipped code: the theta's own `params.loweredSchema`
 // (`ParamsParseResult`, `src/parser/params.ts`, surfaced through
-// `src/parser/frontmatter.ts:809`), the real `AjvSchemaValidator`, and the real
+// `src/parser/frontmatter.ts:955`), the real `AjvSchemaValidator`, and the real
 // `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts:117`) whose merged
 // `args` the production `runBinder` returns verbatim
 // (`src/extension/production-theta-producer.ts:886`).

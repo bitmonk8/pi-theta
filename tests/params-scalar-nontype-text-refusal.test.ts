@@ -19,7 +19,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0059-params-scalar-nontype-text-recorded-and-permissive.md).
 //
 // THE GAP IS BETWEEN TWO CORRECT DECISIONS. `paramValueCanCarryType`
-// (src/parser/frontmatter.ts:380–382) judges the YAML value NODE and admits
+// (src/parser/frontmatter.ts:483–485) judges the YAML value NODE and admits
 // every scalar whatever bytes it carries; the lowering catch-all reads text but
 // is licensed to be silent for a different class — a `LiteralType`, and a
 // brace-rooted arm nested in a generic argument or a union arm. Text outside
@@ -110,7 +110,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     over with no brace on it (`{a: ???}`, group (a) a22).
 //   - Guard-extension precedence — a field's type-half refusal is reported as
 //     such, "not by whatever the lowering makes of its recovered bytes" (the
-//     ordering comment at src/parser/frontmatter.ts:1202–1204).
+//     ordering comment at src/parser/frontmatter.ts:918–921).
 //
 // PROBED CURRENT SIGNATURES (HEAD 948b7814 / 0.85.0, offline, deterministic).
 // THE BUG DOC'S §Reproduction WAS MEASURED AT 0.51.0 AND FOUR OF ITS ROWS HAVE
@@ -275,7 +275,8 @@ function src(paramsBlock: string): string {
  * A theta type expression wrapped as a YAML single-quoted scalar. Theta-side
  * literals carry theta-side quotes, and an unquoted spelling of a text carrying
  * a `:`, a `#` or a `{` breaks the YAML frame outright, which collapses the load
- * to `theta/load/missing-mode` — a different frame entirely.
+ * to `theta/load/malformed-frontmatter-yaml` (bug 0263) — a different frame
+ * entirely.
  */
 function yamlQuoted(typeSource: string): string {
   return `'${typeSource.replace(/'/g, "''")}'`;
@@ -469,8 +470,8 @@ describe("bug 0059 (a) — text no `Type` production spells is refused at `param
   /**
    * The same bytes reached through every scalar spelling the YAML frame offers.
    * All six deliver `a: Tirage` to the lowering: `extractParsedParams` reads
-   * `String(item.value.value)` for a scalar (src/parser/frontmatter.ts:725–727)
-   * and `splitParamValue` trims the ends (`:667`), so the quoted forms, both
+   * `String(item.value.value)` for a scalar (src/parser/frontmatter.ts:840–842)
+   * and `splitParamValue` trims the ends (`:778–779`), so the quoted forms, both
    * block-scalar forms and the folded multi-line collapse to one text — which
    * is why the node-shape gate cannot separate them and the text-level
    * judgement must.
@@ -563,7 +564,7 @@ describe("bug 0059 (b) — a node-shape-refused field keeps its single diagnosti
       // The retained field's recovered bytes still reach `parseParams`, so a
       // block mapping would draw the text-level refusal as well unless one of
       // the two is suppressed. The ordering comment at
-      // src/parser/frontmatter.ts:1202–1204 settles which survives: a field
+      // src/parser/frontmatter.ts:918–921 settles which survives: a field
       // whose right-hand side spells no type expression is reported as such,
       // "not by whatever the lowering makes of its recovered bytes".
       expectTextRefused(label, parseDoc(src(paramsBlock), "bug0059.theta"), "p");
@@ -572,7 +573,7 @@ describe("bug 0059 (b) — a node-shape-refused field keeps its single diagnosti
 
   it("GREEN (b4): the `system:` interpolation seam fires no cascade over a refused field", () => {
     // The retention witness. `toSystemParamType`
-    // (src/parser/frontmatter.ts:579) types the recovered text as a string, so
+    // (src/parser/frontmatter.ts:695) types the recovered text as a string, so
     // `${p}` is admitted. Were the fix to DROP the field instead of retaining
     // it, `${p}` would name an unknown param and a second, cascading
     // interpolation diagnostic would join the refusal — so EXACTLY one
@@ -1288,7 +1289,7 @@ describe("bug 0059 (e) — the controls do not move", () => {
 
 describe("bug 0059 (f) — the type-half refusal survives alone", () => {
   it("RED (f1): `pick one = or two` is refused for its type half, at a count of one", () => {
-    // `splitParamValue` (src/parser/frontmatter.ts:636) cuts at the first
+    // `splitParamValue` (src/parser/frontmatter.ts:777) cuts at the first
     // top-level `=`, so this text is judged today only on its default half and
     // draws `theta/parse/default-not-literal`. Its TYPE half — `pick one` — is
     // the subject of this report, and the ordering the frontmatter seam already

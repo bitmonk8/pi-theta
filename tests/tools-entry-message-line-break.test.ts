@@ -22,13 +22,13 @@ import {
 // interpolates the entry text with no transform
 // (src/parser/callable-set.ts:198), and `extractToolsList` recovers a
 // non-scalar `tools:` sequence item as its verbatim YAML source slice
-// (src/parser/frontmatter.ts:460, via `paramValueSource`), so a
+// (src/parser/frontmatter.ts:551, via `paramValueSource`), so a
 // block-mapping item of two or more keys yields a `message` spanning physical
 // lines. The same silence covers three sibling parse-time rows whose values are
 // block scalars: `theta/load/unknown-mode-value`
-// (src/parser/frontmatter.ts:1207), `theta/load/model-unresolved` (:1160),
-// `theta/load/unknown-bind-context-value` (:1223) and
-// `theta/load/unknown-methodology-value` (:586).
+// (src/parser/frontmatter.ts:1320), `theta/load/model-unresolved` (:1273),
+// `theta/load/unknown-bind-context-value` (:1336) and
+// `theta/load/unknown-methodology-value` (:677).
 //
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/diagnostics/diagnostic-shape.md:34 —

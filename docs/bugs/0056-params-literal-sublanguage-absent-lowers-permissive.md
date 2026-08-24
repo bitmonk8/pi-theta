@@ -1105,3 +1105,15 @@ Constraints on any implementation:
   §Non-goals), the generic-argument element type (residual 3), whether `{}`
   should ever be a lowering (0028's inventory), and the `theta/parse/inline-enum`
   trigger gap (residual 1) are all unmoved by design and pinned as controls.
+
+## Coordination note — the §Reproduction collapse is fixed in bug 0263 (0.262.0)
+
+§Reproduction measures the FM-5 collapse in passing and disclaims it, deferring
+to bug 0028 §Residuals (iv). That class is filed and fixed as bug
+[0263](./0263-params-type-bare-double-quote-breaks-frontmatter-misattributed.md),
+which also covers the leading-quote spelling of the same collapse
+(`p: "a" | "b"`, the unwrapped literal union this report's subject is written
+in). A frontmatter block the YAML parser rejects now draws the located
+`theta/load/malformed-frontmatter-yaml` row rather than `theta/load/missing-mode`.
+The lowering dispositions this report pins are unaffected: every row whose
+frontmatter parses keeps its measured diagnostics and its measured lowering.

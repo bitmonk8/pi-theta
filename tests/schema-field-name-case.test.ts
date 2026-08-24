@@ -880,7 +880,7 @@ describe("0149 (e) — an uppercase-first `params:` key is a parse error", () =>
     // when written as a `params:` key.
     //
     // The SECOND diagnostic is not this fix's. `parseFrontmatter`'s `registered`
-    // gate (src/parser/frontmatter.ts:1217) returns NO frontmatter object at all
+    // gate (src/parser/frontmatter.ts:1489) returns NO frontmatter object at all
     // once any frontmatter diagnostic is error-severity, so every body
     // reference to a `params:` field then draws `unknown-identifier`. That is
     // the shipped frontmatter contract, measured at HEAD by the c1 / c2 / c3
@@ -1039,7 +1039,7 @@ describe("0149 (f) — the frontmatter `registered` gate already voids body para
   // These three rows carry NO ill-cased identifier, so this fix cannot reach
   // them: they report the same lists before and after it lands. That is the
   // point of them. They prove that row b1's second diagnostic is produced by
-  // `parseFrontmatter`'s `registered` gate (src/parser/frontmatter.ts:1217) —
+  // `parseFrontmatter`'s `registered` gate (src/parser/frontmatter.ts:1489) —
   // which returns no frontmatter object once ANY frontmatter diagnostic is
   // error-severity, leaving every body reference to a `params:` field
   // unresolved — and not by an over-reach of the emission this file pins. c1

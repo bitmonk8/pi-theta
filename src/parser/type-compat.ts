@@ -136,7 +136,7 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * is statically resolvable" qualifier already excludes it. The predicate is
  * re-derived from the name's first character rather than shared, matching
  * the lexer's own type-position test (src/lexer/lexer.ts:833) and the other
- * local re-derivations in this tree (src/parser/frontmatter.ts:807,
+ * local re-derivations in this tree (src/parser/frontmatter.ts:898,
  * src/parser/theta-document.ts:2559,3065, src/parser/type-grammar.ts:1087).
  * The fence sits at this read seam, not the write seam (`collectTypeEnv`):
  * bug 0038's witness requires a `schema __proto__` declaration to land as

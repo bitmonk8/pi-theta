@@ -24,12 +24,12 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // byte-identically to an absent `tools:` field.
 //
 // The mechanism is one expression. `extractToolsList`'s scalar arm
-// (src/parser/frontmatter.ts:433–438) splits `String(node.value)` on commas,
-// trims, filters empties, and then :438 collapses a zero-length result to
+// (src/parser/frontmatter.ts:536–541) splits `String(node.value)` on commas,
+// trims, filters empties, and then :541 collapses a zero-length result to
 // `undefined` — the same answer a genuinely absent field gives. The `tools` arm
-// of the frontmatter key walk (:983, routing at :994–998) routes every scalar
+// of the frontmatter key walk (:1054, routing at :1134–:1169) routes every scalar
 // to that function and records 0104's field-level refusal range (:997) only in
-// the `else`, so the refusal cannot reach the input; :1336 then omits the
+// the `else`, so the refusal cannot reach the input; :1512 then omits the
 // `tools` key from the returned frontmatter, and
 // `resolveThetaToolsAtLoad`'s early return
 // (src/extension/production-composition.ts:1643–1652, reaching the frozen
@@ -86,7 +86,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //      rather than to a restatement.
 //   2. The theta does NOT register, and the frontmatter is withheld.
 //   3. The refusal is RANGED on the value node with the `valueRange ??
-//      keyRange` fallback the arm already computes (frontmatter.ts:997),
+//      keyRange` fallback the arm already computes (frontmatter.ts:1159),
 //      matching 0104's range convention.
 //   4. The enforcement is keyed on the SCALAR arm, not on `extractToolsList`
 //      answering `undefined`: the sequence arm collapses to `undefined` too
@@ -218,7 +218,7 @@ describe("bug 0206 (E1) — the refusal reuses 0104's registered code", () => {
     expect(
       (row as RegistryRow).phase,
       "phase load — the check runs at the frontmatter read, where the field's " +
-        "YAML node and its range are still in hand (frontmatter.ts:994–998)",
+        "YAML node and its range are still in hand (frontmatter.ts:1161–1169)",
     ).toBe("load");
     expect(
       REFUSAL_MESSAGE,
@@ -299,7 +299,7 @@ function expectZeroEntryRefused(
     d.range,
     `${label}: §Fix route A ranges the refusal on the VALUE node via the ` +
       "`valueRange ?? keyRange` fallback the arm already computes " +
-      "(frontmatter.ts:997) — the author mis-wrote the value, not the key, and a " +
+      "(frontmatter.ts:1159) — the author mis-wrote the value, not the key, and a " +
       "file-level report would point them at the file instead of at the field",
   ).toEqual(range);
   expect(
@@ -322,9 +322,9 @@ function expectZeroEntryRefused(
  *
  * WHY these ranges and where they come from: they are MEASURED, not guessed.
  * The frontmatter block's YAML is the fenced lines joined with `\n` and NO
- * trailing newline (`extractFrontmatterBlock`, frontmatter.ts:320–331), parsed
- * once by the `yaml` library with a `LineCounter` (:855, :859) and mapped by
- * `rangeOf` (:337–352) with the block's `lineOffset` of 1 — so line 1 is the
+ * trailing newline (`extractFrontmatterBlock`, frontmatter.ts:331–341), parsed
+ * once by the `yaml` library with a `LineCounter` (:988, :992) and mapped by
+ * `rangeOf` (:345–361) with the block's `lineOffset` of 1 — so line 1 is the
  * opening `---` and the frontmatter's first key is line 2. Each expected range
  * below was measured by an oracle replicating that extraction and mapping
  * byte-for-byte, cross-checked against a range the SHIPPED parser reports
@@ -468,7 +468,7 @@ describe("bug 0206 (E2) — a `tools:` scalar whose comma split yields zero entr
 
     it(`RED (E2, ${row.label}): the returned frontmatter carries no \`tools\` key`, () => {
       // The downstream consequence, asserted separately so the red is legible
-      // even if the range convention is later revised: `:1336` spreads `tools`
+      // even if the range convention is later revised: `:1512` spreads `tools`
       // only when defined, so a refused-but-registered theta would be
       // indistinguishable from an absent field to every `frontmatter.tools`
       // reader, including `resolveThetaToolsAtLoad`'s `toolsList === undefined`
@@ -487,7 +487,7 @@ describe("bug 0206 (E2) — a `tools:` scalar whose comma split yields zero entr
 // (E3) THE CONTROLS — §Non-goals and §Fix constraint (a). GREEN at HEAD and
 // required to stay green: they key the fix to the zero-entry SCALAR outcome and
 // not to `extractToolsList` answering `undefined`, which the sequence arm does
-// too (frontmatter.ts:450).
+// too (frontmatter.ts:555).
 // ===========================================================================
 
 describe("bug 0206 (E3) — the equivalence set, the populated spellings and the null spellings stay byte-identical", () => {
@@ -595,10 +595,15 @@ describe("bug 0206 (E3) — the equivalence set, the populated spellings and the
 
 // ===========================================================================
 // (E4) THE OUT-OF-CLASS BOUNDARY — an UNQUOTED leading comma is a YAML
-// indicator, so the frontmatter block fails to parse (FM-5 discards the
-// recovered contents) and `mode:` is lost with it. These rows are loud already,
-// for a different reason, and the zero-entry rule must not change which code
-// they carry. GREEN at HEAD; re-measured in this worktree before being asserted.
+// indicator, so the frontmatter block fails to parse. FM-5
+// (src/parser/frontmatter.ts, the discard around the `parseDocument` call)
+// discards the recovered contents, and bug 0263 §Fix constraint 1 moved WHICH
+// code that discard reports — the general frontmatter-parse-failure row now
+// names the parser's own verdict in place of the `theta/load/missing-mode`
+// this group used to assert on a file whose `mode:` line is present and
+// correct. These rows are loud already, for a different reason, and the
+// zero-entry rule must not change which (registered === false) family they
+// carry. GREEN at HEAD; re-measured in this worktree before being asserted.
 // ===========================================================================
 
 describe("bug 0206 (E4) — an unquoted comma-leading value stays a YAML parse failure", () => {
@@ -613,20 +618,22 @@ describe("bug 0206 (E4) — an unquoted comma-leading value stays a YAML parse f
   ];
 
   for (const [label, lines] of YAML_ERRORS) {
-    it(`GREEN (E4, ${label}): un-registers under \`theta/load/missing-mode\`, not under the field refusal`, () => {
-      // FM-5 (frontmatter.ts:860–872): the `yaml` lib recovers from the bad
-      // indicator and exposes the damage in `doc.errors`, so the whole
-      // recovered mapping is discarded and the missing-`mode:` surface fires.
-      // The `tools` arm is never reached, which is why this class cannot be
-      // folded into (E2): the value node the refusal would range on does not
-      // exist. The rule is that the fix must not MOVE this row to the new code.
+    it(`GREEN (E4, ${label}): un-registers under \`theta/load/malformed-frontmatter-yaml\`, not under the field refusal`, () => {
+      // FM-5 (src/parser/frontmatter.ts, the discard around the `parseDocument`
+      // call): the `yaml` lib recovers from the bad indicator and exposes the
+      // damage in `doc.errors`, so the whole recovered mapping is discarded and
+      // the general frontmatter-parse-failure code fires, keyed to that first
+      // error (bug 0263 §Fix). The `tools` arm is never reached, which is why
+      // this class cannot be folded into (E2): the value node the refusal
+      // would range on does not exist. The rule is that the fix must not MOVE
+      // this row to the field-level code.
       const r = parse(theta(lines, BODY_NO_CALL));
       expect(
         diagCodes(r),
         `${label}: an unquoted leading comma is a YAML indicator, so the ` +
           "frontmatter block never parses and the `tools` arm is never reached." +
           ` Rendered diagnostics: ${JSON.stringify(diagLines(r))}`,
-      ).toEqual(["error theta/load/missing-mode"]);
+      ).toEqual(["error theta/load/malformed-frontmatter-yaml"]);
       expect(r.registered, `${label}: does not register`).toBe(false);
     });
   }

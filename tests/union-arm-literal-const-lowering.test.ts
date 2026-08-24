@@ -248,8 +248,8 @@ const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
 /**
  * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
  * whole type expression in a YAML single-quoted scalar. The unquoted spelling is
- * not valid YAML and collapses the load to `theta/load/missing-mode`, which is a
- * different frame (the spelling discipline
+ * not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
+ * (bug 0263), which is a different frame (the spelling discipline
  * `tests/params-literal-sublanguage-lowering.test.ts` established).
  */
 function yamlQuoted(typeSource: string): string {

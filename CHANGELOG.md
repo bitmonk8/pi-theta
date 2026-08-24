@@ -6,6 +6,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.262.0]
+
+### Fixed
+
+- Bug 0263: a `params:` type text beginning with a quote (`p: "a" | "b"`
+  without enclosing single quotes) made the frontmatter invalid YAML and the
+  load's only diagnostic was a misattributed `theta/load/missing-mode` — the
+  author's actual mistake was invisible and every other frontmatter
+  diagnostic on the file was suppressed. FM-5's discard point now mints
+  `theta/load/malformed-frontmatter-yaml` (E, load) keyed on the parser's
+  first error: file-coordinate line/column, the offending source line, and
+  an `(in 'params:' field '<param>')` scope clause when the failure sits
+  under `params:`; the required-`mode:` arm gates on the rejection so a
+  rejected block never draws missing-mode with `mode:` present. Covers
+  `BLOCK_AS_IMPLICIT_KEY` with `UNEXPECTED_TOKEN` — bug 0028 §Residuals (iv)
+  discharged, with 0035/0041/0056's deferrals (coordination notes appended).
+  DIAG-2 same-commit: registry row, reference mirror, placeholder-vocabulary
+  admissions (closure clause (h)). Real H9a run captured no emission —
+  permitted-codes byte-unchanged. Four FM-5 witness cells flipped under
+  constraint 1's pre-authorization. New witness
+  `tests/frontmatter-yaml-parse-failure-diagnostic.test.ts` (33 tests) and
+  live cell `tests/live/b0263live-frontmatter-yaml-parse-failure-live-cell.test.ts`
+  (offender refuses, quoted byte-neighbour registers and drives).
+
 ## [0.261.0]
 
 ### Fixed

@@ -905,7 +905,7 @@ describe("bug 0097 (a) — the `params:` shapes the dispatch keeps byte-for-byte
   });
 
   it("CONTROL (a11): a default beside a union-typed param stays admitted and recorded", () => {
-    // The default half is `splitParamValue`'s (src/parser/frontmatter.ts:636)
+    // The default half is `splitParamValue`'s (src/parser/frontmatter.ts:777)
     // and is judged by `parseParams`'s literal-sublanguage checks
     // (`src/parser/params.ts`), which read the default text and the
     // declared type's compatibility — neither of which the brace dispatch

@@ -62,7 +62,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 //   spelling carrying internal whitespace (group W, `a1w`). Each expects one
 //   error-severity `theta/parse/default-not-literal` at the `params:` field's
 //   OWN range (the YAML value node's — `rangeOf((item.value ?? item.key) …)`,
-//   `src/parser/frontmatter.ts:739`), whose message is READ from the registry
+//   `src/parser/frontmatter.ts:846`), whose message is READ from the registry
 //   (DIAG-4) with `<expr>` filled by the offending sub-expression's own bytes.
 //   Group W is the row that separates a rendered SOURCE SPAN from a
 //   reconstructed `<head>.<field>`: `Sev = Box . sev` must render `Box . sev`,
@@ -609,7 +609,7 @@ const FIXTURE_SOURCES: ReadonlyMap<string, string> = new Map(
 
 /**
  * The range of one cell's `params:` VALUE node — `rangeOf(item.value, …)` at
- * `src/parser/frontmatter.ts:730`, 1-indexed line and column with an exclusive
+ * `src/parser/frontmatter.ts:846`, 1-indexed line and column with an exclusive
  * end (`src/diagnostics/diagnostic.ts:16`, `:22`). The value node of a
  * single-quoted YAML scalar spans the quotes, so the span starts at the `'`
  * after `<name>: ` and ends one past the closing `'`.
@@ -1043,7 +1043,7 @@ describe("bug 0185 (R) — the `params:` field's own range, calibrated against t
     ).toEqual([`error ${NOT_LITERAL_CODE}`]);
     expect(
       locatedRefusals(doc)[0]?.range,
-      "`paramsFieldRange` must reproduce `rangeOf(item.value, …)` (src/parser/frontmatter.ts:730) exactly, or every group-A range assertion below is comparing against a fabricated site",
+      "`paramsFieldRange` must reproduce `rangeOf(item.value, …)` (src/parser/frontmatter.ts:846) exactly, or every group-A range assertion below is comparing against a fabricated site",
     ).toEqual(paramsFieldRange("r1"));
   });
 });

@@ -3,7 +3,7 @@
 // inputs, and nothing checks them against each other.
 //
 // The prompt line is built from the verbatim `params:` source slice recorded as
-// `BypassParamsField.type` (src/parser/frontmatter.ts:850) and rendered by
+// `BypassParamsField.type` (src/parser/frontmatter.ts:941) and rendered by
 // `renderBinderParamLine` (src/binder/binder-system-prompt.ts:258). The tool
 // schema on the other branch of the same dispatch is built from the LOWERED
 // params schema (`paramsSchema: params.loweredSchema`,

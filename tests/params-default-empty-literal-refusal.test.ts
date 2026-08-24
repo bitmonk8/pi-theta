@@ -12,7 +12,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0165 — a `params:` field whose `=` is followed by nothing records a
-// DEFINED but EMPTY default. `splitParamValue` (src/parser/frontmatter.ts:636)
+// DEFINED but EMPTY default. `splitParamValue` (src/parser/frontmatter.ts:777)
 // cuts at the first top-level `=` and trims both halves, so `p: 'string = '`
 // yields `defaultSource: ""`; `hasDefault` is keyed on definedness alone
 // (:796), the field is dropped from `required` on the same test, in
@@ -447,7 +447,7 @@ describe("bug 0165 (C) — the conformant declarations keep loading", () => {
       ).toBe(expectedDefault);
       expect(
         recordedHasDefault(doc, "p"),
-        `${label}: \`hasDefault\` (src/parser/frontmatter.ts:796) is keyed on the recorded default's definedness and drives both the render token and the \`required\` decision`,
+        `${label}: \`hasDefault\` (src/parser/frontmatter.ts:942) is keyed on the recorded default's definedness and drives both the render token and the \`required\` decision`,
       ).toBe(expectedDefault !== undefined);
       expect(
         requiredOf(doc),

@@ -892,3 +892,19 @@ concretely — an alias name at `@<T>` and on the `params:` RHS lowers to a
   forward/self/reorder lowering triple, declared-enum annotation,
   inline-object field, `params:` contrast, direct-let inferred form), run
   green on the signatures quoted above, then deleted per scratch policy.
+
+## Coordination note — §Residuals (iv) discharged by bug 0263 (0.262.0)
+
+Residual (iv)'s class — a `params:` right-hand side carrying an inline object
+inside a generic's angle brackets (`p: array<{a: string}>`), rejected by the
+YAML parser under `BLOCK_AS_IMPLICIT_KEY`, collapsing the whole frontmatter at
+FM-5 and reported as `theta/load/missing-mode` with `mode: prompt` literally
+present — is filed and fixed as bug
+[0263](./0263-params-type-bare-double-quote-breaks-frontmatter-misattributed.md).
+That fix reports the parser's verdict as itself under the new
+`theta/load/malformed-frontmatter-yaml` row, keyed to the first reported error
+whatever its class, so the residual's `BLOCK_AS_IMPLICIT_KEY` spelling now
+draws a located diagnostic naming the position, the offending source line and
+the `params:` field. The refusal remains fail-closed; only the diagnostic
+changed. Residual (iv) is discharged; the other residuals recorded here are
+untouched.

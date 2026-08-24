@@ -705,3 +705,14 @@ node-shape refusal still covers ABSENCE of the value node and not the null
 scalar, both fixtures still load, and the recorded declared type is still
 `"null"`. Only the lowered bytes moved. The one-line scalar rows and the
 multi-line block-scalar residual stayed green, as this report predicted.
+## Coordination note — fixture I's collapse is fixed in bug 0263 (0.262.0)
+
+Fixture I's obligation — the brace-under-generic spelling
+`p: array<{a: string}>`, deferred here to bug 0028 §Residuals (iv) — is filed
+and fixed as bug
+[0263](./0263-params-type-bare-double-quote-breaks-frontmatter-misattributed.md).
+The YAML parser's rejection is now reported as itself under the new
+`theta/load/malformed-frontmatter-yaml` row, naming the position, the offending
+source line and the `params:` field. Fixture I's witness cell was flipped to
+the new code under bug 0263 §Fix constraint 1; the fail-closed outcome it
+records — no registration, `frontmatter` null — is unchanged.

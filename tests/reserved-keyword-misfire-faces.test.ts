@@ -1489,7 +1489,7 @@ describe("0242 (E) — the partition of §Reproduction (E), as ordered whole lis
 
   it("E9: the `params:` key — all 32 draw the refusal alone, unchanged", () => {
     // The control on the CAUSE. This face reads a YAML scalar key
-    // (`extractParsedParams`, src/parser/frontmatter.ts:726) with no token
+    // (`extractParsedParams`, src/parser/frontmatter.ts:817) with no token
     // stream, so no adjacency scan ever reached it and no misfire ever existed
     // here. It is uniform at HEAD and must stay uniform: a fix reaching it
     // would be reaching a face that has no defect.

@@ -373,3 +373,15 @@ row already names this position.
   primitives-only, the two plain-named controls, the quoted form, and the two
   sibling positions), run green on those signatures, then deleted per scratch
   policy.
+
+## Coordination note — the deferred FM-5 collapse is fixed in bug 0263 (0.262.0)
+
+§Related defers the `p: array<{a: string}>` collapse this report measures in
+passing to bug 0028 §Residuals (iv). That class is filed and fixed as bug
+[0263](./0263-params-type-bare-double-quote-breaks-frontmatter-misattributed.md):
+a frontmatter block the YAML parser rejects now draws the located
+`theta/load/malformed-frontmatter-yaml` row instead of the misattributed
+`theta/load/missing-mode`. This report's own scope-bound cell over that
+spelling was flipped to the new code under bug 0263 §Fix constraint 1; the
+disposition it fences — fail-closed, no lowering, `frontmatter` null — is
+unchanged.

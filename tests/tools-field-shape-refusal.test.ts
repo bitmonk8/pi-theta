@@ -19,19 +19,18 @@ import {
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // Bug 0104 — a `tools:` field whose VALUE is a YAML mapping is treated as an
-// ABSENT field: `extractToolsList` (src/parser/frontmatter.ts:428) enumerates
-// two node kinds — `isScalar` (:429) and `isSeq` (:436) — and answers
-// `undefined` for every other kind (:448). The `tools` arm of the frontmatter
-// key walk (:978–:983) records nothing else, and `:1303` spreads `tools` into
-// the returned frontmatter only when it is defined, so
+// ABSENT field: `extractToolsList` (src/parser/frontmatter.ts:537) enumerates
+// two node kinds — `isScalar` (:538) and `isSeq` (:545) — and answers
+// `undefined` for every other kind (:557). The `tools` arm of the frontmatter
+// key walk (the `map.items` walk at :1054) records nothing else, and `:1512`
+// spreads `tools` into the returned frontmatter only when it is defined, so
 // `resolveThetaToolsAtLoad` (`src/extension/production-composition.ts`, on its
 // early no-`tools:` return) cannot distinguish "no `tools:`" from "a `tools:`
 // value that was discarded" and answers the same module's `EMPTY_CALLABLE_SET`
 // for both. The theta registers with the empty callable set and no diagnostic
 // is emitted at any severity — so `tools: {read: bash}` names `read` in the
 // author's text and delivers a theta whose model cannot call it and whose code
-// raises `theta/parse/unknown-identifier` on it
-// (docs/bugs/0104-tools-field-nonscalar-value-loads-empty-callable-set.md).
+// raises `theta/parse/unknown-identifier` on it// (docs/bugs/0104-tools-field-nonscalar-value-loads-empty-callable-set.md).
 //
 // This group is bug 0104's witness and is the field-level sibling of bug 0069's
 // ENTRY-level witness, tests/tools-entry-closed-grammar.test.ts groups (A)–(C);
@@ -85,7 +84,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // §Fix constraint (a)):
 //   1. ONE NEW registered code, `theta/load/malformed-tools-field` (severity E,
 //      phase load), emitted at the FRONTMATTER layer beside the
-//      `theta/load/params-null` push (src/parser/frontmatter.ts:1164–:1172) —
+//      `theta/load/params-null` push (src/parser/frontmatter.ts:1350–:1358) —
 //      the `theta/load/params-type-not-expression` node-shape frame. Widening
 //      `theta/load/malformed-tool-entry`'s *Trigger* is rejected: its normative
 //      Message names an "entry" and states the ENTRY grammar's expectation, and
@@ -96,7 +95,7 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //      multi-line rendering hazard of a recovered BLOCK mapping never arises.
 //   3. The refusal is RANGED on the field's VALUE node, falling back to the KEY
 //      range when the field carries no value node — the `valueRange ?? keyRange`
-//      pattern the `params` arm already uses (frontmatter.ts:965–:969, reported
+//      pattern the `params` arm already uses (frontmatter.ts:1124, reported
 //      at 3:9 for `params: null` — measured). §Fix constraint (b): 0069's
 //      entry-level code carries no range because the resolver holds no YAML
 //      positions; the frontmatter layer does.
@@ -365,7 +364,7 @@ function expectFieldRefused(
     d.range,
     `${label}: §Fix constraint (b) — the refusal is RANGED on the field's value ` +
       "node (the key node when the field carries none), the `valueRange ?? " +
-      "keyRange` pattern the `params` arm uses (frontmatter.ts:965–:969); bug " +
+      "keyRange` pattern the `params` arm uses (frontmatter.ts:1124); bug " +
       "0069's entry-level code is range-less because the resolver holds no YAML " +
       "positions, and a field-level refusal that reported file-level would point " +
       "the author at the file rather than at the field they mis-wrote",
@@ -388,7 +387,7 @@ function expectFieldRefused(
  *
  * WHY these ranges and where they come from: the frontmatter block's YAML is
  * parsed by the `yaml` library with a `LineCounter` and each field's positions
- * are mapped by `rangeOf` (frontmatter.ts:337–:352) with the block's
+ * are mapped by `rangeOf` (frontmatter.ts:348–:363) with the block's
  * `lineOffset` — so line 1 is the opening `---` and the frontmatter's first key
  * is line 2. The refusal's range is the shared frontmatter parse's VALUE-node
  * range, with the key range as the fallback for a pair carrying no value node.
@@ -602,7 +601,7 @@ describe("bug 0104 (D6) — a non-scalar sequence ITEM keeps `theta/load/malform
   it("GREEN (D6): `tools:` over `  - {a: b}` still recovers the item's verbatim source as one entry", () => {
     // frontmatter-fields-a.md:88 closes the ENTRY and the sequence ITEM: the
     // item's verbatim YAML source is recovered at the frontmatter layer
-    // (frontmatter.ts:436–:447, bug 0069 §Fix constraint 3) and judged by the
+    // (frontmatter.ts:545–:556, bug 0069 §Fix constraint 3) and judged by the
     // resolver's closed per-entry grammar. The field's node kind here is a
     // SEQUENCE — one of the two admitted spellings — so the field-level rule
     // must not reach it, and the entry it produces must reach the entry-level
@@ -634,7 +633,7 @@ describe("bug 0104 (D7) — the two null spellings take the scalar arm unchanged
   for (const [label, lines] of NULLS) {
     it(`GREEN (D7, ${label}): a null SCALAR yields the single entry \`null\`, not a field-shape refusal`, () => {
       // §Non-goals: both spellings parse as a null scalar, take the `isScalar`
-      // arm (frontmatter.ts:429–:435) through `String(node.value)`, and
+      // arm (frontmatter.ts:538–:543) through `String(node.value)`, and
       // un-register loudly at the resolver as
       // `theta/load/unknown-tool: unknown Pi tool 'null'`. Whether that message
       // should name the shape is a separate adjudication and a DIAG-4 reword;

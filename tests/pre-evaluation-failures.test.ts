@@ -252,7 +252,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   // two further codes belong beside the nine codes above: the FIELD-shape
   // rejection `theta/load/malformed-tools-field`, which refuses a declared
   // `tools:` field whose value is neither admitted spelling
-  // (`src/parser/frontmatter.ts:1259-1268`, bug 0104), and the PIC-64 rung-3
+  // (`src/parser/frontmatter.ts:1372-1381`, bug 0104), and the PIC-64 rung-3
   // refusal `theta/load/extension-tool-unreachable`, which
   // `checkExtensionToolReachability`
   // (`src/extension/extension-tool-reachability.ts:212-231`) raises only for

@@ -899,8 +899,8 @@ describe("0148 (e) — the other identifier positions stay silent", () => {
 
   it("e6: a `params:` frontmatter field NAME spelled `let` draws bug 0153's refusal, ranged on the YAML key", () => {
     // RETAKEN by bug 0153. This is the face with no token: the name is a YAML
-    // scalar key (src/parser/frontmatter.ts:749), so the predicate is string
-    // membership in that module's `RESERVED_KEYWORDS` (`:478`,
+    // scalar key (src/parser/frontmatter.ts:840), so the predicate is string
+    // membership in that module's `RESERVED_KEYWORDS` (`:569`,
     // `= reservedKeywords()`) and the range comes from `rangeOf(item.key, …)`,
     // the shape bug 0149's `binding-case-mismatch` emission in the SAME loop
     // already uses. The code is the REGISTERED `theta/parse/*` one and not a

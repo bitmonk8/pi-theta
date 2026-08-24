@@ -64,7 +64,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // nameTok.kind === "keyword"` at `:2910`), `parseEnumVariants` (`:3047`, the
 // same disjunction at `:3090`), `parseImportExport` (`:3187`, `isSymbolToken`
 // at `:3221–3222` and the alias disjunction at `:3241–3242`), and
-// `extractParsedParams` (src/parser/frontmatter.ts:749,
+// `extractParsedParams` (src/parser/frontmatter.ts:840,
 // `const name = String(item.key.value);`), where the name is a YAML scalar key
 // with no token kind and no token range.
 //
@@ -75,7 +75,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // six name slots named above, and the sixth in `src/parser/frontmatter.ts`'s
 // `extractParsedParams` loop, which cannot import `theta-document.ts` and so
 // constructs the same shape locally, keyed on that module's existing
-// `RESERVED_KEYWORDS` set (`src/parser/frontmatter.ts:478`,
+// `RESERVED_KEYWORDS` set (`src/parser/frontmatter.ts:569`,
 // `= reservedKeywords()`) and ranged on `rangeOf(item.key, …) ?? range` —
 // exactly as bug 0149's `binding-case-mismatch` emission in the SAME loop
 // already does. The `params:` face emits the REGISTERED code
@@ -484,8 +484,8 @@ describe("0153 (a) — a reserved keyword at each of the six identifier position
   it("a4: a `params:` field named `let` reports it, ranged on the YAML key", () => {
     // Position 4 — the widest consequence and the only face that reaches the
     // wire (row L1). The name is a YAML scalar key
-    // (src/parser/frontmatter.ts:749), so the predicate is string membership in
-    // that module's `RESERVED_KEYWORDS` (`:478`, `= reservedKeywords()`) and the
+    // (src/parser/frontmatter.ts:840), so the predicate is string membership in
+    // that module's `RESERVED_KEYWORDS` (`:569`, `= reservedKeywords()`) and the
     // range is `rangeOf(item.key, …)`, the shape bug 0149's
     // `binding-case-mismatch` emission in the SAME loop already uses. The code
     // is the registered `theta/parse/*` one: DIAG-2 closes the registry and
@@ -687,7 +687,7 @@ describe("0153 (s) — the whole reserved list at each position, partitioned exp
     // The position that was uniform from the start, because the name never
     // becomes a token: neither lexer scan can reach it, so nothing else can
     // fire. Bug 0149's case emission in the same loop excludes reserved
-    // spellings explicitly (src/parser/frontmatter.ts:775,
+    // spellings explicitly (src/parser/frontmatter.ts:869,
     // `isIdentifierShaped(name) && !RESERVED_KEYWORDS.has(name)`), which is why
     // `Ok` / `Err` / `Result` draw THIS code here and not
     // `binding-case-mismatch`.

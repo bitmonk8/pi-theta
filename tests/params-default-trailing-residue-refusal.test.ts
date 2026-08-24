@@ -452,7 +452,7 @@ function loweredP(doc: ThetaDocument): unknown {
  * not a downstream message shape.
  *
  * The last two expectations are the reachability link to a theta that does not
- * register: the registration gate (src/parser/frontmatter.ts:1313–1315) withholds
+ * register: the registration gate (src/parser/frontmatter.ts:1489–1491) withholds
  * the whole frontmatter object once any diagnostic carries error severity, which
  * removes the `defaultSource` record `#recoverDeclaredDefaults` re-reads at
  * invocation and the lowered fragment the post-default-merge AJV hook validates
