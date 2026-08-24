@@ -7531,20 +7531,42 @@ function positionBefore(a: Position, b: Position): boolean {
  * mistakes, and each keeps its own diagnostic beside the name refusal rather
  * than swallowing it. A diagnostic carrying no range cannot overlap anything
  * and is skipped, never treated as a wildcard cover.
+ *
+ * `own`'s overlap test is further narrowed to CONTAINMENT in `construct`, the
+ * construct whose capture is being judged (bug 0272 §Fix route (b)). A row
+ * ranged over an ENCLOSING declaration — an `fn` whose own header annotation is
+ * refused carries the whole declaration's range, body included
+ * (`annotationTypeNotExpressionDiagnostic`) — overlaps every capture window
+ * nested in that body without saying anything about a head the author wrote
+ * there, so counting it as cover would swallow that second written mistake. A
+ * row ranged over the capture's OWN construct is still cover, whichever code it
+ * carries and whichever of that construct's captures earned it: that is clause
+ * (iv)(3)'s decided same-construct reading (`let x: Gone-- = 1`, `fn f(): Gone--
+ * { 1 }`, `fn f(p: integer--, q: Gone)`), where the absorbed head is debris from
+ * the one authoring mistake the coverer already names. `prior` stays
+ * unnarrowed: it is evidence from an earlier pass, never this walk's own
+ * enclosing-declaration refusal.
  */
 function captureWindowAlreadyRefused(
   prior: readonly Diagnostic[],
   own: readonly Diagnostic[],
   window: SourceRange,
+  construct: SourceRange,
 ): boolean {
   const overlaps = (d: Diagnostic): boolean =>
     d.severity === "error" &&
     d.range !== undefined &&
     positionBefore(d.range.start, window.end) &&
     positionBefore(window.start, d.range.end);
+  const containedInConstruct = (d: Diagnostic): boolean =>
+    d.range !== undefined &&
+    !positionBefore(d.range.start, construct.start) &&
+    !positionBefore(construct.end, d.range.end);
   return (
     prior.some(overlaps) ||
-    own.some((d) => d.code !== UNRESOLVED_NAMED_TYPE_CODE && overlaps(d))
+    own.some(
+      (d) => d.code !== UNRESOLVED_NAMED_TYPE_CODE && overlaps(d) && containedInConstruct(d),
+    )
   );
 }
 
@@ -8115,6 +8137,7 @@ function walkStatement(
             refs.priorDiagnostics,
             out,
             captureAbsorptionWindow(s.range, s.init),
+            s.range,
           )
         ) {
           const letUnresolved = collectUnresolvedNamedTypes(
@@ -8225,7 +8248,7 @@ function walkStatement(
               paramIndex,
             }) &&
             !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
-            !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s))
+            !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
           ) {
             const paramUnresolved = collectUnresolvedNamedTypes(
               p.type,
@@ -8264,7 +8287,7 @@ function walkStatement(
         if (
           !propagatedToQuery(refs, { kind: "fn-return", range: s.range }) &&
           !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
-          !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s))
+          !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
         ) {
           const returnUnresolved = collectUnresolvedNamedTypes(
             s.returnType,
@@ -8686,6 +8709,7 @@ function walkExpr(
             refs.priorDiagnostics,
             out,
             captureAbsorptionWindow(e.range, e.args[0]),
+            e.range,
           )
         ) {
           const invokeUnresolved = collectUnresolvedNamedTypes(

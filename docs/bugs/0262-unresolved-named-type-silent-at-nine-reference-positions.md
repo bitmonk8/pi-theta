@@ -774,3 +774,30 @@ error-model admission of clause (iv)(1) is what bug 0273's new `E`-side
 resolution consults, so a `Result<T, QueryError>` value type stays silent. All
 26 cells of `tests/b0262-unresolved-named-type-reference-positions.test.ts`
 stay green unchanged, verified byte-for-byte with an empty diff over that file.
+
+### Coordination note (2026-08-24, 0.269.0) — Residuals item 1 closed
+
+*Residuals* item 1 above — "A wide-ranged ENCLOSING refusal of a different code
+still swallows a nested written head's additional refusal", `fn f(): integer-- {
+let y: Gone = 1  1 }` drawing the `theta/parse/annotation-type-not-expression`
+for `f` alone — is CLOSED by
+[bug 0272](./0272-enclosing-annotation-refusal-swallows-nested-unresolved-head.md)
+§Fix (0.269.0), which took that item's second candidate closure: the same-walk
+filter now counts a coverer only when the coverer's range is contained in the
+construct whose capture is being judged, so a refusal carrying an ENCLOSING
+declaration's range is no longer cover for a capture written inside that
+declaration's body. The nested head draws its own refusal there, and the
+registry row's count rule holds as written across constructs.
+
+Nothing recorded above is withdrawn. Clause (iv)(3)'s SAME-CONSTRUCT
+suppression is untouched and stays the decided behaviour: a refusal already
+drawn over the capture's own construct, carrying a code other than
+`theta/parse/unresolved-named-type`, is still cover, so `let x: Gone-- = 1` and
+`fn f(): Gone-- { 1 }` each still draw one diagnostic. The four artefact
+fixtures and the capture-window geometry are untouched — the windows, the
+`prior` evidence set and clause (iv)(1)'s and (iv)(2)'s dispositions all read
+exactly as this document records them. All 26 cells of
+`tests/b0262-unresolved-named-type-reference-positions.test.ts` stay green
+unchanged, verified byte-for-byte with an empty diff over that file; bug 0272's
+verification additionally reds and restores the fix in both directions to prove
+those cells are not passing vacuously.

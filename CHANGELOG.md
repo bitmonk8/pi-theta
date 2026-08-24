@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.269.0]
+
+### Fixed
+
+- Bug 0272: an enclosing `theta/parse/annotation-type-not-expression`
+  refusal minted with the whole declaration's range swallowed every
+  nested written head's `theta/parse/unresolved-named-type` line —
+  `fn f(): integer-- { let y: Gone = 1  1 }` drew the `fn`'s refusal
+  alone. `captureWindowAlreadyRefused` now receives the judged
+  construct and an own-file coverer suppresses only when CONTAINED in
+  it (clause (iv)(3)'s same-construct suppression preserved verbatim;
+  the coverer's declaration-wide range — bug 0124's choice — stays).
+  Registry Trigger states the containment requirement and qualifies
+  the count sentence (same-commit DIAG-2 edit; no new code, no
+  Message change). No registration outcome moves — new emissions
+  occur only beside an existing error-severity coverer. Offline
+  witness: 8 cells incl. the lawful same-construct fence.
+
 ## [0.268.0]
 
 ### Fixed
