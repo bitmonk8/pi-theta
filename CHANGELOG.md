@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.260.0]
+
+### Fixed
+
+- Bug 0266: `placeholder-rendering-b.md` line 139's Category-6 rationale
+  claimed authors cannot introduce U+2028/U+2029 through a regular string
+  literal — false: the lexer admits both code points escaped
+  (`\u{2028}`/`\u{2029}`) and pasted verbatim, with zero diagnostics. The
+  clause now states the truth (authors can; the surfaces render them as
+  ordinary characters per 0091's landed disposition-2 sentence); the rule
+  sentence and the CR/LF class are unchanged (page 142 -> 142 lines). New
+  two-cell oracle `tests/b0266-category6-string-literal-rationale-gate.test.ts`
+  (prose conformance + real-lexer admission); 0091's six-cell oracle
+  byte-unchanged.
+
 ## [0.259.0]
 
 ### Fixed

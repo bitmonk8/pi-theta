@@ -1,6 +1,6 @@
 # Bug 0266 — the *Category 6 line-separator scope* edge case on `placeholder-rendering-b.md:139` justifies its byte-stability posture with the parenthetical "authors cannot introduce them through a regular string literal", which is false at HEAD: both the `\u{2028}` escape form admitted by `lexical.md:26` and a raw U+2028 / U+2029 pasted between the quotes lex and parse with zero diagnostics, so the page's stated rationale rests on an impossibility the language does not enforce
 
-- **Status:** open.
+- **Status:** fixed (0.260.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the false clause is a parenthetical
   rationale on a spec page: the rule it decorates is correct and no
   implementation, test, or registry row reads the clause. D1 because the remedy
@@ -187,3 +187,73 @@ touch its edited page or its witness.
   `parseDoc` over both literal forms, reporting diagnostic codes and the
   string-token code point sequence. Every `path:line` above re-derived at this
   HEAD.
+
+## Fix (0.260.0)
+
+- **Re-derivation at the fix HEAD `204ea0c2` (0.259.0).** Every citation above
+  was re-checked; all still resolve. `placeholder-rendering-b.md` line 139 still
+  carries the *Category 6 line-separator scope* bullet with the false clause,
+  `lexical.md` line 26 still carries the **String literals** paragraph with the
+  `\u{XXXX}` escape and the "a literal newline" single-line rule, and
+  `defaulting-system-note-echo.md` line 18 still carries bug 0091's landed
+  disposition-2 sentence. Bug 0265's merge (0.259.0) grew
+  `docs/reference/errors-and-results.md` only — disjoint from both pages and
+  from the lock.
+- **What shipped**
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — line 139's
+    trailing clause corrected: "even though authors cannot introduce them
+    through a regular string literal" is replaced by the admitted reality —
+    the byte stability is load-bearing rather than vacuous, authors *can*
+    introduce these code points through a regular string literal (as a
+    `\u{2028}` / `\u{2029}` escape or pasted verbatim between the quotes), and
+    the surfaces render them as ordinary characters, mirroring bug 0091's
+    landed wording at `defaulting-system-note-echo.md` line 18. The
+    `../lexical.md` link is kept and now supports the sentence. The rule
+    sentence preceding the clause (ordinary characters; MUST NOT split / strip
+    / promote) is byte-unchanged. Page line count 142 → 142; the bullet is
+    still line 139, so no line-cite drift.
+- **Witness** — new sibling file
+  `tests/b0266-category6-string-literal-rationale-gate.test.ts`, two cells in
+  the pattern of the 0091 oracle (doc-oracle cell with semantic regexes and
+  proximity windows plus a named-precondition throw; one behavioural cell
+  through real `src/` imports):
+  1. locates the bullet by the content marker `**Category 6 line-separator
+     scope.**` with an exactly-one-match precondition, asserts the positive
+     ("can introduce" within 300 characters of "string literal", plus the
+     render-as-ordinary claim and the retained `../lexical.md` link), asserts
+     the negative (`cannot introduce` absent), and re-pins the unchanged rule
+     sentence's three MUST NOTs.
+  2. lexes and parses `let a = "x\u{2028}y\u{2029}z"` and the raw-codepoint
+     form through `lexSrc` / `parseDoc` (`tests/helpers/e2e-s1.ts`, wrapping
+     the shipped `lexTheta` / `parseThetaDocument`): zero diagnostics on both
+     passes for both forms, and the decoded string token's code points are
+     `78,2028,79,2029,7a`. This keeps cell 1's prose claim non-vacuous.
+
+  Both directions proven: with the page restored to its HEAD bytes (blob
+  `382368555094b57100781a8bff90caa2205e0cbc`, written back byte-exact and
+  re-verified as `a9ead61b9d017e260a4096c0ce90c031f5c98256`) cell 1 reds on the
+  `cannot introduce` guard; cell 2 stays green either way, as it measures the
+  lexer and no source moved.
+- **LOCK discharged** — `tests/b0091-rule1-ascii-terminator-closure-gate.test.ts`
+  is byte-unchanged: blob `d6e495bb1c3cd2e713422d8d3af0af106c543df5`, identical
+  to `HEAD:tests/b0091-rule1-ascii-terminator-closure-gate.test.ts`. All six
+  cells green, cell 3 (the MUST NOT split / strip / promote match against this
+  bullet's wording) and cell 5 (the unwidened six-ASCII enumeration) included.
+  The new witness is a strictly-additive sibling file, so no lock byte was at
+  risk.
+- **Non-goals honoured** — bug 0091's disposition 2 is not re-opened: U+2028 and
+  U+2029 stay ordinary characters everywhere and rule 1's six-ASCII set is
+  unwidened. No source, registry row, diagnostic code, or rendered byte moved,
+  and the corrected fact is restated on no other page (DIAG-2 mirroring is not
+  reached: no registry row carries this clause).
+- **Verification** — full offline gate `npm test`: 437 files, 9169 tests, all
+  green, including the 0091 oracle, the new witness, and
+  `tests/citation-symbol-form-gate.test.ts` (residual pin 415 not raised). **No
+  live run is owed**: nothing under `src/` was touched, so no live-exercised
+  surface changed. The nearest covering cells are the 0091 oracle's cell 6
+  (`renderEchoValue` preserving U+2028 verbatim, a real `src/render/argument-echo`
+  import) and this filing's cell 2 (real `src/lexer/lexer.ts` /
+  `src/parser/theta-document.ts` imports through `tests/helpers/e2e-s1.ts`).
+- **Files** — `docs/spec_topics/diagnostics/placeholder-rendering-b.md` (1 line
+  changed), `tests/b0266-category6-string-literal-rationale-gate.test.ts` (new),
+  this report.
