@@ -7,7 +7,7 @@
 // yields a `message` spanning physical lines where
 // `diagnostic-shape.md:34` says single-line summary — and an author-chosen
 // second key spelled `hint:` at column 2 forges the reserved `  hint: <hint>`
-// continuation line `src/diagnostics/diagnostic.ts:80` emits, on a diagnostic
+// continuation line `src/diagnostics/diagnostic.ts:95` emits, on a diagnostic
 // that carries no hint field at all
 // (docs/bugs/0105-malformed-tool-entry-message-embeds-raw-newline.md).
 //
@@ -95,7 +95,7 @@ describe("bug 0105 live cell — a two-key block-mapping `tools:` item renders a
       // The refused, forgery shape: a `tools:` sequence written at column 0
       // so the block-mapping item's keys land at column 2, second key
       // spelled `hint:` — the exact shape
-      // `src/diagnostics/diagnostic.ts:80` reserves for a diagnostic's own
+      // `src/diagnostics/diagnostic.ts:95` reserves for a diagnostic's own
       // `hint` field, on a diagnostic that carries none.
       {
         source: "project",
@@ -165,7 +165,7 @@ describe("bug 0105 live cell — a two-key block-mapping `tools:` item renders a
       expect(
         forgedHintLines,
         "bug-0105 live cell: the rendered note carries a line matching `^ {2}hint: ` for a " +
-          "diagnostic with no `hint` field — the shape `src/diagnostics/diagnostic.ts:80` " +
+          "diagnostic with no `hint` field — the shape `src/diagnostics/diagnostic.ts:95` " +
           "reserves. Note: " + JSON.stringify(note),
       ).toEqual([]);
       const forgedRelatedLines = physicalLines.filter((l) =>
@@ -175,7 +175,7 @@ describe("bug 0105 live cell — a two-key block-mapping `tools:` item renders a
         forgedRelatedLines,
         "bug-0105 live cell: the rendered note carries a line matching `^ {2}\\S+:\\d+:\\d+: ` " +
           "for a diagnostic whose `related` is absent — the shape " +
-          "`src/diagnostics/diagnostic.ts:86` reserves. Note: " + JSON.stringify(note),
+          "`src/diagnostics/diagnostic.ts:102` reserves. Note: " + JSON.stringify(note),
       ).toEqual([]);
 
       // The single-line-summary assertion: the recovered slice's own break

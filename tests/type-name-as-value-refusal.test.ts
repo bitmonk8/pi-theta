@@ -888,10 +888,10 @@ describe("bug 0140 (b) — the `fn` precedent and the three licensed positions",
 // about an expression that holds no value at all (group (e) measures the `null`).
 //
 // THE ORDER IS PART OF THE ASSERTION. Every diagnostic funnels through
-// `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–126), which sorts by
+// `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123–142), which sorts by
 // `(file, line, col)` with a STABLE sort and does NOT read the END column
-// (`:116–126`), so diagnostics tying on the start key keep their collected
-// order (`:114–115` states that in terms). That is what puts the new code first
+// (`:132–142`), so diagnostics tying on the start key keep their collected
+// order (`:130–131` states that in terms). That is what puts the new code first
 // where it shares a start column with the companion row (c1's iterand `P`, c3's
 // `P + 1`, c5's `P.frobnicate()`, c6's `P[0]`, c11's `Q { b: P }`, c12's
 // `read(P)` — each companion is ranged from the same column the ident occupies,

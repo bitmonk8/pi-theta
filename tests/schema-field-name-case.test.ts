@@ -121,7 +121,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // is unaffected.
 //
 // ORDERING IS PART OF THE ASSERTION. Every group funnels through
-// `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–126), which sorts by
+// `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123–142), which sorts by
 // `(file, line, col)` with a stable sort. That is what puts the
 // declaration-ranged `redundant-wire-name` (`@4:1`) AHEAD of the field-ranged
 // `binding-case-mismatch` (`@4:12`) in row w1, and the frontmatter-ranged code

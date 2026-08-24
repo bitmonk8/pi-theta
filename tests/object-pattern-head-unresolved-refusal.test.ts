@@ -269,7 +269,7 @@ function render(doc: ThetaDocument): string {
 /**
  * Assert `body`'s WHOLE diagnostic list, order-sensitive.
  *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) orders by
+ * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
  * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
  * order is positional and measured, never guessed.
  */
@@ -896,7 +896,7 @@ describe("0221 (o) — one diagnostic per construct, and no cascade", () => {
     // The bug's §Reproduction B6 shape verbatim: `Q` is declared nowhere, so
     // the outer `ident` head draws this fix's code and the inner `keyword`
     // head draws bug 0219's — one per construct, position-sorted by
-    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107). Columns on
+    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123). Columns on
     // line 4: `Q`=19, `{`=21, `f`=23, `:`=24, `Result`=26.
     expectDiagnostics(
       armBody("Q { f: Result { a: 1 } }"),

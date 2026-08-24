@@ -352,7 +352,7 @@ function identPattern(name: string): unknown {
  * PATTERNS in one place.
  *
  * Order is positional, never guessed: `assembleDiagnostics`
- * (src/diagnostics/diagnostic.ts:107) sorts by (file, line, column) with a
+ * (src/diagnostics/diagnostic.ts:123) sorts by (file, line, column) with a
  * stable sort, so a multi-diagnostic row's expected order is its column order.
  *
  * The arm count is the phantom-arm observable

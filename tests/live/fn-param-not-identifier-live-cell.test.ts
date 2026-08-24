@@ -53,7 +53,7 @@
 //      `theta/parse/*` → `lex-parse-type`,
 //      src/extension/production-composition.ts:309–311; the note content is
 //      `renderDiagnosticBatch([diagnostic])`, and `renderDiagnosticLine`
-//      writes the CODE into the line, src/diagnostics/diagnostic.ts:72), so
+//      writes the CODE into the line, src/diagnostics/diagnostic.ts:87), so
 //      the new code must appear by name on the real channel the suite
 //      observes.
 //

@@ -509,7 +509,7 @@ describe("bug 0165 (D) — a type-refused field draws no default-side diagnostic
 // rather than replace one another, and the first row is the cell that says so.
 //
 // The list order is `(file, line, col)`, imposed by `assembleDiagnostics`
-// (src/diagnostics/diagnostic.ts:116), so `p` on the earlier line reports
+// (src/diagnostics/diagnostic.ts:132), so `p` on the earlier line reports
 // first regardless of which loop pushed it.
 //
 // RED at HEAD: the first row draws the ordering rule ALONE and the second draws

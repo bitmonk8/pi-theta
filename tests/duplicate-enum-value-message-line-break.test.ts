@@ -61,7 +61,7 @@ import {
 //
 // THE PINNED POST-FIX CONTRACT. The interpolated value passes bug 0105's
 // shared transform, `normaliseLiteralValueLineBreaks`
-// (src/diagnostics/diagnostic.ts:152): text carrying neither U+000D nor U+000A
+// (src/diagnostics/diagnostic.ts:168): text carrying neither U+000D nor U+000A
 // is returned byte-identically; every maximal run of U+0020 / U+0009 / U+000D /
 // U+000A containing at least one break collapses, run and all, to one U+0020;
 // a break-free whitespace run is preserved verbatim; leading and trailing
@@ -69,9 +69,9 @@ import {
 //
 // WHAT IS RED HERE AND WHY. Every carrier cell reds on the measured symptom: a
 // `message` of two or three physical lines, a rendered block carrying a forged
-// `  hint: ` (src/diagnostics/diagnostic.ts:80) or `  <file>:<line>:<col>: `
-// (:86) continuation line, `renderDiagnosticBatch` of one `Diagnostic`
-// rendering as two blank-line-separated blocks (:98), or a message string that
+// `  hint: ` (src/diagnostics/diagnostic.ts:95) or `  <file>:<line>:<col>: `
+// (:102) continuation line, `renderDiagnosticBatch` of one `Diagnostic`
+// rendering as two blank-line-separated blocks (:114), or a message string that
 // still carries the author's break.
 //
 // GREEN BY DESIGN and required to stay green: the identity half (group I) —
@@ -322,7 +322,7 @@ describe("Bug 0250 (F1) — a `hint`-shaped value forges no hint continuation li
     expect(
       forged,
       "the rendered block carries a `  hint: ` line for a diagnostic with no" +
-        " `hint` field — the shape src/diagnostics/diagnostic.ts:80 reserves: " +
+        " `hint` field — the shape src/diagnostics/diagnostic.ts:95 reserves: " +
         shown(rendered),
     ).toEqual([]);
   });
@@ -347,7 +347,7 @@ describe("Bug 0250 (F2) — a `path:line:col`-shaped value forges no related-sit
     expect(
       forged,
       "the rendered block carries a related-site line for a diagnostic whose" +
-        " `related` is absent — the shape src/diagnostics/diagnostic.ts:86" +
+        " `related` is absent — the shape src/diagnostics/diagnostic.ts:102" +
         " reserves: " + shown(rendered),
     ).toEqual([]);
   });
@@ -368,7 +368,7 @@ describe("Bug 0250 (F3) — a blank-line value forges no batch block boundary", 
       batch.split("\n\n").length,
       "one `Diagnostic` rendered as more than one blank-line-separated block:" +
         " the `\\n\\n` in the message is the block separator" +
-        " src/diagnostics/diagnostic.ts:98 joins with. " + shown(batch),
+        " src/diagnostics/diagnostic.ts:114 joins with. " + shown(batch),
     ).toBe(1);
   });
 

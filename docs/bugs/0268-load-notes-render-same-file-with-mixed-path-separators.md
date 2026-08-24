@@ -1,6 +1,9 @@
 # Bug 0268 — one load pass renders `theta-system-note` file paths under three mutually inconsistent separator conventions (fully POSIX from the import checks, fully Win32 from the closure walk, mixed Win32-root-plus-POSIX-tail from the discovery walk), and which convention a given file gets is decided by whichever walk parsed it first, so notes from one pass are not greppable by one path spelling
 
-- **Status:** open.
+- **Status:** fixed (0.265.0). The seam §Fix left adjudicable was settled
+  in-run to the RENDER seam plus a second touch at the note-channel delivery
+  funnel — `renderDiagnosticLine` and `sendSystemNote`, both presentational,
+  neither a mint site; see `## Fix (0.265.0)`.
 - **Sev/Diff estimate:** S4/D1 — S4 because no load, registration, dedup or
   diagnostic-content decision changes: the divergence is confined to the
   rendered `file` field and its `details.diagnostics[].file` twin, and the
@@ -264,3 +267,187 @@ Reproduced at HEAD `b2491a8d` (v0.262.0) with a scratch probe imitating
 The observation as originally worded — one file, two spellings, one pass — no
 longer reproduces at HEAD; the class reproduces as the cross-file and
 walk-order divergence tabled in §Reproduction.
+
+## Fix (0.265.0)
+
+- What shipped:
+  - `src/diagnostics/diagnostic.ts` — new exported pure helper
+    `toPosixFileSpelling` (argument-only, no host access, no module state);
+    `renderDiagnosticLine` spells the head-line `file` and every related
+    site's `file` through it, so every rendered surface — both note sinks, the
+    stderr mirror and the watcher-recovery note — carries one convention
+    (§Fix constraints 1 and 4).
+  - `src/extension/system-note-channel.ts` — `sendSystemNote` spells
+    `details.diagnostics[].file` and `.related[].file` through the same helper
+    before `pi.sendMessage`, so the structured twin agrees with the rendered
+    string (§Fix constraint 1). It is the single delivery funnel, so one touch
+    covers `emitDiagnosticBatch` and `emitLoadNoteGroup` alike. It keys on the
+    `{ diagnostics }` details shape only; the `event`, `structural` and
+    `recovery` shapes and every non-diagnostic `content` pass through
+    byte-identical, and a `Diagnostic` is rebuilt only when a spelling
+    actually moves (§Fix constraint 2).
+  - `docs/spec_topics/diagnostics/diagnostic-shape.md` — the `file?:` line of
+    the internal diagnostic shape and the *Serialised content format*
+    paragraph state the convention normatively: `file` and each related site's
+    `file` are spelled with the POSIX forward slash on every host platform
+    (§Fix constraint 4). DIAG-2 is not engaged — no code, *Trigger* or
+    *Message* moved, and no registry page was touched.
+  - `docs/reference/diagnostics.md` — the reference mirror of that page
+    carries the same two amendments.
+  - `tests/thetalib-reparse-walk-single-delivery.test.ts`,
+    `tests/lex-drop-single-delivery.test.ts` — the separator compensation is
+    dropped and the pinned spelling is compared directly (§Fix constraint 6;
+    old-to-new enumerated under Review below).
+- Convention chosen and why: POSIX forward slash. The repository already
+  normalises Win32 to POSIX at seven source sites and the reverse at none
+  (`src/discovery/discovery-walk.ts` line 123,
+  `src/discovery/package-discovery.ts` line 88,
+  `src/extension/import-static-checks.ts` line 93,
+  `src/extension/invoke-static-checks.ts` line 113,
+  `src/extension/pass-parse-cache.ts` line 56,
+  `src/extension/production-composition.ts` line 2560,
+  `src/runtime/invocation.ts` line 130), and the comment above
+  `src/extension/import-static-checks.ts` line 92 names forward slash "the
+  normalised comparison form per Lexical §Path literals; the `FileSystem` seam
+  reports forward-slash paths". The repository's own convention wins.
+- Seam chosen and why: of the three candidates §Fix left adjudicable, the mint
+  seam was refused because it moves paths that resolution, containment and the
+  closure walk's `seen` set consume (§Fix constraint 3 carries the weight
+  there), and the document seam was refused because it leaves every parse that
+  bypasses the pass cache unnormalised. The render seam plus the delivery
+  funnel sits downstream of resolution, of cache keying and of bug 0264's
+  identity-based delivered-diagnostic filter, so it cannot disturb any of
+  them, and the two sites together close §Fix constraint 1's rendered and
+  structured pair.
+- Pass-cache key and path asymmetry: `PassParseCache` identity is already
+  spelling-independent — `normaliseCacheKey`
+  (`src/extension/pass-parse-cache.ts` line 55) is applied to every lookup and
+  store (line 111), so a Win32 and a POSIX spelling of one file key together.
+  The document's verbatim `input.path` is no longer observable, because both
+  channels through which it reached an operator are normalised at the seams
+  above. The file is byte-unchanged.
+- Gates:
+  - Witness (offline):
+    `npx vitest run tests/b0268-diagnostic-file-separator-normalisation.test.ts tests/b0268-load-note-path-spelling-single-convention.test.ts`
+    gives `Test Files  2 passed (2)`, `Tests  7 passed (7)`. Neutralising
+    `toPosixFileSpelling` reds six of the seven with the mixed and Win32
+    spellings the §Reproduction tables name.
+  - Witness (live, under the exclusive live lock):
+    `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0268live-load-note-path-spelling-live-cell.test.ts`
+    gives `Test Files  1 passed (1)`. Both directions proved: with
+    `toPosixFileSpelling` neutralised the same cell reds on
+    `details.diagnostics[].file` carrying a backslash; the neutralisation was a
+    targeted byte edit restored byte-exact.
+  - Full default suite: `npm test` gives
+    `Test Files  1 failed | 442 passed (443)`,
+    `Tests  2 failed | 9225 passed (9227)`. The two reds are residual 1 below.
+  - `npm run typecheck` clean. `npm run lint` clean.
+  - Citation gate: `tests/citation-symbol-form-gate.test.ts` green, residual
+    count 415, pin 415 — not raised.
+- Review: 2 rounds.
+  - Round 1 (deep) — findings: (F1, spec) `emitPanicNote`
+    (`src/extension/production-theta-producer.ts`) and `emitBootstrapTier1`
+    (`src/extension/production-composition.ts`) send
+    `details: { diagnostics }` without passing `sendSystemNote`, so the new
+    normative sentence is broader than the two seams guarantee — disposition:
+    the spec sentence stays normative, because §Fix constraint 4 pins the
+    field so a future minting site inherits it; the bypass is residual 2.
+    (F2, test) four citation continuation tokens were only partially
+    re-derived after the insertions shifted line numbers — fixed. Two
+    non-blocking residuals recorded (identity rebuild; pre-existing reference
+    citation drift).
+  - Round 2 (fast) — no correctness, fidelity or spec finding; one test-class
+    citation error (`tests/acceptance-stderr-gate.test.ts`, the PIC-54 sink
+    pair re-derived to `src/extension/system-note-channel.ts:286` and `:363`
+    instead of `:296` and `:373`) corrected under the citation-only bounded
+    authority recorded in residual 4.
+  - Constraint-6 old-to-new: in
+    `tests/thetalib-reparse-walk-single-delivery.test.ts` — `headLine`'s
+    `const spelling = file === undefined ? undefined : normalisePath(file)`
+    becomes the `file` argument used directly; `positionKey`'s
+    `diagnostic.file === undefined ? "" : normalisePath(diagnostic.file)`
+    becomes `diagnostic.file ?? ""`; `renderedOccurrences`'
+    `notes.map((n) => normalisePath(n.content))` becomes
+    `notes.map((n) => n.content)`; `expectDeliveredExactlyOnce`'s
+    `expect(normalisePath(row.file ?? ""), …)` becomes
+    `expect(row.file ?? "", …)`. In `tests/lex-drop-single-delivery.test.ts` —
+    `expect(normalisePath(row.file ?? "")).toBe(workspace.thetaPath)` becomes
+    `expect(row.file ?? "").toBe(workspace.thetaPath)`. In both files
+    `normalisePath` survives only to build the expected fixture literal from a
+    native `join`, and its doc comment says so. Bug 0264's delivery counts,
+    bug 0267's registration outcomes and bug 0255's dedup assertions are
+    byte-preserved.
+- Verification: SOLID.
+  - The witnesses genuinely red without the fix: `toPosixFileSpelling`
+    neutralised to `return file`, both offline witnesses red with the mixed
+    and Win32 signature, restored by hand (no `git checkout`, no
+    `git restore`, no `git stash`), blob hash re-confirmed
+    `73401e9fff17178ebbb9ab1566737590ee75ebd4`, green again.
+  - Full default suite: exactly the two adjudicated reds, no others.
+  - Live: the orchestrator ran the cell under the exclusive lock, both
+    directions; the verifier read the logs and confirmed the cell drives the
+    real composition root and asserts the fixed path (verifiers never run live
+    in this lane).
+  - Lint and typecheck clean.
+  - §Fix constraints 1, 2, 3, 5 and 6 re-derived against the shipped diff:
+    no diff at all in `discovery-walk.ts`, `import-static-checks.ts`,
+    `production-composition.ts` or `pass-parse-cache.ts`.
+- Residuals:
+  1. **Blocking for the merge.**
+     `tests/tools-entry-grammar-derivations-lockstep.test.ts` (bug 0248's
+     witness) reds two assertions — D2 at its line 1328 and D4 at its line
+     1413. Its `plantedPath` helper (its line 1211) builds the expected
+     head-line literal by interpolating the native `mkdtempSync` root, which
+     is the pre-fix mixed Win32-root-plus-POSIX-tail spelling this report
+     eliminates; the rendered mirror is now fully POSIX, so the oracle's own
+     literal is what is stale. The assertion's subject — the containment
+     refusal, its code, its registered *Hint*, its `1:1` location and the
+     registration set — is unaffected. That file is not in §Fix constraint 6's
+     enumeration, so under the operator's rule that anything else which reds
+     is a stop, it was left byte-untouched and no edit was self-authorized.
+     The remedy is one line: build `plantedPath` from a separator-normalised
+     workspace root, matching the `posixPath` helper in
+     `tests/b0268-load-note-path-spelling-single-convention.test.ts`. It needs
+     its own authority.
+  2. Two `theta-system-note` senders bypass `sendSystemNote` and therefore the
+     normalisation: `emitPanicNote`
+     (`src/extension/production-theta-producer.ts`), whose
+     `details.diagnostics[0].file` is the theta's `sourcePath` and can still
+     be mixed-spelled on Win32, and `emitBootstrapTier1`
+     (`src/extension/production-composition.ts`), whose two diagnostics are
+     file-less today so it cannot yet disagree. Both are runtime and bootstrap
+     notes, outside this report's load-pass scope; normalising them is an
+     executable change beyond §Fix's two named sinks. Filing material.
+  3. `docs/reference/diagnostics.md` grew two lines, so citations into that
+     file at rows at or below its line 33 shift by two. Those citations were
+     already stale before this change (for example `tests/par-for.test.ts`
+     cites `docs/reference/diagnostics.md` line 118 for a row that sat at line
+     121 before this change); the drift is pre-existing and worsened by two,
+     not newly broken. Cleanup material.
+  4. Self-authorized on the record, citation-only: two numeric tokens in one
+     assertion-message string in `tests/acceptance-stderr-gate.test.ts` were
+     corrected from `src/extension/system-note-channel.ts:286` and `:363` to
+     `:296` and `:373`. The question that would have been asked: may the
+     integrator correct a citation the round-1 fixer re-derived wrongly?
+     Evidence: (a) `grep -n "system-note delivery failed:"` reports exactly
+     lines 296 and 373 of that file; (b) the round-2 reviewer derived the same
+     two numbers independently from the pre-fix lines 237 and 314 plus the
+     diff's shift of 59 lines; (c) the diff hunk headers corroborate that
+     shift. Bound: two numeric tokens, one string, one file; no assertion
+     subject and no executable line. Stop valve: had the file or the citation
+     gate redded, the edit would have been reverted and reported. Both are
+     green.
+- Discharge notes appended:
+  `./0264-thetalib-reparse-walks-reemit-lex-rows-per-walk.md` and
+  `./0255-lex-phase-diagnostics-double-deliver-on-dropped-theta.md`
+  (§Fix constraint 6 coordination), and
+  `./0248-malformed-escaping-tools-entry-containment-unwitnessed.md`
+  (residual 1).
+- Pinned dispositions and non-goals: no mint site, no path resolution, no
+  containment check, no discovery-root comparison and no pass-cache key was
+  touched (§Fix constraint 3); no diagnostic code was added, removed or
+  reclassified, so the GOV-15 registry carve-out is not engaged and
+  `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged (H9a's stderr
+  gate parses codes, not paths); the `<path>` and `<file>` message-placeholder
+  rule (`placeholder-rendering-b.md` line 9) is untouched — author-written
+  source text inside a *Message* stays verbatim.

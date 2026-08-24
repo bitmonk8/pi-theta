@@ -201,7 +201,7 @@ function render(doc: ThetaDocument): string {
 /**
  * Assert `body`'s WHOLE diagnostic list, order-sensitive.
  *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) orders by
+ * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
  * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
  * order is positional and measured, never guessed.
  */
@@ -540,7 +540,7 @@ describe("0219 (d) — the refusal fires at every depth the pattern grammar recu
         reserved("Result", headRange("Result", 4, 19)),
         reserved("Ok", headRange("Ok", 4, 31)),
       ],
-      "two reserved heads at different depths of the same pattern each draw their own diagnostic, position-sorted by `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) with the outer head first",
+      "two reserved heads at different depths of the same pattern each draw their own diagnostic, position-sorted by `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) with the outer head first",
     );
   });
 });

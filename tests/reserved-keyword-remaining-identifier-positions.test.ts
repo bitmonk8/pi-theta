@@ -118,7 +118,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // discriminates on the SLOT, not on the token kind, which is what keeps rows
 // k1–k5 green.
 // ORDER is still not guessed where two diagnostics remain: every group funnels
-// through `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–127), which
+// through `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123–143), which
 // stable-sorts by (file, line, column) over the groups collected at
 // src/parser/theta-document.ts:1068 in the order
 // [frontmatterDiags, lex.diagnostics, parser.diagnostics, …]. So a strictly
@@ -790,7 +790,7 @@ describe("0153 (m) — the wrong-subject faces report the name the author chose 
     // the ordering evidence for this whole group: a PARSER diagnostic (`mut`
     // @5:5-5:8) ahead of the refusal at the variable @5:9-5:12, which is
     // `assembleDiagnostics`'s positional sort
-    // (src/diagnostics/diagnostic.ts:116–126) and not group order. Bug 0242
+    // (src/diagnostics/diagnostic.ts:132–142) and not group order. Bug 0242
     // retakes it by dropping the lexer's `in` @5:13-5:15 alone; the `mut`
     // recovery is that report's §Non-goals and is unmoved. This is also the
     // row 0242's name-slot predicate needs its `mut` clause for — the variable

@@ -377,7 +377,7 @@ describe("0139 (a12) — `mut` and the case rule report together, in source orde
     // same iteration, so each code carries the range of the thing it judges.
     //
     // The ORDER is a decision, not an accident. Every group funnels through
-    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–127), which
+    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123–143), which
     // sorts by (file, line, column) with a stable sort, so the `mut` token's
     // column places it ahead of the parameter name's. Both ranges are pinned
     // below so that rationale is observable rather than taken on faith:

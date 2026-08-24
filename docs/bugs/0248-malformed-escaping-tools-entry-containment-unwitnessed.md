@@ -566,3 +566,35 @@ Constraints on the implementation:
   the returned fixtures. Run on the outputs quoted above, then deleted per
   scratch policy. `src/`, `tests/`, `docs/bugs/README.md` and every other bug
   doc are unmodified by this filing.
+
+### Coordination note — 2026-08-24, bug 0268 (0.265.0)
+
+Bug 0268's fix pins one separator convention (POSIX forward slash) for every
+rendered and structured diagnostic `file` field, normalised at
+`renderDiagnosticLine` (`src/diagnostics/diagnostic.ts`) and at `sendSystemNote`
+(`src/extension/system-note-channel.ts`). Two assertions in this report's
+witness `tests/tools-entry-grammar-derivations-lockstep.test.ts` red as a
+consequence — D2 at its line 1328 and D4 at its line 1413 — because its
+`plantedPath` helper (its line 1211) builds the expected head-line literal by
+interpolating the native `mkdtempSync` root, which is the pre-fix mixed
+Win32-root-plus-POSIX-tail spelling. The rendered mirror is now fully POSIX, so
+the oracle's literal is what is stale; the assertions' subject — the INV-1
+containment refusal, its code, its registered *Hint*, its `1:1` location at the
+caller's file and the registration set — is unaffected and still holds.
+
+That file is not in bug 0268's §Fix constraint 6 enumeration, so it was left
+byte-untouched and the red is reported rather than repaired. The remedy is one
+line: build `plantedPath` from a separator-normalised workspace root, matching
+the `posixPath` helper in
+`tests/b0268-load-note-path-spelling-single-convention.test.ts`.
+
+**Ratified at the 0268 merge gate (parent adjudication, on the record,
+0.265.0):** the one-line remedy above was applied — `plantedPath` now
+interpolates the separator-normalised workspace root and its doc-comment
+states the 0268 rule — under the sibling-witness format-follow precedent
+(the 0245/0252/0256 merge-gate ratification class). Old → new: the expected
+head-line literal's `mkdtempSync` prefix, native spelling → POSIX-normalised;
+assertion structure, cell subjects, codes, locations and registration sets
+byte-unchanged. Bound stated before the edit: one helper line plus its
+doc-comment in this one file; any further red ⇒ stop. D2 and D4 are green
+under the flip.

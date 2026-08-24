@@ -444,7 +444,7 @@ function render(doc: ThetaDocument): string {
 /**
  * Assert `body`'s WHOLE diagnostic list, order-sensitive and unfiltered.
  *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) orders by
+ * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
  * (file, line, column) with a stable sort, so a multi-diagnostic row's
  * expected order is positional and measured, never guessed.
  */

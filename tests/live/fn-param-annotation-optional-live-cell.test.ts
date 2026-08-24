@@ -65,7 +65,7 @@
 // `theta-system-note` channel through the V4e pre-eval router (`preEvalCauseOf`
 // maps `theta/parse/*` → `lex-parse-type`,
 // src/extension/production-composition.ts:309–311; `renderDiagnosticLine`
-// writes the CODE into the line, src/diagnostics/diagnostic.ts:72) at BOOT, so
+// writes the CODE into the line, src/diagnostics/diagnostic.ts:87) at BOOT, so
 // it appears in the whole-session read below while being outside the per-drive
 // slice `driveSlashCaptureTurn` returns. If that code is absent, the channel —
 // not this bug — is the fault, and the cell reds naming that.

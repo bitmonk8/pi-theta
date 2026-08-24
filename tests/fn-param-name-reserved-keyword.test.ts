@@ -720,7 +720,7 @@ describe("0148 (b) — `mut` at the parameter position keeps its own disposition
     // The modifier and a real reserved name after it: each code carries the
     // range of the thing it judges, and both are reported. The ORDER is a
     // decision, not an accident — every group funnels through
-    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107–127), which
+    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123–143), which
     // sorts by (file, line, column) with a stable sort, so the `mut` token's
     // column places it ahead of the parameter name's.
     //

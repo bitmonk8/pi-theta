@@ -437,7 +437,7 @@ describe("bug 0030 fix — `thetaOwnedStderrLines` is the H8a spy filter", () =>
     expect(
       SYSTEM_NOTE_DELIVERY_FAILED_PREFIX,
       "byte-exact with the PIC-54 terminal sink at " +
-        "`src/extension/system-note-channel.ts:237` and :314",
+        "`src/extension/system-note-channel.ts:296` and :373",
     ).toBe("system-note delivery failed:");
     expect(
       RELOAD_REBUILD_REJECTED_PREFIX,

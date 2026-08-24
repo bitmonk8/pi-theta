@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.265.0]
+
+### Fixed
+
+- Bug 0268: one load pass rendered theta-system-note file paths under three
+  separator conventions (mixed Win32-root/POSIX-tail from discovery, POSIX
+  from the import checks, Win32 from the callee walks), so notes for
+  different files in one pass disagreed and one file's spelling depended on
+  which walk parsed it first. Seam settled on the record: POSIX forward
+  slash (matching the repo's seven existing normalising sites), applied at
+  the two presentational seams only — `renderDiagnosticLine` and
+  `sendSystemNote` — no mint site, resolution path, or cache key touched.
+  Normative sentence landed at the diagnostic-shape silence + reference
+  mirror. Two committed witnesses' separator-normalising comparisons
+  flipped to exact-spelling under §Fix constraint 6 (coordination notes on
+  0264/0255); 0248's witness `plantedPath` expected-literal flip ratified
+  at the merge gate (note on 0248's doc). New witnesses
+  `tests/b0268-diagnostic-file-separator-normalisation.test.ts`,
+  `tests/b0268-load-note-path-spelling-single-convention.test.ts`, and live
+  cell `tests/live/b0268live-load-note-path-spelling-live-cell.test.ts`.
+
 ## [0.264.0]
 
 ### Fixed

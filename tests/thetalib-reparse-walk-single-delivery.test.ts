@@ -309,7 +309,15 @@ async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
 
 // ── Observation helpers ─────────────────────────────────────────────────────
 
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
+// Bug 0268 pins one separator convention (POSIX forward slash) at the
+// rendering / delivery seam, so every `Diagnostic.file` this pass observes is
+// already spelled consistently; `normalisePath` below is retained ONLY to
+// build the expected fixture literal (`plantWorkspace`'s `path`), which starts
+// from a native `join()` result and must state the same pinned spelling the
+// channel now guarantees. The comparison sites (`headLine`, `positionKey`,
+// `renderedOccurrences`, `expectDeliveredExactlyOnce`) compare the delivered
+// spelling directly — no compensation — so a regression back to bug 0268's
+// mixed spellings reds here instead of being hidden by a normalising oracle.
 function normalisePath(path: string): string {
   return path.replace(/\\/g, "/");
 }
@@ -331,24 +339,23 @@ function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
 
 /**
  * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>: <message>`
- * (`docs/spec_topics/diagnostics/diagnostic-shape.md` line 63) — with the file
- * separator-normalised. The hint / related continuations are excluded so the
- * count below measures line occurrences, not note lengths.
+ * (`docs/spec_topics/diagnostics/diagnostic-shape.md` line 63). The delivered
+ * `file` is compared verbatim — bug 0268 pins the channel to one spelling, so
+ * this oracle asserts that spelling rather than normalising around it. The
+ * hint / related continuations are excluded so the count below measures line
+ * occurrences, not note lengths.
  */
 function headLine(diagnostic: Diagnostic): string {
   const { file, range, code, message } = diagnostic;
-  const spelling = file === undefined ? undefined : normalisePath(file);
-  if (spelling !== undefined && range !== undefined) {
-    return `${spelling}:${range.start.line}:${range.start.column}: ${code}: ${message}`;
+  if (file !== undefined && range !== undefined) {
+    return `${file}:${range.start.line}:${range.start.column}: ${code}: ${message}`;
   }
-  return spelling !== undefined
-    ? `${spelling}: ${code}: ${message}`
-    : `${code}: ${message}`;
+  return file !== undefined ? `${file}: ${code}: ${message}` : `${code}: ${message}`;
 }
 
 /** The position key a duplicate delivery shares: file + start position + code. */
 function positionKey(diagnostic: Diagnostic): string {
-  const file = diagnostic.file === undefined ? "" : normalisePath(diagnostic.file);
+  const file = diagnostic.file ?? "";
   const range = diagnostic.range;
   const at =
     range === undefined ? "" : `${range.start.line}:${range.start.column}`;
@@ -356,15 +363,15 @@ function positionKey(diagnostic: Diagnostic): string {
 }
 
 /**
- * Occurrences of `needle` across every note's `content`, separator-normalised
- * before comparison so the two spellings of one file that (C) and (D) produce
- * collapse into one counted line.
+ * Occurrences of `needle` across every note's `content`, compared verbatim:
+ * bug 0268 pins the channel to one spelling, so a repeated line collapses on
+ * its own without normalisation.
  */
 function renderedOccurrences(
   notes: readonly RecordedNote[],
   needle: string,
 ): number {
-  const hay = notes.map((n) => normalisePath(n.content)).join("\n");
+  const hay = notes.map((n) => n.content).join("\n");
   let count = 0;
   let from = 0;
   for (;;) {
@@ -426,7 +433,7 @@ function expectDeliveredExactlyOnce(
 ): Diagnostic {
   const row = soleRow(pass.notes, code);
   expect(row.severity, `${code} severity`).toBe("error");
-  expect(normalisePath(row.file ?? ""), `${code} file`).toBe(file);
+  expect(row.file ?? "", `${code} file`).toBe(file);
   expect(row.message, `${code} message`).toMatch(normativeMessagePattern(code));
   expect(
     renderedOccurrences(pass.notes, headLine(row)),

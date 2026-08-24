@@ -292,7 +292,11 @@ async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
 
 // ── Observation helpers ─────────────────────────────────────────────────────
 
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
+// Bug 0268 pins one separator convention (POSIX forward slash) at the
+// rendering / delivery seam, so `row.file` below is compared verbatim rather
+// than normalised: `normalisePath` is retained ONLY to build the expected
+// fixture literal (`plantTheta`'s `thetaPath`), which starts from a native
+// path and must state the same pinned spelling the channel now guarantees.
 function normalisePath(path: string): string {
   return path.replace(/\\/g, "/");
 }
@@ -390,7 +394,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
       // than passing the count assertion below on a silent drop.
       const row = soleRow(pass.notes, BLOCK_COMMENT_CODE);
       expect(row.severity).toBe("error");
-      expect(normalisePath(row.file ?? "")).toBe(workspace.thetaPath);
+      expect(row.file ?? "").toBe(workspace.thetaPath);
       expect(row.message).toMatch(normativeMessagePattern(BLOCK_COMMENT_CODE));
 
       // diagnostic-shape.md:65 — one `pi.sendMessage` per `.theta` file. At HEAD

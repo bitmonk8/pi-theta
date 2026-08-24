@@ -18,8 +18,67 @@
 // dead and rethrows so the caller quiesces instead of walking a fallback chain
 // whose every arm is equally stale.
 
-import { renderDiagnosticBatch, type Diagnostic } from "../diagnostics/diagnostic";
+import {
+  renderDiagnosticBatch,
+  toPosixFileSpelling,
+  type Diagnostic,
+} from "../diagnostics/diagnostic";
 import { isStaleCtxError } from "./stale-ctx";
+
+/**
+ * Spell a single diagnostic's `file` / `related[].file` with the pinned POSIX
+ * convention, rebuilding the `Diagnostic` only when a spelling actually
+ * changes (bug 0268 §Fix constraint 2 — every other field, including object
+ * identity when nothing moves, is carried through unchanged).
+ */
+function normaliseDiagnosticSpelling(diagnostic: Diagnostic): Diagnostic {
+  const file =
+    diagnostic.file === undefined ? undefined : toPosixFileSpelling(diagnostic.file);
+  let relatedChanged = false;
+  const related = diagnostic.related?.map((site) => {
+    const normalised = toPosixFileSpelling(site.file);
+    if (normalised === site.file) {
+      return site;
+    }
+    relatedChanged = true;
+    return { ...site, file: normalised };
+  });
+  if (file === diagnostic.file && !relatedChanged) {
+    return diagnostic;
+  }
+  // `exactOptionalPropertyTypes` forbids assigning `file: undefined` onto the
+  // optional `file?: string` field, so the located/file-only/location-less
+  // categories (diagnostic-shape.md "Internal diagnostic shape") are rebuilt
+  // by presence rather than by a single object-spread carrying `file` always.
+  const rebuilt: Diagnostic =
+    file === undefined ? { ...diagnostic } : { ...diagnostic, file };
+  return related === undefined ? rebuilt : { ...rebuilt, related };
+}
+
+/**
+ * Spell every `details.diagnostics[].file` / `.related[].file` with the
+ * pinned POSIX convention (bug 0268 §Fix constraint 1) so the structured
+ * payload agrees with the rendered `content` string. Keys ONLY on the
+ * `diagnostics` shape — the `event` / `structural` / `recovery` shapes carry
+ * author- and host-supplied strings that are not `Diagnostic.file` and pass
+ * through byte-identical.
+ */
+function normaliseDetailsFileSpelling(details: SystemNoteDetails): SystemNoteDetails {
+  if (!("diagnostics" in details)) {
+    return details;
+  }
+  let changed = false;
+  const diagnostics = details.diagnostics.map((diagnostic) => {
+    const normalised = normaliseDiagnosticSpelling(diagnostic);
+    if (normalised !== diagnostic) {
+      changed = true;
+    }
+    return normalised;
+  });
+  // Already-POSIX payloads are the common case, so the caller keeps its own
+  // object identity rather than an equal copy when no row's spelling moved.
+  return changed ? { diagnostics } : details;
+}
 
 /** Extract a human-readable message from an arbitrary thrown value. */
 function throwMessage(thrown: unknown): string {
@@ -253,7 +312,7 @@ export function sendSystemNote(
         customType: SYSTEM_NOTE_CHANNEL,
         content: note.content,
         display: note.display,
-        details: note.details,
+        details: normaliseDetailsFileSpelling(note.details),
       },
       { triggerTurn: false },
     );

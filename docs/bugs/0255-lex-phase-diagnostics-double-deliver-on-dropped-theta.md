@@ -376,3 +376,20 @@ witness.
   so the GOV-15 registry carve-out is not engaged and
   `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
 
+
+### Coordination note — 2026-08-24, bug 0268 (0.265.0)
+
+Bug 0268's fix pins one separator convention (POSIX forward slash) for every
+rendered and structured diagnostic `file` field, normalised at
+`renderDiagnosticLine` (`src/diagnostics/diagnostic.ts`) and at `sendSystemNote`
+(`src/extension/system-note-channel.ts`). Under that report's §Fix constraint 6,
+this report's witness `tests/lex-drop-single-delivery.test.ts` dropped the
+separator compensation on its `row.file` comparison and now compares the
+delivered spelling directly (`expect(row.file ?? "").toBe(workspace.thetaPath)`);
+`normalisePath` survives in that file only to build the expected fixture literal
+from a native `join`.
+
+This report's own subject is untouched: the single-delivery dedup assertions are
+byte-preserved and green, and 0268 changed no mint site, no parse path and no
+delivered-diagnostic filter — only how an already-minted `file` field is spelled
+on the way onto the channel.

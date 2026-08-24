@@ -53,6 +53,20 @@ export interface Diagnostic {
 }
 
 /**
+ * Spell a diagnostic `file` / `related[].file` field with the pinned
+ * separator convention (diagnostics/diagnostic-shape.md "Internal diagnostic
+ * shape", the `file?:` line): POSIX forward slash on every host platform, so
+ * one path literal matches every emitting site of a load pass regardless of
+ * which walk minted the path (bug 0268). Pure and argument-only — no globals,
+ * no host access — so both presentational seams (`renderDiagnosticLine` here
+ * and `sendSystemNote` in system-note-channel.ts) can share it without a
+ * shared mutable dependency.
+ */
+export function toPosixFileSpelling(file: string): string {
+  return file.split("\\").join("/");
+}
+
+/**
  * Render the serialised content-line block for a single diagnostic, per
  * diagnostics/diagnostic-shape.md "Serialised content format":
  *   located      → `<file>:<line>:<col>: <code>: <message>`
@@ -62,7 +76,8 @@ export interface Diagnostic {
  * `\n  <file>:<line>:<col>: <message>` line per related site.
  */
 export function renderDiagnosticLine(diagnostic: Diagnostic): string {
-  const { file, range, code, message, hint, related } = diagnostic;
+  const { file: rawFile, range, code, message, hint, related } = diagnostic;
+  const file = rawFile === undefined ? undefined : toPosixFileSpelling(rawFile);
 
   // Leading location segment by located-site category: located carries the
   // full `<file>:<line>:<col>:` triple, file-only drops the `:<line>:<col>`
@@ -83,7 +98,8 @@ export function renderDiagnosticLine(diagnostic: Diagnostic): string {
   if (related !== undefined) {
     for (const site of related) {
       // Related sites are always located and carry no code prefix.
-      line += `\n  ${site.file}:${site.range.start.line}:${site.range.start.column}: ${site.message}`;
+      const siteFile = toPosixFileSpelling(site.file);
+      line += `\n  ${siteFile}:${site.range.start.line}:${site.range.start.column}: ${site.message}`;
     }
   }
 

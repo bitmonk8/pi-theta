@@ -245,7 +245,7 @@ function render(doc: ThetaDocument): string {
 /**
  * Assert `body`'s WHOLE diagnostic list, order-sensitive.
  *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) orders by
+ * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
  * (file, line, column) with a stable sort, so the expected order in a
  * multi-diagnostic row is positional and is measured, never guessed.
  */
@@ -526,7 +526,7 @@ describe("0141 (b) — the capitalised head no longer swallows the later arms si
   it("b4: the enum-variant spelling draws one refusal per capitalised arm, value unchanged", async () => {
     // The author-facing row. Both arm heads are capitalised, so the expected
     // list holds TWO refusals; the order is positional —
-    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:107) sorts by
+    // `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) sorts by
     // (file, line, column) and `Red` (column 19) precedes `Green` (column 31)
     // on line 6.
     const doc = expectDiagnostics(
@@ -696,7 +696,7 @@ describe("0141 (d) — the refusal is added beside the checkers already at this 
 
   it("d5: `mut P` keeps its mut-on-immutable-context AND gains the head refusal, in that order", async () => {
     // The order is positional, not chosen: `assembleDiagnostics`
-    // (src/diagnostics/diagnostic.ts:107) sorts by (file, line, column) with a
+    // (src/diagnostics/diagnostic.ts:123) sorts by (file, line, column) with a
     // stable sort, and on line 4 the `mut` token starts at column 19 while the
     // head `P` starts at column 23.
     const doc = expectDiagnostics(
@@ -732,7 +732,7 @@ describe("0141 (d) — the refusal is added beside the checkers already at this 
 
   it("d8: the arm scope still closes at the arm — the refusal adds one element, ordered by position", () => {
     // Order is positional: the head refusal is on line 4, the out-of-arm read
-    // on line 5 (src/diagnostics/diagnostic.ts:107 sorts by line).
+    // on line 5 (src/diagnostics/diagnostic.ts:123 sorts by line).
     expectDiagnostics(
       "let v = match 3 { P => P }\nlet w = P\nw\n",
       [
@@ -861,7 +861,7 @@ describe("0141 (g) — a `(`/`{` follower only escapes refusal when it names a r
     // `theta/parse/match-arm-type-mismatch` over the whole `match` expression
     // (columns 9–41 on line 4) ahead of the head refusal at columns 19–23,
     // which is the (file, line, column) order `assembleDiagnostics`
-    // (src/diagnostics/diagnostic.ts:107) produces.
+    // (src/diagnostics/diagnostic.ts:123) produces.
     expectDiagnostics(
       "let v = match 3 { Some(1) => 1, _ => 2 }\nv\n",
       [
@@ -886,7 +886,7 @@ describe("0141 (h) — nested pattern positions are refused by the same tail arm
   it("h1: an array pattern's capitalised elements draw one refusal each, left to right", () => {
     // `parsePattern` recurses through the array arm
     // (src/parser/theta-document.ts:4104–4116), so each element head reaches
-    // the same tail. Order is positional (src/diagnostics/diagnostic.ts:107):
+    // the same tail. Order is positional (src/diagnostics/diagnostic.ts:123):
     // `A` at column 25, `B` at column 28.
     expectDiagnostics(
       "let v = match [1, 2] { [A, B] => 1, _ => 2 }\nv\n",

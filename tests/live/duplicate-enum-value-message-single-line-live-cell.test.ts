@@ -6,7 +6,7 @@
 // (`src/parser/theta-document.ts:5594`) — yields a `message` of two physical
 // lines where `diagnostic-shape.md:34` says single-line summary, and a value
 // spelled `x\n  hint: …` forges the reserved `  hint: <hint>` continuation line
-// `src/diagnostics/diagnostic.ts:80` emits, on a diagnostic that carries no
+// `src/diagnostics/diagnostic.ts:95` emits, on a diagnostic that carries no
 // hint field at all
 // (docs/bugs/0250-duplicate-enum-value-message-embeds-cooked-newline.md).
 //
@@ -44,7 +44,7 @@
 // physical lines and the second matches `^ {2}hint: `. The code has been
 // registered since the V5a enum checker shipped, so a red here is never a
 // "code missing" red. Green once the fix routes the value through
-// `normaliseLiteralValueLineBreaks` (`src/diagnostics/diagnostic.ts:152`): the
+// `normaliseLiteralValueLineBreaks` (`src/diagnostics/diagnostic.ts:168`): the
 // value collapses to `x hint: forged` and no continuation shape is forged.
 //
 // The offline witness for the same fix is
@@ -84,7 +84,7 @@ describe("bug 0250 live cell — a duplicated enum value carrying a `\\n` escape
       // The refused, forgery shape: two distinctly-named variants sharing one
       // value whose source spells the two-character `\n` escape followed by two
       // spaces and `hint: ` — the exact shape
-      // `src/diagnostics/diagnostic.ts:80` reserves for a diagnostic's own
+      // `src/diagnostics/diagnostic.ts:95` reserves for a diagnostic's own
       // `hint` field, on a diagnostic that carries none.
       {
         source: "project",
@@ -154,7 +154,7 @@ describe("bug 0250 live cell — a duplicated enum value carrying a `\\n` escape
       expect(
         forgedHintLines,
         "bug-0250 live cell: the rendered note carries a line matching `^ {2}hint: ` for a " +
-          "diagnostic with no `hint` field — the shape `src/diagnostics/diagnostic.ts:80` " +
+          "diagnostic with no `hint` field — the shape `src/diagnostics/diagnostic.ts:95` " +
           "reserves. Note: " + JSON.stringify(note),
       ).toEqual([]);
 

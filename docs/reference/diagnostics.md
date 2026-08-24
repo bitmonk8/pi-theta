@@ -14,7 +14,7 @@ columns live on the spec registry pages and are not restated here to avoid drift
 {
   severity: "error" | "warning",
   code:     string,                          // e.g. "theta/parse/binding-case-mismatch"
-  file?:    string,                          // absolute path; omitted for file-less codes
+  file?:    string,                          // absolute path, POSIX forward-slash separators on every host platform; omitted for file-less codes
   range?:   { start: { line, column }, end: { line, column } },  // 1-indexed; end exclusive
   message:  string,                          // single-line summary
   hint?:    string,                          // optional suggested fix
@@ -29,7 +29,9 @@ Located-site classification (closed): **Located** (single token span in one file
 `range`); **Location-less** (no single concrete file — neither `file` nor
 `range`). Serialised `content` line format: `"<file>:<line>:<col>: <code>:
 <message>"` (Located), `"<file>: <code>: <message>"` (File-only), `"<code>:
-<message>"` (Location-less), optionally `+ "\n  hint: <hint>"`.
+<message>"` (Location-less), optionally `+ "\n  hint: <hint>"`. `file` and each
+related site's `file` are spelled with the POSIX forward slash on every host
+platform, so one path literal matches every note of one load pass.
 
 ## Code registry rules (normative)
 

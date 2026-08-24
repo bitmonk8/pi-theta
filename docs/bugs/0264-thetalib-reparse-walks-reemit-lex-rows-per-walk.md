@@ -415,3 +415,22 @@ assertions — and every note-count assertion in cells (A), (B) and (D) — are
 byte-preserved and green. Bug 0267's observing import walk passes
 `claimDelivery: false` to `checkThetaImports` precisely so it cannot consume
 this report's pass-scoped delivered-set and move a count.
+
+### Coordination note — 2026-08-24, bug 0268 (0.265.0)
+
+Bug 0268's fix pins one separator convention (POSIX forward slash) for every
+rendered and structured diagnostic `file` field, normalised at
+`renderDiagnosticLine` (`src/diagnostics/diagnostic.ts`) and at `sendSystemNote`
+(`src/extension/system-note-channel.ts`). Under that report's §Fix constraint 6,
+this report's witness `tests/thetalib-reparse-walk-single-delivery.test.ts`
+dropped the separator compensation it carried and now compares the delivered
+spelling directly: `headLine` no longer normalises its `file` argument,
+`positionKey` reads `diagnostic.file ?? ""`, `renderedOccurrences` counts over
+the raw note `content`, and `expectDeliveredExactlyOnce` compares `row.file`
+verbatim. `normalisePath` survives in that file only to build the expected
+fixture literal from a native `join`.
+
+This report's own subject is untouched: every delivery-count assertion — the
+one-row-per-file-per-pass counts this report pinned — is byte-preserved and
+green, and no mint site, pass-cache key or delivered-diagnostic filter was
+changed by 0268 (`src/extension/pass-parse-cache.ts` is byte-unchanged).

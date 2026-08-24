@@ -1204,12 +1204,13 @@ function registryHint(code: string): string {
 }
 
 /**
- * The planted file's path as group (D)'s discovery walk built it, which is what
- * `renderDiagnosticLine` prints: the `mkdtempSync` workspace prefix verbatim,
+ * The planted file's path as `renderDiagnosticLine` prints it: bug 0268's
+ * separator rule normalises every rendered file field to POSIX forward
+ * slashes, so the `mkdtempSync` workspace prefix is spelled normalised here,
  * then forward-slash joins for the segments discovery appended.
  */
 function plantedPath(stem: string): string {
-  return `${b0248WorkspaceDir}/.pi/theta/${stem}.theta`;
+  return `${b0248WorkspaceDir.replaceAll("\\", "/")}/.pi/theta/${stem}.theta`;
 }
 
 /**
