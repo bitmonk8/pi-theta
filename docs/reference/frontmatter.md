@@ -84,10 +84,14 @@ anchors, and prose ("binder model").
   key `? p`; a value-less flow member, as in `params: {p}`), is
   `theta/load/params-type-not-expression` and the theta does not register. A
   value-less `p:` (or `params: {p: }`) parses as a null scalar and is
-  admitted. The inline object type `{a: Triage}` is a YAML flow mapping and is
-  admitted. A scalar's recovered text must itself spell a `Type`, fragment by
-  fragment — YAML-shaped text, prose, punctuation, or an empty string is the
-  same `theta/load/params-type-not-expression`, however it is quoted or
+  admitted. A type text whose first character is a quote character (`"` or
+  `'`) must itself be a quoted YAML scalar (`p: '"a" | "b"'`); the unwrapped
+  form is not valid YAML and refuses the block with
+  `theta/load/malformed-frontmatter-yaml`. The inline object type `{a: Triage}`
+  is a YAML flow mapping and is admitted. A scalar's recovered text must
+  itself spell a `Type`, fragment by fragment — YAML-shaped text, prose,
+  punctuation, or an empty string is the same
+  `theta/load/params-type-not-expression`, however it is quoted or
   block-scalar-spelled, and wherever the fragment sits: at the top level, in a
   union arm at any depth, in a generic type argument (`array<a: Triage>`), or
   in an inline object type's field type at any depth (`{a: ???}`, `{a: {b:

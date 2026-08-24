@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.263.0]
+
+### Fixed
+
+- Bug 0269: the `params:` Type-side prose on
+  `docs/spec_topics/frontmatter/frontmatter-fields-a.md` and its
+  `docs/reference/frontmatter.md` mirror never stated that a type text
+  beginning with a quote must itself be spelled as a quoted YAML scalar
+  (`p: '"a" | "b"'`) — the only guidance was the
+  `theta/load/malformed-frontmatter-yaml` row's Hint. Both Type-side
+  bullets now carry the rule in place, mirroring the Hint's wording
+  (spec page 92 -> 92 lines; mirror 354 -> 358). New four-cell
+  prose-conformance gate `tests/b0269-params-type-quoted-scalar-rule-gate.test.ts`
+  (red per page at the old bytes); 0263's witness cells and the registry
+  Hint byte-unchanged.
+
 ## [0.262.0]
 
 ### Fixed
