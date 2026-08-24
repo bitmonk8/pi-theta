@@ -6,6 +6,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.270.0]
+
+### Fixed
+
+- Bug 0271: the callee-has-errors judgment stopped at depth 1 — a
+  prompt-mode grandparent registered a byte-identical-to-control callable
+  over a child that 0267/0270 correctly refuse at depth 1 (any grandchild
+  drop route, including plain parse errors, was invisible one level up).
+  Route (b) adjudicated on the record: the caller-side judgment now walks
+  callee depth recursively through the same predicate (route (a) chain
+  rejected — no cross-iteration verdict store; discovery-order-dependent).
+  Termination on tools: cycles proven with an explicit per-branch visited
+  set of resolved absolute paths — disabling the guard hangs the cycle
+  fixture to its wall-clock ceiling. Same-commit spec: invocation.md
+  #static-resolution depth wording + discovery-cli.md mirror (DIAG-2).
+  0270's witness cell E (the explicit depth-2 withhold lock) flipped under
+  this doc's authority with a dated note. Offline witness: 10 cells incl.
+  the two-file cycle (CYC1) and escape fences (ESC2)/(ESC3) + b0271live.
+  permitted-codes byte-unchanged.
+
 ## [0.269.0]
 
 ### Fixed

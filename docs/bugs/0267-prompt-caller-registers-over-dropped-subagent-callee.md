@@ -477,3 +477,16 @@ constraint 7); the only edit to its witness is one doc-comment line-number
 citation that bug 0270's diff shifted. The non-recursion bound this report
 established stands: the prompt-mode grandchild route remains a withhold and is
 filed separately as the depth-two report.
+
+## Coordination note (0.270.0) — the withheld grandchild-fails-its-own-checks route closed
+
+This report's fix (0.264.0) and [bug 0270](./0270-callee-tools-missing-theta-path-caller-still-registers.md)'s
+fix (0.268.0) both left a callee that itself fails its own structural checks
+as a WITHHOLD when that callee is reached one level further down a `tools:`
+chain: the grandparent registered a callable over a child that the same pass
+un-registered, with no diagnostic located at the grandparent. [Bug
+0271](./0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md) closes
+that route at 0.270.0 by recursing `calleeFailsOwnStructuralChecks` into a
+`.theta` entry in the callee's own `tools:`, bounded by an explicit
+visited-set keyed by resolved absolute path so a `tools:` cycle terminates.
+This report's own ten cells and its live cell are unchanged.

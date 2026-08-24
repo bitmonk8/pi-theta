@@ -414,3 +414,23 @@ subject.
   except where the read now owns an unreadable entry, which cells (D2)/(D3)
   pin; `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged (no new
   code was minted, so a real H9a run had nothing to decide).
+
+## Coordination note (0.270.0) — cell (E) / the non-recursion-bound withhold flipped
+
+This report's witness
+(`tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`)
+cell (E) pinned a WITHHOLD: a grandchild that exists but carries its own
+errors left the `tools:` caller registering, because the stub
+`resolveThetaCallee` this report introduced answered every `.theta` entry with
+a fixed, non-recursive shape. [Bug
+0271](./0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md) closes
+that withhold at 0.270.0: `calleeFailsOwnStructuralChecks` now recurses one
+level into a `.theta` entry in the callee's own `tools:`, under an explicit
+visited-set bound keyed by resolved absolute path, so a grandchild that fails
+its own structural checks now reaches the caller through the existing
+`theta/load/callee-has-errors` row this report's fix reused. Cell (E) is
+flipped under bug 0271's doc authority to assert the new contract
+(`pass.registered` empty, `theta/load/callee-has-errors` located at the
+caller); the other six cells in this file are unchanged. This report's
+existence/readability probe and its `readable` map are unchanged and are
+reused, not duplicated, by bug 0271's recursion.

@@ -79,12 +79,16 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 //       root: the read failure wins, one caller-located row (§Fix constraint 6,
 //       non-double-report)                                    — RED before the fix
 //   (D3) the same unreadable entry INSIDE the roots            — RED before the fix
-//   (E) the conservatism bound (§Fix constraint 4)                 — green
-// Cell (E) pins a WITHHOLD, not a refusal: a grandchild that EXISTS but carries
-// its own errors leaves the caller registering, because the non-recursion bound
-// the stub enforces stands. That divergence is bug 0271's neighbourhood and is
-// deliberately not fixed here; pinning it keeps a later fix from silently
-// over-refusing.
+//   (E) a grandchild that EXISTS but carries its own errors now un-registers
+//       the caller too (bug 0271, 0.270.0)             — flipped, see below
+// Cell (E) pinned a WITHHOLD at bug 0270 (a grandchild that EXISTS but carries
+// its own errors left the caller registering, because the non-recursion bound
+// the stub then enforced stood). Bug 0271 closed that neighbourhood: the same
+// helper now recurses one level into a `.theta` entry in the callee's own
+// `tools:`, under an explicit visited-set bound, so the grandchild's own parse
+// failure now reaches the caller as `theta/load/callee-has-errors` too. This
+// cell is flipped under bug 0271's doc authority, not weakened — it asserts
+// the NEW contract exactly as precisely as it asserted the old one.
 //
 // TIER: unit — offline, provider-free, deterministic. Host doubles only; no
 // provider, no child process, no live model. The seam is one predicate inside
@@ -786,15 +790,16 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     }
   });
 
-  // ── (E) the conservatism bound stays ─────────────────────────────────────
+  // ── (E) the grandchild's own errors un-register the caller ───────────────
 
-  it("(E) the non-recursion bound stays: a grandchild that EXISTS but has its own errors leaves the caller registering", async () => {
-    // Bug 0270 §Fix constraint 4 and §Non-goals: the admitted check terminates
-    // on the callee's own entries — it does not parse the grandchild, does not
-    // read its mode and does not follow its `tools:`. Recursing here is
-    // unbounded (a `tools:` cycle A↔B would not terminate), which is why the
-    // stub exists. This withhold is bug 0271's neighbourhood, NOT this bug's
-    // subject; pinning it keeps a fix for bug 0270 from silently over-refusing.
+  it("(E) [bug 0271, 0.270.0] a grandchild that EXISTS but has its own errors now un-registers the caller too", async () => {
+    // Bug 0270 pinned this as a WITHHOLD: the admitted check terminated on the
+    // callee's own entries alone. Bug 0271 §Fix closed it: the same predicate
+    // now recurses one level into a `.theta` entry in the callee's own
+    // `tools:`, under an explicit visited-set bound (never unbounded — a
+    // `tools:` cycle A↔B still terminates), so the grandchild's own parse
+    // failure reaches the caller through the existing
+    // `theta/load/callee-has-errors` row.
     const workspace = plantWorkspace({
       [GRANDCHILD_NAME]: BROKEN_GRANDCHILD_SOURCE,
       [CALLEE_NAME]: PRESENT_ENTRY_CALLEE_SOURCE,
@@ -809,20 +814,21 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
         allDiagnostics(pass.notes)
           .filter((d) => d.severity === "error" && d.code === UNTERMINATED_TEMPLATE_CODE)
           .map((d) => normalisePath(d.file ?? "?")),
-        "the grandchild's own parse error is the premise of this withhold",
+        "the grandchild's own parse error is the premise of this cell",
       ).toEqual([workspace.path(GRANDCHILD_NAME)]);
 
-      // The withheld decision, pinned as a withhold: the caller registers, and
-      // NO row is located at its file.
+      // The flipped decision (bug 0271, 0.270.0): the caller no longer registers,
+      // and an error-severity `theta/load/callee-has-errors` row is located at
+      // its own file.
       expect(
         pass.registered,
-        "the non-recursion bound withholds here — the caller must keep registering until a " +
-          `fix for bug 0271 changes it deliberately\n${describeNotes(pass.notes)}`,
-      ).toEqual(["b0270caller"]);
+        "bug 0271 closed the non-recursion bound — the caller must not register over a " +
+          `grandchild this same pass un-registers\n${describeNotes(pass.notes)}`,
+      ).toEqual([]);
       expect(
         errorCodesAt(pass, workspace.path(CALLER_NAME)),
-        `no row may be located at the caller's file on the withheld route\n${describeNotes(pass.notes)}`,
-      ).toEqual([]);
+        `the caller's file must carry exactly one ${CALLEE_HAS_ERRORS_CODE} row\n${describeNotes(pass.notes)}`,
+      ).toEqual([CALLEE_HAS_ERRORS_CODE]);
       expect(pass.notified).toEqual([]);
       expect(pass.offChannel).toEqual([]);
     } finally {

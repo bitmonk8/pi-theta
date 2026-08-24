@@ -1,6 +1,6 @@
 # Bug 0271 — Bug 0267's widened `callee-has-errors` input is one level deep and does not chain: a prompt-mode grandparent whose `tools:` names a healthy subagent child registers over a child that the same pass un-registers, because `calleeFailsOwnStructuralChecks` (`production-composition.ts:2091`) resolves the child's OWN `tools:` `.theta` entries through a fixed subagent stub (`:2140`) instead of the child's real callee judgment, so the child's `theta/load/callee-has-errors` refusal over a dropped grandchild is invisible at the grandparent and no diagnostic lands anywhere on the grandparent's file
 
-- **Status:** open.
+- **Status:** fixed (0.270.0).
 - **Sev/Diff estimate:** S3/D2 — S3 for the same reason bug
   [0267](./0267-prompt-caller-registers-over-dropped-subagent-callee.md) is S3
   and on the same observable: the grandparent registers a `.theta` callable,
@@ -328,3 +328,154 @@ withholds include "a grandchild that itself fails its own checks". Sixteenth
 set. Filed at HEAD `76489c61`, v0.266.0, from an offline
 `composeExtensionInstance` probe over the five conditions tabulated in
 §Reproduction.
+
+## Fix (0.270.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` — `calleeFailsOwnStructuralChecks`
+    gains a third admitted condition (§Fix constraint 3 route (b)): bug 0270's
+    pre-resolution loop over the callee's OWN `tools:` `.theta` entries now, for
+    an entry that reads, is unvisited and is inside the discovery roots, parses
+    it through the pass cache and judges it as failing when its frontmatter is
+    null, its own parse carries a load/parse error, or the SAME predicate
+    recurses over it and answers `true`. One rule, composed by induction at
+    every depth, mirroring `parseCalleeForTools`'s own `hasErrors`. Termination
+    (§Fix constraint 2) is an explicit visited set of resolved absolute paths,
+    threaded through the recursion and seeded at both call sites with the
+    callee's own path; a member already in the set is a withhold, never a
+    manufactured refusal. No new diagnostic code (§Fix constraint 4): the
+    caller's row is the existing V15f `theta/load/callee-has-errors` push,
+    reached because the predicate's input widened. One predicate, both sites
+    (§Fix constraint 5): `parseCalleeTheta`'s dispatch gate calls the same
+    helper. The doc-comment records the route adjudication, the termination
+    argument and the four withholds (§Fix constraint 6).
+  - `docs/spec_topics/invocation.md` §Static resolution and its
+    `docs/reference/discovery-cli.md` mirror — the transitivity sentence bug
+    0270 narrowed to existence and readability now states the recursion, its
+    visited-set bound, and what stays outside the walk at every depth: a named
+    path's declared mode, and an out-of-root path's contents, which are read for
+    readability and never parsed (same-commit spec edit, §Fix constraint 7,
+    DIAG-2).
+  - `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts` —
+    bug 0270's cell (E), that report's explicit 0271-withhold lock on the
+    depth-two silence, flipped under this report's authority; the other six
+    cells unchanged.
+- Route adjudicated (§Fix constraint 3, which left it open): route (b), the
+  bounded depth walk. Route (a) — chain on the child's own V15f verdict — was
+  rejected because the pass keeps no cross-iteration verdict store and a
+  grandparent's `runComposePass` iteration may precede the child's, so reading
+  the child's verdict needs a fixpoint or a second pass and makes the outcome
+  depend on discovery order. Route (b) is order-free, and because the recursion
+  re-enters the same predicate it composes by induction at every depth — the
+  property route (a) was wanted for, without the ordering hazard.
+- Scope admitted: a grandchild's own `.thetalib` import resolution (§Reproduction
+  rows A and B), its own parse (row C), its own `tools:` `theta/load/unknown-tool`
+  and `theta/load/unresolvable-theta-path`, and all of those recursively at any
+  depth. Withheld and recorded: an escaping grandchild (path-shaped, bug 0111's
+  `checkNestedToolsContainment` surface, judged without reading the entry's
+  contents, and that helper relocates a verdict one level only — so at
+  recursion level 1 admitting it would double-report, and deeper it is a
+  genuine gap, Residual 1 below); a grandchild's declared prompt mode (bug
+  0267's §Fix-record residual 2, unfiled); a member already in the visited set;
+  and any entry the entry-grammar gate skipped, so bug 0248 cells (D3)/(D5) stay
+  out (§Fix constraint 8).
+- Gates:
+  - Witness before: `Tests 5 failed | 3 passed (8)`, every red reading
+    `expected [ 'b0271gp' ] to not include 'b0271gp'` with the child's depth-one
+    row present and no grandparent-located row. After:
+    `Test Files 1 passed (1) / Tests 10 passed (10)`.
+  - Full default suite: `Test Files 447 passed (447) / Tests 9280 passed (9280)`.
+  - Typecheck: `tsc -p tsconfig.json --noEmit` — clean, no output.
+  - Lint: `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` — clean, no
+    output.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts` —
+    `Test Files 1 passed (1) / Tests 1 passed (1)`, re-run at the final tree
+    state.
+- Tests that lock it:
+  - `tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts` — ten
+    offline cells: (A)(B)(C) §Reproduction rows A–C at depth two, (D) the
+    three-level healthy control, (CYC1) a healthy two-file `tools:` cycle and
+    (CYC2) the same cycle with a broken member, both wall-clock-bounded,
+    (DEPTH3) a broken great-grandchild proving the rule composes by induction,
+    (ESC) the escaping-grandchild single-report withhold, (ESC2) the same shape
+    with broken bytes — the cell that can actually red on the withhold's
+    removal — and (ESC3) the recorded gap of Residual 1, pinned as a withhold.
+  - `tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts` —
+    the H8a cell: the grandparent absent from the real runner's registered set
+    over a depth-two drop with its own caller-located row, the dispatch-gate
+    half through the literal `invoke(...)` surface, and a byte-neighbour healthy
+    three-level control that registers and drives a real turn.
+- Review: 3 rounds, plus one pre-review correction round (citation and comment
+  prose only: four self-shifted `production-composition.ts` citations in the new
+  witness header, and the flipped cell's heading comment in bug 0270's witness).
+  - Round 1 (deep): two findings. The escape withhold's doc-comment claimed
+    coverage that does not exist below recursion level 1; both amended spec
+    sentences claimed an out-of-root path's contents are never read when only
+    the parse is withheld. Both closed prose-only.
+  - Round 2 (fast): CLEAN.
+  - Round 3 (fast, after the verifier's finding was closed): CLEAN.
+- Verification: SOLID on all five obligations. The witness reds under three
+  independent neutralisations, each restored byte-exact and hash-verified: the
+  recursion's contribution to the return value dropped — cells (A)(B)(C)(CYC2)
+  (DEPTH3) and bug 0270's flipped cell (E) all red; the visited-set guard
+  disabled — cell (CYC1) HANGS and is killed at its 60 s ceiling, which is the
+  termination proof that the bound is load-bearing; the escape `continue`
+  removed — cell (ESC2) reds with the double-report signature
+  (`theta/load/invoke-path-escape` and `theta/load/callee-has-errors` both
+  located at the caller). The full suite is green with bug 0267's ten cells, bug
+  0248's lockstep, bug 0264's note-count witness and bug 0111's containment
+  witness all byte-unchanged and absent from the diff. The live cell was run by
+  the orchestrator under the shared lock and its red path proven by
+  neutralisation; no reviewer or verifier ran live.
+- Residuals:
+  1. An escaping entry belonging to a file BELOW the caller's immediate callee
+     leaves the caller registering with no row of its own. Measured: for a
+     grandparent whose `tools:` names a child whose `tools:` names a grandchild
+     whose OWN `tools:` entry escapes every discovery root, the registered set
+     is exactly the grandparent, `theta/load/invoke-path-escape` is located at
+     the child's file and at the grandchild's file, and nothing is located at
+     the grandparent's file. Withheld rather than admitted because the condition
+     is path-shaped and judged without reading the entry's contents, which is
+     bug 0111's `checkNestedToolsContainment` surface — "one level in" — and
+     §Fix constraint 8 gives this report no authority over the bug 0248 cells
+     that pin that helper's caller-side outcomes. Pinned as cell (ESC3) so a
+     later fix flips it loudly. Sweep material for a separate report.
+  2. The visited set is per-branch, so a shared subtree is re-judged once per
+     simple path through the `tools:` graph. Termination is unaffected and
+     proven; the cost is not. A k-layer two-wide diamond ladder produces on the
+     order of 2^k predicate invocations, each re-running the readability probe,
+     the containment `realpath`, `checkThetaImports` and `resolveCallableSet`
+     (the parse itself is memoised by the pass cache). Polynomial for trees and
+     narrow graphs; an effective hang around k = 30. A depth cap or a
+     cycle-free-verdict memo is the remedy, and a global memo would change
+     semantics, since a verdict is branch-dependent where a cycle re-enters a
+     branch-specific ancestor. Sweep material.
+  3. The drive-time dispatch gate passes no active roots, so the recursion there
+     judges a grandchild's parse without any containment judgement at any depth.
+     This narrows the pre-existing load-versus-drive divergence rather than
+     widening it, and §Static resolution describes the load pass, so nothing
+     normative is contradicted. Recorded, not changed.
+  4. Where this document turned out wrong at HEAD, recorded rather than
+     rewritten: every `src/extension/production-composition.ts` citation in
+     §Affected is stale by roughly +120 lines from bug 0270's merge, and the
+     file is 3207 lines at HEAD rather than 3104; §"Actual behaviour / root
+     cause"'s claim that the stub returns a fixed shape "for any `.theta` entry"
+     holds only for a READABLE entry, since bug 0270 made it answer `undefined`
+     for a recorded-unreadable spec; and §Reproduction's literal closure hash is
+     fixture-byte-specific, so the witness pins the entry shape and the
+     `sha256:` form instead of a digest. Every row's outcome reproduced exactly.
+  5. §Fix constraint 7 was an either/or when this report was filed. Bug 0270's
+     spec edit narrowed the transitivity sentence in the interval, so by the
+     time this fix landed the same-commit spec amendment was required rather
+     than optional. Discharged.
+- Discharge notes appended: bug 0270's document (its cell (E) withhold flipped
+  here, with the mechanism it contributed reused rather than duplicated) and bug
+  0267's document (its withheld grandchild-fails-its-own-checks route closed
+  here). Both APPENDED and dated, nothing rewritten.
+- Pinned dispositions / non-goals: no depth-one outcome moved; bug 0248 cells
+  (D3)/(D5) and bug 0267's ten cells and live cell are byte-unchanged; no
+  diagnostic code was minted, so `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged; closure-hash equality across §Reproduction's rows is correct
+  per RFC-0005 and was neither chased nor asserted; the prompt-mode grandchild
+  route stays a withhold (bug 0267 §Fix-record residual 2).
