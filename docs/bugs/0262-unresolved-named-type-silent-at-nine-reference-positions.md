@@ -399,3 +399,95 @@ position that sentence names.
   sweep by `git ls-files` + `grep`, all under scratch token `b0262scratch`,
   written, run, and deleted in one sweep. Offline, no model, no provider. No
   file in the tree modified other than this report.
+
+### Attempt note — §Fix route implemented and measured, NOT landed (2026-08-24)
+
+Appended by a fix attempt at HEAD `616c6d0e` (0.258.0). **This report stays
+open and its subject stays intact.** Every cite in the sections above was
+re-derived at that HEAD and holds byte-exact, and §Reproduction's sixteen-row
+table re-measures exactly as written — nine SILENT, seven diagnosing, sixteen
+of sixteen case-identical. The route was implemented in full and then reverted;
+`src/parser/theta-document.ts` is byte-identical to HEAD (`git hash-object` =
+`git rev-parse HEAD:src/parser/theta-document.ts`). What follows is the
+measurement the attempt produced, so a later attempt does not re-derive it.
+
+**Correction 1 — §Reproduction's corpus sweep is wrong.** It reports "Zero
+unresolvable atoms at the nine positions" over the 34 tracked files. The sweep
+missed `docs/examples/personas.thetalib:7`, which spells
+`fn rate_strictness(a: Author): Result<integer, QueryError> {` — a `QueryError`
+atom at an `fn` RETURN type, one of the nine. `collectUnresolvedNamedTypes`
+answers `["QueryError"]` for that text against any declaration set, so the
+route as §Fix states it newly refuses a shipped fixture and reds
+`tests/committed-fixture-parse-gate.test.ts`. The route needs the builtin
+error-model name `QueryError` admitted at the four captures — the same
+admission `code-registry-parse.md:112` already states for the pattern-head
+position and `patternHeadTypeNames` already implements. With that admission the
+corpus gate stays green and the corpus blast radius is genuinely zero.
+
+**Correction 2 — a fifth capture propagates, and double-emits.** §Fix names the
+propagated `let` annotation nowhere. `parseLet` writes a `let` annotation onto a
+bare-query initialiser and `walkExpr`'s `"query"` arm is that text's sole
+emitter (bug 0093), so the `"let"` capture must withhold there or the count for
+one written annotation rises from one to two, contradicting
+`tests/unresolved-annotation-lowering.test.ts`'s pinned counts. The same
+propagation exists at the `fn` RETURN slot through QRY-2's `fn`-return sink
+(bug 0220), and §Fix's guard shape does not reach it: measured, an unresolvable
+declared return type over a query-tailed body drew TWO lines, one at the
+declaration's range and one at the query's. A landing route owes that partition
+for both propagating captures, not just the `let` one.
+
+**Correction 3 — capture artefacts are drawn into the emission set.** The
+annotation captures absorb trailing text, so text the author never wrote as a
+name arrives `Ident`-shaped and is refused: `fn h(a: string` + `let x = 1`
+captures `stringletx` (bug 0151's witness) and `fn f(): number 1` captures
+`number1` (bug 0249's witness). Both newly draw the code beside the diagnostic
+that names the actual fault. §Fix's guard — a capture whose own walk drew an
+error keeps that alone — does not suppress either, because in both cases the
+naming diagnostic is emitted outside that capture's own window. Whether an
+artefact spelling is inside this row's emission set is a disposition §Fix does
+not decide.
+
+**The blocking measurement — the witness corpus, not the shipped corpus.**
+§Fix constraint 1 names four locks (0135, 0046, 0127, 0144) and asks that the
+0127/0144 interaction be measured rather than assumed. Measured, with the route
+implemented and D1–D4 conforming: **82 cells across 17 pinned witness files of
+15 already-fixed bugs turn red**, every one a consequential whole-list
+assertion flip on a fixture that used an undeclared head at one of the four
+widened captures as a stand-in for "past the parser's static view":
+`typeenv-prototype-names` (26, bug 0038),
+`unresolvable-operand-structural-target-adjudication` (15, bug 0144),
+`annotation-nontype-text-refusal` (10, bug 0124),
+`index-sentinel-typeenv-case-fence` (6, bug 0135 — a named lock),
+`index-element-alias-unfolded` (6), `join-element-unresolvable-disposition`
+(3, bug 0127), `fn-param-alias-unfolded-at-gates` (3),
+`alias-sink-array-element-check` (3), `let-annotation-query-double-emission`
+(2), and one each in `reserved-keyword-misfire-faces`,
+`reserved-keyword-inline-object-and-literal-keys` (bug 0249 — a named lock),
+`let-annotation-recorded-binding-type`, `let-annotation-inline-object-compat`,
+`inline-empty-object-type`, `imported-thetalib-fn-call-args-checked`,
+`fn-return-void-query-sink` and `fn-param-list-unclosed`. Bug 0046's witness
+and `tests/committed-fixture-parse-gate.test.ts` stayed green.
+
+Two of those files are locks §Fix requires to stay green, and none of the
+seventeen is pre-authorised by this report. The flips are not stale controls:
+several are the settled subject of the bug that wrote them — bug 0130's
+`let x: Nope = 1` silence is `type-system.md:48`'s stated disposition, bug
+0045's `invoke<T>` control asserts the name walk stays silent there, and bug
+0144's registration outcome for a program whose value fits its parameter is the
+observable that report delivered. §Non-goals reserves the consuming gates'
+deferral, and the widening leaves `theta/parse/fn-arg-type-mismatch` unmoved,
+so no settled *Trigger* is contradicted — but the registration outcome for
+those programs is reversed, and that is a disposition this report authorises
+nowhere.
+
+**What a landing attempt owes.** The route is implementable — the witness
+`tests/b0262-unresolved-named-type-reference-positions.test.ts` (49 fixture
+rows in 12 cells, red at HEAD for the right reason: `received []` at all
+eighteen r1–r9 cells) went fully green under it, with the seven already-emitting
+positions, the `match` pattern head, the reserved-keyword heads and the
+per-capture guard all byte-stable. What it lacks is authority: §Fix must
+enumerate the seventeen witness files and their old→new flips with the authority
+for each, decide corrections 1–3, and state the GOV-15 in-scope input set to
+include the `Ident`-shaped spellings `code-registry-parse.md:107` and `:108`
+currently assign to this row's "closed five-position list" — both of which
+become stale prose the widening must correct in the same change-set.
