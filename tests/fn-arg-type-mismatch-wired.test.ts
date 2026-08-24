@@ -2374,9 +2374,9 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 // `par for` arm's ELEMENT record already does, so cell u12e fires: its
 // iterand `[3]` is a proven `array<integer>`, which disagrees with `g`'s
 // declared `string`. Cell u9 above fires the same way, off the same channel.
-// Bug 0089's tripwire (tests/fn-param-alias-unfolded-at-gates.test.ts:868–890),
-// which forbade exactly this widening, is the row bug 0126 deliberately
-// inverts — see that file's own row n1.
+// Bug 0089's tripwire (tests/fn-param-alias-unfolded-at-gates.test.ts, lines
+// 903 through 925), which forbade exactly this widening, is the row bug 0126
+// deliberately inverts — see that file's own row n1.
 //
 // Each of the four absence fixtures loads with the false emission as its SOLE
 // diagnostic, so those cells assert the WHOLE diagnostic list is empty rather
@@ -2468,8 +2468,9 @@ describe("bug 0050 — a binder SHADOWING a same-named outer record resolves in 
     // `[3]` is a proven `array<integer>`, so `x` carries a genuine `integer`
     // proof and every iteration hands `g` an integer where it declares
     // `s: string`. Cell u9 above and bug 0089's tripwire
-    // (tests/fn-param-alias-unfolded-at-gates.test.ts:868–890) are the two
-    // cells bug 0126 names and re-adjudicates under the same authority.
+    // (tests/fn-param-alias-unfolded-at-gates.test.ts, lines 903 through 925,
+    // its row n1) are the two cells bug 0126 names and re-adjudicates under
+    // the same authority.
     const doc = parse(U12E_FOR_PROVEN_ITERAND);
     const argument = argRange(doc, "g", 0);
     expect(

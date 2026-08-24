@@ -127,6 +127,21 @@ function unwrapArrayLevels(schema: InferredSchema, depth: number): InferredSchem
 }
 
 /**
+ * A resolved sink: the schema the walk found, and the FRAME that supplied it.
+ *
+ * The frame is what lets a caller attribute the resolution back to the written
+ * annotation it came from — the identity a consumer needs to decide whether a
+ * given source capture propagated onto a query, without re-implementing the
+ * outward walk's crossed/stopped classification a second time and drifting from
+ * it. `frame` is absent for a QRY-3 explicit ascription, which overrides the
+ * frames entirely and therefore has no supplying frame.
+ */
+export interface QuerySchemaSink {
+  readonly schema: InferredSchema;
+  readonly frame?: SchemaSinkFrame;
+}
+
+/**
  * Infer a typed query's response schema (QRY-2 / QRY-3). When an explicit
  * `@<Schema>` ascription is present it always supplies the schema and overrides
  * the inference contexts (QRY-3). Otherwise the §"Schema inference algorithm"
@@ -151,10 +166,22 @@ function unwrapArrayLevels(schema: InferredSchema, depth: number): InferredSchem
 export function inferQuerySchema(
   input: QuerySchemaInferenceInput,
 ): InferredSchema | undefined {
+  return resolveQuerySchemaSink(input)?.schema;
+}
+
+/**
+ * `inferQuerySchema`'s walk, reporting the supplying FRAME beside the schema.
+ * The two are one function so the crossed/stopped classification is stated
+ * once: a caller that needs to know WHICH written annotation reached a query
+ * reads it off this result instead of re-deriving the frame set.
+ */
+export function resolveQuerySchemaSink(
+  input: QuerySchemaInferenceInput,
+): QuerySchemaSink | undefined {
   // QRY-3 — an explicit `@<Schema>` ascription always overrides the walk,
   // regardless of where the query appears.
   if (input.explicit !== undefined) {
-    return input.explicit;
+    return { schema: input.explicit };
   }
 
   let arrayDepth = 0;
@@ -171,19 +198,19 @@ export function inferQuerySchema(
         arrayDepth++;
         break;
       case "let":
-        return unwrapArrayLevels(frame.annotation, arrayDepth);
+        return { schema: unwrapArrayLevels(frame.annotation, arrayDepth), frame };
       case "call-arg":
         // A call boundary: a typed parameter is the sink; an untyped parameter
         // yields no sink and the walk stops (the outer context is not visible
         // past the call boundary).
         return frame.paramType === undefined
           ? undefined
-          : unwrapArrayLevels(frame.paramType, arrayDepth);
+          : { schema: unwrapArrayLevels(frame.paramType, arrayDepth), frame };
       case "fn-return":
         // A declared return type is the sink; a `.theta` supplies none, so the
         // walk continues outward.
         if (frame.returnType !== undefined) {
-          return unwrapArrayLevels(frame.returnType, arrayDepth);
+          return { schema: unwrapArrayLevels(frame.returnType, arrayDepth), frame };
         }
         break;
       case "stop":

@@ -1312,3 +1312,56 @@ this unwidened conversion — so the five-consumer hold is not narrowed, and
 `tests/let-annotation-inline-object-compat.test.ts` is byte-identical and all
 51 cells pass, cell `c3` included, verified by `git hash-object` against the
 fix baseline. Status unchanged (**fixed (0.160.0)**).
+
+### Coordination note — bug 0262's reference-position widening (2026-08-24)
+
+Bug [0262](./0262-unresolved-named-type-silent-at-nine-reference-positions.md)
+widens `theta/parse/unresolved-named-type` to the `let` annotation, the `fn`
+parameter type, the `fn` return type and the `invoke<T>` ascription. One cell of
+this report's witness moves.
+
+**What changed.** `tests/let-annotation-inline-object-compat.test.ts`, cell
+`c5` (`it("c5 CONTROL: …")` at line 504 of that file). Old expectation: `[]` —
+`let x: Nope = 1` loaded with zero diagnostics, and the cell asserted that
+silence as `type-system.md`'s *Unresolvable operands* carve-out working. New
+expectation, at line 530 of that file:
+`[line("error", UNRESOLVED_NAME, [["<name>", "Nope"]])]`, with
+`UNRESOLVED_NAME = "theta/parse/unresolved-named-type"` declared at line 188 of
+the same file — the rendered line
+`error theta/parse/unresolved-named-type: unresolved named type 'Nope'`, taken
+from the live registry template through the file's own `line` helper (line 157),
+so a DIAG-4 drift reds here. The cell's source, `let x: Nope = 1`, is
+unchanged; the title and its comment now state the refusal. No other cell and no
+other byte of the file moves: the diff against HEAD is the one `const` and the
+one cell.
+
+**Why.** The operator ruling (sixteenth set), clause (i), names this cell:
+
+> subject-adjacent cells — 0130's let-silence row, 0045's invoke<T> no-name-walk
+> control, 0127's three oracle cells, 0089's b12/b13 … — FLIP old→new under this
+> ruling, each with a dated coordination note appended to the owning bug doc
+
+and gives the ground:
+
+> a provably-unresolvable WRITTEN name is a provable author error and is judged
+> at the position it is written; a type merely withheld / past the parser's
+> static view keeps the deferring disposition everywhere it holds today.
+
+**This report's subject is unchanged.** The subject is
+`theta/parse/let-rhs-type-mismatch` declining an object or union right-hand side
+at a `let` annotation, because `annotationToCompatType` converts an inline object
+type to an unresolvable pseudo-`named`. `c5` was never that subject: it fenced
+the difference between a written `{a: integer}` and an unresolvable written
+NAME. The fence still stands, with the name's side now carrying a refusal of its
+own. Cells `c1`–`c4` — the named spelling refusing (line 464), the inline
+spelling refusing (line 471), the alias residual staying silent (line 478) and
+the primitive-armed alias refusing (line 495), all in
+`tests/let-annotation-inline-object-compat.test.ts` — are byte-identical to
+HEAD. The widening changes the INPUT CLASS that reaches this report's gate, by
+refusing the annotation upstream at the position it is written; it moves neither
+this report's *Trigger* nor its verdict for any inline-object or union
+annotation.
+
+**Measured.** `npx vitest run
+tests/let-annotation-inline-object-compat.test.ts` at the current tree: 51 of 51
+cells pass, `c5` included. Status unchanged (**fixed (0.160.0)**).

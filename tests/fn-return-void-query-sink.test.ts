@@ -469,26 +469,49 @@ describe("bug 0220 (d) — the nested, parameter and schema-field `void`s are un
 
 // ===========================================================================
 // (e) THE ARM'S OTHER WORK — `walkExpr`'s `query` arm is the SOLE emitter of
-// `theta/parse/unresolved-named-type` for a propagated annotation: the registry
-// row's closed five-position list does not name an `fn` return type, which is why
-// the non-query control is silent. A route that withholds the whole arm for
-// propagated text, rather than declining the sink for a root `void`, deletes this
-// document's only diagnostic and reds.
-// GREEN at HEAD and after.
+// `theta/parse/unresolved-named-type` for a PROPAGATED annotation: bug 0093's
+// landed withhold keeps the `fn`-return capture's own resolution pass silent
+// whenever the return annotation is copied onto a query tail, so `ghost-return`
+// still draws exactly one line, from the query arm alone. `ghost-return-non-query`
+// carries no query to propagate onto, so bug 0262's widening (below) is what now
+// resolves it.
+// GREEN at HEAD and after for `ghost-return`; `ghost-return-non-query` FLIPPED.
 // ===========================================================================
 
-describe("bug 0220 (e) — the query arm keeps its name resolution", () => {
-  it("GREEN e1: a propagated unresolvable return type keeps its `unresolved-named-type`", () => {
+describe("bug 0220 (e) — the query arm keeps its name resolution; the non-query return now resolves too", () => {
+  it("e1: a propagated unresolvable return type keeps its `unresolved-named-type`; the non-query return now draws its own, upstream", () => {
+    // "ghost-return-non-query" FLIPPED under the sixteenth-set OPERATOR RULING
+    // for bug 0262 clause (i), which names `walkStatement`'s "fn" case return
+    // read as one of the four uncovered captures the full widening reaches.
+    // OLD codes: `[]` — the `fn` return type ran no resolution pass of its
+    // own, and the registry row's closed position list did not name it, so a
+    // return type with no query tail to propagate onto was silent. NEW: bug
+    // 0262's widening now runs `collectUnresolvedNamedTypes` at the `fn`
+    // return capture itself, so `Ghost` — resolving to no visible declaration
+    // — is refused upstream, at the declaration's own range, the same range
+    // group (d)'s own-site `void` lines already use. "ghost-return" is
+    // UNCHANGED: bug 0093's landed withhold still suppresses the return
+    // capture's own resolution pass whenever the annotation propagates onto a
+    // query, so that row's single line still comes from the query arm alone.
+    // Bug 0220's SUBJECT — a `void` return supplies no QRY-2 sink — is
+    // untouched; this group's own subject (`walkExpr`'s query arm is the sole
+    // emitter for a PROPAGATED annotation) is likewise unchanged — only a
+    // non-propagating return annotation now reaches a second, separately-owned
+    // resolution pass upstream.
     expectTable(
       [
         ["ghost-return", GHOST_TAIL, [at(UNRESOLVED, "5:3-5:8")]],
-        ["ghost-return-non-query", GHOST_TAIL_NUMBER, []],
+        ["ghost-return-non-query", GHOST_TAIL_NUMBER, [at(UNRESOLVED, "4:1-6:2")]],
       ],
-      "e1 — the first row's single line comes from the query arm alone. A red on it means the " +
-        "repair silenced the arm wholesale for propagated text instead of declining the sink " +
-        "for a root `void`, dropping the only diagnostic this document has for an unresolvable " +
-        "declared return type. A red on the second row means the repair widened the registry " +
-        "row's closed position list instead",
+      "e1 — the first row's single line still comes from the query arm alone, unaffected by bug " +
+        "0262's widening because bug 0093's landed withhold keeps the `fn`-return capture silent " +
+        "whenever the return annotation propagates onto a query. The second row now draws its " +
+        "OWN upstream refusal under bug 0262 clause (i), because a non-propagating `fn` return " +
+        "type is one of the four positions the full widening reaches. A red on the first row " +
+        "means the repair silenced the arm wholesale for propagated text instead of declining " +
+        "the sink for a root `void`, or that the withhold stopped suppressing the return " +
+        "capture's own pass for the propagated case. A red on the second row means the repair " +
+        "declined to widen the `fn` return capture as bug 0262 clause (i) requires",
     );
   });
 });

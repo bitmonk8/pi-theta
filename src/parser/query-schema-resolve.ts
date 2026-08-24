@@ -6,9 +6,12 @@
 // parse site, so the four indirect sink positions (query-forms.md §"Schema
 // inference algorithm") cannot be resolved inline. This pass is the required
 // whole-body pass: it walks the parsed `ThetaBody`, builds the innermost-first
-// `SchemaSinkFrame` chain enclosing each query, calls `inferQuerySchema`, and —
-// Option B (tree-rebuild) — returns a body whose `QueryExpr.schema` is filled
-// from the serialized inferred schema. `QueryExpr.schema: string` therefore
+// `SchemaSinkFrame` chain enclosing each query, calls `resolveQuerySchemaSink`,
+// and — Option B (tree-rebuild) — returns a body whose `QueryExpr.schema` is
+// filled from the serialized inferred schema. It also reports which written
+// annotation reached which query (`QueryPropagation`), so a consumer that owes
+// one verdict per written annotation can attribute a query's schema back to its
+// source capture instead of guessing at the frame set from the outside. `QueryExpr.schema: string` therefore
 // stays the single source of truth every downstream consumer already reads
 // (the producer's `#buildTypedValidation`, the static-type substrate, …); no
 // consumer changes.
@@ -31,6 +34,7 @@
 // mismatch), schema-subset.md.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { SourceRange } from "../diagnostics/diagnostic";
 import type {
   ArrayExpr,
   BinaryExpr,
@@ -55,7 +59,7 @@ import type {
 } from "./theta-document";
 import {
   checkExplicitSchemaMismatch,
-  inferQuerySchema,
+  resolveQuerySchemaSink,
   type InferredSchema,
   type SchemaSinkFrame,
 } from "./query-schema-inference";
@@ -66,11 +70,55 @@ import {
 } from "./type-layer-checks";
 import type { CompatType, TypeEnv } from "./type-compat";
 
-/** The resolved body plus the QRY-4 explicit-schema-mismatch diagnostics. */
+/**
+ * The source capture whose written annotation reached a schema-less query.
+ * `range` is the CAPTURE's own declaration range, which is the identity a
+ * consumer attributes the propagation back by: two distinct declarations cannot
+ * share one range, and the range survives this pass's tree rebuild untouched.
+ */
+export type PropagationCapture =
+  | { readonly kind: "let"; readonly range: SourceRange }
+  | { readonly kind: "fn-return"; readonly range: SourceRange }
+  | { readonly kind: "fn-param"; readonly range: SourceRange; readonly paramIndex: number };
+
+/**
+ * One annotation text this pass carried onto a query the author left
+ * schema-less, attributed to the capture that supplied it.
+ *
+ * This report is the authoritative answer to "did the annotation written HERE
+ * end up on a query?". A consumer deciding whether a capture must withhold
+ * something for propagated text reads this list rather than re-deriving the
+ * propagation set from the AST: the crossed constructs (a ternary branch, an
+ * array-literal element, the postfix `?`, a block tail, a `return` operand at
+ * any control-flow depth) are stated once, in this pass's own walk.
+ */
+export interface QueryPropagation {
+  readonly capture: PropagationCapture;
+  /** The capture's verbatim written annotation text. */
+  readonly annotationSource: string;
+  /** The range of the query the text reached. */
+  readonly queryRange: SourceRange;
+}
+
+/** The resolved body, the QRY-4 diagnostics, and the propagation report. */
 export interface ResolveQuerySchemasResult {
   readonly body: ThetaBody;
   readonly diagnostics: readonly Diagnostic[];
+  readonly propagations: readonly QueryPropagation[];
 }
+
+/**
+ * A sink frame carrying the capture it came from. The origin rides on the frame
+ * so the supplying capture is read straight off `resolveQuerySchemaSink`'s
+ * answer: the pass that decides which frame wins is the pass that reports the
+ * propagation, and no second traversal can disagree with it.
+ */
+interface FrameOrigin {
+  readonly capture: PropagationCapture;
+  readonly annotationSource: string;
+}
+
+type OriginFrame = SchemaSinkFrame & { readonly origin?: FrameOrigin };
 
 /**
  * Resolve every INDIRECT typed query's response schema in `body` (QRY-2) and
@@ -87,7 +135,11 @@ export function resolveQuerySchemas(
   const fns = collectFns(body.statements);
   const walk = new QuerySchemaResolveWalk(file, env, fns);
   const resolved = walk.rewriteBlock(body, []);
-  return { body: resolved, diagnostics: walk.diagnostics };
+  return {
+    body: resolved,
+    diagnostics: walk.diagnostics,
+    propagations: walk.propagations,
+  };
 }
 
 /** Collect the top-level `fn` declarations, keyed by name, for call-arg sinks. */
@@ -110,6 +162,7 @@ function collectFns(statements: readonly Stmt[]): ReadonlyMap<string, FnDecl> {
  */
 class QuerySchemaResolveWalk {
   public readonly diagnostics: Diagnostic[] = [];
+  public readonly propagations: QueryPropagation[] = [];
 
   public constructor(
     private readonly file: string,
@@ -123,7 +176,7 @@ class QuerySchemaResolveWalk {
    * sink here (the tail is the function's implicit return), every other block
    * tail is a fresh (sink-less) context.
    */
-  public rewriteBlock(block: Block, tailFrames: readonly SchemaSinkFrame[]): Block {
+  public rewriteBlock(block: Block, tailFrames: readonly OriginFrame[]): Block {
     const statements = block.statements.map((stmt) => this.rewriteStmt(stmt));
     const tail = block.tail === null ? null : this.rewriteExpr(block.tail, tailFrames);
     return { statements, tail };
@@ -146,8 +199,24 @@ class QuerySchemaResolveWalk {
         // checked against the binding annotation (a direct-let propagation
         // makes the two identical, so it never fires there).
         this.checkLetMismatch(stmt.init, stmt.annotation);
-        const frames: readonly SchemaSinkFrame[] =
-          annotation === undefined ? [] : [{ kind: "let", annotation }];
+        // `parseLet`'s DIRECT `let x: T = @`…`` fast path has already written
+        // the annotation onto the query by the time this pass runs, so the
+        // rewrite below leaves that query untouched (QRY-3, "direct wins") and
+        // would report nothing for it. It is reported here instead, so the
+        // propagation report answers for every route a written `let`
+        // annotation reaches a query by — the one authoritative set.
+        this.recordDirectLetPropagation(stmt);
+        const origin: FrameOrigin | undefined =
+          stmt.annotation === null
+            ? undefined
+            : {
+                capture: { kind: "let", range: stmt.range },
+                annotationSource: stmt.annotation,
+              };
+        const frames: readonly OriginFrame[] =
+          annotation === undefined || origin === undefined
+            ? []
+            : [{ kind: "let", annotation, origin }];
         return { ...stmt, init: this.rewriteExpr(stmt.init, frames) };
       }
       case "reassign":
@@ -192,10 +261,17 @@ class QuerySchemaResolveWalk {
             : annotationToInferred(stmt.returnType);
         // `exactOptionalPropertyTypes`: omit `returnType` when undefined so the
         // frame stays assignable to the optional-property `fn-return` shape.
-        const fnFrames: readonly SchemaSinkFrame[] = [
-          returnType === undefined
+        const fnFrames: readonly OriginFrame[] = [
+          returnType === undefined || stmt.returnType === null
             ? { kind: "fn-return" }
-            : { kind: "fn-return", returnType },
+            : {
+                kind: "fn-return",
+                returnType,
+                origin: {
+                  capture: { kind: "fn-return", range: stmt.range },
+                  annotationSource: stmt.returnType,
+                },
+              },
         ];
         return { ...stmt, body: this.rewriteFnBlock(stmt.body, fnFrames) };
       }
@@ -222,7 +298,7 @@ class QuerySchemaResolveWalk {
    * is a fresh context. The return sink is threaded down through nested control
    * blocks so a `return @`…`` deep in the body still sees the declared type.
    */
-  private rewriteFnBlock(block: Block, returnFrames: readonly SchemaSinkFrame[]): Block {
+  private rewriteFnBlock(block: Block, returnFrames: readonly OriginFrame[]): Block {
     const statements = block.statements.map((stmt) =>
       this.rewriteReturnAware(stmt, returnFrames),
     );
@@ -231,7 +307,7 @@ class QuerySchemaResolveWalk {
   }
 
   /** Rewrite a statement inside a `fn`, applying the return sink to `return`. */
-  private rewriteReturnAware(stmt: Stmt, returnFrames: readonly SchemaSinkFrame[]): Stmt {
+  private rewriteReturnAware(stmt: Stmt, returnFrames: readonly OriginFrame[]): Stmt {
     switch (stmt.kind) {
       case "return":
         return stmt.operand === null
@@ -292,7 +368,7 @@ class QuerySchemaResolveWalk {
    * loop-body TAIL is NOT the fn's implicit return, so it rewrites with fresh
    * (sink-less) frames.
    */
-  private rewriteLoopBody(block: Block, returnFrames: readonly SchemaSinkFrame[]): Block {
+  private rewriteLoopBody(block: Block, returnFrames: readonly OriginFrame[]): Block {
     const statements = block.statements.map((stmt) =>
       this.rewriteReturnAware(stmt, returnFrames),
     );
@@ -321,7 +397,7 @@ class QuerySchemaResolveWalk {
    * per-kind recursion prepends the frame each child sits in (crossed
    * constructs stay transparent, opaque constructs prepend a `stop`).
    */
-  private rewriteExpr(expr: Expr, frames: readonly SchemaSinkFrame[]): Expr {
+  private rewriteExpr(expr: Expr, frames: readonly OriginFrame[]): Expr {
     switch (expr.kind) {
       case "query":
         return this.resolveQuery(expr, frames);
@@ -472,7 +548,7 @@ class QuerySchemaResolveWalk {
    * files resolved at load/runtime. Those args therefore have no resolvable
    * parameter type here and stay untyped (the walk stops at the call boundary).
    */
-  private callArgFrame(callee: string, index: number): SchemaSinkFrame {
+  private callArgFrame(callee: string, index: number): OriginFrame {
     const fn = this.fns.get(callee);
     if (fn === undefined) {
       // Not a local `fn` — a tool call (registry-resolved) or unknown callee;
@@ -489,21 +565,59 @@ class QuerySchemaResolveWalk {
     const paramType = annotationToInferred(param.type);
     return paramType === undefined
       ? { kind: "call-arg" }
-      : { kind: "call-arg", paramType };
+      : {
+          kind: "call-arg",
+          paramType,
+          // The propagated text is the CALLEE's parameter annotation, written
+          // at the `fn` declaration — so the origin names that declaration and
+          // the parameter's position in its list, not the call site.
+          origin: {
+            capture: { kind: "fn-param", range: fn.range, paramIndex: index },
+            annotationSource: param.type,
+          },
+        };
+  }
+
+  /**
+   * Report `parseLet`'s direct `let x: T = @`…`` propagation (the postfix-`?`
+   * spelling included, which parses to `try(query)`), which happens at parse
+   * time and so is invisible to the rewrite below.
+   */
+  private recordDirectLetPropagation(stmt: Extract<Stmt, { kind: "let" }>): void {
+    if (stmt.annotation === null || stmt.init === null) {
+      return;
+    }
+    const query = unwrapToQuery(stmt.init);
+    if (query === null || query.schemaFromLetAnnotation !== true) {
+      return;
+    }
+    this.propagations.push({
+      capture: { kind: "let", range: stmt.range },
+      annotationSource: stmt.annotation,
+      queryRange: query.range,
+    });
   }
 
   /** Fill a null-schema query from its enclosing sink; leave a typed one intact. */
-  private resolveQuery(expr: QueryExpr, frames: readonly SchemaSinkFrame[]): QueryExpr {
+  private resolveQuery(expr: QueryExpr, frames: readonly OriginFrame[]): QueryExpr {
     if (expr.schema !== null) {
       // QRY-3 — an explicit ascription (or a direct-let propagation) always
       // wins; do not overwrite.
       return expr;
     }
-    const inferred = inferQuerySchema({ frames });
-    if (inferred === undefined) {
+    const sink = resolveQuerySchemaSink({ frames });
+    if (sink === undefined) {
       return expr;
     }
-    return { ...expr, schema: serializeInferred(inferred) };
+    const origin = (sink.frame as OriginFrame | undefined)?.origin;
+    if (origin !== undefined) {
+      this.propagations.push({
+        capture: origin.capture,
+        annotationSource: origin.annotationSource,
+        queryRange: expr.range,
+      });
+    }
+    return { ...expr, schema: serializeInferred(sink.schema) };
   }
 
   /**

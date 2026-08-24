@@ -177,10 +177,23 @@ describe("0083 (b) — a `let` annotation narrower than its initialiser is what 
     ]);
   });
 
-  it("s9: `let e: array<Foo> = []` then `.join` still reports the non-string element type", () => {
-    // An undeclared element name is not a `string` element type under either
-    // recorded shape, so the join stays refused.
+  it("s9: `let e: array<Foo> = []` then `.join` still reports the non-string element type, now ALSO refused upstream at the `let`", () => {
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262 clause (i).
+    // OLD codes: ["theta/parse/non-string-array-join"] alone — an undeclared
+    // element name is not a `string` element type under either recorded
+    // shape, and until bug 0262's widening the `let` annotation ran no
+    // resolution pass, so `checkArrayJoin`'s own element-level judgement
+    // (bug 0127 SENTENCE 1) was the sole refusal. NEW: bug 0262's widening now
+    // runs `collectUnresolvedNamedTypes` at the `let` annotation capture
+    // itself, so `Foo` — resolving to no visible declaration — is refused a
+    // SECOND time, upstream, at the `let` statement's own range, before the
+    // join gate inspects the element. This report's own subject — that a
+    // `let` annotation is what array-element gates read regardless of how the
+    // element type is spelled — is unchanged: the join refusal still fires on
+    // the SAME recorded element type; only the input class reaching it now
+    // also draws an earlier, separately-owned refusal.
     expect(codesOf(["let e: array<Foo> = []", 'e.join(",")'])).toEqual([
+      "theta/parse/unresolved-named-type",
       "theta/parse/non-string-array-join",
     ]);
   });

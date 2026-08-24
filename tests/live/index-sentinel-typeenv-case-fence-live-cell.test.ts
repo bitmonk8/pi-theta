@@ -10,7 +10,17 @@
 // statically resolvable").
 //
 // THE SUBJECT DOCUMENT is the report's c3 row: `schema index = string` plus
-// `fn f(p: Nope) { let m: integer = p[0]  m }`. The index arm's fabricated name
+// `fn f(p: QueryError) { let m: integer = p[0]  m }`. `QueryError` is the
+// re-vehicled receiver type (bug 0262 coordination note): the offline sibling
+// (tests/index-sentinel-typeenv-case-fence.test.ts) swapped its own c3 fixture
+// off `Nope` for the same reason — bug 0262 widens `unresolved-named-type` to
+// the `fn` parameter capture, so a genuinely undeclared head is now REFUSED
+// there rather than deferred, and `Nope` would draw a second code this cell
+// does not want. `QueryError` is the builtin error-model name bug 0262 §Fix
+// admits at that capture (so it draws no refusal) while remaining absent from
+// `collectTypeEnv` (so the receiver is still statically unresolvable) — the
+// subject (a refused-declaration's right-hand side must not decide `p[0]`'s
+// type) is unchanged. The index arm's fabricated name
 // (src/parser/static-type-inference.ts:294) used to resolve through the refused
 // declaration and supply `string` to the typed binding, so the document drew a
 // SECOND code, `theta/parse/let-rhs-type-mismatch`, whose `<actual>` rendered
@@ -149,7 +159,7 @@ const REFUSED = [
   "mode: prompt",
   "---",
   "schema index = string",
-  "fn f(p: Nope) {",
+  "fn f(p: QueryError) {",
   "  let m: integer = p[0]",
   "  m",
   "}",

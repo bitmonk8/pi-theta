@@ -1197,3 +1197,99 @@ src/parser/type-compat.ts` = `git rev-parse HEAD:src/parser/type-compat.ts`).
   between the two wired sinks (c2 against d8) is recorded, not reconciled; and
   bug 0051 still owns whether an unresolvable annotation should be refused at
   the annotation.
+
+### Coordination note — bug 0262's reference-position widening (2026-08-24)
+
+Bug [0262](./0262-unresolved-named-type-silent-at-nine-reference-positions.md)
+emits `theta/parse/unresolved-named-type` at the `let` annotation, the `fn`
+parameter type, the `fn` return type and the `invoke<T>` ascription. This
+report's witness,
+`tests/unresolvable-operand-structural-target-adjudication.test.ts`, carried its
+operand class on `let v: Zz = [1]` — a written undeclared annotation at the
+first of those captures — so all fifteen of its source-driven cells move: eleven
+are re-vehicled and four convert to load-refusal cells. The file's
+re-founding rationale is recorded in its own header, at lines 166–251 of that
+file.
+
+**Eleven re-vehicled, `let v: Zz = [1]` → `let v = Ok([1])?`.** `Ok`/`Err` are
+`Result` constructor keywords, not `Ident`-shaped `NamedType` references, so the
+spelling is outside bug 0262's widening by grammar; the `result-ctor` node's
+static type is a `named` the type environment resolves to nothing, and
+`provableArgType` returns it unconditionally, so the binding reaches the decision
+seam as a proven operand rather than withholding at the proof channel; and
+`Ok(x)` with `?` evaluates purely and synchronously, so the group (E) runtime
+cell stays offline. Cell by cell, with each expectation unchanged in kind:
+
+| cell | line | old source fragment | new source fragment | expectation |
+|---|---|---|---|---|
+| `a1` | 603 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `b2` | 640 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `b3` | 648 | `let v: Zz = 1` | `let v = Ok(1)?` | silent |
+| `b5` | 656 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `e12` | 764 | `let mut v: Zz = [1]` | `let mut v = Ok([1])?` | silent |
+| ctor field | 774 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `d1` | 787 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `d8` | 796 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent |
+| `d4` | 815 | `let v: Zz = [1]` | `let v = Ok([1])?` | `[iterandRefusal("Zz")]` → `[iterandRefusal("Ok")]` |
+| `d5` | 837 | `let v: Zz = ["a"]` | `let v = Ok(["a"])?` | silent |
+| `f2` | 948 | `let v: Zz = [1]` | `let v = Ok([1])?` | silent, then execution outcome `success` and value `[1]` |
+
+`d4` is the only re-vehicled cell whose asserted bytes move: the registry-sourced
+message renders the minted name, `'for' expects array<T> after 'in'; got Ok`
+where it rendered `got Zz`. Group (D)'s shape-invariance cell (line 856 of that
+file), which drives `checkCompatible` directly rather than through source text,
+is unedited.
+
+**Four converted to load-refusal cells.** Each probed the written-undeclared
+spelling itself, and a `let` annotation and an `fn` parameter type are always
+written text, so no offline withheld equivalent exists for them. Each now calls
+`expectRefused` against the registry-interpolated line
+`error theta/parse/unresolved-named-type: unresolved named type '<name>'`, built
+by the helper `unresolvedNamedType` (line 338 of that file) off the same live
+registry the file's other oracles read (`UNRESOLVED_NAMED_TYPE_CODE`, line 271):
+
+- `b7` (line 664), `fn g(n: Qq): number { 1 }` with `v` re-vehicled to
+  `Ok([1])?`: silent → `[unresolvedNamedType("Qq")]`.
+- `b10` (line 683), `fn g(xs: array<Zz>): number { 1 }` + `g([1])`, source
+  unchanged: silent → `[unresolvedNamedType("Zz")]`.
+- `e2` (line 710), `let v: zz = [1]`, source unchanged: silent →
+  `[unresolvedNamedType("zz")]`, the lowercase spelling refusing exactly as the
+  PascalCase one does.
+- `e5` (line 749), `fn f(v: Zz): number { g(v) }` + `f([1])`, source unchanged:
+  silent → `[unresolvedNamedType("Zz")]`.
+
+**Why.** The operator ruling (sixteenth set), clause (ii):
+
+> Bug 0144's witness (unresolvable-operand-structural-target-adjudication, 15
+> cells): the deferral-adjudication SUBJECT is preserved and re-founded on the
+> withheld class — operands past the parser's static view for legitimate reasons
+> (an inferred binding whose RHS depends on a tool call, an invoke against an
+> erroring callee, or the nearest offline-constructible equivalent) — wherever
+> constructible; cells that specifically probed the written-undeclared-annotation
+> route become load-refusal cells.
+
+**The registration outcome for written-vehicle programs reverses.** A program
+that used a written undeclared annotation to stand in for a type invisible to the
+parser — `let v: Zz = [1]` + `g(v)`, this report's own §Symptom spelling —
+registered before the widening and does not register now: the annotation draws an
+`E` at the `let` capture. The deferral this report adjudicated is unchanged for
+the class it governs; what changed is which programs are in that class.
+
+**This report's subject is unchanged.** The subject is that an operand past the
+parser's static view defers at the `fn`-argument sink and its sibling `⊑` sinks
+rather than being judged against a structural target. The two sentences this
+report landed on `docs/spec_topics/type-system.md` — "The skip is unconditional
+on the target's kind: …" and "The skip is likewise unconditional on whether the
+position documents a runtime AJV net of its own …" — stay verbatim (checked
+against `HEAD` byte for byte) and govern the withheld class. They sit in the
+*Unresolvable operands* paragraph, now at line 50 of that file, which gained a
+parenthetical distinguishing a type the source withholds from a name the author
+wrote and got wrong, and is preceded at line 48 by a new sentence assigning the
+written case to `theta/parse/unresolved-named-type`. The widening changes the
+INPUT CLASS reaching this report's sinks, by refusing the written annotation
+upstream at the position it is written; it moves neither this report's Trigger
+nor its verdict.
+
+**Measured.** `npx vitest run
+tests/unresolvable-operand-structural-target-adjudication.test.ts` at the current
+tree: 29 of 29 cells pass. Status unchanged (**fixed (0.185.0)**).

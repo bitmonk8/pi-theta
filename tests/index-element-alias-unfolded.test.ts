@@ -38,6 +38,17 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 // runtime disposition of three of them is pinned separately, in
 // tests/index-element-alias-runtime-disposition.test.ts.
 //
+// VEHICLE NOTE (bug 0262 coordination): groups (d) rows 3 and 7 and the
+// restated (d cont.) rows 13–16 read a `fn` parameter type of `QueryError`,
+// not the earlier `Nope`. Bug 0262 widens `unresolved-named-type` to the `fn`
+// parameter capture, so a genuinely undeclared head is now REFUSED there
+// rather than deferred, and `Nope` would draw a second code these rows do not
+// want. `QueryError` is the builtin error-model name bug 0262 §Fix admits at
+// that capture (so it draws no refusal) while staying absent from
+// `collectTypeEnv` (so the parameter type is still statically unresolvable for
+// `unfoldAlias` and every classifier this file probes) — subject preserved,
+// per the 0165/0251 re-vehicle precedent.
+//
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/type-system.md:54 TYPE-11 — a `NamedType` declared by a
 //     type-alias schema `schema X = R` "is **transparent** in `⊑`: on whichever
@@ -775,13 +786,15 @@ describe("0125 (d) — the TYPE-10, unresolvable and cyclic bounds on the unfold
     ).toEqual([]);
   });
 
-  it("d3: an undeclared parameter type name keeps deferring", () => {
+  it("d3: a parameter type past the parser's static view keeps deferring", () => {
     // `unfoldAlias` returns an unresolvable `named` unchanged
     // (src/parser/type-compat.ts:166–167), so the read keeps the disposition
     // type-system.md:48 requires: the parse-time check is skipped and the
-    // runtime AJV check is the safety net.
+    // runtime AJV check is the safety net. `QueryError` is the file's vehicle
+    // note re-vehicle: admitted at the widened `fn` parameter capture, absent
+    // from `collectTypeEnv`.
     expect(
-      codesOf(LET_METHOD("Nope")),
+      codesOf(LET_METHOD("QueryError")),
       "type-system.md:48 *Unresolvable operands* — a name past the parser's static view defers rather than narrowing",
     ).toEqual([]);
   });
@@ -838,7 +851,7 @@ describe("0125 (d) — the TYPE-10, unresolvable and cyclic bounds on the unfold
     // placeholder-rendering-a.md:19 nor lexical.md:15, and closing the alias
     // half leaves this half open — a residual this fix does not claim.
     const diags = diagsOf([
-      "fn f(p: Nope) {",
+      "fn f(p: QueryError) {",
       "  for y in p[0] {",
       "    y",
       "  }",
@@ -981,7 +994,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration is refused and t
     // type-system.md:48's deferral, restored to this input.
     const diags = diagsOf([
       "schema index = array<integer>",
-      ...JOIN_READ("p", "Nope", "p[0]"),
+      ...JOIN_READ("p", "QueryError", "p[0]"),
     ]);
     expect(
       diags.map((d: Diagnostic) => d.code),
@@ -999,7 +1012,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration is refused and t
 
   it("d14: the same join with no `index` declaration reports nothing (control)", () => {
     expect(
-      codesOf(JOIN_READ("p", "Nope", "p[0]")),
+      codesOf(JOIN_READ("p", "QueryError", "p[0]")),
       "type-system.md:48 — with no declaration for the sentinel's name the read is unresolvable and the `join` guard defers",
     ).toEqual([]);
   });
@@ -1013,7 +1026,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration is refused and t
     // render was the sentinel's own name, which placeholder-rendering-a.md:25
     // read with lexical.md:15 does not admit at a type position; that rendering
     // is now unreachable through a declaration.
-    const diags = diagsOf(["schema index = string", ...INTEGER_SINK("p", "Nope", "p[0]")]);
+    const diags = diagsOf(["schema index = string", ...INTEGER_SINK("p", "QueryError", "p[0]")]);
     expect(
       diags.map((d: Diagnostic) => d.code),
       "bug 0135 §Fix, Reading A at `resolveNamed` — a declaration refused for its casing makes no RHS type statically resolvable, so code-registry-parse.md:59's trigger no longer covers this input",
@@ -1026,7 +1039,7 @@ describe("0125 (d cont.) — a `schema index = …` declaration is refused and t
 
   it("d16: the same binding with no `index` declaration reports nothing (control)", () => {
     expect(
-      codesOf(INTEGER_SINK("p", "Nope", "p[0]")),
+      codesOf(INTEGER_SINK("p", "QueryError", "p[0]")),
       "type-system.md:48 — with no declaration for the sentinel's name the RHS is unresolvable and the check defers",
     ).toEqual([]);
   });

@@ -46,6 +46,16 @@ import {
 // fence leaves that cell untouched because the key is still written and only
 // its resolution is refused.
 //
+// VEHICLE NOTE (bug 0262 coordination): the `A1`, `JOIN_BODY` and `SINK_BODY`
+// receiver-parameter type reads `QueryError`, not the earlier `Nope`. Bug 0262
+// widens `unresolved-named-type` to the `fn` parameter capture, so a genuinely
+// undeclared head is now REFUSED there rather than deferred, and `Nope` would
+// draw a second code these rows do not want. `QueryError` is the builtin
+// error-model name bug 0262 §Fix admits at that capture (so it draws no
+// refusal) while staying absent from `collectTypeEnv` (so the receiver is
+// still statically unresolvable for every downstream classifier this file
+// probes) — subject preserved, per the 0165/0251 re-vehicle precedent.
+//
 // SPEC ANCHORS (the contract, not the current code):
 //   - docs/spec_topics/lexical.md:15 — PascalCase is required at every
 //     type-like binding position; `:13` is the identifier grammar
@@ -78,7 +88,7 @@ import {
 //     message half is READ from the registry through `parseRegistry` /
 //     `registryMessage` (tools/code-registry/index.js) via the `msg` helper,
 //     never written out here; this is the same oracle discipline as
-//     tests/index-element-alias-unfolded.test.ts:167.
+//     tests/index-element-alias-unfolded.test.ts, line 178 (its `msg` helper).
 //   - docs/spec_topics/governance/source-language-stability.md:9 — GOV-15's
 //     loads-cleanly predicate. Every group (c) source emits an `E`, so none is
 //     in the equivalence promise's input set and the code-list moves owe no
@@ -227,7 +237,7 @@ function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
 // ===========================================================================
 
 /** (a1) An unresolvable receiver's index read placed after `in`. */
-const A1: readonly string[] = ["fn f(p: Nope) {", "  for y in p[0] {", "    y", "  }", "}", "1"];
+const A1: readonly string[] = ["fn f(p: QueryError) {", "  for y in p[0] {", "    y", "  }", "}", "1"];
 
 /** (a2) An object-schema receiver's index read placed after `in`. */
 const A2: readonly string[] = [
@@ -272,11 +282,11 @@ const REFUSED_ARRAY_DECL = "schema index = array<integer>";
 const REFUSED_STRING_DECL = "schema index = string";
 
 /** (c) The `join` body: an unresolvable receiver's index read joined. */
-const JOIN_BODY: readonly string[] = ["fn f(p: Nope): string {", '  p[0].join(",")', "}", "1"];
+const JOIN_BODY: readonly string[] = ["fn f(p: QueryError): string {", '  p[0].join(",")', "}", "1"];
 
 /** (c) The typed-sink body: an unresolvable receiver's index read into `integer`. */
 const SINK_BODY: readonly string[] = [
-  "fn f(p: Nope) {",
+  "fn f(p: QueryError) {",
   "  let m: integer = p[0]",
   "  m",
   "}",

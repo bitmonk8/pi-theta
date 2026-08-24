@@ -88,7 +88,11 @@ import {
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
 import { annotationSourceIsNotTypeExpression, checkTypeLayer } from "./type-layer-checks";
-import { resolveQuerySchemas } from "./query-schema-resolve";
+import {
+  resolveQuerySchemas,
+  type PropagationCapture,
+  type QueryPropagation,
+} from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
   collectUnresolvedNamedTypes,
@@ -974,6 +978,17 @@ export function parseThetaDocument(
     { statements, tail: resolvedTail },
     bodyTypes,
     file,
+    // bug 0262 §Fix clause (iv)(2): the withhold at every propagating capture
+    // is read off QRY-2's own report of which written annotation reached which
+    // query, so the two passes cannot disagree about the propagation set.
+    resolvedQuery.propagations,
+    // bug 0262 §Fix clause (iv)(3): the artefact-suppression predicate needs
+    // both PRIOR passes' error-severity diagnostics — the lexer's own
+    // (`single-line-if`) and the body parser's own (`fn-param-list-unclosed`)
+    // — rather than one of them alone, since the two measured artefact
+    // fixtures each draw a diagnostic from a different one of these two
+    // arrays.
+    [...lex.diagnostics, ...parser.diagnostics],
   );
 
   // REQ-EXPR-7 (expressions.md §"Identifier resolution"); `checkUnknownIdentifiers`'s
@@ -6329,31 +6344,38 @@ function blockExprMissingTailDiagnostic(range: SourceRange, file: string): Diagn
 
 /**
  * The registered `theta/parse/unresolved-named-type` rejection. Its trigger
- * (code-registry-parse.md) is a closed five-position list — the `params:`
- * right-hand side, the `@<T>` query annotation, a `schema` body field type,
- * the right-hand side of a `schema X = ...` alias/union declaration (bug
- * 0033 §Fix), and the object-constructor name — not every
- * `NamedType`-resolution position: a `let` annotation, an `fn` parameter
- * type, a generic argument, a union arm and `invoke<Type>` (grammar.md
- * §Type grammar) are outside it, so `let x: Nope = 1` resolves nothing and
- * fires nothing.
+ * (code-registry-parse.md) covers the full `NamedType`-reference position set
+ * (bug 0262 §Fix, the FULL widening): the `params:` right-hand side, the
+ * `@<T>` query annotation, a `schema` body field type, the right-hand side of
+ * a `schema X = ...` alias/union declaration (bug 0033 §Fix), an
+ * object-constructor name, a `match` object-pattern head, a `let` annotation,
+ * an `fn` parameter type, an `fn` return type, and an `invoke<Type>`
+ * ascription (grammar.md §Type grammar) — plus every generic argument, union
+ * arm, `Result` argument and inline object field nested inside one of those.
+ * `let x: Nope = 1` and `fn f(x: Nope): number { 1 }` refuse this code exactly
+ * as `schema S { f: Nope }` always has.
  *
- * FOUR of the five positions emit through this builder: `checkObjectExpr`
- * below (the object-constructor name), the `"schema"` case of `walkStatement`
- * plus the `"query"` case of `walkExpr` (both below — a `schema` body field
- * type and the `@<T>` annotation), and `checkSchemaDeclarationGraph` (the
- * alias/union right-hand side) — all four resolving names through
- * `collectUnresolvedNamedTypes` (body-type-lowering.ts). The `@<T>` position
- * reaches this builder only for `Ident`-shaped text (grammar.md `NamedType ::=
- * Ident`) that resolves to no declaration: text that is not an `Ident` is
- * refused ahead of this resolution, by `theta/parse/query-annotation-type-not-
- * expression` (bug 0203 §Fix), so this builder never sees it for that
- * position. The `params:`
- * RHS emits the row's message from its own site (`parseParams`, params.ts):
- * params.ts is UPSTREAM of this module in the import graph (this module imports
- * `splitTopLevel` from it), so that site cannot reach this builder without a
- * cycle, and the two message literals are held identical to the registry row by
- * DIAG-4 rather than by sharing code.
+ * NINE of the ten reference positions emit through this builder.
+ * `checkObjectExpr` below (the object-constructor name), the `"schema"` case
+ * of `walkStatement` plus its `"let"`, `"fn"`-parameter and `"fn"`-return
+ * reads (all below — a `schema` body field type, a `let` annotation, an `fn`
+ * parameter type and an `fn` return type), `walkExpr`'s `"query"` case (the
+ * `@<T>` annotation) and its `"invoke"` case (the `invoke<T>` ascription), and
+ * `checkSchemaDeclarationGraph` (the alias/union right-hand side) — eight
+ * positions resolving names through `collectUnresolvedNamedTypes`
+ * (body-type-lowering.ts). The ninth, `parsePattern`'s `match` object-pattern
+ * head, resolves through `patternHeadTypeNames` instead: it references a
+ * DECLARATION rather than a type expression, so it needs no lowering pass
+ * (bug 0221 §Fix). The `@<T>` position reaches this builder only for
+ * `Ident`-shaped text (grammar.md `NamedType ::= Ident`) that resolves to no
+ * declaration: text that is not an `Ident` is refused ahead of this
+ * resolution, by `theta/parse/query-annotation-type-not-expression` (bug 0203
+ * §Fix), so this builder never sees it for that position. The tenth, the
+ * `params:` RHS, emits the row's message from its own site (`parseParams`,
+ * params.ts): params.ts is UPSTREAM of this module in the import graph (this
+ * module imports `splitTopLevel` from it), so that site cannot reach this
+ * builder without a cycle, and the two message literals are held identical to
+ * the registry row by DIAG-4 rather than by sharing code.
  *
  * The RESOLUTION behind the four positions that carry a TYPE EXPRESSION is one
  * arm. A brace-rooted type source hoists under `__inline_<slug>`
@@ -6434,6 +6456,8 @@ function blockExprMissingTailDiagnostic(range: SourceRange, file: string): Diagn
  * `queryResponseAnnotation`'s own doc block for what that residual
  * disagreement is observed as.
  */
+const UNRESOLVED_NAMED_TYPE_CODE = "theta/parse/unresolved-named-type";
+
 function unresolvedNamedTypeDiagnostic(
   name: string,
   range: SourceRange,
@@ -6441,7 +6465,7 @@ function unresolvedNamedTypeDiagnostic(
 ): Diagnostic {
   return {
     severity: "error",
-    code: "theta/parse/unresolved-named-type",
+    code: UNRESOLVED_NAMED_TYPE_CODE,
     file,
     range,
     message: `unresolved named type '${name}'`,
@@ -6605,10 +6629,13 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * @`…`` arrives here as the full `Result<…>` text. Its `E` side is a builtin
  * observed only by theta code and never lowered to a JSON Schema fragment
  * (grammar.md §"Generic-application constructors"), so it resolves to no
- * declaration by design and must not be reported: the `let` annotation is
- * outside the registry row's closed five-position list, `Result` is admitted
- * there by the grammar, and the author wrote no `@<T>` at all. The `T` side —
- * the shape the response is validated against — is still checked, so a typo in
+ * declaration by design and must not be reported: `Result` is admitted there
+ * by the grammar and is never itself resolved as a `NamedType` atom
+ * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
+ * never through the identifier-resolution arm), and bug 0262 §Fix clause
+ * (iv)(2) withholds the `let` capture's own resolution of this SAME
+ * propagated text, leaving this arm its sole emitter. The `T` side — the
+ * shape the response is validated against — is still checked, so a typo in
  * `let r: Result<Tirage, QueryError> = @`…`` is still refused.
  *
  * `undefined` means "this annotation has no response part to check": a `Result`
@@ -7162,13 +7189,41 @@ interface StructuralRefs {
    * `bodyTypes`'s three name sets (`schemas` keys ∪ `enums` ∪ `imports`)
    * flattened into one `ReadonlySet` (bug 0028 §Fix), computed ONCE in
    * `checkStructural` so it is not rebuilt per node. Feeds
-   * `collectUnresolvedNamedTypes` at the two positions this walk owns: the
-   * `@<T>` query annotation and a `schema` body field type. An imported
+   * `collectUnresolvedNamedTypes` at the six type-expression positions this
+   * walk owns: the `@<T>` query annotation, a `schema` body field type (bug
+   * 0028 §Fix), and — bug 0262 §Fix — a `let` annotation, an `fn` parameter
+   * type, an `fn` return type and an `invoke<T>` ascription. An imported
    * symbol counts as resolved here even though its lowering stays permissive
    * (`MaterializedImport` carries no field bodies) — the name is in scope,
    * which is the only question this set answers.
    */
   readonly typeNames: ReadonlySet<string>;
+  /**
+   * Which written annotations QRY-2 carried onto a query the author left
+   * schema-less (`resolveQuerySchemas`' `propagations` report), indexed by the
+   * capture that supplied each. Clause (iv)(2) of bug 0262 §Fix gives the query
+   * arm the sole emission for propagated text, so a capture whose own text
+   * reached a query withholds its refusal; the propagation set is READ from the
+   * pass that performs it rather than re-derived here, because a second
+   * traversal of the crossed constructs (a ternary branch, an array-literal
+   * element, a `return` operand at depth, a local `fn`'s parameter reached from
+   * a call argument) drifts from the first one the moment either moves.
+   */
+  readonly queryPropagations: PropagationIndex;
+  /**
+   * Every error-severity diagnostic drawn BEFORE the structural walk runs —
+   * the lexer's own pass (`lexTheta`) and the body parser's own pass
+   * (`BodyParser.diagnostics`) — threaded read-only into the walk so the four
+   * `unresolved-named-type` captures bug 0262 §Fix adds can test whether a
+   * capture's own source window already carries a diagnostic naming the real
+   * fault (clause (iv)(3)'s artefact-suppression predicate) before adding a
+   * second one for text the capture merely absorbed. Two SEPARATE passes,
+   * not one: `theta/parse/single-line-if` is a lexer diagnostic and
+   * `theta/parse/fn-param-list-unclosed` is a parser diagnostic, and the two
+   * measured artefact fixtures (`stringletx`, `number1`) each draw one of
+   * each kind, so a set reading only one pass would miss the other's cover.
+   */
+  readonly priorDiagnostics: readonly Diagnostic[];
 }
 
 /** The lexical context a structural check consults as the walk descends. */
@@ -7368,6 +7423,132 @@ function walkParamsDefaultNames(
 }
 
 /**
+ * The declared-name universe a bug 0262 §Fix capture resolves against:
+ * `typeNames` widened with the builtin error-model names the pattern-head
+ * position already admits (`patternHeadTypeNames`'s own seed,
+ * `BUILTIN_VALUE_NAMES` above — clause (iv)(1)). Reusing that constant rather
+ * than a literal at each of the four call sites is what keeps the admission
+ * one fact instead of four: `Result` itself is never tested as an atom
+ * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
+ * never through the identifier-resolution arm), so admitting it here is inert;
+ * only `QueryError` is ever actually consulted by the four new captures.
+ */
+function withBuiltinErrorModelNames(typeNames: ReadonlySet<string>): ReadonlySet<string> {
+  return new Set([...typeNames, ...BUILTIN_VALUE_NAMES]);
+}
+
+/**
+ * The propagating captures, keyed by capture identity. Null-prototyped: the key
+ * is composed from a capture kind and a source range, and every read is
+ * own-key-guarded (`propagatedToQuery`), so no `Object.prototype` name can
+ * answer for a capture no propagation wrote.
+ */
+type PropagationIndex = Readonly<Record<string, true>>;
+
+/**
+ * The index key for one capture. The capture's own declaration range is the
+ * identity: two distinct declarations cannot share a range, and a parameter is
+ * further distinguished by its position in the list, so a `fn` with one
+ * propagating parameter withholds at that parameter alone.
+ */
+function propagationKey(capture: PropagationCapture): string {
+  const position = capture.kind === "fn-param" ? `#${capture.paramIndex}` : "";
+  return `${capture.kind}${position}@${rangeKey(capture.range)}`;
+}
+
+/** Index QRY-2's propagation report by capture identity. */
+function indexQueryPropagations(
+  propagations: readonly QueryPropagation[],
+): PropagationIndex {
+  const index: Record<string, true> = Object.create(null) as Record<string, true>;
+  for (const propagation of propagations) {
+    index[propagationKey(propagation.capture)] = true;
+  }
+  return index;
+}
+
+/**
+ * Clause (iv)(2)'s withhold: did the annotation written at this capture reach a
+ * query the author left schema-less? The query arm is the sole emitter for
+ * propagated text, so a capture that answers `true` withholds its own refusal
+ * and the one written annotation draws one diagnostic.
+ */
+function propagatedToQuery(refs: StructuralRefs, capture: PropagationCapture): boolean {
+  const key = propagationKey(capture);
+  return Object.hasOwn(refs.queryPropagations, key);
+}
+
+/** Is `a` strictly before `b` in (line, column) order? */
+function positionBefore(a: Position, b: Position): boolean {
+  return a.line < b.line || (a.line === b.line && a.column < b.column);
+}
+
+/**
+ * Clause (iv)(3)'s artefact-suppression predicate: does an error-severity
+ * diagnostic ALREADY drawn — either in a pass that ran before the structural
+ * walk (`prior`) or earlier in the structural walk itself, including this same
+ * capture's own type-grammar pass (`own`) — overlap the CAPTURE WINDOW
+ * `window`? An `unresolved-named-type` row drawn by THIS walk is not such
+ * evidence and is filtered out of `own`: it names a head at some enclosing
+ * capture and says nothing about the window of a capture nested inside it, so
+ * counting it would let one refusal swallow a second written mistake — the
+ * opposite of the one-diagnostic-per-written-mistake reading the clause states.
+ * Every other row, including this row's emissions from a PRIOR pass, still
+ * counts. Overlap is position-precise, not line-precise, and honours the
+ * exclusive `end` of a `SourceRange`: the windows are what bounds the clause
+ * to capture debris. A same-line fault OUTSIDE the window (a stray token past
+ * the end of a `let` statement) and a body-interior fault outside an `fn`
+ * header (a lexer error several lines into the body) are independent author
+ * mistakes, and each keeps its own diagnostic beside the name refusal rather
+ * than swallowing it. A diagnostic carrying no range cannot overlap anything
+ * and is skipped, never treated as a wildcard cover.
+ */
+function captureWindowAlreadyRefused(
+  prior: readonly Diagnostic[],
+  own: readonly Diagnostic[],
+  window: SourceRange,
+): boolean {
+  const overlaps = (d: Diagnostic): boolean =>
+    d.severity === "error" &&
+    d.range !== undefined &&
+    positionBefore(d.range.start, window.end) &&
+    positionBefore(window.start, d.range.end);
+  return (
+    prior.some(overlaps) ||
+    own.some((d) => d.code !== UNRESOLVED_NAMED_TYPE_CODE && overlaps(d))
+  );
+}
+
+/**
+ * The window a declared-type capture can plausibly have ABSORBED debris from:
+ * the construct's own start up to the first node that follows the capture in
+ * source. Everything from that node onwards is a different subject — an `fn`
+ * body, a `let` initialiser, an `invoke` argument list — so a fault ranged
+ * there is a second, independent author mistake and must not withdraw the
+ * capture's name refusal. When the following node is absent (a body the parser
+ * never recovered, an initialiser-less `let`, an argument-less `invoke`) the
+ * whole construct stands as the window, which is the conservative reading.
+ */
+function captureAbsorptionWindow(
+  construct: SourceRange,
+  firstNodeAfterCapture: NodeBase | null | undefined,
+): SourceRange {
+  return firstNodeAfterCapture === null || firstNodeAfterCapture === undefined
+    ? construct
+    : { start: construct.start, end: firstNodeAfterCapture.range.start };
+}
+
+/**
+ * The window an `fn`'s PARAMETER-type and RETURN-type captures are absorbed
+ * from: the declaration's header, from the `fn` keyword up to the first node
+ * of its body. A `Block` carries no range of its own, so the header's end is
+ * read off the first body statement (or, for a statement-less body, its tail).
+ */
+function fnHeaderWindow(s: FnDecl): SourceRange {
+  return captureAbsorptionWindow(s.range, s.body.statements[0] ?? s.body.tail);
+}
+
+/**
  * Run the implemented structural (AST-shape) parse-checkers over the whole-file
  * body and aggregate their diagnostics. These are shape-level well-formedness
  * checks that need no type inference: loop-context (`break` / `continue`), `fn`
@@ -7381,6 +7562,8 @@ function checkStructural(
   body: Block,
   bodyTypes: FrontmatterBodyTypes,
   file: string,
+  queryPropagations: readonly QueryPropagation[],
+  priorDiagnostics: readonly Diagnostic[],
 ): Diagnostic[] {
   const out: Diagnostic[] = [];
   // Hoisted top-level `fn` names, so a bare reference to one in value position
@@ -7411,7 +7594,15 @@ function checkStructural(
     ...bodyTypes.enums,
     ...bodyTypes.imports,
   ]);
-  const refs: StructuralRefs = { fnNames, enums, schemas, bodyTypes, typeNames };
+  const refs: StructuralRefs = {
+    fnNames,
+    enums,
+    schemas,
+    bodyTypes,
+    typeNames,
+    queryPropagations: indexQueryPropagations(queryPropagations),
+    priorDiagnostics,
+  };
   walkStatements(
     body.statements,
     { inLoop: false, topLevel: true, voidReturn: false },
@@ -7870,6 +8061,41 @@ function walkStatement(
         ) {
           out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
         }
+        // bug 0262 §Fix: the `let` annotation is a further `NamedType`-
+        // resolution position — reference r1 of the reference-position table,
+        // reaching r4 and r6's interiors (a generic argument, a union arm)
+        // through the same `collectUnresolvedNamedTypes` walk the five already-
+        // wired captures use. Withheld under three conditions: clause (iv)(2)
+        // when this same text is ALSO propagating onto a bare-query
+        // initialiser (the `@<T>` arm is that text's sole emitter, bug 0093);
+        // the landed guard-1 shape when this capture's own walk above already
+        // drew an error (including the not-a-type-expression push immediately
+        // above); and clause (iv)(3) when the capture's own source window is
+        // already covered by an error-severity diagnostic naming the real
+        // fault (a capture artefact, not a name the author wrote).
+        // The `let` capture's window runs from the statement's start to the
+        // initialiser's start (the whole statement when there is none): the
+        // initialiser is a different subject, so a fault inside it — or past
+        // the statement's end, a stray token on the same line — is a second,
+        // independent author mistake and keeps its own diagnostic beside this
+        // one.
+        if (
+          !propagatedToQuery(refs, { kind: "let", range: s.range }) &&
+          !out.slice(annotationDiagStart).some((d) => d.severity === "error") &&
+          !captureWindowAlreadyRefused(
+            refs.priorDiagnostics,
+            out,
+            captureAbsorptionWindow(s.range, s.init),
+          )
+        ) {
+          const letUnresolved = collectUnresolvedNamedTypes(
+            s.annotation,
+            withBuiltinErrorModelNames(refs.typeNames),
+          );
+          for (const name of letUnresolved) {
+            out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+          }
+        }
       }
       if (s.init !== null) {
         walkExpr(s.init, scope, refs, file, out);
@@ -7940,7 +8166,7 @@ function walkStatement(
         out,
         checkFnPlacement({ nested: !scope.topLevel }, { file, range: s.range }),
       );
-      for (const p of s.params) {
+      for (const [paramIndex, p] of s.params.entries()) {
         if (p.type.length > 0) {
           const paramDiagStart = out.length;
           out.push(
@@ -7953,6 +8179,32 @@ function walkStatement(
             annotationSourceIsNotTypeExpression(p.type)
           ) {
             out.push(annotationTypeNotExpressionDiagnostic(p.name, s.range, file));
+          }
+          // bug 0262 §Fix: reference r2, reaching r7 and r9's interiors (a
+          // union arm, an inline object field) through the same walk. A
+          // parameter IS a propagating capture: QRY-2's call-argument sink
+          // carries a local `fn`'s parameter annotation onto a schema-less
+          // query written as that argument, and clause (iv)(2) states its rule
+          // as a property of propagated TEXT, so the withhold reaches here as
+          // it reaches the other two propagating captures. Guard-1 and clause
+          // (iv)(3) withhold as elsewhere — the latter over the DECLARATION
+          // HEADER, the window a parameter type is absorbed from.
+          if (
+            !propagatedToQuery(refs, {
+              kind: "fn-param",
+              range: s.range,
+              paramIndex,
+            }) &&
+            !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
+            !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s))
+          ) {
+            const paramUnresolved = collectUnresolvedNamedTypes(
+              p.type,
+              withBuiltinErrorModelNames(refs.typeNames),
+            );
+            for (const name of paramUnresolved) {
+              out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+            }
           }
         }
       }
@@ -7970,6 +8222,28 @@ function walkStatement(
           annotationSourceIsNotTypeExpression(s.returnType)
         ) {
           out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
+        }
+        // bug 0262 §Fix: reference r3, reaching r8's interior (a `Result`
+        // argument) through the same walk. Clause (iv)(2)'s `fn`-return ->
+        // query half withholds when this SAME declared return type has
+        // already propagated onto ANY query at a return position of the body —
+        // the tail or a `return` operand (`walkExpr`'s `"query"` arm is that
+        // text's sole emitter there); guard-1 and clause (iv)(3) withhold as
+        // at the other three captures, the latter over the DECLARATION HEADER
+        // rather than the whole statement, so a fault in the body interior is
+        // not read as debris absorbed by a header capture.
+        if (
+          !propagatedToQuery(refs, { kind: "fn-return", range: s.range }) &&
+          !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
+          !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s))
+        ) {
+          const returnUnresolved = collectUnresolvedNamedTypes(
+            s.returnType,
+            withBuiltinErrorModelNames(refs.typeNames),
+          );
+          for (const name of returnUnresolved) {
+            out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+          }
         }
       }
       walkBlock(
@@ -8210,7 +8484,7 @@ function checkObjectExpr(
 /**
  * The declared field-name set a `match` object-pattern head resolves to, for
  * `checkPatternObjectFields`'s field-name check (bug 0226 §Fix). Mirrors
- * `checkObjectExpr`'s constructor-position classification (`:7505–:7520`)
+ * `checkObjectExpr`'s constructor-position classification (`:8342–:8375`)
  * over the SAME three sources — `StructuralRefs.schemas` first, then the
  * whole-file `bodyTypes` universe — but with one deliberate divergence at the
  * alias/union branch: the constructor position refuses an alias/union name
@@ -8357,12 +8631,18 @@ function walkExpr(
       // argument walk's, matching every other wired position's source-order
       // emission. `"value"`: `TypePosition`'s own doc comment (type-grammar.ts)
       // classifies `invoke<T>` there, as it does `@<T>`. `"inline-object-shape"`:
-      // this position runs no other type-grammar pass and no name-resolution
-      // pass today, so selecting the full walk would newly fire
-      // `generic-arity-mismatch`, `void-in-non-return-position` and
-      // `result-in-schema-position` here — a different subject than the rules
-      // this call wires (bug 0045 §Fix; §Non-goals).
+      // this position runs no other position-rule pass, so selecting the full
+      // walk would newly fire `generic-arity-mismatch`, `void-in-non-return-
+      // position` and `result-in-schema-position` here — a different subject
+      // than the rules this call wires (bug 0045 §Fix; §Non-goals). It DOES run
+      // a name-resolution pass (bug 0262 §Fix, reference r5, reaching no
+      // interior of its own since `invoke<T>` admits no generic/union/inline-
+      // object shape at this position): withheld under the landed guard-1
+      // shape when the position-rule pass above already drew an error, and
+      // under clause (iv)(3) when the capture's own source window is already
+      // covered by an error-severity diagnostic naming the real fault.
       if (e.returnSchema !== null && e.returnSchema.trim().length > 0) {
+        const invokeDiagStart = out.length;
         out.push(
           ...parseTypeExpression(
             e.returnSchema,
@@ -8371,6 +8651,22 @@ function walkExpr(
             "inline-object-shape",
           ),
         );
+        if (
+          !out.slice(invokeDiagStart).some((d) => d.severity === "error") &&
+          !captureWindowAlreadyRefused(
+            refs.priorDiagnostics,
+            out,
+            captureAbsorptionWindow(e.range, e.args[0]),
+          )
+        ) {
+          const invokeUnresolved = collectUnresolvedNamedTypes(
+            e.returnSchema,
+            withBuiltinErrorModelNames(refs.typeNames),
+          );
+          for (const name of invokeUnresolved) {
+            out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
+          }
+        }
       }
       for (const arg of e.args) {
         walkExpr(arg, scope, refs, file, out);

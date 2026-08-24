@@ -185,6 +185,7 @@ const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 const NON_ARRAY_ITERAND = "theta/parse/non-array-iterand";
 const ARRAY_NO_COMMON = "theta/parse/array-no-common-type";
 const ARRAY_ELEMENT = "theta/parse/array-element-type-mismatch";
+const UNRESOLVED_NAME = "theta/parse/unresolved-named-type";
 
 /** The row this report owns: `let binding '<name>' … expected <expected>, got <actual>`. */
 function mismatch(name: string, expected: string, actual: string): string {
@@ -500,16 +501,33 @@ describe("bug 0130 (c) — named / inline / alias spellings of one type", () => 
     ).toEqual([mismatch("x", "X", "integer")]);
   });
 
-  it("c5 CONTROL: `let x: Nope = 1` stays silent — type-system.md:48's real subject", () => {
-    // The carve-out this defect mis-applies: `Nope` is a name whose declaration
-    // may sit outside the parser's view, so the parse-time check is skipped and
-    // the runtime AJV check is the net. A written `{a: integer}` is NOT this
-    // input class, and this cell fences the difference in both directions.
+  it("c5 CONTROL: `let x: Nope = 1` is REFUSED at the annotation — the widened `NamedType` position set", () => {
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262, clause (i),
+    // which names this cell ("0130's let-silence row") in the FLIP class.
+    //
+    // OLD expectation: `[]`. The written head `Nope` was read as an instance of
+    // type-system.md's *Unresolvable operands* carve-out, so the `let`-RHS
+    // compatibility check deferred and nothing else at the position spoke.
+    //
+    // WHY IT NO LONGER HOLDS: the ruling generalizes the distinction bug 0127
+    // drew. A WRITTEN `NamedType` head that resolves to no visible declaration
+    // is a provable author error and is judged at the position it is written,
+    // so the annotation is refused UPSTREAM, at the `let` capture itself, and
+    // the compatibility question never arises. The deferring disposition
+    // survives untouched for a type the source WITHHOLDS or that sits past the
+    // parser's static view — which is what the carve-out was always about.
+    //
+    // BUG 0130'S OWN SUBJECT IS UNCHANGED: `let-rhs-type-mismatch` declining an
+    // object / union spelling is cells c1–c4 and groups (d)/(e) above and
+    // below, none of which moves. This cell fenced the difference between a
+    // WRITTEN `{a: integer}` and an unresolvable NAME; the fence still stands,
+    // with the name's side now carrying a refusal of its own instead of
+    // silence.
     expect(
       stmtDiags("let x: Nope = 1"),
-      "c5 — an unresolvable NAME must keep deferring; a route that refuses here has widened " +
-        "the *Unresolvable operands* carve-out instead of narrowing it",
-    ).toEqual([]);
+      "c5 — a written, unresolvable `NamedType` head is refused at the position it is written; a route " +
+        "that stays silent here has left the `let` annotation outside the widened position set",
+    ).toEqual([line("error", UNRESOLVED_NAME, [["<name>", "Nope"]])]);
   });
 });
 

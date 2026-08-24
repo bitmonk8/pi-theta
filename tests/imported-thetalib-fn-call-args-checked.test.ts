@@ -857,16 +857,27 @@ describe("bug 0138 (d) — the expected side comes from the declaring library", 
   it("d2-lib-undeclared-named-withholds: a `named` parameter type undeclared IN THE LIBRARY withholds", async () => {
     // Bug 0138 row a7's constraint, moved across the boundary. The signature is
     // in hand and the argument is provably an integer, but the library declares
-    // no `Author`, so `checkCompatible` answers `"unknown"` and
+    // no `QueryError` SCHEMA, so `checkCompatible` answers `"unknown"` and
     // `checkFnArgCompat` defers (type-system.md §"Type compatibility",
     // *Unresolvable operands*). No route may make an unresolvable annotation
     // emit; an honestly-empty environment is bug 0072's requirement, not a
     // fallback to the importer's.
+    //
+    // VEHICLE NOTE (bug 0262 coordination): the parameter type is `QueryError`,
+    // not the earlier `Author`. Bug 0262 widens `unresolved-named-type` to the
+    // `fn` parameter capture, and that capture runs over the LIBRARY's own
+    // parse too — an `Author` undeclared IN THE LIBRARY would now draw that
+    // refusal on the library file itself, which is a different hazard than the
+    // one this row measures. `QueryError` is the builtin error-model name bug
+    // 0262 §Fix admits at that capture (so the library's own parse draws no
+    // refusal) while staying absent from the library's `collectTypeEnv` (so the
+    // parameter type is still unresolvable for `checkCompatible`) — subject
+    // preserved, per the 0165/0251 re-vehicle precedent.
     const doc = parseApp(
       [`import { f } from "./b0138lib-undeclared.thetalib"`, "let r = f(3)", "r", ""].join("\n"),
     );
     const result = await compose(doc, {
-      "/proj/b0138lib-undeclared.thetalib": "fn f(a: Author): integer { 1 }\n",
+      "/proj/b0138lib-undeclared.thetalib": "fn f(a: QueryError): integer { 1 }\n",
     });
     expectMaterialised(result, "fn f", "d2");
     expectRouteSilent(

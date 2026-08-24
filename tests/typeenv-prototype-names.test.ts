@@ -51,28 +51,39 @@ import { parseDoc } from "./helpers/e2e-s1";
 // THE CONTRACT UNDER TEST (the bug's §Fix, SETTLED — not one step wider).
 // §Fix null-prototypes the record at :282 AND own-key-guards the eight reads
 // behind one exported `resolveNamed(env, name)` in type-compat.ts, so a
-// prototype member name answers `undefined` → "unknown" → deferred, exactly as
-// any other undeclared name does. Post-fix static observables at the
-// `parseThetaDocument` boundary, every one DERIVED by measurement rather than
-// predicted (see HOW THE POST-FIX ROWS WERE DERIVED below):
+// prototype member name answers `undefined` → "unknown", exactly as any other
+// undeclared name does. What THAT "unknown" answer then draws is a question
+// bug 0262 answers, not bug 0038: 0262 widens `unresolved-named-type` to the
+// `let` annotation capture and the `fn` parameter/return captures, so a
+// position that used to defer on an unresolvable head now refuses it there
+// instead — a prototype-hygiene cell is STRENGTHENED, not obstructed, by that
+// widening (0262 §Fix clause (i)), because the question this file asks —
+// can an author-supplied key reach a prototype slot? — is answered "no" more
+// sharply once the position also refuses the very load. Post-fix static
+// observables at the `parseThetaDocument` boundary, every one DERIVED by
+// measurement rather than predicted (see HOW THE POST-FIX ROWS WERE DERIVED
+// below; the widened rows re-measured under bug 0262's own HEAD):
 //
-//   w1–w6  silent loads, matching controls c1/c2/c3 byte-for-byte
+//   w1–w6  `theta/parse/unresolved-named-type` ALONE, matching controls c1/c2/c3
 //   w7/w8  `theta/parse/unresolved-named-type` ALONE, matching c4/c5
 //   t1     `theta/parse/unknown-identifier: unknown identifier 'constructor'`
 //   t2     `unknown-identifier: unknown identifier 'toString'`
 //   t3     `unknown-identifier: unknown identifier 'constructor'`
 //   t4     `unknown-identifier: unknown identifier 'valueOf'`
-//   t5/t6  silent
+//   t5/t6  `unresolved-named-type` ALONE, matching control c9
 //   t7     `unresolved-named-type: unresolved named type 'constructor'`
-//   t8/t9  silent
+//   t8/t9  silent (no annotation capture is in play at either position)
 //   t10    `theta/parse/unknown-method: unknown method 'toString' on type string`
 //   t11    `unresolved-named-type: unresolved named type 'constructor'`
 //   L1     both clean thetas register; the crashing file drops on its own
 //          merits with its own author-visible notification — L2's shape
-//   c1–c11 byte-unchanged
+//   c1–c11 track w1–w9's widened disposition where the matched w-row does
+//          (c1–c3, c9); the rest are byte-unchanged
 //   engine `checkCompatible` → "unknown", `checkLetRhsCompat` → no diagnostic,
 //          `classifyIndexReceiver` → "unknown", on a plain `{}` env AND on an
-//          `Object.create(null)` env alike
+//          `Object.create(null)` env alike (the engine-level entry points group
+//          (f) pins are below `unresolved-named-type`'s own capture and are
+//          untouched by the widening)
 //
 // WHERE THE BUG DOC IS WRONG. §Fix's *Post-fix observables* bullet predicts
 // "t8–t11 silent as their `zzz`-named counterparts are". Measured, t8 and t9
@@ -373,55 +384,76 @@ const T11Z = "let v = Zzz { a: 1 }\nlet r = 1 + v\nr\n";
 // ===========================================================================
 
 describe("bug 0038 (a) — an annotation naming an `Object.prototype` member is statically unresolvable and defers", () => {
-  it("RED w1: `let c: constructor = 3` loads silently", () => {
+  it("w1: `let c: constructor = 3` refuses `constructor` as an unresolved named type", () => {
     // The headline row. `constructor` names no declaration in this document —
-    // `theta/parse/unresolved-named-type` says exactly that for the same name in
-    // w7 and w8 — so type-system.md:48 requires the check be skipped, and
-    // `let-rhs-type-mismatch`'s registered Trigger (code-registry-parse.md:54)
-    // admits only a statically resolvable RHS. At this HEAD `env["constructor"]`
-    // answers `Object.prototype.constructor`, `decide`'s `env[name] ===
-    // undefined` test passes it as present, and the row fires against a type no
-    // declaration declares. The matched control is c1/c2.
-    expectSilent(
+    // `theta/parse/unresolved-named-type` already said exactly that for the same
+    // name at w7 and w8 (the wired captures). Bug 0262 widens the SAME check to
+    // the `let` annotation capture, so this position now refuses a written head
+    // that resolves to nothing rather than deferring to the type layer, which is
+    // what let the prototype value stand in for a declaration in the first
+    // place (bug 0038). The strengthened disposition matches control c1/c2,
+    // which draws the identical code for the equally undeclared `Missing`/`nope`.
+    expectDiagnostics(
       W1,
-      `w1 — the emitted ${LET_RHS_CODE} names \`constructor\` as an expected type; the author cannot act on it because no \`constructor\` type exists to satisfy`,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("constructor"))],
+      `w1 — bug 0262 widens \`unresolved-named-type\` to the \`let\` annotation capture, so \`constructor\` is refused there exactly as \`Missing\` is at control c1`,
     );
   });
 
-  it("RED w2: `let c: toString = 3` loads silently", () => {
+  it("w2: `let c: toString = 3` refuses `toString` as an unresolved named type", () => {
     // The same mechanism under a second prototype name, pinned separately so a
     // partial guard that special-cases one name cannot pass.
-    expectSilent(W2, "w2 — `toString` is as undeclared as `Missing` (control c1)");
+    expectDiagnostics(
+      W2,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("toString"))],
+      "w2 — `toString` is as undeclared as `Missing` (control c1) and the widened capture refuses it the same way",
+    );
   });
 
-  it("RED w3: `let c: __proto__ = 3` loads silently", () => {
+  it("w3: `let c: __proto__ = 3` refuses `__proto__` as an unresolved named type", () => {
     // `__proto__` is the accessor whose WRITE side would replace the record's
     // prototype. The write is unreachable through the grammar
     // (`theta/parse/schema-case-mismatch` refuses a lowercase-headed declaration
-    // name), but the READ is not shielded, which is where this symptom lives.
-    expectSilent(W3, "w3 — the `__proto__` read is unshielded even though the write is unreachable");
+    // name), and the READ, once the `let` capture is widened (bug 0262), is now
+    // refused rather than left to resolve through the prototype chain.
+    expectDiagnostics(
+      W3,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("__proto__"))],
+      "w3 — the widened `let` capture refuses the unshielded `__proto__` read directly, ahead of any type-layer resolution",
+    );
   });
 
-  it("RED w4: `let c: constructor = \"s\"` loads silently", () => {
-    // Same annotation, different RHS type: the mismatch text tracks the RHS
-    // (`got string`), confirming the wrong answer comes from the annotation side
-    // resolving, not from the RHS.
-    expectSilent(W4, "w4 — the RHS type varies and the spurious mismatch follows it");
+  it("w4: `let c: constructor = \"s\"` refuses `constructor` regardless of the RHS type", () => {
+    // Same annotation, different RHS type: the refusal fires off the annotation
+    // text alone, ahead of any RHS-compatibility check, confirming the widened
+    // capture judges the annotation independently of what it is compared to.
+    expectDiagnostics(
+      W4,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("constructor"))],
+      "w4 — the RHS type varies and the refusal does not: it is drawn from the annotation alone",
+    );
   });
 
-  it("RED w5: `let mut c: constructor = 3` loads silently", () => {
-    // Mutability is orthogonal: the same sink, the same engine call.
-    expectSilent(W5, "w5 — `let mut` reaches the identical `checkLetRhsCompat` sink");
+  it("w5: `let mut c: constructor = 3` refuses `constructor` under `let mut`", () => {
+    // Mutability is orthogonal: the same widened capture, the same refusal.
+    expectDiagnostics(
+      W5,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("constructor"))],
+      "w5 — `let mut` reaches the identical widened `let` capture",
+    );
   });
 
-  it("RED w6: `let xs: array<constructor> = [\"a\"]` loads silently", () => {
+  it("w6: `let xs: array<constructor> = [\"a\"]` refuses `constructor` ALONE", () => {
     // The element-sink route. `array<constructor>` decomposes to a `named`
-    // element type, so BOTH the annotation sink and the element sink resolve
-    // `constructor` through the same prototype-bearing map and BOTH report. The
-    // matched control is c3, which is silent on both.
-    expectSilent(
+    // element type inside the SAME annotation capture bug 0262 widens, so the
+    // capture's own guard (a capture whose own type walk already drew an
+    // error-severity diagnostic keeps that diagnostic alone) fires exactly one
+    // `unresolved-named-type`, not a second `array-element-type-mismatch`. The
+    // matched control is c3, which draws the same single code for `Missing`.
+    expectDiagnostics(
       W6,
-      `w6 — at this HEAD the unresolvable element type produces ${LET_RHS_CODE} AND ${ARRAY_ELEMENT_CODE}; control c3 (\`array<Missing>\`) produces neither`,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("constructor"))],
+      `w6 — the widened \`let\` capture's own guard keeps the single ${UNRESOLVED_NAMED_CODE} and suppresses a second ${ARRAY_ELEMENT_CODE}; control c3 (\`array<Missing>\`) draws the identical single code`,
     );
   });
 
@@ -478,16 +510,19 @@ describe("bug 0038 (b) — the w1 shape over every `Object.prototype` own proper
   });
 
   it.each(PROTOTYPE_NAMES)(
-    "RED w1/%s: the `let c: <name> = 3` shape loads silently",
+    "w1/%s: the `let c: <name> = 3` shape refuses `<name>` as an unresolved named type",
     (name: string) => {
-      // One row per own name of `Object.prototype`. Each reports the w1 message
-      // with its own name interpolated at this HEAD, because the defect is the
-      // prototype chain itself and not any property of a particular name. The
-      // doc measured ten of the twelve individually and claimed the remaining
-      // two by mechanism; enumerating measures all of them.
-      expectSilent(
+      // One row per own name of `Object.prototype`. Each draws
+      // `unresolved-named-type` with its own name interpolated, because bug
+      // 0262 widens that check to the `let` annotation capture uniformly — the
+      // capture no longer cares whether the undeclared head happens to also be
+      // a JS prototype member. The doc measured ten of the twelve individually
+      // and claimed the remaining two by mechanism; enumerating measures all of
+      // them under the widened capture.
+      expectDiagnostics(
         `let c: ${name} = 3\nc\n`,
-        `w1/${name} — \`${name}\` names no declaration in this document, so type-system.md:48 requires the check be skipped; ${LET_RHS_CODE}'s Trigger (code-registry-parse.md:54) admits only a statically resolvable RHS`,
+        [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage(name))],
+        `w1/${name} — \`${name}\` names no declaration in this document, so the widened \`let\` capture (bug 0262) refuses it with ${UNRESOLVED_NAMED_CODE}`,
       );
     },
   );
@@ -546,22 +581,27 @@ describe("bug 0038 (c) — the parse reports; it does not throw", () => {
     );
   });
 
-  it("RED t5: `fn f(x: constructor): number { x + 1 }` loads silently", () => {
-    // A parameter's binding type is a `named` from the annotation, so an
-    // ANNOTATED parameter carries the prototype name into the body's operator
-    // check. The matched control `fn f(x: Missing): number { x + 1 }` (c9) is
-    // silent, and so is this row post-fix: `theta/parse/fn-arg-type-mismatch` is
-    // unreachable at this HEAD (§Non-goals), which is why no argument
-    // diagnostic appears on either side.
-    expectSilent(T5, "t5 — control c9 is the identical shape over `Missing` and is silent");
+  it("t5: `fn f(x: constructor): number { x + 1 }` refuses `constructor` at the `fn` parameter capture", () => {
+    // Bug 0262 widens `unresolved-named-type` to the `fn` parameter capture, so
+    // an unresolvable parameter annotation is refused at its own position
+    // instead of being carried into the body as a `named` type. The matched
+    // control `fn f(x: Missing): number { x + 1 }` (c9) draws the identical
+    // single code for the equally undeclared `Missing`.
+    expectDiagnostics(
+      T5,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("constructor"))],
+      "t5 — the widened `fn` parameter capture (bug 0262) refuses `constructor` exactly as it refuses `Missing` at control c9",
+    );
   });
 
-  it("RED t6: `fn f(x: __proto__): number { let m = x.nope … }` loads silently", () => {
-    // t5's shape through `classifyReceiver` instead of `classifyOperand`: a
-    // member read on an annotated parameter.
-    expectSilent(
+  it("t6: `fn f(x: __proto__): number { let m = x.nope … }` refuses `__proto__` at the `fn` parameter capture", () => {
+    // t5's shape, and the same widened capture: the member read inside the body
+    // never runs, because the parameter annotation is refused before the body
+    // is walked.
+    expectDiagnostics(
       T6,
-      "t6 — a member read on a prototype-named parameter reaches the receiver classifier",
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("__proto__"))],
+      "t6 — the widened `fn` parameter capture refuses `__proto__` ahead of the body's member read",
     );
   });
 
@@ -756,19 +796,32 @@ describe("bug 0038 (d) — one two-line body must not take down every theta in t
 // that proves an OWN key still resolves.
 // ===========================================================================
 
-describe("bug 0038 (e) — controls: an equally undeclared non-prototype name is byte-unchanged", () => {
-  it("c1/c2: `let u: Missing = 3` and `let u: nope = 3` load silently", () => {
+describe("bug 0038 (e) — controls: an equally undeclared non-prototype name tracks the same disposition as its matched w-row", () => {
+  it("c1/c2: `let u: Missing = 3` and `let u: nope = 3` refuse the undeclared head", () => {
     // The disposition w1–w5 must reach. Both an uppercase and a lowercase
-    // undeclared name are silent, so the annotation position applies no case
-    // rule (§Non-goals) and the only difference from w1 is the prototype chain.
-    expectSilent(C1, "c1 — `Missing` is undeclared and the check defers");
-    expectSilent(C2, "c2 — `nope` is undeclared and lowercase, and the check still defers");
+    // undeclared name are refused with the same code, so the widened `let`
+    // capture (bug 0262) applies no case rule (§Non-goals) and case-independence
+    // holds for the refusal itself, not only for the prior deferral.
+    expectDiagnostics(
+      C1,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("Missing"))],
+      "c1 — `Missing` is undeclared and the widened `let` capture refuses it",
+    );
+    expectDiagnostics(
+      C2,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("nope"))],
+      "c2 — `nope` is undeclared and lowercase, and the widened capture refuses it identically to `Missing`",
+    );
   });
 
-  it("c3: `let xs: array<Missing> = [\"a\"]` loads silently", () => {
-    // The disposition w6 must reach, on both the annotation sink and the
-    // element sink.
-    expectSilent(C3, "c3 — an unresolvable element type defers at both sinks");
+  it("c3: `let xs: array<Missing> = [\"a\"]` refuses `Missing` ALONE", () => {
+    // The disposition w6 must reach: one refusal from the widened `let`
+    // capture's own guard, on both the annotation sink and the element sink.
+    expectDiagnostics(
+      C3,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("Missing"))],
+      "c3 — the widened `let` capture refuses the unresolvable element type once, at both sinks",
+    );
   });
 
   it("c4: `schema S { f: Missing }` reports unresolved-named-type ALONE", () => {
@@ -809,9 +862,13 @@ describe("bug 0038 (e) — controls: an equally undeclared non-prototype name is
     );
   });
 
-  it("c9: `fn f(x: Missing): number { x + 1 }` loads silently", () => {
+  it("c9: `fn f(x: Missing): number { x + 1 }` refuses `Missing` at the `fn` parameter capture", () => {
     // The disposition t5 must reach.
-    expectSilent(C9, "c9 — an unresolvable parameter annotation defers in the body");
+    expectDiagnostics(
+      C9,
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("Missing"))],
+      "c9 — the widened `fn` parameter capture (bug 0262) refuses the unresolvable annotation before the body is walked",
+    );
   });
 
   it("c10: `let r = constructor` (bare, no operator) reports unknown-identifier and loads", () => {
@@ -1140,7 +1197,9 @@ describe("bug 0038 (g) — the construction site: `collectTypeEnv` returns a rec
 // OWN property names — `kind` and `fields` — resolve as declared types at every
 // read site, and the declaration the author wrote is lost. r6 is the control
 // that isolates the mechanism: `kind` against an ordinary declaration set is
-// unresolvable, and the identical body loads clean.
+// unresolvable, and bug 0262 widens the `let` annotation capture to refuse an
+// unresolvable head there directly, so the identical body now draws that
+// refusal alone rather than loading clean.
 //
 // THE MEASURED BOUND IS THE LOAD GATE, NOT THE GRAMMAR. The bug doc's
 // §Affected calls this hazard "unreachable through the grammar"; the grammar
@@ -1173,15 +1232,20 @@ const R5 = "schema __proto__ { a: number }\nlet c: fields = 3\n";
 const R6 = "schema Good { a: number }\nlet c: kind = 3\n";
 
 describe("bug 0038 (h) — the `__proto__` write reaches `collectTypeEnv` from author source text", () => {
-  it("RED r3: `schema __proto__` + `let c: kind = 3` reports the case rule ALONE", () => {
-    // The headline reachable row. `kind` is the swallowed `NamedDecl`'s own
-    // discriminant property, so a replaced prototype makes it resolve and the
-    // `let` sink reports a mismatch against a type no statement declares. The
-    // case rule is the only diagnostic the source text earns.
+  it("r3: `schema __proto__` + `let c: kind = 3` reports the case rule AND the widened refusal", () => {
+    // The headline reachable row. `kind` is undeclared under an ordinary
+    // declaration set (control r6), and the widened `let` capture (bug 0262)
+    // refuses it regardless of the `__proto__` write's own effect on `kind`'s
+    // resolvability — the case rule and the refusal are two independent
+    // diagnostics over the same statement, case rule first (a lexer-level
+    // contextual diagnostic) then the widened parse-level refusal.
     expectDiagnostics(
       R3,
-      [line("error", SCHEMA_CASE_CODE, schemaCaseMessage())],
-      `r3 — the extra ${LET_RHS_CODE} names \`kind\` as an expected type; control r6 proves \`kind\` is unresolvable against an ordinary declaration set, so the mismatch is contributed by the swallowed \`__proto__\` write alone`,
+      [
+        line("error", SCHEMA_CASE_CODE, schemaCaseMessage()),
+        line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("kind")),
+      ],
+      `r3 — control r6 proves \`kind\` is unresolvable against an ordinary declaration set; the widened \`let\` capture (bug 0262) refuses it here too, alongside the unrelated ${SCHEMA_CASE_CODE}`,
     );
   });
 
@@ -1205,24 +1269,28 @@ describe("bug 0038 (h) — the `__proto__` write reaches `collectTypeEnv` from a
     );
   });
 
-  it("RED r5: `schema __proto__` + `let c: fields = 3` reports the case rule ALONE", () => {
+  it("r5: `schema __proto__` + `let c: fields = 3` reports the case rule AND the widened refusal", () => {
     // The second own property name of the swallowed declaration, pinned
     // separately so a partial guard covering one name cannot pass the group.
     expectDiagnostics(
       R5,
-      [line("error", SCHEMA_CASE_CODE, schemaCaseMessage())],
-      `r5 — \`fields\` is the object form's other own property; a second ${LET_RHS_CODE} here is the same prototype replacement under a second name`,
+      [
+        line("error", SCHEMA_CASE_CODE, schemaCaseMessage()),
+        line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("fields")),
+      ],
+      `r5 — \`fields\` is the object form's other own property; the widened \`let\` capture (bug 0262) refuses it here as it refuses \`kind\` at r3`,
     );
   });
 
-  it("CONTROL r6: `schema Good` + `let c: kind = 3` loads clean on either construction", () => {
-    // GREEN at this HEAD and after. Without it r3's expectation rests on prose:
-    // r6 is the measurement that `kind` names no declaration once the
-    // declaration set is ordinary, so every diagnostic r3 sheds is attributable
-    // to the `__proto__` write and to nothing about the name `kind` itself.
-    expectSilent(
+  it("r6: `schema Good` + `let c: kind = 3` refuses `kind` on either construction", () => {
+    // `kind` names no declaration once the declaration set is ordinary, so
+    // r3/r5's extra refusal is attributable to the widened capture treating
+    // `kind` as any other undeclared head, and to nothing about the
+    // `__proto__` write itself.
+    expectDiagnostics(
       R6,
-      "r6 CONTROL BROKEN — `kind` must be unresolvable against a PascalCase declaration set; a diagnostic here means the row isolates nothing",
+      [line("error", UNRESOLVED_NAMED_CODE, unresolvedNamedMessage("kind"))],
+      "r6 — `kind` is unresolvable against a PascalCase declaration set, and the widened `let` capture (bug 0262) refuses it the same way it refuses `kind` at r3",
     );
   });
 });

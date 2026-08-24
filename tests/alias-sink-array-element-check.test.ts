@@ -461,8 +461,17 @@ describe("0157 (c) — the concrete-spelling controls", () => {
   it("w2 / w4 / z2: the concrete twins of the silent bounds are silent", () => {
     expect(codesOf(["let xs: array<number> = [1, 2.5]"])).toEqual([]);
     expect(codesOf(['let xs: array<string> = ["a", "b"]'])).toEqual([]);
+    // VEHICLE NOTE (bug 0262 coordination): `p`'s parameter type is
+    // `QueryError`, not the earlier `Nope`. Bug 0262 widens
+    // `unresolved-named-type` to the `fn` parameter capture, so a genuinely
+    // undeclared head there would now draw a second code this row does not
+    // want. `QueryError` is the builtin error-model name bug 0262 §Fix admits
+    // at that capture (so it draws no refusal) while staying absent from
+    // `collectTypeEnv` (so `p` is still statically unresolvable at the sunk
+    // element check) — subject preserved, per the 0165/0251 re-vehicle
+    // precedent.
     expect(
-      codesOf(["fn f(p: Nope) {", '  let xs: array<string> = ["a", p]', "  xs", "}", "1"]),
+      codesOf(["fn f(p: QueryError) {", '  let xs: array<string> = ["a", p]', "  xs", "}", "1"]),
     ).toEqual([]);
   });
 
@@ -535,8 +544,12 @@ describe("0157 (d) — the bounds the unfolding must not move", () => {
     // type-system.md:48 — an unresolvable operand is skipped and the runtime
     // AJV check is the safety net. The sunk arm must skip the `unknown` branch,
     // which is what keeps this cell silent once the sink is supplied.
+    //
+    // VEHICLE NOTE (bug 0262 coordination): `p`'s parameter type is
+    // `QueryError`, re-vehicled off `Nope` for the same reason as w2/w4/z2
+    // above — subject preserved, per the 0165/0251 re-vehicle precedent.
     expect(
-      codesOf(["schema U = array<string>", "fn f(p: Nope) {", '  let xs: U = ["a", p]', "  xs", "}", "1"]),
+      codesOf(["schema U = array<string>", "fn f(p: QueryError) {", '  let xs: U = ["a", p]', "  xs", "}", "1"]),
     ).toEqual([]);
   });
 
@@ -617,8 +630,19 @@ describe("0157 (e) — TYPE-10: an alias that unfolds to a non-array keeps its d
     ).toEqual([]);
   });
 
-  it("an unresolvable annotation over an array literal keeps deferring", () => {
-    expect(codesOf(['let y: Ghost = ["a", 1]'])).toEqual([]);
+  it("an annotation past the parser's static view over an array literal keeps deferring", () => {
+    // VEHICLE NOTE (bug 0262 coordination): the annotation is `QueryError`, not
+    // the earlier `Ghost`. Bug 0262 widens `unresolved-named-type` to the
+    // `let` annotation capture itself, so a genuinely undeclared head here
+    // would now be REFUSED at its own position rather than deferred, which is
+    // a different cell than this TYPE-10 bound measures. `QueryError` is the
+    // builtin error-model name bug 0262 §Fix admits at that capture (so it
+    // draws no refusal) while staying absent from `collectTypeEnv` (so the
+    // annotation is still statically unresolvable for the array dispatch) —
+    // subject preserved, per the 0165/0251 re-vehicle precedent. The sibling
+    // row below keeps `Ghost` unchanged: it is not this bug's vehicle (`Ghost`
+    // there names an ALIAS right-hand side, a capture bug 0262 does not touch).
+    expect(codesOf(['let y: QueryError = ["a", 1]'])).toEqual([]);
   });
 
   it("an alias of an unresolvable name draws the alias's own refusal and nothing element-shaped", () => {

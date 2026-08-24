@@ -1068,33 +1068,45 @@ describe("bug 0045 (h) — a refused document reaches no lowering", () => {
 // inherit the walk's other three checks, because none runs at this position
 // today and wiring the full walk would move `generic-arity-mismatch`,
 // `void-in-non-return-position` and `result-in-schema-position` at once — a
-// different subject (§Non-goals, unfiled).
+// different subject (§Non-goals, unfiled at bug 0045's own HEAD; filed and
+// landed as bug 0262, which widens `unresolved-named-type` to this exact
+// capture — i1's `Ghost` row now asserts that refusal instead of silence).
 // GREEN now and after: i1. RED: i2's empty spellings.
 // ===========================================================================
 
 describe("bug 0045 (i) — the new `invoke<T>` call site adds one rule and no others", () => {
-  it("CONTROL i1: the three walk-owned checks and the name walk stay silent at `invoke<T>`", () => {
-    // The same four spellings the bug doc's §Reproduction records as silent
-    // here, asserted as one table so a fix that wired the FULL walk reds by
-    // showing exactly which rows it imported.
+  it("i1: the three walk-owned checks stay silent at `invoke<T>`; the name walk now refuses `Ghost` (bug 0262)", () => {
+    // The same four NON-NAME spellings the bug doc's §Reproduction records as
+    // silent here, asserted as one table so a fix that wired the FULL walk
+    // reds by showing exactly which rows it imported: `void-in-non-return-
+    // position`, `generic-arity-mismatch` and `result-in-schema-position` stay
+    // outside §Non-goals' unfiled subject.
+    //
+    // `Ghost` is no longer a CONTROL for `unresolved-named-type`. Bug 0045
+    // §Non-goals filed the absent NAME-RESOLUTION pass at `invoke<T>` as a
+    // separate, unfiled subject; bug 0262 IS that filing, and its §Fix widens
+    // `unresolved-named-type` to exactly this capture. `Ghost` names no
+    // declaration, so the row is STRENGTHENED rather than obstructed: the
+    // question this cell asks — does an unresolvable `invoke<T>` ascription
+    // draw a diagnostic? — now answers "yes", which is the widening's whole
+    // point, not a regression in this row's subject.
     const actual: Record<string, string[]> = {};
-    const expected: Record<string, string[]> = {};
-    for (const type of [
-      "void",
-      "array<string, integer>",
-      "Result<string,string>",
-      "Ghost",
-      "{ a: void }",
-    ]) {
+    const expected: Record<string, string[]> = {
+      void: [],
+      "array<string, integer>": [],
+      "Result<string,string>": [],
+      Ghost: [line("theta/parse/unresolved-named-type", msg("theta/parse/unresolved-named-type", [["<name>", "Ghost"]]))],
+      "{ a: void }": [],
+    };
+    for (const type of Object.keys(expected)) {
       actual[type] = lines(invokeSrc(type));
-      expected[type] = [];
     }
     expect(
       actual,
-      "i1 — §Non-goals: the absent type-grammar pass at `invoke<T>` is a separate, unfiled " +
+      "i1 — §Non-goals: the absent type-grammar pass at `invoke<T>` stays a separate, unfiled " +
         "subject; this fix must not make `void-in-non-return-position`, " +
-        "`generic-arity-mismatch`, `result-in-schema-position` or `unresolved-named-type` " +
-        "newly fire here",
+        "`generic-arity-mismatch` or `result-in-schema-position` newly fire here, and bug 0262 " +
+        "is what makes `unresolved-named-type` fire on `Ghost` alone",
     ).toEqual(expected);
   });
 

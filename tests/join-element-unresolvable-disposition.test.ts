@@ -310,11 +310,27 @@ const ROWS: readonly Row[] = [
   // --- THE ELEMENT JUDGES (SENTENCE 1) -------------------------------------
   {
     id: "E1",
-    label: "an undeclared element type name is refused",
+    label: "an undeclared element type name is refused, now ALSO refused upstream at the parameter",
     src: JOIN("array<Nope>"),
-    codes: [JOIN_CODE],
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262 clause (i).
+    // OLD codes: [JOIN_CODE] alone — bug 0089's row b12 (tests/fn-param-alias-
+    // unfolded-at-gates.test.ts), restated here as clause-admitted rather than
+    // incidental: SENTENCE 1's `a `named` that no visible declaration defines`
+    // is exactly this shape, and until 0262 the `fn` parameter position ran no
+    // resolution pass of its own, so `checkArrayJoin`'s own element judgement
+    // (SENTENCE 1) was the SOLE refusal. NEW: bug 0262's widening now also runs
+    // `collectUnresolvedNamedTypes` at the `fn` parameter capture itself, so
+    // `Nope` is refused a SECOND time, upstream, at the position it is
+    // written — the whole annotation, before `checkArrayJoin` ever inspects
+    // the element. THIS FILE'S SUBJECT IS NOT REVERSED, IT IS SUBSUMED: the
+    // join element gate's OWN judging disposition (SENTENCE 1) is unmoved —
+    // it still runs and still refuses this element on its own terms — bug
+    // 0262 adds a diagnostic in front of it rather than replacing it. Bug
+    // 0127's subject (the element/receiver split) stays intact; only the
+    // input class reaching the split has grown a second, earlier refusal.
+    codes: ["theta/parse/unresolved-named-type", JOIN_CODE],
     element: "Nope",
-    why: "bug 0089's row b12 (tests/fn-param-alias-unfolded-at-gates.test.ts), restated here as clause-admitted rather than incidental: SENTENCE 1's `a `named` that no visible declaration defines` is exactly this shape",
+    why: "bug 0089's row b12 (tests/fn-param-alias-unfolded-at-gates.test.ts), restated here as clause-admitted rather than incidental: SENTENCE 1's `a `named` that no visible declaration defines` is exactly this shape; bug 0262's widening now ALSO refuses `Nope` upstream at the `fn` parameter position, so the two refusals coexist",
   },
   {
     id: "E2",
@@ -350,20 +366,46 @@ const ROWS: readonly Row[] = [
   },
   {
     id: "E6",
-    label: "an unresolvable element reached through an annotated empty binding is refused",
+    label: "an unresolvable element reached through an annotated empty binding is refused, now ALSO refused upstream at the `let`",
     src: 'let e: array<Nope> = []\ne.join(",")\n',
-    codes: [JOIN_CODE],
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262 clause (i),
+    // for the same reason as E1: the `let` annotation is one of the four
+    // captures the ruling's full widening reaches, so `collectUnresolvedNamedTypes`
+    // now runs there too and refuses `Nope` upstream, at the `let` statement's
+    // own range, IN ADDITION to `checkArrayJoin`'s unmoved element-level
+    // refusal. SUBSUMED, not reversed: this row's own subject — that the
+    // `let`-annotation route reaches the identical element shape as the
+    // `fn`-parameter route (E1) — still holds; both routes now carry the same
+    // second, upstream diagnostic together.
+    codes: ["theta/parse/unresolved-named-type", JOIN_CODE],
     element: "Nope",
-    why: "the `let`-annotation route to the same element shape as E1 — proof the element judgement is a property of the element type, not of the `fn`-parameter surface E1 uses",
+    why: "the `let`-annotation route to the same element shape as E1 — proof the element judgement is a property of the element type, not of the `fn`-parameter surface E1 uses; bug 0262's widening now ALSO refuses `Nope` upstream at the `let` annotation itself, so E1 and E6 carry the identical two-code pattern",
   },
 
   // --- THE RECEIVER DEFERS (SENTENCE 2) ------------------------------------
   {
     id: "R1",
-    label: "an undeclared RECEIVER type name defers",
+    label: "an undeclared RECEIVER type name is now refused upstream, at the parameter — the `join` gate itself still never runs",
     src: JOIN("Nope"),
-    codes: [],
-    why: "bug 0089's row e2 — the receiver is not statically an `array<T>`, so the gate never runs and SENTENCE 2's deferral is what is observed. This is the exact asymmetry with E1 that bug 0127 reported and route (c) makes normative",
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262 clause (i).
+    // OLD codes: [] — bug 0089's row e2: the receiver is not statically an
+    // `array<T>`, so `checkArrayJoin` never ran and SENTENCE 2's deferral was
+    // the whole observable. NEW: `Nope` is written directly as the `fn`
+    // parameter's type (not wrapped in `array<...>`), and bug 0262's widening
+    // now runs `collectUnresolvedNamedTypes` at that very capture, so the
+    // annotation is refused UPSTREAM, at the position it is written, before
+    // any `join`-specific gate is reached at all. THE RECEIVER-LEVEL DEFERRAL
+    // ITSELF IS SUBSUMED, NOT REVERSED: `checkArrayJoin` still never runs for
+    // this receiver — there is still no `non-string-array-join` in this row's
+    // codes — so SENTENCE 2's disposition (the `join` gate defers on a
+    // non-`array` receiver) is undisturbed; the input class merely no longer
+    // reaches that gate clean, because a DIFFERENT, upstream gate now refuses
+    // it first. The asymmetry with E1 that bug 0127 reported (§B/X below)
+    // still holds at the `join`-gate level: only the SURROUNDING annotation
+    // gate has grown a new refusal that applies uniformly regardless of
+    // whether the name is array-wrapped.
+    codes: ["theta/parse/unresolved-named-type"],
+    why: "bug 0089's row e2 — the receiver is not statically an `array<T>`, so the `join` gate never runs and SENTENCE 2's deferral is still what is observed AT THAT GATE. bug 0262's widening now refuses the bare `Nope` parameter annotation upstream, at the position it is written, before the `join` gate is ever reached; this is the exact asymmetry with E1 that bug 0127 reported and route (c) makes normative, now measured one gate earlier",
   },
   {
     id: "R2",
@@ -514,12 +556,25 @@ function itBlock(text: string, id: string): string {
   return end < 0 ? rest : rest.slice(0, end);
 }
 
-describe("bug 0127 (C) — bug 0089's b12/b13 keep their values; route (a) is not taken", () => {
+// The pinned bytes for b12 were REWRITTEN under the sixteenth-set OPERATOR
+// RULING for bug 0262, clause (i), which authorises editing this section and
+// requires the two files to tell one story about the one row. Bug 0089's b12
+// now asserts the ordered PAIR `["theta/parse/unresolved-named-type",
+// "theta/parse/non-string-array-join"]`: the widened `NamedType` position set
+// refuses the written head `Nope` at the `fn` parameter capture, ahead of the
+// join gate's own element refusal. THIS SECTION'S SUBJECT IS UNCHANGED — it
+// asserts that the two files' dispositions do not displace one another, and
+// what it pins is that bug 0089's row still carries the join refusal it always
+// carried. Route (a) — defer on unresolvable elements — would have DELETED
+// `theta/parse/non-string-array-join` from that expectation; the pin below
+// therefore still reds on route (a), because the join code is still one of the
+// bytes it demands.
+describe("bug 0127 (C) — bug 0089's b12/b13 keep their join values; route (a) is not taken", () => {
   const CASES: readonly (readonly [string, string, string])[] = [
     [
       "b12",
-      '.toEqual(["theta/parse/non-string-array-join"]);',
-      "an undeclared element type name — the row SENTENCE 1 restates as clause-admitted (re-measured independently as §(B) row B/E1)",
+      '.toEqual(["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]);',
+      "an undeclared element type name — the row SENTENCE 1 restates as clause-admitted, now behind bug 0262's upstream refusal of the same written head (re-measured independently as §(B) row B/E1)",
     ],
     [
       "b13",

@@ -923,3 +923,60 @@ untouched and asserted after that fix — `{ a }` and `{ a: }` contribute no
 quoted key (the first spells no key at all, the second an identifier one), and
 `array<{"a": string}>` stays outside the new row on the same generic-argument
 ground. Status unchanged (**fixed (0.57.0)**).
+
+### Coordination note — bug 0262's reference-position widening (2026-08-24)
+
+Bug [0262](./0262-unresolved-named-type-silent-at-nine-reference-positions.md)
+emits `theta/parse/unresolved-named-type` at the `let` annotation, the `fn`
+parameter type, the `fn` return type and the `invoke<T>` ascription. One row of
+this report's witness moves.
+
+**What changed.** `tests/inline-empty-object-type.test.ts`, cell `i1`
+(`it("i1: …")` at line 1078 of that file), which drives
+`let r = invoke<T>("./x.theta")` over a five-spelling table. The `Ghost` row was
+`[]` — the control asserting that the whole-file name walk does not run at
+`invoke<T>`. It now expects, at line 1098 of that file,
+`[line("theta/parse/unresolved-named-type", msg("theta/parse/unresolved-named-type", [["<name>", "Ghost"]]))]`
+— the rendered line
+`error theta/parse/unresolved-named-type: unresolved named type 'Ghost'`,
+interpolated from the live registry through the file's `msg` helper (line 151),
+so a DIAG-4 drift reds here. The other four spellings in the same table stay
+`[]`: `void`, `array<string, integer>`, `Result<string,string>` and
+`{ a: void }`, at lines 1095–1099 of that file. The cell's title and message
+were rewritten to name bug 0262; the table's construction and its whole-list
+`toEqual` are otherwise the shape this report landed.
+
+**Why.** The operator ruling (sixteenth set), clause (i), names this cell:
+
+> subject-adjacent cells — 0130's let-silence row, 0045's invoke<T>
+> no-name-walk control, 0127's three oracle cells, 0089's b12/b13 … — FLIP
+> old→new under this ruling, each with a dated coordination note appended to the
+> owning bug doc
+
+on the ground that
+
+> a provably-unresolvable WRITTEN name is a provable author error and is judged
+> at the position it is written.
+
+**Superseded, for the name walk only.** This report records at line 434 that
+"The `invoke<T>` annotation runs no pass at all, not even the name walk", and
+its §Fix states at line 665 that "none of the three runs any type-grammar pass
+today". The name-walk half of those statements is superseded: `invoke<T>` now
+resolves the written head. The type-grammar half is not. The three walk-owned
+checks this report declined to wire there —
+`theta/parse/generic-arity-mismatch`, `theta/parse/void-in-non-return-position`
+and `theta/parse/result-in-schema-position` — still do not fire at `invoke<T>`,
+which is what the four surviving `[]` rows of `i1` measure.
+
+**This report's subject is unchanged.** The subject is
+`theta/parse/empty-schema-body` firing for an empty inline object type (`{}`) in
+any `Type` position at any nesting depth, `invoke<T>` included. `i1` is the
+negative fence around that rule, not the rule; cell `i2` (line 1113 of
+`tests/inline-empty-object-type.test.ts`), which pins `{}`, `{a: {}}` and
+`array<{}>` at `invoke<T>`, is byte-identical to HEAD. The widening changes the
+INPUT CLASS that reaches this report's walk, by refusing an unresolvable written
+head upstream at the position it is written; it moves neither this report's
+*Trigger* nor its verdict at any of the eight positions it covers.
+
+**Measured.** `npx vitest run tests/inline-empty-object-type.test.ts` at the
+current tree: 46 of 46 cells pass. Status unchanged (**fixed (0.57.0)**).

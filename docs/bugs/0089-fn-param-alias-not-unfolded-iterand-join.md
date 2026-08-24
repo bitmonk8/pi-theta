@@ -652,3 +652,78 @@ Two consequences for this report's witness, both deliberate and recorded in
   verified rather than assumed.
 
 Residuals (i), (iii) and (iv) of this report are untouched.
+
+### Coordination note — bug 0262's reference-position widening (2026-08-24)
+
+Bug [0262](./0262-unresolved-named-type-silent-at-nine-reference-positions.md)
+emits `theta/parse/unresolved-named-type` at the `let` annotation, the `fn`
+parameter type, the `fn` return type and the `invoke<T>` ascription. Two cells of
+this report's witness change value and two change vehicle.
+
+**`b12` — flipped.** `tests/fn-param-alias-unfolded-at-gates.test.ts`, line 493,
+source `fn f(xs: array<Nope>): string { xs.join(",") }`. Old expectation:
+`["theta/parse/non-string-array-join"]`. New expectation, at line 517 of that
+file:
+`["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]`.
+**The outcome is `[Y, X]`, not `X` replaced by `Y`.** The new refusal precedes
+the existing one in source order — the parameter capture is walked before the
+body — and both lines stand. The ruling's own wording, "whose refusal CODE
+changes from non-string-array-join to unresolved-named-type", describes a
+replacement; the measured result is an addition ahead of the join refusal. The
+cell's second assertion, the DIAG-4 message read at lines 520–523 of that file
+(`array.join requires a string element type; got array<Nope>`), is
+byte-identical to HEAD, so this row still measures that the join element
+predicate decides rather than defers.
+
+**`b13` — not exposed, untouched.** Line 526, source `schema A = B` +
+`schema B = A` + `fn f(xs: array<A>): string { xs.join(",") }`. Its expectation
+at line 545 of that file is
+`["theta/parse/type-alias-cycle", "theta/parse/non-string-array-join"]`,
+byte-identical to HEAD. The ruling's "0089's b12/b13" overstates `b13`'s
+exposure: the head `A` has a visible top-level declaration, so the resolution
+pass at the widened parameter capture resolves it and adds nothing. What the
+cycle removes is the `TypeEnv` entry `unfoldAlias` walks, which is a later and
+different question from whether the written name resolves to a declaration.
+
+**`e1` and `e2` — re-vehicled, `Nope` → `QueryError`.** Line 722 and line 749.
+`e1` now drives `ITER("QueryError")` (line 736) and `e2` `JOIN("QueryError")`
+(line 756). `QueryError` is the builtin error-model name bug 0262's §Fix admits
+at the four widened captures, so the parameter declaration draws no refusal,
+while the name is absent from the type environment, so the parameter is still
+statically unresolvable at both gates. The pair's expectations are unchanged in
+kind: `e1` expects `["theta/parse/non-array-iterand"]` (line 740) with the
+message `'for' expects array<T> after 'in'; got QueryError` (line 746, the only
+byte that moves, the rendered type name), and `e2` expects `[]` (line 758). The
+gate-1-rejects / gate-2-defers asymmetry the pair measures is preserved, per the
+0165/0251 re-vehicle precedent.
+
+**Why.** The operator ruling (sixteenth set), clause (i):
+
+> vehicle-collateral cells (undeclared heads used as stand-ins for "past the
+> parser's static view") are RE-VEHICLED with subjects preserved per the
+> 0165/0251 precedent, or flipped to expect the added refusal where the subject
+> is strengthened rather than obstructed; subject-adjacent cells — … 0089's
+> b12/b13 (whose refusal CODE changes from non-string-array-join to
+> unresolved-named-type because the param annotation now refuses upstream;
+> 0127's §C reads those blocks — flip the two files coherently together) — FLIP
+> old→new under this ruling
+
+**This report's subject is unchanged.** The subject is that an alias-typed `fn`
+parameter is unfolded through `unfoldAlias` before the `kind` test at the two
+structural gates — the `for` / `par for` iterand gate and the `array.join`
+element gate — so `schema L = array<string>` stops drawing a false
+`theta/parse/non-array-iterand` and `schema L = array<integer>` regains its
+`theta/parse/non-string-array-join`. Every alias cell in groups (a)–(d) is
+byte-identical to HEAD. The widening changes the INPUT CLASS reaching those
+gates, by refusing an unresolvable written head upstream at the position it is
+written; it moves neither gate's Trigger nor either gate's verdict.
+
+**Coordination.** Bug
+[0127](./0127-join-element-gate-does-not-defer-on-unresolvable-element.md)'s
+§(C) pins this file's `b12` and `b13` blocks by their literal expectation
+strings; its `b12` string was rewritten to the new pair in the same change-set,
+under the ruling's "flip the two files coherently together". `b13`'s pinned
+string is unchanged.
+
+**Measured.** `npx vitest run tests/fn-param-alias-unfolded-at-gates.test.ts`
+at the current tree: 36 of 36 cells pass. Status unchanged (**fixed (0.72.0)**).

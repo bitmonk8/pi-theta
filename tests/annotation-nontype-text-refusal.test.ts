@@ -91,13 +91,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      `theta/parse/annotation-type-not-expression` rendering the offending
 //      binding / parameter / function name, and the theta does not register
 //      (group (a)).
-//   2. Two spellings are NOT refused, and the bug document is WRONG about both:
-//      `thisisnotatype` and `integer1` are `Ident`s, hence `NamedType`s
-//      (grammar.md:98), hence derivable from `Type`. Refusing them would be the
-//      honest-identity overreach bug 0044's fix removed at 0.54.0, and their
-//      silence at these positions is `theta/parse/unresolved-named-type`'s
-//      closed five-position list's question — bug 0051's, not this report's
-//      (group (n)).
+//   2. Two spellings are not refused BY THIS ROW, and the bug document is WRONG
+//      about both: `thisisnotatype` and `integer1` are `Ident`s, hence
+//      `NamedType`s (grammar.md:98), hence derivable from `Type`. Refusing them
+//      as non-derivable text would be the honest-identity overreach bug 0044's
+//      fix removed at 0.54.0, and this file's recogniser still answers `false`
+//      for both (group (s)). What they DO draw at these three positions is the
+//      separate name-resolution row `theta/parse/unresolved-named-type`, whose
+//      position list covers every `NamedType` reference (bug 0262's
+//      sixteenth-set operator ruling) — so an `Ident` naming no visible
+//      declaration is refused at these three positions exactly as at a `schema`
+//      field. Group (n) carries those cells; the boundary between the two rows
+//      is what this item states.
 //   3. The eight suppressed rows fire again, because the refused annotation
 //      supports no type verdict and every consumption site WITHHOLDS instead of
 //      reading it: the `let` arm records the binding through
@@ -194,9 +199,13 @@ import { parseDoc } from "./helpers/e2e-s1";
  * sites it is raised from. Five existing rows were assessed against this input
  * class and none fits as written: `theta/parse/increment-decrement` covers two
  * of twenty-two spellings and its *Message* and Hint are false for the rest;
- * `theta/parse/unresolved-named-type`'s *Trigger* names a closed five-position
- * list excluding all three positions here, and `integer--` is no `NamedType`
- * (grammar.md:98) — the overreach bug 0044's fix removed;
+ * `theta/parse/unresolved-named-type` judges whether a written `NamedType`
+ * RESOLVES, a different question from whether captured text derives from `Type`
+ * at all — and `integer--` is no `NamedType` (grammar.md:98), so no resolution
+ * row can reach it; refusing it as a name would be the overreach bug 0044's fix
+ * removed. That row's *Trigger* covers all three positions here (bug 0262's
+ * sixteenth-set ruling), which is what group (n) observes beside this row and
+ * leaves this row's own fit unchanged;
  * `theta/parse/malformed-alias-rhs` is scoped to a `schema X = …` declaration;
  * `theta/parse/unsupported-feature` renders `<construct>` from a CLOSED table;
  * and `theta/load/params-type-not-expression` excludes itself by phase, by
@@ -918,37 +927,60 @@ describe("bug 0124 (a) — the `.thetalib` spelling and the `subagent fn` / `wit
 });
 
 // ===========================================================================
-// (n) THE TWO SPELLINGS THE BUG DOCUMENT IS WRONG ABOUT. GREEN at HEAD and
-// required to stay green — refusing either is bug 0044's overreach and bug
-// 0051's question, not this report's claim.
+// (n) THE TWO SPELLINGS THE BUG DOCUMENT IS WRONG ABOUT. Refusing either as
+// NON-DERIVABLE text is bug 0044's overreach and remains excluded; what they
+// draw instead is the name-resolution row, whose position list bug 0262's
+// sixteenth-set ruling widened to these three positions.
 // ===========================================================================
 
-describe("bug 0124 (n) — the `Ident`-shaped spellings keep their silence", () => {
+describe("bug 0124 (n) — the `Ident`-shaped spellings, now refused under bug 0262's widening", () => {
+  // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262 clause (i). OLD
+  // expectation (below, until this flip): `[]` — no diagnostic — because the
+  // `let` annotation, the `fn` parameter type and the `fn` return type ran NO
+  // name-resolution pass at all, which was bug 0262's own reported gap. Under
+  // the ruling's full widening those three positions now run
+  // `collectUnresolvedNamedTypes` exactly as the `schema` field position
+  // already did, so `thisisnotatype` and `integer1` — both `Ident`s
+  // (grammar.md:98) resolving to no visible declaration — are refused with
+  // `theta/parse/unresolved-named-type` AT THE POSITION EACH IS WRITTEN. Bug
+  // 0124's own SUBJECT is unchanged: `annotationSourceIsNotTypeExpression`
+  // still answers `false` for both spellings (group (s) above) — a `Type`-
+  // derivable `Ident` was never this recogniser's business, refused or not.
+  // What moved is which OTHER gate the same input now reaches: a name that
+  // used to fall through every check at these three positions now meets the
+  // resolution pass the schema position always ran.
   for (const [id, typeSource, why] of [
     [
       "n1",
       "thisisnotatype",
       "the capture drops the inter-token whitespace, so the prose spelling arrives as ONE " +
-        "`Ident` — and `NamedType ::= Ident` (grammar.md:98) derives it from `Type`. The bug " +
-        "document's §Kind and §Fix (f)(2) both list it as derivable from none of the six " +
-        "alternatives; both are wrong. Its silence at these positions is " +
-        "`theta/parse/unresolved-named-type`'s closed five-position list's question, which " +
-        "bug 0124 §Non-goals hands to bug 0051",
+        "`Ident` — and `NamedType ::= Ident` (grammar.md:98) derives it from `Type`, resolving " +
+        "to no visible declaration. OLD: silent, because the `let`/`fn`-parameter/`fn`-return " +
+        "positions ran no resolution pass — bug 0262's own gap. NEW: refused, the same way an " +
+        "identical unresolvable `Ident` at the `schema` field position was always refused",
     ],
     [
       "n2",
       "integer1",
-      "a number-literal trailer on an identifier leaves an `Ident`, exactly as the bug " +
-        "document's own group (f) records for the schema position — where it draws " +
-        "`unresolved-named-type` because THAT position runs a name walk and these three do not",
+      "a number-literal trailer on an identifier still leaves an `Ident`, exactly as bug 0124's " +
+        "own group (f) records for the schema position — which already drew " +
+        "`unresolved-named-type` because that position ran a name walk. OLD: silent at these " +
+        "three positions, because they ran none. NEW: refused — they now run the identical walk",
     ],
   ] as const) {
     for (const position of POSITIONS) {
-      it(`GREEN (${id}, ${position}): \`${typeSource}\` draws no diagnostic`, () => {
-        expectSequence(`${id} (${position}, ${typeSource})`, position, typeSource, [], {
-          why: `refusing this spelling would re-open the honest-identity overreach bug 0044's ` +
-            `fix removed at 0.54.0 — ${why}`,
-        });
+      it(`RED (${id}, ${position}, flipped by bug 0262 clause (i)): \`${typeSource}\` now draws unresolved-named-type`, () => {
+        expectSequence(
+          `${id} (${position}, ${typeSource})`,
+          position,
+          typeSource,
+          [line("theta/parse/unresolved-named-type", [["<name>", typeSource]])],
+          {
+            why:
+              `bug 0262's sixteenth-set operator ruling clause (i) widens name resolution to this ` +
+              `position, refusing a written NamedType that resolves to no visible declaration; ${why}`,
+          },
+        );
       });
     }
   }
@@ -2114,6 +2146,8 @@ const CONTROL_ROWS: ReadonlyArray<{
   readonly typeSource: string;
   readonly rhsOrBody?: string;
   readonly expected: () => readonly string[];
+  /** Overrides the group's default GREEN-fence `why`, for a row this fix flips. */
+  readonly why?: string;
   /**
    * Only where the default `joinedCapture` (strip every space) is wrong: since
    * bug 0228's fix a `typeSource` that IS a brace group is captured verbatim,
@@ -2166,19 +2200,61 @@ const CONTROL_ROWS: ReadonlyArray<{
       ]),
     ],
   },
-  { id: "g6", position: "let", typeSource: "Ghost", expected: () => [] },
+  // g6/g12/g18 FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262
+  // clause (i). OLD expected list: `[]` — `Ghost` is a `NamedType`
+  // (grammar.md:98) the grammar admits, and this group's premise was that
+  // grammar-admitted traffic keeps its bytes; that premise held only because
+  // the `let`/`fn`-parameter/`fn`-return positions ran no resolution pass, so
+  // an UNRESOLVABLE `Ghost` was indistinguishable here from a resolvable one
+  // (contrast `Cat`, g5/g11/g17, which stays silent — `Cat` resolves). Under
+  // 0262's full widening these three positions now run
+  // `collectUnresolvedNamedTypes`, so `Ghost` — naming no visible declaration —
+  // is refused with `theta/parse/unresolved-named-type` at the position it is
+  // written, the same code the `@<T>` position already drew for it (see f7
+  // below). Bug 0124's subject — whether captured text derives from `Type` at
+  // all — is untouched: `Ghost` still derives (it always did), so this fix's
+  // own recogniser still answers `false` for it; only the input class reaching
+  // the (separate) name-resolution gate has grown.
+  {
+    id: "g6 (let, flipped by bug 0262 clause (i))",
+    position: "let",
+    typeSource: "Ghost",
+    expected: () => [line("theta/parse/unresolved-named-type", [["<name>", "Ghost"]])],
+    why: "the sixteenth-set operator ruling for bug 0262 clause (i) widens name resolution to " +
+      "the `let` annotation, refusing an unresolvable `NamedType` at the position it is " +
+      "written; the grammar-admitted GREEN premise applied only while this position ran no " +
+      "resolution pass",
+  },
   { id: "g7", position: "param", typeSource: "integer", expected: () => [] },
   { id: "g8", position: "param", typeSource: "array<integer>", expected: () => [] },
   { id: "g9", position: "param", typeSource: "integer | string", expected: () => [] },
   { id: "g10", position: "param", typeSource: "{ b: integer }", capture: "{ b: integer }", expected: () => [] },
   { id: "g11", position: "param", typeSource: "Cat", expected: () => [] },
-  { id: "g12", position: "param", typeSource: "Ghost", expected: () => [] },
+  {
+    id: "g12 (param, flipped by bug 0262 clause (i))",
+    position: "param",
+    typeSource: "Ghost",
+    expected: () => [line("theta/parse/unresolved-named-type", [["<name>", "Ghost"]])],
+    why: "the sixteenth-set operator ruling for bug 0262 clause (i) widens name resolution to " +
+      "the `fn` parameter type, refusing an unresolvable `NamedType` at the position it is " +
+      "written; the grammar-admitted GREEN premise applied only while this position ran no " +
+      "resolution pass",
+  },
   { id: "g13", position: "return", typeSource: "integer", expected: () => [] },
   { id: "g14", position: "return", typeSource: "array<integer>", expected: () => [] },
   { id: "g15", position: "return", typeSource: "integer | string", expected: () => [] },
   { id: "g16", position: "return", typeSource: "{ b: integer }", capture: "{ b: integer }", expected: () => [] },
   { id: "g17", position: "return", typeSource: "Cat", expected: () => [] },
-  { id: "g18", position: "return", typeSource: "Ghost", expected: () => [] },
+  {
+    id: "g18 (return, flipped by bug 0262 clause (i))",
+    position: "return",
+    typeSource: "Ghost",
+    expected: () => [line("theta/parse/unresolved-named-type", [["<name>", "Ghost"]])],
+    why: "the sixteenth-set operator ruling for bug 0262 clause (i) widens name resolution to " +
+      "the `fn` return type, refusing an unresolvable `NamedType` at the position it is " +
+      "written; the grammar-admitted GREEN premise applied only while this position ran no " +
+      "resolution pass",
+  },
   {
     // `ReturnType ::= Type | "void"` (grammar.md:89) — the one spelling the
     // return slot admits and the other two positions do not.
@@ -2192,7 +2268,7 @@ const CONTROL_ROWS: ReadonlyArray<{
 
 describe("bug 0124 (g) — grammar-admitted annotations keep their bytes at all three positions", () => {
   for (const row of CONTROL_ROWS) {
-    it(`GREEN (${row.id}, ${row.position}): \`${row.typeSource}\` keeps its emission`, () => {
+    it(`${row.why === undefined ? "GREEN" : "RED"} (${row.id}, ${row.position}): \`${row.typeSource}\``, () => {
       expectSequence(
         `${row.id} (${row.position}, ${row.typeSource})`,
         row.position,
@@ -2201,8 +2277,10 @@ describe("bug 0124 (g) — grammar-admitted annotations keep their bytes at all 
         {
           ...(row.rhsOrBody === undefined ? {} : { rhsOrBody: row.rhsOrBody }),
           ...(row.capture === undefined ? {} : { capture: row.capture }),
-          why: "grammar.md:90–:95 derives this text, so a refusal reaching this row refuses " +
-            "input the grammar admits at every `Type` position",
+          why:
+            row.why ??
+            "grammar.md:90–:95 derives this text, so a refusal reaching this row refuses " +
+              "input the grammar admits at every `Type` position",
         },
       );
     });
@@ -2346,21 +2424,49 @@ describe("bug 0124 (f) — the sibling `Type` positions keep their bytes", () =>
 
   const INVOKE_ROWS: readonly string[] = ["P", "P--", "Ghost", "Ghost--", "integer--"];
 
+  // f10 (`Ghost`) FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262
+  // clause (i), which names `walkExpr`'s "invoke" arm as one of the four
+  // uncovered captures the full widening reaches. OLD expected list: `[]`,
+  // because — as this group's own comment stated — `invoke<T>` ran no name
+  // walk at all. `Ghost` is a clean `NamedType` (grammar.md:98) resolving to no
+  // visible declaration, so it now draws `theta/parse/unresolved-named-type`
+  // at the `invoke<T>` ascription itself, the same code f7 already pins at the
+  // `@<T>` position. The other four rows are UNCHANGED: `P` resolves (declared
+  // above), and `P--` / `Ghost--` / `integer--` are malformed text that
+  // `collectUnresolvedNamedTypes` never captured as a `NamedType` in the first
+  // place — that is still bug 0124's own subject (non-`Type`-derivable text),
+  // not this fix's. Bug 0124's subject is otherwise untouched: this recogniser
+  // still never runs at the `invoke<T>` capture; a DIFFERENT, separately-owned
+  // gate now runs there instead.
   for (const [index, annotation] of INVOKE_ROWS.entries()) {
-    it(`GREEN (f${8 + index}, invoke<${annotation}>): the typed-invoke annotation stays silent`, () => {
-      // `invoke<T>` has no name walk either (the five-position list excludes
-      // it), so there is no differential to observe and nothing for this fix to
-      // move. Pinned so a seam-level recogniser — the route §Fix (b)(1) rejects
-      // — reds here instead of shipping a four-position widening.
-      const doc = parseDoc(
-        `${FM}schema P { a: string }\nlet r = invoke<${annotation}>("./child.theta", 1)\nr\n`,
-        "bug0124.theta",
-      );
-      expect(
-        diagLines(doc),
-        `f${8 + index}: the \`invoke<T>\` capture is a separate site and is not claimed`,
-      ).toEqual([]);
-    });
+    const flipped = annotation === "Ghost";
+    const expected = flipped
+      ? [line("theta/parse/unresolved-named-type", [["<name>", "Ghost"]])]
+      : [];
+    it(
+      flipped
+        ? `RED (f${8 + index}, invoke<${annotation}>, flipped by bug 0262 clause (i)): the typed-invoke annotation now refuses`
+        : `GREEN (f${8 + index}, invoke<${annotation}>): the typed-invoke annotation stays silent`,
+      () => {
+        // `invoke<T>` has no OTHER name walk (the six-position list still
+        // excludes it), so there is no differential to observe here beyond
+        // bug 0262's own widening. Pinned so a seam-level recogniser — the
+        // route §Fix (b)(1) rejects — reds here instead of shipping a
+        // four-position widening.
+        const doc = parseDoc(
+          `${FM}schema P { a: string }\nlet r = invoke<${annotation}>("./child.theta", 1)\nr\n`,
+          "bug0124.theta",
+        );
+        expect(
+          diagLines(doc),
+          flipped
+            ? `f${8 + index}: bug 0262's sixteenth-set operator ruling clause (i) widens name ` +
+                `resolution to the \`invoke<T>\` ascription, refusing an unresolvable ` +
+                `\`NamedType\` at the position it is written`
+            : `f${8 + index}: the \`invoke<T>\` capture is a separate site and is not claimed`,
+        ).toEqual(expected);
+      },
+    );
   }
 });
 

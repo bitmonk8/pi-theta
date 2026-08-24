@@ -490,17 +490,31 @@ describe("0089 (b cont.) — the `array.join` element predicate decides on the u
     ).toBe("array.join requires a string element type; got array<P>");
   });
 
-  it("b12: an undeclared element type name stays non-string and renders as written", () => {
+  it("b12: an undeclared element type name stays non-string and renders as written, behind an upstream refusal", () => {
     // The asymmetry with e2 is the receiver, not the element: there the whole
     // receiver is an unresolvable `named`, so the gate never runs; here the
     // receiver IS an `array`, the gate runs, and the unresolvable element fails
     // the `string` test. `unfoldAlias` leaves an unresolvable `named` intact, so
     // this disposition is the one the gate already reached and must keep.
+    //
+    // FLIPPED under the sixteenth-set OPERATOR RULING for bug 0262, clause (i),
+    // which names this cell in the FLIP class. OLD codes:
+    // `["theta/parse/non-string-array-join"]` alone. NEW: the widening runs a
+    // name-resolution pass at the `fn` PARAMETER capture, which reaches the
+    // generic argument `Nope` nested inside `array<Nope>` and refuses it at the
+    // position it is written.
+    //
+    // THE OUTCOME IS `[Y, X]`, NOT `X` REPLACED BY `Y`. The new refusal
+    // PRECEDES the join refusal in source order (the parameter capture is
+    // walked before the body), and both lines stand: this row's own subject —
+    // that the `join` element predicate DECIDES on an unresolvable element
+    // rather than deferring — is unmoved, and is still measured by the second
+    // code and by the rendered message below.
     const diags = diagsOf(JOIN("array<Nope>"));
     expect(
       diags.map((d: Diagnostic) => d.code),
-      "expressions.md:108 `join` row — an unresolvable element has nothing to unfold to and is not `string`, so this gate rejects rather than defers",
-    ).toEqual(["theta/parse/non-string-array-join"]);
+      "expressions.md:108 `join` row — an unresolvable element has nothing to unfold to and is not `string`, so this gate rejects rather than defers; bug 0262's widening adds the upstream refusal of the written head ahead of it",
+    ).toEqual(["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]);
     // Message from code-registry-parse.md:43
     // (`array.join requires a string element type; got array<<element>>`).
     expect(
@@ -515,6 +529,15 @@ describe("0089 (b cont.) — the `array.join` element predicate decides on the u
     // not an alias, so `A` stays `named A` at the element position and fails the
     // `string` test exactly as b12's undeclared name does — alongside the cycle
     // rejection TYPE-11 requires.
+    //
+    // NOT EXPOSED to bug 0262's widening, unlike b12. The ruling's clause (i)
+    // names "0089's b12/b13" together, which overstates b13: the head `A` HAS a
+    // visible top-level declaration (`schema A = B`), so
+    // `collectUnresolvedNamedTypes` resolves it at the parameter capture and no
+    // refusal is added. What the cycle removes is the `TypeEnv` ENTRY that
+    // `unfoldAlias` walks, which is a later, different question from whether
+    // the written name resolves to a declaration. This cell's codes are
+    // therefore byte-identical before and after the widening.
     const diags = diagsOf(["schema A = B", "schema B = A", ...JOIN("array<A>")]);
     expect(
       diags.map((d: Diagnostic) => d.code),
@@ -696,11 +719,21 @@ describe("0089 (d) — a legal alias iterand binds the `par for` loop variable t
 // ===========================================================================
 
 describe("0089 (e) — the unresolvable, nominal and cyclic boundaries of the unfolding", () => {
-  it("e1: an undeclared parameter type name rejects at gate 1", () => {
+  it("e1: a parameter type past the parser's static view rejects at gate 1", () => {
     // `unfoldAlias` (src/parser/type-compat.ts:155) leaves an unresolvable
     // `named` intact, so the gate keeps its current disposition. Gate 1 admits
     // only `kind === "array"`, so an unrecognised shape rejects.
-    const diags = diagsOf(ITER("Nope"));
+    //
+    // VEHICLE NOTE (bug 0262 coordination): the parameter type is `QueryError`,
+    // not the earlier `Nope`. Bug 0262 widens `unresolved-named-type` to the
+    // `fn` parameter capture itself, so a genuinely undeclared WHOLE parameter
+    // type is now REFUSED there, which is a different (and correct) hazard
+    // than the gate-1/gate-2 asymmetry this pair measures. `QueryError` is the
+    // builtin error-model name bug 0262 §Fix admits at that capture (so it
+    // draws no refusal) while staying absent from `collectTypeEnv` (so the
+    // parameter is still statically unresolvable at both gates) — subject
+    // preserved, per the 0165/0251 re-vehicle precedent.
+    const diags = diagsOf(ITER("QueryError"));
     expect(
       diags.map((d: Diagnostic) => d.code),
       "code-registry-parse.md:64 trigger — an unresolvable `named` is not statically `array<T>`, and gate 1 rejects what it does not recognise",
@@ -710,15 +743,17 @@ describe("0089 (e) — the unresolvable, nominal and cyclic boundaries of the un
     expect(
       messageFor(diags, "theta/parse/non-array-iterand"),
       "code-registry-parse.md:64 — an unresolvable name renders as written, having nothing to unfold to",
-    ).toBe("'for' expects array<T> after 'in'; got Nope");
+    ).toBe("'for' expects array<T> after 'in'; got QueryError");
   });
 
-  it("e2: the same undeclared parameter type name defers at gate 2", () => {
+  it("e2: the same parameter type past the parser's static view defers at gate 2", () => {
     // The asymmetry with e1 is required, not incidental: gate 2 runs the
     // element check only for `kind === "array"`, so an unrecognised shape
     // defers to the runtime AJV safety net. Unfolding changes neither side.
+    // `QueryError` is e1's re-vehicle, kept identical here so the pair still
+    // measures the same receiver under both gates.
     expect(
-      codesOf(JOIN("Nope")),
+      codesOf(JOIN("QueryError")),
       "expressions.md:108 `join` row — the element type of an unresolvable receiver is not statically known, so the gate defers",
     ).toEqual([]);
   });

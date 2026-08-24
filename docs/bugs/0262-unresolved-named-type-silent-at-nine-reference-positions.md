@@ -1,6 +1,6 @@
 # Bug 0262 — A `NamedType` that resolves to no declaration draws ZERO diagnostics at nine of the sixteen probed reference positions: `unresolvedNamedTypeDiagnostic`'s emitting call sites cover the `params:`, `@<T>`, `schema` field, alias/union, object-constructor and pattern-head captures only, so the `let` annotation, the `fn` parameter type, the `fn` return type and the `invoke<T>` ascription run no name-resolution pass at all — `let a: Nope = 3` loads clean, registers, and silently disables every type-layer check that annotation would have decided
 
-- **Status:** open
+- **Status:** fixed (0.266.0)
 - **Sev/Diff estimate:** S3/D2 — S3 because the silence is not merely a missing
   message: at the nine positions an unresolvable head makes `⊑` answer
   `"unknown"` (`src/parser/type-compat.ts:351–365`), so a mistyped type name
@@ -491,3 +491,265 @@ for each, decide corrections 1–3, and state the GOV-15 in-scope input set to
 include the `Ident`-shaped spellings `code-registry-parse.md:107` and `:108`
 currently assign to this row's "closed five-position list" — both of which
 become stale prose the widening must correct in the same change-set.
+
+## Fix (0.266.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — the four new emission sites
+    (`walkStatement`'s `"let"` annotation read, its `"fn"` parameter and return
+    reads, `walkExpr`'s `"invoke"` arm), each routing the captured text through
+    the existing `collectUnresolvedNamedTypes` helper
+    (`src/parser/body-type-lowering.ts`) and the existing
+    `unresolvedNamedTypeDiagnostic` builder — no second resolver minted;
+    `withBuiltinErrorModelNames`, seeded from the same builtin set the
+    pattern-head admission uses, admits the builtin error-model names at all
+    four captures (clause (iv)(1)); the shared pure `captureAbsorptionWindow`
+    helper with `positionBefore` and `captureWindowAlreadyRefused`, carrying a
+    same-walk-refusal filter, implements the artefact suppression (clause
+    (iv)(3)); `propagatedToQuery` reads a null-prototyped index of QRY-2's own
+    propagation report through `Object.hasOwn` (clause (iv)(2));
+    `StructuralRefs` gained `priorDiagnostics` and `queryPropagations`, both
+    threaded by explicit dependency injection; several stale source comments
+    corrected.
+  - `src/parser/query-schema-resolve.ts` and
+    `src/parser/query-schema-inference.ts` — QRY-2 reports the propagations it
+    performs: `resolveQuerySchemas` returns `propagations`,
+    `resolveQuerySchemaSink` returns `{ schema, frame }`, and sink frames carry
+    a `FrameOrigin`. This file pair is a scope expansion beyond §Fix's named
+    surface. It was necessary because the withhold clause (iv)(2) mandates has
+    to agree with the propagation set exactly, and deriving it from the pass
+    that performs the propagation is the only construction under which the two
+    cannot drift; the hand-rolled predicates it replaced were measured wrong in
+    three ways, two of them regressions against pre-fix HEAD (review round 3).
+    Recorded as self-authorization 2 below.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/unresolved-named-type` row's *Trigger* widened to the full
+    reference position set, with the four dispositions stated in spec
+    vocabulary; the `theta/parse/annotation-type-not-expression` and
+    `theta/parse/query-annotation-type-not-expression` rows' cross-references to
+    this row's "closed five-position list" rewritten in the same commit. The
+    *Message* bytes are byte-unchanged (`unresolved named type '<name>'`).
+  - `docs/spec_topics/type-system.md` — one new normative sentence in the
+    existing void-sentence pattern; one clarifying clause scoping the
+    *Unresolvable operands* paragraph to the withheld / past-the-static-view
+    class; a dated (2026-08-24) requalification of bug 0127's element-judging
+    sentence as subsumed, not reversed. Bug 0144's two landed sentences ("The
+    skip is unconditional on the target's kind…", "The skip is likewise
+    unconditional on whether the position documents a runtime AJV net…") and
+    bug 0127's receiver clause are byte-verbatim against HEAD.
+  - `docs/spec_topics/grammar.md` — no edit, per clause (iii). `docs/reference/`
+    — no edit owed: `rg -n "unresolved-named-type" docs/reference/` returns
+    `docs/reference/diagnostics.md` line 158 (a *Message*-only row, and the
+    *Message* did not move) and `docs/reference/frontmatter.md` line 80 (the
+    `params:` position in prose). Neither mirrors the position list.
+  - NEW `tests/b0262-unresolved-named-type-reference-positions.test.ts` — 26
+    cells. Rows r1–r9 red-first at both the PascalCase and the lowercase
+    spelling (the case-independence lock), the seven already-emitting positions
+    plus the `match` pattern head as byte-stability controls, negative controls
+    (a declared head still draws its type-layer verdict; the `fn` return and
+    `invoke<T>` captures draw the refusal alone), the `QueryError` admission
+    including one cell over the real `docs/examples/personas.thetalib` bytes,
+    every propagation-withhold case, the artefact-suppression cases, the
+    capture-window geometry, and the nested-capture cases.
+  - NEW
+    `tests/live/b0262live-unresolved-named-type-reference-position-live-cell.test.ts`
+    — the carrier is absent from the registered set and its code names on the
+    `theta-system-note` channel, while the byte-neighbour declared-head control
+    registers and drives a real task-framed arithmetic turn.
+  - Seventeen pinned witness files re-vehicled, flipped, re-founded or
+    citation-corrected, enumerated in *The authorised witness corpus* below.
+- **Gates:**
+  - Witness: `npx vitest run
+    tests/b0262-unresolved-named-type-reference-positions.test.ts` →
+    `Test Files  1 passed (1)` / `Tests  26 passed (26)`.
+  - Full default suite: `npm test` → `Test Files  440 passed (440)` /
+    `Tests  9232 passed (9232)`.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean, no
+    output.
+  - Lint: `npm run lint`
+    (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`) — clean, no output.
+  - Corpus gate and citation gate: `npx vitest run
+    tests/committed-fixture-parse-gate.test.ts
+    tests/citation-symbol-form-gate.test.ts` → `Test Files  2 passed (2)` /
+    `Tests  39 passed (39)`; the citation-gate pin stayed at 415 and did not
+    rise.
+  - Live, run under the mandatory lock after the final source change:
+    `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0262live-unresolved-named-type-reference-position-live-cell.test.ts
+    tests/live/index-sentinel-typeenv-case-fence-live-cell.test.ts
+    tests/live/acceptance` → `Test Files  17 passed (17)` /
+    `Tests  27 passed (27)`. H9a acceptance is untouched by the widening; the
+    permitted-codes sets are byte-unchanged.
+  - Clause (v) corpus sweep, re-run at this HEAD over
+    `git ls-files '*.theta' '*.thetalib'`: 34 files, ZERO newly refusing, which
+    is the count the ruling expects, reached through the clause-(iv)(1)
+    admission.
+- **Review:** five rounds.
+  - Round 1 (deep) — 10 findings and 1 residual: two cell mis-classifications
+    against clause (i)'s FLIP class, an incoherent §C byte-pin, a false
+    `integer1` registry sentence, a `return`-statement double emission, an
+    over-suppressing capture window, two banned words, stale citations,
+    `path:line` forms, a false failure reading, and an implementation identifier
+    in registry prose. All fixed.
+  - Round 2 (fast) — all ten remedies confirmed landed; raised the
+    two-return-position-query double emission and recommended a deep round.
+  - Round 3 (deep) — upheld the orchestrator's adjudication of round 2's
+    finding; raised 6: nested-capture swallowing, and three propagation misses
+    (array literal, ternary/array `let`, call-argument parameter), two of them
+    measured regressions against pre-fix HEAD. All fixed by deriving the
+    withhold from QRY-2's own propagation report.
+  - Round 4 (deep) — upheld the `fn`-parameter self-authorization and its bound;
+    raised 1: clause-(iv)(3) suppression swallowing author-written heads under a
+    prior-pass fault inside the `let` and `invoke` windows. Re-measured
+    independently by the orchestrator on a quiet tree and confirmed; fixed by
+    the shared `captureAbsorptionWindow` helper.
+  - Round 5 (deep, final) — clean, no ship blocker; three residuals recorded.
+- **Verification:** Phase 4 verdict SOLID.
+  - Obligation 1 — eight targeted neutralisations each proved a distinct witness
+    group can red, each restored byte-exact by blob hash; no group vacuous.
+  - Obligation 2 — suite, typecheck and lint green.
+  - Obligation 3 — live, discharged by the orchestrator under the lock;
+    verifiers do not run live.
+  - Obligation 4 — corpus sweep ZERO; `package.json`, `package-lock.json`,
+    `CHANGELOG.md`, `docs/bugs/README.md`, `docs/bugs/0051-*.md`, bug 0046's
+    witness (`tests/b0046-by-clause-undecided-inputs.test.ts`) and
+    `tests/committed-fixture-parse-gate.test.ts` all byte-untouched against
+    HEAD; no tracked file missing.
+- **Residuals:** four, numbered in *Residuals* below.
+- **Discharge notes appended:**
+  [0045](./0045-inline-empty-object-type-missing-empty-schema-body.md),
+  [0089](./0089-fn-param-alias-not-unfolded-iterand-join.md),
+  [0127](./0127-join-element-gate-does-not-defer-on-unresolvable-element.md),
+  [0130](./0130-let-rhs-type-mismatch-declines-object-union.md),
+  [0144](./0144-annotated-unresolvable-arg-structural-param-emits.md) — each
+  dated 2026-08-24, each recording the old→new movement, the authorising ruling
+  clause and the file's own re-measurement, and each leaving its report's Status
+  unchanged.
+- **Pinned dispositions / non-goals:** the consuming gates' deferral for the
+  withheld class (bugs 0127 and 0144) is unchanged; the derivability rows'
+  boundaries do not move; declaration-position case enforcement is untouched;
+  [0051](./0051-lowercase-named-type-reference-positions-silent.md) is untouched
+  entirely — Status and both appended notes; bug 0046's witness and
+  `tests/committed-fixture-parse-gate.test.ts` stay byte-green without edit;
+  every witness file outside the seventeen enumerated below is byte-unchanged.
+
+### The operator ruling
+
+> **OPERATOR RULING (sixteenth set): 0262 = option (a) — the FULL widening. Emit theta/parse/unresolved-named-type at the four uncovered captures (walkStatement's "let" read, its "fn" parameter and return reads, walkExpr's "invoke" arm), so all nine silent reference positions (r1–r9 of §Reproduction) refuse a written NamedType head that resolves to no visible declaration, case-independently. This generalizes the 0127 ruling's own distinction — a provably-unresolvable WRITTEN name is a provable author error and is judged at the position it is written; a type merely withheld / past the parser's static view keeps the deferring disposition everywhere it holds today. Clauses:
+> (i) The ~82 assertion flips across the 17 pinned witness files measured by the attempt note are AUTHORIZED AS A BATCH, under this partition: vehicle-collateral cells (undeclared heads used as stand-ins for "past the parser's static view" — incl. the named LOCKS 0135 index-sentinel-typeenv-case-fence (6 cells, + its live twin if its fixtures use the same vehicles) and 0249 reserved-keyword-inline-object-and-literal-keys (1 cell)) are RE-VEHICLED with subjects preserved per the 0165/0251 precedent, or flipped to expect the added refusal where the subject is strengthened rather than obstructed (the 0038 typeenv-prototype-names prototype-hygiene cells are the latter class); subject-adjacent cells — 0130's let-silence row, 0045's invoke<T> no-name-walk control, 0127's three oracle cells, 0089's b12/b13 (whose refusal CODE changes from non-string-array-join to unresolved-named-type because the param annotation now refuses upstream; 0127's §C reads those blocks — flip the two files coherently together) — FLIP old→new under this ruling, each with a dated coordination note appended to the owning bug doc (0130, 0045, 0127, 0089; and 0144 per clause ii; X.Y.Z placeholders).
+> (ii) Bug 0144's witness (unresolvable-operand-structural-target-adjudication, 15 cells): the deferral-adjudication SUBJECT is preserved and re-founded on the withheld class — operands past the parser's static view for legitimate reasons (an inferred binding whose RHS depends on a tool call, an invoke against an erroring callee, or the nearest offline-constructible equivalent) — wherever constructible; cells that specifically probed the written-undeclared-annotation route become load-refusal cells. The type-system.md:48 sentences 0144 landed ("the skip is unconditional on the target's kind…", "…likewise unconditional on whether the position documents a runtime AJV net…") stay VERBATIM — they govern the withheld class. Dated coordination note on 0144's doc recording that the registration outcome for WRITTEN-vehicle programs reverses under this ruling.
+> (iii) Spec edits, same commit: DIAG-2 Trigger widening of code-registry-parse.md:112's position list to the full reference set (Message bytes unchanged) + the docs/reference mirror; rows :107 and :108's cross-references to "unresolved-named-type's closed five-position list" are STALE under the widening and are rewritten in the same commit; ONE new normative sentence on the type-system page in the existing void-sentence pattern ("…is rejected at parse time as theta/parse/unresolved-named-type before any compatibility question arises"), plus at most one clarifying clause scoping the Unresolvable-operands paragraph to the withheld/invisible class; a DATED requalification of 0127's element-judging sentence on that page (its input class is now refused upstream — subsumed, not reversed; the receiver clause and the rest of the paragraph stay verbatim); the GOV-15 diagnostic-registry carve-out is stated in the fix record with the in-scope input set (written unresolvable NamedType heads at the nine positions, plus nothing else); grammar.md:105 needs NO edit.
+> (iv) Three dispositions, decided: (1) builtin error-model names (QueryError) are ADMITTED at the four captures — copy the pattern-head position's existing admission — so docs/examples/personas.thetalib:7 keeps loading and the corpus gate stays green; (2) ONE emission per written annotation at BOTH propagating captures: the let→query propagation AND the fn-return→query propagation withhold at the propagating capture (the query arm is the sole emitter for propagated text; no double emission — the attempt note measured two lines without this); (3) artefact spellings (stringletx, number1 — capture debris from other syntax errors) are SUPPRESSED: the new emission is withheld when the capture's source window is already covered by an error-severity diagnostic naming the real fault — the generalization of the landed per-capture guard shape; one written mistake draws one diagnostic naming it.
+> (v) The corpus sweep is re-run at the fix's own HEAD; with the clause-(iv)(1) admission the expected count of newly-refusing shipped files is ZERO.
+> (vi) Locks that stay byte-green and untouched: bug 0046's witness, tests/committed-fixture-parse-gate.test.ts (green via the admission, not via edit), 0051's doc (untouched entirely — Status, both notes), and every witness file NOT in the attempt note's 17-file list.
+
+### The authorised witness corpus
+
+Every row re-derived against the landed bytes at this HEAD. *Cells* counts
+runtime cells whose asserted bytes moved, with `it.each` fan-out expanded; a
+cell whose only change is a comment is not counted. *Owning bug* is the bug the
+enclosing `describe` block names.
+
+| file | owning bug | cells | bucket | old→new | authorising clause |
+|---|---|---|---|---|---|
+| `tests/typeenv-prototype-names.test.ts` | 0038 | 26 | FLIPPED (subject strengthened) | silent → the added refusal, at `w1`–`w6`, the twelve-row `it.each` over `Object.getOwnPropertyNames(Object.prototype)`, `t5`, `t6`, `c1`/`c2`, `c3`, `c9`, `r3`, `r5`, `r6` | (i), "flipped to expect the added refusal where the subject is strengthened rather than obstructed" |
+| `tests/unresolvable-operand-structural-target-adjudication.test.ts` | 0144 | 15 | RE-FOUNDED | eleven re-vehicled `let v: Zz = [1]` → `let v = Ok([1])?`; four (`b7`, `b10`, `e2`, `e5`) converted to load-refusal cells | (ii) |
+| `tests/annotation-nontype-text-refusal.test.ts` | 0124 | 10 | FLIPPED | `thisisnotatype` / `integer1` / `Ghost` at the `let`, parameter and return positions, and `invoke<Ghost>`: silent → refused | (i) |
+| `tests/index-sentinel-typeenv-case-fence.test.ts` | 0135 (named LOCK) | 6 | RE-VEHICLED | `Nope` → `QueryError` in `A1`, `JOIN_BODY` and `SINK_BODY`, consumed by the two `a1` cells and by `C1`–`C4` | (i), the named 0135 lock, "6 cells" |
+| `tests/index-element-alias-unfolded.test.ts` | 0125 | 6 | RE-VEHICLED | `Nope` → `QueryError` at `d3`, `d7`, `d13`, `d14`, `d15`, `d16` | (i) |
+| `tests/join-element-unresolvable-disposition.test.ts` | 0127 | 3 rows, plus the §(C) byte-pin | FLIPPED | `E1`/`E6` → `["theta/parse/unresolved-named-type", JOIN_CODE]`; `R1` → `["theta/parse/unresolved-named-type"]`; §(C)'s pin rewritten to bug 0089's new `b12` bytes | (i), "0127's three oracle cells"; "flip the two files coherently together" |
+| `tests/fn-param-alias-unfolded-at-gates.test.ts` | 0089 | 3 | MIXED | `b12` FLIPPED to the ordered pair `["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]`; `e1`/`e2` RE-VEHICLED `Nope` → `QueryError`; `b13` not exposed, asserted bytes unchanged | (i), "0089's b12/b13" |
+| `tests/alias-sink-array-element-check.test.ts` | 0157 | 3 | RE-VEHICLED | `Nope` / `Ghost` → `QueryError` | (i) |
+| `tests/let-annotation-recorded-binding-type.test.ts` | 0083 | 1 | FLIPPED | `s9` → `["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]` | (i) |
+| `tests/let-annotation-query-double-emission.test.ts` | 0093 | 1 | FLIPPED | the non-query control → its own upstream refusal | (i), bounded by (iv)(2) |
+| `tests/let-annotation-inline-object-compat.test.ts` | 0130 | 1 | FLIPPED | `c5` `let x: Nope = 1` silent → refused | (i), "0130's let-silence row" |
+| `tests/inline-empty-object-type.test.ts` | 0045 | 1 | FLIPPED | `i1`'s `Ghost` row silent → refused; the other four rows stay silent | (i), "0045's invoke<T> no-name-walk control" |
+| `tests/imported-thetalib-fn-call-args-checked.test.ts` | 0138 | 1 | RE-VEHICLED | the library's own `Author` → `QueryError` | (i) |
+| `tests/fn-return-void-query-sink.test.ts` | 0220 | 1 | FLIPPED | the non-propagated ghost return → its own upstream refusal | (i), bounded by (iv)(2) |
+| `tests/live/index-sentinel-typeenv-case-fence-live-cell.test.ts` | 0135 (live twin) | 1 fixture | RE-VEHICLED | `Nope` → `QueryError` | (i), "+ its live twin if its fixtures use the same vehicles" |
+| `tests/fn-arg-type-mismatch-wired.test.ts` | — | 0 | citation-shift only | two comment citations of `tests/fn-param-alias-unfolded-at-gates.test.ts` re-derived to lines 903 through 925 of that file | `docs/STYLE.md`, not the ruling |
+| `tests/wire-translation-inbound-retag.test.ts` | — | 0 | citation-shift only | one comment citation of `tests/typeenv-prototype-names.test.ts` re-derived to line 1062 of that file | `docs/STYLE.md`, not the ruling |
+
+Three files in the attempt note's seventeen-file list came out green without
+edit — `tests/reserved-keyword-misfire-faces.test.ts`,
+`tests/reserved-keyword-inline-object-and-literal-keys.test.ts` (bug 0249, a
+named LOCK, so clause (i)'s authorisation for its one cell went unused) and
+`tests/fn-param-list-unclosed.test.ts` — because dispositions (iv)(2) and
+(iv)(3), which the attempt note lacked, suppress exactly those flips. The
+attempt note projected ~82 flips; the landed change flipped fewer, and the
+difference is those two dispositions.
+
+### The GOV-15 diagnostic-registry carve-out
+
+The widening is a
+[GOV-15](../spec_topics/governance/source-language-stability.md#gov-15)
+diagnostic-registry carve-out. Its in-scope input set is a written, unresolvable
+`NamedType` head at one of the nine reference positions r1–r9 of §Reproduction —
+the `let` annotation, the `fn` parameter type, the `fn` return type, the
+`invoke<T>` ascription, and the generic arguments, union arms, `Result`
+arguments and inline object fields nested inside those four captures — and
+nothing else. Every input in that set loaded cleanly before this change and
+draws an `E` after it, so none remains in the equivalence promise's input set.
+Outside that set nothing moves: the seven already-emitting positions keep their
+bytes, the *Message* is byte-unchanged, a head admitted by the builtin
+error-model admission is outside the set (clause (iv)(1)), text a capture
+absorbed from a different authoring mistake is outside it (clause (iv)(3)), and
+an annotation whose text response-schema inference carries onto a query draws
+its one refusal at the query arm rather than twice (clause (iv)(2)).
+
+### Residuals
+
+1. **A wide-ranged ENCLOSING refusal of a different code still swallows a
+   nested written head's additional refusal.** `fn f(): integer-- { let y: Gone
+   = 1  1 }` draws the `theta/parse/annotation-type-not-expression` for `f`
+   alone. The behaviour is byte-identical to pre-fix HEAD, registration is
+   refused either way, and the code implements clause (iv)(3)'s trigger
+   literally; what over-promises for this shape is the registry row's glosses. A
+   one-clause qualification, or widening the same-walk filter to same-construct
+   annotation refusals, closes it.
+2. **The initialiser-less `let` and body-less `fn` fallback window (the whole
+   construct) swallows the written head.** `let a: Nope` draws
+   `theta/parse/let-without-initialiser` alone. The fallback carries the two
+   mandated artefact fixtures, is stated verbatim in the widened registry row,
+   and is not a regression.
+3. **A propagated `Result` E-side name stays silent.** ``let a: Result<integer,
+   Nope> = @`q` `` draws nothing: the mandated clause-(iv)(2) withhold composes
+   with row r11's untouched `Result`-peel disposition, which judges the T side
+   only. Measured identical for the author-written ascription at pre-fix r11, so
+   it sits outside the r1–r9 mandate. Candidate for an r11 E-side cell under a
+   future bug.
+4. **Bug 0249's named lock
+   (`tests/reserved-keyword-inline-object-and-literal-keys.test.ts`) needed no
+   edit.** Clause (i)'s authorisation for its one cell went unused.
+
+### Self-authorizations on the record
+
+**1. The `fn` parameter capture as a third propagating capture**, beyond clause
+(iv)(2)'s enumeration of two. The question that would have been asked: does the
+one-emission-per-written-annotation rule extend to the parameter capture, which
+QRY-2's call-argument sink also propagates onto? Evidence: (a) clause (iv)(2)
+states the rule as a property of PROPAGATED TEXT, not of an enumerated capture
+list — "the query arm is the sole emitter for propagated text; no double
+emission"; (b) not applying it was a measured regression — `fn h(x: Nope):
+number { 1 }` with ``let r = h(@`q`)`` drew one line pre-fix and two without the
+withhold; (c) the attempt note's Correction 2 words the obligation as "A landing
+route owes that partition for both propagating captures, not just the `let`
+one", so its enumeration was that attempt's measurement rather than an
+exhaustive claim, and the ruling adopted the attempt's numbers. Bound: withhold
+only where QRY-2 actually propagated; add no new emission anywhere; keep every
+already-emitting position byte-stable; suite and corpus gate green. STOP valve:
+any test file outside the authorised set reddening, or any already-emitting
+position's bytes moving, stops the change. Review round 4 audited it and upheld
+it.
+
+**2. Scope expansion to `src/parser/query-schema-resolve.ts` and
+`src/parser/query-schema-inference.ts`**, beyond §Fix's named surface.
+Evidence: (a) review round 3 measured the hand-rolled propagation predicates
+wrong in three distinct ways, two of them regressions against pre-fix HEAD; (b)
+clause (iv)(2) is unsatisfiable without QRY-2's actual propagation set, which
+only QRY-2 holds; (c) the alternative — a second traversal mirroring QRY-2's
+frame set — is the construction that had already drifted. Bound: the pass
+REPORTS what it already does and changes nothing it writes onto any query;
+`inferQuerySchema`'s behaviour is preserved. STOP valve: any change to what the
+pass writes stops the expansion. Review rounds 4 and 5 both judged the expansion
+justified.

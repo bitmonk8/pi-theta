@@ -365,18 +365,41 @@ describe("bug 0093 (d) — two written occurrences keep two lines", () => {
 // GREEN at HEAD and after.
 // ===========================================================================
 
-describe("bug 0093 (e) — the second site keeps its name resolution", () => {
-  it("GREEN e1: a propagated unresolvable name keeps its single `unresolved-named-type`", () => {
+describe("bug 0093 (e) — the second site keeps its name resolution; the non-query control now resolves too", () => {
+  it("e1: a propagated unresolvable name keeps its single `unresolved-named-type`; the non-query control now draws its own, upstream", () => {
+    // "non-query-control" FLIPPED under the sixteenth-set OPERATOR RULING for
+    // bug 0262 clause (i). OLD codes: `[]` — the `let` annotation ran no
+    // resolution pass of its own, and the registry row's closed position list
+    // did not name a non-propagating `let` annotation, so `Ghost` here was
+    // silent (unlike the query-propagated row, whose SOLE emitter was always
+    // the query arm). NEW: bug 0262's widening now runs
+    // `collectUnresolvedNamedTypes` at the `let` annotation capture itself, so
+    // a `let` annotation with NO query to propagate onto is refused upstream,
+    // at the `let` statement's own range, exactly as an ordinary annotation
+    // now is everywhere else in the tree. The "propagated-name" row is
+    // UNCHANGED: bug 0093's landed withhold (this file's whole subject) still
+    // suppresses the `let` capture's own type-grammar pass whenever the
+    // annotation is copied onto a query initialiser, so that row's single
+    // line still comes from the query arm alone — bug 0262's widening reaches
+    // the `let` capture, but the withhold this file pins keeps it from
+    // double-counting the propagated case. Bug 0093's SUBJECT — one written
+    // annotation over a bare-query initialiser draws one line — is untouched.
     expectTable(
       [
         ["propagated-name", body("let r: Ghost = @`hi`"), [at(UNRESOLVED, "4:16-4:21")]],
-        ["non-query-control", body("let r: Ghost = 1"), []],
+        ["non-query-control", body("let r: Ghost = 1"), [at(UNRESOLVED, "4:1-4:17")]],
         ["ascription", body("let r = @<Ghost>`hi`"), [at(UNRESOLVED, "4:9-4:21")]],
       ],
-      "e1 — the first row's single line comes from the query arm alone; a red on it means the " +
-        "repair withheld the arm's name resolution along with its type-grammar pass, dropping " +
-        "the only diagnostic this position has for an unresolvable propagated name. A red on " +
-        "the second row means the repair widened the closed position list instead",
+      "e1 — the first row's single line still comes from the query arm alone, unaffected by bug " +
+        "0262's widening because bug 0093's landed withhold keeps the `let` capture silent " +
+        "whenever the annotation propagates onto a query. The second row now draws its OWN " +
+        "upstream refusal under bug 0262 clause (i), because a non-propagating `let` annotation " +
+        "is one of the four positions the full widening reaches. A red on the first row means " +
+        "the repair withheld the arm's name resolution along with its type-grammar pass, or that " +
+        "the withhold stopped suppressing the `let` capture's own pass for the propagated case. " +
+        "A red on the third row means the widening disturbed the author-written `@<T>` capture, " +
+        "which emitted before it and must stay byte-stable in both its count and its range: that " +
+        "row's `let` has no annotation of its own, so no new position is in play there at all",
     );
   });
 });

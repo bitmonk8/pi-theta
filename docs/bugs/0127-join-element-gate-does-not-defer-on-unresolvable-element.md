@@ -1418,3 +1418,96 @@ record:
   is unmoved. The iterand gate keeps its own disposition — the bug-0144 clause
   names it alongside `join`'s element precondition, and this ruling names only
   the latter.
+
+### Coordination note — bug 0262's reference-position widening (2026-08-24)
+
+Bug [0262](./0262-unresolved-named-type-silent-at-nine-reference-positions.md)
+emits `theta/parse/unresolved-named-type` at the `let` annotation, the `fn`
+parameter type, the `fn` return type and the `invoke<T>` ascription. Three
+oracle cells of this report's witness and its §(C) byte-pin move.
+
+**What changed in `tests/join-element-unresolvable-disposition.test.ts`.** The
+three cells are rows of the `ROWS` table, run by §(B) as `B/<id>`:
+
+- `B/E1` (row `id: "E1"`, line 312 of that file), source
+  `fn f(xs: array<Nope>): string { xs.join(",") }`. Old codes:
+  `[JOIN_CODE]`. New codes, at line 331 of that file:
+  `["theta/parse/unresolved-named-type", JOIN_CODE]`, with
+  `JOIN_CODE = "theta/parse/non-string-array-join"`. The row's `element: "Nope"`
+  is unchanged, so §(B)'s DIAG-4 message check still reads
+  `array.join requires a string element type; got array<Nope>` off the join
+  refusal.
+- `B/E6` (row `id: "E6"`, line 368), source
+  `let e: array<Nope> = []` + `e.join(",")`. Old codes: `[JOIN_CODE]`. New, at
+  line 380: `["theta/parse/unresolved-named-type", JOIN_CODE]`, `element:
+  "Nope"` unchanged. E1 and E6 now carry the identical two-code pattern, which
+  is what that pair exists to compare.
+- `B/R1` (row `id: "R1"`, line 387), source
+  `fn f(xs: Nope): string { xs.join(",") }`. Old codes: `[]`. New, at line 407:
+  `["theta/parse/unresolved-named-type"]` — one code, and it is not
+  `theta/parse/non-string-array-join`.
+
+Rows `E2`–`E5`, `R2`–`R4`, `S1`, `S2`, `T1`, `T2` and `D1` are byte-identical to
+HEAD.
+
+**Why.** The operator ruling (sixteenth set), clause (i), names these cells:
+
+> subject-adjacent cells — 0130's let-silence row, 0045's invoke<T>
+> no-name-walk control, 0127's three oracle cells, 0089's b12/b13 … — FLIP
+> old→new under this ruling, each with a dated coordination note appended to the
+> owning bug doc
+
+and states the ground as a generalisation of this report's own ruling:
+
+> This generalizes the 0127 ruling's own distinction — a provably-unresolvable
+> WRITTEN name is a provable author error and is judged at the position it is
+> written; a type merely withheld / past the parser's static view keeps the
+> deferring disposition everywhere it holds today.
+
+**This report's disposition is subsumed, not reversed.** The subject is the
+element/receiver asymmetry at `array.join`: the element test judges and refuses
+an element type the parser provably cannot resolve, the receiver test defers on
+an unresolvable `named` receiver. Both hold, measured. At `B/E1` and `B/E6` the
+join gate still runs and still refuses the element on its own terms — the join
+code is the second member of each new pair, not a replacement. At `B/R1` the
+join gate still never runs — no `theta/parse/non-string-array-join` appears —
+so the receiver deferral is intact; the single new code comes from the `fn`
+parameter capture, upstream of any `join`-specific gate. The widening changes the
+INPUT CLASS reaching this report's gate, by refusing the written head at the
+position it is written; it moves neither this report's Trigger nor its verdict.
+
+**§(C)'s pin was rewritten, and remains a tripwire.** §(C)
+(`describe("bug 0127 (C) …")`, line 572 of
+`tests/join-element-unresolvable-disposition.test.ts`) reads bug
+[0089](./0089-fn-param-alias-not-unfolded-iterand-join.md)'s witness file bytes
+and asserts that its `b12` block still carries a literal expectation string.
+That string was rewritten, at line 576 of
+`tests/join-element-unresolvable-disposition.test.ts`, from
+`.toEqual(["theta/parse/non-string-array-join"]);` to
+`.toEqual(["theta/parse/unresolved-named-type", "theta/parse/non-string-array-join"]);`
+— bug 0089's new `b12` bytes — under the ruling's instruction that the two files
+"flip … coherently together". The pin still discriminates route (a): route (a)
+would delete `theta/parse/non-string-array-join` from that expectation, and that
+code is still one of the bytes the pin demands, so a route that defers on an
+unresolvable element still reds here. `b13`'s pinned string
+(`.toEqual(["theta/parse/type-alias-cycle", "theta/parse/non-string-array-join"]);`,
+line 581) is byte-identical to HEAD.
+
+**The corpus sentence carries a dated requalification.** The same change-set
+appends a blockquote to `docs/spec_topics/type-system.md`, at line 52 of that
+file: `> **Requalification (2026-08-24, v0.266.0).**` — the version resolved
+at the merge pass. It states that the element-judging sentence is
+subsumed, not reversed, by bug 0262's widening; that a `named` element type the
+author WROTE at one of the ten reference positions and that resolves to no
+visible declaration is refused upstream before reaching the element check; that
+the input class named by the sentence is unreachable through those routes rather
+than judged differently by them; that an element type reached past the parser's
+static view still reaches the element check and keeps the judging disposition;
+and that the receiver clause and the rest of the paragraph are unaffected. The
+element-judging sentence and the receiver clause themselves are byte-verbatim
+against HEAD inside the *Unresolvable operands* paragraph, which now sits at line
+50 of that file, one sentence having been inserted above it at line 48.
+
+**Measured.** `npx vitest run
+tests/join-element-unresolvable-disposition.test.ts` at the current tree: 23 of
+23 cells pass. Status unchanged (**fixed (0.255.0)**).

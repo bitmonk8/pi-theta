@@ -6,6 +6,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.266.0]
+
+### Fixed
+
+- Bug 0262 (operator ruling, option (a) — the full widening): a written
+  `NamedType` head resolving to no visible declaration drew ZERO diagnostics
+  at nine of sixteen reference positions (`let` annotations, `fn` parameter
+  and return types, `invoke<T>` and their interiors) — silently disabling
+  the type checks those annotations exist to drive. All four uncovered
+  captures now run the resolution pass and refuse with the existing
+  `theta/parse/unresolved-named-type` (case-independent; Message bytes
+  unchanged). Registry Trigger widened to the full reference-position set
+  under a GOV-15 carve-out; the two stale closed-five-position
+  cross-references rewritten; one new normative type-system sentence (the
+  void-sentence pattern) plus a dated requalification of 0127's
+  element-judging sentence (subsumed upstream, not reversed — the withheld
+  class keeps every deferral rule verbatim). Dispositions: builtin
+  error-model names admitted (QueryError — the shipped corpus keeps loading,
+  zero newly-refusing files); one emission per written annotation across all
+  three propagating captures; artefact spellings suppressed where an
+  error-severity diagnostic already names the real fault. 16 pinned witness
+  files flipped/re-vehicled under the ruling's enumerated authority
+  (coordination notes on 0045/0089/0127/0130/0144); 0249's lock and the
+  corpus gate needed no edit. New 26-cell witness + live cell
+  `tests/live/b0262live-unresolved-named-type-reference-position-live-cell.test.ts`.
+
 ## [0.265.0]
 
 ### Fixed

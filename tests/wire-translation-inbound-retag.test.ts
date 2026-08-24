@@ -310,7 +310,7 @@ describe("translateInbound — re-tag and re-brand end state (runtime-value-mode
 // own enumerable key: `Object.keys` reports it, `JSON.stringify` emits it, and
 // the record's prototype stays `null`. Bug 0038's witness states the same
 // three-part observable for the `TypeEnv`
-// (`tests/typeenv-prototype-names.test.ts:1006`, group (g)), and states why the
+// (`tests/typeenv-prototype-names.test.ts`, line 1062, group (g)), and states why the
 // construction half needs an observable of its own: a write the prototype
 // setter swallows loses the field outright, so no read-side guard can restore
 // it.

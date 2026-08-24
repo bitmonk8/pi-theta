@@ -162,6 +162,93 @@ import { parseDoc } from "./helpers/e2e-s1";
 // every expected message is interpolated from the live registry through
 // {@link registered}/{@link interpolate}, which throw naming the unmet
 // precondition when a row or a placeholder is missing.
+//
+// RE-FOUNDING (bug 0262's widening, operator ruling, sixteenth set). Bug 0262
+// shipped OPTION (a), the FULL widening: `theta/parse/unresolved-named-type`
+// now fires at the `let` annotation, the `fn` parameter type, the `fn` return
+// type and the `invoke<T>` ascription — the four captures this file's ORIGINAL
+// vehicle wrote through. The ruling, quoted:
+//
+//   > 0262 = option (a) — the FULL widening. Emit
+//   > theta/parse/unresolved-named-type at the four uncovered captures … so all
+//   > nine silent reference positions … refuse a written NamedType head that
+//   > resolves to no visible declaration, case-independently. This generalizes
+//   > the 0127 ruling's own distinction — a provably-unresolvable WRITTEN name
+//   > is a provable author error and is judged at the position it is written;
+//   > a type merely withheld / past the parser's static view keeps the
+//   > deferring disposition everywhere it holds today.
+//   > (ii) Bug 0144's witness … the deferral-adjudication SUBJECT is preserved
+//   > and re-founded on the withheld class — operands past the parser's static
+//   > view for legitimate reasons … wherever constructible; cells that
+//   > specifically probed the written-undeclared-annotation route become
+//   > load-refusal cells.
+//
+// `let v: Zz = [1]` — the vehicle a1/b2/b3/b5/e12/d1/d8/d4/d5/f2/the
+// ctor-field cell all built on — is ITSELF now refused at the `let` capture
+// (`theta/parse/unresolved-named-type: unresolved named type 'Zz'`), so it can
+// no longer carry the deferral SUBJECT: a fixture that refuses at its own
+// declaration measures 0262, not 0144.
+//
+// THE RE-VEHICLE. `Ok(<value>)?` replaces `let v: Zz = [1]` wherever the
+// cell's subject is the DEFERRAL. Three properties make it the offline
+// vehicle the ruling asks for:
+//   (1) NO WRITTEN NamedType. `Ok`/`Err` are constructor keywords, not
+//       `Ident`-shaped `NamedType` references — bug 0262's widening reads
+//       `NamedType` productions only (docs/spec_topics/grammar.md line 98,
+//       `NamedType ::= Ident`), so this spelling is outside its reach by
+//       construction, not by accident.
+//   (2) REACHES `decide()` AS A PROOF, not a proof-channel withhold. A
+//       `result-ctor` node's static type is `#typeExpr`'s
+//       `{kind:"named", name: node.ctor}` (static-type-inference.ts), and
+//       `provableArgType`'s `case "query": case "object": case "result-ctor":
+//       case "par-for":` arm (type-layer-checks.ts) returns that type
+//       UNCONDITIONALLY — never `undefined` — so an unannotated
+//       `let v = Ok(x)?` records a PROVEN binding, never one
+//       `unprovableBindings` marks. `?` (`try`) is transparent to both:
+//       `#typeExpr`'s `"try"` arm and `provableArgType`'s recur on the
+//       operand, so `Ok(x)?` and `Ok(x)` type identically. This is exactly
+//       what a written annotation bought the ORIGINAL vehicle (an annotated
+//       binding is never marked unprovable either) and what an unannotated
+//       `let v = someTool(...)` (a `call`/`invoke` node) CANNOT buy —
+//       `provableArgType`'s `case "call": case "invoke":` arm returns
+//       `undefined` unconditionally, so that vehicle would withhold at the
+//       PROOF CHANNEL before ever reaching `decide()`, testing nothing about
+//       the target's shape (group (B)'s whole subject). `Ok`/`Err` is
+//       therefore the one written-source vehicle in this codebase's own type
+//       layer that is BOTH un-annotated and proof-bearing.
+//   (3) OFFLINE, DETERMINISTIC, NO LIVE MODEL. `Ok(x)` / `Err(x)` evaluate
+//       PURELY and SYNCHRONOUSLY in the executor (statement-executor.ts,
+//       ahead of the checkpoint dispatch every other effect goes through),
+//       and `?` unwraps a success `Ok` to its payload with no further effect —
+//       `let v = Ok([1])?` binds `v` to the plain array `[1]`, not a wrapped
+//       envelope, with no provider, no session, no child process. This is
+//       what makes group (E)'s runtime cell (f2) constructible under this
+//       vehicle at all: every other candidate the ruling names — an inferred
+//       binding whose RHS depends on a Pi-tool call, or an `invoke` against an
+//       erroring callee — is unprovable at the PROOF CHANNEL (the same `case
+//       "call": case "invoke":` arm above covers a Pi-tool call and an
+//       `invoke` alike) and so cannot stand in for group (B)'s target-shape
+//       matrix; `Ok(x)?` is the nearest offline-constructible equivalent the
+//       ruling licenses.
+//
+// The name `Ok` (or `Err`) resolves against NO declaration a theta source can
+// write — `resolveNamed` only ever answers a `schema`, never a `Result`
+// constructor — so `checkCompatible`'s verdict for it is `"unknown"` against
+// every target shape, exactly as `Zz` was, and group (D)'s shape-invariance
+// cell (which drives the relation directly, not through source text) is
+// unaffected and unedited.
+//
+// WHAT CONVERTED, NOT RE-VEHICLED. Four cells (b7, b10, e2, e5) probed the
+// WRITTEN-UNDECLARED-ANNOTATION spelling ITSELF as their subject — an
+// unresolvable name as the fn-argument's TARGET (b7), inside the target's
+// element position (b10), lowercase-cased (e2), or at a `fn` PARAMETER
+// capture (e5) — and every one of those positions is now, by rule, a load
+// refusal: a `fn` parameter's declared type and a `let`'s declared annotation
+// are always WRITTEN text, never withheld, so there is no offline-
+// constructible withheld equivalent for a cell whose subject is that written
+// spelling. Each converts to an `expectRefused` cell asserting
+// `theta/parse/unresolved-named-type`, with the ruling clause named in the
+// cell's own comment.
 
 // ===========================================================================
 // Corpus readers and the DIAG-4 message oracle.
@@ -178,6 +265,10 @@ const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
 const FN_ARG_CODE = "theta/parse/fn-arg-type-mismatch";
 const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
 const ITERAND_CODE = "theta/parse/non-array-iterand";
+// Bug 0262's widening code — the LOAD-REFUSAL oracle the four converted cells
+// (b7, b10, e2, e5) assert against. Not part of bug 0144's own registered set;
+// read from the SAME live registry so a template drift reds here too.
+const UNRESOLVED_NAMED_TYPE_CODE = "theta/parse/unresolved-named-type";
 
 interface RegistryRow {
   readonly code: string;
@@ -241,6 +332,13 @@ function fnArgMismatch(
 
 function iterandRefusal(type: string): string {
   return `error ${ITERAND_CODE}: ${interpolate(ITERAND_CODE, { "<type>": type })}`;
+}
+
+/** `error theta/parse/unresolved-named-type: unresolved named type '<name>'`. */
+function unresolvedNamedType(name: string): string {
+  return `error ${UNRESOLVED_NAMED_TYPE_CODE}: ${interpolate(UNRESOLVED_NAMED_TYPE_CODE, {
+    "<name>": name,
+  })}`;
 }
 
 /**
@@ -502,10 +600,14 @@ describe("bug 0144 (A) — the corpus states the adjudication", () => {
 // ===========================================================================
 
 describe("bug 0144 (B) — the adjudicated behaviour at the fn-argument sink", () => {
-  it("a1: the reported shape — an unresolvable annotation at an `array<integer>` parameter — draws nothing", () => {
+  it("a1: the reported shape — an unresolvable operand at an `array<integer>` parameter — draws nothing", () => {
+    // RE-VEHICLED (operator ruling, sixteenth set, clause (ii)): `let v: Zz =
+    // [1]` is itself refused under bug 0262's widening, so it cannot carry the
+    // deferral subject. `Ok([1])?` is the withheld-class replacement — see the
+    // file header's RE-FOUNDING note for why it reaches `decide()` as a proof.
     expectSilent(
-      G + "let v: Zz = [1]\nlet r = g(v)\nr\n",
-      "a1 — the report's §Symptom row. `Zz` is past the parser's static view, so no `T₁ ⋢ T₂` verdict exists to report",
+      G + "let v = Ok([1])?\nlet r = g(v)\nr\n",
+      "a1 — the report's §Symptom row, re-vehicled onto the withheld class. `Ok`'s minted name is past the parser's static view, so no `T₁ ⋢ T₂` verdict exists to report",
     );
   });
 
@@ -536,37 +638,57 @@ describe("bug 0144 (B) — the adjudicated behaviour at the fn-argument sink", (
   });
 
   it("b2: an ALIAS-of-`array<integer>` parameter draws nothing", () => {
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      "schema L = array<integer>\nfn g(xs: L): number { 1 }\nlet v: Zz = [1]\nlet r = g(v)\nr\n",
+      "schema L = array<integer>\nfn g(xs: L): number { 1 }\nlet v = Ok([1])?\nlet r = g(v)\nr\n",
       "b2 — TYPE-11 unfolds `L` to `array<integer>` before the relation runs, so the alias spelling reaches the same structural target and must defer identically",
     );
   });
 
   it("b3: a primitive `integer` parameter draws nothing", () => {
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      "fn g(n: integer): number { 1 }\nlet v: Zz = 1\nlet r = g(v)\nr\n",
+      "fn g(n: integer): number { 1 }\nlet v = Ok(1)?\nlet r = g(v)\nr\n",
       "b3 — the primitive target, `type-system.md:48` working; no route may coarsen it",
     );
   });
 
   it("b5: a `string | array<integer>` union parameter draws nothing", () => {
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      "fn g(n: string | array<integer>): number { 1 }\nlet v: Zz = [1]\nlet r = g(v)\nr\n",
+      "fn g(n: string | array<integer>): number { 1 }\nlet v = Ok([1])?\nlet r = g(v)\nr\n",
       "b5 — a union target containing the structural arm; the union arm loop must keep answering `\"unknown\"`",
     );
   });
 
-  it("b7: an UNRESOLVABLE parameter type draws nothing", () => {
-    expectSilent(
-      "fn g(n: Qq): number { 1 }\nlet v: Zz = [1]\nlet r = g(v)\nr\n",
-      "b7 — the same unresolvable name as the TARGET; b7 against a1 is the symmetry the adjudication makes explicit",
+  it("b7: an unresolvable parameter type is now a LOAD REFUSAL, not a deferral", () => {
+    // CONVERTED TO LOAD-REFUSAL (operator ruling, clause (i)/(ii)). b7's
+    // subject WAS the symmetry with a1 — the same unresolvable name defers as
+    // the fn-arg SOURCE (a1) and used to defer as the fn-arg TARGET too. A
+    // `fn` parameter's declared type is always WRITTEN text, never withheld,
+    // so there is no offline-constructible withheld equivalent for "the same
+    // name as the target" — under bug 0262's widening a written unresolvable
+    // parameter type is a provable author error and is refused at the
+    // position it is written (the ruling's own generalisation of 0127's
+    // distinction), independent of the argument. `v` is re-vehicled to the
+    // withheld class so the ONLY diagnostic in the list is the one this cell
+    // now tests.
+    expectRefused(
+      "fn g(n: Qq): number { 1 }\nlet v = Ok([1])?\nlet r = g(v)\nr\n",
+      [unresolvedNamedType("Qq")],
+      "b7 — the target's own unresolvable spelling is now refused at its `fn` parameter declaration; the a1/b7 symmetry the report drew is exactly what the widening dissolves — SOURCE stays deferred (withheld class), TARGET is refused (written class)",
     );
   });
 
-  it("b10: an `array<Zz>` parameter with a concrete fitting argument draws nothing", () => {
-    expectSilent(
+  it("b10: an `array<Zz>` parameter is now a LOAD REFUSAL at its element position", () => {
+    // CONVERTED TO LOAD-REFUSAL (operator ruling, clause (i)/(ii)). `Zz` sits
+    // inside the `fn` parameter's own generic-argument interior — one of the
+    // nine reference positions bug 0262 widened onto — so it is refused at
+    // declaration, before the call this cell used to reach.
+    expectRefused(
       "fn g(xs: array<Zz>): number { 1 }\nlet r = g([1])\nr\n",
-      "b10 — the unresolvable name inside the target's element position; the element recursion must defer, not refuse",
+      [unresolvedNamedType("Zz")],
+      "b10 — the unresolvable name inside the target's element position is now refused at the `fn` parameter declaration; the element-recursion deferral this cell used to pin never gets a live source to recurse over",
     );
   });
 
@@ -585,10 +707,17 @@ describe("bug 0144 (B) — the adjudicated behaviour at the fn-argument sink", (
     );
   });
 
-  it("e2: a LOWERCASE unresolvable annotation draws nothing", () => {
-    expectSilent(
+  it("e2: a LOWERCASE unresolvable annotation is now a LOAD REFUSAL, case-independently", () => {
+    // CONVERTED TO LOAD-REFUSAL (operator ruling, clause (i)). This cell's
+    // subject WAS the spelling itself — bug 0051's class, an unresolved
+    // lowercase name at a `let` annotation. Bug 0135's A–Z fence in
+    // `resolveNamed` already made resolution case-independent, and bug 0262's
+    // widening reads that SAME resolution test at the `let` capture, so the
+    // lowercase spelling now refuses exactly as the PascalCase one does (e1/a1).
+    expectRefused(
       G + "let v: zz = [1]\nlet r = g(v)\nr\n",
-      "e2 — bug 0051's class (an unresolved lowercase name at a reference position); it reaches this sink identically and must defer identically",
+      [unresolvedNamedType("zz")],
+      "e2 — a written lowercase unresolvable annotation is now refused at the `let` capture, case-independently with the PascalCase spelling; this is bug 0262's own subject, not a re-founding of bug 0144's",
     );
   });
 
@@ -617,17 +746,28 @@ describe("bug 0144 (B) — the adjudicated behaviour at the fn-argument sink", (
     );
   });
 
-  it("e5: an unresolvable `fn` PARAMETER annotation, read at an inner call, draws nothing", () => {
-    expectSilent(
+  it("e5: an unresolvable `fn` PARAMETER annotation is now a LOAD REFUSAL at its own declaration", () => {
+    // CONVERTED TO LOAD-REFUSAL (operator ruling, clause (i)/(ii)). This
+    // cell's subject WAS the parameter-position vehicle itself — a `fn`
+    // parameter's type is always written, never withheld, so there is no
+    // offline-constructible equivalent that keeps it deferring; bug 0262
+    // widens the SAME `unresolved-named-type` resolution test onto the `fn`
+    // parameter capture (r2 of the reference-position table), so `f`'s own
+    // declaration is refused before `g(v)` inside its body is ever reached.
+    expectRefused(
       G + "fn f(v: Zz): number { g(v) }\nlet r = f([1])\nr\n",
-      "e5 — `walkFn`'s parameter scope records the declared annotation, so the same operand class reaches the sink from a parameter rather than a `let`",
+      [unresolvedNamedType("Zz")],
+      "e5 — the `fn` parameter's own unresolvable annotation is refused at `f`'s declaration; the deferral this cell used to pin at the inner `g(v)` call never gets a live parameter type to reach it",
     );
   });
 
-  it("e12: a `let mut` unresolvable annotation draws nothing", () => {
+  it("e12: a `let mut` withheld binding draws nothing", () => {
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1. `mut` changes
+    // nothing about the record (still the initialiser's proven type), so the
+    // same substitution applies.
     expectSilent(
-      G + "let mut v: Zz = [1]\nlet r = g(v)\nr\n",
-      "e12 — the mutable binding spelling of a1; the record is the same declared type",
+      G + "let mut v = Ok([1])?\nlet r = g(v)\nr\n",
+      "e12 — the mutable binding spelling of a1's re-vehicled form; the record is the same proven type",
     );
   });
 
@@ -635,18 +775,21 @@ describe("bug 0144 (B) — the adjudicated behaviour at the fn-argument sink", (
     // The third `⊑` check site :27 names by hand — "a schema-constructor field
     // value against its declared field type". The adjudication is stated at
     // the relation, so every site on :27's list moves together.
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      "schema R { ks: array<integer> }\nlet v: Zz = [1]\nR { ks: v }\n",
-      "ctor field — the constructor-field sink over the same operand; :27 lists it, so the adjudication reaches it",
+      "schema R { ks: array<integer> }\nlet v = Ok([1])?\nR { ks: v }\n",
+      "ctor field — the constructor-field sink over the re-vehicled withheld operand; :27 lists it, so the adjudication reaches it",
     );
   });
 });
 
 describe("bug 0144 (B) — the `let`-RHS sibling sinks", () => {
-  it("d1: a typed `let` whose RHS is the unresolvable binding draws nothing", () => {
+  it("d1: a typed `let` whose RHS is a withheld binding draws nothing", () => {
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1 in the file header's
+    // RE-FOUNDING note.
     expectSilent(
-      "let v: Zz = [1]\nlet s: array<integer> = v\ns\n",
-      "d1 — the sibling TYPE-9 sink on identical operands; §Fix requires the two wired sinks to answer the same question the same way",
+      "let v = Ok([1])?\nlet s: array<integer> = v\ns\n",
+      "d1 — the sibling TYPE-9 sink on the re-vehicled withheld operand; §Fix requires the two wired sinks to answer the same question the same way",
     );
   });
 
@@ -655,9 +798,10 @@ describe("bug 0144 (B) — the `let`-RHS sibling sinks", () => {
     // `array-element-type-mismatch`): the TYPE-7 recursion carried the refusal
     // into the element position. Both are gone, and the whole-list assertion is
     // what pins that — a filtered subset would miss the element code's return.
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      "let v: Zz = [1]\nlet w: array<array<integer>> = [v]\nw\n",
-      "d8 — the composite the recursion used to refuse twice; the deferral must propagate through the element position as well",
+      "let v = Ok([1])?\nlet w: array<array<integer>> = [v]\nw\n",
+      "d8 — the composite the recursion used to refuse twice, over the re-vehicled withheld operand; the deferral must propagate through the element position as well",
     );
   });
 });
@@ -677,10 +821,16 @@ describe("bug 0144 (C) — the non-`⊑` precondition gates are outside the adju
     // owns the refuse-vs-defer question at gates of this kind; this file pins
     // the boundary rather than crossing it. Message is registry-sourced from
     // `theta/parse/non-array-iterand` (code-registry-parse.md:70).
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1 in the file header's
+    // RE-FOUNDING note. `for`'s own iterand check reads `v`'s recorded type by
+    // VALUE, not through the proof-channel identity read `provableArgType`
+    // gates, so the withheld vehicle's minted name (`Ok`) renders in `got Ok`
+    // exactly where `Zz` rendered before — the boundary pin's subject (this
+    // gate still refuses) is unmoved.
     expectRefused(
-      "let v: Zz = [1]\nfor y in v { y }\n1\n",
-      [iterandRefusal("Zz")],
-      "d4 — the iterand precondition keeps refusing; a route that silences it here has crossed into open bug 0127's subject without adjudicating it",
+      "let v = Ok([1])?\nfor y in v { y }\n1\n",
+      [iterandRefusal("Ok")],
+      "d4 — the iterand precondition keeps refusing on the re-vehicled withheld operand; a route that silences it here has crossed into open bug 0127's subject without adjudicating it",
     );
   });
 
@@ -689,9 +839,10 @@ describe("bug 0144 (C) — the non-`⊑` precondition gates are outside the adju
     // RECEIVER test already defers on an unresolvable `named`, while 0127's
     // subject — the ELEMENT test — refuses. Pinned here so this adjudication
     // cannot be read as having moved either arm.
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1.
     expectSilent(
-      'let v: Zz = ["a"]\nlet s = v.join(",")\ns\n',
-      "d5 — the `join` receiver deferral, unchanged; open bug 0127 owns the element arm and neither arm is touched here",
+      'let v = Ok(["a"])?\nlet s = v.join(",")\ns\n',
+      "d5 — the `join` receiver deferral over the re-vehicled withheld operand, unchanged; open bug 0127 owns the element arm and neither arm is touched here",
     );
   });
 });
@@ -801,15 +952,23 @@ describe("bug 0144 (E) — the value the parameter actually binds", () => {
     // decides whether the body ever runs. The value is asserted second: it is
     // the measurement the report's original emission contradicted — a value
     // that satisfies `array<integer>` at a parameter declared `array<integer>`.
+    //
+    // RE-VEHICLED (operator ruling, clause (ii)) — see a1, and the file
+    // header's RE-FOUNDING note property (3): `Ok([1])?` evaluates PURELY and
+    // SYNCHRONOUSLY (statement-executor.ts's `result-ctor` branch runs ahead
+    // of the checkpoint dispatch every other effect goes through, and `?`
+    // unwraps a success `Ok` with no further effect), so this cell needs no
+    // provider, no session and no child process — offline exactly as the
+    // original literal `[1]` initialiser was.
     const doc = expectSilent(
-      "fn g(xs: array<integer>): array<integer> { xs }\nlet v: Zz = [1]\ng(v)\n",
+      "fn g(xs: array<integer>): array<integer> { xs }\nlet v = Ok([1])?\ng(v)\n",
       "f2 — the runtime row; a refusal here denies registration to a program whose value fits the parameter",
     );
     const execution = await execute(doc);
     expect(execution.outcome, "f2 — the body reaches a value").toBe("success");
     expect(
       execution.result.value,
-      "f2 — the parameter binds the initialiser's value, which satisfies `array<integer>`; the runtime never reads the annotation",
+      "f2 — the parameter binds the initialiser's unwrapped value, which satisfies `array<integer>`; the runtime never reads a static type at all",
     ).toEqual([1]);
   });
 });
