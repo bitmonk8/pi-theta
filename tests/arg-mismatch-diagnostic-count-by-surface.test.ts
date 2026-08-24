@@ -75,7 +75,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 //
 // REGISTRATION IS COUNT-INDEPENDENT and is asserted anyway, because it is what
 // proves each mistyped caller was actually judged: every row here is `E` and
-// `hasLoadParseError` (`src/extension/production-composition.ts:2549–2556`)
+// `hasLoadParseError` (`src/extension/production-composition.ts:2651–2658`)
 // needs one `E` to deny registration, so every mistyped caller must be absent
 // from the returned fixture list and every well-typed control must be present.
 //
@@ -953,7 +953,7 @@ for (const surface of SURFACES) {
           expect(
             outcome.registered,
             `${surface.id}, cell '${cell.key}': every row here is E-severity, so ` +
-              "`hasLoadParseError` (src/extension/production-composition.ts:2549) must " +
+              "`hasLoadParseError` (src/extension/production-composition.ts:2651) must " +
               `deny registration. Registered: ${JSON.stringify(outcome.registered)}`,
           ).not.toContain(stem);
         }

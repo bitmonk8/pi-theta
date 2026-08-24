@@ -6,6 +6,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.268.0]
+
+### Fixed
+
+- Bug 0270: a subagent callee whose own `tools:` named a missing `.theta`
+  path un-registered with `theta/load/unresolvable-theta-path` on the
+  callee file while the prompt-mode caller kept registering a fully-formed
+  callable indistinguishable from the healthy control (bug 0267's withheld
+  route). The caller-side `callee-has-errors` read now runs a
+  pre-resolution existence/readability probe over the callee's own
+  `.theta` entries: the stub `resolveThetaCallee` returns `undefined` for
+  recorded-unreadable specs and the return filter admits the per-route
+  pair `unknown-tool` + `unresolvable-theta-path`, so the caller refuses
+  at load. `checkNestedToolsContainment` reads before judging containment
+  (the read failure owns the entry — no double-report). Same-commit
+  §Static-resolution enumeration widening in `invocation.md` + the
+  `discovery-cli` mirror (DIAG-2). The non-recursion bound stays (depth-2
+  is bug 0271). Offline witness (7 cells) + standalone live cell
+  b0270live; permitted-codes byte-unchanged.
+
 ## [0.267.0]
 
 ### Fixed

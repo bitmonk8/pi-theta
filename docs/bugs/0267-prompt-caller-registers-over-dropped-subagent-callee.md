@@ -458,3 +458,22 @@ measurement.
   surface's WARNING severity is unchanged (§Non-goals); only its dispatch
   outcome moves, which §Fix constraint 3 mandates. The callee's own
   registration decision is unchanged in every row.
+
+
+## Coordination note (2026-08-24) — withhold 3 / Residual 1 closed
+
+The withhold this report's §Fix (0.264.0) enumerated as withhold 3, and
+recorded again as Residual 1 — a callee whose own `tools:` names a `.theta`
+path that resolves to no file un-registering while its `tools:` caller still
+registers, with no caller-located row — is closed at 0.268.0 by
+[bug 0270](./0270-callee-tools-missing-theta-path-caller-still-registers.md).
+The mechanism is a pre-resolution existence/readability probe over the callee's
+own `tools:` entries, feeding the same stub `resolveThetaCallee` this report
+introduced; the return filter this report scoped to
+`theta/load/unknown-tool` is now an explicit per-route list carrying
+`theta/load/unresolvable-theta-path` beside it. This report's own ten offline
+cells and its live cell are byte-unchanged in their assertions (bug 0270 §Fix
+constraint 7); the only edit to its witness is one doc-comment line-number
+citation that bug 0270's diff shifted. The non-recursion bound this report
+established stands: the prompt-mode grandchild route remains a withhold and is
+filed separately as the depth-two report.

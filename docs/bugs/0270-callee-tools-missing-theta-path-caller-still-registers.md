@@ -1,6 +1,6 @@
 # Bug 0270 — A subagent callee whose OWN `tools:` names a `.theta` path that resolves to no file un-registers, while its prompt-mode `tools:` caller still registers a fully-formed callable over it: bug 0267's widened read (`calleeFailsOwnStructuralChecks`, `production-composition.ts:2091`) resolves the callee's own `.theta` entries through a fixed stub (`:2140`) that never returns `undefined`, so `theta/load/unresolvable-theta-path` at the callee is invisible to the V15f `callee-has-errors` loop (`:1747–1759`) and the caller mints a `.theta` callable, with a load-time closure hash, for a file that will not load
 
-- **Status:** open.
+- **Status:** fixed (0.268.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the load-time report names the
   callee only: the caller registers, the callee does not, and the callable is
   offered to code and model with a closure hash over bytes that never load, so
@@ -279,3 +279,138 @@ unresolvable, which is the CALLEE-side emission this probe measured, and
 `.thetalib` imports and its Pi tool names. The gap is therefore both
 implementation-side and enumeration-side, and closing it is this report's
 subject.
+
+## Fix (0.268.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` —
+    `calleeFailsOwnStructuralChecks` gained a PRE-RESOLUTION
+    existence/readability probe over the callee's OWN `tools:` `.theta`
+    entries, keyed by the spec as written (the same key
+    `deps.resolveThetaCallee` is called with), resolved against the callee's
+    directory, bytes discarded and never parsed (§Fix constraints 1 and 3);
+    the stub `resolveThetaCallee` returns `undefined` for exactly the specs
+    that probe recorded unreadable, so `resolveEntry`'s
+    `resolved === undefined` arm raises `theta/load/unresolvable-theta-path`
+    inside the caller's scan; the return filter became an explicit per-route
+    code list (`theta/load/unknown-tool` from bug 0267 row 4 plus
+    `theta/load/unresolvable-theta-path`), never a general `registered`
+    verdict and never an entry-grammar code (§Fix constraint 2 — the landed
+    `theta/load/callee-has-errors` row carries the caller's report, so no new
+    code, no new registry row, no `preEvalCauseOf` arm);
+    `checkNestedToolsContainment` now probes the nested entry's readability
+    BEFORE judging containment and skips an entry whose read fails, the same
+    read-then-containment order the depth-0 loop in `parseCalleeForTools`
+    already runs (§Fix constraint 6); the helper's doc-comment records the
+    admitted route, the precedence, and the re-enumerated WITHHOLDS.
+  - `docs/spec_topics/invocation.md` (§Static resolution) — same-commit
+    enumeration widening (DIAG-2): the callee's own structural checks judged
+    by the walk now include the existence and readability of the `.theta`
+    paths its own `tools:` names, with the bound stated (never that path's own
+    parse, its own declared mode, or its own `tools:` entries) and the
+    precedence stated (a path that cannot be read takes the unresolvable-path
+    disposition; the containment disposition applies only to a path that can
+    be read).
+  - `docs/reference/discovery-cli.md` — the reference mirror of that sentence,
+    amended identically. Grep found no further mirror.
+  - `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`
+    (new) — the offline witness, seven cells.
+  - `tests/live/b0270live-callee-tools-missing-theta-path-live-cell.test.ts`
+    (new) — the H8a live cell (registration outcome ⇒ live owed), standalone
+    per the precedent of bug 0267's live cell, so no H8a cell number moves.
+  - `tests/arg-mismatch-diagnostic-count-by-surface.test.ts`,
+    `tests/callee-post-parse-errors-un-register-tools-caller.test.ts` —
+    comment/message line-number citations re-derived, because this diff's
+    doc-comment growth shifted the lines those two files cite. Assertions
+    byte-unchanged in both; bug 0267's ten cells are byte-identical in
+    behaviour (§Fix constraint 7).
+- The adjudication (§Fix left the route open): the seam is a PRE-RESOLUTION,
+  as §Fix constraint 3 anticipated — `CallableSetDeps.resolveThetaCallee` is
+  synchronous while path resolution is async, so the probe runs before
+  `resolveCallableSet` and feeds a `spec → readable` map the stub reads. The
+  return filter gained the one route's code rather than being replaced by a
+  general verdict. `mode: "subagent"` stays UNCONDITIONAL: the prompt-mode
+  grandchild is a separate route and stays a withhold. One predicate serves
+  both sites for free (§Fix constraint 5) — `parseCalleeTheta`'s dispatch gate
+  calls the same helper, so no second admission exists to diverge. Containment
+  (§Fix constraint 6) is adjudicated by PRECEDENCE, not by mutual exclusion:
+  `checkInvokePathAtLoad` consults `realpath` alone, and a path that
+  `realpath`s can still fail to read (a DIRECTORY named `<name>.theta` rejects
+  `EISDIR`), so the two conditions are not disjoint; the containment walk
+  defers to the read, exactly as the depth-0 loop does, and the read failure
+  owns the entry.
+- Gates: witness file `Tests 7 passed (7)`; full default suite
+  `Test Files 445 passed (445) / Tests 9260 passed (9260)`; `npm run typecheck`
+  (`tsc -p tsconfig.json --noEmit`) clean; `npm run lint` clean; live cell
+  `Test Files 1 passed (1) / Tests 1 passed (1)` under the shared live lock.
+- Review: 2 rounds plus one prose/comment polish round. Round 1 (deep):
+  three findings — F1 `correctness`, an existing-but-unreadable grandchild
+  outside every root drew TWO caller-located rows (`invoke-path-escape` +
+  `callee-has-errors`), diff-introduced, closed by the read-before-containment
+  precedence above plus new cells (D2)/(D3); F2 `test`, the new witness's
+  header cited pre-fix line numbers in present tense; F3 `prose`, a banned
+  word in the new live cell. Round 2 (fast): CLEAN, two non-blocking residuals
+  (recorded below). Polish round: one false doc-comment clause ("never a
+  grandchild's bytes" — the probe does read them, and discards them unparsed)
+  and the spec precedence clause; verified by gate-diff as comment/prose only,
+  so no confirmation review round was dispatched.
+- Verification: SOLID. (i) Three targeted neutralisations, each restored
+  byte-exact and blob-hash verified against the pre-edit working-tree hash
+  (`7ae14f89b9e27f628217666f987ba4a6e66e8333`), never against HEAD: reverting
+  the stub to its unconditional form reds cells (A), (C), (D2), (D3); dropping
+  `theta/load/unresolvable-theta-path` from the return filter reds the same
+  four; removing the read-before-containment skip reds (D2) with the exact
+  double-report signature (`invoke-path-escape` and `callee-has-errors`
+  co-located at the caller). (ii) Full default suite green, with bug 0267's
+  ten cells, bug 0248's lockstep (D3)/(D5), bug 0264's note-count witness and
+  bug 0111's containment witness all green and their assertions byte-unchanged.
+  (iii) Live coverage: the H8a cell was run green under the shared live lock by
+  the orchestrator; the verifier audited it statically (real `ExtensionRunner`,
+  registration read off the real runner, the `theta-system-note` channel read
+  off the settled `SessionManager`, a task-framed arithmetic discriminator,
+  `failLoudly` on a missing provider, the harness's child pins) and found no
+  gap. (iv) Typecheck and lint clean.
+- Residuals:
+  1. The prompt-mode grandchild route stays a WITHHOLD, by §Non-goals and
+     §Fix constraint 4: the stub reports `subagent` unconditionally, so a
+     callee whose own `tools:` names an EXISTING prompt-mode `.theta` still
+     leaves its caller registering. That is the separately filed depth-two
+     report, which reuses this fix's pre-resolution mechanism and adds only
+     its own code to the return filter (§Fix constraint 8, this side of the
+     order).
+  2. The remaining withholds are enumerated in the helper's doc-comment rather
+     than tested: a grandchild that exists and reads but fails its OWN parse
+     or structural checks (cell (E) pins the caller still registering, so an
+     over-refusal reds), its declared mode, and its own `tools:` entries.
+     The non-recursion bound is unchanged.
+  3. Citation debt into `src/extension/production-composition.ts` is unchanged
+     and remains large: this diff shifted lines again, and the sweep found the
+     other citing test files already stale before this fix (verified against
+     `git show HEAD:`). Only the two files this diff shifted from correct to
+     stale were re-derived. `src/extension/production-composition.ts:2282`
+     still cites `code-registry-load.md:35` for
+     `theta/load/invoke-path-escape`, whose row sits at line 36 — pre-existing,
+     left untouched rather than dressed as fresh work.
+  4. §Reproduction's row B understates the registered set: the grandchild,
+     planted on the same discovery source, registers in its own right, so the
+     healthy row registers three names, not two. The row-A closure hash
+     `sha256:ba48f401…` is specific to the filing probe's fixture bytes; the
+     landed witness asserts the entry shape and `sha256:` form instead of a
+     literal digest.
+  5. §Non-goals and §Fix constraint 8 cite the depth-two report as
+     `./0271-callee-tools-prompt-mode-grandchild-caller-still-registers.md`;
+     the filed document is
+     `./0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md`.
+     Citation debt only — recorded here rather than rewritten, per the
+     non-rewriting rule for `docs/bugs/**`.
+- Discharge notes appended:
+  `docs/bugs/0267-prompt-caller-registers-over-dropped-subagent-callee.md` —
+  a dated note recording that its withhold 3 / Residual 1 is closed here.
+- Pinned dispositions / non-goals: the `invoke(...)` literal surface keeps its
+  WARNING severity (only its dispatch outcome moves, which §Fix constraint 5
+  mandates); the callee's own registration decision is unchanged in every row;
+  bug 0248's entry-grammar rejections stay outside the return filter; bug
+  0264's note counts and bug 0111's containment reporting are byte-preserved
+  except where the read now owns an unreadable entry, which cells (D2)/(D3)
+  pin; `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged (no new
+  code was minted, so a real H9a run had nothing to decide).

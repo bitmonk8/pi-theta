@@ -2051,9 +2051,10 @@ async function parseCalleeForTools(
  *        channel — a note-count regression bug 0264's witness
  *        (`tests/thetalib-reparse-walk-single-delivery.test.ts`) locks and this
  *        bug's §Non-goals forbids.
- *   (ii) the callee's OWN `tools:` resolution errors — row 4, and NAMED
- *        `theta/load/unknown-tool` ONLY, not `resolveCallableSet`'s `registered`
- *        verdict in general. Bug 0248's landed lockstep test
+ *   (ii) the callee's OWN `tools:` resolution errors — row 4
+ *        (`theta/load/unknown-tool`) plus bug 0270's route
+ *        (`theta/load/unresolvable-theta-path`), and nothing else. Bug 0248's
+ *        landed lockstep test
  *        (`tests/tools-entry-grammar-derivations-lockstep.test.ts`, cells D3/D5)
  *        settled that an entry-grammar rejection
  *        (`theta/load/malformed-tool-entry`, and by the same reasoning
@@ -2064,29 +2065,71 @@ async function parseCalleeForTools(
  *        structural checks, and an entry-grammar rejection is neither — it is
  *        the callee's OWN `tools:` surface drawing its OWN entry-grammar
  *        diagnostic on its own file, the same disposition a discovered theta
- *        with that entry draws directly. `theta/load/unknown-tool` is
- *        different: `resolveEntry` raises it only for an entry that survived
- *        the grammar and named a callable this walk cannot resolve — the
- *        callee's own dead-callable condition rows 1-3 already cover for
- *        `.thetalib` imports. Resolved NON-RECURSIVELY: `resolveThetaCallee`
- *        returns a fixed stub for any `.theta` entry in the callee's own
- *        `tools:` rather than parsing that grandchild callee. Recursing here
- *        is unbounded — a `tools:` cycle (A names B, B names A) would not
- *        terminate — and the codebase already refuses full nested resolution
- *        at this same depth for the same reason (`checkNestedToolsContainment`'s
- *        doc-comment, "A full callable-set resolution is deliberately not run
- *        here", bug 0111). The stub is CONSERVATIVE: every condition on which
- *        the real resolution errors and the stub does not (an escaping
- *        grandchild path, a grandchild that itself fails its own checks, …)
- *        is a WITHHOLD — this helper answers `false` and the caller keeps
- *        registering, never a false refusal.
+ *        with that entry draws directly. `theta/load/unknown-tool` and
+ *        `theta/load/unresolvable-theta-path` are different: `resolveEntry`
+ *        raises the former only for an entry that survived the grammar and
+ *        named a Pi-tool callable this walk cannot resolve, and the latter
+ *        only for a `.theta` entry `deps.resolveThetaCallee` itself reports
+ *        unresolvable — the callee's own dead-callable condition rows 1-3
+ *        already cover for `.thetalib` imports. Return filter is therefore an
+ *        explicit PER-ROUTE code list (`theta/load/unknown-tool` /
+ *        `theta/load/unresolvable-theta-path`), never a general `registered`
+ *        verdict and never an entry-grammar code (bug 0248 D3/D5 stay out).
+ *
+ *        Bug 0270 (`theta/load/unresolvable-theta-path`): resolved by a
+ *        PRE-RESOLUTION existence/readability probe over the callee's OWN
+ *        `tools:` entries, run BEFORE `resolveCallableSet` (that call is
+ *        synchronous; the probe is not) and recorded in a `spec → readable`
+ *        map the stub `resolveThetaCallee` below consults. The probe reads a
+ *        named path only to decide existence/readability — the bytes are
+ *        discarded, never parsed — so it discovers no further entries and
+ *        follows no graph edge, terminating without a cycle check, exactly
+ *        like `checkNestedToolsContainment`'s containment probe at the same
+ *        depth. §Fix constraint 6 (containment, no double-report): this route
+ *        WINS over `checkNestedToolsContainment`'s
+ *        `theta/load/invoke-path-escape` because that walk DEFERS to the read
+ *        — it probes each nested entry's readability first and skips the
+ *        containment judgement for an entry whose read fails, the same
+ *        read-then-containment order the depth-0 loop in `parseCalleeForTools`
+ *        runs. `realpath` succeeding does not imply a successful read (a
+ *        DIRECTORY named `<name>.theta` realpaths and rejects `EISDIR`), so
+ *        the single-report property comes from that precedence, not from the
+ *        two conditions being mutually exclusive.
+ *
+ *        `resolveThetaCallee` returns `undefined` ONLY for a spec the probe
+ *        map records unreadable; every other spec — including one the
+ *        entry-grammar gate skipped before the probe ran, so it is absent from
+ *        the map — keeps the pre-fix withhold (the fixed subagent-mode stub).
+ *        `mode: "subagent"` stays UNCONDITIONAL: a grandchild resolving to a
+ *        PROMPT-mode file is bug 0271's route, not this one, and is left as a
+ *        WITHHOLD (the stub cannot manufacture
+ *        `theta/load/prompt-mode-callable`).
+ *
+ *        Remaining WITHHOLDS, unchanged by this route and recorded here rather
+ *        than implied complete: a grandchild that EXISTS and reads but fails
+ *        its OWN parse or structural checks (bug 0271's neighbourhood — the
+ *        non-recursion bound stands, so this walk never opens the grandchild's
+ *        bytes), a grandchild's declared PROMPT mode, and any of the
+ *        grandchild's OWN `tools:` entries. Recursing into any of those needs a
+ *        real parse of the grandchild, which is exactly the unbounded
+ *        `tools:` cycle (A names B, B names A) this stub exists to avoid — the
+ *        codebase already refuses full nested resolution at this same depth
+ *        for the same reason (`checkNestedToolsContainment`'s doc-comment, "A
+ *        full callable-set resolution is deliberately not run here", bug
+ *        0111). The stub remains CONSERVATIVE: every condition on which the
+ *        real resolution errors and the probe does not (an escaping
+ *        grandchild path, a grandchild that itself fails its own checks, its
+ *        declared mode, …) is a WITHHOLD — this helper never manufactures a
+ *        false refusal.
  *
  * Returns a boolean only; every diagnostic this walk produces is discarded
  * (no `deps.emitDiagnostic?.(…)` call belongs here). The callee's OWN rows are
  * emitted by the callee's own `runComposePass` iteration; the CALLER's row is
  * the existing V15f `theta/load/callee-has-errors` push in
  * `resolveThetaToolsAtLoad`, now reached because this helper widened the input
- * `hasErrors` it is gated on.
+ * `hasErrors` it is gated on. The SAME helper is called at `parseCalleeTheta`'s
+ * dispatch gate (§Fix constraint 5), so one predicate serves both sites and
+ * this route needs no second admission.
  */
 async function calleeFailsOwnStructuralChecks(
   fs: FileSystem,
@@ -2116,6 +2159,41 @@ async function calleeFailsOwnStructuralChecks(
   if (toolsList === undefined || toolsList.length === 0) {
     return false;
   }
+
+  // Bug 0270 pre-resolution: probe each of the callee's OWN `.theta` entries
+  // for existence/readability BEFORE `resolveCallableSet` runs, keyed by the
+  // spec AS WRITTEN — the same key `resolveThetaCallee` below is called with.
+  // Resolved against the CALLEE's directory, absolute specs used as-is,
+  // exactly as `checkNestedToolsContainment` resolves the same callee's
+  // entries. Bytes are read only to prove readability and are discarded —
+  // never parsed — which is exactly `theta/load/unresolvable-theta-path`'s
+  // Trigger ("resolves to a path that does not exist or is not readable",
+  // code-registry-load.md) answered at existence/readability granularity only.
+  // A spec that fails `parseToolsEntry`, is empty, or is a bare Pi-tool name is
+  // skipped exactly like the depth-0 cache loop and `checkNestedToolsContainment`
+  // skip it — it names no `.theta` path, so it is never a candidate for this
+  // probe or for the map `resolveThetaCallee` below reads.
+  const calleeDir = dirname(calleeAbsolutePath);
+  const readable = new Map<string, boolean>();
+  for (const entry of toolsList) {
+    if (parseToolsEntry(entry.trim()).kind !== "ok") {
+      continue;
+    }
+    const spec = toolsEntrySpec(entry);
+    if (spec.length === 0 || isBareToolName(spec) || readable.has(spec)) {
+      continue;
+    }
+    const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
+    // Rejection-to-`undefined`, the house idiom `parseCalleeForTools` and
+    // `checkNestedToolsContainment` both use for a probe read — never a broad
+    // `catch`.
+    const bytes = await fs.readBytes(nestedAbsolute).then(
+      (value) => value,
+      () => undefined,
+    );
+    readable.set(spec, bytes !== undefined);
+  }
+
   const stubDeps: CallableSetDeps = {
     resolvePiTool: (name) => {
       const builtin = resolvePiTool(name, ctx);
@@ -2128,21 +2206,26 @@ async function calleeFailsOwnStructuralChecks(
       }
       return undefined;
     },
-    // Non-recursive by construction (bug 0267 §Fix, mirroring bug 0111's
-    // `checkNestedToolsContainment`): a `.theta` entry in the callee's OWN
-    // `tools:` resolves to a fixed subagent-mode stub rather than a real parse,
-    // so this walk cannot recurse into a grandchild callee's own errors and
-    // cannot cycle. The stub only ever WITHHOLDS relative to the real
-    // resolution (never over-refuses): it never resolves to `undefined`, so it
-    // cannot itself manufacture `theta/load/unresolvable-theta-path`, and it
-    // reports `subagent` mode unconditionally, so it cannot manufacture
-    // `theta/load/prompt-mode-callable` for a grandchild this walk never reads.
-    resolveThetaCallee: (thetaPath) => ({
-      kind: "theta",
-      mode: "subagent",
-      callee: undefined,
-      calleePath: thetaPath,
-    }),
+    // Bug 0270: `undefined` ONLY for a spec the pre-resolution probe above
+    // recorded unreadable — the one condition `resolveEntry`'s
+    // `resolved === undefined` arm needs to raise
+    // `theta/load/unresolvable-theta-path` against the callee. A spec the
+    // probe recorded readable, or one absent from the map (the entry-grammar
+    // gate skipped it before the probe ran), keeps the pre-fix withhold: the
+    // fixed subagent-mode stub, never a real parse of the grandchild. `mode:
+    // "subagent"` stays UNCONDITIONAL — a grandchild resolving to a
+    // PROMPT-mode file is bug 0271's route, not this one, and remains a
+    // WITHHOLD (this stub can never manufacture
+    // `theta/load/prompt-mode-callable`). Non-recursive by construction (bug
+    // 0267 §Fix, mirroring bug 0111's `checkNestedToolsContainment`): the
+    // probe above reads the callee's OWN entry list only — an existence check
+    // on a path, not a parse of its bytes — so it follows no graph edge and
+    // cannot cycle even when the callee's `tools:` and a grandchild's `tools:`
+    // name each other.
+    resolveThetaCallee: (thetaPath) =>
+      readable.get(thetaPath) === false
+        ? undefined
+        : { kind: "theta", mode: "subagent", callee: undefined, calleePath: thetaPath },
     reservedNames: collectReservedNames(body),
   };
   const result = resolveCallableSet({
@@ -2150,12 +2233,14 @@ async function calleeFailsOwnStructuralChecks(
     tools: { kind: "list", items: toolsList },
     deps: stubDeps,
   });
-  // Row 4 only (see the doc-comment above): an entry-grammar rejection raised
-  // BY `resolveCallableSet` itself (malformed-tool-entry and its siblings) is
-  // not this helper's subject (bug 0248 D3/D5) — only the callee's own dead-
-  // callable condition, `theta/load/unknown-tool`.
+  // Explicit per-route code list (see the doc-comment above): row 4
+  // (`theta/load/unknown-tool`) and bug 0270's route
+  // (`theta/load/unresolvable-theta-path`) only — never a general `registered`
+  // verdict, and never an entry-grammar code (bug 0248 D3/D5 stay out).
   return result.diagnostics.some(
-    (d) => d.severity === "error" && d.code === "theta/load/unknown-tool",
+    (d) =>
+      d.severity === "error" &&
+      (d.code === "theta/load/unknown-tool" || d.code === "theta/load/unresolvable-theta-path"),
   );
 }
 
@@ -2172,9 +2257,11 @@ async function calleeFailsOwnStructuralChecks(
  * next, exactly like the depth-0 loop in `resolveThetaToolsAtLoad`. A full
  * callable-set resolution is deliberately not run here — only the path-shaped
  * rule this report's Fix scopes to — so no content-derived diagnostic can be
- * produced for an entry this function does not otherwise inspect. `undefined`
- * when the callee declares no `tools:`, or `activeRoots` is `undefined` (the
- * nested-callee dispatch parse), or none of its entries escape.
+ * produced for an entry this function does not otherwise inspect. An entry
+ * whose own read fails is skipped before the containment judgement (bug 0270
+ * §Fix constraint 6). `undefined` when the callee declares no `tools:`, or
+ * `activeRoots` is `undefined` (the nested-callee dispatch parse), or none of
+ * its entries escape.
  */
 async function checkNestedToolsContainment(
   fs: FileSystem,
@@ -2210,8 +2297,24 @@ async function checkNestedToolsContainment(
     }
     judged.add(spec);
     const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
-    // Rejection-to-`undefined`, the same idiom `parseCalleeForTools` uses for
-    // its own entry above — never a broad `catch`.
+    // Read BEFORE judging containment, the same order the depth-0 loop in
+    // `parseCalleeForTools` runs, so the identical entry shape draws the
+    // identical single report at both depths (bug 0111's headline): an entry
+    // that exists and `realpath`s but cannot be READ (a directory named
+    // `<name>.theta` rejects `EISDIR`) is the subject of
+    // `theta/load/unresolvable-theta-path`, whose *Trigger* names a path that
+    // "does not exist or is not readable" (code-registry-load.md), so it is
+    // that route's row and not an escape row. Bytes are discarded, never
+    // parsed — the non-recursion bound is untouched. Rejection-to-`undefined`,
+    // the same idiom `parseCalleeForTools` uses for its own entry above —
+    // never a broad `catch`.
+    const nestedBytes = await fs.readBytes(nestedAbsolute).then(
+      (value) => value,
+      () => undefined,
+    );
+    if (nestedBytes === undefined) {
+      continue;
+    }
     const containment = await checkInvokePathAtLoad({
       deps: { fs },
       resolvedPath: nestedAbsolute,

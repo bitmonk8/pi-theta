@@ -89,7 +89,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 //
 // THE DISPATCH-GATE HALF (cells 7-9). Bug 0267 §Fix constraint 3 requires the
 // SAME widened predicate at the drive-time dispatch parse (`parseCalleeTheta`,
-// `src/extension/production-composition.ts`, its gate at lines 2416-2432 of that
+// `src/extension/production-composition.ts`, its gate at lines 2515-2534 of that
 // file), or the load-time and drive-time verdicts diverge again in the opposite
 // direction. Cells 1-6 cannot reach that gate: on the `tools:` surface the fixed
 // caller never registers, so it is never dispatched. The surface that still
