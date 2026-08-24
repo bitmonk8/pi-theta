@@ -267,7 +267,7 @@ during the calling theta's load pass (a shared per-load-pass parse cache, walked
 transitively). A callee that is unreadable / unparseable is
 `theta/load/callee-has-errors` — severity `error` for a `tools:` entry (parent does
 not register), `warning` for a literal `invoke(...)` (parent registers; static
-checks skipped; runtime AJV is the safety net).
+checks skipped; runtime AJV is the safety net). The transitive walk's own-structural-checks judgment covers a callee's own `.thetalib` import resolution and the resolvability of the Pi tool names its own `tools:` declares, not only its own parse.
 
 ## Provenance
 

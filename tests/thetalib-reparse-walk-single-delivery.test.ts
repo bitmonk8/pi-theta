@@ -531,11 +531,20 @@ describe("bug 0264 — a malformed .thetalib's rows reach the channel once per f
       // Control: the parse-phase row is already 1 at HEAD in this cell.
       expectDeliveredExactlyOnce(pass, UNSUPPORTED_FEATURE_CODE, lib);
 
-      // Registration decision, unchanged by the fix (bug 0264 §Expected
-      // behaviour): the caller registers, the importing callee does not.
-      expect(pass.registered, describeNotes(pass.notes)).toEqual([
-        "b0264caller",
-      ]);
+      // Registration decision. Bug 0264's fix left this pin at
+      // ["b0264caller"] — the caller registered while the importing callee did
+      // not. Bug 0267 is the claim that the pinned value was wrong: a `tools:`
+      // `.theta` entry pointing at a callee that fails its own structural
+      // checks is error severity, "the callable cannot be created, and the
+      // parent theta does not register"
+      // (docs/spec_topics/invocation.md, §Static resolution, line 22). The
+      // callee's `.thetalib` import resolution is one of those structural
+      // checks, so BOTH files un-register here and the caller carries
+      // `theta/load/callee-has-errors` at its own `tools:` site. Moved under
+      // bug 0267 §Fix constraint 7, which names this pin as its subject; bug
+      // 0264's note-count assertions above are the same file's other subject
+      // and are left intact.
+      expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect(pass.notified).toEqual([]);
       expect(pass.offChannel).toEqual([]);
     } finally {

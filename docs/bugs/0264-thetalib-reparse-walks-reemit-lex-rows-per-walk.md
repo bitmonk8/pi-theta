@@ -395,3 +395,23 @@ path-spelling divergence. Fifteenth set of bug 0255's lane find.
      citations now carried by `tests/lex-drop-single-delivery.test.ts` and
      `tests/live/unterminated-template-registration-live-cell.test.ts`, which
      are 0255's protected witnesses and stay byte-unmodified.
+
+## Coordination note — cell (C)'s registration pin moved by bug 0267 (0.264.0)
+
+2026-08-24. [Bug 0267](./0267-prompt-caller-registers-over-dropped-subagent-callee.md)
+was filed against this report's §Actual record observation (C) and its fix
+record's residual 1 — "a prompt-mode caller registering over a dropped subagent
+callee". Its §Fix constraint 7 names
+`tests/thetalib-reparse-walk-single-delivery.test.ts` cell (C)'s
+`pass.registered` pin as that report's own subject and authorises the move. The
+pin now reads `[]` where it read `["b0264caller"]`: a `tools:` `.theta` entry
+whose callee fails its own structural checks is error severity at the parent
+(`invocation.md` §Static resolution), and the callee's `.thetalib` import
+resolution is one of those checks, so both files un-register and the caller
+carries `theta/load/callee-has-errors` at its own `tools:` site.
+
+This report's own subject is untouched. Cell (C)'s `expectDeliveredExactlyOnce`
+assertions — and every note-count assertion in cells (A), (B) and (D) — are
+byte-preserved and green. Bug 0267's observing import walk passes
+`claimDelivery: false` to `checkThetaImports` precisely so it cannot consume
+this report's pass-scoped delivered-set and move a count.

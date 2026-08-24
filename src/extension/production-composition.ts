@@ -1705,7 +1705,7 @@ async function resolveThetaToolsAtLoad(
     if (spec.length > 0 && !isBareToolName(spec) && !calleeCache.has(spec)) {
       calleeCache.set(
         spec,
-        await parseCalleeForTools(fs, callerDir, spec, parseDeps, activeRoots),
+        await parseCalleeForTools(fs, ctx, callerDir, spec, parseDeps, getAllTools, activeRoots),
       );
     }
   }
@@ -1933,9 +1933,11 @@ function isBareToolName(spec: string): boolean {
  */
 async function parseCalleeForTools(
   fs: FileSystem,
+  ctx: ExtensionContext,
   callerDir: string,
   spec: string,
   deps: PassParseDeps,
+  getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots?: readonly string[],
 ): Promise<CalleeParse> {
   const absolute = isAbsolute(spec) ? spec : resolvePath(callerDir, spec);
@@ -2007,12 +2009,154 @@ async function parseCalleeForTools(
     document.frontmatter.tools,
     activeRoots,
   );
+  // Bug 0267: the callee's own parse document alone is not its registration
+  // verdict — `checkThetaImports` and the callee's own `tools:` resolution
+  // both run AFTER the callee's parse in that callee's own `runComposePass`
+  // iteration, and a `tools:` scan reaching this file through the CALLER never
+  // otherwise sees either. Widen the same predicate the V15f loop already
+  // consumes rather than adding a second refusal path.
+  const failsPostParseChecks = await calleeFailsOwnStructuralChecks(
+    fs,
+    ctx,
+    deps,
+    absolute,
+    document.frontmatter,
+    document.body,
+    getAllTools,
+  );
   return {
     fileExists: true,
     mode: document.frontmatter.mode,
-    hasErrors: hasLoadParseError(document.diagnostics),
+    hasErrors: hasLoadParseError(document.diagnostics) || failsPostParseChecks,
     ...(nestedToolsEscapes !== undefined ? { nestedToolsEscapes } : {}),
   };
+}
+
+/**
+ * Bug 0267: whether `calleePath`'s ALREADY-PARSED document fails checks that
+ * run after its own `parseThetaDocument` inside `runComposePass` — checks
+ * invisible to `parseCalleeForTools`'s own `hasErrors`
+ * (`hasLoadParseError(document.diagnostics)` above) because they are not part
+ * of the parse document. Two conditions, admitting bug 0267 §Reproduction rows
+ * 1-4 and none other (§Fix constraint 4 — the routes reachable from a
+ * `tools:` scan at THIS point, not the full post-parse gate set):
+ *
+ *   (i)  the callee's own `.thetalib` import resolution errors
+ *        (`checkThetaImports`) — rows 1-3: a malformed library, an
+ *        unresolvable import path (IMP-1), or an unknown imported symbol.
+ *        Observed with `claimDelivery: false`: this walk is not the callee's
+ *        own `runComposePass` iteration and must not consume the pass-scoped
+ *        delivered-set bug 0264's dedup introduced, or the callee's real
+ *        iteration would find its rows already claimed and emit nothing on the
+ *        channel — a note-count regression bug 0264's witness
+ *        (`tests/thetalib-reparse-walk-single-delivery.test.ts`) locks and this
+ *        bug's §Non-goals forbids.
+ *   (ii) the callee's OWN `tools:` resolution errors — row 4, and NAMED
+ *        `theta/load/unknown-tool` ONLY, not `resolveCallableSet`'s `registered`
+ *        verdict in general. Bug 0248's landed lockstep test
+ *        (`tests/tools-entry-grammar-derivations-lockstep.test.ts`, cells D3/D5)
+ *        settled that an entry-grammar rejection
+ *        (`theta/load/malformed-tool-entry`, and by the same reasoning
+ *        `invalid-tool-rename` / `invalid-derived-tool-name` /
+ *        `invalid-pi-tool-name` / `tool-name-collision`) raised INSIDE
+ *        `resolveCallableSet` is not `theta/load/callee-has-errors`'s subject:
+ *        that code's Trigger presupposes a callee that failed its OWN parse or
+ *        structural checks, and an entry-grammar rejection is neither — it is
+ *        the callee's OWN `tools:` surface drawing its OWN entry-grammar
+ *        diagnostic on its own file, the same disposition a discovered theta
+ *        with that entry draws directly. `theta/load/unknown-tool` is
+ *        different: `resolveEntry` raises it only for an entry that survived
+ *        the grammar and named a callable this walk cannot resolve — the
+ *        callee's own dead-callable condition rows 1-3 already cover for
+ *        `.thetalib` imports. Resolved NON-RECURSIVELY: `resolveThetaCallee`
+ *        returns a fixed stub for any `.theta` entry in the callee's own
+ *        `tools:` rather than parsing that grandchild callee. Recursing here
+ *        is unbounded — a `tools:` cycle (A names B, B names A) would not
+ *        terminate — and the codebase already refuses full nested resolution
+ *        at this same depth for the same reason (`checkNestedToolsContainment`'s
+ *        doc-comment, "A full callable-set resolution is deliberately not run
+ *        here", bug 0111). The stub is CONSERVATIVE: every condition on which
+ *        the real resolution errors and the stub does not (an escaping
+ *        grandchild path, a grandchild that itself fails its own checks, …)
+ *        is a WITHHOLD — this helper answers `false` and the caller keeps
+ *        registering, never a false refusal.
+ *
+ * Returns a boolean only; every diagnostic this walk produces is discarded
+ * (no `deps.emitDiagnostic?.(…)` call belongs here). The callee's OWN rows are
+ * emitted by the callee's own `runComposePass` iteration; the CALLER's row is
+ * the existing V15f `theta/load/callee-has-errors` push in
+ * `resolveThetaToolsAtLoad`, now reached because this helper widened the input
+ * `hasErrors` it is gated on.
+ */
+async function calleeFailsOwnStructuralChecks(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: PassParseDeps,
+  calleeAbsolutePath: string,
+  frontmatter: ThetaCompositionInput["frontmatter"],
+  body: ThetaBody,
+  getAllTools: GetAllToolsSnapshot | undefined,
+): Promise<boolean> {
+  const calleeInput: ThetaCompositionInput = {
+    slashName: thetaBasename(calleeAbsolutePath),
+    sourcePath: calleeAbsolutePath,
+    frontmatter,
+    body,
+  };
+  const importCheck = await checkThetaImports(calleeInput, {
+    fs,
+    parseDeps: deps,
+    claimDelivery: false,
+  });
+  if (importCheck.diagnostics.some((d) => d.severity === "error")) {
+    return true;
+  }
+
+  const toolsList = frontmatter.tools;
+  if (toolsList === undefined || toolsList.length === 0) {
+    return false;
+  }
+  const stubDeps: CallableSetDeps = {
+    resolvePiTool: (name) => {
+      const builtin = resolvePiTool(name, ctx);
+      if (builtin !== undefined) {
+        return { kind: "pi-tool", toolDefinition: builtin };
+      }
+      const extension = resolveRegistryExtensionTool(name, getAllTools);
+      if (extension !== undefined) {
+        return { kind: "pi-tool", toolDefinition: extension };
+      }
+      return undefined;
+    },
+    // Non-recursive by construction (bug 0267 §Fix, mirroring bug 0111's
+    // `checkNestedToolsContainment`): a `.theta` entry in the callee's OWN
+    // `tools:` resolves to a fixed subagent-mode stub rather than a real parse,
+    // so this walk cannot recurse into a grandchild callee's own errors and
+    // cannot cycle. The stub only ever WITHHOLDS relative to the real
+    // resolution (never over-refuses): it never resolves to `undefined`, so it
+    // cannot itself manufacture `theta/load/unresolvable-theta-path`, and it
+    // reports `subagent` mode unconditionally, so it cannot manufacture
+    // `theta/load/prompt-mode-callable` for a grandchild this walk never reads.
+    resolveThetaCallee: (thetaPath) => ({
+      kind: "theta",
+      mode: "subagent",
+      callee: undefined,
+      calleePath: thetaPath,
+    }),
+    reservedNames: collectReservedNames(body),
+  };
+  const result = resolveCallableSet({
+    file: calleeAbsolutePath,
+    tools: { kind: "list", items: toolsList },
+    deps: stubDeps,
+  });
+  // Row 4 only (see the doc-comment above): an entry-grammar rejection raised
+  // BY `resolveCallableSet` itself (malformed-tool-entry and its siblings) is
+  // not this helper's subject (bug 0248 D3/D5) — only the callee's own dead-
+  // callable condition, `theta/load/unknown-tool`.
+  return result.diagnostics.some(
+    (d) => d.severity === "error" && d.code === "theta/load/unknown-tool",
+  );
 }
 
 /**
@@ -2267,6 +2411,23 @@ async function parseCalleeTheta(
   // parsed this pass (e.g. a callee named by two `invoke(...)` call sites).
   const document = parseViaPassCache({ path: absolute, bytes }, deps);
   if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+    return undefined;
+  }
+  // Bug 0267 §Fix constraint 3: the SAME predicate as `parseCalleeForTools`'s
+  // widened `hasErrors`, applied at this dispatch gate too, so a load-time
+  // registration and this drive-time re-check cannot diverge in opposite
+  // directions over the same callee.
+  if (
+    await calleeFailsOwnStructuralChecks(
+      fs,
+      ctx,
+      deps,
+      absolute,
+      document.frontmatter,
+      document.body,
+      getAllTools,
+    )
+  ) {
     return undefined;
   }
   const input: ThetaCompositionInput = {

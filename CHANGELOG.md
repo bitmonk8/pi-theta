@@ -6,6 +6,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.264.0]
+
+### Fixed
+
+- Bug 0267: a prompt-mode caller registered a fully-formed callable over a
+  subagent callee that itself un-registers — the caller-side
+  `theta/load/callee-has-errors` decision read only the callee's parse
+  diagnostics, so a callee dropped for a broken/missing `.thetalib` import,
+  an unknown imported symbol, or an unknown Pi tool in its `tools:` was
+  indistinguishable from a healthy callee until drive time. The existing
+  row's input is widened at the V15f loop (refusal at load; no new code):
+  the caller now refuses and locates the offending entry for those four
+  routes; withholds (non-recursion bound) recorded in the fix record.
+  Spec: invocation.md + discovery-cli.md updated in the same commit; the
+  landed 0264 fixture-(C) registration pin flipped under 0267's authority
+  with a dated coordination note. New witness
+  `tests/callee-post-parse-errors-un-register-tools-caller.test.ts` (10
+  cells) and live cell `tests/live/b0267live-…-live-cell.test.ts`;
+  permitted-codes byte-unchanged.
+
 ## [0.263.0]
 
 ### Fixed

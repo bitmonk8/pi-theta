@@ -319,6 +319,22 @@ export async function checkThetaImports(
   deps: {
     readonly fs: FileSystem;
     readonly parseDeps: PassParseDeps;
+    /**
+     * Bug 0267: whether this call may claim its rows against the pass-scoped
+     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
+     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
+     * to before this parameter existed. Pass `false` for an OBSERVING walk
+     * that must not consume the callee's own delivery budget — a `tools:`
+     * caller probing whether a callee it has not yet discovered would fail
+     * this check. Consuming the budget from that probe would starve the
+     * callee's own later `runComposePass` iteration of its rows (the note the
+     * author actually reads), while `undelivered` here is never read by the
+     * probe — it discards `ThetaImportCheck` down to a boolean
+     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
+     * is bug 0264's single-delivery witness; this parameter exists so this
+     * bug's fix cannot move its counts.
+     */
+    readonly claimDelivery?: boolean;
   },
 ): Promise<ThetaImportCheck> {
   const diagnostics: Diagnostic[] = [];
@@ -806,6 +822,16 @@ export async function checkThetaImports(
   // this importer's checks produce has been pushed — `diagnostics` is
   // complete at this point, so `claimUndelivered` sees the whole set this
   // caller is about to hand `runComposePass`, not a partial prefix.
-  const undelivered = deps.parseDeps.passParseCache?.claimUndelivered(diagnostics) ?? diagnostics;
+  //
+  // Bug 0267: an observing call (`deps.claimDelivery === false`) skips the
+  // claim entirely rather than claiming and discarding — `claimUndelivered`
+  // MUTATES the pass-scoped delivered-set (bug 0264), so claiming here on
+  // behalf of a caller that never puts these rows on the channel would consume
+  // budget the callee's own later `runComposePass` iteration needs to emit its
+  // own rows at all.
+  const undelivered =
+    deps.claimDelivery === false
+      ? []
+      : (deps.parseDeps.passParseCache?.claimUndelivered(diagnostics) ?? diagnostics);
   return { diagnostics, imports, undelivered };
 }
