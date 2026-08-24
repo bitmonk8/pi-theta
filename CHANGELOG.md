@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.259.0]
+
+### Fixed
+
+- Bug 0265: three surfaces still spoke the pre-(a)(2) unscoped panic claim
+  after bug 0117 (0.256.0) rescoped the runtime-panic list. All four
+  panic-note sites in `runtime-event-channel.md` (lines 22/32/57/91), the
+  glossary's always-log entry (line 7), and ERR-20's downgrade scope in
+  `docs/reference/errors-and-results.md` now admit the one parse-namespaced
+  panic (`theta/parse/interpolated-result`), each cross-referencing the
+  landed exception sentence. Two source doc-comments carrying the same
+  six-source gloss requalified (comment-only, recorded bounded
+  self-authorization). New five-cell remnant-surface oracle
+  `tests/b0265-panic-scoping-remnant-surfaces-gate.test.ts` (A/B/C red at
+  the old bytes, D/E preservation); 0117's 12-cell oracle byte-unchanged.
+
 ## [0.258.0]
 
 ### Fixed

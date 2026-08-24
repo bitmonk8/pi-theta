@@ -1221,8 +1221,9 @@ type ParForIterationOutcome =
 /**
  * Build the element `Err` for a `par for` iteration downgrade (ERR-20, which
  * extends the invoke-boundary downgrade). The `cause` discriminates exactly as
- * the invoke boundary does (`runInvokeChild`): a thrown `ThetaPanic` (one of the
- * six closed panic sources) is a genuine panic → `cause:"panic"`; any other
+ * the invoke boundary does (`runInvokeChild`): a thrown `ThetaPanic` — every
+ * class `isThetaPanic` admits, the six `theta/runtime/*` sources plus QRY-18's
+ * parse-coded fallback — is a genuine panic → `cause:"panic"`; any other
  * unexpected interpreter throw is a runtime defect → `cause:"internal_error"`.
  * For the no-invoke case the enclosing `.theta` source file names the
  * `callee_path` (there is no invoked callee to name) for BOTH causes.

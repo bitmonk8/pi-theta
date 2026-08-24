@@ -1,6 +1,6 @@
 # Bug 0265 — three surfaces outside bug 0117's granted scope still assert the pre-ruling unscoped panic claim: `runtime-event-channel.md:22/32/57/91` type every panic note's diagnostic as `theta/runtime/*`, `glossary.md:7` types the always-log set's panic members the same way, and ERR-20 (`docs/reference/errors-and-results.md:130`) scopes the `par for` downgrade to "any of the six panic sources above" while `isThetaPanic` returns `true` for the seventh, parse-coded `InterpolatedResultPanic`
 
-- **Status:** open.
+- **Status:** fixed (0.259.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the shipped runtime is what the
   landed ruling prescribes and no input observes a wrong result; the defect is
   spec prose that contradicts it. D1 because the remedy is three one-clause
@@ -236,3 +236,140 @@ Constraints:
 - Bug 0117's lane finds, fifteenth set; surfaces explicitly left outside its
   granted scope.
 - All citations re-derived at HEAD `a6816b96`, v0.258.0.
+- **Appended note (2026-08-24, at fix time).** Every citation above was
+  re-derived a second time at HEAD `616c6d0e` and all four cite sets held
+  unchanged: `runtime-event-channel.md` lines 22/32/57/91, `glossary.md` line 7,
+  ERR-20 at `docs/reference/errors-and-results.md` lines 127-141 (scope clause
+  129-130, source-list statement 139-141), `parForPanicError` at
+  `src/runtime/statement-executor.ts` lines 1230-1238 (ternary at line 1235).
+  The ERR-20 edit grew `docs/reference/errors-and-results.md` from 362 to 364
+  lines, so the ERR-20 line citations in the sections above now point two lines
+  earlier than the shipped page; the anchor `#err-20` is line-independent and
+  unaffected.
+
+## Fix (0.259.0)
+
+- **What shipped**
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — all
+    four panic-note sites (lines 22, 32, 57, 91) requalified with one clause
+    each so the one parse-namespaced panic diagnostic
+    (`theta/parse/interpolated-result`) is admitted beside the `theta/runtime/*`
+    typing, cross-referencing [Errors and Results — Runtime panics]; §Fix
+    item 1. Line 57 gained the errors-and-results cross-reference it lacked.
+    Line count 134 → 134; the five `console.error` exclusions, the group A/B
+    partition, the `RuntimeEvent` shape, the dedup tuple and the PIC-1 `masked`
+    clauses are byte-unchanged.
+  - `docs/spec_topics/glossary.md` — line 7's **always-log set** entry carries
+    the same qualifier on its panic members; §Fix item 2. Still one physical
+    line, `See:` target unchanged. Line count 72 → 72.
+  - `docs/reference/errors-and-results.md` — ERR-20's downgrade scope restated
+    as every panic the `ThetaPanic` predicate admits (the six `theta/runtime/*`
+    sources plus the one parse-namespaced exception), the phrase "from any of
+    the six panic sources above" deleted; §Fix item 3. The closed-source-list
+    statement stays a statement about the source list. Line count 362 → 364.
+  - `src/runtime/statement-executor.ts` — `parForPanicError`'s doc-comment no
+    longer glosses `isThetaPanic` as "one of the six closed panic sources";
+    comment text only, zero executable lines.
+  - `src/runtime/tool-call-off-surface.ts` — the same understatement in the
+    `ToolReturnShapeOutcome` doc-comment reduced to "NOT a `ThetaPanic` at
+    all"; comment text only, zero executable lines.
+- **Gates**
+  - Witness: `npx vitest run tests/b0265-panic-scoping-remnant-surfaces-gate.test.ts`
+    → `Tests 5 passed (5)`. Pre-fix: `Tests 3 failed | 2 passed (5)`.
+  - 0117 lock: `npx vitest run tests/b0117-panic-namespace-scoping-gate.test.ts`
+    → `Tests 12 passed (12)`, file byte-identical to HEAD
+    (`git hash-object` = `git rev-parse HEAD:…` = `98a3c081…`).
+  - Citation gate: `npx vitest run tests/citation-symbol-form-gate.test.ts` →
+    `Tests 3 passed (3)`; the `RESIDUAL = 415` pin at
+    `tests/citation-symbol-form-gate.test.ts` line 432 did not rise.
+  - Full default suite: `npm test` → `Test Files 436 passed (436)`,
+    `Tests 9167 passed (9167)`.
+  - `npm run typecheck` → `tsc -p tsconfig.json --noEmit`, no output.
+  - `npm run lint` → `eslint --no-error-on-unmatched-pattern "src/**/*.ts"`,
+    no output.
+- **Review** — 2 rounds.
+  - Round 1 (`bug-fix-reviewer`): two findings, both `prose`, neither demanding
+    a behavioural change — the line-22 clause coordinated with "carrying" via
+    "plus" (licensing a two-diagnostic reading against the normative
+    single-element claim) and duplicated one cross-reference twice in the
+    sentence; the line-91 clause left an em-dash abutting an open parenthesis.
+    Fidelity, the group-B single-diagnostic emission semantics, the 0117 locks,
+    ERR-20's wrap width, the `#runtime-panics` auto-anchor convention and the
+    witness's non-vacuity were confirmed clean.
+  - Two `bug-fix-fixer-light` rounds discharged both findings: the clauses were
+    recast as disjunctions, and a follow-up correction restored the
+    pre-existing trailing `content`-framing cross-reference on line 22 that the
+    first de-duplication had removed, dropping the link from the inserted
+    clause instead — so line 22's only delta against HEAD is the inserted
+    parenthetical.
+  - Round 2 (`bug-fix-reviewer-fast`): CLEAN, no findings, no escalation.
+- **Verification** (`bug-fix-verifier`): verified.
+  - Witness reds genuinely: each of the three surfaces was neutralised
+    independently by writing its HEAD text back, the matching cell red naming
+    the unqualified panic typing, then the shipped bytes were restored and
+    blob-hash verified (`2d4f5840…`, `875c2d97…`, `bbd0e23f…`). Cells D and E
+    stayed green throughout.
+  - Default suite green (436 files / 9167 tests), 0117 lock green and
+    byte-identical, citation pin unchanged.
+  - No live run is owed and none was made: the change ships zero executable
+    lines (`git diff -U0 -- src/` shows only ` * ` doc-comment lines), so no
+    live-exercised surface moved. Nearest covering cell is the witness's
+    src-derived cell D, which imports `isThetaPanic`
+    (`src/runtime/runtime-panics.ts`) and `InterpolatedResultPanic`
+    (`src/render/query-render.ts`) for real and asserts
+    `isThetaPanic(new InterpolatedResultPanic("probe")) === true` with code
+    `theta/parse/interpolated-result` — the observable ERR-20's old scope
+    clause misstated. Pre-existing offline coverage of the panic-note emission
+    path (`tests/runtime-panics.test.ts`,
+    `tests/interpolated-result-gate.test.ts`, `tests/par-for.test.ts`,
+    `tests/err-note-render.test.ts`) is inside that green suite.
+  - Typecheck and lint clean.
+- **Bounded self-authorization (recorded).** The question I would have asked:
+  *may the two source doc-comments carrying the same understatement be
+  requalified, given §"Actual behaviour / root cause" notes them as "noted, not
+  required by this report's fix" and §Non-goals says "Changing `src/`"?* Settled
+  affirmatively as a comment-only, provably-bounded extension. Three
+  independent evidence sources: (1) `src/runtime/runtime-panics.ts` —
+  `isThetaPanic` is `error instanceof ThetaPanic`, so it admits every subclass,
+  not six named sources; (2) `src/render/query-render.ts` —
+  `InterpolatedResultPanic extends ThetaPanic` with
+  `readonly code = INTERPOLATED_RESULT_CODE` = `theta/parse/interpolated-result`,
+  the seventh subclass; (3) `docs/spec_topics/errors-and-results/error-model.md`
+  §"Runtime panics" — the landed (a)(2) wording states exactly one shipped panic
+  falls outside the namespace correspondence and keeps panic routing. The bound:
+  exactly two files, exactly two `/** … */` blocks, zero executable lines
+  changed and zero assertions touched, verified by `git diff -U0 -- src/` (every
+  changed line begins with ` * `) plus green typecheck, lint and full suite. The
+  STOP valve declared up front: if any further source file reddened, or any hunk
+  reached an executable line, the extension would be abandoned and reported
+  rather than widened — neither occurred.
+- **Residuals**
+  1. `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` line 40
+     (the canonical **always-log set** sentence on this page) and line 69 (the
+     `RuntimeEvent.kind` comment "never a `theta/runtime/*` panic code") carry
+     the same `theta/runtime/*` typing of the always-log set's panic members.
+     Both are outside this report's §Fix enumeration, which names lines 22, 32,
+     57 and 91 only, and neither is contradicted by the exception panic the way
+     the four requalified sites were: line 40's sentence is about set
+     membership rather than diagnostic coding, and line 69's claim (panics
+     route group B and construct no `RuntimeEvent`) stays true of the exception
+     panic. Left unedited deliberately; a follow-up may requalify line 40 for
+     symmetry with `glossary.md` line 7.
+  2. `docs/reference/errors-and-results.md` grew two lines, so this document's
+     own ERR-20 line citations are two lines stale against the shipped page. Recorded as an appended note above rather than rewritten,
+     per the non-rewritten-citation rule. No file under `src/` or `tests/`
+     cites a numeric line of that page (only the line-independent `#err-20`
+     anchor), so nothing downstream went stale.
+- **Discharge notes appended:** none — no sibling document owns any of the five
+  edited files, and bug 0117 is already fixed (0.256.0) with these three
+  surfaces filed as its residuals, which this fix discharges.
+- **Pinned dispositions / non-goals:** operator ruling (a)(2) is untouched — the
+  panic-source list stays six on every page, no registry row was added, and
+  `code-registry-runtime.md`, `error-model.md`, `expressions.md` and
+  `docs/reference/diagnostics.md` are byte-identical to HEAD.
+- **Tests that lock it:**
+  `tests/b0265-panic-scoping-remnant-surfaces-gate.test.ts` (5 cells: A the
+  four `runtime-event-channel.md` sites scored per-site, B `glossary.md` line 7,
+  C ERR-20, D the src-derived `isThetaPanic` observable, E the non-widening
+  locks), alongside the unmodified
+  `tests/b0117-panic-namespace-scoping-gate.test.ts` 12-cell oracle.

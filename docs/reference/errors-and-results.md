@@ -126,8 +126,10 @@ and cannot be caught by `match`.
 
 <a id="err-20"></a> **ERR-20 (`par for` iteration boundary — panic downgrade).** The
 `par for` iteration boundary ([Control flow](../spec_topics/control-flow.md#par-for))
-is a panic-downgrade point. A runtime panic raised inside one iteration — from any
-of the six panic sources above — does not abort the theta: it is downgraded to that
+is a panic-downgrade point. A runtime panic raised inside one iteration — every panic
+the `ThetaPanic` predicate admits, i.e. any of the six `theta/runtime/*` sources above
+or the one parse-namespaced exception (`theta/parse/interpolated-result`, see
+[**Runtime panics**](#runtime-panics) above) — does not abort the theta: it is downgraded to that
 element's `Err(QueryError { kind: "invoke_infra", cause: "panic", message: <message>,
 ... })`, siblings run to completion, and the loop still yields a full
 `array<Result<T, QueryError>>`. This extends the existing invoke-boundary downgrade
