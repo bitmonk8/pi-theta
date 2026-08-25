@@ -13,15 +13,18 @@ import { parseDoc } from "./helpers/e2e-s1";
 // declaration's body
 // (docs/bugs/0272-enclosing-annotation-refusal-swallows-nested-unresolved-head.md).
 //
-// THE SEAM. `captureWindowAlreadyRefused` (`src/parser/theta-document.ts` line
-// 7550) answers `true` when any error-severity diagnostic's range OVERLAPS the
+// THE SEAM (line numbers re-derived post bug 0279, which widened
+// `src/parser/theta-document.ts` below `UNRESOLVED_NAMED_TYPE_CODE`).
+// `captureWindowAlreadyRefused` (`src/parser/theta-document.ts` line 7630)
+// answers `true` when any error-severity diagnostic's range OVERLAPS the
 // capture's absorption window, filtering out of its `own` argument only a row
-// this same walk drew under `UNRESOLVED_NAMED_TYPE_CODE` (line 6459). The
-// windows it is asked about are narrowed — `captureAbsorptionWindow` (line 7583)
-// and `fnHeaderWindow` (line 7598), consulted at the `let` annotation (line
-// 8136), the `fn` parameter type (line 8251), the `fn` return type (line 8290)
-// and the `invoke<T>` ascription (line 8708) — but the COVERING diagnostic's own
-// range is not: `annotationTypeNotExpressionDiagnostic` (line 6567) is minted
+// this same walk drew under `UNRESOLVED_NAMED_TYPE_CODE` (line 6522). The
+// windows it is asked about are narrowed — `captureAbsorptionWindow` (line 7663)
+// and `fnHeaderWindow` (line 7678), consulted at the `let` annotation (line
+// 8220), the `fn` parameter type (line 8346), the `fn` return type (line 8395)
+// and the `invoke<T>` ascription (line 8823), each now additionally gated on
+// the capture's own provenance mark (bug 0279) — but the COVERING diagnostic's
+// own range is not: `annotationTypeNotExpressionDiagnostic` (line 6630) is minted
 // with the enclosing statement's range, and the registry row for that code
 // states that choice normatively ("Every diagnostic carries the declaration's
 // range — a `let` statement's, or an `fn` declaration's",
@@ -63,24 +66,35 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Route (a), a prose-only qualification of that row, was declined. No *Message*
 // byte and no registry row moves.
 //
-// WHAT STAYS PUT, EACH LOCKED BY ITS OWN GROUP BELOW. Bug 0262 §Fix's operator
-// ruling clause (iv)(3) settled SAME-CONSTRUCT suppression, and the narrowing
-// keeps it:
+// WHAT STAYS PUT, EACH LOCKED BY ITS OWN GROUP BELOW.
 //
-//   (F) — the fences at one construct. `let x: Gone-- = 1` and
-//   `fn f(): Gone-- { 1 }` each draw the enclosing refusal ALONE: the coverer
-//   carries the judged construct's own range, which is contained in it, so it
-//   stays cover. `fn f(p: integer--, q: Gone): number { 1 }` is the same reading
-//   at a sibling parameter of one header.
+//   (F) — the true one-mistake fences. `let x: Gone-- = 1` and
+//   `fn f(): Gone-- { 1 }` each draw the enclosing refusal ALONE, because guard-1
+//   withholds the second row before clause (iv)(3) is ever consulted: the
+//   author wrote ONE malformed annotation, not two mistakes.
+//   `fn f(p: integer--, q: Gone): number { 1 }` (row F3) is REFOUNDED under bug
+//   0279 (docs/bugs/0279-same-construct-suppression-swallows-genuine-sibling-mistakes.md):
+//   it is NOT the same reading as the other two rows, because `q: Gone` is a
+//   second, genuinely-written mistake whose capture absorbed nothing, and it now
+//   draws its own `unresolved-named-type` beside the enclosing refusal.
 //
-//   (N) — the nested-`fn` cell, UNCHANGED by the narrowing and a required fence
-//   rather than a miss. `theta/parse/nested-fn` is ranged over the inner `fn`'s
-//   OWN construct, so it IS contained in the construct whose parameter capture
-//   is judged, and it keeps suppressing the inner `Gone`. That is a documented
-//   consequence of clause (iv)(3)'s landed same-construct suppression.
+//   (N) — the nested-`fn` cell, also REFOUNDED under bug 0279.
+//   `theta/parse/nested-fn` is ranged over the inner `fn`'s OWN construct, so it
+//   IS contained in the construct whose parameter capture is judged — a range
+//   relation this file's ORIGINAL reading took as cover. `z`'s capture absorbed
+//   nothing, `Gone` is a name the author wrote, and it now draws its own line
+//   beside the enclosing refusal and `nested-fn`.
 //
 //   (SIB) — the sibling-statement controls, in both orders. An enclosing range
 //   that does not reach the second statement never covered it, before or after.
+//
+// Bug 0262 §Fix's operator ruling clause (iv)(3) still settles SAME-CONSTRUCT
+// suppression, but its TRIGGER is bug 0279's provenance mark, not the range
+// relation this file originally encoded: a coverer inside one construct is
+// cover only for a capture that itself absorbed debris past a syntax fault, not
+// for a sibling capture that ended at its own terminator and holds a head the
+// author wrote. Rows F1/F2 hold under either reading (guard-1 alone accounts for
+// them); rows F3 and N do not, and are the two cells this file re-founds.
 //
 // Every cell here carries an error-severity `theta/parse/*` diagnostic, so no
 // cell registers on either side of the change: an `E` denies registration, the
@@ -301,8 +315,8 @@ describe("b0272 (S) — an enclosing `fn` refusal does not swallow a nested `let
     // The bug document's §Reproduction row a. The `fn` declaration's refusal
     // spans source lines 6 through 9, so it overlaps the `let` capture's window
     // at source line 7, and `captureWindowAlreadyRefused`
-    // (`src/parser/theta-document.ts` line 7550) counted it as cover at the
-    // `let` call site (line 8136). Under the narrowing it counts only a coverer
+    // (`src/parser/theta-document.ts` line 7630) counted it as cover at the
+    // `let` call site (line 8220). Under the narrowing it counts only a coverer
     // CONTAINED in the construct whose capture is judged — the `let` statement
     // at 7:3-7:18 — and the enclosing refusal is not, so the head the author
     // wrote is named.
@@ -402,30 +416,45 @@ describe("b0272 (SIB) — two sibling statements each keep their own diagnostic"
 // (F) Same-construct suppression — the fences clause (iv)(3) settled.
 // ===========================================================================
 
-describe("b0272 (F) — a coverer carrying the judged construct's own range stays cover", () => {
-  it("b0272-F: one construct with one written annotation keeps ONE diagnostic", () => {
-    // Bug 0262 §Fix's operator ruling clause (iv)(3), ratified by that fix's
-    // review rounds 3 and 4 and named in this bug's §Non-goals. In each row the
-    // refusal is ranged over the very construct whose capture is being judged,
-    // so it is contained in it and the narrowed predicate still counts it: the
-    // absorbed head is capture debris from the one authoring mistake the row
-    // already names, not a second written mistake.
+describe("b0272 (F) — a coverer carrying the judged construct's own range stays cover ONLY over absorbed debris", () => {
+  it("b0272-F: one written annotation with nothing absorbed past it keeps ONE diagnostic; a genuinely-written sibling head draws its own", () => {
+    // Bug 0262 §Fix's operator ruling clause (iv)(3). F1 and F2 stay fences:
+    // `Gone--` derives from no `Type` production, so
+    // `annotationTypeNotExpressionDiagnostic` fires from THIS capture's own
+    // walk before clause (iv)(3) is ever consulted (guard-1,
+    // `src/parser/theta-document.ts`'s `!out.slice(...).some(error)` term) —
+    // one written mistake, one diagnostic, on every reading bug 0279 leaves
+    // untouched.
     //
-    // F3 is the same reading at a sibling PARAMETER of one `fn` header: `p`'s
-    // junk annotation and `q`'s undeclared head sit in the same construct, whose
-    // range the coverer carries, so the header keeps one diagnostic.
+    // F3 is REFOUNDED under bug 0279
+    // (docs/bugs/0279-same-construct-suppression-swallows-genuine-sibling-mistakes.md).
+    // It was authored as a same-construct fence on clause (iv)(3)'s
+    // then-decided reading: a coverer ranged over the WHOLE construct (`p`'s
+    // annotation refusal, minted with the declaration's range) was counted as
+    // cover for every capture in that construct, including `q`'s, whichever
+    // code the coverer carried. Bug 0279 refines the clause's trigger to the
+    // capture's own PROVENANCE: `q`'s parameter-type capture stopped at its own
+    // `)`, so it absorbed nothing, and `Gone` is a name the author wrote, not
+    // debris from `p`'s mistake. `q`'s capture now draws its own
+    // `unresolved-named-type` beside `p`'s annotation refusal — two written
+    // mistakes, two diagnostics, both carrying the declaration's range since
+    // neither the annotation nor the head has a range of its own to carry.
     const letFence = theta("F1 — `let x: Gone-- = 1`", "let x: Gone-- = 1\n1");
     const returnFence = theta("F2 — `fn f(): Gone-- { 1 }`", "fn f(): Gone-- { 1 }\n1");
-    const paramFence = theta(
+    const siblingHead = theta(
       "F3 — `fn f(p: integer--, q: Gone): number { 1 }`",
       "fn f(p: integer--, q: Gone): number { 1 }\n1",
     );
-    expectCaptured([letFence, returnFence, paramFence], 1, []);
+    expectCaptured([letFence, returnFence, siblingHead], 1, []);
     expectRows(
-      [letFence, returnFence, paramFence],
-      [[ANNOTATION], [ANNOTATION], [ANNOTATION]],
-      () => [[annotationLine("x")], [annotationLine("f")], [annotationLine("p")]],
-      [["6:1-6:18"], ["6:1-6:21"], ["6:1-6:42"]],
+      [letFence, returnFence, siblingHead],
+      [[ANNOTATION], [ANNOTATION], [ANNOTATION, UNRESOLVED]],
+      () => [
+        [annotationLine("x")],
+        [annotationLine("f")],
+        [annotationLine("p"), unresolvedLine("Gone")],
+      ],
+      [["6:1-6:18"], ["6:1-6:21"], ["6:1-6:42", "6:1-6:42"]],
     );
   });
 });
@@ -434,20 +463,25 @@ describe("b0272 (F) — a coverer carrying the judged construct's own range stay
 // (N) The nested `fn` — same-construct cover, and a required fence.
 // ===========================================================================
 
-describe("b0272 (N) — an inner `fn`'s own refusal keeps covering that `fn`'s parameter head", () => {
-  it("b0272-N: the inner `Gone` stays silent, before the change-set and after", () => {
-    // UNCHANGED by the narrowing, and a REQUIRED fence rather than a miss.
-    // `theta/parse/nested-fn` is ranged over the inner `fn`'s OWN construct
-    // (7:3-7:30), which is exactly the construct whose parameter capture is
-    // judged at the `fn` parameter call site (`src/parser/theta-document.ts`
-    // line 8251), so the coverer is contained in it and stays cover under the
-    // narrowed predicate. The inner head therefore keeps drawing nothing.
+describe("b0272 (N) — an inner `fn`'s own refusal is no verdict on that `fn`'s written parameter head", () => {
+  it("b0272-N: the inner `Gone` is named beside the enclosing refusal and `nested-fn`", () => {
+    // REFOUNDED under bug 0279
+    // (docs/bugs/0279-same-construct-suppression-swallows-genuine-sibling-mistakes.md).
+    // This cell was authored as a fence on clause (iv)(3)'s then-decided
+    // same-construct reading: `theta/parse/nested-fn` is ranged over the inner
+    // `fn`'s OWN construct (7:3-7:30), which IS the construct whose parameter
+    // capture is judged, so the range test counted it as cover for `z: Gone`
+    // whatever code it carried.
     //
-    // That is a documented consequence of clause (iv)(3)'s landed same-construct
-    // suppression — one construct already refused keeps its diagnostic alone —
-    // and not a residue of this bug: the enclosing `fn`'s refusal at 6:1-9:2
-    // stops covering the inner capture under the narrowing, but the inner `fn`'s
-    // own refusal does not.
+    // `z`'s parameter-type capture stopped at its own `)`, so it absorbed
+    // nothing — `Gone` is a name the author wrote in a real parameter list, not
+    // debris from the enclosing `fn`'s `integer--` mistake or from `nested-fn`
+    // itself. Under bug 0279's provenance mark, `nested-fn` is no longer read as
+    // a verdict on that written head: the inner declaration now draws its own
+    // `unresolved-named-type` at its own extent, third in order, beside the
+    // enclosing annotation refusal and `nested-fn`. The enclosing `fn`'s refusal
+    // at 6:1-9:2 already stopped covering the inner capture under bug 0272's
+    // containment narrowing; what bug 0279 removes is `nested-fn`'s cover.
     const nested = theta(
       "N — `fn f(): integer--` over a body declaring `fn g(z: Gone)`",
       "fn f(): integer-- {\n  fn g(z: Gone): number { 2 }\n  1\n}\n1",
@@ -455,9 +489,9 @@ describe("b0272 (N) — an inner `fn`'s own refusal keeps covering that `fn`'s p
     expectCaptured([nested], 1, []);
     expectRows(
       [nested],
-      [[ANNOTATION, NESTED_FN]],
-      () => [[annotationLine("f"), line(NESTED_FN)]],
-      [["6:1-9:2", "7:3-7:30"]],
+      [[ANNOTATION, NESTED_FN, UNRESOLVED]],
+      () => [[annotationLine("f"), line(NESTED_FN), unresolvedLine("Gone")]],
+      [["6:1-9:2", "7:3-7:30", "7:3-7:30"]],
     );
   });
 });
@@ -512,8 +546,8 @@ describe("b0272 (J) — a head nested one generic level down inside the body is 
 describe("b0272 (K) — an `invoke<T>` ascription written in the body is named too", () => {
   it("b0272-K: the ascription's head refuses at the invoke expression's extent", () => {
     // The fourth of the captures bug 0262 §Fix widened, judged at the `invoke`
-    // call site (`src/parser/theta-document.ts` line 8708) against the window
-    // `captureAbsorptionWindow` (line 7583) builds from the invoke EXPRESSION's
+    // call site (`src/parser/theta-document.ts` line 8823) against the window
+    // `captureAbsorptionWindow` (line 7663) builds from the invoke EXPRESSION's
     // range. The enclosing `fn` refusal at 6:1-9:2 is not contained in that
     // expression, so it is no cover under the narrowing and the ascription's
     // head is named at the expression's own extent, 7:11-7:34 — a position

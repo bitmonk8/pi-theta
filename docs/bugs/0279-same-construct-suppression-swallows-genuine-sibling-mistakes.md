@@ -1,6 +1,6 @@
 # Bug 0279 — `theta/parse/unresolved-named-type`'s same-construct cover is decided by RANGE alone, and a coverer ranged over a whole declaration (`annotationTypeNotExpressionDiagnostic`'s statement-wide mint) or a whole nested declaration (`theta/parse/nested-fn`) contains a SIBLING head the author wrote, so `fn f(p: integer--, q: Gone): number { 1 }` and `fn f(): integer-- { fn g(z: Gone): number { 2 }  1 }` each draw ONE diagnostic for TWO genuinely-written mistakes
 
-- **Status:** open.
+- **Status:** fixed (0.278.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because registration is refused either way
   (every row in §Reproduction carries an error-severity `theta/parse/*`
   diagnostic, so `hasLoadParseError` denies registration on both readings) and
@@ -395,3 +395,154 @@ The coverer's declaration-wide range is
 Filed by operator direction in the seventeenth session, elevating 0272's
 residual 1 to a report of its own. All ten cells above measured at HEAD
 `48d5a3e1`, v0.272.0, through an offline `parseDoc` probe deleted after use.
+
+## Fix (0.278.0)
+
+**Route ruling, adjudicated at pickup on the record.** Route **(2b) —
+provenance-marked captures**, with no (2a) element. The §Fix re-derivation's
+(2a)-insufficiency finding was re-measured at this fix's HEAD `8b39e071`
+(v0.275.0, three moves of `src/parser/theta-document.ts` after filing) through
+an offline `parseDoc` probe over all ten §Reproduction bodies: every row
+reproduced byte-identically to the filing measurement, so the derivation stands.
+Narrowing `annotationTypeNotExpressionDiagnostic`'s mint to `integer--`'s own
+span leaves that span inside both `fnHeaderWindow(s)` and `s.range`, so cell a1
+is unmoved; cell a2's coverer is `theta/parse/nested-fn`, which no mint change
+reaches; and a capture-span cover test reds the true-debris fence, cell c1,
+whose coverers are token-ranged at 6:1-6:3 and 6:5-6:6 and sit ahead of the
+absorbed text. Route (2b) addresses a1, a2 and the c1/c2 fence by construction,
+and it leaves every minted range where bug 0124 put it — so
+`src/diagnostics/diagnostic.ts`'s rendered column, the 12 pinned extents of
+`tests/qry4-refused-annotation-withhold.test.ts`, the two of
+`tests/fn-param-list-unclosed.test.ts` and bug 0272's remaining extent pins are
+byte-green rather than re-pinned. The ruling was validated by prototype before
+dispatch: the prototype's full-suite run reded exactly the two flips this report
+enumerates and nothing else.
+
+The suppressed class is now stated as the capture's own provenance. A capture
+that ENDED AT its own grammatical terminator holds exactly the text the author
+spelled there, and no coverer is a verdict on it; a capture that did not is the
+debris case clause (iv)(3) names. The clause's charter is refined, not reversed.
+
+- What shipped:
+  - `src/parser/theta-document.ts` — four optional AST provenance marks
+    (`LetStmt.annotationAbsorbed`, `FnParam.typeAbsorbed`,
+    `FnDecl.returnTypeAbsorbed`, `InvokeExpr.returnSchemaAbsorbed`), each set at
+    capture time when the capture did not end at its own terminator (`=`; `,` or
+    the list's `)`; the body `{` or a contextual `with`; the ascription's own
+    `>`), and present only when true so a capture that ended at its terminator
+    yields a node byte-identical in shape to before. The four
+    `captureWindowAlreadyRefused` call sites gate the whole withhold on the
+    judged capture's mark. Both branches are gated: the refined trigger is a
+    property of the capture, not of the pass that drew the coverer.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/unresolved-named-type` *Trigger*'s same-construct sentence
+    replaced under DIAG-2. The count rule holds without the same-construct
+    carve-out, and cover is stated as the capture's own provenance in its two
+    shapes. Row `:107` is byte-unchanged, route (2b) moving no mint;
+    `docs/reference/diagnostics.md` mirrors code / severity / phase / *Message*
+    only, none of which moves, so no mirror edit is owed.
+  - `tests/b0279-same-construct-suppression-swallows-genuine-sibling-mistakes.test.ts`
+    — the nine-cell offline witness.
+  - `tests/b0272-enclosing-annotation-refusal-nested-head.test.ts` — witness
+    cells `b0272-F` row F3 and `b0272-N` re-founded (subjects preserved,
+    expectations and prose re-authored on the fixed behaviour) under this
+    report's enumerated flip authority.
+  - `docs/bugs/0272-enclosing-annotation-refusal-swallows-nested-unresolved-head.md`
+    — dated coordination note discharging its residual 1 and recording the
+    re-founding.
+- Gates:
+  - Witness — `npx vitest run tests/b0279-same-construct-suppression-swallows-genuine-sibling-mistakes.test.ts`:
+    `Test Files  1 passed (1)` / `Tests  9 passed (9)`. Red before the fix on
+    cells a1 and a2 for the filed reason, a missing
+    `theta/parse/unresolved-named-type` naming `Gone`.
+  - Full default suite — `npm test`: `Test Files  454 passed (454)` /
+    `Tests  9349 passed (9349)`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`): clean, no output.
+  - `npm run lint` (`eslint --no-error-on-unmatched-pattern "src/**/*.ts"`):
+    clean, no output.
+  - Enumerated locks re-run individually and green: the 26 cells of
+    `tests/b0262-unresolved-named-type-reference-positions.test.ts` (the
+    true-debris fence), `tests/qry4-refused-annotation-withhold.test.ts`,
+    `tests/fn-param-list-unclosed.test.ts`,
+    `tests/b0272-enclosing-annotation-refusal-nested-head.test.ts`,
+    `tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts`,
+    `tests/b0278-result-arity-mismatch-silent-at-query-response-annotation.test.ts`,
+    `tests/b0273-query-result-error-side-unresolved-name.test.ts`,
+    `tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`,
+    `tests/committed-fixture-parse-gate.test.ts`,
+    `tests/citation-symbol-form-gate.test.ts`,
+    `tests/conformance/production-conformance.test.ts`.
+- Review: 2 rounds, plus one comment-only polish round.
+  - Round 1 (deep) — three findings. (F1, spec) the registry *Trigger* and the
+    capture comments overstated the implemented test as "ran past its terminator
+    AND SO absorbed text", where the shipped test is the weaker "did not END AT
+    its terminator", which also catches a capture that stops early having
+    absorbed nothing. (F2, prose) `absent` written where `present` was meant in
+    the `parseLet` capture comment. (F3, prose) a banned word in the witness.
+    The predicate cannot be tightened to match the stronger prose — cell c1's
+    genuine debris capture also halts at an `=`, so the weaker test is
+    load-bearing for the fence — so F1's remedy is prose: the *Trigger* states
+    cover in its two shapes and qualifies the count sentence for the
+    stopped-early class.
+  - Round 2 (deep) — clean, with two prose residuals in the witness header
+    (single-shape wording surviving F1, and a misattribution of the e1/e2
+    withhold to clause (iv)(3) where bug 0124's guard 1 decides).
+  - Polish round (comment-only) — both residuals reworded. Zero executable
+    hunks, verified by gate-diff: the executable lines are byte-identical to the
+    prototype the route ruling was validated against. Confirmation review round
+    skipped on that evidence.
+- Verification: SOLID.
+  - The witness genuinely witnesses. The four provenance gates were neutralised
+    by a temporary local edit, reducing the withhold to geometry alone; cells a1
+    and a2 red for the filed reason and the re-founded `b0272-F` row F3 and
+    `b0272-N` red with them, proving the re-founding load-bearing. Restored
+    byte-exact: `git hash-object src/parser/theta-document.ts` reads
+    `aca81cfbe970b56e3b71f0ce1ad86cf9862a7b4e` before and after.
+  - The full default suite is green, and each enumerated lock is green
+    individually.
+  - No live cell is owed, and the ruling was audited rather than asserted.
+    `captureWindowAlreadyRefused` counts only error-severity coverers, and every
+    error-severity code the parser mints carries a `theta/parse/` or
+    `theta/load/` prefix, so a document this change adds a row to already
+    carried an error-severity row and was already refused by `hasLoadParseError`
+    (`src/extension/production-composition.ts`). A twelve-body offline probe run
+    with the fix active and with it neutralised — including inputs that carry no
+    error-severity row and register on both readings — returned an identical
+    `registered` verdict for every body.
+    `tests/committed-fixture-parse-gate.test.ts` is green, so no shipped
+    `.theta` or `.thetalib` moves. Precedent: bugs 0254 and 0276.
+  - Lint and typecheck are clean.
+- Residuals:
+  1. **A capture that STOPS EARLY, having absorbed nothing, still carries the
+     provenance mark and is still covered.** `fn f(a: Gone = 1): number { 1 }`
+     draws `theta/parse/fn-param-not-identifier` @6:14-6:15 alone; the parameter
+     capture holds exactly `Gone`, the text the author spelled, and that head
+     stays silent. `fn f(): Gone = 1` is the same shape at the return slot,
+     beside `theta/parse/unsupported-feature`. Behaviour is identical to the
+     pre-fix reading on both inputs, and the *Trigger* states the class
+     explicitly rather than leaving it implicit. It cannot be closed by
+     tightening the predicate to "ran past the terminator": cell c1's genuine
+     debris capture (`stringletx`) also halts at an `=`, so that tightening reds
+     the true-debris fence this report names as its hard constraint. Closing it
+     needs a further discriminator and is a separate filing.
+  2. **An unclosed `invoke<T>` ascription with no argument list draws nothing
+     and registers.** `let r = invoke<Gone("a.theta")` parses to
+     `returnSchema: "Gone(\"a.theta\")\n1"`, `returnSchemaAbsorbed: true`, and an
+     empty diagnostic list. Pre-existing at base — with no coverer the gated and
+     ungated predicates agree — and outside this report's charter. The new mark
+     is what makes the shape visible on the AST. Separate filing.
+  3. **Bug 0272's residual 2 stays open.** The `prior` branch's overlap test is
+     still unnarrowed by containment. This fix gates the whole predicate on the
+     judged capture's provenance, upstream of both branches, and narrows
+     neither.
+- Discharge notes appended:
+  `docs/bugs/0272-enclosing-annotation-refusal-swallows-nested-unresolved-head.md`
+  (residual 1 discharged; witness cells F3 and N re-founded; residual 2 restated
+  as still open).
+- Pinned dispositions / non-goals: bug 0272's landed containment filter stays.
+  Clause (iv)(3)'s suppression of capture debris stays — cells c1 and c2 are
+  byte-identical. Bug 0262's r1–r9 emissions, its clause-(iv)(1) admission and
+  its clause-(iv)(2) withholds are untouched. Bug 0124's declaration-wide mint
+  stays where it is, at all three call sites. The `@<T>`, `params:`,
+  schema-field, alias-arm, object-constructor and pattern-head positions never
+  consult this predicate and are unaffected.

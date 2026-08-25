@@ -302,3 +302,21 @@ list cost nothing and cell (a) drew its second line.
   its clause-(iv)(1) admission, its clause-(iv)(2) withholds and all 26 cells of
   its witness are byte-green. Bug 0273's witness is byte-green. The initialiser-
   less `let` / body-less `fn` fallback window (0262 residual 2) stays open.
+
+**Coordination note (0.278.0, dated 2026-08-25).** Residual 1 above is discharged
+by [bug 0279](./0279-same-construct-suppression-swallows-genuine-sibling-mistakes.md):
+clause (iv)(3)'s same-construct trigger is refined from range containment to
+the capture's own provenance (did the capture absorb text past its own syntax
+fault, or reach its own terminator?), so `fn f(p: integer--, q: Gone): number {
+1 }` and `fn f(): integer-- { fn g(z: Gone): number { 2 }  1 }` each now draw
+their sibling head's `theta/parse/unresolved-named-type` beside the coverer
+named here. This document's own witness cells `b0272-F` (row F3) and `b0272-N`
+were authored as fences on the same-construct reading residual 1 states as
+open, and bug 0279 re-founds both on the fixed behaviour: F3 gains
+`unresolved-named-type` naming `Gone` beside the annotation refusal, and N
+gains it beside `annotation-type-not-expression` and `nested-fn`, third in
+order. Residual 2 stays open: the `prior` branch's overlap test is still
+unnarrowed by containment. Bug 0279 gates the whole predicate — `prior` and
+`own` alike — behind the judged capture's provenance mark, because the refined
+trigger is a property of the capture rather than of the pass that drew the
+coverer; that gate is upstream of the branch and narrows neither.

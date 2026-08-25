@@ -215,6 +215,14 @@ export interface InvokeExpr extends NodeBase {
    */
   readonly returnSchema: string | null;
   readonly args: readonly Expr[];
+  /**
+   * True iff the `<T>` capture did NOT end at its own `>`: the angle-depth
+   * loop reached EOF still nested, so whatever the capture holds runs past a
+   * fault rather than closing where the author ascribed (bug 0279, clause
+   * (iv)(3)'s provenance mark). Absent when no `<T>` was written or the loop
+   * closed its own `>`.
+   */
+  readonly returnSchemaAbsorbed?: boolean;
 }
 
 /** An `@`…`` model-query expression (query.md). */
@@ -457,6 +465,14 @@ export interface LetStmt extends NodeBase {
   /** The declared binding annotation, when present (`let x: T = …`). */
   readonly annotation: string | null;
   readonly init: Expr | null;
+  /**
+   * True iff the annotation capture did NOT end at its own terminator (`=`) —
+   * whether it ran past a syntax fault and absorbed the next construct's text,
+   * or halted early at a token this position does not derive (bug 0279, clause
+   * (iv)(3)'s provenance mark). Absent when the capture ended at `=` or when
+   * no annotation was written.
+   */
+  readonly annotationAbsorbed?: boolean;
 }
 
 /** A statement-form reassignment (`x = e`, `x += e`, …; bindings.md). */
@@ -511,6 +527,14 @@ export interface ContinueStmt extends NodeBase {
 export interface FnParam {
   readonly name: string;
   readonly type: string;
+  /**
+   * True iff the type capture did NOT end at its own terminator (`,` or the
+   * list's `)`) — whether it ran past a syntax fault and absorbed text past
+   * the parameter, or halted early at a token the parameter list does not
+   * derive (bug 0279, clause (iv)(3)'s provenance mark). Absent when the
+   * capture was empty or ended at its own terminator.
+   */
+  readonly typeAbsorbed?: boolean;
 }
 
 /**
@@ -578,6 +602,15 @@ export interface FnDecl extends NodeBase {
   readonly name: string;
   readonly params: readonly FnParam[];
   readonly returnType: string | null;
+  /**
+   * True iff the return-type capture did NOT end at its own terminator (the
+   * body's `{`, or the contextual `with` ident) — whether it ran past a syntax
+   * fault and absorbed the next construct's text, or halted early at a token
+   * the return slot does not derive (bug 0279, clause (iv)(3)'s provenance
+   * mark). Absent when no `:` was written or the capture ended at its own
+   * terminator.
+   */
+  readonly returnTypeAbsorbed?: boolean;
   readonly body: Block;
   /**
    * True iff the declaration carries the `subagent` modifier (RFC 0001 FN-6):
@@ -2291,9 +2324,16 @@ class BodyParser {
       });
     }
     let annotation: string | null = null;
+    // Absent iff the capture ended at its own terminator (`=`); present, it
+    // stopped somewhere else — past a syntax fault, holding the next
+    // construct's text, or early at a token this position does not derive —
+    // and clause (iv)(3) (bug 0279) withholds only on that mark, not on the
+    // range of whichever diagnostic happens to cover it.
+    let annotationAbsorbed = false;
     if (this.isPunct(":")) {
       this.advance();
       annotation = this.parseType();
+      annotationAbsorbed = !this.isPunct("=");
     }
     let init: Expr | null = null;
     if (this.isPunct("=")) {
@@ -2327,6 +2367,7 @@ class BodyParser {
       mutable,
       annotation,
       init,
+      ...(annotationAbsorbed ? { annotationAbsorbed: true } : {}),
       range: spanRange(kw.range, this.prevRange()),
     };
   }
@@ -2636,6 +2677,13 @@ class BodyParser {
           }
         }
         let pType = "";
+        // Absent iff the capture is empty (no `:` written) or ended at its own
+        // terminator (`,` or the list's `)`); present, it stopped somewhere
+        // else — past a syntax fault, holding text beyond the parameter, or
+        // early at a token the list does not derive — which clause (iv)(3)
+        // (bug 0279) reads as the withhold's trigger instead of the coverers'
+        // geometry.
+        let typeAbsorbed = false;
         if (this.isPunct(":")) {
           this.advance();
           const typeStart = this.pos;
@@ -2643,8 +2691,13 @@ class BodyParser {
           if (this.unmatchedCloseParens(typeStart, this.pos) > 0) {
             closeParenAbsorbed = true;
           }
+          typeAbsorbed = pType.length > 0 && !this.isPunct(",") && !this.isPunct(")");
         }
-        params.push({ name: pTok.text, type: pType });
+        params.push({
+          name: pTok.text,
+          type: pType,
+          ...(typeAbsorbed ? { typeAbsorbed: true } : {}),
+        });
         if (this.isPunct(",")) {
           this.advance();
           atParamStart = true;
@@ -2684,6 +2737,12 @@ class BodyParser {
       }
     }
     let returnType: string | null = null;
+    // Absent iff no `:` was written, or the capture ended at its own
+    // terminator (the body's `{`, or the contextual `with` ident); present, it
+    // stopped somewhere else — past a syntax fault, holding the next
+    // construct's text, or early at a token the return slot does not derive
+    // (bug 0279, clause (iv)(3)'s provenance mark).
+    let returnTypeAbsorbed = false;
     if (this.isPunct(":")) {
       this.advance();
       // The return slot terminates at a depth-0 `with`: grammar.md §"`fn`
@@ -2693,6 +2752,10 @@ class BodyParser {
       // with { … }` yielded the concatenated annotation `stringwith` and took
       // the with-braces as the fn BODY (bug 0005 (a)).
       returnType = this.parseType(false, true);
+      returnTypeAbsorbed = !(
+        this.isPunct("{") ||
+        (this.peek().kind === "ident" && this.peek().text === "with")
+      );
     }
     // `WithClause?` — `with` is a contextual keyword (grammar.md §"Contextual
     // keywords") admitted only here, between a `subagent fn`'s signature and its
@@ -2716,6 +2779,7 @@ class BodyParser {
       body,
       subagent,
       withClause,
+      ...(returnTypeAbsorbed ? { returnTypeAbsorbed: true } : {}),
       range: spanRange(kw.range, this.prevRange()),
     };
   }
@@ -5410,6 +5474,11 @@ class BodyParser {
     // the callee's returned value against it (the parse-time type check is
     // separate; the runtime check is the safety net — hard-ceilings ceiling #4).
     let returnSchema: string | null = null;
+    // Absent iff no `<T>` was written, or the angle-depth loop closed its own
+    // `>` before EOF; present, the loop exhausted the source at depth > 0, so
+    // the capture did not end at its own `>` (bug 0279, clause (iv)(3)'s
+    // provenance mark).
+    let returnSchemaAbsorbed = false;
     if (this.isPunct("<")) {
       this.advance(); // `<`
       let depth = 1;
@@ -5437,6 +5506,7 @@ class BodyParser {
       }
       const annotation = parts.join("").trim();
       returnSchema = annotation.length > 0 ? annotation : null;
+      returnSchemaAbsorbed = depth > 0;
     }
     const args = this.parseArgs();
     const first = args[0];
@@ -5472,6 +5542,7 @@ class BodyParser {
       path,
       returnSchema,
       args,
+      ...(returnSchemaAbsorbed ? { returnSchemaAbsorbed: true } : {}),
       range: spanRange(kw.range, this.prevRange()),
     };
   }
@@ -7547,13 +7618,24 @@ function positionBefore(a: Position, b: Position): boolean {
  * (`annotationTypeNotExpressionDiagnostic`) — overlaps every capture window
  * nested in that body without saying anything about a head the author wrote
  * there, so counting it as cover would swallow that second written mistake. A
- * row ranged over the capture's OWN construct is still cover, whichever code it
- * carries and whichever of that construct's captures earned it: that is clause
- * (iv)(3)'s decided same-construct reading (`let x: Gone-- = 1`, `fn f(): Gone--
- * { 1 }`, `fn f(p: integer--, q: Gone)`), where the absorbed head is debris from
- * the one authoring mistake the coverer already names. `prior` stays
- * unnarrowed: it is evidence from an earlier pass, never this walk's own
- * enclosing-declaration refusal.
+ * row ranged over the capture's OWN construct still passes this predicate's
+ * geometry test, whichever code it carries and whichever of that construct's
+ * captures earned it. `prior` stays unnarrowed: it is evidence from an earlier
+ * pass, never this walk's own enclosing-declaration refusal.
+ *
+ * Geometry alone cannot tell a coverer that is cover FOR THIS CAPTURE from one
+ * that merely shares its construct: a range wide enough to contain the
+ * capture's window is exactly as wide when the text inside it is debris the
+ * capture absorbed (`Gone--`) and when it is a sibling head the author wrote
+ * elsewhere in the same header (`q: Gone`, a nested `fn`'s own parameter) —
+ * bug 0279. Every caller therefore gates this predicate's result behind the
+ * capture's own provenance mark (`annotationAbsorbed`, `typeAbsorbed`,
+ * `returnTypeAbsorbed`, `returnSchemaAbsorbed`): a coverer is a verdict on the
+ * capture only when the capture itself did NOT end at its own terminator —
+ * whether it ran past a syntax fault and absorbed the following construct's
+ * text, or halted at a token its position does not derive. A capture that DID
+ * end at its own terminator holds text the author spelled there, and no
+ * coverer silences it.
  */
 function captureWindowAlreadyRefused(
   prior: readonly Diagnostic[],
@@ -8129,9 +8211,11 @@ function walkStatement(
         // initialiser (the `@<T>` arm is that text's sole emitter, bug 0093);
         // the landed guard-1 shape when this capture's own walk above already
         // drew an error (including the not-a-type-expression push immediately
-        // above); and clause (iv)(3) when the capture's own source window is
-        // already covered by an error-severity diagnostic naming the real
-        // fault (a capture artefact, not a name the author wrote).
+        // above); and clause (iv)(3), gated on `s.annotationAbsorbed`, when the
+        // capture did not end at its own `=` terminator and its source window
+        // is already covered by an error-severity diagnostic naming the real
+        // fault — a capture stopped by that fault, not a name the author wrote
+        // (bug 0279).
         // The `let` capture's window runs from the statement's start to the
         // initialiser's start (the whole statement when there is none): the
         // initialiser is a different subject, so a fault inside it — or past
@@ -8141,11 +8225,14 @@ function walkStatement(
         if (
           !propagatedToQuery(refs, { kind: "let", range: s.range }) &&
           !out.slice(annotationDiagStart).some((d) => d.severity === "error") &&
-          !captureWindowAlreadyRefused(
-            refs.priorDiagnostics,
-            out,
-            captureAbsorptionWindow(s.range, s.init),
-            s.range,
+          !(
+            (s.annotationAbsorbed ?? false) &&
+            captureWindowAlreadyRefused(
+              refs.priorDiagnostics,
+              out,
+              captureAbsorptionWindow(s.range, s.init),
+              s.range,
+            )
           )
         ) {
           const letReservedKeywords: string[] = [];
@@ -8251,9 +8338,11 @@ function walkStatement(
           // carries a local `fn`'s parameter annotation onto a schema-less
           // query written as that argument, and clause (iv)(2) states its rule
           // as a property of propagated TEXT, so the withhold reaches here as
-          // it reaches the other two propagating captures. Guard-1 and clause
-          // (iv)(3) withhold as elsewhere — the latter over the DECLARATION
-          // HEADER, the window a parameter type is absorbed from.
+          // it reaches the other two propagating captures. Guard-1 withholds as
+          // elsewhere; clause (iv)(3), gated on `p.typeAbsorbed`, withholds only
+          // when THIS parameter's own capture did not end at its own `,` or `)`
+          // inside the DECLARATION HEADER window — a sibling parameter's own
+          // head is not debris merely because it shares that header (bug 0279).
           if (
             !propagatedToQuery(refs, {
               kind: "fn-param",
@@ -8261,7 +8350,10 @@ function walkStatement(
               paramIndex,
             }) &&
             !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
-            !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
+            !(
+              (p.typeAbsorbed ?? false) &&
+              captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
+            )
           ) {
             const paramReservedKeywords: string[] = [];
             const paramUnresolved = collectUnresolvedNamedTypes(
@@ -8298,14 +8390,19 @@ function walkStatement(
         // query half withholds when this SAME declared return type has
         // already propagated onto ANY query at a return position of the body —
         // the tail or a `return` operand (`walkExpr`'s `"query"` arm is that
-        // text's sole emitter there); guard-1 and clause (iv)(3) withhold as
-        // at the other three captures, the latter over the DECLARATION HEADER
-        // rather than the whole statement, so a fault in the body interior is
-        // not read as debris absorbed by a header capture.
+        // text's sole emitter there); guard-1 withholds as at the other three
+        // captures. Clause (iv)(3), gated on `s.returnTypeAbsorbed`, withholds
+        // only when the return capture itself did not end at its own `{` (or
+        // `with`) inside the DECLARATION HEADER window — a fault in the body
+        // interior is a different capture's own mistake, not one this capture
+        // was stopped by (bug 0279).
         if (
           !propagatedToQuery(refs, { kind: "fn-return", range: s.range }) &&
           !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
-          !captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
+          !(
+            (s.returnTypeAbsorbed ?? false) &&
+            captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
+          )
         ) {
           const returnReservedKeywords: string[] = [];
           const returnUnresolved = collectUnresolvedNamedTypes(
@@ -8714,8 +8811,11 @@ function walkExpr(
       // interior of its own since `invoke<T>` admits no generic/union/inline-
       // object shape at this position): withheld under the landed guard-1
       // shape when the position-rule pass above already drew an error, and
-      // under clause (iv)(3) when the capture's own source window is already
-      // covered by an error-severity diagnostic naming the real fault.
+      // under clause (iv)(3), gated on `e.returnSchemaAbsorbed`, when the
+      // `<T>` capture's angle-depth loop reached EOF still nested — so the
+      // capture did not end at its own `>` — and its source window is already
+      // covered by an error-severity diagnostic naming the real fault
+      // (bug 0279).
       if (e.returnSchema !== null && e.returnSchema.trim().length > 0) {
         const invokeDiagStart = out.length;
         out.push(
@@ -8728,11 +8828,14 @@ function walkExpr(
         );
         if (
           !out.slice(invokeDiagStart).some((d) => d.severity === "error") &&
-          !captureWindowAlreadyRefused(
-            refs.priorDiagnostics,
-            out,
-            captureAbsorptionWindow(e.range, e.args[0]),
-            e.range,
+          !(
+            (e.returnSchemaAbsorbed ?? false) &&
+            captureWindowAlreadyRefused(
+              refs.priorDiagnostics,
+              out,
+              captureAbsorptionWindow(e.range, e.args[0]),
+              e.range,
+            )
           )
         ) {
           const invokeReservedKeywords: string[] = [];

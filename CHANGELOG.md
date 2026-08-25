@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.278.0]
+
+### Fixed
+
+- Bug 0279: two genuine author-written mistakes inside one construct drew one diagnostic — the same-construct suppression (0262 ruling clause (iv)(3), targeting parse debris) swallowed sibling mistakes because it tested range overlap against declaration-wide coverers. Route (2b) provenance-marking, adjudicated on the record: name fragments produced by a failed annotation parse carry an AST provenance mark; only marked captures are suppressed. `fn f(p: integer--, q: Gone)` now draws both lines; true debris stays suppressed (fence cells). Registry row Trigger restated (DIAG-2, same commit). 0272's fence cells F3/N re-founded under this doc's authority. No registration outcome moves — no live cell owed (0254/0276 precedent). Witness `tests/b0279-same-construct-suppression-swallows-genuine-sibling-mistakes.test.ts` (9 cells).
+
 ## [0.277.0]
 
 ### Fixed
@@ -17,7 +23,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Fixed
 
 - Bug 0280: a callee's declared `mode: prompt` was never read below depth 1 — the per-callee structural verdict's stub deps reported `subagent` unconditionally, so a prompt-mode grandchild refused only at its own namer while every caller above registered a callable byte-identical to the healthy control. The recursion's stub now returns the callee's real declared frontmatter mode (branch-independent — composes with the 0276 memo unchanged) and the frame's verdict filter admits `theta/load/prompt-mode-callable`; the depth-1 rule now holds at every depth. The 0271-added spec sentence codifying the old disposition is withdrawn in invocation.md and discovery-cli.md (same commit). Witness `tests/b0280-prompt-mode-declaration-below-immediate-callee.test.ts` (5 cells) + live cell `tests/live/b0280live-prompt-mode-below-immediate-callee-live-cell.test.ts`.
-
 ## [0.275.0]
 
 ### Fixed
