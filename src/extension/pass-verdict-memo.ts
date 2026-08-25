@@ -10,7 +10,7 @@
 // computed under a visited-set hit.
 //
 // SOUNDNESS. The predicate has exactly one branch-dependent input: withhold
-// (c), the visited-set hit at `production-composition.ts:2331`. A verdict for
+// (c), the visited-set hit at `production-composition.ts:2397`. A verdict for
 // file X is UNTAINTED when no frame beneath X's own walk took that branch for
 // any entry. An untainted verdict is path-independent: if some later branch
 // reaching X also reached an ancestor A of that branch from inside X's
@@ -70,6 +70,25 @@
 // Pass-scoped, explicitly injected (no global/static/singleton): one instance
 // per `composeExtensionInstance` pass, created beside the pass parse cache and
 // carried on the same `parseDeps` object (`PassVerdictDeps`, below).
+//
+// BUG 0275 ADDENDUM — the stored verdict widened from a bare `fails` boolean
+// to the pair `{ fails, ownEscapes }` (`calleeFailsOwnStructuralChecksBody`'s
+// `ownEscapes`: whether THIS frame's own `tools:` list named an entry judged
+// `escape`, admitted into the frame one level up as the DEEP verdict
+// `recursive.fails || recursive.ownEscapes` rather than as a depth parameter
+// on this predicate). The memo KEY is UNCHANGED — no depth dimension was
+// added — because `ownEscapes`, exactly like `fails`, is a pure function of
+// the file's bytes, its acyclic-from-X subtree, the registry-snapshot
+// identity, and the `activeRoots` identity, all of which the key above
+// already carries; `activeRoots` identity in particular is what makes a
+// containment-derived component memoisable at all; a distinct discovery-root
+// union is a distinct judging context by the same rule that already governs
+// `fails`. Carrying the depth-1 carve-out as a second VERDICT COMPONENT
+// rather than as a second predicate PARAMETER is precisely what keeps the
+// predicate free of a second branch-dependent input beside withhold (c), so
+// bug 0276's taint rule (§Fix constraint 4: only a visited-set consultation
+// taints a verdict against memoisation) governs `ownEscapes` exactly as it
+// already governs `fails`, with no separate case.
 
 import type { PassParseDeps } from "./pass-parse-cache";
 
@@ -97,10 +116,23 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/** One memoised verdict: the exact bytes it was computed from, plus the result. */
+/**
+ * One memoised verdict: the exact bytes it was computed from, plus the PAIR
+ * `calleeFailsOwnStructuralChecksBody` returns (bug 0275 §Fix widened this
+ * from a bare `fails` boolean to the pair — see the BUG 0275 ADDENDUM in this
+ * module's doc-comment above for why the memo KEY needed no widening to carry
+ * it).
+ */
 interface VerdictEntry {
   readonly bytes: Uint8Array;
   readonly fails: boolean;
+  readonly ownEscapes: boolean;
+}
+
+/** The `{ fails, ownEscapes }` pair a memo `read` or `write` carries. */
+export interface VerdictPair {
+  readonly fails: boolean;
+  readonly ownEscapes: boolean;
 }
 
 /**
@@ -122,33 +154,33 @@ const ABSENT_SCOPE: object = Object.freeze({});
  */
 export interface PassVerdictMemo {
   /**
-   * Return the memoised verdict for (`registrySnapshot`, `activeRoots`,
-   * `absolutePath`) when one was recorded under byte-identical `bytes`;
-   * `undefined` on a miss (no entry, or the entry's bytes have changed since
-   * it was written). A HIT is contributed with `consultedVisited: false` by
-   * the caller (`production-composition.ts`) — reading it never re-derives
-   * whether it consulted the visited set, because {@link write} only ever
-   * stores an already-untainted verdict.
+   * Return the memoised `{ fails, ownEscapes }` pair for (`registrySnapshot`,
+   * `activeRoots`, `absolutePath`) when one was recorded under
+   * byte-identical `bytes`; `undefined` on a miss (no entry, or the entry's
+   * bytes have changed since it was written). A HIT is contributed with
+   * `consultedVisited: false` by the caller (`production-composition.ts`) —
+   * reading it never re-derives whether it consulted the visited set,
+   * because {@link write} only ever stores an already-untainted verdict.
    */
   read(
     registrySnapshot: RegistrySnapshotFn | undefined,
     activeRoots: readonly string[] | undefined,
     absolutePath: string,
     bytes: Uint8Array,
-  ): boolean | undefined;
+  ): VerdictPair | undefined;
   /**
-   * Record `fails` for (`registrySnapshot`, `activeRoots`, `absolutePath`,
+   * Record `verdict` for (`registrySnapshot`, `activeRoots`, `absolutePath`,
    * `bytes`). The caller must call this ONLY for a verdict computed with
    * `consultedVisited === false` (§Fix constraint 4) — this module has no way
    * to check that condition itself, since it is a property of the recursion
-   * that produced `fails`, not of the key.
+   * that produced `verdict`, not of the key.
    */
   write(
     registrySnapshot: RegistrySnapshotFn | undefined,
     activeRoots: readonly string[] | undefined,
     absolutePath: string,
     bytes: Uint8Array,
-    fails: boolean,
+    verdict: VerdictPair,
   ): void;
 }
 
@@ -188,11 +220,15 @@ export function createPassVerdictMemo(): PassVerdictMemo {
       if (entry === undefined || !bytesEqual(entry.bytes, bytes)) {
         return undefined;
       }
-      return entry.fails;
+      return { fails: entry.fails, ownEscapes: entry.ownEscapes };
     },
-    write(registrySnapshot, activeRoots, absolutePath, bytes, fails) {
+    write(registrySnapshot, activeRoots, absolutePath, bytes, verdict) {
       const store = pathStore(registrySnapshot, activeRoots);
-      store.set(normaliseVerdictKey(absolutePath), { bytes, fails });
+      store.set(normaliseVerdictKey(absolutePath), {
+        bytes,
+        fails: verdict.fails,
+        ownEscapes: verdict.ownEscapes,
+      });
     },
   };
 }

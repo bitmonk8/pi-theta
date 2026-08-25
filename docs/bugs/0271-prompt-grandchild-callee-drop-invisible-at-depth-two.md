@@ -502,3 +502,25 @@ runs ahead of the visited-set guard, so a guard hit still costs one file read:
 hoisting the guard would change the verdict for a visited member deleted
 mid-pass, and with the memo in place the remaining re-reads are bounded by edge
 count. Recorded as residual 2 of the 0276 fix record rather than shipped.
+
+## Coordination note — cell (ESC3) flipped by bug 0275 (0.274.0)
+
+Cell (ESC3) in `tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts`
+(this report's own witness) pinned a recorded gap: a grandchild whose OWN
+`tools:` entry escapes left the grandparent registering, because the depth-1
+escape relocation (`checkNestedToolsContainment`) reaches the entry owner's
+immediate caller only, and this report's recursive
+`calleeFailsOwnStructuralChecks` walk treated containment as a bare skip rather
+than a verdict at every depth. The cell's own comment authorised its later flip
+("pinning it keeps a later fix from flipping it silently"). Bug 0275
+(`./0275-escaping-tools-entry-below-immediate-callee-silent-at-caller.md`)
+exercised that authority in 0.274.0: it widens the recursive predicate to
+return a pair, `{ fails, ownEscapes }`, where `ownEscapes` records whether a
+frame's OWN `tools:` entry escaped, and folds a recursive child's `ownEscapes`
+into its caller's `fails` as the deep verdict `recursive.fails ||
+recursive.ownEscapes`. Cell (ESC3) now asserts the FIXED behaviour: escape rows
+at the grandchild and the child (the relocation, unchanged), and
+`theta/load/callee-has-errors` at the grandparent (the recursion's deep
+verdict) — the grandparent no longer registers. Cells (A)–(D), (CYC1), (CYC2),
+(DEPTH3), (ESC) and (ESC2) are byte-unchanged; only (ESC3) moved, under this
+report's own authorising comment and bug 0275's authority.

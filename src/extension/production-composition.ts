@@ -2128,7 +2128,11 @@ async function parseCalleeForTools(
  *         yields `frontmatter === null`, OR `hasLoadParseError(diagnostics)`,
  *         OR this predicate recurses over it and answers `true` — one rule,
  *         composed by induction at every depth, rather than re-derived per
- *         level.
+ *         level. Bug 0275 §Fix widens the admitted recursive verdict to the
+ *         DEEP form `recursive.fails || recursive.ownEscapes`: a grandchild
+ *         whose own `tools:` entry escapes now fails its own structural
+ *         checks as seen by its caller, exactly as a grandchild that fails
+ *         any other own-structural-check does.
  *
  * ROUTE ADJUDICATION (§Fix constraint 3). Two candidates: (a) chain on the
  * child's own V15f verdict, computed once per file during that file's own
@@ -2154,34 +2158,62 @@ async function parseCalleeForTools(
  * WITHHOLDS — conditions this predicate deliberately does not turn into a
  * failure, at any depth:
  *   (a) an ESCAPING entry in a recursed-into file's own `tools:` — its bytes
- *       are NEVER parsed. The withhold buys different things at different
- *       depths, and only the first is a coverage claim:
+ *       are NEVER parsed; the `continue` stays exactly where it was, because
+ *       skipping the PARSE (the containment boundary and the termination
+ *       bound) is correct at every depth and untouched by bug 0275 §Fix.
+ *       What changed is that the branch is no longer a bare skip: taking it
+ *       sets `ownEscapes` on THIS frame's return (bug 0275 §Fix constraint 1),
+ *       an admitted refusal INPUT rather than a discarded fact. The withhold
+ *       buys different things at different depths:
  *       - at recursion level 1 (the entry belongs to the CALLER's immediate
- *         callee) it prevents a DOUBLE report: the caller's own
- *         `checkNestedToolsContainment` relocates that same entry's escape
- *         verdict onto the caller's file under
- *         `theta/load/invoke-path-escape`, so a `true` here would draw a
- *         second row at that same file for one condition (bug 0270 cells
- *         (D)/(D2)/(D3), this report's cell (ESC));
- *       - deeper, no relocation reaches the V15f caller at all — that
- *         relocation is one level only (`checkNestedToolsContainment` below,
- *         bug 0111 / INV-1, "one level in") — so the withhold is a GENUINE
- *         GAP: an escaping entry belonging to a file below the caller's
- *         immediate callee leaves the caller registering with no row of its
- *         own.
- *       Withheld rather than admitted here because the condition is
- *       path-shaped — judged from the resolved path without reading the
- *       entry's contents — which is `checkNestedToolsContainment`'s surface,
- *       not this predicate's, and bug 0271 §Fix constraint 8 gives this report
- *       no authority over the bug 0248 cells that pin that helper's
- *       caller-side outcomes. Judging escape needs the caller's `activeRoots`,
- *       available at `parseCalleeForTools` and `undefined` at
- *       `parseCalleeTheta`'s dispatch gate; what is unchanged at that gate is
- *       the ABSENCE of any containment judgement, not the reach of the parse,
- *       which now goes one level deeper there exactly as it does at load time.
- *       Order: read, then judge containment, then parse — the same order
- *       `parseCalleeForTools` runs at depth 1 — so an escaping spec's bytes
- *       never reach `parseViaPassCache`.
+ *         callee) `ownEscapes` is still WITHHELD from `fails` at that same
+ *         frame — {@link calleeFailsOwnStructuralChecks}, the boolean entry
+ *         point, returns the SHALLOW `fails` and never folds in the frame's
+ *         own `ownEscapes` — because the caller's own
+ *         `checkNestedToolsContainment` already relocates that same entry's
+ *         escape verdict onto the caller's file under
+ *         `theta/load/invoke-path-escape`; admitting `ownEscapes` there too
+ *         would draw a second row at that same file for one condition (bug
+ *         0270 cells (D)/(D2)/(D3), bug 0271 cells (ESC)/(ESC2), bug 0275
+ *         cell (C));
+ *       - one level deeper, `ownEscapes` IS admitted: the recursive call site
+ *         below folds it into `grandchildFails` as `recursive.fails ||
+ *         recursive.ownEscapes` — the DEEP verdict — so a grandchild whose
+ *         own entry escapes now fails its own structural checks as its
+ *         caller's caller sees it. No relocation reaches that far
+ *         (`checkNestedToolsContainment` is one level in, by construction),
+ *         so the recursion is the only mechanism that can carry the verdict
+ *         there, and bug 0275 is exactly that carriage. It is no longer a
+ *         GAP at that depth: RELOCATION owns the entry owner's immediate
+ *         caller (depth 1, `theta/load/invoke-path-escape`); the RECURSION
+ *         owns every caller above it (`theta/load/callee-has-errors`,
+ *         composing by induction through the deep verdict).
+ *       Withheld from `fails` at recursion level 0 (this frame) rather than
+ *       admitted directly because the condition is path-shaped — judged from
+ *       the resolved path without reading the entry's contents — which is
+ *       `checkNestedToolsContainment`'s surface, not this predicate's, and
+ *       bug 0271 §Fix constraint 8 gives this report no authority over the
+ *       bug 0248 cells that pin that helper's caller-side outcomes; carrying
+ *       it out as a SEPARATE component (`ownEscapes`) rather than admitting
+ *       it into `fails` directly is what lets the one caller who must not see
+ *       it (the entry owner's immediate caller) omit it while every caller
+ *       above admits it, with no second predicate and no depth parameter.
+ *       Judging escape needs the caller's `activeRoots`, available at
+ *       `parseCalleeForTools` and `undefined` at `parseCalleeTheta`'s dispatch
+ *       gate (bug 0275 §Fix constraint 5): that gate never computes a
+ *       containment component at all — `activeRoots` is `undefined` there by
+ *       construction, so the `if (activeRoots !== undefined)` guard below
+ *       never runs, no `ownEscapes` is ever set on that call path, and no
+ *       `checkInvokePathAtLoad` probe fires. This is a recorded WITHHOLD of
+ *       its own, not a residual gap: the runtime open-time re-check
+ *       (`#recheckCalleeContainment`) remains that path's containment
+ *       backstop, and synthesising an `activeRoots` union for the dispatch
+ *       gate to widen it is out of this report's scope. What is unchanged at
+ *       that gate is the ABSENCE of any containment judgement, not the reach
+ *       of the parse, which now goes one level deeper there exactly as it
+ *       does at load time. Order: read, then judge containment, then parse —
+ *       the same order `parseCalleeForTools` runs at depth 1 — so an
+ *       escaping spec's bytes never reach `parseViaPassCache`.
  *   (b) a grandchild's declared PROMPT mode
  *       (`theta/load/prompt-mode-callable`) — the stub below still reports
  *       `subagent` unconditionally for every `.theta` spec, at every depth
@@ -2193,8 +2225,11 @@ async function parseCalleeForTools(
  *       0248 cells (D3)/(D5) stay out) — an entry-grammar rejection is not
  *       `callee-has-errors`'s subject, exactly as it is not at depth 1.
  *
- * Returns a boolean only; every diagnostic this walk produces, at every depth,
- * is discarded (no `deps.emitDiagnostic?.(…)` call belongs here). The callee's
+ * Returns the verdict triple `{ fails, ownEscapes, consultedVisited }`; every
+ * diagnostic this walk produces, at every depth, is discarded (no
+ * `deps.emitDiagnostic?.(…)` call belongs here). The bare boolean the two call
+ * sites see is `calleeFailsOwnStructuralChecks`'s, three functions down, which
+ * returns this triple's shallow `fails` alone. The callee's
  * OWN rows are emitted by the callee's own `runComposePass` iteration; the
  * CALLER's row is the existing V15f `theta/load/callee-has-errors` push in
  * `resolveThetaToolsAtLoad`, reached because this helper's input widened.
@@ -2209,28 +2244,47 @@ async function parseCalleeForTools(
  * `pass-verdict-memo.ts`): this predicate is split into three layers so a
  * verdict can be reused across branches WITHOUT ever reusing one computed
  * under withhold (c) above — the one branch-dependent input.
- *   - {@link calleeFailsOwnStructuralChecksBody} is the walk above, unchanged
- *     in what it judges, but returning `{ fails, consultedVisited }` instead
- *     of a bare boolean: `consultedVisited` is true iff THIS frame took
- *     withhold (c) for any entry, OR any recursive child (reached through
+ *   - {@link calleeFailsOwnStructuralChecksBody} is the walk above, returning
+ *     `{ fails, ownEscapes, consultedVisited }` (bug 0275 §Fix widened this
+ *     from the `{ fails, consultedVisited }` pair bug 0276 shipped):
+ *     `ownEscapes` is true iff at least one `.theta` entry of THIS frame's own
+ *     `tools:` list was judged `escape` by `checkInvokePathAtLoad` — withhold
+ *     (a) taken at THIS frame, never at a deeper one (a deeper frame's own
+ *     escape is carried in ITS OWN `ownEscapes`, folded into `fails` one level
+ *     up through the deep verdict, never re-surfaced here). `consultedVisited`
+ *     is unchanged: true iff THIS frame took withhold (c) for any entry, OR
+ *     any recursive child (reached through
  *     {@link calleeFailsOwnStructuralChecksWithTaint}, not this function
- *     directly) reported `consultedVisited: true`.
+ *     directly) reported `consultedVisited: true`. `ownEscapes` carries no
+ *     taint of its own — it is a pure function of THIS frame's own `tools:`
+ *     list and `activeRoots`, never of which branch reached this frame — so
+ *     it needs no taint tracking beside `consultedVisited`'s.
  *   - {@link calleeFailsOwnStructuralChecksWithTaint} is the thin per-frame
  *     wrapper: it consults `deps.passVerdictMemo` for `(getAllTools,
  *     activeRoots, calleeAbsolutePath)` byte-guarded by `bytes`; a HIT
- *     returns `{ fails, consultedVisited: false }` without running the body
- *     at all — a hit contributes no visited-set consultation of its own,
- *     by construction. A MISS runs the body and, only when the body reports
- *     `consultedVisited === false`, writes the verdict back. This is the
+ *     returns `{ fails, ownEscapes, consultedVisited: false }` without running
+ *     the body at all — a hit contributes no visited-set consultation of its
+ *     own, by construction. A MISS runs the body and, only when the body
+ *     reports `consultedVisited === false`, writes BOTH `fails` and
+ *     `ownEscapes` back as one pair (bug 0275 §Fix constraint 2: the memo KEY
+ *     is unchanged — no depth dimension is added — because both components
+ *     are pure functions of the same inputs the key already carries; see
+ *     `pass-verdict-memo.ts`'s module doc-comment for why that is what keeps
+ *     bug 0276's taint rule, §Fix constraint 4, unchanged). This is the
  *     function the recursive call at withhold (c)'s sibling site below now
  *     calls, so a memo hit deep in one branch can short-circuit the rest of
  *     that branch's own recursion.
- *   - `calleeFailsOwnStructuralChecks` (below) is the unchanged
- *     boolean-returning entry point `parseCalleeForTools` and
- *     `parseCalleeTheta`'s dispatch gate call, now taking the callee's
- *     `bytes` too (both call sites already hold them) so the memo can
- *     byte-guard at the top of the recursion exactly as it does at every
- *     depth beneath it.
+ *   - `calleeFailsOwnStructuralChecks` (below) is the boolean-returning entry
+ *     point `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate
+ *     call, taking the callee's `bytes` too (both call sites already hold
+ *     them) so the memo can byte-guard at the top of the recursion exactly as
+ *     it does at every depth beneath it. It keeps returning the SHALLOW
+ *     `fails` — `ownEscapes` is discarded at the entry point, never folded
+ *     in — which is what makes bug 0275 §Fix constraint 2 hold with no
+ *     special case: at the caller's immediate callee the relocation already
+ *     covers that entry, and the recursion's own deep-verdict folding (one
+ *     level further in, inside {@link calleeFailsOwnStructuralChecksBody}'s
+ *     loop) is what reaches every caller above it.
  *
  * SOUNDNESS (why memoising an untainted verdict is safe — the full argument
  * lives in `pass-verdict-memo.ts`'s module doc-comment): an untainted verdict
@@ -2257,7 +2311,7 @@ async function calleeFailsOwnStructuralChecksBody(
   getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
-): Promise<{ fails: boolean; consultedVisited: boolean }> {
+): Promise<{ fails: boolean; ownEscapes: boolean; consultedVisited: boolean }> {
   const calleeInput: ThetaCompositionInput = {
     slashName: thetaBasename(calleeAbsolutePath),
     sourcePath: calleeAbsolutePath,
@@ -2270,12 +2324,15 @@ async function calleeFailsOwnStructuralChecksBody(
     claimDelivery: false,
   });
   if (importCheck.diagnostics.some((d) => d.severity === "error")) {
-    return { fails: true, consultedVisited: false };
+    // Bug 0275 §Fix constraint 1: the early returns carry `ownEscapes: false`
+    // — an import-error frame never reached its own `tools:` loop, so it
+    // never took withhold (a) for any entry of its own.
+    return { fails: true, ownEscapes: false, consultedVisited: false };
   }
 
   const toolsList = frontmatter.tools;
   if (toolsList === undefined || toolsList.length === 0) {
-    return { fails: false, consultedVisited: false };
+    return { fails: false, ownEscapes: false, consultedVisited: false };
   }
 
   // Bug 0276 §Fix constraint 4: true iff THIS frame took withhold (c) for any
@@ -2298,6 +2355,14 @@ async function calleeFailsOwnStructuralChecksBody(
   const calleeDir = dirname(calleeAbsolutePath);
   const readable = new Map<string, boolean>();
   const grandchildFails = new Map<string, boolean>();
+  // Bug 0275 §Fix constraint 1: true iff at least one of THIS frame's own
+  // `tools:` entries was judged `escape` below (withhold (a) taken at THIS
+  // frame). Discarded by the boolean entry point
+  // (`calleeFailsOwnStructuralChecks`) so the entry owner's immediate caller
+  // draws no second row for the entry the relocation already covers; admitted
+  // one level further up, through the recursive call's `recursive.ownEscapes`
+  // fold below, so every caller above that immediate one sees it.
+  let ownEscapes = false;
   for (const entry of toolsList) {
     if (parseToolsEntry(entry.trim()).kind !== "ok") {
       continue;
@@ -2348,6 +2413,13 @@ async function calleeFailsOwnStructuralChecksBody(
         () => undefined,
       );
       if (containment?.kind === "escape") {
+        // Bug 0275 §Fix constraint 1: an escaping entry's bytes are still
+        // never parsed — the `continue` is unchanged — but this frame's own
+        // withhold (a) is now an admitted refusal INPUT rather than a
+        // discarded fact, carried separately from `fails` so the one caller
+        // who must not see it (this file's own immediate caller) can still
+        // omit it (see the doc-comment above).
+        ownEscapes = true;
         continue;
       }
     }
@@ -2377,7 +2449,12 @@ async function calleeFailsOwnStructuralChecksBody(
       new Set([...visited, nestedAbsolute]),
       bytes,
     );
-    grandchildFails.set(spec, recursive.fails);
+    // Bug 0275 §Fix: the DEEP verdict — a grandchild whose OWN `tools:`
+    // entry escapes fails its own structural checks as seen by THIS frame,
+    // exactly as a grandchild that fails any other own-structural-check
+    // does. No relocation reaches this deep, so admitting it here is the
+    // only mechanism that carries the verdict this far.
+    grandchildFails.set(spec, recursive.fails || recursive.ownEscapes);
     consultedVisited = consultedVisited || recursive.consultedVisited;
   }
 
@@ -2423,7 +2500,7 @@ async function calleeFailsOwnStructuralChecksBody(
         d.severity === "error" &&
         (d.code === "theta/load/unknown-tool" || d.code === "theta/load/unresolvable-theta-path"),
     ) || [...grandchildFails.values()].some((f) => f);
-  return { fails, consultedVisited };
+  return { fails, ownEscapes, consultedVisited };
 }
 
 /**
@@ -2431,11 +2508,12 @@ async function calleeFailsOwnStructuralChecksBody(
  * {@link calleeFailsOwnStructuralChecksBody}'s doc-comment for the split and
  * the soundness argument. Consults `deps.passVerdictMemo` (when present) for
  * `(getAllTools, activeRoots, calleeAbsolutePath)` byte-guarded by `bytes`;
- * on a HIT, returns the memoised verdict with `consultedVisited: false`
- * without recomputing anything. On a MISS, runs the body and, only when the
- * body itself reports `consultedVisited === false`, writes the fresh verdict
- * back — a verdict computed under withhold (c) anywhere beneath it is never
- * stored.
+ * on a HIT, returns the memoised `{ fails, ownEscapes }` pair (bug 0275
+ * §Fix widened the memo entry from a bare `fails` boolean to the pair) with
+ * `consultedVisited: false` without recomputing anything. On a MISS, runs
+ * the body and, only when the body itself reports `consultedVisited ===
+ * false`, writes the fresh `{ fails, ownEscapes }` pair back — a verdict
+ * computed under withhold (c) anywhere beneath it is never stored.
  */
 async function calleeFailsOwnStructuralChecksWithTaint(
   fs: FileSystem,
@@ -2448,12 +2526,12 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
   bytes: Uint8Array,
-): Promise<{ fails: boolean; consultedVisited: boolean }> {
+): Promise<{ fails: boolean; ownEscapes: boolean; consultedVisited: boolean }> {
   const memo = deps.passVerdictMemo;
   if (memo !== undefined) {
     const hit = memo.read(getAllTools, activeRoots, calleeAbsolutePath, bytes);
     if (hit !== undefined) {
-      return { fails: hit, consultedVisited: false };
+      return { fails: hit.fails, ownEscapes: hit.ownEscapes, consultedVisited: false };
     }
   }
   const result = await calleeFailsOwnStructuralChecksBody(
@@ -2468,17 +2546,32 @@ async function calleeFailsOwnStructuralChecksWithTaint(
     visited,
   );
   if (memo !== undefined && !result.consultedVisited) {
-    memo.write(getAllTools, activeRoots, calleeAbsolutePath, bytes, result.fails);
+    memo.write(getAllTools, activeRoots, calleeAbsolutePath, bytes, {
+      fails: result.fails,
+      ownEscapes: result.ownEscapes,
+    });
   }
   return result;
 }
 
 /**
- * Bug 0276 §Fix constraint 6: the unchanged boolean-returning entry point
- * `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate call, now
- * taking the callee's already-read `bytes` so
+ * Bug 0276 §Fix constraint 6: the boolean-returning entry point
+ * `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate call, taking
+ * the callee's already-read `bytes` so
  * {@link calleeFailsOwnStructuralChecksWithTaint} can byte-guard the memo at
  * the top of the recursion exactly as it does at every depth beneath it.
+ * Bug 0275 §Fix constraint 3: returns the SHALLOW `fails` only — the pair's
+ * `ownEscapes` component is discarded here, never folded in. This is what
+ * makes §Fix constraint 2 hold with no special case: at the caller's
+ * immediate callee the caller's own `checkNestedToolsContainment` already
+ * relocates that same entry's escape row onto the caller's file, so the
+ * caller must not ALSO draw `theta/load/callee-has-errors` for it; one level
+ * deeper no relocation reaches the caller, and the DEEP verdict
+ * (`calleeFailsOwnStructuralChecksBody`'s `recursive.fails ||
+ * recursive.ownEscapes` fold) is what the recursion consumes instead.
+ * RELOCATION owns the entry owner's immediate caller (depth 1,
+ * `theta/load/invoke-path-escape`); the RECURSION owns every caller above it
+ * (`theta/load/callee-has-errors`).
  */
 async function calleeFailsOwnStructuralChecks(
   fs: FileSystem,

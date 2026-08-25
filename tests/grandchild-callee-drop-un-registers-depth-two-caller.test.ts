@@ -94,8 +94,10 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 //       caller-located row, still `theta/load/invoke-path-escape` — this is the
 //       cell that reds when the withhold (a) guard is removed  — green
 //   (ESC3) one level deeper: the GRANDCHILD's own `tools:` entry escapes, so the
-//       relocation reaches the child only and the grandparent keeps registering
-//       — a recorded WITHHOLD, pinned so a later fix cannot flip it silently
+//       relocation reaches the child only, and — per bug 0275's fix — the
+//       recursion's deep verdict now reaches the grandparent too: escape rows
+//       at the grandchild and the child, `theta/load/callee-has-errors` at the
+//       grandparent, and the grandparent does NOT register
 // Cells (CYC1) and (CYC2) bound their own wall clock: bug 0271 §Fix constraint 2
 // makes termination a hard constraint, and an unbounded walk over a cycle hangs
 // rather than fails, so each measures elapsed time against a generous ceiling
@@ -892,19 +894,25 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
     }
   });
 
-  // ── (ESC3) the recorded residual, one level deeper ───────────────────────
+  // ── (ESC3) the landed refusal, one level deeper ───────────────────────
 
-  it("(ESC3) WITHHOLD — a grandchild whose OWN `tools:` entry escapes leaves the grandparent registering", async () => {
-    // This is a WITHHOLD, not a refusal. The escape condition is path-shaped:
-    // it is judged from the resolved path without reading the entry's contents,
+  it("(ESC3) FLIPPED by bug 0275 — a grandchild whose OWN `tools:` entry escapes now un-registers the grandparent too", async () => {
+    // FLIPPED BY BUG 0275, whose own report is this flip's authority. This
+    // cell used to pin a WITHHOLD: the escape condition is path-shaped —
+    // judged from the resolved path without reading the entry's contents,
     // which is bug 0111's `checkNestedToolsContainment` surface ("one level
-    // in") and not this predicate's. That relocation reaches the entry owner's
-    // immediate caller only — here the child — so at this depth no row reaches
-    // the grandparent at all. Bug 0271 §Fix constraint 8 gives this report no
-    // authority over the bug 0248 cells that pin that helper's caller-side
-    // outcomes, so the route is RECORDED here rather than admitted. The
-    // outcome pinned below is a gap, not a correct disposition; pinning it
-    // keeps a later fix from flipping it silently.
+    // in") — and that relocation reaches the entry owner's immediate caller
+    // only (here the child), so no row used to reach the grandparent at this
+    // depth. Bug 0271 §Fix constraint 8 gave this report no authority over
+    // the bug 0248 cells that pin that helper's caller-side outcomes, so the
+    // gap was RECORDED rather than closed, under this cell's own authorising
+    // comment ("pinning it keeps a later fix from flipping it silently").
+    // Bug 0275 folds containment into bug 0271's own recursion as a SECOND
+    // verdict component (`ownEscapes`) rather than a depth parameter: a
+    // grandchild whose own entry escapes now fails its own structural checks
+    // one level further up too, so `theta/load/callee-has-errors` composes by
+    // induction onto the grandparent exactly as it already does for every
+    // other own-structural-check failure (cells (A)-(C), (DEPTH3)).
     const workspace = plantWorkspace(
       { [GP_NAME]: GP_SOURCE, [CHILD_NAME]: CHILD_SOURCE, [GC_NAME]: GC_ESCAPING_SOURCE },
       { [GGC_NAME]: GGC_HEALTHY_SOURCE },
@@ -925,19 +933,19 @@ describe("bug 0271 — a grandchild that fails its own checks un-registers the g
 
       expect(
         [...escapeFiles].sort(),
-        "the escape verdict reaches the entry's own file and its immediate caller, and stops " +
-          `there\n${describeNotes(pass.notes)}`,
+        "the escape row stays the entry owner's and its immediate caller's — the relocation is " +
+          `unchanged — while the recursion's deep verdict reaches the grandparent instead\n${describeNotes(pass.notes)}`,
       ).toEqual([workspace.path(CHILD_NAME), workspace.path(GC_NAME)].sort());
+      expectCallerRefused(pass, workspace.path(GP_NAME), GP_STEM);
       expect(
-        allDiagnostics(pass.notes)
-          .filter((d) => normalisePath(d.file ?? "") === workspace.path(GP_NAME))
-          .map((d) => `${d.severity} ${d.code}`),
-        `the recorded gap: no row of any severity reaches the grandparent's file\n${describeNotes(pass.notes)}`,
-      ).toEqual([]);
+        errorFilesOf(pass, INVOKE_PATH_ESCAPE_CODE),
+        `${INVOKE_PATH_ESCAPE_CODE} must not co-fire at the grandparent — that would double-report ` +
+          `the one escaping entry beside its own ${CALLEE_HAS_ERRORS_CODE} row\n${describeNotes(pass.notes)}`,
+      ).not.toContain(workspace.path(GP_NAME));
       expect(
         pass.registered,
         `the grandparent registers over a child this same pass un-registers\n${describeNotes(pass.notes)}`,
-      ).toEqual([GP_STEM]);
+      ).toEqual([]);
       expect([...pass.registered]).not.toContain(CHILD_STEM);
       expect([...pass.registered]).not.toContain(GC_STEM);
       expect(pass.notified).toEqual([]);

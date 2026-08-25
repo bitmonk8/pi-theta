@@ -1,6 +1,6 @@
 # Bug 0275 — An escaping `tools:` `.theta` entry un-registers its owner and its owner's immediate caller and stops there: bug 0271's recursive `calleeFailsOwnStructuralChecks` walk skips an escaping entry before it can judge it (`production-composition.ts:2245–2258`, withhold (a)) and `checkNestedToolsContainment` (`:2348`) relocates one level only, so a grandparent whose grandchild's own `tools:` entry escapes the discovery roots registers a callable byte-identical to the healthy control with no diagnostic on its file, while both files below it un-register
 
-- **Status:** open.
+- **Status:** fixed (0.274.0).
 - **Sev/Diff estimate:** S3/D3 — S3 on bug
   [0271](./0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md)'s
   observable and by its precedent: the caller registers a `.theta` callable
@@ -357,3 +357,135 @@ as it ships in the predicate's doc-comment
 (ESC3). Seventeenth set. Filed at HEAD `1e7e4321`, v0.270.0, from an offline
 `composeExtensionInstance` probe over the five conditions tabulated in
 §Reproduction.
+
+## Fix (0.274.0)
+
+- **Route adjudication (§Fix constraint 3, premeasured before implementation).**
+  Route (a) — fold containment into bug 0271's recursion — realised NOT as the
+  depth-conditional gate the report sketched but as a PAIR of depth-free
+  verdicts. `calleeFailsOwnStructuralChecksBody` now returns
+  `{ fails, ownEscapes, consultedVisited }`: `ownEscapes` records whether THIS
+  frame's own `tools:` named an entry judged `escape`, and the recursive call
+  site folds the callee's DEEP verdict `recursive.fails || recursive.ownEscapes`
+  into `grandchildFails`. The boolean entry point returns the SHALLOW `fails`,
+  discarding `ownEscapes` — which is what gives §Fix constraint 2's depth-1
+  carve-out with no depth parameter and no fixture-implied rule. A depth
+  parameter was rejected: it would be a second branch-dependent input into a
+  predicate bug 0276 memoises on a depth-free key, and the resulting reuse
+  would be silently unsound. Route (b) was measured, not argued away — see
+  Premeasure below.
+- **Depth ownership afterwards (§Fix constraint 3's closing demand).** The
+  RELOCATION (`checkNestedToolsContainment`, drained in
+  `resolveThetaToolsAtLoad`) owns the entry owner's immediate caller and emits
+  `theta/load/invoke-path-escape` there, unchanged. The RECURSION owns every
+  caller above that one and emits `theta/load/callee-has-errors` there. No new
+  code (§Fix constraint 4): `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged.
+- **Premeasure (both routes, on the record).**
+  - Route (b) naive — admitting a callee's own `nestedToolsEscapes` into
+    `parseCalleeForTools`'s `hasErrors` — reds FOUR locked cells: bug 0248
+    (D4), bug 0270 (D), bug 0271 (ESC) and (ESC2), each a double report at the
+    immediate caller, and leaves cell (ESC3) GREEN. It breaks the locks AND
+    does not fix the bug. Route (b) in its ordering-store form is the same
+    cross-iteration hazard bug 0271 §Fix rejected as its own route (a): a
+    grandparent's `runComposePass` iteration may precede its child's, so the
+    outcome would depend on discovery order.
+  - Route (a) as shipped flips exactly ONE pinned cell across the whole default
+    suite — (ESC3), the cell this report holds authority over.
+  - Memo interaction, handled explicitly rather than assumed: `ownEscapes` is a
+    pure function of the file's bytes, its acyclic-from-X subtree, the
+    registry-snapshot identity and the `activeRoots` identity — every dimension
+    the bug 0276 key already carries. `activeRoots` identity is precisely what
+    makes a containment-derived component memoisable at all. The key is
+    therefore UNCHANGED, and bug 0276's taint rule (only a withhold-(c)
+    consultation taints a verdict) governs `ownEscapes` with no separate case.
+  - Termination: the escaping entry still takes `continue` before
+    `parseViaPassCache` and before the recursive call, and the per-branch
+    visited set is untouched, so the cycle fixtures ((CYC1), (CYC2),
+    (IDENT-CYC-HEALTHY), (IDENT-CYC-BROKEN-C), (IDENT-CYC-BROKEN-D)) stay green.
+- **What shipped**
+  - `src/extension/production-composition.ts` — the verdict pair through
+    `calleeFailsOwnStructuralChecksBody` / `calleeFailsOwnStructuralChecksWithTaint`
+    / the boolean entry point; the deep-verdict fold at the recursive call site;
+    withhold (a)'s doc-comment rewritten (it is no longer a gap: a withhold at
+    the top frame only, an admitted refusal input at every deeper frame); the
+    `parseCalleeTheta`-dispatch-gate divergence recorded explicitly as a
+    withhold with its reason per §Fix constraint 5 (`activeRoots` stays
+    `undefined` there, `#recheckCalleeContainment` remains that path's backstop,
+    no gate widening).
+  - `src/extension/pass-verdict-memo.ts` — the stored verdict widened to the
+    pair; key unchanged, with the reason stated in the module doc-comment.
+  - `docs/spec_topics/invocation.md` §static-resolution and its
+    `docs/reference/discovery-cli.md` mirror — one byte-identical sentence in
+    both pages, same commit (§Fix constraint 7): the entry owner and its
+    immediate caller each carry the single relocated
+    `theta/load/invoke-path-escape` row, and the own-structural-check failure
+    composes into `theta/load/callee-has-errors` at every caller above that
+    immediate caller, however far below such a caller the escaping entry sits.
+  - `tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts` — cell
+    (ESC3) flipped to the landed refusal under this report's authority and the
+    cell's own authorising comment; the other nine cells byte-unchanged.
+  - `docs/bugs/0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md` —
+    dated coordination note recording the (ESC3) flip.
+- **Tests that lock it**
+  - `tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts` — five
+    cells, one per §Reproduction row, so the fix is pinned as POSITIONAL rather
+    than depth-2-specific (§Fix constraint 9). (A), (B) and (E) were RED at HEAD
+    for the filed reason; (C) (the anti-double-report lock) and (D) (the healthy
+    control) were green at HEAD and stay green.
+  - `tests/live/b0275live-escaping-tools-entry-below-immediate-callee-live-cell.test.ts`
+    — standalone live cell (the b0271live precedent; the H8a sequence in
+    `tests/live/live-production-acceptance.test.ts` is untouched). Two boots:
+    the offender chain registers nothing and the grandparent carries its own
+    `theta/load/callee-has-errors`, while the escape rows stay at the entry
+    owner and its immediate caller; the byte-neighbour in-root chain registers
+    at all three levels and the grandparent DRIVES, discriminated by a
+    task-framed compute-from-inline-value question over a theta-computed number.
+- **Gates** — witness `Tests 5 passed (5)`; bug 0271 witness `10 passed (10)`;
+  bug 0276 judgement-count witness `7 passed (7)`; full default suite
+  `Test Files 451 passed (451)` / `Tests 9314 passed (9314)`; `npm run typecheck`
+  clean; `npm run lint` clean; live cell `Test Files 1 passed (1)` /
+  `Tests 1 passed (1)`, run under the cross-worktree live lock.
+- **Review** — 2 rounds. Round 1 (deep): 6 findings — one `spec` (the added
+  wording over-claimed `theta/load/callee-has-errors` at the entry owner's
+  immediate caller, which a conforming implementation would have double-reported
+  against §Fix constraint 2), five `prose` (two identifiers broken across a line
+  break inside a code span, present-tense "RED at HEAD" claims in a witness
+  shipping green, a misdirected doc-comment cross-reference, a "returns a
+  boolean" heading a triple-returning function). All fixed, plus four further
+  stale claims the fixer found in the same sweep. Round 2 (fast): CLEAN, no
+  escalation.
+- **Verification** — SOLID. The witness reds under TWO independent
+  neutralisations and greens on byte-exact restore (`git hash-object` equality
+  proved both times). Folding `recursive.fails || recursive.ownEscapes` back to
+  `recursive.fails` reds (A), (B), (E) and (ESC3) while (C) and (D) stay green,
+  so the fold is load-bearing and the depth-1 locks do not depend on it. Making
+  the boolean entry point return the deep verdict instead of the shallow one
+  reds (C), bug 0271 (ESC) and (ESC2) and bug 0270 (D) with exactly the double
+  report at the immediate caller that §Fix constraint 2 forbids, so the shallow
+  return is load-bearing too. The live cell reds under the first neutralisation
+  with `expected [ 'b0275liveclean', …(2) ] to not include 'b0275livegp'` and
+  greens on restore.
+- **Residuals**
+  1. Withhold (b) — a grandchild's declared PROMPT mode
+     (`theta/load/prompt-mode-callable`) is still never read at any depth; the
+     stub reports `subagent` unconditionally. Unchanged by this report
+     (§Non-goals), still unfiled; bug 0267 §Fix-record residual 2.
+  2. The `parseCalleeTheta` dispatch gate still passes `activeRoots`
+     `undefined`, so no containment component is computed at the drive-time
+     re-check at any depth. Recorded as a withhold with its reason per §Fix
+     constraint 5 rather than closed; the runtime open-time re-check
+     (`#recheckCalleeContainment`) remains that path's backstop.
+  3. `src/extension/pass-verdict-memo.ts` still cites the withhold-(c) site by
+     line number (`production-composition.ts:2397`, re-derived and correct at
+     the sealed tree). Neither changed source file is on
+     `tests/citation-symbol-form-gate.test.ts`'s converted ratchet, so the line
+     form is still admitted there; converting it is that ratchet's work, not
+     this report's.
+- **Discharge notes appended** —
+  `docs/bugs/0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md`
+  (coordination note for the (ESC3) flip).
+- **Pinned dispositions / non-goals** — bug 0248's entry-grammar route (cells
+  (D3)/(D5)) and bug 0111's depth-1 relocation are untouched, as is the
+  containment boundary itself: an out-of-root path's contents are never parsed
+  at any depth. No new diagnostic code and no registry row.
