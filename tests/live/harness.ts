@@ -288,6 +288,17 @@ export async function bootShippedExtension(options: {
  * assistant's streamed text. Used by the prompt-mode / typed-query bullets AFTER
  * their discovery→registration precondition holds (post-`H8a`); in the current
  * red state the command is absent and the caller reds before reaching here.
+ *
+ * SINGLE-TURN-ONLY. This keeps the `text_delta` event-stream path: it takes a
+ * bare `AgentSession`, with no `SessionManager` handle to read a settled
+ * transcript from, so it cannot close on a turn boundary the way
+ * `driveSlashCaptureTurn` does. A drive that issues more than one on-session
+ * model turn must use `driveSlashCaptureTurn` instead — bug 0287 is the
+ * accumulator defect this shape has for a multi-turn drive: the stream can
+ * settle after `unsubscribe()` fires and silently drop a later turn's text.
+ * Routing this function's existing callers through a handle-taking form would
+ * touch `tests/live/live-production-acceptance.test.ts`, which bug 0287's
+ * §Fix holds byte-untouched (line count fixed at 14864).
  */
 export async function driveSlashCaptureText(
   session: AgentSession,
@@ -298,7 +309,16 @@ export async function driveSlashCaptureText(
 
 /** What one driven slash invocation made observable. */
 export interface DrivenTurn {
-  /** Streamed assistant text of the user session (stochastic). */
+  /**
+   * Assistant text of the user session, one string per model turn (bug 0287's
+   * §Fix items 1–2), joined in transcript order with no separator — the same
+   * bare concatenation the prior `text_delta` accumulator produced for a
+   * single turn, extended across turns because the source is now the settled
+   * slice rather than a subscription window. Read off the settled in-memory
+   * `SessionManager` after the drive's last turn settles (deterministic; no
+   * dependence on event timing) via `collectAssistantTexts`, mirroring how
+   * `userTexts` and `systemNotes` are already derived below.
+   */
   readonly text: string;
   /**
    * Exact user-turn text(s) appended to the user session during THIS drive,
@@ -326,28 +346,134 @@ export interface DrivenTurn {
 }
 
 /**
- * Drive one live turn via a registered slash command and capture BOTH the
- * streamed assistant text and the `theta-system-note` entries the drive
- * appended. Used where the pass/fail observable is the note channel — e.g. the
+ * Drive one live turn via a registered slash command and capture the settled
+ * transcript's assistant text, user turns and `theta-system-note` entries.
+ * Used where the pass/fail observable is the note channel — e.g. the
  * subagent-mode drive, whose spawned transcript is private (no user-session
  * text streams), leaving the absence of a fail-closed note as the success
- * signal.
+ * signal — and for any drive whose body issues more than one on-session model
+ * turn (bug 0287: a whole-drive event accumulator can drop a later turn's
+ * stream; reading the settled transcript once the LAST on-session query's reply
+ * has landed — or a fail-closed note appended after it explains the absence —
+ * cannot). See `lastTurnSettled` for exactly which shapes count as settled.
  */
 export async function driveSlashCaptureTurn(
   handle: LiveExtensionHandle,
   slashInvocation: string,
 ): Promise<DrivenTurn> {
   const entriesBefore = handle.sessionManager.getEntries().length;
-  const driven = await driveSlash(handle.session, slashInvocation);
-  // Slice off only the entries THIS drive appended, then extract the
-  // `theta-system-note` channel contents (string or text-part-array content)
-  // and the user-turn texts (the deterministic outbound-render channel).
-  const appended = handle.sessionManager.getEntries().slice(entriesBefore);
+  await handle.session.prompt(slashInvocation);
+  // `prompt()` resolving is not "the drive's last turn settled" (bug 0287): a
+  // prompt-mode body's `@`-queries are dispatched fire-and-forget
+  // (`pi.sendUserMessage` returns before the run it schedules installs its
+  // active-run handle), so wait for the appended slice itself to carry the
+  // last turn's reply before reading it.
+  const appended = await waitForLastTurnSettled(
+    handle.sessionManager,
+    entriesBefore,
+    slashInvocation,
+  );
   return {
-    text: driven.text,
+    text: collectAssistantTexts(appended).join(""),
     userTexts: collectUserTexts(appended),
     systemNotes: collectSystemNotes(appended),
   };
+}
+
+// Bug 0287 §Fix item 3 — bounded poll cadence and total wait for the appended
+// slice to carry the drive's last turn. No per-turn settled/idle signal is
+// exposed to this harness (`ctx.waitForIdle()` on the production side resolves
+// immediately while no run is active, per bug 0287's root-cause read), so this
+// polls a real macrotask timer over the entry slice instead of reusing one.
+// 40ms sits inside the 25–50ms band that keeps a settled two-turn drive's wait
+// a handful of ticks; the 375-iteration bound gives ~15s total, generously
+// above the production start-poll's own bound (`TURN_START_POLL_BOUND = 1000`
+// iterations at `POLL_INTERVAL_MS = 10` in `production-theta-producer.ts`, i.e.
+// ~10s, not the 1000ms its iteration count alone suggests) while staying
+// finite so a genuinely stuck drive fails loudly instead of hanging the suite.
+const ASSISTANT_TURN_POLL_INTERVAL_MS = 40;
+const ASSISTANT_TURN_POLL_BOUND = 375;
+
+/**
+ * Poll the appended `SessionManager` slice until `lastTurnSettled` accepts it —
+ * the turn-complete condition bug 0287's §Fix item 3 requires. Expiry of the
+ * bound fails loudly naming the unmet precondition, per AGENTS.md §"No silent
+ * skipping": returning a silently short `text` instead is exactly the defect
+ * this fix removes.
+ */
+async function waitForLastTurnSettled(
+  sessionManager: SessionManager,
+  entriesBefore: number,
+  slashInvocation: string,
+): Promise<readonly unknown[]> {
+  for (let attempt = 0; attempt < ASSISTANT_TURN_POLL_BOUND; attempt++) {
+    const appended = sessionManager.getEntries().slice(entriesBefore);
+    if (lastTurnSettled(appended)) return appended;
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, ASSISTANT_TURN_POLL_INTERVAL_MS),
+    );
+  }
+  const appended = sessionManager.getEntries().slice(entriesBefore);
+  const userTurnCount = collectUserTexts(appended).length;
+  const assistantTextCount = collectAssistantTexts(appended).length;
+  const notePresent = collectSystemNotes(appended).length > 0;
+  const boundMs = ASSISTANT_TURN_POLL_BOUND * ASSISTANT_TURN_POLL_INTERVAL_MS;
+  failLoudly(
+    `driveSlashCaptureTurn(${JSON.stringify(slashInvocation)}) precondition unmet: ` +
+      `the appended transcript slice held ${userTurnCount} user turn(s), ` +
+      `${assistantTextCount} assistant text part(s) and ` +
+      `${notePresent ? "a" : "no"} theta-system-note entry, and the LAST user ` +
+      `turn's reply never settled into the transcript within ${boundMs}ms ` +
+      `(bug 0287).`,
+  );
+}
+
+/**
+ * Whether the appended slice may be read as the drive's settled transcript.
+ * Accepts on any of three disjoint reasons:
+ *
+ * A. No user-role message entry at all. A slash invocation itself appends no
+ *    user-role entry, so this is the real shape of a drive that never put a
+ *    query on this session — a subagent-mode drive, whose spawned transcript is
+ *    private, or a fail-closed drive that never sent. Such drives assert on
+ *    `systemNotes`, so waiting out the bound would slow the suite for a
+ *    property no caller observes.
+ * B. Some assistant-role message entry AFTER the LAST user-role entry
+ *    contributes a NON-EMPTY text part. Presence of an assistant entry alone is
+ *    not enough: an assistant entry can be thinking-only or thinking+toolCall
+ *    with no text part at all (`ThinkingContent` carries `thinking`, not
+ *    `text`), and accepting one of those returns the EARLIER turn's reply as
+ *    the drive's text — the divergence bug 0287 documents. Demanding real text
+ *    is what makes the read turn-complete.
+ * C. A `theta-system-note` entry appended AFTER the LAST user-role entry — the
+ *    same post-last-user slice B scores. A fail-closed or cancelled ending
+ *    EXPLAINS a missing reply, so such a drive must reach its cell's own
+ *    assertions rather than wait out the bound and fail on the wait. The window
+ *    is what keeps this from admitting a still-running turn: the SLSH-3 err
+ *    note, the cancelled note and the panic framings are all emitted after the
+ *    query's user entry, whereas the BND-1 bind echo (`Running /<name>: …`,
+ *    `#emitBinderEchoNote` in `production-theta-producer.ts`) and the SLSH-1
+ *    no-params overflow note precede the body and therefore every query it
+ *    sends, so they can no longer short-circuit the wait for a `params:`-
+ *    declaring theta's reply.
+ */
+function lastTurnSettled(entries: readonly unknown[]): boolean {
+  let lastUserIndex = -1;
+  for (let i = 0; i < entries.length; i++) {
+    if (isMessageEntryWithRole(entries[i], "user")) lastUserIndex = i;
+  }
+  if (lastUserIndex === -1) return true;
+  const afterLastUser = entries.slice(lastUserIndex + 1);
+  if (collectAssistantTexts(afterLastUser).some((text) => text.length > 0)) {
+    return true;
+  }
+  return collectSystemNotes(afterLastUser).length > 0;
+}
+
+/** Whether `entry` is a `type:"message"` entry whose `message.role` is `role`. */
+function isMessageEntryWithRole(entry: unknown, role: string): boolean {
+  const e = entry as { type?: string; message?: { role?: string } };
+  return e.type === "message" && e.message?.role === role;
 }
 
 /**
@@ -363,6 +489,38 @@ function collectUserTexts(entries: readonly unknown[]): readonly string[] {
   for (const entry of entries) {
     const e = entry as { type?: string; message?: { role?: string; content?: unknown } };
     if (e.type !== "message" || e.message?.role !== "user") continue;
+    const content = e.message.content;
+    if (typeof content === "string") texts.push(content);
+    else if (Array.isArray(content)) {
+      for (const part of content) {
+        const t = (part as { text?: string }).text;
+        if (typeof t === "string") texts.push(t);
+      }
+    }
+  }
+  return texts;
+}
+
+/**
+ * Extract the assistant-turn text(s) from a slice of in-memory SessionManager
+ * entries — the settled-transcript source of truth `DrivenTurn.text` is
+ * derived from (bug 0287). An assistant turn is a `type:"message"` entry whose
+ * `message.role === "assistant"`; its `content` is a string or a text-part
+ * array. Mirrors `collectUserTexts`'s walk and its deterministic-read claim:
+ * read off the settled transcript after `await session.prompt(...)` resolves,
+ * not off `text_delta` events, so a later turn cannot be lost to a subscription
+ * window closing before its reply lands.
+ */
+export function collectAssistantTexts(
+  entries: readonly unknown[],
+): readonly string[] {
+  const texts: string[] = [];
+  for (const entry of entries) {
+    const e = entry as {
+      type?: string;
+      message?: { role?: string; content?: unknown };
+    };
+    if (e.type !== "message" || e.message?.role !== "assistant") continue;
     const content = e.message.content;
     if (typeof content === "string") texts.push(content);
     else if (Array.isArray(content)) {

@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.284.0]
+
+### Fixed
+
+- Bug 0287: the live H8a harness's driveSlash no longer accumulates a
+  drive's text from raw stream events — collectAssistantTexts reads every
+  assistant turn off the settled in-memory SessionManager after the drive
+  settles, so a later turn's stream cannot be dropped by event-window timing
+  (tests/live/harness.ts; offline lock
+  tests/b0287-live-harness-assistant-text-reader.test.ts). Test-infra only.
+  The lane's post-fix measurement re-owned cell 89's remaining reds to a
+  production-side drive-contract defect (the second on-session query's reply
+  never settles; prompt() hung twice) — filed as bug 0288; cell 89 stays
+  red-prone until it lands.
+
 ## [0.283.0]
 
 ### Fixed

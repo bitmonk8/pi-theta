@@ -1,6 +1,6 @@
 # Bug 0287 — The live H8a harness's `driveSlash` accumulates streamed assistant text only for as long as the outer `prompt()` is pending, so a multi-turn drive intermittently returns an EARLIER turn's text alone: cell 89's `turn.text` was exactly `"604"` (the first typed query's answer) while `turn.userTexts` proved the second query rendered and was sent
 
-- **Status:** open.
+- **Status:** fixed (0.284.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the defect is in verification
   scaffolding, not in shipped behaviour, but it produces live reds that
   mis-attribute to whatever fix is in flight and it hid the true mechanism of
@@ -183,7 +183,7 @@ Proven from the code at HEAD:
 - Each `@`-query is a separate agent run: `pi.sendUserMessage` is
   fire-and-forget and returns before the run installs its active-run handle
   (`production-theta-producer.ts:4779`–`:4786`, send at `:4833`); the driver's
-  wait for the run to become observably non-idle is BOUNDED at 1000 ms
+  wait for the run to become observably non-idle is BOUNDED at 1000 iterations × 10 ms ≈ 10 s (corrected at merge — the filed “1000 ms” misread the constant as milliseconds)
   (`:4838`, `:4893`), and `ctx.waitForIdle()` "resolves immediately while no
   run is active".
 - The user turn is recorded in the transcript at send time, which is why
@@ -200,7 +200,7 @@ Not proven statically — the exact interleaving. Two mechanisms fit the
 measurement and the code, and this report does not claim to discriminate them:
 
 1. **Late delivery after unsubscribe.** The second query's run has not become
-   observably non-idle within `TURN_START_POLL_BOUND` (1000 ms), so the start
+   observably non-idle within `TURN_START_POLL_BOUND` (≈10 s; corrected at merge), so the start
    poll expires, the end poll and `waitForIdle()` return at once, the theta
    finishes, the slash dispatch returns, `prompt()` resolves, `:415`
    unsubscribes, and the second turn's `text_delta` events then arrive with no
@@ -415,3 +415,51 @@ the four-run table, Residuals 1 and 2); the prior 1-in-3 disposition is
 cross-version-probe logs are quoted through bug 0286's §Reproduction. Source
 citations, the mechanism reading and the exposure sweep are this writer's own,
 offline at HEAD. No live test was run by this writer.
+
+## Fix (0.284.0)
+
+- What shipped: `tests/live/harness.ts` — `driveSlash`'s whole-drive text is
+  no longer accumulated from raw stream events: a new
+  `collectAssistantTexts` reads every assistant turn's text off the settled
+  in-memory `SessionManager` after the drive fully settles (the AGENTS.md
+  observables pattern), so a later turn's stream can no longer be dropped by
+  event-window timing. Thinking-only assistant entries are excluded (measured
+  in the lane's pre-review corrective round — they defeated the first accept
+  condition). Turn-completeness holds by construction.
+- Tests: `tests/b0287-live-harness-assistant-text-reader.test.ts` (offline,
+  5 cases) locks `collectAssistantTexts` — RED 5/5 pre-fix
+  (`collectAssistantTexts is not a function`), green post-fix, red direction
+  re-proved and restored byte-exact by the verifier.
+- Gates: default suite 460 files / 9411 green; typecheck clean; lint clean;
+  `tests/live/live-production-acceptance.test.ts` held at 14864 lines;
+  `tests/fixtures/h7a/permitted-codes.json` byte-identical; `src/` and
+  `tests/live/hardening/probe-harness.ts` untouched.
+- Live (lane, under the shared lock): pre-fix red reproduced 3/3 (streamed
+  `"604"` with both queries in `userTexts`); post-fix cell 89 across two
+  batches: ✓✗✗✗✓ and ✓✓✓✗✗; sanity subset green (b0154 + b0282, 2 files/4
+  tests; b0251 + inline-object-stray-close-token, 2/2, no stall).
+- Review: 1 pre-review corrective round (measured) + round 1 deep (1
+  correctness: branch-C bind-echo short-circuit; 1 prose) + fixer + round 2
+  fast CLEAN. Verifier: no finding against the shipped diff; declared NOT
+  SOLID *as closure* because this document's original verification rule (five
+  consecutive cell-89 greens) is unreachable by a harness-side fix alone.
+- **Scope adjudication at the merge gate (parent, recorded).** The lane's
+  post-fix measurement falsified this document's single-cause premise: with
+  observation turn-complete by construction, cell 89 still reds ~40–60% — the
+  SECOND on-session query's reply genuinely never settles into the session
+  (loud named-precondition failure), and twice `session.prompt()` did not
+  resolve within 180 s. That residual is a PRODUCTION-side drive-contract
+  defect (`src/`), which §Non-goals fences out of this report. This
+  document's subject — the harness accumulator dropping a later turn's
+  stream — is discharged by construction and locked offline; the original
+  live verification rule is superseded (its premise measured false), and the
+  residual is re-owned by bug 0288 (filed this session), whose closure — not
+  this document's — owns cell 89's stable green.
+- Residuals: (1) cell 89 remains red-prone until bug 0288 lands — do not
+  attribute its reds to code changes; the failure text names the unsettled
+  second reply. (2) `probe-harness.ts` shares the old read shape with no
+  current assertion on it — untouched per §Fix constraints. (3) The filed
+  "1000 ms" readings of `TURN_START_POLL_BOUND` were corrected in place at
+  merge (1000 iterations × 10 ms ≈ 10 s), matching the lane's measurement.
+- Discharge notes appended: none owed (0286 already records the attribution
+  chain; 0288 records the re-owning).
