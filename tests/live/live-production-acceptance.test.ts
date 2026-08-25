@@ -14732,7 +14732,7 @@ const E_SIDE_UNDECLARED_CELL_89 = [
 // produce. A verbatim-echo demand ("reply with exactly this") reads as prompt
 // injection to current models and draws refusals: the sentinel-refusal class
 // filed as bug 0243.
-/** 306 + 218 = 524 is theta-computed; 524 + 341 = 865 is the answer only that value affords. */
+/** `n` = 306 + 218 = 524 reaches the prompt body; only that value affords 865. */
 const DECLARED_E_SENTINEL_CELL_89 = "865";
 
 /**
@@ -14741,17 +14741,17 @@ const DECLARED_E_SENTINEL_CELL_89 = "865";
  * admits it, so the document registers and drives. The final untyped query is
  * the drive discriminator: it interpolates the theta-computed `n`, so the
  * answer is producible only from a run in which the theta's own arithmetic
- * reached the prompt. The `Result`-annotated query above it is bound WITHOUT
- * `?`, so its outcome is a value rather than a fail-closed ending -- the note
- * channel below therefore reads the drive's completion, not the provider's luck
- * on a typed response.
+ * reached the prompt. The typed query above it asks a different sum (471 plus
+ * 133 = 604), colliding with neither the rendered 524 nor the sentinel 865; it
+ * is bound WITHOUT `?`, so its outcome is a value rather than a fail-closed
+ * ending -- the note channel reads the drive's completion, not provider luck.
  */
 const DECLARED_E_HEAD_CELL_89 = [
   "---",
   "mode: prompt",
   "---",
   "schema Nope { a: number }",
-  "let a: Result<integer, Nope> = @`What is 306 plus 218? Answer with the number only.`",
+  "let a: Result<integer, Nope> = @`What is 471 plus 133? Answer with the number only.`",
   "let n = 306 + 218",
   "@`A computation produced the value ${n}. What is that value plus 341? Answer with the number only.`",
   "",
@@ -14852,9 +14852,9 @@ describe("H8a-T -- bug 0273: an undeclared head in a `Result<T, E>` annotation's
       ).toEqual([]);
       expect(
         turn.text.includes(DECLARED_E_SENTINEL_CELL_89),
-        "the declared-`E` twin's drive did not answer the task question over its own computed value (306 + 218 = 524, then + 341) -- streamed text: " +
+        "the declared-`E` twin's drive did not answer the task question over the value rendered into the discriminator's prompt body (524 + 341 = 865) -- streamed text: " +
           JSON.stringify(turn.text) +
-          " (cell 89)",
+          "; userTexts: " + JSON.stringify(turn.userTexts) + " (cell 89)",
       ).toBe(true);
     } finally {
       await handle.dispose();

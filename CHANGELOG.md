@@ -6,6 +6,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.283.0]
+
+### Fixed
+
+- Bug 0286: live cell 89 (bug 0273's H8a-T cell) no longer collides its first
+  typed query's answer with the value interpolated into its drive
+  discriminator: the first query now computes a collision-free sum
+  (471 + 133 = 604) so a red's streamed text is attributable, and the failure
+  message prints turn.userTexts beside turn.text. Test-infra only
+  (tests/live/live-production-acceptance.test.ts, cell 89, file held at
+  14864 lines); no product surface touched. The lane's post-edit evidence
+  attributes the historical cell-89 reds to a harness stream-accumulation
+  race (turn.text carrying only an earlier turn's stream) — filed forward as
+  bug 0287; cell 89 remains stochastic until that lands.
+
 ## [0.282.0]
 
 ### Fixed

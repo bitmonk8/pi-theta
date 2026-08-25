@@ -1,6 +1,6 @@
 # Bug 0286 — Live H8a cell 89's declared-`E` twin carries a two-question drive whose first query's answer (`524`) is also the value interpolated into the second query, and the streamed text of the whole drive is now exactly `"524"`: the sentinel `865` never appears, so `tests/live/live-production-acceptance.test.ts:14858` reds 4-for-4 across two code versions while the cell's subject (registration refusal plus twin registration) stays green
 
-- **Status:** open.
+- **Status:** fixed (0.283.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because this is a verification defect, not a
   product defect: the assertion's truth condition includes a live model
   chaining an arithmetic step, and the red is the full live suite's only red at
@@ -335,3 +335,91 @@ from its logs: the full run at HEAD
 `.pi/tmp/fix-open-bugs/RESUME.md:3`, `:634`–`:636`. Source citations, the
 sibling-exposure sweep and the `src/` diff reading are this writer's own,
 offline at HEAD. No live test was run by this writer.
+
+## Fix (0.283.0)
+
+- What shipped: `tests/live/live-production-acceptance.test.ts` — inside cell 89
+  only, all five §Fix edit sites as in-line replacements, file held at 14864
+  lines (`wc -l` 14864 before, 14864 after; `git diff --stat` 8 insertions / 8
+  deletions, one file):
+  1. `:14754` — the twin's typed query retargeted to
+     ``@`What is 471 plus 133? Answer with the number only.` `` (answer `604`),
+     the doc's stated candidate verbatim; the `Result<integer, Nope>`
+     annotation, the head `Nope` and the typed shape unmoved. The three numbers
+     in the drive are now distinct: `604` (typed answer), `524` (rendered
+     theta-computed value), `865` (sentinel).
+  2. `:14755`–`:14756` — `let n = 306 + 218` and the single-step task-framed
+     discriminator kept verbatim; 0243-compliant, no verbatim-echo demand.
+  3. `:14736` — sentinel unchanged at `"865"`; `524 + 341 = 865` re-derived
+     after the change. The assertion's truth condition
+     (`turn.text.includes(DECLARED_E_SENTINEL_CELL_89)` … `.toBe(true)`) is
+     byte-identical — not weakened to `userTexts` or `systemNotes`.
+  4. `:14855`–`:14857` — `turn.userTexts` folded into the existing failure
+     message and its parenthetical corrected from a chain to one addition over
+     the rendered value. This channel paid for itself on first use (see
+     Residual 2).
+  5. `:14735`, `:14744`–`:14748` — both comment blocks updated in place: the
+     sentinel comment now states one addition over a value that reached the
+     prompt body, and the twin block states the new operands and the
+     collision-freedom separately from the WITHOUT-`?` binding rationale.
+- Gates:
+  - Witness (live, under the lock, `-t "cell 89"`): PRE-EDIT run 1 PASS
+    (13442ms), PRE-EDIT run 2 PASS (12636ms) — the filed deterministic 4-for-4
+    red did not reproduce at lane HEAD. POST-EDIT run 1 RED at
+    `tests/live/live-production-acceptance.test.ts:14858:9`
+    (`streamed text: "604"; userTexts: ["What is 471 plus 133? …","A
+    computation produced the value 524. What is that value plus 341? …"]`);
+    POST-EDIT deciding re-run PASS (18679ms).
+  - Default suite: `Test Files 459 passed (459)` / `Tests 9406 passed (9406)`
+    (the edited file is live-only and excluded).
+  - Typecheck: `tsc -p tsconfig.json --noEmit` — zero diagnostics.
+  - Lint: `eslint … "src/**/*.ts"` — zero diagnostics.
+- Review: 1 round. Round 1 (`bug-fix-reviewer`) — one `prose` finding: the
+  rewritten twin comment fused two independent WHYs under a false "so"
+  (different sum ⇒ bound WITHOUT `?`). Fixed comment-only; the orchestrator then
+  rewrapped two over-long comment lines to the file's ~80-column style. Polish
+  verified by gate-diff (every hunk inside `/** … */`, line count held, gates
+  green); confirmation round skipped.
+- Verification: verified.
+  - Witness reds for the right reason: POST-EDIT run 1's message is byte-
+    reproducible from `:14855`–`:14857`, the failure site is the `.toBe(true)`
+    at `:14858`, and `turn.systemNotes` (asserted just above) passed — the red
+    is the drive-answer assertion, not an infra error. Both directions are
+    witnessed with the shipped fixture, no neutralisation edit required.
+  - Invariants: 14864 lines; `git status --porcelain` lists only the edited
+    test file; `tests/fixtures/h7a/permitted-codes.json` byte-unchanged
+    (`a4a8da04209f90e13d815edd92c1fc682e2a2236`); the six enumerated sibling
+    chained-second-step cells byte-untouched; bug 0273's subject (annotation,
+    head, `schema Nope`, attribution guard, registration and refusal
+    assertions, the never-driven offender's `306 plus 218`) untouched; no
+    `Reply with exactly` / `Say exactly` / `and nothing else` in the drive text;
+    the only line citations into `:14721`–`:14864` are this report's own `:14858`
+    and `docs/bugs/README.md:308`, both still resolving to the same assertion.
+- Residuals:
+  1. **The filed deterministic signature did not reproduce.** Two pre-edit live
+     runs at lane HEAD were green, so this fix's justification rests on the
+     fixture hazard the report measures (three-way number collision) plus the
+     parent's four filed logs, not on a fresh red. Post-edit the cell sampled
+     1 red / 1 green. Cell 89 therefore remains a stochastic-mode cell after
+     this fix; its prior `RESUME.md:3` `cell-89 1-in-3` disposition stands.
+  2. **The measured mechanism is not the one this report's root-cause section
+     states.** §"Actual behaviour / root cause" reads the red as a model
+     stopping one arithmetic step early. The post-edit red's `userTexts` — the
+     channel added by §Fix item 4 — shows the discriminator query rendered
+     correctly with `524`, while `turn.text` was exactly `"604"`: the *first*
+     typed query's answer, with no trace of any reply to the discriminator.
+     Under the doc's reading the stream should have carried the discriminator's
+     truncated `524`. The evidence instead points at the discriminator turn's
+     `text_delta` stream not always landing in `driveSlash`'s whole-drive `text`
+     accumulator (`tests/live/harness.ts:390`–`:417`) in a two-query
+     prompt-mode drive. That is a distinct, narrower question than this
+     report's collision fix and is left as a follow-on observation — no scope
+     widening was taken here.
+  3. **Sibling exposure untouched, as §Fix directs.** The six enumerated
+     chained-second-step drives are byte-unchanged and were not re-run.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: bug 0273's subject, bug 0283's binder
+  signature, bug 0243's refusal class and the single-step
+  compute-from-inline-value form all stay as this report's §Non-goals fixes
+  them. The H9a surface and `tests/fixtures/h7a/permitted-codes.json` were not
+  touched.
