@@ -472,7 +472,15 @@ function tokeniseType(source: string): TypeToken[] {
 }
 
 const PRIMITIVE_TYPES = new Set(["string", "number", "integer", "boolean", "null"]);
-const GENERIC_ARITY: Readonly<Record<string, number>> = Object.freeze({
+/**
+ * The closed `GenericType` set (grammar.md:99–:100, :107 — "No other
+ * identifier is parameterisable"). Exported for `lowerTypeExpr`
+ * (`src/parser/params.ts`), which exempts these two constructor keywords
+ * from its reserved-head refusal by membership here rather than by name —
+ * one closed set read by both places that judge a generic head, rather than
+ * a second copy that could drift.
+ */
+export const GENERIC_ARITY: Readonly<Record<string, number>> = Object.freeze({
   array: 1,
   Result: 2,
 });

@@ -602,3 +602,32 @@ report names. No un-enumerated pinned cell moves under the route taken.
   the seven tripwire flips of 0.272.0 stay as they are; the APPLIED heads stay
   admitted everywhere the grammar admits them;
   `theta/parse/result-in-schema-position` is untouched.
+
+## Coordination note — bug 0281 (0.277.0)
+
+Append-only; nothing above is edited. Residual 1 of this report's §Fix is
+discharged.
+
+**Residual 1 is discharged.** An APPLIED `Ok<…>` / `Err<…>` no longer stays
+silent at every capture. Bug 0281's fix takes its §Fix route (a) in the
+NARROW variant — the gate its own scope decision places inside that report's
+authority: at the seam an applied spelling DOES reach, `lowerTypeExpr`'s
+generic-application arm (`src/parser/params.ts`), a head that is a reserved
+spelling and is not one of the two constructor keywords routes onto the
+`reservedKeywords` sink this report's own fix wired at all nine captures. The
+applied and unapplied spellings of one reserved word now converge on
+`theta/parse/reserved-keyword-as-identifier`, at each capture's existing
+sibling range.
+
+**An unknown applied head is untouched by that gate.** A head that is no
+reserved spelling — `Nope<integer>`, a declared but non-parameterisable
+`Foo<integer>` — keeps the permissive lowering it has always had and stays
+silent. That class is bug 0282's open subject and this note discharges none
+of it.
+
+**This group (K) is re-founded, not deleted.** `tests/b0277-…test.ts`'s group
+(K) — K1–K5 — asserted the residual as a measured, pinned silence; it now
+asserts the refusal in place, under bug 0281's own "Flip authority" clause
+naming these five cells. Every other group in that file is unmoved.
+
+Residuals 2 and 3 are untouched by this note.

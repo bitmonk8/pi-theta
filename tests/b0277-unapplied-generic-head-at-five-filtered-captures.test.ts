@@ -685,20 +685,22 @@ describe("b0277 (N) — an unapplied head nested inside a legal application read
 });
 
 // ===========================================================================
-// (K) The APPLIED value-constructor spelling — measured, and outside the route.
+// (K) The APPLIED value-constructor spelling — re-founded under bug 0281.
 // ===========================================================================
 
-describe("b0277 (K) — an applied `Ok<…>` / `Err<…>` spelling is silent, at a filtered and an unfiltered capture alike", () => {
-  it("b0277-K: the applied value-constructor spellings keep their measured empty lists", () => {
-    // GREEN at HEAD, and pinned as MEASURED rather than derived from the
-    // report's grammar reading. An applied spelling carries an argument list,
-    // so the generic-application arm consumes it and the atom arm — the only
-    // seam the withheld set sits on — is never reached; the silence therefore
-    // holds at the unfiltered `schema` field too, where nothing is filtered.
-    // Route (a) deletes that filter and nothing else, so these rows do not move
-    // under it. What an applied value constructor SHOULD mean in a type
-    // position is no part of this report's subject, and this group asserts only
-    // that the settled route leaves it exactly where it stands.
+describe("b0277 (K) — an applied `Ok<…>` / `Err<…>` spelling refuses, at a filtered and an unfiltered capture alike", () => {
+  // These five cells (K1–K5) are bug 0281's, by that report's own "Flip
+  // authority" clause naming them by file and range (0.277.0,
+  // docs/bugs/0281-applied-ok-err-generic-application-silent-at-every-capture.md
+  // §Fix route (a), NARROW variant). The route gates the seam an applied
+  // spelling reaches — `lowerTypeExpr`'s generic-application arm,
+  // `src/parser/params.ts` — on "a reserved spelling that is not a
+  // constructor keyword", so `Ok` and `Err` written with an argument list
+  // converge on the same `theta/parse/reserved-keyword-as-identifier` refusal
+  // their bare spelling already draws at these five captures: one reading for
+  // one spelling, which is what the group asserts. A head that is no reserved
+  // spelling is untouched by that gate and stays outside this group.
+  it("b0277-K: the applied value-constructor spellings draw the keyword refusal", () => {
     const rows = [
       theta("K1 — `let a: Ok<integer> = 3`", 'let a: Ok<integer> = 3\n"ok"'),
       theta("K2 — `let a: Err<integer> = 3`", 'let a: Err<integer> = 3\n"ok"'),
@@ -708,15 +710,20 @@ describe("b0277 (K) — an applied `Ok<…>` / `Err<…>` spelling is silent, at
     expectCaptured(rows, []);
     const unfiltered = theta("K5 — `schema S { f: Ok<integer> }`", 'schema S { f: Ok<integer> }\n"ok"');
     expectCaptured([unfiltered], ["S"]);
+    const heads = ["Ok", "Err", "Ok", "Ok", "Ok"];
     expectRows(
       [...rows, unfiltered],
-      [...rows, unfiltered].map(() => []),
-      () => [...rows, unfiltered].map(() => []),
+      heads.map(() => [RESERVED]),
+      () => heads.map((head) => [reservedLine(head)]),
     );
     expect(
+      [...rows, unfiltered].map((r) => [r.label, startPositions(r)]),
+      "each refusal sits at its capture's own declaration start, the range the bare spelling already uses",
+    ).toEqual([...rows, unfiltered].map((r) => [r.label, ["6:1"]]));
+    expect(
       [...rows, unfiltered].map((r) => [r.label, registered(r)]),
-      "the applied value-constructor spelling registers before and after, at both a filtered and an unfiltered capture",
-    ).toEqual([...rows, unfiltered].map((r) => [r.label, true]));
+      "the applied value-constructor spelling no longer registers, at a filtered or an unfiltered capture alike",
+    ).toEqual([...rows, unfiltered].map((r) => [r.label, false]));
   });
 });
 

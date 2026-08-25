@@ -1,6 +1,6 @@
 # Bug 0281 — An APPLIED `Ok<…>` / `Err<…>` spelling derives from no `Type` production at any arity, yet the type-application seam reads its head as an arbitrary constructor name and refuses nothing: `let a: Ok<integer> = "not-an-integer"`, `fn f(): Err<string> { 3 }` and `schema S { f: Ok<integer> }` load clean and register at all nine type-reference captures, with the annotation lowered to the empty type so the position's own check stops firing
 
-- **Status:** open.
+- **Status:** fixed (0.277.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because no legal source moves: no committed
   `.theta` / `.thetalib` spells `Ok<…>` or `Err<…>` (34 files, `git ls-files`
   + `grep`), the legal applied heads `Result<T, E>` and `array<T>` are untouched
@@ -502,3 +502,116 @@ not-expression family's wiring at four of the nine captures.
 > family draws at seven of the nine captures (only query-E-arg and
 > invoke-ascr are unwired), not four; 0281 §Reproduction measured four
 > cells. Measured by 0282 writer (integer-- probe, all nine).
+
+## Fix (0.277.0)
+
+- **Route adjudicated: §Fix route (a), NARROW variant.** §Fix offers the gate
+  in two widths and decides the authority itself: "The narrower gate is inside
+  this report's authority; the wider one is not, and taking it means filing the
+  wider class first." The wider class IS filed
+  (`./0282-unknown-applied-generic-head-silent-at-every-position.md`, at this
+  HEAD), so the wide gate was implemented first and then MEASURED: written as
+  "head not in `GENERIC_ARITY`" it flips eight pinned cells across five witness
+  files owned by other reports — `tests/generic-argument-bracket-group-truncation.test.ts`,
+  `tests/generic-argument-literal-lowering.test.ts`,
+  `tests/inline-object-malformed-entry-resync.test.ts`,
+  `tests/inline-object-stranded-entry-refusal.test.ts` and
+  `tests/nested-inline-enum-generic-argument-refusal.test.ts`, which use
+  `pair<…>`, `map<…>` and a lowercase `result<…>` as inert scaffolding for
+  bugs 0164, 0217, 0231, 0236 and 0256. No enumerated flip authority reaches
+  them: bug 0282 §Fix's own enumeration searches two spellings
+  (`rg "Nope<|Ghost<" tests/`) and is measurably incomplete. The narrow gate
+  was taken instead, which is the branch this report already owns.
+- **Consequence for the sibling: bug 0282 is NOT discharged and stays open.**
+  Its §Fix coordination clause governs this outcome directly — "If the landing
+  fix is the narrower one 0281 also describes … no cell of this document moves
+  and no note is owed either way." Its document,
+  `tests/schema-alias-union-decl.test.ts` and
+  `docs/spec_topics/diagnostics/code-registry-parse.md` are byte-unchanged
+  against HEAD, hash-verified.
+- **What shipped:**
+  - `src/parser/params.ts` — one gate in `lowerTypeExpr`'s
+    generic-application arm: a head that is a reserved spelling and is not one
+    of the two constructor keywords routes onto the existing `reservedKeywords`
+    sink and lowers to the empty type no further, so all nine captures refuse
+    it through the render bug 0277's fix wired. The two constructor keywords
+    are exempted by closed-set membership rather than by name, so the arity
+    gate keeps winning for a head the set holds.
+  - `src/parser/type-grammar.ts` — `GENERIC_ARITY` exported so both places
+    that judge a generic head read one closed set. No behavioural line moves;
+    the head-agnostic application fallback and `walkType`'s `"generic"` arm are
+    untouched, because the narrow class always lowers and one seam therefore
+    covers every capture (pressed as an attack in review round 1 and probed at
+    thirteen further nesting and declaration shapes without finding a silent
+    escape).
+  - `tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts` —
+    group (K), cells K1–K5, re-founded in place on the refusal under this
+    report's "Flip authority" clause. The only enumerated flip taken; every
+    other group is byte-identical.
+  - `docs/bugs/0277-…md` — dated coordination note: residual 1 discharged,
+    group (K) re-founded here, and an explicit paragraph recording that an
+    unknown applied head is untouched.
+- **The code decision, discharged:** `theta/parse/reserved-keyword-as-identifier`
+  (`code-registry-parse.md:21`), borrowed and not minted. §Fix required this be
+  verified rather than assumed: the row's *Trigger* is the single sentence
+  "Reserved keyword used in an identifier position." — position-free — and a
+  reserved spelling is read where an `Ident` is read (`NamedType ::= Ident`,
+  `grammar.md:98`) before any `<` lookahead decides anything, so a
+  constructor-head position is already inside it. No DIAG-2 widening is owed,
+  no reference mirror moves (`docs/reference/diagnostics.md` transcribes no
+  *Trigger* column), and `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged. The not-expression family was rejected on measurement: it has
+  no wired emitter at `invoke-ascr` or `query-E-arg` (seven of nine at HEAD,
+  as the dated correction note above states), so choosing it would owe an
+  emission-set widening at two positions.
+- **Gates:** witness `tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts`
+  14/14 (8 of 14 red at HEAD before the fix, for the filed reason: refusal
+  expected, empty list received); `npm test` 455 files / 9359 tests, zero reds;
+  `npm run typecheck` clean; `npm run lint` clean; live
+  `tests/live/b0281live-applied-reserved-generic-head-registration.test.ts`
+  2/2 green under the cross-lane live lock.
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — CLEAN, no findings, no
+  deep re-review recommended; it independently re-verified the *Trigger*
+  reading, probed the early-`return {}` question and the second-seam question
+  with its own offline probe, and hash-verified the byte-unchanged set. One
+  earlier round was a ROUTE RE-ADJUDICATION, not a review round: the
+  implementer stopped correctly on the wide gate's collateral and the
+  conversion to the narrow gate was dispatched before review round 1.
+- **Verification:** SOLID. Witness red under neutralisation of the gate alone
+  and green on restore, `src/parser/params.ts` byte-exact both sides
+  (`6e9555512b8d1d1d0a40ccc498258c8f3063865c`); default suite 455/455; lint and
+  typecheck clean; the live cell audited statically against the live-suite
+  conventions with no violation, and run for real by the orchestrator under the
+  lock — green, and red under the same neutralisation naming the registered
+  carrier (`b0281liveletannot`) with the applied-closed-set control still
+  green.
+- **Residuals:**
+  1. Bug 0282 stays open and unaltered. Its §Fix "Flip authority" enumeration
+     is stale against this tree in two ways its own fixer must widen before
+     landing: the `rg "Nope<|Ghost<" tests/` command misses the scaffolding
+     heads (`pair<`, `map<`, lowercase `result<`) in the five witness files
+     named above, and this report's witness adds a further group of cells
+     pinning the unknown-applied-head silence as a measured control. Recorded
+     here rather than in that document because its own coordination clause
+     states no note is owed under the narrow route.
+  2. `Ok<Nope>` draws the head's refusal alone and not the argument's
+     `unresolved-named-type`. Measured, not assumed, and it is the registered
+     cover rule rather than a suppression: `code-registry-parse.md`'s
+     `unresolved-named-type` row states a refusal already drawn over the
+     capture's own construct is cover whichever other code it carries. No
+     input in the class ends up silent.
+  3. Two citation drifts measured against this HEAD and left in place, since
+     they change no verdict: `hasLoadParseError` stands at
+     `src/extension/production-composition.ts:3053`, not `:3011` as both
+     documents cite; and §Reproduction control 3 undercounts the three
+     schema-feeding cells, where `Result<integer>` draws
+     `generic-arity-mismatch` AND `result-in-schema-position`, not the arity
+     line alone.
+- **Discharge notes appended:** `docs/bugs/0277-…md` (residual 1 discharged,
+  group (K) re-founded). None to `docs/bugs/0282-…md` — none is owed under the
+  narrow route, and that document is byte-unchanged.
+- **Pinned dispositions / non-goals:** bug 0278's arity gate, bug 0274's
+  reserved-keyword class, bug 0262's and bug 0273's `NamedType` verdicts, the
+  `"inline-object-shape"` rule set and `theta/parse/result-in-schema-position`
+  are all untouched, each locked green by its own witness. The unknown applied
+  head keeps its permissive lowering.

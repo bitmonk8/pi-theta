@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.277.0]
+
+### Fixed
+
+- Bug 0281: applied `Ok<…>` / `Err<…>` spellings loaded clean and registered at 16 of 18 capture cells — the grammar derives applied constructor heads only for `Result`/`array`, so the spelling is text with no reading. A reserved-spelling gate now refuses `Ok`/`Err` applied at any arity at every position (narrow route, adjudicated on the record: the wide closed-set gate was implemented then premeasured — it flips 8 pinned cells across 5 witness files owned by bugs 0164/0217/0231/0236/0256, outside every enumerated flip authority; bug 0282 therefore stays open and untouched). 0277's witness group (K) re-founded under this doc's authority. Witness `tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts` (14 cells) + live cell `tests/live/b0281live-applied-reserved-generic-head-registration.test.ts`.
+
 ## [0.276.0]
 
 ### Fixed

@@ -55,7 +55,7 @@ import {
   type LoweredUnionArm,
 } from "./schema-lowering";
 import { checkInlineEnumForm } from "./schema-declarations";
-import { parseTypeExpression } from "./type-grammar";
+import { GENERIC_ARITY, parseTypeExpression } from "./type-grammar";
 import { defineRecordField } from "../runtime/value";
 
 /**
@@ -791,6 +791,20 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     if (ctor === "array" && args.length === 1) {
       const first = args[0] ?? "";
       return { type: "array", items: lowerGenericArgument(first, ctxFor(0)) };
+    }
+    if (RESERVED_KEYWORDS.has(ctor) && !(ctor in GENERIC_ARITY)) {
+      // Bug 0281 §Fix route (a): a reserved spelling that is not one of the
+      // two constructor keywords is never an `Ident`, so it is no `NamedType`
+      // and heads no `GenericType` either (grammar.md:98, :99–:100) — writing
+      // an argument list after it does not make it one. The head itself is
+      // the refusal, routed onto the sink its own BARE spelling already draws
+      // (bugs 0262 and 0277's one-reading-one-spelling conclusion), so the
+      // applied and unapplied spellings of one reserved word converge on one
+      // diagnostic instead of the applied one lowering silently. The two
+      // constructor keywords are exempted by the closed-set test rather than
+      // by name, and heads inside that set never reach here.
+      lowerCtx.reservedKeywords?.push(ctor);
+      return {};
     }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
