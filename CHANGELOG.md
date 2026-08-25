@@ -6,12 +6,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.275.0]
+
+### Fixed
+
+- Bug 0277: unapplied generic heads (bare `Result`, bare `array`, and `Ok`/`Err` at any arity) loaded clean and registered at the five filtered type positions (let annotation, fn param, fn return, `invoke<T>`, query E-side) while the four unfiltered captures correctly refused them — the grammar derives unapplied constructor heads from no Type alternative, so the silence was the defect. The withhold set and filter are deleted; all five captures render the heads directly and refuse. Route (a) adjudicated after premeasuring both: conformance V20g-T respelled applied and 0274's witness group (X) restated under enumerated authority (route (b) would red bug 0044's un-enumerated matrix plus three normative pages). No registry edit (position-free trigger). Witness `tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts` (12 cells) + live cell `tests/live/b0277live-unapplied-generic-head-registration.test.ts`.
+
 ## [0.274.0]
 
 ### Fixed
 
 - Bug 0275: an escaping `tools:` entry below the immediate callee un-registered only the entry's owner and the owner's immediate caller (`theta/load/invoke-path-escape` at both) while every file above registered silently with a control-identical callable. The containment judgment now folds into the bounded depth walk as a depth-free verdict pair `{ fails, ownEscapes }` (deep fold in the recursion, shallow return at the entry point): a caller anywhere above the escape refuses. Route adjudicated on the record after premeasuring both candidates; no memo-key change (verdict stays depth-free). 0271's grandchild-callee-drop witness cell (ESC3) re-founded under this doc's authority. Witness `tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts` (5 cells) + live cell `tests/live/b0275live-escaping-tools-entry-below-immediate-callee-live-cell.test.ts`. Spec: invocation.md containment wording + discovery-cli.md mirror.
-
 ## [0.273.0]
 
 ### Fixed

@@ -520,3 +520,42 @@ re-run under the shared live lock and is green.
 The four already-wired callers stay behaviourally byte-identical, rows C1–C5
 are unmoved, row E9 still draws one line, and no *Message* byte and no registry
 row moved.
+
+## Coordination note (0.275.0) — the a-scoped withhold removed, row group (X) inverted, live control respelled
+
+2026-08-25. [Bug 0277](./0277-unapplied-generic-head-admitted-and-inert-at-five-type-positions.md)
+§Fix route (a) removed this report's own `WITHHELD_TYPE_HEAD_KEYWORDS` set and
+the `admittedReservedKeywords` filter it fed (`src/parser/theta-document.ts`).
+Bug 0277 measured that the set protects no APPLIED `Result<…>` / `array<…>` —
+neither ever reaches `lowerTypeExpr`'s atom arm, the only seam the withhold sat
+on — so it withheld only the UNAPPLIED, zero-argument spelling, which no
+`Type` production derives. This report's own residual 1 handed that split over
+as a separate subject; bug 0277's fix is that subject's disposition.
+
+Each of the five sinks this report wired now renders every hit directly,
+exactly as the four already-unfiltered callers this report left untouched
+always have. Group (X) of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts` —
+the cell that locked the withheld set's scope — is RESTATED, not deleted,
+following the same discipline this report's own row-E10 restatement above
+used: eight of its thirteen rows (the UNAPPLIED `Result` / `array` / `Ok` /
+`Err` spellings) now draw `theta/parse/reserved-keyword-as-identifier` and
+deny registration; the remaining five — two primitives (X3, X12), one
+primitive union arm (X4), and two APPLIED heads (X9, X13) — are unmoved,
+because they never reached the atom arm either before or after. The file's
+header commentary carries a matching coordination note rather than being
+silently left to describe a withhold that no longer exists.
+
+`tests/live/b0274live-reserved-keyword-type-head-registration.test.ts`'s
+CONTROL theta is respelled for the same reason: its `fn step(): Result { … }`
+return annotation was the UNAPPLIED shape, legal there only under the withhold
+this note records as removed. Respelled `Result<integer, QueryError>` — an
+APPLIED head, admitted under bug 0277 §Fix route (a) exactly as it was under
+this report's own — the control still registers and drives a real turn, its
+declared purpose; `step` is declared and never called, so the respelling
+changes no assertion.
+
+The four already-wired callers, rows C1–C5, row E9, row E10 and the *Message*
+and registry rows all stay exactly as this report and its 0.273.0 note left
+them — bug 0277 §Fix route (a) touches only the five-site withhold and its own
+named witnesses.

@@ -188,14 +188,27 @@ describe("bug 0274 — a reserved-keyword type head at the five sinkless capture
       // THE CONTROL, and the scoping tripwire. `Result` and `array` are
       // reserved spellings the grammar makes legal type heads, and the sink at
       // the five new sites withholds them; both appear at newly-wired sites
-      // here — the bare `Result` at an `fn` return, `array<integer>` at a `let`
-      // annotation — so a route that fed the full reserved set to those sites
-      // reds on this control instead of registering it.
+      // here — an APPLIED `Result<integer, QueryError>` at an `fn` return
+      // (bug 0277 §Fix route (a): the withheld set held only the UNAPPLIED
+      // spelling, so this control keeps its applied heads across that fix),
+      // `array<integer>` at a `let` annotation — so a route that fed the full
+      // reserved set to those sites reds on this control instead of
+      // registering it.
       {
         source: "project",
         stem: "b0274livecontrol",
+        // Coordination note, 0.275.0 (bug 0277 §Fix route (a) is the authority):
+        // `step`'s return annotation was the bare `Result` — an unapplied head,
+        // legal here only under this bug's own withheld set. Route (a) removes
+        // that withhold, so the unapplied spelling now refuses at every
+        // capture and this control would no longer register. Respelled
+        // `Result<integer, QueryError>`, an APPLIED head that stays legal
+        // under route (a) (§Non-goals: the grammar admits it everywhere).
+        // `step` is declared and never called, so this changes no assertion
+        // in this cell — the control's purpose (a legal theta registers AND
+        // drives) is preserved.
         text: promptTheta([
-          "fn step(): Result { Ok(700) }",
+          "fn step(): Result<integer, QueryError> { Ok(700) }",
           "let xs: array<integer> = [41]",
           "let n = 700 + xs[0]",
           "@`What is ${n} plus 158? Answer with the number only.`?",

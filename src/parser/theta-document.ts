@@ -7462,41 +7462,16 @@ function walkParamsDefaultNames(
  * position already admits (`patternHeadTypeNames`'s own seed,
  * `BUILTIN_VALUE_NAMES` above — clause (iv)(1)). Reusing that constant rather
  * than a literal at each of the four call sites is what keeps the admission
- * one fact instead of four: `Result` itself is never tested as an atom
+ * one fact instead of four: an APPLIED `Result` is never tested as an atom
  * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
- * never through the identifier-resolution arm), so admitting it here is inert;
- * only `QueryError` is ever actually consulted by the four new captures.
+ * never through the identifier-resolution arm), so admitting it here is inert
+ * for that spelling; an UNAPPLIED `Result` reaches the atom arm instead and is
+ * the reserved-keyword class `theta/parse/reserved-keyword-as-identifier`
+ * reports at every capture (bug 0277 §Fix route (a)) — `QueryError` is the
+ * only name the four new captures ever resolve as a `NamedType`.
  */
 function withBuiltinErrorModelNames(typeNames: ReadonlySet<string>): ReadonlySet<string> {
   return new Set([...typeNames, ...BUILTIN_VALUE_NAMES]);
-}
-
-/**
- * Bug 0274 §Fix route (a)'s scoping: the reserved-keyword spellings withheld
- * at the five newly-wired `collectUnresolvedNamedTypes` sinks (the `let`
- * annotation, the `fn` parameter type, the `fn` return type, the
- * `invoke<Type>` ascription, and this capture's own `E` argument). `array` and
- * `Result` are legal type heads — `GenericType ::= "array" "<" Type ">" |
- * "Result" "<" Type "," Type ">"` (grammar.md's Type grammar), whose prose
- * states both constructor heads are reserved keywords and are reachable in
- * type position for exactly that reason; `fn step(): Result { … }` is the
- * shape the production-conformance suite's V20g-T theta drives as legal
- * source. `Ok` / `Err` are `Result`'s own value constructors, withheld by the
- * same conservative enumeration rather than by a grammar clause. The four
- * already-wired callers (the `schema` alias/union right-hand side, the
- * `schema` body field type, the query annotation's response part, and
- * `params:`'s own lowering) are untouched by this set: it is consulted only at
- * the five new sites, so `@<Result>` keeps refusing exactly as it does today.
- */
-const WITHHELD_TYPE_HEAD_KEYWORDS: ReadonlySet<string> = new Set(["Result", "array", "Ok", "Err"]);
-
-/**
- * Filter a `collectUnresolvedNamedTypes` `reservedKeywords` sink's hits down to
- * the spellings this bug's five new sites admit, preserving the sink's own
- * dedup order.
- */
-function admittedReservedKeywords(hits: readonly string[]): string[] {
-  return hits.filter((keyword) => !WITHHELD_TYPE_HEAD_KEYWORDS.has(keyword));
 }
 
 /**
@@ -8179,7 +8154,7 @@ function walkStatement(
             withBuiltinErrorModelNames(refs.typeNames),
             letReservedKeywords,
           );
-          for (const keyword of admittedReservedKeywords(letReservedKeywords)) {
+          for (const keyword of letReservedKeywords) {
             out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
           }
           for (const name of letUnresolved) {
@@ -8294,7 +8269,7 @@ function walkStatement(
               withBuiltinErrorModelNames(refs.typeNames),
               paramReservedKeywords,
             );
-            for (const keyword of admittedReservedKeywords(paramReservedKeywords)) {
+            for (const keyword of paramReservedKeywords) {
               out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
             }
             for (const name of paramUnresolved) {
@@ -8338,7 +8313,7 @@ function walkStatement(
             withBuiltinErrorModelNames(refs.typeNames),
             returnReservedKeywords,
           );
-          for (const keyword of admittedReservedKeywords(returnReservedKeywords)) {
+          for (const keyword of returnReservedKeywords) {
             out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
           }
           for (const name of returnUnresolved) {
@@ -8766,7 +8741,7 @@ function walkExpr(
             withBuiltinErrorModelNames(refs.typeNames),
             invokeReservedKeywords,
           );
-          for (const keyword of admittedReservedKeywords(invokeReservedKeywords)) {
+          for (const keyword of invokeReservedKeywords) {
             out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
           }
           for (const name of invokeUnresolved) {
@@ -8930,11 +8905,11 @@ function walkExpr(
           // This runs for the propagated route too (clause (iv)(2)'s withhold
           // above gates only `parseTypeExpression`, not this loop) because the
           // query arm is the propagated text's sole emitter — withholding this
-          // as well would leave the `E` head unrefused everywhere. Bug 0274
-          // §Fix route (a): a reserved-keyword sink IS now passed, admitted
-          // through `admittedReservedKeywords` at this bug's scoping (`Result` /
-          // `array` / `Ok` / `Err` withheld, `WITHHELD_TYPE_HEAD_KEYWORDS`
-          // above) exactly as the four new sites are.
+          // as well would leave the `E` head unrefused everywhere. Bug 0277
+          // §Fix route (a): the sink is rendered directly, exactly as the
+          // response part above and the four already-unfiltered captures do —
+          // no `Type` production derives an unapplied `Result` / `array` /
+          // `Ok` / `Err`, so nothing at this capture withholds the class.
           const errorModelAnnotation = queryErrorModelAnnotation(e.schema);
           if (errorModelAnnotation !== undefined) {
             const errorModelReservedKeywords: string[] = [];
@@ -8950,7 +8925,7 @@ function walkExpr(
             // response part's own hits above (`annotationReservedKeywords`),
             // mirroring the name loop's own per-annotation seen-set below.
             const reportedKeywordForThisAnnotation = new Set(annotationReservedKeywords);
-            for (const keyword of admittedReservedKeywords(errorModelReservedKeywords)) {
+            for (const keyword of errorModelReservedKeywords) {
               if (reportedKeywordForThisAnnotation.has(keyword)) {
                 continue;
               }

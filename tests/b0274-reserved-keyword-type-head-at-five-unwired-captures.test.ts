@@ -67,6 +67,19 @@ import { parseDoc } from "./helpers/e2e-s1";
 // keeps refusing, which is why group (X)'s withholds are stated as a property
 // of the FIVE NEW SITES and not of the sink.
 //
+// Coordination note, 0.275.0: the four paragraphs above describe the withhold as
+// bug 0274 §Fix route (a) landed it and are left standing as the historical
+// record. Bug 0277 §Fix route (a)
+// (../docs/bugs/0277-unapplied-generic-head-admitted-and-inert-at-five-type-positions.md)
+// measured that the withhold protects no APPLIED `Result<…>` / `array<…>` —
+// neither ever reaches the atom arm the withhold guards — so it withholds only
+// the UNAPPLIED, zero-argument spelling, which no `Type` production derives
+// (`GenericType`'s two alternatives each spell their own `"<" … ">"`,
+// grammar.md:99–:100). Route (a) there removes the withhold entirely; group
+// (X) below is restated accordingly rather than deleted, following the
+// discipline group (E10) above already models for its own bug-0278
+// restatement.
+//
 // WHAT IS RED HERE AND WHY. Group (E/F) — the bug document's §Reproduction rows
 // E1 through E7 and F1 through F8, each at BOTH measured spellings — asserts one
 // refusal where the parser at HEAD produces an EMPTY diagnostic list, so each
@@ -74,8 +87,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 // []". Group (E8) is red on the SECOND line only (the `Nope` line already
 // stands at HEAD), and two cells of group (count) are red on the count. Every
 // other group is measured at HEAD and green there: group (T) carries rows
-// T1–T4, group (C) rows C1–C5, group (X) the withheld spellings, group (E9) the
-// one-line dedup and group (E10) the non-arity-2 path.
+// T1–T4, group (C) rows C1–C5, group (E9) the one-line dedup and group (E10)
+// the non-arity-2 path. Group (X) is measured and green at HEAD for THIS file
+// in isolation, but eight of its thirteen rows flip under bug 0277 §Fix route
+// (a) landing in the same tree (see the coordination note above) — restated,
+// not deleted, per that report's own authorization.
 //
 // TWO SPELLINGS, AND WHY THESE TWO. `match` and `return` are members of neither
 // `PRIMITIVE_TYPES` nor the lexer's `controlHeads` set (`src/lexer/lexer.ts`),
@@ -615,56 +631,80 @@ describe("b0274 (E10) — a `Result` application of a count other than two prese
 // (X) The four spellings the five NEW sites withhold — the scoping lock.
 // ===========================================================================
 
-describe("b0274 (X) — `Result`, `array`, `Ok` and `Err` are admitted at the five newly-wired sites", () => {
-  it("b0274-X: every withheld spelling keeps an empty diagnostic list and keeps registering", () => {
-    // THE LOAD-BEARING LOCK ON THE SCOPING: the sink at the new sites forwards
-    // a filtered subset of the computed keyword class, not every hit the walk
-    // finds. Each row below is measured SILENT at HEAD and must stay silent,
-    // so a route that fed the full reserved set to the five new sites reds
-    // here instead of in the conformance suite.
+describe("b0274 (X) — the withheld set's own scoping, restated under bug 0277 §Fix route (a)", () => {
+  it("b0274-X: the eight UNAPPLIED-head rows now refuse; the five APPLIED/primitive rows are unmoved", () => {
+    // RESTATED under bug 0277 §Fix route (a), not deleted (bug 0277 §Fix names
+    // this exact group and requires the coordination note this comment is,
+    // following the discipline b0274-E10 above already models for its own
+    // bug-0278 restatement): `admittedReservedKeywords` and
+    // `WITHHELD_TYPE_HEAD_KEYWORDS` (`src/parser/theta-document.ts`) are gone,
+    // so the five newly-wired sinks this group locked now render every hit
+    // directly, exactly as the four already-unfiltered captures always have.
     //
-    //   `Result` and `array` — LEGAL TYPE HEADS. docs/spec_topics/grammar.md
-    //   lines 99 and 100 give `GenericType ::= "array" "<" Type ">" | "Result"
-    //   "<" Type "," Type ">"`, and the prose at line 107 records that both
-    //   constructor heads are reserved keywords and are reachable in type
-    //   position for exactly that reason. `fn step(): Result { … }` is the
-    //   shape `tests/conformance/production-conformance.test.ts` drives at
-    //   V20g-T, so refusing it would break legal source.
+    // THE SUBJECT THIS GROUP STILL MEASURES is unchanged: which of the sink's
+    // hits ever REACH one of the five sites at all. That question splits the
+    // original thirteen rows in two, and route (a) does not touch the split
+    // itself — only which of the two answers now draws a diagnostic.
     //
-    //   `Ok` and `Err` — `Result`'s own value constructors, withheld by the
-    //   same conservative enumeration rather than by a grammar clause.
+    //   EIGHT ROWS write an UNAPPLIED `Result` / `array` / `Ok` / `Err` — no
+    //   argument list — which reaches `lowerTypeExpr`'s atom arm
+    //   (`src/parser/params.ts`) precisely because it carries none.
+    //   Bug 0277 §Fix's own reading is that no `Type` production derives that
+    //   shape (`GenericType`'s two alternatives each spell their own
+    //   `"<" … ">"`, grammar.md:99–:100), so the atom arm's classification —
+    //   a reserved keyword read where an `Ident` is read — is now rendered
+    //   here as everywhere else: X1, X2, X5, X6, X7, X8, X10, X11.
+    //   `fn step(): Result { … }` (X5) is the UNAPPLIED shape
+    //   `tests/conformance/production-conformance.test.ts`'s V20g-T cell used
+    //   to drive — respelled to the APPLIED `Result<integer, QueryError>` in
+    //   the same change (bug 0277 §Fix §1) — so this row's new refusal does
+    //   not reopen that cell.
     //
-    //   `null` — never reaches the sink at all: `lowerTypeExpr`'s atom arm
-    //   tests `PRIMITIVE_TYPES` (`src/parser/params.ts`) BEFORE the reserved
-    //   branch, so `null`, `string`, `number`, `integer` and `boolean` are
-    //   dispositioned as primitives and no caller sink can see them. The union
-    //   arm is probed beside the bare head because a union arm reaches the same
-    //   atom arm by a different route.
-    const rows = [
-      theta("X1 — `let a: Result = Ok(1)` (`let` site, legal head)", "let a: Result = Ok(1)\n\"ok\""),
-      theta("X2 — `let a: array = 3` (`let` site, legal head)", "let a: array = 3\n\"ok\""),
-      theta("X3 — `let a: null = null` (`let` site, primitive)", "let a: null = null\n\"ok\""),
-      theta("X4 — `let a: string | null = null` (`let` site, primitive union arm)", "let a: string | null = null\n\"ok\""),
-      theta("X5 — `fn step(): Result { Ok(1) }` (`fn` return site, V20g-T's shape)", "fn step(): Result { Ok(1) }\n\"ok\""),
-      theta("X6 — `fn s(): array { 3 }` (`fn` return site)", "fn s(): array { 3 }\n\"ok\""),
-      theta("X7 — `fn s(p: array): number { 1 }` (`fn` parameter site)", 'fn s(p: array): number { 1 }\nlet r = s([1])\n"ok"'),
-      theta("X8 — `invoke<Result>` (ascription site)", 'let r = invoke<Result>("./x.theta", "hi")\n"ok"'),
-      theta("X9 — `invoke<array<integer>>` (ascription site)", 'let r = invoke<array<integer>>("./x.theta", "hi")\n"ok"'),
-      theta("X10 — `@<Result<integer, Ok>>` (query `E` site, value constructor)", 'let r = @<Result<integer, Ok>>`q`\n"ok"'),
-      theta("X11 — `@<Result<integer, Err>>` (query `E` site, value constructor)", 'let r = @<Result<integer, Err>>`q`\n"ok"'),
-      theta("X12 — `@<Result<integer, null>>` (query `E` site, primitive)", 'let r = @<Result<integer, null>>`q`\n"ok"'),
-      theta("X13 — `@<Result<integer, array<integer>>>` (query `E` site, legal head)", 'let r = @<Result<integer, array<integer>>>`q`\n"ok"'),
+    //   FIVE ROWS never reach the atom arm at all, and are unmoved: X3 and X12
+    //   (`null`, a `PrimitiveType` tested before the reserved branch), X4 (a
+    //   primitive union arm, same ground), and X9 and X13 (an APPLIED
+    //   `array<integer>`, consumed structurally by the generic-application arm
+    //   — §Non-goals: "The APPLIED heads stay admitted everywhere the grammar
+    //   admits them").
+    const flipped = [
+      theta("X1 — `let a: Result = Ok(1)` (`let` site, unapplied head)", "let a: Result = Ok(1)\n\"ok\""),
+      theta("X2 — `let a: array = 3` (`let` site, unapplied head)", "let a: array = 3\n\"ok\""),
+      theta("X5 — `fn step(): Result { Ok(1) }` (`fn` return site, unapplied head)", "fn step(): Result { Ok(1) }\n\"ok\""),
+      theta("X6 — `fn s(): array { 3 }` (`fn` return site, unapplied head)", "fn s(): array { 3 }\n\"ok\""),
+      theta("X7 — `fn s(p: array): number { 1 }` (`fn` parameter site, unapplied head)", 'fn s(p: array): number { 1 }\nlet r = s([1])\n"ok"'),
+      theta("X8 — `invoke<Result>` (ascription site, unapplied head)", 'let r = invoke<Result>("./x.theta", "hi")\n"ok"'),
+      theta("X10 — `@<Result<integer, Ok>>` (query `E` site, unapplied value constructor)", 'let r = @<Result<integer, Ok>>`q`\n"ok"'),
+      theta("X11 — `@<Result<integer, Err>>` (query `E` site, unapplied value constructor)", 'let r = @<Result<integer, Err>>`q`\n"ok"'),
     ];
-    expectCaptured(rows, []);
+    const flippedKeywords = ["Result", "array", "Result", "array", "array", "Result", "Ok", "Err"];
+    expectCaptured(flipped, []);
     expectRows(
-      rows,
-      rows.map(() => []),
-      () => rows.map(() => []),
+      flipped,
+      flipped.map(() => [RESERVED]),
+      () => flippedKeywords.map((k) => [reservedLine(k)]),
     );
     expect(
-      rows.map((r) => [r.label, registered(r)]),
-      "every withheld spelling keeps the theta registered at the five newly-wired sites",
-    ).toEqual(rows.map((r) => [r.label, true]));
+      flipped.map((r) => [r.label, registered(r)]),
+      "every unapplied head now denies registration at the five newly-wired sites",
+    ).toEqual(flipped.map((r) => [r.label, false]));
+
+    const unmoved = [
+      theta("X3 — `let a: null = null` (`let` site, primitive)", "let a: null = null\n\"ok\""),
+      theta("X4 — `let a: string | null = null` (`let` site, primitive union arm)", "let a: string | null = null\n\"ok\""),
+      theta("X9 — `invoke<array<integer>>` (ascription site, applied head)", 'let r = invoke<array<integer>>("./x.theta", "hi")\n"ok"'),
+      theta("X12 — `@<Result<integer, null>>` (query `E` site, primitive)", 'let r = @<Result<integer, null>>`q`\n"ok"'),
+      theta("X13 — `@<Result<integer, array<integer>>>` (query `E` site, applied head)", 'let r = @<Result<integer, array<integer>>>`q`\n"ok"'),
+    ];
+    expectCaptured(unmoved, []);
+    expectRows(
+      unmoved,
+      unmoved.map(() => []),
+      () => unmoved.map(() => []),
+    );
+    expect(
+      unmoved.map((r) => [r.label, registered(r)]),
+      "a primitive or an applied head never reaches the atom arm, so it keeps registering unmoved",
+    ).toEqual(unmoved.map((r) => [r.label, true]));
   });
 });
 

@@ -572,12 +572,10 @@ export interface LowerCtx {
    * type source used where a `NamedType` was read. `NamedType ::= Ident`
    * (grammar.md:98) bars a reserved spelling from ever being one, so this sink
    * and `unresolved` never name the same spelling. Like `unresolved`, the
-   * caller owns the array's lifetime and this module never reads it back:
-   * four callers render every hit as
-   * `theta/parse/reserved-keyword-as-identifier`, and five more filter hits
-   * through `admittedReservedKeywords` first, withholding `Result` and
-   * `array`, which head a `GenericType`, and `Result`'s own value
-   * constructors `Ok` and `Err` beside them.
+   * caller owns the array's lifetime and this module never reads it back: all
+   * nine callers render every hit as `theta/parse/reserved-keyword-as-identifier`
+   * (bug 0277 §Fix route (a) — no `Type` production derives an unapplied
+   * `Result` / `array` / `Ok` / `Err`, so no capture withholds the class).
    *
    * OPTIONAL because a caller threading no sink collects nothing and the
    * lowering stays permissive (`{}`) regardless — matching every other sink
@@ -700,12 +698,11 @@ const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
  *     atom at the top level); `void` lowers `{}` and records
  *     nothing (its own registered row, `void-in-non-return-position`, is the
  *     rejection); every other reserved spelling lowers `{}` and records the
- *     spelling on a second sink: four callers render every hit as
- *     `theta/parse/reserved-keyword-as-identifier` (bug 0044 §Fix); five more
- *     first filter hits through `admittedReservedKeywords`, which withholds
- *     the two `GenericType` heads `Result` and `array` and the two `Result`
- *     value constructors `Ok` and `Err`, and render the remainder the same
- *     way (bug 0274 §Fix route (a));
+ *     spelling on a second sink: all nine callers render every hit as
+ *     `theta/parse/reserved-keyword-as-identifier` (bug 0044 §Fix; bug 0277
+ *     §Fix route (a) removed the five-caller withhold bug 0274 §Fix route
+ *     (a) had scoped here, since no `Type` production derives an unapplied
+ *     `Result` / `array` / `Ok` / `Err` for it to protect);
  *   - an identifier-shaped atom that is NEITHER a primitive NOR a reserved
  *     keyword is a genuine `NamedType`: it resolves against the body
  *     declarations, lowering to an in-document `{ "$ref": "#/$defs/<name>" }`
@@ -841,11 +838,11 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
     // Every other reserved spelling is not a `NamedType`, so it is not a
     // resolution failure either: the registered disposition for a keyword
     // written where an identifier is read is `reserved-keyword-as-identifier`
-    // (code-registry-parse.md:21). Nine callers read this sink: four render
-    // every entry directly; five more (bug 0274 §Fix route (a)) render only
-    // the entries `admittedReservedKeywords` does not withhold, since a
-    // `GenericType` head and a `Result` value constructor are admitted
-    // spellings at those five sites.
+    // (code-registry-parse.md:21). Nine callers read this sink and all nine
+    // render every entry (bug 0277 §Fix route (a)): no `Type` production
+    // derives an unapplied `Result` / `array` / `Ok` / `Err`, so the class is
+    // reported at every capture alike, exactly as it already was at the four
+    // callers this sink's other five once withheld it from.
     lowerCtx.reservedKeywords?.push(s);
     return {};
   }

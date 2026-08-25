@@ -452,12 +452,22 @@ describe("V20g-T conformance — runtime / pure surface through the production d
   });
 
   it("`?` propagation in a Result-returning fn: `Ok(41)?` unwraps and the fn returns Ok(42)", async () => {
+    // Coordination note, 0.275.0 (bug 0277 §Fix route (a) is the authority): the
+    // return annotation was `Result {` — an unapplied head, legal only because
+    // bug 0274's withheld set silenced the class at this capture. Route (a)
+    // removes that withhold, so the unapplied spelling now draws
+    // `theta/parse/reserved-keyword-as-identifier` here too and this theta
+    // would no longer load. Respelled `Result<integer, QueryError>`, the
+    // applied head FN-3 already infers for a `?`-carrying body
+    // (functions.md §FN-3). The cell's subject — `?` propagation, asserted by
+    // `r.outcome === "success"`, `result.ok === true` and the payload `42` —
+    // holds unchanged under the respelling.
     const r = await runSource(
       [
         "---",
         "mode: prompt",
         "---",
-        "fn step(): Result {",
+        "fn step(): Result<integer, QueryError> {",
         "  let x = Ok(41)?",
         "  Ok(x + 1)",
         "}",

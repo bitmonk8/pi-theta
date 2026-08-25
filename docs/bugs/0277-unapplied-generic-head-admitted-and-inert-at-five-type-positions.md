@@ -1,6 +1,6 @@
 # Bug 0277 — An unapplied generic-constructor head (`Result`, `array`) or a `Result` value constructor (`Ok`, `Err`) written in a type position derives from no `Type` production, yet is admitted at five of the nine type-reference captures and lowers to the empty type there: `let a: Result = 3` and `fn f(): Result { 3 }` load and register with the binding's own type check silently disabled, while the same four spellings draw `theta/parse/reserved-keyword-as-identifier` at the four captures whose reserved-keyword sink is unfiltered
 
-- **Status:** open.
+- **Status:** fixed (0.275.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because no legal source moves and no value
   is wrong: an APPLIED head (`Result<integer, string>`, `array<integer>`) is
   silent at all nine captures because it never reaches the classification this
@@ -500,3 +500,105 @@ measurements restate bug 0274's residual 1 for the four wired captures it named
 and extend it to the three it did not (`schema` field, `schema` alias,
 `params:`), which is what shows the split is exactly filtered-versus-unfiltered
 rather than a single anomalous capture.
+
+## Fix (0.275.0)
+
+**Route (a), adjudicated on a premeasure taken both ways.** Before choosing,
+each route's direction was applied as a scratch edit at HEAD `f2119b06` and the
+whole default suite run against it. Route (a) — `admittedReservedKeywords` made
+the identity — redded exactly two pinned cells, both inside this report's
+enumerated flip authority: `tests/conformance/production-conformance.test.ts`'s
+V20g-T cell (`the conformance theta must parse cleanly … ["theta/parse/reserved-keyword-as-identifier"]`)
+and `tests/b0274-…test.ts` group (X). Route (b)'s direction — the unapplied head
+admitted at all nine captures, simulated by withholding the four spellings at
+the atom arm itself — redded `tests/reserved-keyword-type-position.test.ts`
+cells a1–a4, bug 0044's 32-keyword × four-position matrix, which this report does
+NOT enumerate as authorized to flip, and would additionally move three normative
+pages (`grammar.md:99`–`:100` and `:107`, `lexical.md:20`,
+plus a defined checking behaviour for `params.ts`'s `{}` lowering) and owe a
+separate `Ok` / `Err` disposition. Route (b) is therefore outside the authority
+this report grants; route (a) is inside it, and its two flips are the two the
+report names. No un-enumerated pinned cell moves under the route taken.
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `WITHHELD_TYPE_HEAD_KEYWORDS` and
+    `admittedReservedKeywords` deleted; the five filtered captures (`let`
+    annotation, `fn` parameter type, `fn` return type, `invoke<Type>`
+    ascription, the `@<T>` capture's `E` argument) render their
+    `reservedKeywords` sink directly, exactly as the four already-unfiltered
+    captures always have. The `withBuiltinErrorModelNames` doc-comment's
+    "inert" claim is corrected to name the APPLIED spelling it holds for.
+  - `src/parser/params.ts` — comments only, no executable line: the three
+    blocks describing the removed four-render / five-filter split now state
+    that all nine callers render every hit.
+  - Registry: no edit owed, verified rather than assumed —
+    `code-registry-parse.md:21`'s *Trigger* is position-free and `:112`
+    already says "at every position alike", which the fix makes true unedited.
+    No code is minted; `tests/fixtures/h7a/permitted-codes.json` is
+    byte-unchanged (hash-verified against `f2119b06`).
+  - Authorized flips, both restated in place and neither deleted:
+    V20g-T's return annotation respelled `Result<integer, QueryError>` (the
+    cell's subject, `?` propagation to payload `42`, holds unchanged), and
+    `tests/b0274-…test.ts` group (X) restated — its thirteen rows split, as
+    measured, into eight unapplied-head rows that now refuse and deny
+    registration (X1, X2, X5, X6, X7, X8, X10, X11) and five that never reach
+    the atom arm and are unmoved (X3 and X12 primitives, X4 a primitive union
+    arm, X9 and X13 APPLIED heads).
+  - `tests/live/b0274live-…test.ts` — its control theta's `fn step(): Result`
+    respelled to an applied head, as this report's §Fix Locks requires under
+    route (a); `step` is declared and never called, so no assertion moved.
+  - `docs/bugs/0274-…md` — dated coordination note (2026-08-25) appended,
+    recording the withhold's removal, group (X)'s inversion and the live
+    control's respelling. Insertions only; no prior byte of that document's
+    text changed.
+- Gates: witness `tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts`
+  RED at HEAD `Tests  5 failed | 7 passed (12)` on missing emissions
+  (`Array []` where `["theta/parse/reserved-keyword-as-identifier"]` is
+  required), GREEN after `Tests  12 passed (12)`; full default suite
+  `Test Files  452 passed (452)` / `Tests  9335 passed (9335)` (baseline before
+  the fix: 451 / 9323); `npm run typecheck` clean; `npm run lint` clean.
+- Live: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0277live-unapplied-generic-head-registration.test.ts tests/live/b0274live-reserved-keyword-type-head-registration.test.ts`
+  → `Test Files  2 passed (2)` / `Tests  3 passed (3)`, run under the shared
+  live lock. Red-proved: with the fix neutralised, the b0277 live cell reds on
+  `b0277livefnreturn` still registering; the source was restored byte-exact
+  (`git hash-object` `0f68a8fc…` before and after).
+- Review: 2 rounds. Round 1 (deep) — three findings, all in the appended 0274
+  coordination note: undated note [fidelity], an unmoved-row enumeration naming
+  four items for five rows [prose], and a CRLF/LF churn inflating a 39-line
+  append into a 171-line diff [prose]; route fidelity, correctness, witness
+  quality, restatement discipline, house rules and the registry reading all
+  verified clean. One fixer round addressed the three, touching that document
+  only. Round 2 (deep) — CLEAN, with the src and test hunks proved
+  byte-identical to round 1's and the append proved insertions-only.
+- Verification: SOLID. The witness reds under neutralisation for the filed
+  reason and greens on restoration, with the restoring hash matching exactly;
+  the default suite is 452 / 9335; lint and typecheck are clean; every lock
+  this report names was run individually and is green — b0274 (14), b0273 (10),
+  b0262 (26), b0278, bug 0153's 76 cells, `reserved-keyword-type-position`,
+  `fn-param-name-reserved-keyword`, `inline-object-field-name-case`, V20g-T
+  conformance 27/27, committed-fixture parse gate 36/36; `permitted-codes.json`
+  hash-unchanged; the changed-file set is exactly the eight files this record
+  names.
+- Residuals:
+  1. An APPLIED `Ok<…>` / `Err<…>` at any arity remains SILENT at every
+     capture, filtered and unfiltered alike — measured, not assumed, and pinned
+     as a control in the witness's group (K). Route (a) removes an atom-arm
+     filter, and an applied spelling never reaches the atom arm, so this fix
+     does not and cannot reach it. No `Type` production spells `Ok` or `Err` at
+     any arity, so the spelling is still text with no reading; it is a distinct
+     subject from this report's unapplied class and no document covers it yet.
+  2. `src/parser/params.ts`'s `{}` lowering for a refused reserved atom is
+     unchanged. Under route (a) it is unreachable as a kept annotation for
+     these four spellings, since the refusal denies registration, but it stays
+     the shared lowering for every keyword spelling — as this report's §Fix
+     records, route (a) leaves that half moot rather than settled.
+  3. The `@<T>` response annotation's own wrong-arity `Result` silence noted in
+     §Non-goals is untouched here; bug 0278's fix addressed the ascription
+     peel, and any remainder is that report's subject, not this one's.
+- Discharge notes appended: `docs/bugs/0274-…md` (dated coordination note,
+  2026-08-25).
+- Pinned dispositions / non-goals: bug 0274's landed a-scoped wiring is not
+  reopened beyond its withheld set's removal; the twenty admitted spellings and
+  the seven tripwire flips of 0.272.0 stay as they are; the APPLIED heads stay
+  admitted everywhere the grammar admits them;
+  `theta/parse/result-in-schema-position` is untouched.
