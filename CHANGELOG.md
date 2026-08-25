@@ -6,12 +6,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.276.0]
+
+### Fixed
+
+- Bug 0280: a callee's declared `mode: prompt` was never read below depth 1 — the per-callee structural verdict's stub deps reported `subagent` unconditionally, so a prompt-mode grandchild refused only at its own namer while every caller above registered a callable byte-identical to the healthy control. The recursion's stub now returns the callee's real declared frontmatter mode (branch-independent — composes with the 0276 memo unchanged) and the frame's verdict filter admits `theta/load/prompt-mode-callable`; the depth-1 rule now holds at every depth. The 0271-added spec sentence codifying the old disposition is withdrawn in invocation.md and discovery-cli.md (same commit). Witness `tests/b0280-prompt-mode-declaration-below-immediate-callee.test.ts` (5 cells) + live cell `tests/live/b0280live-prompt-mode-below-immediate-callee-live-cell.test.ts`.
+
 ## [0.275.0]
 
 ### Fixed
 
 - Bug 0277: unapplied generic heads (bare `Result`, bare `array`, and `Ok`/`Err` at any arity) loaded clean and registered at the five filtered type positions (let annotation, fn param, fn return, `invoke<T>`, query E-side) while the four unfiltered captures correctly refused them — the grammar derives unapplied constructor heads from no Type alternative, so the silence was the defect. The withhold set and filter are deleted; all five captures render the heads directly and refuse. Route (a) adjudicated after premeasuring both: conformance V20g-T respelled applied and 0274's witness group (X) restated under enumerated authority (route (b) would red bug 0044's un-enumerated matrix plus three normative pages). No registry edit (position-free trigger). Witness `tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts` (12 cells) + live cell `tests/live/b0277live-unapplied-generic-head-registration.test.ts`.
-
 ## [0.274.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0280 — A callee's declared PROMPT mode is never read below depth 1: `calleeFailsOwnStructuralChecksBody`'s stub `resolveThetaCallee` (`production-composition.ts:2480–2482`) returns `mode: "subagent"` for every `.theta` spec at every depth, and its verdict filter (`:2497–2502`) admits only `unknown-tool` and `unresolvable-theta-path`, so a file whose own `tools:` names a prompt-mode theta un-registers on `theta/load/prompt-mode-callable` while every caller above it registers a callable byte-identical to the healthy control, with no row on any of their files
 
-- **Status:** open.
+- **Status:** fixed (0.276.0).
 - **Sev/Diff estimate:** S3/D2 — S3 on bug
   [0271](./0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md)'s and
   bug [0275](./0275-escaping-tools-entry-below-immediate-callee-silent-at-caller.md)'s
@@ -410,3 +410,78 @@ bug 0267 §Fix-record residual 2, unfiled"): recorded three times, owned by no
 report. Eighteenth session. Filed at HEAD `2c913396`, v0.274.0, from one
 offline `composeExtensionInstance` probe over the five rows tabulated in
 §Reproduction plus a read of the two call paths at `:1826` and `:2480`.
+
+## Fix (0.276.0)
+
+- What shipped: `src/extension/production-composition.ts` — §Fix route (a): the
+  pre-resolution loop inside `calleeFailsOwnStructuralChecksBody` records each
+  readable-and-parsed spec's declared frontmatter `mode` (from the `document`
+  the loop already produces for `grandchildFails`, no second `fs.readBytes`,
+  no reordering of read/containment/parse), the frame's stub
+  `resolveThetaCallee` returns that recorded mode instead of the constant
+  `"subagent"`, and the frame's verdict filter admits
+  `theta/load/prompt-mode-callable` as a third code. A spec that is unreadable
+  or that escapes containment never enters the map, so the escape arm keeps its
+  neutral subagent-mode default (§Fix constraint 4).
+  `docs/spec_topics/invocation.md` and `docs/reference/discovery-cli.md` —
+  §Fix constraint 6: the sentence "A `.theta` path's own declared mode is
+  outside this walk at every depth", added by bug 0271, is withdrawn in both
+  documents and replaced by the 0275-composition form (the file naming the
+  entry carries `theta/load/prompt-mode-callable` at its own file; the failure
+  composes into `theta/load/callee-has-errors` at every caller above that
+  file). No registry row changed:
+  `docs/spec_topics/diagnostics/code-registry-load.md:30`'s Trigger names the
+  entry with no depth restriction and already covers every depth, and `:42`
+  already names the callers' subject.
+- Memo composition (§Fix constraint 3): the mode a frame reads is
+  `document.frontmatter.mode` of the callee's OWN bytes, so it is a pure
+  function of those bytes — branch-independent exactly as `ownEscapes` is. The
+  `{ fails, ownEscapes }` pair bug 0276's `pass-verdict-memo.ts` stores on its
+  depth-free key therefore stays branch-independent under this change: no new
+  memo dimension, no new taint component, and the visited-set skip still taints
+  before any parse is skipped, so a verdict computed without a mode read is
+  never stored.
+- Gates: witness `npx vitest run
+  tests/b0280-prompt-mode-declaration-below-immediate-callee.test.ts` → red at
+  HEAD `3 failed | 2 passed (5)` (cells B/C/E: "the caller must not register
+  over a callee this same pass un-registers"), green after `5 passed (5)`.
+  Default suite `npm test` → `453 passed (453)` files, `9333 passed (9333)`
+  tests. `npm run typecheck` clean, `npm run lint` clean. Live:
+  `npx vitest run --config config/vitest/vitest.live.config.ts
+  tests/live/b0280live-prompt-mode-below-immediate-callee-live-cell.test.ts` →
+  `Test Files 1 passed (1)`, run under the cross-lane live lock.
+  `tests/fixtures/h7a/permitted-codes.json` byte-unchanged.
+- Review: 2 rounds. Round 1 (deep) — two findings, both non-executable: a
+  dangling "that immediate caller" antecedent in the new spec sentence whose
+  nearest reading restated the pre-fix behaviour, and a doc-comment that still
+  bounded the verdict filter at two codes while narrating withhold (b) as a
+  state transition. Round 2 — polish applied to comments and spec prose only;
+  verified by gate-diff (the executable diff is byte-identical to the reviewed
+  one) with the suite, typecheck and lint green, so the confirmation round was
+  skipped.
+- Verification: SOLID. Witness reds under two independent neutralisations (the
+  stub's mode reverted to the constant; the third verdict disjunct dropped),
+  each reding exactly cells B/C/E with the filed signature and leaving controls
+  A and D green; both restores byte-exact
+  (`git hash-object` → `909d80453db63bc6826a05f3779de5cf89bbcaeb` before and
+  after each cycle). Default suite green. Lint and typecheck green. Live cell
+  read for coverage of the fixed path, no silent skip, no verbatim-echo
+  discriminator; its run was performed by the orchestrator under the lock.
+  Pinned-witness sweep: bugs 0275, 0271, 0270, 0267, 0248 and 0276's witnesses
+  all unmoved — §Affected's claim that no cell pins the current below-depth-1
+  disposition holds as measured.
+- Residuals: none of this report's own. §Non-goals stand unchanged: the
+  dispatch gate's `activeRoots: undefined` (bug 0275 §Fix-record residual 2),
+  the entry-grammar rejections held by bug 0248 cells (D3)/(D5), and the
+  drive-time face this report left unmeasured — the load-time registration is
+  what moved, and `parseCalleeTheta` inherits the widened predicate through the
+  same call, so the two faces move together (§Fix constraint 5) without this
+  report widening drive-time semantics.
+- Discharge notes appended: `docs/bugs/0271-prompt-grandchild-callee-drop-invisible-at-depth-two.md`
+  (the withdrawal of the sentence 0271's fix added).
+- Pinned dispositions / non-goals: the depth-1 disposition
+  (`tests/callable-set.test.ts:128–152`,
+  `tests/production-tools-load-resolution.test.ts:904–921`) and the
+  non-co-fire rule at a containment-rejected chain
+  (`tests/nested-tools-entry-containment.test.ts:729–743`) are unchanged and
+  green.

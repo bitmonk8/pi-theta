@@ -2101,9 +2101,12 @@ async function parseCalleeForTools(
  *         recursive call at (iii) below reaches this same check on the
  *         grandchild with the same `claimDelivery: false`, so no depth ever
  *         claims delivery here.
- *   (ii)  the callee's OWN `tools:` resolution errors — `theta/load/unknown-tool`
- *         plus bug 0270's `theta/load/unresolvable-theta-path`, and nothing
- *         else. Bug 0248's landed lockstep test
+ *   (ii)  the callee's OWN `tools:` resolution errors — `theta/load/unknown-tool`,
+ *         bug 0270's `theta/load/unresolvable-theta-path`, and bug 0280's
+ *         `theta/load/prompt-mode-callable` (the stub reports the callee's own
+ *         recorded declared `mode`, so `resolveEntry` raises this code at
+ *         every depth exactly as it does at depth 1), and nothing else. Bug
+ *         0248's landed lockstep test
  *         (`tests/tools-entry-grammar-derivations-lockstep.test.ts`, cells D3/D5)
  *         settled that an entry-grammar rejection
  *         (`theta/load/malformed-tool-entry`, and by the same reasoning
@@ -2214,10 +2217,17 @@ async function parseCalleeForTools(
  *       does at load time. Order: read, then judge containment, then parse —
  *       the same order `parseCalleeForTools` runs at depth 1 — so an
  *       escaping spec's bytes never reach `parseViaPassCache`.
- *   (b) a grandchild's declared PROMPT mode
- *       (`theta/load/prompt-mode-callable`) — the stub below still reports
- *       `subagent` unconditionally for every `.theta` spec, at every depth
- *       (bug 0267 §Fix-record residual 2, unfiled).
+ *   (b) none — the declared-mode route is ADMITTED, not withheld (bug 0280;
+ *       route (ii) above): the pre-resolution probe below records each
+ *       readable-and-parsed spec's declared `mode`, keyed exactly as
+ *       `readable` is, and the stub returns it instead of a constant.
+ *       `resolveEntry` (`callable-set.ts:422`) is the one implementation that
+ *       raises `theta/load/prompt-mode-callable`, so this frame raises the
+ *       same code the depth-1 path raises — one code site, every depth, no
+ *       divergence between depths (bug 0248's class). A declared mode is a
+ *       pure function of the callee's own bytes, exactly like `ownEscapes`
+ *       below, so it needs no memo dimension and no taint component (bug
+ *       0276 §Fix constraint 3).
  *   (c) a member already in the visited set (the termination bound above) —
  *       not a failure, a WITHHOLD: over-refusing a cycle member would be a
  *       false refusal this predicate must never manufacture.
@@ -2354,6 +2364,17 @@ async function calleeFailsOwnStructuralChecksBody(
   // loop already read.
   const calleeDir = dirname(calleeAbsolutePath);
   const readable = new Map<string, boolean>();
+  // Bug 0280 §Fix route (a): each readable-and-parsed spec's declared
+  // frontmatter `mode`, keyed exactly as `readable` is (the spec AS
+  // WRITTEN) — the SAME `document` this loop already produces for
+  // `grandchildFails`, no second `fs.readBytes` and no reordering of
+  // read/containment/parse. A spec that escapes containment (withhold (a))
+  // or is unreadable is never entered here, so the stub below keeps its
+  // neutral `mode: "subagent"` default for those — the non-co-fire cell in
+  // `tests/nested-tools-entry-containment.test.ts`: mode is judged from
+  // CONTENT, and content is never reached for a spec containment or
+  // readability already refused.
+  const declaredMode = new Map<string, ThetaMode>();
   const grandchildFails = new Map<string, boolean>();
   // Bug 0275 §Fix constraint 1: true iff at least one of THIS frame's own
   // `tools:` entries was judged `escape` below (withhold (a) taken at THIS
@@ -2427,6 +2448,13 @@ async function calleeFailsOwnStructuralChecksBody(
     // Read, then containment, then parse — the same order `parseCalleeForTools`
     // runs at depth 1 — so an escaping spec never reaches this line.
     const document = parseViaPassCache({ path: nestedAbsolute, bytes }, deps);
+    if (document.frontmatter !== null) {
+      // Bug 0280 §Fix route (a): recorded whenever frontmatter parsed, exactly
+      // as `parseCalleeForTools` reads `document.frontmatter.mode` regardless
+      // of a later `hasLoadParseError` — mode is a property of the
+      // frontmatter, not of whether the body also carries a load error.
+      declaredMode.set(spec, document.frontmatter.mode);
+    }
     if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
       grandchildFails.set(spec, true);
       continue;
@@ -2434,9 +2462,11 @@ async function calleeFailsOwnStructuralChecksBody(
     // Admitted route (iii): the same predicate, one level deeper, through the
     // memo-consulting wrapper (bug 0276 §Fix) rather than this function
     // directly — a memo hit here can short-circuit the rest of this branch's
-    // own recursion. WITHHOLD (b) — the grandchild's declared mode is never
-    // read here; the stub below keeps reporting `subagent` regardless of this
-    // verdict.
+    // own recursion. The grandchild's declared mode is read above and handed
+    // to the stub below (bug 0280 §Fix); this recursive call still judges
+    // only the grandchild's OWN structural checks, not its mode — mode is
+    // this frame's own `tools:` concern, raised by `resolveEntry` against
+    // THIS frame's file, not folded into `recursive.fails`.
     const recursive = await calleeFailsOwnStructuralChecksWithTaint(
       fs,
       ctx,
@@ -2473,14 +2503,22 @@ async function calleeFailsOwnStructuralChecksBody(
     // `undefined` ONLY for a spec the pre-resolution probe above recorded
     // unreadable — the one condition `resolveEntry`'s `resolved === undefined`
     // arm needs to raise `theta/load/unresolvable-theta-path` against the
-    // callee. Every other spec keeps the fixed subagent-mode stub: `mode:
-    // "subagent"` stays UNCONDITIONAL (WITHHOLD (b) above) regardless of the
-    // grandchild's OWN verdict, which `grandchildFails` carries forward into
-    // this function's return value instead of into the stub's shape.
+    // callee. Every other spec's `mode` comes from `declaredMode` when the
+    // probe above parsed the spec's frontmatter (bug 0280 §Fix route (a));
+    // `"subagent"` remains the default for a spec `declaredMode` never
+    // entered — an escaping spec (withhold (a)) or one whose grandchild
+    // verdict is otherwise carried through `grandchildFails` instead of the
+    // stub's shape (`tests/nested-tools-entry-containment.test.ts:729–743`
+    // needs that default to stay neutral for the escape arm).
     resolveThetaCallee: (thetaPath) =>
       readable.get(thetaPath) === false
         ? undefined
-        : { kind: "theta", mode: "subagent", callee: undefined, calleePath: thetaPath },
+        : {
+            kind: "theta",
+            mode: declaredMode.get(thetaPath) ?? "subagent",
+            callee: undefined,
+            calleePath: thetaPath,
+          },
     reservedNames: collectReservedNames(body),
   };
   const result = resolveCallableSet({
@@ -2489,8 +2527,10 @@ async function calleeFailsOwnStructuralChecksBody(
     deps: stubDeps,
   });
   // Explicit per-route code list (see the doc-comment above): row 4
-  // (`theta/load/unknown-tool`) and bug 0270's route
-  // (`theta/load/unresolvable-theta-path`), OR'd with bug 0271's recursive
+  // (`theta/load/unknown-tool`), bug 0270's route
+  // (`theta/load/unresolvable-theta-path`), and bug 0280's route
+  // (`theta/load/prompt-mode-callable`, raised by `resolveEntry` now that the
+  // stub above reports a real mode) — OR'd with bug 0271's recursive
   // judgement of the callee's own `tools:` entries — never a general
   // `registered` verdict, and never an entry-grammar code (bug 0248 D3/D5 stay
   // out).
@@ -2498,7 +2538,9 @@ async function calleeFailsOwnStructuralChecksBody(
     result.diagnostics.some(
       (d) =>
         d.severity === "error" &&
-        (d.code === "theta/load/unknown-tool" || d.code === "theta/load/unresolvable-theta-path"),
+        (d.code === "theta/load/unknown-tool" ||
+          d.code === "theta/load/unresolvable-theta-path" ||
+          d.code === "theta/load/prompt-mode-callable"),
     ) || [...grandchildFails.values()].some((f) => f);
   return { fails, ownEscapes, consultedVisited };
 }

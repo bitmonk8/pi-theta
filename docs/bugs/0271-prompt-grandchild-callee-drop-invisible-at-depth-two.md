@@ -524,3 +524,22 @@ at the grandchild and the child (the relocation, unchanged), and
 verdict) — the grandparent no longer registers. Cells (A)–(D), (CYC1), (CYC2),
 (DEPTH3), (ESC) and (ESC2) are byte-unchanged; only (ESC3) moved, under this
 report's own authorising comment and bug 0275's authority.
+
+## Coordination note — the declared-mode sentence withdrawn by bug 0280 (0.276.0), 2026-08-25
+
+This report's fix added the sentence "A `.theta` path's own declared mode is
+outside this walk at every depth" to `docs/spec_topics/invocation.md:20` and its
+mirror at `docs/reference/discovery-cli.md:270`, recording the recursion's blind
+spot as a rule. Bug 0280
+(`./0280-prompt-mode-declaration-below-immediate-callee-never-read.md`) measured
+the rows that sentence made self-consistent on paper — a file naming a
+prompt-mode `.theta` entry un-registers while every caller above it registers a
+callable byte-identical to the healthy control — and, under its own §Fix
+constraint 6, WITHDREW the sentence from both documents in the same commit as
+the code fix. Both documents now state the composition instead: the declared
+mode is judged at every depth of the walk, the file naming the entry carries
+`theta/load/prompt-mode-callable` at its own file, and that own-structural-check
+failure composes into `theta/load/callee-has-errors` at every caller above that
+file — the shape this report's own §Fix constraint 1 requires and bug 0275
+codified for containment. No cell of this report's witness
+(`tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts`) moved.
