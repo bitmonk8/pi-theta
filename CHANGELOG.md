@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.273.0]
+
+### Fixed
+
+- Bug 0278: wrong-arity `Result` applications (`Result<integer>`, `Result<integer, string, boolean>`) were silent and registered at the `@<T>` query response ascription while every other annotation position drew `theta/parse/generic-arity-mismatch` — the query peel skipped the annotation's only interior arity gate. The peel now applies the existing arity check; wrong-arity ascriptions refuse registration. Witness `tests/b0278-result-arity-mismatch-silent-at-query-response-annotation.test.ts` (14 cells) + live cell `tests/live/b0278live-result-arity-mismatch-registration.test.ts`. Vehicle-collateral restatements under recorded authority: 0273 witness `(arity)` rows, 0274 witness E10.
+
 ## [0.272.0]
 
 ### Fixed

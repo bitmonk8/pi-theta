@@ -492,3 +492,31 @@ spellings the type grammar never admits as a type head.
   path was minted; row E10's non-arity-2 path still descends nothing; row E9
   still draws one line; the `fn` / `for` / `if` / `while` `single-line-if`
   misfire is untouched; no *Message* byte and no registry row moved.
+
+## Coordination note (0.273.0) — row E10 restated under bug 0278's fix
+
+2026-08-25. [Bug 0278](./0278-result-arity-mismatch-silent-at-query-response-annotation.md)
+§Fix feeds the WHOLE `@<T>` query annotation to the capture's position-rule
+pass, so an author-written non-arity-2 `Result` application now draws one
+error-severity `theta/parse/generic-arity-mismatch` and is refused
+registration where it was silent. Row E10 of
+`tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts` is
+stated by that file's header as measuring the non-arity-2 path and pinned that
+silence, so the flip was unavoidable. It was taken under this report's own §Fix
+Locks clause — a flip there is authorized only with the cell's subject restated
+in the same commit — and under 0278 §Fix's naming of E10 as the cell it was
+most likely to move.
+
+The cell was RESTATED, not deleted, and its subject survives: an arity-3
+application carrying a reserved head still draws the arity verdict and NO
+`theta/parse/reserved-keyword-as-identifier` line, because the withhold and the
+sink this report landed are untouched — the interior of a wrong-arity
+application stays undescended. The file's header bullet was updated to match
+and the DIAG-2 group was closed over the pre-existing `generic-arity-mismatch`
+row. All fourteen cells are green, and the live sibling
+`tests/live/b0274live-reserved-keyword-type-head-registration.test.ts` was
+re-run under the shared live lock and is green.
+
+The four already-wired callers stay behaviourally byte-identical, rows C1–C5
+are unmoved, row E9 still draws one line, and no *Message* byte and no registry
+row moved.

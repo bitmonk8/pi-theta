@@ -1,6 +1,6 @@
 # Bug 0278 — A wrong-arity `Result` application at the `@<T>` query annotation draws nothing and registers: the response-annotation peel returns `undefined` for any argument count other than two, so the whole annotation-interior check block is skipped — `@<Result<Ghost>>` and `@<Result<void>>` load clean where `@<Result<Ghost, string>>` refuses and `@<array<Ghost, string>>` draws both `theta/parse/generic-arity-mismatch` and `theta/parse/unresolved-named-type` at the same position
 
-- **Status:** open.
+- **Status:** fixed (0.273.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because no legal source is refused and no
   value is wrong that is not already wrong for the arity-2 spelling: the
   runtime lowers `Result<integer, string>` and `Result<integer>` alike to `{}`
@@ -376,3 +376,148 @@ Recorded as an adjacent finding, with measurements, in
 report in that session. Re-measured independently at HEAD `61c10d22`
 (v0.272.0) by one offline provider-free probe over `parseDoc` plus one direct
 `lowerQueryResponseSchema` call; probe removed, tree clean.
+
+## Fix (0.273.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — one new
+    `else if (e.schemaFromLetAnnotation !== true)` branch on the existing
+    `if (responseAnnotation !== undefined)` guard in `walkExpr`'s `"query"`
+    arm. `queryResponseAnnotation` returns `undefined` for exactly one reason,
+    so that branch feeds the WHOLE annotation to
+    `parseTypeExpression(e.schema, "value", …)` — reaching the existing arity
+    mint in `walkType`'s `"generic"` arm (`type-grammar.ts`) — and pushes only
+    the FIRST `theta/parse/generic-arity-mismatch` that call returns
+    (§Fix constraint 1: the interior of a wrong-arity application stays
+    unresolved; `.find` is first-in-source-order and the `"generic"` arm mints
+    the arity line before descending arguments, so the surviving line is the
+    outermost application's). The `e.schemaFromLetAnnotation !== true`
+    condition is the bug-0093 withhold the response-part call already carries
+    (constraint 2). The count comes from `TypeParser`'s parsed
+    `node.args.length`, never `splitTopLevel`'s, so
+    `@<Result<enum["a", "b"], string>>` gains no false arity line
+    (constraint 4).
+  - `src/parser/theta-document.ts` — the `queryResponseAnnotation` and
+    `queryErrorModelAnnotation` doc blocks corrected to name the reporting site
+    (constraint 5).
+  - `tests/b0278-result-arity-mismatch-silent-at-query-response-annotation.test.ts`
+    — new 14-cell / 8-group offline witness.
+  - `tests/live/b0278live-result-arity-mismatch-registration.test.ts` — new
+    2-cell live registration witness.
+  - `tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts`
+    — group (E10) restated under this report's explicit authorization, subject
+    preserved, header bullet updated.
+  - `tests/b0273-query-result-error-side-unresolved-name.test.ts` — group
+    `(arity)` rows `arity-w1` / `arity-w3` restated under the operator
+    ratification quoted below.
+  - No registry, spec or fixture edit:
+    `docs/spec_topics/diagnostics/code-registry-parse.md:65`'s *Trigger*
+    already enumerates no position and already names `Result<T>`;
+    `tests/fixtures/h7a/permitted-codes.json` is byte-unchanged.
+
+- **Operator ratification of the §Fix Locks overlap (recorded verbatim):**
+
+  > The stop was correct: rows arity-w1/arity-w3 assert that
+  > `let r = @<Result<integer>>`q`` draws `[]` and REGISTERS — they pin, as
+  > their VEHICLE, the exact pre-fix silence 0278's §Expected behaviour
+  > removes; no implementation can keep them green. The parent ratifies the
+  > flip as vehicle-collateral, subject-preserving, per the established
+  > precedent class (0262 ruling clause (i) re-vehicling; 0274's authorized
+  > tripwire batch; the 0268 merge-gate ratification of 0248's witness):
+  > BOUND = exactly those two rows in exactly that file, restated per the prior
+  > run's draft (author-written rows only — the group's propagated rows and the
+  > cell's E-side subject stay untouched); the rows now witness the FIXED
+  > behaviour (generic-arity-mismatch drawn, registration refused) so 0273's
+  > witness remains a lock at full strength; a dated coordination note is
+  > appended to `docs/bugs/0273-*.md` (0.273.0 placeholder) recording the
+  > re-vehicle under 0278's fix; if ANY cell beyond those two rows reds ⇒ STOP
+  > again immediately. Evidence: the measured blast (suite red at exactly that
+  > cell), the direct contradiction between the rows' assertion and 0278
+  > §Expected, and the subject-preservation of the draft.
+
+  The bound held: no cell beyond those two rows moved. §Fix's Locks list was
+  wrong to call `tests/b0273-…test.ts` an unconditional 10-cell lock, and
+  §Non-goals was wrong that b0273's cells "cover the arity-2 path" — group
+  `(arity)` pinned the non-arity-2 path's silence at the author-written
+  ascription, which is this report's whole subject.
+
+- **Gates:**
+  - Witness, RED before the implementation existed:
+    `5 failed | 9 passed (14)`, every red reading
+    `expected [theta/parse/generic-arity-mismatch], received []`.
+    GREEN after: `14 passed (14)`.
+  - Full default suite: `Test Files 451 passed (451)` /
+    `Tests 9323 passed (9323)`.
+  - Typecheck: `tsc -p tsconfig.json --noEmit` — no output.
+  - Lint: `eslint --no-error-on-unmatched-pattern "src/**/*.ts"` — no output.
+  - Live, run under the shared cross-worktree lock:
+    `tests/live/b0278live-result-arity-mismatch-registration.test.ts` →
+    `2 passed (2)`; its red-proof (fix branch neutralised) →
+    `1 failed | 1 passed (2)`, the offender registering as the pre-fix
+    behaviour predicts; restore byte-exact and hash-verified
+    (`8d075f91a82eaab1f9f56651c8bceb30c423d6d6` before and after), re-run →
+    `2 passed (2)`. `tests/live/b0274live-reserved-keyword-type-head-registration.test.ts`
+    (whose E10 flipped) → `1 passed (1)`.
+  - Locks: `tests/b0274-…` 14 passed, `tests/b0273-…` 10 passed,
+    `tests/b0262-…` 26 passed, `tests/committed-fixture-parse-gate.test.ts`
+    36/36, `tests/conformance/production-conformance.test.ts` 27 passed
+    (V20g-T), `tests/citation-symbol-form-gate.test.ts` 3 passed.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) — verdict FINDINGS, two:
+  F1 [test], the implementer had renumbered `src/parser/theta-document.ts:<line>`
+  citations in twelve unrelated test files by `+5`, and the reviewer's
+  resolution of a six-citation sample found NONE pointed at the construct its
+  prose names even after the shift — the drift is pre-existing and committed
+  and the rewrite increased it; R1 [prose], a stray `}` in a new WHY comment.
+  Both resolved by the orchestrator as a bounded citation/comment-only
+  correction: the twelve files were reverted byte-exact to HEAD, 12/12
+  hash-verified (`git hash-object` == `git rev-parse HEAD:<path>`), zero
+  assertion and zero executable changes; R1 fixed in place. Polish verified by
+  gate-diff; confirmation round skipped per the post-polish rule.
+
+- **Verification:** SOLID (`bug-fix-verifier`, one round, findings: none).
+  - Witness genuinely reds without the fix: the new branch's guard was
+    neutralised in place after capturing the working-tree hash; the witness
+    read `5 failed | 9 passed (14)` with the diff shape
+    `- ["theta/parse/generic-arity-mismatch"] / + []` across all five reds —
+    the filed reason, and the same group set (R, A-red, KW) recorded as red at
+    HEAD; restored byte-exact, hash matched, `14 passed (14)`.
+  - Full default suite green: 451 files / 9323 tests, zero failed.
+  - Lint and typecheck: both clean, no output.
+  - Live end-to-end coverage of the fixed path: run by the orchestrator under
+    the lock, both directions proven (see Gates).
+  - Bounding of the b0273 restatement confirmed against the diff: indices 0–1
+    moved, indices 2–3 byte-identical and still asserted at `6:1`, and
+    `arity-w3`'s undeclared `Nope` still draws no `unresolved-named-type`.
+
+- **Residuals:**
+  1. **Pre-existing citation drift in twelve test files** (`~700`–`1800` lines
+     stale, measured by the round-1 reviewer; e.g. `walkExpr` cited at `:7355`,
+     actually at `8674`) is real, predates this change, and is deliberately NOT
+     repaired here — it is a separate subject and would widen this fix into
+     twelve unrelated files. Worth its own report.
+  2. **The 0277 ordering note holds and is now quantified.** 0277 changes what
+     the atom arm publishes for an UNAPPLIED head; this changes which text the
+     query capture walks for an APPLIED one. Both touch `walkExpr`'s `"query"`
+     arm. This change adds `+5` lines before `theta-document.ts` HEAD:8967 and
+     `+37` at HEAD:8967 — 0277's owner must re-derive line citations rather
+     than assume.
+  3. **§Fix's Locks list and §Non-goals were wrong about b0273's coverage**
+     (recorded above under the ratification). The correction is the coordination
+     note appended to `docs/bugs/0273-…md`; no other document changes.
+
+- **Discharge notes appended:**
+  `./0273-propagated-result-error-side-unresolved-name-silent.md` — the
+  `(arity)` re-vehicle under this fix, its bound and what stayed byte-stable;
+  `./0274-reserved-keyword-in-result-error-argument-silent-at-query-capture.md`
+  — row E10's restatement.
+
+- **Pinned dispositions / non-goals:** the `{}` lowering posture stays bug
+  0028's — this is a load-time refusal, not a lowering change; the `invoke<T>`
+  column stays silent under bug 0045's withheld `"all"`-only rules; bug 0273's
+  `E`-side name walk gains no rule and no name is resolved inside a wrong-arity
+  application; bug 0274's withheld keyword set is unchanged; the peel's
+  bracket-blind split (bugs 0204 / 0236) is not re-agreed with `TypeParser` and
+  `@<Result<enum["a", "b"], string>>` draws no arity line;
+  `result-in-schema-position` does not appear — the ascription stays
+  `TypePosition` `"value"`; no *Message* byte and no registry row moved.

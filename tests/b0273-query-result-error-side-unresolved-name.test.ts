@@ -64,13 +64,19 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   separate "the query arm gained the `E` side" from "the `let` capture started
 //   emitting and the query arm went silent".
 //
-//   The non-arity-2 path. `queryResponseAnnotation` returns `undefined` on any
-//   argument count other than two and the arm descends nothing, so
-//   `theta/parse/generic-arity-mismatch` keeps its interior. Group (arity)
-//   asserts the disposition MEASURED at HEAD, at both the written-ascription
-//   and the propagated spelling, including an arity-3 application carrying the
-//   undeclared `Nope` in a non-`T` argument: the change is confined to the
-//   arity-2 path, so that spelling stays silent under it.
+//   The non-arity-2 path. `queryResponseAnnotation` still returns `undefined`
+//   on any argument count other than two and the `E`-side walk still descends
+//   nothing there, so `theta/parse/generic-arity-mismatch` keeps its interior:
+//   a wrong-arity application draws the arity verdict ALONE. Bug 0278 §Fix
+//   feeds the whole annotation to the position-rule pass, so the
+//   author-written ascription now draws that verdict and is refused
+//   registration where it was once silent; the propagated spelling is
+//   unchanged, its single line still the `let` statement's own walk at column
+//   1. Group (arity) asserts that disposition at both spellings, including an
+//   arity-3 application carrying the undeclared `Nope` in a non-`T` argument:
+//   the `E`-side resolution is confined to the arity-2 path, so that head
+//   stays undescended and no `unresolved-named-type` line appears beside the
+//   arity verdict.
 //
 //   The `T` side and the builtin admission. Rows j–k are correct at HEAD and
 //   byte-stable; `QueryError` and a declared head stay silent (rows l–m), which
@@ -559,12 +565,15 @@ describe("b0273 (arity) — a `Result` application of a count other than two is 
     // adding beside it:
     //
     //   arity-w1 / arity-w3 — an AUTHOR-WRITTEN ascription of one and of three
-    //   arguments. `queryResponseAnnotation` returns `undefined`, the arm
-    //   descends nothing, and no capture behind it holds the text, so both are
-    //   silent and register. arity-w3 additionally carries the undeclared
-    //   `Nope` in a non-`T` argument: the arity-2 path is the only one the
-    //   change reaches, so that head stays undescended and this cell reds if
-    //   the new resolution ran on a count the peel declined.
+    //   arguments. `queryResponseAnnotation` returns `undefined` and the
+    //   `E`-side walk descends nothing, but bug 0278 §Fix (0.273.0) hands the
+    //   WHOLE annotation to the position-rule pass, so each draws exactly one
+    //   `theta/parse/generic-arity-mismatch` and is refused registration. The
+    //   verdict is the whole list: arity-w3 carries the undeclared `Nope` in a
+    //   non-`T` argument and draws NO `unresolved-named-type` beside it,
+    //   because the `E`-side resolution this file locks runs on the arity-2
+    //   path alone — this cell still reds on a route that widened the peel
+    //   instead of adding beside it.
     //
     //   arity-p1 / arity-p3 — the same two counts PROPAGATED from a `let`
     //   annotation. The `let` statement's own type walk draws the arity verdict
@@ -582,8 +591,8 @@ describe("b0273 (arity) — a `Result` application of a count other than two is 
     expectCaptured([...written, ...propagated], []);
     expectRows(
       [...written, ...propagated],
-      [[], [], [ARITY], [ARITY]],
-      () => [[], [], [arityLine("1")], [arityLine("3")]],
+      [[ARITY], [ARITY], [ARITY], [ARITY]],
+      () => [[arityLine("1")], [arityLine("3")], [arityLine("1")], [arityLine("3")]],
     );
     expect(
       propagated.map((r) => [r.label, startPositions(r)]),
@@ -591,10 +600,10 @@ describe("b0273 (arity) — a `Result` application of a count other than two is 
     ).toEqual(propagated.map((r) => [r.label, ["6:1"]]));
     expect(
       [...written, ...propagated].map((r) => [r.label, registered(r)]),
-      "the written non-arity-2 spellings draw nothing and register; the propagated ones carry an error and do not",
+      "both the written and the propagated non-arity-2 spellings carry an error-severity arity verdict and are refused registration",
     ).toEqual([
-      [written[0]?.label, true],
-      [written[1]?.label, true],
+      [written[0]?.label, false],
+      [written[1]?.label, false],
       [propagated[0]?.label, false],
       [propagated[1]?.label, false],
     ]);

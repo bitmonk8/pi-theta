@@ -6644,11 +6644,14 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * @`…`` is still refused.
  *
  * `undefined` means "this annotation has no response part to check": a `Result`
- * application whose argument count is not 2 is
- * `theta/parse/generic-arity-mismatch`'s to report, and which argument would
- * have been `T` is not determinable. Descending the malformed text instead
- * would name `QueryError` — the builtin this peel exists to protect — plus
- * every stray argument, as unresolved beside the real arity error.
+ * application whose argument count is not 2 draws
+ * `theta/parse/generic-arity-mismatch` from the `"query"` arm's own `else`
+ * branch (`walkExpr`, this file — bug 0278 §Fix), which re-parses the WHOLE
+ * annotation and keeps only that one diagnostic, rather than from this peel;
+ * which argument would have been `T` is not determinable. Descending the
+ * malformed text as `T` instead would name `QueryError` — the builtin this
+ * peel exists to protect — plus every stray argument, as unresolved beside
+ * the real arity error.
  *
  * The argument split tracks BRACE depth as well as angle depth
  * (`"angle-and-brace"`): `ObjectType` is a `Type` in every position
@@ -6692,8 +6695,10 @@ function queryResponseAnnotation(schema: string): string | undefined {
  * `undefined` means "this annotation has no `E` argument to resolve": either
  * `schema` is not a `Result` application at all (a bare response schema with
  * no error side ever written), or it is one whose argument count is not 2, in
- * which case `theta/parse/generic-arity-mismatch` owns the interior and which
- * argument would have been `E` is not determinable, same as
+ * which case the `"query"` arm's `else` branch reports
+ * `theta/parse/generic-arity-mismatch` from the whole annotation (bug 0278
+ * §Fix; see `queryResponseAnnotation`'s doc block, above) and which argument
+ * would have been `E` remains, like `T`, not determinable — same as
  * `queryResponseAnnotation`'s own non-arity-2 declination.
  */
 function queryErrorModelAnnotation(schema: string): string | undefined {
@@ -8966,6 +8971,43 @@ function walkExpr(
               }
               out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
             }
+          }
+        } else if (e.schemaFromLetAnnotation !== true) {
+          // Bug 0278 §Fix: `queryResponseAnnotation` declined this text because
+          // it is a `Result` application whose argument count is not 2 — the
+          // ONLY reason it returns `undefined` (its own doc block, above). The
+          // arity mint lives in `walkType`'s `"generic"` arm
+          // (`type-grammar.ts`), reachable only through `parseTypeExpression`,
+          // which this capture otherwise never calls for a non-arity-2
+          // application. Feed it the WHOLE annotation (not the peeled,
+          // undefined response part) so that mint fires for an author-written
+          // `@<T>` exactly as it already does for the four full-walk
+          // positions and for `array<Ghost, string>` at this same position.
+          // Withheld under the SAME `e.schemaFromLetAnnotation === true` guard
+          // the response-part call above carries (bug 0093 §Fix route 2): a
+          // propagated `let x: Result<T> = @`…`` annotation is walked by
+          // `walkStatement`'s `let` arm already, at the statement's own range,
+          // so calling this here too would double the line (§Fix constraint 2).
+          const wholeAnnotationDiagnostics = parseTypeExpression(e.schema, "value", {
+            file,
+            range: e.range,
+          });
+          // Reduced to the arity verdict alone, at this call site rather than
+          // in `walkType`: the arm that mints `generic-arity-mismatch` also
+          // unconditionally descends the application's own arguments and
+          // applies `void-in-non-return-position` / `empty-schema-body` there
+          // (e.g. `Result<void>`, `Result<{}>`) — diagnostics this bug's own
+          // §Fix constraint 1 forbids alongside the arity line, because the
+          // peel could not say which argument was meant to be `T` and
+          // descending it names the wrong fault. `.find` also keeps a nested
+          // wrong-arity application (a `Result` argument inside this one) from
+          // adding a second arity line beside the outer one: only the
+          // FIRST — outermost — arity diagnostic in source order survives.
+          const arityDiagnostic = wholeAnnotationDiagnostics.find(
+            (d) => d.code === "theta/parse/generic-arity-mismatch",
+          );
+          if (arityDiagnostic !== undefined) {
+            out.push(arityDiagnostic);
           }
         }
       }

@@ -410,3 +410,33 @@ own over the response part's hits, so one written keyword still draws one line
 per annotation. All ten cells of
 `tests/b0273-query-result-error-side-unresolved-name.test.ts` and live H8a cell
 89 are green and unreworded.
+
+## Coordination note (0.273.0) — group `(arity)`'s author-written rows re-vehicled under bug 0278's fix
+
+2026-08-25. [Bug 0278](./0278-result-arity-mismatch-silent-at-query-response-annotation.md)
+§Fix hands the WHOLE `@<T>` annotation to the query capture's position-rule
+pass, so an author-written non-arity-2 `Result` application now draws one
+error-severity `theta/parse/generic-arity-mismatch` and is refused
+registration. Two sub-rows of this report's witness —
+`tests/b0273-query-result-error-side-unresolved-name.test.ts`, group `(arity)`,
+cell `b0273-arity`, rows `arity-w1` and `arity-w3` — pinned that silence as
+their VEHICLE: they asserted an empty diagnostic list and `registered: true`
+for `let r = @<Result<integer>>`q`` and its arity-3 sibling. That is the exact
+disposition 0278 §Expected behaviour removes, so no implementation of 0278's
+settled §Fix can keep those two rows green.
+
+The rows were RESTATED, not deleted, under the operator's ratification of the
+flip as vehicle-collateral and subject-preserving. They now assert the FIXED
+behaviour: one arity verdict with the registry-rendered *Message* (`got 1` /
+`got 3`) and `registered: false`. The bound was exactly those two sub-rows in
+exactly this file; the propagated rows `arity-p1` / `arity-p3` are byte-stable,
+still one arity line at `6:1` from `walkStatement`'s `let` arm, and the group's
+header bullet was updated to match.
+
+This report's own subject is untouched and its witness remains a lock at full
+strength. The `E`-side unresolved-name walk still runs on the arity-2 path
+alone: `arity-w3`'s undeclared `Nope` in a non-`T` argument still draws NO
+`theta/parse/unresolved-named-type` line, the whole-list equality is unchanged
+in kind, and the cell still reds on a route that widened the peel instead of
+adding beside it. All ten cells are green after the restatement; live H8a cell
+89 is unaffected.

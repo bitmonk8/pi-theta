@@ -98,8 +98,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   text's sole emitter.
 //
 //   The non-arity-2 path. `queryErrorModelAnnotation` declines any argument
-//   count other than two and the arm descends nothing, so group (E10) stays
-//   silent under the change.
+//   count other than two, so the `E`-side block is never reached and the
+//   keyword head is presented to NO sink — that subject survives the fix
+//   restated, not deleted: bug 0278 §Fix now feeds the WHOLE annotation to the
+//   position-rule walk on this path, so `theta/parse/generic-arity-mismatch`
+//   fires (from the application's own wrong arity) where nothing fired
+//   before, but the `E`-side keyword loop this file's other groups exercise
+//   still never runs for it. Group (E10) now asserts exactly one arity line
+//   and no reserved-keyword line, and registration still denied — denied by
+//   the arity refusal now, not the earlier clean load.
 //
 //   The already-emitting positions. Groups (T) and (C) are the keyword class's
 //   existing emission sites — the query annotation's response part, the
@@ -152,6 +159,13 @@ const REGISTRY = parseRegistry(
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 /** Bug 0273's landed `E`-side row, which group (E8) keeps beside the new line. */
 const UNRESOLVED = "theta/parse/unresolved-named-type";
+/**
+ * Bug 0278 §Fix's row: what group (E10) now draws instead of silence for a
+ * non-arity-2 `Result` application, ALONE — the fix that restates this cell's
+ * subject does not wire the `E`-side keyword sink onto the non-arity-2 path,
+ * it only makes the application's own wrong arity reportable.
+ */
+const ARITY = "theta/parse/generic-arity-mismatch";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -190,6 +204,15 @@ function reservedLine(keyword: string): string {
 /** Bug 0273's landed refusal, rendered for the head `name`. */
 function unresolvedLine(name: string): string {
   return line(UNRESOLVED, [["<name>", name]]);
+}
+
+/** The arity refusal (bug 0278 §Fix), rendered for one constructor, its declared arity and the written count. */
+function arityLine(ctor: string, expected: number, actual: number): string {
+  return line(ARITY, [
+    ["<ctor>", ctor],
+    ["<expected>", String(expected)],
+    ["<actual>", String(actual)],
+  ]);
 }
 
 // ===========================================================================
@@ -554,22 +577,37 @@ describe("b0274 (E9) — a keyword spelled in both `Result` slots draws exactly 
 // (E10) The non-arity-2 path descends nothing.
 // ===========================================================================
 
-describe("b0274 (E10) — a `Result` application of a count other than two stays silent", () => {
-  it("b0274-E10: the arity-3 ascription keeps its empty list and keeps registering", () => {
-    // §Non-goals: `queryErrorModelAnnotation` declines any argument count other
-    // than two, so the arm descends nothing and the keyword head is never
-    // presented to any sink. Measured silent at HEAD and required silent under
-    // the route: this cell reds on a route that widened the peel instead of
-    // adding a sink beside it.
+describe("b0274 (E10) — a `Result` application of a count other than two presents its keyword head to no sink", () => {
+  it("b0274-E10: the arity-3 ascription draws the arity line alone, with no keyword line, and does not register", () => {
+    // RESTATED under bug 0278 §Fix, not deleted (bug 0278 §Fix authorises this
+    // flip only with the subject restated in the same change): before that fix
+    // `queryResponseAnnotation` / `queryErrorModelAnnotation` both declined this
+    // count, so the whole `"query"` arm block — including the `E`-side keyword
+    // loop — never ran, and the cell measured a clean, silent load. Bug 0278
+    // §Fix feeds the WHOLE annotation to the position-rule walk on exactly this
+    // path, so the application's own wrong arity is now reported —
+    // `theta/parse/generic-arity-mismatch`, from `type-grammar.ts`'s existing
+    // arity mint, reduced at the call site to that one diagnostic (bug 0278
+    // §Fix constraint 1). The SUBJECT this cell measures is unchanged: the
+    // `E`-side block bug 0273 landed, and the keyword-collection sink it
+    // carries, still never runs on this path — the keyword head is presented
+    // to NO sink, so no `theta/parse/reserved-keyword-as-identifier` line ever
+    // joins the arity line. A route that widened the peel to reach the keyword
+    // sink instead of walking the whole annotation for its arity verdict reds
+    // here with a second line.
     const rows = SPELLINGS.map((k) =>
       theta(`E10 (${k}) — \`@<Result<integer, ${k}, string>>\``, `let r = @<Result<integer, ${k}, string>>\`q\`\n"ok"`),
     );
     expectCaptured(rows, []);
-    expectRows(rows, [[], []], () => [[], []]);
+    expectRows(
+      rows,
+      rows.map(() => [ARITY]),
+      () => rows.map(() => [arityLine("Result", 2, 3)]),
+    );
     expect(
       rows.map((r) => [r.label, registered(r)]),
-      "the non-arity-2 path draws nothing, so the fixture registers before and after",
-    ).toEqual(rows.map((r) => [r.label, true]));
+      "the arity refusal denies registration; the keyword head still reaches no sink",
+    ).toEqual(rows.map((r) => [r.label, false]));
   });
 });
 
@@ -826,16 +864,19 @@ describe("b0274 (count) — the emission count is one line per written keyword p
 // ===========================================================================
 
 describe("b0274 (DIAG-2) — every asserted code has a registry row", () => {
-  it("b0274-DIAG-2: both codes carry an E/parse row and a placeholder-bearing Message", () => {
+  it("b0274-DIAG-2: all three codes carry an E/parse row and a placeholder-bearing Message", () => {
     // DIAG-2: the registry is closed, so a code a test asserts must have a row
-    // (`reconcileClosedSet`, `tools/code-registry/index.js`). Neither code is
-    // minted here. The `theta/parse/reserved-keyword-as-identifier` row's
-    // *Trigger* enumerates no position, so a further identifier position
+    // (`reconcileClosedSet`, `tools/code-registry/index.js`). None of the
+    // three codes is minted here. The `theta/parse/reserved-keyword-as-identifier`
+    // row's *Trigger* enumerates no position, so a further identifier position
     // entering its emission set makes the behaviour match the row as registered
-    // — which is why no *Message* byte and no row moves under version 0.272.0.
-    // This cell fails loudly on the unmet precondition rather than letting
+    // — which is why no *Message* byte and no row moves under version 0.273.0.
+    // `theta/parse/generic-arity-mismatch` (bug 0278 §Fix, group (E10)) is a
+    // pre-existing row whose own *Trigger* already names `Result<T>` as its
+    // example, so this file's use of it is likewise no registry edit. This
+    // cell fails loudly on the unmet precondition rather than letting
     // `msg` above substitute into an absent template.
-    const rows = [RESERVED, UNRESOLVED].map((code) => {
+    const rows = [RESERVED, UNRESOLVED, ARITY].map((code) => {
       const row = REGISTRY.find((r) => r.code === code);
       return [code, row?.severity, row?.phase] as const;
     });
@@ -845,6 +886,7 @@ describe("b0274 (DIAG-2) — every asserted code has a registry row", () => {
     ).toEqual([
       [RESERVED, "E", "parse"],
       [UNRESOLVED, "E", "parse"],
+      [ARITY, "E", "parse"],
     ]);
     expect(
       msg(RESERVED, [["<keyword>", "match"]]),
