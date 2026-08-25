@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.282.0]
+
+### Fixed
+
+- Bug 0285: the schema field-boundary split no longer manufactures a phantom
+  `schema fields must be comma-separated` diagnostic over a body declaring one
+  field. The `theta/parse/unsupported-feature` comma-separation line is
+  withheld when the captured field type ends no `Type` atom or the stray tail
+  cannot start a next field (`typeSourceEndsAtom` + `startsNextField` in
+  `src/parser/theta-document.ts`); the sanctioned
+  `schema-type-not-expression` + `malformed-schema-field` pair is unchanged,
+  registration outcomes are unchanged. Registry Trigger cell updated in the
+  same commit. Four riding comma-line pins in
+  `tests/params-scalar-nontype-text-refusal.test.ts` re-founded under
+  ratified flip authority (bug 0133 coordination note).
+
 ## [0.281.0]
 
 - fix(bug-0284): non-identifier applied generic heads now refuse - a generic-application head that is not identifier-shaped (`a b<integer>`, `Nope.Sub<integer>`, `a-b<integer>`, `f()<integer>`) is pushed onto the not-expression family's own sink (HEAD text, brace-free - the whole-application candidate was rejected on the record because bug 0232's brace exemption would swallow `a b<{x: integer}>`) in `lowerTypeExpr`'s generic-application arm, after 0281's reserved-spelling gate and 0282's closed-set gate; the three gates partition non-derivable applied heads (reserved / identifier-shaped / non-identifier); refusals surface through the already-wired not-expression codes at all five captures, no emission widening; same-commit DIAG-2 Trigger widening across four not-expression rows; 17-cell witness + live registration pair added; flip set empty beyond the new witness.

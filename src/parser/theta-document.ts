@@ -1901,6 +1901,31 @@ function canStartExpression(t: Token): boolean {
 }
 
 /**
+ * Whether a schema field's captured `typeSource` text ends a `Type` atom
+ * (grammar.md:90–:95), rather than stopping mid-token on trailing punctuation
+ * `parseType`'s depth-0 stop set has no entry for (`.`, `-`, and similarly).
+ * `parseType`'s `stopAtFieldBoundary` arm stops the capture in front of the
+ * next value-ish token without asking whether the token BEHIND the cursor
+ * could end a `Type`; when it could not, the boundary the arm reports was
+ * manufactured by the capture stopping inside one field's text, not written
+ * by the author as the start of a further `Field` (bug 0285 §Fix). An empty
+ * capture ends no atom. The closers `>` `)` `]` `}` and a string-literal
+ * quote can end a `Type` atom (a generic application, a call, an inline
+ * object/array, or a string-literal type); every other trailing character is
+ * punctuation no `Type` production ends on.
+ */
+function typeSourceEndsAtom(typeSource: string): boolean {
+  if (typeSource.length === 0) {
+    return false;
+  }
+  const last = typeSource[typeSource.length - 1] ?? "";
+  if (/[A-Za-z0-9_]/.test(last)) {
+    return true;
+  }
+  return last === ">" || last === ")" || last === "]" || last === "}" || last === '"' || last === "'";
+}
+
+/**
  * Canonicalise a parsed `{ ... }` body for the ONE position that requires a
  * structural tail (`BlockExpr`, bug 0082 §Fix): promote a trailing bare
  * `ExprStmt` to `Block.tail` when `parseForms` left `tail: null`.
@@ -3273,8 +3298,13 @@ class BodyParser {
         this.advance();
       } else {
         const boundary = this.peek();
+        // A boundary token is only a genuine field start when the PRECEDING
+        // type capture actually ended a `Type` atom (bug 0285 §Fix); when it
+        // did not, `parseType` stopped inside the field's own text and this
+        // token is not a separator position the author omitted.
         const startsNextField =
-          boundary.kind === "ident" || boundary.kind === "keyword";
+          (boundary.kind === "ident" || boundary.kind === "keyword") &&
+          typeSourceEndsAtom(typeSource);
         if (startsNextField) {
           this.diagnostics.push({
             severity: "error",

@@ -686,10 +686,27 @@ const S_WITH_PERMISSIVE_A = {
  * a junk type that walk refuses too (`schema-type-not-expression`), so
  * their own sequence gains that row ahead of the comma rule's; `c16`
  * (`Triage Triage`) does not, because `Triage` is a resolvable named type.
+ *
+ * Bug 0285 (0.282.0) withholds the comma rule's `unsupported-feature` line
+ * when the captured type ends no `Type` atom or the stray tail cannot start
+ * a next field — which is exactly c1/c10/c13/c19's shape (tails `: Tirage`,
+ * `-`, `#` start no field), so those four rows pin the two-code sequence
+ * WITHOUT the comma line. `c16`'s tail (`Triage`, an identifier) can start a
+ * next field, so its comma line survives. Ratified flip recorded in 0285's
+ * fix record and in 0133's coordination note.
  */
 const FIELD_JUNK_CODES_WITH_TYPE_REFUSAL = [
   "error theta/parse/schema-type-not-expression",
   "error theta/parse/unsupported-feature",
+  "error theta/parse/malformed-schema-field",
+];
+/**
+ * The bug 0285 (0.282.0) shape: type refusal beside the body-level row, the
+ * phantom comma line withheld (capture ends no `Type` atom / tail starts no
+ * next field).
+ */
+const FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA = [
+  "error theta/parse/schema-type-not-expression",
   "error theta/parse/malformed-schema-field",
 ];
 /** The field-position sequence when the retained field's own type resolves (c16). */
@@ -719,9 +736,10 @@ const CONTRAST_ROWS: ReadonlyArray<
   // c1 — bug 0133 §Fix (a): the field `a` is retained, so the row's junk type
   // (`a` — `parseType`'s field-boundary stop ends the capture there) reaches
   // the checker-time field-type walk and draws its own refusal ahead of the
-  // comma rule's, replacing the discard's `empty-schema-body` with the new
-  // anchored-at-the-token row.
-  ["c1", "a: Tirage", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
+  // body-level row, replacing the discard's `empty-schema-body` with the new
+  // anchored-at-the-token row. Comma line withheld since 0285 (0.282.0): the
+  // stray tail `: Tirage` cannot start a next field.
+  ["c1", "a: Tirage", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA],
   [
     "c2",
     "a: Tirage",
@@ -740,12 +758,14 @@ const CONTRAST_ROWS: ReadonlyArray<
   ],
   ["c9", "[a, b]", "annotation", PERMISSIVE, []],
   // c10 — same authority as c1: the retained field's junk type (`-`) is
-  // refused by the field-type walk this fix unlocks.
-  ["c10", "- a", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
+  // refused by the field-type walk this fix unlocks. Comma line withheld
+  // since 0285 (0.282.0): the capture ends no `Type` atom.
+  ["c10", "- a", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA],
   ["c11", "- a", "alias", PERMISSIVE, ALIAS_MALFORMED],
   ["c12", "- a", "annotation", PERMISSIVE, []],
   // c13 — same authority as c1: the retained field's junk type is refused.
-  ["c13", "# comment", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_WITH_TYPE_REFUSAL],
+  // Comma line withheld since 0285 (0.282.0): the capture ends no `Type` atom.
+  ["c13", "# comment", "field", S_WITH_PERMISSIVE_A, FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA],
   [
     "c14",
     "# comment",
@@ -769,13 +789,15 @@ const CONTRAST_ROWS: ReadonlyArray<
   ["c17", "Triage Triage", "alias", { $ref: "#/$defs/Triage" }, ALIAS_MALFORMED],
   ["c18", "Triage Triage", "annotation", PERMISSIVE, []],
   // c19 — same authority as c1: the retained field's junk union arm is
-  // refused by the field-type walk, beside the settled `string` arm.
+  // refused by the field-type walk, beside the settled `string` arm. Comma
+  // line withheld since 0285 (0.282.0): the stray tail `: Tirage` cannot
+  // start a next field.
   [
     "c19",
     "string | a: Tirage",
     "field",
     { type: "object", properties: { a: { anyOf: [{ type: "string" }, {}] } }, required: ["a"], additionalProperties: false },
-    FIELD_JUNK_CODES_WITH_TYPE_REFUSAL,
+    FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA,
   ],
   [
     "c20",

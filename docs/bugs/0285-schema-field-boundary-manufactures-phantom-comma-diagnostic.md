@@ -1,6 +1,7 @@
 # Bug 0285 — `parseType`'s schema-field-boundary stop ends a field's type capture at ANY value-ish token whose predecessor is not `|` (`theta-document.ts:3937`–`:3946`), so one written type text carrying a `.` or `-` (`Nope.Sub`, `a-b`, `string.b`) is cut into a type shard plus a phantom next field: the shard draws `theta/parse/schema-type-not-expression`, the phantom draws `theta/parse/unsupported-feature` rendering `schema fields must be comma-separated` over a body that spells one field and no missing comma, and the same phantom draws `theta/parse/malformed-schema-field` — three diagnostics, one of them stating a construct the source does not exhibit, where the byte-neighbour `f()<integer>` draws exactly one
 
-- **Status:** open.
+- **Status:** fixed (0.282.0) — one pinned cell group awaits the parent's flip
+  authority (§Fix (0.282.0) Residual 1); nothing else is outstanding.
 - **Sev/Diff estimate:** S2/D2 — S2 by the letter on "wrong diagnostic
   code/text, spurious duplicate diagnostics": the second line asserts that the
   body's fields are not comma-separated (`placeholder-rendering-a.md:93` fixes
@@ -462,3 +463,158 @@ Three corrections to the handover this filing carries.
    duplicate diagnostics"). The brief's "registration refused in all offender
    cases" is confirmed: all sixteen measured offender rows report
    `registered=false`.
+
+## Fix (0.282.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — a pure module-level predicate
+    `typeSourceEndsAtom` (`:1903`–`:1924`) and a second conjunct on
+    `startsNextField` in `parseSchemaObjectBody` (`:3305`): the
+    `theta/parse/unsupported-feature` comma-separation line is WITHHELD when
+    the field's captured `typeSource` does not end a `Type` atom. §Fix's route
+    verbatim, at §Fix's own site. `parseType` is untouched, so the rejected
+    splitter route is not taken and every captured `typeSource` is byte-stable
+    (`Nope.`, `a-`, `string.`, `-`, `1-`, `Cat+` all unmoved). No code minted,
+    no `Message` moved, no range moved, no retention/discard rule moved.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2
+    sentences, in the `theta/parse/unsupported-feature` row's *Trigger* cell
+    only. Cell-by-cell diff of that row proves `Code` / `Severity` / `Phase` /
+    *Reference* / `Fix hint` / `Message` byte-identical (7 cells split on
+    `" | "`, only the Trigger cell differs) and the file's line count unchanged
+    (146 → 146). Reference mirror checked: `docs/reference/diagnostics.md:78`
+    carries Code / Severity / Phase / Message and no *Trigger* column, so it
+    owes no edit; `placeholder-rendering-a.md:93`'s construct table (bug 0063's
+    pinned shape, gated by `tests/construct-token-table-tails.test.ts`) is
+    untouched.
+  - `tests/b0285-schema-field-boundary-phantom-comma.test.ts` — the offline
+    witness, 10 cells.
+- Gates (all offline, run by the orchestrator after the last edit):
+  - Witness: `npx vitest run tests/b0285-schema-field-boundary-phantom-comma.test.ts`
+    → `Test Files 1 passed (1) / Tests 10 passed (10)`.
+  - Full default suite: `npm test` → `Test Files 1 failed | 458 passed (459)`,
+    `Tests 4 failed | 9402 passed (9406)`. The four are Residual 1 and nothing
+    else; the failure set was enumerated by name.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) → clean.
+  - Lint: `npm run lint` (`eslint … "src/**/*.ts"`) → clean.
+  - Pinned surfaces, one run: the eight comma-line assertion files of §Fix's
+    flip-authority sweep plus `tests/committed-fixture-parse-gate.test.ts` and
+    the `b0284` / `b0282` / `b0281` witnesses → `Test Files 12 passed (12) /
+    Tests 445 passed (445)`, corpus gate 36/36. Zero flips on every surface
+    §Fix enumerated.
+- Review: 2 rounds. Round 1 (deep) — one blocking finding, `spec`: the first
+  draft of the Trigger sentences claimed every withheld input keeps
+  `theta/parse/malformed-schema-field` (false: `schema S { a: Cat + b: integer }`
+  keeps the type-side refusal ALONE and captures both fields) and grounded the
+  withhold on a "manufactured, not author-written" boundary (over-general for
+  that same class). One residual, `prose`: the witness's `theta-document.ts`
+  line cites were stale after this change's own +30-line insertion. One fixer
+  round fixed both, prose-only. Round 2 (fast) — CLEAN, with the reworded cell
+  re-measured claim by claim and the re-derived cites checked against their
+  symbols.
+- Verification: PASS.
+  - The witness genuinely reds: neutralising only the new conjunct
+    (`startsNextField` unconditional again) reds cells `b0285-A` and `b0285-F`
+    with exactly the surplus `unsupported syntactic feature: schema fields must
+    be comma-separated` line at the residue token, the filed symptom; restored
+    and green again, restoration proved byte-exact by an unchanged
+    `git hash-object` (`a985699066d883bec98f7cc6ca80f703d2160d7b`) and an
+    unchanged `wc -l` (9446).
+  - Default suite, typecheck, lint: as above, failure set exactly Residual 1.
+  - Live: NONE owed, adjudicated on the record (see below). No live command was
+    run in this lane, so the shared live lock was never engaged.
+  - Tree hygiene: `git status --short` shows only the three paths above; one
+    case-insensitive sweep for `b0285scratch` finds no file (only this
+    document's own prose naming the token).
+- Adjudications on the record (§Fix's three lane sub-choices):
+  1. *The predicate's site* — (a), classify the captured `typeSource` locally
+     in `parseSchemaObjectBody`. Evidence: §Fix records the evidence as
+     favouring (a); `parseType` has four other callers whose call sites (b)
+     would move for no observable gain; and the measured stop is decided by the
+     same token the arm inspected, so the last character of `typeSource` is a
+     complete oracle for it — confirmed by the witness's group (C), where the
+     three atom-ending characters `>` `"` and an identifier character all keep
+     the comma line. Bound: one predicate, one conjunct, one file.
+  2. *Whether the phantom `malformed-schema-field` also withholds* — NO, on
+     §Fix's evidence. `code-registry-parse.md:99`'s *Trigger* is literally
+     satisfied (`Sub` is a token from which no further `Field` derives); the
+     resulting pair is the one `:106` pins verbatim for `schema S { a: -1 }`,
+     which the witness's group (B) holds byte-stable; and a YES would have to
+     decide what consumes the brace remainder, which is bug 0133's landed class
+     and a §Non-goals crossing.
+  3. *Which register carries the DIAG-2 sentence* —
+     `code-registry-parse.md`'s `theta/parse/unsupported-feature` row, the
+     code's own register. Evidence: the withhold narrows an EMISSION set, which
+     is *Trigger*-side material; `placeholder-rendering-a.md:93` is a
+     two-column construct table whose shape is bug 0063's pinned subject and is
+     asserted by `tests/construct-token-table-tails.test.ts`, so prose does not
+     belong in it; and the `docs/reference/diagnostics.md` mirror carries no
+     *Trigger* column, so this register is the only one that owes an edit.
+  4. *Live-owed* — NONE. The change removes one diagnostic emission and moves
+     no registration outcome: every offender row was refused before and is
+     refused after (the witness asserts an error-severity `theta/parse/*`
+     diagnostic on every offender and control row), and an emission REMOVAL
+     cannot grow the H9a-visible permitted-code set
+     (`tests/fixtures/h7a/permitted-codes.json`, never hand-edited and
+     untouched here). This is the 0254 / 0276 / 0272 / 0279 precedent for a
+     diagnostic-emission-only change with unmoved registration outcomes.
+- Residuals:
+  1. **A pinned flip in a ninth file, awaiting the parent's flip authority.**
+     §Fix's flip-authority sweep enumerated the eight files carrying the comma
+     line's MESSAGE STRING and found zero flips — correct as far as it reached.
+     It missed `tests/params-scalar-nontype-text-refusal.test.ts`, which pins
+     the same emission by CODE only (`"error theta/parse/unsupported-feature"`
+     inside `FIELD_JUNK_CODES_WITH_TYPE_REFUSAL`, `:690`–`:694`) and so matches
+     no message-string sweep. Four `field`-position cells there red under this
+     fix — `c1` (`:724`, junk `a: Tirage`, captured `a:`), `c10` (`:744`,
+     `- a`, captured `-`), `c13` (`:748`, `# comment`, captured `#`) and `c19`
+     (`:773`–`:781`, `string | a: Tirage`, captured `string|a:`) — each losing
+     exactly the comma line from a three-code sequence, leaving
+     `theta/parse/schema-type-not-expression` beside
+     `theta/parse/malformed-schema-field`. Every one of those four is this
+     report's own subject: the body is `schema S { a: <junk> }`, one field, no
+     separator position, and the capture ends on `:` / `-` / `#`, none of which
+     ends a `Type` atom. The fifth field-position row, `c16` (`Triage Triage`,
+     captured `Triage`), does NOT move, which is the boundary the predicate
+     draws. The minimal ratification is a second expected-sequence constant
+     beside `FIELD_JUNK_CODES_WITH_TYPE_REFUSAL` — the same two codes without
+     the comma line — for those four rows, with a WHY comment citing this
+     report. No edit was made by the lane: flip authority over a pinned cell
+     is not the lane's, and the four cells were left exactly as filed.
+     **RATIFIED at the merge gate (0.282.0)** — parent adjudication on the
+     vehicle-collateral precedent class (0262 clause (i) / 0274 / 0268-0248 /
+     0278-0273): the four cells' subjects (bug 0133 §Fix (a)'s retained-field
+     type refusal reaching the checker-time walk, and the registration
+     outcome) are preserved verbatim; only the riding comma-line expectation
+     drops, which is exactly this report's phantom. Implemented parent-side as
+     the lane proposed: new constant `FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA`
+     (the same two codes without the comma line) applied to `c1`/`c10`/`c13`/
+     `c19` with dated WHY comments; `c16` untouched (its tail `Triage` can
+     start a next field — the predicate's boundary, honestly kept). Dated
+     coordination note appended to bug 0133's doc (the authority the cells
+     cite). Bound: exactly those four rows + the constant's doc-comment;
+     nothing else in the file moved.
+  2. **Line-number drift.** This change inserts 30 lines above `:1925`, so
+     every `src/parser/theta-document.ts` citation in §Affected above (taken at
+     filing HEAD `d0fffd87`, 9416 lines) is +30 in the fixed tree (9446 lines):
+     the `stopAtFieldBoundary` arm is `:3967`, its depth-0 stop set
+     `:3943`–`:3951`, the sole `parseType(true)` caller `:3279`, the separator
+     arm `:3305`, the `recoverMalformedSchemaField` call `:3222`. §Affected is
+     left as filed — it is the evidence measured at the filing HEAD — and the
+     witness's own cites were re-derived to the fixed tree.
+  3. **The collateral discard is untouched**, as §Non-goals requires: the
+     fields written after an offending one are still consumed by
+     `skipBraceRemainder` unreported (bug 0133's landed class,
+     §Reproduction (f)). One new measured consequence of the same predicate is
+     recorded rather than filed: `schema S { a: Cat + b: integer }` drew two
+     diagnostics at HEAD (the type-side refusal plus the comma line) and draws
+     one after the fix, because `Cat+` ends no `Type` atom either — the further
+     field is still captured and the body is still refused. The witness's cell
+     (F) pins it.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the splitter-side route stays REJECTED on
+  §Fix's measurement (it moves `schema S { a: -1 }`'s pinned `typeSource` and
+  drops that body's `theta/parse/malformed-schema-field`);
+  `theta/parse/malformed-schema-field` does not withhold; bug 0133's
+  retention/discard rule, bug 0284's / 0282's / 0281's landed head judgements,
+  bug 0232's brace exemptions, bug 0263's FM-5 cells and the genuine
+  missing-comma refusal are all unmoved and gated above.

@@ -1291,3 +1291,19 @@ contradicts the source it describes, with DIAG-4 deferring the reword to theta
   determination stands on the measured fact that no H9a fixture declares a
   schema object body reaching any of the three arms, so the H9a acceptance
   surface is not on this fix's path.
+
+## Coordination note (0.282.0, bug 0285)
+
+Bug 0285's fix withholds the field-boundary comma-separation
+`theta/parse/unsupported-feature` line when the captured field type ends no
+`Type` atom or the stray tail cannot start a next field. Four `field`-position
+cells of `tests/params-scalar-nontype-text-refusal.test.ts` (`c1`, `c10`,
+`c13`, `c19`) — re-founded under this bug's §Fix (a) when the field-list
+discard was settled — pinned that comma line only as riding emission
+environment; under 0285 they pin the two-code sequence
+`schema-type-not-expression` + `malformed-schema-field` via
+`FIELD_JUNK_CODES_TYPE_REFUSAL_NO_COMMA`. Their subjects here (the retained
+field's junk type reaching the checker-time field-type walk, and the
+registration outcome) are unchanged; `c16` (`Triage Triage`) keeps the comma
+line — its tail can start a next field. Ratified by the parent at 0285's merge
+gate (vehicle-collateral class); full record in 0285's §Fix residual 1.
