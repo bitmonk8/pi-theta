@@ -6,10 +6,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.280.0]
+
+- fix(bug-0282): closed-set applied-generic-head gate - an identifier written as a generic-application head outside the derivable set {Result, array} now refuses `theta/parse/unresolved-named-type` at every reference position and every nesting depth (`Nope<integer>`, `Ghost<string>`, declared-schema `Foo<integer>` - the application refuses, bare `Foo` legality unchanged and its dropped constraint resurrected); gate sits BESIDE 0281's reserved-spelling gate and AFTER the arity walk (`Ok<...>`/`Err<...>` keep reserved-keyword-as-identifier, `Result<integer>` keeps generic-arity-mismatch, `array<T>` clean); same-commit DIAG-2 registry Trigger widening; 11 widened cells + Ghost<1,2> cells re-founded under 0282/widening authority with dated coordination notes on 0164/0217/0231/0236/0256/0281; witness + live registration pair added.
+
 ## [0.279.0]
 
 - fix(bug-0283): harden the H8a bug-0165 cell drive against provider-side binder drift - the well-formed sibling is now driven as `/b165livewf topic=hello` (parameter named explicitly) so the pinned haiku binder no longer declines to infer `topic` from bare free text; fence semantics preserved (real binder pass, `p=ok (default)` echo, refusal half byte-untouched); test-infra fix under 0283's own doc authority, no product code changed.
-
 ## [0.278.0]
 
 ### Fixed

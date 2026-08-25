@@ -748,3 +748,33 @@ Also measured and not in the residual: `array<enum["a", "b"], integer>` draws no
   g3/g4, six assertions across three positions, subjects preserved, reasons
   restated in the same change. No other cell of that file, or of any other test
   file, moved.
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority)
+
+Bug 0282 0.280.0 landed the constructor-head gate its dated note
+"Flip-authority widening (pre-fix, operator-directed)" measured against this
+file: `tests/generic-argument-bracket-group-truncation.test.ts` (cell `f2b`,
+`pair<{a: string}, enum["x","y"]>`, one of this row's own four published
+registry examples) and `tests/nested-inline-enum-generic-argument-refusal.test.ts`
+(cells `b17` and `c9`, the same `PAIR_BRACE_SIBLING` spelling). `pair` is
+outside `GENERIC_ARITY` and `Ident`-shaped, so `lowerTypeExpr`'s new
+constructor-head gate now refuses it and returns before this row's own
+last-resort push (`pushCutBracketGroupAsLastResort`) ever runs:
+- `f2b` moved from `theta/parse/schema-type-not-expression` /
+  `theta/load/params-type-not-expression` (four positions) and from silence
+  (the `let` annotation) to `theta/parse/unresolved-named-type` naming
+  `pair`, at all five positions the cell's tuple covers.
+- `b17` (the direct `lowerTypeExpr` sink probe) moved from
+  `["{a: string}", 'enum["x", "y"]']` to `[]` — the sink never fills, because
+  the gate returns before either argument is walked.
+- `c9` (permitted-not-required under bug 0282's authority, measured rather
+  than assumed) moved from `theta/parse/schema-type-not-expression` (field,
+  alias) / `theta/load/params-type-not-expression` (params) to
+  `theta/parse/unresolved-named-type` naming `pair`, at all three
+  `SINK_POSITIONS`.
+
+Every one of these cells' SUBJECT is preserved: the construct still draws
+EXACTLY ONE refusal, and the derivable brace-group argument beside the cut
+bracket group still earns none of its own — only the CODE naming that one
+refusal, and (for `b17`) the sink's own contents, moved. No line number of
+this document's own §Affected citations shifted.

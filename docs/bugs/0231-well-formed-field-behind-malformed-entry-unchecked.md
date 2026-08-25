@@ -792,3 +792,25 @@ not the carve-out is ever revisited.
   sibling session (`tests/zz-scratch-0232-probe*.test.ts`) were present in the
   tree throughout and are not this filing's; `git diff HEAD --stat` is empty on
   `src/` and `tests/`.
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority)
+
+Bug 0282 0.280.0's dated note "Flip-authority widening (pre-fix,
+operator-directed)" measured a re-vehicle in this document's witness,
+`tests/inline-object-malformed-entry-resync.test.ts`, cells `b9 BOUND` and its
+control `b9c`. Both cells' field type was `result<string>` (lowercase
+`result`, an unknown applied head), chosen as a BOUND that draws no emission
+of its own; under bug 0282's fix `result<string>` itself now refuses (it is
+also outside `GENERIC_ARITY` and `Ident`-shaped), so the note directed a
+re-vehicle onto a head that still draws nothing. The orchestrator-proposed
+vehicle `array<string>` was MEASURED (not assumed) to fail that requirement:
+a fully-resolved `array<string>` field makes the enclosing object type fully
+known, and `b9c`'s RHS literal `1` then draws
+`theta/parse/let-rhs-type-mismatch`, which would have broken the file's own
+"only `b9c` expects an empty list" invariant. The vehicle actually landed is
+`Result<string, integer>` — a derivable head at a non-schema-feeding nested
+field position, measured to draw nothing at both `b9 BOUND` (beside
+`b9`'s own `inline-field-name-not-identifier` on `a b`) and `b9c`. The cells'
+SUBJECT is preserved exactly as this document's own bound states it: not
+every field-TYPE has an emission here, so nothing is recovered and the row
+does not move.

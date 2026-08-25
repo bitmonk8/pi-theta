@@ -1837,18 +1837,19 @@ describe("bug 0033 (m) — an alias arm answers to the field-type checks", () =>
     // walk both traverse the arm, so a name could be reported twice, or an arity
     // failure could arrive alongside an unresolved-name failure for the same
     // head. Pinned AS OBSERVED, with no invented dedup rule:
-    //   - `Ghost<1,2>` — silent at both positions. `Ghost` is outside the closed
-    //     `GenericType` set, so it declares no arity to violate, and the name
-    //     walk does not descend an unknown application's head.
+    //   - `Ghost<1,2>` — refuses once, at both positions, under bug 0282 0.280.0's
+    //     gate in `lowerTypeExpr`'s generic-application arm: `Ghost` is outside
+    //     the closed `GenericType` set, so it is unresolvable AS A CONSTRUCTOR
+    //     and routes onto the same `unresolved-named-type` sink its bare
+    //     spelling already draws — one refusal per construct, naming the head,
+    //     not silence (this cell was formerly pinned as measured-not-decided
+    //     silence; bug 0282's fix decided it).
     //   - `array<Ghost>` — the name walk alone, once.
     //   - `Ghost | Ghost` — ONE line for two occurrences: the walk runs over the
     //     rejoined right-hand side and dedups by name, as it did before.
-    expectArmMatchesFieldControl(
-      "n10b (applied)",
-      F_ALIAS_GHOST_APPLIED,
-      F_FIELD_GHOST_APPLIED,
-      [],
-    );
+    expectArmMatchesFieldControl("n10b (applied)", F_ALIAS_GHOST_APPLIED, F_FIELD_GHOST_APPLIED, [
+      line(UNRESOLVED, msg(UNRESOLVED, [["<name>", "Ghost"]])),
+    ]);
     expect(
       diagLines(parse(F_ALIAS_GHOST_ELEMENT)),
       "n10b — an unresolved element type of a well-formed `array<T>` is one row, once",

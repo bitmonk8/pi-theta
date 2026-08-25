@@ -1,6 +1,6 @@
 # Bug 0282 — An UNKNOWN identifier written as a generic head (`Nope<integer>`, `Ghost<string>`, `Foo<integer>` for a declared object schema `Foo`) derives from no `Type` production, yet the head-agnostic application arm in `TypeParser.parsePrimary` consumes it structurally and `walkType`'s only judgement of a generic node is a `GENERIC_ARITY` table lookup that misses: the spelling loads SILENT and registers at all nine type-reference positions, lowered to `{}`, while the same bare name refuses at every one of them under bug 0262's landed `theta/parse/unresolved-named-type` rule
 
-- **Status:** open.
+- **Status:** fixed (0.280.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because no legal source moves (the 34
   committed `.theta` / `.thetalib` files spell exactly two applied heads,
   `array<` and `Result<`, both inside the closed set) and because the silence
@@ -702,3 +702,157 @@ is no longer a two-seam edit with two owned cells — it re-founds eleven pinned
 cells across six witness files owned by six other reports, owes a coordination
 note in each owning document, and still owes the *Trigger* decision §Fix names.
 D3 is an estimate; the picking session re-scores.
+
+## Fix (0.280.0)
+
+- **Route adjudicated: §Fix route (a), CLOSED-SET width, one seam.** The
+  membership test lands in `lowerTypeExpr`'s generic-application arm
+  (`src/parser/params.ts`), not at the type-grammar application parse and not
+  in `walkType`: an `Ident`-shaped head outside `GENERIC_ARITY` routes onto the
+  `lowerCtx.unresolved` sink and lowers no further, which is the sink bug 0262's
+  fix already renders at ten reference positions for the head's BARE spelling.
+  One seam reaches every capture, measured before the tests were written: all
+  eighteen cells of §Reproduction's 9 × 2 table, the `params:` position, both
+  declared-head rows of the inert table, every silent row of the nesting table,
+  and the two pinned `Ghost<1,2>` cells.
+- **Route choice against bug 0281: BESIDE, not SUBSUMING.** The wide gate sits
+  AFTER 0281's narrow reserved-spelling gate and after the `array` arity-1
+  branch. That ordering keeps the sibling verdicts stable and is written into
+  the gate's own comment: `Ok<integer>` / `Err<string>` keep drawing
+  `theta/parse/reserved-keyword-as-identifier` (0281's landed code, not this
+  row's), `Result<integer>` keeps drawing
+  `theta/parse/generic-arity-mismatch` (bug 0278's gate order), and `array<T>`
+  stays clean at all nine positions. No code any sibling witness draws moved.
+- **What shipped:**
+  - `src/parser/params.ts` — the closed-set constructor-head gate, beside and
+    after 0281's, carrying the WHY for the identifier-shape test (this row's
+    *Message* fills `<name>` with a name), for the early `return` (the
+    construct's one refusal through this seam) and for the ordering.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` —
+    `theta/parse/unresolved-named-type`'s *Trigger* widened in the same commit
+    (DIAG-2): the constructor-head position named explicitly, the declared-head
+    case given its own sentence, the reach stated at every depth beneath the ten
+    positions rather than one level down, and the cover claim scoped to this
+    row's own refusal through the lowering seam — an independent seam's
+    judgement co-fires beside it (`theta/parse/malformed-schema-field`) or
+    stands instead of it (`theta/parse/generic-arity-mismatch`). Marked a
+    GOV-15 carve-out whose in-scope set is exactly this class.
+  - Thirteen pinned cells re-founded, each keeping its subject: `n10b`'s two
+    `Ghost<1,2>` cells and their pinning comment
+    (`tests/schema-alias-union-decl.test.ts`); group (D)'s three cells
+    (`tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts`);
+    `f2b` (`tests/generic-argument-bracket-group-truncation.test.ts`); `d10`
+    (`tests/generic-argument-literal-lowering.test.ts`); `b9` / `b9c`
+    re-vehicled (`tests/inline-object-malformed-entry-resync.test.ts`); `c12`'s
+    two assertions (`tests/inline-object-stranded-entry-refusal.test.ts`);
+    `b17` and `c9`'s three positions
+    (`tests/nested-inline-enum-generic-argument-refusal.test.ts`).
+  - `tests/b0282-unknown-applied-generic-head-gate-at-nine-positions.test.ts` —
+    NEW offline witness, 11 cells over eight groups.
+  - `tests/live/b0282live-unknown-applied-generic-head-registration.test.ts` —
+    NEW live registration cell, 2 cells.
+- **The code decision, discharged by measurement.**
+  `theta/parse/unresolved-named-type` (`code-registry-parse.md:112`), borrowed
+  and not minted, which is why `tests/fixtures/h7a/permitted-codes.json` is
+  byte-unchanged (hash-verified `a4a8da04…` against HEAD). The row is wired at
+  all nine positions, its *Message* names the head, and the bare spelling of the
+  same identifier already draws it — the convergence §Expected asks for.
+  Candidate 2, the not-expression family, stays rejected on the measurement
+  §Reproduction records: no wired emitter at `invoke-ascr` or `query-E-arg`. The
+  *Trigger* widening candidate 1 requires is in the same commit;
+  `docs/reference/diagnostics.md:160` transcribes no *Trigger* column, so no
+  reference mirror moves.
+- **Flip containment, premeasured.** The gate was implemented once against the
+  whole default suite BEFORE any witness was written, then reverted byte-exact.
+  It flips exactly the dated note's enumeration — 12 tests across 7 files, no
+  eighth file, no cell outside the eleven plus the two this document already
+  owned. Cell 8 (`c9`) DID move, which the note permits without requiring:
+  measured before → after is `theta/parse/schema-type-not-expression` →
+  `theta/parse/unresolved-named-type` at the field and alias positions, and
+  `theta/load/params-type-not-expression` → `theta/parse/unresolved-named-type`
+  at `params:`.
+- **One vehicle substitution inside an authorized cell.** Cells 3/4 (`b9`,
+  `b9c`) re-vehicle onto `Result<string, integer>` rather than the note's
+  suggested `array<string>`: a fully-resolved `array<string>` field makes the
+  enclosing object type known and `b9c`'s right-hand side then draws
+  `theta/parse/let-rhs-type-mismatch`, breaking the file's "only b9's control
+  expects nothing" inventory. `Result<…>` is derivable, sits at a
+  non-schema-feeding nested position, and draws nothing — the disposition's own
+  requirement. Re-measured independently in review round 1 and recorded in bug
+  0231's coordination note.
+- **Gates:** witness 11/11 (6 of 11 red at HEAD for the filed reason — refusal
+  expected, empty list received; the five control groups green at HEAD, so the
+  file is not uniformly red); `npm test` 457 files / 9379 tests, zero reds;
+  `npm run typecheck` clean; `npm run lint` clean; the live cell 2/2 green under
+  the cross-lane live lock.
+- **Review:** 3 rounds. Round 1 (`bug-fix-reviewer`) — three
+  documentation-level findings, no correctness or fidelity finding, deep
+  re-review NOT recommended: the widened *Trigger* over-claimed the cover rule
+  and understated the reach (three measured counter-examples), it duplicated the
+  row's reserved-keyword boundary sentence, and `c12`'s test title still said
+  "one refusal each". Round 2 (`bug-fix-reviewer-fast`) — CLEAN, all three
+  re-measured against the rewritten prose. Round 3 (`bug-fix-reviewer-fast`,
+  narrow) — CLEAN over the live-cell repair below.
+- **Verification:** SOLID. Witness red under neutralisation of the gate alone
+  (17 of 392 red across the eight witness files, filed signature) and green on
+  restore, `src/parser/params.ts` byte-exact both sides
+  (`3cd22a5421704c07c3ebcf52988431032d67f86a`); default suite 457/457; lint and
+  typecheck clean; every lock re-run green (b0262 26, b0273 10, b0274 14, b0277
+  12, b0278 14, conformance 27, committed-fixture parse gate 36/36);
+  `permitted-codes.json` hash-identical to HEAD. The live cell was run for real
+  by the orchestrator under the lock in BOTH directions — green with the gate
+  active, red under the same one-line neutralisation naming the registered
+  carrier — and audited statically by the verifier against the AGENTS.md live
+  conventions with no violation.
+- **A vacuous live assertion, found and repaired.** The first live red-proof
+  showed the `params:` carrier absent from the registered set with the gate
+  NEUTRALISED too: a `params:`-declaring theta is not bypass-eligible, so its
+  binder model must resolve at load (`classifyBinderBypass` /
+  `resolveBinderModel`, `src/extension/production-composition.ts:994`,
+  `:1019`–`:1035`; `src/binder/binder-model.ts:185`–`:200`), and the fixture
+  declared no `bind_model:`. The carrier now carries the in-tree `bind_model:`
+  convention, and a registrability precondition theta (`b0282liveparamsshape`,
+  the same fixture shape with `array<integer>` at the same position) is asserted
+  PRESENT before any absence assertion, so the class cannot recur silently.
+- **Residuals:**
+  1. A non-`Ident`-shaped applied head stays silent and registering at
+     `params:` (`p: 'a b<integer>'`, `'Nope.Sub<integer>'`, `'1x<integer>'` —
+     measured in review round 1). Unchanged by this fix and outside this
+     document's subject, whose class is IDENTIFIERS written as heads; at the
+     `let` annotation the same text already refuses. It belongs to the
+     not-expression family's unwired-junk gap and owes its own filing.
+  2. `let a: Nope<Result<integer>> = Ok(1)` draws
+     `theta/parse/generic-arity-mismatch` alone and never names `Nope` — the
+     walk-side judgement of the inner application is reached before the outer
+     head reaches this sink. Measured, unchanged either side of the fix,
+     registration denied either way, and now stated in the registry row rather
+     than left implicit.
+  3. `c12` is the one re-founded cell carrying TWO diagnostic lines rather than
+     one (`theta/parse/malformed-schema-field` beside the head's refusal), from
+     two independent seams. The test's title was corrected to state it and the
+     registry row now describes the co-fire.
+  4. Version is the literal placeholder `0.280.0` throughout this lane — in this
+     record, in the test comments and in every coordination note; nothing is
+     committed, and `package.json`, `CHANGELOG.md` and `docs/bugs/README.md` are
+     untouched.
+- **Discharge notes appended:** dated coordination notes to
+  `./0164-generic-argument-literal-lowers-permissive.md` (d10),
+  `./0217-nested-inline-enum-in-generic-argument-draws-nothing.md` (f2b, b17,
+  c9), `./0231-well-formed-field-behind-malformed-entry-unchecked.md` (b9/b9c
+  re-vehicle, with the measured ground for `Result<…>` over `array<…>`),
+  `./0236-bracket-group-generic-argument-truncates-list.md` (f2b and the
+  inventory recount),
+  `./0256-generic-argument-stranded-entry-registers-permissive.md` (c12, and the
+  restated consequence that its two-argument-generic Reach shape can no longer
+  be witnessed at `params:` by a head drawing nothing of its own) and
+  `./0281-applied-ok-err-generic-application-silent-at-every-capture.md` (group
+  (D) flipped wholesale). Each names what moved, the authority (bug 0282's
+  flip-authority widening, 0.280.0) and that the subject is preserved.
+- **Pinned dispositions / non-goals:** bug 0262's bare-`NamedType` verdicts, bug
+  0273's error-side verdicts, bug 0274's reserved-keyword class, bug 0277's
+  unapplied-head refusals (every group including (K), which 0281 re-founded),
+  bug 0278's arity gate and 0281's reserved-spelling codes are all unmoved, each
+  locked green by its own witness. `theta/parse/result-in-schema-position` is
+  untouched. Bare `Foo` legality is unchanged — only the APPLICATION refuses. No
+  committed `.theta` / `.thetalib` moves: the corpus-wide claim is discharged by
+  `tests/committed-fixture-parse-gate.test.ts` 36/36, not by a scratch probe.

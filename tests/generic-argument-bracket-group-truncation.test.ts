@@ -266,6 +266,7 @@ const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const LET_NO_INIT = "theta/parse/let-without-initialiser";
 const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
 const INLINE_ENUM = "theta/parse/inline-enum";
+const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -326,6 +327,10 @@ function NOTIDENT(field: string): Exp {
 }
 /** Bug 0162's row (code-registry-parse.md:114), anchored at the START of a schema field type or arm. */
 const INLINEENUM: Exp = { severity: "error", code: INLINE_ENUM, fills: [] };
+/** Bug 0282's constructor-head gate (code-registry-parse.md:112) — f2b's non-`GENERIC_ARITY` head. */
+function UNRESOLVED(name: string): Exp {
+  return { severity: "error", code: UNRESOLVED_NAMED_TYPE, fills: [["<name>", name]] };
+}
 
 /** One rendered diagnostic, in the shape `diagLines` produces. */
 function render(exp: Exp): string {
@@ -874,10 +879,21 @@ function registryExampleCells(): Cell[] {
         [LETRHS("x", 'array<enum["a","b"],???>', "integer")],
       ],
       [
+        // Bug 0282 0.280.0: `pair` is outside `GENERIC_ARITY` and is
+        // `Ident`-shaped, so `lowerTypeExpr`'s constructor-head gate refuses
+        // it BEFORE the cut-bracket-group last resort below ever runs, at all
+        // five positions this tuple's cells cover alike — the head's own
+        // refusal is the construct's one refusal (this row's own registered
+        // cover rule), which is why the applied `SCHEMANOTEXPR` /
+        // `PARAMSNOTEXPR` readings this cell drew at HEAD, and the silence it
+        // drew at the `let` annotation, both move to `unresolved-named-type`
+        // naming `pair`. The spelling itself does not move: it is quoted
+        // verbatim from this row's own published registry example
+        // (code-registry-parse.md:105).
         "f2b non-constructor head beside a cut group",
         'pair<{a: string}, enum["x","y"]>',
-        [SCHEMANOTEXPR("S")],
-        [],
+        [UNRESOLVED("pair")],
+        [UNRESOLVED("pair")],
       ],
     ];
   for (const [id, t, , letExpected] of schemaFeedingOnly) {
@@ -891,8 +907,10 @@ function registryExampleCells(): Cell[] {
       ) {
         continue;
       }
-      const expected: readonly Exp[] =
-        pid === "b4 schema body field"
+      const isPair = t.startsWith("pair<");
+      const expected: readonly Exp[] = isPair
+        ? [UNRESOLVED("pair")]
+        : pid === "b4 schema body field"
           ? [SCHEMANOTEXPR("S")]
           : pid === "b6 alias RHS" || pid === "b9 .thetalib alias RHS"
             ? [SCHEMANOTEXPR("T")]
@@ -1039,8 +1057,10 @@ function allCells(): Cell[] {
 
 /** Declared inventory size — 14 + 25 + 5 + 5 + 4 + 42, recomputed below. */
 const TOTAL_LIST_CELLS = 95;
-/** Declared count of cells whose specified list is EMPTY. */
-const EMPTY_LIST_CELLS = 47;
+/** Declared count of cells whose specified list is EMPTY. Bug 0282 0.280.0 moves f2b's `let`
+ * annotation cell (`pair<{a: string}, enum["x","y"]>`) off this count: the constructor-head
+ * gate now refuses `pair` there too, where it was silent before the fix. */
+const EMPTY_LIST_CELLS = 46;
 /** Declared count of cells whose specified list carries the arity row. */
 const ARITY_BEARING_CELLS = 20;
 /** Declared count of cells whose specified list carries the `void` row. */

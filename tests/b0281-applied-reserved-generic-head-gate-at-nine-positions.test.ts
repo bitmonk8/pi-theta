@@ -599,50 +599,48 @@ describe("b0281 (I) — an annotation spelled as an applied `Ok<…>` / `Err<…
 
 const UNKNOWN_SPELLINGS = ["Nope<integer>", "Ghost<string>"] as const;
 
-// MEASURED CONTROLS, pinned as measured rather than derived from any grammar
-// reading. An applied head that is no reserved spelling — an undeclared
-// `Nope` / `Ghost`, a declared but non-parameterisable `Foo` — is not what bug
-// 0281 §Fix's narrow gate tests for, so it keeps the permissive lowering it
-// has: silent, registering, its constraint dropped. What an unknown applied
-// head SHOULD mean in a type position is no part of bug 0281's route; it is
-// bug 0282's open subject
-// (docs/bugs/0282-unknown-applied-generic-head-silent-at-every-position.md),
-// and this group asserts only that the route taken leaves it exactly where it
-// stands, so a re-widening of the gate reds here rather than in the pinned
-// cells of the five unrelated witnesses that spell such a head. The BARE-name
-// controls beside each cell keep bug 0262's landed refusals, which is what
-// separates the silence of the applied spelling from a name resolution that
-// moved.
-describe("b0281 (D) — an unknown applied head is untouched by the reserved-head gate", () => {
-  it("b0281-D: an unknown applied head stays silent and registering at all nine positions", () => {
-    // The alias cell differs from group (M)'s: an unknown head does not break
-    // the declaration parse, so `schema S = Nope<integer>` captures the arm
-    // text and lowers it permissively rather than leaving an angle list in
-    // statement position.
+// FLIPPED under bug 0282 0.280.0's flip authority (§Fix "Flip authority" clause,
+// group (D)): this class was measured as a control while bug 0282 stayed open
+// — an applied head that is no reserved spelling (undeclared `Nope` / `Ghost`,
+// a declared but non-parameterisable `Foo`) kept the permissive lowering bug
+// 0281's narrow gate does not test for. Bug 0282's own gate in
+// `lowerTypeExpr`'s generic-application arm now refuses that head, so this
+// group inverts wholesale to the refusal, as its own comment above directed
+// ("a re-widening of the gate reds here"). The BARE-name controls beside each
+// cell keep bug 0262's landed refusals, unmoved: they are what separates the
+// (now refused) applied spelling from a name resolution that moved.
+describe("b0281 (D) — an unknown applied head now draws bug 0282's constructor-head refusal", () => {
+  it("b0281-D: an unknown applied head refuses and does not register at all nine positions", () => {
+    // The alias cell no longer differs from group (M)'s ninth column the way
+    // it once did: an unknown head does not break the declaration parse, so
+    // `schema S = Nope<integer>` captures the arm text and now refuses it
+    // through bug 0282's head gate rather than lowering it permissively.
     const probes = cells([...UNKNOWN_SPELLINGS]);
     expectMatrix(
       probes,
-      () => [],
-      () => [],
-      () => true,
+      () => [UNRESOLVED],
+      (p) => [unresolvedLine(p.head)],
+      () => false,
     );
   });
 
-  it("b0281-D-declared: a DECLARED schema name written with an angle list keeps dropping its constraint", () => {
-    // Bug 0282 §Reproduction's constraint-dropping measurement: `Foo` is
-    // declared in the file, the bare annotation enforces it, and the applied
-    // spelling of the same head enforces nothing. The pair is what makes the
-    // dropped constraint observable rather than merely asserted.
+  it("b0281-D-declared: a DECLARED schema name written with an angle list now refuses the application", () => {
+    // Bug 0282 §Reproduction's constraint-dropping measurement, now resolved:
+    // `Foo` is declared in the file, the bare annotation enforces it, and
+    // under bug 0282 0.280.0's gate the applied spelling of the same head
+    // refuses the APPLICATION rather than silently dropping the constraint
+    // (grammar.md:107 closes the constructor set; `Foo` resolving as a name
+    // does not make it parameterisable).
     const applied = theta(
       "D-declared — `schema Foo { m: string }` + `let a: Foo<integer> = \"mismatch\"`",
       'schema Foo { m: string }\nlet a: Foo<integer> = "mismatch"\n"ok"',
     );
     expectCaptured([applied], ["Foo"]);
-    expectRows([applied], [[]], () => [[]]);
+    expectRows([applied], [[UNRESOLVED]], () => [[unresolvedLine("Foo")]]);
     expect(
       [[applied.label, registered(applied)]],
-      "the applied spelling lowers permissively, so the document still registers",
-    ).toEqual([[applied.label, true]]);
+      "the applied spelling is refused at the head, so the document no longer registers",
+    ).toEqual([[applied.label, false]]);
 
     const bare = theta(
       "D-declared-control — `schema Foo { m: string }` + `let a: Foo = \"mismatch\"`",
@@ -668,11 +666,12 @@ describe("b0281 (D) — an unknown applied head is untouched by the reserved-hea
     ).toEqual([[bare.label, false]]);
   });
 
-  it("b0281-D-nesting: an unknown applied head one level down stays silent where the bare name refuses", () => {
-    // Bug 0282 §Reproduction's nesting table: a legal enclosing application
-    // does not restore the judgement, so the interior applied head is silent
-    // everywhere the interior bare name refuses. The bare controls below are
-    // the other half of that measurement.
+  it("b0281-D-nesting: an unknown applied head one level down now refuses where the bare name refuses", () => {
+    // Bug 0282 §Reproduction's nesting table, now closed: the gate sits at the
+    // one recursive lowering seam, so a legal enclosing application no longer
+    // shields the interior head — `array<Nope<integer>>` refuses exactly where
+    // `array<Nope>` already does. The bare controls below are unmoved (bug
+    // 0262's landed rule) and are the other half of that measurement.
     const nested = [
       theta("D-nest-1 — `let a: array<Nope<integer>> = []`", 'let a: array<Nope<integer>> = []\n"ok"'),
       theta("D-nest-2 — `let a: Result<integer, Nope<integer>> = Ok(1)`", 'let a: Result<integer, Nope<integer>> = Ok(1)\n"ok"'),
@@ -683,13 +682,13 @@ describe("b0281 (D) — an unknown applied head is untouched by the reserved-hea
     expectCaptured([nestedField], ["S"]);
     expectRows(
       [...nested, nestedField],
-      [...nested, nestedField].map(() => []),
-      () => [...nested, nestedField].map(() => []),
+      [...nested, nestedField].map(() => [UNRESOLVED]),
+      () => [...nested, nestedField].map(() => [unresolvedLine("Nope")]),
     );
     expect(
       [...nested, nestedField].map((r) => [r.label, registered(r)]),
-      "every nesting registers, because the interior head is judged by nothing",
-    ).toEqual([...nested, nestedField].map((r) => [r.label, true]));
+      "no nesting registers once its interior head is refused",
+    ).toEqual([...nested, nestedField].map((r) => [r.label, false]));
 
     const bare = [
       theta("D-nest-control-1 — `let a: array<Nope> = []`", 'let a: array<Nope> = []\n"ok"'),

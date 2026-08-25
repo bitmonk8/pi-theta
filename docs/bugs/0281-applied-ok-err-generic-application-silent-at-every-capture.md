@@ -615,3 +615,46 @@ not-expression family's wiring at four of the nine captures.
   `"inline-object-shape"` rule set and `theta/parse/result-in-schema-position`
   are all untouched, each locked green by its own witness. The unknown applied
   head keeps its permissive lowering.
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority — group (D))
+
+Bug 0282 0.280.0 landed (§Fix candidate 1: `theta/parse/unresolved-named-type`,
+borrowed, with a same-commit DIAG-2 *Trigger* widening naming the
+constructor-head position). Its dated note "Flip-authority widening (pre-fix,
+operator-directed)" named this document's own witness group (D) —
+`tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts`,
+cells `b0281-D` (all nine positions, `Nope<integer>` / `Ghost<string>`),
+`b0281-D-declared` (`Foo<integer>` with `schema Foo` declared) and
+`b0281-D-nesting` (the four nesting cells) — as measured controls pinning bug
+0282's own subject, per its own header comment directing "a re-widening of
+the gate reds here". All three inverted wholesale, under bug 0282's
+authority, not this document's own:
+
+- `b0281-D`: every one of the eighteen cells moved from `[]` / `reg=true` to
+  `theta/parse/unresolved-named-type` naming the head / `reg=false`, at all
+  nine positions including the alias — which, unlike this document's own
+  reserved-head subject, was never a declaration-parse break, so its ninth
+  column is the ordinary refusal.
+- `b0281-D-declared`: the applied cell moved from `[]` / `reg=true` to
+  `theta/parse/unresolved-named-type` naming `Foo` / `reg=false`; the bare
+  `Foo` control (`:645`–`:665` in this file, re-derived after this note's own
+  edits) is unmoved.
+- `b0281-D-nesting`: the four interior-applied-head cells moved from `[]` /
+  `reg=true` to `theta/parse/unresolved-named-type` naming `Nope` /
+  `reg=false`; the bare-name nesting controls (`:694`–`:698`, re-derived) are
+  unmoved, under bug 0262's landed rule.
+
+Each cell's SUBJECT is preserved: group (D) still measures what an unknown
+applied head (or a declared-but-non-parameterisable one) draws at the nine
+type-reference positions and one level down inside them — the answer is now
+bug 0282's refusal rather than the silence this document's narrow route left
+standing. This document's own §Fix record ("bug 0282 is NOT discharged and
+stays open... no cell of this document moves and no note is owed either
+way") is UNCHANGED by this note: that record described the outcome under the
+route actually landed for 0281 (the narrow gate), which remains what shipped
+in 0.277.0. This note is bug 0282's own fix documenting the eventual flip of
+the group its narrow route left standing, exactly as its coordination clause
+anticipated ("If this lands first: bug 0281's group (K)... and its 9 × 2
+table flip under this commit" — here, this document's own group (D), which
+is the wider fix lane's addition beyond the original enumeration, per bug
+0282's dated note residual bullet naming cells 9–11).

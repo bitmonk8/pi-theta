@@ -818,3 +818,25 @@ unmodified by this filing.
   UNCLOSED bracket group stays under-refused with its pieces. Citation drift in
   `src/parser/type-grammar.ts` is bug 0134's do-not-chase class and was not
   chased; every citation added by this change is in symbol form.
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority)
+
+Bug 0282 0.280.0 landed the constructor-head gate its dated note
+"Flip-authority widening (pre-fix, operator-directed)" measured against this
+document's witness, `tests/generic-argument-bracket-group-truncation.test.ts`,
+cell `f2b` ("non-constructor head beside a cut group",
+`pair<{a: string}, enum["x","y"]>`) — one of `theta/parse/schema-type-not-expression`'s
+own four published registry examples, quoted verbatim, so the SPELLING did
+not move. `pair` is outside `GENERIC_ARITY` and `Ident`-shaped, so
+`lowerTypeExpr`'s new constructor-head gate now refuses it before the
+last-resort push this report's route added ever runs, at all five positions
+the cell's tuple covers (schema body field, alias RHS, `.thetalib` alias RHS,
+`params:` field, and the `let` annotation — the last of which was silent at
+HEAD and now also refuses). The cell moved from
+`theta/parse/schema-type-not-expression` / `theta/load/params-type-not-expression`
+(or silence at the `let` annotation) to `theta/parse/unresolved-named-type`
+naming `pair`. The inventory constant `EMPTY_LIST_CELLS` (declared count of
+cells whose specified list is empty) dropped from 47 to 46 to match. The
+cell's SUBJECT is preserved: it still measures what a non-constructor head
+draws at each position, which is now the gate's decision rather than the
+best-effort loop's silence.

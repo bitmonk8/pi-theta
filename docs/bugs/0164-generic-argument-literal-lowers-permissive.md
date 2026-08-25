@@ -1155,3 +1155,21 @@ measurement forced it.
   remaining permissive-`{}` inventory, one member lighter and its in-tree comment
   re-derived. Whether `respondSchemaSlug` should hash the canonical form rather
   than `JSON.stringify` is still unfiled and untouched (§Non-goals).
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority)
+
+Bug 0282 0.280.0 landed the constructor-head gate its dated note
+"Flip-authority widening (pre-fix, operator-directed)" measured against this
+file: `tests/generic-argument-literal-lowering.test.ts`, cell `d10`
+(`map<"x" | "y">`). `map` is outside `GENERIC_ARITY` and `Ident`-shaped, so
+`lowerTypeExpr`'s new constructor-head gate now refuses it, routed onto
+`theta/parse/unresolved-named-type`, at the three positions this cell's
+harness reads through a real document load (`params`, `field`, `alias`); the
+`@<T>` annotation root is unaffected (`lowerQueryResponseSchema` carries no
+load-time diagnostic channel at that seam) and keeps its permissive `{}`. The
+cell moved from the shared CONTROLS loop (which asserted `{}` with NO
+diagnostics at all four positions) to its own test, under bug 0282's
+authority, not this document's. The cell's SUBJECT is preserved: it is still
+the non-`array` constructor's own lowering, now decided by the gate rather
+than by the permissive best-effort loop, and `Result` (cell d11) remains the
+only other derivable head so no duplication was introduced.

@@ -495,9 +495,24 @@ function withholdingCells(): Cell[] {
     ["b8", "{a b: integer, zs: {Q: string} | null}", [NOTIDENT("a b"), CASE]],
     ["b8c control", "{a: integer, zs: {Q: string} | null}", [CASE]],
     // b9 — BOUND: not every field-TYPE has an emission here, so nothing is
-    // recovered and this row does not move.
-    ["b9 BOUND", "{a b: integer, zs: result<string>}", [NOTIDENT("a b")]],
-    ["b9c control", "{a: integer, zs: result<string>}", []],
+    // recovered and this row does not move. Re-vehicled under bug 0282 0.280.0's
+    // flip authority: the field type was `result<string>`, which drew nothing
+    // at HEAD because `result` (lowercase) is not `Result` and so was an
+    // unknown applied head; that head now refuses under bug 0282's gate
+    // (measured: `result<string>` now draws `unresolved-named-type` too, so it
+    // is no longer a safe vehicle for this bound). `array<string>` was the
+    // orchestrator-proposed vehicle, but MEASURED here to draw
+    // `let-rhs-type-mismatch` at b9c — a fully-resolved `array<string>` field
+    // makes the enclosing object type fully known, and the RHS literal `1`
+    // then fails a real structural check — so it does not preserve "draws
+    // nothing" and would break the sole-empty-list invariant b9c anchors. The
+    // vehicle actually used, `Result<string, integer>`, is a DERIVABLE head at
+    // a non-schema-feeding nested field position (so no
+    // `result-in-schema-position` fires either) that MEASURES to draw nothing
+    // at both rows, matching what `result<string>` drew at HEAD before this
+    // fix and preserving the cell's subject.
+    ["b9 BOUND", "{a b: integer, zs: Result<string, integer>}", [NOTIDENT("a b")]],
+    ["b9c control", "{a: integer, zs: Result<string, integer>}", []],
     // b10 — BOUND: the interior's OWN entries are named from `interiorSource`,
     // not from the loop, so both malformed entries are already named today.
     ["b10 BOUND", "{a b: integer, c d: integer}", [NOTIDENT("a b"), NOTIDENT("c d")]],

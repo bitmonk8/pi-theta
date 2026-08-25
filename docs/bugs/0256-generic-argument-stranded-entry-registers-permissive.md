@@ -792,3 +792,33 @@ verbatim as the flip authority for every cell this change moves:
   deferring nominal's rendering at §(b) b6, the zero-token entry, the empty
   type position and citation drift all stay as this document's §Non-goals
   states them.
+
+## Coordination note (2026-08-25, bug 0282 0.280.0's flip authority)
+
+Bug 0282 0.280.0 landed the constructor-head gate its dated note
+"Flip-authority widening (pre-fix, operator-directed)" measured against this
+document's witness, `tests/inline-object-stranded-entry-refusal.test.ts`, row
+`c12` (`map<string, {a: b c, d e}>`, a `params:` row). `map` is outside
+`GENERIC_ARITY` and `Ident`-shaped, so `lowerTypeExpr`'s new constructor-head
+gate now ALSO refuses it — a SECOND diagnostic beside the stranded-entry
+`theta/parse/malformed-schema-field` this row already drew at HEAD, measured
+directly: the two fire from independent seams (`parseTypeExpression`'s walk
+finds the stranded entry inside the nested `{...}` interior; `lowerTypeExpr`'s
+own unresolved-sink loop is unconditional and carries no guard against a
+diagnostic an earlier, untouched seam already pushed for the same field), so
+bug 0129's count-consequence law is not violated in the sense this document's
+own count-consequence framing bounds it — that law bounds refusals PER
+STRANDED ENTRY, and the head refusal answers a different fault (the
+construct's own head) than the entry refusal does. `c12` is now the file's one
+row asserting TWO diagnostics rather than one; its twelve siblings are
+unmoved. `loweredParams` stays `"null"` for `c12`, unchanged.
+
+**The consequence this note restates, as the dated note names it:** `c12` is
+this document's two-argument-generic Reach shape (`map<string, {...}>`, one of
+the four shapes `bug 0236 §Fix (c)` Reach binds at all nine positions). Under
+bug 0282's gate, that shape can no longer be witnessed at `params:` by a head
+drawing NOTHING of its own beside the stranded-entry refusal — `map`, like
+every other non-`GENERIC_ARITY` head, now draws its own refusal too, so the
+"one refusal, from the entry alone" reading this document's own witness once
+demonstrated at that row is superseded there, while the entry-refusal claim
+itself (one line per stranded entry) is unmoved everywhere else.

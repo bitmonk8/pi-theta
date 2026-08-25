@@ -201,6 +201,7 @@ function registryMessageOf(code: string): string {
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
+const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
 
 /** One expected diagnostic, as a code plus the placeholder fills its row needs. */
 interface Exp {
@@ -211,6 +212,11 @@ interface Exp {
 
 /** The refusal §Fix reuses for the stranded entry (code-registry-parse.md:99). */
 const MALF: Exp = { severity: "error", code: MALFORMED_FIELD, fills: [] };
+
+/** Bug 0282 0.280.0's constructor-head gate (code-registry-parse.md:112) — c12's non-`GENERIC_ARITY` head. */
+function UNRESOLVED(name: string): Exp {
+  return { severity: "error", code: UNRESOLVED_NAMED_TYPE, fills: [["<name>", name]] };
+}
 
 /** The `params:` load-stage refusal the UNWRAPPED interior draws today. */
 function PARAMS_NOT_EXPR_OF(param: string): Exp {
@@ -533,16 +539,37 @@ const C_ROWS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 describe("bug 0256 (C) — the class's thirteen spellings refuse, and none lowers a params: fragment", () => {
-  it("rows c1–c13: one refusal each ", () => {
+  it("rows c1–c13: one refusal per stranded entry; c12 adds the applied head's own refusal ", () => {
+    // c12 is FLIPPED under bug 0282 0.280.0's flip authority: `map` is a
+    // non-`GENERIC_ARITY`, `Ident`-shaped head, so `lowerTypeExpr`'s
+    // constructor-head gate now pushes it onto `unresolved-named-type` — a
+    // SECOND diagnostic beside the stranded-entry `malformed-schema-field`,
+    // MEASURED rather than assumed: the two fire from independent seams
+    // (`parseTypeExpression`'s walk finds the stranded entry inside the
+    // nested `{...}` interior; `lowerTypeExpr`'s own unresolved-sink loop is
+    // unconditional and carries no guard against a diagnostic an earlier,
+    // untouched seam already pushed for the same field), so bug 0129's
+    // count-consequence law is not violated — that law bounds refusals PER
+    // STRANDED ENTRY, and the head refusal answers a different fault (the
+    // construct's own head) than the entry refusal does. c12's other twelve
+    // siblings are unmoved, each still exactly one line.
+    const expectedFor = (id: string, type: string): readonly Exp[] =>
+      id === "c12" ? [MALF, UNRESOLVED("map")] : [MALF];
     expectGroup(
-      C_ROWS.map(([id, type]) => ({ cell: `${id} ${type} `, src: paramsSrc(type), expected: [MALF] })),
+      C_ROWS.map(([id, type]) => ({
+        cell: `${id} ${type} `,
+        src: paramsSrc(type),
+        expected: expectedFor(id, type),
+      })),
       "§Expected behaviour 1 and 3: every carrier of the class carries at least one " +
         "error-severity diagnostic, and one line per stranded entry (bug 0129's " +
         "count-consequence law, code-registry-parse.md:104) with no second on an entry another " +
         "row already refused. A red reporting `[]` is bug 0256; a red reporting TWO refusals on " +
-        "a one-stranded-entry row is the count law broken in the other direction, which would " +
-        "also mean the fix refused the colon-present entry `a: b c` that did the stranding — " +
-        "bug 0252's locked class (§Non-goals)",
+        "a one-stranded-entry row (any row but c12) is the count law broken in the other " +
+        "direction, which would also mean the fix refused the colon-present entry `a: b c` that " +
+        "did the stranding — bug 0252's locked class (§Non-goals). c12 is the one exception, " +
+        "under bug 0282's flip authority: its second line answers the HEAD `map`, not a second " +
+        "stranded entry",
     );
   });
 

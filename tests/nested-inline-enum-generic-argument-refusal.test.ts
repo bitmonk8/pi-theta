@@ -186,6 +186,7 @@ const PARAMS_REFUSAL = "theta/load/params-type-not-expression";
 const INLINE_ENUM = "theta/parse/inline-enum";
 const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const ARITY = "theta/parse/generic-arity-mismatch";
+const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
 
 interface RegistryRow {
   readonly code: string;
@@ -791,17 +792,24 @@ describe("bug 0217 (b) — the cut bracket group reaches the refusal sink once",
       "bug 0204 cell l4's authorized under-refusal, likewise unmoved",
     ],
     ["b16", LEGAL, [], false, "the legal literal-union spelling cuts nothing at all"],
+    // b17 FLIPPED under bug 0282 0.280.0's flip authority: `pair` is outside
+    // `GENERIC_ARITY` and `Ident`-shaped, so `lowerTypeExpr`'s
+    // constructor-head gate now refuses it and RETURNS before the
+    // best-effort loop and `pushCutBracketGroupAsLastResort` ever run, so the
+    // sink stays EMPTY (measured directly: a fresh sink handed to
+    // `lowerTypeExpr` over this text carries nothing, and "pair" lands on
+    // `unresolved` instead). It was chosen as an "unknown constructor"
+    // specifically because arity had nothing to say about it — bug 0282's
+    // gate now does.
     [
       "b17",
       PAIR_BRACE_SIBLING,
-      ["{a: string}", 'enum["x", "y"]'],
-      true,
-      "a DERIVABLE whole brace-group argument beside the cut bracket group: `{a: string}` is a " +
-        "whole segment, so it keeps the sink and its own catch-all entry lands there \u2014 but the " +
-        "shared decline `isUnspellableTextRefusable` REJECTS every brace-carrying fragment, so " +
-        "that entry earns NO refusal at any position. The last-resort gate therefore reads the " +
-        "REFUSABLE contribution and not the sink's raw length (\u00a7Fix (c)(2)'s unit is a refusal, " +
-        "not an entry), and the group is still pushed beside it",
+      [],
+      false,
+      "FLIPPED (bug 0282 0.280.0): the constructor-head gate refuses the HEAD before this list's " +
+        "own recursion reaches either argument, so the sink that would otherwise carry the cut " +
+        "bracket group beside the derivable brace argument never fills \u2014 the head's own refusal " +
+        "is the construct's one refusal",
     ],
     [
       "b18",
@@ -861,15 +869,27 @@ const IN_CLASS_ROWS: ReadonlyArray<readonly [string, string, string]> = [
   // walk … keeps that diagnostic alone and draws no refusal") then suppresses
   // THIS row's push, not because the sink is empty but because the position never
   // reaches it. See the dedicated block below.
-  [
-    "c9",
-    PAIR_BRACE_SIBLING,
-    "a derivable whole brace-group argument (`{a: string}`) sits BESIDE the cut bracket group: " +
-      "it contributes a sink entry the shared decline rejects, so it earns no refusal of its " +
-      "own, and the group must still draw the construct's one refusal \u2014 the last-resort gate " +
-      "reads the refusable contribution, not the sink's raw length",
-  ],
+  // c9 is asserted separately (below), OUTSIDE this loop: PERMITTED-NOT-
+  // REQUIRED under bug 0282 0.280.0's flip authority. `pair` is outside
+  // `GENERIC_ARITY` and `Ident`-shaped, so `lowerTypeExpr`'s constructor-head
+  // gate now refuses it before this position's own last-resort push ever
+  // runs. MEASURED before/after codes at the three `SINK_POSITIONS`, all
+  // still exactly one refusal (the count claim below is unweakened):
+  //   - field:  `theta/parse/schema-type-not-expression` -> `theta/parse/unresolved-named-type`
+  //   - alias:  `theta/parse/schema-type-not-expression` -> `theta/parse/unresolved-named-type`
+  //   - params: `theta/load/params-type-not-expression`  -> `theta/parse/unresolved-named-type`
+  // The head's own refusal is the construct's one refusal (this row's own
+  // registered cover rule), so the derivable brace argument beside the cut
+  // bracket group still earns none of its own — only the CODE naming that
+  // one refusal moved.
 ];
+
+const C9_TYPE_SOURCE = PAIR_BRACE_SIBLING;
+const C9_WHY =
+  "a derivable whole brace-group argument (`{a: string}`) sits BESIDE the cut bracket group: " +
+  "it contributes a sink entry the shared decline rejects, so it earns no refusal of its " +
+  "own, and the group must still draw the construct's one refusal \u2014 the last-resort gate " +
+  "reads the refusable contribution, not the sink's raw length";
 
 describe("bug 0217 (c) — a nested inline `enum[…]` draws its position's refusal", () => {
   for (const [id, typeSource, why] of IN_CLASS_ROWS) {
@@ -901,6 +921,30 @@ describe("bug 0217 (c) — a nested inline `enum[…]` draws its position's refu
         ).toBe(1);
       });
     }
+  }
+
+  for (const position of SINK_POSITIONS) {
+    it(`RED (c9, ${position}): \`${C9_TYPE_SOURCE}\` refuses once, now naming the head`, () => {
+      const label = `c9 (${position}, ${C9_TYPE_SOURCE})`;
+      const r = read(label, position, C9_TYPE_SOURCE);
+      expect(
+        r.lines,
+        `${label}: ${C9_WHY}. FLIPPED under bug 0282 0.280.0's flip authority: \`pair\` is outside ` +
+          `\`GENERIC_ARITY\` and \`Ident\`-shaped, so \`lowerTypeExpr\`'s constructor-head gate ` +
+          `now refuses it before this position's own last-resort push (which produced ` +
+          `${position === "params" ? PARAMS_REFUSAL : SCHEMA_REFUSAL} at HEAD) ever runs — the ` +
+          `refusal now names the head, \`theta/parse/unresolved-named-type\`, instead. Still ` +
+          `EXACTLY ONE refusal: the head's own refusal is the construct's one refusal, so the ` +
+          `derivable brace argument beside the cut bracket group still earns none of its own. ` +
+          `Observed: ${JSON.stringify(r.lines)}`,
+      ).toEqual([line(UNRESOLVED_NAMED_TYPE, [["<name>", "pair"]])]);
+      expect(
+        r.gateCount,
+        `${label}: and the refusal must be error-severity in one of the two namespaces ` +
+          `\`hasLoadParseError\` (src/extension/production-composition.ts) reads, so the ` +
+          `theta does not register with a schema that asserts nothing`,
+      ).toBe(1);
+    });
   }
 
   // c7 and c8 — POST-0236 CONTRACT for `array<enum["a", "b"], integer>`, an

@@ -806,6 +806,33 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
       lowerCtx.reservedKeywords?.push(ctor);
       return {};
     }
+    if (!(ctor in GENERIC_ARITY) && IDENTIFIER.test(ctor)) {
+      // Bug 0282 §Fix route (a), closed-set width: `GenericType` is a closed
+      // set of two productions, each spelling its own head (grammar.md:99–:100),
+      // and "No other identifier is parameterisable" (grammar.md:107) — an
+      // `Ident`-shaped head outside `GENERIC_ARITY` is not a candidate
+      // constructor name at any arity, applied or not. `NamedType ::= Ident`
+      // (grammar.md:98) is the only production such a head could otherwise
+      // read as, so the refusal converges on the row the BARE spelling of the
+      // same identifier already draws (code-registry-parse.md:112), and the
+      // `Message` names the head rather than the argument list beside it —
+      // which is why the identifier-shape test gates the push rather than a
+      // membership test alone: this row's *Message* fills `<name>` with a name,
+      // not with an application. The early `return` gives the construct its one
+      // refusal (`unresolved-named-type`'s own registered cover rule: a
+      // refusal already drawn over the construct covers whichever other code
+      // it might otherwise carry) instead of falling through to the permissive
+      // catch-all below, which would additionally walk the arguments and let a
+      // discarded head coexist with a nested refusal of its own. This gate
+      // sits AFTER bug 0281's reserved-head gate (above) and AFTER the `array`
+      // arity-1 branch, and BEFORE the permissive catch-all: ordering it beside
+      // — not merging it into — 0281's narrower gate keeps a reserved spelling
+      // (`Ok<integer>`, `Err<string>`) drawing `reserved-keyword-as-identifier`
+      // and a closed-set head (`Result<integer>`) drawing
+      // `generic-arity-mismatch` / staying clean, both unmoved by this row.
+      lowerCtx.unresolved.push(ctor);
+      return {};
+    }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
     const beforeLoop = lowerCtx.unspellable?.length ?? 0;

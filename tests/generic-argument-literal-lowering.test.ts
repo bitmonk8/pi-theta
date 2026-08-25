@@ -1124,15 +1124,6 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       { type: "array", items: { const: false } },
       "the other half of bug 0044's arm, same reading: the route moves and the bytes do not",
     ],
-    [
-      "d10",
-      'map<"x" | "y">',
-      {},
-      "a NON-`array` constructor. `ctor === \"array\"` fails, so `lowerTypeExpr`'s best-effort " +
-        "loop (src/parser/params.ts) runs as a RESOLUTION walk and the emission is `{}` " +
-        "(§Fix constraint 2 names every non-`array` constructor among the unmoved). Routing that " +
-        "loop's arguments through the recogniser changes what it RESOLVES, never what it returns",
-    ],
   ];
 
   for (const [cell, source, expected, why] of CONTROLS) {
@@ -1152,6 +1143,41 @@ describe("bug 0164 (d) — every argument the recogniser declines keeps its byte
       }
     });
   }
+
+  it("CONTROL (d10): `map<\"x\" | \"y\">` now refuses at three positions and keeps `{}` at the annotation root", () => {
+    // FLIPPED under bug 0282 0.280.0's flip authority: `map` is a NON-`array`
+    // constructor outside `GENERIC_ARITY` and `Ident`-shaped, so
+    // `lowerTypeExpr`'s constructor-head gate now refuses it, routed onto the
+    // `unresolved-named-type` sink, before its best-effort loop (the RESOLUTION
+    // walk this cell's comment used to describe) ever runs — the cell's
+    // subject is still the non-`array` head's own lowering, which the gate
+    // decides rather than the permissive loop; `Result` (d11, next) is the
+    // only other derivable head, so this cell is not a duplicate of it. The
+    // `@<T>` annotation root is unaffected: `lowerQueryResponseSchema` has no
+    // load-time diagnostic channel at that seam (see its own doc comment,
+    // src/runtime/query-schema-lowering.ts), so the root still lowers to the
+    // permissive `{}` bug 0028's inventory owns.
+    const source = 'map<"x" | "y">';
+    for (const position of ["params", "field", "alias"] as const) {
+      const read = readAt(position, source);
+      expect(
+        read.diags.map((line) => line.split(":")[0]),
+        `d10 [${position}]: bug 0282 0.280.0's constructor-head gate now refuses \`map\` here; ` +
+          `observed ${JSON.stringify(read.diags)}`,
+      ).toEqual(["error theta/parse/unresolved-named-type"]);
+    }
+    const annotation = readAt("annotation", source);
+    expect(
+      annotation.diags,
+      "d10 [annotation]: the annotation root lowers through a direct " +
+        "`lowerQueryResponseSchema` call, which raises nothing of its own",
+    ).toEqual([]);
+    expect(
+      annotation.fragment,
+      `d10 [annotation]: the gate's diagnostic sink is not read at this seam, so the root stays ` +
+        `the permissive \`{}\`; observed ${JSON.stringify(annotation.fragment)}`,
+    ).toEqual({});
+  });
 
   it("CONTROL (d11): `Result<\"x\" | \"y\", string>` keeps its refusal at three positions and its `{}` at the annotation root", () => {
     // §Non-goals: `schema-subset.md:84` makes `Result` unlowerable and
