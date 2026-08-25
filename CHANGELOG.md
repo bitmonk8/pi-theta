@@ -6,6 +6,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.279.0]
+
+- fix(bug-0283): harden the H8a bug-0165 cell drive against provider-side binder drift - the well-formed sibling is now driven as `/b165livewf topic=hello` (parameter named explicitly) so the pinned haiku binder no longer declines to infer `topic` from bare free text; fence semantics preserved (real binder pass, `p=ok (default)` echo, refusal half byte-untouched); test-infra fix under 0283's own doc authority, no product code changed.
+
 ## [0.278.0]
 
 ### Fixed

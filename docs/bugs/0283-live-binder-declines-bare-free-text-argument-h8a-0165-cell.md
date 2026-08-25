@@ -1,6 +1,6 @@
 # Bug 0283 — The H8a bug-0165 cell's over-fire fence drives a real binder turn with the bare free text `/b165livewf hello` against a REQUIRED `topic` field, and the pinned binder model (`anthropic/claude-haiku-4-5`) now declines to infer the parameter from an unlabelled argument: the drive ends on the system note `theta /b165livewf: argument binding needs more info — The required parameter 'topic' cannot be determined from the user…` with `outbound: []`, so a live test reds for a provider-side judgement change while the code under test registers and lowers correctly
 
-- **Status:** open.
+- **Status:** fixed (0.279.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because this is a verification gap, not a
   product defect: a live fence reds on every full run while the witnessed code
   behaviour (registration refusal for the empty default, registration plus
@@ -264,3 +264,86 @@ green first pass) is the contrast that makes the probe decisive. This writer
 ran no live tests. Every static citation above — fixture, drive, assertions,
 sibling drives, the `d2d3d02f..d530f566` parser diff — was re-derived offline
 at HEAD `d530f566`.
+
+## Fix (0.279.0)
+
+- **What shipped:** `tests/live/live-production-acceptance.test.ts` — the H8a
+  bug-0165 over-fire fence's drive at `:6213` is now
+  `"/b165livewf topic=hello"` (§Fix step 1, the doc's own first spelling); the
+  adjoining comment states why the field is labelled — a real binder pass must
+  not hinge on the model inferring a required parameter's name from an
+  unlabelled bareword. §Fix step 2 confirmed rather than edited: the bound
+  value is still `hello`, so the expected note at `:6219` stays verbatim
+  `"Running /b165livewf: topic=hello, p=ok (default)"`, and `:6220`–`:6233`
+  are byte-untouched. `bind_model:` unchanged (the repin route is rejected by
+  §Fix). The refusal under test — the empty-default offender, its precondition
+  control and the load-time `default-without-literal` note assertion — is
+  byte-untouched. Net line delta zero (14864 lines before and after), so the
+  line citations sibling bug documents hold into this file (`:6556`, `:6938`,
+  `:7489`, `:11363`) survive. No `src/` change; one file, five lines in, five
+  out.
+- **Gates:**
+  - Witness, both directions, under the live lock, single file filtered by
+    `-t "bug 0165"`. Hardened drive: `Test Files 1 passed (1)` /
+    `Tests 1 passed | 89 skipped (90)`, the cell green in 123.07 s. Neutralised
+    (drive temporarily restored to `"/b165livewf hello"`):
+    `Test Files 1 failed (1)`, `AssertionError: … Notes: ["theta /b165livewf:
+    argument binding needs more info — The required parameter 'topic' cannot
+    be determined from the user…"]; outbound: []` at `:6219` — the filed
+    signature exactly. Restore byte-exact: `git hash-object` =
+    `9130dddbcb2e2a40b71b22afad69b6ad9f20c7f4` before and after, 14864 lines
+    before and after.
+  - `npm test` — `Test Files 456 passed (456)`, `Tests 9368 passed (9368)`.
+  - `npx tsc --noEmit` — clean, no output.
+  - `npm run lint` — clean, no output.
+- **Review:** one pre-review correction round (comment prose only, zero
+  assertion and zero behavioural change: the implementer's comment had grown
+  the file by four lines, shifting the later-line citations four sibling bug
+  documents hold into this file; recompressed to net zero, drive and assertion
+  back at `:6213`/`:6219`, restored line count stated above). Round 1
+  (`bug-fix-reviewer`): CLEAN, no findings — it confirmed from `src/` that a
+  `field=value` slash argument still routes through a real binder pass
+  (`classifyBinderBypass`, `src/binder/binder-envelope.ts`: the fixture's two
+  fields defeat both bypass classes; `src/extension/production-theta-producer.ts`
+  hands the raw argument string to the binder model verbatim, with no
+  `key=value` pre-parse anywhere in `src/`), so the fence is not vacuous; it
+  recorded the sibling exposure as the doc-sanctioned follow-on.
+- **Verification:** VERIFIED. Witness both directions — audited above, and the
+  three-way hash match (before / after / current working tree) proves the
+  neutralised state did not survive. Default suite, typecheck, lint —
+  independently re-run green by both the verifier and this orchestrator. Live
+  coverage of the fixed path — the hardened cell itself, run for real against
+  the pinned model. Scope — `git status --porcelain` shows exactly the one
+  modified file; `tests/fixtures/h7a/permitted-codes.json` byte-identical;
+  the three sibling bare-`hello` drives byte-untouched; no verbatim-echo drive
+  shape introduced (bug 0243); scratch-token sweep zero hits.
+- **Phase adaptations (D1 test-infra):** no new test was owed and none was
+  added — the defect is a drive-text dependency inside an existing protected
+  live cell, and an offline witness cannot reach a live binder turn. The
+  red-proof is discharged by this report's captured evidence (three HEAD logs
+  plus the cross-version probe at `d2d3d02f`, 4-for-4 red) and re-proved
+  first-hand by the neutralise-and-run above; no pre-edit live run was made,
+  because the neutralised run is that same measurement post-edit and the live
+  budget is shared. Verification ran offline-only in its own process: this
+  orchestrator executed every live command under the shared lock and handed
+  the verifier the output, and no reviewer was ever scheduled concurrently
+  with a tree-mutating step.
+- **Residuals:**
+  1. The three sibling fences still drive an unlabelled bareword against a
+     required `topic` field through a real binder pass — `:5576`
+     (`"/b66livedef hello"`), `:5974` (`"/b166livenum hello"`), `:7489`
+     (`"/b181livedef hello"`), all pinning
+     `bind_model: anthropic/claude-haiku-4-5`. They are green today (run (a)
+     above) and §Fix states a change touching only `:6213` is complete on its
+     own and may record them as a follow-on observation, so they are left
+     byte-untouched. Each is one further judgement shift from this exact red;
+     the remedy is mechanical and identical (label the field).
+  2. The drift itself is provider-side and unfixed by definition: the pinned
+     binder model still declines the bare spelling, as the neutralised run
+     demonstrates today. This fix removes the dependency at one site, not the
+     drift.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** a `bind_model:` repin remains rejected
+  (§Fix) — it trades one model's judgement for another's and leaves the latent
+  dependency. Bug 0165's landed subject, the binder feature question, and the
+  bug-0231 live cell stay out of scope, per §Non-goals.

@@ -6204,13 +6204,13 @@ describe("H8a-T — bug 0165: a params: default with no literal after `=` does n
 
       // THE OVER-FIRE FENCE, driven for real: the well-formed sibling must
       // still BIND end to end through a real binder pass, not merely
-      // register. The slash argument names only the required `topic` field,
-      // so the binder omits `p` per its own system prompt's last line and the
+      // register. `topic=` is labelled because a real binder pass must not
+      // hinge on the model inferring a required parameter's name from an
+      // unlabelled bareword (bug 0283). The binder omits `p`, so the
       // runtime's fill-if-absent supplies the declared default
       // (defaulting-system-note-echo.md:9) — the recovered value is the
-      // string literal's own content (`"ok"`), the direction that must
-      // survive the new refusal untouched.
-      const turn = await driveSlashCaptureTurn(handle, "/b165livewf hello");
+      // string literal's own content (`"ok"`).
+      const turn = await driveSlashCaptureTurn(handle, "/b165livewf topic=hello");
       expect(
         turn.systemNotes,
         "the well-formed-default sibling must bind and echo `p=ok (default)` " +
