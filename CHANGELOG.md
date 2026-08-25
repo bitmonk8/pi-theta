@@ -6,6 +6,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.281.0]
+
+- fix(bug-0284): non-identifier applied generic heads now refuse - a generic-application head that is not identifier-shaped (`a b<integer>`, `Nope.Sub<integer>`, `a-b<integer>`, `f()<integer>`) is pushed onto the not-expression family's own sink (HEAD text, brace-free - the whole-application candidate was rejected on the record because bug 0232's brace exemption would swallow `a b<{x: integer}>`) in `lowerTypeExpr`'s generic-application arm, after 0281's reserved-spelling gate and 0282's closed-set gate; the three gates partition non-derivable applied heads (reserved / identifier-shaped / non-identifier); refusals surface through the already-wired not-expression codes at all five captures, no emission widening; same-commit DIAG-2 Trigger widening across four not-expression rows; 17-cell witness + live registration pair added; flip set empty beyond the new witness.
+
 ## [0.280.0]
 
 - fix(bug-0282): closed-set applied-generic-head gate - an identifier written as a generic-application head outside the derivable set {Result, array} now refuses `theta/parse/unresolved-named-type` at every reference position and every nesting depth (`Nope<integer>`, `Ghost<string>`, declared-schema `Foo<integer>` - the application refuses, bare `Foo` legality unchanged and its dropped constraint resurrected); gate sits BESIDE 0281's reserved-spelling gate and AFTER the arity walk (`Ok<...>`/`Err<...>` keep reserved-keyword-as-identifier, `Result<integer>` keeps generic-arity-mismatch, `array<T>` clean); same-commit DIAG-2 registry Trigger widening; 11 widened cells + Ghost<1,2> cells re-founded under 0282/widening authority with dated coordination notes on 0164/0217/0231/0236/0256/0281; witness + live registration pair added.

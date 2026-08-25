@@ -1,6 +1,6 @@
 # Bug 0284 — A generic head that is not identifier-shaped (`a b<integer>`, `Nope.Sub<integer>`, `a-b<integer>`, `f()<integer>`) is admitted with no diagnostic and the theta registers with the field lowered permissively: bug 0282's landed closed-set gate tests `IDENTIFIER.test(ctor)` before it judges the head, and the not-expression family's own sink is filled only by `lowerTypeExpr`'s ATOM catch-all, which an applied spelling never reaches — so the generic-application arm falls through to the permissive `return {}` with both sinks empty
 
-- **Status:** open.
+- **Status:** fixed (0.281.0).
 - **Sev/Diff estimate:** S3/D2 — S3 on the same reading bug 0282 settled for
   the identifier-headed half of this class: no legal source moves (the sweep
   over all 34 committed `.theta` / `.thetalib` files finds zero non-identifier
@@ -444,3 +444,149 @@ annotation, the `fn` parameter type, the `fn` return type and the `@<T>`
 ascription. The residual also places the class at `params:`; measured, it
 reaches five captures, and two further spellings belong to it (`a-b<integer>`,
 `f()<integer>`) that the residual does not name.
+
+## Fix (0.281.0)
+
+- **What shipped:**
+  - `src/parser/params.ts` — one new gate in `lowerTypeExpr`'s
+    generic-application arm, sited after bug 0281's reserved-head gate and bug
+    0282's closed-set gate and before the permissive catch-all, exactly as §Fix
+    routes it: a head that is in no `GENERIC_ARITY` entry, is no reserved
+    spelling and fails `IDENTIFIER` pushes the HEAD TEXT (`ctor`) onto
+    `lowerCtx.unspellable` and returns `{}`. The push-and-return is conditional
+    on the sink being PRESENT; a sink-less recursion (bug 0204's
+    `withoutUnspellableSink` shard path) falls through to the catch-all, so the
+    gate is purely additive (see residual/review round 1 below).
+    `isUnspellableTextRefusable` is byte-unchanged — bug 0232's brace exemption
+    is not narrowed.
+  - `docs/spec_topics/diagnostics/code-registry-load.md`,
+    `docs/spec_topics/diagnostics/code-registry-parse.md` — the DIAG-2 *Trigger*
+    widening on the four not-expression rows
+    (`theta/load/params-type-not-expression`,
+    `theta/parse/schema-type-not-expression`,
+    `theta/parse/annotation-type-not-expression`,
+    `theta/parse/query-annotation-type-not-expression`), each in its own row's
+    register, naming the head-text unit and the depths that row already judges.
+    No *Code*, *Severity*, *Phase*, *Message* or *Fix hint* byte moved.
+    Mirror-site check ran as bug 0282's merge did: `docs/reference/diagnostics.md`
+    transcribes the stable-contract columns only (Code, Sev, Phase, Message) and
+    explicitly does not restate *Trigger*; no *Message* changed, so no mirror
+    edit is owed. The other citing sites inspected
+    (`frontmatter-fields-a.md:58`, `grammar.md:105`, `schemas.md`,
+    `type-system.md`, `docs/reference/{frontmatter,grammar,schema-subset,type-system}.md`)
+    only NAME the codes and restate no *Trigger* prose.
+  - `tests/b0284-non-identifier-applied-generic-head.test.ts` — the offline
+    witness, 17 cells.
+  - `tests/live/b0284live-non-identifier-applied-generic-head.test.ts` — the
+    live registration-outcome cell, 2 cells.
+  - `tests/b0282-unknown-applied-generic-head-gate-at-nine-positions.test.ts` —
+    comment-only: its `params.ts` line citations, shifted by this gate's
+    insertion, re-derived. Every hunk classified; no assertion touched.
+
+- **The adjudicable sub-choice, decided:** candidate **(i), push the HEAD text**
+  (`ctor`). Rejected: candidate (ii), push the WHOLE application text (`s`).
+  Reason, on this report's own measurement, re-taken at the lane HEAD before
+  implementing (`isUnspellableTextRefusable("a b<{x: integer}>")` is `false`,
+  `("a b")` and `("a b<integer>")` are `true`): the head is brace-free by
+  construction, so the shared decline never exempts it and
+  `p: 'a b<{x: integer}>'` refuses — candidate (ii) leaves that spelling
+  silent, which would leave `frontmatter-fields-a.md:58` FALSE for it and the
+  class only partly closed. (i) also needs no touch to the brace exemption, so
+  bug 0232's narrowing keeps its landed behaviour. (i)'s stated cost — the sink
+  holds a prefix rather than a whole fragment — is discharged in prose by the
+  DIAG-2 widening, which states the head-text unit explicitly on each row.
+  Locked by the witness's group (S).
+
+- **Gates** (all re-run by the orchestrator, not taken on report):
+  - Witness RED at HEAD, verbatim: `Tests 5 failed | 10 passed (15)`, every red
+    an `Array []` where a refusal was expected — the filed symptom.
+  - Witness GREEN under the fix: `Tests 17 passed (17)`.
+  - Full default suite: `Test Files 458 passed (458) / Tests 9396 passed (9396)`.
+  - `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - `npm run lint` (`eslint … "src/**/*.ts"`) — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0284live-non-identifier-applied-generic-head.test.ts` →
+    `Tests 2 passed (2)`, run under the shared live lock.
+
+- **Review:** 2 rounds.
+  - Round 1 (deep) — ONE blocker, correctness: the gate's early `return {}`
+    fired in bug 0204's SINK-LESS recursion, where `unspellable?.push` is a
+    no-op, so the shard's argument walk was skipped and `unresolved-named-type`
+    refusals HEAD drew were LOST (`p: 'array<{a: array<Ghost>, b: x}>'` went
+    from refusing `Ghost` to registering silently). Reproduced independently by
+    the orchestrator before dispatching the remedy. Fixed by guarding the
+    push-and-return on `lowerCtx.unspellable !== undefined`; witness group
+    `b0284 (M)` added and red-proved by temporary revert. Round 1 also raised a
+    non-blocking house-rule residual (below).
+  - Round 2 (fast) — CLEAN. Verified the fall-through is byte-equivalent to
+    HEAD for the sink-less path, that `ctxFor`/`withoutUnspellableSink` is the
+    ONLY producer of an absent sink (so no capture loses the new refusal), and
+    that the four widened sentences stay true under the sink-conditional gate.
+
+- **Verification:** verified.
+  - Witness genuinely witnesses: neutralised (`if (false && …)`), `Tests 6
+    failed | 11 passed (17)` with the not-expression codes collapsing to `[]`;
+    restored; `Tests 17 passed (17)`.
+    `git hash-object src/parser/params.ts` =
+    `5d4a69d026f6861eb9ea0a0166f387a7f891f917` before and after.
+  - Full default suite green (above).
+  - Live end-to-end exercises the fixed path, run for real by the orchestrator
+    under the lock, and RED-PROVED under the same neutralisation: the offender
+    cell failed with `Registered: ["b0284livecontrol","b0284liveparams",
+    "b0284liveparamsshape"]` — the offender registering, the filed symptom —
+    while the control cell stayed GREEN. Restored byte-exact, hash
+    `5d4a69d026f6861eb9ea0a0166f387a7f891f917` both sides.
+  - Lint and typecheck pass (above).
+  - **Flip set: EMPTY beyond this report's own new witness**, as §Fix predicted.
+    Full suite green with only the six intended paths in `git status`; the
+    `b0282` witness edit is comment-only, every hunk classified;
+    `tests/fixtures/h7a/permitted-codes.json` byte-unchanged (these are
+    load-time refusals and it was never hand-edited);
+    `tests/committed-fixture-parse-gate.test.ts` green over its full corpus;
+    both of §Fix's sweeps re-run at the landed tree — 34 committed
+    `.theta`/`.thetalib` files, ZERO non-identifier applied heads; the `tests/`
+    sweep finds only TypeScript and prose hits, ZERO theta source text.
+  - Locks re-run and green by name: bug 0282 (11), bug 0281 (14), bug 0278
+    (14), bug 0274 (14), bug 0262 (26), bug 0263's FM-5 cells (94 + 33 + 24),
+    bug 0232's brace-exemption cells (26 + 5 + 11), schema-lowering and
+    typed-query conformance (7 + 6).
+
+- **Residuals:**
+  1. *(house-rule, non-blocking, raised in both review rounds.)* The gate's
+     `!RESERVED_KEYWORDS.has(ctor)` conjunct can never decide the branch, since
+     every reserved spelling is `Ident`-shaped and `!IDENTIFIER.test(ctor)`
+     already excludes it. Kept deliberately, with an explaining clause, so the
+     gate's condition reads as §Fix spells it; provably decision-free at
+     runtime.
+  2. *(no owner needed — a correction to this report, not an open defect.)*
+     §Reproduction's control block transcribes `let x: 1x<integer> = 1` as
+     drawing `theta/parse/unsupported-feature` ALONE. Under the landed fix it
+     draws `theta/parse/annotation-type-not-expression` BESIDE it at the `let`
+     annotation, the `fn` parameter type and the `fn` return type. This is not
+     a scope overrun: measured, the BARE spelling `1x` already draws BOTH codes
+     at all three captures, and the new gate is unreachable for a bare spelling
+     (it sits inside `lt > 0 && s.endsWith(">")`), so the applied spelling now
+     converges on its own bare spelling — §Expected behaviour's stated target
+     ("A refusal for the bare spelling and silence for the applied spelling of
+     the same non-derivable text is the asymmetry the fix removes"). The
+     witness's `b0284-X-lexer` cell pins both codes. The doc's single-code
+     transcription was incomplete; the fix is not wrong.
+  3. *(measured, out of scope, unowned.)* `Nope.Sub<integer>` and
+     `a-b<integer>` at a `schema` object-body FIELD type draw a
+     three-diagnostic pileup (`theta/parse/schema-type-not-expression` plus a
+     stray-token `theta/parse/unsupported-feature` plus
+     `theta/parse/malformed-schema-field`) because the field scanner splits on
+     `.` and `-`. That pileup belongs to the field-list recovery seam, not to
+     this one, and predates this fix; the witness therefore scopes its `schema`
+     cell to `f()<integer>`. Filing is not owed by this report.
+
+- **Discharge notes appended:** none. §Fix's flip-authority sweep predicted zero
+  re-founded sibling witnesses and the premeasure confirmed it, so no sibling
+  fix record owes a note.
+
+- **Pinned dispositions / non-goals:** unchanged and re-verified — bug 0282's
+  identifier-headed class, bug 0281's reserved applied heads, the closed set
+  (`array<T>`, `Result<T, E>`), bug 0232's brace exemption, and
+  `a b<integer>` / `1x<integer>` at the BODY captures as §Non-goals scopes them
+  (subject to correction 2 above). User-defined parameterised types remain out
+  of scope.

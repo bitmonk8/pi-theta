@@ -30,8 +30,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 // constructor keyword (bug 0281's landed gate, lines 795–808), and — as of
 // this fix (bug 0282 0.280.0) — now ALSO refuses an `Ident`-shaped head outside
 // `GENERIC_ARITY` (lines 809–835) before ever reaching the permissive
-// catch-all, whose `return {}` now stands at line 853 (was line 826 before
-// this fix). The atom arm below it (`// Atom.`, now line 856, was line 829) —
+// catch-all, whose `return {}` now stands at line 878 (was line 826 before
+// this fix, and moved again to 853 then 878 by bug 0284's own added gate,
+// which sits between this gate and the catch-all). The atom arm below it
+// (`// Atom.`, now line 881, was line 829) —
 // whose `NamedType ::= Ident` resolution failure fills `lowerCtx.unresolved`,
 // the sink bug 0262's fix rendered at ten reference positions — still runs
 // only when the generic-application arm declines, which an applied spelling
@@ -448,7 +450,8 @@ describe("b0282 (M) — an applied unknown head is refused at all nine type-refe
     // `lowerTypeExpr`'s catch-all returned the empty type at HEAD
     // (src/parser/params.ts line 826 at HEAD `42226b1e`; the fix's own gate now
     // intercepts before that catch-all is ever reached, at line 809, and the
-    // catch-all itself is now at line 853). Unlike bug 0281's reserved heads, an
+    // catch-all itself is now at line 878, after bug 0284's own added gate).
+    // Unlike bug 0281's reserved heads, an
     // unknown head does NOT break the alias declaration parse, so the ninth
     // column here is the ordinary refusal rather than that report's triple —
     // which is the one observable difference between the two subjects

@@ -833,6 +833,45 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
       lowerCtx.unresolved.push(ctor);
       return {};
     }
+    if (!(ctor in GENERIC_ARITY) && !RESERVED_KEYWORDS.has(ctor) && !IDENTIFIER.test(ctor)) {
+      // Bug 0284 §Fix: a head that fails `IDENTIFIER` is no `Ident`, so it is
+      // no `NamedType` either (grammar.md's `NamedType` production) and heads
+      // no `GenericType` — the closed set just above tests `Ident`-shape
+      // alone (grammar.md's `GenericType` alternatives, closed by its own
+      // "no other identifier is parameterisable" clause). It derives from no
+      // `Type` alternative, applied or bare, so it belongs to the not-
+      // expression family the bare spelling already draws
+      // (`frontmatter-fields-a.md`'s `params:` prose, and `grammar.md`'s
+      // identical rule for the body captures), not to bug 0282's gate one
+      // line above, whose row names an identifier. Pushing the HEAD TEXT
+      // (`ctor`) rather than the whole application (`s`) keeps the push
+      // brace-free by construction — `ctor` is the slice preceding this arm's
+      // own `<` — so the shared decline `isUnspellableTextRefusable` never
+      // exempts it on account of a brace carried by the ARGUMENTS
+      // (`p: 'a b<{x: integer}>'` refuses); pushing the whole application
+      // would let that same brace exempt it and leave the spelling silent.
+      // This gate sits AFTER bug 0281's and bug 0282's (both above) and
+      // BEFORE the permissive catch-all (below), so a reserved or closed-set
+      // or identifier-shaped head is unmoved, and the early `return` gives the
+      // construct its one refusal instead of falling through to also walk the
+      // arguments.
+      // The `!RESERVED_KEYWORDS.has(ctor)` conjunct transcribes §Fix's three-
+      // part condition verbatim and is deliberately redundant: every reserved
+      // spelling is `Ident`-shaped, so `!IDENTIFIER.test(ctor)` already
+      // excludes them and the conjunct can never decide this branch.
+      // The push-and-return is conditional on the sink being PRESENT because
+      // the refusal this gate exists to draw IS the not-expression one: a
+      // recursion carrying no such sink (bug 0204's `withoutUnspellableSink`
+      // path for a segment the angle-only split manufactured) cannot draw it,
+      // and returning there would discard the argument walk below along with
+      // the `unresolved` refusals that sink-less path deliberately KEEPS.
+      // Falling through instead leaves this gate purely additive — it adds a
+      // refusal at every capture that has the sink, and removes none.
+      if (lowerCtx.unspellable !== undefined) {
+        lowerCtx.unspellable.push(ctor);
+        return {};
+      }
+    }
     // Any other generic (e.g. `Result<T, E>`, which has no lowered-schema form):
     // resolve nested named types best-effort, lower permissively.
     const beforeLoop = lowerCtx.unspellable?.length ?? 0;
