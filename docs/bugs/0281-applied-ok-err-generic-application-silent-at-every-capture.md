@@ -496,3 +496,9 @@ registration; the unapplied-head control at the same nine positions; the legal
 applied heads and the wrong-arity `Result` controls; the inert-annotation
 table; the direct lowering table; the unknown-head adjacency; and the
 not-expression family's wiring at four of the nine captures.
+
+> Correction (2026-08-25, 0282 filing): the §Provenance sentence
+> undercounts the not-expression family wiring — at HEAD 834c3334 the
+> family draws at seven of the nine captures (only query-E-arg and
+> invoke-ascr are unwired), not four; 0281 §Reproduction measured four
+> cells. Measured by 0282 writer (integer-- probe, all nine).
