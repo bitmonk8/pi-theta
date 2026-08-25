@@ -10,14 +10,18 @@
   (§Reproduction, inert table), and `array<Nope>` refuses where
   `array<Nope<integer>>` does not (§Reproduction, nesting). Not S4: nothing
   in the shipped corpus or in any pinned legal spelling changes verdict. Not
-  S2: nothing correct is refused. D2 because the head is admitted at two
+  S2: nothing correct is refused. D3 (raised from D2 on 2026-08-25 — see the
+  dated note at the end of this document) because the head is admitted at two
   independent seams — the application parse
-  (`src/parser/type-grammar.ts:765`–`:769`) and `lowerTypeExpr`'s
-  generic-application arm (`src/parser/params.ts:769`–`:812`) — because the
-  code the refusal answers to needs a *Trigger* decision measured against the
-  registry (§Fix), and because two committed cells pin the current silence as
-  a control and flip under any fix here
-  (`tests/schema-alias-union-decl.test.ts:369`–`:370`, asserted at `:1846`).
+  (`src/parser/type-grammar.ts:773`–`:777` at HEAD `42226b1e`) and
+  `lowerTypeExpr`'s generic-application arm
+  (`src/parser/params.ts:769`–`:826` at that HEAD) — because the code the
+  refusal answers to needs a *Trigger* decision measured against the registry
+  (§Fix), and because the fix re-founds eleven pinned cells across six witness
+  files owned by six other reports (0164, 0217, 0231, 0236, 0256, 0281) plus
+  the two cells this document already owned
+  (`tests/schema-alias-union-decl.test.ts:369`–`:370`, asserted at `:1846`),
+  each owing a coordination note in the owning document.
 - **Kind:** defect — source that derives from no `Type` production is admitted
   at every type-reference position and replaces the author's annotation with a
   type that constrains nothing. `Type` has six alternatives
@@ -511,13 +515,26 @@ authority plus a dated coordination note in the other document:
   `:1840`–`:1842`. Both cells spell an unknown applied head, are pinned as
   measured-not-decided, and invert to refusals under either route. Re-founding
   them, and the comment that explains the silence, belongs to this report.
-- Any cell of bug 0281's witness group (K) that its own fix would flip, when
-  the landing gate is the wider one — under that report's authority, with the
-  dated note above.
-- No other pinned cell in the tree spells an unknown applied head:
-  `rg "Nope<|Ghost<" tests/` yields only the two constants above, and
-  `git ls-files '*.theta' '*.thetalib'` (34 files) yields no applied head
-  outside `array<` and `Result<`.
+- The eleven cells enumerated in the dated note **Flip-authority widening
+  (pre-fix, operator-directed)** at the end of this document: eight
+  scaffolding-head cells in the five witness files owned by bugs 0164, 0217,
+  0231, 0236 and 0256, and the three cells of group (D) in
+  `tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts`,
+  which pin this document's subject as measured controls. Each carries a
+  re-derived site, the quoted pinned text, and a disposition. A coordination
+  note in each owning document is owed in the same commit.
+- Nothing else. The fix lane's authority is exactly §Reproduction's 9 × 2
+  matrix and its inert and nesting tables, the two `Ghost<1,2>` cells above,
+  and the eleven enumerated cells of that note. The earlier enumeration bullet
+  `rg "Nope<|Ghost<" tests/` was measurably incomplete — it misses the
+  scaffolding spellings `pair<`, `map<` and lowercase `result<` — and is
+  superseded by the sweep recorded in the note. `git ls-files '*.theta'
+  '*.thetalib'` (34 files) still yields no applied head outside `array<` and
+  `Result<`, re-run at HEAD `42226b1e`.
+- Bug 0281's witness group (K)
+  (`tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts`) is
+  NOT in this document's authority: 0281's fix landed narrow at 0.277.0 and
+  re-founded that group under its own authority.
 
 **Locks — all must stay green.**
 
@@ -565,3 +582,123 @@ applied-head control; the closed-set and sibling-class controls; the
 inert-annotation and nesting tables; the direct lowering table; the
 not-expression family's wiring at seven of the nine positions; and the two
 pinned `Ghost<1,2>` cells.
+
+## Flip-authority widening (pre-fix, operator-directed) — 2026-08-25
+
+Recorded at HEAD `42226b1e`, v0.278.0, `main`, before any fix lane takes this
+report. Every site, line number and quotation below is re-derived at that HEAD;
+none is copied from bug 0281's measurement.
+
+**Why this note exists.** Bug 0281's fix lane implemented the WIDE gate first —
+"head not in `GENERIC_ARITY`", the gate §Fix route (a) above describes — and
+measured it before choosing. It flips eight pinned cells across five witness
+files owned by bugs 0164, 0217, 0231, 0236 and 0256, which use `pair<…>`,
+`map<…>` and a lowercase `result<…>` as inert scaffolding. That lane stopped
+and landed the narrow reserved-spelling gate instead (0.277.0,
+`./0281-applied-ok-err-generic-application-silent-at-every-capture.md` §Fix
+record), and recorded this document's enumeration as stale
+(`.pi/tmp/fixes/0281-report.md`, residual 1). This document's own enumeration
+searched two literal spellings (`rg "Nope<|Ghost<" tests/`) and reached none of
+those cells. The enumeration below replaces it.
+
+### Sweep record
+
+Two sweeps at HEAD `42226b1e`, both scaffolding-aware.
+
+1. **Committed corpus.** `rg -o -N '[A-Za-z_][A-Za-z0-9_]*<' $(git ls-files
+   '*.theta' '*.thetalib')` over all 34 files: four hits, `array<` (2) and
+   `Result<` (2). No applied head outside the derivable set. Unchanged from
+   this document's original claim.
+2. **All committed test sources** (`git ls-files 'tests/*.ts' 'tests/**/*.ts'
+   'tests/**/*.theta' 'tests/**/*.thetalib' 'tests/**/*.json'), scanned by one
+   throwaway Node script (token `b0282scratch`, outside the tree, deleted):
+   extract every string literal — single, double and backtick — and report
+   every `Ident<` head appearing inside one, with file and line. A plain `rg`
+   over the same files is unusable: TypeScript's own type applications
+   (`ReadonlyArray<…>`, `Record<…>`, `Promise<…>`) outnumber theta type text by
+   an order of magnitude and sit outside string literals.
+
+Triage of sweep 2 — 3819 head occurrences over 20 distinct heads:
+
+| class | heads | occurrences | disposition |
+| --- | --- | --- | --- |
+| derivable heads | `array`, `Result` | 3375 | out — the closed set is legal |
+| 0281-owned reserved spellings | `Ok`, `Err`, `integer`, `invoke` (incl. one line-wrapped `\ninvoke<string>` at `tests/schema-alias-union-decl.test.ts:402`) | 401 | out — already refuse under 0.277.0's landed gate, or are the `invoke<Type>` ascription production |
+| this document's own subject | `Nope`, `Ghost`, `Foo` | 17 | in, already enumerated (`tests/schema-alias-union-decl.test.ts:369`–`:370`; group (D) below) |
+| prose and TypeScript, not theta type text | `a` (`"a<LF>b"`), `gen` (`` `gen<N>-reload` ``), `_` (`` `__theta_respond_<slug>_<n>` ``), `_2__`, `ReadonlySet`, `Pick`, `Parameters` | 17 | out — none sits in a type-annotation position |
+| scaffolding heads | `pair`, `map`, `result` | 9 (6 in code, 3 in comment prose) | in — the eight cells below |
+
+The six code-bearing scaffolding spellings expand to eight pinned cells. No
+further head survives triage: the sweep finds no ninth cell.
+
+### The enumerated cells
+
+Cell disposition is (a) the scaffolding spelling becomes a refusal the cell
+expects, or (b) the cell re-vehicles onto a derivable head (`Result<…>` /
+`array<…>`) so its original subject keeps being witnessed.
+
+| # | site at HEAD `42226b1e` | pinned text, verbatim | disposition |
+| --- | --- | --- | --- |
+| 1 | `tests/generic-argument-bracket-group-truncation.test.ts:877`–`:880`, asserted at `:1009`; five position instances built at `:884`–`:903` | `"f2b non-constructor head beside a cut group",` / `'pair<{a: string}, enum["x","y"]>',` / `[SCHEMANOTEXPR("S")],` / `[],` (the trailing `[]` is the `b5 let annotation` instance's expectation) | (a) — the row is one of bug 0217's four registry examples, quoted verbatim from `theta/parse/schema-type-not-expression`'s published row, so the spelling cannot move without falsifying the quote; the cell's subject is what a non-constructor head draws at each position, which is what the gate decides |
+| 2 | `tests/generic-argument-literal-lowering.test.ts:1127`–`:1130`, asserted at `:1139` | `"d10",` / `'map<"x" \| "y">',` / `{},` | (a) — the cell's subject IS the non-`array` head's own lowering; `Result` is the only other derivable head and cell d11 (`:1152`) already carries it, so a re-vehicle would duplicate d11 |
+| 3 | `tests/inline-object-malformed-entry-resync.test.ts:499`, asserted at `:660` | `["b9 BOUND", "{a b: integer, zs: result<string>}", [NOTIDENT("a b")]],` | (b) — re-vehicle the field type onto a derivable head that likewise draws nothing (`array<string>`); the cell's subject is that a field TYPE with no emission of its own recovers nothing behind a malformed entry, and `result<string>` is incidental vehicle chosen only because it draws nothing at HEAD |
+| 4 | `tests/inline-object-malformed-entry-resync.test.ts:500`, asserted at `:660`; counted at `:791`–`:795` | `["b9c control", "{a: integer, zs: result<string>}", []],` | (b) — same re-vehicle: it is b9's paired control, and the file's inventory assertion pins it as the ONLY cell expecting an empty list ("only b9's control expects nothing"), which a refusal here would break |
+| 5 | `tests/inline-object-stranded-entry-refusal.test.ts:531`, asserted at `:536` (`[MALF]`) | `["c12", "map<string, {a: b c, d e}>"],` | (a) — the row is a `params:` row and its subject is which refusal a two-argument generic wrapper draws there; no derivable head spells a clean two-argument application at that position (`Result<…>` draws `theta/parse/result-in-schema-position`, `array<…, …>` draws `theta/parse/generic-arity-mismatch`), so a re-vehicle changes the shape rather than preserving it |
+| 6 | `tests/inline-object-stranded-entry-refusal.test.ts:531`, asserted at `:549` (`loweredParams` is `"null"`) | same row | (a) — same row, second assertion: the lowering half stays "nothing lowers", and the head refusal is one more reason for it, so the subject survives on the refusal |
+| 7 | `tests/nested-inline-enum-generic-argument-refusal.test.ts:794`–`:805` (cell b17; spelling constant at `:454`), asserted at `:819` | `"b17",` / `PAIR_BRACE_SIBLING,` / `["{a: string}", 'enum["x", "y"]'],` / `true,` where `const PAIR_BRACE_SIBLING = 'pair<{a: string}, enum["x", "y"]>';` | (a) — the head was chosen because "`pair` is an unknown constructor, so the arity rule has nothing to say about it" (`:449`–`:451`); under the gate no such head exists, and the sibling cell b18 (`:806`) already carries the derivable-head contrast with `array` |
+| 8 | `tests/nested-inline-enum-generic-argument-refusal.test.ts:864`–`:871` (cell c9), asserted at `:877` over the three `SINK_POSITIONS` (`:261`) | `"c9",` / `PAIR_BRACE_SIBLING,` | (a) — the cell asserts EXACTLY ONE refusal per construct, which the head gate does not weaken; it moves only if the gate's code differs from the code that position already draws. Authority permits the move and does not require it: if the codes coincide, the cell stays byte-exact |
+| 9 | `tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts:617` (group (D); spellings at `:600`) | `it("b0281-D: an unknown applied head stays silent and registering at all nine positions", …)` over `const UNKNOWN_SPELLINGS = ["Nope<integer>", "Ghost<string>"] as const;` | (a) — the group pins this document's subject as a measured control and inverts wholesale; its own comment (`:610`–`:614`) directs the re-widening to red here rather than in the five unrelated witnesses |
+| 10 | same file, `:631`–`:669` | `it("b0281-D-declared: a DECLARED schema name written with an angle list keeps dropping its constraint", …)` over `'schema Foo { m: string }\nlet a: Foo<integer> = "mismatch"\n"ok"'` | (a) — this is §Reproduction's constraint-dropping measurement, and the fix is what removes the dropped constraint; the bare-`Foo` control beside it (`:648`–`:651`) does not move |
+| 11 | same file, `:671`–`:706` | `it("b0281-D-nesting: an unknown applied head one level down stays silent where the bare name refuses", …)` over `'let a: array<Nope<integer>> = []\n"ok"'` and three siblings | (a) — §Reproduction's nesting table, same inversion; the bare-name controls (`:694`–`:704`) keep bug 0262's refusals unchanged |
+
+Cells 9–11 are the further cells this sweep found beyond bug 0281's tabulation
+of eight. That lane's report names them in prose (residual 1: "this fix's
+witness adds a group of cells pinning the unknown-applied-head silence as a
+measured control") without siting them.
+
+The two cells this document already owned are unchanged in disposition:
+`tests/schema-alias-union-decl.test.ts:369`–`:370`, asserted at `:1846`–`:1851`
+with the pinning comment at `:1840`–`:1842`, both (a).
+
+Coordination notes are owed, in the fix commit, to the owning report of each
+re-founded cell: bugs 0164, 0217, 0231, 0236, 0256 and
+`./0281-applied-ok-err-generic-application-silent-at-every-capture.md`. The
+first five filenames are not resolved here; the fix lane resolves each against
+`docs/bugs/README.md` before writing.
+
+Cell 5/6 carries one consequence for the fix lane to restate rather than drop:
+c12 is bug 0256's two-argument-generic Reach shape, and under the gate that
+shape can no longer be witnessed at `params:` by a head drawing nothing of its
+own. The re-founding says so in bug 0256's note.
+
+### Citation drift measured at this HEAD
+
+Bug 0281's fix (0.277.0) inserted its gate and exported `GENERIC_ARITY`, moving
+lines this document cites against HEAD `834c3334`. The drift is
+verdict-neutral, and is recorded rather than rewritten because §Affected is
+anchored to the HEAD it names. At `42226b1e`:
+
+- `src/parser/type-grammar.ts` — closed-set test `:762`–`:763` → `:770`;
+  head-agnostic fallback `:765`–`:769` → `:773`–`:777`; `GENERIC_ARITY`
+  `:475`–`:478` → `:483`–`:486`, now `export const`; `parseGeneric`
+  `:777`–`:800` → `:785`–`:808`; `walkType`'s `"generic"` arm's table lookup
+  `:1500` → `:1508`, its arity guard `:1501` → `:1509`, its `Result` scope
+  `:1510` → `:1518`.
+- `src/parser/params.ts` — the generic-application arm still opens at `:769`
+  and splits at `:772`, and the `array` branch is still `:791`, but the
+  catch-all `return {}` is `:812` → `:826` (0281's reserved-head gate occupies
+  `:795`–`:808`); the atom arm's `// Atom.` `:815` → `:829`, the
+  reserved-keyword classification `:819` → `:833`, the `unresolved` push
+  `:854` → `:868`.
+- `src/extension/production-composition.ts` — `hasLoadParseError` `:3011` →
+  `:3053`, consulted at `:1570` (unchanged). Bug 0281's residual 3 reports the
+  same drift.
+
+### Severity / difficulty judgment
+
+`S3/D2` → `S3/D3`, applied to the header. Severity is unchanged: no shipped
+source moves and nothing correct is refused. Difficulty rises because the fix
+is no longer a two-seam edit with two owned cells — it re-founds eleven pinned
+cells across six witness files owned by six other reports, owes a coordination
+note in each owning document, and still owes the *Trigger* decision §Fix names.
+D3 is an estimate; the picking session re-scores.
