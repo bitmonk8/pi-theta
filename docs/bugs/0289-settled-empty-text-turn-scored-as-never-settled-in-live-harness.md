@@ -1,6 +1,6 @@
 # Bug 0289 — A live H8a drive's on-session turn can terminate normally carrying a `thinking` part and an EMPTY `text` part (spec-legal `Ok("")` under PIC-51b/PIC-53); the harness scores that settled turn as "the LAST user turn's reply never settled" (`tests/live/harness.ts:426`) and cell 89 reds even though a real turn ran, because the discriminator's sentinel can land in the thinking part
 
-- **Status:** open.
+- **Status:** fixed (0.286.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the defect is confined to live
   test infrastructure (production binding is spec-correct here) but denies the
   live suite a stable green and keeps cell 89 under AGENTS.md §"documented
@@ -332,6 +332,91 @@ separable. See [0288](./0288-multi-query-prompt-drive-completes-without-the-seco
   `b0251live-tolerated-junk-carrier-live-cell.test.ts`,
   `inline-object-stray-close-token-live-cell.test.ts`) run once post-fix to
   show the new classification adds no stall.
+
+## Fix (0.286.0)
+
+- What shipped: `tests/live/harness.ts` — element (a): the private
+  `lastTurnSettled` boolean becomes the exported classifier `classifyLastTurn`
+  over the post-last-user slice (`pending` | `settled-with-text` with its
+  `via: "no-user-turn" | "assistant-text" | "system-note"` reason, bug 0287's
+  three accept clauses preserved verbatim in meaning and order |
+  `settled-with-empty-text` carrying the trailing entry's
+  `TrailingAssistantShape` — `stopReason`, `partKinds`, per-part
+  `textLengths`), and every failure text names the true state: the
+  "never settled" wording survives only where no trailing assistant entry
+  exists, an expiry over a still-streaming trailing entry prints its shape,
+  and the bound-expiry empty-settle ending reports the observed `isIdle` and
+  drops the "turn ended" claim when the run is still in flight. Element (b) =
+  **b1**, adjudicated in-lane: the harness already holds `handle.session`, so
+  the re-ask is a `prompt()`-level drive on the same session with no
+  producer-internal dependency — b1 stands and b2's line-pin break is
+  unnecessary. `waitForLastTurnSettled` becomes the exported
+  `captureSettledTurn(deps, entriesBefore, slashInvocation)` with injected
+  `getEntries` / `prompt` / `isIdle` / `sleep`; on a settled-with-empty-text
+  classification observed while the session is IDLE and the boundary is normal
+  it re-issues the LAST user text EXACTLY ONCE through the real production
+  path and reads the union of turn texts, while a second consecutive empty
+  settle, a non-normal boundary and an unre-askable slice each fail loudly
+  with the element-(a) classification. `driveSlashCaptureTurn` keeps its
+  signature and delegates. `collectAssistantTexts` is byte-untouched (bug
+  0287's lock), `tests/live/live-production-acceptance.test.ts` is byte-frozen
+  at 14864 lines, and `src/**`, `docs/spec_topics/**`, `docs/plan_topics/**`
+  are untouched — element (c)'s non-goals hold: no empty text is ever accepted
+  as a passing result and the sentinel `865` is still model-computed from the
+  theta-rendered `n` and still read out of observable text.
+- Gates: witness `tests/b0289-settled-empty-text-turn-classification.test.ts`
+  10/10 green (RED at HEAD: 7 cells failing loudly on the absent
+  `classifyLastTurn`/`captureSettledTurn` seam, then 2+1 added by review
+  rounds 2 and 3); full default suite 462 files / 9428 tests green (baseline
+  461/9418 plus the 10 witness cells); `npx tsc --noEmit` clean; `npm run
+  lint` clean; `wc -l tests/live/live-production-acceptance.test.ts` = 14864;
+  `tests/fixtures/h7a/permitted-codes.json` byte-unchanged (blob
+  `a4a8da04…`); bug 0287's offline lock 5/5 and bug 0288's offline witness 7/7
+  green, unedited.
+- Review: 3 rounds — round 1 (deep) three `correctness` findings: F1 the b1
+  re-ask could fire mid-run, where `AgentSession.prompt()` throws "Agent is
+  already processing" (the trailing assistant entry and its `stopReason` are
+  appended at `message_end` mid-run), F2 `toolUse`/`tool_use` would classify
+  an in-flight tool turn as settled, F3 the post-loop expiry branched on a
+  STALE classification and could still emit "never settled" for a slice
+  holding a trailing assistant entry; the round also rebutted the
+  orchestrator's slice-growth concern on pi-source evidence (the re-ask's user
+  entry is appended inside the awaited run). Round 2 (deep, routed deep
+  because round 1 raised correctness) verified F1/F2/F3 resolved by the idle
+  gate, the boundary doc and the fresh post-loop classification, and raised
+  one minor `correctness` finding: the post-loop empty-settle ending asserted
+  "the turn ended" without consulting `isIdle`. Round 3 (fast) CLEAN, no
+  escalation.
+- Verification: VERIFIED. (i) The witness reds without the fix in both
+  directions — collapsing the classifier's trailing-entry branch reds 6 of 10
+  cells, removing the re-ask reds 4 of 10 — and `git hash-object
+  tests/live/harness.ts` is identical before and after each neutralisation
+  (`a2c0df56…`), so no half-reverted state shipped. (ii) Default suite
+  462/9428 green. (iii) Live decision rule discharged by the orchestrator
+  under the shared live lock: cell 89 GREEN in 8 CONSECUTIVE runs
+  (`.pi/tmp/b0289-live-1.log` … `-8.log`, each `Tests 1 passed | 89 skipped`,
+  10.1–19.2 s), zero reds, so the falsifier never fired; the exposure sweep
+  ran the three exposed multi-query siblings once post-fix
+  (`.pi/tmp/b0289-live-sweep.log`, 3 files / 4 tests green, no stall).
+  (iv) Lint and typecheck clean.
+- Residuals: (1) `src/extension/production-theta-producer.ts:5069`–`:5070`
+  cites "its own `lastTurnSettled`, `tests/live/harness.ts:460`" and calls the
+  harness BYTE-FROZEN; that symbol is now `classifyLastTurn` and the harness
+  is no longer frozen. `src/**` is out of this fix's scope, the citation gate
+  does not red on it (full suite green), and the producer's own behaviour is
+  unaffected — comment-only follow-up for whoever next edits that file.
+  (2) The 8/8 green tally is measured over runs in which the empty-settle
+  shape may not have occurred at all (it reproduced in 1 of 5 probe drives in
+  the bug-0288 lane); the b1 re-ask path's live exercise is therefore not
+  proven by these 8 runs, only its non-interference. Its logic is locked
+  offline by the 10-cell witness.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the production binding stays — `Ok("")`
+  for an empty-text normal-boundary turn is PIC-51b/PIC-53 behaviour and no
+  production or spec file was touched; b2 (discriminator reshape) was NOT
+  adopted, so bug 0287's 14864-line pin on
+  `tests/live/live-production-acceptance.test.ts` still holds; the model's
+  thinking-only behaviour is untouched and undetected.
 
 ## Related
 

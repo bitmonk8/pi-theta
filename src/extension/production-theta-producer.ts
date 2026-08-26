@@ -5066,10 +5066,10 @@ function macrotask(clock: Clock, ms: number): Promise<void> {
 // D4 (adjudicated in-lane): implemented over the producer's OWN built
 // `Message[]` read surface (`#readMessages()`), not factored into
 // `src/runtime/` for sharing with `tests/live/harness.ts`. The harness reads
-// raw `SessionManager` entries (its own `lastTurnSettled`,
-// `tests/live/harness.ts:460`); this reads built `Message[]` — the two
-// surfaces differ, and `tests/live/harness.ts` is BYTE-FROZEN, so this is an
-// independent implementation of the same idea, not a shared function.
+// raw `SessionManager` entries (`classifyLastTurn`/`captureSettledTurn`
+// since bug 0289's fix, 0.286.0); this reads built `Message[]` — the two
+// surfaces differ, so this is an independent implementation of the same
+// idea, not a shared function.
 
 /**
  * Whether the slice AFTER a turn's own `user`-role message is a SETTLED

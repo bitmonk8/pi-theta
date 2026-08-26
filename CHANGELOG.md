@@ -6,6 +6,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.286.0]
+
+### Fixed
+
+- Bug 0289: the live H8a harness now classifies a settled turn whose
+  trailing assistant message carries thinking but EMPTY text distinctly
+  ("settled with empty text after thinking") instead of misreporting "reply
+  never settled", and captureSettledTurn performs one idle-gated bounded
+  same-session re-ask through the real prompt() path when the settled reply
+  text is empty (sentinel still computed by the model — no assertion
+  weakening; live-production-acceptance.test.ts byte-frozen at 14864 lines).
+  Offline lock tests/b0289-settled-empty-text-turn-classification.test.ts
+  (10 cells). Verification: 8/8 consecutive cell-89 greens under the lock,
+  falsifier silent. Closes the four-subject cell-89 chain
+  (0286→0287→0288→0289).
+
 ## [0.285.0]
 
 ### Fixed

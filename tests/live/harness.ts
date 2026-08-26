@@ -355,7 +355,9 @@ export interface DrivenTurn {
  * turn (bug 0287: a whole-drive event accumulator can drop a later turn's
  * stream; reading the settled transcript once the LAST on-session query's reply
  * has landed — or a fail-closed note appended after it explains the absence —
- * cannot). See `lastTurnSettled` for exactly which shapes count as settled.
+ * cannot). See `classifyLastTurn` for exactly which shapes count as settled
+ * and bug 0289 §Fix element (b1) for the bounded re-ask a settled-but-empty
+ * turn now gets before the drive gives up.
  */
 export async function driveSlashCaptureTurn(
   handle: LiveExtensionHandle,
@@ -367,17 +369,21 @@ export async function driveSlashCaptureTurn(
   // prompt-mode body's `@`-queries are dispatched fire-and-forget
   // (`pi.sendUserMessage` returns before the run it schedules installs its
   // active-run handle), so wait for the appended slice itself to carry the
-  // last turn's reply before reading it.
-  const appended = await waitForLastTurnSettled(
-    handle.sessionManager,
+  // last turn's reply before reading it. Bug 0289 §Fix element (b1): the wait
+  // itself now owns a bounded same-session re-ask, expressed here as a second
+  // `prompt()`-level call through `handle.session` — no producer-internal
+  // dependency, which is why b1 (not b2's producer-side line-pin break)
+  // stands for this fix.
+  return captureSettledTurn(
+    {
+      getEntries: () => handle.sessionManager.getEntries(),
+      prompt: (text: string) => handle.session.prompt(text),
+      isIdle: () => handle.session.isIdle,
+      sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    },
     entriesBefore,
     slashInvocation,
   );
-  return {
-    text: collectAssistantTexts(appended).join(""),
-    userTexts: collectUserTexts(appended),
-    systemNotes: collectSystemNotes(appended),
-  };
 }
 
 // Bug 0287 §Fix item 3 — bounded poll cadence and total wait for the appended
@@ -394,80 +400,317 @@ export async function driveSlashCaptureTurn(
 const ASSISTANT_TURN_POLL_INTERVAL_MS = 40;
 const ASSISTANT_TURN_POLL_BOUND = 375;
 
-/**
- * Poll the appended `SessionManager` slice until `lastTurnSettled` accepts it —
- * the turn-complete condition bug 0287's §Fix item 3 requires. Expiry of the
- * bound fails loudly naming the unmet precondition, per AGENTS.md §"No silent
- * skipping": returning a silently short `text` instead is exactly the defect
- * this fix removes.
- */
-async function waitForLastTurnSettled(
-  sessionManager: SessionManager,
-  entriesBefore: number,
-  slashInvocation: string,
-): Promise<readonly unknown[]> {
-  for (let attempt = 0; attempt < ASSISTANT_TURN_POLL_BOUND; attempt++) {
-    const appended = sessionManager.getEntries().slice(entriesBefore);
-    if (lastTurnSettled(appended)) return appended;
-    await new Promise<void>((resolve) =>
-      setTimeout(resolve, ASSISTANT_TURN_POLL_INTERVAL_MS),
-    );
+/** The trailing assistant entry's shape — bug 0289 §Fix element (a): printed
+ * on a loud failure instead of collapsing every unsettled shape into "never
+ * settled". `stopReason` is `undefined` while the entry is still streaming
+ * (no string stopReason has landed yet); `partKinds`/`textLengths` are read
+ * off the entry's content parts in order, `textLengths` restricted to the
+ * `"text"`-typed parts so a thinking-only entry reports `[]`, not a length
+ * for a part that carries no text at all. */
+export type TrailingAssistantShape = {
+  readonly stopReason: string | undefined;
+  readonly partKinds: readonly string[];
+  readonly textLengths: readonly number[];
+};
+
+/** The three outcomes bug 0289 §Fix element (a) classifies a post-last-user
+ * slice into, replacing `lastTurnSettled`'s boolean (bug 0287) with a shape
+ * that can name a settled-but-empty turn instead of reporting it as
+ * unsettled. */
+export type LastTurnClassification =
+  | { readonly kind: "pending"; readonly trailing: TrailingAssistantShape | undefined }
+  | {
+      readonly kind: "settled-with-text";
+      readonly via: "no-user-turn" | "assistant-text" | "system-note";
+    }
+  | { readonly kind: "settled-with-empty-text"; readonly trailing: TrailingAssistantShape };
+
+/** Boundaries bug 0289 §Fix element (b1) treats as a normal turn ending —
+ * eligible for the one bounded re-ask — as opposed to an "error" boundary,
+ * which is a failure to report, not a turn to repeat.
+ *
+ * The tool-use boundaries are only sound BEHIND THE IDLE GATE: mid-run, a
+ * trailing assistant entry whose stopReason is `toolUse`/`tool_use` is an
+ * in-flight turn about to continue with the tool result, and re-asking it
+ * would inject a second query into a healthy drive. `captureSettledTurn`
+ * takes no re-ask decision before `deps.isIdle()` reports the run finished,
+ * and once the run is idle a trailing empty tool-use turn IS the drive's
+ * final turn — PIC-53's pure tool-use turn, whose value is `Ok("")`. */
+const NORMAL_STOP_BOUNDARIES: ReadonlySet<string> = new Set([
+  "stop",
+  "end_turn",
+  "toolUse",
+  "tool_use",
+]);
+
+/** Build the `TrailingAssistantShape` for one assistant-role message entry. */
+function trailingAssistantShape(entry: unknown): TrailingAssistantShape {
+  const e = entry as { message?: { stopReason?: unknown; content?: unknown } };
+  const stopReason = typeof e.message?.stopReason === "string" ? e.message.stopReason : undefined;
+  const content = e.message?.content;
+  const partKinds: string[] = [];
+  const textLengths: number[] = [];
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const p = part as { type?: string; text?: string };
+      if (typeof p.type === "string") partKinds.push(p.type);
+      if (p.type === "text" && typeof p.text === "string") textLengths.push(p.text.length);
+    }
+  } else if (typeof content === "string") {
+    partKinds.push("text");
+    textLengths.push(content.length);
   }
-  const appended = sessionManager.getEntries().slice(entriesBefore);
-  const userTurnCount = collectUserTexts(appended).length;
-  const assistantTextCount = collectAssistantTexts(appended).length;
-  const notePresent = collectSystemNotes(appended).length > 0;
-  const boundMs = ASSISTANT_TURN_POLL_BOUND * ASSISTANT_TURN_POLL_INTERVAL_MS;
-  failLoudly(
-    `driveSlashCaptureTurn(${JSON.stringify(slashInvocation)}) precondition unmet: ` +
-      `the appended transcript slice held ${userTurnCount} user turn(s), ` +
-      `${assistantTextCount} assistant text part(s) and ` +
-      `${notePresent ? "a" : "no"} theta-system-note entry, and the LAST user ` +
-      `turn's reply never settled into the transcript within ${boundMs}ms ` +
-      `(bug 0287).`,
-  );
+  return { stopReason, partKinds, textLengths };
+}
+
+/** The last assistant-role message entry in `entries`, or `undefined`. */
+function lastAssistantMessageEntry(entries: readonly unknown[]): unknown | undefined {
+  let found: unknown | undefined;
+  for (const entry of entries) {
+    if (isMessageEntryWithRole(entry, "assistant")) found = entry;
+  }
+  return found;
 }
 
 /**
- * Whether the appended slice may be read as the drive's settled transcript.
- * Accepts on any of three disjoint reasons:
+ * Classify the appended (post-`entriesBefore`) slice as the drive's settled
+ * transcript would be classified — bug 0289 §Fix element (a), replacing
+ * `lastTurnSettled`'s boolean (bug 0287) with a shape that names WHICH of
+ * four disjoint states holds instead of collapsing three of them into
+ * "unsettled":
  *
- * A. No user-role message entry at all. A slash invocation itself appends no
- *    user-role entry, so this is the real shape of a drive that never put a
- *    query on this session — a subagent-mode drive, whose spawned transcript is
- *    private, or a fail-closed drive that never sent. Such drives assert on
- *    `systemNotes`, so waiting out the bound would slow the suite for a
- *    property no caller observes.
- * B. Some assistant-role message entry AFTER the LAST user-role entry
- *    contributes a NON-EMPTY text part. Presence of an assistant entry alone is
- *    not enough: an assistant entry can be thinking-only or thinking+toolCall
- *    with no text part at all (`ThinkingContent` carries `thinking`, not
- *    `text`), and accepting one of those returns the EARLIER turn's reply as
- *    the drive's text — the divergence bug 0287 documents. Demanding real text
- *    is what makes the read turn-complete.
- * C. A `theta-system-note` entry appended AFTER the LAST user-role entry — the
- *    same post-last-user slice B scores. A fail-closed or cancelled ending
- *    EXPLAINS a missing reply, so such a drive must reach its cell's own
- *    assertions rather than wait out the bound and fail on the wait. The window
- *    is what keeps this from admitting a still-running turn: the SLSH-3 err
- *    note, the cancelled note and the panic framings are all emitted after the
- *    query's user entry, whereas the BND-1 bind echo (`Running /<name>: …`,
- *    `#emitBinderEchoNote` in `production-theta-producer.ts`) and the SLSH-1
- *    no-params overflow note precede the body and therefore every query it
- *    sends, so they can no longer short-circuit the wait for a `params:`-
- *    declaring theta's reply.
+ * 1. No user-role message entry at all ("no-user-turn"). A slash invocation
+ *    itself appends no user-role entry, so this is the real shape of a drive
+ *    that never put a query on this session — a subagent-mode drive, whose
+ *    spawned transcript is private, or a fail-closed drive that never sent.
+ *    Such drives assert on `systemNotes`, so waiting out the bound would slow
+ *    the suite for a property no caller observes.
+ * 2. Some assistant-role message entry AFTER the LAST user-role entry
+ *    contributes a NON-EMPTY text part ("assistant-text"). Presence of an
+ *    assistant entry alone is not enough: an assistant entry can be
+ *    thinking-only or thinking+toolCall with no text part at all
+ *    (`ThinkingContent` carries `thinking`, not `text`), and accepting one of
+ *    those would return the EARLIER turn's reply as the drive's text — the
+ *    divergence bug 0287 documents. Demanding real text is what makes this
+ *    clause turn-complete rather than merely entry-present.
+ * 3. A `theta-system-note` entry appended AFTER the LAST user-role entry
+ *    ("system-note") — the same post-last-user slice clause 2 scores. A
+ *    fail-closed or cancelled ending EXPLAINS a missing reply, so such a
+ *    drive must reach its cell's own assertions rather than wait out the
+ *    bound and fail on the wait. The window is what keeps this from admitting
+ *    a still-running turn: the SLSH-3 err note, the cancelled note and the
+ *    panic framings are all emitted after the query's user entry, whereas the
+ *    BND-1 bind echo (`Running /<name>: …`, `#emitBinderEchoNote` in
+ *    `production-theta-producer.ts`) and the SLSH-1 no-params overflow note
+ *    precede the body and therefore every query it sends, so they can no
+ *    longer short-circuit the wait for a `params:`-declaring theta's reply.
+ * 4. Neither of the above, but a trailing assistant entry after the last user
+ *    entry carries a STRING `stopReason` ("settled-with-empty-text", bug
+ *    0289's own subject): the turn terminated on a normal or non-normal
+ *    boundary while contributing only empty/absent text. This is as settled as
+ *    clause 2 — the transcript proves the turn ended — so it must
+ *    not be reported as "never settled". Otherwise (a trailing assistant
+ *    entry without a string `stopReason`, i.e. still streaming, or no
+ *    trailing assistant entry at all): "pending".
  */
-function lastTurnSettled(entries: readonly unknown[]): boolean {
+export function classifyLastTurn(entries: readonly unknown[]): LastTurnClassification {
   let lastUserIndex = -1;
   for (let i = 0; i < entries.length; i++) {
     if (isMessageEntryWithRole(entries[i], "user")) lastUserIndex = i;
   }
-  if (lastUserIndex === -1) return true;
+  if (lastUserIndex === -1) return { kind: "settled-with-text", via: "no-user-turn" };
   const afterLastUser = entries.slice(lastUserIndex + 1);
   if (collectAssistantTexts(afterLastUser).some((text) => text.length > 0)) {
-    return true;
+    return { kind: "settled-with-text", via: "assistant-text" };
   }
-  return collectSystemNotes(afterLastUser).length > 0;
+  if (collectSystemNotes(afterLastUser).length > 0) {
+    return { kind: "settled-with-text", via: "system-note" };
+  }
+  const trailingAssistant = lastAssistantMessageEntry(afterLastUser);
+  if (trailingAssistant === undefined) {
+    return { kind: "pending", trailing: undefined };
+  }
+  const shape = trailingAssistantShape(trailingAssistant);
+  if (shape.stopReason !== undefined) {
+    return { kind: "settled-with-empty-text", trailing: shape };
+  }
+  return { kind: "pending", trailing: shape };
+}
+
+/**
+ * Drive the appended `SessionManager` slice to a settled turn and capture it —
+ * bug 0289 §Fix elements (a) and (b1). Polls `classifyLastTurn` at the same
+ * cadence/bound bug 0287 §Fix item 3 set (`ASSISTANT_TURN_POLL_INTERVAL_MS` ×
+ * `ASSISTANT_TURN_POLL_BOUND`):
+ *
+ * - `settled-with-text` returns immediately, `text` built from
+ *   `collectAssistantTexts` over the whole appended slice exactly as bug
+ *   0287 left it. This is the only outcome read without consulting
+ *   `deps.isIdle()`: real text after the last user entry cannot be undone by
+ *   the run continuing, and returning on it is what keeps the suite fast.
+ * - `settled-with-empty-text` is treated as PENDING (sleep and keep polling)
+ *   for as long as `deps.isIdle()` is false. The trailing assistant entry
+ *   and its string `stopReason` are appended MID-RUN (`message_end` in
+ *   `AgentSession`), while the run stays streaming until it emits its
+ *   settled event, and `AgentSession.prompt()` THROWS "Agent is already
+ *   processing" when called against a streaming session. So the empty-text
+ *   classification alone does not authorise either a re-ask or a loud
+ *   failure — the producer-side twin holds the same discipline (bug 0288:
+ *   settledness is only consulted once the run has been observed IDLE).
+ * - Once idle, `settled-with-empty-text` on a NORMAL boundary
+ *   (`NORMAL_STOP_BOUNDARIES`) re-issues the LAST user text exactly once
+ *   through `deps.prompt` (a second `prompt()`-level drive through the real
+ *   production path on the same session — bug 0289 §Fix element (b1) chose
+ *   this over a producer-internal retry precisely because the harness
+ *   already holds that seam), then resumes polling; a second consecutive
+ *   settled-with-empty-text fails loudly naming the true state (never "never
+ *   settled", since the transcript proves otherwise).
+ * - Once idle, `settled-with-empty-text` on a non-normal boundary fails
+ *   loudly naming that boundary with no re-ask: an error ending is a failure
+ *   to report, not a turn to repeat.
+ * - A missing/empty last user text (nothing to re-ask) fails loudly naming
+ *   that unmet precondition rather than silently skipping the re-ask.
+ * - On expiry the FRESH slice is classified once more and that classification
+ *   decides the ending, so a re-ask consumed on the final attempt is scored
+ *   on its own result: `settled-with-text` returns it, `settled-with-empty-
+ *   text` fails loudly naming the settled shape, and only a genuinely
+ *   `pending` slice reaches an expiry message. "Never settled" survives only
+ *   where no assistant entry followed the last user turn at all; a still-
+ *   streaming trailing entry is named by its `stopReason` and per-part text
+ *   lengths instead, per AGENTS.md §"No silent skipping".
+ */
+export async function captureSettledTurn(
+  deps: {
+    readonly getEntries: () => readonly unknown[];
+    readonly prompt: (text: string) => Promise<void>;
+    /**
+     * Whether the session has no run in flight — on the live path
+     * `handle.session.isIdle`. The gate that makes every settledness-driven
+     * decision below safe against a mid-run trailing entry.
+     */
+    readonly isIdle: () => boolean;
+    readonly sleep: (ms: number) => Promise<void>;
+  },
+  entriesBefore: number,
+  slashInvocation: string,
+): Promise<DrivenTurn> {
+  let reAskIssued = false;
+
+  for (let attempt = 0; attempt < ASSISTANT_TURN_POLL_BOUND; attempt++) {
+    const appended = deps.getEntries().slice(entriesBefore);
+    const classification = classifyLastTurn(appended);
+
+    if (classification.kind === "settled-with-text") return capturedTurn(appended);
+
+    if (classification.kind === "settled-with-empty-text" && deps.isIdle()) {
+      const { stopReason } = classification.trailing;
+      const shapeText = trailingShapeText(classification.trailing);
+      if (stopReason === undefined || !NORMAL_STOP_BOUNDARIES.has(stopReason)) {
+        failLoudly(
+          `captureSettledTurn(${JSON.stringify(slashInvocation)}): the last turn settled with ` +
+            `empty text on a non-normal boundary (${shapeText}) — bug 0289 §Fix element (b1) ` +
+            `re-asks only a normal boundary (stop/end_turn/toolUse/tool_use); an error boundary ` +
+            `is a failure to report, not a turn to repeat.`,
+        );
+      }
+      if (reAskIssued) {
+        failLoudly(
+          `captureSettledTurn(${JSON.stringify(slashInvocation)}): the last turn settled with ` +
+            `empty text a second consecutive time (${shapeText}) after one bounded re-ask — ` +
+            `bug 0289 §Fix element (b1) allows exactly one retry; this is the mechanism ` +
+            `recurring past its own bound, not an unstarted turn.`,
+        );
+      }
+      const lastUserText = collectUserTexts(appended).at(-1);
+      if (lastUserText === undefined || lastUserText.length === 0) {
+        failLoudly(
+          `captureSettledTurn(${JSON.stringify(slashInvocation)}) precondition unmet: the ` +
+            `appended transcript slice's last user turn has no text to re-ask, so bug 0289 ` +
+            `§Fix element (b1)'s bounded re-ask cannot re-issue it.`,
+        );
+      }
+      reAskIssued = true;
+      await deps.prompt(lastUserText);
+    }
+
+    await deps.sleep(ASSISTANT_TURN_POLL_INTERVAL_MS);
+  }
+
+  // The expiry ending is decided by a FRESH classification, not by whatever the
+  // last loop iteration saw: a re-ask issued on the final attempt lands its
+  // reply after that observation, and reporting the pre-re-ask state would
+  // describe a slice the transcript has already moved past.
+  const appended = deps.getEntries().slice(entriesBefore);
+  const classification = classifyLastTurn(appended);
+  if (classification.kind === "settled-with-text") return capturedTurn(appended);
+
+  const userTurnCount = collectUserTexts(appended).length;
+  const assistantTextCount = collectAssistantTexts(appended).length;
+  const notePresent = collectSystemNotes(appended).length > 0;
+  const boundMs = ASSISTANT_TURN_POLL_BOUND * ASSISTANT_TURN_POLL_INTERVAL_MS;
+
+  if (classification.kind === "settled-with-empty-text") {
+    // A trailing entry carrying a string `stopReason` is appended at
+    // `message_end`, which on a tool-using boundary happens while the run is
+    // still streaming (NORMAL_STOP_BOUNDARIES above). Claiming the turn ended
+    // without consulting idleness would misreport exactly the state this
+    // failure exists to name, so the wording follows the observable.
+    const idle = deps.isIdle();
+    const preamble =
+      `captureSettledTurn(${JSON.stringify(slashInvocation)}) precondition unmet: the appended ` +
+      `transcript slice held ${userTurnCount} user turn(s) and ${notePresent ? "a" : "no"} ` +
+      `theta-system-note entry, session isIdle=${idle}`;
+    const reAskSuffix = reAskIssued ? ", after one bounded re-ask" : "";
+    if (idle) {
+      failLoudly(
+        `${preamble}, and the LAST user turn's reply SETTLED WITH EMPTY TEXT within ` +
+          `${boundMs}ms — ${trailingShapeText(classification.trailing)}${reAskSuffix} ` +
+          `(bug 0289 §Fix element (a): the turn ended, it produced no text).`,
+      );
+    }
+    failLoudly(
+      `${preamble}, and the run was STILL IN FLIGHT when the ${boundMs}ms bound expired, ` +
+        `carrying a trailing assistant entry with empty text — ` +
+        `${trailingShapeText(classification.trailing)}${reAskSuffix} (bug 0289 §Fix element ` +
+        `(a): a boundary reached mid-run, named by its own shape rather than as a finished turn).`,
+    );
+  }
+
+  const trailing = classification.trailing;
+  if (trailing === undefined) {
+    failLoudly(
+      `captureSettledTurn(${JSON.stringify(slashInvocation)}) precondition unmet: the appended ` +
+        `transcript slice held ${userTurnCount} user turn(s), ${assistantTextCount} assistant ` +
+        `text part(s) and ${notePresent ? "a" : "no"} theta-system-note entry, and the LAST ` +
+        `user turn's reply never settled into the transcript within ${boundMs}ms (bug 0287).`,
+    );
+  }
+  failLoudly(
+    `captureSettledTurn(${JSON.stringify(slashInvocation)}) precondition unmet: the appended ` +
+      `transcript slice held ${userTurnCount} user turn(s) and ${notePresent ? "a" : "no"} ` +
+      `theta-system-note entry; the trailing assistant entry has not reached a string ` +
+      `stopReason within ${boundMs}ms — ${trailingShapeText(trailing)} (bug 0289 §Fix element ` +
+      `(a): a still-streaming turn, named by its own shape rather than the refuted expiry ` +
+      `wording).`,
+  );
+}
+
+/** The `DrivenTurn` read off an appended slice — bug 0287's whole-slice read. */
+function capturedTurn(appended: readonly unknown[]): DrivenTurn {
+  return {
+    text: collectAssistantTexts(appended).join(""),
+    userTexts: collectUserTexts(appended),
+    systemNotes: collectSystemNotes(appended),
+  };
+}
+
+/** The trailing-entry shape rendered for a loud failure message. */
+function trailingShapeText(shape: TrailingAssistantShape): string {
+  return (
+    `stopReason ${JSON.stringify(shape.stopReason)}, ` +
+    `partKinds ${JSON.stringify(shape.partKinds)}, ` +
+    `textLengths ${JSON.stringify(shape.textLengths)}`
+  );
 }
 
 /** Whether `entry` is a `type:"message"` entry whose `message.role` is `role`. */
