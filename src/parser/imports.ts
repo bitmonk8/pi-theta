@@ -645,8 +645,12 @@ export function importCycleMessage(stems: readonly string[]): string {
 }
 
 /**
- * The static `.thetalib` import graph: `edges` maps each file stem to the stems it
- * imports.
+ * The static `.thetalib` import graph: `edges` maps each node to the nodes it
+ * imports. Node ids are OPAQUE to `detectImportCycle` — the caller decides
+ * what identifies a `.thetalib` file (bug 0302: the IMP-5 pass keys by
+ * resolved path so two files sharing a basename stay distinct nodes);
+ * `importCycleMessage` renders the cycle path through the caller-supplied
+ * `renderStem`, not through the node id itself.
  */
 export interface ThetaLibImportGraph {
   readonly edges: ReadonlyMap<string, readonly string[]>;
@@ -656,6 +660,10 @@ export interface ThetaLibImportGraph {
  * Walk the static `.thetalib` import graph from `entry`, returning
  * `theta/load/import-cycle` with the cycle path printed when a cycle is
  * discovered, and `undefined` for an acyclic graph (imports.md §"Cycles").
+ * `renderStem` maps an opaque node id to the stem printed in the message;
+ * it defaults to identity so existing stem-keyed callers render
+ * byte-identically; the resolved-path-keyed IMP-5 pass (bug 0302) supplies
+ * its own.
  *
  * V15c-T stubs this inert (always `undefined`), so the cycle test reds on its
  * own primary assertion. The paired V15c leaf fills it in.
@@ -664,6 +672,7 @@ export function detectImportCycle(
   entry: string,
   graph: ThetaLibImportGraph,
   site: ImportSite,
+  renderStem: (node: string) => string = (node) => node,
 ): Diagnostic | undefined {
   const stack: string[] = [];
   const onStack = new Set<string>();
@@ -705,7 +714,7 @@ export function detectImportCycle(
     code: IMPORT_CYCLE_CODE,
     file: site.file,
     range: site.range,
-    message: importCycleMessage(cyclePath),
+    message: importCycleMessage(cyclePath.map(renderStem)),
   };
 }
 

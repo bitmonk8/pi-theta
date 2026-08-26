@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.292.0]
+
+### Fixed
+
+- **Bug 0302** — the IMP-5 import-cycle graph is now keyed by resolved path instead of `.thetalib` basename stem: two distinct files named `util.thetalib` in different directories are two graph nodes, so a stem-twin import no longer draws a false `theta/load/import-cycle` self-loop on an acyclic program, and a stem-twin sibling edge no longer overwrites the node's target list (a real `x → a/util → x` cycle is refused instead of silently admitted) — `imports.md:122`'s static file graph walked as files. `detectImportCycle` unchanged (opaque node ids); printed cycle paths still render bare stems per the registry row. Witnessed by `tests/b0302-stem-keyed-cycle-graph.test.ts` (5 cells) and the acceptance cell `tests/live/acceptance/b0302live-stem-twin-cycle.test.ts`.
+
 ## [0.291.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0302 — The IMP-5 cycle graph keys nodes by `.thetalib` basename stem, not resolved path, so two distinct files named `util.thetalib` in different directories are one graph node: a stem-twin import draws a false `theta/load/import-cycle: util.thetalib → util.thetalib` on an acyclic program, and a stem-twin sibling edge overwrites the node's target list so a real `x → a/util → x` cycle loads with zero diagnostics
 
-- **Status:** open.
+- **Status:** fixed (0.292.0).
 - **Sev/Diff estimate:** S2/D2 — S2 on both directions: the false-positive
   direction refuses a valid two-file program with a diagnostic naming a cycle
   the source does not contain (wrong-diagnostic class), and the masked
@@ -202,3 +202,78 @@ reproduction rows above plus the self-import and two-file-cycle controls.
 - Probes: scratch vitest `tests/scratch-imports-graph.test.ts` cells A1, A2,
   A2b, A3, E4 at `bc52da38`; outputs quoted verbatim above; file deleted per
   scratch policy. No non-scratch file modified.
+
+## Fix (0.292.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — the IMP-5 cycle graph is keyed by
+    resolved path, not basename stem (§Fix): `walkThetaLib` writes
+    `graphEdges.set(resolvedPath, targets)` and pushes `load.resolvedPath` into
+    `targets`; the `entryStems` stem list is removed and the IMP-5 loop iterates
+    the already-present `entryResolvedPaths`; the loop passes `thetalibStem` as
+    the path→stem renderer so the printed message keeps bare stems. Node-id and
+    graph-building comments updated to say nodes are resolved paths.
+  - `src/parser/imports.ts` — `detectImportCycle` gains an optional
+    `renderStem: (node) => string` (default identity) and renders the message
+    via `importCycleMessage(cyclePath.map(renderStem))`; the DFS is unchanged.
+    `ThetaLibImportGraph`/`detectImportCycle` doc-comments now state node ids
+    are opaque (the IMP-5 pass keys by resolved path; the caller supplies the
+    renderer). This realises §Fix's "map paths → stems only for printing".
+  - `tests/b0302-stem-keyed-cycle-graph.test.ts` — offline witness (5 cells).
+  - `tests/live/acceptance/b0302live-stem-twin-cycle.test.ts` — H9a live cell.
+- Gates:
+  - Witness: `npx vitest run tests/b0302-stem-keyed-cycle-graph.test.ts` →
+    5 passed (2 WITNESS cells + 3 GUARD controls); RED before fix (FALSE-POS
+    carried `import cycle: util.thetalib → util.thetalib`, FALSE-NEG empty).
+  - Full suite: `npm test` → 468 files / 9466 tests passed.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) clean.
+  - Lint: `npm run lint` clean.
+  - Live: `tests/live/acceptance/b0302live-stem-twin-cycle.test.ts` → 1 passed
+    (acyclic same-stem program drives `1041`; cyclic same-stem program refused
+    → `REFUSED`), run under the shared live lock.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no findings; two non-blocking
+  prose residuals R1/R2). One `bug-fix-fixer-light` polish round applied both
+  (comment/doc-comment only); post-polish confirmation skipped by the
+  gate-diff rule (every hunk comment-only, gates green).
+- Verification: SOLID — (1) revert-to-stem-keying reds both WITNESS cells with
+  the doc's signatures, byte-exact restore proven by blob hash
+  `86d2a30c…` before and after; (2) full suite green incl. sibling witnesses
+  b0303/b0304/b0305/b0306; (3) live cell green (orchestrator-run) and statically
+  audited (fail-loud host precondition, task-framed discriminators, real stdout
+  observables); (4) lint + typecheck clean. 0303's recursive lib-to-lib
+  materialisation walks (`materializeChain`/`ModuleScope`/`closeOverReExports`)
+  are outside every diff hunk — untouched.
+- Residuals:
+  1. **A genuine same-stem cycle prints identical bare-stem labels.** Per the
+     settled parent adjudication (recorded verbatim below), the printed
+     `<A>.thetalib` placeholders STAY BARE STEMS: the registry row
+     `code-registry-load.md:43` fixes the message shape and §Non-goals
+     explicitly declines the disambiguation question; byte-stability of
+     diagnostics is the standing bias. Evidence: the FALSE-NEG witness
+     (`x → a/util → x`) renders `import cycle: x.thetalib → util.thetalib →
+     x.thetalib`, byte-identical to the distinct-directory control, so a cycle
+     that transits two directory-distinct same-stem files would print the same
+     label twice with no way to tell them apart. The committed corpus ships no
+     same-stem libs, so this masks nothing today. Not fixed by decision.
+- Pinned dispositions / non-goals:
+  - **Parent adjudication (verbatim):** "the printed `<A>.thetalib`
+    placeholders STAY BARE STEMS — the registry row `code-registry-load.md:43`
+    fixes the message shape and the doc's §Non-goals explicitly declines the
+    disambiguation question; byte-stability of diagnostics is the standing
+    bias. If a genuine same-stem cycle would print identical labels, record
+    that as a residual with evidence, do not change the message."
+  - **Mechanism note:** the doc's "`detectImportCycle` needs no change" was
+    imprecise — `detectImportCycle` renders the message internally and
+    `tests/imports.test.ts` proves its node ids are the rendered labels, so
+    path-keyed node ids cannot render as bare stems without a mapping. The
+    optional `renderStem` (default identity, existing callers byte-unchanged)
+    is the minimal faithful realisation of §Fix's "map paths → stems only for
+    printing"; the DFS algorithm is unchanged.
+  - **0101 §Fix residual 4** (printed cycle path rotates with import order) is a
+    non-goal and was not chased; the keying change did not alter which rotation
+    prints for any witness (all print the same path a stem-keyed walk would).
+  - No spec/registry edit owed: `imports.md` §Cycles and
+    `code-registry-load.md:43` describe walking the FILE graph and a bare-stem
+    message; path keying makes both sentences more accurate without changing
+    the printed shape.
+- Discharge notes appended: none.

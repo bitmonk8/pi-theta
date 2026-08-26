@@ -98,7 +98,13 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-/** The `.thetalib` file stem (basename minus `.thetalib`), used as the cycle-graph node id. */
+/**
+ * The `.thetalib` file stem (basename minus `.thetalib`). The IMP-5 cycle
+ * graph is keyed by resolved path (bug 0302: two files sharing a basename in
+ * different directories are distinct nodes), so this renders the printed
+ * cycle path from those resolved-path node ids at emission rather than
+ * serving as the node id itself.
+ */
 function thetalibStem(path: string): string {
   const base = posix.basename(normalizePath(path));
   return base.endsWith(".thetalib") ? base.slice(0, -".thetalib".length) : base;
@@ -418,11 +424,14 @@ export async function checkThetaImports(
   };
 
   // Build the static `.thetalib` import graph transitively from this theta's direct
-  // imports (imports.md §Cycles). Nodes are `.thetalib` stems; an edge `A → B`
-  // exists when `A.thetalib` has a resolvable `import … from "./B.thetalib"` OR a
-  // resolvable `export … from "./B.thetalib"` re-export: imports.md §Cycles walks
-  // the `.thetalib` graph over both edge kinds, which is also what
-  // `collectCallableClosureSources` already does.
+  // imports (imports.md §Cycles). Nodes are RESOLVED PATHS, not basename stems
+  // (bug 0302): two files sharing a basename in different directories are
+  // distinct files, and imports.md §Cycles walks the FILE graph, so collapsing
+  // them into one node both draws false self-loop cycles and overwrites real
+  // edges. An edge `A → B` exists when `A.thetalib` has a resolvable
+  // `import … from "./B.thetalib"` OR a resolvable `export … from "./B.thetalib"`
+  // re-export: imports.md §Cycles walks the `.thetalib` graph over both edge
+  // kinds, which is also what `collectCallableClosureSources` already does.
   const graphEdges = new Map<string, string[]>();
   const walked = new Set<string>();
   const walkThetaLib = async (resolvedPath: string): Promise<void> => {
@@ -430,7 +439,6 @@ export async function checkThetaImports(
       return;
     }
     walked.add(resolvedPath);
-    const stem = thetalibStem(resolvedPath);
     const parsed = await parseThetaLib(resolvedPath);
     const targets: string[] = [];
     if (parsed !== undefined) {
@@ -467,14 +475,14 @@ export async function checkThetaImports(
           range: edge.range,
         });
         if (load.registered && load.resolvedPath !== undefined) {
-          targets.push(thetalibStem(load.resolvedPath));
+          targets.push(load.resolvedPath);
           await walkThetaLib(load.resolvedPath);
         } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
           diagnostics.push(...load.diagnostics);
         }
       }
     }
-    graphEdges.set(stem, targets);
+    graphEdges.set(resolvedPath, targets);
   };
 
   /**
@@ -751,7 +759,6 @@ export async function checkThetaImports(
   };
 
   const localTopLevelNames = collectTopLevelNames(input.body);
-  const entryStems: string[] = [];
   /** Every resolved directly-imported lib, the roots of the re-export closure. */
   const entryResolvedPaths: string[] = [];
   // The union of every importing `import … from` decl's specifiers, checked once
@@ -797,7 +804,6 @@ export async function checkThetaImports(
       continue;
     }
     const resolvedPath = load.resolvedPath;
-    entryStems.push(thetalibStem(resolvedPath));
     entryResolvedPaths.push(resolvedPath);
 
     // IMP-4: parse the resolved `.thetalib`; its `.thetalib`-keyed top-level check
@@ -1018,14 +1024,19 @@ export async function checkThetaImports(
   // IMP-5: walk the static import graph from each directly-imported `.thetalib`;
   // the first cycle discovered un-registers the importing theta.
   const graph: ThetaLibImportGraph = { edges: graphEdges };
-  for (const entry of entryStems) {
-    const cycle = detectImportCycle(entry, graph, {
-      file: input.sourcePath,
-      range: input.body.statements[0]?.range ?? {
-        start: { line: 1, column: 1 },
-        end: { line: 1, column: 1 },
+  for (const entry of entryResolvedPaths) {
+    const cycle = detectImportCycle(
+      entry,
+      graph,
+      {
+        file: input.sourcePath,
+        range: input.body.statements[0]?.range ?? {
+          start: { line: 1, column: 1 },
+          end: { line: 1, column: 1 },
+        },
       },
-    });
+      thetalibStem,
+    );
     if (cycle !== undefined) {
       diagnostics.push(cycle);
       break;

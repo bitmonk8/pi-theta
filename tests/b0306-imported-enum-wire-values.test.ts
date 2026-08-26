@@ -35,7 +35,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // declaration in-file.
 //
 // The materialisation seam drops the explicit-RHS record: the enum arm of
-// `materializeSymbol` (src/extension/import-static-checks.ts:240) narrows to
+// `materializeSymbol` (src/extension/import-static-checks.ts:246) narrows to
 // `{ name, kind: "enum", variants }`, `MaterializedImport`
 // (src/runtime/lexical-environment.ts:142) carries variant names only, and the
 // import arm of `buildEnvironment` rebuilds the wire map with
