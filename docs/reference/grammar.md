@@ -577,7 +577,7 @@ Immutable-by-default. `let x` is immutable (rebinding is
 `theta/parse/immutable-rebinding`); `let mut x` is reassignable. Reassignment is a
 statement (`theta/parse/assignment-as-expression` in expression position); RHS must
 be compatible with the binding's type. A reassignment does not retype the binding;
-later reads keep its type. Mutability is **binding-level only** — `obj.field = ...`
+later reads keep its type. A compound form desugars, `x <op>= e` ≡ `x = x <op> e`: `+=` reuses the `+` operand rule (string/string concatenates, mixed pairs are `theta/parse/mixed-plus-operands`); `-=`/`*=`/`/=`/`%=` are numeric-only, and a non-`number` operand reaching one at runtime is a loud `theta/runtime/internal-error` defect, not a fabricated `0`/`NaN`. Mutability is **binding-level only** — `obj.field = ...`
 / `arr[i] = ...` is `theta/parse/assignment-to-member-or-index`; rebind the whole
 value. Always-immutable contexts (`mut` → `theta/parse/mut-on-immutable-context`):
 function parameters, `for` iteration variables, `match` pattern bindings, the

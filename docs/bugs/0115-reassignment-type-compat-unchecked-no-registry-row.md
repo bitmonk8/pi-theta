@@ -1023,3 +1023,36 @@ place.
   `applyCompound`'s coercion; `theta/parse/immutable-rebinding`'s own behaviour and
   the two shapes where it does not fire (residual 3); 0079's adjudicated
   interpolation disposition, measured unmoved in both directions.
+
+## Coordination note — bug 0314 widened b4's expected diagnostic set (2026-08-26)
+
+Bug 0314 (compound-assignment non-numeric silent zero) resolves the "separate
+question" this report's `## Non-goal` deferred — the compound operator's own
+operand rule. Its ratified Option A defines `x <op>= e ≡ x = x <op> e` and
+routes `+=` through the shared `pushMixedPlusIfNeeded` operand check. Under that
+desugar, `tests/reassign-rhs-type-compat.test.ts` cell **b4**
+(`let mut n: integer = 1` / `n += "hi"`) now legitimately draws TWO diagnostics
+instead of one:
+
+- `theta/parse/reassign-rhs-type-mismatch` — b4's ORIGINAL subject (TYPE-9's
+  RHS-vs-target `⊑` check at the reassign position). **Preserved**: its code
+  remains in the expected set.
+- `theta/parse/mixed-plus-operands` — the desugared operator check the same
+  mixed pair (`integer` + `string`) now draws, verified byte-identical to the
+  spelled binary `n = n + "hi"` (both render `'+' has mixed operand types:
+  integer and string`).
+
+**Parent ratification A-1 (verbatim):** widen b4's expected diagnostic set to
+the two-code set `[theta/parse/mixed-plus-operands,
+theta/parse/reassign-rhs-type-mismatch]` — vehicle-collateral: b4's subject is
+PRESERVED (its code remains in the set); the additional code is the desugared
+operator check the same input now legitimately draws, verified byte-identical to
+the spelled binary `n = n + "hi"`. Bound: this ONE cell's expected set (plus its
+rationale comment); b5–b8 untouched. **A-2 (suppression) was REJECTED on the
+record:** `+=` must not draw fewer diagnostics than the spelled `+`.
+
+The change is confined to b4 (now its own `it`, asserting the ordered two-code
+list). Cells b5–b8 (`-=`/`*=`/`/=`/`%=`, the numeric-only forms that get no
+parse operand check under 0314) keep `expectSoleMismatch` unchanged; b9
+(numeric narrowing) is unaffected. This note is append-only; nothing above is
+revised.

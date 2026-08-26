@@ -195,6 +195,8 @@ const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
 const IMMUTABLE_CODE = "theta/parse/immutable-rebinding";
 /** The consequence row group (e) proves is an addition, not a replacement. */
 const UNKNOWN_METHOD_CODE = "theta/parse/unknown-method";
+/** The desugared-operator row bug 0314 makes `+=` draw in addition to the compat verdict (b4). */
+const MIXED_PLUS_CODE = "theta/parse/mixed-plus-operands";
 /** Bug 0079's static gate, whose adjudicated disposition group (h) pins unmoved. */
 const INTERPOLATED_RESULT_CODE = "theta/parse/interpolated-result";
 
@@ -261,6 +263,10 @@ function unknownMethodMessage(method: string, type: string): string {
   return registered(UNKNOWN_METHOD_CODE)
     .replace("<method>", method)
     .replace("<type>", type);
+}
+
+function mixedPlusMessage(left: string, right: string): string {
+  return registered(MIXED_PLUS_CODE).replace("<left>", left).replace("<right>", right);
 }
 
 // ===========================================================================
@@ -470,9 +476,15 @@ describe("bug 0115 (b1–b3) — every primitive pair reports, annotated and inf
   }
 });
 
-/** The five compound forms, each with a `string` RHS on an `integer` target. */
+/**
+ * The FOUR numeric-only compound forms, each with a `string` RHS on an
+ * `integer` target. `+=` (b4) is handled separately below: bug 0314 desugars
+ * `x <op>= e ≡ x = x <op> e` and routes `+=` through the shared operand check,
+ * so `+=` on a mixed pair draws the operator row in addition to the compat
+ * verdict, while `-=`/`*=`/`/=`/`%=` get no operand check and keep the sole
+ * mismatch.
+ */
 const COMPOUND_OPERATORS: readonly [string, string][] = [
-  ["b4", "+="],
   ["b5", "-="],
   ["b6", "*="],
   ["b7", "/="],
@@ -480,15 +492,45 @@ const COMPOUND_OPERATORS: readonly [string, string][] = [
 ];
 
 describe("bug 0115 (b4–b9) — all five compound forms are judged, and the compound narrowing routes to its own registered row", () => {
+  it('RED b4: `n += "hi"` on an `integer` binding reports BOTH the compat mismatch AND the desugared mixed-plus row', () => {
+    // PARENT RATIFICATION A-1 (bug 0314, recorded verbatim). bug 0314 defines
+    // `x <op>= e ≡ x = x <op> e` and routes `+=` through the shared
+    // `pushMixedPlusIfNeeded` operand check. So `n += "hi"` (integer target +
+    // string RHS = a MIXED pair) now legitimately draws BOTH diagnostics:
+    //   - `theta/parse/reassign-rhs-type-mismatch` — b4's ORIGINAL subject
+    //     (TYPE-9's RHS-vs-target `⊑` check at the reassign position). PRESERVED:
+    //     its code remains in the set.
+    //   - `theta/parse/mixed-plus-operands` — the desugared operator check the
+    //     same input now legitimately draws, verified byte-identical to the
+    //     spelled binary `n = n + "hi"` (the added row renders `'+' has mixed
+    //     operand types: integer and string` in both spellings).
+    // The parent's ratified set is [mixed-plus-operands,
+    // reassign-rhs-type-mismatch]; the emission ORDER is [reassign-rhs-type-
+    // mismatch, mixed-plus-operands] and this ordered whole-list equality pins
+    // it. Suppression (A-2 — routing `+=` past the operand check when the compat
+    // mismatch already fires) was REJECTED on the record: `+=` must not draw
+    // FEWER diagnostics than the spelled `+`. The widening is bounded to THIS
+    // cell; b5–b8 (the numeric-only forms, which get no operand check) keep
+    // `expectSoleMismatch` unchanged.
+    const doc = parse('let mut n: integer = 1\nn += "hi"\n1\n');
+    expect(
+      fullOf(doc),
+      `b4 — the desugared \`+=\` draws the operand check in lockstep with the spelled binary, in ADDITION to the compat verdict; actual diagnostics=${render(doc)}`,
+    ).toEqual([
+      `error ${CODE}: ${reassignMismatch("n", "integer", "string")}`,
+      `error ${MIXED_PLUS_CODE}: ${mixedPlusMessage("integer", "string")}`,
+    ]);
+  });
+
   for (const [id, op] of COMPOUND_OPERATORS) {
     it(`RED ${id}: \`n ${op} "hi"\` on an \`integer\` binding reports reassign-rhs-type-mismatch`, () => {
       // bindings.md:12 names the plain form and `+=`, `-=`, `*=`, `/=`, `%=` in
       // ONE sentence with the compatibility clause, so one row covers all six
       // spellings — §Fix (a): "Distinct codes for the plain and compound forms
-      // are not needed". The operator's own numeric-operand rule is a separate
-      // question (§Non-goals: `applyCompound`'s coercion), so what is asserted
-      // here is the compatibility verdict on the RHS against the target, in the
-      // same shape the plain form gets.
+      // are not needed". These four are the numeric-only operators: bug 0314
+      // gives them NO parse operand check (the spelled-binary sibling defect is
+      // out of scope), so what is asserted here is the compatibility verdict on
+      // the RHS against the target alone, in the same shape the plain form gets.
       expectSoleMismatch(
         `let mut n: integer = 1\nn ${op} "hi"\n1\n`,
         "n",

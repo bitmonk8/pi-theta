@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.293.0]
+
+### Fixed
+
+- **Bug 0314** — compound assignment on a non-numeric `let mut` binding no longer parses clean and silently writes `0`/`NaN`. Compound operators are now defined by desugaring `x <op>= e ≡ x = x <op> e` (`bindings.md` §Reassignment): the type layer routes `+=`'s implied `+` pair through the shared `mixed-plus-operands` operand check (so `xs += [2]` / `b += false` red at parse exactly as the spelled binary), and `applyCompound` gives `+=` the real `+` semantics (string+string concatenates, else numeric add) while `-=`/`*=`/`/=`/`%=` require two numbers and otherwise throw a loud `CompoundNonNumericError` (framed to `theta/runtime/internal-error`) instead of fabricating a `0` — the `: 0` coercions are gone; the numeric control `n += 2` → 3 is byte-identical. The `theta/parse/mixed-plus-operands` registry Trigger is widened same-commit to name the desugared `+=` position. Witnessed by `tests/b0314-compound-assign-non-numeric.test.ts` (7 rows) and the live cell `tests/live/acceptance/b0314live-compound-assign.test.ts`; bug 0115's `reassign-rhs-type-compat` cell b4 widened to expect both the compat mismatch and the desugared `mixed-plus-operands` (parent ratification A-1, coordination note on its record).
+
 ## [0.292.0]
 
 ### Fixed

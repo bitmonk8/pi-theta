@@ -609,25 +609,66 @@ function isTruthy(value: ThetaValue): boolean {
   return value === true;
 }
 
-/** Apply a compound-assignment operator to two numeric operands. */
+/**
+ * Bug 0314 (docs/bugs/0314-compound-assign-non-numeric-silent-zero.md)
+ * belt-and-braces: a compound operator is defined by desugaring,
+ * `x <op>= e ≡ x = x <op> e` (bindings.md §Reassignment), and the parse-time
+ * type-layer routes `+=`'s implied `x + e` pair through the shared
+ * `+`-operand classifier (`theta/parse/mixed-plus-operands`), which fires
+ * only when both operands are statically resolvable; an unresolvable pair
+ * defers exactly as the spelled binary `x = x + e` does and takes the same
+ * runtime `+` arm. So a `+=` reaching here carries two strings, two
+ * numbers, or an unresolvable pair that the shared `+` arm computes
+ * identically to the spelled binary.
+ * `-=`/`*=`/`/=`/`%=` have no parse-time operand gate at this fork — the
+ * spelled `-`/`*`/`/`/`%` binaries have no parse-time operand check either;
+ * that shared gap is out of this fix's ratified scope — so a non-number
+ * operand can still reach them; fabricating a `0` there silently overwrites
+ * the binding with a value of a different type (the original defect), so
+ * this throws a loud, specific defect instead — never a catch-all, never a
+ * fabricated number.
+ */
+export class CompoundNonNumericError extends Error {
+  public constructor(op: "-=" | "*=" | "/=" | "%=", current: ThetaValue, delta: ThetaValue) {
+    super(
+      `internal defect: compound operator '${op}' requires two numbers, got ${typeof current} and ${typeof delta}; a non-number operand reached a numeric compound after the reassign type gate (bug 0314)`,
+    );
+    this.name = "CompoundNonNumericError";
+  }
+}
+
+/**
+ * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
+ * `+` arm exactly (string+string concatenates, else numeric addition) — the
+ * shared runtime semantics for `+`, since bindings.md defines `x += e` as
+ * `x = x + e` and the parse-time `+`-operand gate has already refused every
+ * statically-resolvable mixed pair; an unresolvable pair defers and takes
+ * the same shared `+` arm as the spelled binary. `-=`/`*=`/`/=`/`%=` are
+ * numeric-only: a non-number operand throws `CompoundNonNumericError` rather
+ * than silently computing over a fabricated `0` (bug 0314).
+ */
 function applyCompound(
   op: "+=" | "-=" | "*=" | "/=" | "%=",
   current: ThetaValue,
   delta: ThetaValue,
 ): ThetaValue {
-  const a = typeof current === "number" ? current : 0;
-  const b = typeof delta === "number" ? delta : 0;
+  if (op === "+=") {
+    return typeof current === "string" && typeof delta === "string"
+      ? current + delta
+      : (current as number) + (delta as number);
+  }
+  if (typeof current !== "number" || typeof delta !== "number") {
+    throw new CompoundNonNumericError(op, current, delta);
+  }
   switch (op) {
-    case "+=":
-      return a + b;
     case "-=":
-      return a - b;
+      return current - delta;
     case "*=":
-      return a * b;
+      return current * delta;
     case "/=":
-      return a / b;
+      return current / delta;
     case "%=":
-      return a % b;
+      return current % delta;
   }
 }
 

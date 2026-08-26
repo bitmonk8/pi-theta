@@ -1703,6 +1703,20 @@ class TypeLayerWalk {
                 site: { file: this.file, range: stmt.range },
               }),
             );
+            // Bug 0314 — bindings.md's desugar defines `x += e` as `x = x + e`,
+            // so the implied `+` pair must clear the SAME operand-type gate the
+            // spelled binary clears (`theta/parse/mixed-plus-operands`); TYPE-9
+            // above judges RHS `⊑` target only, which a same-type array/array or
+            // boolean/boolean pair always satisfies, so without this call
+            // `xs += [2]` / `b += false` parse clean. Only `+=` routes here —
+            // `-=`/`*=`/`/=`/`%=` have no parse-time operand gate at this fork —
+            // the spelled `-`/`*`/`/`/`%` binaries have no parse-time operand
+            // check either; that shared gap is out of this fix's ratified scope;
+            // `declared` (the TARGET's type) stands in for the desugar's left
+            // operand since the desugar reads `x` before writing it.
+            if (stmt.op === "+=") {
+              this.pushMixedPlusIfNeeded(declared, rhsType, stmt.range);
+            }
           }
         }
         this.walkExpr(stmt.value, bindings, flow);
@@ -3527,6 +3541,21 @@ class TypeLayerWalk {
   ): void {
     const leftType = this.typeOf(e.left, bindings);
     const rightType = this.typeOf(e.right, bindings);
+    this.pushMixedPlusIfNeeded(leftType, rightType, e.range);
+  }
+
+  /**
+   * The type-pair core of A5, factored out so the SPELLED `x + e` binary
+   * (`checkPlusOperands` above) and the DESUGARED `x += e` compound
+   * reassignment (bug 0314's `case "reassign"` arm, bindings.md's
+   * `x <op>= e ≡ x = x <op> e`) share one classifier instead of drifting into
+   * two copies of the same rule.
+   */
+  private pushMixedPlusIfNeeded(
+    leftType: CompatType,
+    rightType: CompatType,
+    range: Expr["range"],
+  ): void {
     const left = classifyOperand(leftType, this.env);
     const right = classifyOperand(rightType, this.env);
     if (left === "unknown" || right === "unknown") {
@@ -3542,7 +3571,7 @@ class TypeLayerWalk {
       severity: "error",
       code: "theta/parse/mixed-plus-operands",
       file: this.file,
-      range: e.range,
+      range,
       message: `'+' has mixed operand types: ${displayType(leftType)} and ${displayType(
         rightType,
       )}`,
