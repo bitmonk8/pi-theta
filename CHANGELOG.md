@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.289.0]
+
+### Fixed
+
+- **Bug 0306** — an imported `.thetalib` enum no longer loses its explicit `= "..."` wire values: `MaterializedImport` gains a `values` record, `materializeSymbol`'s enum arm copies the declaration's `variantValues`, and `buildEnvironment`'s import arm threads it into `buildVariantWireMap` — so imported `Sev.Low` against `enum Sev { Low = "low" }` evaluates to `"low"` exactly as the same-file declaration does (`schemas.md:97`). Witnessed by `tests/b0306-imported-enum-wire-values.test.ts` (4 rows incl. alias and re-export-chain) and the live cell `tests/live/b0306live-imported-enum-wire-live-cell.test.ts`.
+
 ## [0.288.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0306 — An imported `.thetalib` enum loses its explicit `= "..."` wire values: `materializeSymbol` carries variant NAMES only and `buildEnvironment` rebuilds the wire map with `values: undefined`, so imported `Sev.Low` against `enum Sev { Low = "low" }` evaluates to `"Low"` where the same-file declaration evaluates to `"low"` — a silent wrong wire value the code comment states outright ("imported explicit values are not threaded through the materialisation seam")
 
-- **Status:** open.
+- **Status:** fixed (0.289.0).
 - **Sev/Diff estimate:** S1/D2 — S1 by the letter: a value the author pinned
   with an explicit wire string reaches every consumer — `JSON.stringify`,
   interpolation, `==` against wire-string data, tool/query payload positions —
@@ -168,3 +168,61 @@ against an inbound-shaped `"low"`.
   `src/runtime/value.ts:497–503`.
 - Probes: scratch vitest cells G1, G1b at `bc52da38`, outputs quoted
   verbatim; file deleted per scratch policy. No non-scratch file modified.
+
+## Fix (0.289.0)
+
+- What shipped (keyed to §Fix — the values record threaded through the
+  materialisation seam, nothing else):
+  - `src/runtime/lexical-environment.ts` — `MaterializedImport` gains
+    `values?: Readonly<Record<string, string>>` (mirroring
+    `EnumRegistration.values`); `buildEnvironment`'s import arm now calls
+    `buildVariantWireMap(imp.variants ?? [], imp.values)` (was `undefined`),
+    and the narrowing comment is replaced with one anchoring the same-file
+    arm above.
+  - `src/extension/import-static-checks.ts` — `materializeSymbol`'s enum arm
+    spreads `stmt.variantValues` into the returned `MaterializedImport`
+    (`...(stmt.variantValues !== undefined ? { values: stmt.variantValues } :
+    {})`), byte-identical to the same-file registration spread in
+    `production-theta-producer.ts`. The re-export chain needs no edit:
+    `materializeChain` returns `materializeSymbol`'s result verbatim, so the
+    0101 leaf carries the record automatically.
+- Gates:
+  - Witness: `npx vitest run tests/b0306-imported-enum-wire-values.test.ts`
+    — 4 passed (imported wire "low", `as`-aliased wire "low", re-export-chain
+    wire "low", `valuesEqual(imported, makeEnumValue("Sev","low"))===true`).
+    Red-before/green-after proven: at HEAD the four rows red with
+    `expected 'Low' to be 'low'` (rows 1-3) and `expected false to be true`
+    (row 4); the fix flips all four green; the verifier reproduced the revert
+    (import arm back to `undefined`) → 4 red, byte-exact restore
+    (`git hash-object` `a42e8eb33ec350650ae9560057e9a852f219d885`) → 4 green.
+  - Full suite: `npm test` — 465 files / 9447 tests passing.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — exit 0.
+  - Lint: `npm run lint` (`eslint … src/**/*.ts`) — exit 0.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0306live-imported-enum-wire-live-cell.test.ts` — 1 passed
+    (3.1 s). An imported `enum Code { Alpha = "263", Beta = "514" }`
+    interpolated into a task-framed arithmetic prompt drives to the sum 777
+    (computable only from the declared wire); both directions proven live —
+    neutralising the import arm to `undefined` reds it (`Reply: "3"`, no 777),
+    byte-exact restore returns green.
+  - `tests/fixtures/h7a/permitted-codes.json` byte-unchanged (no new
+    emissions; DIAG-2 — a runtime value fix widens no trigger and mints no
+    code).
+- Review: 1 round. R1 (`bug-fix-reviewer`, deep) — verdict findings: F1 prose
+  (a STYLE.md banned filler word in a new test comment); no
+  correctness/fidelity/spec finding. F1 fixed by `bug-fix-fixer-light` (comment word swap, no executable
+  line); polish verified by gate-diff (suite/typecheck/lint green),
+  confirmation round skipped per charter.
+- Verification: verdict SOLID. Obligation 1 (tests witness) — revert→4 red,
+  restore→4 green, blob hash matched. Obligation 2 (default suite) — 465/9447
+  green. Obligation 3 (live) — fixed path drives to 777, neutralised reds,
+  restored; attribution guard + stderr gate present. Obligation 4 (lint +
+  typecheck) — both exit 0.
+- Residuals: none.
+- Discharge notes appended: none. Sibling 0305 (the enum-TAG half) stays open
+  and owns tag minting / `makeEnumValue` / `resolveEnumVariant` / equality;
+  this fix threads `values` only and touches none of them. The wire/tag split
+  is already recorded in 0305's doc.
+- Pinned dispositions / non-goals: as §Non-goals — the tag half (0305),
+  imported-enum schema-lowering at query positions, and the same-file
+  `EnumRegistration.values` shape are untouched.

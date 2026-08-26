@@ -122,6 +122,12 @@ export interface MaterializedImport {
   readonly fn?: FnDecl;
   /** The variant wire strings — present only for `kind: "enum"`. */
   readonly variants?: readonly string[];
+  /**
+   * Explicit `= "..."` wire values keyed by variant name — present only for
+   * `kind: "enum"`. A variant absent here uses its name verbatim as the wire
+   * value, preserving the name-is-wire default (schemas.md §Enum declarations).
+   */
+  readonly values?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -308,10 +314,9 @@ export class LexicalEnvironment {
         if (imp.kind === "schema") {
           this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
         } else if (imp.kind === "enum") {
-          // Imported enums carry variant names only; each name is its own wire
-          // value (imported explicit values are not threaded through the
-          // materialisation seam).
-          this.enums.set(imp.name, buildVariantWireMap(imp.variants ?? [], undefined));
+          // Imported enums thread their explicit `= "..."` values (schemas.md
+          // §Enum declarations), exactly as the same-file arm above.
+          this.enums.set(imp.name, buildVariantWireMap(imp.variants ?? [], imp.values));
         }
       }
       callables = new Set(inputs.callables ?? []);

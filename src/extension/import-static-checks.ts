@@ -207,7 +207,12 @@ function materializeSymbol(
       return { name: local, kind: "schema" };
     }
     if (stmt.kind === "enum" && stmt.name === source) {
-      return { name: local, kind: "enum", variants: stmt.variants ?? [] };
+      return {
+        name: local,
+        kind: "enum",
+        variants: stmt.variants ?? [],
+        ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+      };
     }
   }
   return undefined;
