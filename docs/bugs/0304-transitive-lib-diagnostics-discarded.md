@@ -1,6 +1,6 @@
 # Bug 0304 — Every load-time fault inside a `.thetalib` reached through one plain-`import` hop is silently discarded: a transitive lib's unresolvable import path, its illegal top-level statement, and its unknown import symbol all load the theta with zero diagnostics, while the byte-identical fault one hop earlier (in the directly-imported lib) un-registers it — against imports.md's own batching sentence "collected alongside every other parse / type error from the importing file and its transitive `.thetalib` imports"
 
-- **Status:** open.
+- **Status:** fixed (0.288.0).
 - **Sev/Diff estimate:** S1/D2 — S1 by the silent-acceptance letter: three
   `E`-severity registered codes (`theta/load/unresolvable-thetalib-path`,
   `theta/parse/thetalib-top-level-statement`,
@@ -211,3 +211,82 @@ sites.
   :653–664, :666–682, :779–800`.
 - Probes: scratch vitest cells C1, C2, C2b, C3 at `bc52da38`, outputs quoted
   verbatim; file deleted per scratch policy. No non-scratch file modified.
+
+## Fix (0.288.0)
+
+- What shipped (`src/extension/import-static-checks.ts`, inside
+  `checkThetaImports`, keyed to §Fix):
+  - §Fix (1) — `walkThetaLib`'s edge loop now pushes `load.diagnostics` on the
+    failure arm for `.thetalib` `import` edges only (a `kind` field carried on
+    each edge). Non-`.thetalib` import edges are skipped exactly as the direct
+    decl loop skips them (the parse-time
+    `theta/parse/import-non-thetalib-extension` is already the answer, so
+    pushing IMP-1 would double-report). `export … from` edges are left to
+    `closeOverReExports` to avoid double-reporting IMP-1.
+  - §Fix (2) — the `isRegistrationError` filter now covers every `parseCache`
+    entry (direct AND transitively-walked) exactly once, split across two
+    sites guarded by a `registrationFilteredPaths` Set: inline for a direct
+    decl (preserving the IMP-4-then-IMP-3 emission order that
+    `import-specifier-list-production-required.test.ts` and
+    `imported-thetalib-fn-call-args-checked.test.ts` pin) and post-walk for
+    every remaining (transitively-only) entry.
+  - §Fix (3) — a new post-walk pass runs `checkImportUnknownSymbols` over each
+    parsed lib's OWN `import` specifiers against its resolved source's
+    `computeThetaLibExports`, sited on the faulting lib; an unresolvable source
+    is skipped (fix (1) already reports its IMP-1).
+- Gates:
+  - Witness: `npx vitest run tests/b0304-transitive-lib-diagnostics.test.ts` —
+    11 passed (6 bug cells + 3 depth-1 controls + diamond + direct/transitive
+    overlap dedup-guard). Red-before/green-after proven by the verifier:
+    neutralising the three pushes to HEAD content reds 7 cells with the
+    `Rendered batch: []` symptom; byte-exact restore (`git hash-object`
+    `dc6cccbe…`) returns 11/11 green.
+  - Full suite: `npm test` — 464 files / 9443 tests passing.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - Lint: `npm run lint` (`eslint … src/**/*.ts`) — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/b0304live-transitive-load-refusal.test.ts` — 1
+    passed (7.5 s); offender refused end-to-end through real `pi -p`, control
+    registers and drives.
+  - `tests/fixtures/h7a/permitted-codes.json` byte-unchanged.
+- Review: 3 rounds. R1 (`bug-fix-reviewer`, deep): F2 correctness — transitive
+  import-edge push lacked the direct loop's `.thetalib` guard (spurious IMP-1
+  on a wrong-extension import); F1(b) comment overclaimed `closeOverReExports`
+  coverage; F3 (prose) 0.288.0 placeholder (non-issue in this lane); F1(a)
+  export-in-import-reached-lib judged out of scope. R2
+  (`bug-fix-reviewer-fast`): CLEAN + one test-precision residual (the diamond
+  cell's comment named the wrong dedup mechanism). R3 (`bug-fix-reviewer-fast`):
+  CLEAN.
+- Verification (`bug-fix-verifier`, verdict SOLID): (1) witness reds without
+  the fix and greens with it, byte-exact restore confirmed; (2) full suite
+  green; (3) live acceptance genuinely exercises the fixed path (offline
+  attribution guard pins offender=[theta/load/unresolvable-thetalib-path],
+  control=[]; refusal observed via `invoke` Err→REFUSED sentinel; both
+  directions asserted; fails loudly on missing host); (4) lint + typecheck
+  clean.
+- Residuals:
+  1. Broken `export … from` (re-export) inside a lib reached ONLY through
+     plain-`import` hops is still reported by neither reporter
+     (`closeOverReExports` is seeded from entry libs and recurses over `export`
+     edges only; §Fix (1) restricts to `import` edges). This is bug 0101's
+     residual-2 export-edge half. Out of scope: 0304's settled §Fix enumerates
+     only the three import-based pushes; covering it needs a fourth mechanism
+     touching the re-export closure. Evidence: `walkThetaLib` edge-loop WHY
+     comment in `import-static-checks.ts` records it; scratch probe at HEAD
+     confirmed the export-edge case is reported exactly once by
+     `closeOverReExports` (for closure-reachable libs only).
+  2. A transitive lib's `import-name-collision` (two of its imports binding one
+     local) is still unchecked — same seam, unenumerated (§Non-goals bullet 3).
+  3. `fakeThetaLibFs` in-memory FileSystem double is now duplicated across
+     `tests/reexport-chain-resolution.test.ts` and both new b0304 test files;
+     a `tests/helpers` hoist would prevent drift. Repo-tolerated duplication.
+- Discharge notes appended:
+  `docs/bugs/0101-from-bearing-reexport-materialises-nothing.md` residual 2
+  (partial discharge — import-edge halves closed, export-edge half recorded
+  open).
+- Pinned dispositions / non-goals: every §Non-goals item untouched (runtime
+  lib-body scope, note-channel LEX delivery, lib `import-name-collision`).
+  `graphEdges`/`entryStems` keying (bug 0302), `materializeSymbol` /
+  `MaterializedImport` / lib scope (bugs 0303/0305/0306) untouched — the diff
+  touches only the diagnostics-push aspect. Version rendered as the `0.288.0`
+  placeholder throughout (lane assigns it at merge).

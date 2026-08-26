@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.288.0]
+
+### Fixed
+
+- **Bug 0304** — load-time faults inside transitively-imported `.thetalib` files are no longer silently discarded: `checkThetaImports` now pushes `walkThetaLib`'s failure-arm `load.diagnostics` for every transitive `import` edge, runs the registration-error filter over every `parseCache` entry, and checks each parsed lib's own `import` specifiers against its resolved source's export set — so a transitive lib's unresolvable import path, illegal top-level statement, or unknown import symbol un-registers the importing theta exactly as the same fault one hop earlier does (`imports.md:111` batching contract). Witnessed by `tests/b0304-transitive-lib-diagnostics.test.ts` (11 cells) and the H9a acceptance cell `tests/live/acceptance/b0304live-transitive-load-refusal.test.ts`.
+
 ## [0.287.0]
 
 ### Fixed

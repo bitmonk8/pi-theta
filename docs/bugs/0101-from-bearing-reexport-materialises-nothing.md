@@ -1040,6 +1040,18 @@ at the baseline (`collectImports:77`, `extractThetaLibForms:106`,
      specifiers were never unknown-symbol-checked), and functionally inert
      because a plain-import local is excluded from export sets and so cannot
      feed the importer's bindings. Unfiled.
+     Partially discharged by 0304's fix (0.288.0): the transitive plain-`import`
+     edge halves this residual names are now enforced at arbitrary depth —
+     `walkThetaLib` pushes `load.diagnostics` for a failed transitive `.thetalib`
+     `import` edge (IMP-1), every `parseCache` entry's registration errors are
+     filtered once after the walks (IMP-4 at depth), and each lib's own `import`
+     specifiers are unknown-symbol-checked against its resolved source's exports
+     (IMP-3 at depth). The broken `export … from` (re-export) inside a lib
+     reached ONLY through plain-`import` hops remains OPEN: 0304's settled §Fix
+     enumerates only the import-edge pushes, and `closeOverReExports` is seeded
+     from the entry libs and recurses over `export` edges only, so an
+     import-only-reached lib's re-export fault is still reported by neither
+     reporter. Recorded as a residual of 0304's fix for the parent to file.
   3. **A resolved-but-unreadable source lib reads as an empty export set**, so a
      re-export from it draws `theta/parse/import-unknown-symbol` rather than a
      read-failure code. Defensible — the file provides nothing — and it mirrors

@@ -392,11 +392,29 @@ export async function checkThetaImports(
     const targets: string[] = [];
     if (parsed !== undefined) {
       // One edge per STATEMENT (an `export` statement's N specifiers name one
-      // path, so they are one edge), mirroring the `import` side.
-      const edges: Array<{ path: string; range: SourceRange }> = [];
+      // path, so they are one edge), mirroring the `import` side. `kind` is
+      // carried through so the failure arm below pushes `load.diagnostics` for
+      // `.thetalib` `import` edges only (bug 0304 fix 1). A non-`.thetalib`
+      // `import` edge is skipped for the same reason the direct decl loop skips
+      // it: the parser already emitted
+      // `theta/parse/import-non-thetalib-extension` for that spelling and the
+      // resolver can never resolve it, so pushing IMP-1 here would double-report
+      // the identical wrong-extension fault (two codes for one statement).
+      //
+      // An `export … from` edge is not pushed here. For a lib inside the
+      // re-export CLOSURE of an entry lib, `closeOverReExports` already pushes
+      // IMP-1 once for a failed source, so a second push here would double-report
+      // it. `closeOverReExports` is seeded only from the entry libs and recurses
+      // only through `export` statements, so a broken `export … from` inside a
+      // lib reached ONLY through plain-`import` hops is covered by neither
+      // reporter and stays silent — bug 0101's residual-2 class (a broken
+      // re-export inside a plain-import-reached lib), for which bug 0304's
+      // settled §Fix (three IMPORT-based pushes) enumerates no mechanism and
+      // which this fix does not address.
+      const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
       for (const stmt of parsed.document.body.statements) {
         if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
-          edges.push({ path: stmt.path, range: stmt.range });
+          edges.push({ path: stmt.path, range: stmt.range, kind: stmt.kind });
         }
       }
       for (const edge of edges) {
@@ -408,6 +426,8 @@ export async function checkThetaImports(
         if (load.registered && load.resolvedPath !== undefined) {
           targets.push(thetalibStem(load.resolvedPath));
           await walkThetaLib(load.resolvedPath);
+        } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
+          diagnostics.push(...load.diagnostics);
         }
       }
     }
@@ -627,6 +647,17 @@ export async function checkThetaImports(
   // below, in the SAME specifiers loop that already holds each resolved and
   // parsed library body (`materializeChain`'s own loop) — no separate walk.
   const importedFns = new Map<string, ImportedFnCallee>();
+  // Bug 0304 fix 2: `isRegistrationError` must fire for every `parseCache`
+  // entry exactly once. A DIRECT decl's own resolved lib is filtered inline
+  // below, in the same position bug 0138's own test pins (`isRegistrationError`
+  // must land BEFORE that decl's unknown-symbol check and BEFORE the post-loop
+  // `checkImportedFnCallArgs` push, in emission order) — moving it out to a
+  // single post-walk pass over `parseCache` would still be correct for
+  // COVERAGE but wrong for ORDER, since a post-walk pass necessarily runs
+  // after every decl's own pushes. This set is the seam: the post-walk pass
+  // (below, after the re-export closure) skips whatever this loop already
+  // filtered, so every entry is still filtered exactly once overall.
+  const registrationFilteredPaths = new Set<string>();
 
   for (const decl of importDecls) {
     const spec = decl.path;
@@ -652,14 +683,20 @@ export async function checkThetaImports(
 
     // IMP-4: parse the resolved `.thetalib`; its `.thetalib`-keyed top-level check
     // (and any nested import extension error) surfaces here so an illegal form
-    // un-registers the importing theta.
+    // un-registers the importing theta. Filtered inline (not deferred to the
+    // post-walk pass below) so the emission order stays IMP-4-then-IMP-3 for a
+    // direct decl, as callers of this batch already depend on; recorded in
+    // `registrationFilteredPaths` so the post-walk pass does not re-push it.
     const parsed = await parseThetaLib(resolvedPath);
     if (parsed === undefined) {
       continue;
     }
-    for (const diagnostic of parsed.document.diagnostics) {
-      if (isRegistrationError(diagnostic)) {
-        diagnostics.push(diagnostic);
+    if (!registrationFilteredPaths.has(resolvedPath)) {
+      registrationFilteredPaths.add(resolvedPath);
+      for (const diagnostic of parsed.document.diagnostics) {
+        if (isRegistrationError(diagnostic)) {
+          diagnostics.push(diagnostic);
+        }
       }
     }
 
@@ -749,6 +786,64 @@ export async function checkThetaImports(
     await closeOverReExports(resolvedPath);
   }
   diagnoseReExports(fixReExportedNames());
+
+  // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
+  // transitively-walked, over both `import` and `export … from` edges — sits in
+  // `parseCache` by now, keyed by resolved path, so one pass over a snapshot of
+  // it (`[...parseCache]`; the loop mutates nothing here, but the snapshot
+  // keeps this pass independent of any future entry the loop body might add)
+  // covers both:
+  //   (2) the registration-error filter (imports.md :111's transitive half of
+  //       the batch) for every entry the decl loop above did NOT already
+  //       filter inline (`registrationFilteredPaths`) — i.e. every
+  //       transitively-walked lib, so it is filtered exactly once overall
+  //       without disturbing the direct-decl IMP-4-then-IMP-3 emission order;
+  //   (3) the unknown-symbol check IMP-3 already runs for the importing
+  //       THETA's own specifiers, now also run for each lib's OWN `import`
+  //       specifiers against its resolved source's export set — no call site
+  //       did this before, which is candidate C3's drop. An unresolvable
+  //       source is skipped: `walkThetaLib`'s edge loop (fix 1) already pushes
+  //       IMP-1 for it, so checking symbols against a source that does not
+  //       exist would double-report the same missing-file fault as an
+  //       unrelated unknown-symbol one.
+  for (const [libResolvedPath, parsedLib] of [...parseCache]) {
+    if (parsedLib === undefined) {
+      continue;
+    }
+    if (!registrationFilteredPaths.has(libResolvedPath)) {
+      registrationFilteredPaths.add(libResolvedPath);
+      for (const diagnostic of parsedLib.document.diagnostics) {
+        if (isRegistrationError(diagnostic)) {
+          diagnostics.push(diagnostic);
+        }
+      }
+    }
+    for (const stmt of parsedLib.document.body.statements) {
+      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
+        continue;
+      }
+      await probe.precache(stmt.path, libResolvedPath);
+      const load = loadThetaLibImport(resolver, stmt.path, libResolvedPath, {
+        file: libResolvedPath,
+        range: stmt.range,
+      });
+      if (!load.registered || load.resolvedPath === undefined) {
+        continue;
+      }
+      const sourceParsed = await parseThetaLib(load.resolvedPath);
+      if (sourceParsed === undefined) {
+        continue;
+      }
+      diagnostics.push(
+        ...checkImportUnknownSymbols(
+          libResolvedPath,
+          stmt.path,
+          stmt.specifiers,
+          computeThetaLibExports(extractThetaLibForms(sourceParsed.document.body)),
+        ),
+      );
+    }
+  }
 
   // IMP-3 (name collisions): check the union of every resolved decl's specifiers
   // once, so two imports binding the same local name — across two separate
