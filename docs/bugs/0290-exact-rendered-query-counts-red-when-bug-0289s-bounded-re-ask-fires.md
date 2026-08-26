@@ -1,6 +1,6 @@
 # Bug 0290 — Live cells that assert an EXACT count of rendered queries red when bug 0289's bounded same-session re-ask fires: `captureSettledTurn` re-issues the LAST user text verbatim (`tests/live/harness.ts:633`), so a sentinel-carrying query appears TWICE in `userTexts` and `toBe(1)` / `toHaveLength(1)` fail on a drive that behaved per contract
 
-- **Status:** open.
+- **Status:** fixed (0.287.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the defect is confined to live
   test infrastructure (production binding and the re-ask itself are
   contract-correct) while denying the live suite a stable green: four cells
@@ -207,6 +207,80 @@ it passes, the fix has removed the leak detector and this report is re-filed.
 
 Ordering: this fix builds on 0.286.0 (`tests/live/harness.ts` as bug 0289 left
 it) and does not block on any open report.
+
+## Fix (0.287.0)
+
+- What shipped:
+  - `tests/live/harness.ts` — §Fix (a): `DrivenTurn` gains an additive
+    `readonly reAskCount: number`; `captureSettledTurn`'s loop-local
+    `reAskIssued` boolean becomes that count, and `capturedTurn` takes it as a
+    parameter so BOTH return paths (the in-loop `settled-with-text` return and
+    the post-expiry fresh-classification return) report the real value. The
+    two guards re-key from the boolean to `> 0`, which is exactly equivalent
+    because the count increments at most once before either guard observes it.
+    Bounded-once semantics, `NORMAL_STOP_BOUNDARIES`, poll cadence and bound,
+    the verbatim re-ask payload and every `failLoudly` string are
+    byte-unchanged.
+  - `tests/live/typed-query-wire-shapes.test.ts` — §Fix (b): the three
+    sentinel-filtered cells replace `toBe(1)` with a range (`>= 1`,
+    `<= 1 + turn.reAskCount`) plus the identity constraint
+    `new Set(echoed).size === 1`. Every `echoed[0]` wire-value assertion and
+    every sentinel `toMatch` is unchanged; the failure messages state the
+    identity requirement and print the observed array.
+  - `tests/live/live-production-acceptance.test.ts` — §Fix (a)'s consumer at
+    the bug 0188 parent cell: `.toHaveLength(1)` → `.toHaveLength(1 +
+    turn.reAskCount)`, message byte-unchanged, file still 14864 lines.
+  - `tests/b0290-re-ask-count-observable.test.ts` — NEW 4-cell offline witness.
+- Gates: witness `Test Files 1 passed (1) / Tests 4 passed (4)` (RED at the
+  fork: `3 failed | 1 passed`, `expected undefined to be 1`); full default
+  suite `Test Files 463 passed (463) / Tests 9432 passed (9432)`;
+  `npx tsc --noEmit` clean; `npm run lint` clean;
+  `wc -l tests/live/live-production-acceptance.test.ts` = 14864;
+  `git hash-object tests/fixtures/h7a/permitted-codes.json` =
+  `a4a8da04209f90e13d815edd92c1fc682e2a2236`; bugs 0287 (5), 0288 (7) and
+  0289 (10) offline locks green and byte-unedited.
+- Review: 2 rounds — round 1 (deep) returned one `prose` finding (the witness
+  header cited harness line numbers this fix itself made stale) plus three
+  non-blocking residuals, and independently swept `tests/live/**` confirming
+  the four-cell scope is complete; round 2 fixed it comment-only, verified by
+  gate-diff (no executable line), so the confirmation round was skipped.
+- Verification: SOLID, no findings. The witness reds under two independent
+  probes — hardcoding `capturedTurn`'s field to 0 reds the fired-case cells,
+  and passing 0 only at the post-expiry return site reds the post-expiry cell
+  ALONE — each restored byte-exactly (`git hash-object` equal before and
+  after). Default suite green. Lint and typecheck clean; the typecheck covers
+  `tests/live/**`, so every re-keyed cell compiles against the new field.
+  Live, run by the orchestrator under the shared lock: the typed-query file
+  green 3/3 twice, cell 89 green, the bug 0188 parent cell green — 4 runs, no
+  red, so §Fix's STOP falsifier (a red carrying two DISTINCT sentinel texts)
+  never armed. The identity constraint's leak detection was re-proved offline
+  on a scratch cell (two distinct texts ⇒ `Set.size === 2`), deleted in one
+  sweep.
+- Residuals:
+  1. The re-ask path was not demonstrably EXERCISED live: no run showed
+     `reAskCount > 0` or two byte-identical sentinel entries, so the green
+     proves non-regression of the not-fired case only. The fired case is
+     proved offline by the witness. This is the same stochastic gap bug 0289
+     §Fix residual 2 records (empty first settled reply ≈ 1 in 5 drives), and
+     §Fix's "run repeatedly until one transcript shows two identical entries"
+     clause stays open.
+  2. The bug 0188 cell's message ("exactly one query is issued …") now sits
+     above a matcher admitting `1 + turn.reAskCount`; a red at count 1 prints
+     a mildly stale message. Left unchanged deliberately — rewording would
+     spend the 14864-line pin for no assertion strength.
+  3. The range message is repeated verbatim on both bounds in each of the
+     three typed-query cells. Matches the file's existing style; a shared
+     helper is not owed by §Fix.
+- Discharge notes appended: bug 0289 §Fix (the lock enumeration's missed cell
+  class is now closed) and bug 0287 §Fix (the 14864-line freeze holds across
+  the one-token edit).
+- Pinned dispositions / non-goals: no sentinel weakening anywhere; `src/**`,
+  `docs/spec_topics/**`, `docs/plan_topics/**` and `tests/live/hardening/**`
+  untouched. Equality against `1 + turn.reAskCount` is deliberately NOT used
+  at the three sentinel-filtered cells — the re-ask re-issues the LAST user
+  text, which in a multi-query drive need not be the sentinel-carrying one, so
+  §Fix's own identity-plus-range wording governs there while §Fix's exact form
+  governs the single-query 0188 cell.
 
 ## Related
 

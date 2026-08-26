@@ -417,6 +417,13 @@ separable. See [0288](./0288-multi-query-prompt-drive-completes-without-the-seco
   adopted, so bug 0287's 14864-line pin on
   `tests/live/live-production-acceptance.test.ts` still holds; the model's
   thinking-only behaviour is untouched and undetected.
+- **Pin yield (2026-08-26, bug 0290 fix 0.287.0).** This §Fix's lock enumeration
+  named no cell-side assertion that counts rendered queries exactly, so the
+  bounded re-ask (element (b1)) red four such live cells; bug 0290 closes that
+  gap by exposing the re-ask as `DrivenTurn.reAskCount` and re-keying those
+  assertions to `1 + reAskCount` under a byte-identity constraint. The 10-cell
+  witness `tests/b0289-settled-empty-text-turn-classification.test.ts` stays
+  green and byte-unedited.
 
 ## Related
 

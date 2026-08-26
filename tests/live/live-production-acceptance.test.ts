@@ -9852,7 +9852,7 @@ describe("H8a-T — bug 0188 (b188): a typed invoke<number> binds the sign-prese
         turn.userTexts,
         "exactly one query is issued by the parent's sole `@`-query statement — " +
           "observed: " + JSON.stringify(turn.userTexts),
-      ).toHaveLength(1);
+      ).toHaveLength(1 + turn.reAskCount);
       expect(
         turn.userTexts[0],
         "bug 0188 §Fix (a): the parent must bind the callee's own -0 (not the +0 " +

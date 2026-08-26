@@ -231,10 +231,27 @@ describe("bug 0028 (live) — a declared `enum` at the annotation root is convey
       // unwrapped and validated. Only the two declared WIRE values may appear —
       // the lowered `enum` is the validator, so anything else could not bind.
       const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
+      // bug 0290 §Fix element (b): bug 0289's bounded re-ask re-issues the LAST
+      // user text verbatim, so a settled-but-empty first reply admits a SECOND
+      // byte-identical sentinel-carrying occurrence — cardinality alone is no
+      // longer exactly 1. The range plus identity constraint keeps the leak
+      // detector: a real second, DISTINCT query still fails on the identity
+      // check below.
       expect(
         echoed.length,
-        `exactly one rendered follow-up query must carry the sentinel; observed ` +
-          `userTexts=${JSON.stringify(turn.userTexts)}`,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        echoed.length,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeLessThanOrEqual(1 + turn.reAskCount);
+      expect(
+        new Set(echoed).size,
+        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
+          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
+          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
       ).toBe(1);
       expect(
         echoed[0],
@@ -295,10 +312,23 @@ describe("bug 0028 (live) — a nested named-schema `$ref` is conveyable and the
           "nested-`$ref` payload never validated: " + JSON.stringify(turn.systemNotes),
       ).toEqual([]);
       const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
+      // bug 0290 §Fix element (b): see the enum-root cell above for why
+      // cardinality alone is no longer exactly 1 once the bounded re-ask fires.
       expect(
         echoed.length,
-        `exactly one rendered follow-up query must carry the sentinel; observed ` +
-          `userTexts=${JSON.stringify(turn.userTexts)}`,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        echoed.length,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeLessThanOrEqual(1 + turn.reAskCount);
+      expect(
+        new Set(echoed).size,
+        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
+          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
+          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
       ).toBe(1);
       // The interpolation reaches THROUGH the `$ref`-validated nested object
       // (`bound.pet.species`), so a JSON-string payload that was merely
@@ -454,10 +484,23 @@ describe("bug 0099 (live) — canonical-slug cell: the respond tool binds under 
       // its wire value) proves the canonical-slug-named tool's argument
       // actually validated and bound.
       const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
+      // bug 0290 §Fix element (b): see the enum-root cell above for why
+      // cardinality alone is no longer exactly 1 once the bounded re-ask fires.
       expect(
         echoed.length,
-        `exactly one rendered follow-up query must carry the sentinel; observed ` +
-          `userTexts=${JSON.stringify(turn.userTexts)}`,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        echoed.length,
+        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+      ).toBeLessThanOrEqual(1 + turn.reAskCount);
+      expect(
+        new Set(echoed).size,
+        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
+          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
+          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
       ).toBe(1);
       expect(
         echoed[0],

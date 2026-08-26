@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.287.0]
+
+### Fixed
+
+- Bug 0290: live cells asserting an exact rendered-query count no longer red
+  when bug 0289's bounded re-ask legitimately fires. The harness exposes
+  DrivenTurn.reAskCount (additive); the four exposed cells accept the
+  1..1+reAskCount range under a byte-identity constraint (every
+  sentinel-carrying occurrence identical — a second DISTINCT query still
+  fails); one-token edit at live-production-acceptance:9855 (file held at
+  14864 lines; dated pin-yield notes on 0287/0289). Offline witness
+  tests/b0290-re-ask-count-observable.test.ts (4 cells). Live: previously-red
+  0099 canonical-slug file 3/3 twice, cell 89 1/1, 0188 parent 1/1.
+
 ## [0.286.0]
 
 ### Fixed

@@ -463,3 +463,8 @@ offline at HEAD. No live test was run by this writer.
   merge (1000 iterations × 10 ms ≈ 10 s), matching the lane's measurement.
 - Discharge notes appended: none owed (0286 already records the attribution
   chain; 0288 records the re-owning).
+- **Pin yield (2026-08-26, bug 0290 fix 0.287.0).** The 14864-line freeze on
+  `tests/live/live-production-acceptance.test.ts` HOLDS across bug 0290 §Fix
+  element (a)'s one-token edit at the bug 0188 cell
+  (`.toHaveLength(1)` → `.toHaveLength(1 + turn.reAskCount)`): the file is
+  still 14864 lines, and no other line in it changed.

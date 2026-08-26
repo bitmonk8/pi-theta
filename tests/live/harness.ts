@@ -343,6 +343,20 @@ export interface DrivenTurn {
    * itself resolves (failures are surfaced as notes, not throws).
    */
   readonly systemNotes: readonly string[];
+  /**
+   * How many times `captureSettledTurn` re-issued the last user text verbatim
+   * before this turn settled — bug 0290 §Fix element (a). A settled-but-empty
+   * turn on a normal boundary earns bug 0289's bounded same-session re-ask
+   * (§Fix element (b1)), and that re-ask re-sends the LAST user text through
+   * the real `prompt()` seam, so it lands in `userTexts` a second time,
+   * byte-identical to the first. Without this field a cell counting
+   * occurrences of a sentinel-carrying query cannot tell "one rendered query,
+   * re-asked once" from "two rendered queries" — bug 0290's exact-count cells
+   * red on a drive that behaved exactly as bug 0289's contract specifies. The
+   * field is additive only: every existing consumer of `DrivenTurn` is
+   * unaffected.
+   */
+  readonly reAskCount: number;
 }
 
 /**
@@ -594,13 +608,13 @@ export async function captureSettledTurn(
   entriesBefore: number,
   slashInvocation: string,
 ): Promise<DrivenTurn> {
-  let reAskIssued = false;
+  let reAskCount = 0;
 
   for (let attempt = 0; attempt < ASSISTANT_TURN_POLL_BOUND; attempt++) {
     const appended = deps.getEntries().slice(entriesBefore);
     const classification = classifyLastTurn(appended);
 
-    if (classification.kind === "settled-with-text") return capturedTurn(appended);
+    if (classification.kind === "settled-with-text") return capturedTurn(appended, reAskCount);
 
     if (classification.kind === "settled-with-empty-text" && deps.isIdle()) {
       const { stopReason } = classification.trailing;
@@ -613,7 +627,7 @@ export async function captureSettledTurn(
             `is a failure to report, not a turn to repeat.`,
         );
       }
-      if (reAskIssued) {
+      if (reAskCount > 0) {
         failLoudly(
           `captureSettledTurn(${JSON.stringify(slashInvocation)}): the last turn settled with ` +
             `empty text a second consecutive time (${shapeText}) after one bounded re-ask — ` +
@@ -629,7 +643,7 @@ export async function captureSettledTurn(
             `§Fix element (b1)'s bounded re-ask cannot re-issue it.`,
         );
       }
-      reAskIssued = true;
+      reAskCount++;
       await deps.prompt(lastUserText);
     }
 
@@ -642,7 +656,7 @@ export async function captureSettledTurn(
   // describe a slice the transcript has already moved past.
   const appended = deps.getEntries().slice(entriesBefore);
   const classification = classifyLastTurn(appended);
-  if (classification.kind === "settled-with-text") return capturedTurn(appended);
+  if (classification.kind === "settled-with-text") return capturedTurn(appended, reAskCount);
 
   const userTurnCount = collectUserTexts(appended).length;
   const assistantTextCount = collectAssistantTexts(appended).length;
@@ -660,7 +674,7 @@ export async function captureSettledTurn(
       `captureSettledTurn(${JSON.stringify(slashInvocation)}) precondition unmet: the appended ` +
       `transcript slice held ${userTurnCount} user turn(s) and ${notePresent ? "a" : "no"} ` +
       `theta-system-note entry, session isIdle=${idle}`;
-    const reAskSuffix = reAskIssued ? ", after one bounded re-ask" : "";
+    const reAskSuffix = reAskCount > 0 ? ", after one bounded re-ask" : "";
     if (idle) {
       failLoudly(
         `${preamble}, and the LAST user turn's reply SETTLED WITH EMPTY TEXT within ` +
@@ -695,12 +709,15 @@ export async function captureSettledTurn(
   );
 }
 
-/** The `DrivenTurn` read off an appended slice — bug 0287's whole-slice read. */
-function capturedTurn(appended: readonly unknown[]): DrivenTurn {
+/** The `DrivenTurn` read off an appended slice — bug 0287's whole-slice read,
+ * plus bug 0290 §Fix element (a)'s re-ask count threaded through from the
+ * caller so both `captureSettledTurn` return sites report the real value. */
+function capturedTurn(appended: readonly unknown[], reAskCount: number): DrivenTurn {
   return {
     text: collectAssistantTexts(appended).join(""),
     userTexts: collectUserTexts(appended),
     systemNotes: collectSystemNotes(appended),
+    reAskCount,
   };
 }
 
