@@ -35,15 +35,14 @@ import { parseDeps } from "./helpers/e2e-s1";
 // declaration in-file.
 //
 // The materialisation seam drops the explicit-RHS record: the enum arm of
-// `materializeSymbol` (src/extension/import-static-checks.ts:210) narrows to
+// `materializeSymbol` (src/extension/import-static-checks.ts:213) narrows to
 // `{ name, kind: "enum", variants }`, `MaterializedImport`
-// (src/runtime/lexical-environment.ts:117) carries variant names only, and the
+// (src/runtime/lexical-environment.ts:134) carries variant names only, and the
 // import arm of `buildEnvironment` rebuilds the wire map with
 // `buildVariantWireMap(imp.variants ?? [], undefined)`
-// (src/runtime/lexical-environment.ts:314) whose `values?.[name] ?? name`
+// (src/runtime/lexical-environment.ts:368) whose `values?.[name] ?? name`
 // fallback substitutes the name. Every row below asserts the fixed wire "low";
 // each is red against the seam as it stands.
-//
 // TIER: unit, offline, deterministic, provider-free. The whole class settles
 // inside one `parseThetaDocument` over a string, one `checkThetaImports` over an
 // in-memory `FileSystem` double, and one `executeBody` bound through
@@ -282,9 +281,12 @@ describe("bug 0306 — an imported enum carries its explicit wire values", () =>
 
   it("RED (row 4): the imported `Sev.Low` is wire-equal to an inbound-shaped `\"low\"`", async () => {
     // TAG-INDEPENDENT — this row witnesses the WIRE half of enum identity alone,
-    // never the tag half (sibling candidate 04 owns the tag half). The imported
-    // `Sev.Low` is un-aliased, so its enum tag is the local name "Sev" under
-    // today's minting; `inbound` carries the same tag "Sev". So `valuesEqual`'s
+    // never the tag half (sibling candidate 04 owns the tag half). Bug 0305
+    // Route A re-keyed the imported `Sev.Low` tag from the bare local name to
+    // the declaring-declaration key `enumDeclaringKey(resolvedPath, "Sev")`
+    // ("/proj/lib.thetalib#Sev" here); `inbound` is hand-built to carry that
+    // SAME declaring key, simulating what the inbound-retag sidecar mints for
+    // a value validated against this declaration. So `valuesEqual`'s
     // `tagA === tagB && String(a) === String(b)` (src/runtime/value.ts:503)
     // reduces to the wire comparison — both tags already agree, and the row
     // flips only on the wire fix. Reading the tag through `valuesEqual` rather
@@ -299,10 +301,10 @@ describe("bug 0306 — an imported enum carries its explicit wire values", () =>
       row.raw,
       "row 4: the run must settle on a value to compare",
     ).toBeDefined();
-    const inbound = makeEnumValue("Sev", "low");
+    const inbound = makeEnumValue("/proj/lib.thetalib#Sev", "low");
     expect(
       valuesEqual(row.raw as ThetaValue, inbound),
-      'runtime-value-model.md:29 — the wire half of enum equality: an imported `Sev.Low` (tag "Sev") must equal an inbound value validated to wire "low" against the same declaration (tag "Sev"); with both tags equal the comparison is the wire comparison',
+      'runtime-value-model.md:29 — the wire half of enum equality: an imported `Sev.Low` (declaring-key tag "/proj/lib.thetalib#Sev", bug 0305) must equal an inbound value validated to wire "low" against the same declaration (same declaring-key tag); with both tags equal the comparison is the wire comparison',
     ).toBe(true);
   });
 });

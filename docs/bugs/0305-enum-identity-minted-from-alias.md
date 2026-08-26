@@ -1,6 +1,6 @@
 # Bug 0305 — Enum value identity is minted from the resolution-site LOCAL name, not the declaring declaration: one `.thetalib` enum imported under two aliases (`import { Sev as A, Sev as B }`), or reached once directly and once through an `export … from` rename, yields variants that compare `==` false against each other — where imports.md says the re-export binds "that declaration … exactly as a direct import of the same declaration would" and the runtime value model keys equality on "the declaring enum"
 
-- **Status:** open.
+- **Status:** fixed (0.290.0).
 - **Sev/Diff estimate:** S1/D3 — S1: a comparison between two values of the
   SAME declaring enum silently evaluates `false` with zero diagnostics at any
   phase, and the divergence is invisible on the wire (`JSON.stringify` of both
@@ -199,6 +199,129 @@ Not yet decided. The load-bearing choice is the tag's domain:
   model and makes D2's rename-migration story permanently false-comparing.
 
 Either route owes witnesses D1, D1b, D2, D3 as offline cells.
+
+## Fix (0.290.0)
+
+- **Adjudicated route:** Route A — declaration identity. D1 (two aliases) →
+  true; D1b control → true; D2 (direct vs re-export rename) → true; D3 (two
+  different same-named declarations) → stays false.
+- **What shipped:**
+  - `src/runtime/lexical-environment.ts` — new exported `enumDeclaringKey(resolvedPath, declaredName)` mints the declaration-identity tag
+    `<resolvedPath>#<declaredName>`; `MaterializedImport` carries an optional
+    `declaringKey`; the enum registry value became `EnumEntry { variants, tag }`;
+    same-file enums register `tag: reg.name` (bare name), imported enums
+    `tag: imp.declaringKey ?? imp.name`; `resolveEnumVariant` mints
+    `makeEnumValue(entry.tag, …)` — the single choke point both executor arms,
+    the pure host member arm, and params-default recovery route through.
+  - `src/extension/import-static-checks.ts` — `materializeSymbol` takes
+    `resolvedPath` and sets `declaringKey: enumDeclaringKey(resolvedPath, source)`
+    on the enum arm; the re-export leaf recursion threads the SOURCE lib's
+    `resolvedPath`, so a direct import and a re-export rename of one declaration
+    key identically (D2).
+  - `docs/spec_topics/runtime-value-model.md` §Equality + `docs/spec_topics/imports.md`
+    :37–43 — the owed alias-identity sentence (the declaring-enum tag identifies
+    the declaring DECLARATION — declaring file + declared name; import aliases
+    and re-export renames mint no fresh identity; a same-file enum tags on its
+    bare declared name). Mirror updated in `docs/reference/type-system.md`
+    §Equality. Grep confirmed no other `docs/reference/` page mirrors enum value
+    identity (schema-subset.md's hits describe the lowering sidecar, an unrelated
+    mechanism).
+  - `tests/b0305-enum-alias-identity.test.ts` — offline witness (D1/D1b/D2/D3).
+  - `tests/live/b0305live-imported-enum-alias-identity-live-cell.test.ts` — new
+    single-cell H8a live witness; theta-side alias-equality discriminator
+    (`answer = A.Low == B.Low ? 777 : 111`), task-framed arithmetic (never a
+    verbatim-echo demand, bug 0243).
+  - `tests/b0306-imported-enum-wire-values.test.ts` — row 4's hand-built operand
+    re-keyed to the declaring key under ratification 1 (see below).
+  - `docs/bugs/0306-imported-enum-drops-explicit-wire-values.md` — dated
+    coordination note appended.
+  - Citation-only comment refresh where this fix shifted lines cited elsewhere:
+    `src/parser/theta-document.ts`, `tests/ctor-unresolved-schema-name.test.ts`,
+    `tests/params-default-enum-access-merge.test.ts`,
+    `tests/params-default-unresolvable-enum-variant.test.ts`.
+- **Deliberately unchanged (recorded):** the inbound retag sidecar
+  (`src/runtime/wire-translation.ts` / `src/runtime/inbound-boundary.ts`) is
+  byte-unchanged. `declaredNames(body,"enum")` reads only same-file
+  `statement.kind === "enum"`, so imported enums never reach the sidecar; and a
+  same-file enum's tag is its bare declared name (ratification 2), which is
+  exactly what the sidecar already mints. The sidecar's position→enum mapping
+  therefore already carries the declaring key for every enum it sees; widening
+  it to newly recognise imported enums would be trigger-widening (forbidden).
+- **Gates:** witness run — D1/D2 red-before (`expected false to be true`),
+  all-green after; full default suite `npm test` — 466 files / 9451 tests green;
+  `npm run typecheck` exit 0; `npm run lint` exit 0.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — 3 minor findings, all
+  prose/comment (F1 spec overclaim on the converse clause; F2 over-asserted
+  0303-reuse comment; F3 historical `post bug-0305` narration in the b0306
+  header); no correctness/fidelity/spec blocker. Round 2 (`bug-fix-fixer-light`,
+  prose-only) — F1 scoped to imported/re-exported declarations + same-file
+  clause; F2 softened to a design note; F3 parenthetical deleted. Post-polish
+  confirmation: every hunk comment/prose-only ⇒ polish verified by gate-diff;
+  confirmation round skipped (charter).
+- **Verification (`bug-fix-verifier`, SOLID):** offline witness reds under a
+  transient tag-mint neutralisation (D1/D2 fail, D1b/D3 pass) and greens after
+  byte-exact restore (blob hash `cd9d7a2e…` before = after); full suite green;
+  lint + typecheck exit 0; live cell read-verified. Live cell run for real by
+  the orchestrator under the shared live-lock: GREEN (1 passed, 2908 ms);
+  neutralised-RED proof (reply `"111"`, `expected '111' to contain '777'`),
+  neutralisation restored byte-exact.
+- **Parent ratifications (verbatim):**
+  1. *0306 row-4 vehicle update RATIFIED (vehicle-collateral precedent): in
+     tests/b0306-imported-enum-wire-values.test.ts row 4, update ONLY the
+     hand-built operand so its tag is minted with the same declaring key the
+     imported variant carries — the row's subject (the WIRE half: imported
+     variant vs inbound-shaped "low") is preserved; the hand-built value
+     simulates what the inbound retag sidecar produces, and under Route A the
+     sidecar mints the declaring key, so the re-keyed operand keeps the
+     simulation faithful. Bound: this ONE assertion operand, nothing else in
+     that file.*
+  2. *Same-file bare-name tags RATIFIED as the correct reading of "same-file
+     behaviour unchanged": .theta-file-local enum declarations keep today's
+     bare-name tag (no aliasing device exists within a file — .theta files
+     cannot be imported — so bare names are collision-free per declaration);
+     ONLY imported/re-exported .thetalib enums carry the declaring key
+     <resolvedPath>#<declaredName>, minted at materialisation and at every
+     consumer (both executor arms, pure evaluator, inbound retag sidecar,
+     params-default recovery). Cross-boundary comparisons stay correct: a
+     same-file Sev vs an imported different-declaration Sev differ in tag →
+     false.*
+- **Route-A adjudication (verbatim, from the settled brief):** *thread the
+  declaring identity through materialisation — MaterializedImport carries a
+  declaring key (resolvedPath + declared name, e.g. `<resolvedPath>#<declaredName>`)
+  and same-file enums use the equivalent self-key — and mint makeEnumValue tags
+  from that key at every caller (both executor arms, the pure evaluator, the
+  inbound retag sidecar, params-default recovery). D1/D2 become true; D3 stays
+  false; same-file behaviour unchanged (one file, one key per name). Requires
+  the spec sentence pinning alias identity in the SAME COMMIT, with docs/reference/
+  mirrors checked, and a check that the retag sidecar's position→enum mapping
+  carries the key rather than the spelled name.* (Same-file resolution: per
+  ratification 2 the same-file "equivalent self-key" is the bare declared name,
+  not `<selfPath>#<name>`; the sidecar check is discharged by the
+  deliberately-unchanged finding above.)
+- **Discharge notes appended:** `docs/bugs/0306-imported-enum-drops-explicit-wire-values.md`
+  (dated coordination note under §Fix (0.289.0)).
+- **Forward note for bug 0303 (imported fn body scope, lands next):** its
+  lib-side module environments must register enum tags via the exported
+  `enumDeclaringKey` (`src/runtime/lexical-environment.ts`) so lib-body enum
+  reads and importer-side reads of one declaration mint identical
+  `<libPath>#<name>` keys and compare equal.
+- **Residuals:**
+  1. Same-file cross-file enum identity across an in-process `invoke` is a
+     pre-existing corner the fix does not close and the spec no longer
+     overclaims: two different `.theta` files each declaring `enum Sev` both
+     carry the bare tag `"Sev"`, so a callee's `Sev.Low` (kept as its boxed
+     carrier through `wire-translation.ts:298–303`, which retags only string
+     values) can compare `==` true against a caller's unrelated same-file
+     `Sev.Low`. This was equally true before this fix (both bare-name); the
+     amended spec sentence was scoped to imported/re-exported declarations so it
+     no longer asserts the converse for same-file declarations. Not a
+     regression; flagged for a possible standalone report.
+  2. `tests/live/live-production-acceptance.test.ts` carries a now-stale
+     citation (`resolveEnumVariant … lexical-environment.ts:526`; the real line
+     is `:582`). The implementer had refreshed it, but that file is rider-
+     forbidden to this lane (line-pinned at 14864; the one-line insertion
+     shifted the pin), so the parent reverted it byte-exact. Comment-only, no
+     gate impact; refresh belongs to a run permitted to touch that file.
 
 ## Provenance
 

@@ -176,7 +176,12 @@ Structural deep equality. `==`/`!=` accept operands of any two static types
 - Objects: key set (theta-side names) and per-key value equality; declaration
   order irrelevant.
 - Enum variants: declaring-enum tag and wire value both
-  (`Severity.High == OtherEnum.High` is `false`).
+  (`Severity.High == OtherEnum.High` is `false`). For an imported or
+  re-exported enum, the tag identifies the declaring declaration (declaring
+  `.thetalib` file plus declared name), not the local binding name, so an
+  import alias or a re-export rename of one declaration compares equal
+  across the alias; a same-file enum tags on its bare declared name ([Runtime
+  Value Model — Equality](../spec_topics/runtime-value-model.md#equality)).
 - `Result`: `Ok`/`Err` discriminator, recurse on payload.
 
 Ordering (`<`, `<=`, `>`, `>=`) on `NaN` produces `false` on all four operators —

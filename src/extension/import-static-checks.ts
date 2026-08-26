@@ -79,7 +79,7 @@ import {
 } from "../parser/theta-document";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import type { ParsedFrontmatter } from "../parser/frontmatter";
-import type { MaterializedImport } from "../runtime/lexical-environment";
+import { enumDeclaringKey, type MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 import {
   checkSubagentFnModelOverrides,
@@ -176,12 +176,16 @@ function extractThetaLibForms(body: ThetaBody): ThetaLibModuleForms {
  * constructor / variants. The resolved declaration is found by its SOURCE name
  * (the name in the `.thetalib` file) and bound under the specifier's LOCAL name (the
  * `as` alias, or the source name when unaliased), which the runtime keys imports
- * by. Returns `undefined` when the source names no top-level declaration (an
- * unknown symbol — already diagnosed by IMP-3).
+ * by. `resolvedPath` is the LIB `body` was parsed from — for an `enum` it feeds
+ * the declaring-declaration tag (`enumDeclaringKey`, bug 0305), so the runtime
+ * keys enum identity on the declaration, not the local alias. Returns
+ * `undefined` when the source names no top-level declaration (an unknown
+ * symbol — already diagnosed by IMP-3).
  */
 function materializeSymbol(
   source: string,
   local: string,
+  resolvedPath: string,
   body: ThetaBody,
   callingFrontmatter: ParsedFrontmatter | null,
 ): MaterializedImport | undefined {
@@ -212,6 +216,13 @@ function materializeSymbol(
         kind: "enum",
         variants: stmt.variants ?? [],
         ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+        // The declaring-declaration identity (bug 0305): keyed on the LIB
+        // this declaration is found in (`resolvedPath`) and its declared
+        // name (`source`), not the importing specifier's local alias
+        // (`local`) — so two aliases of one declaration, or a direct import
+        // and a re-export rename of the same declaration, mint the same
+        // runtime tag.
+        declaringKey: enumDeclaringKey(resolvedPath, source),
       };
     }
   }
@@ -601,7 +612,7 @@ export async function checkThetaImports(
       return undefined;
     }
     visited.add(resolvedPath);
-    const direct = materializeSymbol(source, local, body, callingFrontmatter);
+    const direct = materializeSymbol(source, local, resolvedPath, body, callingFrontmatter);
     if (direct !== undefined) {
       return direct;
     }

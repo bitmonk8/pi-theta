@@ -40,7 +40,11 @@ chain of `export … from` statements to the declaration each ultimately
 names, in the source `.thetalib` file's own top-level declarations, and an
 importing specifier naming the re-export's downstream alias binds that
 declaration under its local name, exactly as a direct import of the same
-declaration would (IMP-1 above governs a re-export's own `.thetalib` path
+declaration would — for an `enum`, this extends to runtime value identity: a
+variant reached through the re-export's alias carries the same
+declaring-enum tag ([Runtime Value Model — Equality](./runtime-value-model.md#equality))
+as the same variant reached by a direct import of the source declaration, so
+the two compare `==` true (IMP-1 above governs a re-export's own `.thetalib` path
 identically to an `import`'s: an unresolvable path is
 `theta/load/unresolvable-thetalib-path`, sited on the re-exporting file whose
 statement names it, once per `export` statement and ranged over that statement —

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.290.0]
+
+### Fixed
+
+- **Bug 0305** — enum value identity is now minted from the declaring declaration, not the resolution-site local name: imported and re-exported `.thetalib` enums carry the declaring key `<resolvedPath>#<declaredName>` (new exported `enumDeclaringKey`), minted at materialisation and at every `makeEnumValue` consumer, so one declaration imported under two aliases (`import { Sev as A, Sev as B }`) or reached directly and through an `export … from` rename compares `==` true across spellings, while two genuinely different same-named declarations still compare false (`runtime-value-model.md:13/:29`; `imports.md:37–43` "exactly as a direct import"). Same-file enums keep their bare-name tag (no aliasing device exists within a file). The alias-identity rule is now stated in `runtime-value-model.md` and `imports.md`. Witnessed by `tests/b0305-enum-alias-identity.test.ts` (D1/D1b/D2/D3) and the live cell `tests/live/b0305live-imported-enum-alias-identity-live-cell.test.ts`; bug 0306's wire-half witness row re-keyed to the declaring key (ratified vehicle update, coordination note on its record).
+
 ## [0.289.0]
 
 ### Fixed

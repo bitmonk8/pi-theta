@@ -226,3 +226,24 @@ against an inbound-shaped `"low"`.
 - Pinned dispositions / non-goals: as §Non-goals — the tag half (0305),
   imported-enum schema-lowering at query positions, and the same-file
   `EnumRegistration.values` shape are untouched.
+
+**Coordination note (0.290.0, added by 0305's Route-A fix).** Bug 0305's
+Route A re-keyed the imported-enum runtime tag from the resolution-site local
+name to the declaring-declaration key `enumDeclaringKey(resolvedPath,
+declaredName)` = `<resolvedPath>#<declaredName>`. This test file's row 4
+(`it("RED (row 4): the imported \`Sev.Low\` is wire-equal to an
+inbound-shaped \`"low"\`"`)`) hand-builds its `inbound` operand with
+`makeEnumValue`, so it carries a tag that must track whatever tag the
+imported `Sev.Low` variant now mints — the row's own comment already frames
+`inbound` as "simulating what the inbound-retag sidecar produces", not as an
+independent fixture. Under parent ratification (vehicle-collateral
+precedent: a sibling bug's fix may update the ONE hand-built operand this
+row depends on, and its WHY comment, when the sibling fix changes what that
+operand must simulate), the 0305 fix updated `inbound`'s tag from the bare
+`"Sev"` to the declaring key `"/proj/lib.thetalib#Sev"` and reworded the
+row's WHY comment accordingly. The row's SUBJECT is unchanged: it still
+measures the imported `Sev.Low` variant against an inbound-shaped `"low"`,
+and still asserts `valuesEqual(...) === true` for the same reason (wire
+equality once the tags already agree) — only which literal string the tags
+agree ON has moved, and only by exactly the one flip this ratification
+pre-authorized.

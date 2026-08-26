@@ -280,7 +280,7 @@ describe("bug 0025 (1) reject — a constructor name resolving to no declaration
     // (:4787–4795) both iterate `statements` without descending into blocks.
     // Rejection is the wanted disposition, not a walk accident — the runtime
     // registers only top-level `schema` statements as well
-    // (src/runtime/lexical-environment.ts:291–296), so a block-nested
+    // (src/runtime/lexical-environment.ts:328–333), so a block-nested
     // declaration brands nothing and `S { x: 1 }` would evaluate as exactly
     // the unbranded plain object this bug closes.
     const doc = parse("if true {\n  schema S { x: number }\n  let s = S { x: 1 }\n}\n");

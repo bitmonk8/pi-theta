@@ -109,6 +109,23 @@ export interface WriteResult {
 export type ImportedSymbolKind = "fn" | "schema" | "enum";
 
 /**
+ * Mint the declaration-identity key for an imported/re-exported `enum` (bug
+ * 0305): the declaring `.thetalib` file's resolved path plus the declared
+ * name, NOT the resolution-site local alias. Two aliases of one declaration
+ * (`import { Sev as A, Sev as B }`) and a direct import vs. a re-export
+ * rename of the same declaration (`export { Sev as Level } from …`) both
+ * resolve to the SAME declaring file + declared name, so they mint the same
+ * key and their runtime tags compare equal; two distinct declarations that
+ * happen to share a name resolve to different declaring files and stay
+ * distinct. Bug 0303 (imported `fn` body scope) can reuse this helper so a
+ * lib-body enum read and an importer-side read of the same declaration mint
+ * identical keys.
+ */
+export function enumDeclaringKey(resolvedPath: string, declaredName: string): string {
+  return `${resolvedPath}#${declaredName}`;
+}
+
+/**
  * An imported `.thetalib` symbol materialised into the runtime environment via
  * `V15c`'s import loader (imports.md §Visibility). An imported `fn` carries its
  * `FnDecl` body and is callable; an imported `schema` / `enum` is registered so
@@ -128,6 +145,12 @@ export interface MaterializedImport {
    * value, preserving the name-is-wire default (schemas.md §Enum declarations).
    */
   readonly values?: Readonly<Record<string, string>>;
+  /**
+   * For an imported/re-exported enum: its declaring-declaration identity key
+   * (`enumDeclaringKey`), so its runtime tag is the declaration, not the
+   * local alias (bug 0305).
+   */
+  readonly declaringKey?: string;
 }
 
 /**
@@ -198,6 +221,19 @@ function buildVariantWireMap(
   return new Map(names.map((name) => [name, values?.[name] ?? name]));
 }
 
+/**
+ * One registered enum's variant → wire-value map paired with the tag
+ * `resolveEnumVariant` mints the runtime `EnumValue` from (bug 0305). The tag
+ * is the declaring-declaration identity, not the resolution-site local name:
+ * same-file enums tag on the bare declared name (ratification 2 — a `.theta`
+ * file cannot be imported, so bare names are collision-free per declaration);
+ * imported/re-exported enums tag on `enumDeclaringKey`.
+ */
+interface EnumEntry {
+  readonly variants: ReadonlyMap<string, string>;
+  readonly tag: string;
+}
+
 /** An identifier resolved to a non-value arm (`fn` / `import` / `callable` / `unresolved`) at a read position. */
 class IdentifierNotReadableError extends Error {}
 
@@ -210,7 +246,7 @@ class IdentifierNotReadableError extends Error {}
 interface SharedRegistries {
   readonly fns: Map<string, FnDecl>;
   readonly schemas: Map<string, SchemaDecl>;
-  readonly enums: Map<string, ReadonlyMap<string, string>>;
+  readonly enums: Map<string, EnumEntry>;
   readonly imports: Map<string, MaterializedImport>;
   readonly callables: ReadonlySet<string>;
 }
@@ -235,13 +271,14 @@ export class LexicalEnvironment {
   /** Registered top-level + imported `schema` declarations — root only. */
   private readonly schemas: Map<string, SchemaDecl>;
   /**
-   * Registered top-level + imported `enum` variant → wire-value maps — root
-   * only. The key is the variant name (`Enum.Variant` resolution keys by name);
-   * the value is the variant's wire string (the explicit `= "..."` value when
-   * declared, else the name verbatim), so `Enum.Variant` renders the correct
-   * wire form (schemas.md §Enum declarations).
+   * Registered top-level + imported `enum` variant → wire-value maps, each
+   * paired with the declaring-declaration tag `resolveEnumVariant` mints the
+   * runtime value from — root only. The key is the resolution-site local
+   * name (`Enum.Variant` resolution keys by name); the `tag` is the SAME
+   * declaring key for every alias of one declaration (bug 0305), so aliases
+   * mint identical `EnumValue` tags and compare equal.
    */
-  private readonly enums: Map<string, ReadonlyMap<string, string>>;
+  private readonly enums: Map<string, EnumEntry>;
   /** Materialised imports keyed by local binding name — root only. */
   private readonly imports: Map<string, MaterializedImport>;
   /** The callable-set names (`tools:`, `V6c`) — the arm `V19b` defines but does not populate. */
@@ -304,7 +341,14 @@ export class LexicalEnvironment {
       // Top-level `enum` registrations carry the variant sets (`V19a`'s
       // `EnumDecl` carries only the name — see notes.md seam-shape decision).
       for (const reg of inputs.enums ?? []) {
-        this.enums.set(reg.name, buildVariantWireMap(reg.variants, reg.values));
+        // Same-file `.thetalib`-uncrossed enums keep the bare declared name as
+        // their tag (bug 0305 ratification 2): a `.theta` file cannot be
+        // imported, so there is no aliasing device within it and bare names
+        // are collision-free per declaration.
+        this.enums.set(reg.name, {
+          variants: buildVariantWireMap(reg.variants, reg.values),
+          tag: reg.name,
+        });
       }
       // Imported `.thetalib` symbols materialised via `V15c`'s import loader
       // (imports.md §Visibility): an `fn` is resolvable + callable, a `schema`
@@ -315,8 +359,15 @@ export class LexicalEnvironment {
           this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
         } else if (imp.kind === "enum") {
           // Imported enums thread their explicit `= "..."` values (schemas.md
-          // §Enum declarations), exactly as the same-file arm above.
-          this.enums.set(imp.name, buildVariantWireMap(imp.variants ?? [], imp.values));
+          // §Enum declarations), exactly as the same-file arm above. The tag
+          // is the declaring-declaration key (bug 0305), not the local alias
+          // `imp.name`, so two aliases of one declaration — or a direct
+          // import and a re-export rename of the same declaration — mint the
+          // same runtime tag.
+          this.enums.set(imp.name, {
+            variants: buildVariantWireMap(imp.variants ?? [], imp.values),
+            tag: imp.declaringKey ?? imp.name,
+          });
         }
       }
       callables = new Set(inputs.callables ?? []);
@@ -529,13 +580,18 @@ export class LexicalEnvironment {
    * unregistered enum or an unknown variant.
    */
   public resolveEnumVariant(enumName: string, variant: string): ThetaValue | undefined {
-    const variants = this.root().enums.get(enumName);
-    if (variants === undefined || !variants.has(variant)) {
+    const entry = this.root().enums.get(enumName);
+    if (entry === undefined || !entry.variants.has(variant)) {
       return undefined;
     }
-    // Resolve to the variant's wire value (the explicit `= "..."` value when
-    // declared, else the name) so `Enum.Variant` carries the correct wire form.
-    return makeEnumValue(enumName, variants.get(variant) as string);
+    // Mint the runtime tag from the registered DECLARATION identity (bug
+    // 0305), not the access-site local name `enumName`: two aliases of one
+    // declaration, or a direct import and a re-export rename of the same
+    // declaration, share `entry.tag` and so compare equal; two distinct
+    // declarations that happen to share a name do not. Resolve to the
+    // variant's wire value (the explicit `= "..."` value when declared, else
+    // the name) so `Enum.Variant` carries the correct wire form.
+    return makeEnumValue(entry.tag, entry.variants.get(variant) as string);
   }
 }
 

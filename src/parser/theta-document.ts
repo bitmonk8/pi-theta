@@ -7794,7 +7794,7 @@ function checkStructural(
   // TOP-LEVEL declarations only, mirroring `collectBodyTypes` (the lowering
   // and `NamedType`-resolution set is top-level-only; a block-nested schema
   // decl brands nothing at runtime either —
-  // src/runtime/lexical-environment.ts:291–296).
+  // src/runtime/lexical-environment.ts:328–333).
   out.push(...checkSchemaDeclarationGraph(body.statements, typeNames, file));
   return out;
 }

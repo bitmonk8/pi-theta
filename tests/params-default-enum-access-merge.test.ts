@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // (`src/extension/production-theta-producer.ts:1292`) evaluates the default's
 // literal through the theta's own body environment, so `Sev.High` resolves via
 // `LexicalEnvironment.resolveEnumVariant`
-// (`src/runtime/lexical-environment.ts:526`) to `makeEnumValue`'s boxed
+// (`src/runtime/lexical-environment.ts:582`) to `makeEnumValue`'s boxed
 // `String` (`src/runtime/value.ts:135`, the `new String(wire)` carrier at
 // `:136`), whose `typeof` is `"object"`. The push at
 // `production-theta-producer.ts:1341` hands that value to
