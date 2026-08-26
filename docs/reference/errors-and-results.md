@@ -221,6 +221,28 @@ schema TransportError {
 }
 ```
 
+**Prompt-mode turn-lifecycle bound expiry (bug 0288).** An on-session
+prompt-mode turn's completion is decided by a bounded wait, not by an
+unbounded poll: the pre-send idle gate, the start-poll, and the
+end/settlement phase (bounded end-poll, bounded `waitForIdle` race, bounded
+settle-poll) each produce a `TransportError` on expiry, with `http_status:
+null`, `retryable: false`, and `provider` the resolved `Model<Api>.api` of the
+user session's selected model. `message` is one of three fixed, producer-minted
+stems (`src/runtime/prompt-transport-mapping.ts`) with the elapsed bound (ms)
+appended:
+
+- `PROMPT_MODE_PRE_SEND_GATE_EXPIRY_MESSAGE` — the session never reported
+  itself idle, so this turn's send was never issued.
+- `PROMPT_MODE_START_PHASE_EXPIRY_MESSAGE` — the run was never observed to
+  begin streaming and the turn's own slice never settled either.
+- `PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE` — the run started but never went
+  idle again, or it went idle but the turn's own slice never settled within the
+  bounded `waitForIdle` race and the final settle-poll.
+
+No new diagnostic code is minted for these — they reuse the same
+`kind: "transport"` register PIC-50/PIC-51 already populate, distinguished only
+by the fixed message stem.
+
 ### `ModelToolError`
 
 Fires on a non-recoverable adapter-layer failure of the model's tool-call loop

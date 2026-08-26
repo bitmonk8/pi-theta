@@ -1,6 +1,6 @@
 # Bug 0288 — A `mode: prompt` drive with two on-session `@`-queries completes without the second query's reply ~40–60% of the time: the bounded start poll expires silently, the end poll and `waitForIdle()` then return at once, and the query binds an empty string or the previous turn's text with no diagnostic; on a slower interleaving the drive instead hangs past ten minutes
 
-- **Status:** open.
+- **Status:** fixed (0.285.0).
 - **Sev/Diff estimate:** S1/D3 — S1 because the production drive path binds a
   query result from a turn that never produced a reply, with no note, no `Err`
   and no panic (`extractTrailingTurnText` yields `""` or the previous turn's
@@ -432,3 +432,67 @@ fenced out of 0287 as production-side. Live evidence quoted from
 `.pi/tmp/fix-open-bugs/live-v0283-cell89-tip.log`; no live test was run by this
 writer. All source citations re-derived at HEAD `7087f130` (v0.284.0), where
 `src/` is byte-identical to `945f1b02`.
+
+## Fix (0.285.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — the settled-turn contract:
+    `#pollWhile` now distinguishes cleared from expired; a pre-send idle gate
+    awaits the prior turn's settlement before a subsequent on-session query;
+    a per-turn window anchor replaces the drive-global one; every lifecycle
+    expiry (pre-send gate / start / settle) FAILS LOUDLY on the
+    PIC-50/51 `TransportError` register instead of silently completing;
+    `waitForIdle` races a bound; `driveStreamedUserTurn` moved onto the same
+    contract. The silent `Ok("")`/stale-previous-answer bind is structurally
+    unreachable.
+  - `src/runtime/prompt-transport-mapping.ts` — three phase message stems +
+    `mapPromptModeTurnLifecycleExpiry` on the existing `TransportError`
+    register (no new diagnostic code — DIAG-2 satisfied by register reuse).
+  - `docs/reference/errors-and-results.md` — §TransportError mirror updated.
+  - `docs/spec_topics/pi-integration-contract/conversation-drive.md` — the
+    stale "waitForIdle() is the authoritative completion signal" prose
+    de-staled; new **PIC-70** unit pinning started-and-settled completion,
+    the per-turn window anchor, the four bounded waits, loud transport-`Err`
+    expiry and cancellation precedence.
+  - `docs/plan_topics/coverage-matrix.md` — PIC-70 row (after PIC-69).
+- Tests: `tests/b0288-prompt-turn-completion-witness.test.ts` — 7-cell
+  offline witness at the unit seam (injected deps), 4 cells RED at the fork
+  (`aa715848`) for the filed reason, green post-fix. One post-fix
+  comment-only edit (the `// Spec:` citation line gained `PIC-70`) was forced
+  by the H6a live-corpus gate (`mapped-req-id-no-citing-test`) — disclosed,
+  no assertion or logic touched.
+- Gates: default suite 461 files / 9418 green; typecheck clean; lint clean;
+  `tests/live/live-production-acceptance.test.ts` held at 14864 lines and
+  `tests/live/harness.ts` byte-untouched; `permitted-codes.json`
+  byte-identical (`a4a8da04`); conformance + committed-fixture gates green.
+- Review: round 1 deep (7 findings: 3 correctness/spec, 1 spec-drift,
+  2 house-rule, 1 test) → fixer → round 2 fast CLEAN.
+- Live (lane, under the shared lock): exposure sweep green — multi-query
+  sibling cell 2/2; H9a fixtures (b)+(c) 2/2 (the only multi-query H9a
+  fixtures). Cell 89: GREEN run 1, RED run 2 — and the lane's transcript
+  probe (1 of 5 drives) PROVED the red's cause is a THIRD mechanism: query
+  2's turn terminates on a normal `stopReason:"stop"` with a `thinking` part
+  and an EMPTY `text` part (stable after 15 s) — spec-legal `Ok("")` under
+  PIC-51b/PIC-53 — which the 0287-frozen harness misreports as "never
+  settled". The lane honoured this document's falsifier and STOPPED rather
+  than absorbing the red.
+- **Scope adjudication at the merge gate (parent, recorded).** This
+  document's subject — the drive COMPLETING with a silently wrong bound
+  value on lifecycle expiry, and expiries being indistinguishable from
+  satisfaction — is discharged by construction (loud named expiries, settled
+  pre-send gate, offline witness). The falsified single-cause premise
+  belongs to the VERIFICATION RULE, not the subject: the remaining cell-89
+  red is a settled-but-empty-text turn, a distinct mechanism re-owned by
+  **bug 0289** (filed this session; harness misreport at
+  `tests/live/harness.ts:426` + discriminator robustness). The eight-green
+  rule is superseded on that measured basis; cell 89's stable green is owned
+  by 0289's closure.
+- Residuals: (1) cell 89 remains red-prone until 0289 lands — its reds now
+  name either the loud PIC-70 expiry (would falsify AGAIN — re-file, do not
+  absorb) or the settled/empty misreport (0289's subject). (2) The
+  pre-0288 reds in 0287's batches are NOT separably attributable between
+  0288's expiry and 0289's empty-text mechanisms (identical message, no
+  transcripts) — recorded in 0289's attribution section. (3) The H6a-forced
+  comment-only witness edit is recorded above.
+- Discharge notes appended: none owed (0289's doc carries the attribution
+  chain forward).

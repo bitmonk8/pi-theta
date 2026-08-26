@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.285.0]
+
+### Fixed
+
+- Bug 0288: a prompt-mode drive issuing multiple on-session queries can no
+  longer complete with a silently wrong bound value when a turn lifecycle
+  bound expires. The producer now distinguishes cleared from expired polls,
+  gates each send on the prior turn's settlement, anchors the turn window
+  per-turn, and fails LOUDLY on the PIC-50/51 TransportError register at all
+  three phases (pre-send gate / start / settle); waitForIdle is bounded;
+  driveStreamedUserTurn shares the contract. New spec unit PIC-70 pins the
+  started-and-settled completion contract (conversation-drive.md +
+  coverage-matrix + errors-and-results mirror, same commit). Offline witness
+  tests/b0288-prompt-turn-completion-witness.test.ts (4 red at fork). The
+  remaining cell-89 red is a distinct settled-but-empty-text mechanism —
+  re-owned by bug 0289; cell 89 stays red-prone until it lands.
+
 ## [0.284.0]
 
 ### Fixed

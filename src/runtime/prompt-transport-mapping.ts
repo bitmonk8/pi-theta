@@ -51,6 +51,75 @@ import { coerceUnderlyingString } from "../diagnostics/placeholder";
 /** The fixed transport `message` when a `stopReason: "error"` turn carries no `errorMessage` (PIC-51). */
 export const PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE = "provider transport failure";
 
+// --- Bug 0288 §Fix items 1/2/4 — turn-lifecycle bound-expiry messages -------
+//
+// Every bound the on-session prompt-mode turn drive waits on
+// (production-theta-producer.ts `LivePromptQueryModel.#driveUserVisibleTurn`)
+// must fail loudly on expiry rather than let the drive walk out and bind a
+// value from a turn that was never observed to run or settle (bug doc P1/P2).
+// The registry is closed (DIAG-2), so this reuses the PIC-50/PIC-51
+// `TransportError` shape with a FIXED NAMED message per phase instead of
+// minting a new diagnostic code. Each stem is a plain exported string so a
+// caller (and a test) can check a synthesised message was built from it
+// without hardcoding the bound value the message reports.
+
+/** Stem for a pre-send gate expiry: the turn could not even be issued (§Fix item 1). */
+export const PROMPT_MODE_PRE_SEND_GATE_EXPIRY_MESSAGE =
+  "on-session turn was not issued: the session never went idle before the pre-send gate expired";
+
+/**
+ * Stem for a start-poll expiry over an UNSETTLED turn slice (§Fix item 3): the
+ * run was never observed non-idle and the turn's own slice never settled
+ * either (a settled-inside-one-poll turn is not this failure — see the guard
+ * cell in `tests/b0288-prompt-turn-completion-witness.test.ts`).
+ */
+export const PROMPT_MODE_START_PHASE_EXPIRY_MESSAGE =
+  "on-session turn did not start: the run was never observed to begin streaming";
+
+/**
+ * Stem for an end/settlement-phase expiry (§Fix item 4): the run started but
+ * never went idle again, or it went idle but the turn's own slice never
+ * settled within the bounded `waitForIdle` race and the final settle-poll.
+ */
+export const PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE =
+  "on-session turn did not settle: the run never completed and its reply never landed";
+
+/** Which bounded wait in `#driveUserVisibleTurn` expired (§Fix items 1–4). */
+export type PromptModeTurnLifecyclePhase = "pre-send-gate" | "start" | "settle";
+
+function phaseStem(phase: PromptModeTurnLifecyclePhase): string {
+  switch (phase) {
+    case "pre-send-gate":
+      return PROMPT_MODE_PRE_SEND_GATE_EXPIRY_MESSAGE;
+    case "start":
+      return PROMPT_MODE_START_PHASE_EXPIRY_MESSAGE;
+    case "settle":
+      return PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE;
+  }
+}
+
+/**
+ * Map a bounded turn-lifecycle wait's expiry to a `TransportError` on the
+ * PIC-50/PIC-51 register (bug 0288 §Fix items 1–4): `http_status: null`,
+ * `retryable: false`, the caller-resolved `provider`, and the phase's fixed
+ * named message stem with the elapsed bound (ms) appended so the expiry is
+ * diagnosable. No retry is attempted here (§Fix default) — the caller decides
+ * whether to re-send, and this repository's chosen default is not to.
+ */
+export function mapPromptModeTurnLifecycleExpiry(
+  phase: PromptModeTurnLifecyclePhase,
+  boundMs: number,
+  provider: string,
+): TransportError {
+  return {
+    kind: "transport",
+    message: `${phaseStem(phase)} (waited ${boundMs}ms)`,
+    http_status: null,
+    provider,
+    retryable: false,
+  };
+}
+
 /** A prompt-mode untyped query's result: `Ok(string)` or `Err(QueryError)`. */
 export type PromptModeQueryResult =
   | { readonly ok: true; readonly value: string }

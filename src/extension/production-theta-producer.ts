@@ -90,7 +90,7 @@ import { complete } from "@earendil-works/pi-ai/compat";
 // Bug 0010: the synthesised respond tool's `parameters` wrap the lowered
 // response schema exactly as the binder call shape does (`Type.Unsafe`).
 import { Type } from "typebox";
-import type { Clock } from "../seams/clock";
+import type { Clock, TimerHandle } from "../seams/clock";
 import type { RuntimeRoot } from "../runtime-root";
 import type {
   ActiveInvocationEntry,
@@ -137,7 +137,9 @@ import {
 import {
   extractPromptModeQueryResult,
   mapPromptModeSyncThrow,
+  mapPromptModeTurnLifecycleExpiry,
   PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
+  type PromptModeTurnLifecyclePhase,
 } from "../runtime/prompt-transport-mapping";
 import {
   enforceInvokeParamsDepth,
@@ -2873,6 +2875,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               clock: root.clock,
               queryText: prompt,
               activeTools,
+              provider: String(deps.ctx.model?.api ?? "unknown"),
             })
           : offModel !== undefined && respond !== undefined
             ? offModel.driveRepairAttempt(prompt)
@@ -4789,6 +4792,31 @@ class LivePromptQueryModel implements QueryModelDriver {
    * (Increment C) passes the follow-up template instead.
    */
   async #driveUserVisibleTurn(bound: boolean, text: string = this.#queryText): Promise<void> {
+    // Bug 0288 §Fix item 1: the pre-send gate. `pi.sendUserMessage` is
+    // fire-and-forget, and a send issued while the host reports streaming is
+    // rejected ASYNCHRONOUSLY into the host's extension-error channel
+    // (agent-session.js:1858) — unobservable to this driver (bug doc P3). Wait,
+    // bounded, until the session is idle, so the send below can only ever land
+    // on a session with nothing in flight — this removes the swallowed-send
+    // candidate BY CONSTRUCTION rather than by detecting it after the fact.
+    // Expiry fails loudly and issues NO send.
+    //
+    // The gate keys on `ctx.isIdle()` ALONE — the in-flight signal §Fix item 1
+    // actually needs — and deliberately makes no demand on the settledness of
+    // whatever slice precedes this turn. The message list is the USER's whole
+    // long-lived conversation, not this drive's window: a turn the user
+    // cancelled before any assistant entry existed is idle but never
+    // settleable, so a settledness demand would stall a benign single-query
+    // drive for the full bound and then fail it where the reply was available
+    // (§Non-goals: single-query drives keep their observable behaviour). It
+    // would also buy nothing — every turn THIS drive issued is already settled
+    // by the per-turn settle-poll below before `#driveUserVisibleTurn`
+    // returns, which is what sequences query N+1 after query N.
+    const gateCleared = await this.#pollWhile(() => !this.#ctx.isIdle(), PRE_SEND_GATE_POLL_BOUND);
+    if (!gateCleared) {
+      this.#recordLifecycleExpiry("pre-send-gate", PRE_SEND_GATE_POLL_BOUND * POLL_INTERVAL_MS);
+      return;
+    }
     // STAGE B: when `bound`, arm the governor around the native turn so pi's
     // internal agentic tool loop is capped at `tool_loop.max_rounds`. The bound
     // is armed IMMEDIATELY before `sendUserMessage` and disarmed right after the
@@ -4809,6 +4837,13 @@ class LivePromptQueryModel implements QueryModelDriver {
       thetaCallableSetNames: this.#activeTools,
       ...(this.#respond !== undefined ? { respondToolName: this.#respond.toolName } : {}),
     };
+    // Bug 0288 §Fix item 3/4: the message-list length recorded BEFORE this
+    // send — the boundary this turn's OWN user entry must land at or after. A
+    // settled-slice read that ignored this boundary could still anchor on an
+    // EARLIER turn's (already-settled) user entry and silently re-extract its
+    // text (P2's exact failure shape) instead of failing loudly over this
+    // turn's own, still-unattributed one.
+    const turnStart = this.#readMessages().length;
     try {
       await withActiveSetGating(this.#pi, install, async () => {
         // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
@@ -4835,24 +4870,95 @@ class LivePromptQueryModel implements QueryModelDriver {
             this.#transportFromThrow = mapPromptModeSyncThrow(thrown, this.#provider);
             return;
           }
-          await this.#pollWhile(() => this.#ctx.isIdle(), TURN_START_POLL_BOUND);
+          // Bug 0288 §Fix item 3: start-poll. Poll while the run has not been
+          // observed non-idle AND this turn's OWN slice has not yet settled — a
+          // turn that starts and finishes inside one poll interval (the guard
+          // cell, `tests/b0288-prompt-turn-completion-witness.test.ts` (v)) settles
+          // the second way and must not be mistaken for one that never started.
+          // Only an expiry with the slice still UNSETTLED is the loud failure
+          // (P1/P4: `isIdle` is not a proxy for "the send took effect").
+          const startCleared = await this.#pollWhile(
+            () => this.#ctx.isIdle() && !thisTurnSettled(this.#readMessages(), turnStart),
+            TURN_START_POLL_BOUND,
+          );
+          if (!startCleared) {
+            this.#recordLifecycleExpiry("start", TURN_START_POLL_BOUND * POLL_INTERVAL_MS);
+            return;
+          }
           // CANCEL-2 (cancellation.md §Forwarding into `thetaAbort`, slash-command
-          // entry): the turn is now streaming, so `ctx.signal` is defined for THIS
-          // turn (it is `undefined` at idle slash-entry). Re-forward it INTO
-          // `thetaAbort` so an Esc during the `@`-query turn flips the single source
-          // of truth every checkpoint gates on — the end-to-end "Esc during
-          // `@`-query" path. Idempotent: the one-shot guard on `thetaAbort.abort()`
-          // makes a repeat forward a no-op, and the listener is `{ once: true }` on
-          // the per-turn transient `ctx.signal`, so no long-lived controller leaks.
-          // Decision 6 / Increment B2: this PER-TURN forward's detach is deliberately
-          // NOT collected onto the shared `forwardingSignals` sink — the listener sits
+          // entry): once the start poll has cleared, `ctx.signal` reflects THIS
+          // turn whenever the host observed it streaming (it is `undefined` at
+          // idle slash-entry, and a no-op forward below when the fast path never
+          // observed the run non-idle at all). Re-forward it INTO `thetaAbort` so
+          // an Esc during the `@`-query turn flips the single source of truth
+          // every checkpoint gates on — the end-to-end "Esc during `@`-query" path.
+          // Idempotent: the one-shot guard on `thetaAbort.abort()` makes a repeat
+          // forward a no-op, and the listener is `{ once: true }` on the per-turn
+          // transient `ctx.signal`, so no long-lived controller leaks. Decision 6 /
+          // Increment B2: this PER-TURN forward's detach is deliberately NOT
+          // collected onto the shared `forwardingSignals` sink — the listener sits
           // on a per-turn-transient `ctx.signal` that self-cleans (`{once:true}` and
           // GC'd with the turn), so collecting it would add per-turn push/splice
           // churn for no shutdown-lifetime benefit. Only the invocation-scoped bind
           // forwards are collected (sub-step 5 detaches those).
           forwardSlashCommandCancel(this.#thetaAbort, this.#ctx.signal);
-          await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
-          await this.#ctx.waitForIdle();
+          if (this.#ctx.isIdle()) {
+            // Bug 0288 §Fix item 3, the fast path: the turn's own slice settled
+            // without `isIdle()` ever being observed false. Nothing to wait out.
+            return;
+          }
+          // Bug 0288 §Fix item 4: bounded end-poll, then a bounded `waitForIdle`
+          // race, then a bounded wait for THIS turn's own slice to settle. Each
+          // expiry is the query's loud `Err` — no ≈600s walk-out (P6), no
+          // unbounded `waitForIdle` (P5: `_isAgentRunActive` clears before the
+          // `agent_settled` emit is awaited, so a flag-based wait alone is not a
+          // turn-completion signal).
+          const endCleared = await this.#pollWhile(() => !this.#ctx.isIdle(), TURN_END_POLL_BOUND);
+          if (!endCleared) {
+            this.#recordLifecycleExpiry("settle", TURN_END_POLL_BOUND * POLL_INTERVAL_MS);
+            return;
+          }
+          // Race `ctx.waitForIdle()` against a `Clock`-driven bound instead of
+          // awaiting it unboundedly (§Fix item 4 / D5). Both branches carry an
+          // identical single `.then()` hop so a tie (both already resolved, the
+          // common fixture shape) resolves in `waitForIdle`'s favour — the branch
+          // listed first — rather than being decided by incidental extra
+          // microtask hops.
+          //
+          // The losing leg's timer is CLEARED after the race (the house pattern
+          // at factory.ts's `quiesceOutgoingRebuild` and
+          // runtime/subagent-isolation.ts's bounded exit await): on the common
+          // path `waitForIdle()` wins, and an uncleared handle would hold the
+          // event loop open for the bound on every driven turn.
+          let idleSettled = false;
+          let idleBoundTimer: TimerHandle | undefined;
+          const idleBound = new Promise<void>((resolve) => {
+            idleBoundTimer = this.#clock.setTimeout(() => resolve(), WAIT_FOR_IDLE_BOUND_MS);
+          });
+          try {
+            await Promise.race([ // allow: cka-62 — pi-integration-contract/conversation-drive.md
+              this.#ctx.waitForIdle().then(() => {
+                idleSettled = true;
+              }),
+              idleBound.then(() => {}),
+            ]);
+          } finally {
+            if (idleBoundTimer !== undefined) {
+              this.#clock.clearTimeout(idleBoundTimer);
+            }
+          }
+          if (!idleSettled) {
+            this.#recordLifecycleExpiry("settle", WAIT_FOR_IDLE_BOUND_MS);
+            return;
+          }
+          const settleCleared = await this.#pollWhile(
+            () => !thisTurnSettled(this.#readMessages(), turnStart),
+            TURN_SETTLE_POLL_BOUND,
+          );
+          if (!settleCleared) {
+            this.#recordLifecycleExpiry("settle", TURN_SETTLE_POLL_BOUND * POLL_INTERVAL_MS);
+            return;
+          }
           // CANCEL-2 (agent_end user-cancel trigger, CNCL-4 synthesised reason): a
           // turn that ended aborted without a forwarded source reason flips
           // `thetaAbort` with the synthesised `"theta cancelled by agent_end"` reason,
@@ -4878,28 +4984,156 @@ class LivePromptQueryModel implements QueryModelDriver {
     }
   }
 
-  /** Release the event loop, polling `condition` on the `Clock` up to `bound` times. */
-  async #pollWhile(condition: () => boolean, bound: number): Promise<void> {
-    for (let i = 0; i < bound && condition(); i += 1) {
+  /**
+   * Release the event loop, polling `condition` on the `Clock` up to `bound`
+   * times. Returns whether the condition CLEARED (observed false at or before
+   * the bound) as opposed to the bound EXPIRING while it was still true (bug
+   * 0288 §Fix item 1 / P1) — the caller can no longer mistake one for the
+   * other, which is the root cause this bug fixes: at HEAD both exits
+   * returned identically and a caller could not tell "satisfied" from
+   * "expired".
+   */
+  async #pollWhile(condition: () => boolean, bound: number): Promise<boolean> {
+    for (let i = 0; i < bound && condition() && !this.#thetaAbort.signal.aborted; i += 1) {
       await macrotask(this.#clock, POLL_INTERVAL_MS);
     }
+    return !condition();
+  }
+
+  /**
+   * Record a bounded turn-lifecycle wait's expiry as this query's transport
+   * `Err` — UNLESS the theta has been cancelled. PIC-51 pins that an observed
+   * `thetaAbort.signal.aborted` synthesises `Err(cancelled)` INSTEAD of reading
+   * session error state, and that precedence is honoured only by
+   * `extractPromptModeQueryResult`, which every caller skips once
+   * `#transportFromThrow` is set. Leaving it unset on an aborted drive keeps
+   * Esc-before-the-first-token answering `Err(cancelled)` promptly, exactly as
+   * the PIC-51 probe already did.
+   */
+  #recordLifecycleExpiry(phase: PromptModeTurnLifecyclePhase, boundMs: number): void {
+    if (this.#thetaAbort.signal.aborted) {
+      return;
+    }
+    this.#transportFromThrow = mapPromptModeTurnLifecycleExpiry(
+      phase,
+      boundMs,
+      this.#provider,
+    );
   }
 }
 
 /** Poll cadence (ms) while waiting for a fire-and-forget user turn's stream lifecycle. */
 const POLL_INTERVAL_MS = 10;
 
+/**
+ * Bound on the pre-send gate (§Fix item 1): waiting for the session to report
+ * no run in flight before this query's own send is issued.
+ */
+const PRE_SEND_GATE_POLL_BOUND = 1000;
+
 /** Bound on start-phase polls (≈ waiting for the run to begin streaming). */
 const TURN_START_POLL_BOUND = 1000;
 
-/** Bound on end-phase polls (≈ waiting for the streamed run to complete). */
-const TURN_END_POLL_BOUND = 60000;
+/**
+ * Bound on end-phase polls (≈ waiting for the streamed run to go idle again).
+ * Bug 0288 §Fix item 4: reduced from 60000 (≈600s, itself above vitest's live
+ * per-test timeout — P6) to a bound diagnosable well inside it.
+ */
+const TURN_END_POLL_BOUND = 6000;
+
+/**
+ * Bound (ms) on the `ctx.waitForIdle()` race (§Fix item 4 / D5): replaces the
+ * unbounded await at HEAD (P5/P6) with a `Clock`-driven race so a settle path
+ * that never resolves the flag presents as a loud named expiry.
+ */
+const WAIT_FOR_IDLE_BOUND_MS = 2000;
+
+/**
+ * Bound on the final settle-poll (§Fix item 4): waiting for THIS turn's own
+ * message-list slice to read as settled once the idle-flag wait has cleared.
+ */
+const TURN_SETTLE_POLL_BOUND = 1000;
 
 /** Release the event loop for one poll interval through the injected `Clock` seam. */
 function macrotask(clock: Clock, ms: number): Promise<void> {
   return new Promise<void>((resolve) => {
     clock.setTimeout(() => resolve(), ms);
   });
+}
+
+// --- Bug 0288 §Fix items 1/3/4 — the settled-turn predicate, producer-side ---
+//
+// D4 (adjudicated in-lane): implemented over the producer's OWN built
+// `Message[]` read surface (`#readMessages()`), not factored into
+// `src/runtime/` for sharing with `tests/live/harness.ts`. The harness reads
+// raw `SessionManager` entries (its own `lastTurnSettled`,
+// `tests/live/harness.ts:460`); this reads built `Message[]` — the two
+// surfaces differ, and `tests/live/harness.ts` is BYTE-FROZEN, so this is an
+// independent implementation of the same idea, not a shared function.
+
+/**
+ * Whether the slice AFTER a turn's own `user`-role message is a SETTLED
+ * ending. Two disjoint arms:
+ *
+ *   1. A trailing `assistant` message exists — whatever its `stopReason`, with
+ *      or without text. PIC-51b pins the whole trailing-`assistant` set as
+ *      DEFINITE outcomes: `"error"` and the non-normal terminators classify
+ *      as `transport`, `"length"` as `context_overflow`, and an EMPTY-TEXT
+ *      assistant on a normal boundary reaches PIC-53's `Ok("")` (the pure
+ *      tool-use turn). Narrowing this arm to "non-empty text, or `stopReason`
+ *      `"error"`/`"aborted"`" would read those definite outcomes as an
+ *      in-flight turn, mint a lifecycle `TransportError` where PIC-51b
+ *      mandates a different classification, and never let the turn settle.
+ *      Settledness is only ever consulted once the run has been observed
+ *      IDLE, so no message can still be accruing when this arm fires.
+ *      Classification itself stays with `extractPromptModeQueryResult`, the
+ *      single implementation of the PIC-51 / PIC-51b / PIC-53 ordering — this
+ *      predicate decides only "the turn is over", never "what it means".
+ *   2. A tool-result-only ending: the slice's last message is a
+ *      `ToolResultMessage` with nothing generated after it — a tool round the
+ *      host committed with no assistant entry of its own yet.
+ */
+function isSettledTurnEnding(afterUser: readonly Message[]): boolean {
+  for (let i = afterUser.length - 1; i >= 0; i -= 1) {
+    if (afterUser[i]?.role === "assistant") {
+      return true;
+    }
+  }
+  const last = afterUser[afterUser.length - 1];
+  return last !== undefined && last.role === "toolResult";
+}
+
+/**
+ * Locate the slice after the LAST `user`-role message at or after
+ * `fromIndex` in `messages` (bug 0288 §Fix item 1/3/4). `fromIndex` bounds the
+ * search to a particular turn's own send: a `user` entry recorded BEFORE it
+ * belongs to an earlier, already-settled turn and must never be mistaken for
+ * this turn's own anchor — the exact silent failure P2 describes
+ * (`extractTrailingTurnText` anchoring on the wrong turn's `user` entry).
+ */
+function turnSliceSince(
+  messages: readonly Message[],
+  fromIndex: number,
+): { readonly opened: boolean; readonly after: readonly Message[] } {
+  for (let i = messages.length - 1; i >= fromIndex; i -= 1) {
+    if (messages[i]?.role === "user") {
+      return { opened: true, after: messages.slice(i + 1) };
+    }
+  }
+  return { opened: false, after: [] };
+}
+
+/**
+ * Whether THIS turn — the one whose own `pi.sendUserMessage` was issued when
+ * `#readMessages().length` was `turnStart` — has settled. Requires the turn's
+ * OWN `user` entry to exist at or after `turnStart`: an inert/swallowed send
+ * (bug doc P3: the `isStreaming`-without-`streamingBehavior` throw appends NO
+ * user entry) can never read as settled no matter what the rest of the
+ * transcript looks like.
+ */
+function thisTurnSettled(messages: readonly Message[], turnStart: number): boolean {
+  const slice = turnSliceSince(messages, turnStart);
+  return slice.opened && isSettledTurnEnding(slice.after);
 }
 
 /**
@@ -6013,6 +6247,21 @@ async function offSessionFollowUp(
  * typed arm (`respond` context absent: an unlowerable annotation), whose
  * repair follow-ups still drive one streamed turn and text-parse its trailing
  * reply so typed behaviour stays total for unlowerable schemas.
+ *
+ * Bug 0288 §Fix item 5: brought onto the SAME turn-completion contract as
+ * `LivePromptQueryModel.#driveUserVisibleTurn` — the pre-send idle gate,
+ * the settled-slice-aware start poll, the bounded end poll / bounded
+ * `waitForIdle` race / bounded settle poll — rather than duplicated as a
+ * second copy of the OLD idle-poll hole (bug doc P7: this free function was
+ * exactly that second copy). Chosen over deleting it: this is the DEGRADED
+ * arm's only repair-follow-up drive (no respond tool to restart through
+ * `driveRepairAttempt`), so removing it would drop repair follow-ups for
+ * unlowerable schemas entirely rather than fix their contract — the smaller,
+ * more honest change keeps the call site and widens its return type to the
+ * `FollowUpDriveFailure` shape the caller (`driveFollowUp`,
+ * production-theta-producer.ts's `#resolvePromptQuery`) already accepts for
+ * every other arm, giving a bound expiry here the same home a transport
+ * failure has everywhere else.
  */
 async function driveStreamedUserTurn(deps: {
   readonly pi: ExtensionAPI;
@@ -6026,24 +6275,98 @@ async function driveStreamedUserTurn(deps: {
    * structured-output `complete()` call, binder-inference.md.)
    */
   readonly activeTools: readonly string[];
-}): Promise<string> {
+  /** PIC-50/51: the resolved provider for a synthesised `TransportError` on a bound expiry. */
+  readonly provider: string;
+}): Promise<string | FollowUpDriveFailure> {
   const readMessages = (): readonly Message[] =>
     buildSessionContext(
       deps.ctx.sessionManager.getEntries(),
       deps.ctx.sessionManager.getLeafId(),
     ).messages as unknown as readonly Message[];
-  const pollWhile = async (condition: () => boolean, bound: number): Promise<void> => {
-    for (let i = 0; i < bound && condition(); i += 1) {
+  // Every bounded wait below also stops promptly on an observed cancellation:
+  // a cancelled dispatch must not sit out the full bound before answering.
+  const pollWhile = async (condition: () => boolean, bound: number): Promise<boolean> => {
+    for (let i = 0; i < bound && condition() && deps.ctx.signal?.aborted !== true; i += 1) {
       await macrotask(deps.clock, POLL_INTERVAL_MS);
     }
+    return !condition();
   };
+  /**
+   * A bounded wait's expiry, UNLESS the dispatch was cancelled. This arm has no
+   * `thetaAbort` in scope, so it mints no cancellation classification of its
+   * own: on an observed abort it returns exactly what HEAD returned from every
+   * exit of this function — the trailing turn's text — leaving the caller's
+   * own cancellation handling in charge.
+   */
+  const expired = (
+    phase: PromptModeTurnLifecyclePhase,
+    boundMs: number,
+  ): string | FollowUpDriveFailure =>
+    deps.ctx.signal?.aborted === true
+      ? extractTrailingTurnText(readMessages())
+      : {
+          kind: "provider_failure",
+          error: mapPromptModeTurnLifecycleExpiry(phase, boundMs, deps.provider),
+        };
   const ambientTools = deps.pi.getActiveTools();
   deps.pi.setActiveTools([...deps.activeTools]);
   try {
+    // §Fix item 1: the same pre-send gate as the method — no send while the
+    // session reports a run in flight, and no settledness demand over the
+    // user's ambient conversation (see the method's own gate for why).
+    const gateCleared = await pollWhile(() => !deps.ctx.isIdle(), PRE_SEND_GATE_POLL_BOUND);
+    if (!gateCleared) {
+      return expired("pre-send-gate", PRE_SEND_GATE_POLL_BOUND * POLL_INTERVAL_MS);
+    }
+    const turnStart = readMessages().length;
     deps.pi.sendUserMessage(deps.queryText);
-    await pollWhile(() => deps.ctx.isIdle(), TURN_START_POLL_BOUND);
-    await pollWhile(() => !deps.ctx.isIdle(), TURN_END_POLL_BOUND);
-    await deps.ctx.waitForIdle();
+    // §Fix item 3: settled-slice-aware start poll — a turn that starts and
+    // finishes inside one poll interval is not an unstarted turn.
+    const startCleared = await pollWhile(
+      () => deps.ctx.isIdle() && !thisTurnSettled(readMessages(), turnStart),
+      TURN_START_POLL_BOUND,
+    );
+    if (!startCleared) {
+      return expired("start", TURN_START_POLL_BOUND * POLL_INTERVAL_MS);
+    }
+    if (!deps.ctx.isIdle()) {
+      // §Fix item 4: bounded end poll, bounded `waitForIdle` race, bounded
+      // settle poll — skipped entirely on the fast path (settled without the
+      // run ever being observed non-idle).
+      const endCleared = await pollWhile(() => !deps.ctx.isIdle(), TURN_END_POLL_BOUND);
+      if (!endCleared) {
+        return expired("settle", TURN_END_POLL_BOUND * POLL_INTERVAL_MS);
+      }
+      // The losing leg's timer is cleared after the race, so the common path
+      // (`waitForIdle()` wins) leaves no live timer holding the event loop.
+      let idleSettled = false;
+      let idleBoundTimer: TimerHandle | undefined;
+      const idleBound = new Promise<void>((resolve) => {
+        idleBoundTimer = deps.clock.setTimeout(() => resolve(), WAIT_FOR_IDLE_BOUND_MS);
+      });
+      try {
+        await Promise.race([ // allow: cka-62 — pi-integration-contract/conversation-drive.md
+          deps.ctx.waitForIdle().then(() => {
+            idleSettled = true;
+          }),
+          idleBound.then(() => {}),
+        ]);
+      } finally {
+        if (idleBoundTimer !== undefined) {
+          deps.clock.clearTimeout(idleBoundTimer);
+        }
+      }
+      if (!idleSettled) {
+        return expired("settle", WAIT_FOR_IDLE_BOUND_MS);
+      }
+      const settleCleared = await pollWhile(
+        () => !thisTurnSettled(readMessages(), turnStart),
+        TURN_SETTLE_POLL_BOUND,
+      );
+      if (!settleCleared) {
+        return expired("settle", TURN_SETTLE_POLL_BOUND * POLL_INTERVAL_MS);
+      }
+    }
   } finally {
     deps.pi.setActiveTools(ambientTools);
   }
