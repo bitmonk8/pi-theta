@@ -41,7 +41,35 @@
 
 import { checkCompatible } from "../parser/type-compat";
 import type { CompatType, TypeEnv } from "../parser/type-compat";
+import { StdlibMethodArgumentDefectError } from "./runtime-panics";
 import type { ThetaValue } from "./value";
+
+/**
+ * Bug 0315 — the per-parameter type descriptor a stdlib member's positional
+ * argument is checked against. `"element"` and `"array"` exist only for the
+ * `array<T>` table (`stdlib-array.ts`) — `T`, the receiver's own element type,
+ * and "any `array<U>`" (for `concat`) respectively; neither descriptor is
+ * meaningful outside an array receiver, so `string`/`object` signatures never
+ * spell them. Defined once here (the first stdlib module read alphabetically)
+ * and imported by `stdlib-array.ts` / `stdlib-object.ts` rather than
+ * redeclared three times, so the parser's type-check arm and the three
+ * runtime-belt dispatchers all read ONE shape.
+ */
+export type StdlibParamKind = "string" | "integer" | "element" | "array";
+
+/**
+ * A stdlib member's declared signature: the positional-argument arity bounds
+ * `[min, max]` (both the `type`-phase `stdlib-arity-mismatch` parse check and
+ * the runtime dispatcher belt read this) and, for the arity range's own
+ * indices, the per-parameter type descriptor the `stdlib-arg-type-mismatch`
+ * parse check resolves against (the belt does not consult `params` — arity is
+ * its only concern, per the design brief).
+ */
+export interface StdlibMemberSignature {
+  readonly min: number;
+  readonly max: number;
+  readonly params: readonly StdlibParamKind[];
+}
 
 /**
  * Evaluate a `string` standard-library member on `receiver`: the `length`
@@ -70,11 +98,47 @@ export const STRING_MEMBERS: ReadonlySet<string> = new Set([
   "replace",
 ]);
 
+/**
+ * Bug 0315 — the `string` member arity/argument-type table (expressions.md
+ * §"Built-in methods and properties", the `string` Signature column):
+ * `checkMethodCall`
+ * (`../parser/type-layer-checks.ts`) reads it for the `stdlib-arity-mismatch` /
+ * `stdlib-arg-type-mismatch` parse checks, and `evaluateStringMember` below
+ * reads it for the runtime belt. Every key here is also a `STRING_MEMBERS`
+ * name, and vice versa — the two are hand-written and independent (the
+ * allow-list predates this table) rather than one derived from the other, so
+ * a future member addition that updates only one of them is a silent drift a
+ * reviewer must catch by inspection, the same discipline the sibling
+ * `ARRAY_MEMBERS` / `OBJECT_MEMBERS` pairs below apply.
+ */
+export const STRING_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature> = new Map([
+  ["length", { min: 0, max: 0, params: [] }],
+  ["toLowerCase", { min: 0, max: 0, params: [] }],
+  ["toUpperCase", { min: 0, max: 0, params: [] }],
+  ["trim", { min: 0, max: 0, params: [] }],
+  ["startsWith", { min: 1, max: 1, params: ["string"] }],
+  ["endsWith", { min: 1, max: 1, params: ["string"] }],
+  ["includes", { min: 1, max: 1, params: ["string"] }],
+  ["split", { min: 1, max: 1, params: ["string"] }],
+  ["replace", { min: 2, max: 2, params: ["string", "string"] }],
+]);
+
 export function evaluateStringMember(
   receiver: string,
   member: string,
   args: readonly ThetaValue[],
 ): ThetaValue {
+  // Bug 0315 runtime belt: a laundered receiver (a statically-unresolvable
+  // `string` value) reaches here without ever passing through the parse-time
+  // `stdlib-arity-mismatch` check (`../parser/type-layer-checks.ts` defers on
+  // an "unknown"-classified receiver), so a wrong-arity call would otherwise
+  // fall through to the unchecked `args[i] as …` casts below and forward raw
+  // JS `undefined` into the host method (bug 0315 §Reproduction). Thrown
+  // BEFORE the switch, so no case below ever sees an out-of-arity `args`.
+  const signature = STRING_MEMBER_SIGNATURES.get(member);
+  if (signature !== undefined && (args.length < signature.min || args.length > signature.max)) {
+    throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+  }
   switch (member) {
     // `length` — the UTF-16 code-unit count (JS `.length`; no grapheme or
     // code-point segmentation).

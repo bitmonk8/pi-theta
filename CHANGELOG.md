@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.294.0]
+
+### Fixed
+
+- **Bug 0315** — stdlib method calls with missing, mistyped, or extra arguments are now parse-time refusals instead of silent JS-coercion successes: a signature table beside `checkMethodCall` gates every string/array/object member's arity and argument types with two new registered codes, `theta/parse/stdlib-arity-mismatch` and `theta/parse/stdlib-arg-type-mismatch` (registry rows + placeholder-rendering + reference mirrors same commit), so `"a-b".replace("-")` no longer answers `"aundefinedb"`, `"undefinedX".startsWith()` no longer answers `true`, and `["a","b"].join()` no longer takes the JS `","` default (`expressions.md` signature table; the five normative `replace` vectors byte-identical). A runtime belt (`StdlibMethodArgumentDefectError`) closes the laundered-receiver residue in the three dispatchers. Witnessed by `tests/b0315-stdlib-arg-surface.test.ts` (30 cells), `tests/b0315-stdlib-arg-runtime-belt.test.ts`, and the acceptance cell `tests/live/acceptance/b0315live-stdlib-arg-refusal.test.ts`.
+
 ## [0.293.0]
 
 ### Fixed

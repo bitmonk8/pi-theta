@@ -84,9 +84,14 @@ import {
 import { checkForIterand } from "./control-flow";
 import { collectUnresolvedNamedTypes } from "./body-type-lowering";
 import { isSingleEnclosingBraceGroup, isUnspellableTextRefusable } from "./params";
-import { STRING_MEMBERS } from "../runtime/stdlib-string";
-import { ARRAY_MEMBERS } from "../runtime/stdlib-array";
-import { OBJECT_MEMBERS } from "../runtime/stdlib-object";
+import {
+  STRING_MEMBERS,
+  STRING_MEMBER_SIGNATURES,
+  type StdlibMemberSignature,
+} from "../runtime/stdlib-string";
+import { ARRAY_MEMBERS, ARRAY_MEMBER_SIGNATURES } from "../runtime/stdlib-array";
+import { OBJECT_MEMBERS, OBJECT_MEMBER_SIGNATURES } from "../runtime/stdlib-object";
+import { checkStdlibMethodCall } from "./stdlib-arg-diagnostics";
 import {
   checkMatchArmTypes,
   checkQuestionOperand,
@@ -247,6 +252,31 @@ function builtinMembers(kind: BuiltinReceiver): ReadonlySet<string> {
 }
 
 const EMPTY_MEMBERS: ReadonlySet<string> = new Set();
+
+/**
+ * Bug 0315 — the declared signature (arity + per-parameter type descriptors)
+ * for a stdlib member on a concrete built-in receiver kind, or `undefined`
+ * for a receiver kind with no member surface (`number` / `integer` /
+ * `boolean` / `null`) — those never reach the lookup, because
+ * `checkMethodCall` only calls this after `builtinMembers(kind).has(e.method)`
+ * has already confirmed a known member, and `EMPTY_MEMBERS` above makes that
+ * `has` always `false` for those kinds.
+ */
+function stdlibSignatureFor(
+  kind: BuiltinReceiver,
+  method: string,
+): StdlibMemberSignature | undefined {
+  switch (kind) {
+    case "string":
+      return STRING_MEMBER_SIGNATURES.get(method);
+    case "array":
+      return ARRAY_MEMBER_SIGNATURES.get(method);
+    case "object":
+      return OBJECT_MEMBER_SIGNATURES.get(method);
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The walk context threaded down each block: the enclosing scope a `?` early-
@@ -3473,7 +3503,45 @@ class TypeLayerWalk {
       // still read back as itself here, whatever it unfolds to for the
       // checks above.
       this.pushUnknownMethod(e.method, targetType, e.range);
+      return;
     }
+    // Bug 0315 — the member NAME is known (the allow-list above passed), so
+    // check its argument list against the shared arity/type signature table:
+    // arity first (`theta/parse/stdlib-arity-mismatch`), then, only if arity is
+    // in range, per-argument type (`theta/parse/stdlib-arg-type-mismatch`).
+    // Only reached for a concretely-resolvable receiver `kind` (the `unknown`
+    // early-return above already deferred a laundered receiver to the runtime
+    // dispatcher belt).
+    const signature = stdlibSignatureFor(kind, e.method);
+    if (signature === undefined) {
+      return;
+    }
+    // The array receiver's own element type, for the `"element"` param
+    // descriptor (`includes(x)` / `indexOf(x)` on `array<T>`) — unfolded the
+    // same way the `join` precondition's `joinElement` above is, so TYPE-11
+    // transparency applies identically.
+    const elementType =
+      unfoldedTarget.kind === "array" ? unfoldAlias(unfoldedTarget.element, this.env) : undefined;
+    const diags = checkStdlibMethodCall({
+      method: e.method,
+      signature,
+      displayReceiverType: displayType(targetType),
+      argCount: e.args.length,
+      // `provableArgType`, not `typeOf`: the same EXACTNESS gate
+      // `checkFnCallArgs` reads for its own per-argument type check (bug
+      // 0156/0072's soundness lesson) — a lossy reduction (an array literal
+      // with no common element type, a bare identifier minted from an
+      // author-chosen name that resolves to nothing declared, an erased
+      // ternary/match branch) must not be treated as a proof of the
+      // argument's runtime type here either, or this check would double up on
+      // a node another row already refuses (or fabricate a mismatch `typeOf`'s
+      // lossy fallback invents).
+      argTypeAt: (i) => this.provableArgType(e.args[i] as Expr, bindings),
+      elementType,
+      env: this.env,
+      site: { file: this.file, range: e.range },
+    });
+    this.diagnostics.push(...diags);
   }
 
   /**

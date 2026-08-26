@@ -1,6 +1,6 @@
 # Bug 0315 — Stdlib method calls with missing or mistyped arguments parse clean and pass raw JS `undefined`/mistyped values into the host methods: `"a-b".replace("-")` answers `"aundefinedb"`, `"undefinedX".startsWith()` answers `true`, `["a","b"].join()` answers `"a,b"`, and extra arguments are silently ignored
 
-- **Status:** open.
+- **Status:** fixed (0.294.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because a parse-clean call injects the JS
   spelling `undefined` into a string value (`"aundefinedb"`), answers a
   content-dependent predicate over the literal string `"undefined"`
@@ -152,3 +152,98 @@ byte-identical.
 Found by reading `evaluateStringMember`'s `as`-casts against the expressions.md
 signature table during the runtime-mutation hunt at bc52da38; all nine rows
 probed offline through the production executor harness. Scratch probes deleted.
+
+## Fix (0.294.0)
+
+**Registry-half adjudication (parent-settled): a NEW DIAG-2 row, not a widening
+of `theta/parse/unknown-method`.** Recorded verbatim: (1) 0131's precedent
+minted a dedicated row for the fn-namespace arity class; (2) `unknown-method`'s
+registered trigger is name-not-on-the-list — semantically distinct from a
+signature mismatch on a *known* member; (3) `expressions.md:122` frames stdlib
+misuse as a parse-time refusal — a dedicated row gives the author member +
+expected/got in one message.
+
+**Naming / message / prose choices (orchestrator-settled under that delegation).**
+Two new `type`-phase parse codes were minted (the minimal set that flips every
+witness including the type witness X2, mirroring 0131's arity + arg-type split):
+
+- `theta/parse/stdlib-arity-mismatch` — one code, both directions, mirroring the
+  precedented single-code `theta/parse/generic-arity-mismatch`. Message:
+  `stdlib method '<method>' on type <type> expects <required> argument(s); got <provided>`.
+  `<required>` renders the arity boundary the call VIOLATES — the member minimum
+  for a too-few call, the maximum for a too-many call (every member has
+  `min == max` except `slice`, whose boundary is exact either way).
+- `theta/parse/stdlib-arg-type-mismatch` — per-argument type, checked AFTER arity
+  (arity-before-type; on a mismatch the type check does not run), deferring
+  statically-unresolvable / withheld argument types exactly as
+  `checkFnCallArgs` / `checkInvokeArgTypes` do. Message:
+  `stdlib method '<method>' on type <type> argument <i> type mismatch: expected <expected>, got <actual>`.
+
+No new placeholder was coined — `<method>` (cat 7), `<type>`/`<expected>`/
+`<actual>` (cat 1), `<i>`/`<required>`/`<provided>` (cat 4) are all pre-existing;
+only the `<required>`/`<provided>` scope enumeration in placeholder-rendering-a.md
+§4 gained the new code. The `concat` any-`array<U>` parameter renders its
+`<expected>` as the category-1-conformant `array<unknown>` (the `unknown`
+stand-in token inside an `array<…>` composite), so no per-arm carve-out was
+needed (round-1 review finding F1).
+
+**Object-member scope decision: INCLUDED.** Premeasured before implementing — no
+committed test or doc fixture pins the silent wrong-arity behaviour of
+`keys()` / `values()` / `has(k)` on a resolvable object (the only `.has()` /
+`.keys(` occurrences are correct-arity theta fixtures, the non-object-receiver
+message-render input `read: ".has()"`, and TypeScript-harness `Object.keys(...)`);
+a scratch probe confirmed `o.has()` and `o.keys(1)` parse clean today. Object
+members are therefore in the shared signature table.
+
+- What shipped:
+  - `src/runtime/stdlib-string.ts` — `StdlibParamKind`/`StdlibMemberSignature`
+    types + `STRING_MEMBER_SIGNATURES` (the shared table's home); runtime belt in
+    `evaluateStringMember`.
+  - `src/runtime/stdlib-array.ts`, `src/runtime/stdlib-object.ts` —
+    `ARRAY_MEMBER_SIGNATURES` / `OBJECT_MEMBER_SIGNATURES`; runtime belt in each
+    dispatcher.
+  - `src/runtime/runtime-panics.ts` — `StdlibMethodArgumentDefectError` (routes
+    through the existing `surfaceUnexpectedThrow` → `theta/runtime/internal-error`;
+    no new runtime registry code), thrown by the three dispatchers on an
+    out-of-`[min,max]` `args.length` instead of the unchecked `args[i] as …` cast;
+    fires only on genuine mismatch, never for a correct-arity laundered call.
+  - `src/parser/stdlib-arg-diagnostics.ts` (new) — the two message builders +
+    `checkStdlibMethodCall` (arity-before-type; `provableArgType` for soundness).
+  - `src/parser/type-layer-checks.ts` — wires the check into `checkMethodCall`
+    after the existing `join` precondition + A2 allow-list; concrete receivers
+    only (laundered receivers defer to the runtime belt).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md`,
+    `docs/reference/diagnostics.md`,
+    `docs/spec_topics/diagnostics/placeholder-rendering-a.md`,
+    `docs/spec_topics/expressions.md` — the two rows + mirror + `<required>`/
+    `<provided>` scope + one additive normative sentence (DIAG-2 same-commit).
+  - `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` — the
+    `theta/b0315` sourcePath-literal false-positive waiver (bug 0230 convention,
+    matching `theta/conformance` / `theta/bug0019`).
+- Gates: witness run `npx vitest run tests/b0315-stdlib-arg-surface.test.ts
+  tests/b0315-stdlib-arg-runtime-belt.test.ts` → 32 passed; full suite `npm test`
+  → 471 files / 9505 tests passed; `npm run typecheck` clean; `npm run lint`
+  clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`): one `spec` finding F1 — the
+  `concat` `<expected>` rendered the non-conformant `array<T>`; fixed to
+  `array<unknown>` + three type-witness cells added. Round 2
+  (`bug-fix-reviewer-fast`): CLEAN, no correctness/fidelity/spec blocker.
+- Verification (`bug-fix-verifier`, SOLID): (1) witnesses genuinely witness —
+  parse-check neutralised → 14 witnesses RED, restored byte-exact
+  (blob `8e443ef3…`) → GREEN; belt neutralised → RED with the `"aundefinedb"`
+  signature, restored byte-exact (blob `a937fb70…`) → GREEN; (2) full suite 471
+  files / 9505 tests green; (3) live — `tests/live/acceptance/b0315live-stdlib-arg-refusal.test.ts`
+  1 test passed via real `pi -p` (control drove `263+514=777`; offender refused,
+  `REFUSED` sentinel, `LOADED` absent), and H9a `noninteractive-acceptance` 10/10
+  with every area's codes ⊆ permitted (permitted-codes.json byte-unchanged — the
+  new parse codes never reach H9a stderr from committed fixtures); (4) lint +
+  typecheck clean.
+- Residuals: none. (The `"element"` / `"integer"` / `"array"` type-descriptor
+  arms each carry a committed witness cell as of the round-1 fixer pass.)
+- Discharge notes appended: none — 0131 scoped itself to `fn` calls and never
+  claimed or deferred the stdlib-method argument surface, so it is owed none.
+- Pinned dispositions / non-goals: the laundered-receiver runtime net is a belt,
+  not a parse check (the parse layer still defers a statically-unresolvable
+  receiver, per `checkMethodCall`'s comment); correctly-arity'd calls' documented
+  JS semantics are unchanged (the five normative `replace` vectors and every
+  control cell stay byte-identical).

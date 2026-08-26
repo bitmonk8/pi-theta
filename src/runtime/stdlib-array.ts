@@ -25,6 +25,8 @@
 
 import { displayType, type CompatType, type CompatSite } from "../parser/type-compat";
 import { type Diagnostic } from "../diagnostics/diagnostic";
+import { StdlibMethodArgumentDefectError } from "./runtime-panics";
+import type { StdlibMemberSignature } from "./stdlib-string";
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**
@@ -51,11 +53,41 @@ export const ARRAY_MEMBERS: ReadonlySet<string> = new Set([
   "concat",
 ]);
 
+/**
+ * Bug 0315 — the `array<T>` member arity/argument-type table (expressions.md
+ * §"Built-in methods and properties", the `array<T>` Signature column):
+ * `checkMethodCall`
+ * (`../parser/type-layer-checks.ts`) reads it for the `stdlib-arity-mismatch` /
+ * `stdlib-arg-type-mismatch` parse checks, and `evaluateArrayMember` below
+ * reads it for the runtime belt. `"element"` (`includes` / `indexOf`) resolves
+ * to the receiver's own element type `T`; `"array"` (`concat`) accepts any
+ * `array<U>`. `slice` is the one member with `min !== max` — its optional
+ * `end` argument. Hand-written, kept paired with `ARRAY_MEMBERS` above the
+ * same way `STRING_MEMBER_SIGNATURES` is paired with `STRING_MEMBERS`.
+ */
+export const ARRAY_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature> = new Map([
+  ["length", { min: 0, max: 0, params: [] }],
+  ["join", { min: 1, max: 1, params: ["string"] }],
+  ["includes", { min: 1, max: 1, params: ["element"] }],
+  ["indexOf", { min: 1, max: 1, params: ["element"] }],
+  ["slice", { min: 1, max: 2, params: ["integer", "integer"] }],
+  ["concat", { min: 1, max: 1, params: ["array"] }],
+]);
+
 export function evaluateArrayMember(
   receiver: readonly ThetaValue[],
   member: string,
   args: readonly ThetaValue[],
 ): ThetaValue {
+  // Bug 0315 runtime belt — see the matching comment in
+  // `evaluateStringMember` (`stdlib-string.ts`): a laundered `array<T>`
+  // receiver reaches here without the parse-time arity check, so a
+  // wrong-arity call (e.g. `[1,2].includes()`) would otherwise fall through
+  // to the unchecked `args[i] as …` casts below.
+  const signature = ARRAY_MEMBER_SIGNATURES.get(member);
+  if (signature !== undefined && (args.length < signature.min || args.length > signature.max)) {
+    throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+  }
   switch (member) {
     // `length` — the element count.
     case "length":

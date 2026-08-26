@@ -49,6 +49,8 @@ import {
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
+import { StdlibMethodArgumentDefectError } from "./runtime-panics";
+import type { StdlibMemberSignature } from "./stdlib-string";
 import type { ThetaValue } from "./value";
 
 /**
@@ -102,11 +104,40 @@ export function checkObjectIndex(opts: {
  */
 export const OBJECT_MEMBERS: ReadonlySet<string> = new Set(["keys", "values", "has"]);
 
+/**
+ * Bug 0315 — the `object` member arity/argument-type table (expressions.md
+ * §"Built-in methods and properties", the `object` Signature column),
+ * included per the fix's premeasure: no
+ * committed fixture pins the silent wrong-arity behaviour of `keys()` /
+ * `values()` / `has(k)`, so gating them carries no compatibility cost.
+ * `checkMethodCall` (`../parser/type-layer-checks.ts`) reads it for the
+ * `stdlib-arity-mismatch` / `stdlib-arg-type-mismatch` parse checks, and
+ * `evaluateObjectMember` below reads it for the runtime belt. Hand-written,
+ * kept paired with `OBJECT_MEMBERS` above the same way
+ * `STRING_MEMBER_SIGNATURES` is paired with `STRING_MEMBERS`.
+ */
+export const OBJECT_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature> = new Map([
+  ["keys", { min: 0, max: 0, params: [] }],
+  ["values", { min: 0, max: 0, params: [] }],
+  ["has", { min: 1, max: 1, params: ["string"] }],
+]);
+
 export function evaluateObjectMember(
   receiver: { readonly [key: string]: ThetaValue },
   member: string,
   args: readonly ThetaValue[],
 ): ThetaValue {
+  // Bug 0315 runtime belt — see the matching comment in
+  // `evaluateStringMember` (`stdlib-string.ts`): a laundered object receiver
+  // reaches here without the parse-time arity check (this arm is reachable
+  // only past the bug-0027 non-object-receiver gate, which the two call sites
+  // apply BEFORE this dispatcher — see this module's header comment), so a
+  // wrong-arity call (e.g. `o.has()`) would otherwise fall through to the
+  // unchecked `args[0] as …` cast below.
+  const signature = OBJECT_MEMBER_SIGNATURES.get(member);
+  if (signature !== undefined && (args.length < signature.min || args.length > signature.max)) {
+    throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+  }
   switch (member) {
     // `keys()` — the theta-side field names as an `array<string>`, in the
     // object value's own key order (schema declaration order for named schemas,

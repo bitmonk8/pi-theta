@@ -427,6 +427,35 @@ export class QuestionOperandDefectError extends Error {
 }
 
 /**
+ * Bug 0315 (docs/bugs/0315-stdlib-method-argument-surface-unchecked.md)
+ * belt-and-braces: a stdlib method call's argument-count precondition is a
+ * static gate — `checkMethodCall` (`../parser/type-layer-checks.ts`) rejects a
+ * wrong-arity call at parse time (`theta/parse/stdlib-arity-mismatch`) when
+ * the receiver's static type is a concretely-resolvable built-in. That gate
+ * defers on a statically-unresolvable ("laundered") receiver — an unannotated
+ * `fn` parameter, e.g. — exactly as the A2 `unknown-method` check does, so a
+ * wrong-arity call on such a receiver reaches `evaluateStringMember` /
+ * `evaluateArrayMember` / `evaluateObjectMember` with the gate never having
+ * run. Those dispatchers otherwise index `args[i] as …` unconditionally, so a
+ * missing argument becomes raw JS `undefined` laundered into the host method
+ * (`"a-b".replace("-")` → `"aundefinedb"`, bug 0315 §Reproduction). Each
+ * dispatcher throws this defect instead, BEFORE the cast, on an out-of-`[min,
+ * max]` `args.length`; it routes through `surfaceUnexpectedThrow` to
+ * `theta/runtime/internal-error` exactly as `QuestionOperandDefectError`
+ * above does, and fires only for a genuine arity mismatch — a correct-arity
+ * call on the same laundered receiver passes through untouched.
+ */
+export class StdlibMethodArgumentDefectError extends Error {
+  public constructor(method: string, min: number, max: number, provided: number) {
+    const arity = min === max ? `exactly ${min}` : `between ${min} and ${max}`;
+    super(
+      `internal defect: stdlib method '${method}' called with ${provided} argument(s), outside its declared arity (expects ${arity}); the parse-time stdlib-arity-mismatch gate (theta/parse/stdlib-arity-mismatch) did not reject this site — a laundered-receiver gate gap (bug 0315)`,
+    );
+    this.name = "StdlibMethodArgumentDefectError";
+  }
+}
+
+/**
  * Render the offending-operand summary of a `QuestionOperandDefectError`
  * message. Defensive by construction — the value is by definition outside the
  * interpreter's `Result` contract, so no `JSON.stringify` (cycles, unbounded

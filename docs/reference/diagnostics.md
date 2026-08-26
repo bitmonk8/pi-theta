@@ -192,6 +192,8 @@ trigger.
 | `theta/parse/invoke-arity-too-many` | E | parse | `invoke '<callee>' passes too many arguments: expected at most <max>, got <provided>` |
 | `theta/parse/fn-arity-too-few` | E | type | `fn '<name>' passes too few arguments: expected <required>, got <provided>` |
 | `theta/parse/fn-arity-too-many` | E | type | `fn '<name>' passes too many arguments: expected <required>, got <provided>` |
+| `theta/parse/stdlib-arity-mismatch` | E | type | `stdlib method '<method>' on type <type> expects <required> argument(s); got <provided>` |
+| `theta/parse/stdlib-arg-type-mismatch` | E | type | `stdlib method '<method>' on type <type> argument <i> type mismatch: expected <expected>, got <actual>` |
 
 ## `theta/load/*`
 
