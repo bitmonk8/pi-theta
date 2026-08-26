@@ -1104,3 +1104,18 @@ at the baseline (`collectImports:77`, `extractThetaLibForms:106`,
   runs in the caller's environment. That is a distinct, unfiled gap and
   deliberately out of scope here — materialising a lib's own imports into its
   importer would flip (i)'s equality assertion.
+
+### Discharge note (bug 0303, 0.291.0)
+
+The distinct, unfiled gap named above — a lib's own `import` never
+materialised into its importer, `wrap`'s body running in the caller's
+environment — was filed as [bug 0303](./0303-imported-fn-body-resolves-in-caller-scope.md)
+(widened to sibling `fn`s, same-lib `enum`s, and caller-side capture) and
+fixed in 0.291.0. An imported `.thetalib` `fn` body now executes against its
+declaring module's environment, which recursively materialises the lib's own
+imports. As 0303 constraint 5 pre-authorized, cell (i) flipped from a fence to
+a witness: its control and re-export row now DELIVER `wrap`'s value
+identically instead of throwing identically, and the cell carries an absolute
+control pin. The re-derivation is in
+`tests/reexport-chain-resolution.test.ts` (0303's commit); this record is
+unchanged otherwise, per the shipped-historical-record convention.

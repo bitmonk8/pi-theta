@@ -13,7 +13,7 @@
 // operand and emitted nothing (src/parser/theta-document.ts:4753-4757), the
 // theta registered silently, and `runParForIteration` folded the `return` into
 // that iteration's `makeOk(flow.value)`
-// (src/runtime/statement-executor.ts:1268-1269)
+// (src/runtime/statement-executor.ts:1292-1293)
 // (docs/bugs/0223-par-for-body-return-folds-unenumerated.md, §Fix route (a) —
 // ENUMERATE-AND-REFUSE).
 //
@@ -124,7 +124,7 @@ describe("bug 0223 — a `return` in a `par for` body is refused at live product
           "registered — the CTRL-4 body refusal " +
           "(`theta/parse/par-return-in-body`) did not fire, so the theta " +
           "loaded and the runtime fold " +
-          "(src/runtime/statement-executor.ts:1269-1273) stays reachable. " +
+          "(src/runtime/statement-executor.ts:1293-1297) stays reachable. " +
           "Registered: " + JSON.stringify(handle.registeredNames()),
       ).toBeUndefined();
       expect(

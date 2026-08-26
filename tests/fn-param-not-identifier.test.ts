@@ -535,7 +535,7 @@ describe("0225 (a) — a parameter-name position holding a token no `Ident` deri
     // The runtime reach. At HEAD `let z = h("q")` survives with ONE argument
     // against FOUR recorded parameters and draws nothing, because no
     // parse-time arity check exists (bug 0131) — `evalUserFnCall`
-    // (src/runtime/statement-executor.ts:424) is the next thing that runs and
+    // (src/runtime/statement-executor.ts:436) is the next thing that runs and
     // throws `ThetaFnArityError`, routed to `theta/runtime/internal-error`
     // (src/runtime/tool-call.ts:443). The arity check is NOT added here (bug
     // 0131's), so what changes is that the declaration itself is refused and

@@ -48,7 +48,7 @@
 //      channel — must carry the sentinel the theta computed by calling the
 //      unannotated-parameter function. This is the positive observable: it
 //      proves the parameter BOUND positionally
-//      (src/runtime/statement-executor.ts:417) and its value reached the
+//      (src/runtime/statement-executor.ts:428) and its value reached the
 //      rendered query template, so the note-absence assertion below is not
 //      standing in for a drive that never happened.
 //   3. The driven turn's `theta-system-note` channel, read off the settled

@@ -180,7 +180,11 @@ Structural deep equality. `==`/`!=` accept operands of any two static types
   re-exported enum, the tag identifies the declaring declaration (declaring
   `.thetalib` file plus declared name), not the local binding name, so an
   import alias or a re-export rename of one declaration compares equal
-  across the alias; a same-file enum tags on its bare declared name ([Runtime
+  across the alias; an enum declared in a `.theta` file (which cannot itself
+  be imported) tags on its bare declared name, but an enum declared in a
+  `.thetalib` tags on its declaring declaration whether read within its own
+  module's fn bodies or through an import, so a lib-internal read and an
+  importer's read of the same declaration compare equal ([Runtime
   Value Model — Equality](../spec_topics/runtime-value-model.md#equality)).
 - `Result`: `Ok`/`Err` discriminator, recurse on payload.
 

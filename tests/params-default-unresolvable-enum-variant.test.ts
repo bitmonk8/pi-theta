@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // conditions on `NamedValueLit`. At invocation `#recoverDeclaredDefaults`
 // (`src/extension/production-theta-producer.ts:1293`) evaluates the default
 // through the theta's own body environment; `resolveEnumVariant`
-// (`src/runtime/lexical-environment.ts:582`) answers `undefined`, the `member`
+// (`src/runtime/lexical-environment.ts:671`) answers `undefined`, the `member`
 // arm's guard (`production-theta-producer.ts:6150`) does not return, and the
 // fallthrough (`:6155`) hands `evaluateMemberAccess` the `null` the `ident` arm
 // (`:6124`) manufactures for a non-local resolution, which throws

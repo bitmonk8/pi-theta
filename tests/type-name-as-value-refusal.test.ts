@@ -495,7 +495,7 @@ const A_ROWS: readonly Row[] = [
       "the argument expression names a type, and `expressions.md:46–49` lists four resolution " +
       "arms of which a declaration form is none; §Why it matters records what the silence buys " +
       "— `null` bound to `s: string` with nothing between the argument and the parameter slot " +
-      "testing it (src/runtime/statement-executor.ts:438)",
+      "testing it (src/runtime/statement-executor.ts:455)",
   },
   {
     id: "a2 (CONTROL — the same position, an UNDECLARED Q)",
@@ -1339,7 +1339,7 @@ async function runClean(label: string, body: string): Promise<BodyExecution> {
 // null` (src/extension/production-theta-producer.ts:6209) over an
 // `env.resolve` that returns `{ arm: "unresolved" }`
 // (src/runtime/lexical-environment.ts:405); `evalUserFnCall` then binds the
-// `null` positionally with no test (statement-executor.ts:438); and
+// `null` positionally with no test (statement-executor.ts:455); and
 // `evaluateMemberAccess` raises `NullMemberAccessPanic`
 // (src/runtime/runtime-panics.ts:333) on the first field read.
 //

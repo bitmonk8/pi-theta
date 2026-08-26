@@ -1,6 +1,6 @@
 # Bug 0303 — An imported `.thetalib` `fn` body executes in the CALLING theta's environment, not its declaring module's: a lib fn calling a same-lib sibling fn, reading a same-lib enum, or using the lib's own import throws at runtime on a program every static gate admits — and when the caller declares a same-named `fn` or `enum`, the lib body silently binds the CALLER's declaration and returns its value
 
-- **Status:** open.
+- **Status:** fixed (0.291.0).
 - **Sev/Diff estimate:** S1/D3 — S1 twice over: the capture rows are silent
   wrong values (`compute(1)` returns `100` from the caller's `helper` where
   the declaring lib's sibling computes `2`; a lib enum read returns the
@@ -256,7 +256,17 @@ variants through the same caller-rooted env).
 
 ## Fix
 
-Not yet decided; constraints any fix must satisfy:
+An imported `.thetalib` `fn` body executes against a per-declaring-module
+lexical environment it closes over, not the caller's. `materializeSymbol`'s
+`fn` result carries a `ModuleScope` (the declaring lib's own body, its own
+recursively-materialised imports, and its own `enum` registrations tagged with
+`enumDeclaringKey`); the `LexicalEnvironment` constructor builds a
+declaring-module env from it (carrying the CALLER's callable set down, so
+effects still dispatch on the calling theta); `resolveUserFn` returns that env
+and `evalUserFnCall` / `evalSubagentFnCall` open the body scope against it
+(`(moduleEnv ?? env)`), while arguments still evaluate in the caller's scope
+and the conversation `deps` are untouched. The approach satisfies these
+constraints:
 
 1. A `.thetalib` `fn` body resolves free names in its DECLARING module's
    scope: the lib's own hoisted `fn`s, `schema`s, `enum`s, and the lib's own
@@ -278,6 +288,108 @@ Not yet decided; constraints any fix must satisfy:
    lib's values 2 / "Red"), plus a lib-to-lib depth-2 row and a `subagent fn`
    row; 0101's fence (i) flips to a witness and needs its pre-authorized
    re-derivation.
+
+## Fix (0.291.0)
+
+- What shipped:
+  - `src/runtime/lexical-environment.ts` — new exported `ModuleScope`
+    interface; `MaterializedImport.moduleScope?` (imported `fn` only);
+    `EnumRegistration.declaringKey?` (constructor tags
+    `reg.declaringKey ?? reg.name`); `Resolution.moduleEnv?`; a `moduleEnvs`
+    root registry (added to `SharedRegistries` so `spawnIsolatedScope` shares
+    it — an imported `subagent fn` gets its declaring-module env too); the
+    constructor's import loop builds each imported `fn`'s declaring-module env
+    recursively with `parent: null` but `callables: inputs.callables ?? []`,
+    so the caller's callable set threads down every level (constraint 1 —
+    effects dispatch on the calling theta) while the module env's own
+    fn/schema/enum/import registries provide the body's name scope;
+    `resolve()`'s import arm returns the built `moduleEnv`.
+  - `src/runtime/statement-executor.ts` — `resolveUserFn` returns
+    `{ fn, moduleEnv? }`; `evalUserFnCall` / `evalSubagentFnCall` take the
+    optional `moduleEnv` and open the body scope against `(moduleEnv ?? env)`
+    (args still evaluate in the caller's `env`; conversation `deps`
+    unchanged); the dispatch site threads `moduleEnv`. Same-file fns pass no
+    `moduleEnv` → caller-root behaviour and bug 0016's `childFnActivation`
+    boundary preserved (constraint 2).
+  - `src/extension/import-static-checks.ts` — `enumsOf(body, resolvedPath)`
+    (enum registrations with `enumDeclaringKey`) and
+    `buildModuleScope(resolvedPath, body, callingFrontmatter)` with a
+    `moduleScopeCache` and a `moduleScopeInProgress` VISITED SET, reusing the
+    existing path-keyed `parseCache`; `materializeChain` attaches the
+    `ModuleScope` for a `fn` result, from the DECLARING lib's own
+    resolvedPath/body (correct through a re-export chain). Boundedness is
+    independent of IMP-5's cycle refusal (constraint 4).
+  - `src/extension/production-theta-producer.ts` — `evaluatePureFnCall` gains
+    `bodyRoot = env`; its call site passes the import arm's `moduleEnv` (bug
+    0027 executor/pure-host lockstep).
+  - `docs/spec_topics/imports.md`, `docs/spec_topics/functions.md` — the
+    sentence pinning that an imported `.thetalib` `fn` body resolves free
+    names in its declaring module's scope (its own hoisted fns/schemas/enums
+    and its own materialised imports, recursively) while queries/effects run
+    against the calling theta's conversation, plus the `subagent fn` variant
+    (constraint 3, same commit).
+  - `docs/spec_topics/runtime-value-model.md`, `docs/reference/type-system.md`
+    — the enum-equality bullet corrected: a `.theta`-declared enum tags on its
+    bare name; a `.thetalib`-declared enum tags on its declaring declaration
+    whether read within its own module's fn bodies or through an import, so a
+    lib-internal read and an importer's read of the same declaration compare
+    equal (the parent forward note's identity, kept honest same-commit).
+  - `src/parser/theta-document.ts` + 22 existing test files — comment /
+    failure-message citation line-numbers re-derived where this fix's src
+    edits shifted them (no asserted value changed).
+- Design decisions (recorded per Phase-5): (a) module env CONSTRUCTION —
+  built lazily-per-import in the `LexicalEnvironment` constructor from the
+  carried `ModuleScope`, `parent: null` (its own root) so the body cannot see
+  caller locals, `callables` inherited from the caller so the effect surface
+  is the calling theta's (name scope = declaring module, effect anchor =
+  calling theta). (b) CACHING — `moduleScopeCache` dedupes `ModuleScope`
+  DATA per resolved path; the parse cache is the existing path-keyed
+  `parseCache`; a `moduleScopeInProgress` set bounds construction on a
+  lib-to-lib cycle by returning a bounded partial (own enums, no imports),
+  never cached. (c) SUBAGENT-FN SCOPE — an imported `subagent fn` body runs
+  in the declaring module's isolated scope (`(moduleEnv ?? env).spawnIsolatedScope()`),
+  stated in imports.md/functions.md.
+- Gates: witness `tests/b0303-imported-fn-body-declaring-scope.test.ts`
+  10/10 green (RED before fix: B1/B4/depth-2 `PiToolArgShapeDefectError`,
+  B2 `100`, B3/enum-identity `NullMemberAccessPanic`, B3b `"caller-red"`,
+  subagent `invoke_infra`); full default suite `npm test` 467 files / 9461
+  tests green; `npm run typecheck` clean; `npm run lint` clean;
+  `tests/committed-fixture-parse-gate.test.ts` 36/36 (no committed fixture
+  un-registered).
+- Review: 1 round — `bug-fix-reviewer` returned CLEAN (correct, faithful to
+  all five constraints, spec-complete); no correctness/fidelity/spec blocker.
+  Three non-blocking residuals filed (see Residuals). A prose-only
+  `bug-fix-fixer-light` round then corrected the enum-equality spec sentence
+  (R1); polish verified by gate-diff, confirmation round skipped.
+- Verification: SOLID — witness genuinely reds under a byte-exact-restored
+  neutralisation (moduleEnv threading dropped → 8 cells red with the doc's
+  signatures; restored SHA-256 identical → green); full suite 467/9461 green;
+  live cell `tests/live/b0303live-imported-fn-private-sibling-live-cell.test.ts`
+  passed against a real provider (run under the shared live.lock, log
+  `.pi/tmp/fixes/0303-live.log`); lint + typecheck clean.
+- Residuals:
+  1. `runtime-value-model.md`/`type-system.md` enum-equality precision (R1) —
+     RESOLVED this commit (the `.theta`/`.thetalib` tag distinction).
+  2. Module-env construction is per-import-reference, not per-`ModuleScope`
+     object: a stacked-diamond lib DAG builds O(2^k) env objects
+     (termination and correctness hold; cyclic programs un-register via
+     IMP-5 before execution). Pathological-input cost only; a
+     per-`ModuleScope`-identity memoisation is the remedy if ever needed.
+  3. A `.thetalib` carrying both `enum Color` and `import { Color } from …`
+     is an undiagnosed own-import-vs-own-declaration collision (the theta-side
+     `import-name-collision` check runs only over the importing theta's own
+     specifiers). Such a lib was wholly non-functional pre-fix, so nothing
+     regresses; a follow-up filing candidate for the 0304 family.
+- Discharge notes appended: `docs/bugs/0101-…md` (cell (i) fence rationale
+  discharged by this fix); `docs/bugs/0003-…md` (the lib-internal-name class
+  no longer reaches the tool-arg-shape belt as of 0.291.0).
+- Pinned dispositions / non-goals: the 0003-belt / unresolved-arm message
+  text is untouched (this fix makes the class unreachable for lib-internal
+  names, it does not reword the belt); no new diagnostic code minted (DIAG-2
+  closed — lib-to-lib faults reuse 0304's landed reporting);
+  `graphEdges`/`entryStems`/`walkThetaLib` cycle-graph keying untouched (bug
+  0302 owns it); B5's accidental-workaround row still works (redundant, not
+  broken).
 
 ## Provenance
 

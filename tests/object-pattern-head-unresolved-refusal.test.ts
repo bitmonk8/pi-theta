@@ -60,7 +60,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // construct reds.
 //
 // NO RUNTIME DISPATCH CHANGE (§Fix (c)(4)). `toRuntimePattern`'s object arm
-// (src/runtime/statement-executor.ts:1180, object arm :1190–:1193), the
+// (src/runtime/statement-executor.ts:1204, object arm :1214–:1217), the
 // runtime `Pattern` object variant (src/runtime/match-result.ts:113–:116) and
 // the bare-object-pattern arm (src/parser/theta-document.ts:4465) stay
 // byte-identical. The refusal is carried by the error-severity diagnostic that

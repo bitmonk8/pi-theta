@@ -396,9 +396,20 @@ export class ThetaFnArityError extends Error {
  * `callable` arm) is NOT a user `fn`; it stays on the effect (tool-call /
  * invoke) path.
  */
-function resolveUserFn(callee: string, env: LexicalEnvironment): FnDecl | undefined {
+function resolveUserFn(
+  callee: string,
+  env: LexicalEnvironment,
+): { readonly fn: FnDecl; readonly moduleEnv?: LexicalEnvironment } | undefined {
   const r = env.resolve(callee);
-  return (r.arm === "fn" || r.arm === "import") && r.fn !== undefined ? r.fn : undefined;
+  if ((r.arm === "fn" || r.arm === "import") && r.fn !== undefined) {
+    // `moduleEnv` is present only on the `import` arm for an imported `fn`
+    // (bug 0303): the declaring lib's own environment the body must be opened
+    // against instead of the caller's, so its free names resolve in the file
+    // that declared it. A same-file `fn` carries no `moduleEnv` — its file IS
+    // the caller's file (fix constraint 2).
+    return { fn: r.fn, ...(r.moduleEnv !== undefined ? { moduleEnv: r.moduleEnv } : {}) };
+  }
+  return undefined;
 }
 
 /**
@@ -419,17 +430,23 @@ async function evalUserFnCall(
   expr: CallExpr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
+  moduleEnv?: LexicalEnvironment,
 ): Promise<EvalResult> {
   if (expr.args.length !== fn.params.length) {
     throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
   }
-  // The body scope chains to the caller's environment for the shared root
-  // registries, but is marked an ACTIVATION BOUNDARY (bug 0016): theta 1.0 has
-  // no closures, so a caller-frame local must never count as an in-scope
-  // shadow when `preEvaluateToolArgs` asks `localShadowsCallable` inside the
-  // body — the parse gate resolves the body's call sites against the
-  // whole-file declarations plus these parameters only.
-  const scope = env.childFnActivation();
+  // The body scope chains to the DECLARING module's environment when `fn` is
+  // an imported `.thetalib` fn (bug 0303: `moduleEnv`, so its free names
+  // resolve against the file that declared it) or to the caller's environment
+  // for a same-file `fn` (fix constraint 2: its file IS the caller's file). In
+  // both cases the scope is marked an ACTIVATION BOUNDARY (bug 0016): theta
+  // 1.0 has no closures, so a caller-frame local must never count as an
+  // in-scope shadow when `preEvaluateToolArgs` asks `localShadowsCallable`
+  // inside the body — the parse gate resolves the body's call sites against
+  // the whole-file declarations plus these parameters only. Arguments are
+  // still evaluated in the CALLER's `env` (positional args are the caller's
+  // values, not the declaring module's).
+  const scope = (moduleEnv ?? env).childFnActivation();
   for (let i = 0; i < fn.params.length; i += 1) {
     const arg = await evalExpr(expr.args[i] as Expr, env, deps);
     if (arg.flow !== "value") {
@@ -512,11 +529,16 @@ async function evalSubagentFnCall(
   expr: CallExpr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
+  moduleEnv?: LexicalEnvironment,
 ): Promise<EvalResult> {
   if (expr.args.length !== fn.params.length) {
     throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
   }
-  const scope = env.spawnIsolatedScope();
+  // Isolate against the DECLARING module's environment for an imported
+  // `subagent fn` (bug 0303, fix design point 10) so the body's free names
+  // resolve against the lib that declared it; a same-file `subagent fn` passes
+  // no `moduleEnv` and isolates against the caller's root unchanged.
+  const scope = (moduleEnv ?? env).spawnIsolatedScope();
   for (let i = 0; i < fn.params.length; i += 1) {
     const arg = await evalExpr(expr.args[i] as Expr, env, deps);
     if (arg.flow !== "value") {
@@ -674,14 +696,16 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
   // function body in-process (FN-1…FN-5); it is not a host tool-call / invoke
   // effect, so it never reaches `checkpointFor`.
   if (expr.kind === "call") {
-    const fn = resolveUserFn(expr.callee, env);
-    if (fn !== undefined) {
+    const resolved = resolveUserFn(expr.callee, env);
+    if (resolved !== undefined) {
       // RFC 0001 (`subagent fn`): a call to a `subagent`-modified `fn` spawns a
       // fresh isolated subagent session for the body and crosses the invoke
       // boundary; an ordinary `fn` runs inline in the caller's conversation.
-      return fn.subagent === true
-        ? evalSubagentFnCall(fn, expr, env, deps)
-        : evalUserFnCall(fn, expr, env, deps);
+      // `resolved.moduleEnv` threads the DECLARING module's environment (bug
+      // 0303) into either path so the body's free names resolve there.
+      return resolved.fn.subagent === true
+        ? evalSubagentFnCall(resolved.fn, expr, env, deps, resolved.moduleEnv)
+        : evalUserFnCall(resolved.fn, expr, env, deps, resolved.moduleEnv);
     }
   }
   // Composite literals are decomposed on the executor path (not the sync pure

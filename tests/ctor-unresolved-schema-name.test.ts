@@ -280,7 +280,7 @@ describe("bug 0025 (1) reject — a constructor name resolving to no declaration
     // (:4787–4795) both iterate `statements` without descending into blocks.
     // Rejection is the wanted disposition, not a walk accident — the runtime
     // registers only top-level `schema` statements as well
-    // (src/runtime/lexical-environment.ts:328–333), so a block-nested
+    // (src/runtime/lexical-environment.ts:383–389), so a block-nested
     // declaration brands nothing and `S { x: 1 }` would evaluate as exactly
     // the unbranded plain object this bug closes.
     const doc = parse("if true {\n  schema S { x: number }\n  let s = S { x: 1 }\n}\n");
@@ -361,7 +361,7 @@ describe("bug 0025 (3) defer — an imported .thetalib symbol name stays silent"
     // The classification sees the imported NAME and nothing else —
     // `collectBodyTypes`'s `imports` is a name-only `Set<string>`, carrying
     // neither field bodies nor the symbol's kind (one of `fn` / `schema` /
-    // `enum`, src/runtime/lexical-environment.ts:109) — so neither the
+    // `enum`, src/runtime/lexical-environment.ts:117) — so neither the
     // extra-field nor the missing-field check has an input.
     const doc = parse(
       'import { Foo } from "./x.thetalib"\nlet f = Foo { a: 1, b: 2, c: 3 }\nf\n',

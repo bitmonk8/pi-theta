@@ -6827,7 +6827,19 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
         (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn !== undefined
           ? resolution.fn
           : undefined;
-      return fn !== undefined ? evaluatePureFnCall(fn, expr, env) : null;
+      // Bug 0303 / bug 0027 lockstep: an imported `fn`'s body opens against its
+      // DECLARING module's environment (`resolution.moduleEnv`), exactly as the
+      // async executor's `evalUserFnCall` does — this pure host and the
+      // executor must not drift on which scope a lib body's free names resolve
+      // in.
+      return fn !== undefined
+        ? evaluatePureFnCall(
+            fn,
+            expr,
+            env,
+            resolution.arm === "import" ? resolution.moduleEnv : undefined,
+          )
+        : null;
     }
     case "result-ctor":
       // `Ok(arg)` / `Err(arg)` — a pure Result construction (never a tool-call).
@@ -6912,11 +6924,19 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
  * loop has no synchronous pure value and short-circuits to the `null` safety
  * net, matching the surrounding pure-evaluator convention.
  */
-function evaluatePureFnCall(fn: FnDecl, expr: CallExpr, env: LexicalEnvironment): ThetaValue {
+function evaluatePureFnCall(
+  fn: FnDecl,
+  expr: CallExpr,
+  env: LexicalEnvironment,
+  bodyRoot: LexicalEnvironment = env,
+): ThetaValue {
   if (expr.args.length !== fn.params.length) {
     throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
   }
-  const scope = env.child();
+  // Arguments evaluate in the CALLER's `env`; the body scope opens against
+  // `bodyRoot` — the DECLARING module's environment for an imported `fn` (bug
+  // 0303), or `env` itself (the default) for a same-file `fn`.
+  const scope = bodyRoot.child();
   fn.params.forEach((param, index) => {
     scope.defineLocal(param.name, evaluatePureExpression(expr.args[index] as Expr, env), false);
   });

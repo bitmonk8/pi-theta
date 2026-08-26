@@ -35,12 +35,12 @@ import { parseDeps } from "./helpers/e2e-s1";
 // declaration in-file.
 //
 // The materialisation seam drops the explicit-RHS record: the enum arm of
-// `materializeSymbol` (src/extension/import-static-checks.ts:213) narrows to
+// `materializeSymbol` (src/extension/import-static-checks.ts:240) narrows to
 // `{ name, kind: "enum", variants }`, `MaterializedImport`
-// (src/runtime/lexical-environment.ts:134) carries variant names only, and the
+// (src/runtime/lexical-environment.ts:142) carries variant names only, and the
 // import arm of `buildEnvironment` rebuilds the wire map with
 // `buildVariantWireMap(imp.variants ?? [], undefined)`
-// (src/runtime/lexical-environment.ts:368) whose `values?.[name] ?? name`
+// (src/runtime/lexical-environment.ts:449) whose `values?.[name] ?? name`
 // fallback substitutes the name. Every row below asserts the fixed wire "low";
 // each is red against the seam as it stands.
 // TIER: unit, offline, deterministic, provider-free. The whole class settles

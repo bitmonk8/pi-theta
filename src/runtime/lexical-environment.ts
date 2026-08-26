@@ -90,6 +90,14 @@ export interface Resolution {
   readonly fn?: FnDecl;
   /** Whether the resolution names a callable target (a `fn`, imported `fn`, or callable). */
   readonly callable?: boolean;
+  /**
+   * The imported `fn`'s DECLARING-module environment (bug 0303) — present only
+   * on the `import` arm for an imported `fn`. The executor opens the body scope
+   * against this environment (falling back to the caller's when absent) so free
+   * names in the body resolve against the lib that declared it, not the calling
+   * theta's root registries.
+   */
+  readonly moduleEnv?: LexicalEnvironment;
 }
 
 /**
@@ -151,6 +159,28 @@ export interface MaterializedImport {
    * local alias (bug 0305).
    */
   readonly declaringKey?: string;
+  /**
+   * The DECLARING `.thetalib`'s own module scope (bug 0303) — present only for
+   * `kind: "fn"`. Built at materialisation time from the declaring lib's own
+   * body, its own materialised imports (recursively), and its own enum
+   * registrations, so the imported `fn`'s body can close over the file that
+   * declared it rather than the importer's.
+   */
+  readonly moduleScope?: ModuleScope;
+}
+
+/**
+ * The declaring-module environment inputs for an imported `.thetalib` `fn`
+ * (bug 0303): the lib's own body (for hoisted `fn`/`schema`), the lib's own
+ * materialised imports (recursively — a lib-to-lib import), and the lib's own
+ * enum registrations (`declaringKey`-tagged). `LexicalEnvironment`'s
+ * constructor builds a nested environment from this so the imported `fn`'s
+ * free names resolve in its DECLARING file's scope, not the caller's.
+ */
+export interface ModuleScope {
+  readonly body: ThetaBody;
+  readonly imports: readonly MaterializedImport[];
+  readonly enums: readonly EnumRegistration[];
 }
 
 /**
@@ -167,6 +197,16 @@ export interface EnumRegistration {
    * value, preserving the name-is-wire default.
    */
   readonly values?: Readonly<Record<string, string>>;
+  /**
+   * The declaring-declaration identity key (`enumDeclaringKey`, bug 0305) for
+   * an enum registered inside a module-scope environment. Absent for a
+   * top-level theta enum (bare name; a `.theta` file cannot be imported, so
+   * bare names are collision-free per declaration — ratification 2). The
+   * constructor tags the runtime `EnumEntry` with `reg.declaringKey ??
+   * reg.name` so a module-scope enum and a caller-side imported read of the
+   * SAME declaration mint identical tags.
+   */
+  readonly declaringKey?: string;
 }
 
 /**
@@ -249,6 +289,13 @@ interface SharedRegistries {
   readonly enums: Map<string, EnumEntry>;
   readonly imports: Map<string, MaterializedImport>;
   readonly callables: ReadonlySet<string>;
+  /**
+   * Local binding name → the built declaring-module environment for that
+   * imported `fn` (bug 0303) — shared so a `subagent fn`'s isolated scope
+   * (`spawnIsolatedScope`) still resolves an imported sibling's body against
+   * its OWN declaring module, not the isolated scope's root.
+   */
+  readonly moduleEnvs: Map<string, LexicalEnvironment>;
 }
 
 export class LexicalEnvironment {
@@ -281,6 +328,13 @@ export class LexicalEnvironment {
   private readonly enums: Map<string, EnumEntry>;
   /** Materialised imports keyed by local binding name — root only. */
   private readonly imports: Map<string, MaterializedImport>;
+  /**
+   * Local binding name → the built declaring-module environment for that
+   * imported `fn` (bug 0303) — root only. Built recursively in the
+   * constructor's imports loop from the import's `moduleScope`, so an
+   * imported `fn`'s body can be opened against the file that declared it.
+   */
+  private readonly moduleEnvs: Map<string, LexicalEnvironment>;
   /** The callable-set names (`tools:`, `V6c`) — the arm `V19b` defines but does not populate. */
   private readonly callables: ReadonlySet<string>;
 
@@ -317,6 +371,7 @@ export class LexicalEnvironment {
       this.enums = shared.enums;
       this.imports = shared.imports;
       this.callables = shared.callables;
+      this.moduleEnvs = shared.moduleEnvs;
       return;
     }
     // The root owns the fn / schema / enum / import / callable registries; a
@@ -326,6 +381,7 @@ export class LexicalEnvironment {
     this.schemas = new Map();
     this.enums = new Map();
     this.imports = new Map();
+    this.moduleEnvs = new Map();
     let callables: ReadonlySet<string> = new Set();
 
     if (parent === null) {
@@ -347,7 +403,7 @@ export class LexicalEnvironment {
         // are collision-free per declaration.
         this.enums.set(reg.name, {
           variants: buildVariantWireMap(reg.variants, reg.values),
-          tag: reg.name,
+          tag: reg.declaringKey ?? reg.name,
         });
       }
       // Imported `.thetalib` symbols materialised via `V15c`'s import loader
@@ -355,6 +411,31 @@ export class LexicalEnvironment {
       // resolves as a constructor, an `enum` resolves its variants.
       for (const imp of inputs.imports ?? []) {
         this.imports.set(imp.name, imp);
+        if (imp.kind === "fn" && imp.moduleScope !== undefined) {
+          // The declaring lib's own environment (bug 0303): its own body
+          // (hoisted fns/schemas), its own materialised imports (recursively
+          // — a lib-to-lib import), and its own enum registrations, chained
+          // with `parent: null` (its OWN root) but sharing the CALLER's
+          // callables (`inputs.callables`) so effects/queries stay anchored to
+          // the calling theta's conversation (constraint 1) while free NAMES
+          // resolve in the declaring file. The nested constructor call builds
+          // ITS OWN nested module envs the same way, so a lib-to-lib import
+          // chain resolves recursively; the chain terminates because the
+          // materialisation pass that built `imp.moduleScope` is itself
+          // bounded by a visited-path set (IMP-5-independent, constraint 4).
+          this.moduleEnvs.set(
+            imp.name,
+            new LexicalEnvironment(
+              {
+                body: imp.moduleScope.body,
+                imports: imp.moduleScope.imports,
+                enums: imp.moduleScope.enums,
+                callables: inputs.callables ?? [],
+              },
+              null,
+            ),
+          );
+        }
         if (imp.kind === "schema") {
           this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
         } else if (imp.kind === "enum") {
@@ -450,9 +531,16 @@ export class LexicalEnvironment {
     // 3. imported `.thetalib` symbol.
     const imp = root.imports.get(name);
     if (imp !== undefined) {
-      return imp.fn !== undefined
-        ? { arm: "import", fn: imp.fn, callable: imp.kind === "fn" }
-        : { arm: "import", callable: imp.kind === "fn" };
+      if (imp.fn === undefined) {
+        return { arm: "import", callable: imp.kind === "fn" };
+      }
+      const moduleEnv = root.moduleEnvs.get(name);
+      return {
+        arm: "import",
+        fn: imp.fn,
+        callable: imp.kind === "fn",
+        ...(moduleEnv !== undefined ? { moduleEnv } : {}),
+      };
     }
     // 4. callable set — the arm `V19b` defines but does not populate/execute.
     if (root.callables.has(name)) {
@@ -550,6 +638,7 @@ export class LexicalEnvironment {
         enums: root.enums,
         imports: root.imports,
         callables: root.callables,
+        moduleEnvs: root.moduleEnvs,
       },
     );
   }

@@ -236,6 +236,21 @@ already exist.
   (RFC 0002 §Alternatives records it as a deferred follow-on) and orthogonal to
   enforcing the current contract.
 
+## Discharge note (bug 0303, 0.291.0)
+
+One class this belt used to misattribute is now unreachable: an imported
+`.thetalib` `fn` calling a private same-lib sibling (or reading a same-lib
+`enum`, or using the lib's own import) used to fall off the user-`fn` path
+into the tool-call lowering and die in this belt naming the SIBLING as an
+unshaped Pi tool (e.g. `internal defect: Pi tool 'helper' …`), a parse gate
+blamed for a gap that was never its fault (0101 §Non-goals recorded the same
+misattribution for the unbound-name class). As of 0.291.0,
+[bug 0303](./0303-imported-fn-body-resolves-in-caller-scope.md) resolves such
+lib-internal names in the declaring module's environment, so they take the
+user-`fn` path and never reach this belt. The belt's message text is
+unchanged (0303 non-goal); only the lib-internal-name class no longer lands
+in it.
+
 ## Provenance
 
 - Spec measured against: `docs/reference/grammar.md` §"Pi-tool argument grammar",

@@ -79,7 +79,12 @@ import {
 } from "../parser/theta-document";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import type { ParsedFrontmatter } from "../parser/frontmatter";
-import { enumDeclaringKey, type MaterializedImport } from "../runtime/lexical-environment";
+import {
+  enumDeclaringKey,
+  type EnumRegistration,
+  type MaterializedImport,
+  type ModuleScope,
+} from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 import {
   checkSubagentFnModelOverrides,
@@ -105,6 +110,28 @@ function collectImports(body: ThetaBody): ImportDecl[] {
   for (const stmt of body.statements) {
     if (stmt.kind === "import") {
       out.push(stmt);
+    }
+  }
+  return out;
+}
+
+/**
+ * The `enum` declarations of a `.thetalib` body, as `EnumRegistration`s tagged
+ * with their declaring-declaration identity key (bug 0303 / bug 0305): a
+ * module-scope enum read and a caller-side imported read of the SAME
+ * declaration mint identical `enumDeclaringKey(resolvedPath, name)` tags, so
+ * they compare `==` equal.
+ */
+function enumsOf(body: ThetaBody, resolvedPath: string): EnumRegistration[] {
+  const out: EnumRegistration[] = [];
+  for (const stmt of body.statements) {
+    if (stmt.kind === "enum" && stmt.variants !== undefined) {
+      out.push({
+        name: stmt.name,
+        variants: stmt.variants,
+        ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+        declaringKey: enumDeclaringKey(resolvedPath, stmt.name),
+      });
     }
   }
   return out;
@@ -591,6 +618,70 @@ export async function checkThetaImports(
     }
   };
 
+  // Bug 0303: the DECLARING module's own environment for an imported `fn`,
+  // built from the lib's own body plus its own materialised imports
+  // (recursively — a lib-to-lib import) and its own enum registrations.
+  // Cached per resolved path (reusing the existing path-keyed `parseCache`
+  // pattern) and bounded by an in-progress visited set INDEPENDENTLY of IMP-5's
+  // cycle refusal (constraint 4): IMP-5 refuses an import cycle for the
+  // IMPORTING THETA at the top level, but building a module scope is a
+  // separate recursive walk over the SAME `.thetalib` graph that this cache
+  // must bound on its own terms.
+  const moduleScopeCache = new Map<string, ModuleScope>();
+  const moduleScopeInProgress = new Set<string>();
+  const buildModuleScope = async (
+    resolvedPath: string,
+    body: ThetaBody,
+    callingFrontmatter: ParsedFrontmatter | null,
+  ): Promise<ModuleScope> => {
+    const cached = moduleScopeCache.get(resolvedPath);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (moduleScopeInProgress.has(resolvedPath)) {
+      // A lib-to-lib import cycle reached while BUILDING a module scope
+      // returns a bounded partial — this lib's own enums, no imports — rather
+      // than recursing without termination.
+      return { body, imports: [], enums: enumsOf(body, resolvedPath) };
+    }
+    moduleScopeInProgress.add(resolvedPath);
+    const moduleImports: MaterializedImport[] = [];
+    for (const stmt of body.statements) {
+      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
+        continue;
+      }
+      await probe.precache(stmt.path, resolvedPath);
+      const load = loadThetaLibImport(resolver, stmt.path, resolvedPath, {
+        file: resolvedPath,
+        range: stmt.range,
+      });
+      if (!load.registered || load.resolvedPath === undefined) {
+        continue;
+      }
+      const sourceParsed = await parseThetaLib(load.resolvedPath);
+      if (sourceParsed === undefined) {
+        continue;
+      }
+      for (const specifier of stmt.specifiers) {
+        const materialized = await materializeChain(
+          specifier.source,
+          specifier.local,
+          load.resolvedPath,
+          sourceParsed.document.body,
+          callingFrontmatter,
+          new Set<string>(),
+        );
+        if (materialized !== undefined) {
+          moduleImports.push(materialized);
+        }
+      }
+    }
+    const scope: ModuleScope = { body, imports: moduleImports, enums: enumsOf(body, resolvedPath) };
+    moduleScopeInProgress.delete(resolvedPath);
+    moduleScopeCache.set(resolvedPath, scope);
+    return scope;
+  };
+
   // Materialise an importing specifier by following the
   // re-export chain (imports.md §Re-exports, the resolution paragraph) when the
   // resolved lib's own body carries no matching
@@ -614,7 +705,19 @@ export async function checkThetaImports(
     visited.add(resolvedPath);
     const direct = materializeSymbol(source, local, resolvedPath, body, callingFrontmatter);
     if (direct !== undefined) {
-      return direct;
+      if (direct.kind !== "fn") {
+        return direct;
+      }
+      // Bug 0303: attach the DECLARING lib's own module scope so the imported
+      // `fn`'s body resolves free names there. `resolvedPath`/`body` here are
+      // the DECLARING lib's — a re-export chain's recursive call above already
+      // carries the declaring lib's own resolvedPath/body when it finds the
+      // fn, so the module scope is the true declaring module's, not the
+      // re-exporting lib's.
+      return {
+        ...direct,
+        moduleScope: await buildModuleScope(resolvedPath, body, callingFrontmatter),
+      };
     }
     for (const reExport of extractThetaLibForms(body).reExports) {
       if (reExport.exported !== source || !reExport.fromPath.endsWith(".thetalib")) {

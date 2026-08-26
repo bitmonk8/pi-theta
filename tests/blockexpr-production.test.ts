@@ -60,7 +60,7 @@ import { buildEnvironment } from "../src/runtime/lexical-environment";
 //     :7733 whenever `typeName === null` outside the sole-Pi-tool-argument
 //     carve-out.
 //   - `interface Block { statements; tail }` — src/parser/theta-document.ts:807.
-//   - `executeBlock` — src/runtime/statement-executor.ts:1569; `evalMatch` at
+//   - `executeBlock` — src/runtime/statement-executor.ts:1593; `evalMatch` at
 //     :1139.
 //
 // THE TARGETED FIX (bug 0082 §Fix, recommendation: option 2 implemented as
@@ -422,7 +422,7 @@ describe("bug 0082 — statement-in-arm-body still fires unwrapped (CONTROL)", (
 // ===========================================================================
 // (g) — runtime: the block's value is its tail expression, its statements run,
 // and it is a CHILD scope (bug 0082 §Fix; `executeBlock`,
-// src/runtime/statement-executor.ts:1569).
+// src/runtime/statement-executor.ts:1593).
 //
 // Harness: tests/non-object-receiver-gate.test.ts's production-executor
 // pattern — parseThetaDocument → createProductionProducerDeps →
@@ -508,7 +508,7 @@ describe("bug 0082 — a block expression evaluates to its tail", () => {
     );
     expect(
       outcome,
-      "grammar.md:118: a block expression's value is its tail expression, produced through `executeBlock` (src/runtime/statement-executor.ts:1569)",
+      "grammar.md:118: a block expression's value is its tail expression, produced through `executeBlock` (src/runtime/statement-executor.ts:1593)",
     ).toEqual({ kind: "value", value: 2 });
   });
 

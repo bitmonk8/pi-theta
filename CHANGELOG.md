@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.291.0]
+
+### Fixed
+
+- **Bug 0303** — an imported `.thetalib` `fn` body now executes in its DECLARING module's environment, not the calling theta's: materialisation carries a `ModuleScope` (the lib's own hoisted declarations plus its own recursively-materialised imports, enums tagged with `enumDeclaringKey`), the runtime builds a per-module environment (conversation/effect deps still the caller's per `imports.md:14`), and `evalUserFnCall`/`evalSubagentFnCall` open the body scope against it — so a lib fn calling a private sibling computes the lib's value (B1: `compute(1)` → 2, no more `PiToolArgShapeDefectError`), a caller-side same-named `fn`/`enum` is no longer silently captured (B2/B3b), and lib-to-lib imports work at depth (B4). Same-file `.theta` fns and bug 0016's local-shadow semantics unchanged; the scope rule is now stated in `imports.md`/`functions.md`. Witnessed by `tests/b0303-imported-fn-body-declaring-scope.test.ts` (10 cells) and the live cell `tests/live/b0303live-imported-fn-private-sibling-live-cell.test.ts`; bug 0101's fence cell (i) re-derived into a witness (pre-authorized).
+
 ## [0.290.0]
 
 ### Fixed

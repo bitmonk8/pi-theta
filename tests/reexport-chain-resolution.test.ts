@@ -140,12 +140,13 @@ import { parseDeps } from "./helpers/e2e-s1";
 // absent row and page rather than returning a placeholder, and each control's
 // measurement is asserted against an absolute pin BEFORE the row is compared to
 // it, so a broken control reds as a broken control rather than passing an
-// equality vacuously. Two cells pin their control's `materialised` only and not
-// its runtime, because both are FENCES rather than witnesses: (e3), where the
+// equality vacuously. One cell pins its control's `materialised` only and not
+// its runtime, because it is a FENCE rather than a witness: (e3), where the
 // pure evaluator reads `null` for a materialised `fn` exactly as it does for an
-// unresolved name, and (i), where the control fails identically because a
-// lib-internal `import` is not materialised into the caller's environment. Each
-// says so at its own cell.
+// unresolved name. Cell (i) WAS such a fence (a lib-internal `import` was never
+// materialised into the caller's environment, so its control failed
+// identically); bug 0303 fixes the lib-body scope, so (i) is flipped to a
+// witness with an absolute control pin (its own cell says so).
 //
 // RE-DERIVED AT HEAD af221903 / 0.134.0: every §Reproduction row of the bug doc
 // reproduces unchanged. Bug 0100's refusals discharge NOTHING here — every
@@ -1117,21 +1118,31 @@ describe("bug 0101 (j) — a cycle whose every name is provided is entry-indepen
 });
 
 // ===========================================================================
-// (i) A `.thetalib` ON THE IMPORTING SIDE — the only row that reaches the
-// failure from inside a library body.
-// FENCE, and measured as one: `wrap`'s body runs in the CALLER's environment,
-// where a lib-internal `import` was never materialised, so the DIRECT-import
-// control fails identically. That gap is not 0101's subject (0101 is the
-// re-export edge), and the honest assertion is that the re-export indirection
-// adds nothing to it — green now, and required to stay green after the fix.
+// (i) A `.thetalib` ON THE IMPORTING SIDE — the only row that reaches the value
+// from inside a library body.
+// WITNESS (flipped from a fence, PRE-AUTHORIZED by bug 0303 §Fix constraint 5):
+// `wrap`'s body calls `greet`, a symbol `top` itself imported. At 0101's fix
+// baseline this was a FENCE — the body ran in the CALLER's environment where a
+// lib-internal `import` was never materialised, so BOTH the direct-import
+// control and the re-export row failed IDENTICALLY, and the honest claim was
+// only that the re-export added nothing to that shared failure. Bug 0303 fixes
+// the lib-body scope (an imported `fn` body resolves its free names in its
+// DECLARING module, materialising the lib's OWN imports recursively), so a
+// WORKING direct import now DELIVERS `greet(y)` = "q" — and the cell asserts the
+// control DELIVERS that value (the flip: an absolute pin, RED until 0303 lands),
+// then that the re-export DELIVERS IDENTICALLY. The invariant is unchanged — a
+// re-export delivers exactly what the direct import of the same declaration
+// delivers — but its subject is now a working import, not a shared failure.
+// This is the pre-authorized re-derivation §Fix constraint 5 names; the
+// `expectDeliversLikeControl` structure is retained and not weakened.
 // ===========================================================================
 
-describe("bug 0101 (i) — a re-export reached from inside a library body adds nothing to the direct import", () => {
+describe("bug 0101 (i) / bug 0303 — a re-export reached from inside a library body delivers what the direct import delivers", () => {
   const APP_BODY = 'import { wrap } from "./top.thetalib"\nlet r = wrap("q")\nr\n';
   const TOP = (from: string): string =>
     `import { greet } from "${from}"\nfn wrap(y: string) {\n  greet(y)\n}\n`;
 
-  it("GREEN (i-libside): `top` importing `greet` through a re-export delivers what `top` importing it directly delivers", async () => {
+  it("RED (i-libside): `top` importing `greet` through a re-export delivers what `top` importing it directly delivers", async () => {
     const control = await measure(APP_BODY, {
       "/proj/base.thetalib": BASE,
       "/proj/top.thetalib": TOP("./base.thetalib"),
@@ -1140,6 +1151,16 @@ describe("bug 0101 (i) — a re-export reached from inside a library body adds n
       control.materialised,
       "control precondition: the app's own specifier names `wrap`, which `top` declares, so `wrap` materialises on both sides",
     ).toEqual(["fn wrap"]);
+    // THE FLIP (bug 0303): the direct-import control must DELIVER `wrap`'s value.
+    // `wrap(y)` is `greet(y)` and `greet(x: string) { x }`, so `wrap("q")` = "q"
+    // once the lib body resolves `greet` in `top`'s declaring module. This is the
+    // absolute pin the fence lacked: RED at this baseline (`wrap`'s body resolves
+    // `greet` in the caller's env, where `top`'s own import is not materialised,
+    // so it dies in bug 0003's belt), GREEN once bug 0303 lands.
+    expect(
+      control.runtime,
+      "bug 0303: `top` imports `greet`, so `wrap`'s body resolves it in `top`'s declaring module; `wrap(\"q\")` = `greet(\"q\")` = \"q\"",
+    ).toEqual({ outcome: "value", value: "q" });
     const row = await measure(APP_BODY, {
       "/proj/base.thetalib": BASE,
       "/proj/mid.thetalib": midReExporting("greet"),
