@@ -22,7 +22,7 @@
 // value), not on a compile error, a missing fixture, or a harness throw. The
 // paired V4a implementation leaf fills it in.
 
-import { type ThetaValue, isObjectValue, isResultValue, valuesEqual } from "./value";
+import { type ThetaValue, defineRecordField, isObjectValue, isResultValue, valuesEqual } from "./value";
 import { ThetaPanic } from "./runtime-panics";
 
 /** The registry code carried by the non-exhaustive-`match` runtime panic. */
@@ -175,7 +175,7 @@ function matchPattern(
     case "wildcard":
       return true;
     case "identifier":
-      bindings[pattern.name] = value;
+      defineRecordField(bindings, pattern.name, value);
       return true;
     case "literal":
       return valuesEqual(value, pattern.value);

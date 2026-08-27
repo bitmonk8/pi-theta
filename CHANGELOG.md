@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.297.0]
+
+### Fixed
+
+- **Bug 0318** — a `__proto__` identifier pattern in `match` now actually binds: `matchPattern`'s identifier arm routes the binding through `defineRecordField` (bug 0119's route) so the pattern creates an own key instead of writing into the inherited prototype accessor and silently binding nothing. Discharges the `match-result.ts` write half of bug 0210's residual 4 (dated note appended there). Witnessed by `tests/b0318-match-identifier-pattern-proto-binding-lost.test.ts` (P3a/P3b + shorthand flips, P3c control).
+
 ## [0.296.0]
 
 ### Fixed

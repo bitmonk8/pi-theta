@@ -834,3 +834,14 @@ are two lines each and are quoted in §Affected. Every other measurement calls
 exported production functions directly. Two adjacent findings were measured and
 excluded in §Non-goals. Scratch vitest under a gitignored directory, deleted
 after the run.
+
+## Coordination note (0.297.0, bug 0318)
+
+Residual 4's first same-idiom write — `src/runtime/match-result.ts`'s
+`bindings[pattern.name] = value` in `matchPattern`'s identifier arm — is
+measured and DISCHARGED by bug 0318 (fixed 0.297.0): the write now routes
+through `defineRecordField` (bug 0119's route), so a `__proto__` identifier
+pattern binds an own key. Its companion prototype-chain read
+(`obj[field.name]`) stays a non-goal there: the site is own-key-guarded by
+`hasOwnProperty` (re-verified by 0318's reviewer). The
+`production-theta-producer.ts` `callableHashes` write remains undischarged.

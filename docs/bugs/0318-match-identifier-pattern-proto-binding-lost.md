@@ -1,6 +1,6 @@
 # Bug 0318 — A `match` identifier pattern named `__proto__` binds nothing: `matchPattern`'s `bindings[pattern.name] = value` write lands on the inherited `Object.prototype.__proto__` accessor, the arm still selects, and the arm body's reference to the binding silently evaluates to `null` — the measured half of bug 0210 residual 4's "named by no report" site
 
-- **Status:** open.
+- **Status:** fixed (0.297.0).
 - **Sev/Diff estimate:** S2/D1 — S2 because the wrong value is silent
   (`outcome=success`, parse `[]`) but the input class is one exotic
   identifier spelling the case rule deliberately admits, and the arm-selection
@@ -125,3 +125,40 @@ write.
 Filed from bug 0210 §Fix residual 4 (site enumerated, unmeasured, "named by no
 report"), measured at bc52da38 through the production executor harness during
 the runtime-mutation hunt. Scratch probes deleted.
+
+## Fix (0.297.0)
+
+- What shipped: `src/runtime/match-result.ts` — `matchPattern`'s
+  `case "identifier"` arm now binds through `defineRecordField(bindings,
+  pattern.name, value)` (import added from `./value`) instead of the plain
+  `bindings[pattern.name] = value` assignment, so a `__proto__` identifier
+  pattern creates an own enumerable data key (bug 0119's landed route) that
+  `Object.entries(chosen.bindings)` in `statement-executor.ts` reaches, instead
+  of writing through the inherited `Object.prototype.__proto__` accessor. The
+  per-arm record initialisation in `evaluateMatch` is untouched — the doc's
+  route adjudication preferred `defineRecordField` over `Object.create(null)`.
+- Gates: witness `npx vitest run
+  tests/b0318-match-identifier-pattern-proto-binding-lost.test.ts` — 4 passed
+  (P3a/P3b/shorthand flip to Expected, P3c control green); full suite
+  `npm test` — 474 files / 9524 tests passed; `npm run typecheck` — clean;
+  `npm run lint` — clean.
+- Review: 1 round (`bug-fix-reviewer`) — CLEAN, no findings; full
+  fidelity/correctness chain traced (descriptor parity with plain assignment
+  for ordinary keys; own-key reaches `defineLocal`; no widening of the 0316/0317
+  locked arms).
+- Verification: SOLID — (1) witness genuinely reds when the one write line is
+  reverted (P3a/P3b/shorthand RED silent-null, P3c green), restored byte-exact;
+  (2) default suite 474/9524 green; (3) lint + typecheck clean; (4) no live
+  cell owed — match-internal binding mechanism, no registration/diagnostic/
+  live-surface delta; the defect is reproduced offline-deterministically
+  through the production executor harness, which is the production code path.
+- Residuals: none.
+- Discharge notes appended: none (bug 0210 §Fix residual 4 named this exact
+  write as "unmeasured … named by no report" — this report measures and fixes
+  it; the residual-4 discharge is recorded for the parent to file rather than
+  editing the sibling doc directly).
+- Pinned dispositions / non-goals: unchanged from the settled §Fix — the fix
+  does not refuse `__proto__` as an identifier (0119's route keeps the name),
+  does not touch the own-key-guarded object-pattern FIELD read
+  (`match-result.ts` `hasOwnProperty` guard), and does not move the object
+  arm's brand gate (bug 0317) or scrutinee wrapping (bug 0316).
