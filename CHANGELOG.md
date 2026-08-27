@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.299.0]
+
+### Fixed
+
+- **Bug 0332** — spelled `-`, `*`, `/`, `%` binaries on non-numeric operands are now parse-time refusals instead of silent JS coercions: a numeric-operand gate in the type layer draws the new registered code `theta/parse/non-numeric-arithmetic-operands` (`'<op>' requires two numeric operands; got <left> and <right>`; registry row + reference mirror + `expressions.md` §"Other arithmetic" same commit), so `"a" - "b"` no longer binds `NaN`, `[1] - [2]` no longer binds `-1`, and `true * true` no longer binds `1`. Bug 0314's runtime loud-throw stays as the belt behind the gate for statically-invisible operands, and the compound `-=`/`*=`/`/=`/`%=` path deliberately stays on that belt (wiring the gate through the desugar would re-pin bug 0115's witnesses; TYPE-9 already refuses statically-visible compound mismatches at parse). Witnessed by `tests/b0332-spelled-arithmetic-non-numeric-operands.test.ts` (G1–G8 refusals, C1–C4 controls, belt + unary non-goal cells) and the acceptance cell `tests/live/acceptance/b0332live-spelled-arithmetic.test.ts`.
+
 ## [0.298.0]
 
 ### Fixed

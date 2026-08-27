@@ -202,6 +202,11 @@ const ARRAY_ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
 const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
 const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
 const INVOKE_ARG_CODE = "theta/parse/invoke-arg-type-mismatch";
+// Bug 0332: the sibling gate the E-group's `-` controls and `%` rows did not
+// carry — a non-numeric `-`/`*`/`/`/`%` pair now refuses at parse in its own
+// right, ahead of (E1/E3/E4/E5) or instead of (E1c/E2c/E3c/E4c/E5c, r6/r6c) the
+// downstream sink each cell measures.
+const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
 interface RegistryRow {
   readonly code: string;
@@ -348,6 +353,18 @@ function invokeArgMessage(
   );
 }
 
+/** `'<op>' requires two numeric operands; got <left> and <right>`. */
+function arithmeticMessage(op: string, left: string, right: string): string {
+  return fill(
+    ARITHMETIC_CODE,
+    new Map([
+      ["<op>", op],
+      ["<left>", left],
+      ["<right>", right],
+    ]),
+  );
+}
+
 // ===========================================================================
 // Parse harness — the house driver, plus AST anchors that double as the loud
 // precondition every cell runs first.
@@ -405,6 +422,12 @@ interface Anchors {
   readonly modulos: readonly SourceRange[];
   /** The right operand of every `%` node, in the same order — group (D) reads it. */
   readonly moduloDivisors: readonly Expr[];
+  /**
+   * Every spelled `-`/`*`/`/`/`%` binary node's own range (bug 0332's gate
+   * anchor), EXCLUDING the synthetic-`null`-left unary `-` shape — the same
+   * exclusion `checkArithmeticOperands` itself applies.
+   */
+  readonly arithmeticOps: ReadonlyArray<{ readonly op: string; readonly range: SourceRange }>;
 }
 
 /**
@@ -423,6 +446,7 @@ function anchorsOf(doc: ThetaDocument): Anchors {
   const parForMaxes: SourceRange[] = [];
   const modulos: SourceRange[] = [];
   const moduloDivisors: Expr[] = [];
+  const arithmeticOps: Array<{ op: string; range: SourceRange }> = [];
   const walkExpr = (e: Expr): void => {
     switch (e.kind) {
       case "call":
@@ -458,6 +482,9 @@ function anchorsOf(doc: ThetaDocument): Anchors {
         if (e.op === "%") {
           modulos.push(e.range);
           moduloDivisors.push(e.right);
+        }
+        if (["-", "*", "/", "%"].includes(e.op) && !(e.op === "-" && e.left.kind === "null")) {
+          arithmeticOps.push({ op: e.op, range: e.range });
         }
         walkExpr(e.left);
         walkExpr(e.right);
@@ -533,7 +560,22 @@ function anchorsOf(doc: ThetaDocument): Anchors {
     }
   };
   walkBlock(doc.body);
-  return { calls, lets, objectFields, parForMaxes, modulos, moduloDivisors };
+  return { calls, lets, objectFields, parForMaxes, modulos, moduloDivisors, arithmeticOps };
+}
+
+/**
+ * The range of the fixture's sole spelled `op` arithmetic node — bug 0332's
+ * `theta/parse/non-numeric-arithmetic-operands` anchor, narrower than the
+ * enclosing array literal an ARRAY_ELEMENT_CODE sink anchors on (E4's third
+ * hit).
+ */
+function arithmeticOpRange(doc: ThetaDocument, op: string): SourceRange {
+  const hits = anchorsOf(doc).arithmeticOps.filter((a) => a.op === op);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one spelled '${op}' arithmetic node; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.range;
 }
 
 /**
@@ -1367,9 +1409,18 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     expectModulos(doc, 1, "E1");
     expect(
       allHits(doc),
-      `E1 — the arm returns before either operand is typed, so the answer is \`number\` for a \`string\` left operand exactly as it is for an \`integer\` one at b1; \`checkLetRhsCompat\` decides \`number ⊑ string\` outright incompatible, not an \`integer\`-narrowing. Diagnostics: ${render(doc)}`,
-    ).toEqual([hit(LET_RHS_CODE, letRhsMessage("s", "string", "number"), letRange(doc, "s"))]);
+      `E1 — the arm returns before either operand is typed, so the answer is \`number\` for a \`string\` left operand exactly as it is for an \`integer\` one at b1; \`checkLetRhsCompat\` decides \`number ⊑ string\` outright incompatible, not an \`integer\`-narrowing; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      hit(LET_RHS_CODE, letRhsMessage("s", "string", "number"), letRange(doc, "s")),
+      hit(ARITHMETIC_CODE, arithmeticMessage("%", "string", "integer"), letInitRange(doc, "s")),
+    ]);
 
+    // Bug 0332: `-`'s reduction is still the operands' own common type
+    // (`literal string`, `⊑ string`) — E1c's ORIGINAL subject — but the
+    // operator now ALSO clears its own numeric-operand gate first, so the
+    // control that used to prove "the flip is keyed to the divisor, not the
+    // operand kinds" by staying silent now proves it by drawing the SAME
+    // refusal `-`'s own spelling earns everywhere else in this fix.
     const control = parse('let s: string = "a" - "b"\ns\n');
     expect(
       letRange(control, "s"),
@@ -1377,8 +1428,8 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     ).toBeDefined();
     expect(
       allHits(control),
-      `E1c (control) — \`-\`'s reduction is the operands' own common type (\`literal string\`), which stays \`⊑ string\` in both directions. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `E1c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse before \`checkLetRhsCompat\` is reached. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), letInitRange(control, "s"))]);
   });
 
   it("E2 / E2c: the WITHDRAWAL direction — a `number` annotation goes silent", () => {
@@ -1388,19 +1439,24 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     // `number` and the annotation is satisfied. Its `-` control keeps firing,
     // which is what proves the silence is the operator rule and not the sink
     // going dead.
+    // Bug 0332 supersedes the WITHDRAWAL this cell measures: the `checkLetRhsCompat`
+    // emission is still withdrawn (`number ⊑ number` holds once `%` types
+    // `number`), but the pair no longer loads silent — the new arithmetic gate
+    // fires in its place, ahead of that sink.
     const doc = parse('let n: number = "a" % 0\nn\n');
     expectModulos(doc, 1, "E2");
     expect(
       allHits(doc),
-      `E2 — \`"a" % 0\` evaluates to \`NaN\`, which IS a \`number\`, so a \`number\` annotation is satisfied and this emission is withdrawn. Diagnostics: ${render(doc)}`,
-    ).toEqual([]);
+      `E2 — \`"a" % 0\` evaluates to \`NaN\`, which IS a \`number\`, so a \`number\` annotation is satisfied and \`checkLetRhsCompat\`'s emission is withdrawn; bug 0332's gate fires in its place. Diagnostics: ${render(doc)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("%", "string", "integer"), letInitRange(doc, "n"))]);
 
     const control = parse('let n: number = "a" - "b"\nn\n');
     expect(
       allHits(control),
-      `E2c (control) — \`-\` at the same annotation keeps firing with the operands' own type, so E2's silence is attributable to the zero-divisor arm and not to a dead sink. Diagnostics: ${render(control)}`,
+      `E2c (control) — \`-\` at the same annotation keeps firing \`checkLetRhsCompat\` with the operands' own type, so E2's withdrawal is attributable to the zero-divisor arm and not to a dead sink; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(control)}`,
     ).toEqual([
       hit(LET_RHS_CODE, letRhsMessage("n", "number", "string"), letRange(control, "n")),
+      hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), letInitRange(control, "n")),
     ]);
   });
 
@@ -1409,15 +1465,17 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     expectModulos(doc, 1, "E3");
     expect(
       allHits(doc),
-      `E3 — \`checkObjectFieldCompat\` routes the same outright-incompatible verdict E1 does, anchored on the field VALUE the way a11/a12 anchor the narrowing case. Diagnostics: ${render(doc)}`,
+      `E3 — \`checkObjectFieldCompat\` routes the same outright-incompatible verdict E1 does, anchored on the field VALUE the way a11/a12 anchor the narrowing case; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(doc)}`,
     ).toEqual([
       hit(
         OBJECT_FIELD_CODE,
         objectFieldMismatchMessage("s", "S", "string", "number"),
         objectFieldRange(doc, "s"),
       ),
+      hit(ARITHMETIC_CODE, arithmeticMessage("%", "string", "integer"), objectFieldRange(doc, "s")),
     ]);
 
+    // Bug 0332: same re-pin as E1c.
     const control = parse(S_STR + 'let o = S { s: "a" - "b" }\no\n');
     expect(
       objectFieldRange(control, "s"),
@@ -1425,8 +1483,8 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     ).toBeDefined();
     expect(
       allHits(control),
-      `E3c (control) — \`-\`'s reduction stays \`⊑ string\`. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `E3c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), objectFieldRange(control, "s"))]);
   });
 
   it("E4 / E4c: the `array<string>` element sink, both codes it draws", () => {
@@ -1434,7 +1492,7 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     expectModulos(doc, 1, "E4");
     expect(
       allHits(doc),
-      `E4 — both registered codes, in the order the \`let\` arm produces them (the whole-binding check runs before the element-sink check), as a9/a10 already establish for the \`array<integer>\` shape. Diagnostics: ${render(doc)}`,
+      `E4 — both registered codes, in the order the \`let\` arm produces them (the whole-binding check runs before the element-sink check), as a9/a10 already establish for the \`array<integer>\` shape; bug 0332's gate ALSO fires on the inner \`%\` node, third, narrower than either sink's own anchor. Diagnostics: ${render(doc)}`,
     ).toEqual([
       hit(
         LET_RHS_CODE,
@@ -1446,8 +1504,10 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
         arrayElementMessage(0, "string", "number"),
         letInitRange(doc, "xs"),
       ),
+      hit(ARITHMETIC_CODE, arithmeticMessage("%", "string", "integer"), arithmeticOpRange(doc, "%")),
     ]);
 
+    // Bug 0332: same re-pin as E1c/E3c.
     const control = parse('let xs: array<string> = ["a" - "b"]\nxs\n');
     expect(
       letInitRange(control, "xs"),
@@ -1455,8 +1515,10 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     ).toBeDefined();
     expect(
       allHits(control),
-      `E4c (control) — \`-\`'s reduction stays \`⊑ string\` at both the whole-binding and the element sink. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `E4c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse, anchored on the inner binary node. Diagnostics: ${render(control)}`,
+    ).toEqual([
+      hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), arithmeticOpRange(control, "-")),
+    ]);
   });
 
   it("E5 / E5c: a `boolean` left operand reaches the same answer", () => {
@@ -1466,9 +1528,13 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     expectModulos(doc, 1, "E5");
     expect(
       allHits(doc),
-      `E5 — the rule is on the operator and its divisor and consults no left operand: a \`boolean\` left under a zero divisor reads \`number\` exactly as an \`integer\` one does at b1. Diagnostics: ${render(doc)}`,
-    ).toEqual([hit(LET_RHS_CODE, letRhsMessage("b", "boolean", "number"), letRange(doc, "b"))]);
+      `E5 — the rule is on the operator and its divisor and consults no left operand: a \`boolean\` left under a zero divisor reads \`number\` exactly as an \`integer\` one does at b1; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      hit(LET_RHS_CODE, letRhsMessage("b", "boolean", "number"), letRange(doc, "b")),
+      hit(ARITHMETIC_CODE, arithmeticMessage("%", "boolean", "integer"), letInitRange(doc, "b")),
+    ]);
 
+    // Bug 0332: same re-pin as E1c/E3c/E4c.
     const control = parse("let b: boolean = true - false\nb\n");
     expect(
       letRange(control, "b"),
@@ -1476,8 +1542,8 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     ).toBeDefined();
     expect(
       allHits(control),
-      `E5c (control) — \`-\`'s reduction is the operands' own common type (\`literal boolean\`), which stays \`⊑ boolean\`. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `E5c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "boolean", "boolean"), letInitRange(control, "b"))]);
   });
 });
 
@@ -1881,38 +1947,41 @@ describe("bug 0152 §Fix (c) — the `collectProvableArgTypes` mirror at the inv
   });
 
   it("r6 / r6c: a non-numeric LEFT operand at the invoke sink — the withheld->fires transition", () => {
-    // Bug 0152 §Fix (c)'s mirror arm (src/extension/invoke-static-checks.ts,
-    // the `%` zero-divisor guard) does not consult the left operand, matching
-    // `#typeBinary`'s own arm — same as E1-E5 pin at the parse-time sinks, but
-    // that group never drives the claim through THIS collector. Pre-fix, the
-    // collector's arithmetic fallback unions the operand kinds
-    // (`{string, integer}` for `"a" % 0`), which is not disjoint from the
-    // callee's `x: string` param, so the row was WITHHELD. Post-fix the guard
-    // returns the pass's own `{number}`, disjoint from `string`, so the row
-    // FIRES. The `-` control never enters the guard — its own arithmetic
-    // fallback still unions `{string, integer}` — so it stays withheld in
-    // both directions and keys the move to the `%`-zero-divisor pair, not to
-    // the sink or the left operand's kind.
-    assertRowSurfaceLive();
+    // Bug 0332 SUPERSEDES this class at both cells: `"a" % 0` and `"a" - 0`
+    // now refuse at PARSE (`theta/parse/non-numeric-arithmetic-operands`)
+    // before either planted caller ever reaches `collectProvableArgTypes` and
+    // the §Fix (c) mirror this class measures — the withheld → fires
+    // transition for `%` and the stays-withheld control for `-` both become
+    // moot once neither operand pair survives to that sink. The subject each
+    // cell probes ('what does the invoke-arg mirror do with this argument') is
+    // superseded by 'does this caller load at all', which is what these two
+    // cells now pin: both callers flip from loading clean to a LOAD refusal
+    // carrying the new code, and neither registers.
     expect(
-      linesForCode("modleftstr", INVOKE_ARG_CODE).some((line) =>
-        line.includes(invokeArgMessage(0, "x", "string", "number")),
+      linesForCode("modleftstr", ARITHMETIC_CODE).some((line) =>
+        line.includes(arithmeticMessage("%", "string", "integer")),
       ),
-      `r6 — \`"a" % 0\` collects \`{number}\` through the mirror's zero-divisor guard, disjoint from the callee's \`x: string\` param, so the row fires post-fix where it was withheld pre-fix (the collector's arithmetic fallback would have unioned \`{string, integer}\`). Lines for this caller: ${JSON.stringify(linesFor("modleftstr"))}`,
+      `bug 0332's gate must refuse this caller's \`"a" % 0\` argument at parse, before the invoke-arg mirror this class used to measure is ever reached. Lines for this caller: ${JSON.stringify(linesFor("modleftstr"))}`,
     ).toBe(true);
     expect(
+      linesForCode("modleftstr", INVOKE_ARG_CODE),
+      `a caller refused at parse must not also reach the invoke-arg sink this class measures. Lines for this caller: ${JSON.stringify(linesFor("modleftstr"))}`,
+    ).toEqual([]);
+    expect(
       outcome.registered,
-      "r6 — the row is E-severity, so the mistyped invoke caller must not register",
+      "a parse-refused caller must not register",
     ).not.toContain("modleftstr");
 
     expect(
-      linesForCode("subleftstr", INVOKE_ARG_CODE).length,
-      `r6c (control) — \`"a" - 0\` never reaches the \`%\`-zero-divisor guard, so the collector's arithmetic fallback unions \`{string, integer}\`, not disjoint from \`string\`, and this row stays withheld in both directions. Lines for this caller: ${JSON.stringify(linesFor("subleftstr"))}`,
-    ).toBe(0);
+      linesForCode("subleftstr", ARITHMETIC_CODE).some((line) =>
+        line.includes(arithmeticMessage("-", "string", "integer")),
+      ),
+      `bug 0332's gate covers \`-\` too, so the control that used to stay withheld at the invoke-arg mirror now refuses one seam earlier, at parse. Lines for this caller: ${JSON.stringify(linesFor("subleftstr"))}`,
+    ).toBe(true);
     expect(
       outcome.registered,
-      "r6c (control) — withheld means no E-severity diagnostic, so the caller registers",
-    ).toContain("subleftstr");
+      "r6c (control) — a parse-refused caller must not register; this control no longer reaches the runtime AJV net it used to defer to",
+    ).not.toContain("subleftstr");
   });
 });
 

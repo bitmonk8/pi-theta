@@ -86,6 +86,7 @@ trigger.
 | `theta/parse/comparison-chaining` | E | parse | `comparison operators do not chain; use &&` |
 | `theta/parse/mixed-plus-operands` | E | type | `'+' has mixed operand types: <left> and <right>` |
 | `theta/parse/non-orderable-operands` | E | type | `'<op>' requires two numeric or two string operands; got <left> and <right>` |
+| `theta/parse/non-numeric-arithmetic-operands` | E | type | `'<op>' requires two numeric operands; got <left> and <right>` |
 | `theta/parse/non-indexable-receiver` | E | type | `indexed access requires an array<T> or object receiver; got <type>` |
 | `theta/parse/non-string-object-index` | E | type | `object index must be string; got <type>` |
 | `theta/parse/array-element-type-mismatch` | E | type | `array element type mismatch at index <i>: expected <expected>, got <actual>` |

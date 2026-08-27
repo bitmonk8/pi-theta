@@ -233,6 +233,13 @@ const BINDING_CASE_CODE = "theta/parse/binding-case-mismatch";
 // arm body — cells u13c, u13d, u13mb and u13mc each draw it alongside (or in
 // place of) their sibling-row assertion.
 const CAP_PATTERN_HEAD_CODE = "theta/parse/capitalised-pattern-head";
+// bug 0332's spelled-arithmetic operand gate: a spelled `-`/`*`/`/`/`%` whose
+// two operands are not both numeric (per expressions.md §"Other arithmetic")
+// now refuses AT PARSE. Cells u10c/u10d assert this alongside their preserved
+// fn-arg-type-mismatch WITHHOLDING: the two checks are independent, so the
+// subject those cells probe survives while the argument's own parse
+// disposition flips from clean to refused.
+const NON_NUMERIC_ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
 interface RegistryRow {
   readonly code: string;
@@ -2062,29 +2069,45 @@ describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a 
     );
   });
 
-  it('u10c: `g("a" - "b")` against `n: number` draws no fn-arg-type-mismatch', () => {
-    // The BINARY half, and the one `isProvenReduction` cannot catch: both
-    // operands are proven `string` literals, so the reduction is exact and the
-    // arm trusted it. The value is `NaN` — a `number` by
-    // expressions.md §"Other arithmetic" — which `n: number` accepts.
+  it('u10c: `g("a" - "b")` refuses the argument at parse (bug 0332) and still draws no fn-arg-type-mismatch', () => {
+    // Bug 0332: `"a" - "b"` is a spelled `-` over two `string` operands, which
+    // the parse-time numeric-operand gate now REFUSES outright — there is no
+    // value to read a type from, so the pre-0332 "exact `string` reduction is
+    // not a proof of the subtraction's value type" reasoning no longer applies.
+    // The fn-arg-type-mismatch check withholds INDEPENDENTLY of that refusal,
+    // so the subject this cell probes (the arg sink stays silent) is preserved
+    // even though the argument's own parse disposition flips clean → refused.
     const doc = parse(U10_MINUS_STRINGS);
     expect(
       argRange(doc, "g", 0),
       'PRECONDITION: the argument `"a" - "b"` sits on the second body line',
     ).toEqual(range(5, 11, 5, 20));
+    expect(
+      locatedHits(doc, NON_NUMERIC_ARITHMETIC_CODE),
+      "u10c — bug 0332's gate must refuse this `string - string` argument at parse, at the argument expression's own range",
+    ).toEqual([
+      `error '-' requires two numeric operands; got string and string @${at(range(5, 11, 5, 20))}`,
+    ]);
     expectNoFnArgMismatch(
       doc,
-      "u10c — an exact reduction over two `string` operands is still not a proof of a subtraction's value type, because `-`'s result type is the operator's",
+      "u10c — the fn-arg-type-mismatch check withholds independently of bug 0332's parse refusal, so the subject this cell probes survives the argument's flip to refused",
     );
   });
 
-  it("u10d: the same shape under `/`, `%` and `*` draws no fn-arg-type-mismatch", () => {
-    // The remaining three operators of the family. `"6" / "2"` evaluates to the
-    // number `3` and `"6" % "2"` to `0` — both through
-    // `applyBinaryScalar`'s casts (src/runtime/statement-executor.ts:967, :969)
-    // — while `"a" * "b"` is `NaN`; all three read `string` before the guard.
-    // One cell over three fixtures, because a partial operator set is the
-    // plausible slip and each fixture differs only in the operator token.
+  it("u10d: the same shape under `/`, `%` and `*` refuses the argument at parse (bug 0332) and still draws no fn-arg-type-mismatch", () => {
+    // The remaining three operators of the family, each a spelled arithmetic
+    // over two `string` operands. Bug 0332's parse-time numeric-operand gate
+    // (`checkArithmeticOperands`, src/parser/type-layer-checks.ts) now REFUSES
+    // all three at parse; the value that the pre-0332 world computed — via the
+    // combined `-`/`*`/`/`/`%` arm of `applyBinaryScalar`
+    // (src/runtime/statement-executor.ts:1037, arm at :1047–:1071, whose bug
+    // 0332 numeric belt throws `BinaryNonNumericError` at :1060) — is never
+    // produced, so no operand reading survives to be judged. The
+    // fn-arg-type-mismatch check withholds INDEPENDENTLY, so each cell's
+    // subject (the arg sink stays silent) is preserved while the argument's own
+    // parse disposition flips clean → refused. One cell over three fixtures,
+    // because a partial operator set is the plausible slip and each fixture
+    // differs only in the operator token.
     for (const [label, src, argument] of [
       ["/", U10_DIV_STRINGS, range(5, 11, 5, 20)],
       ["%", U10_MOD_STRINGS, range(5, 11, 5, 20)],
@@ -2095,9 +2118,15 @@ describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a 
         argRange(doc, "g", 0),
         `PRECONDITION: the \`${label}\` fixture's argument sits on the second body line`,
       ).toEqual(argument);
+      expect(
+        locatedHits(doc, NON_NUMERIC_ARITHMETIC_CODE),
+        `u10d (${label}) — bug 0332's gate must refuse this \`string ${label} string\` argument at parse, at the argument expression's own range`,
+      ).toEqual([
+        `error '${label}' requires two numeric operands; got string and string @${at(argument)}`,
+      ]);
       expectNoFnArgMismatch(
         doc,
-        `u10d (${label}) — expressions.md §"Other arithmetic" fixes this operator's result to \`integer\` / \`number\` as it does \`-\`'s, so the operand reading is no more a proof here`,
+        `u10d (${label}) — the fn-arg-type-mismatch check withholds independently of bug 0332's parse refusal, so this cell's subject survives the argument's flip to refused`,
       );
     }
   });

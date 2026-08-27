@@ -1,6 +1,6 @@
 # Bug 0332 — Spelled binary `-`, `*`, `/`, `%` on non-numeric operands parse clean and evaluate to silent JS-coerced values against `expressions.md` §"Other arithmetic" ("accept only numeric operands"): `let x = "a" - "b"` binds `NaN`, `let x = [1] - [2]` binds `-1`, `let x = true - false` binds `1` — zero diagnostics on any channel
 
-- **Status:** open.
+- **Status:** fixed (0.299.0).
 - **Sev/Diff estimate:** S1/D3 — S1 because the parse layer admits an operand
   pairing the spec refuses and the runtime binds a silent wrong value on the
   production evaluation path (`NaN` for string operands, and plausible small
@@ -240,3 +240,106 @@ Reproduced offline through the production prompt-mode executor harness (the
 §Reproduction parsed with `[]` and ran to the recorded `success` values; the
 runtime path was confirmed to throw nothing (no `CompoundNonNumericError`
 belt), distinguishing it from the compound path. Scratch probe deleted.
+
+## Fix (0.299.0)
+
+**Route adjudication (parent-ratified, recorded verbatim).** ROUTE (a) — a
+parse-time numeric-operand gate for spelled `-`, `*`, `/`, `%` binaries — with a
+NEW dedicated DIAG-2 registry row, NOT a widening of
+`theta/parse/mixed-plus-operands`. Rationale on the record: (1) bug 0315's
+precedent (0.294.0) mints dedicated rows for distinct trigger classes; (2)
+`mixed-plus-operands`' registered sentence is about `+`'s concat-vs-add operand
+mixing — reusing it for numeric-only operators would ship a misleading message;
+(3) a dedicated row names the operator and the offending operand type in one
+message.
+
+**In-lane DIAG-2 settlements (per registry conventions).**
+- Code name: `theta/parse/non-numeric-arithmetic-operands` — matches the
+  `non-<adjective>-operands` naming of the sibling rows
+  `theta/parse/non-orderable-operands` and `theta/parse/mixed-plus-operands`; a
+  dedicated row for a distinct trigger class per the 0315 precedent.
+- Message: `'<op>' requires two numeric operands; got <left> and <right>` —
+  reuses only admitted placeholders (`<op>` category 7, `<left>`/`<right>`
+  category 1); no new placeholder coined, so the closed placeholder-rendering
+  vocabulary needs no edit.
+- Severity `E`, phase `type` (mirrors `mixed-plus-operands` /
+  `non-orderable-operands`). Hint: `Use only numeric operands; convert
+  explicitly before the operation.`
+
+- **What shipped:**
+  - `src/parser/type-layer-checks.ts` — `walkExpr`'s `case "binary"` routes
+    spelled `-`/`*`/`/`/`%` (excluding the synthetic-`null` unary-`-` node) to
+    the new `checkArithmeticOperands`, which mirrors `checkOrderingOperands`:
+    refuses a statically-resolvable pairing where either operand is not
+    numeric with `theta/parse/non-numeric-arithmetic-operands`, deferring on an
+    unresolvable operand.
+  - `src/runtime/statement-executor.ts` — `applyBinaryScalar`'s `-`/`*`/`/`/`%`
+    arms gain a `BinaryNonNumericError` belt (plain `Error`, not a
+    `ThetaPanic`; routes through `surfaceUnexpectedThrow` to
+    `INTERNAL_ERROR_CODE`) for a non-number reaching them — the belt behind the
+    gate for statically-invisible operands. `NaN` is a `number`, so `n % 0`
+    and division by zero keep their spec non-panic behaviour. 0314's
+    `CompoundNonNumericError` belt is untouched.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md`,
+    `docs/reference/diagnostics.md` — the new registry row and its reference
+    mirror (same-commit DIAG-2).
+  - `docs/spec_topics/expressions.md` §"Other arithmetic" — names the code,
+    parallel to §"Ordering comparisons".
+  - `tests/b0332-spelled-arithmetic-non-numeric-operands.test.ts` (new) —
+    witness: G1–G8 parse-refusal rows, C1–C4 numeric controls, B1 runtime-belt
+    row, N1a/N1b unary-`-`-not-gated controls (§Non-goals).
+  - `tests/live/acceptance/b0332live-spelled-arithmetic.test.ts` (new) — H9a
+    live: offender `"a" - "b"` refuses at load (invoke→Err), numeric control
+    `7 - 2` registers and drives to `5 + 100 = 105` through the real `pi -p`.
+  - Enumerated sibling-witness flips: `tests/division-result-type-number.test.ts`
+    (0142), `tests/modulo-zero-result-type-number.test.ts` (0152),
+    `tests/division-result-type-number-invoke.test.ts` (0146),
+    `tests/fn-arg-type-mismatch-wired.test.ts` (0050 u10c/u10d + stale-cite fix).
+- **Gates:** witness — with the gate/belt neutralized the b0332 rows red for the
+  documented reason (G1–G8 parse clean `[]`; B1 silent `NaN`→`null`), restored
+  byte-exact and green; full suite `npm test` = 477 files / 9547 tests passing;
+  `npm run typecheck` clean; `npm run lint` clean; live H9a acceptance 1/1 pass
+  under the shared live-lock; `permitted-codes.json` byte-unchanged (hash
+  `a4a8da04` == HEAD), the new code absent from it.
+- **Review:** 2 rounds. R1 (`bug-fix-reviewer`): 3 findings — F1 (registry
+  Trigger falsely claimed a compound-desugar emission), F2 (belt covers the
+  executor path only + an overclaiming comment), F3 (interpolation position
+  ungated, pre-existing). R2 (`bug-fix-fixer-light`): F1 clause struck, F2
+  comment corrected, plus an added unary-`-` control (R1 residual);
+  polish verified by gate-diff, confirmation round skipped (prose/comment/test
+  hunks only).
+- **Verification:** SOLID. Witness reversibility proven both directions (gate
+  and belt neutralized → red → restored byte-exact → green); default suite
+  green; live discharged from handed evidence + read-only confirmation; lint +
+  typecheck clean; tree clean, `git stash` empty, `tests/b0314` byte-exact to
+  HEAD.
+- **Residuals:**
+  1. The pure-host evaluator `evaluateBinaryExpression`
+     (`src/extension/production-theta-producer.ts`) still silently coerces a
+     statically-DEFERRED non-numeric operand (a WITHHELD binder — e.g. an
+     unannotated `fn` param) reaching the pure path via `invoke` arguments,
+     `.theta`-callable call arguments, or a user-`fn` body pure-evaluated inside
+     those positions. Witness: `fn f(a) { invoke("./c.theta", a - 1) }` /
+     `f("x")` hands the child `NaN`, where the byte-identical `a - 1` as a
+     let-RHS throws the belt. Out of this report's §Fix scope (names only
+     `applyBinaryScalar`) and §Affected (names only `statement-executor.ts`).
+     The V3a `expression-evaluator.ts` arithmetic arms are likewise unbelted
+     but that evaluator has no `src/` callers. Evidence: review R1 finding F2.
+  2. Query-template interpolation expressions are ungated for ALL operand
+     checks (`+`, ordering, and now arithmetic): `let s = "a"` with template
+     `{s - 1}` parses clean and renders `NaN` into the prompt
+     (`checkQueryInterpolationResults` classifies only Result-ness, never hands
+     the interpolation expression to `walkExpr`). Pre-existing corpus-wide gate
+     boundary, not introduced here (§Affected/§Reproduction cover body
+     statements only). Evidence: review R1 finding F3.
+- **Discharge notes appended:** none — the compound desugar was deliberately
+  not wired, so `tests/b0314` and bug 0314's doc are untouched (no coordination
+  note owed).
+- **Pinned dispositions / non-goals:** the compound forms `-=`/`*=`/`/=`/`%=`
+  are deliberately NOT routed through the parse gate — §Non-goals assigns them
+  bug 0314's `CompoundNonNumericError` runtime disposition, and §Fix made the
+  desugar wiring an explicit fixing-lane option ("or leave the compound path on
+  its runtime throw"); wiring it would have flipped bug 0115 cells b5–b8, a
+  red beyond the doc's enumerated collateral set. Unary `-` in expression
+  position is NOT gated (§Non-goals; pinned by the N1 controls). Bug 0115 is
+  untouched.

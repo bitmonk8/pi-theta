@@ -117,6 +117,9 @@ const PRIMITIVE_NAMES: ReadonlySet<string> = new Set([
 /** The four ordering operators (expressions.md §"Ordering comparisons"). */
 const ORDERING_OPS: ReadonlySet<string> = new Set(["<", "<=", ">", ">="]);
 
+/** The four spelled numeric-only arithmetic operators (expressions.md §"Other arithmetic"). */
+const ARITHMETIC_OPS: ReadonlySet<string> = new Set(["-", "*", "/", "%"]);
+
 /**
  * The empty sunk-array set `walkExpr` defaults to: no array node reaching this
  * call carries a sink, so its own `case "array"` runs the sink-less check.
@@ -1738,10 +1741,12 @@ class TypeLayerWalk {
             // spelled binary clears (`theta/parse/mixed-plus-operands`); TYPE-9
             // above judges RHS `⊑` target only, which a same-type array/array or
             // boolean/boolean pair always satisfies, so without this call
-            // `xs += [2]` / `b += false` parse clean. Only `+=` routes here —
-            // `-=`/`*=`/`/=`/`%=` have no parse-time operand gate at this fork —
-            // the spelled `-`/`*`/`/`/`%` binaries have no parse-time operand
-            // check either; that shared gap is out of this fix's ratified scope;
+            // `xs += [2]` / `b += false` parse clean. Only `+=` routes here:
+            // `-=`/`*=`/`/=`/`%=` keep bug 0314's runtime `CompoundNonNumericError`
+            // belt, because bug 0332's spelled-arithmetic numeric-operand gate is
+            // an EXPRESSION-position rule — its §Non-goals leaves the compound
+            // forms on 0314's runtime disposition — so the desugared compound
+            // pair is deliberately not routed through the parse gate here.
             // `declared` (the TARGET's type) stands in for the desugar's left
             // operand since the desugar reads `x` before writing it.
             if (stmt.op === "+=") {
@@ -3074,6 +3079,15 @@ class TypeLayerWalk {
           this.checkPlusOperands(e, bindings);
         } else if (ORDERING_OPS.has(e.op)) {
           this.checkOrderingOperands(e, bindings);
+        } else if (ARITHMETIC_OPS.has(e.op) && !(e.op === "-" && e.left.kind === "null")) {
+          // `parseUnary` (theta-document.ts) models unary `-` as a binary
+          // carrying a synthetic `null` left operand; the spec's numeric-operand
+          // rule for `-`/`*`/`/`/`%` is a BINARY-arithmetic rule (bug 0332's
+          // Non-goals excludes unary `-` in expression position explicitly), so
+          // a synthetic-null unary node must not reach `checkArithmeticOperands`
+          // — it would judge the placeholder `null` left operand, not a real
+          // pairing, exactly the collapse `#typeBinary` already guards against.
+          this.checkArithmeticOperands(e, bindings);
         }
         this.walkExpr(e.left, bindings, flow);
         this.walkExpr(e.right, bindings, flow);
@@ -3676,6 +3690,42 @@ class TypeLayerWalk {
       file: this.file,
       range: e.range,
       message: `'${e.op}' requires two numeric or two string operands; got ${displayType(
+        leftType,
+      )} and ${displayType(rightType)}`,
+    });
+  }
+
+  /**
+   * A7 — the spelled arithmetic (`-` / `*` / `/` / `%`) operand-type check.
+   * expressions.md §"Other arithmetic": these accept only numeric operands;
+   * every other concrete pairing is `theta/parse/non-numeric-arithmetic-operands`
+   * (bug 0332). Mirrors `checkOrderingOperands`: fires only when both operands
+   * are statically resolvable, deferring a statically-unresolvable operand to
+   * runtime, where the executor's `applyBinaryScalar` numeric belt catches a
+   * non-number on the body-statement evaluation path. Scoped to the spelled binary in
+   * expression position — the compound `-=`/`*=`/`/=`/`%=` desugar is a §Non-goal
+   * kept on bug 0314's runtime belt (see the `case "reassign"` arm).
+   */
+  private checkArithmeticOperands(
+    e: Expr & { kind: "binary" },
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    const leftType = this.typeOf(e.left, bindings);
+    const rightType = this.typeOf(e.right, bindings);
+    const left = classifyOperand(leftType, this.env);
+    const right = classifyOperand(rightType, this.env);
+    if (left === "unknown" || right === "unknown") {
+      return;
+    }
+    if (left === "numeric" && right === "numeric") {
+      return;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "theta/parse/non-numeric-arithmetic-operands",
+      file: this.file,
+      range: e.range,
+      message: `'${e.op}' requires two numeric operands; got ${displayType(
         leftType,
       )} and ${displayType(rightType)}`,
     });

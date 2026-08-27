@@ -79,6 +79,13 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 /** The row under test. */
 const CODE = "theta/parse/invoke-arg-type-mismatch";
 
+/**
+ * Bug 0332's parse-time gate. Class (ii)'s two planted callers now refuse at
+ * this code before the invoke-arg mirror this file otherwise measures is ever
+ * reached (see that class's own comment).
+ */
+const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
+
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
 
 interface RegistryRow {
@@ -137,6 +144,20 @@ function invokeArgMessage(slot: number, paramName: string, expected: string, act
     }
   }
   return message;
+}
+
+/** `'<op>' requires two numeric operands; got <left> and <right>` — bug 0332's own row. */
+function arithmeticMessage(op: string, left: string, right: string): string {
+  const template = registryMessage(REGISTRY, ARITHMETIC_CODE) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: ${REGISTRY_PAGE} carries no Message row for ${ARITHMETIC_CODE} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
+    );
+  }
+  return template
+    .replace("<op>", op)
+    .replace("<left>", left)
+    .replace("<right>", right);
 }
 
 // ===========================================================================
@@ -322,29 +343,43 @@ describe("bug 0142 F1 (i) — a `/` argument's rendering moves `integer` → `nu
 // ===========================================================================
 
 describe("bug 0142 F1 (ii) — a non-numeric `/` argument at a param matching the operands' own type moves withheld → fires", () => {
-  it("divstr: `invoke(\"./cstr.theta\", \"a\" / \"b\")` at a `string` param now fires", () => {
-    assertRowSurfaceLive();
+  // Bug 0332 SUPERSEDES this class at both cells: `"a" / "b"` and `"a" - "b"`
+  // now refuse at PARSE (`theta/parse/non-numeric-arithmetic-operands`) before
+  // either planted caller ever reaches `checkInvokeStaticResolution` and the
+  // `collectProvableArgTypes` mirror this class measures — the withheld →
+  // fires transition for `/` and the stays-withheld control for `-` both
+  // become moot once neither operand pair survives to that sink. The subject
+  // each cell probes ('what does the invoke-arg sink do with this argument')
+  // is superseded by 'does this caller load at all', which is what these two
+  // cells now pin: both callers flip from loading clean to a LOAD refusal
+  // carrying the new code, and neither registers.
+  it('divstr: `invoke("./cstr.theta", "a" / "b")` at a `string` param now fires — bug 0332: refuses at PARSE instead', () => {
     expect(
-      linesForCode("divstr", CODE).some((line) =>
-        line.includes(invokeArgMessage(0, "x", "string", "number")),
+      linesForCode("divstr", ARITHMETIC_CODE).some((line) =>
+        line.includes(arithmeticMessage("/", "string", "string")),
       ),
-      `${CODE} did not fire for a non-numeric \`/\` argument at the param its own operands' type matches: the collected set must have moved from \`{literal string, literal string}\` (one member compatible, so \`buildInvokeArgSlot\` withholds) to \`[prim number]\` (incompatible, so it fires). Lines for this caller: ${JSON.stringify(linesFor("divstr"))}`,
+      `bug 0332's gate must refuse this caller's \`"a" / "b"\` argument at parse, before the invoke-arg-type-mismatch mirror this class used to measure is ever reached. Lines for this caller: ${JSON.stringify(linesFor("divstr"))}`,
     ).toBe(true);
     expect(
-      outcome.registered,
-      "the now-mistyped invoke caller registered",
-    ).not.toContain("divstr");
-  });
-
-  it("substr (control): `invoke(\"./cstr.theta\", \"a\" - \"b\")` at the same param stays withheld", () => {
-    assertRowSurfaceLive();
-    expect(
-      linesForCode("substr", CODE),
-      `${CODE} fired on a \`-\` argument whose collected set is still the operands' own \`string\` kind, one member of which is compatible with the \`string\` param — the flip is keyed to \`/\`, not to a non-numeric operand pair. Lines for this caller: ${JSON.stringify(linesFor("substr"))}`,
+      linesForCode("divstr", CODE),
+      `a caller refused at parse must not also reach the invoke-arg sink this class measures. Lines for this caller: ${JSON.stringify(linesFor("divstr"))}`,
     ).toEqual([]);
     expect(
       outcome.registered,
-      "`buildInvokeArgSlot` deferred this slot to the callee's runtime AJV net, so the caller must still register",
-    ).toContain("substr");
+      "a parse-refused caller must not register",
+    ).not.toContain("divstr");
+  });
+
+  it('substr (control): `invoke("./cstr.theta", "a" - "b")` at the same param stays withheld — bug 0332: refuses at PARSE instead', () => {
+    expect(
+      linesForCode("substr", ARITHMETIC_CODE).some((line) =>
+        line.includes(arithmeticMessage("-", "string", "string")),
+      ),
+      `bug 0332's gate covers \`-\` too, so the control that used to stay withheld at the invoke-arg sink now refuses one seam earlier, at parse. Lines for this caller: ${JSON.stringify(linesFor("substr"))}`,
+    ).toBe(true);
+    expect(
+      outcome.registered,
+      "a parse-refused caller must not register — this control no longer reaches the runtime AJV net it used to defer to",
+    ).not.toContain("substr");
   });
 });

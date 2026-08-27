@@ -620,13 +620,14 @@ function isTruthy(value: ThetaValue): boolean {
  * runtime `+` arm. So a `+=` reaching here carries two strings, two
  * numbers, or an unresolvable pair that the shared `+` arm computes
  * identically to the spelled binary.
- * `-=`/`*=`/`/=`/`%=` have no parse-time operand gate at this fork — the
- * spelled `-`/`*`/`/`/`%` binaries have no parse-time operand check either;
- * that shared gap is out of this fix's ratified scope — so a non-number
- * operand can still reach them; fabricating a `0` there silently overwrites
- * the binding with a value of a different type (the original defect), so
- * this throws a loud, specific defect instead — never a catch-all, never a
- * fabricated number.
+ * `-=`/`*=`/`/=`/`%=` have no parse-time operand gate: bug 0332 added one only
+ * for the SPELLED `-`/`*`/`/`/`%` binaries in expression position
+ * (`theta/parse/non-numeric-arithmetic-operands`, `type-layer-checks.ts`'s
+ * `checkArithmeticOperands`), and its §Non-goals leaves the compound forms on
+ * this runtime belt as their 0314 disposition — so a non-number operand can
+ * still reach them; fabricating a `0` there silently overwrites the binding
+ * with a value of a different type (the original defect), so this throws a
+ * loud, specific defect instead — never a catch-all, never a fabricated number.
  */
 export class CompoundNonNumericError extends Error {
   public constructor(op: "-=" | "*=" | "/=" | "%=", current: ThetaValue, delta: ThetaValue) {
@@ -634,6 +635,27 @@ export class CompoundNonNumericError extends Error {
       `internal defect: compound operator '${op}' requires two numbers, got ${typeof current} and ${typeof delta}; a non-number operand reached a numeric compound after the reassign type gate (bug 0314)`,
     );
     this.name = "CompoundNonNumericError";
+  }
+}
+
+/**
+ * Bug 0332 (docs/bugs/0332-spelled-arithmetic-non-numeric-operands-no-parse-gate.md)
+ * belt: the sibling of `CompoundNonNumericError` for the SPELLED `-`/`*`/`/`/`%`
+ * binaries. The parse-time gate (`type-layer-checks.ts`'s
+ * `checkArithmeticOperands`) refuses every statically-resolvable non-numeric
+ * pair; a pair it deferred on (an unresolvable operand) can still reach
+ * `applyBinaryScalar`, and casting it to `number` there would silently
+ * JS-coerce (the original defect: `"a" - "b"` → `NaN`, `[1] - [2]` → `-1`).
+ * A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught out of
+ * `executeBody` and is reframed one layer up through `surfaceUnexpectedThrow`
+ * to `INTERNAL_ERROR_CODE`, exactly as `CompoundNonNumericError` is.
+ */
+export class BinaryNonNumericError extends Error {
+  public constructor(op: "-" | "*" | "/" | "%", left: ThetaValue, right: ThetaValue) {
+    super(
+      `internal defect: arithmetic operator '${op}' requires two numbers, got ${typeof left} and ${typeof right}; a non-number operand reached a numeric binary after the spelled-binary type gate (bug 0332)`,
+    );
+    this.name = "BinaryNonNumericError";
   }
 }
 
@@ -1023,13 +1045,31 @@ function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): The
         ? left + right
         : (left as number) + (right as number);
     case "-":
-      return (left as number) - (right as number);
     case "*":
-      return (left as number) * (right as number);
     case "/":
-      return (left as number) / (right as number);
-    case "%":
-      return (left as number) % (right as number);
+    case "%": {
+      // Bug 0332 belt: the parse-time gate
+      // (`type-layer-checks.ts`'s `checkArithmeticOperands`) refuses a
+      // statically-resolvable non-numeric pair before this runs; a pair it
+      // DEFERRED on (an unannotated fn param, WITHHELD) can still reach here,
+      // so a non-number operand throws loudly rather than being cast and
+      // JS-coerced (the original silent-`NaN`/small-integer defect). `NaN` is
+      // `typeof "number"` and is NOT caught here — `1 % 0` → `NaN` and
+      // `3 / 0` → `Infinity` stay the spec's non-panicking div/mod behaviour.
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new BinaryNonNumericError(op, left, right);
+      }
+      switch (op) {
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return left / right;
+        case "%":
+          return left % right;
+      }
+    }
     case "<":
       return (left as number | string) < (right as number | string);
     case "<=":

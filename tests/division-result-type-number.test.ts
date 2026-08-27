@@ -180,6 +180,11 @@ const ARRAY_ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
 // rather than an `integer`-narrowing.
 const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
 const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
+// Bug 0332: the sibling gate this report's own `oi`/`aStr`/L1–L4 cells did not
+// carry — a non-numeric `-`/`*`/`/`/`%` pair now refuses at parse in its own
+// right, ahead of (L1–L4) or instead of (oi, aStr) the downstream sink each
+// cell measures.
+const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
 interface RegistryRow {
   readonly code: string;
@@ -292,6 +297,18 @@ function letRhsMessage(name: string, expected: string, actual: string): string {
   );
 }
 
+/** `'<op>' requires two numeric operands; got <left> and <right>`. */
+function arithmeticMessage(op: string, left: string, right: string): string {
+  return fill(
+    ARITHMETIC_CODE,
+    new Map([
+      ["<op>", op],
+      ["<left>", left],
+      ["<right>", right],
+    ]),
+  );
+}
+
 /** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>`. */
 function objectFieldMismatchMessage(
   field: string,
@@ -364,6 +381,13 @@ interface Anchors {
   readonly objectFields: ReadonlyArray<{ readonly name: string; readonly value: SourceRange }>;
   readonly parForMaxes: readonly SourceRange[];
   readonly divisions: readonly SourceRange[];
+  /**
+   * Every spelled `-`/`*`/`/`/`%` binary node's own range (bug 0332's gate
+   * anchor), EXCLUDING the synthetic-`null`-left unary `-` shape — the same
+   * exclusion `checkArithmeticOperands` itself applies, so this anchor and the
+   * diagnostic's own range can never disagree on which nodes count.
+   */
+  readonly arithmeticOps: ReadonlyArray<{ readonly op: string; readonly range: SourceRange }>;
 }
 
 /**
@@ -381,6 +405,7 @@ function anchorsOf(doc: ThetaDocument): Anchors {
   const objectFields: Array<{ name: string; value: SourceRange }> = [];
   const parForMaxes: SourceRange[] = [];
   const divisions: SourceRange[] = [];
+  const arithmeticOps: Array<{ op: string; range: SourceRange }> = [];
   const walkExpr = (e: Expr): void => {
     switch (e.kind) {
       case "call":
@@ -414,6 +439,9 @@ function anchorsOf(doc: ThetaDocument): Anchors {
         return;
       case "binary":
         if (e.op === "/") divisions.push(e.range);
+        if (["-", "*", "/", "%"].includes(e.op) && !(e.op === "-" && e.left.kind === "null")) {
+          arithmeticOps.push({ op: e.op, range: e.range });
+        }
         walkExpr(e.left);
         walkExpr(e.right);
         return;
@@ -488,7 +516,22 @@ function anchorsOf(doc: ThetaDocument): Anchors {
     }
   };
   walkBlock(doc.body);
-  return { calls, lets, objectFields, parForMaxes, divisions };
+  return { calls, lets, objectFields, parForMaxes, divisions, arithmeticOps };
+}
+
+/**
+ * The range of the fixture's sole spelled `op` arithmetic node — bug 0332's
+ * `theta/parse/non-numeric-arithmetic-operands` anchor, which is the BINARY
+ * node's own range, not its enclosing statement/literal (L4's third hit is
+ * narrower than the array literal ARRAY_ELEMENT_CODE anchors on).
+ */
+function arithmeticOpRange(doc: ThetaDocument, op: string): SourceRange {
+  const hits = anchorsOf(doc).arithmeticOps.filter((a) => a.op === op);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one spelled '${op}' arithmetic node; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.range;
 }
 
 /**
@@ -824,13 +867,21 @@ describe("bug 0142 — `/`'s result type does not consult its operands", () => {
     // `collectProvableArgTypes` (src/extension/invoke-static-checks.ts) already
     // records for the result-fixed BOOLEAN operators, whose set is "exact even
     // where an operand is statically unresolvable".
+    // Bug 0332 moves the two non-numeric rows OUT of this table: a
+    // `theta/parse/non-numeric-arithmetic-operands` gate now refuses `"a" / "b"`
+    // and `true / false` before any consumer reads the type this table
+    // measures, so `typeOfTail`'s own PRECONDITION (no error-severity
+    // diagnostic) would throw on them rather than exercise the `number`
+    // reading. The subject each row probes — "does `/` type `number`
+    // independent of its operands" — is preserved for every row this table
+    // still holds; the two moved rows are re-pinned just below as PARSE
+    // refusals instead, which is the disposition that now actually reaches
+    // them.
     const rows = [
       ["integer / integer", "3 / 2\n"],
       ["integer / number ", "3 / 2.0\n"],
       ["number  / integer", "3.0 / 2\n"],
       ["number  / number ", "3.0 / 2.0\n"],
-      ["string  / string ", '"a" / "b"\n'],
-      ["boolean / boolean", "true / false\n"],
       ["unresolved pair  ", "let a = 1\nlet b = 2\na / b\n"],
       ["nested quotient  ", "1 / (3 / 2)\n"],
     ] as const;
@@ -838,6 +889,20 @@ describe("bug 0142 — `/`'s result type does not consult its operands", () => {
       rows.map(([cell, src]) => `${cell} -> ${reading(src, cell)}`),
       "oi — `/` always produces `number` (expressions.md:232). The rule takes no operand argument, so every row of this table carries the same answer",
     ).toEqual(rows.map(([cell]) => `${cell} -> ${NUMBER_READING}`));
+  });
+
+  it("oi (non-numeric): `\"a\" / \"b\"` and `true / false` now refuse at parse — bug 0332", () => {
+    const strDoc = parse('"a" / "b"\n');
+    expect(
+      strDoc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+      `oi (string / string) — bug 0332's gate refuses this pair before \`/\`'s result-type rule is ever consulted, moving the row from a \`number\` reading to a parse refusal. Diagnostics: ${render(strDoc)}`,
+    ).toContain(ARITHMETIC_CODE);
+
+    const boolDoc = parse("true / false\n");
+    expect(
+      boolDoc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+      `oi (boolean / boolean) — same flip. Diagnostics: ${render(boolDoc)}`,
+    ).toContain(ARITHMETIC_CODE);
   });
 });
 
@@ -1048,6 +1113,12 @@ describe("bug 0142 — the rows whose withholding must survive the fix", () => {
     // `checkFnArgCompat(integer, number)` mismatches, so a dropped
     // `isProvenReduction` would fire `expected integer, got number` here where
     // it stays silent today.
+    // Bug 0332 supersedes this cell's own withhold measurement: the subject
+    // — "does a non-numeric operand pair fail to prove the value `/` (or `-`)
+    // produces" — is moot once the pair refuses at parse before either guard
+    // is reached. Both the division and its `-` control (no longer an inert
+    // control — bug 0332's gate covers `-` too) now flip from WITHHELD-silent
+    // to the new parse refusal.
     const division = parse(G_INT + 'let r = g("a" / "b")\nr\n');
     expectDivisions(division, 1, "aStr");
     expect(
@@ -1056,8 +1127,8 @@ describe("bug 0142 — the rows whose withholding must survive the fix", () => {
     ).toBeDefined();
     expect(
       allHits(division),
-      `aStr — a non-numeric operand pair is not a proof of the value the operator produces, under either guard. Diagnostics: ${render(division)}`,
-    ).toEqual([]);
+      `aStr — bug 0332: a non-numeric \`/\` pair now refuses at parse, ahead of the withhold this cell used to measure. Diagnostics: ${render(division)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("/", "string", "string"), argRange(division, "g", 0))]);
 
     const control = parse(G_INT + 'let r = g("a" - "b")\nr\n');
     expect(
@@ -1066,8 +1137,8 @@ describe("bug 0142 — the rows whose withholding must survive the fix", () => {
     ).toBeDefined();
     expect(
       allHits(control),
-      `aStr (control) — the same shape under \`-\`, which this fix does not touch, so the pair separates the operator rule from the withhold. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `aStr (control) — bug 0332's gate covers \`-\` too, so the control is no longer inert against this operator; it now draws the identical refusal. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), argRange(control, "g", 0))]);
   });
 
   it("aRender: the `<actual>` rendering at a sink that fires in BOTH directions moves to `number`", () => {
@@ -1422,9 +1493,18 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     expectDivisions(doc, 1, "L1");
     expect(
       allHits(doc),
-      `L1 — \`checkLetRhsCompat\` decides \`number ⊑ string\` outright incompatible (not the \`integer-narrowing\` case b1/b7 pin), so the code is the generic mismatch rather than the narrowing row. Diagnostics: ${render(doc)}`,
-    ).toEqual([hit(LET_RHS_CODE, letRhsMessage("s", "string", "number"), letRange(doc, "s"))]);
+      `L1 — \`checkLetRhsCompat\` decides \`number ⊑ string\` outright incompatible (not the \`integer-narrowing\` case b1/b7 pin), so the code is the generic mismatch rather than the narrowing row; bug 0332's gate ALSO fires on the same node, second, so the pair-check subject this cell probes now shares its anchor with a second refusal rather than standing alone. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      hit(LET_RHS_CODE, letRhsMessage("s", "string", "number"), letRange(doc, "s")),
+      hit(ARITHMETIC_CODE, arithmeticMessage("/", "string", "string"), letInitRange(doc, "s")),
+    ]);
 
+    // Bug 0332: `-`'s reduction is still the operands' own common type
+    // (`literal string`, `⊑ string`) — L1c's ORIGINAL subject — but the
+    // operator now ALSO clears its own numeric-operand gate first, so the
+    // control that used to prove "the flip is keyed to the operator, not the
+    // operand kinds" by staying silent now proves it by drawing the SAME
+    // refusal `-`'s own spelling earns everywhere else in this fix.
     const control = parse('let s: string = "a" - "b"\ns\n');
     expect(
       letRange(control, "s"),
@@ -1432,8 +1512,8 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     ).toBeDefined();
     expect(
       allHits(control),
-      `L1c (control) — \`-\`'s reduction is the operands' own common type (\`literal string\`), which stays \`⊑ string\`. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `L1c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse before \`checkLetRhsCompat\` is reached (the operands' \`literal string\` common type would still satisfy \`⊑ string\` if it were). Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), letInitRange(control, "s"))]);
   });
 
   it("L2 / L2c: the typed-`let` sink under a `boolean` annotation", () => {
@@ -1441,9 +1521,15 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     expectDivisions(doc, 1, "L2");
     expect(
       allHits(doc),
-      `L2 — the rule is on the operator and consults no operand: a \`boolean\` pair under \`/\` reads \`number\` exactly as an \`integer\` pair does at b1. Diagnostics: ${render(doc)}`,
-    ).toEqual([hit(LET_RHS_CODE, letRhsMessage("b", "boolean", "number"), letRange(doc, "b"))]);
+      `L2 — the rule is on the operator and consults no operand: a \`boolean\` pair under \`/\` reads \`number\` exactly as an \`integer\` pair does at b1; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(doc)}`,
+    ).toEqual([
+      hit(LET_RHS_CODE, letRhsMessage("b", "boolean", "number"), letRange(doc, "b")),
+      hit(ARITHMETIC_CODE, arithmeticMessage("/", "boolean", "boolean"), letInitRange(doc, "b")),
+    ]);
 
+    // Bug 0332: same re-pin as L1c — the control's original subject (`-`'s
+    // common-type reduction stays `⊑ boolean`) survives, but the operator now
+    // refuses the pair before that reduction is ever consulted.
     const control = parse("let b: boolean = true - false\nb\n");
     expect(
       letRange(control, "b"),
@@ -1451,8 +1537,8 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     ).toBeDefined();
     expect(
       allHits(control),
-      `L2c (control) — \`-\`'s reduction is the operands' own common type (\`literal boolean\`), which stays \`⊑ boolean\`. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `L2c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "boolean", "boolean"), letInitRange(control, "b"))]);
   });
 
   it("L3 / L3c: the schema-constructor field sink", () => {
@@ -1460,15 +1546,17 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     expectDivisions(doc, 1, "L3");
     expect(
       allHits(doc),
-      `L3 — \`checkObjectFieldCompat\` routes the same outright-incompatible verdict L1 does, anchored on the field VALUE the way c1/c2 anchor the \`integer-narrowing\` case. Diagnostics: ${render(doc)}`,
+      `L3 — \`checkObjectFieldCompat\` routes the same outright-incompatible verdict L1 does, anchored on the field VALUE the way c1/c2 anchor the \`integer-narrowing\` case; bug 0332's gate ALSO fires on the same node, second. Diagnostics: ${render(doc)}`,
     ).toEqual([
       hit(
         OBJECT_FIELD_CODE,
         objectFieldMismatchMessage("s", "S", "string", "number"),
         objectFieldRange(doc, "s"),
       ),
+      hit(ARITHMETIC_CODE, arithmeticMessage("/", "string", "string"), objectFieldRange(doc, "s")),
     ]);
 
+    // Bug 0332: same re-pin as L1c/L2c.
     const control = parse(S_STR + 'let o = S { s: "a" - "b" }\no\n');
     expect(
       objectFieldRange(control, "s"),
@@ -1476,8 +1564,8 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     ).toBeDefined();
     expect(
       allHits(control),
-      `L3c (control) — \`-\`'s reduction is the operands' own common type (\`literal string\`), which stays \`⊑ string\`. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `L3c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
+    ).toEqual([hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), objectFieldRange(control, "s"))]);
   });
 
   it("L4 / L4c: the `array<string>` element sink, both diagnostics the sink draws", () => {
@@ -1489,7 +1577,7 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     expectDivisions(doc, 1, "L4");
     expect(
       allHits(doc),
-      `L4 — both registered codes, in the order the \`let\` arm produces them (the whole-binding check runs before the element-sink check). Diagnostics: ${render(doc)}`,
+      `L4 — both registered codes, in the order the \`let\` arm produces them (the whole-binding check runs before the element-sink check); bug 0332's gate ALSO fires on the inner \`/\` node, third, narrower than either sink's own anchor (the array literal, not the array element expression). Diagnostics: ${render(doc)}`,
     ).toEqual([
       hit(
         LET_RHS_CODE,
@@ -1501,8 +1589,10 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
         arrayElementMessage(0, "string", "number"),
         letInitRange(doc, "xs"),
       ),
+      hit(ARITHMETIC_CODE, arithmeticMessage("/", "string", "string"), arithmeticOpRange(doc, "/")),
     ]);
 
+    // Bug 0332: same re-pin as L1c/L2c/L3c.
     const control = parse('let xs: array<string> = ["a" - "b"]\nxs\n');
     expect(
       letInitRange(control, "xs"),
@@ -1510,8 +1600,10 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     ).toBeDefined();
     expect(
       allHits(control),
-      `L4c (control) — \`-\`'s reduction is the operands' own common type (\`literal string\`), which stays \`⊑ string\` at both the whole-binding and the element sink. Diagnostics: ${render(control)}`,
-    ).toEqual([]);
+      `L4c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse, anchored on the inner binary node. Diagnostics: ${render(control)}`,
+    ).toEqual([
+      hit(ARITHMETIC_CODE, arithmeticMessage("-", "string", "string"), arithmeticOpRange(control, "-")),
+    ]);
   });
 });
 
