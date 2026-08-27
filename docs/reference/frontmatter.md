@@ -49,7 +49,7 @@ still loads and registers in both cases.
 | `bind_context` | no | `none` | The binder runs with no caller-session context. A present value other than `none` or `session` (including non-string scalars) is the separate `theta/load/unknown-bind-context-value` load-time error and the theta is not registered — mirroring the `mode:` recognised-key / unrecognised-value split. |
 | `bind_echo` | no | `true` | Bound args are echoed before execution, except auto-suppressed on the binder bypass. |
 | `tools` | no | empty callable set | The model cannot make tool calls and theta code has no `<name>(...)` callables. `tools: []` and absent `tools:` are equivalent. A value outside the two admitted spellings (a mapping, an alias, or a key with no value node — only `? tools` and a flow-mapping `{tools}` carry no value node; a bare `tools:` parses as a null scalar and keeps `theta/load/unknown-tool`) is `theta/load/malformed-tools-field`; the theta does not register. So is a scalar whose comma split yields no entry, in whatever YAML style (`tools: ""`, `tools: " , "`, a block scalar, or a tagged plain scalar such as `tools: !!str`) — an untagged empty or whitespace-only plain scalar is a null scalar and keeps `theta/load/unknown-tool` instead. |
-| `system` | no | no system prompt (the spawned conversation runs under the model's training defaults) | Subagent-mode only; presence on a `mode: prompt` theta is `theta/parse/system-on-prompt-mode`. |
+| `system` | no | no system prompt (the spawned conversation runs under the model's training defaults) | Subagent-mode only; presence on a `mode: prompt` theta is `theta/parse/system-on-prompt-mode` for ANY present value shape. On a non-`prompt` theta, a present `system:` whose value is not a YAML scalar is `theta/load/malformed-system-field` and the theta does not register — mirroring the `tools` row above, "absent" and "present-but-the-wrong-shape" do not collapse into one behaviour. |
 | `respond_repair` | no | `{ attempts: 3, methodology: validator_error }` | Typed queries get the default respond-repair budget. `respond_repair: {}` (block present, sub-keys absent) is equivalent to omitting `respond_repair:` entirely; the defaults apply. |
 | `tool_loop` | no | `{ max_rounds: 25 }` | Every query (untyped, typed, and any respond-repair follow-up) runs its tool-call loop under the default cap. `tool_loop: {}` (block present, `max_rounds` absent) is equivalent to omitting `tool_loop:` entirely; the default `25` applies. |
 | `params` | no | no parameters | The theta takes no parameters; the binder does not run regardless of how the theta is invoked. Slash-argument overflow against a no-params theta is governed by Slash-Command Invocation — No-params overflow. `params:` absent and `params: {}` are equivalent; the redundant `params: null` is `theta/load/params-null` (use absent or `{}` instead). An explicit `bind_echo: true` on a no-params theta is `theta/load/bind-echo-without-params` (warning) and produces no echo regardless. |
@@ -267,9 +267,12 @@ tool registry by name during execution. The `unknown_tool` cause on
 
 ## `system:`
 
-Subagent-mode only (`theta/parse/system-on-prompt-mode` on a prompt-mode theta).
-Fixed once at conversation creation; applies to every query. If omitted, the
-spawned conversation has no system prompt.
+Subagent-mode only (`theta/parse/system-on-prompt-mode` on a prompt-mode theta,
+for any present value shape). Fixed once at conversation creation; applies to
+every query. If omitted, the spawned conversation has no system prompt. A
+present `system:` on a subagent-mode theta whose value is not a YAML scalar
+(a block/flow sequence or mapping, an alias, etc.) is `theta/load/malformed-system-field`
+and the theta does not register; absent and scalar `system:` are unaffected.
 
 **Interpolation.** Supports `${param}` and `${param.field}` against the theta's
 typed `params` — **bare identifier paths only**, not the full expression

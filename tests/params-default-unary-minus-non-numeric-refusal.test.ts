@@ -803,7 +803,7 @@ describe("bug 0166 (E) — the refusal sits behind the position's guards", () =>
     ).toBe(false);
     expect(
       recordedDefault(doc),
-      "e3: an error-severity params diagnostic withholds the WHOLE frontmatter object (src/parser/frontmatter.ts:1489-1491), the same disposition this file's own `expectRefusedAsNonLiteral` already asserts for its own refusals — so the field record does not survive either; the row's recorded default is no longer readable, which is a stronger disposition than 'a different spelling' and is the correct contract now that the declaration itself is refused",
+      "e3: an error-severity params diagnostic withholds the WHOLE frontmatter object (src/parser/frontmatter.ts:1515-1517), the same disposition this file's own `expectRefusedAsNonLiteral` already asserts for its own refusals — so the field record does not survive either; the row's recorded default is no longer readable, which is a stronger disposition than 'a different spelling' and is the correct contract now that the declaration itself is refused",
     ).toBeUndefined();
   });
 });

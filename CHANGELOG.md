@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.300.0]
+
+### Fixed
+
+- **Bug 0298** — a present non-scalar `system:` frontmatter field now refuses the theta at load with the new registered code `theta/load/malformed-system-field` (registry row + reference mirrors same commit) instead of silently dropping the field, and the `mode: prompt` refusal (`theta/parse/system-on-prompt-mode`) fires for ANY present `system:` key — present-but-malformed included — keyed on `systemPresent` in `frontmatter.ts`; scalar `system:` behaviour is byte-identical and a refused theta is not registered. Witnessed by `tests/b0298-system-nonscalar-silent-drop-and-prompt-mode-suppression.test.ts` (8 cells) and the acceptance cell `tests/live/acceptance/b0298live-system-nonscalar-load-refusal.test.ts` (offender refuses at load, scalar control registers and drives).
+
 ## [0.299.0]
 
 ### Fixed

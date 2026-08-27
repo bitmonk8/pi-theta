@@ -75,7 +75,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //      `system:` seam (`toSystemParamType`, frontmatter.ts:695) and
 //      `parseParams` behave exactly as at baseline and the input yields exactly
 //      ONE new diagnostic — no cascade (group (f)). Registration is withheld by
-//      the existing error-severity gates (frontmatter.ts:1489 nulls the
+//      the existing error-severity gates (frontmatter.ts:1515 nulls the
 //      frontmatter; `hasLoadParseError`,
 //      src/extension/production-composition.ts:1894–1901, drops the theta).
 //
@@ -414,7 +414,7 @@ function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
  * diagnostic — the registered code at error severity, its message the
  * registry's with `<param>` rendered as the field name — and the theta refused
  * (`frontmatter === null`, the same collapse the params-owned error of control
- * F already produces, because frontmatter.ts:1489 withholds the frontmatter on
+ * F already produces, because frontmatter.ts:1515 withholds the frontmatter on
  * any error-severity diagnostic).
  *
  * The count/code/severity assertion runs FIRST so the red at HEAD names the

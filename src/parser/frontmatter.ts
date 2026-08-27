@@ -1170,7 +1170,7 @@ export function parseFrontmatter(
         // checks, run once the whole-file named-type set is known.
         systemPresent = true;
         systemValue = isScalar(item.value) ? String(item.value.value) : undefined;
-        systemRange = valueRange;
+        systemRange = valueRange ?? keyRange;
         continue;
       }
       if (key === "tool_loop") {
@@ -1463,27 +1463,53 @@ export function parseFrontmatter(
 
   // `system:` subagent-mode-only rule + `${…}` interpolation checks, run against
   // the theta's typed `params` (`system:` on a `mode: prompt` theta is rejected).
+  //
+  // Keyed on `systemPresent`, not on `systemValue !== undefined` (bug 0298):
+  // a present non-scalar `system:` (block sequence/mapping) still needs to
+  // draw a diagnostic, either the shape refusal below or, on a `mode: prompt`
+  // theta, `theta/parse/system-on-prompt-mode` — that code's registered
+  // trigger is presence of the key, not readability of its value, so a
+  // non-scalar value must still reach `checkSystemInterpolation`. Only a
+  // present-AND-non-scalar `system:` on a non-prompt theta has no rule left to
+  // apply it to: it is refused directly under the bug 0104 `tools:`-row shape
+  // rather than being fed a fabricated value.
   let systemTemplate: SystemTemplate | undefined;
-  if (systemPresent && systemValue !== undefined) {
-    const systemParams = new Map<string, SystemParamType>();
-    for (const fieldInput of fieldInputs) {
-      systemParams.set(
-        fieldInput.name,
-        toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Set()),
-      );
+  if (systemPresent) {
+    if (modeValue !== "prompt" && systemValue === undefined) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/malformed-system-field",
+        file,
+        ...(systemRange !== undefined ? { range: systemRange } : {}),
+        message:
+          "malformed 'system:' field; expected a scalar system prompt",
+      });
+    } else {
+      const systemParams = new Map<string, SystemParamType>();
+      for (const fieldInput of fieldInputs) {
+        systemParams.set(
+          fieldInput.name,
+          toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Set()),
+        );
+      }
+      // `systemValue ?? ""`: on the `mode: prompt` branch
+      // `checkSystemInterpolation` returns the prompt-mode refusal before it
+      // reads `systemValue`'s content, so the `""` fill is never inspected; on
+      // the subagent-scalar branch `systemValue` is always defined here, so
+      // the fallback is a no-op and this arm stays byte-identical to before.
+      const systemResult = checkSystemInterpolation({
+        systemValue: systemValue ?? "",
+        mode: modeValue === "prompt" ? "prompt" : "subagent",
+        params: systemParams,
+        file,
+        ...(systemRange !== undefined ? { range: systemRange } : {}),
+      });
+      diagnostics.push(...systemResult.diagnostics);
+      // The template is present only on a valid subagent `system:` (no
+      // error-severity interpolation diagnostic); retain it so the runtime spawn
+      // can render and install it (SUBAG-1).
+      systemTemplate = systemResult.template;
     }
-    const systemResult = checkSystemInterpolation({
-      systemValue,
-      mode: modeValue === "prompt" ? "prompt" : "subagent",
-      params: systemParams,
-      file,
-      ...(systemRange !== undefined ? { range: systemRange } : {}),
-    });
-    diagnostics.push(...systemResult.diagnostics);
-    // The template is present only on a valid subagent `system:` (no
-    // error-severity interpolation diagnostic); retain it so the runtime spawn
-    // can render and install it (SUBAG-1).
-    systemTemplate = systemResult.template;
   }
 
   const registered = !diagnostics.some((d) => d.severity === "error");

@@ -1,6 +1,6 @@
 # Bug 0298 — A `system:` whose value is a YAML sequence or mapping is silently treated as absent: a subagent-mode theta registers with zero diagnostics and spawns its child with NO system prompt, and on a `mode: prompt` theta the same shape suppresses `theta/parse/system-on-prompt-mode` — the code whose registered trigger is the field being "declared"
 
-- **Status:** open.
+- **Status:** fixed (0.300.0).
 - **Sev/Diff estimate:** S2/D1 — the author's system prompt — the field that
   fixes the spawned conversation's behaviour for every query in the theta —
   is dropped with zero diagnostics at any severity, and the theta runs to
@@ -154,3 +154,82 @@ above; deleted); spawn-side threading verified by code read
 §`system` in full, `code-registry-parse.md:125`. Prior-bug sweep: 0170
 (marshalling), 0104/0206 (node-kind precedent), README index for `system` —
 no prior report on the load-side node-kind class.
+
+## Fix (0.300.0)
+
+**Frame adjudication (parent, verbatim).** The malformed/non-scalar `system:`
+frontmatter field must refuse the theta at load (not silently drop); the block
+is keyed on `systemPresent` (any present `system:` key, whatever its value
+shape); the prompt-mode refusal fires for ANY present `system:`
+(present-but-malformed included); scalar `system:` behaviour stays
+byte-identical; a theta refused this way is NOT registered.
+
+**In-lane registry choice (settled): a dedicated `theta/load/malformed-system-field`**
+(E, load), NOT a widening of an existing malformed-field code. Three-source
+evidence:
+1. `code-registry-load.md` — the only two value-shape malformed-field codes
+   (`theta/load/malformed-tools-field`, `theta/load/params-type-not-expression`)
+   each name their own field in the *Message* column; widening either to fire
+   on a `system:` value-shape defect would render a message naming the wrong
+   field, which misleads (fails the §Fix "if it would mislead, mint" test).
+2. Bug 0104 precedent (the §Fix's cited shape): the node-kind hole at `tools:`
+   was fixed by minting `theta/load/malformed-tools-field`, not by widening a
+   generic code; `system:` is the same class one field over.
+3. Registry convention / DIAG-4: every frontmatter value-shape refusal in
+   `code-registry-load.md` is field-named, there is no generic
+   "malformed frontmatter field" code to widen, and the `invalid-pi-tool-name`
+   row shows the codebase mints a new code rather than stretch an existing
+   *Trigger*/*Message* onto a second surface.
+
+- **What shipped:**
+  - `src/parser/frontmatter.ts` — the `system:` checking block keys on
+    `systemPresent`: a non-`prompt` theta with a present non-scalar `system:`
+    pushes `theta/load/malformed-system-field` (theta not registered); prompt
+    (any shape) and subagent-scalar route to `checkSystemInterpolation`
+    unchanged (`systemValue ?? ""` is a no-op on both). The `system` arm's
+    range is `valueRange ?? keyRange` (0104 shape).
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — new
+    `theta/load/malformed-system-field` row (DIAG-2). Message:
+    `malformed 'system:' field; expected a scalar system prompt`.
+  - `docs/reference/diagnostics.md` — mirror row (byte-identical Message).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` —
+    `theta/parse/system-on-prompt-mode` *Trigger* clarified to fire for any
+    present value shape (Message untouched).
+  - `docs/reference/frontmatter.md`,
+    `docs/spec_topics/frontmatter/frontmatter-fields-a.md`,
+    `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` —
+    `system` prose mirrors: non-scalar refusal + prompt-mode-fires-for-any.
+- **Gates:** witness `tests/b0298-system-nonscalar-silent-drop-and-prompt-mode-suppression.test.ts`
+  8/8 green (RED at pre-fix tree: cells 1–3, 8 read codes `[]`); full suite
+  `npm test` 9555/9555; `npm run typecheck` clean; `npm run lint` clean.
+- **Review:** 3 rounds. R1 (deep) — 4 findings: reference table-row mirror gap
+  (spec), 0104-shape key-node range fallback + registry prose (correctness),
+  DIAG-4 registry-anchor cell (test), stale citation (test); all fixed. R2
+  (deep) — clean, one non-blocking residual (no witness cell for the
+  no-value-node range promise). R3 (fast) — the residual's added cell had an
+  over-claiming comment (fidelity); corrected comment-only. Round-4
+  confirmation skipped: the corrective round was comment-only, gate-diff green
+  (post-polish rule).
+- **Verification:** SOLID. (1) witness reds on neutralised tree with the exact
+  `codes: []` signature and restores byte-exact to green; (2) full suite
+  9555/9555; (3) live acceptance
+  `tests/live/acceptance/b0298live-system-nonscalar-load-refusal.test.ts`
+  1/1 (real `pi -p`, claude-sonnet-5, under lock): non-scalar-`system:`
+  offender REFUSES via `invoke`→Err→"REFUSED"; scalar-`system:` control
+  REGISTERS + drives a typed arithmetic query (`invoke<integer>`→777→877);
+  `permitted-codes.json` byte-unchanged (blob a4a8da04), code in no committed
+  fixture; (4) lint + typecheck clean.
+- **Residuals:** none.
+- **Discharge notes appended:** none owed.
+- **Pinned dispositions / non-goals:** the `system` arm's `?? keyRange` is a
+  convention-matching second net (0104/`tools:`/`params:` shape) — the field
+  loop's `valueRange = rangeOf(item.value ?? item.key, …)` already falls back
+  to the key node for a no-value-node `system:`, so `?? keyRange` is not
+  independently load-bearing but matches the sibling arms and the mandated
+  0104 shape. Non-goals held byte-identical (verified): null-scalar `system:`
+  (→ literal `"null"`), `system: ""` (zero-part template), and
+  `subagent fn with { system: … }` (FN-7) are untouched.
+- **Lane note:** 0.300.0 is an UPPERCASE placeholder throughout (this record and
+  test comments); no version bump, no `CHANGELOG.md`/`docs/bugs/README.md`
+  edit, and no commit were made in-lane, per the lane charter overrides — the
+  parent finalises version, index, and commit.

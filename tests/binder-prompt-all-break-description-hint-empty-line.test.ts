@@ -38,8 +38,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // an absent field; this file is the witness that keeps that so.
 //
 // The empty case is already handled one layer down and is the model this file
-// asserts: `src/parser/frontmatter.ts:1522` drops a `""` `description:` (and
-// `:1527` a `""` `argument-hint:`) before the builder is reached, so the
+// asserts: `src/parser/frontmatter.ts:1548` drops a `""` `description:` (and
+// `:1553` a `""` `argument-hint:`) before the builder is reached, so the
 // builder receives `undefined` and omits the line — the rendering
 // `tests/binder-system-prompt.test.ts:102` and `:108` pin with
 // `not.toContain("Description:")`. An all-break value is not `""` at the
@@ -238,7 +238,7 @@ describe("bug 0209 (a): controls pin the omitted and the surviving renderings", 
   });
 
   it("D-empty: a `description: \"\"` is dropped at the parser and emits no label", () => {
-    // src/parser/frontmatter.ts:1522 gates the spread on non-emptiness, so the
+    // src/parser/frontmatter.ts:1548 gates the spread on non-emptiness, so the
     // builder receives `undefined`. This is the rendering the all-break cells
     // below assert.
     const r = cell('description: ""\n');
