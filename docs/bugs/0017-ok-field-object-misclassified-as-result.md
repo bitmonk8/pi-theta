@@ -239,3 +239,16 @@ While the bug was open, the live-suite typed-query reds (H8a "typed-query
 lowering, bounded" and H9a area (c)) were correct-reason failures of this
 bug, not test defects; H9a area (b) passed only because its schema avoids the
 field name. Both reds went green unchanged with the fix (§Fix).
+
+## Coordination note (2026-08-27) — bug 0316
+
+Bug 0316 (a `match` over an inline array/object/user-`fn`-call/nested-`match`
+scrutinee dispatched over a forged `Ok(<value>)`) was fixed by narrowing the
+`evalAsResult` bullet-1 `Ok`-wrap so a `match` scrutinee of the inline
+composite / nested `try` / nested `match` kinds is seen raw. This §Fix's b4/b7
+witnesses in `tests/result-value-privacy.test.ts` were examined against 0316's
+change and **PRESERVED byte-untouched**: a user-`fn` call is a
+fallible-computation boundary, so its non-`Result` tail STILL wraps in `Ok`
+(the CONV-6 fn-call-boundary convention), keeping `match f() { Ok(v) => v }`
+total. 0316's narrowing removes the wrap only for the four non-`fn`-call kinds.
+No behaviour of this bug's fix changed.

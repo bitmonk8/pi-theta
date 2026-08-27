@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.295.0]
+
+### Fixed
+
+- **Bug 0316** — `match` no longer forges `Ok(...)` around inline composite scrutinees: object constructors, array literals, try-expression values, and nested-`match` values now reach the arms raw (`match [1, 2] { Ok(v) => -1, _ => 1 }` answers `1`), while a user-`fn` call scrutinee keeps the CONV-6 implicit wrap — a fn call is a fallible-computation boundary, so `match f() { Ok(v) => …, Err(e) => … }` totality (bug 0017's landed contract, `tests/result-value-privacy.test.ts` b4/b7) is preserved byte-untouched, and `expressions.md` now states the boundary. The checkpointed-effect arm is byte-equivalent (bug 0307's surface untouched, witnessed by an effect-scrutinee control). Witnessed by `tests/b0316-match-scrutinee-inline-composite-ok-wrapped.test.ts` (9 cells: W1/W2/W6/W7 flips, W3/W8 positional controls, W4/W5 0017-boundary controls, effect control).
+
 ## [0.294.0]
 
 ### Fixed

@@ -1075,15 +1075,27 @@ function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly 
  * plus `evalTry`'s brand guard (bug 0019: the gate is partial for
  * statically-unresolvable operand types, so the guard is what keeps a raw
  * non-`Result` from reaching the unwrap).
+ *
+ * `wrapInlineComposites` (default `true`) governs bullet-1 only, and only for
+ * the non-`fn`-call kinds: a user-`fn` call is a fallible-computation boundary
+ * (FN-5's value is the fn's own final value, so the caller normalises to
+ * total `Ok`/`Err` coverage for `?` propagation — CONV-6, bug 0017) and stays
+ * wrapped regardless of this flag. An inline object/array literal or a nested
+ * `try`/`match` is not a boundary — it is the scrutinee's own value — so
+ * `evalMatch` passes `false` to see it raw for by-value arm matching (bug
+ * 0316); `evalTry` leaves the default so every `?` operand still normalises.
  */
 async function evalAsResult(
   operand: Expr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
+  wrapInlineComposites = true,
 ): Promise<EvalResult> {
-  // A nested `try` / `match` operand is itself a control-flow form; a user `fn`
-  // call operand executes in-process and its returned value is normalised to a
-  // `Result` so `?` can propagate and `match` can dispatch on it.
+  // Bullet-1: a nested `try` / `match`, an inline object / array literal, or a
+  // user-`fn` call, all evaluated through the executor. Only a user-`fn` call
+  // is a fallible-computation boundary whose value is normalised to a `Result`
+  // unconditionally; the composite / control-flow kinds normalise only when
+  // `wrapInlineComposites` (the header explains why `evalMatch` opts out).
   if (
     operand.kind === "try" ||
     operand.kind === "match" ||
@@ -1091,11 +1103,13 @@ async function evalAsResult(
     operand.kind === "array" ||
     (operand.kind === "call" && resolveUserFn(operand.callee, env) !== undefined)
   ) {
+    const isUserFnCall = operand.kind === "call" && resolveUserFn(operand.callee, env) !== undefined;
     const inner = await evalExpr(operand, env, deps);
     if (inner.flow !== "value") {
       return inner;
     }
-    return { flow: "value", value: asResultValue(inner.value) };
+    const wrap = isUserFnCall || wrapInlineComposites;
+    return { flow: "value", value: wrap ? asResultValue(inner.value) : inner.value };
   }
 
   // A pure OPERATOR expression as the `?`-operand / `match`-scrutinee: evaluate
@@ -1202,7 +1216,7 @@ async function evalTry(expr: TryExpr, env: LexicalEnvironment, deps: ExecuteBody
  * non-exhaustive match raises `MatchError` (a panic that bypasses `?`/`match`).
  */
 async function evalMatch(expr: MatchExpr, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
-  const scrutinee = await evalAsResult(expr.scrutinee, env, deps);
+  const scrutinee = await evalAsResult(expr.scrutinee, env, deps, false);
   if (scrutinee.flow !== "value") {
     return scrutinee;
   }
