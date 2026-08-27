@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.298.0]
+
+### Fixed
+
+- **Bug 0307** — a query effect in value position now evaluates to a `Result` VALUE instead of aborting the body at the effect site: handledness is judged at consumption per QRY-8, so `let r = @\`…\`` followed by a `match`/`?` recovers from `Err` in-body and the theta keeps executing, while the fail arm fires only for genuinely unhandled errors (`error-model.md`) — the STL-6 bare-tail pin is preserved (a tail-position `Err` returned is unhandled and fails), cancellation still aborts, and `empty_template` now carries uniform `{ok:false}` parity across all `QueryError` variants (`effectful-statement-host.ts`). Witnessed by `tests/b0307-value-position-query-err-binds.test.ts`, `tests/b0307-empty-template-parity.test.ts`, and the H9a acceptance cell `tests/live/acceptance/b0307live-value-position-query-err-binds.test.ts` (a handled value-position `Err` drives on to a computed observable).
+
 ## [0.297.0]
 
 ### Fixed

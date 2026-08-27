@@ -688,10 +688,17 @@ function applyCompound(
  * mid-body preempts at the next checkpointed sub-expression and every completed
  * effect is retained verbatim (CNCL-5). A completed `Err` whose kind is
  * `cancelled` surfaces the cancel outcome and routes through `V4c`'s
- * `handlePartialTerminalOutcome` (ERR-8 … ERR-12); any other `Err` surfaces the
+ * `handlePartialTerminalOutcome` (ERR-8 … ERR-12); any other `Err` is disposed
+ * by consumption-time position (`atTerminal`): a value position binds the
+ * `Err` as a `Result`, a terminal/returning/discarding position surfaces the
  * fail outcome.
  */
-async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
+async function evalExpr(
+  expr: Expr,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  atTerminal: boolean = false,
+): Promise<EvalResult> {
   // `?` (try) and `match` are control-flow forms whose operand / scrutinee may
   // itself be a checkpointed effect. They are evaluated by the executor (not the
   // pure host) so a `?`-propagation early-returns from the body and a `match`
@@ -700,7 +707,11 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
     return evalTry(expr, env, deps);
   }
   if (expr.kind === "match") {
-    return evalMatch(expr, env, deps);
+    // The enclosing position carries through to the selected arm body (a
+    // DIRECT effect there inherits whether this `match` itself sits at a
+    // terminal / returning / discarding position) — a `match` is a pass-through,
+    // not a boundary.
+    return evalMatch(expr, env, deps, atTerminal);
   }
   // RFC 0003 `par for`: fan the body out concurrently over the iterand snapshot
   // and collect one `Result` per element into an input-index-ordered array.
@@ -839,7 +850,9 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
       return condition;
     }
     // Only the taken branch is evaluated — a not-taken effect never dispatches.
-    return evalExpr(condition.value === true ? expr.consequent : expr.alternate, env, deps);
+    // The enclosing position carries through: a ternary is a pass-through, not
+    // a boundary, so a DIRECT effect in the taken branch inherits it.
+    return evalExpr(condition.value === true ? expr.consequent : expr.alternate, env, deps, atTerminal);
   }
   if (expr.kind === "binary") {
     return evalBinary(expr, env, deps);
@@ -915,11 +928,18 @@ async function evalExpr(expr: Expr, env: LexicalEnvironment, deps: ExecuteBodyDe
     handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
     return { flow: "cancel" };
   }
-  // An unhandled non-cancel effect `Err` (e.g. a ceiling-#2 `tool_loop_exhausted`
-  // breach in tail/statement position, no `?`, not caught by a `match`). Carry
-  // the effect's own terminating `QueryError` through the `fail` flow so the
-  // body's terminal `Result` is `Err(error)` (ERR-19), exactly as a
-  // `?`-propagation carries its `Err` — not a fabricated `cancelled`.
+  // Handledness is judged AT CONSUMPTION (QRY-8 / error-model.md:10), not at the
+  // effect site: a value position (let-init, array element, object field, ctor
+  // arg, …) binds the failure as `Err(error)` so a downstream `match`/`?` can
+  // observe it — the caller has not yet discarded or returned it, so it is not
+  // unhandled. Only a terminal / returning / discarding position (a bare tail,
+  // a bare action statement, a `return` operand) reaches `fail`: there the `Err`
+  // has nowhere further to be consumed, exactly as a `?`-propagation carries its
+  // `Err` — not a fabricated `cancelled` — through the body's terminal `Result`
+  // (ERR-19).
+  if (!atTerminal) {
+    return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
+  }
   return { flow: "fail", error: result.error as unknown as ThetaValue };
 }
 
@@ -1215,7 +1235,12 @@ async function evalTry(expr: TryExpr, env: LexicalEnvironment, deps: ExecuteBody
  * evaluated with the pattern's bindings installed in a child scope. A
  * non-exhaustive match raises `MatchError` (a panic that bypasses `?`/`match`).
  */
-async function evalMatch(expr: MatchExpr, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
+async function evalMatch(
+  expr: MatchExpr,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  atTerminal: boolean = false,
+): Promise<EvalResult> {
   const scrutinee = await evalAsResult(expr.scrutinee, env, deps, false);
   if (scrutinee.flow !== "value") {
     return scrutinee;
@@ -1252,7 +1277,10 @@ async function evalMatch(expr: MatchExpr, env: LexicalEnvironment, deps: Execute
   for (const [name, value] of Object.entries(chosen.bindings)) {
     armEnv.defineLocal(name, value, false);
   }
-  return evalExpr((expr.arms[chosen.index] as MatchExpr["arms"][number]).body, armEnv, deps);
+  // The chosen arm's body inherits the `match`'s own enclosing position — a
+  // DIRECT effect there is disposed exactly as if it stood where the `match`
+  // itself stands (a `match` is a pass-through, not a boundary).
+  return evalExpr((expr.arms[chosen.index] as MatchExpr["arms"][number]).body, armEnv, deps, atTerminal);
 }
 
 /** Map a parsed {@link PatternNode} onto the runtime `Pattern` dispatch shape. */
@@ -1571,19 +1599,24 @@ async function evalParFor(
 async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
   switch (stmt.kind) {
     case "expr": {
-      const r = await evalExpr(stmt.expr, env, deps);
+      // A bare expression statement's value is discarded (no `let` binds it, no
+      // downstream `match`/`?` can observe it) — a terminal/discarding position.
+      const r = await evalExpr(stmt.expr, env, deps, true);
       return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
     }
     case "tool-call": {
-      const r = await evalExpr(stmt.call, env, deps);
+      // A bare action statement discards its result — terminal/discarding.
+      const r = await evalExpr(stmt.call, env, deps, true);
       return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
     }
     case "query": {
-      const r = await evalExpr(stmt.query, env, deps);
+      // A bare action statement discards its result — terminal/discarding.
+      const r = await evalExpr(stmt.query, env, deps, true);
       return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
     }
     case "invoke": {
-      const r = await evalExpr(stmt.invoke, env, deps);
+      // A bare action statement discards its result — terminal/discarding.
+      const r = await evalExpr(stmt.invoke, env, deps, true);
       return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
     }
     case "let": {
@@ -1622,7 +1655,9 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
       if (stmt.operand === null) {
         return { kind: "return", value: null };
       }
-      const r = await evalExpr(stmt.operand, env, deps);
+      // A `return` operand's `Err` is returned — unhandled per error-model.md:10
+      // — a terminal/returning position.
+      const r = await evalExpr(stmt.operand, env, deps, true);
       if (r.flow !== "value") {
         return terminalFlow(r);
       }
@@ -1667,7 +1702,11 @@ async function executeBlock(block: Block, env: LexicalEnvironment, deps: Execute
     trailingExprValue = stmt.kind === "expr" ? { value: flow.value } : undefined;
   }
   if (block.tail !== null) {
-    const r = await evalExpr(block.tail, env, deps);
+    // A block's tail value flows onward: for a `let r = { … }` block-expr it is
+    // that block's own value (still terminal for THIS block); for the body's
+    // outer block it is the body's returned/discarded final value — either way
+    // a terminal/returning/discarding position.
+    const r = await evalExpr(block.tail, env, deps, true);
     return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
   }
   return { kind: "normal", value: trailingExprValue !== undefined ? trailingExprValue.value : null };

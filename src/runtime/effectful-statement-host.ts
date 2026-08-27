@@ -245,13 +245,16 @@ async function runQueryEffect(
       : undefined;
   if (emptyTemplate !== undefined) {
     // QRY-8 (query-failure-and-repair.md): a query NEVER throws — both forms
-    // return a `Result`. The empty-template short-circuit is the query's RESULT
-    // VALUE `Err(ValidationError{cause:"empty_template"})`, not an effect
-    // failure that aborts the body: `let r = @`\n`` must bind `r` to that `Err`
-    // (a `match`/`?` then observes it) and the theta continues (query-forms.md
-    // QRY-6). Surfaced as `ok: true` carrying the `Err` value so `evalExpr`
-    // binds it and `evalAsResult` passes the already-`Result` value through.
-    return { ok: true, value: makeErr(emptyTemplate as unknown as ThetaValue) };
+    // return a `Result`. The empty-template short-circuit is
+    // `Err(ValidationError{cause:"empty_template"})`, a `QueryError` like every
+    // other variant this function surfaces below, so it rides the SAME uniform
+    // `{ ok: false, error }` disposition (bug 0307): handledness is judged at
+    // consumption, not at this effect site — `evalExpr`'s position-aware effect
+    // arm binds it as a `Result` value in a value position and reserves `fail`
+    // for a terminal/returning/discarding position, and `evalAsResult` already
+    // binds every non-cancel failure unconditionally. No per-variant special
+    // case is needed here.
+    return { ok: false, error: emptyTemplate };
   }
   if (dispatch.typed) {
     const outcome = await runTypedQueryLoop(

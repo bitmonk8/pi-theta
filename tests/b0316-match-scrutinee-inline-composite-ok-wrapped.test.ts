@@ -50,12 +50,12 @@ import type { Expr } from "../src/parser/theta-document";
 // wildcard (or an `Ok(p)` pattern) silently wins; the same value hoisted through
 // a `let` binding matches correctly.
 //
-// Root cause: `evalAsResult` bullet-1 (src/runtime/statement-executor.ts:1088,
-// bullet at :1099–:1112) unconditionally normalises the operand value via
-// `asResultValue(inner.value)` (:1112) for kinds try / match / object / array /
-// user-`fn` `call`; `asResultValue` (:1174) wraps every non-`Result` in `makeOk`.
-// `evalMatch` (:1218) obtains its scrutinee through that same `evalAsResult`
-// (:1219), so a match over one of those inline kinds dispatches over the forged
+// Root cause: `evalAsResult` bullet-1 (src/runtime/statement-executor.ts:1108,
+// bullet at :1119–:1132) unconditionally normalises the operand value via
+// `asResultValue(inner.value)` (:1132) for kinds try / match / object / array /
+// user-`fn` `call`; `asResultValue` (:1194) wraps every non-`Result` in `makeOk`.
+// `evalMatch` (:1238) obtains its scrutinee through that same `evalAsResult`
+// (:1244), so a match over one of those inline kinds dispatches over the forged
 // `Ok(<value>)`. The bullet-2 operator path and the pure ident/literal path
 // return raw values, which is why a `let`-hoisted scrutinee behaves.
 // (docs/bugs/0316-match-scrutinee-inline-composite-ok-wrapped.md)
@@ -308,7 +308,7 @@ describe("bug 0316 W8 — let-hoisted fn-call scrutinee (positional control)", (
 
 // ===========================================================================
 // EFFECT-SCRUTINEE CONTROL — the checkpointed-effect arm of `evalAsResult`
-// (statement-executor.ts:1137+, owned by bug 0307) must stay byte-equivalent: a
+// (statement-executor.ts:1157+, owned by bug 0307) must stay byte-equivalent: a
 // `match` over a live query still sees `Ok`/`Err`. Mirrors
 // tests/effectful-statement-host.test.ts's RecordingQueryModel real-host query
 // wiring — the real query loop drives a scripted model returning a clean text,
