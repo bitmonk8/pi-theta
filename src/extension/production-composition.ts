@@ -365,6 +365,11 @@ interface ComposePassResult {
   readonly thetas: readonly ParsedTheta[];
   /** The active discovery-root union computed for this pass. */
   readonly activeRoots: readonly string[];
+  /** The watch-list root union: the file-derived `activeRoots` unioned with the
+   *  discovery walk's resolved present-directory union (its four sources:
+   *  cli/settings/project/global). The INV-1 containment checks read the
+   *  file-derived `activeRoots` local, never this field. */
+  readonly watchRoots: readonly string[];
 }
 
 /**
@@ -633,6 +638,29 @@ async function runComposePass(
   // against; a callee resolving outside all of them escapes the sandbox.
   const activeRoots = Array.from(
     new Set(discovered.map((theta) => dirname(theta.path))),
+  );
+
+  // The watch-list root union (bug 0310): unioned with, not substituted for,
+  // `activeRoots` — `activeRoots` already covers package thetas and any
+  // glob-subdirectory file whose dirname sits below a settings static-prefix
+  // root, neither of which `walk.roots` (the cli/settings/project/global
+  // present-directory union) reconstructs on its own. `walk.roots` adds the
+  // present-but-empty active roots `activeRoots` drops (a scaffolded
+  // `.pi/theta/` with no `.theta` yet) so the watcher is armed over them and
+  // the first file created there fires a watcher event. Present-but-empty
+  // PACKAGE contributing directories stay out of scope — the bug doc §Summary
+  // enumerates only the walk's own four sources — and file-bearing package dirs
+  // remain covered via `activeRoots`. Re-arming on a LATER root-union change is
+  // separately out of scope per §Fix constraint 3 (the structural-change note is
+  // the designed /reload recovery), so this union is computed once per pass.
+  //
+  // `activeRoots` is `dirname(theta.path)` in host-native form (backslashes on
+  // Windows); `walk.roots` is `normalizePath`-forward-slashed. Canonicalise the
+  // file-derived copies to the same forward-slash comparison form so one
+  // physical directory is one Set member. `activeRoots` itself is untouched —
+  // its INV-1 consumers keep the native form.
+  const watchRoots = Array.from(
+    new Set([...activeRoots.map((r) => r.replace(/\\/g, "/")), ...walk.roots]),
   );
 
   // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
@@ -1131,7 +1159,7 @@ async function runComposePass(
     // ever entered, so the load pass is the only remaining writer for it.
     emitResultEnvelope(serializeErrEnvelope(registrationRefusal));
   }
-  return { thetas: survivors, activeRoots };
+  return { thetas: survivors, activeRoots, watchRoots };
 }
 
 /**
@@ -1408,13 +1436,17 @@ export async function composeExtensionInstance(
     rendererGate,
   );
 
-  // The watched set: the active discovery-root union plus the two settings-file
-  // paths (project `<config-dir>/settings.json` and global
+  // The watched set: `watchRoots` (the file-derived active-root union unioned
+  // with the discovery walk's resolved four-source (cli/settings/project/global) present-directory union;
+  // production-composition.ts's own `watchRoots` computation) plus the two
+  // settings-file paths (project `<config-dir>/settings.json` and global
   // `<global-agent-dir>/settings.json`, both resolved against the running host —
   // `.pi` on Pi, `.omp` on Oh-My-Pi, and a relocated global directory under
-  // either).
+  // either). `watchRoots` rather than `activeRoots` so a present-but-empty
+  // active root (a scaffolded `.pi/theta/`) is armed: the first `.theta`
+  // created there must still fire a watcher event (bug 0310).
   const roots = [
-    ...initial.activeRoots,
+    ...initial.watchRoots,
     ...settingsFilePaths(ctx, root.fileSystem),
   ];
 

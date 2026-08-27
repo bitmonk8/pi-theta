@@ -1,6 +1,6 @@
 # Bug 0310 — The armed watch set is the dirnames of the thetas discovery FOUND, not the discovery-root union: a present-but-empty active root (`.pi/theta/` with no thetas yet) is never watched, so the first `.theta` created there produces no watcher event, no structural-change note, and no registration until an unrelated edit or `/reload`
 
-- **Status:** open.
+- **Status:** fixed (0.301.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because author intent is dropped with zero
   diagnostics on a first-contact path: a user who creates their first
   `.pi/theta/hello.theta` mid-session (the empty scaffold directory already
@@ -176,6 +176,92 @@ Not yet decided. Constraints any fix must satisfy:
    [0311](./0311-structural-note-derived-from-name-set-not-watcher-paths.md)).
 4. Witness: the roots-recording fake asserting the empty-`.pi/theta` case,
    plus the zero-theta case.
+
+## Fix (0.301.0)
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `DiscoveryResult.roots`: the resolved
+    discovery-root union over the walk's four sources (cli/settings/project/
+    global), accumulated through a threaded `Set<string>` (never module-scope)
+    at every choke point that confirms a source directory present (`resolveEntry`
+    `case "dir"`, `resolveSettingsSource`'s `addDir`, the conventional-root
+    `probe.ok && probe.isDir` guard) or resolves an explicit file's parent
+    (`case "file"`, `addFile` → `dirnameOf`) — so a present-but-empty active root
+    lands in the set regardless of whether it currently holds a `.theta`
+    (§Fix constraint 1).
+  - `src/extension/production-composition.ts` — `ComposePassResult.watchRoots` =
+    `activeRoots` (forward-slash-canonicalised) ∪ `walk.roots`; the watch-list
+    build consumes `initial.watchRoots` instead of `initial.activeRoots`.
+    `activeRoots` (file-derived) is byte-unchanged and remains the sole basis of
+    the INV-1 containment consumers — the two consumers are split, not widened
+    (§Fix constraint 2 / §Non-goals). Re-arming on a later union change stays out
+    of scope; the union is computed once per pass (§Fix constraint 3).
+  - `tests/b0310-watch-roots-root-union.test.ts` — the roots-recording
+    `FileWatcher`-fake witness: the empty-`.pi/theta` case plus the zero-theta
+    case (§Fix constraint 4).
+- Gates: witness `npx vitest run tests/b0310-watch-roots-root-union.test.ts`
+  → 2 passed (reds with the bug's exact signature — armed roots omit the
+  present-but-empty project root — when the watch-list build is neutralised back
+  to `initial.activeRoots`); full suite `npm test` → 479 files / 9557 tests
+  passed; `npm run typecheck` → clean; `npm run lint` → clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — F1 (fidelity: comments
+  claimed a "five-source" union while covering four; package coverage gap),
+  F2 (correctness: Windows path-separator mismatch put one physical directory
+  into `watchRoots` under two spellings), R1/R2 (house-rule, comment-only).
+  Round 2 (`bug-fix-reviewer-fast`) — CLEAN; R3 (prose: witness header still said
+  "five-source") fixed as comment-only polish, no further review round required.
+- Verification: SOLID. (1) the witness reds when the fix is neutralised (exact
+  signature) and greens when restored byte-exact; (2) full suite 479/9557 green;
+  (3) no live cell owed — settled by inspection (see Residuals/self-adjudication);
+  (4) lint + typecheck clean.
+- Residuals:
+  1. Present-but-empty PACKAGE contributing directories (the fifth spec source)
+     are not armed — out of this fix's four-source scope per §Summary's own
+     enumeration (which lists only `.pi/theta/`, global `~/.pi/agent/theta/`, and
+     `--theta`/`thetaPaths`). File-bearing package dirs stay covered via the
+     file-derived `activeRoots`. Closing it needs `package-discovery.ts` to
+     expose its present contributing dirs and union them into `watchRoots` — a
+     file outside this bug's §Affected. Evidence: §Summary source enumeration;
+     §Affected names `production-composition.ts` + `hot-reload.ts` only;
+     `src/discovery/package-discovery.ts` byte-unchanged.
+  2. Line-number citation drift: this fix grows `production-composition.ts` by
+     ~20 lines, shifting line-form `production-composition.ts:N` citations in
+     ~43 test files + `pass-verdict-memo.ts`. The implementer's mass
+     "correction" of these was reverted (collision-prone — siblings 0311/0312/
+     0313 also edit this file and will reshift the same citations). Recommend the
+     parent reconcile `production-composition.ts` line-citations once, after all
+     watcher-family lanes merge. Comment-only; no assertion affected.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - INV-1 containment semantics of `activeRoots` unchanged (§Non-goals);
+    verified the producer-deps / `resolveThetaToolsAtLoad` /
+    `checkInvokeStaticResolution` sites still read the local file-derived
+    `activeRoots`, never `watchRoots`.
+  - Self-adjudication — "unioned with" over "instead of" (§Fix constraint 1):
+    chosen because a settings glob reaches `.theta` files in subdirectories
+    below its static-prefix root, whose `dirname` (in `activeRoots`) is not
+    reconstructed by `walk.roots`; "instead of" would regress that coverage.
+    Three sources: §Fix constraint 1 permits "(or unioned with)";
+    `discovery-walk.ts` `addGlob`/`staticPrefixRoot`; the pre-fix watch set is
+    `dirname(theta.path)` per found file. Bound: additive union only.
+  - Self-adjudication — four-source scope (F1): package deferral, per Residual 1.
+    Three sources as cited there. Bound: comment-only; `package-discovery.ts`
+    untouched; no coverage regression for file-bearing package dirs.
+  - Self-adjudication — no live cell owed (LIVE POLICY branch b): the fix
+    changes only the CONTENTS of the `roots` array handed to the unchanged
+    `watch(roots, …)` seam. Three sources: `src/seams/pi-file-watcher.ts`
+    byte-unchanged (no new real-chokidar code path); the watcher subsystem is
+    architecturally seam-faked with zero existing live watcher coverage —
+    `FakeFileWatcher` is "the conformance vehicle for the watcher delivery
+    contract" (`tests/helpers/fake-file-watcher.ts:2`); session_start
+    registration outcomes are byte-unchanged (only the armed-directory set
+    widens). Bound: had `pi-file-watcher.ts` changed or a registration outcome
+    moved, a live cell would be owed — STOP valve, not exercised.
+  - Coordination — bug 0312 edits the SAME watch-list construction site to add
+    import-closure `.thetalib` paths; this fix left it a clean additive `Set`
+    union (`[...initial.watchRoots, ...settingsFilePaths(…)]`) 0312 can extend.
+    Not contradictory. Bug 0311's structural-note files
+    (`hot-reload.ts`/`reload-wiring.ts`/`reload-debounce.ts`) untouched.
 
 ## Provenance
 

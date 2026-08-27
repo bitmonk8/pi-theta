@@ -62,6 +62,12 @@ export interface DiscoveredTheta {
 export interface DiscoveryResult {
   readonly thetas: readonly DiscoveredTheta[];
   readonly diagnostics: readonly Diagnostic[];
+  /** The resolved discovery-root union over the walk's own four sources
+   *  (cli/settings/project/global): directories that exist at
+   *  scan time, regardless of whether they
+   *  currently hold a `.theta`. Distinct from `thetas`' dirnames, which drop
+   *  any present-but-empty root. */
+  readonly roots: readonly string[];
 }
 
 // --------------------------------------------------------------------------
@@ -514,13 +520,16 @@ async function resolveEntry(
   explicitFile: boolean,
   enoentPolicy: EnoentPolicy,
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<RawCandidate[]> {
   const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, explicitFile);
   switch (resolved.kind) {
     case "dir":
+      roots.add(normalizePath(path));
       return enumerateDirectory(fs, path, descriptor, modes, diagnostics);
     case "file":
       // A single `.theta` file entry contributes itself directly.
+      roots.add(dirnameOf(normalizePath(path)));
       return [{ path: normalizePath(path), stem: splitExtension(basename(path)).stem }];
     case "invalid-extension":
       // An explicit file reference (CLI `--theta` / settings `thetaPaths`) that
@@ -838,6 +847,7 @@ async function resolveSettingsSource(
   fs: FileSystem,
   settings: ThetaSettings,
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<RawCandidate[]> {
   const entries = settings.thetaPaths ?? [];
   if (entries.length === 0) {
@@ -880,6 +890,7 @@ async function resolveSettingsSource(
   };
 
   const addDir = async (dir: string, descriptor: string): Promise<void> => {
+    roots.add(normalizePath(dir));
     for (const cand of await enumerateDirectory(fs, dir, descriptor, SETTINGS_MODES, diagnostics)) {
       selected.set(cand.path, cand);
     }
@@ -896,6 +907,7 @@ async function resolveSettingsSource(
       });
       return;
     }
+    roots.add(dirnameOf(absPath));
     selected.set(absPath, { path: absPath, stem: splitExtension(basename(absPath)).stem });
   };
 
@@ -998,6 +1010,13 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   const { fs } = input;
   const diagnostics: Diagnostic[] = [];
   const candidates: SourcedCandidate[] = [];
+  // The resolved discovery-root union over this walk's four sources
+  // (cli/settings/project/global): threaded (not module-scope)
+  // through every choke point that confirms a source DIRECTORY present, or
+  // resolves an explicit file's parent, so a present-but-empty root (a
+  // scaffolded `.pi/theta/` with no `.theta` yet) still lands in the set the
+  // watcher is armed over (bug 0310).
+  const roots = new Set<string>();
 
   // CLI (priority 1) — explicit user intent: every failure mode is an error.
   const cliPaths = input.cliPaths ?? [];
@@ -1016,13 +1035,14 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     true,
     candidates,
     diagnostics,
+    roots,
   );
 
   // Settings (priority 2) — explicit references resolved per the DISC-7
   // `thetaPaths` entry schema: relative to the settings-file dir, with globs and
   // the `!`/`+`/`-` override grammar; missing/wrong-type are errors.
   const settingsSourceLabel = sourceLabelOf("settings");
-  for (const candidate of await resolveSettingsSource(fs, input.settings, diagnostics)) {
+  for (const candidate of await resolveSettingsSource(fs, input.settings, diagnostics, roots)) {
     candidates.push({ ...candidate, source: "settings", sourceLabel: settingsSourceLabel });
   }
 
@@ -1081,6 +1101,15 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     if (!probe.ok && probe.code === "ENOENT") {
       continue;
     }
+    if (probe.ok && probe.isDir) {
+      // A conventional root that EXISTS as a directory is an active root per
+      // discovery-sources.md regardless of whether it currently holds a
+      // `.theta` — the file-derived set below drops an empty one, so this guard
+      // records the root's presence even when it holds no `.theta` (bug 0310); a
+      // non-empty root is also recorded by `resolveEntry`'s `case "dir"` and the
+      // Set dedups.
+      roots.add(normalizePath(root.path));
+    }
     await collectFromEntries(
       fs,
       [{ path: root.path, descriptor: root.descriptor, enoentPolicy: "ancestor-walk" }],
@@ -1089,6 +1118,7 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       false,
       candidates,
       diagnostics,
+      roots,
     );
   }
 
@@ -1098,7 +1128,7 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   const valid = validateAndRead(fs, caseResolved, diagnostics);
   const thetas = await resolveSlashNames(await valid, input.piOwnedNames ?? [], diagnostics);
 
-  return { thetas, diagnostics };
+  return { thetas, diagnostics, roots: [...roots] };
 }
 
 async function collectFromEntries(
@@ -1113,6 +1143,7 @@ async function collectFromEntries(
   explicitFile: boolean,
   out: SourcedCandidate[],
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<void> {
   const sourceLabel = sourceLabelOf(source);
   for (const entry of entries) {
@@ -1124,6 +1155,7 @@ async function collectFromEntries(
       explicitFile,
       entry.enoentPolicy,
       diagnostics,
+      roots,
     );
     for (const candidate of raw) {
       out.push({ ...candidate, source, sourceLabel });

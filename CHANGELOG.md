@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.301.0]
+
+### Fixed
+
+- **Bug 0310** — the theta file watcher is now armed over the discovery ROOT UNION instead of only the parent directories of already-discovered files: `DiscoveryResult` exposes the four-source present-directory union (`roots`) and the watcher watches `activeRoots ∪ walk.roots`, so a present-but-empty root (a scaffolded `.pi/theta/` with no thetas yet) picks up its first-ever theta without a session restart; `activeRoots` semantics are unchanged for INV-1 consumers. Witnessed by `tests/b0310-watch-roots-root-union.test.ts` (roots-recording witness; empty-`.pi/theta` and zero-theta cases).
+
 ## [0.300.0]
 
 ### Fixed
