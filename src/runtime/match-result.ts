@@ -22,7 +22,7 @@
 // value), not on a compile error, a missing fixture, or a harness throw. The
 // paired V4a implementation leaf fills it in.
 
-import { type ThetaValue, isResultValue, valuesEqual } from "./value";
+import { type ThetaValue, isObjectValue, isResultValue, valuesEqual } from "./value";
 import { ThetaPanic } from "./runtime-panics";
 
 /** The registry code carried by the non-exhaustive-`match` runtime panic. */
@@ -207,6 +207,13 @@ function matchPattern(
         value === null ||
         Array.isArray(value)
       ) {
+        return false;
+      }
+      // Enum and Result carriers satisfy JS `typeof "object"` but carry no
+      // field surface in the language's value model, so they must not take
+      // the object/schema arm even though the typeof/null/array guard above
+      // lets them through structurally.
+      if (!isObjectValue(value)) {
         return false;
       }
       const obj = value as { readonly [key: string]: ThetaValue };

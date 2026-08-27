@@ -764,3 +764,29 @@ holds the declared field types.
   not follow the field-name check into pattern position (cell `b2`). Bug 0123's
   `parsePattern` recovery tail is byte-identical, and bug 0134's
   positional-drift class was not chased.
+
+### Coordination note — 2026-08-27 (bug 0317 re-vehicles the b4/b5 dispatch half)
+
+Bug [0317](./0317-object-pattern-matches-enum-result-carriers.md) adds a
+brand gate (`isObjectValue`) at the top of `matchPattern`'s object arm, so a
+`Result`/enum carrier no longer takes the object arm. This legitimately changes
+the RUNTIME DISPATCH of this witness's cells `b4` and `b5`, whose VEHICLE was an
+`Ok(1)` Result carrier: the empty-braced head `R { }` (b4) and the bare `{ }`
+pattern (b5) now fail to match that carrier and control falls through to
+`Ok(v) => "ok-arm"` (was `"r-arm"` / `"bare-arm"`, flipped by execution, not
+assumed).
+
+This is a re-vehicle, not a subject change. 0226's SUBJECT in b4/b5 — that an
+empty/bare object-pattern head draws NO head-field-set refusal at the parse
+layer — is preserved untouched: those cells still assert a `[]` diagnostic list
+via `expectClean`, and that assertion is byte-unchanged. Only the dispatch half
+(which arm a Result carrier reaches) moved, and that half is now re-owned by
+0317's brand gate rather than by 0226's Result-carrier non-goal. The
+"Pinned dispositions / non-goals" note above ("the empty-braced declared head
+still captures an unrelated value exactly as the bare `{ }` pattern does") is
+superseded FOR A `Result` CARRIER only: b4/b5 still capture an unrelated
+OBJECT-branded value identically; a `Result`/enum carrier now falls through.
+Parent-ratified (Option A) as VEHICLE-COLLATERAL of bug 0317; the flip and its
+rationale comments are confined to those two cells in
+`tests/object-pattern-head-field-set-refusal.test.ts` (every other cell
+byte-untouched). Append-only note; no prior 0226 prose was edited.

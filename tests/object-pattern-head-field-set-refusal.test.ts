@@ -879,34 +879,52 @@ describe("0226 (b) — the boundaries keep their silence and their values", () =
     );
   });
 
-  it("b4 [LOCK]: an EMPTY field list on a declared head keeps capturing an `Ok` value", async () => {
+  it("b4 [LOCK; dispatch re-vehicled by 0317 0.296.0]: an EMPTY field list on a declared head no longer captures an `Ok` value", async () => {
     // §Reproduction B4 and §Expected behaviour 5. The empty field list is the
-    // empty SUBSET of `R`'s declared fields, so it is carryable and silent;
-    // that it captures an `Ok(1)` value is the dropped head, i.e. nominal
-    // dispatch — §Non-goals, and §Fix constraint 4's lock.
+    // empty SUBSET of `R`'s declared fields, so it is carryable and stays
+    // SILENT at the parse layer — 0226's SUBJECT here (an empty-braced declared
+    // head draws NO head-field-set refusal) is untouched: `expectClean` still
+    // asserts a `[]` diagnostic list, and that assertion is unchanged.
+    //
+    // WHY the dispatch value flipped `"r-arm"` -> `"ok-arm"`: this cell's VEHICLE
+    // was an `Ok(1)` Result carrier, and its RUNTIME DISPATCH is what bug 0317's
+    // brand gate (`isObjectValue` in `matchPattern`'s object arm, 0.296.0)
+    // legitimately changes — a `Result` carrier no longer takes the object arm,
+    // so the empty-braced head `R { }` fails to match and control falls through
+    // to `Ok(v) => "ok-arm"`. 0226's parse-layer non-refusal is preserved; only
+    // the dispatch half is re-owned by 0317's brand gate. Parent-ratified
+    // (Option A) as VEHICLE-COLLATERAL of 0317; new value verified by execution.
     await expectClean(
       lines(
         "schema R { a: string }",
         'let r = match Ok(1) { R { } => "r-arm", Ok(v) => "ok-arm", _ => "other" }',
         "r",
       ),
-      "r-arm",
-      "§Fix constraint 4: an empty field list is carryable by every declaration, so the empty-braced declared head keeps its silence and its value",
+      "ok-arm",
+      "§Fix constraint 4 (parse subject preserved): the empty-braced declared head still draws NO field-set refusal; 0317's brand gate (0.296.0) re-owns the dispatch half, so the `Ok(1)` carrier fails the object arm and falls through to `Ok(v)`",
     );
   });
 
-  it("b5 [LOCK]: the bare object pattern `{ }` over the same value is unchanged", async () => {
+  it("b5 [LOCK; dispatch re-vehicled by 0317 0.296.0]: the bare object pattern `{ }` no longer captures the `Ok` value", async () => {
     // §Reproduction B5, the pair to b4: the headless form
     // (src/parser/theta-document.ts:4507, returning `typeName: null`) has no
-    // declaration to judge against at all. Element (1) gives it a range too —
-    // `{` through `}` — but no verdict.
+    // declaration to judge against at all, so it stays SILENT at the parse
+    // layer (zero diagnostics) — 0226's preserved SUBJECT, and `expectClean`'s
+    // `[]` assertion is unchanged.
+    //
+    // WHY the dispatch value flipped `"bare-arm"` -> `"ok-arm"`: same re-vehicle
+    // as b4 — the `Ok(1)` Result carrier fails bug 0317's brand gate
+    // (`isObjectValue` in `matchPattern`'s object arm, 0.296.0), so the bare `{ }`
+    // pattern fails to match and control falls through to `Ok(v) => "ok-arm"`.
+    // Parent-ratified (Option A) as VEHICLE-COLLATERAL of 0317; new value
+    // verified by execution.
     await expectClean(
       lines(
         'let r = match Ok(1) { { } => "bare-arm", Ok(v) => "ok-arm", _ => "other" }',
         "r",
       ),
-      "bare-arm",
-      "a headless object pattern carries no head to resolve, so it has no declared field set and draws nothing",
+      "ok-arm",
+      "a headless object pattern still draws nothing at the parse layer; 0317's brand gate (0.296.0) re-owns the dispatch half, so the `Ok(1)` carrier fails the object arm and falls through to `Ok(v)`",
     );
   });
 

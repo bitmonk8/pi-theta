@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.296.0]
+
+### Fixed
+
+- **Bug 0317** — object patterns no longer structurally match enum-value or `Result` carriers: an `isObjectValue` brand gate in `matchPattern`'s object arm makes `Sev { }`-style and bare `{ }` patterns fail to match a carrier so dispatch falls through to the arm that actually names it (`match Ok(1) { R { } => …, Ok(v) => … }` now reaches `Ok(v)`), closing the leak where a carrier's internal record shape satisfied unrelated object patterns. Bug 0226's b4/b5 locks were re-vehicled under parent ratification (their parse-layer subject — empty/bare heads draw no field-set refusal — is preserved byte-exact; only the dispatch half moved, re-owned by the brand gate) with a dated coordination note on 0226. Witnessed by `tests/b0317-object-pattern-matches-enum-result-carriers.test.ts` (P4a–P4d + X5 flips, P4e control).
+
 ## [0.295.0]
 
 ### Fixed
