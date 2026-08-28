@@ -1,6 +1,6 @@
 # Bug 0336 — A comment inside the line-pinned live-production-acceptance test file cites `resolveEnumVariant` at `src/runtime/lexical-environment.ts:526`, but that method now sits at `:671`; the cited line holds an unrelated local-slot lookup in `resolve`
 
-- **Status:** open.
+- **Status:** fixed (0.308.0).
 - **Sev/Diff estimate:** S4/D1 — S4: comment-only citation drift in a test
   file; no assertion, gate, or runtime behaviour depends on it. D1: a
   single-token edit inside one comment, executed under the file's 14864-line
@@ -83,3 +83,27 @@ stale `:526` cite in the rider-forbidden live-acceptance file and proposed
 the report's proposed value is itself stale after bug 0303 (v0.291.0). All
 citations in this report verified by `grep`/`sed`/`Read` at HEAD offline. No
 live test was run.
+
+## Fix (0.308.0)
+
+- What shipped: `tests/live/live-production-acceptance.test.ts:8234` — the
+  bug-0185 cell comment's citation token `lexical-environment.ts:526` replaced
+  with `:674`, the `resolveEnumVariant` definition re-derived at fix time
+  (`public resolveEnumVariant` sits at `:674` at v0.307.0 — the doc's `:671`
+  had drifted again past bug 0337's changes, exactly as §Fix anticipated).
+  Same-line-count comment edit under the 14864-line pin (`wc -l` 14864 before
+  and after); zero assertion, fixture, or code changes.
+- Gates: `wc -l` 14864 held; `grep -c ':526'` 1→0 and `:674` present at
+  `:8234`; default suite (does not collect the live file) green at tip;
+  typecheck + lint green at tip.
+- Review: parent-side fold-in under the doc's own §Fix authority ("folds into
+  any future batch permitted to touch [the file] under the line-14864 pin;
+  no separate run is required") — executed by the merge-queue parent in the
+  twenty-third session, recorded here; no lane, no phase agents.
+- Verification: single-token diff inspected (`git diff` one hunk, one line,
+  comment-only); pin arithmetic stated above.
+- Residuals: none.
+- Discharge notes appended: none owed (the 0305-report R2 provenance is
+  superseded by this record).
+- Pinned dispositions / non-goals: the file remains line-pinned at 14864;
+  future cite drift in it stays fold-in material.

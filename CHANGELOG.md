@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.308.0]
+
+### Fixed
+
+- **Bug 0336** — the bug-0185 cell comment inside the line-pinned `tests/live/live-production-acceptance.test.ts` (`:8234`) cited `resolveEnumVariant` at `lexical-environment.ts:526`, a line that now holds an unrelated local-slot lookup: the citation token is corrected to `:674` (the definition, re-derived at fix time), a same-line-count comment edit under the file's 14864-line pin — no assertion, fixture, or code change.
+
 ## [0.307.0]
 
 ### Fixed

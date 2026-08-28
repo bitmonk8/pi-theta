@@ -8231,7 +8231,7 @@ describe("H8a-T — bug 0126: a plain `for` body's method misuse of its loop var
 // never reached it: `sev: 'Sev = Sev.Missing'` against `enum Sev { High =
 // "high", Low = "low" }` loaded with ZERO diagnostics and registered, then
 // aborted EVERY invocation — `resolveEnumVariant`
-// (src/runtime/lexical-environment.ts:526) answered `undefined`, the pure
+// (src/runtime/lexical-environment.ts:674) answered `undefined`, the pure
 // evaluator's `member` arm fell through to `evaluateMemberAccess(null,
 // "Missing")`, and that raised `NullMemberAccessPanic` out of a recovery whose
 // own doc-comment says it never throws
