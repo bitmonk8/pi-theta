@@ -1,6 +1,6 @@
 # Bug 0334 — A `.thetalib`'s resolved export set that receives one exported name from two different sources through its `export … from` closure carries no diagnostic: the re-export fixpoint reduces the set to a name-keyed `Set<string>`, discarding source identity, and a downstream `import { X }` of that name binds whichever re-export edge appears first in the re-exporting lib's source order — silently, and declaration-order-dependently — where the byte-identical collision written as two `import` specifiers in the importing theta is `theta/parse/import-name-collision`
 
-- **Status:** open.
+- **Status:** fixed (0.303.0).
 - **Sev/Diff estimate:** S1/D2 — S1 by the silent-acceptance letter: a name
   collision the spec's own §"Name collisions" contract refuses across the
   importing theta's specifiers is neither reported nor decided across the
@@ -283,6 +283,87 @@ guard), C3 (different-name control), and C4 (the diamond exemption, which must
 stay silent). Because this fix decides which of two library functions binds, it
 blocks on no other open bug and is free to land after 0333 (shared file, no
 logical dependency).
+
+## Fix (0.303.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — two closures added to
+    `checkThetaImports` beside `diagnoseReExports`: `resolveDeclaringSite`
+    walks the `reExportEdges` / `libDeclaredNames` graph to a name's terminal
+    `(resolvedPath, name)` declaring site (§Fix 1); `diagnoseReExportCollisions`
+    groups the edges by `(fromLib, exported)` and, for each group of ≥ 2 edges
+    whose resolved declaring sites differ, pushes ONE
+    `theta/parse/import-name-collision` sited on the re-exporting lib at the
+    first differing edge's specifier (§Fix 2), keyed on the declaring site so
+    the diamond stays exempt (§Fix 3); `fixReExportedNames` /
+    `computeThetaLibExports` / the unknown-symbol arm are untouched (§Fix 4).
+    A group whose name the re-exporting lib itself declares is skipped — those
+    edges are inert (the own declaration seeds the export set and
+    `materializeChain` binds it direct-first), and diagnosing them would fire
+    on the §Non-goals bullet 3 re-export-shadows-own-declaration seam this
+    report leaves deferred.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/import-name-collision` Trigger cell widened to cover the
+    re-export multi-source case and state the diamond exemption; Message cell
+    unchanged (DIAG-2, same change set).
+  - `docs/spec_topics/imports.md` §"Name collisions" — one sentence extending
+    the collision contract to the re-export closure with the diamond exemption.
+  - `docs/reference/diagnostics.md` — no edit: its row carries only
+    code/severity/phase/Message and the Message is unchanged (verified).
+- Diagnostic-shape adjudication (delegated to lane by §Fix): REUSE
+  `theta/parse/import-name-collision`, NOT a new code. Rationale — (1) it is
+  §Fix's primary named choice; (2) sibling 0335 §Fix reuses the same code with
+  "no new registry row", so the two cluster fixes stay coherent; (3)
+  `diagnoseReExports` already sites the import-flavored
+  `theta/parse/import-unknown-symbol` ("imported symbol '<name>' …") on a
+  re-exporting lib for an `export … from` specifier (imports.md §"Unknown
+  imported symbol"), so an import-flavored code+message sited on a
+  re-exporting lib is the established pattern; the closed-set registry gate
+  makes a new code costlier with no semantic gain.
+- Gates:
+  - Witness (revert→red→restore→green): with `diagnoseReExportCollisions();`
+    commented out, C1 / C1-reversed / C6 / C7 red (`[]` where the collision
+    line was expected); C3 / C4 / C5 stay green; restore byte-exact
+    (`git hash-object` = `1ddc7fac0cd8c58de5985b5a62efd73766cfb3bf`); all 8
+    green after restore.
+  - Full default suite: `npx vitest run` — 481 files / 9571 tests passed.
+  - Typecheck: `npx tsc -p tsconfig.json --noEmit` — exit 0.
+  - Lint: `npx eslint --no-error-on-unmatched-pattern "src/**/*.ts"` — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/b0334live-multisource-collision-load-refusal.test.ts`
+    — 1 passed (offender REFUSED via invoke→Err; well-formed control drives
+    1042; DIAMOND control registers and drives 206), run under the shared
+    live lock.
+- Review: 3 rounds. Round 1 (`bug-fix-reviewer`) — 1 fidelity finding (F1:
+  over-fire on an own-declaration-shadowed group), plus test/prose (F2 pin
+  siting+once-ness, F4 garbled comment, F5 citation drift); scratch flagged.
+  Round 2 (`bug-fix-reviewer-fast`) — CLEAN; one non-blocking test residual
+  (R1: no 3-edge/nested witness). Round 3 (`bug-fix-reviewer-fast`) — CLEAN,
+  R1 closed by C6/C7.
+- Verification (`bug-fix-verifier`): SOLID. Witness genuinely reds on revert
+  and byte-exact restores; full suite green; typecheck + lint clean; live
+  acceptance authored and (run by the orchestrator under lock) green with the
+  DIAMOND control registering.
+- Tests that lock it:
+  - `tests/b0334-reexport-multisource-collision.test.ts` — C1 + C1-reversed
+    (silent multi-source collision, order-symmetric), C2 direct-specifier
+    regression control, C3 different-names control, C4 diamond exemption, C5
+    own-declaration-shadowed deferred-seam guard, C6 three-edge single-fire,
+    C7 collision reached transitively on the re-exporting lib.
+  - `tests/live/acceptance/b0334live-multisource-collision-load-refusal.test.ts`
+    — end-to-end refusal through real `pi -p`, with well-formed and diamond
+    controls.
+- Residuals:
+  1. The re-export-shadows-own-declaration seam (a re-export whose name
+     shadows the re-exporting lib's OWN top-level declaration) stays
+     deferred per §Non-goals bullet 3 — `diagnoseReExportCollisions` skips
+     such groups (C5 locks the silence). Evidence: C5 green; no probe drove
+     that case in this report.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the diamond (C4) stays exempt (operator
+  batch adjudication); the lib-OWN-`import`-vs-OWN-declaration case is 0335's
+  (not foreclosed — 0335 adds its check in the post-walk `parseCache` loop
+  over each lib's own specifiers, a disjoint site reusing the same code).
 
 ## Provenance
 

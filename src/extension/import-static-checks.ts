@@ -56,11 +56,14 @@ import { posix } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import {
+  IMPORT_NAME_COLLISION_CODE,
+  IMPORT_NAME_COLLISION_HINT,
   RelativeThetaLibResolver,
   checkImportNameCollisions,
   checkImportUnknownSymbols,
   computeThetaLibExports,
   detectImportCycle,
+  importNameCollisionMessage,
   loadThetaLibImport,
   type ImportSpecifier,
   type ReExportSpecifier,
@@ -623,6 +626,110 @@ export async function checkThetaImports(
     }
   };
 
+  /**
+   * Bug 0334: the terminal declaring site `(lib, name)` reaches over the
+   * re-export graph, keyed as `` `${lib}\u0000${name}` `` rather than as a
+   * `(lib, name)` pair: that pair IS the collision key, and one string carries
+   * it through `Set` value-equality. A name that is this lib's OWN declaration resolves to itself; a
+   * name reached only through `export … from` edges follows the first edge
+   * whose `exported` matches, recursing on its source. `visited` bounds a
+   * re-export cycle exactly as `materializeChain`'s own visited set does, so a
+   * cyclic chain contributes no site rather than looping — a name that never
+   * reaches a real declaration cannot collide with anything.
+   */
+  const resolveDeclaringSite = (
+    lib: string,
+    name: string,
+    visited: Set<string>,
+  ): string | undefined => {
+    const key = `${lib}\u0000${name}`;
+    if (visited.has(key)) {
+      return undefined;
+    }
+    visited.add(key);
+    if (libDeclaredNames.get(lib)?.includes(name) === true) {
+      return key;
+    }
+    for (const edge of reExportEdges) {
+      if (edge.fromLib !== lib || edge.exported !== name) {
+        continue;
+      }
+      const site = resolveDeclaringSite(edge.sourceLib, edge.source, visited);
+      if (site !== undefined) {
+        return site;
+      }
+    }
+    return undefined;
+  };
+
+  /**
+   * Bug 0334: a re-exporting lib's resolved export set that receives one name
+   * from two edges resolving to DIFFERENT declaring sites is the same
+   * ambiguity `checkImportNameCollisions` refuses across an importing theta's
+   * own specifiers (imports.md §"Name collisions") — reached here one hop
+   * removed, through the re-export closure `fixReExportedNames` already
+   * dedups to a bare name set. Grouping by declaring site (not by
+   * `sourceLib`) is what keeps the diamond (two paths to ONE declaration)
+   * exempt: both its edges resolve to the same key, so the "differs" test
+   * never fires. Each edge resolves against a FRESH `visited` set — one
+   * edge's cycle bound must not starve a sibling edge's resolution — and an
+   * edge that resolves to no site at all is skipped, since an unresolved name
+   * is `diagnoseReExports`'s unknown-symbol subject, never a collision
+   * partner. One diagnostic per colliding group, sited on the second
+   * (differing) edge, mirrors `checkImportNameCollisions`' one-report-per-
+   * collision shape.
+   */
+  const diagnoseReExportCollisions = (): void => {
+    const groups = new Map<string, Map<string, ReExportEdge[]>>();
+    for (const edge of reExportEdges) {
+      let byName = groups.get(edge.fromLib);
+      if (byName === undefined) {
+        byName = new Map<string, ReExportEdge[]>();
+        groups.set(edge.fromLib, byName);
+      }
+      const edges = byName.get(edge.exported) ?? [];
+      edges.push(edge);
+      byName.set(edge.exported, edges);
+    }
+    for (const [fromLib, byName] of groups.entries()) {
+      for (const [exported, edges] of byName.entries()) {
+        if (edges.length < 2) {
+          continue;
+        }
+        // A name the re-exporting lib declares itself is bound from that own
+        // declaration (materializeChain resolves direct-first), so its
+        // re-export edges are inert and cannot collide. Diagnosing them would
+        // fire on the re-export-shadows-own-declaration seam that this bug
+        // leaves deferred (§Non-goals bullet 3).
+        if (libDeclaredNames.get(fromLib)?.includes(exported) === true) {
+          continue;
+        }
+        let firstSite: string | undefined;
+        for (const edge of edges) {
+          const site = resolveDeclaringSite(edge.sourceLib, edge.source, new Set<string>());
+          if (site === undefined) {
+            continue;
+          }
+          if (firstSite === undefined) {
+            firstSite = site;
+            continue;
+          }
+          if (site !== firstSite) {
+            diagnostics.push({
+              severity: "error",
+              code: IMPORT_NAME_COLLISION_CODE,
+              file: edge.fromLib,
+              range: edge.range,
+              message: importNameCollisionMessage(edge.exported),
+              hint: IMPORT_NAME_COLLISION_HINT,
+            });
+            break;
+          }
+        }
+      }
+    }
+  };
+
   // Bug 0303: the DECLARING module's own environment for an imported `fn`,
   // built from the lib's own body plus its own materialised imports
   // (recursively — a lib-to-lib import) and its own enum registrations.
@@ -910,6 +1017,7 @@ export async function checkThetaImports(
     await closeOverReExports(resolvedPath);
   }
   diagnoseReExports(fixReExportedNames());
+  diagnoseReExportCollisions();
 
   // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
   // transitively-walked, over both `import` and `export … from` edges — sits in

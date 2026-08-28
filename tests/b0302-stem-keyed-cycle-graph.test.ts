@@ -5,7 +5,7 @@
 // than the behaviour the code currently produces.
 //
 // SPEC ANCHOR (the contract, not the current code):
-//   docs/spec_topics/imports.md:126 §Cycles — "Import cycles between
+//   docs/spec_topics/imports.md:128 §Cycles — "Import cycles between
 //   `.thetalib` FILES are detected at parse time by walking the static
 //   `.thetalib` graph … reported as `theta/load/import-cycle` with the cycle
 //   path printed". The graph's nodes are FILES. `/proj/util.thetalib` and
@@ -144,7 +144,7 @@ describe("bug 0302 — the cycle graph's node identity is the file, not the base
     // and no back-edge — acyclic. The stem-keyed graph fuses the two
     // `util.thetalib` files into one node, so the `util → sub/util` edge becomes
     // a self-loop `util → util` and the walk reports a cycle the source does not
-    // contain. imports.md:126 §Cycles counts cycles between FILES; there is
+    // contain. imports.md:128 §Cycles counts cycles between FILES; there is
     // none here, so the load pass must report nothing.
     const lines = await diagLines('import { f } from "./util.thetalib"\n', {
       "/proj/util.thetalib":
@@ -181,7 +181,7 @@ describe("bug 0302 — the cycle graph's node identity is the file, not the base
       lines,
       `\`x.thetalib → a/util.thetalib → x.thetalib\` is a cycle; the stem-twin ` +
         `\`b/util.thetalib\` overwrites the \`util\` node's edge list and masks ` +
-        `it. imports.md:126 §Cycles mandates the refusal for any cycle between ` +
+        `it. imports.md:128 §Cycles mandates the refusal for any cycle between ` +
         `files. Rendered: ${JSON.stringify(lines)}`,
     ).toEqual([`error ${CYCLE_CODE}: import cycle: x.thetalib → util.thetalib → x.thetalib`]);
   });

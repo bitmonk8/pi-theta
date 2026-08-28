@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.303.0]
+
+### Fixed
+
+- **Bug 0334** — a hub lib's re-export closure admitting one name from two DISTINCT declaring sites is no longer a silent order-dependent first-source-wins: `diagnoseReExportCollisions` (keyed on the resolved declaring site, beside `diagnoseReExports` in `import-static-checks.ts`) fires the existing `theta/parse/import-name-collision` for multi-source collisions, while the diamond case — one declaration reached via two paths — stays exempt by construction (same declaring site). Registry Trigger widened + `imports.md` §Name-collisions sentence same commit; message unchanged. Witnessed by `tests/b0334-reexport-multisource-collision.test.ts` (8 cells: both collision orders, three-edge, transitive, diamond + own-declaration controls) and the acceptance cell `tests/live/acceptance/b0334live-multisource-collision-load-refusal.test.ts` (offender refuses; plain and diamond controls register and drive).
+
 ## [0.302.0]
 
 ### Fixed

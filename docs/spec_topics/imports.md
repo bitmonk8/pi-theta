@@ -123,4 +123,6 @@ import { Author as AuthorB } from "./team-b.thetalib"
 
 The same `as` form is also available for self-clarity (`import { ReviewScore as Score } from "./scoring.thetalib"`). An imported symbol whose name collides with a top-level declaration in the same file is also `theta/parse/import-name-collision` — no implicit shadowing.
 
+The same contract covers a re-export closure: a `.thetalib`'s resolved export set that admits one exported name from two `export … from` edges resolving to two different declaring sites is also `theta/parse/import-name-collision`, sited on the re-exporting lib. A diamond — one declaration reached through two re-export paths, both edges resolving to the SAME declaring site — is exempt: the collision key is the terminal declaring site, not the immediate source lib, so two paths to one declaration stay silent.
+
 **Cycles.** Import cycles between `.thetalib` files are detected at parse time by walking the static `.thetalib` graph — `import … from` edges and `export … from` re-export edges alike — and reported as `theta/load/import-cycle` with the cycle path printed (`"import cycle: a.thetalib → b.thetalib → a.thetalib"`). `.thetalib` files contain only declarations — no top-level statements, no initialisation order — so cycles serve no purpose and only happen by accident.
