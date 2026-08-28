@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.305.0]
+
+### Fixed
+
+- **Bug 0340** — an unannotated `let` / `let mut` binding initialised from a literal is now inferred with the PRIMITIVE that literal types as (TYPE-3) instead of the literal type itself, so the idiomatic accumulator (`let mut a = ""` then `a = a + s` over a `string`-typed `s`, a schema field, or a loop variable) is no longer refused at load with the uninterpretable `theta/parse/reassign-rhs-type-mismatch: … expected string, got string`, and a `number` RHS under an inferred `integer` target now routes to `theta/parse/integer-narrowing` as TYPE-2 prescribes. The widening (`widenLiteralTypes` in `type-compat.ts`, recursive over `array` / `union` / inline-object structure, structurally sharing when nothing moves) is applied at the unannotated branch of the type layer's `let` recording arm; `⊑` itself, `displayType`, every emitter, and every annotated binding are byte-unchanged, and no registry row is minted or widened. One same-commit sentence in `docs/spec_topics/bindings.md` (`#inferred-binding-type`) states the inference rule the page previously left silent. Witnessed by `tests/b0340-inferred-literal-binding-refuses-primitive-rhs.test.ts` (20 cells: seven legal writes that were refused, four refusals that must survive, the two TYPE-2 narrowing directions, a message-tautology sweep, the registration consequence through the mirrored `hasLoadParseError` gate, three neighbouring sinks, and the inferred/annotated array-LUB agreement); no live acceptance cell — the environment has no configured provider, recorded with the offline registration witness in the fix record.
+
 ## [0.304.0]
 
 ### Fixed

@@ -70,6 +70,7 @@ import {
   resolveNamed,
   resolveNamedRef,
   unfoldAlias,
+  widenLiteralTypes,
   withheldBinderType,
   type CompatType,
   type NamedDecl,
@@ -1638,11 +1639,23 @@ class TypeLayerWalk {
           // reaches no proof obligation at all.
           const initUnprovable =
             annotation === undefined && this.provableArgType(stmt.init, bindings) === undefined;
+          //
+          // An unannotated binding records what the initialiser EXPRESSION
+          // types as, so every literal type inside the inferred type is
+          // widened to the primitive it types as (TYPE-3, `widenLiteralTypes`
+          // in type-compat.ts). Recording the unwidened literal makes the
+          // binding a target that only another literal satisfies — `decide`'s
+          // literal-target arm relates a literal target to a literal source
+          // alone — so `let mut a = ""` refused a `string`-typed reassignment
+          // RHS and rendered both sides `string` (bug 0340). An ANNOTATED
+          // binding is unaffected: an annotation never lowers to a literal
+          // type.
+          const inferred = annotation === undefined ? widenLiteralTypes(rhsType) : rhsType;
           const recorded: CompatType =
             annotation === undefined
               ? initUnprovable
-                ? { ...rhsType }
-                : rhsType
+                ? { ...inferred }
+                : inferred
               : unfoldAlias(annotation, this.env);
           bindings.set(stmt.name, recorded);
           if (annotation === undefined && this.isCertainResultNode(stmt.init)) {

@@ -408,6 +408,50 @@ function decidePrimitive(sub: PrimitiveName, sup: PrimitiveName): Compatibility 
 }
 
 /**
+ * Widen every literal type inside `type` to the primitive it types as
+ * ([TYPE-3](../../docs/spec_topics/type-system.md#type-3): a literal types as
+ * that primitive in expression position), recursing through `array`, `union`
+ * and inline-`object` structure. `named` types are returned untouched — an
+ * alias's right-hand side is the declaration's, not this value's, and TYPE-10
+ * nominality must not be disturbed.
+ *
+ * The caller is the type layer's unannotated-`let` arm, which records what an
+ * initialiser EXPRESSION types as. Recording the unwidened literal makes the
+ * binding a target no primitive-typed value satisfies: `decide`'s literal
+ * target arm relates a literal target only to a literal source, so `let mut a
+ * = ""` refuses a `string` RHS and renders both sides `string` (bug 0340).
+ *
+ * Structurally shared: a `type` holding no literal is returned BY REFERENCE,
+ * so the caller's identity-keyed side channels (`resultBindings`,
+ * `unprovableBindings` in type-layer-checks.ts) see the object they saw
+ * before this function existed.
+ */
+export function widenLiteralTypes(type: CompatType): CompatType {
+  switch (type.kind) {
+    case "literal":
+      return { kind: "prim", name: type.typesAs };
+    case "array": {
+      const element = widenLiteralTypes(type.element);
+      return element === type.element ? type : { kind: "array", element };
+    }
+    case "union": {
+      const arms = type.arms.map(widenLiteralTypes);
+      return arms.every((arm, i) => arm === type.arms[i]) ? type : { kind: "union", arms };
+    }
+    case "object": {
+      const fields = type.fields.map((f) => {
+        const widened = widenLiteralTypes(f.type);
+        return widened === f.type ? f : { name: f.name, type: widened };
+      });
+      return fields.every((field, i) => field === type.fields[i]) ? type : { kind: "object", fields };
+    }
+    case "prim":
+    case "named":
+      return type;
+  }
+}
+
+/**
  * Render a `CompatType` to the display name the per-site mismatch messages
  * interpolate (the `<expected>` / `<actual>` fields of the
  * diagnostics/code-registry-parse.md *Message* strings).
