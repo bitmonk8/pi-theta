@@ -360,3 +360,4 @@ The [Reference](../reference/) remains the authority for intended behaviour.
 - [0338 — pure-host arithmetic on non-numeric operands has no runtime belt (silent NaN via interpolation and invoke/call args)](./0338-pure-host-arithmetic-non-numeric-operands-no-runtime-belt.md) — open
 - [0339 — package-source present-but-empty contributing dir is not watched](./0339-package-source-present-but-empty-contributing-dir-not-watched.md) — open
 - [0340 — four LPA live cross-file enum-equality anchors are stale after 0337](./0340-lpa-live-cross-file-enum-equality-anchors-stale-after-0337.md) — open
+- [0341 — unannotated literal-initialised bindings refuse every primitive-typed RHS at reassignment](./0341-inferred-literal-binding-refuses-primitive-rhs.md) — fixed (0.309.0)
