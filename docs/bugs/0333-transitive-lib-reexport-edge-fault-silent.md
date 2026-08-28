@@ -1,6 +1,6 @@
 # Bug 0333 — A broken `export … from` edge inside a `.thetalib` reached only through plain-`import` hops is discarded at load with zero diagnostics: a transitive lib whose re-export names a missing source file, or a symbol its source lib does not declare, loads the importing theta clean, while the byte-identical fault in a directly-imported lib is reported (`theta/load/unresolvable-thetalib-path` for the missing file, `theta/parse/import-unknown-symbol` for the missing name)
 
-- **Status:** open.
+- **Status:** fixed (0.302.0).
 - **Sev/Diff estimate:** S1/D2 — S1 by the silent-acceptance letter: two
   `E`-severity registered codes
   (`theta/load/unresolvable-thetalib-path`,
@@ -273,6 +273,63 @@ plus a depth-2 transitive chain (theta → a → b → c, with the broken
 `export … from` in `c`) pinning that the widened seed reaches every walked
 lib, and a control pinning that a well-formed transitive re-export stays
 clean.
+
+## Fix (0.302.0)
+
+- What shipped: `src/extension/import-static-checks.ts` — the re-export
+  analysis seed loop now iterates the `walked` set (every `.thetalib` the
+  import walk reaches) instead of `entryResolvedPaths` (direct imports only),
+  the one executable change (§Fix "run its three phases over the union of every
+  walked lib"). `closeOverReExports`'s per-path `closedOver` guard is
+  unchanged, so the widened seed re-closes no already-closed lib;
+  `walkThetaLib`'s `import`-only push guard (`edge.kind === "import"`) is
+  untouched, so the closure stays the sole `export`-edge reporter and no
+  double-report is introduced. Four WHY-comments that described the residual as
+  unaddressed (header, `walkThetaLib` residual block, `closeOverReExports`
+  phase-1 doc, the seed-loop comment) were corrected to the widened seed. No
+  new registry row, no spec text change, no other source file — both existing
+  codes (`theta/load/unresolvable-thetalib-path`,
+  `theta/parse/import-unknown-symbol`) fire on the transitive edge exactly as
+  on the direct one.
+- Gates: witness `npx vitest run tests/b0333-transitive-lib-reexport-edge.test.ts`
+  → 6/6 green (RED at HEAD: T1/T2/depth-2 emit `[]`; neutralization confirmed
+  the three red and restored byte-exact). Full suite `npm test` → 480 files /
+  9563 tests all passing (baseline 479/9557 + this bug's witness file).
+  `npm run typecheck` clean. `npm run lint` clean.
+- Review: 1 round. Round 1 (`bug-fix-reviewer`): CLEAN on
+  correctness/fidelity/spec/house-rule/coordination; three `prose` findings in
+  the witness file (broken `.test.ts` citations, a `codesOf` doc comment saying
+  "distinct", a provenance block with a false hash/version pairing and a
+  merge-unstable phrasing). Fixed by one `bug-fix-fixer-light` pass
+  (comment/prose only, 6/6 still green); post-polish confirmation round skipped
+  per the polish-verified-by-gate-diff rule (every hunk `//` or `/** */`).
+- Verification (`bug-fix-verifier`): PASS. Revert-witness red-before/green-after
+  with byte-exact restoration (diffstat 15+/16- identical after restore); full
+  suite 480/9563; live cell inspected sound (real stdout sentinels + exit code,
+  fails loudly on missing host, offline attribution guard is a genuine
+  RED-at-HEAD gate); typecheck + lint clean;
+  `tests/fixtures/h7a/permitted-codes.json` blob byte-unchanged
+  (`a4a8da04209f90e13d815edd92c1fc682e2a2236`).
+- Live: `tests/live/acceptance/b0333live-transitive-reexport-load-refusal.test.ts`
+  (new) — offender (theta → a → b, `b` re-exports from a missing file two
+  plain-import hops down) REFUSES at load (`invoke` → `Err` → `REFUSED`
+  sentinel); well-formed transitive re-export control (theta → a → b → deep,
+  well-formed `export … from`) REGISTERS and drives to the task-framed
+  arithmetic observable `1041` (941 + 100). Run for real under the shared
+  live-lock: 1/1 green (6.3 s).
+- Residuals: none.
+- Discharge notes appended: none (0101 residual 2 and 0304 residual 1 named
+  this class for the parent to file; that filing is this report — no sibling
+  doc edit is owed).
+- Pinned dispositions / non-goals: the runtime materialisation of a
+  re-exported name reached over a plain `import` hop (imports.md §Visibility
+  excludes it from the importer's export set) — this fix measures the missing
+  DIAGNOSTIC only, per §Non-goals. A transitive lib's `import-name-collision`
+  (0304 residual 2) is untouched. The bug-0304 post-walk pass's `import`-only
+  scope for non-re-export checks is untouched. Reuse-not-new-row disposition
+  adjudicated in-lane per §Fix (both codes' Triggers carry no depth qualifier;
+  a new row would need a DIAG-2 entry and a same-commit spec edit for a fault
+  the existing rows already describe).
 
 ## Provenance
 

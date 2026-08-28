@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.302.0]
+
+### Fixed
+
+- **Bug 0333** — a broken `export … from` edge inside a lib reached only transitively (imported by another lib, never directly by the entry theta) is no longer silent: the re-export static-check seed in `import-static-checks.ts` is widened from the entry theta's directly-imported libs to EVERY walked lib, so the existing registered codes fire for transitive re-export faults exactly as they do for direct ones and the importing theta refuses at load. No new registry row. Witnessed by `tests/b0333-transitive-lib-reexport-edge.test.ts` (depth-1/depth-2 offenders red-before, controls) and the acceptance cell `tests/live/acceptance/b0333live-transitive-reexport-load-refusal.test.ts` (offender refuses, control registers and drives).
+
 ## [0.301.0]
 
 ### Fixed

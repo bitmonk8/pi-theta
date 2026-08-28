@@ -22,7 +22,7 @@
 //     cycle.
 //   - Re-export chain resolution (imports.md §Re-exports, the resolution
 //     paragraph) — three ordered phases over the `export … from` edges reachable
-//     from the resolved entry libs. `closeOverReExports` collects those libs and
+//     from every `.thetalib` the import walk reaches. `closeOverReExports` collects those libs and
 //     their edges, resolving each `export` STATEMENT's path once so
 //     `theta/load/unresolvable-thetalib-path` fires once over the statement's
 //     range, as on the import side. `fixReExportedNames` then computes every
@@ -452,16 +452,13 @@ export async function checkThetaImports(
       // resolver can never resolve it, so pushing IMP-1 here would double-report
       // the identical wrong-extension fault (two codes for one statement).
       //
-      // An `export … from` edge is not pushed here. For a lib inside the
-      // re-export CLOSURE of an entry lib, `closeOverReExports` already pushes
-      // IMP-1 once for a failed source, so a second push here would double-report
-      // it. `closeOverReExports` is seeded only from the entry libs and recurses
-      // only through `export` statements, so a broken `export … from` inside a
-      // lib reached ONLY through plain-`import` hops is covered by neither
-      // reporter and stays silent — bug 0101's residual-2 class (a broken
-      // re-export inside a plain-import-reached lib), for which bug 0304's
-      // settled §Fix (three IMPORT-based pushes) enumerates no mechanism and
-      // which this fix does not address.
+      // An `export … from` edge is not pushed here. `closeOverReExports` is now
+      // seeded from every lib this walk reaches (bug 0333's fix), so it already
+      // pushes IMP-1 once for a failed source of ANY reached lib's re-export —
+      // pushing here too would double-report the same fault on the same
+      // statement. The closure stays the sole reporter of `export`-edge faults;
+      // this guard is what keeps that division of labour instead of splitting
+      // one fault across two pushes.
       const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
       for (const stmt of parsed.document.body.statements) {
         if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
@@ -505,7 +502,7 @@ export async function checkThetaImports(
   const closedOver = new Set<string>();
 
   /**
-   * Phase 1 — collect the `.thetalib` files reachable from one resolved entry lib
+   * Phase 1 — collect the `.thetalib` files reachable from one walked lib
    * over `export … from` edges, with their declaration names and their edges.
    *
    * Resolution happens here and once per `export` STATEMENT, because the path
@@ -899,15 +896,17 @@ export async function checkThetaImports(
   );
 
   // Re-export chain resolution, phases 1–3 (imports.md §Re-exports): collect the
-  // `export … from` closure of every resolved entry lib, settle the fixpoint over
-  // the whole collected file set, and only then diagnose. Running it over the
-  // union of the entry libs rather than per entry is what the spec sentence
+  // `export … from` closure of every `.thetalib` the import walk reached (`walked`,
+  // not only the entry libs — bug 0333's fix — so a re-export fault inside a lib
+  // reached only through plain-`import` hops is covered too), settle the fixpoint
+  // over the whole collected file set, and only then diagnose. Running it over the
+  // union of the whole reached set rather than per lib is what the spec sentence
   // requires — the resolved export set and the errors reported for it are a
   // function of the `.thetalib` file set alone — and a re-export that fails it
   // un-registers the importing theta through the registration-error arm rather
   // than by a second diagnostic sited on the importer's own specifier, whose
   // admission stays on the SYNTACTIC set (`computeThetaLibExports`) above.
-  for (const resolvedPath of entryResolvedPaths) {
+  for (const resolvedPath of walked) {
     await closeOverReExports(resolvedPath);
   }
   diagnoseReExports(fixReExportedNames());
