@@ -1075,6 +1075,30 @@ export async function checkThetaImports(
         ),
       );
     }
+
+    // Bug 0335: `imports.md:124` refuses "an imported symbol whose name
+    // collides with a top-level declaration in the same file" without
+    // exempting `.thetalib` files, but until now the collision arm only ever
+    // ran over the COMPOSING theta's own specifiers (below) — never over a
+    // resolved dependency `.thetalib`'s own `import … from` specifiers against
+    // its own top-level `fn`/`enum`/`schema` names. That let a library import
+    // `X` and declare its own `X` load clean, then resolve inconsistently at
+    // runtime depending on declaration kind and read site. This reuses the
+    // existing `theta/parse/import-name-collision` code (no new registry row)
+    // over the union of the library's OWN import specifiers and its OWN
+    // top-level names, sited on the library file itself — the same arm the
+    // theta-side oracle already fires for the identical collision.
+    const libOwnSpecifiers: ImportSpecifier[] = [];
+    for (const libImportDecl of collectImports(parsedLib.document.body)) {
+      libOwnSpecifiers.push(...libImportDecl.specifiers);
+    }
+    diagnostics.push(
+      ...checkImportNameCollisions(
+        libResolvedPath,
+        libOwnSpecifiers,
+        collectTopLevelNames(parsedLib.document.body),
+      ),
+    );
   }
 
   // IMP-3 (name collisions): check the union of every resolved decl's specifiers

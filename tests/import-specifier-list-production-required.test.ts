@@ -992,7 +992,17 @@ describe("bug 0100 (g) — a zero-specifier statement's load-pass reach, pinned 
     expect(
       diagCodes(result.diagnostics),
       "IMP-5's walk starts from the decl, so a binding-free statement reports a cycle it participates in",
-    ).toEqual(["theta/load/import-cycle"]);
+      // Bug 0335 widening (subject preserved): a.thetalib and b.thetalib each
+      // import { z } from the other AND declare their own `fn z` — a genuine
+      // imports.md:124 collision on both libraries, incidental to this cell's
+      // zero-specifier-statement / import-cycle subject. The cycle code stays
+      // asserted; this only adds the two collision codes the reused arm now
+      // also emits (one per library), in the exact order the load pass renders.
+    ).toEqual([
+      "theta/parse/import-name-collision",
+      "theta/parse/import-name-collision",
+      "theta/load/import-cycle",
+    ]);
   });
 
   it("GREEN (g-control): the conforming import materialises its symbol", async () => {

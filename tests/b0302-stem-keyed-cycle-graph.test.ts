@@ -61,6 +61,15 @@ import { parseDeps } from "./helpers/e2e-s1";
 /** The registered load code the spec §Cycles anchor names. */
 const CYCLE_CODE = "theta/load/import-cycle";
 
+/**
+ * Bug 0335: `self.thetalib` both imports its own `sf` and declares its own
+ * `fn sf`, which is `imports.md:124`'s import-vs-own-declaration collision,
+ * incidental to this file's self-import cycle subject. The reused arm now
+ * runs over every resolved dependency library's own specifiers, so this code
+ * joins the cycle code below rather than replacing it.
+ */
+const COLLISION_CODE = "theta/parse/import-name-collision";
+
 /** The importing `.theta` frontmatter every fixture shares (a real prompt-mode theta). */
 const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
 
@@ -234,6 +243,14 @@ describe("bug 0302 — the cycle graph's node identity is the file, not the base
       lines,
       `a file importing itself is a genuine cycle and must be refused. ` +
         `Rendered: ${JSON.stringify(lines)}`,
-    ).toEqual([`error ${CYCLE_CODE}: import cycle: self.thetalib → self.thetalib`]);
+      // Bug 0335 widening (subject preserved): self.thetalib's own `import { sf }`
+      // collides with its own `fn sf` — a genuine imports.md:124 collision incidental
+      // to this GUARD's self-import-cycle subject. The cycle line stays asserted;
+      // this only adds the collision code the reused arm now also emits, in the
+      // exact order the load pass renders both.
+    ).toEqual([
+      `error ${COLLISION_CODE}: imported symbol 'sf' collides with another import or top-level declaration`,
+      `error ${CYCLE_CODE}: import cycle: self.thetalib → self.thetalib`,
+    ]);
   });
 });

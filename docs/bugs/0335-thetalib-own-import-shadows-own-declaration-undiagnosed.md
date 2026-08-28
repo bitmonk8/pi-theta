@@ -1,6 +1,6 @@
 # Bug 0335 — Inside a `.thetalib`, a name bound by BOTH the library's own `import` and its own top-level `fn`/`enum`/`schema` declaration is silently shadowed with no diagnostic — and the surviving binding is not even consistent: a `fn` collision resolves to the OWN declaration, an `enum`/`schema` collision resolves to the IMPORTED one, and the same enum name read inside the library resolves to a DIFFERENT declaration than the same name imported out of it
 
-- **Status:** open.
+- **Status:** fixed (0.304.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because the spec refuses this input
   (`imports.md:124`: an imported symbol colliding with a same-file top-level
   declaration is `theta/parse/import-name-collision`, "no implicit shadowing")
@@ -316,3 +316,68 @@ collision reachable) is fixed at 0.291.0.
 - Probes: scratch vitest cells R1–R4 + control + theta-side control at
   `52712fb3`, outputs quoted verbatim; file `tests/b0335scratch.test.ts`
   written, run, deleted per scratch policy. No non-scratch file modified.
+
+## Fix (0.304.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — in the post-walk
+    `[...parseCache]` loop of `checkThetaImports` (the disjoint site 0334's fix
+    record pins for 0335), for each resolved dependency library body run the
+    existing `checkImportNameCollisions(libResolvedPath, <union of the lib's
+    own `import … from` specifiers>, collectTopLevelNames(lib body))`, pushing
+    the results into `diagnostics` sited on the offending library file
+    (§Fix). Reuses `theta/parse/import-name-collision` — NO new registry row.
+    No runtime resolution-order change (`resolve`, the `LexicalEnvironment`
+    constructor's enum/schema loop, `materializeSymbol` all untouched): the
+    collision is refused at load, so no winner path is reached.
+  - `docs/spec_topics/imports.md` §"Name collisions" — one same-commit sentence
+    stating the collision rule is not restricted to `.theta` files: a
+    `.thetalib` whose own `import … from` specifier binds a name its own
+    top-level `schema`/`enum`/`fn` also binds is the same collision, closing
+    the `imports.md:14` silence on the both-bind case (§Fix). No registry edit:
+    `code-registry-parse.md:135`'s Trigger already reads "an imported symbol
+    collides with a top-level declaration in the same file".
+- Gates:
+  - Witness `npx vitest run tests/b0335-own-import-shadows-own-declaration.test.ts`
+    → 6/6 GREEN (R1–R4 + no-collision control + theta-side control).
+  - Full default suite `npx vitest run` → 482 files / 9577 tests, 0 failed.
+  - `npm run typecheck` → exit 0. `npm run lint` → exit 0.
+  - Live H9a `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/b0335live-own-import-shadow-load-refusal.test.ts`
+    → 1/1 GREEN (control drove "1042"; probe observed "REFUSED", not "LOADED").
+    Run under the shared live lock.
+- Review: 1 round — `bug-fix-reviewer` returned CLEAN, no findings; two
+  non-blocking `test` residuals (lib-side arm stricter than the theta-side arm
+  for unresolvable sources; no dedicated lib-internal import-vs-import witness),
+  neither a correctness/fidelity/spec blocker → convergence, no fixer round.
+- Verification: SOLID (non-live). Witness genuinely reds without the fix
+  (byte-exact revert of the collision arm → R1–R4 FAIL; restore →
+  `git hash-object` matches → 6/6 GREEN); full suite green; typecheck+lint
+  exit 0; C5 (`tests/b0334-reexport-multisource-collision.test.ts`) stays
+  GREEN. Live owned by the orchestrator (verifier never runs live in this
+  lane); the live red direction is established by composition — the byte-exact
+  revert proves the offender draws `[]` (registers clean) without the fix, so
+  the prober's `invoke` would resolve `Ok` → print "LOADED" and red both live
+  assertions.
+- Residuals:
+  1. The lib-side collision arm unions every lib `import` decl's specifiers
+     (no extension/resolvability pre-filter), so `import { X } from
+     "./missing.thetalib"` + `fn X` in a lib draws collision + IMP-1, while the
+     same in a `.theta` draws only IMP-1 (the composing-theta arm sits after
+     the resolution `continue` guards). The lib side is the spec-conformant one
+     (`imports.md:124` is unconditional) and both dispositions refuse
+     registration; the theta-side narrowing predates this fix. Evidence:
+     `src/extension/import-static-checks.ts` composing-theta arm vs the new
+     lib arm; reviewer round-1 residual R1. A coherence pass, not this fix.
+  2. No cell exercises the lib-internal import-vs-import sub-arm the reuse also
+     brings along (`seenLocal`, `src/parser/imports.ts`). §Fix mandates the
+     union call and the sub-arm is unit-covered generically; the settled
+     witness obligation (R1–R4 + controls) is met. Evidence: reviewer round-1
+     residual R2.
+- Discharge notes appended: `docs/bugs/0302-stem-keyed-cycle-graph.md` and
+  `docs/bugs/0100-production-excluded-import-export-spellings-parse-clean.md`
+  (dated 2026-08-28 coordination notes recording the ratified OPTION A
+  expected-array widenings; subjects preserved; fixtures byte-unchanged).
+- Pinned dispositions / non-goals: the runtime winner-incoherence (R2 vs R4)
+  is not separately fixed — removing the ambiguity at load makes every winner
+  path unreachable for a colliding name, per §Fix; no resolution order changed.

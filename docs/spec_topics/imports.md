@@ -121,7 +121,7 @@ import { Author as AuthorA } from "./team-a.thetalib"
 import { Author as AuthorB } from "./team-b.thetalib"
 ```
 
-The same `as` form is also available for self-clarity (`import { ReviewScore as Score } from "./scoring.thetalib"`). An imported symbol whose name collides with a top-level declaration in the same file is also `theta/parse/import-name-collision` — no implicit shadowing.
+The same `as` form is also available for self-clarity (`import { ReviewScore as Score } from "./scoring.thetalib"`). An imported symbol whose name collides with a top-level declaration in the same file is also `theta/parse/import-name-collision` — no implicit shadowing. This rule is not restricted to `.theta` files: a `.thetalib` whose own `import … from` specifier binds a name its own top-level `schema`, `enum`, or `fn` declaration also binds is the same collision, checked against the same file — the declaring-scope rule above licenses a library body to reference both sources, but never lets them silently bind the same name.
 
 The same contract covers a re-export closure: a `.thetalib`'s resolved export set that admits one exported name from two `export … from` edges resolving to two different declaring sites is also `theta/parse/import-name-collision`, sited on the re-exporting lib. A diamond — one declaration reached through two re-export paths, both edges resolving to the SAME declaring site — is exempt: the collision key is the terminal declaring site, not the immediate source lib, so two paths to one declaration stay silent.
 

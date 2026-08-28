@@ -277,3 +277,20 @@ reproduction rows above plus the self-import and two-file-cycle controls.
     message; path keying makes both sentences more accurate without changing
     the printed shape.
 - Discharge notes appended: none.
+
+## Coordination note — bug 0335 (2026-08-28)
+
+Bug 0335's fix (dependency-`.thetalib` own-import-vs-own-declaration collision:
+run `checkImportNameCollisions` over each resolved library's own specifiers in
+the post-walk `parseCache` loop of `checkThetaImports`) makes this file's
+`GUARD (self-import)` cell draw a second diagnostic. Its fixture
+`self.thetalib` both `import { sf } from "./self.thetalib"` and declares
+`fn sf` — a genuine `imports.md:124` import-vs-own-declaration collision that
+was silent before 0335. Per the parent ratification (2026-08-27, OPTION A) the
+cell's expected array was WIDENED to assert `theta/parse/import-name-collision`
+alongside the existing `theta/load/import-cycle`, in load-pass emission order.
+The self-import cycle SUBJECT of this GUARD is preserved: the fixture is
+unchanged (the self-import must resolve to its own declaration — renaming would
+break resolution into a different diagnostic), the cycle line stays asserted,
+and only the now-correct collision code was added. No other assertion in this
+file changed.

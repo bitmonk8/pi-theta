@@ -916,3 +916,20 @@ whole filed subject was still open.
   group (c) and `f-export-set-control` rows, which assert the well-formed
   re-export spellings carry no diagnostic of any code, and the tail-appended
   `CELL-E` in `tests/live/live-production-acceptance.test.ts`.
+
+## Coordination note — bug 0335 (2026-08-28)
+
+Bug 0335's fix (dependency-`.thetalib` own-import-vs-own-declaration collision:
+run `checkImportNameCollisions` over each resolved library's own specifiers in
+the post-walk `parseCache` loop of `checkThetaImports`) makes this file's
+`RED (g-IMP-5)` cell draw two further diagnostics. Its fixture has
+`a.thetalib` and `b.thetalib` mutually `import { z }` from each other and each
+declares its own `fn z` — a genuine `imports.md:124` import-vs-own-declaration
+collision on BOTH libraries, silent before 0335. Per the parent ratification
+(2026-08-27, OPTION A) the cell's expected `diagCodes` array was WIDENED to
+assert the two `theta/parse/import-name-collision` codes alongside the existing
+`theta/load/import-cycle`, in load-pass emission order. The
+zero-specifier-statement / import-cycle SUBJECT of the cell is preserved: the
+fixture is unchanged, the cycle code stays asserted, and only the now-correct
+collision codes (spec-correct per imports.md:124) were added. No other
+assertion in this file changed.

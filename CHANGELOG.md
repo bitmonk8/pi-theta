@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.304.0]
+
+### Fixed
+
+- **Bug 0335** — a `.thetalib` whose own `import` list names a symbol the same lib also declares at top level (an own-import shadowing an own declaration, previously an undiagnosed incoherent-winner) now refuses the importing theta at load: `checkImportNameCollisions` runs over each resolved dependency lib's own specifiers in the post-walk `parseCache` loop of `checkThetaImports`, reusing `theta/parse/import-name-collision` (no new registry row; `imports.md` §Name-collisions sentence same commit). Two fixture-scaffolding witnesses that structurally carry the pattern (`b0302` self-import cycle, 0100 g-IMP-5 mutual imports) were widened to expect the collision code alongside their preserved subjects (ratified; dated coordination notes on both docs). Witnessed by `tests/b0335-own-import-shadows-own-declaration.test.ts` (R1–R4 + controls) and the acceptance cell `tests/live/acceptance/b0335live-own-import-shadow-load-refusal.test.ts` (offender refuses, control registers and drives).
+
 ## [0.303.0]
 
 ### Fixed
