@@ -1,6 +1,6 @@
 # Bug 0328 — the marshalled callable-hash map never contains the launched root callee itself: `#subagent-theta-callable-hash`'s explicitly widened "whole callee file" window is fully open, so an edit to the invoked subagent theta (or any `.thetalib` it imports) between parent load and child spawn silently runs bytes the parent never validated
 
-- **Status:** open.
+- **Status:** fixed (0.306.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the observable is silent
   execution of unvalidated code: the parent binds params against the
   load-time `params:` schema, renders the load-time `system:`, then the
@@ -143,6 +143,109 @@ closure should also fold in the `.thetalib` imports reached via its
 callable-set entries; the per-entry hashes already cover those bytes, so
 folding them into the root hash is optional for coverage but required for
 literal conformance — decide at fix time and record which reading ships.
+
+## Fix (0.306.0)
+
+- What shipped:
+  - `src/extension/reload-wiring.ts` — new optional `ParsedTheta.rootClosureHash?:
+    { name; hash }` carrying the launched root callee's own load-time closure
+    hash keyed under the child-derivable name (§Fix: "onto the composed theta").
+  - `src/extension/production-composition.ts` — `captureRootClosureHash` computes
+    the root hash at LOAD via the exact §Fix machinery
+    `resolveCallableClosureHash(fs, ctx, deps, undefined, parsed.sourcePath)`,
+    keyed by `deriveCallableName(sourcePath)`; computed BEFORE the no-`tools:`
+    early return and threaded onto both the discovered-theta `composedInput` and
+    the `parseCalleeTheta` dispatch-parse return (so a subagent callee launched
+    via `invoke`/`.theta`-callable carries it too). `ThetaToolsResolution` grew
+    the matching optional field.
+  - `src/extension/production-theta-producer.ts` — the subagent-launch marshalling
+    loop adds the root row to `callableHashes` after the `tools:`-entry loop, iff
+    `!Object.hasOwn(callableHashes, rootClosureHash.name)` (additive; never
+    overrides a `tools:`-entry key). This closes both halves: the root is now in
+    the map, and a `tools:`-less subagent root marshals a PRESENT carrier.
+  - `tests/b0328-root-closure-hash-marshalled.test.ts` — 8 witness cells (LOAD
+    capture incl. `.thetalib` fold + prompt-mode + hyphen derivation; parent
+    marshal incl. carrier-present + prototype-named root; child end-to-end
+    admit/drop under the authenticated control plane).
+  - `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` — one
+    sorted entry `theta/zqx-root` (a benign `.theta`-doc-name artifact the DIAG-2
+    corpus extractor reads from a witness `sourcePath` literal; NOT a diagnostic
+    code — see adjudication 2 below).
+- Gates (verbatim):
+  - Witness: `npx vitest run tests/b0328-root-closure-hash-marshalled.test.ts`
+    → 8/8 pass. Revert-red proven: neutralising the producer root-row block reds
+    cells 2a/2b/2c/3b (root absent from map / carrier cleared / edited root
+    registers silently); neutralising the LOAD capture reds 1a/1b/1c; both
+    restored byte-exact, re-green 8/8.
+  - Full suite: `npx vitest run` → 484 files / 9590 tests pass.
+  - Typecheck: `npm run typecheck` → clean. Lint: `npm run lint` → clean.
+- Review: 3 rounds. R1 (deep) → two `correctness` findings: F1 the `mode:
+  subagent` capture gate missed the subagent-caller→prompt-callee launch; F2 the
+  additive guard `=== undefined` read inherited `Object.prototype` keys (dropped
+  prototype-named roots). R2 (deep) → F1/F2 behaviourally resolved (mode gate
+  dropped; guard now `!Object.hasOwn`); one `fidelity` finding: three stale
+  doc-comments still named the removed gate; residuals R1 (no committed red-able
+  witness), R2 (`__proto__` write no-op = 0330 territory), R3 (banned word
+  "just"). R3 (deep confirmation) → CLEAN: comments corrected, prose fixed, cells
+  1c/2c added pinning the F1/F2 remedies.
+- Verification: SOLID. Witness genuine (revert-red/restore byte-exact per
+  obligation 1); full suite green; live obligation adjudicated — the child-side
+  root-hash verification is fully offline-witnessed by cell 3 (real
+  `spawnSubagentConversation` over the fake JSON-child launcher →
+  `discoverAndComposeFixtures` under the authenticated control plane), the fix
+  touches no env→real-child forwarding wiring, so NO live cell is owed and none
+  was run; lint + typecheck clean. Additive: no contact with `deriveCallableName`,
+  child `byName`/`refuseDivergedChildCallables`, the `tools:`-entry key space
+  (0330), or `watchRoots`/watcher (0312).
+- Residuals:
+  1. `__proto__.theta` root name: `Object.hasOwn` passes but
+     `callableHashes["__proto__"] = hash` is a silent no-op through the inherited
+     setter, so that one degenerate basename marshals no root row (child skips
+     its verification). Identical to the pre-existing `tools:`-entry write at the
+     same site; adjudicated as bug 0330's key-space territory (0330 open, owns
+     the map key-space defects). Evidence: R2 in review rounds 2/3; producer
+     root-row write shares the entry-loop's plain-object assignment.
+  2. Pre-existing banned-word hits elsewhere in `production-theta-producer.ts`
+     ("not just the first" :~1825, "the bind just added" :~2239, "simply" :~4035)
+     — all outside this fix's hunks; repo-wide prose follow-up, not this bug.
+- Discharge notes appended: none owed (no sibling doc's claim is discharged or
+  contradicted by this fix).
+- Pinned dispositions / non-goals:
+  - Adjudication 1 (coverage reading of the §Fix sub-choice). The root closure
+    hash = the root `.theta` + its OWN transitively-imported `.thetalib`s (the
+    literal `resolveCallableClosureHash(…, undefined, sourcePath)` closure); the
+    `.thetalib`s reached via the root's callable-set `.theta` ENTRIES stay
+    covered by those entries' existing per-entry `closureHash` rows in the same
+    marshalled map — they are NOT folded into the root hash. Three-source basis:
+    (1) §Fix names that exact call, whose walk (`collectCallableClosureSources`)
+    follows body `import`/`export` only, never `tools:`; (2) §Fix states "the
+    per-entry hashes already cover those bytes … optional for coverage but
+    required for literal conformance", and subagent.md marshals "those hashes"
+    (plural — a MAP), so the UNION of the root row + per-entry rows IS the literal
+    "content hash of the transitive closure of the root callee `.theta` plus
+    every `.thetalib` import it (and its callable-set `.theta` entries)
+    transitively reach"; (3) coordination — folding would couple the root hash to
+    the entry key-space bug 0330 realigns. Bound: the union covers every byte;
+    no single mega-hash ships.
+  - Adjudication 2 (bounded self-authorization; DIAG-2 corpus baseline).
+    Question that would have been asked: the DIAG-2 corpus gate reds on a new
+    `.theta`-doc-name artifact `theta/zqx-root` extracted from a witness
+    `sourcePath: "/theta/zqx-root.theta"` literal — baseline it, or rename the
+    fixture path? Settled: add exactly one sorted entry to
+    `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json`. Three
+    evidence sources: (1) the gate's own comment states the baseline "pins that
+    artefact population as data … so an ADDITION still reds while the extractor's
+    fidelity is a separate subject" — baselining benign artifacts IS the
+    mechanism; (2) sibling precedent — the (B)-harness fixture names
+    `theta/parent`, `theta/child`, `theta/bare`, `theta/onlytheta` are ALREADY
+    baselined, same class, same resolution; (3) DIAG-2's real obligation is
+    DIAGNOSTIC CODES (registry row + reference mirror + spec sentence);
+    `theta/zqx-root` has no emit site and no registry semantics, so no
+    registry/mirror/spec obligation attaches. Bound: exactly one string,
+    fixture-data only, no assertion or executable change; the gate confirmed the
+    added set was exactly `["theta/zqx-root"]`. STOP valve (not triggered): if
+    the added set exceeded that one entry, or any other gate cell reded, STOP
+    and report.
 
 ## Provenance
 

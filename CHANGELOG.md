@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.306.0]
+
+### Fixed
+
+- **Bug 0328** — the launched subagent ROOT callee's own closure hash is now captured at load (`captureRootClosureHash` in `production-composition.ts`, keyed by `deriveCallableName`, recorded before the no-`tools:` early return) and marshalled into the hash carrier beside the `tools:` entries (`production-theta-producer.ts` adds the root row after the `tools:` loop iff absent), so a `tools:`-less subagent theta no longer launches with NO hash carrier and the child verifies the root closure like any callable; the root hash covers the root `.theta` plus its own libs (callable-set entries keep per-entry rows). Witnessed by `tests/b0328-root-closure-hash-marshalled.test.ts` (8 cells: load capture, parent marshal incl. carrier-present and prototype-named root, child end-to-end admit/drop).
+
 ## [0.305.0]
 
 ### Fixed

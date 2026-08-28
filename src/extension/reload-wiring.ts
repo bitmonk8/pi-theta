@@ -81,6 +81,22 @@ export interface ParsedTheta {
    */
   readonly callableSet?: CallableSetSnapshot;
   /**
+   * The LAUNCHED ROOT callee's own transitive-closure content hash, captured
+   * at load (root `.theta` + every `.thetalib` it transitively
+   * imports/re-exports), keyed under the child-derivable name
+   * (`deriveCallableName`) so the subagent launch marshals it in the same
+   * callable-hash map as the `tools:` entries and the child refuses the
+   * invocation when its own re-read of the root diverges
+   * (subagent.md #subagent-theta-callable-hash). Captured for EVERY theta with
+   * a readable on-disk source — ANY theta can be launched as a child root, a
+   * subagent-mode theta by slash/`invoke(...)`, or a prompt-mode theta when a
+   * subagent caller invokes it — but marshalled ONLY on the subagent-launch
+   * path. The `.thetalib`s reached via the root's callable-set `.theta`
+   * ENTRIES are covered by those entries' own per-entry `closureHash`, not
+   * folded in here.
+   */
+  readonly rootClosureHash?: { readonly name: string; readonly hash: string };
+  /**
    * The binder-model reference resolved at load time from the two-step chain
    * (`bind_model:` → `theta.binderModel`) via `resolveBinderModel`
    * (binder-model-and-context.md §"Binder model"). Present for a registered

@@ -118,5 +118,6 @@
   "theta/union-arm-query",
   "theta/wireonsession",
   "theta/wireprod",
-  "theta/worker"
+  "theta/worker",
+  "theta/zqx-root"
 ]

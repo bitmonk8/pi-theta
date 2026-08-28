@@ -1102,6 +1102,12 @@ async function runComposePass(
       ...(binderModelResolution.binderModel !== undefined
         ? { binderModel: binderModelResolution.binderModel }
         : {}),
+      // Bug 0328 §Fix: thread the root's own captured closure hash so the
+      // producer's marshalling loop can add it to the launch's callable-hash
+      // carrier alongside the `tools:` entries.
+      ...(toolResult.rootClosureHash !== undefined
+        ? { rootClosureHash: toolResult.rootClosureHash }
+        : {}),
     };
     // Carry the parsed frontmatter + body onto the runnable theta so the
     // hot-reload rebuild can swap the `ThetaRegistry` with full `ParsedTheta`
@@ -1701,6 +1707,17 @@ interface ThetaToolsResolution {
    * the theta declares no extension-tool callable.
    */
   readonly extensionToolNames?: ReadonlySet<string>;
+  /**
+   * The launched ROOT callee's own transitive-closure content hash, captured
+   * at load (`captureRootClosureHash`) and threaded through unchanged from
+   * both return sites (INCLUDING the no-`tools:` early return — bug 0328's
+   * second half is that a `tools:`-less callee cleared the carrier entirely).
+   * Captured for EVERY theta with a readable on-disk source — ANY theta can be
+   * launched as a child root, a subagent-mode theta by slash/`invoke(...)`, or
+   * a prompt-mode theta when a subagent caller invokes it — but marshalled
+   * ONLY on the subagent-launch path.
+   */
+  readonly rootClosureHash?: { readonly name: string; readonly hash: string };
 }
 
 /** The empty frozen callable set for a theta that declares no `tools:`. */
@@ -1739,6 +1756,14 @@ async function resolveThetaToolsAtLoad(
   // (`#recheckCalleeContainment`) remains the containment backstop.
   activeRoots?: readonly string[],
 ): Promise<ThetaToolsResolution> {
+  // Captured BEFORE the no-`tools:` early return: bug 0328's defect is that a
+  // `tools:`-less subagent theta cleared the whole hash carrier, so its own
+  // launched bytes were never validated against anything. The root's own
+  // closure hash is independent of whether it declares `tools:`.
+  const rootClosureHash = await captureRootClosureHash(parsed, fs, ctx, parseDeps);
+  const rootClosureSpread =
+    rootClosureHash !== undefined ? { rootClosureHash } : {};
+
   const toolsList = parsed.frontmatter.tools;
   if (
     toolsList === undefined ||
@@ -1748,7 +1773,7 @@ async function resolveThetaToolsAtLoad(
     // No `tools:` → the empty callable set (no `<name>(...)` callables). Attach
     // the empty frozen snapshot so the runtime enforces "no ambient tools"
     // rather than falling back to the producer-wide resolver.
-    return { diagnostics: [], callableSet: EMPTY_CALLABLE_SET };
+    return { diagnostics: [], callableSet: EMPTY_CALLABLE_SET, ...rootClosureSpread };
   }
   const callerDir = dirname(parsed.sourcePath);
   const diagnostics: Diagnostic[] = [];
@@ -1899,7 +1924,46 @@ async function resolveThetaToolsAtLoad(
     diagnostics,
     callableSet,
     extensionToolNames: collectExtensionToolNames(callableSet, ctx),
+    ...rootClosureSpread,
   };
+}
+
+/**
+ * Capture the LAUNCHED ROOT callee's own transitive-closure content hash at
+ * load, reusing the same machinery `attachLoadTimeClosureHashes` applies to
+ * each `tools:` entry (`resolveCallableClosureHash`), keyed under the
+ * child-derivable name (`deriveCallableName`) so the producer's marshalling
+ * loop can add it to the same `PI_THETA_SUBAGENT_CALLABLE_HASHES` map.
+ *
+ * The hash is captured for EVERY theta with a readable on-disk source, because
+ * ANY theta can be launched as a child root: a subagent-mode theta whenever it
+ * is dispatched by slash or `invoke(...)`, and a prompt-mode theta when a
+ * SUBAGENT-mode caller invokes it (the caller runs the prompt callee inside a
+ * spawned child `pi` process, not in-process — see the producer's
+ * `#driveCallee` and invocation.md). Gating capture on `mode: subagent` here
+ * would leave that spawned prompt callee's root unhashed, so the child could
+ * execute a diverged root undetected. The captured value is marshalled ONLY on
+ * the subagent-launch path (`spawnSubagentConversation` reads
+ * `theta.rootClosureHash`); a prompt-mode theta dispatched normally, in-process
+ * by slash or prompt, never marshals it, so in-process dispatch is unaffected.
+ *
+ * An in-memory fixture has no on-disk root to re-read, so a theta with no
+ * `sourcePath` captures nothing. The `.thetalib`s reached via the root's OWN
+ * callable-set `.theta` entries are already covered by those entries' per-entry
+ * `closureHash` (`attachLoadTimeClosureHashes`); folding them in again here
+ * would hash the same bytes under two different keys for no added coverage.
+ */
+async function captureRootClosureHash(
+  parsed: ThetaCompositionInput,
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  parseDeps: Parameters<typeof parseThetaDocument>[1],
+): Promise<{ readonly name: string; readonly hash: string } | undefined> {
+  if (parsed.sourcePath === undefined) {
+    return undefined;
+  }
+  const hash = await resolveCallableClosureHash(fs, ctx, parseDeps, undefined, parsed.sourcePath);
+  return hash === undefined ? undefined : { name: deriveCallableName(parsed.sourcePath), hash };
 }
 
 /**
@@ -2991,7 +3055,17 @@ async function parseCalleeTheta(
   // backstop — an omitted union, not an empty one, is what turns the load-time
   // check off here.
   const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps, getAllTools);
-  return { ...input, callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET };
+  return {
+    ...input,
+    callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET,
+    // Bug 0328 §Fix: an invoke/`.theta`-callable dispatch to a subagent callee
+    // launches THAT callee as the root of its own child, so its captured
+    // closure hash threads through this dispatch parse exactly as it does the
+    // discovered-theta compose pass above.
+    ...(toolResult.rootClosureHash !== undefined
+      ? { rootClosureHash: toolResult.rootClosureHash }
+      : {}),
+  };
 }
 
 /**

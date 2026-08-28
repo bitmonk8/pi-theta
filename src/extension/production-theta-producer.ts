@@ -2070,6 +2070,19 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
     }
 
+    // Bug 0328 §Fix: marshal the LAUNCHED ROOT callee's own closure hash under
+    // its child-derivable name too — the spec's hash window is the WHOLE callee
+    // file, not only its `tools:` entries, and a `tools:`-less root previously
+    // marshalled no carrier at all. Added only when the key is not already an
+    // OWN `tools:`-entry key. `Object.hasOwn` (never a `=== undefined` read)
+    // so a root file whose derived name collides with an inherited
+    // `Object.prototype` member (`constructor`, `toString`, `hasOwnProperty`,
+    // …) still marshals its row instead of being silently skipped.
+    const rootClosureHash = theta.rootClosureHash;
+    if (rootClosureHash !== undefined && !Object.hasOwn(callableHashes, rootClosureHash.name)) {
+      callableHashes[rootClosureHash.name] = rootClosureHash.hash;
+    }
+
     // The runtime-defect diagnostic sink (advisory teardown / spawn-failure /
     // envelope failures). Absent on non-production harnesses (a no-op).
     const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
