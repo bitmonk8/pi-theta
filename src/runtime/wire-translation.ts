@@ -70,6 +70,7 @@
 // never a production caller.
 
 import { type SchemaSidecar, type SidecarUnionArm } from "../parser/schema-lowering";
+import { enumDeclaringKey } from "./lexical-environment";
 import type {
   CompiledValidator,
   LoweredSchema,
@@ -133,6 +134,19 @@ export interface InboundTranslationInput {
    * union position in its document is unaffected either way.
    */
   readonly schemaValidator?: Pick<SchemaValidator, "compile">;
+  /**
+   * The resolved path of the file whose declared enums the retagged positions
+   * name. When present, a rebuilt named-enum position mints its declaring-enum
+   * tag via `enumDeclaringKey(enumDeclaringPath, name)` rather than the bare
+   * declared name (bug 0337), so an inbound query / params result of a
+   * `.theta`-declared enum compares equal to a body-constructed variant of the
+   * SAME file-qualified declaration. Absent (a harness with no source path, or
+   * a boundary whose retagged names are not the local file's own declarations)
+   * keeps the bare declared name. Every retagged position at the two boundaries
+   * that supply this is a body-declared enum of that one file, so a single
+   * path qualifies them all.
+   */
+  readonly enumDeclaringPath?: string;
 }
 
 /**
@@ -175,6 +189,7 @@ export function translateInbound(input: InboundTranslationInput): ThetaValue {
     indexes: new Map(),
     schemaValidator: input.schemaValidator,
     armValidators: new Map(),
+    enumDeclaringPath: input.enumDeclaringPath,
   };
   return rebuildUnder(input.validated, input.rootDef, walk);
 }
@@ -193,6 +208,19 @@ interface InboundWalk {
    * `array<T | null>`.
    */
   readonly armValidators: Map<SidecarUnionArm, CompiledValidator>;
+  /** The file path whose declared enums a retagged position names (bug 0337); absent keeps bare names. */
+  readonly enumDeclaringPath: string | undefined;
+}
+
+/**
+ * The declaring-enum tag a retagged named-enum position mints: file-qualified
+ * (`enumDeclaringKey`, bug 0305/0337) when the walk carries the declaring
+ * file's path, else the bare declared name.
+ */
+function enumTagFor(name: string, walk: InboundWalk): string {
+  return walk.enumDeclaringPath === undefined
+    ? name
+    : enumDeclaringKey(walk.enumDeclaringPath, name);
 }
 
 /** One sidecar's four maps re-keyed for O(1) per-position lookup during a walk, plus its field order. */
@@ -300,7 +328,7 @@ function rebuildInbound(
     // value compares equal to a locally constructed variant. Anonymous
     // string-literal-union positions are absent from the sidecar and so stay
     // plain strings.
-    return makeEnumValue(enumName, value);
+    return makeEnumValue(enumTagFor(enumName, walk), value);
   }
   const arms = index?.armsByPointer.get(pointer);
   if (arms !== undefined) {
@@ -426,7 +454,9 @@ function rebuildUnderFirstAdmittingArm(
     return value as ThetaValue;
   }
   if (arm.enumName !== undefined) {
-    return typeof value === "string" ? makeEnumValue(arm.enumName, value) : (value as ThetaValue);
+    return typeof value === "string"
+      ? makeEnumValue(enumTagFor(arm.enumName, walk), value)
+      : (value as ThetaValue);
   }
   if (arm.defName === undefined) {
     return value as ThetaValue;

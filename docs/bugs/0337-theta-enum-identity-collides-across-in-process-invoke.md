@@ -1,6 +1,6 @@
 # Bug 0337 — A `.theta`-file enum tags on its bare declared name, so two different `.theta` files each declaring `enum Sev` mint the identical tag `"Sev"`: a callee's `Sev.Low` returned across an in-process `invoke<Sev>` compares `==` true against the caller's unrelated same-named `Sev.Low`, silently, where the same two declarations in `.thetalib` files carry file-qualified keys and compare unequal
 
-- **Status:** open.
+- **Status:** fixed (0.305.0).
 - **Sev/Diff estimate:** S1/D2 — S1: two nominally distinct enum
   declarations compare `==` true with zero diagnostics at any phase, and the
   divergence is invisible on the wire (`JSON.stringify` of both sides prints
@@ -157,3 +157,96 @@ the invoke path falsifies.
   (0.98.0); establishes that the in-process prompt→prompt cell delivers the
   callee's boxed enum carrier to the caller, the path over which this collision
   is reachable.
+
+## Fix (0.305.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `buildBoundEnvironment`
+    mints each top-level `.theta` enum's registration tag via
+    `enumDeclaringKey(<theta resolvedPath>, name)` (threaded `theta.sourcePath`
+    at all three bind sites); the typed-query decode and the subagent-root
+    params bind pass `enumDeclaringPath` so a body-constructed and an
+    inbound variant of the same declaration keep comparing equal;
+    `#validateInvokeReturn` threads the CALLEE's `sourcePath` into the
+    invoke-return decode (Option 1) so the subagent-envelope leg and the
+    `tools:`-callee return leg retag to the callee's file-qualified key.
+  - `src/runtime/wire-translation.ts` — inbound walk carries
+    `enumDeclaringPath`; `enumTagFor` mints the file-qualified key at both
+    `makeEnumValue` retag sites.
+  - `src/runtime/inbound-boundary.ts` — `decodeInboundValue` /
+    `bindParamsInbound` forward `enumDeclaringPath`.
+  - `src/extension/theta-composition-producer.ts` — the binder-`args` entry
+    forwards `theta.sourcePath` as `enumDeclaringPath`.
+  - `src/runtime/lexical-environment.ts` — comments only: the three
+    declaring-key comments no longer assert the falsified "`.theta` cannot be
+    imported ⇒ bare names collision-free" premise.
+  - `docs/spec_topics/runtime-value-model.md`, `docs/reference/type-system.md`
+    — clause-4 spec amendment: file-qualified `.theta` enum identity, dropping
+    the invoke-falsified premise; plus the `:34` inbound-bullet clause keying
+    the invoke-return / typed `.theta`-callable-return boundary on the callee's
+    declaring file.
+  - `tests/b0337-theta-enum-identity-invoke.test.ts` — new witness.
+  - 10 landed witness files re-anchored + `tests/fixtures/diag2/…baseline.json`
+    (3 fixture-path document names) + 6 owning-bug coordination notes.
+- Gates: witness `npx vitest run tests/b0337-…` 5 passed (RED-at-fork proven by
+  neutralising the 4 fix files: Cell 1 `eq` + Cell 4 `vp1EqVp2`/`vs1EqVs2`/
+  `*EqOwn` red with `expected false to be true // Object.is equality`, controls
+  green; byte-exact restore via `git hash-object`); full `npx vitest run`
+  483 files / 9582 passed / 0 failed; `npx tsc -p tsconfig.json --noEmit` clean;
+  `npx eslint … "src/**/*.ts"` clean.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`) → FINDINGS: F1 test (0174 row b
+  flipped without its tag-presence discriminator), F2 spec (`runtime-value-model.md:34`
+  inbound bullet contradicted the Option-1 invoke retag), F3 prose
+  (`lexical-environment.ts` comments re-asserted the falsified premise),
+  F4/F5 non-blocker hygiene, F6 fidelity (record Option-1 divergence). R2
+  (`bug-fix-reviewer-fast`) → CLEAN, no deep-review recommended.
+- Verification (`bug-fix-verifier`): SOLID. (1) witness reds at fork with the
+  documented symptom, controls stay green, byte-exact restore; (2) full suite
+  9582/0; (3) live obligation discharged offline — the fixed process-boundary
+  path is exercised for real, provider-free, by Cell 4 (subagent-root caller +
+  attach-leg prompt callees + spawn-leg subagent grandchildren; all three child
+  pins), and no provider participates in enum-tag equality; (4) lint + typecheck
+  clean.
+- Residuals:
+  1. Multi-hop subagent chains: Option 1 keys the invoke-return retag on the
+     IMMEDIATE callee's file, so a value forwarded through an intermediate
+     subagent callee is attributed to the intermediate, not its original
+     declaring file (the envelope carries only the wire string, not the tag).
+     0337's reproduction and §Expected are one-hop; evidence: the b0337 witness
+     and all re-anchored cells are single-hop. Out of scope here — flagged for
+     the parent to file if a standalone report is wanted.
+  2. `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` gained
+     `theta/a`, `theta/b`, `theta/same` — the witness's `/theta/*.theta`
+     fixture-path document names, tripped by the DIAG-2 corpus gate's
+     code-shaped-span extractor. Sanctioned by the gate's own comment
+     (`tests/registry-closed-set-corpus-gate.test.ts:207-214`) and its
+     live-produced-entry companion assertion; grep confirms the three strings
+     originate solely from the b0337 witness. Self-authorised as a
+     provably-bounded, no-behaviour, no-assertion-weakening scope extension.
+- Discharge notes appended: dated `## Coordination note (0337, …)` sections on
+  the six owning docs — 0028, 0067, 0172, 0174, 0181, 0202.
+- Pinned dispositions / non-goals: the spec amendment lands in
+  `runtime-value-model.md` + `type-system.md` (the two the doc §Fix and
+  §Affected name); the task's "imports.md" was reconciled to `type-system.md`
+  per the doc (imports.md is cited nowhere in this report). No package.json /
+  CHANGELOG / README / bug-index change in this lane (parent versions + merges).
+
+### Parent ratification (2026-08-27, twenty-third session) — recorded verbatim
+
+> PARENT RATIFICATION (2026-08-27, twenty-third session): the operator's batch adjudication settles the semantics — same-named .theta enums from different files compare UNEQUAL across in-process invoke<T>; the 26 premeasured reds assert the OLD buggy equality and are ratified flips, BOTH sub-kinds:
+> (B) STALE-BARE-ANCHOR cells (0028 respond-tool-wire ×2; 0181 params-default-enum-access-merge ×8; 0172 typed-query + binder-args cells): re-mint the hand-built bare makeEnumValue anchors with the file's declaring key — pure anchor refresh, subjects preserved (runtime semantics those cells witness are unchanged).
+> (A) CROSS-CALLEE cells (0067 subagent-invoke-inbound-enum-tag ×3; 0172 tool-callable return; 0174 invoke-return carrier projection + prompt-cell ×5; 0202 invoke-depth wire-form ×3): re-anchor to the CALLEE's file-qualified variant (the value belongs to the callee's declaration); where a cell's very point was the cross-file comparison, ADDITIONALLY assert the new inequality against the caller's own enum. Subjects preserved per-cell; WHY comments naming 0337.
+> SUBAGENT-LEG ADJUDICATION — OPTION 1 (doc completion, clause 3 addressed only the prompt leg): thread the CALLEE's resolvedPath into the subagent invoke-return decode AND the tools:-callee return leg so ALL legs mint the callee's file-qualified tag; mode invariance (0174's witness) is the oracle. Leaving legs divergent would weaken a landed witness to preserve an incoherence — REJECTED.
+> OBLIGATIONS RIDING: dated append-only coordination notes on ALL SIX owning docs (0028/0067/0172/0174/0181/0202 — find exact filenames); the 0337 witness MUST include a mode-invariance cell (prompt leg and subagent leg tags compare equal to each other and to the callee's declaration); ANY red beyond the premeasured 26 ⇒ STOP again.
+
+Option 1 supersedes this report's original `## Fix` sentence "The invoke-return
+decode needs no retag" for the subagent-envelope and `tools:`-callee legs: their
+carrier is a JSON primitive string, so the inbound decode DOES retag it, and
+without threading the callee's resolved path it would remint the bare name —
+re-colliding two subagent-mode callees' returns and diverging from the
+boxed-carrier prompt→prompt leg. The prompt→prompt leg still needs no retag
+(its boxed carrier keeps the callee's registration tag intact). The in-theta
+integration flips (0067, 0172 theta-callable / invoke-union, 0174 prompt-cell)
+cannot reference the callee's variant in theta source, so each carries a
+`*NotStr` tag-presence discriminator (`v == "<wire>"` → false) that preserves
+the owning bug's "tag reattached, not dropped" subject under the ratified flip.

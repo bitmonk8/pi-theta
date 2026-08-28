@@ -1245,3 +1245,13 @@ deferral row c6. Residuals 2, 3 and 4 are unchanged — 0185 §Non-goals scopes
 `runtime-value-model.md`'s bypass sentence out, `renderEchoValue`'s `enum` case
 stays unreachable from the binder echo, and the positional drift stays 0134's
 do-not-chase class.
+
+## Coordination note (0337, 2026-08-28)
+
+`tests/params-default-enum-access-merge.test.ts` cells (1)–(5), (10), and
+controls (6)–(7) were re-anchored to bug 0337's file-qualified `.theta` enum
+identity: each cell drives its own fixture under its own `sourcePathOf(name)`,
+so the module-level `SEV_HIGH`/`SEV_A` constants were replaced with
+`sevHighOf(name)`/`sevAOf(name)` helpers minting
+`enumDeclaringKey(sourcePathOf(name), "Sev")` per cell rather than one shared
+bare tag. Runtime semantics of this bug's own fix are unchanged.

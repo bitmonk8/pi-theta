@@ -119,6 +119,7 @@ import type {
 import { createEffectfulStatementHost } from "../runtime/effectful-statement-host";
 import {
   buildEnvironment,
+  enumDeclaringKey,
   type EnumRegistration,
   type LexicalEnvironment,
   type MaterializedImport,
@@ -1436,6 +1437,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       undefined,
       theta.imports,
       presentedCallableNames(theta),
+      theta.sourcePath,
     );
     const defaults: DefaultedField[] = [];
     for (const wireName of defaultedFields) {
@@ -1865,6 +1867,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         bindInput.paramBindings,
         theta.imports,
         presentedCallableNames(theta),
+        theta.sourcePath,
       ),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
@@ -2115,6 +2118,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         bindInput.paramBindings,
         theta.imports,
         presentedCallableNames(theta),
+        theta.sourcePath,
       ),
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: root.checkpoint,
@@ -2472,6 +2476,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               | undefined,
             body: theta.body,
             schemaValidator: this.#input.root.schemaValidator,
+            // Bug 0337: a `.theta`-declared enum `params:` field binds a
+            // file-qualified variant matching a body-constructed one.
+            ...(theta.sourcePath !== undefined
+              ? { enumDeclaringPath: theta.sourcePath }
+              : {}),
           })
         : new Map<string, ThetaValue>();
     const rootBindInput: ConversationBindInput = {
@@ -2935,6 +2944,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               enumNames: new Set(enumDeclsOf(deps.theta.body).map((decl) => decl.name)),
               validated,
               schemaValidator: root.schemaValidator,
+              // Bug 0337: this theta's OWN typed-query result retags its
+              // `.theta`-declared enums with their file-qualified declaring
+              // key, so a query result and a body-constructed variant of the
+              // same declaration keep comparing equal.
+              ...(deps.theta.sourcePath !== undefined
+                ? { enumDeclaringPath: deps.theta.sourcePath }
+                : {}),
             })
         : undefined;
 
@@ -3733,7 +3749,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         });
         // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
         // validation to the child's `Ok` payload, exactly as the spawn path below.
-        return this.#validateInvokeReturn(calleePath, returnSite, outcome.result);
+        return this.#validateInvokeReturn(
+          calleePath,
+          returnSite,
+          outcome.result,
+          callee.sourcePath,
+        );
       } finally {
         childBinding.finishInvocation?.();
       }
@@ -3771,7 +3792,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // the child's returned value against the `invoke<Schema>` annotation. A
       // mismatch (e.g. a `string` under `invoke<number>`) is
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
-      return this.#validateInvokeReturn(calleePath, returnSite, result);
+      return this.#validateInvokeReturn(calleePath, returnSite, result, callee.sourcePath);
     } finally {
       // PIC-65: await the (idempotent, non-throwing) child-process teardown BEFORE
       // `finishInvocation`, so the child is killed / has exited (abort listener
@@ -3897,6 +3918,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     calleePath: string,
     returnSite: InvokeReturnSite | null,
     result: ResultValue,
+    calleeResolvedPath: string | undefined,
   ): ResultValue {
     if (returnSite === null || !result.ok) {
       return result;
@@ -3930,6 +3952,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
           validated: result.value as unknown,
           schemaValidator: this.#input.root.schemaValidator,
+          // Bug 0337 (subagent-leg / tools:-callee-leg adjudication, Option 1):
+          // an `invoke<T>` return whose carrier is a JSON primitive string (the
+          // subagent envelope leg) is retagged by the inbound decode; mint the
+          // CALLEE's file-qualified declaring key so the returned variant carries
+          // the same tag on the subagent leg as the prompt→prompt boxed-carrier
+          // leg keeps intact — mode invariance (0174's witness). The value belongs
+          // to the callee's declaration, so a caller reading it against its own
+          // same-named enum compares unequal.
+          ...(calleeResolvedPath !== undefined
+            ? { enumDeclaringPath: calleeResolvedPath }
+            : {}),
         }),
       );
     }
@@ -4259,6 +4292,7 @@ function buildBoundEnvironment(
   paramBindings: ReadonlyMap<string, ThetaValue> | undefined,
   imports: readonly MaterializedImport[] | undefined,
   callableNames: readonly string[],
+  resolvedPath: string | undefined,
 ): LexicalEnvironment {
   // Register top-level `enum` declarations (with their captured variant names
   // and any explicit `= "..."` wire values) so `Enum.Variant` access resolves
@@ -4271,6 +4305,9 @@ function buildBoundEnvironment(
         name: stmt.name,
         variants: stmt.variants,
         ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+        ...(resolvedPath !== undefined
+          ? { declaringKey: enumDeclaringKey(resolvedPath, stmt.name) }
+          : {}),
       });
     }
   }

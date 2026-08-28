@@ -185,6 +185,7 @@ import {
   type ResultValue,
   type ThetaValue,
 } from "../src/runtime/value";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
@@ -211,10 +212,18 @@ function ajvArgsNote(thetaName: string, ajvSummary: string): string {
  * the resulting value compares equal to a locally constructed variant of the
  * same enum").
  */
-const SEV_HIGH: ThetaValue = makeEnumValue("Sev", "high");
+// 0337: `.theta` enum tags now key on the DECLARING file, not the bare name.
+// Each cell parses its OWN body under its OWN `sourcePathOf(name)`, so a value
+// asserted to satisfy "that cell's own enum" must carry that cell's own
+// declaring key rather than one shared bare tag.
+function sevHighOf(name: CellName): ThetaValue {
+  return makeEnumValue(enumDeclaringKey(sourcePathOf(name), "Sev"), "high");
+}
 
 /** Row c6's variant, whose enum declares bare variants rather than wire strings. */
-const SEV_A: ThetaValue = makeEnumValue("Sev", "A");
+function sevAOf(name: CellName): ThetaValue {
+  return makeEnumValue(enumDeclaringKey(sourcePathOf(name), "Sev"), "A");
+}
 
 // ===========================================================================
 // Fixtures.
@@ -743,7 +752,7 @@ describe("bug 0181 (1) — an `Enum.Variant` default at the annotated field bind
       "frontmatter-fields-a.md:71 — an `Enum.Variant` default preserves the runtime enum brand at the body",
     ).toBe(true);
     expect(
-      valuesEqual(sev, SEV_HIGH),
+      valuesEqual(sev, sevHighOf("s1")),
       "runtime-value-model.md:34 — the bound value compares equal to a locally constructed variant of the same enum",
     ).toBe(true);
 
@@ -787,7 +796,8 @@ describe("bug 0181 (2) — a named-enum field of a `Box { … }` default binds",
       isEnumValue(fieldOf(box, "sev")),
       "runtime-value-model.md:34 — the walk recurses through nested object fields, so the named-enum FIELD is tagged at its own depth",
     ).toBe(true);
-    expect(valuesEqual(fieldOf(box, "sev"), SEV_HIGH)).toBe(true);
+    // 0337: this cell's own declaring file (sourcePathOf("s4")); the comparand must carry that same declaring key.
+    expect(valuesEqual(fieldOf(box, "sev"), sevHighOf("s4"))).toBe(true);
   });
 });
 
@@ -813,7 +823,8 @@ describe("bug 0181 (3) — the bare-object spelling of the same default binds id
       "the declared type supplies the schema, so the bare-object spelling reaches the body branded exactly as the named spelling does",
     ).toBe("Box");
     expect(Object.keys(box as object)).toEqual(["sev", "who"]);
-    expect(valuesEqual(fieldOf(box, "sev"), SEV_HIGH)).toBe(true);
+    // 0337: this cell's own declaring file (sourcePathOf("s5")); the comparand must carry that same declaring key.
+    expect(valuesEqual(fieldOf(box, "sev"), sevHighOf("s5"))).toBe(true);
   });
 });
 
@@ -838,7 +849,8 @@ describe("bug 0181 (4) — an `Enum.Variant` inside an array default binds", () 
       isEnumValue(first),
       "runtime-value-model.md:34 — the walk recurses through arrays and tags at the element's own depth, never at the enclosing array",
     ).toBe(true);
-    expect(valuesEqual(first, SEV_HIGH)).toBe(true);
+    // 0337: this cell's own declaring file (sourcePathOf("s6")); the comparand must carry that same declaring key.
+    expect(valuesEqual(first, sevHighOf("s6"))).toBe(true);
   });
 });
 
@@ -875,7 +887,8 @@ describe("bug 0181 (5) — an `Enum.Variant` default at a union-typed param bind
       isEnumValue(sev),
       "runtime-value-model.md:34 — at a position lowered to `{ \"anyOf\": [...] }` the walk translates the value under the first arm that admits it, reattaching the declaring-enum tag where that arm is a named `enum`",
     ).toBe(true);
-    expect(valuesEqual(sev, SEV_HIGH)).toBe(true);
+    // 0337: this cell's own declaring file (sourcePathOf("s3")); the comparand must carry that same declaring key.
+    expect(valuesEqual(sev, sevHighOf("s3"))).toBe(true);
 
     // PREMISE 1 (structural): the union-arm dispatch only runs when the boundary
     // is given a validator to re-test the arms through
@@ -928,7 +941,8 @@ describe("bug 0181 (6) — CONTROL: the bare-wire-string default keeps binding, 
     // The workaround's end state, unchanged: the wire string is re-tagged by the
     // inbound pass at the named-enum position, which is why the two spellings
     // must agree on the bound value as well as on the echo.
-    expect(valuesEqual(bindingOf(capture, "sev"), SEV_HIGH)).toBe(true);
+    // 0337: this control's own declaring file (sourcePathOf("s2")); the comparand must carry that same declaring key.
+    expect(valuesEqual(bindingOf(capture, "sev"), sevHighOf("s2"))).toBe(true);
   });
 });
 
@@ -949,7 +963,10 @@ describe("bug 0181 (7) — CONTROL: fill-if-absent never constructs the default"
       boundArgs(capture),
       "the declared `Sev.High` is never constructed on this path, so nothing this bug is about can reach the merge",
     ).toEqual({ topic: "hello", sev: "low" });
-    expect(valuesEqual(bindingOf(capture, "sev"), makeEnumValue("Sev", "low"))).toBe(true);
+    // 0337: this control's own declaring file (sourcePathOf("s13")); the comparand must carry that same declaring key.
+    expect(
+      valuesEqual(bindingOf(capture, "sev"), makeEnumValue(enumDeclaringKey(sourcePathOf("s13"), "Sev"), "low")),
+    ).toBe(true);
   });
 });
 
@@ -1032,8 +1049,8 @@ describe("bug 0181 (10) — deferral row c6's exact shape loads silently AND the
     expect(capture.binder?.bound).toBe(true);
     expect(boundArgs(capture)).toEqual({ topic: "hello", p: "A" });
     expect(
-      valuesEqual(bindingOf(capture, "p"), SEV_A),
-      "a bare-variant enum's wire string is the variant name, and the bound value compares equal to a locally constructed `Sev.A`",
+      valuesEqual(bindingOf(capture, "p"), sevAOf("s14")),
+      "a bare-variant enum's wire string is the variant name, and the bound value compares equal to a locally constructed `Sev.A` (0337: keyed to this cell's own declaring file)",
     ).toBe(true);
   });
 });

@@ -106,6 +106,7 @@ import type { BodyExecution } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDoc } from "./helpers/e2e-s1";
 import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 
 /** The real AJV seam (no coercion, no default-fill) — the QRY-22 validator. */
 function ajv(): AjvSchemaValidator {
@@ -593,7 +594,14 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
         `notes=${JSON.stringify(result.notes)}`,
     ).toBe("success");
     expect(
-      valuesEqual(result.execution.result.value as ThetaValue, makeEnumValue("Shape", "low")),
+      // 0337: `.theta` enum tags now key on the DECLARING file, not the bare
+      // name — the fixture's `Shape` is declared and driven from
+      // "/theta/wireprod.theta", so the locally-constructed anchor must carry
+      // that same declaring key to still stand for "the caller's own enum".
+      valuesEqual(
+        result.execution.result.value as ThetaValue,
+        makeEnumValue(enumDeclaringKey("/theta/wireprod.theta", "Shape"), "low"),
+      ),
       "the bound value must compare equal to a locally constructed `Shape.Low`",
     ).toBe(true);
     expect(
@@ -1054,7 +1062,12 @@ describe("bug 0028 wire contract — the registered `execute` against an armed c
         `${JSON.stringify(result.execution.error)}, notes=${JSON.stringify(result.notes)}`,
     ).toBe("success");
     expect(
-      valuesEqual(result.execution.result.value as ThetaValue, makeEnumValue("Severity", "low")),
+      // 0337: same re-anchor as the Shape cell above, keyed to this fixture's
+      // own declaring file "/theta/wireonsession.theta".
+      valuesEqual(
+        result.execution.result.value as ThetaValue,
+        makeEnumValue(enumDeclaringKey("/theta/wireonsession.theta", "Severity"), "low"),
+      ),
       "the bound value must compare equal to a locally constructed `Severity.Low`",
     ).toBe(true);
     expect(

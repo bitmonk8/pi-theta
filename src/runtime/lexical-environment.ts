@@ -198,13 +198,15 @@ export interface EnumRegistration {
    */
   readonly values?: Readonly<Record<string, string>>;
   /**
-   * The declaring-declaration identity key (`enumDeclaringKey`, bug 0305) for
-   * an enum registered inside a module-scope environment. Absent for a
-   * top-level theta enum (bare name; a `.theta` file cannot be imported, so
-   * bare names are collision-free per declaration — ratification 2). The
-   * constructor tags the runtime `EnumEntry` with `reg.declaringKey ??
-   * reg.name` so a module-scope enum and a caller-side imported read of the
-   * SAME declaration mint identical tags.
+   * The declaring-declaration identity key (`enumDeclaringKey`, bug 0305). A
+   * file-loaded top-level `.theta` enum now carries
+   * `declaringKey = enumDeclaringKey(<theta resolvedPath>, name)` (bug 0337,
+   * generalising 0305's scheme) so two distinct `.theta` files' same-named
+   * enums mint distinct keys. Absent only for a harness/in-memory theta with
+   * no source path, where the tag falls back to the bare name. The constructor
+   * tags the runtime `EnumEntry` with `reg.declaringKey ?? reg.name` so a
+   * module-scope enum and a caller-side imported read of the SAME declaration
+   * mint identical tags.
    */
   readonly declaringKey?: string;
 }
@@ -264,10 +266,10 @@ function buildVariantWireMap(
 /**
  * One registered enum's variant → wire-value map paired with the tag
  * `resolveEnumVariant` mints the runtime `EnumValue` from (bug 0305). The tag
- * is the declaring-declaration identity, not the resolution-site local name:
- * same-file enums tag on the bare declared name (ratification 2 — a `.theta`
- * file cannot be imported, so bare names are collision-free per declaration);
- * imported/re-exported enums tag on `enumDeclaringKey`.
+ * is the declaring-declaration identity (`enumDeclaringKey`), not the
+ * resolution-site local name — for `.theta`-file enums (bug 0337) as well as
+ * imported/re-exported `.thetalib` enums; the bare declared name is only the
+ * fallback when no declaring path is supplied.
  */
 interface EnumEntry {
   readonly variants: ReadonlyMap<string, string>;
@@ -397,10 +399,11 @@ export class LexicalEnvironment {
       // Top-level `enum` registrations carry the variant sets (`V19a`'s
       // `EnumDecl` carries only the name — see notes.md seam-shape decision).
       for (const reg of inputs.enums ?? []) {
-        // Same-file `.thetalib`-uncrossed enums keep the bare declared name as
-        // their tag (bug 0305 ratification 2): a `.theta` file cannot be
-        // imported, so there is no aliasing device within it and bare names
-        // are collision-free per declaration.
+        // A file-loaded `.theta` enum's tag is its file-qualified
+        // `declaringKey` (bug 0337, generalising bug 0305's scheme), so two
+        // distinct `.theta` files' same-named enums no longer collide across
+        // an in-process `invoke`. The bare-name fallback below applies only
+        // when no source path was threaded (a harness/in-memory theta).
         this.enums.set(reg.name, {
           variants: buildVariantWireMap(reg.variants, reg.values),
           tag: reg.declaringKey ?? reg.name,

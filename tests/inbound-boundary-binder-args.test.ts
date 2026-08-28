@@ -25,7 +25,7 @@ import {
   type EffectfulStatementHostDeps,
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
-import { buildEnvironment } from "../src/runtime/lexical-environment";
+import { buildEnvironment, enumDeclaringKey } from "../src/runtime/lexical-environment";
 import type { BodyExecution, ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import type {
   CommittedConversationMutator,
@@ -353,12 +353,14 @@ describe("bug 0172 — binder args perform the inbound translation pass, parent 
     const bindings = bindingsOf(await driveAndCapture(binderArgs()));
     const sev = bindingOf(bindings, "sev");
 
+    // 0337: this fixture's own declaring file is "binder-args.theta"; the
+    // locally-constructed comparand must carry that same declaring key.
     expect(
-      valuesEqual(sev, makeEnumValue("Sev", "high")),
+      valuesEqual(sev, makeEnumValue(enumDeclaringKey("binder-args.theta", "Sev"), "high")),
       "runtime-value-model.md:34 — binder `args` is one of the four inbound boundaries, and the pass reattaches the declaring-enum tag 'so the resulting value compares equal to a locally constructed variant of the same enum'; the model's wire string is what the binder exists to turn into a variant",
     ).toBe(true);
     expect(
-      valuesEqual(makeEnumValue("Sev", "high"), sev),
+      valuesEqual(makeEnumValue(enumDeclaringKey("binder-args.theta", "Sev"), "high"), sev),
       "equality is symmetric, and only one of the two operands changes shape under the fix",
     ).toBe(true);
   });
@@ -373,10 +375,12 @@ describe("bug 0172 — binder args perform the inbound translation pass, parent 
     ).toBe("Box");
     // The nested named-enum position is the same rule one level down: the pass
     // "recurses through arrays, nested object fields".
+    // 0337: same re-anchor as cell (a) — this schema-brand cell's Sev field
+    // came from the same "binder-args.theta" declaration.
     expect(
       valuesEqual(
         (box as { readonly sev: ThetaValue }).sev,
-        makeEnumValue("Sev", "high"),
+        makeEnumValue(enumDeclaringKey("binder-args.theta", "Sev"), "high"),
       ),
       "runtime-value-model.md:34 — the walk recurses through nested object fields, so a named-enum FIELD of a schema-typed param is tagged at its own depth",
     ).toBe(true);

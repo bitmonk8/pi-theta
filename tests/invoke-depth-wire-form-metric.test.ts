@@ -140,6 +140,7 @@ import {
   type ThetaValue,
 } from "../src/runtime/value";
 import { decodeInboundValue, declaredNames } from "../src/runtime/inbound-boundary";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { depthWalk, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import {
@@ -188,6 +189,21 @@ const RED = "red";
  */
 function colourRed(): EnumValue {
   return makeEnumValue("Colour", RED);
+}
+
+/**
+ * `Colour.Red` keyed to the CALLEE's ("kid.theta") own declaration — 0337:
+ * `.theta` enum tags key on the declaring file, and the value b1/b2/b4 bind
+ * came from the callee, so the comparand standing for it must carry the
+ * callee's own declaring key rather than a bare tag.
+ */
+function calleeColourRed(): EnumValue {
+  return makeEnumValue(enumDeclaringKey("/theta/kid.theta", "Colour"), RED);
+}
+
+/** `Colour.Red` keyed to the CALLER's ("caller.theta") own declaration, for the 0337 cross-file inequality. */
+function callerColourRed(): EnumValue {
+  return makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Colour"), RED);
 }
 
 function parseDeps(): ParseThetaDocumentDeps {
@@ -436,9 +452,13 @@ describe("bug 0202 (b1) — invoke<array<array<array<array<Colour>>>>> of a prom
         "(runtime-value-model.md:16) is a boxed String",
     ).toBe("object");
     expect(
-      valuesEqual(inner, colourRed()),
-      "the level-5 element compares equal to a locally constructed Colour.Red",
+      valuesEqual(inner, calleeColourRed()),
+      "the level-5 element compares equal to a locally constructed Colour.Red of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(inner, callerColourRed()),
+      "0337: the level-5 element belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
   });
 });
 
@@ -460,9 +480,13 @@ describe("bug 0202 (b) CONTROLS — the three rows that bracket b1 (green now, g
     // The measurement the b1 leaf assertion above is calibrated against.
     expect(typeof leaf, "the bound leaf is the callee's own boxed carrier").toBe("object");
     expect(
-      valuesEqual(leaf, colourRed()),
-      "and compares equal to a locally constructed Colour.Red",
+      valuesEqual(leaf, calleeColourRed()),
+      "and compares equal to a locally constructed Colour.Red of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(leaf, callerColourRed()),
+      "0337: the bound leaf belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
   });
 
   it("CONTROL (b3): the byte-identical wire document under array<array<array<array<string>>>> binds Ok", async () => {
@@ -503,9 +527,13 @@ describe("bug 0202 (b) CONTROLS — the three rows that bracket b1 (green now, g
     }
     expect(JSON.stringify(result.value), "the wire document is a depth-1 scalar").toBe('"red"');
     expect(
-      valuesEqual(result.value, colourRed()),
-      "and compares equal to a locally constructed Colour.Red",
+      valuesEqual(result.value, calleeColourRed()),
+      "and compares equal to a locally constructed Colour.Red of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(result.value, callerColourRed()),
+      "0337: the bound root value belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
   });
 });
 

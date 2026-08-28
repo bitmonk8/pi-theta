@@ -1166,3 +1166,15 @@ per [0134](./0134-params-shift-induced-stale-citations.md)'s adjudication.
   placement above does. And §Fix (e)(2)'s target sentence had moved with 0201's
   doc-comment re-derivation, but survived it verbatim, so the correction was
   still owed and was made.
+
+## Coordination note (0337, 2026-08-28)
+
+`tests/invoke-depth-wire-form-metric.test.ts` cells RED (b1), CONTROL (b2) and
+CONTROL (b4) were re-anchored to bug 0337's file-qualified `.theta` enum
+identity: the shared `colourRed()` builder (used pervasively by depth-metric
+cells unrelated to this file's `invoke` boundary) was left untouched, and a new
+`calleeColourRed()` (keyed to `"/theta/kid.theta"`) plus `callerColourRed()`
+(keyed to `"/theta/caller.theta"`) were added so only these three cells'
+CALLER-BOUND-value assertions re-anchor to the callee's own declaration and
+additionally assert the cross-file inequality against the caller's own `Colour`.
+Runtime semantics of this bug's own fix are unchanged.

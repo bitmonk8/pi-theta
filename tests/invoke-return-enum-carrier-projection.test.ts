@@ -105,6 +105,7 @@ import {
   type ThetaValue,
 } from "../src/runtime/value";
 import { decodeInboundValue, declaredNames } from "../src/runtime/inbound-boundary";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { parseEnvelopeLine, serializeOkEnvelope } from "../src/runtime/subagent-envelope";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -397,10 +398,18 @@ describe("bug 0174 (a) — invoke<Sev> of a prompt-mode callee returning a root-
     // runtime-value-model.md:13 — the variant "compares equal to a locally
     // constructed variant of the same enum" is the property the whole tag
     // exists for; :34 states it as the inbound pass's obligation.
+    // 0337: `Sev` is declared in BOTH "kidp.theta" (the callee, whose
+    // declaration the returned variant actually belongs to) and "caller.theta"
+    // (the caller's OWN declaration, which it never wrote) — the two mint
+    // distinct declaring keys and compare unequal.
     expect(
-      valuesEqual(result.value, makeEnumValue("Sev", "high")),
-      "the received variant compares equal to a locally constructed Sev.High",
+      valuesEqual(result.value, makeEnumValue(enumDeclaringKey("/theta/kidp.theta", "Sev"), "high")),
+      "the received variant compares equal to a locally constructed Sev.High of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(result.value, makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Sev"), "high")),
+      "0337: the returned variant belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
 
     // §Fix (b): the callee's OWN value crosses unchanged, so the boxed carrier
     // is still the carrier. A bare primitive here would mean the caller was
@@ -448,10 +457,16 @@ describe("bug 0174 (c) — invoke<array<Sev>> of a prompt-mode callee returning 
     const received = result.value as readonly ThetaValue[];
     expect(Array.isArray(received), "the payload crosses as an array").toBe(true);
     expect(received.length, "one element crosses").toBe(1);
+    // 0337: same declaring-key split as cell (a) — the element belongs to the
+    // callee's ("kidp.theta") declaration, not the caller's own.
     expect(
-      valuesEqual(received[0] as ThetaValue, makeEnumValue("Sev", "high")),
-      "element 0 compares equal to a locally constructed Sev.High",
+      valuesEqual(received[0] as ThetaValue, makeEnumValue(enumDeclaringKey("/theta/kidp.theta", "Sev"), "high")),
+      "element 0 compares equal to a locally constructed Sev.High of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(received[0] as ThetaValue, makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Sev"), "high")),
+      "0337: element 0 belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
     expect(typeof received[0], "element 0 is still the boxed carrier").toBe("object");
   });
 });
@@ -488,10 +503,16 @@ describe("bug 0174 (f) — invoke<Box> of a prompt-mode callee returning Box { s
       schemaTagOf(result.value),
       "the received object is branded with the declared schema name",
     ).toBe("Box");
+    // 0337: same declaring-key split as cell (a) — `.sev` belongs to the
+    // callee's ("kidp.theta") declaration, not the caller's own.
     expect(
-      valuesEqual(received.sev as ThetaValue, makeEnumValue("Sev", "high")),
-      ".sev compares equal to a locally constructed Sev.High",
+      valuesEqual(received.sev as ThetaValue, makeEnumValue(enumDeclaringKey("/theta/kidp.theta", "Sev"), "high")),
+      ".sev compares equal to a locally constructed Sev.High of the CALLEE's own declaration",
     ).toBe(true);
+    expect(
+      valuesEqual(received.sev as ThetaValue, makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Sev"), "high")),
+      "0337: .sev belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
     expect(typeof received.sev, ".sev is still the boxed carrier").toBe("object");
     expect(received.who, ".who crosses unchanged").toBe("w");
   });
@@ -542,11 +563,17 @@ describe("bug 0174 (ANYOF) — invoke<Sev | null> of a prompt-mode callee return
 
     // The tag survives because the callee's own value was never replaced — NOT
     // because anything descended into the `anyOf` arm.
+    // 0337: same declaring-key split as cell (a) — the pass-through value still
+    // belongs to the callee's ("kidp.theta") declaration, not the caller's own.
     expect(
-      valuesEqual(result.value, makeEnumValue("Sev", "high")),
+      valuesEqual(result.value, makeEnumValue(enumDeclaringKey("/theta/kidp.theta", "Sev"), "high")),
       "the caller's value is still the callee's tagged variant; an untagged primitive here " +
         "would mean the payload was round-tripped and could not be re-tagged under anyOf",
     ).toBe(true);
+    expect(
+      valuesEqual(result.value, makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Sev"), "high")),
+      "0337: the pass-through value belongs to the callee's declaration, not the caller's own",
+    ).toBe(false);
     expect(typeof result.value, "the boxed carrier crossed unchanged").toBe("object");
   });
 });

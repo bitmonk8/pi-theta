@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.305.0]
+
+### Fixed
+
+- **Bug 0337** — two same-named `.theta` enums from different files no longer compare EQUAL across in-process `invoke<T>`: bug 0305's declaring-key discipline is generalised to `.theta` enums (`enumDeclaringKey(<theta resolvedPath>, name)` minted at registration; typed-query and params inbound retag sidecars thread `enumDeclaringPath`; the invoke-return decode threads the CALLEE's `sourcePath` so the prompt leg, subagent-envelope leg and `tools:`-callee leg all mint the callee's file-qualified tag — mode invariance). Same-file equality and the `.thetalib` file-qualified control are unchanged. Spec: `runtime-value-model.md` + `type-system.md` invoke-boundary clause same commit. 26 landed witness cells across six bugs (0028/0067/0172/0174/0181/0202) re-anchored under ratification — stale bare anchors re-minted with declaring keys, cross-callee cells re-anchored to the callee's variant with the new caller-side inequality asserted; dated coordination notes on all six docs. Witnessed by `tests/b0337-theta-enum-identity-invoke.test.ts` (cross-file inequality, same-file control, `.thetalib` control, mode-invariance real-spawn cell).
+
 ## [0.304.0]
 
 ### Fixed

@@ -110,6 +110,9 @@ function paramBindingsFrom(
     lowered: theta.frontmatter.params?.loweredSchema as Record<string, unknown> | undefined,
     body: theta.body,
     ...(schemaValidator !== undefined ? { schemaValidator } : {}),
+    // Bug 0337: a `.theta`-declared enum `params:` field binds a file-qualified
+    // variant that compares equal to a body-constructed one of the same decl.
+    ...(theta.sourcePath !== undefined ? { enumDeclaringPath: theta.sourcePath } : {}),
   });
 }
 

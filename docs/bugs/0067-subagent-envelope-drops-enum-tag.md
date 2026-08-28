@@ -460,3 +460,17 @@ point.
 
 This report's status is unaffected: it stays fixed (0.90.0). Nothing above
 deletes or rewrites any earlier text.
+
+## Coordination note (0337, 2026-08-28)
+
+`tests/subagent-invoke-inbound-enum-tag.test.ts`'s `crossed`, `objSev` and
+`elem0` report fields (each a same-file `== Sev.High` comparison run INSIDE the
+driven root theta) were flipped `.toBe(false)`: under bug 0337's ratified
+semantics the value returned across the PIC-59 envelope belongs to the
+callee's own `Sev` declaration, a different file from the caller's, so it no
+longer satisfies the caller's own variant. A `crossedNotStr` / `objSevNotStr` /
+`elem0NotStr` discriminator field was added beside each flipped field to prove
+the returned value is still a TAGGED enum crossing the envelope, not a dropped
+bare string — preserving this bug's own subject (the inbound tag
+reattachment) under the flip. Runtime semantics of this bug's own fix are
+unchanged.

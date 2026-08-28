@@ -1,4 +1,6 @@
 [
+  "theta/a",
+  "theta/b",
   "theta/b0191",
   "theta/b0315",
   "theta/b210livemid",
@@ -109,6 +111,7 @@
   "theta/runtime/not-permitted-code",
   "theta/runtime/orphan",
   "theta/runtime/subagent-",
+  "theta/same",
   "theta/settings-theta",
   "theta/triage",
   "theta/typed-query",

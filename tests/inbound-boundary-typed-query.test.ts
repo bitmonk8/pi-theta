@@ -99,6 +99,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { makeEnumValue, schemaTagOf, valuesEqual, type ThetaValue } from "../src/runtime/value";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // --- Substrate -------------------------------------------------------------
@@ -331,12 +332,14 @@ describe("bug 0172 — typed query results perform the inbound translation pass 
     const value = boundValue(await driveTypedQuery(modelOrderedPayload()));
     const field = (value as { readonly sev: ThetaValue }).sev;
 
+    // 0337: this fixture's own declaring file is "/theta/typed-query.theta";
+    // the locally-constructed comparand must carry that same declaring key.
     expect(
-      valuesEqual(field, makeEnumValue("Sev", "high")),
+      valuesEqual(field, makeEnumValue(enumDeclaringKey("/theta/typed-query.theta", "Sev"), "high")),
       "runtime-value-model.md:34 — the pass reattaches the declaring-enum tag at every named-enum position 'so the resulting value compares equal to a locally constructed variant of the same enum'; an untagged string takes the cross-type arm of :22 and reads false",
     ).toBe(true);
     expect(
-      valuesEqual(makeEnumValue("Sev", "high"), field),
+      valuesEqual(makeEnumValue(enumDeclaringKey("/theta/typed-query.theta", "Sev"), "high"), field),
       "equality is symmetric, and only one of the two operands changes shape under the fix",
     ).toBe(true);
   });

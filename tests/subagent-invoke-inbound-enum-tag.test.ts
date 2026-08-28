@@ -1,7 +1,10 @@
 // Bug 0067 — a `mode: subagent` callee's final value re-enters its `invoke`
-// parent as raw `JSON.parse` output with no inbound translation pass, so a
-// named-enum variant arrives untagged and `v == Sev.High` is `false` in the
-// parent where the child's identical value compares `true`.
+// parent as raw `JSON.parse` output; without the inbound translation pass a
+// named-enum variant arrives as a bare untagged string. The pass restores the
+// tag, and under bug 0337's file-qualified tags it keys on the CHILD's own
+// declaring file: the restored variant is a TAGGED enum that compares `false`
+// against the parent's own same-named `Sev.High` (declared in a different
+// file), the tag preserved rather than dropped to a bare string.
 //
 // `docs/spec_topics/runtime-value-model.md:34` names `invoke` returns as one of
 // the four inbound boundaries at which the runtime MUST rebuild the validated
@@ -15,7 +18,10 @@
 // PIC-59; `:110` "`Ok` values serialise per the runtime value model") — and the
 // enum row of `runtime-value-model.md:13` makes the tag's ABSENCE from that JSON
 // normative, so the child's serialisation is correct and the parent's decode is
-// the obligation under test.
+// the obligation under test. Under bug 0337 that reattached tag keys on the
+// CHILD's declaring file, so the decoded variant compares equal to the child's
+// own declaration and UNEQUAL to the parent's own same-named `Sev` — the
+// direction this witness now pins.
 //
 // The witness must use the TYPED `invoke<Schema>` form:
 // `docs/spec_topics/invocation.md:28` (§Typed return) fixes untyped
@@ -127,8 +133,12 @@ const TOP_TYPED = [
   'enum Sev { High = "high" }',
   'schema P { sev: Sev, who as "Who": string }',
   'schema Q { s: "a" | "b" }',
+  // 0337: the three `*NotStr` fields are tag-presence discriminators — each
+  // proves its sibling field's value is still a TAGGED enum (not a bare
+  // string that a naive flip would also satisfy).
   "schema R { crossed: boolean, local: boolean, objSev: boolean, objWho: string, " +
-    "elem0: boolean, anon: boolean }",
+    "elem0: boolean, anon: boolean, crossedNotStr: boolean, objSevNotStr: boolean, " +
+    "elem0NotStr: boolean }",
   'let re = invoke<Sev>("./kid.theta")',
   "let ve = re?",
   'let ro = invoke<P>("./kidobj.theta")',
@@ -138,7 +148,8 @@ const TOP_TYPED = [
   'let rq = invoke<Q>("./kidanon.theta")',
   "let vq = rq?",
   "R { crossed: ve == Sev.High, local: Sev.High == Sev.High, objSev: vo.sev == Sev.High, " +
-    'objWho: vo.who, elem0: va[0] == Sev.High, anon: vq.s == "a" }',
+    'objWho: vo.who, elem0: va[0] == Sev.High, anon: vq.s == "a", ' +
+    'crossedNotStr: ve == "high", objSevNotStr: vo.sev == "high", elem0NotStr: va[0] == "high" }',
   "",
 ].join("\n");
 
@@ -155,7 +166,7 @@ function reportOf(value: unknown): Record<string, unknown> {
 
 describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachment", () => {
   it(
-    "a named-enum value crossing the PIC-59 envelope compares equal to the parent's own variant at every depth",
+    "a named-enum value crossing the PIC-59 envelope belongs to the child's declaration and compares UNEQUAL to the parent's own same-named variant at every depth, tag preserved",
     async () => {
       requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
       requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
@@ -263,31 +274,45 @@ describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachme
         // annotates".
         // Soft across the six report fields so ONE run names every position that
         // lost its tag, rather than stopping at the shallowest.
+        // 0337: `kid.theta` declares its OWN `Sev`, distinct from `top-typed.theta`'s
+        // `Sev` — the crossed value belongs to a declaration the caller never
+        // wrote, so it does NOT satisfy the caller's own `Sev.High` in `==`.
         expect.soft(
           report.crossed,
-          "(crossed) runtime-value-model.md:34 — a named-enum value returned by a subagent-mode " +
-            "callee must compare equal to the caller's own variant of the same enum; " +
-            "an untagged bare string takes valuesEqual's cross-type arm and reads false",
-        ).toBe(true);
+          "0337: the returned variant belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        // 0337/0067: PRESERVE THE OWNING BUG'S SUBJECT — the returned value is a
+        // TAGGED enum, not a dropped bare string (else `ve == "high"` would also
+        // be true).
+        expect.soft(
+          report.crossedNotStr,
+          "0337/0067: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // PRIMARY. Same rule at object-field depth: the sidecar's named-enum
         // position for `P.sev` maps to `Sev`, so the validated string is
         // re-tagged where the schema annotates it.
+        // 0337: same declaration split — `.sev` belongs to `kidobj.theta`'s own `Sev`.
         expect.soft(
           report.objSev,
-          "(objSev) runtime-value-model.md:34 — the inbound walk recurses through nested object " +
-            "fields, so a named-enum FIELD of a returned schema-typed object must compare " +
-            "equal to the caller's own variant",
-        ).toBe(true);
+          "0337: the returned field belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.objSevNotStr,
+          "0337/0067: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // PRIMARY. Same rule at array-element depth: :34 states the walk
         // "recurses through arrays".
+        // 0337: same declaration split — element 0 belongs to `kidarr.theta`'s own `Sev`.
         expect.soft(
           report.elem0,
-          "(elem0) runtime-value-model.md:34 — the inbound walk recurses through arrays, so a " +
-            "named-enum ARRAY ELEMENT of a returned `array<Sev>` must compare equal to " +
-            "the caller's own variant",
-        ).toBe(true);
+          "0337: the returned element belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.elem0NotStr,
+          "0337/0067: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // CONTROL that must stay green across the fix. runtime-value-model.md:12
         // keys object values by "theta-side names, regardless of any wire-name

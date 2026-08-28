@@ -45,11 +45,13 @@
 // strip the pin. Without them the observation would name whatever ambient theta
 // install the machine carries.
 //
-// WHAT IS RED HERE AND WHY. Cells (a) and (b) red on the untranslated envelope:
-// a bare string that compares `false` against the caller's own variant, at the
-// root and at nested-object-field depth. Both are assertions over the driven
-// root's own report object, never a compile or harness error. Cells (c) through
-// (f) are controls, green on both sides.
+// WHAT IS RED HERE AND WHY. Cells (a) and (b) pin the bug 0337 contract: the
+// tools:-named callee's returned variant belongs to the callee's OWN
+// declaration (a different file), so it compares `false` against the caller's
+// own same-named variant while remaining a TAGGED enum — the tag preserved, not
+// dropped to a bare string — at the root and at nested-object-field depth. Both
+// are assertions over the driven root's own report object, never a compile or
+// harness error. Cells (c) through (f) are controls, green on both sides.
 //
 // THE ORDER HALF IS NOT ASSERTED HERE, and bug 0120's coordination note is why:
 // this boundary's producer is a theta child whose object `buildObjectSchemaValue`
@@ -166,8 +168,14 @@ const TOP = [
   "  - ./kidret.theta",
   "---",
   'enum Sev { High = "high", Low = "low" }',
+  // 0337: the two `*NotStr` fields are tag-presence discriminators — each
+  // proves its sibling field's value is still a TAGGED enum. `retStmt` is
+  // untouched: it is already false for an unrelated reason (the callable
+  // derivation excludes `return`-statement bodies, so `vr` never acquires a
+  // type at all and crosses as a genuinely untagged bare string).
   "schema R { crossed: boolean, objSev: boolean, objWho: string, " +
-    "plainTail: string, retStmt: boolean, local: boolean }",
+    "plainTail: string, retStmt: boolean, local: boolean, " +
+    "crossedNotStr: boolean, objSevNotStr: boolean }",
   "let re = kid()",
   "let ve = re?",
   "let ro = kidobj()",
@@ -177,7 +185,8 @@ const TOP = [
   "let rr = kidret()",
   "let vr = rr?",
   "R { crossed: ve == Sev.High, objSev: vo.sev == Sev.High, objWho: vo.who, " +
-    "plainTail: vp, retStmt: vr == Sev.High, local: Sev.High == Sev.High }",
+    "plainTail: vp, retStmt: vr == Sev.High, local: Sev.High == Sev.High, " +
+    'crossedNotStr: ve == "high", objSevNotStr: vo.sev == "high" }',
   "",
 ].join("\n");
 
@@ -194,7 +203,7 @@ function reportOf(value: unknown): Record<string, unknown> {
 
 describe("bug 0172 — a typed .theta-callable tool-call return performs the inbound translation pass (tool-calls.md:23)", () => {
   it(
-    "a named-enum value returned by a tools:-named subagent callee compares equal to the caller's own variant",
+    "a named-enum value returned by a tools:-named subagent callee belongs to the callee's declaration and compares UNEQUAL to the caller's own same-named variant, tag preserved",
     async () => {
       requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
       requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
@@ -299,21 +308,31 @@ describe("bug 0172 — a typed .theta-callable tool-call return performs the inb
         // variant of the same enum", and tool-calls.md:23 types this call site
         // by inference over the statically resolved callee. Soft across the
         // report's fields so ONE run names every position that lost its tag.
+        // 0337: `kid.theta` declares its OWN `Sev`, distinct from the caller's
+        // (`top.theta`) `Sev` — the returned value belongs to a declaration the
+        // caller never wrote, so it does NOT satisfy the caller's own `Sev.High`.
         expect.soft(
           report.crossed,
-          "(a) tool-calls.md:23 + runtime-value-model.md:34 — a `<name>()` call through frontmatter " +
-            "`tools:` whose callee's inferred return type is a named enum must yield a TAGGED " +
-            "variant; an untagged bare string takes valuesEqual's cross-type arm (:22) and reads false",
-        ).toBe(true);
+          "0337: the returned variant belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        // 0337/0172: PRESERVE THE OWNING BUG'S SUBJECT — the returned value is a
+        // TAGGED enum, not a dropped bare string.
+        expect.soft(
+          report.crossedNotStr,
+          "0337/0172: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // (b) PRIMARY. Same rule at nested-object-field depth: :34's walk
         // "recurses through arrays, nested object fields".
+        // 0337: same declaration split — `.sev` belongs to `kidobj.theta`'s own `Sev`.
         expect.soft(
           report.objSev,
-          "(b) runtime-value-model.md:34 — the walk recurses through nested object fields, so a " +
-            "named-enum FIELD of a schema-typed callable return must compare equal to the " +
-            "caller's own variant",
-        ).toBe(true);
+          "0337: the returned field belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.objSevNotStr,
+          "0337/0172: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // (c) CONTROL. runtime-value-model.md:12 keys object values by
         // theta-side names, so re-tagging and re-branding never rename.

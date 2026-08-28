@@ -908,3 +908,13 @@ draws a located diagnostic naming the position, the offending source line and
 the `params:` field. The refusal remains fail-closed; only the diagnostic
 changed. Residual (iv) is discharged; the other residuals recorded here are
 untouched.
+
+## Coordination note (0337, 2026-08-28)
+
+`tests/respond-tool-wire.test.ts`'s two `makeEnumValue` anchors (the `Shape`
+cell driven at `sourcePath: "/theta/wireprod.theta"` and the `Severity` cell at
+`sourcePath: "/theta/wireonsession.theta"`) were re-anchored to bug 0337's
+file-qualified `.theta` enum identity (`enumDeclaringKey(<sourcePath>, name)`)
+in place of the bare declared name. Runtime semantics of this bug's own fix are
+unchanged — the flip is an anchor refresh under 0337's ratified enum-identity
+semantics, not a behavioural change to this report's subject.

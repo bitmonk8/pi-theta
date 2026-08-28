@@ -49,6 +49,13 @@ export interface InboundBoundaryInput {
    * which case a value inside a union arm keeps the documented pass-through.
    */
   readonly schemaValidator?: Pick<SchemaValidator, "compile">;
+  /**
+   * The resolved path of the file whose declared enums a retagged position
+   * names, threaded to `translateInbound` so a `.theta`-declared enum position
+   * is tagged with its file-qualified declaring key (bug 0337). Absent keeps
+   * the bare declared name.
+   */
+  readonly enumDeclaringPath?: string;
 }
 
 /**
@@ -80,6 +87,9 @@ export function decodeInboundValue(input: InboundBoundaryInput): ThetaValue {
     rootDef: plan.rootDef,
     schemaNames: plan.schemaNames,
     ...(input.schemaValidator !== undefined ? { schemaValidator: input.schemaValidator } : {}),
+    ...(input.enumDeclaringPath !== undefined
+      ? { enumDeclaringPath: input.enumDeclaringPath }
+      : {}),
   });
 }
 
@@ -105,6 +115,12 @@ export interface ParamsBindingInput {
   readonly body: ThetaBody;
   /** The validator the union-arm dispatch re-tests an `anyOf`-typed param against. */
   readonly schemaValidator?: Pick<SchemaValidator, "compile">;
+  /**
+   * The theta's own resolved path, threaded so a `params:` field declared as a
+   * `.theta` named enum binds a file-qualified variant that compares equal to a
+   * body-constructed one of the same declaration (bug 0337).
+   */
+  readonly enumDeclaringPath?: string;
 }
 
 /**
@@ -132,7 +148,7 @@ export interface ParamsBindingInput {
  * one rebranded here rather than arriving pre-tagged from frontmatter.
  */
 export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaValue> {
-  const { params, lowered, body, schemaValidator } = input;
+  const { params, lowered, body, schemaValidator, enumDeclaringPath } = input;
   const decoded =
     lowered === undefined
       ? params
@@ -143,6 +159,7 @@ export function bindParamsInbound(input: ParamsBindingInput): Map<string, ThetaV
           enumNames: declaredNames(body, "enum"),
           validated: params,
           ...(schemaValidator !== undefined ? { schemaValidator } : {}),
+          ...(enumDeclaringPath !== undefined ? { enumDeclaringPath } : {}),
         });
   const bindings = new Map<string, ThetaValue>();
   if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {

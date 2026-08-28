@@ -195,13 +195,18 @@ const TOP_TYPED = [
   "schema Box { sev: Sev, who: string }",
   "schema B { crossed: boolean, viaLet: boolean, rawEnum: Sev, rawStr: string }",
   "schema S { a: string, b: boolean }",
+  // 0337: the `*NotStr` fields are tag-presence discriminators — each proves
+  // its sibling `*Tag` field's value is still a TAGGED enum, not a dropped
+  // bare string, on BOTH legs (mode invariance).
   "schema R {",
-  "  aPromptOk: boolean, aPromptTag: boolean, aSubOk: boolean, aSubTag: boolean,",
-  "  bPromptOk: boolean, bPromptTag: boolean, bPromptStr: string,",
-  "  bSubOk: boolean, bSubTag: boolean, bSubStr: string,",
-  "  cPromptOk: boolean, cPromptTag: boolean, cSubOk: boolean, cSubTag: boolean,",
-  "  fPromptOk: boolean, fPromptTag: boolean, fPromptWho: string,",
-  "  fSubOk: boolean, fSubTag: boolean, fSubWho: string,",
+  "  aPromptOk: boolean, aPromptTag: boolean, aPromptNotStr: boolean,",
+  "  aSubOk: boolean, aSubTag: boolean, aSubNotStr: boolean,",
+  "  bPromptOk: boolean, bPromptTag: boolean, bPromptNotStr: boolean, bPromptStr: string,",
+  "  bSubOk: boolean, bSubTag: boolean, bSubNotStr: boolean, bSubStr: string,",
+  "  cPromptOk: boolean, cPromptTag: boolean, cPromptNotStr: boolean,",
+  "  cSubOk: boolean, cSubTag: boolean, cSubNotStr: boolean,",
+  "  fPromptOk: boolean, fPromptTag: boolean, fPromptNotStr: boolean, fPromptWho: string,",
+  "  fSubOk: boolean, fSubTag: boolean, fSubNotStr: boolean, fSubWho: string,",
   "  dPromptOk: boolean, dPromptVal: string,",
   "  ePromptOk: boolean, ePromptA: string, ePromptB: boolean,",
   "  gPromptOk: boolean, gPromptElem0: integer",
@@ -209,30 +214,38 @@ const TOP_TYPED = [
   'let ap = invoke<Sev>("./kidap.theta")',
   "let apOk = match ap { Ok(v) => true, Err(e) => false }",
   "let apTag = match ap { Ok(v) => v == Sev.High, Err(e) => false }",
+  'let apNotStr = match ap { Ok(v) => v == "high", Err(e) => false }',
   'let asub = invoke<Sev>("./kidas.theta")',
   "let asOk = match asub { Ok(v) => true, Err(e) => false }",
   "let asTag = match asub { Ok(v) => v == Sev.High, Err(e) => false }",
+  'let asNotStr = match asub { Ok(v) => v == "high", Err(e) => false }',
   'let bp = invoke<B>("./kidbp.theta")',
   "let bpOk = match bp { Ok(v) => true, Err(e) => false }",
   "let bpTag = match bp { Ok(v) => v.rawEnum == Sev.High, Err(e) => false }",
+  'let bpNotStr = match bp { Ok(v) => v.rawEnum == "high", Err(e) => false }',
   'let bpStr = match bp { Ok(v) => v.rawStr, Err(e) => "ERR" }',
   'let bs = invoke<B>("./kidbs.theta")',
   "let bsOk = match bs { Ok(v) => true, Err(e) => false }",
   "let bsTag = match bs { Ok(v) => v.rawEnum == Sev.High, Err(e) => false }",
+  'let bsNotStr = match bs { Ok(v) => v.rawEnum == "high", Err(e) => false }',
   'let bsStr = match bs { Ok(v) => v.rawStr, Err(e) => "ERR" }',
   'let cp = invoke<array<Sev>>("./kidcp.theta")',
   "let cpOk = match cp { Ok(v) => true, Err(e) => false }",
   "let cpTag = match cp { Ok(v) => v[0] == Sev.High, Err(e) => false }",
+  'let cpNotStr = match cp { Ok(v) => v[0] == "high", Err(e) => false }',
   'let cs = invoke<array<Sev>>("./kidcs.theta")',
   "let csOk = match cs { Ok(v) => true, Err(e) => false }",
   "let csTag = match cs { Ok(v) => v[0] == Sev.High, Err(e) => false }",
+  'let csNotStr = match cs { Ok(v) => v[0] == "high", Err(e) => false }',
   'let fp = invoke<Box>("./kidfp.theta")',
   "let fpOk = match fp { Ok(v) => true, Err(e) => false }",
   "let fpTag = match fp { Ok(v) => v.sev == Sev.High, Err(e) => false }",
+  'let fpNotStr = match fp { Ok(v) => v.sev == "high", Err(e) => false }',
   'let fpWho = match fp { Ok(v) => v.who, Err(e) => "ERR" }',
   'let fs = invoke<Box>("./kidfs.theta")',
   "let fsOk = match fs { Ok(v) => true, Err(e) => false }",
   "let fsTag = match fs { Ok(v) => v.sev == Sev.High, Err(e) => false }",
+  'let fsNotStr = match fs { Ok(v) => v.sev == "high", Err(e) => false }',
   'let fsWho = match fs { Ok(v) => v.who, Err(e) => "ERR" }',
   'let dp = invoke<string>("./kiddp.theta")',
   "let dpOk = match dp { Ok(v) => true, Err(e) => false }",
@@ -245,12 +258,14 @@ const TOP_TYPED = [
   "let gpOk = match gp { Ok(v) => true, Err(e) => false }",
   "let gpElem0 = match gp { Ok(v) => v[0], Err(e) => 0 - 1 }",
   "R {",
-  "  aPromptOk: apOk, aPromptTag: apTag, aSubOk: asOk, aSubTag: asTag,",
-  "  bPromptOk: bpOk, bPromptTag: bpTag, bPromptStr: bpStr,",
-  "  bSubOk: bsOk, bSubTag: bsTag, bSubStr: bsStr,",
-  "  cPromptOk: cpOk, cPromptTag: cpTag, cSubOk: csOk, cSubTag: csTag,",
-  "  fPromptOk: fpOk, fPromptTag: fpTag, fPromptWho: fpWho,",
-  "  fSubOk: fsOk, fSubTag: fsTag, fSubWho: fsWho,",
+  "  aPromptOk: apOk, aPromptTag: apTag, aPromptNotStr: apNotStr,",
+  "  aSubOk: asOk, aSubTag: asTag, aSubNotStr: asNotStr,",
+  "  bPromptOk: bpOk, bPromptTag: bpTag, bPromptNotStr: bpNotStr, bPromptStr: bpStr,",
+  "  bSubOk: bsOk, bSubTag: bsTag, bSubNotStr: bsNotStr, bSubStr: bsStr,",
+  "  cPromptOk: cpOk, cPromptTag: cpTag, cPromptNotStr: cpNotStr,",
+  "  cSubOk: csOk, cSubTag: csTag, cSubNotStr: csNotStr,",
+  "  fPromptOk: fpOk, fPromptTag: fpTag, fPromptNotStr: fpNotStr, fPromptWho: fpWho,",
+  "  fSubOk: fsOk, fSubTag: fsTag, fSubNotStr: fsNotStr, fSubWho: fsWho,",
   "  dPromptOk: dpOk, dPromptVal: dpVal,",
   "  ePromptOk: epOk, ePromptA: epA, ePromptB: epB,",
   "  gPromptOk: gpOk, gPromptElem0: gpElem0",
@@ -388,11 +403,22 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
             "invoke<Sev> caller as Ok; the boxed String carrier reaches AJV unnormalised and " +
             'Err(InvokeInfraError { cause: "return_validation" }) is minted instead',
         ).toBe(true);
+        // 0337: `kidap.theta`/`kidas.theta` declare their OWN `Sev`, distinct
+        // from the caller's (`top-typed.theta`) `Sev` — the delivered variant
+        // belongs to a declaration the caller never wrote, so it does NOT
+        // compare equal to the caller's own `Sev.High`, on EITHER leg
+        // (mode invariance: cross-file inequality is the same observable on
+        // the prompt attach leg and the subagent spawn leg alike).
         expect.soft(
           report.aPromptTag,
-          "(aPromptTag) runtime-value-model.md:13 — the delivered variant must compare equal to " +
-            "the caller's own Sev.High",
-        ).toBe(true);
+          "0337: the delivered variant belongs to the callee's declaration (a different file), so it does not compare equal to the caller's own Sev.",
+        ).toBe(false);
+        // 0337: PRESERVE THE OWNING BUG'S SUBJECT — the delivered variant is a
+        // TAGGED enum, not a dropped bare string.
+        expect.soft(
+          report.aPromptNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
         // CONTROL (§Fix (d)(4)): the leg that already passes does not move.
         expect.soft(
           report.aSubOk,
@@ -401,9 +427,12 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
         ).toBe(true);
         expect.soft(
           report.aSubTag,
-          "(aSubTag) CONTROL — bug 0067's inbound pass already re-tags the enum crossing the " +
-            "PIC-59 envelope",
-        ).toBe(true);
+          "0337: same cross-file inequality on the subagent leg — mode invariance means this leg agrees with the prompt leg above.",
+        ).toBe(false);
+        expect.soft(
+          report.aSubNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // ---------------------------------------------------------------
         // Row b — a multi-field object whose enum crossed a `let`.
@@ -415,10 +444,16 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
           "(bPromptOk) a multi-field object carrying one named-enum field must cross the " +
             "prompt→prompt cell; the sibling boolean and string fields validate on their own",
         ).toBe(true);
+        // 0337: same cross-file split as row a — `.rawEnum` belongs to the
+        // callee's own declaration.
         expect.soft(
           report.bPromptTag,
-          "(bPromptTag) the enum field survives the `let` and reaches the caller tagged",
-        ).toBe(true);
+          "0337: the enum field belongs to the callee's declaration (a different file), so it does not compare equal to the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.bPromptNotStr,
+          "(bPromptNotStr) 0337: the returned rawEnum field is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22)",
+        ).toBe(false);
         expect.soft(
           report.bPromptStr,
           "(bPromptStr) the plain string field crosses unchanged",
@@ -428,8 +463,12 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
         );
         expect.soft(
           report.bSubTag,
-          "(bSubTag) CONTROL — the subagent leg's enum field is already re-tagged",
-        ).toBe(true);
+          "0337: same cross-file inequality on the subagent leg — mode invariance.",
+        ).toBe(false);
+        expect.soft(
+          report.bSubNotStr,
+          "(bSubNotStr) 0337: the returned rawEnum field is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22)",
+        ).toBe(false);
         expect.soft(report.bSubStr, "(bSubStr) CONTROL — the subagent leg's string field").toBe(
           "PSTR",
         );
@@ -443,18 +482,27 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
           report.cPromptOk,
           "(cPromptOk) a named-enum ARRAY ELEMENT must not refuse the whole payload",
         ).toBe(true);
+        // 0337: same cross-file split as row a — element 0 belongs to the
+        // callee's own declaration, on both legs (mode invariance).
         expect.soft(
           report.cPromptTag,
-          "(cPromptTag) runtime-value-model.md:34 — the value is tagged at the depth the schema " +
-            "annotates, so element 0 compares equal to the caller's Sev.High",
-        ).toBe(true);
+          "0337: element 0 belongs to the callee's declaration (a different file), so it does not compare equal to the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.cPromptNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
         expect.soft(report.cSubOk, "(cSubOk) CONTROL — the subagent leg already returns Ok").toBe(
           true,
         );
         expect.soft(
           report.cSubTag,
-          "(cSubTag) CONTROL — the subagent leg's array element is already re-tagged",
-        ).toBe(true);
+          "0337: same cross-file inequality on the subagent leg — mode invariance.",
+        ).toBe(false);
+        expect.soft(
+          report.cSubNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
 
         // ---------------------------------------------------------------
         // Row f — object field. §Reproduction (a) `f-prompt` / `f-sub`; the
@@ -466,10 +514,16 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
           "(fPromptOk) one named-enum FIELD must not refuse an object whose other field is a " +
             "plain string that validates",
         ).toBe(true);
+        // 0337: same cross-file split as row a — `.sev` belongs to the
+        // callee's own declaration.
         expect.soft(
           report.fPromptTag,
-          "(fPromptTag) the .sev field reaches the caller tagged",
-        ).toBe(true);
+          "0337: .sev belongs to the callee's declaration (a different file), so it does not compare equal to the caller's own Sev.",
+        ).toBe(false);
+        expect.soft(
+          report.fPromptNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
         expect.soft(
           report.fPromptWho,
           "(fPromptWho) runtime-value-model.md:12 — the object is keyed by theta-side names and " +
@@ -480,8 +534,12 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
         );
         expect.soft(
           report.fSubTag,
-          "(fSubTag) CONTROL — the subagent leg's enum field is already re-tagged",
-        ).toBe(true);
+          "0337: same cross-file inequality on the subagent leg — mode invariance.",
+        ).toBe(false);
+        expect.soft(
+          report.fSubNotStr,
+          "0337/0174: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
         expect.soft(report.fSubWho, "(fSubWho) CONTROL — the subagent leg's string field").toBe(
           "w",
         );

@@ -1562,3 +1562,19 @@ that run applied — the removed `keys()` field, with `expressions.md:118` left 
 its spec header — and 0179's fix record carries the restoration as a residual
 rather than editing this report's witness. Nothing above is deleted or
 rewritten and this report's status is unaffected.
+
+## Coordination note (0337, 2026-08-28)
+
+Six cells across four of this bug's witness files were re-anchored to bug
+0337's file-qualified `.theta` enum identity: `tests/inbound-boundary-typed-query.test.ts`
+cell (b), `tests/inbound-boundary-binder-args.test.ts` cells (a) and (b),
+and the three named RED cells in `tests/inbound-union-arm-dispatch.test.ts`
+(`binder-parent-union`, `typed-query-union`, `invoke-union`) — each re-minted
+its bare `makeEnumValue("Sev", ...)` anchor as
+`makeEnumValue(enumDeclaringKey(<that fixture's own sourcePath>, "Sev"), ...)`.
+`tests/inbound-boundary-theta-callable.test.ts`'s `crossed` and `objSev` report
+fields were flipped `.toBe(false)` (a cross-callee case: the value belongs to
+the callee's declaration, not the caller's), each paired with a `*NotStr`
+tag-presence discriminator so the flip cannot be satisfied by a dropped bare
+string. Runtime semantics of this bug's own fix are unchanged — every change
+here is an anchor/assertion refresh under 0337's ratified semantics.

@@ -1239,3 +1239,17 @@ callee's `mode:` frontmatter cannot change whether a return validates — remain
 false, and un-scoping it would reproduce the overclaim §Actual behaviour 5
 indicts. 0180 §Fix (0.105.0) records that disposition and the residual
 mode-variance it leaves, which PIC-59 now states normatively.
+
+## Coordination note (0337, 2026-08-28)
+
+`tests/invoke-return-enum-carrier-projection.test.ts` cells (a), (c), (f) and
+(ANYOF), and `tests/invoke-prompt-cell-enum-return.test.ts`'s `aPromptTag`,
+`aSubTag`, `bPromptTag`, `bSubTag`, `cPromptTag`, `cSubTag`, `fPromptTag` and
+`fSubTag` fields, were re-anchored/flipped under bug 0337's ratified
+cross-file enum-identity semantics: a callee's returned variant belongs to the
+callee's own declaring `.theta` file and no longer satisfies the caller's own
+same-named enum. Each flipped `invoke-prompt-cell-enum-return.test.ts` field
+gained a paired `*NotStr` tag-presence discriminator on both the prompt and
+subagent legs, so the mode-invariance property this report's own witness pins
+(both legs deliver the SAME cross-file inequality) is preserved rather than
+weakened by the flip. Runtime semantics of this bug's own fix are unchanged.

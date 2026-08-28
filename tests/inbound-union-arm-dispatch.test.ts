@@ -74,7 +74,7 @@ import {
   type EffectfulStatementHostDeps,
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
-import { buildEnvironment } from "../src/runtime/lexical-environment";
+import { buildEnvironment, enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { executeBody, type BodyExecution, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import type {
   CommittedConversationMutator,
@@ -1056,14 +1056,16 @@ describe("bug 0172 face 2 — the typed-query boundary over a union annotation",
   it("RED (typed-query-union): `@<Sev | null>` binds a tagged variant through the shipped producer", async () => {
     const value = boundValue(await driveTypedQuery({ value: "high" }));
 
+    // 0337: this fixture's own declaring file is "/theta/union-arm-query.theta";
+    // the locally-constructed comparand must carry that same declaring key.
     expect(
-      valuesEqual(value, makeEnumValue("Sev", "high")),
+      valuesEqual(value, makeEnumValue(enumDeclaringKey("/theta/union-arm-query.theta", "Sev"), "high")),
       "runtime-value-model.md:34 — typed query results is the first of the four inbound " +
         "boundaries, and the arm admitting the unwrapped payload is the `Sev` `$ref`, so the bound " +
         "value compares equal to a locally constructed variant",
     ).toBe(true);
     expect(
-      valuesEqual(makeEnumValue("Sev", "high"), value),
+      valuesEqual(makeEnumValue(enumDeclaringKey("/theta/union-arm-query.theta", "Sev"), "high"), value),
       "equality is symmetric, and only one of the two operands changes shape under the dispatch",
     ).toBe(true);
     expect(
@@ -1286,8 +1288,10 @@ describe("bug 0172 face 2 — the binder-`args` boundary, parent side, over a un
       );
     }
 
+    // 0337: this fixture's own declaring file is "union-arm-params.theta"; the
+    // locally-constructed comparand must carry that same declaring key.
     expect(
-      valuesEqual(sev, makeEnumValue("Sev", "high")),
+      valuesEqual(sev, makeEnumValue(enumDeclaringKey("union-arm-params.theta", "Sev"), "high")),
       "runtime-value-model.md:34 names binder `args` among the four inbound boundaries, so a " +
         "union-typed param reaches body scope as a tagged variant — which it can only do if the " +
         "composition entry hands its projection the runtime's own validator",
@@ -1362,10 +1366,12 @@ const INVOKE_TOP = [
   "mode: subagent",
   "---",
   'enum Sev { High = "high", Low = "low" }',
-  "schema R { crossed: boolean, local: boolean }",
+  // 0337: `crossedNotStr` is a tag-presence discriminator (docs/bugs `#0337`)
+  // — it proves `ve` still carries an enum tag rather than a bare string.
+  "schema R { crossed: boolean, local: boolean, crossedNotStr: boolean }",
   'let re = invoke<Sev | null>("./kid.theta")',
   "let ve = re?",
-  "R { crossed: ve == Sev.High, local: Sev.High == Sev.High }",
+  "R { crossed: ve == Sev.High, local: Sev.High == Sev.High, crossedNotStr: ve == \"high\" }",
   "",
 ].join("\n");
 
@@ -1554,13 +1560,24 @@ describe("bug 0172 face 2 — the invoke return boundary over a union annotation
         ).toBe(true);
         const report = reportOf(drive.payload);
 
+        // 0337: the callee `kid.theta` declares its OWN `Sev`, distinct from
+        // `top.theta`'s `Sev` — the value the invoke returns is a value of a
+        // declaration the caller (`top.theta`) did not write, so it does NOT
+        // satisfy the caller's own `Sev.High` in `==` (parent-ratified
+        // semantics, bug 0337).
         expect.soft(
           report.crossed,
-          "runtime-value-model.md:34 — `invoke` returns is one of the four inbound boundaries, and " +
-            "arm 0 of `Sev | null` names the declared enum, so the envelope's bare string binds as " +
-            "a TAGGED variant; an untagged string takes valuesEqual's cross-type arm (:22) and " +
-            "reads false",
-        ).toBe(true);
+          "0337: the returned variant belongs to the callee's declaration (a different file), so it does not satisfy the caller's own Sev.",
+        ).toBe(false);
+        // 0337/0172: PRESERVE THE OWNING BUG'S SUBJECT — a bare flip to false
+        // would also pass if the tag were dropped to a plain string, silently
+        // un-protecting the landed inbound-retag witness. This discriminator
+        // proves `ve` is still a TAGGED enum, not a dropped bare string
+        // (cross-type equality is false per runtime-value-model.md:22).
+        expect.soft(
+          report.crossedNotStr,
+          "0337/0172: the returned value is a TAGGED enum, not a dropped bare string (cross-type equality is false per runtime-value-model.md:22).",
+        ).toBe(false);
         expect.soft(
           report.local,
           "CONTROL: the same comparison in-process, same theta, same line — a red here means the " +
