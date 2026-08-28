@@ -46,10 +46,16 @@ import {
 /**
  * The child-discovered closure-source view: the transitive-closure sources
  * (root `.theta` + every `.thetalib` it imports) for a marshalled callable
- * name, or `undefined` when the child discovered no such callable (a deleted /
- * moved / `as`-renamed callee the child cannot re-resolve). `undefined` is a
- * fail-closed refusal — the child cannot recompute the hash the parent
- * validated, so it MUST NOT admit the invocation.
+ * name, or `undefined` when the child discovered no such callable (a deleted or
+ * moved callee the child cannot re-resolve). `undefined` is a fail-closed
+ * refusal — the child cannot recompute the hash the parent validated, so it
+ * MUST NOT admit the invocation. An `as`-renamed callee is NOT in this
+ * unresolvable class: the marshalled key is the presented (post-rename) name
+ * (subagent.md's launch-contract table), and the marked root's own frozen
+ * callable-set snapshot already carries `presentedName → calleePath`, so the
+ * production discovery view (`refuseDivergedChildCallables`,
+ * `production-composition.ts`) resolves a rename through that snapshot before
+ * ever falling back to file-basename derivation (bug 0330).
  */
 export type ChildClosureDiscovery = (
   callableName: string,

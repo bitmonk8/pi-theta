@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.307.0]
+
+### Fixed
+
+- **Bug 0330** — an `as`-renamed subagent callable no longer draws a spurious child-side `subagent-callable-hash-mismatch`: the child's alignment view in `refuseDivergedChildCallables` is built from the marked root's frozen `callableSet` snapshot FIRST (presented name → callee path → closure sources), with the file-derived-name loop as fallback, so the marshalled row's presented-name key resolves child-side instead of `sources === undefined` fail-closing; the drop guard keys on a real callee (`hit?.theta !== undefined`). Parent marshalling and 0328's root row are untouched. Witnessed by the new `b0330` block in `tests/subagent-child-hash-refusal-e2e.test.ts` (renamed-callable match ADMITS; edited-closure arm still REFUSES).
+
 ## [0.306.0]
 
 ### Fixed

@@ -66,6 +66,7 @@ import {
   detectSubagentRootRegime,
   markedRootRegistrationRefusal,
   type LoadRefusalDiagnostic,
+  type RootRegime,
 } from "../runtime/subagent-root-regime";
 import { serializeErrEnvelope } from "../runtime/subagent-envelope";
 import { checkExtensionToolReachability } from "./extension-tool-reachability";
@@ -1141,6 +1142,7 @@ async function runComposePass(
     ctx,
     parseDeps,
     sink.emit,
+    subagentRootRegime,
   );
   // Bug 0178 element (b): AFTER `refuseDivergedChildCallables`, not before —
   // the callable-hash verification above can drop the marked root too, so
@@ -1194,6 +1196,7 @@ async function refuseDivergedChildCallables(
   ctx: ExtensionContext,
   parseDeps: Parameters<typeof parseThetaDocument>[1],
   emitDiagnostic: (diagnostic: Diagnostic) => void,
+  regime: RootRegime,
 ): Promise<ParsedTheta[]> {
   // The child env carrier, read through the AUTHENTICATED control-plane view
   // (`readParentEnv`) — the same gate the factory's `PI_THETA_SUBAGENT_ROOT`
@@ -1207,12 +1210,54 @@ async function refuseDivergedChildCallables(
   if (marshalled === undefined) {
     return [...thetas];
   }
-  // Precompute the child-discovered closure sources for each marshalled callable
-  // name that maps to a discovered theta (by presented-name derivation).
+  // Bug 0330 §Fix: the parent marshals under the PRESENTED name (the frozen
+  // callable-set entry's key, post-`as`/post-hyphen rewrite), so alignment must
+  // resolve through that same key space before ever falling back to file
+  // derivation. The marked root's own `tools:` is the one place the rename
+  // table lives child-side, so this pass reads the root's frozen
+  // `callableSet` snapshot rather than re-deriving names from discovered
+  // basenames. `theta` on the `byName` hit may be `undefined` when the callee
+  // itself was not separately discovered as a root (nothing to drop — bug
+  // 0329's territory, not this pass's).
   const byName = new Map<
     string,
-    { readonly theta: ParsedTheta; readonly sources: readonly ClosureSource[] }
+    { readonly theta: ParsedTheta | undefined; readonly sources: readonly ClosureSource[] }
   >();
+  const markedRoot = regime.active
+    ? thetas.find((theta) => theta.slashName === regime.slug)
+    : undefined;
+  if (markedRoot?.sourcePath !== undefined && markedRoot.callableSet !== undefined) {
+    const rootPath = markedRoot.sourcePath;
+    for (const [presentedName, resolved] of markedRoot.callableSet.entries) {
+      if (
+        resolved.kind !== "theta" ||
+        !marshalled.has(presentedName) ||
+        byName.has(presentedName)
+      ) {
+        continue;
+      }
+      const sources = await collectCallableClosureSources(
+        fs,
+        ctx,
+        parseDeps,
+        rootPath,
+        resolved.calleePath,
+      );
+      const calleeAbs = isAbsolute(resolved.calleePath)
+        ? resolved.calleePath
+        : resolvePath(dirname(rootPath), resolved.calleePath);
+      const calleeAbsNormalized = calleeAbs.replace(/\\/g, "/");
+      const calleeTheta = thetas.find(
+        (theta) =>
+          theta.sourcePath !== undefined &&
+          theta.sourcePath.replace(/\\/g, "/") === calleeAbsNormalized,
+      );
+      byName.set(presentedName, { theta: calleeTheta, sources });
+    }
+  }
+  // File-derivation fallback: covers the marked root's OWN row (bug 0328 —
+  // a root has no entry for itself in its own callable set) and any other
+  // marshalled name the snapshot pass above did not resolve.
   for (const theta of thetas) {
     if (theta.sourcePath === undefined) {
       continue;
@@ -1244,7 +1289,7 @@ async function refuseDivergedChildCallables(
     }
     emitDiagnostic(outcome.verification.diagnostic);
     const hit = byName.get(outcome.callableName);
-    if (hit !== undefined) {
+    if (hit?.theta !== undefined) {
       dropped.add(hit.theta);
     }
   }

@@ -1,6 +1,6 @@
 # Bug 0330 — an `as`-renamed `.theta` callable draws `theta/runtime/subagent-callable-hash-mismatch` on every launch of its caller, edits or none: the parent marshals the hash under the presented (post-rename) name while the child re-derives names from file basenames only, so the child can never locate the renamed callable's sources and refuses it as `<child source unavailable>` on a byte-identical workspace
 
-- **Status:** open.
+- **Status:** fixed (0.307.0).
 - **Sev/Diff estimate:** S3/D2 — S3 on two counts that offset: the loud
   half is a diagnostic that lies (a tamper/divergence-shaped error,
   registry-pinned message "content hash mismatch; refusing invocation", on
@@ -143,6 +143,116 @@ documented carrier shape and still needs the caller's `tools:` for
 containment context; not recommended. Either way, add the rename cell to
 `tests/subagent-child-hash-refusal-e2e.test.ts` (match-admits and
 edit-refuses arms).
+
+## Fix (0.307.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` (`refuseDivergedChildCallables`)
+    — the child-side name-alignment `byName` view is now built in two passes
+    (§Fix Preferred). Pass 1, gated on the active subagent-root regime
+    (threaded in as a new `RootRegime` parameter), resolves through the marked
+    root's frozen `callableSet` snapshot: for each `[presentedName, resolved]`
+    entry of kind `theta` whose `presentedName` is in the marshalled carrier,
+    it computes closure sources via
+    `collectCallableClosureSources(fs, ctx, parseDeps, rootPath, resolved.calleePath)`
+    and locates the discovered callee theta (normalised-separator `sourcePath`
+    match against the resolved callee path) as the drop target. Pass 2 is the
+    pre-existing file-derivation loop, unchanged, running as the fallback for
+    marshalled names the snapshot lacks (the marked root's own row, bug 0328).
+    The `byName` value type widened to `theta: ParsedTheta | undefined`
+    (`exactOptionalPropertyTypes`) and the drop-loop guard tightened to
+    `hit?.theta !== undefined`, so a renamed callee that is not itself a
+    discovered root is verified and diagnosed but not dropped — the marked root
+    is never failed here (bug 0329 owns invocation-level refusal). Keeps the
+    marshalled key space (presented names, per the launch-contract table)
+    authoritative on both sides; the parent-side marshalling
+    (`production-theta-producer.ts`, keyed by `entry.presentedName`) is
+    untouched, as is bug 0328's root-row mechanism.
+  - `src/runtime/subagent-child-hash-verify.ts` (`ChildClosureDiscovery`
+    doc-comment) — comment-only: removed `as`-renamed from the
+    "deleted / moved" unresolvable class the note previously lumped it with
+    (the §Actual-behaviour finding that the note "bakes the false positive
+    in"), and stated the production discovery view resolves a rename through
+    the marked root's frozen callable-set snapshot before file-basename
+    derivation.
+  - `tests/subagent-child-hash-refusal-e2e.test.ts` — new `describe("b0330 …")`
+    block with the §Fix-named match-admits and edit-refuses arms over the
+    doc's `zqx-caller`/`zqx-tool` reproduction, marshalling under the presented
+    name `zqx_renamed`.
+- Gates (verbatim):
+  - Witness: `npx vitest run tests/subagent-child-hash-refusal-e2e.test.ts`
+    → 6/6 pass (4 pre-existing + 2 b0330). Revert-red proven: neutralising the
+    snapshot pass reds the match-admits cell with the doc's exact signature
+    (`subagent callable 'zqx_renamed' content hash mismatch` / `observed
+    <child source unavailable>` on byte-identical sources) and the edit-refuses
+    drop arm (`zqx-tool` still registered); restored byte-exact, re-green 6/6.
+  - Full suite: `npx vitest run` → 484 files / 9592 tests pass (9590 baseline
+    + 2 witness cells; zero un-enumerated existing-test reds).
+  - `tests/b0328-root-closure-hash-marshalled.test.ts` → 8/8 pass (landed 0328
+    root-row lock stays green).
+  - Typecheck: `npm run typecheck` → clean. Lint: `npm run lint` → clean.
+- Review: 1 round. R1 (deep) → CLEAN, no findings; verified fidelity to the
+  Preferred approach (Alternative not smuggled in; producer untouched), the
+  0329 boundary (root never dropped), the 0328 root-row coherence (8/8), no
+  DIAG-2/DIAG-4 obligation (reuses `theta/runtime/subagent-callable-hash-mismatch`),
+  no banned words, witness cells assert real observables under the presented-name
+  key. Two non-blocking residuals (R1/R2 below).
+- Verification: SOLID. Witness genuine (revert-red to the doc signature,
+  restore byte-exact 53/14/87 line counts, re-green); full suite 484/9592 green;
+  lint + typecheck clean; live obligation adjudicated — the fix is entirely
+  child-side within `refuseDivergedChildCallables`, which runs during
+  `discoverAndComposeFixtures` (the production child LOAD path the witness
+  drives directly under the authenticated control-plane env a real launcher
+  writes), and touches no env→real-child forwarding/spawn wiring, so the offline
+  e2e witness exercises the identical production code path — NO live cell owed
+  (mirrors bug 0328's adjudication on the same surface); none written, none run.
+- Residuals:
+  1. Drop-target path compare is case-sensitive
+     (`theta.sourcePath.replace(/\\/g, "/") === calleeAbs...`): an
+     author-written case-mismatched `tools:` spec on a case-insensitive
+     filesystem still hash-verifies correctly (the FS resolves the sources) but
+     the `thetas.find` drop-target lookup misses, so a real divergence emits the
+     diagnostic without dropping the callee's slash registration. Non-blocking:
+     the drop enforces nothing today (bug 0329, open, owns invocation-level
+     refusal — where this compare becomes load-bearing it should case-fold), and
+     the same input class drew a *spurious refusal* pre-fix, so this is a strict
+     improvement. Evidence: reviewer R1, verifier obligation-1 reasoning.
+  2. The ~45-line insertion in `production-composition.ts` shifts line numbers
+     cited by ~50 other test files' `production-composition.ts:<line>` comments.
+     Pre-existing unenforced drift: `production-composition.ts` is not in
+     `tests/citation-symbol-form-gate.test.ts`'s converted-file list (the gate is
+     green at this HEAD), and docs/STYLE.md treats such line-cites as
+     HEAD-measured claims repaired by the ratchet conversion, not per-fix churn.
+     Out of this bug's file ownership; not corrected.
+- Discharge notes appended: none owed. Bug 0328's recorded `__proto__.theta`
+  root-name residual is a PARENT-side write no-op in `production-theta-producer.ts`
+  (a callable named `__proto__` never marshals a row through the inherited
+  plain-object setter); 0330's §Fix is child-side alignment only and does not
+  touch the producer, so that residual is neither closed nor worsened here. The
+  child-side `byName` is a `Map`, immune to the inherited-setter no-op
+  regardless.
+- Pinned dispositions / non-goals:
+  - Bounded comment-only correction (`ChildClosureDiscovery` doc-comment).
+    Question that would have been asked: is editing that doc-comment in
+    src/runtime/subagent-child-hash-verify.ts inside 0330's §Fix scope (which
+    names production-composition.ts:2066, production-composition.ts:1144–1146,
+    :1186, and the e2e test)? Settled yes on three sources: (1) 0330's §Actual
+    behaviour/root cause names this exact doc-comment as part of the defect —
+    "The doc comment on `ChildClosureDiscovery` classifies '`as`-renamed' with
+    'deleted / moved' — a design note that bakes the false positive in"; (2)
+    docs/STYLE.md §Claims forbids describing behaviour the runtime no longer
+    exhibits (post-fix a renamed callee IS re-resolvable), so leaving the note
+    would ship a false claim; (3) the edit is comment-only — zero executable
+    lines, zero assertions — confirmed by the diff (`subagent-child-hash-verify.ts`
+    change is entirely within the doc-comment block). Bound: one doc-comment,
+    no executable/assertion change. STOP valve (not triggered): had the
+    correction required any executable change it would have run as a normal
+    fixer edit, not a comment-only self-authorization.
+  - Same-basename cross-root `byName` first-wins collisions
+    (production-composition.ts fallback loop `byName.has(name)` skip) — the
+    doc's own non-goal; unprobed, untouched.
+  - The refusal's enforcement (whether the dropped callee is what the
+    invocation dispatches) — bug 0329's non-goal boundary; untouched.
 
 ## Provenance
 

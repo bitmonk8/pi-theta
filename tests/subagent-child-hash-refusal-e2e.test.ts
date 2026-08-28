@@ -182,3 +182,90 @@ describe("RFC-0005 — child refuses a callee whose content-hash diverged", () =
     expect(outcome.notifications).not.toContain(HASH_MISMATCH_MSG);
   });
 });
+
+// b0330 — an `as`-renamed `.theta` callable draws a spurious
+// `theta/runtime/subagent-callable-hash-mismatch` on every launch. The parent
+// marshals the closure hash under the PRESENTED name (`entry.presentedName`,
+// `production-theta-producer.ts`), but the child's `byName` alignment
+// (`refuseDivergedChildCallables` in `production-composition.ts`) keys discovery
+// on file-derived names only (`deriveCallableName`: basename minus `.theta`,
+// hyphens→underscores). A presented name is no file's basename, so
+// `discovery(name)` answers `undefined`, `verifyOne`
+// (`subagent-child-hash-verify.ts`) refuses fail-closed, and the pinned
+// diagnostic fires on byte-identical sources with the correct hash in hand.
+//
+// The rename cells write their own caller/callee fixtures into the shared
+// workspace `.pi/theta` dir; the `beforeEach` code-review/helper thetas carry no
+// marshalled key here (their derived names are absent from the carrier), so they
+// register untouched and do not perturb the renamed-callable verification.
+describe("b0330 — child verifies an `as`-renamed `.theta` callable by its presented name", () => {
+  const RENAMED_HASH_MISMATCH_MSG =
+    "subagent callable 'zqx_renamed' content hash mismatch; refusing invocation";
+  // `tools: [./zqx-tool.theta as zqx_renamed]` is a first-class `tools:` grammar
+  // production — the rename rides the frozen callable-set entry so the callee
+  // stays dispatchable child-side. Double-quoted so `${…}` and backticks stay
+  // literal `.theta` body text rather than TS interpolation.
+  const ZQX_CALLER =
+    "---\nmode: subagent\ntools:\n  - ./zqx-tool.theta as zqx_renamed\n---\nlet r = zqx_renamed(\"hi\")\n@`use ${r}`\n";
+  const ZQX_TOOL =
+    "---\nmode: subagent\nparams:\n  q: string\n---\n@`tool body ${q}`\n";
+
+  function plantRenameFixture(): string {
+    const dir = join(workspaceDir, ".pi", "theta");
+    writeFileSync(join(dir, "zqx-caller.theta"), ZQX_CALLER, "utf8");
+    writeFileSync(join(dir, "zqx-tool.theta"), ZQX_TOOL, "utf8");
+    return dir;
+  }
+
+  it("admits the renamed callee when the child-recomputed closure hash matches (b0330 match-admits)", async () => {
+    const dir = plantRenameFixture();
+    // The closure hash never folds the path in (`hashCallableClosure` hashes
+    // content only), so the correct on-disk-callee hash the parent marshals for
+    // the presented name `zqx_renamed` is byte-identical to the one the child
+    // recomputes — a matching hash on unchanged sources MUST admit.
+    const correctHash = hashCallableClosure([
+      {
+        path: join(dir, "zqx-tool.theta"),
+        content: readFileSync(join(dir, "zqx-tool.theta"), "utf8"),
+      },
+    ]);
+    setEnv(SUBAGENT_PARENT_PID_ENV, String(process.ppid));
+    setEnv(SUBAGENT_ROOT_ENV_MARKER, "zqx-caller");
+    // The marshalled key is the PRESENTED name (`zqx_renamed`), never the file
+    // basename (`zqx_tool`) — that key-space is what the child must honour.
+    setEnv(
+      SUBAGENT_CALLABLE_HASHES_ENV,
+      JSON.stringify({ zqx_renamed: correctHash }),
+    );
+
+    const outcome = await runChildLoad(workspaceDir);
+
+    // RED on the current tree: `byName` cannot resolve `zqx_renamed`, so the
+    // mismatch fires with `observed <child source unavailable>` on identical
+    // bytes. Green once the child aligns the presented name to the callee.
+    expect(outcome.notifications).not.toContain(RENAMED_HASH_MISMATCH_MSG);
+    expect(outcome.registered).toContain("zqx-caller");
+    expect(outcome.registered).toContain("zqx-tool");
+  });
+
+  it("refuses and drops the renamed callee when the marshalled closure hash is stale (b0330 edit-refuses)", async () => {
+    plantRenameFixture();
+    setEnv(SUBAGENT_PARENT_PID_ENV, String(process.ppid));
+    setEnv(SUBAGENT_ROOT_ENV_MARKER, "zqx-caller");
+    setEnv(
+      SUBAGENT_CALLABLE_HASHES_ENV,
+      JSON.stringify({ zqx_renamed: "sha256:stale-parent-hash" }),
+    );
+
+    const outcome = await runChildLoad(workspaceDir);
+
+    // Post-fix lock. Before the fix the mismatch fires from
+    // `<child source unavailable>` (the presented name is no file basename), and
+    // with no `byName` hit nothing is dropped — so the drop arm reds today. Once
+    // the child resolves the renamed callee, a real byte divergence draws the
+    // mismatch AND drops the callee while the caller stays registered.
+    expect(outcome.notifications).toContain(RENAMED_HASH_MISMATCH_MSG);
+    expect(outcome.registered).not.toContain("zqx-tool");
+    expect(outcome.registered).toContain("zqx-caller");
+  });
+});
