@@ -1,6 +1,6 @@
 # Bug 0325 — a NaN-valued `par for max` operand yields `width = NaN`, which evades the `Math.max(1, …)` floor and spawns ZERO workers, and the join's `results[index] ?? makeOk(null)` hole-filler then fabricates a full `array<Result>` of `Ok(null)` — the loop returns one `Ok(null)` per input element with the body never executed once and zero diagnostics anywhere
 
-- **Status:** open.
+- **Status:** fixed (0.313.0).
 - **Sev/Diff estimate:** S2/D1 — S2 on "silent wrong values": the loop's
   entire value is fabricated (every element reports success with `null`
   where the body's computed result belongs), the body's effects — the
@@ -156,6 +156,90 @@ Preferred, both lines:
    successes. Tradeoff: none on healthy paths — the filler is
    unreachable when the pool invariant holds, which is precisely why it
    should not exist as a value-producing arm.
+
+## Fix (0.313.0)
+
+- **What shipped:**
+  - `src/runtime/statement-executor.ts` — `evalParFor` width resolve: the
+    number branch guard gains `&& Number.isFinite(maxResult.value)` so a
+    non-finite number (`NaN` from `n % 0`, `±Infinity` from `n / 0`) falls to
+    the existing clamp-to-1 + `theta/runtime/par-max-non-integer` diagnostic
+    branch that bug 0324 landed — the SAME disposition, reusing 0324's
+    `emitDiagnostic` channel (§Fix line 1). The finite-number arithmetic
+    (`Math.floor`/`Math.max`/`Math.min`) is byte-unchanged — the integer-valued
+    floor (`max 0`/negative) stays 0326's territory. The emitted message widens
+    to `'par for' max operand is not a finite number; in-flight width clamped
+    to 1` (fidelity-true across the whole widened class incl. Infinity).
+  - `src/runtime/statement-executor.ts` — the CTRL-3 join's
+    `results[index] ?? makeOk(null)` hole-filler is replaced by a loud invariant
+    check that throws the newly-minted `ParForUnwrittenSlotError(index)` (a plain
+    `Error`, sibling to `BinaryNonNumericError`/`CompoundNonNumericError`,
+    reframed one layer up through `surfaceUnexpectedThrow` to
+    `INTERNAL_ERROR_CODE`) when a claimed slot was never written — so a future
+    scheduling defect surfaces loudly instead of fabricating successes
+    (§Fix line 2).
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md`,
+    `docs/reference/diagnostics.md`, `docs/spec_topics/control-flow.md` — DIAG-2
+    Trigger + Message + CTRL-2 sentence widened to cover the non-finite class
+    (choice (a): Trigger widening of the shared `theta/runtime/par-max-non-integer`
+    row; the false "`NaN` is a `number` and does not reach this code" sentence
+    removed).
+  - `docs/bugs/0324-max-non-integer-silently-unthrottled.md` — append-only dated
+    coordination note recording the shared-row widening.
+- **DIAG-2 adjudication (in-lane, bounded, choice (a)):** widen the shared
+  `theta/runtime/par-max-non-integer` row's Trigger AND its message from "is not
+  a number" to "is not a finite number", rather than mint a dedicated row.
+  Keeping the old message is DIAG-4-false for Infinity (Infinity IS a number);
+  "is not a finite number" is true for the whole widened class
+  {non-`number` values, NaN, ±Infinity}. Evidence: the corpus already unifies
+  `{NaN, ±Infinity}` as one non-finite class via `Number.isFinite`
+  (`subagent-envelope.ts`); the "is not a finite …" wording precedent exists
+  (`literals-and-paths`); 0282/0334 Trigger-widening precedent; Infinity is
+  reachable (`1 / 0`, `expressions.md#other-arithmetic`); b0324's runtime
+  witness asserts the CODE only, so the message widening reds no lock.
+- **Gates:** witness `npx vitest run
+  tests/b0325-nan-infinity-max-zero-workers.test.ts` → 7/7 GREEN
+  (revert/restore proved: reverting the `Number.isFinite` guard reds A/B/C/D and
+  makes the join throw `ParForUnwrittenSlotError` at index 0 — the cross-proof
+  that line 2 catches line 1's invariant violation — byte-exact restore by
+  `git hash-object`). 0324 locks (`b0324-max-non-number-runtime`,
+  `b0324-max-incompatible-static`) → 10/10 GREEN. Full default `npm test` → 489
+  files / 9639 tests passed. `npm run typecheck` → exit 0. `npm run lint` → exit
+  0. `tests/fixtures/h7a/permitted-codes.json` byte-unchanged
+  (`a4a8da04209f90e13d815edd92c1fc682e2a2236`).
+- **Review:** 2 rounds. R1 (`bug-fix-reviewer`): CLEAN, zero findings; one
+  non-blocking `test`-residual (line-2 had no direct test) → addressed by adding
+  witness cell D2 (direct-construction routing lock). R2
+  (`bug-fix-reviewer-fast`, confirmation of D2): CLEAN, no findings, no
+  escalation.
+- **Verification:** verdict SOLID. (1) Witnesses genuine — line-1 revert reds
+  A/B/C/D and fires `ParForUnwrittenSlotError`; line-2-alone revert reds nothing
+  (defense-in-depth; D2 pins the routing by construction; reachability proven by
+  the line-1 revert); byte-exact restore confirmed. (2) Full suite 489/9639
+  green. (3) Live: `tests/live/acceptance/b0324live-max-non-integer-load-refusal.test.ts`
+  1/1 GREEN through real `pi -p` under the shared lock (runtime-only fix, no
+  registration change — adjacent max-family cell is the designated coverage).
+  (4) lint + typecheck exit 0.
+- **Residuals:**
+  1. **Line-2 has no reachable-program witness (by design).** The CTRL-3 join's
+     invariant throw is dead code on every healthy path once the width guard
+     holds; its routing is pinned by construction (cell D2) and its reachability
+     proven only when line-1's bug is reintroduced. This matches the bug's own
+     "dead code on every healthy path" characterisation — not a defect.
+  2. **Pre-existing citation drift in `statement-executor.ts:<line>` citations
+     across `tests/`/`docs/bugs/`.** The new error class shifts current line
+     numbers by +36; sampled citations (e.g. b0338, blockexpr-production,
+     par-for-body-return-refusal) were ALREADY stale at HEAD before this change,
+     so no correct citation was made stale. Not chased (the 0324 lane's residual
+     2 lesson: do not churn heavily-cited files; `statement-executor.ts` is not
+     in bug 0134's citation ratchet).
+- **Discharge notes appended:** `docs/bugs/0324-...md` (append-only coordination
+  note recording the shared-row widening).
+- **Pinned dispositions / non-goals:** the integer-valued floor
+  (`max 0`/negative → `Math.max(1, …)`) is byte-untouched (bug 0326). NaN and
+  ±Infinity remain legal `number` VALUES everywhere — only the par-for WIDTH
+  read refuses a non-finite operand (witnessed by control E2). The static
+  `unknown`-verdict deferral (0324) is preserved.
 
 ## Provenance
 

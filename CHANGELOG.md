@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.313.0]
+
+### Fixed
+
+- **Bug 0325** — a NaN-valued `par for max` operand yielded `width = NaN`, which evaded the `Math.max(1, …)` floor (`Math.floor`/`Math.max`/`Math.min` all propagate NaN), spawned ZERO workers, and the CTRL-3 join's `results[index] ?? makeOk(null)` hole-filler then fabricated a full, shape-perfect `array<Result>` of `Ok(null)` — the loop reported one success per input element with the body never executed once and zero diagnostics anywhere. Both mechanism lines are closed. Width guard: the numeric branch now requires `Number.isFinite`, so a non-finite width (NaN, `±Infinity` — the latter previously ran silently at the 64 throttle, a class the §Fix sanctions guarding wholesale) takes bug 0324's disposition: clamp DOWN to 1 plus the runtime diagnostic, whose shared registry row `theta/runtime/par-max-non-integer` is widened same-commit (Trigger covers non-finite numbers, message now `'par for' max operand is not a finite number; in-flight width clamped to 1`, DIAG-4-true for the whole class; CTRL-2 sentence and reference mirror updated; dated coordination note appended to bug 0324's doc). Join invariant: the hole-filler is replaced by a loud `ParForUnwrittenSlotError` naming the unwritten index — a plain `Error` reframed through `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE` exactly as `BinaryNonNumericError` is — so any future scheduling defect surfaces instead of fabricating successes (the filler was dead code on every healthy path). NaN remains a legal runtime *value* everywhere else (0142/0152 typing untouched); the integer-valued `Math.max(1, …)` floor (`max 0`/negative) stays byte-untouched for bug 0326. Witnessed by `tests/b0325-nan-infinity-max-zero-workers.test.ts` (7 cells: schema-route fabrication with zero-dispatch proof, direct NaN, Infinity, the join invariant, diagnostic routing, and byte-unchanged controls).
+
 ## [0.312.0]
 
 ### Fixed

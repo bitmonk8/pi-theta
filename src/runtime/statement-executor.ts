@@ -668,6 +668,30 @@ export class BinaryNonNumericError extends Error {
 }
 
 /**
+ * Bug 0325 (docs/bugs/0325-nan-max-zero-workers-fabricated-ok-null-array.md)
+ * belt: the CTRL-3 join's per-index write is the sibling of `BinaryNonNumericError`
+ * for the `par for` worker pool. Index claiming is synchronous and the pool
+ * drains to `n` (`evalParFor`), so on every healthy path `results[index]` is
+ * always written before the join reads it — the `?? makeOk(null)` filler the
+ * join used to fall back to was dead code on every healthy path, reachable
+ * only when the scheduling invariant was already broken (e.g. a non-finite
+ * width evading the ≥1 floor). Fabricating `Ok(null)` there converted a
+ * broken invariant into a shape-perfect fake success instead of surfacing it,
+ * so this throws a loud, specific defect naming the unwritten index. A plain
+ * `Error`, NOT a `ThetaPanic` — it propagates uncaught out of `executeBody`
+ * and is reframed one layer up through `surfaceUnexpectedThrow` to
+ * `INTERNAL_ERROR_CODE`, exactly as `BinaryNonNumericError` is.
+ */
+export class ParForUnwrittenSlotError extends Error {
+  public constructor(index: number) {
+    super(
+      `internal defect: par for join found an unwritten result slot at index ${index}; every claimed index must be written by its worker before the CTRL-3 join (bug 0325)`,
+    );
+    this.name = "ParForUnwrittenSlotError";
+  }
+}
+
+/**
  * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
  * `+` arm exactly (string+string concatenates, else numeric addition) — the
  * shared runtime semantics for `+`, since bindings.md defines `x += e` as
@@ -1546,24 +1570,29 @@ async function evalParFor(
     if (maxResult.flow !== "value") {
       return maxResult;
     }
-    if (typeof maxResult.value === "number") {
-      // NaN passes `typeof === "number"` and stays on this branch untouched —
-      // bug 0325's territory, not this fix's.
+    if (typeof maxResult.value === "number" && Number.isFinite(maxResult.value)) {
+      // A non-finite number (NaN, +Infinity, -Infinity) is not an interpretable
+      // width: `Math.floor`/`Math.max`/`Math.min` all propagate NaN through the
+      // ≥1 floor (bug 0325), and `Infinity` survives the floor to run
+      // unthrottled instead of clamped. `Number.isFinite` is the corpus's
+      // non-finite leaf test (cf. subagent-envelope.ts), so it gates the
+      // number branch the same way here.
       const requested = Math.floor(maxResult.value);
       width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
     } else {
       // CTRL-2: `max` only ever LOWERS the width. A non-number operand value
-      // (reached through the deferred/`unknown` static path) is unintelligible
-      // as a width, so the panic-free floor is the clamp-to-1 disposition —
-      // never the clause-absent 64 throttle, which would invert the clause's
-      // one granted power.
+      // (reached through the deferred/`unknown` static path) or a non-finite
+      // number value (NaN/±Infinity, reached through `n % 0` / `n / 0`) is
+      // unintelligible as a width, so the panic-free floor is the clamp-to-1
+      // disposition — never the clause-absent 64 throttle, which would invert
+      // the clause's one granted power.
       width = 1;
       deps.emitDiagnostic?.({
         severity: "error",
         code: "theta/runtime/par-max-non-integer",
         file: deps.file,
         range: expr.max.range,
-        message: "'par for' max operand is not a number; in-flight width clamped to 1",
+        message: "'par for' max operand is not a finite number; in-flight width clamped to 1",
       });
     }
   }
@@ -1645,9 +1674,16 @@ async function evalParFor(
   }
 
   // CTRL-3 — the value is the input-index-ordered array of per-element Results.
+  // An unwritten slot here means a claimed index never got a worker write — a
+  // scheduling-invariant violation, not a normal outcome, so it throws rather
+  // than fabricating a success (bug 0325).
   const collected: ThetaValue[] = new Array(n);
   for (let index = 0; index < n; index += 1) {
-    collected[index] = results[index] ?? makeOk(null);
+    const slot = results[index];
+    if (slot === undefined) {
+      throw new ParForUnwrittenSlotError(index);
+    }
+    collected[index] = slot;
   }
   return { flow: "value", value: collected };
 }

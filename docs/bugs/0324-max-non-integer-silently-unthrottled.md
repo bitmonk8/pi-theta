@@ -276,3 +276,15 @@ Bug-hunt area `parfor-semantics`, worktree `C:/UnitySrc/pi-theta-hunt` at
 `parseThetaDocument` (static classes + control) and `executeBody` with a
 gated `StatementEvalHost` (peak-in-flight measurement), modelled on
 `tests/par-for.test.ts`; scratch file deleted after filing.
+
+## Coordination note (2026-08-30)
+
+Bug 0325's fix widened this bug's shared runtime code
+`theta/runtime/par-max-non-integer` to also cover a non-finite `number`
+value (`NaN`, `±Infinity`), not only a non-`number` value: the width guard
+now reads `typeof === "number" && Number.isFinite(...)`, and both the
+DIAG-2 Trigger/Message rows and the CTRL-2 sentence in
+`docs/spec_topics/control-flow.md` were reworded to state the widened
+class. The code itself is unchanged; this bug's static half
+(`theta/parse/non-integer-max`) and the integer-valued clamp arithmetic
+(`Math.max`/`Math.min`/`Math.floor`) are untouched.
