@@ -193,6 +193,14 @@ export interface ExecuteBodyDeps {
    * same source file. Matches `EffectfulStatementHostDeps.file`.
    */
   readonly file: string;
+  /**
+   * The runtime-diagnostic channel (bug 0324): `evalParFor`'s width resolve
+   * calls this on a non-number `max` value (the clamp-to-1 disposition) so the
+   * clamp is not silent. OPTIONAL because existing constructors of this
+   * interface omit it; a required field would flip every one of them outside
+   * this fix's enumerated scope.
+   */
+  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 
 /**
@@ -1538,9 +1546,26 @@ async function evalParFor(
     if (maxResult.flow !== "value") {
       return maxResult;
     }
-    const requested =
-      typeof maxResult.value === "number" ? Math.floor(maxResult.value) : PAR_FOR_THROTTLE;
-    width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
+    if (typeof maxResult.value === "number") {
+      // NaN passes `typeof === "number"` and stays on this branch untouched —
+      // bug 0325's territory, not this fix's.
+      const requested = Math.floor(maxResult.value);
+      width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
+    } else {
+      // CTRL-2: `max` only ever LOWERS the width. A non-number operand value
+      // (reached through the deferred/`unknown` static path) is unintelligible
+      // as a width, so the panic-free floor is the clamp-to-1 disposition —
+      // never the clause-absent 64 throttle, which would invert the clause's
+      // one granted power.
+      width = 1;
+      deps.emitDiagnostic?.({
+        severity: "error",
+        code: "theta/runtime/par-max-non-integer",
+        file: deps.file,
+        range: expr.max.range,
+        message: "'par for' max operand is not a number; in-flight width clamped to 1",
+      });
+    }
   }
 
   const n = snapshot.length;

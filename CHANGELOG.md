@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.312.0]
+
+### Fixed
+
+- **Bug 0324** — a non-`integer`-typed `par for max` operand loaded with zero diagnostics and the clause was silently ignored at runtime: the static sink surfaced only the `integer-narrowing` verdict and dropped `incompatible`, and the width read substituted the clause-absent 64 throttle for any non-number value — so `max "abc"` / `max true` / `max null` / `max w` (`w: string`) all fanned out unthrottled against CTRL-2's "at most `max n` iterations in flight". Both halves are closed. Static: the sink's `incompatible` arm now refuses at load with the new `theta/parse/non-integer-max` (Sev E, phase `type`; the `unknown` verdict keeps deferring and the narrowing verdict's code/message are byte-unchanged). Runtime: a non-number width value reaching the deferred path clamps the in-flight width DOWN to 1 — never the clause-absent 64, which would invert the clause's one granted power ("`max` only *lowers*") — and emits the new `theta/runtime/par-max-non-integer` through an optional `emitDiagnostic` channel threaded into `ExecuteBodyDeps` (wired to the production sink in both producer modes); the disposition is the parent-adjudicated panic-free floor (loop-level `Err` has no CTRL-3-compatible shape; the 0332/0338 loud-throw belt precedent is excluded by the §Fix's "panic-free" qualifier). `NaN` (typeof `number`) deliberately stays on the numeric branch for bug 0325, and the integer-valued `Math.max(1, …)` floor (`max 0`/negative) stays byte-untouched for bug 0326. Same-commit DIAG-2 rows in `code-registry-parse.md` and `code-registry-runtime.md`, the `docs/reference/diagnostics.md` mirror, and the CTRL-2 sentence in `control-flow.md`. Witnessed by `tests/b0324-max-incompatible-static.test.ts` (five incompatible classes + narrowing/clean/deferral controls), `tests/b0324-max-non-number-runtime.test.ts` (deferred non-number width → peak in-flight 1 + diagnostic; `max 2` control unchanged), and the acceptance cell `tests/live/acceptance/b0324live-max-non-integer-load-refusal.test.ts` (offender refused at live production load, control registers and drives; red-proven, green under the campaign lock).
+
 ## [0.311.0]
 
 ### Fixed

@@ -1876,6 +1876,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       mutator: new NoopConversationMutator(),
       mode: "prompt",
       file: theta.slashName,
+      // Bug 0324: thread the real runtime-diagnostic channel so a non-number
+      // `par for` `max` value's clamp-to-1 is not silent.
+      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
     };
 
     // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
@@ -2140,6 +2143,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       mutator: new NoopConversationMutator(),
       mode: "subagent",
       file: theta.slashName,
+      // Bug 0324: thread the real runtime-diagnostic channel so a non-number
+      // `par for` `max` value's clamp-to-1 is not silent.
+      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
     };
 
     // Decision 6 / Increment B1: the invocation's registry entry, opened before

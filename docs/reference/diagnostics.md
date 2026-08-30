@@ -73,6 +73,7 @@ trigger.
 | `theta/parse/fn-param-not-identifier` | E | parse | `fn parameter name must be an identifier` |
 | `theta/parse/block-comment` | E | lex | `block comments are not supported` |
 | `theta/parse/integer-narrowing` | E | type | `cannot narrow number to integer` |
+| `theta/parse/non-integer-max` | E | type | `'par for' max operand must be integer-typed; got <type>` |
 | `theta/parse/integer-literal-out-of-range` | E | lex | `integer literal exceeds the safe-integer range` |
 | `theta/parse/number-literal-not-finite` | E | lex | `number literal is not a finite IEEE-754 double` |
 | `theta/parse/unsupported-feature` | E | parse | `unsupported syntactic feature: <construct>` |
@@ -276,6 +277,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/invoke-depth-exceeded` | E | runtime | `invoke chain depth exceeded: <depth> > 32`. |
 | `theta/runtime/system-note-delivery-failed` | E | runtime | `system-note delivery failed: <original content first line>`. |
 | `theta/runtime/registry-swap-failed` | E | runtime | `registry swap failed: <path>`. |
+| `theta/runtime/par-max-non-integer` | E | runtime | `'par for' max operand is not a number; in-flight width clamped to 1`. |
 | `theta/runtime/watcher-terminated` | E | runtime | `theta watcher terminated; hot-reload halted until /reload`. |
 | `theta/runtime/internal-error` | E | runtime | `internal error: <error.message>`. |
 | `theta/runtime/non-object-receiver` | E | runtime | `non-object receiver: cannot read <read> on <receiver kind>`. |

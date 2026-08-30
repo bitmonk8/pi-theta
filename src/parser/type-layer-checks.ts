@@ -3212,11 +3212,8 @@ class TypeLayerWalk {
         // The `max` operand is an integer sink: a fractional / `number` operand
         // narrows to the existing `theta/parse/integer-narrowing` diagnostic.
         if (e.max !== null) {
-          const r = checkCompatible(
-            this.typeOf(e.max, bindings),
-            { kind: "prim", name: "integer" },
-            this.env,
-          );
+          const maxType = this.typeOf(e.max, bindings);
+          const r = checkCompatible(maxType, { kind: "prim", name: "integer" }, this.env);
           if (r === "integer-narrowing") {
             this.diagnostics.push({
               severity: "error",
@@ -3224,6 +3221,19 @@ class TypeLayerWalk {
               file: this.file,
               range: e.max.range,
               message: "cannot narrow number to integer",
+            });
+          } else if (r === "incompatible") {
+            // CTRL-2: the `max` operand contract is "any `integer`-typed
+            // expression" — a statically-resolvable-incompatible type (string,
+            // boolean, null, non-integer-compatible union, …) is a load
+            // refusal beside the narrowing arm. `unknown` keeps deferring (no
+            // push here), matching the type layer's documented posture.
+            this.diagnostics.push({
+              severity: "error",
+              code: "theta/parse/non-integer-max",
+              file: this.file,
+              range: e.max.range,
+              message: `'par for' max operand must be integer-typed; got ${displayType(maxType)}`,
             });
           }
           this.walkExpr(e.max, bindings, flow);
