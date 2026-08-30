@@ -378,3 +378,5 @@ new host surfaces.
   [PIC-7](../spec_topics/pi-integration-contract/host-prerequisites.md#pic-7).
 - Reproduction: scratch vitest per §Reproduction (three tests green at HEAD;
   scratch deleted after observation, per task).
+
+> **Coordination note (2026-08-30, at bug 0311's fix, 0.314.0):** the live witness `tests/live/double-session-start-live.test.ts` warm-up churn was re-anchored from rewrite-same-path (a `change`, deliberately non-structural under the path-basis note 0311 landed) to unlink-then-recreate with separate observation windows, so the watcher-delivery readiness note still fires deterministically. The quiesce/supersession subjects this report owns are untouched.

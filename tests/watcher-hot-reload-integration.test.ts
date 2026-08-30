@@ -219,9 +219,20 @@ describe("Phase 5 (DISCO-2) — watcher / hot-reload wired through the shipped c
     expect(wiring?.registry.get("greet")).toBeDefined();
     const notesBefore = harness.notes.length;
 
-    // Remove the theta on disk, then fire a debounced watcher event.
+    // Remove the theta on disk, then fire a debounced watcher event. A REAL
+    // removal delivers `{kind:"unlink"}` (not the shared helper's `change`), so
+    // the emitted event carries the removal the structural-note count is
+    // defined over (registration-steps.md §Structural changes — the netted
+    // add/unlink paths; bug 0311 §Fix constraint 4, fixed in v0.314.0). The
+    // unlink nets removed=[<abs path to greet.theta>] under the path basis, so
+    // N=1 and this cell's byte-pinned content assertion is unchanged.
     unlinkSync(join(thetaDir, "greet.theta"));
-    await fireReloadAndSettle(() => wiring?.registry.get("greet") === undefined);
+    fakeWatcher.emit({ kind: "unlink", path: join(thetaDir, "greet.theta") });
+    fakeClock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await waitFor(
+      () => wiring?.registry.get("greet") === undefined,
+      "reload to settle",
+    );
 
     // (b) the removed theta is dropped from the swapped registry.
     expect(wiring?.registry.get("greet")).toBeUndefined();

@@ -29,6 +29,7 @@
 // signal owned by V9b).
 
 import type { Clock, TimerHandle } from "../seams/clock";
+import type { FileWatchEvent } from "../seams/file-watcher";
 
 /**
  * The default debounce window in milliseconds. The `250 ms` figure is an
@@ -53,11 +54,16 @@ export interface ReloadDebouncerDeps {
   readonly clock: Clock;
   /**
    * Run one rebuild against the live registry / validator cache / registration
-   * cache. Resolves on the rebuild's single synchronous publish or its
-   * `theta/runtime/registry-swap-failed` discard (the PIC-36 completion signal
-   * V9b owns); the returned promise settling is the PIC-49 guard-release event.
+   * cache, given the drained window batch (bug 0311 — the note decision is
+   * defined over the debounce-window's observed add/unlink paths, so the batch
+   * must reach the rebuild). Resolves on the rebuild's single synchronous
+   * publish or its `theta/runtime/registry-swap-failed` discard (the PIC-36
+   * completion signal V9b owns); the returned promise settling is the PIC-49
+   * guard-release event. A no-arg `() => Promise<RebuildOutcome>` remains
+   * assignable here, so tests that exercise timing/serialization independent
+   * of the batch payload need no change.
    */
-  readonly rebuild: () => Promise<RebuildOutcome>;
+  readonly rebuild: (batch: readonly FileWatchEvent[]) => Promise<RebuildOutcome>;
   /** Debounce window in ms (default `RELOAD_DEBOUNCE_WINDOW_MS`). */
   readonly windowMs?: number;
 }
@@ -69,10 +75,20 @@ export interface ReloadDebouncerDeps {
  */
 export class ReloadDebouncer {
   readonly #clock: Clock;
-  readonly #rebuild: () => Promise<RebuildOutcome>;
+  readonly #rebuild: (batch: readonly FileWatchEvent[]) => Promise<RebuildOutcome>;
   readonly #windowMs: number;
   /** The most-recent pending debounce timer handle (drop-and-reschedule). */
   #pending: TimerHandle | undefined;
+  /**
+   * The current window's accumulated watcher events (bug 0311). Drained
+   * synchronously at `#startRebuild()` so events arriving during the async
+   * rebuild land in the FRESH batch (the next window) rather than the one
+   * already handed to `#rebuild`. A window that closes while a rebuild is in
+   * flight (`#onWindowClosed`'s deferred arm) deliberately does NOT drain here
+   * — it merges into this same batch, and the deferred rebuild drains it at
+   * its own `#startRebuild` (PIC-49 "merges, never drops").
+   */
+  #batch: FileWatchEvent[] = [];
   /** True while a rebuild is awaiting its asynchronous steps (PIC-49). */
   #inFlight = false;
   /** True when a debounce window closed while a rebuild was in flight (PIC-49). */
@@ -102,8 +118,19 @@ export class ReloadDebouncer {
    * the most-recent handle, so a burst of writes within one window coalesces
    * into a single reload firing `windowMs` after the last event. When the
    * window closes the timer runs the rebuild under the PIC-49 guard.
+   *
+   * `event`, when supplied, accumulates into the window-scoped `#batch` that
+   * the eventual rebuild consumes (bug 0311). It is optional so the existing
+   * timing/serialization tests (`reload-debounce.test.ts`,
+   * `reload-teardown-quiesce.test.ts`) can keep calling `onWatcherEvent()`
+   * with no argument and exercise coalescing independent of the batch
+   * payload; production always supplies the event (the `onChange` wiring in
+   * hot-reload.ts forwards it).
    */
-  onWatcherEvent(): void {
+  onWatcherEvent(event?: FileWatchEvent): void {
+    if (event !== undefined) {
+      this.#batch.push(event);
+    }
     if (this.#pending !== undefined) {
       this.#clock.clearTimeout(this.#pending);
     }
@@ -187,7 +214,14 @@ export class ReloadDebouncer {
       return;
     }
     this.#inFlight = true;
-    void this.#rebuild().then(
+    // Drain the window batch synchronously before the rebuild starts (bug
+    // 0311): a window closing mid-flight merges its events into `#batch`
+    // (see the `#batch` field doc), and draining here — not inside the
+    // deferred arm of `#onWindowClosed` — is what lets that merge happen; the
+    // deferred rebuild's own `#startRebuild` call drains the merged result.
+    const batch = this.#batch;
+    this.#batch = [];
+    void this.#rebuild(batch).then(
       () => this.#onRebuildSettled(),
       (reason: unknown) => {
         // A rejection is outside the PIC-36 publish/discard completion signal:

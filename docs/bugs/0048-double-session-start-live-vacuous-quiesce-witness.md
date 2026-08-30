@@ -579,3 +579,5 @@ no source, so it can land in any order.
   the 250 ms debounce all stand (§Non-goals). The re-literalised quiesce prefix
   stays a separate filing. A larger `DEBOUNCE_SETTLE_MS` was rejected by §Fix
   and not taken: it restates the same unpinned assumption at another magnitude.
+
+> **Coordination note (2026-08-30, at bug 0311's fix, 0.314.0):** the `b0048warmup` churn in `tests/live/double-session-start-live.test.ts` now unlinks before each recreate (phase-separated windows) because the structural-change note keys on netted add/unlink paths per 0311 — a bare rewrite is a content edit and correctly draws no note. The delivery-proof purpose of the warm-up is unchanged.

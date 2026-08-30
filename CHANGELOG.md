@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.314.0]
+
+### Fixed
+
+- **Bug 0311** — the structural-change note was derived from the registered-NAME set diff after the rebuild instead of the debounce window's observed add/unlink PATHS, so a parse-breaking content edit drew a FALSE `theta watcher: 1 file(s) added or removed` note (misdirecting the author to `/reload` for a parse error), a same-window unlink+add of one path drew NOTHING where PIC-38 mandates `N = 2`, and `details.structural` carried slash names where `runtime-event-channel.md` pins absolute file paths. The debounce boundary now carries the window's event batch: `onWatcherEvent(event)` accumulates a window-scoped batch (PIC-49 deferral MERGES batches, never drops them — witnessed in `tests/reload-debounce.test.ts`), `runReload` consumes and clears it, and the note keys on the netted `.theta`/`.thetalib` add/unlink paths with the PIC-38 both-arrays rule (a renamed path counts twice; no cross-role dedup) and absolute-path payloads; the dead name-set baseline was removed. Content edits that merely change registration outcomes no longer note (per `registration-steps.md` §Structural changes), PIC-37 suppression windows stay silent, and a real unlink still notes with `N = 1` — the pre-named surviving cell in `tests/watcher-hot-reload-integration.test.ts` was re-anchored to emit a REAL `unlink` event per §Fix constraint 4, its byte-pinned content assertion unchanged. The live witness `tests/live/double-session-start-live.test.ts` (bugs 0021/0048) used a rewrite-same-path warm-up whose `change` events are deliberately non-structural under the path basis: its churn was re-anchored (parent-ratified, subjects preserved) to unlink-then-recreate with phase-separated observation windows — Windows watchers coalesce back-to-back delete+create into a single `change` — and runs green live; dated coordination notes appended to 0021 and 0048. Watch-set arming, `watcher-recovery.ts`, and `pi-file-watcher.ts` are untouched (bugs 0312/0313/0339's surfaces). Witnessed by `tests/b0311-structural-note-derived-from-paths.test.ts` (parse-break silence both directions, PIC-38 same-window rename `N = 2`, real unlink `N = 1` with absolute paths).
+
 ## [0.313.0]
 
 ### Fixed

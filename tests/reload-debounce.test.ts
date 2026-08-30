@@ -5,6 +5,7 @@ import {
   type RebuildOutcome,
 } from "../src/extension/reload-debounce";
 import { FakeClock } from "./helpers/fake-clock";
+import type { FileWatchEvent } from "../src/seams/file-watcher";
 
 // V10d-T — reload debounce and cross-window rebuild serialization (tests).
 // These tests are written against the seam the paired V10d implementation leaf
@@ -216,6 +217,59 @@ describe("V10d-T — cross-window rebuild serialization (PIC-49)", () => {
     settle("published");
     await flush();
     expect(rebuild).toHaveBeenCalledTimes(2);
+  });
+
+  // Bug 0311 §Fix constraint (1): "PIC-49 deferral must MERGE batches, not drop
+  // them." The debounce boundary accumulates each `onWatcherEvent(event)` into a
+  // window-scoped batch that `#startRebuild` drains synchronously; events
+  // arriving while a rebuild is in flight belong to the NEXT window, and the
+  // deferred arm must carry exactly those merged events into the deferred
+  // rebuild. This cell reds if a future "drain in every window close" refactor
+  // drops the merged batch on the floor. Version: 0.314.0.
+  it("bug 0311 §Fix constraint (1): a window closing mid-flight merges its events into the deferred rebuild's batch — e1 not re-consumed, e2+e3 not dropped", async () => {
+    const clock = new FakeClock();
+    const { rebuild, settle, inFlightCount } = controllableRebuild();
+    const debouncer = new ReloadDebouncer({ clock, rebuild });
+
+    // Small distinct events so the merged batch's contents (kind + path) are
+    // assertable by identity.
+    const e1: FileWatchEvent = { kind: "add", path: "/w/a.theta" };
+    const e2: FileWatchEvent = { kind: "unlink", path: "/w/b.theta" };
+    const e3: FileWatchEvent = { kind: "add", path: "/w/c.theta" };
+
+    // Window 1: one event → rebuild #1 starts IN FLIGHT with batch [e1]. It is
+    // NOT settled — held in flight across the next window.
+    debouncer.onWatcherEvent(e1);
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await flush();
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(rebuild.mock.calls[0]?.[0]).toEqual([e1]);
+
+    // Precondition (fail loudly if unmet): rebuild #1 must be genuinely in
+    // flight, else window 2 below would start a fresh rebuild rather than the
+    // deferred one the merge is defined over.
+    expect(inFlightCount()).toBe(1);
+
+    // Window 2 closes WHILE rebuild #1 is in flight: e2 and e3 accumulate into
+    // the FRESH batch (the drained #batch was reset at rebuild #1's start), and
+    // the closing window defers rather than starting a concurrent rebuild.
+    debouncer.onWatcherEvent(e2);
+    debouncer.onWatcherEvent(e3);
+    clock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await flush();
+    expect(rebuild).toHaveBeenCalledTimes(1); // deferred, not concurrent
+
+    // Release rebuild #1 → the deferred rebuild #2 runs and drains the merged
+    // batch.
+    settle("published");
+    await flush();
+    expect(rebuild).toHaveBeenCalledTimes(2);
+
+    // The MERGE: rebuild #2 receives EXACTLY [e2, e3] — e1 was consumed by
+    // rebuild #1 and is not re-consumed, and neither e2 nor e3 was dropped by
+    // the deferral. A "drain in every window close" refactor would hand
+    // rebuild #2 an empty batch here.
+    expect(rebuild.mock.calls[1]?.[0]).toEqual([e2, e3]);
   });
 });
 

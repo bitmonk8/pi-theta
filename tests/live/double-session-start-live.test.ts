@@ -69,7 +69,7 @@
 // harness sets both #subagent-child-pins at module scope (no subagent child is
 // spawned here, but the pins are harness-wide).
 
-import { writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
@@ -98,10 +98,11 @@ const WARMUP_SLASH_NAME = "b0048warmup";
 
 /**
  * The structural-change `theta-system-note` a closed debounce window emits when
- * the registered theta SET changed (`structuralChangeNote`,
- * src/extension/reload-wiring.ts:477; sent at
- * src/extension/hot-reload.ts:271-273). Split around the substituted count so
- * the assertion reads the operator-visible template, not an internal.
+ * its netted `.theta`/`.thetalib` add/unlink PATHS are non-empty (bug 0311 —
+ * the basis is the debounce-window event batch, not the registered theta set).
+ * Computed by `structuralChangeNote` and delivered via `sendSystemNote` inside
+ * `installHotReload`. Split around the substituted count so the assertion reads
+ * the operator-visible template, not an internal.
  */
 const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
 const STRUCTURAL_NOTE_SUFFIX =
@@ -242,8 +243,8 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
       // end of this test asserts an ABSENCE, and an absence is also what a
       // watcher that delivered NOTHING produces. Prove generation 1's watcher
       // is past its initial scan by churning STRUCTURALLY (a content-only edit
-      // emits no note — `structuralChangeNote` suppresses empty windows,
-      // src/extension/reload-wiring.ts:467-471) and awaiting the DELIVERED
+      // adds or removes no file, so its window nets no add/unlink path and
+      // `structuralChangeNote` suppresses it) and awaiting the DELIVERED
       // structural-change note off the settled in-memory `SessionManager`.
       // Runs before the second bind because after the supersession that
       // watcher is correctly gone and its delivery is no longer demonstrable;
@@ -262,14 +263,9 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
       );
       const warmupDeadline = Date.now() + WARMUP_DELIVERY_CAP_MS;
       let warmupDelivered = false;
-      while (!warmupDelivered && Date.now() < warmupDeadline) {
-        // Retry the write: chokidar attaches a path's `fs` watcher only when
-        // its initial walk reaches the path and suppresses the walk's own
-        // `add` under `ignoreInitial: true`, so a write landing inside the
-        // scan is delivered as nothing at all and must be re-issued rather
-        // than waited on. Every retry keeps the file a valid prompt-mode theta
-        // so each reload pass can publish.
-        writeFileSync(warmupPath, warmupText, "utf8");
+      // One helper for both churn phases: poll the settled transcript for the
+      // structural-change note a closed debounce window emits.
+      const pollForStructuralNote = async (): Promise<boolean> => {
         for (let poll = 0; poll < WARMUP_POLLS_PER_WRITE; poll += 1) {
           await sleep(WARMUP_POLL_INTERVAL_MS);
           const warmupNotes = collectSystemNotes(
@@ -282,10 +278,39 @@ describe("bugs 0021 + 0024 — live double session_start supersession (H8a, regi
                 note.includes(STRUCTURAL_NOTE_SUFFIX),
             )
           ) {
-            warmupDelivered = true;
-            break;
+            return true;
           }
         }
+        return false;
+      };
+      while (!warmupDelivered && Date.now() < warmupDeadline) {
+        // Retry the churn as unlink-then-recreate with a polling gap between
+        // the two phases: chokidar attaches a path's `fs` watcher only when
+        // its initial walk reaches the path and suppresses the walk's own
+        // `add` under `ignoreInitial: true`, so churn landing inside the scan
+        // is delivered as nothing at all and must be re-issued rather than
+        // waited on. The structural-change note keys on the window's netted
+        // add/unlink PATHS (bug 0311; a bare rewrite is a `change` — a content
+        // edit, deliberately not structural per registration-steps.md
+        // §Structural changes), and Windows watchers coalesce a back-to-back
+        // delete+create of one path into a single `change`, so each phase gets
+        // its own observation window: the unlink alone (netted `unlink`, note
+        // fires), then the recreate alone (netted `add`, note fires). Either
+        // window's note proves delivery. Every retry ends with a valid
+        // prompt-mode theta on disk so each reload pass can publish.
+        if (existsSync(warmupPath)) {
+          unlinkSync(warmupPath);
+          warmupDelivered = await pollForStructuralNote();
+        }
+        if (!warmupDelivered) {
+          writeFileSync(warmupPath, warmupText, "utf8");
+          warmupDelivered = await pollForStructuralNote();
+        }
+      }
+      // The loop may exit right after an unlink-phase delivery; the later
+      // steps need the warm-up theta present and registrable on disk.
+      if (!existsSync(warmupPath)) {
+        writeFileSync(warmupPath, warmupText, "utf8");
       }
       if (!warmupDelivered) {
         failLoudly(

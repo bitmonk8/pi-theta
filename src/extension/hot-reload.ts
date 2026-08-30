@@ -14,8 +14,12 @@
 //   - on each debounced fire the reload re-runs discovery + compose
 //     (`rediscover`), swaps the `ThetaRegistry` atomically via `rebuildAndSwap`
 //     (PIC-36), re-registers the surviving thetas with pi (`reRegister`), emits
-//     the `structuralChangeNote` when the registered theta SET changed, and
-//     surfaces a swap-that-throws-before-publish as ERR-7
+//     the `structuralChangeNote` keyed on the debounce window's netted
+//     `.theta`/`.thetalib` add/unlink PATHS (registration-steps.md §Structural
+//     changes; PIC-38 both-arrays no-dedup — a path unlinked+added in one
+//     window counts in both `added` and `removed`), with absolute paths as the
+//     payload (runtime-event-channel.md), and surfaces a
+//     swap-that-throws-before-publish as ERR-7
 //     (`theta/runtime/registry-swap-failed`) on the `theta-system-note` channel;
 //   - `detach()` tears the watcher down and cancels the pending debounce timer
 //     for the `session_shutdown` teardown (registration-steps.md step 4);
@@ -32,7 +36,7 @@
 // `pi` + `ctx` seams threaded from the composition root.
 
 import type { Clock } from "../seams/clock";
-import type { FileWatcher } from "../seams/file-watcher";
+import type { FileWatcher, FileWatchEvent } from "../seams/file-watcher";
 import { ReloadDebouncer, type RebuildOutcome } from "./reload-debounce";
 import { armWatcherWithTerminalRecovery } from "./watcher-recovery";
 import {
@@ -80,7 +84,15 @@ export interface InstallHotReloadDeps {
    * surfaces `theta/runtime/registry-swap-failed` and discards the swap (PIC-36).
    */
   readonly reRegister: (thetas: readonly ParsedTheta[]) => void;
-  /** The slash names registered at `session_start` (structural-change baseline). */
+  /**
+   * The slash names registered at `session_start`. Retained because three call
+   * sites still supply it and dropping it from the interface would red their
+   * object literals: `production-composition.ts`,
+   * `tests/hot-reload-stale-quiesce-arms.test.ts`, and
+   * `tests/supersession-inflight-rebuild-quiesce.test.ts`. Bug 0311 moved the
+   * structural-note basis off the registered-name set onto the debounce-window
+   * event batch, so this field is no longer read here.
+   */
   readonly initialNames: Iterable<string>;
   /**
    * Bug 0018 (PIC-67) — the stale-runtime entry probe: touch ONE cheap,
@@ -119,6 +131,18 @@ export interface HotReloadHandle {
 }
 
 /**
+ * A `.theta` / `.thetalib` source path: the structural-change note is scoped
+ * to these two extensions (registration-steps.md §Structural changes) — other
+ * watched paths (the settings files) never contribute to `added`/`removed`.
+ * Open-coded `endsWith`, matching the extension-check idiom used throughout
+ * this codebase (e.g. production-composition.ts's format dispatch); no shared
+ * classifier exists.
+ */
+function isThetaSourcePath(path: string): boolean {
+  return path.endsWith(".theta") || path.endsWith(".thetalib");
+}
+
+/**
  * Arm the step-5 watcher over the discovery-root union + settings-file paths,
  * wire a debounced reload onto its change stream, and return the teardown
  * handle. A synthetic changed-path label identifies the reload in the
@@ -127,11 +151,6 @@ export interface HotReloadHandle {
  */
 export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   const RELOAD_CHANGED_PATH = "theta watcher";
-
-  // The set of currently-registered slash names, updated after each successful
-  // reload so the next window's structural-change decision compares against the
-  // live registered set.
-  let currentNames = new Set<string>(deps.initialNames);
 
   // ERR-7 emit: a watcher-time rebuild failure routes onto the
   // `theta-system-note` channel (`triggerTurn:false`) rather than a toast, per
@@ -180,7 +199,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
     );
   };
 
-  const runReload = async (): Promise<RebuildOutcome> => {
+  const runReload = async (batch: readonly FileWatchEvent[]): Promise<RebuildOutcome> => {
     // PIC-57: a rebuild must not run against an invalidated runtime — once
     // torn-down, no-op (no rediscover / rebuildAndSwap) and release the guard
     // via the discard outcome.
@@ -259,20 +278,25 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
         return "discarded";
       }
 
-      // Structural-change note (PIC-37/38): emit only when the registered theta
-      // SET changed (files added or removed), comparing against the last
-      // successfully-registered set. Content edits that leave the set unchanged
-      // produce an empty added/removed pair and no note.
-      const nextNames = new Set(
-        (thetas as readonly ParsedTheta[]).map((theta) => theta.slashName),
-      );
-      const added = [...nextNames].filter((name) => !currentNames.has(name));
-      const removed = [...currentNames].filter((name) => !nextNames.has(name));
+      // Structural-change note (PIC-37/38): keyed on the debounce window's
+      // netted `.theta`/`.thetalib` add/unlink PATHS, not on any registered-
+      // name diff — a content edit that changes whether a file composes
+      // (parse breaks/fixes) adds or removes no file, so it draws no note; a
+      // same-window unlink+add of one path draws the note with N=2. Dedup is
+      // WITHIN role only (a `Set` per role) — PIC-38 forbids dedup ACROSS
+      // roles, so a path unlinked+added in one window appears in BOTH arrays.
+      const added = [...new Set(
+        batch.filter((event) => event.kind === "add" && isThetaSourcePath(event.path))
+          .map((event) => event.path),
+      )];
+      const removed = [...new Set(
+        batch.filter((event) => event.kind === "unlink" && isThetaSourcePath(event.path))
+          .map((event) => event.path),
+      )];
       const note = structuralChangeNote(added, removed);
       if (note !== undefined) {
         sendSystemNote(note, deps.channel);
       }
-      currentNames = nextNames;
       return "published";
     } catch (swapError: unknown) { // allow-broad-catch: PIC-67 — session-shutdown-semantics.md#pic-67
       if (!isStaleCtxError(swapError)) {
@@ -291,7 +315,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   const unsub = armWatcherWithTerminalRecovery({
     watcher: deps.watcher,
     roots: deps.roots,
-    onChange: () => debouncer.onWatcherEvent(),
+    onChange: (event) => debouncer.onWatcherEvent(event),
     registry: deps.registry,
     channel: deps.channel,
     staleLog,

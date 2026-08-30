@@ -1,6 +1,6 @@
 # Bug 0311 — The structural-change note is derived from the registered-NAME set diff, not from watcher-observed file add/remove paths: a parse-breaking content edit draws a false `theta watcher: 1 file(s) added or removed` note, a same-window unlink+add of one path draws none where PIC-38 mandates `N = 2`, and `details.structural` carries slash names where the wire contract pins absolute file paths
 
-- **Status:** open.
+- **Status:** fixed (0.314.0).
 - **Sev/Diff estimate:** S2/D2 — S2 on the "diagnostics that lie" letter: the
   note's fixed template asserts a file was "added or removed" over a window in
   which no file was added or removed (a content edit that broke the parse),
@@ -156,7 +156,9 @@ contract are defined against and diverge from.
 
 ## Fix
 
-Not yet decided. Constraints:
+Route settled within the four binding constraints below (they remain the
+operator's decision; the shipped route is recorded under **Fix (0.314.0)**).
+Constraints:
 
 1. The debounce boundary must carry the window's event batch (kind + path)
    to the rebuild — `onWatcherEvent(event)` accumulating into a
@@ -171,6 +173,59 @@ Not yet decided. Constraints:
    name-diff behaviour for a REAL unlink (which the path basis also emits
    for, `N = 1`) — it survives; new cells pin (A) suppression and (B)
    emission above.
+
+## Fix (0.314.0)
+- What shipped:
+  - `src/extension/reload-debounce.ts` — §Fix (1): `onWatcherEvent(event?)`
+    accumulates the window's events into a scoped `#batch`; the `rebuild` dep
+    takes `(batch)`; `#startRebuild` drains `#batch` synchronously before the
+    await, and `#onWindowClosed`'s deferred arm does NOT drain, so a window
+    closing mid-flight MERGES into the deferred rebuild's batch (PIC-49). The
+    `event` param is optional so the pre-existing timing/serialization tests
+    keep exercising coalescing with no batch payload.
+  - `src/extension/hot-reload.ts` — §Fix (2)+(3): `runReload(batch)`; `onChange`
+    forwards the event; the structural note's `added`/`removed` are the
+    within-role-deduped ABSOLUTE paths of `add`/`unlink` `.theta`/`.thetalib`
+    events in the batch (no cross-role dedup — PIC-38 both-arrays). The dead
+    `currentNames` name-diff is removed; `structuralChangeNote`
+    (`reload-wiring.ts`) was already path-agnostic and is UNCHANGED.
+  - `tests/watcher-hot-reload-integration.test.ts` — §Fix (4): the (b)+(c) cell
+    re-anchored `change`→`unlink` (neutral at HEAD; `N = 1` under the path
+    basis). Assertions unchanged.
+- Gates: witness `tests/b0311-structural-note-derived-from-paths.test.ts`
+  RED-before / GREEN-after (revert-witness red-then-green with byte-exact
+  restore); full offline suite `npx vitest run` → 490 files / 9644 tests green;
+  `npm run typecheck` clean; `npm run lint` clean.
+- Review: 2 rounds. R1 (deep): findings, no blockers — F1 (constraint-(1) PIC-49
+  merge unwitnessed), R1/R2 (stale/under-enumerated comments); all addressed.
+  R2 (fast): clean. One comment-only polish round (post-polish gate-diff skip).
+- Verification: SOLID. Witnesses catch the bug (byte-exact revert red→green on
+  both src files); default suite green; live obligation discharged by
+  `b0324live` acceptance GREEN under the lock (composed extension loads/
+  registers/drives via real `pi -p`); typecheck + lint clean.
+- Residuals:
+  1. [BLOCKING — parent ratification] `tests/live/double-session-start-live.test.ts`
+     (bugs 0048/0021) reds under the path basis: its bug-0048 warm-up delivery
+     witness relied on the old name-basis firing the note for a content `change`
+     to a new-to-registry file; the correct path basis fires only for a real
+     `add`/`unlink`. Observed red ("Notes seen since boot: []"). Out of 0311's
+     scope (another concern's executable live test — not modified). Recommended
+     remedy: force a real structural event in that warm-up (unlink+recreate per
+     retry → deterministic `unlink`+`add`, or a distinct filename per retry).
+     Live-only (excluded from `npm test`/CI).
+  2. Settings-array edits no longer surface the structural note under the path
+     basis (constraint (2) scopes it to `.theta`/`.thetalib` add/unlink); the
+     `runtime-event-channel.md:24` settings→resolved-path clause needs 0312's
+     watch-set re-arm. No existing test covers it. Flag for 0312.
+  3. `InstallHotReloadDeps.initialNames` retained unused (removal would ripple
+     into `production-composition.ts` + red three test object literals); WHY-
+     commented per §Fix dead-code guidance.
+- Discharge notes appended: none (residual 1 is filed here for parent action).
+- Pinned dispositions / non-goals: `structuralChangeNote` template unchanged;
+  `watcher-recovery.ts` / `pi-file-watcher.ts` untouched (0313); roots derivation
+  in `production-composition.ts` untouched (0310/0339); the batch accumulator is
+  per-window and watcher-instance-agnostic so 0312's watch-set re-arm is not
+  foreclosed.
 
 ## Provenance
 
