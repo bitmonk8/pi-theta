@@ -345,6 +345,16 @@ export interface ThetaImportCheck {
   /** The resolved `.thetalib` symbols materialised into the runtime environment (IMP-6 / IMP-7). */
   readonly imports: MaterializedImport[];
   /**
+   * Bug 0312: every `.thetalib` resolved path this theta's transitive import
+   * walk reached (`walked` below) — the SAME closure IMP-5's cycle check and
+   * the re-export fixpoint already traverse, surfaced so a caller can widen a
+   * watch set to cover a `.thetalib` that resolves outside every discovery
+   * root (`../lib/x.thetalib`, imports.md:19's blessed form). Empty for a
+   * theta with no top-level `import` or no source path, matching `imports`
+   * and `diagnostics` in that case.
+   */
+  readonly resolvedLibs: readonly string[];
+  /**
    * Bug 0264: the {@link diagnostics} subset the caller may still put on the
    * channel this pass — `diagnostics` itself is unfiltered (the registration
    * decision reads it whole, per §Fix) but some of its rows are the SAME
@@ -393,7 +403,7 @@ export async function checkThetaImports(
   const imports: MaterializedImport[] = [];
   const importDecls = collectImports(input.body);
   if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return { diagnostics, imports, undelivered: diagnostics };
+    return { diagnostics, imports, undelivered: diagnostics, resolvedLibs: [] };
   }
 
   const fromFile = normalizePath(input.sourcePath);
@@ -1189,5 +1199,8 @@ export async function checkThetaImports(
     deps.claimDelivery === false
       ? []
       : (deps.parseDeps.passParseCache?.claimUndelivered(diagnostics) ?? diagnostics);
-  return { diagnostics, imports, undelivered };
+  // Bug 0312: `walked` already holds every `.thetalib` resolved path this
+  // theta's transitive import walk reached (`walkThetaLib`'s own dedup set),
+  // so surfacing it is a read, not a second walk.
+  return { diagnostics, imports, undelivered, resolvedLibs: [...walked] };
 }

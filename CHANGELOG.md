@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.315.0]
+
+### Fixed
+
+- **Bug 0312** — a `.thetalib` imported via a parent-relative path (`../lib/x.thetalib`, expressly legal per `imports.md`) resolved outside every discovery root and therefore outside the armed watch set: editing it fired no reload, the importing theta kept dispatching the stale materialised imports — silently in prompt mode, and as a tamper-shaped `subagent-callable-hash-mismatch` drive-time refusal for a subagent callable hashed over the old bytes. Adjudicated Option 1 (watch the import closure; options 2/3 would leave the highest-frequency edit in the exact layout `../` imports exist for silently dropped, contradicting `registration-steps.md`'s unscoped re-parse promise): the resolved `.thetalib` closure's parent directories (surfaced from the import walk's `walked` set, excluding directories the armed roots already cover recursively) now union into the watch roots, and the single union watcher is RE-ARMED when a reload pass changes the closure — preserving the single-armed-watcher invariant by re-arm rather than a supplementary watcher, with the re-arm gated against teardown races and against resurrecting a PIC-55-terminated watcher (both caught in review), and 0311's debounce batch surviving across re-arms. A same-commit `registration-steps.md` step-5 sentence (`#watch-scope-import-closure`) states the widened scope. Out-of-root lib edits now fire reload → the importer re-parses → fresh exports flow in prompt mode and the subagent closure hash is re-captured, so the ordinary-edit hash-mismatch disappears; in-root libs are regression-locked with no re-arm churn. Watcher-recovery and the chokidar adapter (bug 0313's surfaces) are untouched; the closure union composes additively with bug 0339's future roots source. Witnessed by `tests/b0312-out-of-root-thetalib-watch-closure.test.ts` (8 cells: staleness closed end-to-end, closure-change re-arm both directions, in-root no-churn lock, note discipline for lib add/unlink vs change under the 0311 path basis).
+
 ## [0.314.0]
 
 ### Fixed

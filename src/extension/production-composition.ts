@@ -368,7 +368,11 @@ interface ComposePassResult {
   readonly activeRoots: readonly string[];
   /** The watch-list root union: the file-derived `activeRoots` unioned with the
    *  discovery walk's resolved present-directory union (its four sources:
-   *  cli/settings/project/global). The INV-1 containment checks read the
+   *  cli/settings/project/global) AND (bug 0312) every `.thetalib` resolved
+   *  parent directory this pass's per-theta import walks reached that is not
+   *  already nested under one of those roots — the out-of-root closure
+   *  (`../lib/x.thetalib`, imports.md:19's blessed form) is otherwise outside
+   *  every armed watch root. The INV-1 containment checks read the
    *  file-derived `activeRoots` local, never this field. */
   readonly watchRoots: readonly string[];
 }
@@ -660,7 +664,10 @@ async function runComposePass(
   // file-derived copies to the same forward-slash comparison form so one
   // physical directory is one Set member. `activeRoots` itself is untouched —
   // its INV-1 consumers keep the native form.
-  const watchRoots = Array.from(
+  // Bug 0312's closure dirs are unioned in AFTER the per-theta compose loop
+  // below (they are only known once `checkThetaImports` has walked each
+  // theta's import graph), against this discovery-derived base.
+  const discoveryWatchRoots = Array.from(
     new Set([...activeRoots.map((r) => r.replace(/\\/g, "/")), ...walk.roots]),
   );
 
@@ -865,6 +872,18 @@ async function runComposePass(
   const subagentExecutableProbe = probeSubagentExecutable(subagentExecutableHost);
 
   const thetas: ParsedTheta[] = [];
+  // Bug 0312: every resolved `.thetalib` parent directory this pass's
+  // per-theta import walks reach — collected for every theta whose import
+  // WALK RUNS, whatever its registration outcome AFTER that walk. An import-
+  // diagnostic refusal does not retract coverage: fixing the refused lib must
+  // still fire the reload. A theta refused EARLIER — by one of the six gates
+  // that `continue` BEFORE `checkThetaImports` (unresolvable subagent
+  // executable, `tools:` rejection, extension-tool reachability, invoke
+  // static resolution, `subagent fn` static resolution, `subagent fn` model
+  // override) — never ran its walk, resolved nothing, and contributes nothing.
+  // Unioned into `watchRoots` below (excluding a dir already nested under
+  // `discoveryWatchRoots`) after the loop, once every walk that ran has run.
+  const importClosureDirs = new Set<string>();
   for (const input of parsedInputs) {
     // Step 0 (f): a subagent-mode theta cannot register when the child `pi`
     // executable is unresolvable — refuse fail-closed here rather than at first
@@ -999,6 +1018,15 @@ async function runComposePass(
       fs: fileSystem,
       parseDeps,
     });
+    // Bug 0312: fold this theta's resolved `.thetalib` closure into the
+    // pass-wide dir set before the registration decision below — the walk has
+    // now RUN and resolved these paths, so watch coverage does not depend on
+    // whether THIS theta's own import diagnostics un-register it AFTER the
+    // walk (fixing the refused lib must still fire the reload). A theta refused
+    // before this point never reached the walk and contributes nothing.
+    for (const libPath of importCheck.resolvedLibs) {
+      importClosureDirs.add(dirname(libPath).replace(/\\/g, "/"));
+    }
     // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
     // already excludes rows the pass cache saw `lexTheta` deliver for this
     // library earlier in the same pass (route 1). The registration decision
@@ -1160,6 +1188,21 @@ async function runComposePass(
       : undefined,
     refusals: recordedErrorDiagnostics,
   });
+  // Bug 0312: union the resolved `.thetalib` closure dirs into the watch set,
+  // EXCLUDING a closure dir already nested under a `discoveryWatchRoots`
+  // member — chokidar watches recursively, so an in-root lib needs no
+  // separate arming and adding it anyway would cause pure re-arm churn with
+  // no coverage gain (witness cell 3). Nesting is checked both ways
+  // (`root === dir` and `dir` strictly under `root`) since a closure dir CAN
+  // equal a discovery root exactly (a lib living directly in a root's own
+  // directory).
+  const outOfRootClosureDirs = [...importClosureDirs].filter(
+    (dir) =>
+      !discoveryWatchRoots.some(
+        (root) => dir === root || dir.startsWith(root.endsWith("/") ? root : `${root}/`),
+      ),
+  );
+  const watchRoots = Array.from(new Set([...discoveryWatchRoots, ...outOfRootClosureDirs]));
   recordingComplete = true;
   if (registrationRefusal !== undefined) {
     // The one PIC-59 envelope line this pass ever owes: the child fell
@@ -1501,6 +1544,13 @@ export async function composeExtensionInstance(
     ...settingsFilePaths(ctx, root.fileSystem),
   ];
 
+  // Bug 0312: the latest rediscover pass's watch set (its `.thetalib` import
+  // closure dirs already folded into `watchRoots` by `runComposePass`), read
+  // by `installHotReload`'s optional re-arm channel AFTER a pass publishes.
+  // Seeded to the initial arm's own set so a caller reading it before any
+  // reload has run sees the same set the boot arm used.
+  let latestWatchRoots: readonly string[] = roots;
+
   // The live `ThetaRegistry` the reload swaps atomically (PIC-36), seeded with
   // the initial registered thetas.
   const registry = new ThetaRegistry(
@@ -1520,28 +1570,37 @@ export async function composeExtensionInstance(
         roots,
         registry,
         channel,
-        rediscover: async () =>
-          (
-            await runComposePass(
-              pi,
-              ctx,
-              root,
-              emitErr7,
-              activeInvocations,
-              forwardingSignals,
-              // Bug 0024 (registration-steps.md#pic-69): prefer the factory's
-              // live ledger — it also excludes a name a PRIOR generation
-              // registered and this reload's own registry never held. Absent a
-              // ledger, the live registry's keys are the widest own-name
-              // evidence this call holds: every one of them reached
-              // `pi.registerCommand` through the initial pass or an earlier
-              // reload of this same call.
-              ownRegisteredNames ?? new Set(registry.snapshot().keys()),
-              overrides?.subagentExecutableHost,
-              overrides?.emitResultEnvelope,
-              rendererGate,
-            )
-          ).thetas,
+        rediscover: async () => {
+          const pass = await runComposePass(
+            pi,
+            ctx,
+            root,
+            emitErr7,
+            activeInvocations,
+            forwardingSignals,
+            // Bug 0024 (registration-steps.md#pic-69): prefer the factory's
+            // live ledger — it also excludes a name a PRIOR generation
+            // registered and this reload's own registry never held. Absent a
+            // ledger, the live registry's keys are the widest own-name
+            // evidence this call holds: every one of them reached
+            // `pi.registerCommand` through the initial pass or an earlier
+            // reload of this same call.
+            ownRegisteredNames ?? new Set(registry.snapshot().keys()),
+            overrides?.subagentExecutableHost,
+            overrides?.emitResultEnvelope,
+            rendererGate,
+          );
+          // Bug 0312: record this pass's watch set (its resolved `.thetalib`
+          // closure dirs already unioned in by `runComposePass`), plus the two
+          // settings-file paths every arm covers, so `currentWatchRoots` below
+          // reflects this reload once `installHotReload` reads it after publish.
+          latestWatchRoots = [
+            ...pass.watchRoots,
+            ...settingsFilePaths(ctx, root.fileSystem),
+          ];
+          return pass.thetas;
+        },
+        currentWatchRoots: () => latestWatchRoots,
         reRegister,
         initialNames: initial.thetas.map((theta) => theta.slashName),
         // Bug 0018 (PIC-67) stale-runtime entry probe: read the `ctx.cwd`

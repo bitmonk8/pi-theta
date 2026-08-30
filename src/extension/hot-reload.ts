@@ -78,6 +78,18 @@ export interface InstallHotReloadDeps {
    */
   readonly rediscover: () => Promise<readonly ParsedTheta[]>;
   /**
+   * Bug 0312 (Option 1, docs/bugs/0312-out-of-root-thetalib-edits-invisible-
+   * stale-imports.md): the freshly-computed watch set for the most recently
+   * completed reload pass — read AFTER `rediscover` resolves, so it reflects
+   * that pass's `.thetalib` import closure. OPTIONAL and ADDITIVE: `rediscover`'s
+   * own signature does not change (many test constructors depend on it), so
+   * this is a separate channel the caller wires from the same pass. Omitted,
+   * the single-armed-watcher invariant holds exactly as before (arm once,
+   * never re-arm) — the shipped behaviour for every constructor that has not
+   * adopted the widened closure scope yet.
+   */
+  readonly currentWatchRoots?: () => readonly string[];
+  /**
    * Re-register the surviving thetas with pi — the same `session_start`
    * registration step (cross-format collision pass + per-theta
    * `pi.registerCommand`). Sequenced before the atomic publish so a throw here
@@ -143,6 +155,20 @@ function isThetaSourcePath(path: string): boolean {
 }
 
 /**
+ * Bug 0312: whether two watch-root lists name the SAME set of paths,
+ * order-independent — `currentWatchRoots` recomputes its array fresh each
+ * pass, so array identity or element order is never the right comparison for
+ * "did the armed set actually change".
+ */
+function sameRootSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const set = new Set(a);
+  return b.every((root) => set.has(root));
+}
+
+/**
  * Arm the step-5 watcher over the discovery-root union + settings-file paths,
  * wire a debounced reload onto its change stream, and return the teardown
  * handle. A synthetic changed-path label identifies the reload in the
@@ -165,6 +191,27 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   // suppresses new rebuilds once torn-down; this guard is the in-closure defence
   // for `runReload` per PIC-57.
   let tornDown = false;
+
+  // Bug 0312 (F2): PIC-55 terminal-signal latch. A terminal signal is TERMINAL
+  // — registration-steps.md PIC-55 leaves the watcher torn down rather than
+  // re-armed "until the operator reloads", and the runtime has already emitted
+  // the persistent `theta/runtime/watcher-terminated` note announcing that
+  // halt. The terminal recovery path (watcher-recovery.ts `onTerminate`) does
+  // NOT mark the debouncer torn-down (by design — the registry stays live), so
+  // a debounce window pending at termination still fires `runReload`; without
+  // this latch a pass whose closure differs from the armed set would re-arm and
+  // silently resume hot-reload after telling the operator it was halted. The
+  // wrapper below DECORATES (not replaces) `deps.watcher`: it sets the latch
+  // BEFORE delegating to the real `onTerminate`, so the recovery arm tears down
+  // the same seam it always did while the re-arm branch reads a truthful latch.
+  let terminated = false;
+  const terminalLatchWatcher: FileWatcher = {
+    watch: (roots, handler, onTerminate) =>
+      deps.watcher.watch(roots, handler, (termination) => {
+        terminated = true;
+        onTerminate?.(termination);
+      }),
+  };
 
   // Bug 0018 (PIC-67) fail-loud-once latch, shared with the PIC-55 terminal
   // arm (watcher-recovery.ts): whichever evidence site observes the stale
@@ -297,6 +344,46 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
       if (note !== undefined) {
         sendSystemNote(note, deps.channel);
       }
+
+      // Bug 0312 (Option 1): re-arm the ONE watcher when this published pass's
+      // `.thetalib` import closure changed the watch set — widened by a new
+      // out-of-root import, or narrowed by its removal. `currentWatchRoots` is
+      // read AFTER `rebuildAndSwap` publishes, so it reflects the set that just
+      // went live, and only on a genuine publish (a discarded swap changes
+      // nothing to re-arm onto). Absent the optional dep, behaviour is
+      // unchanged: arm once at install time, never again.
+      //
+      // Gated on `!tornDown` (F1): both teardown paths (session_shutdown
+      // sub-step 4 and supersession) can flip `tornDown` DURING the awaits
+      // above; an abandoned in-flight rebuild whose closure changed must NOT
+      // arm a fresh watcher that nothing tears down (the `unsub()` on the
+      // stale arm is an idempotent no-op after `detach()`), mirroring the
+      // PIC-57 posture the entry guard, `markTornDown()`, and
+      // `quiesceOnStaleCtx` all share. Gated on `!terminated` (F2): a PIC-55
+      // terminal signal governs — the watcher stays torn-down-until-`/reload`,
+      // never resurrected by a pending debounce window's re-arm.
+      if (!tornDown && !terminated && deps.currentWatchRoots !== undefined) {
+        const freshRoots = deps.currentWatchRoots();
+        if (!sameRootSet(armedRoots, freshRoots)) {
+          // Teardown-then-arm (not a supplementary watcher): the single-
+          // armed-watcher invariant (registration-steps.md step 5) is
+          // preserved by re-arming the one subscription, not by holding two.
+          // The debouncer is REUSED across the swap (bug 0311: an in-flight
+          // debounce batch must not be lost to a fresh instance), and `unsub`
+          // is updated in place so `detach()` / `quiesceOnStaleCtx()` always
+          // tear down the CURRENTLY-armed subscription.
+          unsub();
+          armedRoots = freshRoots;
+          unsub = armWatcherWithTerminalRecovery({
+            watcher: terminalLatchWatcher,
+            roots: freshRoots,
+            onChange: (event) => debouncer.onWatcherEvent(event),
+            registry: deps.registry,
+            channel: deps.channel,
+            staleLog,
+          });
+        }
+      }
       return "published";
     } catch (swapError: unknown) { // allow-broad-catch: PIC-67 — session-shutdown-semantics.md#pic-67
       if (!isStaleCtxError(swapError)) {
@@ -309,11 +396,20 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
 
   const debouncer = new ReloadDebouncer({ clock: deps.clock, rebuild: runReload });
 
-  // Arm ONE watcher over the union of discovery roots + settings-file paths.
-  // Each change feeds the debouncer (drop-and-reschedule coalescing); the
-  // terminal-recovery posture is wired onto the seam's `onTerminate` channel.
-  const unsub = armWatcherWithTerminalRecovery({
-    watcher: deps.watcher,
+  // Bug 0312: the currently-armed root set, mutated in place by the re-arm
+  // branch above so a later publish's comparison is against what is ACTUALLY
+  // armed right now, not the install-time set.
+  let armedRoots: readonly string[] = deps.roots;
+
+  // Arm ONE watcher over the union of discovery roots + settings-file paths
+  // (plus, per bug 0312, any resolved out-of-root `.thetalib` closure dirs
+  // `deps.roots` already carries at install time). Each change feeds the
+  // debouncer (drop-and-reschedule coalescing); the terminal-recovery posture
+  // is wired onto the seam's `onTerminate` channel. `unsub` is mutable
+  // (bug 0312): a later re-arm replaces both the subscription and this
+  // reference so every caller of `unsub()` tears down the CURRENT arming.
+  let unsub = armWatcherWithTerminalRecovery({
+    watcher: terminalLatchWatcher,
     roots: deps.roots,
     onChange: (event) => debouncer.onWatcherEvent(event),
     registry: deps.registry,

@@ -1,6 +1,6 @@
 # Bug 0312 — A `.thetalib` imported via a parent-relative path (`../lib/x.thetalib`) resolves outside every discovery root and is therefore outside the armed watch set: editing it fires no reload, and the importing theta keeps dispatching the stale materialised imports — silently in prompt mode, and as a drive-time `subagent-callable-hash-mismatch` refusal for a subagent callable hashed over the old bytes
 
-- **Status:** open.
+- **Status:** fixed (0.315.0).
 - **Kind:** spec gap **plus** implementation consequence — a reachable input
   class with no prescribed disposition, observably hazardous.
   - *Reachable input:* `imports.md:19` legalises parent-relative import paths
@@ -164,6 +164,84 @@ Not yet decided — needs a spec adjudication first. Options:
    zero code, documents the trap.
    Any fix must keep the in-root lib path (covered today via recursive
    directory watching) regression-locked.
+
+## Fix (0.315.0)
+
+Parent adjudication (the §Fix options above left the disposition undecided):
+**Option 1 — watch the resolved import closure.** The union watcher's arming
+set gains the resolved `.thetalib` closure's parent directories from the pass's
+import graph; the single union watcher is re-armed (teardown + fresh arm inside
+the pass) when a reload pass changes that closure, so the single-armed-watcher
+invariant (registration-steps.md step 5) is preserved by re-arm, not by a
+supplementary watcher. Rationale on the record: options 2/3 leave the
+highest-frequency edit in the exact `../` layout imports exist for silently
+dropped, contradicting registration-steps.md:26's unscoped re-parse promise;
+the in-root incidental coverage stays regression-locked.
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — `ThetaImportCheck.resolvedLibs`
+    surfaces the transitive `.thetalib` walk's already-computed `walked`
+    resolved-path set (a read, not a second walk), so the compose pass can see
+    the closure.
+  - `src/extension/production-composition.ts` — `runComposePass` unions the
+    dirname of every `resolvedLibs` entry across the pass into `watchRoots`,
+    EXCLUDING a closure dir already nested under the discovery-root base
+    (`discoveryWatchRoots`) since chokidar watches recursively (no in-root
+    re-arm churn); `composeExtensionInstance` wires the additive optional
+    `currentWatchRoots` channel from each reload pass's `watchRoots`. Derived
+    FROM the pass and unioned with whatever roots basis exists, so a future
+    roots addition (bug 0339) composes additively.
+  - `src/extension/hot-reload.ts` — after a published reload whose closure set
+    differs from the armed set, re-arms the one watcher (teardown old
+    subscription, arm fresh via the reused `armWatcherWithTerminalRecovery`,
+    sharing the one `ReloadDebouncer` so bug 0311's in-flight batch is not
+    lost). The re-arm is gated `!tornDown` (no re-arm after a teardown races
+    the reload — PIC-57) and `!terminated` (a `terminalLatchWatcher` decorator
+    latches the PIC-55 stopped-delivering signal, so a terminated watcher stays
+    torn-down-until-`/reload`, never resurrected).
+  - `docs/spec_topics/pi-integration-contract/registration-steps.md` — step 5
+    (`#watch-scope-import-closure`): a same-commit sentence widens the watched
+    set to the resolved `.thetalib` import closure's parent directories
+    (including out-of-root ones) and states the single watcher is re-armed on a
+    closure change, subject to the PIC-55 terminal posture.
+- Gates: witness `tests/b0312-out-of-root-thetalib-watch-closure.test.ts` 8/8
+  green (4 witness reds + 2 blocker cells flip green; 2 regression-lock cells
+  green throughout); full default suite `npx vitest run` 491 files / 9652 tests
+  green; `npm run typecheck` clean; `npm run lint` clean; live witness
+  `tests/live/double-session-start-live.test.ts` 1/1 green under the shared
+  live-lock (real step-5 arming/supersession path, PIC-57/68/69).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — two blockers: F1 (re-arm
+  ran with no `!tornDown` re-check after the rediscover await → stranded
+  watcher) and F2 (re-arm could resurrect a PIC-55-terminated watcher); plus F3
+  (comment over-claim), F5 (banned word). Round 2 (`bug-fix-reviewer`, deep —
+  routed there because round 1 raised correctness/spec) — CLEAN, both blockers
+  genuinely closed, no regression.
+- Verification (`bug-fix-verifier`): SOLID. Witness reds on a temporary
+  neutralisation (closure-widening + re-arm guard disabled) and greens on
+  byte-exact restore (hash-object confirmed); full suite green; live path
+  exercised; lint + typecheck clean.
+- Residuals:
+  1. Teardown-then-arm has a bounded event-loss gap (an edit racing between the
+     old `unsub()` and the fresh watcher's readiness on a closure-changing
+     publish) — inherent to the adjudicated single-armed-watcher design;
+     arm-then-unsub would close it but momentarily holds two watchers, which
+     the adjudication forbids. Recovery is `/reload` or a subsequent edit.
+  2. An unresolvable out-of-root import (`../lib/missing.thetalib` absent at
+     load) is not in the closure, so CREATING that file fires no reload
+     (in-root creation stays covered incidentally). Consistent with "watch the
+     RESOLVED closure"; recovery is `/reload`.
+  3. During chokidar's async `close()` overlap after a re-arm, the prior
+     arming's still-attached `error` listener could emit a spurious
+     `watcher-terminated` note — sub-millisecond window on 0313's (untouched)
+     surface; not addressable without touching that surface.
+- Discharge notes appended: none (no sibling bug docs edited).
+- Pinned dispositions / non-goals: `src/extension/watcher-recovery.ts` and
+  `src/seams/pi-file-watcher.ts` (lane 0313's surface) were NOT touched — the
+  re-arm threaded through the existing `armWatcherWithTerminalRecovery` entry
+  point; the closure union composes additively with a future roots source
+  (lane 0339). Cell 2's removal disposition is SHRINK (the re-arm drops a lib
+  dir no longer in any theta's closure). Import containment semantics and the
+  closure-hash mechanism (0267/0270/0271) are out of scope per §Non-goals.
 
 ## Provenance
 
