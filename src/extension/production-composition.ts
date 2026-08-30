@@ -354,7 +354,7 @@ function buildRuntimeRoot(
     schemaValidator,
     clock,
     fileSystem,
-    fileWatcher: overrides?.fileWatcher ?? new PiFileWatcher(),
+    fileWatcher: overrides?.fileWatcher ?? new PiFileWatcher({ notifier: { notify: (m) => ctx.ui.notify(m, "error") } }), // Bug 0313 (fixed 0.316.0): PIC-55 toast sink, diagnostic-shape.md#transient-toasts
     tokenEstimator: new PiTokenEstimator(),
     idSource: new CryptoIdSource(),
   });

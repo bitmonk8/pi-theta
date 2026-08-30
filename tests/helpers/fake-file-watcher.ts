@@ -17,9 +17,20 @@ import type {
 
 export class FakeFileWatcher implements FileWatcher {
   // The single attached change handler and optional terminal-signal callback.
-  // `undefined` once no subscription is active (initial state, or after the
-  // returned `Unsubscribe` runs) so a post-unsubscribe `emit`/`terminate` is a
-  // no-op rather than reaching a stale handler.
+  //
+  // Bug 0313 (fixed 0.316.0), constraint 4: the fake previously cleared BOTH
+  // callbacks synchronously on unsubscribe, which hid the burst double-note
+  // the bug reports. So `#onTerminate` now stays attached across unsubscribe
+  // (only `#handler` is nulled, closing the steady-state delivery contract),
+  // keeping a same-tick post-unsubscribe terminal signal observable at the
+  // recovery layer. This models a MINIMAL CONFORMING `FileWatcher` seam
+  // (PIC-14) whose unsubscribe does not synchronously sever the terminal
+  // channel — a severance PIC-14 does not mandate — NOT the shipped
+  // `PiFileWatcher`, whose per-`watch()` active-guard swallows every
+  // post-unsubscribe callback (adapter suite cell (D)). The goal is to keep
+  // the recovery layer's once-latch (constraint 2) testable against a
+  // same-tick burst independent of what the adapter itself guarantees.
+  // `terminate` is deliberately not active-guarded for the same reason.
   #handler: ((event: FileWatchEvent) => void) | undefined;
   #onTerminate: OnWatchTerminate | undefined;
 
@@ -32,11 +43,16 @@ export class FakeFileWatcher implements FileWatcher {
     this.#onTerminate = onTerminate;
     let active = true;
     return () => {
-      // Idempotent teardown: calling twice is a no-op.
+      // Idempotent teardown: calling twice is a no-op. `#onTerminate` is left
+      // attached on purpose (see the field doc-comment, bug 0313 constraint 4):
+      // a post-unsubscribe `terminate()` still reaches it. This models a
+      // conforming seam whose unsubscribe does not synchronously sever the
+      // terminal channel — NOT the shipped `PiFileWatcher`, whose per-`watch()`
+      // active-guard swallows post-unsubscribe delivery even though its raw
+      // chokidar `error` listener likewise survives the async close.
       if (!active) return;
       active = false;
       this.#handler = undefined;
-      this.#onTerminate = undefined;
     };
   }
 

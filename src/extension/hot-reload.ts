@@ -38,7 +38,7 @@
 import type { Clock } from "../seams/clock";
 import type { FileWatcher, FileWatchEvent } from "../seams/file-watcher";
 import { ReloadDebouncer, type RebuildOutcome } from "./reload-debounce";
-import { armWatcherWithTerminalRecovery } from "./watcher-recovery";
+import { armWatcherWithTerminalRecovery, WatcherTerminatedLatch } from "./watcher-recovery";
 import {
   ThetaRegistry,
   rebuildAndSwap,
@@ -223,6 +223,12 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   // unreachable.
   const staleLog = new StaleQuiesceLog();
 
+  // Bug 0313 (fixed 0.316.0): the PIC-55 single-persistent-note latch, shared
+  // across the install-time arm below AND the bug-0312 re-arm inside
+  // `runReload` — the same one-instance sharing `staleLog` already uses — so a
+  // re-arm mid-lifetime does not reset the terminal note back to "unfired".
+  const terminatedLog = new WatcherTerminatedLatch();
+
   /**
    * Bug 0018 (PIC-67) — permanent quiesce on evidence of a shutdown-less
    * runtime invalidation (a caught host stale-ctx error): tear the watcher
@@ -381,6 +387,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
             registry: deps.registry,
             channel: deps.channel,
             staleLog,
+            terminatedLog,
           });
         }
       }
@@ -415,6 +422,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
     registry: deps.registry,
     channel: deps.channel,
     staleLog,
+    terminatedLog,
   });
 
   return {

@@ -1,6 +1,6 @@
 # Bug 0313 — `PiFileWatcher` conveys EVERY chokidar `error` as the PIC-55 terminal signal, so the continues-delivering arm (transient toast, hot-reload survives) is unreachable: one per-path error tears down the whole still-delivering watcher and emits the persistent `watcher-terminated` note, and nothing latches that note against an error burst
 
-- **Status:** open.
+- **Status:** fixed (0.316.0).
 - **Kind:** defect — the implementation collapses PIC-55's two-case posture
   into its terminal case. `registration-steps.md:28` (PIC-55): "The
   operational criterion distinguishing the two cases is whether the chokidar
@@ -184,6 +184,93 @@ Not yet decided. Constraints:
    the fake's contract) so the burst case is testable; then pin single-note.
 5. Any toast text stays off the persistent channel per
    `diagnostic-shape.md:22`.
+
+## Fix (0.316.0)
+
+- What shipped:
+  - `src/seams/pi-file-watcher.ts` — error-code triage (constraint 1): a
+    chokidar `error` with `code` `EPERM`/`EACCES` is continues-delivering — the
+    adapter fires a transient toast via an injected `WatchErrorNotifier` and
+    takes no further action (watcher keeps delivering); every other error still
+    reaches `onTerminate` exactly as before (conservative proxy — no unknown/
+    fatal error newly silenced). The toast is fired BY the adapter, not conveyed
+    over the seam, so PIC-14's "routes through `ctx.ui.notify` … not through
+    this seam" stays literally true. A per-`watch()` `active`-guard on all four
+    callbacks (add/change/unlink/error) swallows post-unsubscribe / post-async-
+    close callbacks (constraint 3); the `error` listener is never detached
+    (removing Node's reserved `error` listener would let a burst's second emit
+    throw). Chokidar `watch` + notifier are injected (DI) for deterministic
+    offline witness. The toast-throw is swallowed (diagnostic-shape.md
+    #transient-toasts).
+  - `src/extension/watcher-recovery.ts` — `WatcherTerminatedLatch` (constraint
+    2), mirrors `StaleQuiesceLog`: wraps the persistent-note emission so N
+    synchronous `onTerminate` calls emit exactly one note; set-before-emit so a
+    throw cannot re-open it; the bug-0018 PIC-67 stale-ctx arm moved inside the
+    latch unchanged.
+  - `src/extension/hot-reload.ts` — constructs one `WatcherTerminatedLatch` and
+    threads it through the install-time arm AND the bug-0312 re-arm (mirrors
+    `staleLog`), so the single-note guarantee survives a re-arm.
+  - `src/extension/production-composition.ts` — wires the notifier into
+    `new PiFileWatcher({ notifier: { notify: (m) => ctx.ui.notify(m, "error") } })`
+    at the seam-construction site (one line; `makeLoadEmit` untouched).
+  - `tests/helpers/fake-file-watcher.ts` — constraint 4 direction (i): unsub
+    keeps `#onTerminate` attached (only nulls `#handler`), giving a minimal
+    conforming seam a post-unsub terminal-delivery window so the burst latch is
+    testable at the recovery layer (change delivery still severed).
+  - `src/seams/file-watcher.ts` — UNCHANGED (terminal-channel semantics
+    unchanged; toast stays off the seam). No spec edits needed — PIC-14,
+    PIC-55, diagnostic-shape.md#transient-toasts are each satisfied, none
+    falsified (the toast route makes PIC-14's dead-letter "not through this
+    seam" sentence literally true).
+- Tests that lock it: `tests/b0313-adapter-error-classification.test.ts`
+  (A: EPERM/EACCES → toast once, no terminal, keeps delivering + no `theta/*`
+  code in the toast text; B: fatal error → terminal path preserved;
+  D: post-unsub + 0312 re-arm-window swallow), `tests/b0313-terminal-note-
+  burst-latch.test.ts` (C: burst → exactly one note, no throw; E: fake
+  post-unsub parity). Regression subjects `tests/watcher-terminated-
+  recovery.test.ts` (0030) and the 0018 PIC-67 stale-ctx arm stay green,
+  untouched.
+- Gates: witness reds proven genuine by revert-and-restore for A/C/D (each
+  reds on neutralisation, byte-exact restore, green after); full default suite
+  `npm test` = 493 files / 9661 tests green; `npm run typecheck` clean;
+  `npm run lint` clean; live `tests/live/double-session-start-live.test.ts`
+  green under the shared lock (real chokidar through the changed adapter; the
+  superseded-generation zero-quiesce pin intact).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — FINDINGS: F1 (prose, fake
+  comments falsely claimed to "model production"), R1 (prose), R2 (test, no
+  constraint-5 witness); no correctness/fidelity/spec blocker. `bug-fix-fixer-
+  light` reworded F1/R1 and added the R2 toast-text assertion. Round 2
+  (`bug-fix-reviewer-fast`) — CLEAN, one non-blocking prose residual, which the
+  orchestrator tightened in-place (comment-only).
+- Verification (`bug-fix-verifier`): SOLID — (1) witnesses genuine (A/C/D red
+  on neutralisation, restore byte-exact); (2) full suite 493/9661 green;
+  (3) live coverage met (double-session-start-live under lock); (4) lint +
+  typecheck clean. Tree back to the 5-modified + 2-new fixed state, stash
+  empty.
+- Residuals:
+  1. Conservative-proxy cost: an `EPERM`/`EACCES` that genuinely stopped ALL
+     delivery on a whole root is toast-classified rather than terminal — the
+     documented cost of the error-code proxy the constraints admit (chokidar
+     exposes no per-root liveness signal; its EPERM/EACCES emission sites are
+     per-path). Recovery is one `/reload` away, on the same footing as the
+     structural-change note. Evidence: `src/seams/pi-file-watcher.ts`
+     `isContinuesDeliveringError` doc-comment; PIC-55 GOV-18 arm (a) latitude.
+  2. Sibling test files `tests/supersession-detach-throw-containment.test.ts`
+     and `tests/live/double-session-start-live.test.ts` carry (mostly
+     commit-pinned) `pi-file-watcher.ts` line citations that this fix's line
+     growth (53→186) has staled. They were restored BYTE-EXACT to HEAD rather
+     than chased: the bug-0029 header block there is pinned to ancient commit
+     5f0ca9cd (forward-updating corrupts the pin), and `docs/bugs/0048`/`0029`
+     already carry the same stale refs as commit-pinned drift. Left as
+     pre-existing drift, same footing as `docs/bugs/*`.
+- Discharge notes appended: none (0312's residual 3 — the re-arm async-close
+  window — is discharged here by the constraint-3 active-guard, witnessed by
+  `tests/b0313-adapter-error-classification.test.ts` cell (D)'s re-arm sub-cell;
+  no sibling doc edit required).
+- Pinned dispositions / non-goals: no new diagnostic registry CODE (the toast
+  is `ctx.ui.notify` text, not a code; permitted-codes baseline byte-
+  unchanged). `production-composition.ts` `makeLoadEmit` and the roots source
+  (0339) untouched. `src/seams/file-watcher.ts` and the spec corpus unchanged.
 
 ## Provenance
 

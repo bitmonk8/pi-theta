@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.316.0]
+
+### Fixed
+
+- **Bug 0313** — `PiFileWatcher` conveyed EVERY chokidar `error` as the PIC-55 terminal signal, so one per-path error (an `EPERM`/`EACCES` on a locked file — routine on Windows under editors and AV scanners) tore down the whole still-delivering union watcher and emitted the persistent `watcher-terminated` note: PIC-55's continues-delivering arm (transient toast, hot-reload survives) was dead code-by-omission, and nothing latched the single-note MUST against chokidar's synchronous per-path error burst (double notes, or an unhandled `'error'` throw, depending on close timing). The adapter now triages by error code — the GOV-18-sanctioned conservative proxy — routing `EPERM`/`EACCES` to a transient `ctx.ui.notify` toast through an injected notifier (off the seam, so PIC-14's contract text stays true; toast text stays off the persistent channel per `diagnostic-shape.md`) while every other error keeps the terminal path; a `WatcherTerminatedLatch` (mirroring the `StaleQuiesceLog` pattern) collapses a burst to exactly one persistent note; a per-`watch()` active-guard detaches callbacks synchronously so post-unsubscribe errors — including the union re-arm's async-close window bug 0312's lane flagged — draw nothing; and `FakeFileWatcher` gains the production adapter's post-unsub delivery window so the burst case is testable rather than the fake staying stronger than production. Hot reload now survives per-path errors; the 0030 recovery suite and 0018's PIC-67 stale-ctx arm are untouched and green; no new diagnostic code, no seam-interface edit. Witnessed by `tests/b0313-adapter-error-classification.test.ts` and `tests/b0313-terminal-note-burst-latch.test.ts` (per-path toast + continued delivery, watcher-fatal terminal, burst → one note, post-unsub/re-arm swallow, fake parity).
+
 ## [0.315.0]
 
 ### Fixed
