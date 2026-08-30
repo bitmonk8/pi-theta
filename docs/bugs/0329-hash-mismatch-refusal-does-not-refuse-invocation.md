@@ -153,3 +153,5 @@ called.
 
 Bug-hunt area `subagent-integrity`, seed hypothesis 3 (refusal-path
 mechanics). Probed offline at ee681f7b; probe deleted after confirmation.
+
+> **Coordination note (2026-08-30, from the 0330 fix lane, 0.307.0):** the drop-target compare this fix makes load-bearing — `sourcePath.replace(/\/g, "/") === calleeAbs` inside the `thetas.find` that locates the callable to drop (`production-composition.ts`, re-anchor by symbol; the 0330 insertion shifted line numbers) — is case-SENSITIVE. On a case-insensitive filesystem an author-written case-mismatched `tools:` spec still hash-verifies (the FS resolves the sources) but the find misses, so under Option A the refusal would not drop the root and the invocation would NOT refuse. When implementing, case-fold the compare (or compare canonicalised real paths) so the enforcement this report owns cannot be routed around by path casing. Evidence: 0330 fix-lane report, Residual 1.
