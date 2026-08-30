@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.311.0]
+
+### Fixed
+
+- **Bug 0338** — the pure-host evaluator `evaluateBinaryExpression` (`production-theta-producer.ts`) cast non-numeric operands of spelled `-`/`*`/`/`/`%` to `number` with no belt, so a non-numeric operand reaching a pure evaluation position bound or rendered a silent JS-coerced value — `let s = "a"` with `` @`v=${s - 1}` `` rendered the literal text `NaN` into the prompt with no diagnostic, and an `invoke`/`.theta`-callable argument under a WITHHELD `fn` parameter handed the child `NaN` — while the byte-identical pairing as a `let` RHS threw bug 0332's executor belt, making the disposition depend on evaluation position. The four arms now share one guard that throws the executor's exported `BinaryNonNumericError` on a non-number operand (a byte-exact mirror of `applyBinaryScalar`'s bug-0332 belt), preserving the `NaN`/`Infinity` carve-out (`n % 0` → `NaN`, `n / 0` → `Infinity` over numeric operands are unchanged): an interpolation slip now aborts the theta with the framed `theta/runtime/internal-error` diagnostic through the existing `surfaceUnexpectedThrow` surface instead of rendering `NaN`, and an argument slip surfaces as the invoking theta's loud failure before any child spawns. The parse gate, `+`/ordering interpolation checks, compound forms (bug 0314), unary minus, and the test-only V3a `expression-evaluator.ts` are untouched per §Non-goals; no registry code minted. Witnessed by `tests/b0338-pure-host-arithmetic-non-numeric-belt.test.ts` (10 cells: interpolation and pre-spawn aborts across all four operators, plus numeric and parse-gate controls); discharges bug 0332's fix-record residuals 1 and 2 (dated note appended).
+
 ## [0.310.0]
 
 ### Fixed

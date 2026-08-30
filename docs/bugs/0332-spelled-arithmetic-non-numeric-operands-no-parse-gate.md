@@ -332,6 +332,20 @@ message.
      the interpolation expression to `walkExpr`). Pre-existing corpus-wide gate
      boundary, not introduced here (§Affected/§Reproduction cover body
      statements only). Evidence: review R1 finding F3.
+  - **Discharged 2026-08-30 by bug 0338** (fixed 0.311.0): residuals 1 and 2
+    above are closed by the pure-host runtime belt added to
+    `evaluateBinaryExpression`
+    (`src/extension/production-theta-producer.ts`), which throws this report's
+    exported `BinaryNonNumericError` on a non-number operand of `-`/`*`/`/`/`%`
+    — mirroring `applyBinaryScalar` — so the statically-deferred `invoke` /
+    `.theta`-callable argument (residual 1) and the `${…}` interpolation render
+    (residual 2) both draw the loud framed `theta/runtime/internal-error`
+    abort instead of a silent coerced value. The interpolation PARSE boundary
+    (routing the interpolation expression through `walkExpr` for the `+` /
+    ordering / arithmetic checks) is NOT closed by 0338 — it remains the
+    pre-existing corpus-wide gate-boundary residual named in residual 2, out of
+    0338's runtime-belt §Fix scope. Append-only note; residual text above
+    unchanged.
 - **Discharge notes appended:** none — the compound desugar was deliberately
   not wired, so `tests/b0314` and bug 0314's doc are untouched (no coordination
   note owed).

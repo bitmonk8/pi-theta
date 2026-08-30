@@ -1,6 +1,6 @@
 # Bug 0338 — The pure-host evaluator `evaluateBinaryExpression` casts non-numeric operands of spelled `-`/`*`/`/`/`%` to `number` with no belt, so a non-numeric operand reaching a pure evaluation position (a query/`system:` `${…}` interpolation, or an `invoke` / `.theta`-callable argument) binds or renders a silent JS-coerced value — `let s = "a"` with `@`…${s - 1}`` renders the literal text `NaN` into the prompt, and `fn f(a) { invoke("./c.theta", a - 1) }` / `f("x")` hands the child `NaN` — where the byte-identical `s - 1` as a `let` RHS throws the bug 0332 runtime belt
 
-- **Status:** open.
+- **Status:** fixed (0.311.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because two production evaluation paths bind
   or render a silent wrong value the spec's operand rule refuses: an interpolated
   `${s - 1}` renders the text `NaN` into a user-visible prompt with no diagnostic
@@ -270,3 +270,54 @@ sink was confirmed by reading to be `evaluateBinaryExpression`
 (`production-theta-producer.ts:7059`) via `evaluatePureExpression`, distinct
 from the belted `applyBinaryScalar`. Scratch probe deleted; case-insensitive
 sweep for its stem left no residue.
+
+## Fix (0.311.0)
+
+- **What shipped:**
+  - `src/extension/production-theta-producer.ts` — `evaluateBinaryExpression`'s
+    `-`/`*`/`/`/`%` arms are belted (§Fix): a non-number operand throws the
+    exported `BinaryNonNumericError` (`statement-executor.ts:653`), reused via a
+    new import (no new class, no new registry code), byte-structurally identical
+    to `applyBinaryScalar`'s bug-0332 belt (`statement-executor.ts:1037`–`:1060`).
+    The operand-typeof guard preserves the NaN carve-out (`NaN`/`Infinity` are
+    `typeof "number"`, so `n % 0` → `NaN` and `n / 0` → `Infinity` over numeric
+    operands stay non-panic). The throw is a plain `Error`; it propagates
+    uncaught out of `executeBody` and the producer's existing top-level surface
+    frames it through `surfaceUnexpectedThrow` → `INTERNAL_ERROR_CODE`
+    (`theta/runtime/internal-error`) — a loud framed abort on both the `${…}`
+    interpolation-render path and the `invoke` / `.theta`-callable
+    argument-binding path (before any child spawn). No `catch` was added; no
+    parse-gate / `type-layer-checks.ts` change; V3a `expression-evaluator.ts`
+    untouched (§Non-goals).
+- **Gates (verbatim):**
+  - Witness: `npx vitest run tests/b0338-pure-host-arithmetic-non-numeric-belt.test.ts`
+    — 10 passed (5 belt cells + 5 controls). Revert-witness: neutering the belt
+    reds exactly B1/`*`/`/`/`% + A1 for the silent-NaN reason; restore → green.
+  - Full suite: `npm test` — 486 files / 9622 tests passed (fork baseline
+    485/9612 + the new witness file's 10 cells; no existing test flipped).
+  - Typecheck: `npm run typecheck` — clean. Lint: `npm run lint` — clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/b0341live-inferred-binding-accumulator-registers.test.ts`
+    — 1 passed (pure-host interpolation/accumulator render through real `pi -p`;
+    registration outcomes unchanged, as §Fix requires).
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`): behaviour clean; one prose
+  finding (test-header citation `:6938`→`:6937`) and one non-blocking
+  fidelity/dead-code residual (inner-switch `default: return null;` the executor
+  mirror lacks) — both fixed in a `bug-fix-fixer` round. Round 2
+  (`bug-fix-reviewer-fast`): CLEAN, no escalation.
+- **Verification:** SOLID. Witness reds-on-neuter / greens-on-restore (obl. 1);
+  full suite 486/9622 (obl. 2); live b0341live green as non-regression on the
+  pure-host path, no acceptance cell owed for a registration-inert belt (obl. 3);
+  typecheck + lint clean (obl. 4).
+- **Residuals:**
+  1. The interpolation PARSE boundary remains ungated for `+` / ordering /
+     arithmetic operand checks (`walkExpr`'s query arm never hands the
+     interpolation expression to the gate). Pre-existing corpus-wide concern,
+     explicitly a §Non-goal here; the runtime belt does not depend on it. This
+     is bug 0332's residual 2's parse-boundary half, still open.
+- **Discharge notes appended:** bug 0332's doc §Residuals (residuals 1 and 2
+  discharged by this fix, dated 2026-08-30, append-only).
+- **Pinned dispositions / non-goals:** unary minus untouched; compound forms
+  (`-=`/`*=`/`/=`/`%=`, bug 0314's `CompoundNonNumericError`) untouched; the
+  `+`/ordering interpolation parse-boundary gap NOT closed; V3a
+  `src/runtime/expression-evaluator.ts` NOT touched (no production caller).

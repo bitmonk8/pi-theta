@@ -125,6 +125,7 @@ import {
   type MaterializedImport,
 } from "../runtime/lexical-environment";
 import {
+  BinaryNonNumericError,
   executeBody,
   ThetaFnArityError,
   type BodyExecution,
@@ -7136,13 +7137,30 @@ function evaluateBinaryExpression(
         ? left + right
         : (left as number) + (right as number);
     case "-":
-      return (left as number) - (right as number);
     case "*":
-      return (left as number) * (right as number);
     case "/":
-      return (left as number) / (right as number);
-    case "%":
-      return (left as number) % (right as number);
+    case "%": {
+      // Bug 0338 belt: mirrors the executor's `applyBinaryScalar` bug 0332 belt
+      // (statement-executor.ts:1060) into this pure host, so a statically-deferred
+      // non-numeric operand (a WITHHELD fn param reaching an interpolation or an
+      // invoke argument) throws loudly instead of being cast to `number` and
+      // JS-coerced. `NaN`/`Infinity` are `typeof "number"`, so the guard does not
+      // fire on them — `n % 0` → `NaN` and `n / 0` → `Infinity` over numeric
+      // operands keep the spec's non-panicking div/mod behaviour.
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new BinaryNonNumericError(op, left, right);
+      }
+      switch (op) {
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return left / right;
+        case "%":
+          return left % right;
+      }
+    }
     case "<":
       return (left as number | string) < (right as number | string);
     case "<=":
