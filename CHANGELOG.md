@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.310.0]
+
+### Fixed
+
+- **Bug 0340** — the four H8a-T cross-file enum-equality cells in the line-pinned `tests/live/live-production-acceptance.test.ts` (bug-0067 cross-envelope at `:5747`, bug-0172 boundary-2 at `:6664`, bug-0174 prompt-attach at `:6944`, bug-0172 face-2 at `:7324`) asserted the pre-0337 semantics — a callee-returned `Sev.High` rendered `${v == Sev.High}` and the cell asserted `"true"` — so every full live run red them deterministically after bug 0337 (0.305.0) gave `.theta` enums file-qualified identity across in-process invoke. Each cell is re-anchored subject-preserving under the 0337 ratification's sub-kind-(A) pattern: the drive and marker-anchored extraction are unchanged and the cell now renders two observables — the tag-presence discriminator (`v == "high"` → `false`: a tagged enum value is not the bare wire string, so the owning bug's tag-reattached-not-dropped subject stays witnessed) and the cross-declaration inequality (`v == Sev.High` → `false`: the returned variant belongs to the callee's declaration in a different file, per the post-0337 sentence of `docs/spec_topics/runtime-value-model.md`) — with assertion prose re-cited accordingly. The file held its 14864-line pin (49 insertions / 49 deletions, line-neutral, confined to the four cells); no fixture, code, or other cell moved. All four cells ran live red-before/green-after under the campaign lock; the full-live gate is unblocked.
+
 ## [0.309.0]
 
 ### Fixed

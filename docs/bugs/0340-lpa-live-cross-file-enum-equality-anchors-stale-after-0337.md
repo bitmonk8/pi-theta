@@ -1,6 +1,6 @@
 # Bug 0340 — Four H8a-T cells in the line-pinned `live-production-acceptance.test.ts` assert the pre-0337 cross-file enum equality (`v == Sev.High` renders `true`); after bug 0337 gave `.theta` enums file-qualified identity across in-process invoke, each renders `false` and reds deterministically in every full live run
 
-- **Status:** open.
+- **Status:** fixed (0.310.0).
 - **Sev/Diff estimate:** S3/D2 — S3: the product behaviour is correct (0337's
   file-qualified identity is the intended semantics); the four cells are
   witnesses asserting the superseded equality, so they red the full live gate
@@ -188,3 +188,63 @@ executed under the 14864-line pin).
   [0336](./0336-stale-lexical-environment-cite-in-lpa-comment.md) — fixed
   (0.308.0); precedent for a same-line-count edit inside the same
   14864-line-pinned LPA file.
+
+## Fix (0.310.0)
+
+- What shipped: `tests/live/live-production-acceptance.test.ts` — the four
+  H8a-T cross-file cells re-anchored to the post-0337 file-qualified identity,
+  keyed to §Fix. Each parent theta now renders TWO observables between the
+  unchanged markers — `${v == Sev.High}/${v == "high"}` — and the assertion
+  flips from `.toBe("true")` to `.toBe("false/false")`: the cross-declaration
+  inequality (`v == Sev.High` → false, the returned variant belongs to the
+  callee's declaration in a different file) and the tag-presence discriminator
+  (`v == "high"` → false, a tagged enum is not the bare wire string —
+  preserving each owning bug's tag-reattached-not-dropped subject). Cells:
+  bug 0067 cross-envelope (`b67SevEnumParentTheta`), bug 0172 boundary-2
+  (`b172liveB2ParentTheta`), bug 0174 prompt-attach (`b174livePpParentTheta`),
+  bug 0172 face-2 (`b0172Face2UnionEnumParentTheta`). Each assertion message
+  re-cited to `docs/spec_topics/runtime-value-model.md:34`'s post-0337
+  sentence (the reattached tag keys on the CALLEE's declaring file), replacing
+  the pre-0337 "must compare equal to the caller's own variant" phrasing. The
+  drive and the marker-anchored extraction regex (`/…=([\s\S]*?)\|END/`) are
+  byte-unchanged. Same-line-count edit under the 14864-line pin; no other
+  cell, fixture, or code touched.
+- Gates: witness — the four cells run live under the campaign lock RED before
+  the edit (`Rendered segment: "false": expected 'false' to be 'true'`, the
+  §Reproduction signature) and GREEN after (all four "1 passed"); full offline
+  suite `npm test` 485 files / 9612 tests green (unchanged — the LPA is
+  excluded from the default config); `npm run typecheck` exit 0; `npm run lint`
+  exit 0; `wc -l` 14864 held before and after every edit; `git diff --stat`
+  49 insertions / 49 deletions (line-neutral); LF preserved (`grep -c $'\r'`
+  0); `tests/fixtures/h7a/permitted-codes.json` `git hash-object` unchanged
+  (`a4a8da04…`).
+- Review: 1 round — `bug-fix-reviewer` CLEAN; no correctness/fidelity/spec
+  finding; two `prose` residuals (R1/R2 below) held out of the settled §Fix
+  scope.
+- Verification: PASS — (A) red→green witness discharged by the pre-edit RED
+  and post-edit GREEN live logs; (B) offline suite 485/9612 green; (C)
+  typecheck + lint exit 0; (D) pin 14864, diff confined to the four enumerated
+  cells (the bug-0181 same-file `sev == Sev.High` cell at the neighbouring
+  banner untouched — the only surviving `.toBe("true")` in the file), stash
+  empty, fixture hash held. The verifier's initial FAIL rested on two
+  non-defects: a `sha1sum`-vs-`git hash-object` tooling mismatch on the
+  untouched fixture (the pinned `git hash-object` value matches on disk), and
+  the not-yet-written Fix record (this section).
+- Residuals:
+  1. R1 (prose) — the four cells' `it` titles still read "…compares equal to
+     the parent's/caller's own Sev.High", now contradicting their
+     `.toBe("false/false")` assertions. Held out of scope: §Fix enumerates only
+     "assertion-message prose", and this doc's §Reproduction pins those titles
+     verbatim as the red signature (and they are the live `-t` selectors), so
+     re-titling exceeds the settled edit and would decouple the reproduction
+     anchors. A 0336-class same-pin follow-up.
+  2. R2 (prose) — the four owning-bug cell banners still narrate "post-fix …
+     renders `true`", accurate until 0337 inverted the rendered value. Same
+     out-of-scope 0336-class follow-up as R1.
+- Discharge notes appended: none owed.
+- Pinned dispositions / non-goals: the file stays line-pinned at 14864; the
+  discriminator is rendered as a single combined `false/false` segment (not two
+  separate assertions) to hold the pin under the line-neutral constraint — the
+  faithful LPA idiom of the offline sub-kind-(A) two-field mirror. R1/R2 stay
+  fold-in material for any future batch permitted to touch the file under the
+  pin. Multi-hop attribution is out of scope (bug 0342).

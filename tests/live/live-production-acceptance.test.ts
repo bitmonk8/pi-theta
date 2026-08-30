@@ -5698,7 +5698,7 @@ function b67SevEnumParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev>("./b67livesevkid.theta")?',
-    "@`SEVCROSS=${v == Sev.High}|END What is 526 plus 142? Answer with the number only.`",
+    "@`SEVCROSS=${v == Sev.High}/${v == \"high\"}|END What is 526 plus 142? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -5732,19 +5732,19 @@ describe("H8a-T — bug 0067: a named-enum value crossing the PIC-59 envelope re
           JSON.stringify(turn.userTexts) + "; system notes: " +
           JSON.stringify(turn.systemNotes),
       ).not.toBeNull();
-      // THE FIXED OBSERVABLE. runtime-value-model.md:34 — the inbound pass
-      // reattaches the declaring-enum tag "so the resulting value compares
-      // equal to a locally constructed variant of the same enum"; pre-fix the
-      // bound value is a bare wire string and `valuesEqual`'s cross-type arm
-      // renders this segment `false`.
+      // THE POST-0337 OBSERVABLE. runtime-value-model.md:34 — at the invoke-
+      // return boundary the reattached tag keys on the CALLEE's declaring
+      // file, so the returned variant is `!=` the caller's own same-named
+      // Sev.High (`v == Sev.High` → false), and being tagged it is not the
+      // bare wire string either (`v == "high"` → false): both read `false`.
       expect(
         anchored![1],
         "runtime-value-model.md:34 — a named-enum value returned by a " +
-          "subagent-mode callee across a typed invoke<Sev> must compare equal " +
-          "to the caller's own variant of the same enum; a bare untagged " +
-          "string takes valuesEqual's cross-type arm and renders `false`. " +
-          "Rendered segment: " + JSON.stringify(anchored![1]),
-      ).toBe("true");
+          "subagent-mode callee across a typed invoke<Sev> keys its tag on " +
+          "the callee's declaring file: it is `!=` the caller's own Sev.High " +
+          '(v == Sev.High → false) and not the bare wire string (v == "high" ' +
+          "→ false). Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("false/false");
       // No fail-closed ending of the drive (invoke infra errors and Err tails
       // land here — absence is the success observable).
       const failureNotes = turn.systemNotes.filter((n) =>
@@ -6610,7 +6610,7 @@ function b172liveB2ParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     "let v = b172liveb2kid()?",
-    "@`B2CROSS=${v == Sev.High}|END What is 233 plus 644? Answer with the number only.`",
+    "@`B2CROSS=${v == Sev.High}/${v == \"high\"}|END What is 233 plus 644? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -6645,23 +6645,23 @@ describe("H8a-T — bug 0172 boundary 2: a .theta-callable tool-call return perf
           "texts: " + JSON.stringify(turn.userTexts) + "; system notes: " +
           JSON.stringify(turn.systemNotes),
       ).not.toBeNull();
-      // THE FIXED OBSERVABLE. tool-calls.md's registered-theta return-type row
-      // (return type by CALLEE INFERENCE) + runtime-value-model.md's
-      // Wire-name-translation inbound bullet — the pass reattaches the
-      // declaring-enum tag "so the resulting value compares equal to a
-      // locally constructed variant of the same enum"; pre-fix
-      // `#resolveCallAsInvoke` passed `returnSchema: null` so neither AJV nor
-      // the pass ran, and the bound value is a bare wire string that renders
-      // this segment `false`.
+      // THE POST-0337 OBSERVABLE. tool-calls.md's registered-theta return-type
+      // row (return type by CALLEE INFERENCE) + runtime-value-model.md:34's
+      // Wire-name-translation inbound bullet — at the typed `.theta`-callable
+      // return boundary the reattached tag keys on the CALLEE's declaring
+      // file, so the returned variant is `!=` the caller's own same-named
+      // Sev.High (`v == Sev.High` → false), and being tagged it is not the
+      // bare wire string either (`v == "high"` → false, 0172's tag-reattached-
+      // not-dropped subject): both segments read `false`.
       expect(
         anchored![1],
-        "runtime-value-model.md's inbound Wire-name-translation bullet + " +
-          "tool-calls.md's registered-theta return-type row — a named-enum " +
-          "value returned by a tools:-routed `.theta`-callable call must " +
-          "compare equal to the caller's own variant of the same enum; a bare " +
-          "untagged string takes valuesEqual's cross-type arm and renders " +
-          "`false`. Rendered segment: " + JSON.stringify(anchored![1]),
-      ).toBe("true");
+        "runtime-value-model.md:34 + tool-calls.md's registered-theta " +
+          "return-type row — a named-enum value returned by a tools:-routed " +
+          "`.theta`-callable call keys its tag on the callee's declaring " +
+          "file: it is `!=` the caller's own Sev.High (v == Sev.High → false) " +
+          'and not the bare wire string (v == "high" → false). Rendered ' +
+          "segment: " + JSON.stringify(anchored![1]),
+      ).toBe("false/false");
       // No fail-closed ending of the drive (invoke infra errors and Err tails
       // land here — absence is the success observable).
       const failureNotes = turn.systemNotes.filter((n) =>
@@ -6893,7 +6893,7 @@ function b174livePpParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev>("./b174liveppkid.theta")?',
-    "@`PPCROSS=${v == Sev.High}|END What is 385 plus 112? Answer with the number only.`",
+    "@`PPCROSS=${v == Sev.High}/${v == \"high\"}|END What is 385 plus 112? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -6929,19 +6929,19 @@ describe("H8a-T — bug 0174: a typed invoke<Sev> of a PROMPT-mode callee valida
           JSON.stringify(turn.userTexts) + "; system notes: " +
           JSON.stringify(turn.systemNotes),
       ).not.toBeNull();
-      // THE FIXED OBSERVABLE. invocation.md:36 — "the final value still
+      // THE POST-0337 OBSERVABLE. invocation.md:36 — "the final value still
       // propagates through the same return surface", mode-invariantly; :55 —
-      // the callee's mode selects conversation isolation, not validation.
-      // Pre-fix the boxed String carrier reaches AJV unnormalised on this
-      // cell and the invoke Errs, so this segment never renders at all (the
-      // assertion above catches that red first).
+      // the callee's mode selects conversation isolation, not validation. Per
+      // runtime-value-model.md:34 the reattached tag keys on the CALLEE's
+      // declaring file: the returned variant is `!=` the caller's own Sev.High
+      // (false) and, being tagged, is not the bare wire string (false).
       expect(
         anchored![1],
-        "docs/bugs/0174 — a named-enum value returned by a PROMPT-mode " +
-          "callee across a typed invoke<Sev> on the prompt→prompt ATTACH " +
-          "cell must compare equal to the caller's own variant of the same " +
-          "enum. Rendered segment: " + JSON.stringify(anchored![1]),
-      ).toBe("true");
+        "runtime-value-model.md:34 — a named-enum value returned by a " +
+          "PROMPT-mode callee across a typed invoke<Sev> keys its tag on the " +
+          "callee's declaring file: `!=` the caller's own Sev.High and, being " +
+          "tagged, not the bare wire string (both false). Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("false/false");
       // No fail-closed ending of the drive (invoke infra errors and Err tails
       // land here — absence is the success observable).
       const failureNotes = turn.systemNotes.filter((n) =>
@@ -7271,7 +7271,7 @@ function b0172Face2UnionEnumParentTheta(): string {
     "---",
     'enum Sev { High = "high" }',
     'let v = invoke<Sev | null>("./b0172f2livekid.theta")?',
-    "@`SEVCROSS=${v == Sev.High}|END What is 471 plus 318? Answer with the number only.`",
+    "@`SEVCROSS=${v == Sev.High}/${v == \"high\"}|END What is 471 plus 318? Answer with the number only.`",
   ].join("\n");
 }
 
@@ -7306,22 +7306,22 @@ describe("H8a-T — bug 0172 face 2: invoke<Sev | null> dispatches the first-adm
           JSON.stringify(turn.userTexts) + "; system notes: " +
           JSON.stringify(turn.systemNotes),
       ).not.toBeNull();
-      // THE FIXED OBSERVABLE. runtime-value-model.md:34's union clause — at a
-      // `{"anyOf":[…]}` position the walk re-tests the value against each arm
+      // THE POST-0337 OBSERVABLE. runtime-value-model.md:34's union clause — at
+      // a `{"anyOf":[…]}` position the walk re-tests the value against each arm
       // in source order and translates under the first that admits it; arm 0
       // here is the `Sev` `$ref`, which admits the envelope's bare wire string
-      // and reattaches the tag. Pre-fix the union position addressed no map
-      // at all and the value crossed untouched — a bare untagged string takes
-      // `valuesEqual`'s cross-type arm and renders `false`.
+      // and reattaches the callee-file-qualified tag. So the returned variant
+      // is `!=` the caller's own Sev.High (`v == Sev.High` → false) and, being
+      // tagged, is not the bare wire string (`v == "high"` → false).
       expect(
         anchored![1],
         "runtime-value-model.md:34 (union clause) — a named-enum value " +
           "returned by a subagent-mode callee across a typed " +
-          "invoke<Sev | null> must dispatch to the first admitting arm and " +
-          "compare equal to the caller's own variant of the same enum; a bare " +
-          "untagged string takes valuesEqual's cross-type arm and renders " +
-          "`false`. Rendered segment: " + JSON.stringify(anchored![1]),
-      ).toBe("true");
+          "invoke<Sev | null> dispatches to the first admitting arm and keys " +
+          "its tag on the callee's declaring file: `!=` the caller's own " +
+          "Sev.High and, being tagged, not the bare wire string (both false). " +
+          "Rendered segment: " + JSON.stringify(anchored![1]),
+      ).toBe("false/false");
       // No fail-closed ending of the drive (invoke infra errors and Err tails
       // land here — absence is the success observable).
       const failureNotes = turn.systemNotes.filter((n) =>
