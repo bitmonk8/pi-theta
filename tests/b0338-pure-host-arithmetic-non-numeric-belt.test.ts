@@ -44,10 +44,11 @@
 // disposition rather than a bare uncaught throw.
 //
 // WITNESS TABLE (the FIXED contract; RED now unless CONTROL):
-//   B1   let s = "a" / @`v=${s - 1}`   → LOUD FRAMED abort; no `NaN` prompt sent
-//   Op*  let s = "a" / @`v=${s * 1}`   → LOUD FRAMED abort; no `NaN` prompt sent
-//   Op/  let s = "a" / @`v=${s / 1}`   → LOUD FRAMED abort; no `NaN` prompt sent
-//   Op%  let s = "a" / @`v=${s % 1}`   → LOUD FRAMED abort; no `NaN` prompt sent
+//   B1   let s = "a" / @`v=${s - 1}`   → bug 0345: refuses at LOAD (statically
+//                                         resolvable), never reaches this belt
+//   Op*  let s = "a" / @`v=${s * 1}`   → bug 0345: refuses at LOAD
+//   Op/  let s = "a" / @`v=${s / 1}`   → bug 0345: refuses at LOAD
+//   Op%  let s = "a" / @`v=${s % 1}`   → bug 0345: refuses at LOAD
 //   A1   fn f(a) { invoke("./c.theta", a - 1) } / f("x")
 //                                       → LOUD FRAMED abort BEFORE callee load
 //                                         (no child spawn: parseCallee unreached)
@@ -63,12 +64,19 @@
 //                                         (executor path, unchanged by this fix)
 //
 // RED-FOR-RIGHT-REASON, per cell (shown in the run):
-//   B1/Op*/Op//Op% red: the interpolation renders the literal text `NaN` and
-//                        `pi.sendUserMessage` is handed the prompt `v=NaN` with
-//                        no throw on any channel (the silent-NaN symptom).
+//   B1/Op*/Op//Op% RE-PINNED (bug 0345): the operand `s` is statically
+//                        resolvable, so the interpolation now refuses at LOAD
+//                        with `theta/parse/non-numeric-arithmetic-operands`
+//                        instead of reaching this file's belt at render — these
+//                        cells no longer witness the belt itself, only the
+//                        load-time refusal bug 0345 adds in front of it.
 //   A1 red:              `#resolveInvoke` coerces `"x" - 1` to `NaN`, binds it,
 //                        and reaches the callee load (`parseCallee` called) with
 //                        no throw — the coerced value is on its way to the child.
+//                        Unaffected by bug 0345: `a` is a WITHHELD `fn` param,
+//                        statically unresolvable, so the descent defers exactly
+//                        as the body-statement path does, and this belt remains
+//                        the backstop.
 //   Cn-/Cn//Cn%/Cai/B3 CONTROL: byte-identical guards. If any reds, the belt
 //                        over-reached into numeric operands (Cn-/Cn//Cn%/Cai)
 //                        or perturbed the executor-path parse gate (B3).
@@ -135,10 +143,13 @@ function parseOnly(src: string): ThetaDocument {
 }
 
 /**
- * Parse a fixture and fail LOUDLY on any error-severity diagnostic. The interp
- * and invoke fixtures parse clean at HEAD (the gate never runs on an
- * interpolation expression, and it DEFERS on the WITHHELD `fn` param), so a
- * rejection here is a harness precondition breach, never a silent skip.
+ * Parse a fixture and fail LOUDLY on any error-severity diagnostic. The fixtures
+ * this still drives parse clean for their OWN reasons: the A1 withheld-`fn`-param
+ * invoke arg is statically unresolvable, so the operand checks DEFER (no load
+ * refusal), and the numeric interpolation controls carry no operand violation.
+ * It is not that the operand gate skips interpolation — bug 0345's descent
+ * reaches it — so a rejection here is a harness precondition breach, never a
+ * silent skip.
  */
 function parseClean(src: string): ThetaDocument {
   const doc = parseOnly(src);
@@ -351,43 +362,43 @@ function assertFramesToInternalError(thrown: unknown, what: string): void {
   ).toMatch(/^internal error: /);
 }
 
-/** No prompt text carrying `NaN` was ever handed to `pi.sendUserMessage`. */
-function assertNoNaNPromptSent(sent: readonly string[], what: string): void {
-  const leaked = sent.filter((text) => text.includes("NaN"));
-  expect(
-    leaked,
-    `${what}: no rendered prompt carrying the literal text 'NaN' may reach pi.sendUserMessage`,
-  ).toEqual([]);
-}
-
 // ===========================================================================
 // B1 + operator coverage — a spelled `-`/`*`/`/`/`%` over a STRING operand in an
-// interpolation must abort the theta LOUDLY (framed to INTERNAL_ERROR_CODE) and
-// send NO `NaN` prompt. RED at HEAD: the render coerces to `NaN` and
-// `pi.sendUserMessage` is handed `v=NaN` with no throw.
+// interpolation, where the operand is bound by `let s = "a"` and so is
+// STATICALLY RESOLVABLE. Bug 0345's operand descent (walkExpr's `case
+// "query"` now reaches the interpolation expression) closes this cell at
+// PARSE: `s - 1` now draws `theta/parse/non-numeric-arithmetic-operands` at
+// load, before the pure-host belt this file exists to test ever runs. This is
+// the flip the bug 0345 doc's §Fix authorizes ("its statically-resolvable
+// arithmetic cells may flip from a runtime-belt observable to a load
+// refusal—re-pin, do not weaken"): these four cells now assert the LOAD
+// refusal instead of driving the render belt, mirroring the B3 control below.
+// The belt itself is untouched and stays the backstop for a
+// statically-UNRESOLVABLE operand (see A1 above, which is unaffected: `f`'s
+// param is withheld, so the descent defers and the belt still fires).
 // ===========================================================================
 
-describe("bug 0338 B1 + operator coverage — string-operand interpolation aborts loudly, no NaN prompt", () => {
+describe("bug 0338 B1 + operator coverage — string-operand interpolation refuses at load (bug 0345)", () => {
   const interpRows: ReadonlyArray<readonly [string, string, string]> = [
-    ["B1 (-)", 'let s = "a"\n@`v=${s - 1}`', 'string `-` int → NaN → prompt "v=NaN"'],
-    ["Op (*)", 'let s = "a"\n@`v=${s * 1}`', 'string `*` int → NaN → prompt "v=NaN"'],
-    ["Op (/)", 'let s = "a"\n@`v=${s / 1}`', 'string `/` int → NaN → prompt "v=NaN"'],
-    ["Op (%)", 'let s = "a"\n@`v=${s % 1}`', 'string `%` int → NaN → prompt "v=NaN"'],
+    ["B1 (-)", 'let s = "a"\n@`v=${s - 1}`', "'-' requires two numeric operands; got string and integer"],
+    ["Op (*)", 'let s = "a"\n@`v=${s * 1}`', "'*' requires two numeric operands; got string and integer"],
+    ["Op (/)", 'let s = "a"\n@`v=${s / 1}`', "'/' requires two numeric operands; got string and integer"],
+    ["Op (%)", 'let s = "a"\n@`v=${s % 1}`', "'%' requires two numeric operands; got string and integer"],
   ];
-  for (const [id, src, symptom] of interpRows) {
-    it(`RED (${id}): loud framed abort, no NaN prompt sent (at HEAD ${symptom})`, async () => {
-      const probe = await driveInterp(src);
-      if (probe.kind === "rendered") {
-        // RED-for-right-reason: the silent NaN symptom. Quote the sent prompt so
-        // the run reads as "a NaN prompt was rendered and sent", not an opaque miss.
-        expect(
-          `rendered + sent ${JSON.stringify(probe.sent)}`,
-          `${id}: the interpolation must abort loudly (framed internal-error), not silently render a NaN prompt`,
-        ).toBe("loud framed abort (no prompt sent)");
-        return;
-      }
-      assertFramesToInternalError(probe.thrown, id);
-      assertNoNaNPromptSent(probe.sent, id);
+  for (const [id, src, expectedMessage] of interpRows) {
+    it(`RE-PINNED (${id}): refuses at LOAD with theta/parse/non-numeric-arithmetic-operands (bug 0345, was a runtime belt observable)`, () => {
+      const doc = parseOnly(src);
+      const errors = doc.diagnostics.filter((d) => d.severity === "error");
+      expect(
+        errors.map((d) => d.code),
+        `${id}: the operand \`s\` is statically resolvable (\`let s = "a"\`), so bug 0345's descent ` +
+          `refuses this interpolation at load with EXACTLY one operand row — no double-emit — and it ` +
+          `must never reach the pure-host belt or the render`,
+      ).toEqual([NON_NUMERIC_ARITHMETIC_OPERANDS_CODE]);
+      expect(
+        errors.map((d) => d.message),
+        `${id}: the relocated diagnostic carries the same message the arithmetic operand check emits`,
+      ).toContain(expectedMessage);
     });
   }
 });

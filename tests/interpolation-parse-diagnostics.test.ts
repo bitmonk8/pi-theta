@@ -535,16 +535,20 @@ describe("bug 0122 (a) — the inventory: rows the settled route does NOT reach"
     );
   });
 
-  it('(a11): `${1 + "a"}` stays [] — residual 1 (type-phase `mixed-plus-operands`)', () => {
+  it('(a11): `${1 + "a"}` draws theta/parse/mixed-plus-operands at the query range', () => {
     // The QRY-18 row (docs/spec_topics/query/query-escapes-stringification.md:16):
-    // pre-fix this renders "x 1a" — the JavaScript coercion the rule's own
+    // pre-fix this rendered "x 1a" — the JavaScript coercion the rule's own
     // preamble says "would silently corrupt prompts without any diagnostic for
-    // the author". The settled route does NOT close it: the source parses whole,
-    // and `mixed-plus-operands` is a type-phase code.
-    assertInterpSilentWithControl(
+    // the author". Bug 0122 pinned this as residual 1 (type-phase,
+    // out of THIS route's reach) and explicitly declined route 3 (the
+    // type-layer descent) to close it. Bug 0345 lands route 3 for the operand
+    // checks specifically: `walkExpr`'s query arm now descends into the parsed
+    // interpolation and runs `checkPlusOperands`, so this cell moves from a
+    // pinned silence to a drawn row, relocated to the query's range.
+    assertInterpDraws(
       '1 + "a"',
-      [MIXED_PLUS_CODE],
-      "residual 1 — type-phase; pre-fix render is `x 1a`, defeating QRY-18 directly",
+      [{ code: MIXED_PLUS_CODE, message: '\'+\' has mixed operand types: integer and string' }],
+      "bug 0345 §Fix: the operand descent closes residual 1's `mixed-plus-operands` member",
     );
   });
 
@@ -1159,14 +1163,16 @@ describe("bug 0122 (f) — the rendered turn: a refused source renders nothing",
 
   it("PINNED (f4): the three out-of-reach render dispositions, measured", async () => {
     // Residual 1's wire-facing cost, pinned so it is stated rather than implied.
-    // `1 + "a"` renders the JavaScript coercion QRY-18 exists to refuse; the
-    // other two abort the drive after ZERO turns under an uncoded JavaScript
-    // `Error` / a runtime panic. These stay as measured under the settled route
-    // (see cells (a9)–(a12)); closing them is route 3's job.
+    // `1 + "a"` used to render the JavaScript coercion QRY-18 exists to refuse;
+    // bug 0345's operand descent now closes that member of residual 1, so this
+    // source refuses at load (cell (a11)) and never reaches the wire. The other
+    // two abort the drive after ZERO turns under an uncoded JavaScript `Error` /
+    // a runtime panic — non-operand checks bug 0345 does not own — and stay as
+    // measured.
     expect(
       await disposition(interpSrc('1 + "a"')),
-      'PINNED RESIDUAL 1: `${1 + "a"}` still renders the JS coercion QRY-18 refuses',
-    ).toBe('RENDERED ["x 1a"]');
+      'PRIMARY (bug 0345): `${1 + "a"}` now refuses at load instead of rendering the JS coercion',
+    ).toBe(REFUSED);
     expect(
       await disposition(interpSrc("s.frobnicate()")),
       "PINNED RESIDUAL 1: an uncoded JavaScript `Error`, after zero turns were sent",

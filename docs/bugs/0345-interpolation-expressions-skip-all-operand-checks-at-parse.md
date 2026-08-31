@@ -1,6 +1,6 @@
 # Bug 0345 — `walkExpr`'s `case "query"` runs only `checkQueryInterpolationResults` and returns without descending into the interpolation expression, so no operand check reaches a `${…}` expression at parse: `checkArithmeticOperands`, `checkPlusOperands`, and `checkOrderingOperands` are all absent from interpolation position — `${"a" + 1}` renders `a1` and `${"b" < 1}` renders `false` into the prompt with zero diagnostics, and `${"a" - 1}` parses clean where the byte-identical `let x = "a" - 1` refuses at load
 
-- **Status:** open.
+- **Status:** fixed (0.317.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because `${a + b}` and `${a < b}` over
   operand pairings the spec refuses render a silently JS-coerced value into a
   user-visible prompt with no diagnostic on any channel (`${"a" + 1}` → `a1`,
@@ -297,3 +297,92 @@ which calls `checkQueryInterpolationResults` and returns without re-entering
 are all fixed; no open bug owns the interpolation `walkExpr` query-arm operand
 gap. Scratch probe deleted; case-insensitive sweep for its stem left no
 source-tree residue.
+
+## Fix (0.317.0)
+
+- **What shipped:**
+  - `src/parser/type-layer-checks.ts` — `walkExpr`'s `case "query"` now calls a
+    new `checkQueryInterpolationOperands` AFTER the preserved
+    `checkQueryInterpolationResults`, which parses each interpolation source (as
+    the Result classifier already does via `parseExpressionSource`) and descends
+    a new operand-only recursive walk `checkInterpolationOperands` over it,
+    firing ONLY `checkPlusOperands` / `checkOrderingOperands` /
+    `checkArithmeticOperands` (with the same synthetic-`null` unary-minus guard
+    the binary arm uses) and recursing through `childExprs` to reach nested
+    binaries; every pushed diagnostic is relocated to the enclosing query's
+    `file`/`range` (QueryTemplatePart carries no per-interpolation offsets, the
+    same location choice `checkQueryInterpolationResults` makes). The walk is
+    OPERAND-SCOPED, not a full `walkExpr` re-entry: it runs no
+    method-call/index/member/question check, so residual 1's non-operand half
+    keeps its bug 0122 disposition. No new registry row (the three codes and
+    their `expressions.md` spec sentences already exist).
+  - `tests/b0345-interpolation-operand-checks-at-parse.test.ts` (new, offline) —
+    the §Reproduction witnesses: mixed-`+`, ordering, statically-resolvable
+    arithmetic (load refusal, no longer deferred to the bug 0338 belt), the
+    numeric baseline `${1 + 2}` → `v=3`, withheld-binder deferral parity, the
+    Result+operand co-existence ordering cell, top-level-`?` descent, refused-
+    `match` no-bogus-row, and the par-for stated residual.
+  - `tests/live/acceptance/b0345-interpolation-operand-refusal.test.ts` (new,
+    live H9a) — offender `@`v=${1 + "a"}`` refuses registration through real
+    `pi -p` (invoke→Err sentinel); numeric-interpolation control computes and
+    drives a real turn (compute-from-inline-value).
+  - `tests/interpolation-parse-diagnostics.test.ts` (bug 0122 witness) — the
+    enumerated flips: cell (a11) `${1 + "a"}` and f4's `1 + "a"` render re-pinned
+    from pinned silence to a load refusal; non-operand cells untouched.
+  - `tests/b0338-pure-host-arithmetic-non-numeric-belt.test.ts` — the four
+    statically-resolvable interpolation cells (`let s = "a"` / `${s <op> 1}`)
+    re-pinned from a runtime-belt observable to a load refusal (§Fix constraint
+    3, pre-authorized); A1 (withheld param → defers), numeric controls, and B3
+    untouched.
+  - `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json` — one
+    sorted allowlist entry `theta/bug0345` for the new witness's fixture-path
+    literal `/theta/bug0345.theta` (mirrors the `theta/bug0122` / `theta/bug0338`
+    siblings; no diagnostic-code implication).
+- **Deliberate double-emit ordering:** for an interpolation that is both a
+  `Result` and an operand violation, `theta/parse/interpolated-result` precedes
+  the operand code — `checkQueryInterpolationResults` stays first in the query
+  arm and the operand descent is appended, so the descent runs IN ADDITION
+  (§Fix constraint 1). Pinned by witness cell 6 with an order-sensitive assertion.
+- **Gates (verbatim):** witness `npx vitest run tests/b0345-...test.ts` → 13
+  passed; revert-of-the-descent-call → 7 of 13 red for the right reason
+  (interpolation draws `[]` / drops the operand row), restored byte-exact
+  (`git hash-object` = `a33a0e4c…`) → 13 passed. Full suite `npx vitest run` →
+  494 files / 9674 tests passed. `npm run typecheck` clean; `npm run lint` clean.
+  Live (under the shared lock) `… vitest.live.config.ts
+  tests/live/acceptance/b0345-...test.ts` → 1 passed post-fix; reverted → the
+  offline attribution guard reds in 11 ms with zero tokens, restored → 1 passed.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — findings F1
+  (top-level `?` interpolation skipped the operand walk), F2 (refused `match`
+  emitted a bogus operand row), F3 (par-for-in-interpolation not descended),
+  F4 (two stale comments), R1/R2 (test hygiene); F1/F2/F4/R1/R2 fixed, F3
+  recorded as a stated residual. Round 2 (`bug-fix-reviewer-fast`) — CLEAN.
+- **Verification:** SOLID. Obligation 1 (witness reds on revert, greens on
+  restore, hash byte-exact) discharged; obligation 2 (full suite 494/9674)
+  discharged; obligation 3 (live end-to-end offender-refusal + numeric control,
+  with a zero-token revert-red pair) discharged; obligation 4 (lint + typecheck
+  clean) discharged.
+- **Residuals:**
+  1. Par-for-in-interpolation operand descent is NOT closed: `par for` is
+     admitted in interpolation position but `checkInterpolationOperands` does
+     not descend into its iterand/max/body (closing it requires replicating
+     `walkExpr`'s par-for loop-variable scope handling, out of this fix's
+     surface). A par-for-body operand violation still defers to the runtime
+     (belt for spelled arithmetic; JS coercion for `+`/ordering), consistent
+     with §Fix constraint 4's deferral posture. Pinned as a stated residual in
+     the witness (`${par for x in ["a" - 1] { x }}` loads `[]`; its `let`-RHS
+     control draws `non-numeric-arithmetic-operands`). No committed fixture or
+     live theta exercises the shape (census gate green; live grep clean).
+  2. Residual 1's NON-operand half at interpolation position (`unknown-method`,
+     `non-indexable-receiver`, `question-on-non-result`) is explicitly NOT owned
+     by this report and keeps its bug 0122 pinned disposition — the descent is
+     operand-scoped by design (a full `walkExpr` re-entry would flip cells
+     (a9)/(a10)/(a12)/(a14)/(a15), beyond the authorized set).
+- **Discharge notes appended:** `docs/bugs/0122-...md` (dated 2026-08-31) —
+  0122's declined route 3 (type-layer descent) is landed here for the operand
+  checks; residual 1's operand half is closed, its non-operand half remains.
+- **Pinned dispositions / non-goals:** §Non-goals stand — no unary-minus
+  change, no compound-assign (0314), no `?`-unwrap/Result-render change
+  (0116/0079), no QRY-18 stringification-table change, no frontmatter
+  bare-path change. The bug 0338 belt stays the deferred-operand backstop
+  (0332 Option-B and 0338 belt are landed law). No new registry row; the
+  permitted-codes baseline is byte-unchanged.

@@ -1187,3 +1187,23 @@ record states for the sibling position (the `params:` default RHS).
   string-literal false-positive hazard the current two-member set is
   deliberately free of (`match` is a keyword and `@` a punct; `=` and `-` have
   no such property). Per-interpolation source ranges remain a §Non-goal.
+
+## Update 2026-08-31 (residual 1's operand half closed by bug 0345)
+
+Residual 1's OPERAND members — the type-phase codes
+`theta/parse/mixed-plus-operands`, `theta/parse/non-orderable-operands`, and
+`theta/parse/non-numeric-arithmetic-operands` at `${…}` interpolation position —
+are now closed by bug 0345 (0.317.0), which landed the declined **route 3
+(type-layer descent)** for the operand checks only: `walkExpr`'s `case "query"`
+descends into each parsed interpolation source and runs the three operand checks
+(operand-scoped, not a full `walkExpr` re-entry), so this report's witness cell
+(a11) `${1 + "a"}` and f4's `1 + "a"` render flip from the pinned residual-1
+silence to `theta/parse/mixed-plus-operands` at load — re-pinned in
+`tests/interpolation-parse-diagnostics.test.ts` by bug 0345.
+
+Residual 1's NON-operand members (`unknown-method`, `non-indexable-receiver`,
+`question-on-non-result` at interpolation position) are explicitly NOT owned by
+bug 0345 and remain this report's residuals: bug 0345's descent fires only the
+operand checks, so cells (a9)/(a10)/(a12)/(a14)/(a15) keep their pinned
+disposition here. Route 2 stays declined as recorded above. This is a dated
+append; nothing above is rewritten.

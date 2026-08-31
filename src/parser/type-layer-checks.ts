@@ -3254,6 +3254,12 @@ class TypeLayerWalk {
       }
       case "query":
         this.checkQueryInterpolationResults(e, bindings);
+        // Bug 0345 §Fix: appended AFTER the Result-classification call above, not
+        // in place of it, so an interpolation that is both a `Result` and an
+        // operand violation draws `theta/parse/interpolated-result` (pushed
+        // above) BEFORE the operand code (pushed below) — the deliberate
+        // ordering the bug doc records.
+        this.checkQueryInterpolationOperands(e, bindings);
         return;
       case "block":
         // Descend into the block's own body so a nested `type`-phase
@@ -3366,6 +3372,100 @@ class TypeLayerWalk {
           message: INTERPOLATED_RESULT_MESSAGE,
         });
       }
+    }
+  }
+
+  /**
+   * Bug 0345 §Fix — QRY-18 evaluates a `${expr}` interpolation "per the
+   * Expression Sublanguage", so the three operand checks the binary arm of
+   * `walkExpr` dispatches (`checkPlusOperands`, `checkOrderingOperands`,
+   * `checkArithmeticOperands`) must reach an interpolation expression too —
+   * `checkQueryInterpolationResults` above classifies `Result`-ness only and
+   * never fires them. This method parses each interpolation source the same
+   * way that classifier does and descends {@link checkInterpolationOperands}
+   * over the parsed expression, OPERAND-CHECKS ONLY: it does not run
+   * `checkMethodCall` / `checkIndex` / `checkMemberAccess` / `checkQuestion`.
+   * Residual 1's non-operand half (unknown-method, non-indexable-receiver,
+   * question-on-non-result at interpolation position) is explicitly NOT owned
+   * by bug 0345 — it keeps its pinned disposition from bug 0122 — so a full
+   * `walkExpr` re-entry here would close cells this report never measured or
+   * authorized.
+   *
+   * Every diagnostic the descent pushes is relocated to the enclosing query's
+   * own site (`file`/`range`) before returning: `QueryTemplatePart` carries no
+   * per-interpolation offsets, the same reason `checkQueryInterpolationResults`
+   * locates `INTERPOLATED_RESULT_CODE` at `e.range` rather than at the
+   * expression's own (nonexistent) source span.
+   */
+  private checkQueryInterpolationOperands(
+    e: Expr & { kind: "query" },
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    for (const part of lexQueryTemplate(e.template).parts) {
+      if (part.kind !== "interp") {
+        continue;
+      }
+      const parsed = parseExpressionSource(part.exprSource);
+      if (parsed === null) {
+        // Only a genuine parse failure is skipped: a `null` yields no static
+        // type to walk. A top-level `try` is DESCENDED, not skipped — an
+        // operand violation inside the unwrapped expression (`${f("a" + 1)?}`)
+        // must still be caught, and `childExprs`' `try` arm hands the descent
+        // that operand. The `.kind === "try"` skip is
+        // `checkQueryInterpolationResults`' Result-classification concern (a
+        // `?`-unwrap is never itself the `Result` it consumes) and does not
+        // apply to operand checks, which owe the descent.
+        continue;
+      }
+      const before = this.diagnostics.length;
+      this.checkInterpolationOperands(parsed, bindings);
+      for (let i = before; i < this.diagnostics.length; i++) {
+        const diag = this.diagnostics[i]!;
+        this.diagnostics[i] = { ...diag, file: this.file, range: e.range };
+      }
+    }
+  }
+
+  /**
+   * The operand-only recursive walk {@link checkQueryInterpolationOperands}
+   * drives. Fires the three operand checks the same way the body-statement
+   * `walkExpr` binary arm does — including the same unary-minus guard, since
+   * `parseUnary` (theta-document.ts) can hand this walk the same synthetic-
+   * `null`-left binary node the body path excludes — then recurs into every
+   * child `childExprs` exposes (binary operands, ternary branches, array
+   * elements, index target/index, method-call target/args, member target,
+   * call args, `try` operand, …) so a nested binary reachable through any of
+   * those shapes is reached too. It fires NO other check: no method-call /
+   * index / member / question check runs here, by design (see the doc comment
+   * on the caller).
+   */
+  private checkInterpolationOperands(
+    parsed: Expr,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    if (parsed.kind === "match") {
+      // `match` is unconditionally refused in interpolation position
+      // (`firstForbiddenInterpolationForm` → theta/parse/unsupported-feature),
+      // so no operand row is owed on its arm bodies. Descending would recurse
+      // into them under this walk's scope, which carries none of the
+      // scrutinee-binding a real `match` arm evaluates under, and stack a
+      // spurious operand diagnostic on an already-refused document. Skip whole.
+      return;
+    }
+    if (parsed.kind === "binary") {
+      if (parsed.op === "+") {
+        this.checkPlusOperands(parsed, bindings);
+      } else if (ORDERING_OPS.has(parsed.op)) {
+        this.checkOrderingOperands(parsed, bindings);
+      } else if (
+        ARITHMETIC_OPS.has(parsed.op) &&
+        !(parsed.op === "-" && parsed.left.kind === "null")
+      ) {
+        this.checkArithmeticOperands(parsed, bindings);
+      }
+    }
+    for (const child of childExprs(parsed)) {
+      this.checkInterpolationOperands(child, bindings);
     }
   }
 

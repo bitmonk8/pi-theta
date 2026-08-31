@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.317.0]
+
+### Fixed
+
+- **Bug 0345** — `walkExpr`'s `case "query"` called `checkQueryInterpolationResults` and returned without ever re-entering the walker on the interpolation expression, so the three operand checks (`checkPlusOperands`, `checkOrderingOperands`, `checkArithmeticOperands`) never examined a `${…}` interpolation: `${"a" + 1}` rendered the JS concatenation `a1` into the prompt silently, `${"b" < 1}` rendered `false` silently, and statically-resolvable spelled arithmetic aborted at render through bug 0338's belt instead of refusing at load — the disposition of the byte-identical expression depended on whether it sat in a `let` RHS or an interpolation. The query arm now runs an operand-scoped descent over each parsed interpolation source under the same bindings (top-level `?` descended, refused `match` skipped, the 0332/0338 unary-minus non-goal preserved), so the statically-resolvable violations draw the same load-time parse refusals as body statements (`mixed-plus-operands`, `non-orderable-operands`, `non-numeric-arithmetic-operands` — no new registry row), while `checkQueryInterpolationResults`' Result-classification runs unchanged beside it and statically-unresolvable operands keep deferral parity (0338's belt stays the arithmetic backstop; the `+`/ordering runtime surface is untouched). The descent is deliberately operand-scoped rather than a full `walkExpr` re-entry because the full descent measurably overshoots the doc's flip authority (the non-operand members of bug 0122's residual-1 group keep their pinned disposition). Flips landed exactly as enumerated: 0122's cells (a11)/(f4) re-pinned to the parse refusal, four b0338 statically-resolvable cells re-pinned runtime-belt → load-refusal, numeric controls byte-identical; dated note on bug 0122's doc. Witnessed by `tests/b0345-interpolation-operand-checks-at-parse.test.ts` (13 cells) and the red-proven live acceptance cell `tests/live/acceptance/b0345-interpolation-operand-refusal.test.ts` (offender refuses registration under the located diagnostic, numeric control registers and drives).
+
 ## [0.316.0]
 
 ### Fixed
