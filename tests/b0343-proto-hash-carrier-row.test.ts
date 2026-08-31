@@ -449,9 +449,13 @@ describe("bug 0343 (C) — child end-to-end: the parent-marshalled __proto__ row
     // (carrier undefined), the child verifies nothing, and the edited callee
     // registers silently. GREEN post-fix: the parent marshals the load-time hash
     // under __proto__, the child recompute over the edited bytes diverges, and
-    // the callee is refused fail-closed with the registry-pinned mismatch message
-    // while the caller stays registered.
-    expect(outcome.registered).toContain("proto-caller");
+    // the callee is refused fail-closed with the registry-pinned mismatch message.
+    // Under bug 0329 Option A a mismatch on ANY marshalled callable also refuses
+    // the marked root, so proto-caller (the marked root here) drops too — this is
+    // the parent-ratified SECOND instance of 0329's doc-pre-authorized root-absent
+    // strengthening (cell F being the first). The __proto__ callee-drop subject
+    // below is preserved unchanged; only the pre-0329 root-survival scaffolding flips.
+    expect(outcome.registered).not.toContain("proto-caller");
     expect(outcome.registered).not.toContain("proto-tool");
     expect(outcome.notifications).toContain(PROTO_MISMATCH_MSG);
   });

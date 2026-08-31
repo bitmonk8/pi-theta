@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.322.0]
+
+### Fixed
+
+- **Bug 0329** — the RFC-0005 hash-mismatch "refusal" never refused anything in production: `refuseDivergedChildCallables` dropped the diverged callable from the child's discovered-theta list, but the marked root survived, the invocation ran the root body anyway, and the laundering completed downstream (the child's own compose recomputed the entry's closure hash from the edited bytes, so grandchild launches marshalled the post-edit hash and every later verification passed) — the total effect of a detected divergence was one notify line in the child's private session, in violation of the quoted MUST that the child never run a callee the parent never validated. Option A implemented (adjudicated over Option B, which would leave a mismatch invisible until the callable is called): any refusal in the verification pass now ALSO drops the marked root from the survivors, so `markedRootRegistrationRefusal` fires and the parent receives the PIC-59 `load_failure` envelope; the refusal is stamped with the root's own file, so the envelope takes the spec's first arm and NAMES `theta/runtime/subagent-callable-hash-mismatch`'s code and message (the second arm's "no load diagnostic names it" wording could not satisfy §Fix's naming requirement — the one-sentence example reclassification in `subagent.md` aligns the doc, with both normative arm definitions byte-unchanged). The 0330-lane coordination note is discharged: the drop-target compare the fix makes load-bearing now matches on canonicalised `fs.realpath` paths, so a case-mismatched `tools:` spelling on a case-insensitive filesystem cannot route around the enforcement (FS-probing witness cell asserts BOTH filesystem branches, no silent skip). Clean-hash invocations, prompt-mode (no marked root) paths, and the verification-loop semantics are untouched. Two root-absent strengthenings landed under the doc's pre-authorization: the 0330 e2e block's cell F, and — parent-ratified as its second instance — b0343's C-drop cell, whose `__proto__` callee-drop subject is preserved. Witnessed by `tests/b0329-hash-mismatch-refuses-invocation.test.ts` (5 cells: parent-visible `Err(InvokeInfraError{cause:"load_failure"})` red-proven, grandchild-laundering fence, clean control, FS-probing case-fold, any-of-N multi-callable refusal).
+
 ## [0.321.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0329 — a child-side callable-hash mismatch does not refuse the invocation: the diverged callable is dropped only from the child's slash registry (which nothing consults), the marked root still registers and runs, and the edited callee remains fully dispatchable through the frozen-entry path — so the spec's fail-closed refusal is detection with no enforcement
 
-- **Status:** open.
+- **Status:** fixed (0.322.0).
 - **Sev/Diff estimate:** S2/D3 — S2 because the contract's one enforcement
   point is a no-op for every production-reachable mismatch: the invocation
   the spec says MUST be refused proceeds, the edited callee the hash
@@ -155,3 +155,40 @@ Bug-hunt area `subagent-integrity`, seed hypothesis 3 (refusal-path
 mechanics). Probed offline at ee681f7b; probe deleted after confirmation.
 
 > **Coordination note (2026-08-30, from the 0330 fix lane, 0.307.0):** the drop-target compare this fix makes load-bearing — `sourcePath.replace(/\/g, "/") === calleeAbs` inside the `thetas.find` that locates the callable to drop (`production-composition.ts`, re-anchor by symbol; the 0330 insertion shifted line numbers) — is case-SENSITIVE. On a case-insensitive filesystem an author-written case-mismatched `tools:` spec still hash-verifies (the FS resolves the sources) but the find misses, so under Option A the refusal would not drop the root and the invocation would NOT refuse. When implementing, case-fold the compare (or compare canonicalised real paths) so the enforcement this report owns cannot be routed around by path casing. Evidence: 0330 fix-lane report, Residual 1.
+
+## Fix (0.322.0)
+
+- What shipped:
+  - `src/extension/production-composition.ts` (`refuseDivergedChildCallables`) — Option A: on ANY callable-hash mismatch, `dropped.add(markedRoot)` so the marked root does not register and `markedRootRegistrationRefusal` emits the PIC-59 `load_failure` envelope (§Fix). Scoped to the marked-root regime (`markedRoot` undefined ⇒ prompt-mode children keep today's behaviour). The refusal diagnostic is stamped `file: markedRoot.sourcePath` so the envelope's FIRST arm names `theta/runtime/subagent-callable-hash-mismatch` (§Fix "naming the hash-mismatch diagnostic"). The callee-locate compare now goes through a `Map<fs.realpath(sourcePath)→theta>` keyed by canonical real path (gated by `fs.exists`; ENOENT ⇒ normalized-exact fallback; any other realpath error crashes, fail-closed) — discharges the 2026-08-30 coordination note (case-fold via canonical real paths), correct on both case-insensitive and case-sensitive filesystems with no manual probe.
+  - `tests/b0329-hash-mismatch-refuses-invocation.test.ts` (NEW, 5 cells A–E, offline via `composeExtensionInstance` with a capturing `emitResultEnvelope`): (A) envelope + root absent; (B) grandchild-laundering fence (root+callee absent from the dispatch surface); (C) clean-hash control (no false refuse); (D) case-fold, asserting loudly on BOTH filesystem branches (no silent skip); (E) any-of-many mismatch refuses the root.
+  - `tests/subagent-child-hash-refusal-e2e.test.ts` cell F — doc-pre-authorized root-absent strengthening: `toContain("zqx-caller")` → `.not.toContain("zqx-caller")`; the b0330 `as`-rename subject preserved.
+  - `tests/b0343-proto-hash-carrier-row.test.ts` cell C-drop — PARENT-RATIFIED second instance of 0329's pre-authorized root-absent strengthening: `toContain("proto-caller")` → `.not.toContain("proto-caller")`; the `__proto__` callee-drop + mismatch-note subject preserved. Ratification (verbatim): "The b0343 C-drop root-survival assertion is RATIFIED to flip to root-absent (.not.toContain('proto-caller')) as the SECOND instance of 0329's doc-pre-authorized root-absent strengthening (cell F being the first). The cell's subject — the diverged __proto__ callee drops with theta/runtime/subagent-callable-hash-mismatch — is preserved unchanged; the root-survival observation was pre-0329 scaffolding that postdates the 0329 filing (b0343 landed v0.320.0). No other existing-cell change is authorized."
+  - `docs/spec_topics/pi-integration-contract/subagent.md` §"Marked-root registration refusal" — doc-truth alignment (orchestrator-adjudicated, bounded; see Residuals R1): removed the callable-hash mismatch from the no-file (second-arm) example list and added a one-clause first-arm example, because the `file:` stamp now attributes the mismatch to the marked root's file. Normative MUST and both arm definitions byte-unchanged.
+
+- Gates:
+  - Witness: `npx vitest run tests/b0329-hash-mismatch-refuses-invocation.test.ts` → 5 passed. Revert-red (Option A root-drop disabled in place) reds cells A/B/D/E for the stated reason (`captured envelopes: []` / root survives), byte-exact restore (`git hash-object` = `75543919440c352ef6370097468b8b3d36db5ac2`), green after.
+  - Full suite: `npm test` → `Test Files 501 passed (501)`, `Tests 9722 passed (9722)`.
+  - Typecheck: `npx tsc --noEmit` (`npm run typecheck`) → exit 0.
+  - Lint: `npm run lint` → exit 0.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts` (under the shared live-lock, lane tip) → 1 passed.
+
+- Review: 2 rounds.
+  - Round 1 (`bug-fix-reviewer`, deep): fix behaviour CORRECT and Option-A-faithful; raised F1 [spec] (stale second-arm example in subagent.md) + F2 [prose] (three "second arm" comments backwards vs. the first-arm runtime) + R1 [prose, non-blocking] STYLE "just". No correctness/fidelity blocker.
+  - Round 2 (`bug-fix-reviewer-fast`, confirmation of the doc-truth remediation): CLEAN, no escalation; independently confirmed the STOP-valve held (normative MUST + both arm definitions byte-unchanged).
+
+- Verification (`bug-fix-verifier`): SOLID.
+  - Tests witness the bug: revert-red reds A/B/D/E, byte-exact restore, green after.
+  - Full default suite: 501/9722 green.
+  - Live e2e over the fixed composition-root path: b0342live 1/1 pass at the lane tip under the lock (run by the orchestrator; the verifier does not run live).
+  - Typecheck + lint: clean.
+
+- Residuals:
+  1. F1/F2/R1 doc-truth remediation was orchestrator-adjudicated under the bounded-self-authorization branch (Question tool unavailable). Reason: the `file:` stamp routes the callable-hash mismatch to the envelope's FIRST arm (§Fix "naming the hash-mismatch diagnostic"), which falsified subagent.md's pre-existing no-file (second-arm) example. Three independent settling sources: §Fix "naming the hash-mismatch diagnostic"; subagent.md's own unchanged first-arm rule ("attributable to that theta's file → that diagnostic's code and message"); green cell A asserting the envelope message contains the mismatch code. Bound: edited only the subagent.md example enumeration (plus a one-clause first-arm example) and three code/test comments — NO normative-MUST change, NO arm-definition change, NO assertion/behaviour change. STOP valve (touch the MUST or an arm definition ⇒ stop) untripped and independently re-confirmed byte-unchanged by the round-2 reviewer.
+  2. The bug doc §Expected phrasing ("the envelope's second arm … a refusing-diagnostic-without-file case") is inconsistent with the settled §Fix ("naming the hash-mismatch diagnostic" = first arm). The implementation follows §Fix (first arm, `file:` stamp); §Expected's "second arm" wording is where the bug document was imprecise.
+
+- Discharge notes appended: none.
+
+- Pinned dispositions / non-goals:
+  - Option B (thread the refusal set into the root's callable-set snapshot and refuse at dispatch) rejected by the parent — it leaves a mismatch invisible until (unless) the callable is called.
+  - Per-callable dispatch gating (§Non-goals) not pursued.
+  - Bug 0331 (marshalling source ORDER/priority) untouched — the change alters only the child-side refusal blast radius and the callee-locate compare.

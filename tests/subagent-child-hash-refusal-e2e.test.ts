@@ -263,9 +263,13 @@ describe("b0330 — child verifies an `as`-renamed `.theta` callable by its pres
     // `<child source unavailable>` (the presented name is no file basename), and
     // with no `byName` hit nothing is dropped — so the drop arm reds today. Once
     // the child resolves the renamed callee, a real byte divergence draws the
-    // mismatch AND drops the callee while the caller stays registered.
+    // mismatch AND drops the callee. Under bug 0329 Option A (0.322.0) the marked
+    // ROOT is dropped alongside the diverged callee — a mismatch on any
+    // marshalled callable refuses the whole invocation — so the caller no longer
+    // registers either (its `-p "/zqx-caller"` argv is no longer a command and
+    // `markedRootRegistrationRefusal` owes the parent the load_failure envelope).
     expect(outcome.notifications).toContain(RENAMED_HASH_MISMATCH_MSG);
     expect(outcome.registered).not.toContain("zqx-tool");
-    expect(outcome.registered).toContain("zqx-caller");
+    expect(outcome.registered).not.toContain("zqx-caller");
   });
 });

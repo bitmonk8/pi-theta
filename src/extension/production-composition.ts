@@ -1286,6 +1286,26 @@ async function refuseDivergedChildCallables(
     : undefined;
   if (markedRoot?.sourcePath !== undefined && markedRoot.callableSet !== undefined) {
     const rootPath = markedRoot.sourcePath;
+    // Bug 0329 (0.322.0) coordination note: locate the callee-to-drop by CANONICAL
+    // real path, not a case-sensitive string compare. On a case-insensitive
+    // filesystem an author-written case-mismatched `tools:` spelling still
+    // resolves to the real file (so the hash verifies) but a raw string compare
+    // against the discovered file's real casing would miss — leaving the callee
+    // (and, before the root-drop below existed, the enforcement) routable around
+    // by path casing. `fs.realpath` canonicalises casing on a case-insensitive
+    // FS and yields a genuinely different path (or rejects ENOENT) for a
+    // distinct/mis-cased file on a case-sensitive FS, so both regimes stay
+    // correct with no manual probe.
+    const thetaByCanonicalPath = new Map<string, ParsedTheta>();
+    for (const theta of thetas) {
+      if (theta.sourcePath === undefined) {
+        continue;
+      }
+      const canonical = (await fs.realpath(theta.sourcePath)).replace(/\\/g, "/");
+      if (!thetaByCanonicalPath.has(canonical)) {
+        thetaByCanonicalPath.set(canonical, theta);
+      }
+    }
     for (const [presentedName, resolved] of markedRoot.callableSet.entries) {
       if (
         resolved.kind !== "theta" ||
@@ -1304,12 +1324,14 @@ async function refuseDivergedChildCallables(
       const calleeAbs = isAbsolute(resolved.calleePath)
         ? resolved.calleePath
         : resolvePath(dirname(rootPath), resolved.calleePath);
-      const calleeAbsNormalized = calleeAbs.replace(/\\/g, "/");
-      const calleeTheta = thetas.find(
-        (theta) =>
-          theta.sourcePath !== undefined &&
-          theta.sourcePath.replace(/\\/g, "/") === calleeAbsNormalized,
-      );
+      // Canonicalise the callee spec the same way. `exists` gates the EXPECTED
+      // ENOENT of a mis-cased path on a case-sensitive FS (⇒ no canonical match,
+      // fall back to the normalised-exact string); any other realpath error is a
+      // real fault and is left to crash (fail-closed — CLAUDE.md "let crash").
+      const calleeCanonical = (await fs.exists(calleeAbs))
+        ? (await fs.realpath(calleeAbs)).replace(/\\/g, "/")
+        : calleeAbs.replace(/\\/g, "/");
+      const calleeTheta = thetaByCanonicalPath.get(calleeCanonical);
       byName.set(presentedName, { theta: calleeTheta, sources });
     }
   }
@@ -1345,11 +1367,35 @@ async function refuseDivergedChildCallables(
     if (outcome.verification.ok) {
       continue;
     }
-    emitDiagnostic(outcome.verification.diagnostic);
+    // Attribute the refusal to the marked root's OWN file: its `tools:` declared
+    // the diverged callable, so the root's load is what this refuses, and
+    // `markedRootRegistrationRefusal` matches a recorded refusal to the root by
+    // `file === <root discovered path>` before naming it in the load_failure
+    // envelope. `markedRoot.sourcePath` is that path (`sourcePath: theta.path`
+    // at composition), so the stamp makes the envelope name the mismatch.
+    emitDiagnostic(
+      markedRoot?.sourcePath !== undefined
+        ? { ...outcome.verification.diagnostic, file: markedRoot.sourcePath }
+        : outcome.verification.diagnostic,
+    );
     const hit = byName.get(outcome.callableName);
     if (hit?.theta !== undefined) {
       dropped.add(hit.theta);
     }
+  }
+  // Bug 0329 (0.322.0) Option A: a hash mismatch on ANY marshalled callable
+  // refuses the whole invocation, not only the diverged callable. subagent.md
+  // #subagent-theta-callable-hash says the child "refuses the invocation on
+  // mismatch"; one child serves one invocation, so refusing it means the marked
+  // root must not register. Dropping the root here lets
+  // `markedRootRegistrationRefusal` emit the PIC-59 load_failure envelope — the
+  // parent's only observable — whose FIRST arm names the hash-mismatch
+  // diagnostic's code and message, because the refusal above is attributed to
+  // the root's own file. Scoped to the marked-root (subagent-mode) regime: `markedRoot`
+  // is undefined outside it, so a prompt-mode / no-marked-root child keeps
+  // today's behaviour (there is no root to drop).
+  if (markedRoot !== undefined) {
+    dropped.add(markedRoot);
   }
   return thetas.filter((theta) => !dropped.has(theta));
 }
