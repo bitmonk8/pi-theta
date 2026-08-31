@@ -22,7 +22,10 @@ import {
   type ThetaValue,
 } from "../src/runtime/value";
 import { evaluateQuestion } from "../src/runtime/runtime-panics";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import {
+  createProductionProducerDeps,
+  type CalleeParseOutcome,
+} from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
@@ -185,10 +188,12 @@ function ctxDouble(): ExtensionCommandContext {
 }
 
 interface ProducerOpts {
+  // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict; the
+  // one success stub below wraps its callee as `{ kind: "ok", input }`.
   readonly parseCallee?: (
     callerPath: string | undefined,
     calleePath: string,
-  ) => Promise<ThetaCompositionInput | undefined>;
+  ) => Promise<CalleeParseOutcome | undefined>;
 }
 
 function producer(opts: ProducerOpts = {}) {
@@ -411,7 +416,7 @@ describe("bug 0017 (c) — a callee final value carrying `ok: boolean` crosses t
   async function runInvoke(calleeSrc: string): Promise<BodyExecution> {
     const callee = calleeReturning(calleeSrc);
     const deps = producer({
-      parseCallee: (_caller, _path) => Promise.resolve(callee),
+      parseCallee: (_caller, _path) => Promise.resolve({ kind: "ok", input: callee }),
     });
     const callerDoc = parseTheta(
       "caller.theta",

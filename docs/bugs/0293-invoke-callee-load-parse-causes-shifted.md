@@ -1,6 +1,6 @@
 # Bug 0293 — the `InvokeInfraError` load/parse cause partition is shifted by one across the whole input space: a MISSING callee draws `cause: "internal_error"` (the containment re-check's `fs.realpath` throws ENOENT before the `load_failure` arm can run), an EXISTING-but-unparseable callee draws `cause: "load_failure"` (`parseCalleeTheta` collapses unreadable and unparseable into one `undefined`), and `cause: "parse_failure"` is produced by no input at all — `rg '"parse_failure"' src/` matches only the union declaration
 
-- **Status:** open.
+- **Status:** fixed (0.325.0).
 - **Sev/Diff estimate:** S2/D2 — S2 on "diagnostics that lie": a typo'd
   `invoke("./missing.theta")` — the most ordinary authoring mistake on this
   surface — reaches the author as `cause: "internal_error"`, the arm
@@ -230,6 +230,73 @@ Not yet decided; constraints any fix must satisfy:
    root for all three inputs, red at this HEAD in the two divergent cells.
 4. No new diagnostic code (DIAG-2): the change is `cause` selection and
    message minting on existing arms.
+
+## Fix (0.325.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — M1: `#recheckCalleeContainment`
+    now wraps the `recheckInvokePathAtRuntime` call and, on an ENOENT-class throw
+    where `lstat(resolvedPath)` ALSO rejects ENOENT (the callee path itself is
+    absent), returns `undefined` so a missing callee falls through to the load
+    arm (§Fix option (a)); every other throw — a broken symlink whose `lstat`
+    succeeds, a deleted root, any non-ENOENT error — re-throws unchanged
+    (INV-1 unweakened; `internal_error` disposition byte-identical). Two module
+    helpers `isEnoent` / `calleePathIsAbsent`; seam widened to
+    `Pick<FileSystem,"realpath"|"lstat">`. M3: `#driveCallee` mints
+    `cause: "parse_failure"` for an `unparseable` verdict, `load_failure`
+    otherwise (incl. seam-absent `undefined`), with the parallel minted message
+    (`… could not be loaded` / `… failed to parse`). Exports `CalleeParseOutcome`.
+  - `src/extension/production-composition.ts` — M2: `parseCalleeTheta` returns the
+    `ok | unreadable | unparseable` verdict (§Fix constraint 2). Bytes-unreadable
+    → `unreadable`; `frontmatter===null || hasLoadParseError` → `unparseable`
+    (→ parse_failure); `calleeFailsOwnStructuralChecks` → `unreadable`
+    (→ load_failure — the callee's bytes parsed, so it is a LOAD failure not a
+    parse failure; b0267/b0270/b0271 pin this disposition). H8b doc-comment
+    updated.
+- Gates: witness `npx vitest run tests/b0293-invoke-callee-cause-partition.test.ts
+  tests/b0293-invoke-callee-containment-fences.test.ts` → 7/7 green (revert-witness
+  confirmed: M1 revert reds A/E2 on `internal_error`; M2-parse-branch revert reds
+  B on `load_failure`; both restored byte-exact). Full suite `npx vitest run` →
+  505 files / 9754 tests green. `npm run typecheck` → clean. `npm run lint` →
+  clean. Live (under the shared lock): `tests/live/b0270live-*`, `b0271live-*`,
+  `b0342live-*` → 3/3 green (real invoke-callee load_failure boundary + depth-2
+  subagent chain).
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec/test
+  finding; independently verified and agreed with the cell-9 flip); one
+  non-blocking house-rule residual (R1, informal `allow-broad-catch` token,
+  matches ~10 pre-existing sites, lint-green).
+- Verification: `bug-fix-verifier` SOLID — genuine-witness (both mechanisms
+  revert→red→restore→green byte-exact), suite green, lint+typecheck clean; live
+  handled by the orchestrator under the lock.
+- Residuals:
+  1. The bug doc's "flip set of zero committed cells" claim (§Sev/Diff) is WRONG.
+     Exactly one committed cell flips an assertion:
+     `tests/nested-tools-entry-containment.test.ts` "bug 0111 cell 9"
+     (`load_failure` → `parse_failure`). The callee `pmidnone.theta` body
+     `omegafar("a","b")?` has an unbound identifier →
+     `theta/parse/unknown-identifier` (error severity) → `hasLoadParseError` →
+     the parse branch → `parse_failure` (queryerror-variants.md:183). The flip
+     is spec-correct and UNAVOIDABLE under the mandated split (no correct
+     implementation leaves it `load_failure`); it is the direct manifestation of
+     the collapsed-arm defect being fixed. Escalated to the parent for merge-gate
+     ratification per the un-enumerated-committed-flip rule.
+  2. R1: the two new `allow-broad-catch` markers use informal tokens
+     (`ENOENT-on-absence`, `ENOENT-only,`); lint-green and matching ~10
+     pre-existing sites in the same file; a future closing-gate (H6a) would
+     reconcile them with the rest. Left as-is to avoid diverging from house
+     practice.
+  3. Subagent-leg: `#driveCallee`'s `parseCallee` + `#recheckCalleeContainment`
+     run in the PARENT before both the prompt-attach and subagent-spawn branches,
+     so the split applies uniformly to subagent-mode callees; the subagent JSON
+     envelope (bug 0294's territory) is untouched. Confirmed:
+     `recheckInvokePathAtRuntime` has one production caller and `parseCallee`
+     one consumer.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the INV-1 escape arm
+  (`recheckInvokePathAtRuntime`'s `load_failure`) and the invoke-boundary
+  `internal_error` default are untouched; no new diagnostic registry code; bug
+  0294's XMODE-1 wrap rule / kind-exemption / provenance ledger /
+  subagent-json-driver envelope arm not touched.
 
 ## Provenance
 

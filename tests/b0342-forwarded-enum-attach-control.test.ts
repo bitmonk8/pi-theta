@@ -45,7 +45,10 @@ import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import {
+  createProductionProducerDeps,
+  type CalleeParseOutcome,
+} from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
@@ -133,10 +136,12 @@ async function driveAttachChain(input: {
   readonly callees: ReadonlyArray<{ readonly literal: string; readonly path: string; readonly src: string }>;
 }): Promise<unknown> {
   const byLiteral = new Map(input.callees.map((c) => [c.literal, c]));
+  // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict, so
+  // the resolved callee is wrapped `{ kind: "ok", input }`.
   const parseCallee = (
     _callerPath: string | undefined,
     calleePath: string,
-  ): Promise<ThetaCompositionInput> => {
+  ): Promise<CalleeParseOutcome> => {
     const callee = byLiteral.get(calleePath);
     if (callee === undefined) {
       // A callee the caller never declared reaching here is a harness bug,
@@ -147,10 +152,13 @@ async function driveAttachChain(input: {
     }
     const doc = parseTheta(callee.path, callee.src);
     return Promise.resolve({
-      slashName: "callee",
-      sourcePath: callee.path,
-      frontmatter: doc.frontmatter as ParsedFrontmatter,
-      body: doc.body,
+      kind: "ok",
+      input: {
+        slashName: "callee",
+        sourcePath: callee.path,
+        frontmatter: doc.frontmatter as ParsedFrontmatter,
+        body: doc.body,
+      },
     });
   };
 

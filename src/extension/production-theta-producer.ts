@@ -177,6 +177,7 @@ import type {
   CodeToolError,
   ContextOverflowError,
   ForcedRespondBranch,
+  InvokeInfraCause,
   InvokeInfraError,
   TransportError,
 } from "../runtime/query-error";
@@ -378,6 +379,22 @@ export interface PiToolDispatch {
   ): Promise<AgentToolResultEnvelope>;
 }
 
+/**
+ * Bug 0293: the three-arm verdict `parseCalleeTheta` (production-composition.ts)
+ * hands `#driveCallee` for an `invoke(...)` callee, so the drive can mint
+ * `cause: "load_failure"` vs `cause: "parse_failure"` instead of collapsing both
+ * into one `undefined` (queryerror-variants.md:182-183). `unreadable` covers
+ * BOTH the bytes-unreadable case and a callee that parsed clean but fails its
+ * own load-time structural/tools checks (bug 0267 §Fix constraint 3) — that
+ * callee's bytes parsed, but it is still a LOAD failure, not a parse failure.
+ * `unparseable` is bytes-present-but-failed-to-parse. `ok` carries the composed
+ * input.
+ */
+export type CalleeParseOutcome =
+  | { readonly kind: "ok"; readonly input: ThetaCompositionInput }
+  | { readonly kind: "unreadable" }
+  | { readonly kind: "unparseable" };
+
 /** Construction inputs for the production per-theta producer collaborators. */
 export interface ProductionProducerInput {
   /** The live host extension API (turn drive, message send, command surface). */
@@ -489,22 +506,29 @@ export interface ProductionProducerInput {
   /**
    * H8b: parse a `.theta`-callable / `invoke(...)` callee referenced from
    * `callerPath` into a runnable composition input (resolving the callee path
-   * against the caller's directory), or `undefined` when the callee is missing
-   * / unparseable. Constructed at the composition root over the real
-   * `FileSystem` seam and the shared parser deps.
+   * against the caller's directory). Bug 0293: returns the three-arm
+   * `CalleeParseOutcome` verdict (`ok` / `unreadable` / `unparseable`) so
+   * `#driveCallee` can mint `load_failure` vs `parse_failure`; `undefined` (a
+   * non-production stub, e.g. `production-core-exec.test.ts`) is the
+   * `load_failure` default, preserving the pre-0293 behaviour of that harness.
+   * Constructed at the composition root over the real `FileSystem` seam and the
+   * shared parser deps.
    */
   readonly parseCallee?: (
     callerPath: string | undefined,
     calleePath: string,
-  ) => Promise<ThetaCompositionInput | undefined>;
+  ) => Promise<CalleeParseOutcome | undefined>;
   /**
    * INV-1 (invocation.md §Resolution): the `FileSystem.realpath` seam and the
    * union of currently-active discovery roots, used by the runtime
    * open-time containment re-check. Absent on non-production harnesses, in which
    * case the runtime re-check is skipped (the load-time check remains the
-   * primary guard).
+   * primary guard). Bug 0293: `lstat` is used to distinguish a truly-absent
+   * callee (both `realpath` and `lstat` reject ENOENT) from a broken symlink
+   * inside a root (`realpath` rejects ENOENT, `lstat` succeeds) — only the
+   * former is not-an-escape (invocation.md §Resolution / INV-1).
    */
-  readonly fileSystem?: Pick<FileSystem, "realpath">;
+  readonly fileSystem?: Pick<FileSystem, "realpath" | "lstat">;
   readonly activeRoots?: readonly string[];
   /**
    * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
@@ -574,6 +598,42 @@ export function createProductionProducerDeps(
  * routes as an unanticipated SDK reject (`theta/runtime/internal-error`).
  */
 class SubagentSpawnFailedError extends Error {}
+
+/**
+ * Bug 0293: whether a thrown value is a Node-style ENOENT rejection
+ * (`fs.realpath` / `fs.lstat`'s absence signal), narrowed by `.code` rather than
+ * caught broadly — `#recheckCalleeContainment` re-throws every other error
+ * (CLAUDE.md: catch a specific condition, never `catch(...)`).
+ */
+function isEnoent(thrown: unknown): boolean {
+  return (
+    thrown instanceof Error && (thrown as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
+/**
+ * Bug 0293 (invocation.md §Resolution / INV-1): whether the callee path ITSELF
+ * is absent, distinguishing a truly-missing callee (this returns `true`) from a
+ * broken symlink inside a root (`lstat` succeeds — the entry exists, only its
+ * target is gone — so this returns `false` and INV-1's disposition for it is
+ * unweakened). `lstat` does not follow the final symlink component, unlike the
+ * `realpath` that already threw ENOENT, so it answers the "does an entry exist
+ * at this path" question `realpath` alone cannot.
+ */
+async function calleePathIsAbsent(
+  fileSystem: Pick<FileSystem, "lstat">,
+  resolvedPath: string,
+): Promise<boolean> {
+  try {
+    await fileSystem.lstat(resolvedPath);
+    return false;
+  } catch (thrown: unknown) { // allow-broad-catch: ENOENT-only, re-raised below
+    if (isEnoent(thrown)) {
+      return true;
+    }
+    throw thrown;
+  }
+}
 
 /**
  * CANCEL-3 (cancellation.md §"Race semantics — swallowing-handler attachment on
@@ -3707,9 +3767,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * Parse the callee `.theta`, spawn a fresh isolated subagent session for it
    * (V15l: a subagent callee spawns fresh; the caller's settings are not
    * inherited), bind the positional args onto its declared params, run its body
-   * through the executor, and surface its top-level `Result` (FN-5). An
-   * unparseable / missing callee surfaces `Err(InvokeInfraError{cause:
-   * "load_failure"})` — never a fabricated `Ok(null)`.
+   * through the executor, and surface its top-level `Result` (FN-5). Bug 0293:
+   * a missing / unreadable callee surfaces `Err(InvokeInfraError{cause:
+   * "load_failure"})`; an existing-but-unparseable callee surfaces
+   * `Err(InvokeInfraError{cause:"parse_failure"})` — never a fabricated
+   * `Ok(null)`.
    */
   async #driveCallee(
     theta: ConversationBindInput["theta"],
@@ -3746,16 +3808,28 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     if (escape !== undefined) {
       return makeErr(escape as unknown as ThetaValue);
     }
-    const callee = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
-    if (callee === undefined) {
+    // Bug 0293 (queryerror-variants.md:182-183): the verdict discriminates the
+    // spec's `load_failure` (callee unreadable / un-loadable) from `parse_failure`
+    // (callee failed to parse) — `internal_error` stays reserved for the
+    // runtime-defect surface (error-model.md §Runtime-panics) and is never minted
+    // here. `undefined` (seam absent, or a non-production stub) defaults to
+    // `load_failure`, preserving the pre-0293 unit-harness behaviour.
+    const parsed = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
+    if (parsed === undefined || parsed.kind !== "ok") {
+      const cause: InvokeInfraCause = parsed?.kind === "unparseable" ? "parse_failure" : "load_failure";
+      const message =
+        parsed?.kind === "unparseable"
+          ? `invoke callee '${calleePath}' failed to parse`
+          : `invoke callee '${calleePath}' could not be loaded`;
       const error: InvokeInfraError = {
         kind: "invoke_infra",
-        message: `invoke callee '${calleePath}' could not be loaded`,
+        message,
         callee_path: calleePath,
-        cause: "load_failure",
+        cause,
       };
       return makeErr(error as unknown as ThetaValue);
     }
+    const callee = parsed.input;
     // tool-calls.md §"Return type" (registered-theta row): the return type of a
     // `.theta`-callable call is the callee's INFERRED return type, which is
     // legible only now that the callee is parsed — and it resolves against the
@@ -3897,13 +3971,31 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       baseDir !== undefined && !isAbsolute(calleePath)
         ? resolvePath(baseDir, calleePath)
         : calleePath;
-    const verdict = await recheckInvokePathAtRuntime({
-      deps: { fs: fileSystem },
-      resolvedPath,
-      literalPath: calleePath,
-      activeRoots,
-    });
-    return verdict.kind === "escape" ? verdict.error : undefined;
+    try {
+      const verdict = await recheckInvokePathAtRuntime({
+        deps: { fs: fileSystem },
+        resolvedPath,
+        literalPath: calleePath,
+        activeRoots,
+      });
+      return verdict.kind === "escape" ? verdict.error : undefined;
+    } catch (thrown: unknown) { // allow-broad-catch: ENOENT-on-absence only, re-raised below
+      // Bug 0293 (invocation.md §Resolution / INV-1): `canonicalizePath`'s
+      // `fs.realpath` assumes the callee exists; a MISSING callee rejects ENOENT
+      // before containment can even be decided. Absence is not an escape —
+      // there is nothing to escape TO — so it falls through to `#driveCallee`'s
+      // load arm, which mints `load_failure`. A broken symlink INSIDE a root
+      // also rejects ENOENT here (its target is absent) but its OWN path exists
+      // as a directory entry (`lstat` succeeds), so INV-1's disposition for it is
+      // unweakened: re-throw and let the invoke boundary's non-panic default
+      // (`internal_error`) stand, exactly as before this fix. Any other error
+      // (a non-ENOENT `realpath` failure, or a deleted root) also re-throws
+      // unchanged.
+      if (isEnoent(thrown) && (await calleePathIsAbsent(fileSystem, resolvedPath))) {
+        return undefined;
+      }
+      throw thrown;
+    }
   }
 
   /**

@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createProductionProducerDeps,
+  type CalleeParseOutcome,
   type PiToolDispatch,
 } from "../src/extension/production-theta-producer";
 import type {
@@ -89,10 +90,13 @@ function ctxDouble(): ExtensionCommandContext {
 
 interface ProducerOpts {
   readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
+  // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict, not
+  // a bare `ThetaCompositionInput`, so `#driveCallee` can mint `load_failure`
+  // vs `parse_failure`; every stub below wraps a success as `{ kind: "ok", input }`.
   readonly parseCallee?: (
     callerPath: string | undefined,
     calleePath: string,
-  ) => Promise<ThetaCompositionInput | undefined>;
+  ) => Promise<CalleeParseOutcome | undefined>;
   /** An `ExtensionAPI` double (default empty). The prompt→prompt attach path
    * reads `getActiveTools`/`setActiveTools`, so a test that drives it supplies
    * stubs. */
@@ -240,7 +244,7 @@ describe("H8b — `.theta`-callable routing surfaces Err on a load failure (FN-5
     const parseCallee = (
       _callerPath: string | undefined,
       _calleePath: string,
-    ): Promise<ThetaCompositionInput | undefined> => {
+    ): Promise<CalleeParseOutcome | undefined> => {
       parseAttempted = true;
       return Promise.resolve(undefined);
     };
@@ -267,7 +271,7 @@ describe("H8b — `.theta`-callable routing surfaces Err on a load failure (FN-5
 describe("ceiling #4 on invoke boundaries (invoke-ceiling-depth.ts wired)", () => {
   it("a depth-6 `invoke(...)` params argument surfaces Err(InvokeInfraError{cause:'validation'}) before the callee loads", async () => {
     let parseAttempted = false;
-    const parseCallee = (): Promise<ThetaCompositionInput | undefined> => {
+    const parseCallee = (): Promise<CalleeParseOutcome | undefined> => {
       parseAttempted = true;
       return Promise.resolve(undefined);
     };
@@ -314,7 +318,7 @@ describe("ceiling #4 on invoke boundaries (invoke-ceiling-depth.ts wired)", () =
       setActiveTools: () => {},
     } as unknown as ExtensionAPI;
     const inner = (await runBody(
-      producer({ pi: piDouble, parseCallee: () => Promise.resolve(calleeTheta) }),
+      producer({ pi: piDouble, parseCallee: () => Promise.resolve({ kind: "ok", input: calleeTheta }) }),
       promptTheta(invokeExpr("./child.theta", "Deep")),
     )) as ResultValue;
 

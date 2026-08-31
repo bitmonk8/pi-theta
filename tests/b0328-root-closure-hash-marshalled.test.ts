@@ -291,8 +291,10 @@ function makeParentDeps(): {
     } as unknown as ModelRegistry,
     // A `.theta` callable entry resolves its callee via parseCallee; the tests
     // below use only the frozen entry's `closureHash`, so a stub callee suffices.
+    // Bug 0293: the seam returns the `CalleeParseOutcome` verdict, not a bare
+    // `ThetaCompositionInput`.
     parseCallee: (_caller: string | undefined, _calleePath: string) =>
-      Promise.resolve({} as unknown as ThetaCompositionInput),
+      Promise.resolve({ kind: "ok" as const, input: {} as unknown as ThetaCompositionInput }),
     subagentSpawn: launcher.spawn,
     subagentExecutableHost: fakeExecutableHost(),
     subagentParentEnv: {},

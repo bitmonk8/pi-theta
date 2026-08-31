@@ -99,7 +99,11 @@ import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/fro
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import { type ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps, type PiToolDispatch } from "../src/extension/production-theta-producer";
+import {
+  createProductionProducerDeps,
+  type CalleeParseOutcome,
+  type PiToolDispatch,
+} from "../src/extension/production-theta-producer";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type {
   ConversationBindInput,
@@ -209,7 +213,9 @@ async function driveCaller(input: {
   readonly callerSrc: string;
   readonly callee?: { readonly path: string; readonly src: string };
 }): Promise<unknown> {
-  const parseCallee = (): Promise<ThetaCompositionInput> => {
+  // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict, so
+  // the resolved callee is wrapped `{ kind: "ok", input }`.
+  const parseCallee = (): Promise<CalleeParseOutcome> => {
     if (input.callee === undefined) {
       // A cell with no invoke must never reach here; a call is a harness bug,
       // surfaced loudly rather than served a silent default.
@@ -217,10 +223,13 @@ async function driveCaller(input: {
     }
     const doc = parseTheta(input.callee.path, input.callee.src);
     return Promise.resolve({
-      slashName: "callee",
-      sourcePath: input.callee.path,
-      frontmatter: doc.frontmatter as ParsedFrontmatter,
-      body: doc.body,
+      kind: "ok",
+      input: {
+        slashName: "callee",
+        sourcePath: input.callee.path,
+        frontmatter: doc.frontmatter as ParsedFrontmatter,
+        body: doc.body,
+      },
     });
   };
 

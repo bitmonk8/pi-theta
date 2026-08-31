@@ -907,6 +907,15 @@ describe("bug 0111 cell 8 — RESIDUAL: an invoke-reached callee's nested entry 
 // not the out-of-root file. This is what makes minting the thing that puts an
 // out-of-root callee within reach of a call at all, and it reds if a later fix
 // substitutes a quieter silence for the current report.
+//
+// Bug 0293: the callee genuinely fails its own PARSE (`omegafar` is an unbound
+// call-site identifier, a `theta/parse/unknown-identifier` diagnostic —
+// `parseThetaDocument`'s identifier-resolution checker, `theta-document.ts`), so
+// the corrected `cause` is `parse_failure`, not `load_failure`
+// (queryerror-variants.md:182-183). Pre-0293 this cell was pinned to
+// `load_failure` because `parseCalleeTheta` collapsed the unreadable and
+// unparseable classes into one `undefined`; the collapse is exactly what bug
+// 0293 removed.
 // ===========================================================================
 describe("bug 0111 cell 9 — a name with no `tools:` entry fails at the callee, naming the callee", () => {
   it("9: the caller registers", () => {
@@ -922,7 +931,10 @@ describe("bug 0111 cell 9 — a name with no `tools:` entry fails at the callee,
         (note) =>
           note.includes("theta /pcallernone returned Err: invoke of") &&
           note.includes("./nested/pmidnone.theta") &&
-          note.includes("failed (load_failure)"),
+          // Bug 0293: this callee fails its own PARSE (an unbound call-site
+          // identifier), so the corrected cause is `parse_failure` — see the
+          // describe-block header.
+          note.includes("failed (parse_failure)"),
       ),
       `the no-minting contrast changed shape. Notes: ${JSON.stringify(notes)}`,
     ).toBe(true);

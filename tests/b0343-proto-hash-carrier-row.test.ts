@@ -174,8 +174,10 @@ function makeParentDeps(): {
     modelRegistry: {
       getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
     } as unknown as ModelRegistry,
+    // Bug 0293: the seam returns the `CalleeParseOutcome` verdict, not a bare
+    // `ThetaCompositionInput`.
     parseCallee: (_caller: string | undefined, _calleePath: string) =>
-      Promise.resolve({} as unknown as ThetaCompositionInput),
+      Promise.resolve({ kind: "ok" as const, input: {} as unknown as ThetaCompositionInput }),
     subagentSpawn: launcher.spawn,
     subagentExecutableHost: fakeExecutableHost(),
     subagentParentEnv: {},

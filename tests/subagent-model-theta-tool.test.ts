@@ -377,11 +377,12 @@ function makeParentDeps(
     modelRegistry: {
       getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
     } as unknown as ModelRegistry,
+    // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.
     parseCallee: (_caller: string | undefined, calleePath: string) => {
       parseCalleeSpy.calls.push(calleePath);
       const childOpts =
         opts?.childTailSource !== undefined ? { tailSource: opts.childTailSource } : undefined;
-      return Promise.resolve(childCallee(childOpts));
+      return Promise.resolve({ kind: "ok" as const, input: childCallee(childOpts) });
     },
     subagentSpawn: launcher.spawn,
     subagentExecutableHost: fakeExecutableHost(),

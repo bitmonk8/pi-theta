@@ -299,7 +299,8 @@ async function driveTypedInvoke(input: {
     } as unknown as ExtensionAPI,
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
-    parseCallee: () => Promise.resolve(callee),
+    // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.
+    parseCallee: () => Promise.resolve({ kind: "ok" as const, input: callee }),
   });
 
   const callerSrc =

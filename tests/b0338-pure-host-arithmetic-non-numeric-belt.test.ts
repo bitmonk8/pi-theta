@@ -103,7 +103,10 @@ import {
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import {
+  createProductionProducerDeps,
+  type CalleeParseOutcome,
+} from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 
@@ -306,12 +309,13 @@ async function driveInvoke(src: string): Promise<InvokeProbe> {
     pi,
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
-    parseCallee: (_caller: string | undefined, _path: string): Promise<ThetaCompositionInput> => {
+    // Bug 0293: `undefined` still yields Err(load_failure) as a VALUE (the
+    // seam-absent / non-`ok` default) — enough to record that the invoke
+    // reached callee load carrying the bound arg; the child is never spawned,
+    // so no launcher wiring is needed.
+    parseCallee: (_caller: string | undefined, _path: string): Promise<CalleeParseOutcome | undefined> => {
       parseCalleeCalls += 1;
-      // Returning `undefined` yields Err(load_failure) as a VALUE — enough to
-      // record that the invoke reached callee load carrying the bound arg; the
-      // child is never spawned, so no launcher wiring is needed.
-      return Promise.resolve(undefined as unknown as ThetaCompositionInput);
+      return Promise.resolve(undefined);
     },
   });
   const ctx = {

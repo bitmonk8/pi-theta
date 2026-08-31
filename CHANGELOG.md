@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.325.0]
+
+### Fixed
+
+- **Bug 0293** — the `InvokeInfraError` load/parse cause partition was shifted by one across the whole input space: a MISSING callee drew `cause: "internal_error"` with raw Node ENOENT text (the INV-1 containment re-check's `fs.realpath` rejected before `#driveCallee`'s `load_failure` arm could run, and the boundary catch applied its runtime-defect default — routing the most ordinary authoring mistake onto the surface `error-model.md` reserves for interpreter defects), an EXISTING-but-unparseable callee drew `load_failure` (`parseCalleeTheta` collapsed unreadable and unparseable into one `undefined`), and `cause: "parse_failure"` was constructed by no input at all. `#recheckCalleeContainment` now catches the ENOENT class and lstat-confirms absence before falling through to the load arm — absence is not an escape, and the escape, broken-symlink-inside-root, and deleted-root dispositions are byte-identical (premeasured, fence-pinned with both filesystem branches asserted) — so a missing callee reaches `load_failure` with the arm's minted message; `parseCalleeTheta` returns a discriminated `ok | unreadable | unparseable` verdict (`CalleeParseOutcome`) so `#driveCallee` mints `load_failure` vs `parse_failure` per `queryerror-variants.md`; structural-check failures stay `load_failure`. No new diagnostic code; the wire shape is unchanged — only cause selection and message minting moved. One committed cell flipped under parent ratification as vehicle-collateral: `nested-tools-entry-containment.test.ts` cell 9's callee genuinely fails its own parse (an unbound call-site identifier), so its pinned `load_failure` was scaffolding of the shifted partition and now reads `parse_failure` — the cell's no-minting-contrast subject is untouched (the bug doc's "zero committed cells" flip claim was under-enumerated; the lane escalated correctly). Twelve harness files took type-only seam propagation (`{ kind: "ok", input }` wrapping); `production-core-exec.test.ts`'s `fileSystem: undefined` pins are byte-identical per the doc's constraint. Witnessed by `tests/b0293-invoke-callee-cause-partition.test.ts` (missing → `load_failure` + minted message, garbled → `parse_failure`, ok control, cause-discrimination cell) and `tests/b0293-invoke-callee-containment-fences.test.ts` (escape + broken-symlink + absence fences), both driving the shipped composition root, red pre-fix in the divergent cells.
+
 ## [0.324.0]
 
 ### Fixed

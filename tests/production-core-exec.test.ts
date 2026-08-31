@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createProductionProducerDeps,
+  type CalleeParseOutcome,
   type PiToolDispatch,
 } from "../src/extension/production-theta-producer";
 import type {
@@ -101,10 +102,16 @@ function ctxDouble(): ExtensionCommandContext {
 
 interface ProducerOpts {
   readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
+  // Bug 0293: the shipped seam now returns the `CalleeParseOutcome` verdict, but
+  // this harness wires NO `fileSystem` seam, so `#recheckCalleeContainment`
+  // skips its runtime re-check and every `undefined` here still reaches the
+  // `load_failure` default unmodified — this file's own load_failure pins stay
+  // exactly as they were (AGENTS.md §Live-suite: this is the harness the bug
+  // doc names as never reaching the re-check).
   readonly parseCallee?: (
     callerPath: string | undefined,
     calleePath: string,
-  ) => Promise<ThetaCompositionInput | undefined>;
+  ) => Promise<CalleeParseOutcome | undefined>;
 }
 
 function producer(opts: ProducerOpts) {

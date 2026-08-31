@@ -177,6 +177,7 @@ import {
   type ThetaCompositionInput,
 } from "./theta-composition-producer";
 import { createProductionProducerDeps } from "./production-theta-producer";
+import type { CalleeParseOutcome } from "./production-theta-producer";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 
@@ -3172,9 +3173,15 @@ function resolvePiTool(
 
 /**
  * H8b: resolve a callee path against the caller's directory (or `cwd` for an
- * in-memory caller) and parse it into a runnable composition input. Returns
- * `undefined` when the callee is missing / unparseable, so the invoke resolver
- * surfaces the `load_failure` `Err`.
+ * in-memory caller) and parse it into a runnable composition input. Bug 0293
+ * (queryerror-variants.md:182-183): returns the three-arm `CalleeParseOutcome`
+ * verdict so `#driveCallee` (`production-theta-producer.ts`) can mint
+ * `load_failure` vs `parse_failure` from it — `unreadable` when the bytes could
+ * not be read OR the callee parsed clean but fails its own load-time
+ * structural/tools checks (bug 0267 §Fix constraint 3: that callee's bytes
+ * parsed, but it is still a LOAD failure, not a parse failure — b0267/b0270/
+ * b0271 pin this disposition and are settled), `unparseable` when the bytes
+ * exist but failed to parse, `ok` with the composed input on success.
  */
 async function parseCalleeTheta(
   fs: FileSystem,
@@ -3186,7 +3193,7 @@ async function parseCalleeTheta(
   // resolves against the `pi.getAllTools()` registry snapshot mode-independently,
   // exactly like a discovered theta.
   getAllTools?: GetAllToolsSnapshot,
-): Promise<ThetaCompositionInput | undefined> {
+): Promise<CalleeParseOutcome> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
   const absolute = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
   const bytes = await fs.readBytes(absolute).then(
@@ -3194,18 +3201,19 @@ async function parseCalleeTheta(
     () => undefined,
   );
   if (bytes === undefined) {
-    return undefined;
+    return { kind: "unreadable" };
   }
   // Bug 0264: this callee's own dispatch parse may re-reach a path already
   // parsed this pass (e.g. a callee named by two `invoke(...)` call sites).
   const document = parseViaPassCache({ path: absolute, bytes }, deps);
   if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
-    return undefined;
+    return { kind: "unparseable" };
   }
   // Bug 0267 §Fix constraint 3: the SAME predicate as `parseCalleeForTools`'s
   // widened `hasErrors`, applied at this dispatch gate too, so a load-time
   // registration and this drive-time re-check cannot diverge in opposite
-  // directions over the same callee.
+  // directions over the same callee. Bug 0293: this stays `unreadable` (→
+  // `load_failure`) — the callee's bytes parsed, so it is not the parse class.
   if (
     await calleeFailsOwnStructuralChecks(
       fs,
@@ -3220,7 +3228,7 @@ async function parseCalleeTheta(
       bytes,
     )
   ) {
-    return undefined;
+    return { kind: "unreadable" };
   }
   const input: ThetaCompositionInput = {
     slashName: thetaBasename(absolute),
@@ -3248,15 +3256,18 @@ async function parseCalleeTheta(
   // check off here.
   const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps, getAllTools);
   return {
-    ...input,
-    callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET,
-    // Bug 0328 §Fix: an invoke/`.theta`-callable dispatch to a subagent callee
-    // launches THAT callee as the root of its own child, so its captured
-    // closure hash threads through this dispatch parse exactly as it does the
-    // discovered-theta compose pass above.
-    ...(toolResult.rootClosureHash !== undefined
-      ? { rootClosureHash: toolResult.rootClosureHash }
-      : {}),
+    kind: "ok",
+    input: {
+      ...input,
+      callableSet: toolResult.callableSet ?? EMPTY_CALLABLE_SET,
+      // Bug 0328 §Fix: an invoke/`.theta`-callable dispatch to a subagent callee
+      // launches THAT callee as the root of its own child, so its captured
+      // closure hash threads through this dispatch parse exactly as it does the
+      // discovered-theta compose pass above.
+      ...(toolResult.rootClosureHash !== undefined
+        ? { rootClosureHash: toolResult.rootClosureHash }
+        : {}),
+    },
   };
 }
 
