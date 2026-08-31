@@ -1,6 +1,6 @@
 # Bug 0343 — a callable whose derived/presented name is `__proto__` never marshals a closure-hash row: the write into the plain-object hash-carrier map is a silent no-op through the inherited `Object.prototype` setter, so the child admits that callable with no hash verification — `#subagent-theta-callable-hash`'s "whole callee file" window reopens for one degenerate name at both the root-row write (bug 0328) and the pre-existing `tools:`-entry write
 
-- **Status:** open.
+- **Status:** fixed (0.320.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because triggering it requires an
   author-controlled name of exactly `__proto__` (a root file basename
   `__proto__.theta`, or a `tools:` entry presented as `__proto__`), an odd
@@ -202,3 +202,13 @@ object built to mirror `production-theta-producer.ts:2066–2083` at 7ec6fd2f
 and confirmed: `__proto__` writes silently drop the row at both sites; a
 `__proto__`-only root emits no carrier and the child verifies nothing; a
 `Object.create(null)` carrier lands the `__proto__` row as an own key.
+
+## Fix (0.320.0)
+
+- What shipped: `src/extension/production-theta-producer.ts` (`spawnSubagentConversation`) — both hash-carrier writes into the plain-object `callableHashes` map now route through the house helper `defineRecordField` (`src/runtime/value.ts`): the `tools:`-entry write on `entry.presentedName` and the bug-0328 root-row write on `rootClosureHash.name` (its `!Object.hasOwn` guard unchanged). A name of exactly `__proto__` now lands an own enumerable data row through `Object.defineProperty` instead of no-oping through the inherited `Object.prototype` setter, so the row is present in `Object.keys`/`JSON.stringify` and in the child's `Object.entries` verification reader — keyed to §Fix (the settled two-site swap; `Map` / `Object.create(null)` routes stay settled out).
+- Gates: witness `npx vitest run tests/b0343-proto-hash-carrier-row.test.ts` → 5 passed; full default suite `npx vitest run` → 499 files / 9709 tests passed; typecheck `tsc -p tsconfig.json --noEmit` → clean; lint `eslint src/**/*.ts` → clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (fidelity exact, correctness empirically probed, tests faithful, house/prose clean); one non-blocking prose residual (a vacuous `0.320.0` header sentence) resolved by a comment-only `bug-fix-fixer-light` polish, confirmation round skipped per gate-diff (comment-only, gates green).
+- Verification: SOLID — (1) revert check: reverting both `defineRecordField` calls to bracket assignment reds cells A/B (`expected undefined to be defined`) and C-drop (`proto-tool` still registered, no mismatch note); restore byte-identical (`git diff --stat` = the two lines + comments), 5/5 green. (2) full suite 499/9709 green incl. b0328 (8, cell 2c `constructor`), subagent-child-hash-refusal-e2e (6), b0342 (22). (3) live: `tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts` green (real depth-2 subagent chain through the changed `spawnSubagentConversation` carrier build), run under the shared lock; registration outcomes for ordinary names unchanged. (4) lint + typecheck clean.
+- Residuals: (1) The bug's §Reproduction cites a root FILE basename `__proto__.theta`; `SLASH_NAME` (`discovery-walk.ts`) rejects a leading-underscore basename at discovery, so that specific root never reaches the child end-to-end. Cell A still witnesses the root-row marshalling no-op at the producer directly; cell C uses the reachable `tools: … as __proto__` presented-name path for the end-to-end drop. Both write sites are fixed per §Fix regardless — the producer-level no-op the fix closes is real and independently witnessed at each site.
+- Discharge notes appended: none (no sibling bug docs edited; per lane protocol `docs/bugs/README.md`, `package.json`, `CHANGELOG.md` are left to the merge step).
+- Pinned dispositions / non-goals: child side unchanged (`byName` is a `Map`; its `Object.entries` reader materialises a genuine `__proto__` JSON key as an own entry). `Map` / `Object.create(null)` carrier routes settled out in favour of `defineRecordField` per §Fix.

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.320.0]
+
+### Fixed
+
+- **Bug 0343** — the RFC-0005 closure-hash carrier was a plain object literal, so writing the row for a callable named `__proto__` invoked the inherited `Object.prototype` setter with a non-object value and silently no-opped: no own property, no throw, the row absent from `Object.keys`, from the JSON carrier, and from the child's verification loop — the child admitted the callable with the parent-load-to-child-spawn edit window fully open and no diagnostic on any channel (the 0031/0038 prototype-slot hazard class reaching the hash-carrier build sites). Both write sites now route through the house helper `defineRecordField` — the `tools:`-entry write on `entry.presentedName` and bug 0328's root-row write on `rootClosureHash.name` (its `!Object.hasOwn` guard unchanged) — so a `__proto__` row lands as an own enumerable data property byte-identical to any other name, the child recomputes and verifies it, and a byte-edited `__proto__` callee is dropped with `theta/runtime/subagent-callable-hash-mismatch` like every sibling; ordinary names observe zero difference, the child side needed no change, and bug 0328's 8-cell witness (incl. the `constructor` prototype-name cell) and bug 0330's end-to-end block stay green. Witnessed by `tests/b0343-proto-hash-carrier-row.test.ts` (5 cells: own-key carrier row at both paths red-proven pre-fix, end-to-end mismatch drop, admit anchor, ordinary-name byte-identity control).
+
 ## [0.319.0]
 
 ### Fixed

@@ -2072,7 +2072,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const callableHashes: Record<string, string> = {};
     for (const entry of thetaCallableEntries) {
       if (entry.closureHash !== undefined) {
-        callableHashes[entry.presentedName] = entry.closureHash;
+        // `entry.presentedName` is author-controlled (a `.theta` root basename or
+        // a `tools:` entry's presented name); a plain assignment silently no-ops
+        // for the name `__proto__` (bug 0343) instead of creating an own row —
+        // the same 0031/0038 hazard class `defineRecordField` exists to close.
+        defineRecordField(callableHashes, entry.presentedName, entry.closureHash);
       }
     }
 
@@ -2084,9 +2088,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // so a root file whose derived name collides with an inherited
     // `Object.prototype` member (`constructor`, `toString`, `hasOwnProperty`,
     // …) still marshals its row instead of being silently skipped.
+    // `rootClosureHash.name` is likewise author-controlled (the root file's
+    // derived name); write it through the same house helper so the name
+    // `__proto__` lands as an own row instead of silently no-oping through the
+    // inherited `Object.prototype` setter (bug 0343) — the `Object.hasOwn`
+    // read above is unaffected, only the write below changes.
     const rootClosureHash = theta.rootClosureHash;
     if (rootClosureHash !== undefined && !Object.hasOwn(callableHashes, rootClosureHash.name)) {
-      callableHashes[rootClosureHash.name] = rootClosureHash.hash;
+      defineRecordField(callableHashes, rootClosureHash.name, rootClosureHash.hash);
     }
 
     // The runtime-defect diagnostic sink (advisory teardown / spawn-failure /
