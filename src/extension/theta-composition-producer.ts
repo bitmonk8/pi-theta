@@ -53,6 +53,7 @@ import type { SchemaValidator } from "../seams/schema-validator";
 import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
+import type { EnumTagEntry } from "../runtime/subagent-envelope";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import {
@@ -248,6 +249,17 @@ export interface ConversationBinding {
    * the body directly).
    */
   readonly drive?: () => Promise<ResultValue>;
+  /**
+   * The subagent leg's per-position declaring-enum tags parsed off the
+   * PIC-59 envelope's OPTIONAL `enum_tags` sidecar (bug 0342 §Fix, D3
+   * carriage) — consumed by `#validateInvokeReturn`'s invoke-return retag to
+   * restore a forwarded value's declaring identity across the subagent
+   * envelope boundary. Absent on prompt-mode/in-process bindings, whose
+   * boxed enum carriers already survive the attach leg unretagged; absent
+   * too when the envelope carried no sidecar (an enum-free return, or an
+   * envelope-version predating it).
+   */
+  readonly forwardedEnumTags?: () => readonly EnumTagEntry[] | undefined;
   /**
    * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
    * invocation registry"): settles the invocation's `disposeBarrier` and

@@ -1,6 +1,6 @@
 # Bug 0342 — A `.theta` enum value forwarded up a multi-hop subagent chain is attributed to the IMMEDIATE callee, not its declaring file: the PIC-59 envelope carries the wire string only, so `#validateInvokeReturn` retags each hop with the resolved path of the callee it read, and a value C declares but B forwards reaches A tagged `<B>#Sev` — it compares `!=` a value obtained directly from C and `==` B's own same-named enum
 
-- **Status:** open.
+- **Status:** fixed (0.318.0).
 - **Sev/Diff estimate:** S1/D3 — S1: silent wrong equality on a production
   path. A value forwarded through an intermediate subagent callee compares
   `valuesEqual` `false` against the same declaration obtained directly (false
@@ -182,3 +182,70 @@ live cells, and the two do not share a fix site.
   [0340](./0340-lpa-live-cross-file-enum-equality-anchors-stale-after-0337.md) —
   open; re-anchors the four stale LPA live cells to the post-0337 semantics on
   the same enum-identity surface.
+
+## Fix (0.318.0)
+
+- What shipped:
+  - `src/runtime/subagent-envelope.ts` — added the OPTIONAL `enum_tags`
+    sidecar to the `theta_result` `ok` arm (`EnumTagEntry {p,k}`), emitted by
+    `serializeOkEnvelope` only when the value carries ≥1 enum (enum-free
+    returns byte-identical), and a trust-boundary `parseEnumTagsSidecar` that
+    ignores an absent/malformed sidecar (no throw, no new diagnostic code).
+  - `src/runtime/enum-tag-carriage.ts` (new) — the two value-graph walks:
+    `collectForwardedEnumTags` (child, records each enum-boxed position's
+    declaring key by RFC-6901 pointer) and `retagForwardedEnums` (parent,
+    restores per-position keys after decode). Both descend objects+arrays,
+    NOT `Result` payloads (mirrors `rebuildInbound`'s reach exactly); bounded
+    by `MAX_JSON_DEPTH`; object writes via `defineRecordField` (`__proto__`
+    house pattern).
+  - `src/runtime/value.ts` — `enumDeclaringTagOf` public reader.
+  - `src/runtime/subagent-json-driver.ts` — carries `enumTags` on
+    `SubagentInvocationResult`.
+  - `src/extension/theta-composition-producer.ts` — optional
+    `ConversationBinding.forwardedEnumTags` accessor.
+  - `src/extension/production-theta-producer.ts` — child emit collects the
+    sidecar; the subagent `drive()` captures `result.enumTags`;
+    `#validateInvokeReturn` gains a 5th param and re-applies the sidecar AFTER
+    the existing immediate-callee decode — SUBAGENT LEG ONLY (the attach call
+    site is unchanged; the in-process attach leg was never broken, its boxed
+    carrier survives with its deep key).
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — PIC-59 gains the
+    `#subagent-enum-tags-sidecar` bullet (additive, `v` stays 1,
+    old-envelope-tolerant, enriches artefact 4 — not a fifth); the
+    *Error fidelity* clause names bug 0342 as the exposed gap.
+  - `docs/spec_topics/runtime-value-model.md` — the invoke-return
+    wire-name-translation sentence generalised to multi-hop (tag keys on the
+    value's DECLARING file at every hop), 0337's one-hop wording intact.
+- Gates: witness `tests/b0342-forwarded-enum-subagent-chain.test.ts` GREEN
+  (neutralize→RED on the 3 documented soft assertions→restore→GREEN, verifier);
+  full `npm test` = 497 files / 9696 tests, zero failures; `npm run typecheck`
+  clean; `npm run lint` clean; live cell
+  `tests/live/b0342live-…test.ts` under the lock GREEN (`RESULT=false/true`),
+  neutralized red-proof `RESULT=true/false`.
+- Review: 2 rounds. R1 (deep) — F1 [correctness] wire-renamed-field pointer
+  misalignment (DISPROVEN empirically: the subagent invoke-return decode is
+  theta-side-keyed, `lowerQueryResponseSchema` emits theta property names, so
+  collect/retag pointers always align; locked by a regression cell), F2 [spec]
+  `enum_tags` located in the envelope payload not the value (reworded), R1
+  [prose] garbled `EnumTagEntry` comment (reworded). R2 (fast) — CLEAN.
+- Verification: SOLID. (1) witness reds without the fix and greens with it,
+  byte-exact restore; (2) full suite 497/9696 green; (3) live green
+  `false/true` / neutralized red `true/false`; (4) typecheck + lint clean.
+- Residuals:
+  1. Corpus-wide `path:line` citations to `production-theta-producer.ts`,
+     `subagent-envelope.ts`, `value.ts` in unowned test files and other
+     `docs/bugs/*.md` shifted by this diff and were NOT exhaustively
+     re-swept (only the 0342-adjacent + co-located envelope tests were
+     re-cited). No gate depends on them; a broad sweep in a shared tree was
+     judged disproportionate/risky. Parent may run a citation pass.
+  2. Nested-`Result`-payload enum identity across a subagent hop is NOT
+     carried (both walks skip `Result`, mirroring the one-hop decode reach) —
+     parity with 0337, not a widening; recorded as a non-goal, not a
+     regression.
+- Discharge notes appended: none (no sibling bug docs edited).
+- Pinned dispositions / non-goals: one-hop behaviour (0337 Cell 4
+  mode-invariance, b0067 one-hop composite) stays byte-identical — only a
+  FORWARDED value across a subagent hop gains its deeper declaring key; the
+  in-process attach leg is untouched (it was never broken); the retag reach
+  mirrors the one-hop decode exactly (objects + arrays + `$ref` + union arms;
+  not `Result` payloads); `v` unchanged, no fifth marshalled artefact.

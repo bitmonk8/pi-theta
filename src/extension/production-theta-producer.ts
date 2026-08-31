@@ -68,7 +68,9 @@ import {
   mapTooDeepReturnValue,
   serializeErrEnvelope,
   serializeOkEnvelope,
+  type EnumTagEntry,
 } from "../runtime/subagent-envelope";
+import { collectForwardedEnumTags, retagForwardedEnums } from "../runtime/enum-tag-carriage";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
 import { runPromptSuspendInvoke } from "../runtime/invoke-prompt-suspend";
 import type { ThetaMode } from "../parser/frontmatter";
@@ -2272,6 +2274,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * The file-callee slash/invoke drive seam calls this INSTEAD of executing the
      * body in-process (the whole callee body ran in the child).
      */
+    // Bug 0342 §Fix (D3 carriage): the subagent leg's per-position
+    // declaring-enum tags, parsed off the envelope's OPTIONAL `enum_tags`
+    // sidecar on the Ok path. Captured in this closure so the returned
+    // binding's `forwardedEnumTags` can hand them to the invoke-return retag
+    // once `drive()` has actually run; `undefined` until then, and whenever
+    // the envelope carried no sidecar (an enum-free return, or an
+    // envelope-version predating it).
+    let forwardedEnumTagsHolder: readonly EnumTagEntry[] | undefined;
     const drive = async (): Promise<ResultValue> => {
       const result: SubagentInvocationResult = await driveSubagentChild({
         child,
@@ -2281,6 +2291,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         clock: root.clock,
       });
       if (result.ok) {
+        forwardedEnumTagsHolder = result.enumTags;
         return makeOk(result.value as ThetaValue);
       }
       return makeErr(result.error as unknown as ThetaValue);
@@ -2315,6 +2326,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       executeDeps,
       effectHostDeps: hostDeps,
       drive,
+      // Bug 0342 §Fix: hands the subagent leg's per-position declaring-enum
+      // tags (captured by `drive()`, above) to `#validateInvokeReturn`'s
+      // invoke-return retag. Undefined on the in-process `subagent fn` path,
+      // which never calls `drive()`.
+      forwardedEnumTags: (): readonly EnumTagEntry[] | undefined => forwardedEnumTagsHolder,
       // FN-5: on the in-process `subagent fn` path the caller's executor runs the
       // inline body against `effectHostDeps`, then surfaces the body's terminal
       // final value the same way the file-callee `drive()` maps its envelope.
@@ -2551,7 +2567,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
           emitErr(nonRepresentable.error);
         } else {
-          emitEnvelope(serializeOkEnvelope(terminal.value as unknown));
+          // Bug 0342 §Fix (D3 carriage): record each enum-boxed position's
+          // declaring tag before this envelope collapses the carrier to its
+          // bare wire string, so the parent's decode can restore it after the
+          // ordinary immediate-callee retag (`#validateInvokeReturn`).
+          emitEnvelope(
+            serializeOkEnvelope(
+              terminal.value as unknown,
+              collectForwardedEnumTags(terminal.value as ThetaValue),
+            ),
+          );
         }
       } else {
         emitErr(terminal.error as unknown as QueryError);
@@ -3812,7 +3837,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // the child's returned value against the `invoke<Schema>` annotation. A
       // mismatch (e.g. a `string` under `invoke<number>`) is
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
-      return this.#validateInvokeReturn(calleePath, returnSite, result, callee.sourcePath);
+      return this.#validateInvokeReturn(
+        calleePath,
+        returnSite,
+        result,
+        callee.sourcePath,
+        binding.forwardedEnumTags?.(),
+      );
     } finally {
       // PIC-65: await the (idempotent, non-throwing) child-process teardown BEFORE
       // `finishInvocation`, so the child is killed / has exited (abort listener
@@ -3939,6 +3970,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     returnSite: InvokeReturnSite | null,
     result: ResultValue,
     calleeResolvedPath: string | undefined,
+    forwardedEnumTags?: readonly EnumTagEntry[],
   ): ResultValue {
     if (returnSite === null || !result.ok) {
       return result;
@@ -3964,27 +3996,40 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const validator = this.#input.root.schemaValidator.compile(lowered);
     const verdict = validator.validate(projectForValidation(result.value));
     if (verdict.ok) {
-      return makeOk(
-        decodeInboundValue({
-          lowered: lowered as unknown as Record<string, unknown>,
-          annotation: returnSchema,
-          schemaNames: new Set(schemaDeclsOf(declarations).map((decl) => decl.name)),
-          enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
-          validated: result.value as unknown,
-          schemaValidator: this.#input.root.schemaValidator,
-          // Bug 0337 (subagent-leg / tools:-callee-leg adjudication, Option 1):
-          // an `invoke<T>` return whose carrier is a JSON primitive string (the
-          // subagent envelope leg) is retagged by the inbound decode; mint the
-          // CALLEE's file-qualified declaring key so the returned variant carries
-          // the same tag on the subagent leg as the prompt→prompt boxed-carrier
-          // leg keeps intact — mode invariance (0174's witness). The value belongs
-          // to the callee's declaration, so a caller reading it against its own
-          // same-named enum compares unequal.
-          ...(calleeResolvedPath !== undefined
-            ? { enumDeclaringPath: calleeResolvedPath }
-            : {}),
-        }),
-      );
+      const decoded = decodeInboundValue({
+        lowered: lowered as unknown as Record<string, unknown>,
+        annotation: returnSchema,
+        schemaNames: new Set(schemaDeclsOf(declarations).map((decl) => decl.name)),
+        enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
+        validated: result.value as unknown,
+        schemaValidator: this.#input.root.schemaValidator,
+        // Bug 0337 (subagent-leg / tools:-callee-leg adjudication, Option 1):
+        // an `invoke<T>` return whose carrier is a JSON primitive string (the
+        // subagent envelope leg) is retagged by the inbound decode; mint the
+        // CALLEE's file-qualified declaring key so the returned variant carries
+        // the same tag on the subagent leg as the prompt→prompt boxed-carrier
+        // leg keeps intact — mode invariance (0174's witness). The value belongs
+        // to the callee's declaration, so a caller reading it against its own
+        // same-named enum compares unequal.
+        ...(calleeResolvedPath !== undefined
+          ? { enumDeclaringPath: calleeResolvedPath }
+          : {}),
+      });
+      // Bug 0342 §Fix (D3 carriage): the immediate-callee retag above is right
+      // for one hop and wrong across a SUBAGENT hop that forwards a value it
+      // did not itself declare — the PIC-59 envelope collapsed that value's
+      // own boxed carrier before this decode ever saw it, so the retag above
+      // stamped the immediate callee's key over the forwarding file's own
+      // declaring key. When the envelope carried the `enum_tags` sidecar,
+      // restore each forwarded position's declaring key over that stamp.
+      // Absent `forwardedEnumTags` (undefined, or an empty list) leaves
+      // `decoded` exactly as the immediate-callee retag produced it — the
+      // attach leg's call site passes nothing here, by design.
+      const retagged =
+        forwardedEnumTags !== undefined && forwardedEnumTags.length > 0
+          ? retagForwardedEnums(decoded, forwardedEnumTags)
+          : decoded;
+      return makeOk(retagged);
     }
     const error: InvokeInfraError = {
       kind: "invoke_infra",

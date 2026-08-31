@@ -35,6 +35,7 @@ import {
   mapExitWithoutEnvelope,
   mapWireParseFailure,
   parseEnvelopeLine,
+  type EnumTagEntry,
 } from "./subagent-envelope";
 
 /**
@@ -57,9 +58,15 @@ function renderExitDetail(info: ChildExitInfo): string {
 // Drive loop (launch → await envelope → map).
 // ---------------------------------------------------------------------------
 
-/** The parent-observed subagent invocation result reconstructed from the envelope (INV-5). */
+/**
+ * The parent-observed subagent invocation result reconstructed from the
+ * envelope (INV-5). `enumTags` carries the PIC-59 §D3 sidecar
+ * (`EnumTagEntry[]`, bug 0342 §Fix) through to the invoke-return retag when
+ * the envelope carried one; absent on an enum-free return or an
+ * envelope-version predating the sidecar.
+ */
 export type SubagentInvocationResult =
-  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: true; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
   | { readonly ok: false; readonly error: QueryError };
 
 /** The collaborators the parent-side drive consumes (all injected; fake child in tests). */
@@ -149,7 +156,11 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
       const parse = parseEnvelopeLine(line);
       switch (parse.kind) {
         case "ok":
-          settle({ ok: true, value: parse.value });
+          settle({
+            ok: true,
+            value: parse.value,
+            ...(parse.enumTags !== undefined ? { enumTags: parse.enumTags } : {}),
+          });
           return;
         case "err":
           settle({ ok: false, error: parse.error });

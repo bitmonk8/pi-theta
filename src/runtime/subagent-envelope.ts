@@ -69,10 +69,25 @@ export const THETA_RESULT_KEY = "theta_result";
  */
 export const THETA_ENVELOPE_VERSION = 1;
 
-/** The `ok` arm of the envelope payload: the child's final value, whose representability AND depth the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue` — both reaching inside a nested `Result`'s wire form, bug 0201 §Fix (a)) rather than assuming either by construction; the writer itself establishes the sign of zero (`stringifyPreservingNegativeZero`, bug 0188 §Fix (a)). */
+/**
+ * One value-graph position's declaring-enum tag, carried in the OPTIONAL
+ * `enum_tags` envelope sidecar (bug 0342 §Fix, D3 carriage): `p` is the
+ * RFC-6901 JSON Pointer to the position within the `ok` payload, `k` is its
+ * declaring-enum tag string. Owned here (the wire owner of the envelope
+ * shape) and imported TYPE-ONLY by `enum-tag-carriage.ts`, which builds and
+ * consumes entries of this shape but never imports anything else from this
+ * module — a module this one imports nothing from, so the two do not cycle.
+ */
+export interface EnumTagEntry {
+  readonly p: string;
+  readonly k: string;
+}
+
+/** The `ok` arm of the envelope payload: the child's final value, whose representability AND depth the caller establishes before this envelope is written (`mapNonRepresentableReturnValue`, `mapTooDeepReturnValue` — both reaching inside a nested `Result`'s wire form, bug 0201 §Fix (a)) rather than assuming either by construction; the writer itself establishes the sign of zero (`stringifyPreservingNegativeZero`, bug 0188 §Fix (a)). The OPTIONAL `enum_tags` sidecar (bug 0342 §Fix) restores each forwarded value's per-position declaring key across the envelope boundary that collapses a boxed enum carrier to its bare wire string; present only when the value carries at least one enum position, so an enum-free return stays byte-identical on the wire. */
 export interface EnvelopeOk {
   readonly v: number;
   readonly ok: unknown;
+  readonly enum_tags?: readonly EnumTagEntry[];
 }
 
 /** The `err` arm of the envelope payload: a `QueryError` (the `err` arm mirrors the union). */
@@ -135,8 +150,15 @@ export const SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE = "theta/runtime/subag
  * otherwise by any `replacer` or `toJSON` hook (measured): the hole bug 0188
  * §Fix (a) closes is in the writer, not in the wire format.
  */
-export function serializeOkEnvelope(value: unknown): string {
-  const payload: EnvelopeOk = { v: THETA_ENVELOPE_VERSION, ok: value };
+export function serializeOkEnvelope(value: unknown, enumTags?: readonly EnumTagEntry[]): string {
+  const payload: EnvelopeOk = {
+    v: THETA_ENVELOPE_VERSION,
+    ok: value,
+    // Emitted only when non-empty, so an enum-free return's envelope bytes are
+    // unchanged (bug 0342 §Fix: additive sidecar, not a widened envelope
+    // shape).
+    ...(enumTags !== undefined && enumTags.length > 0 ? { enum_tags: enumTags } : {}),
+  };
   return `${stringifyPreservingNegativeZero({ [THETA_RESULT_KEY]: payload })}\n`;
 }
 
@@ -236,7 +258,7 @@ export function serializeErrEnvelope(error: QueryError): string {
 
 /** The parse verdict for one candidate envelope line (a line carrying the reserved key). */
 export type EnvelopeParse =
-  | { readonly kind: "ok"; readonly value: unknown }
+  | { readonly kind: "ok"; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
   | { readonly kind: "err"; readonly error: QueryError }
   | { readonly kind: "schema-skew"; readonly observed: number; readonly required: number }
   | { readonly kind: "parse-failed"; readonly line: string };
@@ -291,6 +313,39 @@ export function lineCarriesReservedKey(line: string): boolean {
 }
 
 /**
+ * Validate an untrusted `enum_tags` field against the {@link EnumTagEntry}
+ * shape: an array whose every element is an object carrying string `p` and
+ * string `k`. Anything else — absent, not an array, or an element missing
+ * either field or holding a non-string value — is IGNORED (returns
+ * `undefined`), the same posture `parseEnvelopeLine` already takes on an
+ * unknown top-level field: the sidecar is additive and version-skew-tolerant
+ * (bug 0342 §Fix), so a malformed or absent sidecar never fails the parse and
+ * never mints a diagnostic — it only means the caller falls back to the
+ * immediate-callee retag it already had before this sidecar existed.
+ */
+function parseEnumTagsSidecar(candidate: unknown): readonly EnumTagEntry[] | undefined {
+  if (!Array.isArray(candidate)) {
+    return undefined;
+  }
+  const entries: EnumTagEntry[] = [];
+  for (const element of candidate) {
+    if (typeof element !== "object" || element === null) {
+      return undefined;
+    }
+    const record = element as Record<string, unknown>;
+    if (!Object.hasOwn(record, "p") || !Object.hasOwn(record, "k")) {
+      return undefined;
+    }
+    const { p, k } = record;
+    if (typeof p !== "string" || typeof k !== "string") {
+      return undefined;
+    }
+    entries.push({ p, k });
+  }
+  return entries;
+}
+
+/**
  * Parse one reserved-key envelope line against the pinned schema. A version the
  * parent does not recognise yields `schema-skew` (detected, not tolerated); a
  * reserved-key line that does not parse against the pinned schema yields
@@ -322,7 +377,8 @@ export function parseEnvelopeLine(line: string): EnvelopeParse {
     return { kind: "schema-skew", observed, required: THETA_ENVELOPE_VERSION };
   }
   if (Object.prototype.hasOwnProperty.call(record, "ok")) {
-    return { kind: "ok", value: record.ok };
+    const validTags = parseEnumTagsSidecar(record.enum_tags);
+    return { kind: "ok", value: record.ok, ...(validTags !== undefined ? { enumTags: validTags } : {}) };
   }
   if (Object.prototype.hasOwnProperty.call(record, "err")) {
     return { kind: "err", error: record.err as QueryError };

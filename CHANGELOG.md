@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.318.0]
+
+### Fixed
+
+- **Bug 0342** — a `.theta` enum value forwarded up a subagent chain of depth ≥ 2 lost its declaring file's identity at the intermediate hop: the PIC-59 ok-envelope was wire-only JSON (`serializeOkEnvelope` collapsed the boxed carrier to its wire string), so the parent's `#validateInvokeReturn` retagged from the only path it had — the IMMEDIATE callee's — and the forwarded value compared `!=` against its true declaration and `==` against an unrelated same-named enum in the forwarding file, silently, per the exact silent-equality class bug 0337 closed for one hop. The envelope now carries an additive optional `enum_tags` sidecar (new `src/runtime/enum-tag-carriage.ts`): the child collects each enum-boxed position's declaring key before writing the envelope, and the parent restores those tags after the immediate-callee decode — so a forwarded value keeps its deeper declaring key while a value the callee itself declares still retags on that callee's file, byte-identical to 0337's one-hop disposition (its witness incl. the Cell 4 mode-invariance oracle stays green unchanged, as do the four 0340-re-anchored LPA cells). The attach leg was measured NOT broken and is untouched; absent/malformed sidecars fall back to today's immediate-callee retag (old-child envelopes parse; the parser's trust-boundary posture is preserved, hostile metadata cannot mint a tag for a non-enum value); `v` itself is unchanged on the wire — the sidecar is not a fifth artefact. Same-commit spec sentences in `subagent.md` (PIC-59 envelope) and `runtime-value-model.md` state the carriage. One envelope-byte-pinning control cell (`subagent-return-depth-refusal` ORDER-ENUM-CARRIER) was re-pinned to the new contract as parent-ratified vehicle-collateral — its subject (the real writer's own rendering) is preserved. Witnessed by `tests/b0342-forwarded-enum-subagent-chain.test.ts` (real depth-2 spawns), `tests/b0342-forwarded-enum-attach-control.test.ts`, `tests/b0342-enum-tag-carriage.test.ts` (19 unit cells: round-trip, malformed/absent fallback, walk reach, `__proto__`, Result parity, wire-rename lock), and the red-proven live cell `tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts`.
+
 ## [0.317.0]
 
 ### Fixed

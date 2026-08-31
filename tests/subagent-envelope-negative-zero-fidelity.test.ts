@@ -14,11 +14,11 @@
 // the `-0` form the JSON grammar already admits, so the subagent leg and the
 // prompt→prompt attach leg become identical by construction — which is what
 // `docs/spec_topics/invocation.md:36` requires. The change is confined to
-// `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:138`) and its
-// serialisation call, now `stringifyPreservingNegativeZero` (`:140`) where it
+// `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:153`) and its
+// serialisation call, now `stringifyPreservingNegativeZero` (`:162`) where it
 // was plain `JSON.stringify`. THE PARENT IS UNCHANGED: `parseEnvelopeLine`
-// (`:299`), the driver's parse and settle
-// (`src/runtime/subagent-json-driver.ts:149`, `:152`), the envelope schema, the
+// (`:354`), the driver's parse and settle
+// (`src/runtime/subagent-json-driver.ts:156`, `:158`), the envelope schema, the
 // `v` field and every parse behaviour stay exactly as they are, because
 // `JSON.parse` already recovers `-0` at the root, at a field and in an array
 // (§Reproduction (b)).
@@ -612,7 +612,7 @@ describe("bug 0188 (SPELLING) — the four spellings that mint -0, and the two +
 
 // ===========================================================================
 // (SEAM) The emitted bytes. §Reproduction (c), re-driven at the seam route (a)
-// changes: `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:138`).
+// changes: `serializeOkEnvelope` (`src/runtime/subagent-envelope.ts:153`).
 //
 // RED NOW. `JSON.stringify(-0)` is `"0"` and no `replacer` / `toJSON` hook
 // changes that (§Reproduction (b)), so the writer emits a `0` the JSON GRAMMAR

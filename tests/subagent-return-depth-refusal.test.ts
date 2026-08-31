@@ -199,7 +199,9 @@ import {
   serializeOkEnvelope,
   type EnvelopeParse,
 } from "../src/runtime/subagent-envelope";
-import { makeEnumValue, makeOk } from "../src/runtime/value";
+import { makeEnumValue, makeOk, type ThetaValue } from "../src/runtime/value";
+import { enumDeclaringKey } from "../src/runtime/lexical-environment";
+import { collectForwardedEnumTags } from "../src/runtime/enum-tag-carriage";
 import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -978,7 +980,7 @@ describe("bug 0187 (ORDER) — the depth refusal is the first sub-check in the w
     }
   });
 
-  it("CONTROL (ORDER-ENUM-CARRIER): the REAL writer still writes the ok arm for an enum carrier at level 5 (green now, green after)", async () => {
+  it("CONTROL (ORDER-ENUM-CARRIER): the REAL writer still writes the ok arm for an enum carrier at level 5, now carrying its bug-0342 enum_tags sidecar (green now, green after)", async () => {
     // The wire-form fence at the writer itself (bug 0187 F1). The interpreter
     // hands `driveSubagentRootRegime` the `makeEnumValue` carrier this body
     // builds, so the value the sub-checks see is the boxed `String` rather than
@@ -987,18 +989,35 @@ describe("bug 0187 (ORDER) — the depth refusal is the first sub-check in the w
     // counted as a nesting level.
     const drive = await driveChildRoot('enum Colour { Red = "red" }\n[[[[Colour.Red]]]]\n');
 
-    // The expected bytes are the envelope writer's OWN rendering of the wire
-    // form, so this cell cannot pass against a line the writer would not produce;
-    // the literal beside it states what those bytes are.
-    const expected = serializeOkEnvelope([[[["red"]]]]);
+    // CORRECTED CONTRACT (bug 0342 §Fix, D3 carriage): the byte-identical
+    // expectation this cell pinned before 0342 held only because the writer's
+    // `emitEnvelope` call carried no sidecar at all. It now ALWAYS collects
+    // every enum-boxed position's declaring tag before writing the envelope —
+    // whether or not that value is later forwarded through an `invoke` — so an
+    // enum-carrying `ok` payload gains the `enum_tags` sidecar even here, at a
+    // subagent-root regime's own direct return. The expected bytes are still
+    // the envelope writer's OWN rendering, computed the same way
+    // `driveSubagentRootRegime` does (`collectForwardedEnumTags` over the real
+    // `makeEnumValue` carrier, tagged with the SHIPPED `enumDeclaringKey` for
+    // this callee's own `Colour` declaration) — so this cell still cannot pass
+    // against a line the writer would not produce.
+    const carrier = makeEnumValue(enumDeclaringKey(UNIT_CALLEE_PATH, "Colour"), "red");
+    const wireNest: ThetaValue = [[[[carrier as unknown as ThetaValue]]]];
+    const expected = serializeOkEnvelope(
+      JSON.parse(JSON.stringify(wireNest)) as unknown,
+      collectForwardedEnumTags(wireNest),
+    );
     expect(
       expected,
-      "serializeOkEnvelope renders the wire form of a level-5 enum nest",
-    ).toBe('{"theta_result":{"v":1,"ok":[[[["red"]]]]}}\n');
+      "serializeOkEnvelope renders the wire form of a level-5 enum nest plus its declaring tag",
+    ).toBe(
+      '{"theta_result":{"v":1,"ok":[[[["red"]]]],"enum_tags":[{"p":"/0/0/0/0","k":"./kid.theta#Colour"}]}}\n',
+    );
     expect(
       drive.lines,
-      `PRIMARY (bug 0187 F1): the writer must emit the ok arm byte-identically for a payload ` +
-        `whose JSON document is inside the cap` + driveDetail(drive),
+      `PRIMARY (bug 0187 F1) / bug 0342 §Fix: the writer must emit the ok arm byte-identically for ` +
+        `a payload whose JSON document is inside the cap, now with its enum_tags sidecar` +
+        driveDetail(drive),
     ).toEqual([expected]);
     expect(
       drive.diagnostics,

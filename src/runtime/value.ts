@@ -239,6 +239,19 @@ function enumTagOf(value: ThetaValue): string | undefined {
 }
 
 /**
+ * Public wrapper over {@link enumTagOf} (bug 0342 §Fix, D3 carriage): the
+ * subagent-leg enum-tag carriage (`enum-tag-carriage.ts`) reads a
+ * value-graph position's declaring key off an already-boxed enum carrier —
+ * to record it before the child's PIC-59 envelope drops it, and to compare
+ * against it when re-applying a forwarded value's tag after decode. Every
+ * other consumer of the declaring tag stays inside this module through the
+ * private `enumTagOf`.
+ */
+export function enumDeclaringTagOf(value: ThetaValue): string | undefined {
+  return enumTagOf(value);
+}
+
+/**
  * The interpreter-private symbol recording the declaring `schema` of an
  * object-schema value. A symbol key occupies no string name at all, so a
  * schema field declared with the same description — a field literally named
