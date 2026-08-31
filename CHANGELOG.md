@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.321.0]
+
+### Fixed
+
+- **Bug 0339** — a package's present-but-empty contributing directory (the conventional `theta/` scaffold, or a directory a `pi.theta` glob resolves to) never joined the armed watch set: `activeRoots` derives from FOUND files (`dirname` per discovered theta) and the discovery walk defers the package source entirely, so `PackageDiscoveryResult` surfaced nothing for a directory that yielded no theta — installing a package with an empty scaffold and adding the first `.theta` into it did nothing, silently, until an unrelated edit forced a full re-walk (the 0310 stale-state class restricted to the fifth source, in violation of `discovery-sources.md`'s presence-not-containment membership and `registration-steps.md` step 5). `PackageDiscoveryResult` now exposes `roots` — the present contributing directories the walk visited, accumulated through a threaded `Set` (0310's pattern, no module scope) at the `theta/` fallback branch and per `pi.theta` glob match — and the composition folds them into the additive `watchRoots` union, forward-slash-canonicalised so one physical directory is one member; `activeRoots`/INV-1 stays byte-unchanged, the two consumers keep 0310's split, and 0312's import-closure union composes beside it undisturbed (re-arming on later union change stays out of scope per the doc). The first theta created in a previously-empty package directory now fires the watcher, reloads, and registers. Recorded spec adjudication: step 5's "over the discovered roots" already encompasses the package source — conformance restored, no spec clause owed. Witnessed by `tests/b0339-package-source-watch-arming.test.ts` (8 cases: empty conventional dir and empty glob dir armed red-proven, file-bearing control, absence, single-member canonicalisation, INV-1 fence, 0312-composition, end-to-end first-theta registration).
+
 ## [0.320.0]
 
 ### Fixed

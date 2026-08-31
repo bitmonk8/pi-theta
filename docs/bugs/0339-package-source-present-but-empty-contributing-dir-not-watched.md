@@ -1,6 +1,6 @@
 # Bug 0339 — The package discovery source (the fifth active-root source) is not armed for watching when a contributing directory is present but empty: an installed package's empty `theta/` (or empty `pi.theta`-globbed) directory contributes no found file, so it enters neither the file-derived `activeRoots` nor the walk's four-source `roots` union, and the first `.theta` created there produces no watcher event, no structural-change note, and no registration until an unrelated edit or `/reload`
 
-- **Status:** open.
+- **Status:** fixed (0.321.0).
 - **Sev/Diff estimate:** S2/D2 — S2 on the same impact class bug 0310 fixed:
   author intent is dropped with zero diagnostics on a first-contact path.
   A present-but-empty package contributing directory is a member of the
@@ -245,3 +245,62 @@ scope, closing it named as needing `package-discovery.ts` to expose present
 contributing dirs. Reproduced offline at 337e8d08 with a roots-recording
 `FileWatcher` fake through the shipped factory + composition; probe deleted
 after confirmation.
+
+## Fix (0.321.0)
+
+- What shipped:
+  - `package-discovery.ts` — `PackageDiscoveryResult` gains `roots: readonly
+    string[]`, the present contributing directories the walk visited (§Fix
+    step 1). A `Set<string>` accumulator is threaded (a parameter, never
+    module-scope — the `discovery-walk.ts` pattern) through `resolvePackage` →
+    `thetasInDirectory` and `resolvePiThetas` → `thetasInDirectory`;
+    `thetasInDirectory` records `roots.add(dir)` immediately after its `readdir`
+    succeeds, so presence — not `.theta`-containment — is the membership test and
+    a present-but-empty conventional `theta/` fallback or `pi.theta`-glob-matched
+    directory lands in the set. The ENOENT/absent branch adds nothing (Case D).
+    `discoverPackageThetas` owns the set and returns `roots: [...roots]` on both
+    the `scanPackages`-disabled early return and normal completion.
+  - `production-composition.ts` — `runComposePass` folds
+    `packageWalk.roots` (forward-slash-canonicalised by `.replace(/\/g, "/")`,
+    since they carry the host-native cwd prefix) into the same additive
+    `discoveryWatchRoots` `Set` union bug 0310 built (§Fix step 2), as a third
+    member beside `activeRoots` and `walk.roots`. `activeRoots` (INV-1) is
+    byte-unchanged; 0312's `importClosureDirs`/`outOfRootClosureDirs` fold and
+    its re-arm trigger are untouched (additive only). `ExtensionInstanceWiring`
+    gains an additive-optional `activeRoots` forwarded from `initial.activeRoots`
+    so the INV-1 non-containment fence (witness Case F) reads the real basis.
+- Gates:
+  - Witness `tests/b0339-package-source-watch-arming.test.ts` — 8/8 green with
+    the fix; A/B/G/H red without it (proven by two independent reverts — the
+    composition fold, and the `roots.add(dir)` line — each restored byte-exact),
+    C/D/E/F green as fences.
+  - Full default suite `npx vitest run` — 500 files / 9717 tests passed
+    (baseline 499/9709, +1 file +8 tests from b0339). No unrelated reds.
+  - Typecheck `npm run typecheck` — clean. Lint `npm run lint` — clean.
+  - Live `tests/live/double-session-start-live.test.ts` — 1/1 passed under the
+    live-lock (real chokidar through the changed `runComposePass` watch-arming
+    composition, registration-steps.md step 5).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — no correctness/fidelity/spec
+  finding; three house-rule/test items (F1 comment: `packageWalk.roots` are not
+  "already forward-slashed"; F2 harden Case F's vacuous `?? []` fence; F3 comment
+  wording "satisfies-typed"→"type-annotated"), applied by `bug-fix-fixer-light`.
+  Round 2 (`bug-fix-reviewer-fast`) — CLEAN, no findings, no deep-review flag.
+- Verification (`bug-fix-verifier`) — SOLID. Obligation 1: witness reds under two
+  independent reverts, byte-exact restoration confirmed by `git hash-object`.
+  Obligation 2: default suite 500/9717 green, no unrelated reds. Obligation 3:
+  live double-session-start test green (orchestrator ran it under the lock).
+  Obligation 4: lint + typecheck clean.
+- Residuals: none.
+- Discharge notes appended: none. Spec adjudication (recorded, no edit made):
+  `registration-steps.md` step 5 (`#watcher-hot-reload-registration`) arms
+  "over the discovered roots", the defined term resolved at
+  `discovery-sources.md` `#discovery-roots` — a five-source union that already
+  contains "Each scanned package's contributing directory". The spec already
+  prescribed this arming; the pre-fix implementation was the deviation, so the
+  fix brings the implementation into conformance and no same-commit spec clause
+  is owed. `#watch-scope-import-closure` (0312's closure clause) stays true
+  unmodified. The `roots` field emits no diagnostic, so no DIAG row is owed.
+- Pinned dispositions / non-goals: `activeRoots`/INV-1 containment is not widened
+  (package dirs join `watchRoots` only — §Non-goals, §Fix constraint 1);
+  re-arming on a later union change stays out of scope (§Fix constraint 3); no
+  0311 note-payload change; no 0312 thetalib-closure change.

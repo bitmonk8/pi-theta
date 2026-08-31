@@ -652,23 +652,38 @@ async function runComposePass(
   // present-directory union) reconstructs on its own. `walk.roots` adds the
   // present-but-empty active roots `activeRoots` drops (a scaffolded
   // `.pi/theta/` with no `.theta` yet) so the watcher is armed over them and
-  // the first file created there fires a watcher event. Present-but-empty
-  // PACKAGE contributing directories stay out of scope — the bug doc §Summary
-  // enumerates only the walk's own four sources — and file-bearing package dirs
-  // remain covered via `activeRoots`. Re-arming on a LATER root-union change is
-  // separately out of scope per §Fix constraint 3 (the structural-change note is
-  // the designed /reload recovery), so this union is computed once per pass.
+  // the first file created there fires a watcher event. Bug 0339 (the fifth
+  // active-root source, discovery-sources.md's package row): a present-but-empty
+  // package `theta/` fallback directory, or a present-but-empty `pi.theta`-glob-
+  // matched directory, is likewise not `.theta`-bearing at scan time, so
+  // `packageWalk.roots` (the present contributing dirs `discoverPackageThetas`
+  // visited) is unioned in too — the first `.theta` created there fires a
+  // watcher event on the same terms as the walk's four sources. File-bearing
+  // package dirs remain covered via `activeRoots`, as before. Re-arming on a
+  // LATER root-union change is separately out of scope per §Fix constraint 3
+  // (the structural-change note is the designed /reload recovery), so this
+  // union is computed once per pass.
   //
   // `activeRoots` is `dirname(theta.path)` in host-native form (backslashes on
-  // Windows); `walk.roots` is `normalizePath`-forward-slashed. Canonicalise the
-  // file-derived copies to the same forward-slash comparison form so one
-  // physical directory is one Set member. `activeRoots` itself is untouched —
-  // its INV-1 consumers keep the native form.
+  // Windows); `walk.roots` is already forward-slashed (`normalizePath` inside
+  // the walk). `packageWalk.roots` is NOT already forward-slashed — it is built
+  // via `joinPosix(fs.cwd(), …)` and `PiFileSystem.cwd()` returns the host-native
+  // `ctx.cwd` verbatim, so on Windows it carries the same mixed separators as
+  // `activeRoots`. Both file-derived copies (`activeRoots` and `packageWalk.roots`)
+  // are canonicalised below to the same forward-slash comparison form so one
+  // physical directory is one Set member; deleting either `.replace` map
+  // double-arms that copy's physical dirs as distinct Set members.
+  // `activeRoots` itself is untouched — its INV-1 consumers keep the native form.
   // Bug 0312's closure dirs are unioned in AFTER the per-theta compose loop
   // below (they are only known once `checkThetaImports` has walked each
-  // theta's import graph), against this discovery-derived base.
+  // theta's import graph), against this discovery-derived base — additive only,
+  // so folding the package source in here does not disturb that later fold.
   const discoveryWatchRoots = Array.from(
-    new Set([...activeRoots.map((r) => r.replace(/\\/g, "/")), ...walk.roots]),
+    new Set([
+      ...activeRoots.map((r) => r.replace(/\\/g, "/")),
+      ...walk.roots,
+      ...packageWalk.roots.map((r) => r.replace(/\\/g, "/")),
+    ]),
   );
 
   // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
@@ -1378,6 +1393,15 @@ export interface ExtensionInstanceWiring {
    */
   readonly forwardingSignals: ForwardingSignalSource[];
   /**
+   * The INV-1 containment basis (file-derived, `dirname(theta.path)` of every
+   * discovered theta) as of the initial pass. Exposed so a caller can fence
+   * containment membership directly rather than re-deriving it — bug 0339's
+   * present-but-empty package fold into `watchRoots` must leave this set
+   * byte-unchanged. Optional: type-annotated wiring literals in this repo's
+   * test doubles predate this field and omit it.
+   */
+  readonly activeRoots?: readonly string[];
+  /**
    * The live `Clock` seam the composition root built once and the step-5
    * watcher / 250 ms debounce measure against. Threaded so the factory's
    * `session_shutdown` teardown reads the SAME clock instance the watcher used
@@ -1562,6 +1586,7 @@ export async function composeExtensionInstance(
     registry,
     activeInvocations,
     forwardingSignals,
+    activeRoots: initial.activeRoots,
     clock: root.clock,
     installHotReload(reRegister): HotReloadHandle {
       return installHotReload({

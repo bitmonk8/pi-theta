@@ -61,6 +61,11 @@ export interface PackageDiscoveredTheta {
 export interface PackageDiscoveryResult {
   readonly thetas: readonly PackageDiscoveredTheta[];
   readonly diagnostics: readonly Diagnostic[];
+  /** The present contributing directories the walk visited (the conventional
+   *  `theta/` fallback, and each `pi.theta`-glob-matched directory) — present,
+   *  not necessarily `.theta`-bearing, so the composition can arm a
+   *  present-but-empty one for watching (bug 0339). */
+  readonly roots: readonly string[];
 }
 
 /** Built-in bound defaults (DISC-6 upper bounds, not target performance). */
@@ -409,6 +414,7 @@ async function resolvePiThetas(
   pkgName: string,
   entries: readonly string[],
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<Map<string, string>> {
   const plain: string[] = [];
   const bang: string[] = [];
@@ -478,6 +484,7 @@ async function resolvePiThetas(
         `package \`${pkgName}\` (pi.theta)`,
         "error",
         diagnostics,
+        roots,
       )) {
         thetas.set(abs, stem);
       }
@@ -532,6 +539,7 @@ async function thetasInDirectory(
   descriptor: string,
   missing: Severity | null,
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const entries = await fs.readdir(dir).then(
@@ -558,6 +566,10 @@ async function thetasInDirectory(
     }
     return out;
   }
+  // The readdir above succeeded: `dir` is a present contributing directory,
+  // regardless of whether any `.theta` is found in it below (bug 0339 —
+  // presence, not `.theta`-containment, is the watch-arming membership test).
+  roots.add(dir);
   for (const name of entries.names) {
     const { stem, ext } = splitExtension(name);
     if (ext !== "theta") continue;
@@ -601,6 +613,7 @@ async function resolvePackage(
   candidate: CandidatePackage,
   manifestText: string,
   diagnostics: Diagnostic[],
+  roots: Set<string>,
 ): Promise<Map<string, string>> {
   const parsed = await Promise.resolve()
     .then(() => JSON.parse(manifestText) as unknown)
@@ -620,6 +633,7 @@ async function resolvePackage(
       `package \`${candidate.name}\` theta/ directory`,
       null,
       diagnostics,
+      roots,
     );
   }
   if (!isStringArray(field.value)) {
@@ -631,7 +645,7 @@ async function resolvePackage(
     });
     return new Map();
   }
-  return resolvePiThetas(fs, candidate.dir, candidate.name, field.value, diagnostics);
+  return resolvePiThetas(fs, candidate.dir, candidate.name, field.value, diagnostics, roots);
 }
 
 /**
@@ -652,12 +666,16 @@ export async function discoverPackageThetas(
   const { fs, clock, settings } = input;
   const thetas: PackageDiscoveredTheta[] = [];
   const diagnostics: Diagnostic[] = [];
+  // Threaded (never module-scope), per discovery-walk.ts's `roots: Set<string>`
+  // pattern: the present contributing directories this walk visits, exposed on
+  // the result so the composition can arm a present-but-empty one (bug 0339).
+  const roots = new Set<string>();
 
   const thetasSettings = settings.theta ?? {};
   const scanPackages = thetasSettings.scanPackages ?? DEFAULT_SCAN_PACKAGES;
   if (!scanPackages) {
     // The walk is skipped wholesale: no root is scanned, no read is issued.
-    return { thetas, diagnostics };
+    return { thetas, diagnostics, roots: [...roots] };
   }
   const maxFiles = thetasSettings.scanPackagesMaxFiles ?? DEFAULT_SCAN_PACKAGES_MAX_FILES;
   const timeoutMs = thetasSettings.scanPackagesTimeoutMs ?? DEFAULT_SCAN_PACKAGES_TIMEOUT_MS;
@@ -717,7 +735,7 @@ export async function discoverPackageThetas(
       if (outcome.text === undefined) {
         continue; // read failed (no package.json / unreadable) → contributes nothing
       }
-      const resolved = await resolvePackage(fs, candidate, outcome.text, diagnostics);
+      const resolved = await resolvePackage(fs, candidate, outcome.text, diagnostics, roots);
       for (const [abs, stem] of resolved) {
         if (registered.has(abs)) continue;
         registered.add(abs);
@@ -726,5 +744,5 @@ export async function discoverPackageThetas(
     }
   }
 
-  return { thetas, diagnostics };
+  return { thetas, diagnostics, roots: [...roots] };
 }
