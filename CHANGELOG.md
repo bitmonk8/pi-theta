@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.324.0]
+
+### Fixed
+
+- **Bug 0346** — the two checker-side LUBs bug 0158 reconciled with `commonType` — `leastUpperBound` (`match-result.ts`, the match-arm LUB) and `computeLub` (`functions.ts`, the inferred-return LUB) — carried the literal-candidate asymmetry bug 0344 removed from `commonType`: both related candidates AS-IS in the dominating-member search, so the arm/return set `{prim integer, literal number}` found no covering member (`literal number ⊑ prim integer` is `integer-narrowing`; `prim integer ⊑ literal number` is `incompatible`) and a program the member-LUB contract admits — `match c { 1 => n, _ => 1.5 }` over an `integer`-typed `n`, or its inferred-return twin — was spuriously refused `theta/parse/match-arm-type-mismatch` / `theta/parse/return-no-common-type` at the registration gate. Each LUB now maps its candidates through `widenLiteralTypes` to their expression-position primitive before the cover test and returns the WIDENED member, mirroring 0344's `commonType` shape: `{integer, number}` reduces to `number` at every surface (the 0158 reconciliation invariant read as the oracle). The lane's premeasure exposed a third, doc-under-enumerated copy — `#matchArmType` in `static-type-inference.ts`, 0158's third reconciled surface — where the two-site fix alone was PROVEN unsound (the admitted match under-typed as `integer`, so `f(r)` fed a runtime `1.5` into an `integer` parameter with no diagnostic); the parent ratified the identical mirror there (the pass's memberless `armTypes[0]` fallback preserved), and a soundness cell pins the closed hole (`f(r)` refuses `fn-arg-type-mismatch`, the sink renders "got number"). `⊑` is unchanged — `decide`'s literal-TARGET arm stays strict (0341), the member-restricted discipline and both callers' `undefined` contracts survive for genuinely memberless sets, and `commonType` is untouched. Witnessed by `tests/b0346-checker-side-lubs-literal-candidate-asymmetry.test.ts` (14 cells: the doc's M/R repro rows, order-independence, collapse controls, annotated-return counterfactual, memberless fences at both sites, the four-surface oracle, the soundness cell) with per-site destructive proof, and by the live admittee `tests/live/acceptance/b0346live-match-arm-lub-admittee.test.ts` (a previously-refused registration admits and drives).
+
 ## [0.323.0]
 
 ### Fixed

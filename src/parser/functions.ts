@@ -43,6 +43,7 @@ import {
   type Compatibility,
   type CompatType,
   type TypeEnv,
+  widenLiteralTypes,
 } from "./type-compat";
 
 /** A located site at which a function/return form is checked. */
@@ -344,17 +345,28 @@ function operandType(c: ReturnContribution): CompatType {
  * clause, so a non-dominated set here has no candidate rather than a computed
  * union. A statically-unresolvable operand (`"unknown"`) does not block a
  * candidate — the runtime AJV check is the safety net.
+ *
+ * Each candidate is widened to the primitive it types as (TYPE-3) before the
+ * domination test: an unwidened `literal` candidate carries less absorbing
+ * power than the `prim` it types as, so a `literal number` candidate could
+ * not dominate a `prim integer` contribution even though `integer ⊑ number`
+ * holds (TYPE-2) — bug 0344's `commonType` asymmetry, mirrored here per bug
+ * 0346. The inner `every` test still relates the RAW contributions against
+ * the widened candidate, and the member returned is the WIDENED one, so the
+ * resolved type is a primitive rather than a literal.
  */
 function computeLub(
   types: readonly CompatType[],
   env: TypeEnv,
 ): CompatType | undefined {
-  return types.find((candidate) =>
-    types.every((t) => {
-      const r = checkCompatible(t, candidate, env);
-      return r === "compatible" || r === "unknown";
-    }),
-  );
+  return types
+    .map((candidate) => widenLiteralTypes(candidate))
+    .find((candidate) =>
+      types.every((t) => {
+        const r = checkCompatible(t, candidate, env);
+        return r === "compatible" || r === "unknown";
+      }),
+    );
 }
 
 // --- RET-2 / RET-3 — bare `return` and unreachable code ---------------------

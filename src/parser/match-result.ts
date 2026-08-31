@@ -31,7 +31,12 @@
 // The paired V4a implementation leaf fills every check in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
-import { checkCompatible, type CompatType, type TypeEnv } from "./type-compat";
+import {
+  checkCompatible,
+  type CompatType,
+  type TypeEnv,
+  widenLiteralTypes,
+} from "./type-compat";
 import type { PatternNode } from "./theta-document";
 
 /**
@@ -251,17 +256,29 @@ function mismatchDiagnostic(site: MatchResultSite): Diagnostic {
  * LUB has no union clause, so a non-dominated set here has no candidate rather
  * than a computed union. A statically-unresolvable arm does not block a
  * candidate (deferred to the runtime AJV safety net).
+ *
+ * `covers` widens ITS CANDIDATE to the primitive it types as (TYPE-3) before
+ * relating the raw arms to it: an unwidened `literal` candidate carries less
+ * absorbing power than the `prim` it types as, so a `literal number`
+ * candidate could not cover a `prim integer` arm even though `integer ⊑
+ * number` holds (TYPE-2) — bug 0344's `commonType` asymmetry, mirrored here
+ * per bug 0346. The arms tested against it (`armTypes.every`) stay raw; only
+ * the candidate side widens. `candidates` (the members that cover the raw
+ * arms) is then mapped through the same widening so the LUB returned is the
+ * primitive, not the literal.
  */
 function leastUpperBound(
   armTypes: readonly CompatType[],
   env: TypeEnv,
 ): CompatType | undefined {
-  const covers = (candidate: CompatType): boolean =>
-    armTypes.every((arm) => {
-      const r = checkCompatible(arm, candidate, env);
+  const covers = (candidate: CompatType): boolean => {
+    const widened = widenLiteralTypes(candidate);
+    return armTypes.every((arm) => {
+      const r = checkCompatible(arm, widened, env);
       return r === "compatible" || r === "unknown";
     });
-  const candidates = armTypes.filter(covers);
+  };
+  const candidates = armTypes.filter(covers).map((candidate) => widenLiteralTypes(candidate));
   if (candidates.length === 0) {
     return undefined;
   }

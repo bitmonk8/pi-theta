@@ -1,6 +1,6 @@
 # Bug 0346 — the checker-side LUBs `leastUpperBound` (`match-result.ts:255`) and `computeLub` (`functions.ts:348`) carry the literal-candidate asymmetry bug 0344 removed from `commonType`: a `match` arm set or an inferred-return set mixing an `integer`-typed binding with a fractional literal — `{prim integer, literal number}` — finds no dominating member and refuses `theta/parse/match-arm-type-mismatch` / `theta/parse/return-no-common-type`, where the reconciled member LUB collapses the same pair to `number`
 
-- **Status:** open.
+- **Status:** fixed (0.324.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because a spurious refusal reproduces
   through a real program at both surfaces: `match c { 1 => n, _ => 1.5 }` over
   an `integer`-typed `n` draws `theta/parse/match-arm-type-mismatch`, and the
@@ -322,6 +322,77 @@ destructive proof that neutralising each widening reds them.
 **Spec:** no registry edit is owed — no code is minted, and `type-system.md:133`,
 `functions.md:26`, and `expressions.md:184` already state the member LUB the fix
 satisfies. They are not edited.
+
+**Parent ratification (2026-08-31) — third site `#matchArmType`.** The original
+filing above enumerates two sites (`leastUpperBound`, `computeLub`) by analogy
+to bug 0344's single-site `commonType` fix. That enumeration was a filing
+defect, not a scope boundary: the match-arm dominating-member search has a
+THIRD copy, `#matchArmType` in `src/parser/static-type-inference.ts` (the
+inference pass). `leastUpperBound` is not exported — it calls the production
+`checkCompatible` directly — so the pass keeps an independent copy rather than
+delegating the way it reaches `commonType` via `#commonType`; bug 0344's
+single-site precedent therefore does not transfer to the match-arm surface.
+Bug 0158's §Affected reconciled THREE surfaces including the inference pass, so
+the literal-candidate asymmetry is present at ALL 0158-reconciled member-LUB
+surfaces, and the pass's doc-comment ("this pass never answers a type the
+checker refuses on the same node") demands lockstep. The two-site fix alone is
+unsound: it admits `match 1 { 1 => n, _ => 1.5 }` at the checker but the pass
+under-types the bound `r` as `integer`, so a downstream `f(r)` into an
+`integer` parameter accepts a runtime `1.5` with no diagnostic — strictly worse
+than the refusal being fixed. The parent ratified extending the fix to
+`#matchArmType`, widening its candidate through `widenLiteralTypes` in lockstep
+with `leastUpperBound`; the pass's memberless fallback (`candidates.length ===
+0` → `armTypes[0]`, never `undefined` — the pass owes the walk a type where the
+checker owes the diagnostic) is PRESERVED. The post-fix oracle reads at FOUR
+surfaces: `commonType`, `leastUpperBound`, `computeLub`, and `#matchArmType` all
+return `number` on `{integer, number}`.
+
+## Fix (0.324.0)
+- What shipped:
+  - `src/parser/match-result.ts` — `leastUpperBound` widens its candidate
+    through `widenLiteralTypes` before the cover test and widens the covering
+    members before selection, so the match-arm LUB returns the primitive; the
+    least-candidate scan, the sink arm, and the `undefined`/memberless contract
+    are untouched (§Fix site 1).
+  - `src/parser/functions.ts` — `computeLub` maps candidates through
+    `widenLiteralTypes` before `.find`, relates raw contributions against the
+    widened candidate, and returns the widened member; the `undefined`/
+    memberless contract is untouched (§Fix site 2).
+  - `src/parser/static-type-inference.ts` — `#matchArmType` mirrors
+    `leastUpperBound`'s widening (ratified third site); the `armTypes[0]`
+    memberless fallback is preserved.
+  - `tests/b0346-checker-side-lubs-literal-candidate-asymmetry.test.ts` — new
+    offline witness (M1–M5 match arms, R1–R4 inferred returns, O the
+    four-surface oracle, S/S-sink the soundness cell pinning the closed hole,
+    Fm/Fr memberless fences).
+  - `tests/live/acceptance/b0346live-match-arm-lub-admittee.test.ts` — new H9a
+    live acceptance: the previously-refused match registers and drives, the
+    memberless match still refuses.
+- Gates: witness `tests/b0346-...test.ts` 14/14 green; full default suite
+  `npm test` 503 files / 9747 tests green; `npx tsc --noEmit -p tsconfig.json`
+  clean; `npm run lint` clean; bug-0158 witness
+  `match-fn-return-lub-dominating-discipline.test.ts` 26/26 green; `b0344`
+  controls 8/8 green.
+- Review: 1 round — `bug-fix-reviewer` clean on code/tests (four-surface oracle
+  verified, constraints held, no defect in the diff); one doc-only fidelity
+  finding (record the ratified third site) discharged by this section.
+- Verification: solid on all code obligations — per-site destructive proof
+  (neutralise site 1 → M1/M4/M5 red `match-arm-type-mismatch`; site 2 → R1/R3
+  red `return-no-common-type`; site 3 → S/S-sink/O red, `r` under-types
+  `integer` / `f(r)` admits), each restored byte-exact and re-greened; full
+  suite green; typecheck + lint clean. Live: the orchestrator ran
+  `b0346live-...test.ts` under the shared lock — 1/1 green; red-proven by
+  neutralising site 1 (the live cell reds token-free at its attribution guard
+  with `match-arm-type-mismatch`), then restored.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `⊑` unchanged (`decide`'s literal-target arm
+  stays strict, 0341 law); the member-restricted discipline at the two checker
+  sites is unchanged (`undefined` for a genuinely memberless set survives; no
+  union clause; no caller fallback); the pass's `armTypes[0]` memberless
+  fallback is unchanged; `commonType`/`decide`/`decidePrimitive` not edited; no
+  registry or spec edit (nothing minted; `type-system.md`/`functions.md`/
+  `expressions.md` not edited).
 
 ## Related
 

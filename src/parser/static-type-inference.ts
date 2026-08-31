@@ -33,6 +33,7 @@ import {
   enumVariantType,
   resolveNamed,
   unfoldAlias,
+  widenLiteralTypes,
   withheldBinderType,
   type CompatType,
   type Compatibility,
@@ -621,12 +622,23 @@ export class StaticTypeInferencePass {
     if (armTypes.length === 0) {
       return { kind: "named", name: "unknown" };
     }
-    const covers = (candidate: CompatType): boolean =>
-      armTypes.every((arm) => {
-        const r = this.#checkCompatible(arm, candidate, env);
+    // `covers` widens ITS CANDIDATE to the primitive it types as (TYPE-3) before
+    // relating the raw arms to it: an unwidened `literal` candidate carries less
+    // absorbing power than the `prim` it types as, so a `literal number`
+    // candidate could not cover a `prim integer` arm even though `integer ⊑
+    // number` holds (TYPE-2) — bug 0344's `commonType` asymmetry, mirrored here
+    // per bug 0346's ratified third site (the checker's `leastUpperBound`,
+    // ./match-result.ts, carries the identical comment). The arms tested
+    // against it stay raw; only the candidate side widens. `candidates` is then
+    // mapped through the same widening so the resolved type is the primitive.
+    const covers = (candidate: CompatType): boolean => {
+      const widened = widenLiteralTypes(candidate);
+      return armTypes.every((arm) => {
+        const r = this.#checkCompatible(arm, widened, env);
         return r === "compatible" || r === "unknown";
       });
-    const candidates = armTypes.filter(covers);
+    };
+    const candidates = armTypes.filter(covers).map((candidate) => widenLiteralTypes(candidate));
     if (candidates.length === 0) {
       return armTypes[0] as CompatType;
     }
