@@ -1,6 +1,6 @@
 # Bug 0344 — `commonType`'s dominating-candidate search inherits the literal-vs-primitive asymmetry from the CANDIDATE side: an array literal `[n, 1.5]` over an `integer`-typed `n` reduces to `array<integer | number>` rather than `array<number>`, and the union element then refuses `xs[0] + 1` as `theta/parse/mixed-plus-operands` — a legal read that a correctly-typed `array<number>` element accepts
 
-- **Status:** open.
+- **Status:** fixed (0.319.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the union element type is not
   merely displayed oddly: element arithmetic on it (`xs[0] + 1`) is refused
   `theta/parse/mixed-plus-operands` where the same read over a correctly-typed
@@ -255,3 +255,104 @@ element read, not a display-only artefact — Q3 refuses where Q4 accepts the
 same arithmetic over the correctly-typed element. Scratch probes deleted; a
 case-insensitive sweep for the probe name returned only the deleted files and
 an ephemeral vitest cache, no tracked residue.
+
+## Fix (0.319.0)
+
+- **What shipped:**
+  - `src/parser/type-compat.ts` — `commonType`'s dominating-candidate search
+    now maps each candidate through `widenLiteralTypes` (the function bug 0341
+    already ships) BEFORE the domination test and returns the WIDENED
+    candidate as the LUB, so a `literal number` candidate carries the same
+    absorbing power as the `prim number` it types as (TYPE-3): `prim number`
+    dominates `prim integer` under TYPE-2 and `[n, 1.5]` types `array<number>`,
+    not `array<integer | number>`. The change is confined to candidate
+    preparation — the union arm still unions the ORIGINAL (unwidened)
+    `branches` in receiver-first order, and the object-branch gate
+    (`isObjectBranch`) is untouched. Doc-comment clause 1 and one inline
+    comment narrate why. `decide`/`decidePrimitive` (`⊑`) and
+    `concatElementType` (`../runtime/stdlib-string.ts`) are UNTOUCHED; no
+    registry row minted, no `expressions.md` edit (rule 2 already states the
+    collapsed LUB).
+  - `tests/b0344-commontype-literal-candidate-asymmetry.test.ts` (new, offline
+    via `parseDoc`) — the §Reproduction witnesses: (A) `[n, 1.5]` types
+    `array<number>`, inferred and annotated spellings agree; (B/B2) `xs[0] + 1`
+    admits (the §Repro Q3 `mixed-plus-operands` refusal disappears); (C) LUB
+    order-independence `[1.5, n]` ≡ `[n, 1.5]`; and the controls (D) pure-
+    literal `[1.5, 2.5]` display unchanged, (E) `["a", null]` still unions
+    byte-identical, (F) object-branch set still refuses `array-no-common-type`,
+    (G) integer-only `[n, 2]` stays `array<integer>`.
+  - `tests/b0341-inferred-literal-binding-refuses-primitive-rhs.test.ts` — the
+    §Fix "Flip authority" set, cell G1 ONLY: the agreement assertion
+    (`expect(inferred).toEqual(annotated)`) stays green — both twins move to
+    `array<number>` together — while G1's pinned string flips
+    `array<integer | number>` → `array<number>` and its header comment plus the
+    file-level witness note (`:46`) are reworded from the union outcome to the
+    collapsed outcome. No other b0341 cell moved (swept:
+    `rg "array<integer \| number>"` returned only G1's three lines).
+  - `tests/live/acceptance/b0344live-commontype-literal-candidate-admittee.test.ts`
+    (new, live H9a) — the previously-refused admittee (`[n, 1.5]` /
+    `let v = xs[0] + 1`) registers and DRIVES a real turn through the real
+    `pi -p` binary (task-framed compute-from-inline-value, answers `2 + 263 =
+    265`), while the object-branch offender still refuses registration
+    (invoke→`Err` sentinel `REFUSED`) — proving the widening did not manufacture
+    a dominator past the object-branch gate.
+
+- **Gates (verbatim):** witness `npx vitest run
+  tests/b0344-...test.ts tests/b0341-...test.ts` → 28 passed post-fix;
+  neutralising the widening (identity `.map((candidate) => candidate)`) →
+  5 of 28 red for the right reason (b0344 A/B/B2/C draw the union / `mixed-plus-
+  operands`; b0341 G1 reads `array<integer | number>`), restored byte-exact →
+  28 passed. Full suite `npm test` → 498 files / 9704 tests passed.
+  `npm run typecheck` clean; `npm run lint` clean. Live (under the shared lock)
+  `… vitest.live.config.ts tests/live/acceptance/b0344live-...test.ts` →
+  1 passed post-fix; neutralised → the offline attribution guard reds in ~12 ms
+  with zero tokens (`[theta/parse/mixed-plus-operands]` vs `[]`), restored →
+  1 passed.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`, deep) — CLEAN, no
+  findings; one non-blocking residual raised (R1 below), evidence-backed
+  against the diff.
+
+- **Verification:** SOLID. Obligation A (witness reds on the neutralised
+  widening, greens on restore, `type-compat.ts` byte-exact to the fix diff)
+  discharged; obligation B (full suite 498/9704) discharged; obligation C
+  (live end-to-end admittee registers-and-drives + object-branch refusal
+  control, with a zero-token neutralise-red pair) discharged; obligation D
+  (lint + typecheck clean) discharged.
+
+- **Residuals:**
+  1. **Lineage (closed here).** This report IS bug 0341's residual 1 — the
+     reduction-side twin of the recording-side asymmetry 0341 fixed. 0341's
+     `widenLiteralTypes` made the inferred and annotated spellings of `[n, 1.5]`
+     agree at `integer | number`; this fix collapses what they agree ON to
+     `number`. Credited to external PR #3 (Harald Nielsen), which landed as
+     0341 in v0.309.0 and marked this reduction-side asymmetry "worth its own
+     filing" — this document is that filing.
+  2. **Checker-side sibling asymmetry (open — filing material, NOT fixed).**
+     `computeLub` (`src/parser/functions.ts`, the fn-return LUB) and
+     `leastUpperBound` (`src/parser/match-result.ts`, the match-arm LUB) — the
+     0158-reconciled checker-side siblings of `commonType` — both still relate
+     candidates AS-IS over `checkCompatible` with no candidate widening, so a
+     `match c { 1 => n, _ => 1.5 }` arm set (`prim integer` + `literal number`)
+     finds no dominating candidate for exactly the reason this fix removes in
+     `commonType`, and reds with `match-arm-type-mismatch` /
+     `return-no-common-type`. They are their OWN functions, not the
+     `commonType` path, and §Fix names `commonType` only; per the 0341→0344
+     precedent (residual → own filing) this is filing material, not scope
+     creep. Evidence: the quoted code plus the shared `decide`/`decidePrimitive`
+     chain (premeasure + review round 1). Not exercised by any committed
+     fixture or live theta.
+
+- **Discharge notes appended:** none — 0341 (fixed 0.309.0) already records
+  this reduction-side asymmetry as its residual 1 and scopes it out in its
+  §Non-goals; no sibling doc needs an amendment.
+
+- **Pinned dispositions / non-goals:** the §Fix pinned constraints stand — `⊑`
+  is unchanged (`decide`'s literal-TARGET arm stays strict for a future
+  literal-value-carrying model, per 0341's standing adjudication); the
+  object-branch gate (rule 3) keeps its disposition (widening never turns a
+  branch into or out of an object branch); `concatElementType`'s deliberate
+  mirror is out of scope and left as is; no registry row, no `expressions.md`
+  edit. The `tests/fixtures/h7a/permitted-codes.json` baseline is
+  byte-unchanged; the live cell is outside the H9a manifest and owes no
+  permitted-codes entry.

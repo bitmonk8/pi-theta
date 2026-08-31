@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.319.0]
+
+### Fixed
+
+- **Bug 0344** — `commonType`'s dominating-candidate search related candidates without widening, so a literal candidate carried less absorbing power than the primitive it types as: for `[n, 1.5]` over integer-typed `n` the `{literal number}` candidate could not dominate (the literal-TARGET arm rightly refuses a primitive sub) and the `{prim integer}` candidate could not dominate either (`number` narrows), so the LUB fell through to `array<integer | number>` — an array the author wrote as numeric — and a later `xs[0] + 1` was spuriously refused with a diagnostic naming a union the author never spelled. The same information loss bug 0341 (external PR #3) removed at the recording site, unremoved at the reduction site: `commonType` now maps each candidate through `widenLiteralTypes` before the domination test and returns the WIDENED dominator, so `prim number` dominates `prim integer` under TYPE-2 and `[n, 1.5]` types `array<number>` with both the inferred and annotated spellings agreeing. `⊑` is unchanged (`decide`'s literal-TARGET arm stays strict per 0341's standing adjudication), the object-branch gate keeps its refuse-to-unify disposition, the dominator-less union arm still governs (`["a", null]` → `array<string | null>` byte-identical), and the `concatElementType` mirror is untouched; no registry or spec edit (rule 2 already states the collapsed LUB). Flip landed exactly as enumerated: cell G1 alone — its twins-agree assertion stays green, its pinned string moves to `array<number>`. Witnessed by `tests/b0344-commontype-literal-candidate-asymmetry.test.ts` (7 cells, red-proven) and the red-proven live acceptance cell `tests/live/acceptance/b0344live-commontype-literal-candidate-admittee.test.ts` (the §Repro refuser now registers and drives; a genuine offender still refuses). Residual recorded: `computeLub` (functions.ts) and `leastUpperBound` (match-result.ts) carry the same candidate asymmetry — next filing in the 0341→0344 lineage.
+
 ## [0.318.0]
 
 ### Fixed

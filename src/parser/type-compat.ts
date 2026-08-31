@@ -768,10 +768,16 @@ export type CompatRelation = (sub: CompatType, sup: CompatType, env: TypeEnv) =>
  * Three clauses, in the order the spec states them:
  *
  *   1. a branch `C` that every branch is `⊑` IS the least upper bound —
- *      TYPE-1 identical collapse and TYPE-2 `integer → number` widening. A
- *      statically-unresolvable branch does not block a candidate, so a set
- *      holding one collapses onto the dominating branch rather than being
- *      treated as disjoint from it (type-system.md §"Unresolvable operands");
+ *      TYPE-1 identical collapse and TYPE-2 `integer → number` widening. Each
+ *      candidate is widened to the primitive it types as ([TYPE-3](../../docs/spec_topics/type-system.md#type-3))
+ *      via `widenLiteralTypes` before this domination test, so a `literal`
+ *      candidate carries the same absorbing power as the `prim` it types as
+ *      rather than less — the LUB a dominating candidate returns is the
+ *      WIDENED candidate, which is why the reduced element type is a
+ *      primitive rather than a literal. A statically-unresolvable branch does
+ *      not block a candidate, so a set holding one collapses onto the
+ *      dominating branch rather than being treated as disjoint from it
+ *      (type-system.md §"Unresolvable operands");
  *   2. otherwise the branches union, arms VERBATIM in receiver-first (source)
  *      order — the computed type is not a member of the input set (`["a",
  *      null]` → `string | null`). `concatElementType`
@@ -802,12 +808,22 @@ export function commonType(
   if (branches.length === 0) {
     return undefined;
   }
-  const dominating = branches.find((candidate) =>
-    branches.every((branch) => {
-      const r = relate(branch, candidate, env);
-      return r === "compatible" || r === "unknown";
-    }),
-  );
+  // Widen each candidate to the primitive it types as (TYPE-3) before the
+  // domination test: an unwidened `literal` candidate carries less absorbing
+  // power than the `prim` it types as, so a `literal number` candidate could
+  // not absorb a `prim integer` branch even though `integer ⊑ number` holds
+  // (TYPE-2) — bug 0344. `widenLiteralTypes` returns a non-literal candidate
+  // by reference, so this changes nothing for an already-`prim` candidate.
+  // The dominating branch returned is the WIDENED candidate, so the LUB is a
+  // primitive rather than a literal.
+  const dominating = branches
+    .map((candidate) => widenLiteralTypes(candidate))
+    .find((candidate) =>
+      branches.every((branch) => {
+        const r = relate(branch, candidate, env);
+        return r === "compatible" || r === "unknown";
+      }),
+    );
   if (dominating !== undefined) {
     return dominating;
   }

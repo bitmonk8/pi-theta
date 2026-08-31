@@ -42,8 +42,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // RED-FOR-RIGHT-REASON: without the fix, A1-A7 report the false
 // `reassign-rhs-type-mismatch`, C1 reports that row instead of
 // `integer-narrowing`, C2 reports it instead of nothing, D1 collects three
-// `expected <T>, got <T>` messages, E1 finds the offender unregistered and G1
-// reads `array<number>` where the annotated twin reads `array<integer | number>`.
+// `expected <T>, got <T>` messages, E1 finds the offender unregistered and G1's
+// inferred and annotated twins diverge instead of both reading `array<number>`
+// (the post-0344 collapsed LUB — see the G1 cell below).
 // The B and F rows are green in both directions and are what proves the fix
 // removes false positives only.
 
@@ -217,14 +218,13 @@ describe("bug 0341 (g) — inferred and annotated bindings now agree", () => {
       "let ys: array<string> = xs",
       "ys",
     ]);
-    // Pre-fix the inferred twin read `got array<number>` while the annotated
-    // one read `got array<integer | number>`: the literal candidate dominated
-    // a search the widened primitive does not. The pair agreeing is the
-    // observable; the `integer | number` LUB itself is bug 0341 §Non-goals
-    // (pre-existing for annotated bindings, unmoved by this fix).
+    // Bug 0341 made the pair agree; bug 0344 fixed what they agree ON: a
+    // `commonType` candidate is widened to the primitive it types as before
+    // the domination test, so `prim integer` and `literal number` collapse to
+    // `number` rather than unioning. Both twins now read `array<number>`.
     expect(inferred).toEqual(annotated);
     expect(annotated).toEqual([
-      "let binding 'ys' initialiser type mismatch: expected array<string>, got array<integer | number>",
+      "let binding 'ys' initialiser type mismatch: expected array<string>, got array<number>",
     ]);
   });
 });
