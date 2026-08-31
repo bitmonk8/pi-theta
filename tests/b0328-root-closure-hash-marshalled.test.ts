@@ -8,7 +8,7 @@
 // clears the carrier entirely for a `tools:`-less callee
 // (production-theta-producer.ts:2182–2185), and no load site records a theta's
 // OWN closure hash — `attachLoadTimeClosureHashes`
-// (production-composition.ts:1943) fills `tools:`-entry hashes only. The
+// (production-composition.ts:2111) fills `tools:`-entry hashes only. The
 // child-side verifier already drops a marked root whose name the map carries
 // (proven by tests/subagent-child-hash-refusal-e2e.test.ts's hand-planted root
 // entry); the defect is purely PARENT-side omission.
@@ -18,8 +18,8 @@
 // source, regardless of `mode` (ANY theta can be launched as a child root, not
 // only a subagent-mode one), as `{ name: deriveCallableName(sourcePath), hash:
 // resolveCallableClosureHash(fs, ctx, deps, undefined, sourcePath) }`
-// (deriveCallableName at production-composition.ts:1172 — basename minus
-// `.theta`, hyphens→underscores; resolveCallableClosureHash at :3007); the
+// (deriveCallableName at production-composition.ts:1223 — basename minus
+// `.theta`, hyphens→underscores; resolveCallableClosureHash at :3185); the
 // producer's marshalling loop then adds `callableHashes[rootClosureHash.name] =
 // rootClosureHash.hash` after the `tools:`-entry loop when that key is not
 // already an entry key.
@@ -166,7 +166,7 @@ afterEach(() => {
 describe("bug 0328 (1) — LOAD records the root callee's own transitive-closure hash", () => {
   it("1a: a `tools:`-less, import-less subagent root carries rootClosureHash = { derived name, single-file closure hash }", async () => {
     // A hyphenated stem also witnesses the hyphen→underscore name derivation
-    // (deriveCallableName, production-composition.ts:1172): `zqx-root` → `zqx_root`.
+    // (deriveCallableName, production-composition.ts:1223): `zqx-root` → `zqx_root`.
     const rootPath = join(thetaDir, "zqx-root.theta");
     writeFileSync(rootPath, "---\nmode: subagent\n---\n@`hi`\n", "utf8");
 

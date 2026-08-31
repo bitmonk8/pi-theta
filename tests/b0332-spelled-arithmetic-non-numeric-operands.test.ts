@@ -37,7 +37,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // `-`/`*`/`/`/`%` fall through with no operand check. `#typeBinary`
 // (`src/parser/static-type-inference.ts`) assigns each pairing a type without
 // judging numericity, and `applyBinaryScalar`
-// (`src/runtime/statement-executor.ts:1015`, arms at `:1025`–`:1032`) casts both
+// (`src/runtime/statement-executor.ts:1069`, arms at `:1025`–`:1032`) casts both
 // operands `(x as number)` and applies the JS operator, so `"a" - "b"` → `NaN`
 // (JSON `null`), `[1] - [2]` → `-1`, `true - false` → `1`. No diagnostic on any
 // channel; every row runs to a `success` value.

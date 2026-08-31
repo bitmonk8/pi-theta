@@ -216,7 +216,7 @@ function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
   return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
 }
 
-/** The production content-addressing of `src/extension/production-composition.ts:331-336`. */
+/** The production content-addressing of `src/extension/production-composition.ts:3789-3818`. */
 function realAjv(): AjvSchemaValidator {
   return new AjvSchemaValidator({
     emit: (): void => {},

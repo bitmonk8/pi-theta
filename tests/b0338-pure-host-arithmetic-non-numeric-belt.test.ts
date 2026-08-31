@@ -5,8 +5,8 @@
 // number)`, …) with NO numericity belt, so a non-numeric operand reaching a
 // PURE evaluation position is JS-coerced silently. The byte-identical operand
 // pairing on the EXECUTOR path throws the bug 0332 belt
-// (`BinaryNonNumericError`, src/runtime/statement-executor.ts:653, thrown at
-// statement-executor.ts:1060), so the disposition currently depends on the
+// (`BinaryNonNumericError`, src/runtime/statement-executor.ts:661, thrown at
+// statement-executor.ts:1092), so the disposition currently depends on the
 // evaluation position, not on the operands.
 // (docs/bugs/0338-pure-host-arithmetic-non-numeric-operands-no-runtime-belt.md)
 //

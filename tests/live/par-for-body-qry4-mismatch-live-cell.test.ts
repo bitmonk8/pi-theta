@@ -19,7 +19,7 @@
 // path deciding what the AUTHOR is told: the load router delivers every
 // error-severity diagnostic as its own pre-eval note and a group's
 // warning-severity diagnostics as ONE `emitDiagnosticBatch` note on the same
-// `theta-system-note` channel (src/extension/production-composition.ts:1275-1291),
+// `theta-system-note` channel (src/extension/production-composition.ts:1462-1479),
 // and registration is denied by the error alone
 // (`const registered = !diagnostics.some((d) => d.severity === "error")`,
 // `:1735`). So the QRY-4 warning's reachability is felt live on the note channel

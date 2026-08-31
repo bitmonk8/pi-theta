@@ -536,7 +536,7 @@ interface DispatchCapture {
  *
  * `schemaValidator` is read off the production producer's own accessor
  * (`src/extension/production-theta-producer.ts:718`), which is how the shipped
- * composition root supplies it: `production-composition.ts:652` builds
+ * composition root supplies it: `production-composition.ts:731` builds
  * `producerDeps` with `createProductionProducerDeps(...)` and `:1015` hands that
  * same object to `composeThetaFixture`.
  */

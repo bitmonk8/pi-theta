@@ -30,7 +30,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // scrutinee no-ops the setter, an object scrutinee swaps the record's
 // prototype; neither creates an own key. `evalMatch` then installs arm
 // bindings by walking own enumerable keys —
-// `Object.entries(chosen.bindings)` (src/runtime/statement-executor.ts:1277) —
+// `Object.entries(chosen.bindings)` (src/runtime/statement-executor.ts:1349) —
 // so the lost key never reaches `defineLocal` and the arm body's `__proto__`
 // reference resolves to `null`. The arm still selects (identifier patterns
 // match anything), so the failure is silent: `outcome=success`, parse `[]`.

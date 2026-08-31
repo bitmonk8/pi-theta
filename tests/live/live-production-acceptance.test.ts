@@ -1410,7 +1410,7 @@ describe("H8a-T — bug 0077: a settings thetaPaths glob reaches only its own di
 // The warning fires at LOAD time (inside `bootShippedExtension`'s
 // `session.bindExtensions({})`), through the SAME `sink.emitGroup(walk.
 // diagnostics)` → `emitLoadNoteGroup` delivery surface the bug 0110 cell's
-// error-severity diagnostic uses (production-composition.ts:539, :1269) —
+// error-severity diagnostic uses (production-composition.ts:562, :1462) —
 // `emitLoadNoteGroup`'s warning arm selects on `severity === "warning"` with
 // no code allow-list, so this is the same channel, a different severity arm.
 // No slash command is invoked, so this cell spends zero tokens, the same
@@ -2702,7 +2702,7 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
 // "index" }`, an unresolvable name every downstream check defers on
 // (type-system.md:48). `theta/parse/unknown-method` (E-severity) is one of
 // six registered codes measured absent on the sentinel; `hasLoadParseError`
-// (production-composition.ts:2045–2052, applied at :2092) had nothing to act
+// (production-composition.ts:3263–3270, applied at :3313) had nothing to act
 // on, so the illegal caller REGISTERED
 // (docs/bugs/0125-index-element-narrowing-not-alias-unfolded.md §Reproduction
 // (a) row 1 / (e) row 1; unit witness `tests/index-element-alias-unfolded.test.ts`
@@ -2930,7 +2930,7 @@ describe("H8a-T — bug 0125: an alias-typed array's element, called past the st
 // resolvable, an `integer` argument at a declared `string` parameter — the
 // simplest input the row's Trigger names. `theta/parse/fn-arg-type-mismatch`
 // is severity `E`, so `hasLoadParseError`
-// (production-composition.ts:2045–2052, applied at :2092) un-registers the
+// (production-composition.ts:3263–3270, applied at :3313) un-registers the
 // caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/
 // 0102/0125 cells above exercise for their own codes.
 //
@@ -3543,7 +3543,7 @@ describe("H8a-T — bug 0139: an uppercase-first fn parameter name draws binding
 // `integer` literals to an `integer` annotation — both operands statically
 // resolvable, so type-system.md:48 licenses no deferral.
 // `theta/parse/integer-narrowing` is severity `E`, so `hasLoadParseError`
-// (production-composition.ts:2045–2052, applied at :2092) un-registers the
+// (production-composition.ts:3263–3270, applied at :3313) un-registers the
 // caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/0084/0089/0095/
 // 0102/0125/0050/0137/0139 cells above exercise for their own codes.
 //
@@ -3825,7 +3825,7 @@ describe("H8a-T — bug 0152: a `%` remainder by a static-zero integer divisor b
 // (`fn h(let: string): number { 1 }`): a shape-conformant `FnParam` whose
 // `Ident` is one of lexical.md:20's 32 reserved spellings.
 // `theta/parse/reserved-keyword-as-identifier` is severity `E`, so
-// `hasLoadParseError` (production-composition.ts:2047–2054, applied at `:2094`)
+// `hasLoadParseError` (production-composition.ts:3263–3270, applied at `:3313`)
 // un-registers the caller at the SAME site the bug 0070/0071/0077/0079(a)/0110/
 // 0084/0089/0095/0102/0125/0050/0137/0139/0142 cells above exercise for their
 // own codes.
@@ -4011,7 +4011,7 @@ describe("H8a-T — bug 0148: a reserved keyword as an fn parameter name draws r
 //
 // The two broken callers mirror the bug doc's own §Reproduction rows e1 (face
 // 1) and e5 (face 2) verbatim. `theta/parse/binding-case-mismatch` is severity
-// `E`, so `hasLoadParseError` (production-composition.ts:2047–2054, applied at
+// `E`, so `hasLoadParseError` (production-composition.ts:3263–3270, applied at
 // `:2094`) un-registers each broken theta at the SAME site the bug 0070/0071/
 // 0077/0079(a)/0110/0084/0089/0095/0102/0125/0050/0137/0139/0142/0148 cells
 // above exercise for their own codes.
@@ -5030,7 +5030,7 @@ describe("H8a-T — bug 0056: an invoke(...) argument outside a params: literal 
 // Post-fix this never matters: `theta/load/params-type-not-expression` fires
 // inside `parseThetaDocument` itself, collapsing the frontmatter to `null`
 // before `composeExtensionInstance`'s per-theta loop ever reaches its
-// binder-model-resolution step (production-composition.ts:2094's
+// binder-model-resolution step (production-composition.ts:3313's
 // `document.frontmatter === null` arm drops the theta first).
 //
 // No existing live fixture (H8a in this file, the H9a acceptance fixtures, or
@@ -11451,7 +11451,7 @@ describe("H8a-T — cell 65 (bug 0103): a forged structural line inside a multi-
 // one turn witnesses both (token-bounded), the same lockstep obligation the
 // bug 0080 cell states:
 //   - SITE 1 — `evalExpr`'s `if (expr.kind === "object")` arm
-//     (src/runtime/statement-executor.ts:667): the `let`-bound value `q`.
+//     (src/runtime/statement-executor.ts:837): the `let`-bound value `q`.
 //   - SITE 2 — `evaluatePureExpression`'s `case "object"` arm
 //     (src/extension/production-theta-producer.ts:6284), reached only when a
 //     constructor is written INLINE inside a `${…}` interpolation.

@@ -13,7 +13,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 //
 // code-surface.md §5 flags a "load-phase routing gap": full `theta-system-note`
 // routing for discovery diagnostics is deferred on the `makeLoadEmit` path
-// (production-composition.ts:166-182 — the router holds no channel deps). It
+// (production-composition.ts:205-222 — the router holds no channel deps). It
 // is CLOSED on the shipped default export's `composeExtensionInstance` path
 // (proven by tests/load-phase-pre-eval-routing.test.ts). This test pins the
 // ACTUAL behaviour of the OTHER path — `discoverAndComposeFixtures`, used by
@@ -31,7 +31,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 //
 // Spec: errors-and-results/error-model.md (pre-eval failure surfacing);
 // REQ-PIC-11/87 surfacing surface; the FMC-1 / DISCLI-2 / IMPORTS-3 no-UI gap
-// noted inline at production-composition.ts:188-199.
+// noted inline at production-composition.ts:228-239.
 
 const GOOD_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join(
   "\n",
@@ -125,7 +125,7 @@ describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui
       // No-UI (`-p`/CI/RPC) mirror to stderr so the failure is not silent.
       const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
       expect(stderrText).toMatch(/theta\/load\/unknown-tool/);
-      // stderr line is prefixed `theta: ` per production-composition.ts:201.
+      // stderr line is prefixed `theta: ` per production-composition.ts:241.
       expect(stderrText).toMatch(/^theta: /m);
 
       // This path does NOT route load diagnostics onto the note channel.

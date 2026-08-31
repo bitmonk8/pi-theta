@@ -68,17 +68,17 @@
   - `src/discovery/package-discovery.ts:649` (`discoverPackageThetas`) — returns
     `{ thetas, diagnostics }`; the entry point that would carry the exposed
     directories out.
-  - `src/extension/production-composition.ts:566–577` — the composition-root
+  - `src/extension/production-composition.ts:571–584` — the composition-root
     package-source merge: `discoverPackageThetas` is called and its `thetas`
     folded into `discovered`; its contributing directories are not captured.
-  - `src/extension/production-composition.ts:639–643` (`activeRoots`) — the
+  - `src/extension/production-composition.ts:644–646` (`activeRoots`) — the
     file-derived set `Array.from(new Set(discovered.map((theta) =>
     dirname(theta.path))))`; covers a package directory only when it holds a
     discovered `.theta`.
-  - `src/extension/production-composition.ts:662–664` (`watchRoots`) — the
+  - `src/extension/production-composition.ts:670–672` (`watchRoots`) — the
     bug-0310 union `activeRoots` (forward-slashed) ∪ `walk.roots`; `walk.roots`
     is the four-source walk union and carries no package directory.
-  - `src/extension/production-composition.ts:1449` — the watch-list build
+  - `src/extension/production-composition.ts:1542` — the watch-list build
     consumes `initial.watchRoots`; the single arming input.
 - **Observed at:** v0.301.0 (337e8d08), offline — deterministic vitest probe
   over the shipped `composeExtensionInstance` via `createThetaExtension`, with
@@ -88,8 +88,8 @@
 ## Summary
 
 The composition root discovers package thetas through `discoverPackageThetas`
-(`production-composition.ts:566`) and folds them into `discovered`. The armed
-watch set (`watchRoots`, `production-composition.ts:662`) is the file-derived
+(`production-composition.ts:571`) and folds them into `discovered`. The armed
+watch set (`watchRoots`, `production-composition.ts:670`) is the file-derived
 `activeRoots` unioned with the discovery walk's four-source root union
 (`walk.roots`, from `DiscoveryResult.roots`). A package contributing directory
 enters `activeRoots` only through `dirname(theta.path)` of a `.theta` the walk
@@ -160,11 +160,11 @@ root triggers a re-walk, or on `/reload`.
 
 ## Actual behaviour / root cause
 
-- `production-composition.ts:639–643` derives `activeRoots` from found files:
+- `production-composition.ts:644–646` derives `activeRoots` from found files:
   `discovered.map((theta) => dirname(theta.path))`. For a package directory
   holding a discovered `.theta` this coincides with the directory; for a
   present-but-empty one it vanishes.
-- `production-composition.ts:662–664` unions `activeRoots` with `walk.roots`.
+- `production-composition.ts:670–672` unions `activeRoots` with `walk.roots`.
   `walk.roots` (`DiscoveryResult.roots`, `discovery-walk.ts:70`) is the walk's
   four-source union only — the walk defers the package source
   (`discovery-walk.ts:995`) — so no package contributing directory is in it.

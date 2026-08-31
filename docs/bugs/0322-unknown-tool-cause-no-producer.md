@@ -124,7 +124,7 @@ rg -n '"unknown_tool"' src/
 No construction. Reload-path interception: `resolveCallableSet` rejects an
 unknown Pi tool with `theta/load/unknown-tool`
 (`src/parser/callable-set.ts:392`) and the theta "registers iff no
-error-severity" (`production-composition.ts:1847`); the watcher rebuild
+error-severity" (`production-composition.ts:2010`); the watcher rebuild
 republishes via the PIC-36 registry swap, so a rebuilt theta with a lost
 tool is absent from the registry — uninvocable. Dispatch seam: read
 `production-theta-producer.ts:3275–3306` (rejection typed

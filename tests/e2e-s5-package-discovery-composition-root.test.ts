@@ -4,7 +4,7 @@
 // (`discoverThetas`, discovery-walk.ts, "not plumbed into this walk yet"); package thetas
 // are merged only at the composition root by `discoverPackageThetas`
 // (package-discovery.ts) inside `discoverAndComposeFixtures`
-// (production-composition.ts:319-334), and only when the derived slash name is
+// (production-composition.ts:571-584), and only when the derived slash name is
 // not already claimed by a higher-priority (CLI/settings/project) or
 // lower-priority (global) walk theta. `tests/package-discovery.test.ts` drives
 // `discoverPackageThetas` in ISOLATION over a FakeFileSystem — it never exercises

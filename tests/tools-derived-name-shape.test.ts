@@ -94,7 +94,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // DIAG-4 had no normative string to source and the rejection had no code to
 // report. Group (B)'s two derived-name cells were each red twice — the theta
 // was in the registered set, and the diagnostic naming its entry never reached
-// `ctx.ui.notify` (src/extension/production-composition.ts:193). Group (C)'s
+// `ctx.ui.notify` (src/extension/production-composition.ts:226). Group (C)'s
 // derived-name cells were red on `resolveCallableSet` returning
 // `registered: true` with the unspellable key bound and no diagnostic; (C3) was
 // red on the collision code firing in place of the derived-name code.

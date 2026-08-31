@@ -337,7 +337,7 @@ async function execute(doc: ThetaDocument): Promise<BodyExecution> {
  *
  * The diagnostic assertion runs FIRST because a theta carrying an
  * error-severity diagnostic is dropped by the parse pass and does not register
- * (src/extension/production-composition.ts:743–748), so the parse verdict is
+ * (src/extension/production-composition.ts:833–845), so the parse verdict is
  * what decides whether the body ever runs — and it is the observable §Fix
  * moves. `value` is asserted second so the cell pins the answer the author
  * asked for rather than only the absence of a refusal; the runtime is untouched

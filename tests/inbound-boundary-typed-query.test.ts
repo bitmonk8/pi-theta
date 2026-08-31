@@ -104,7 +104,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 
 // --- Substrate -------------------------------------------------------------
 
-/** The production content-addressing of `src/extension/production-composition.ts:318`. */
+/** The production content-addressing of `src/extension/production-composition.ts:3789`. */
 function realAjv(): AjvSchemaValidator {
   return new AjvSchemaValidator({
     emit: (): void => {},

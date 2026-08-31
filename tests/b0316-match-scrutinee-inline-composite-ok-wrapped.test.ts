@@ -50,7 +50,7 @@ import type { Expr } from "../src/parser/theta-document";
 // wildcard (or an `Ok(p)` pattern) silently wins; the same value hoisted through
 // a `let` binding matches correctly.
 //
-// Root cause: `evalAsResult` bullet-1 (src/runtime/statement-executor.ts:1108,
+// Root cause: `evalAsResult` bullet-1 (src/runtime/statement-executor.ts:1180,
 // bullet at :1119–:1132) unconditionally normalises the operand value via
 // `asResultValue(inner.value)` (:1132) for kinds try / match / object / array /
 // user-`fn` `call`; `asResultValue` (:1194) wraps every non-`Result` in `makeOk`.
@@ -308,7 +308,7 @@ describe("bug 0316 W8 — let-hoisted fn-call scrutinee (positional control)", (
 
 // ===========================================================================
 // EFFECT-SCRUTINEE CONTROL — the checkpointed-effect arm of `evalAsResult`
-// (statement-executor.ts:1157+, owned by bug 0307) must stay byte-equivalent: a
+// (statement-executor.ts:1229+, owned by bug 0307) must stay byte-equivalent: a
 // `match` over a live query still sees `Ok`/`Err`. Mirrors
 // tests/effectful-statement-host.test.ts's RecordingQueryModel real-host query
 // wiring — the real query loop drives a scripted model returning a clean text,

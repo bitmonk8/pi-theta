@@ -28,7 +28,7 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //
 // Fix: `runComposePass` reconstructs each runnable as
 // `{ ...composedInput, ...(description), run: fixture.run }`
-// (production-composition.ts:533), threading the TOP-LEVEL `description` that
+// (production-composition.ts:1150), threading the TOP-LEVEL `description` that
 // `composeThetaFixture` computed (theta-composition-producer.ts:300-303). The
 // factory registers with `fixture.description` (factory.ts:370), so the
 // description reaches `pi.registerCommand` — the autocomplete entry is texted.

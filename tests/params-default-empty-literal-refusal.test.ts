@@ -256,7 +256,7 @@ function recordedHasDefault(doc: ThetaDocument, wireName: string): boolean | und
  * The lowered-document expectation is the reachability link: `parseParams`'s
  * `hasError` gate (`src/parser/params.ts`) returns without a `loweredSchema`
  * as soon as any diagnostic carries error severity, and `hasLoadParseError`
- * (src/extension/production-composition.ts:2070) drops the theta on the same
+ * (src/extension/production-composition.ts:3263) drops the theta on the same
  * predicate over the `theta/parse/` namespace.
  */
 function expectEmptyDefaultRefused(label: string, doc: ThetaDocument, field: string): void {
@@ -562,7 +562,7 @@ describe("bug 0165 (E) — the refusal composes with the ordering rule", () => {
 // §Fix (d)(6) asks for a body-scope read "for whichever rows a bounded route
 // leaves loading". Route (a) leaves NO row loading: the refusal is
 // error-severity and sits in the `theta/parse/` namespace, so `hasLoadParseError`
-// (src/extension/production-composition.ts:2070) drops the theta before any
+// (src/extension/production-composition.ts:3263) drops the theta before any
 // registration, and `parseParams`'s `hasError` gate (src/parser/params.ts)
 // returns without a `loweredSchema`. There is then no lowered fragment for the
 // binder render to read a `default=` token off, no schema for

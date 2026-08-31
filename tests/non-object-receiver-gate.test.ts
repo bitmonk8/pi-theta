@@ -60,7 +60,7 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 //
 // FIXED CONTRACT pinned by this file (RED now, GREEN after the fix). One shared
 // receiver gate ahead of the four object read entry points — `applyStdlibMethod`
-// (src/runtime/statement-executor.ts:988, object arm :995), its pure-host twin
+// (src/runtime/statement-executor.ts:1131, object arm :995), its pure-host twin
 // `evaluateStdlibMethod` (src/extension/production-theta-producer.ts:5890,
 // object arm :5901), `evaluateIndexAccess` (src/runtime/runtime-panics.ts:121,
 // widening the existing non-object guard at :148) and `evaluateMemberAccess`
@@ -143,14 +143,14 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 //   - TWO HOSTS implement stdlib-method dispatch and the fix must move both.
 //     Groups (a)–(f) drive the EFFECTFUL executor (`applyStdlibMethod`): the
 //     executor owns the `index` / `member` / `method-call` expression arms
-//     (statement-executor.ts:763–816), including inside a user `fn` body.
+//     (statement-executor.ts:872–928), including inside a user `fn` body.
 //     Group (g) drives the PURE host (`evaluateStdlibMethod`) through the QRY-18
 //     interpolation render (`stringifyInterpolation`,
 //     production-theta-producer.ts:5564, whose `evaluatePureExpression` call is
 //     at :5571), over the tests/enum-schema-tag-privacy.test.ts group-(d)
 //     live-session double — an untyped query never dispatches `complete()`, so
 //     no model and no provider is involved. The `for`-iterand route into the
-//     pure host (statement-executor.ts:1379) is NOT usable: `theta/parse/non-array-iterand`
+//     pure host (statement-executor.ts:1552) is NOT usable: `theta/parse/non-array-iterand`
 //     rejects a method-call iterand for every receiver kind, object receivers
 //     included (probed: "'for' expects array<T> after 'in'; got keys").
 //   - The index and member entry points live in runtime-panics.ts and are

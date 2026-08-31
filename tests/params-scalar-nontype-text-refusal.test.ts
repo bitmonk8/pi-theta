@@ -174,7 +174,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // tests/fn-param-name-reserved-keyword.test.ts:312–329): by asserting the two
 // properties the shipped drop gate reads — error severity and the `theta/load/`
 // namespace (`hasLoadParseError`,
-// src/extension/production-composition.ts:2047–2054) — plus the frontmatter
+// src/extension/production-composition.ts:3263–3270) — plus the frontmatter
 // collapse, rather than by re-driving discovery, which witnesses nothing more.
 //
 // NO SILENT SKIPPING: every reader THROWS, naming the absent intermediate, when
@@ -356,7 +356,7 @@ function expectTextRefused(label: string, doc: ThetaDocument, param: string): vo
     throw new Error(`${label}: diagnostics[0] absent after a one-element count assertion`);
   }
   // The two properties the shipped drop gate reads. `hasLoadParseError`
-  // (src/extension/production-composition.ts:2047–2054) drops a theta exactly
+  // (src/extension/production-composition.ts:3263–3270) drops a theta exactly
   // when some diagnostic has `severity === "error"` and a code in the
   // `theta/load/` or `theta/parse/` namespace, so asserting both is the
   // reachability link between this emission and a theta that does not register.

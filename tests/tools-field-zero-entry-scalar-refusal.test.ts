@@ -32,8 +32,8 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // the `else`, so the refusal cannot reach the input; :1512 then omits the
 // `tools` key from the returned frontmatter, and
 // `resolveThetaToolsAtLoad`'s early return
-// (src/extension/production-composition.ts:1643–1652, reaching the frozen
-// `EMPTY_CALLABLE_SET` at :1608) answers the empty callable set by its
+// (src/extension/production-composition.ts:1863–1872, reaching the frozen
+// `EMPTY_CALLABLE_SET` at :1828) answers the empty callable set by its
 // `toolsList === undefined` disjunct. An author-written `tools:` field that
 // declares nothing is therefore indistinguishable at load from no field at all
 // (docs/bugs/0206-zero-entry-tools-scalar-loads-empty-callable-set.md).
@@ -472,7 +472,7 @@ describe("bug 0206 (E2) — a `tools:` scalar whose comma split yields zero entr
       // only when defined, so a refused-but-registered theta would be
       // indistinguishable from an absent field to every `frontmatter.tools`
       // reader, including `resolveThetaToolsAtLoad`'s `toolsList === undefined`
-      // disjunct (production-composition.ts:1645).
+      // disjunct (production-composition.ts:1864).
       const r = parse(theta(row.lines, BODY_NO_CALL));
       expect(
         r.frontmatter,

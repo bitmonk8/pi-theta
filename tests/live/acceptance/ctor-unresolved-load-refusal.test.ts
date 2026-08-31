@@ -23,7 +23,7 @@
 //      note on stdout). MEASURED: a `pi -p` run over a root containing the
 //      offending theta captured the control's reply on stdout and ZERO bytes on
 //      stderr. The `makeLoadEmit` stderr mirror
-//      (`src/extension/production-composition.ts:207`) is the HELPER path's
+//      (`src/extension/production-composition.ts:241`) is the HELPER path's
 //      router, not this one. So the diagnostic text is not an available
 //      black-box observable.
 //   2. Invoking the refused slash directly (`pi -p "/b25offender"`). MEASURED:

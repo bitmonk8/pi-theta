@@ -1853,7 +1853,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
     // uppercase-first to type-like bindings — a `for` variable is in neither
     // list. expressions.md:53 classifies it as a local binder alongside
     // `let` and a `params:` field, and the runtime binds it unconditionally
-    // (src/runtime/statement-executor.ts:1740,
+    // (src/runtime/statement-executor.ts:1936,
     // `env.bindIterationVariable(stmt.variable, element)`), so each iteration
     // hands `g` the integer `1` then `2`, never a `P`.
     //
@@ -1883,7 +1883,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
     // `{ kind: "identifier", name }` for a bare pattern whatever its case, and
     // both runtime matchers bind it unconditionally
     // (src/runtime/match-result.ts:177–179;
-    // src/runtime/statement-executor.ts:1198,
+    // src/runtime/statement-executor.ts:1350,
     // `armEnv.defineLocal(name, value, false)`), so this arm hands `g` the
     // scrutinee `3`. Whether expressions.md:174's disambiguation ("lowercase
     // identifiers bind, capitalised identifiers refer to constructors or schema
@@ -1908,7 +1908,7 @@ describe("bug 0050 — a FABRICATED identifier-name argument read is not a proof
     // `p.type.length > 0`); an unannotated one is recorded WITHHELD (group u12),
     // so no proof of its type exists inside the body. The runtime
     // binds it positionally regardless
-    // (src/runtime/statement-executor.ts:455,
+    // (src/runtime/statement-executor.ts:463,
     // `scope.defineLocal(fn.params[i].name, arg.value, false)`), so `h(3)`
     // hands `g` the integer `3`. lexical.md:16 requires a lowercase-first
     // parameter name, which `P` violates: bug 0139's `binding-case-mismatch`
@@ -2057,7 +2057,7 @@ describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a 
     // The second operand shape, pinned separately from u10 because a fix could
     // plausibly special-case `string` and leave the rest: `-true` evaluates to
     // the number `-1` (`-(right.value as number)`,
-    // src/runtime/statement-executor.ts:911) while the read claims `boolean`.
+    // src/runtime/statement-executor.ts:1026) while the read claims `boolean`.
     const doc = parse(U10_NEG_BOOL);
     expect(
       argRange(doc, "g", 0),
@@ -2100,7 +2100,7 @@ describe("bug 0050 — an arithmetic result read as a NON-NUMERIC type is not a 
     // (`checkArithmeticOperands`, src/parser/type-layer-checks.ts) now REFUSES
     // all three at parse; the value that the pre-0332 world computed — via the
     // combined `-`/`*`/`/`/`%` arm of `applyBinaryScalar`
-    // (src/runtime/statement-executor.ts:1037, arm at :1047–:1071, whose bug
+    // (src/runtime/statement-executor.ts:1069, arm at :1047–:1071, whose bug
     // 0332 numeric belt throws `BinaryNonNumericError` at :1060) — is never
     // produced, so no operand reading survives to be judged. The
     // fn-arg-type-mismatch check withholds INDEPENDENTLY, so each cell's
@@ -2368,15 +2368,15 @@ describe("bug 0050/0081 — a SELF-SHADOWING initialiser over a now-proven bindi
 // runtime never reads at that position.
 //
 // The runtime installs all four binders in an inner scope, unconditionally:
-//   - a `for` variable — `executeFor` (src/runtime/statement-executor.ts:1740,
+//   - a `for` variable — `executeFor` (src/runtime/statement-executor.ts:1936,
 //     `env.bindIterationVariable(stmt.variable, element)`); control-flow.md:13
 //     binds it "as a fresh immutable local per iteration".
 //   - a `match` pattern binding — `evalMatch`
-//     (src/runtime/statement-executor.ts:1196–1198, `env.child()` then
+//     (src/runtime/statement-executor.ts:1348–1350, `env.child()` then
 //     `armEnv.defineLocal`), with an identifier pattern binding the scrutinee
 //     whatever its value (src/runtime/match-result.ts:177–179).
 //   - a `fn` parameter, annotated or not — `evalUserFnCall`
-//     (src/runtime/statement-executor.ts:449–455, `env.childFnActivation()`
+//     (src/runtime/statement-executor.ts:457–463, `env.childFnActivation()`
 //     then per-parameter `defineLocal`). theta 1.0 has no closures, so a
 //     caller-frame local is not visible inside the body at all.
 // expressions.md:51 makes local bindings "shadow everything else lexically",
@@ -2740,7 +2740,7 @@ describe("bug 0050 — a WITHHELD binder entry is not judgeable by the sibling r
     // `for` body inside a `par for` body, and the outer record it hides is the
     // par-for arm's own ELEMENT record (a proven `integer`). Every execution
     // binds the inner `P` to the integer `5`
-    // (`env.bindIterationVariable`, src/runtime/statement-executor.ts:1740;
+    // (`env.bindIterationVariable`, src/runtime/statement-executor.ts:1936;
     // control-flow.md:13 — "a fresh immutable local per iteration"), and bug
     // 0126 (docs/bugs/0126-plain-for-binds-no-loop-variable.md) records that
     // element in the body scope, so the sink judges `[5]`'s proven `integer`

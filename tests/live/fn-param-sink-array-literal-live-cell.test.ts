@@ -27,7 +27,7 @@
 // becomes a slash command, nor the note channel the settled `SessionManager`
 // carries — which is where the registration consequence of an `E`-severity code
 // is felt (`const registered = !diagnostics.some((d) => d.severity ===
-// "error")`, src/extension/production-composition.ts:1735). This cell drives
+// "error")`, src/extension/production-composition.ts:2010). This cell drives
 // both through the shipped production composition root
 // (`bootShippedExtension`), mirroring
 // `tests/live/alias-sink-array-element-check-live-cell.test.ts`, and asserts on

@@ -32,7 +32,7 @@ import { FakeClock } from "./helpers/fake-clock";
 // src/extension/factory.ts:502-509 states sub-steps 2/3/5 are "live-but-empty
 // until Increment B", but the shipped tree threads
 // `liveActiveInvocations`/`liveForwardingSignals` (factory.ts:483-487,
-// production-composition.ts:652/661) so those sub-steps operate on REAL entries.
+// production-composition.ts:1500/1509) so those sub-steps operate on REAL entries.
 //
 // Spec: pi-integration-contract/session-shutdown-semantics.md sub-step 2
 // (stamp reason then `thetaAbort.abort`), sub-step 5 (detach forwarding

@@ -110,7 +110,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //                 the direct sinks with `-` controls.
 //   h1–h11        the runtime half. The parse-time refusal is the ONLY defence
 //                 — all three shipped `%` implementations are plain IEEE-754
-//                 remainder (src/runtime/statement-executor.ts:923,
+//                 remainder (src/runtime/statement-executor.ts:1069,
 //                 src/runtime/expression-evaluator.ts:524,
 //                 src/extension/production-theta-producer.ts:6654) and none
 //                 validates against an annotation — so each cell pins the VALUE
@@ -1386,7 +1386,7 @@ describe("bug 0152 — the rendering that proves the type layer certified rather
 // The route-A arm is placed AHEAD of the reduction and returns before either
 // operand is typed, so it answers `number` for a `string` or `boolean` left
 // operand too. That is spec-correct: `"a" % 0` evaluates to the JS number `NaN`
-// (`applyBinaryScalar`, src/runtime/statement-executor.ts:923), so a `string`
+// (`applyBinaryScalar`, src/runtime/statement-executor.ts:1069), so a `string`
 // annotation is genuinely violated. It mirrors the L1–L4 class bug 0142's fix
 // discovered for `/` after its own §Fix failed to anticipate it.
 //
@@ -1595,7 +1595,7 @@ describe("bug 0152 — the committed corpus", () => {
 // ===========================================================================
 // (h) — the runtime half. The parse-time refusal is the ONLY defence: all three
 // shipped `%` implementations are plain IEEE-754 remainder
-// (src/runtime/statement-executor.ts:923,
+// (src/runtime/statement-executor.ts:1069,
 // src/runtime/expression-evaluator.ts:524 — whose own comment carries the
 // non-panic half of the spec sentence and not the widening half —
 // src/extension/production-theta-producer.ts:6654) and none validates against

@@ -45,7 +45,7 @@
     only-lowers sentences; no `n ≤ 0` disposition.
   - `docs/reference/hard-ceilings.md:119–135` — documents the 64-clamp
     direction only.
-  - `src/runtime/statement-executor.ts:1396` — the silent ≥1 floor.
+  - `src/runtime/statement-executor.ts:1581` — the silent ≥1 floor.
   - `src/parser/type-layer-checks.ts:3141–3159` — the static sink checks
     type only (correctly, per the current spec text): no value-domain
     check for literal `0` / negative literals.
@@ -101,7 +101,7 @@ directions the clamp may move.
 
 ## Actual behaviour / root cause
 
-`statement-executor.ts:1396` applies `Math.max(1, …)` unconditionally.
+`statement-executor.ts:1581` applies `Math.max(1, …)` unconditionally.
 The floor exists to keep the worker pool alive (a zero-width pool would
 strand the loop's promise: zero workers claim no index, yet — per
 candidate 02 — the loop would *complete with fabricated values*, not

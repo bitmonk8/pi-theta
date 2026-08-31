@@ -61,7 +61,7 @@ import type { ThetaValue } from "../src/runtime/value";
 //       expected range in this file is therefore the PATTERN's span, not the
 //       head token's — which is what separates this file's ranges from bug
 //       0221's head-token ranges. The runtime shape is untouched
-//       (`toRuntimePattern`, src/runtime/statement-executor.ts:1204 with its
+//       (`toRuntimePattern`, src/runtime/statement-executor.ts:1359 with its
 //       object arm :1190–:1193, the runtime `Pattern` object variant
 //       src/runtime/match-result.ts:113–:117, and `matchPattern`'s object arm
 //       :202–:221 stay byte-identical — §Fix constraint 2).

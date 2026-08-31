@@ -67,7 +67,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // spellings, exactly one additional `theta/parse/reserved-keyword-as-identifier`,
 // severity `error`, the registry *Message* with the keyword interpolated,
 // ranged on the PARAMETER NAME TOKEN. The code is `E`, so `hasLoadParseError`
-// (src/extension/production-composition.ts:2047–2054, applied at `:2094`)
+// (src/extension/production-composition.ts:3263–3270, applied at `:3313`)
 // refuses to register the theta — that refusal is the emission's practical
 // consequence and the reason the spelling reaching the runtime is an S1 cell.
 //
@@ -345,7 +345,7 @@ function soleRange(doc: ThetaDocument, code: string): SourceRange {
 
 /**
  * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:2047–2054) by construction: that
+ * (src/extension/production-composition.ts:3263–3270) by construction: that
  * function is module-private — `rg -n 'export.*hasLoadParseError' src/` matches
  * nothing — so it cannot be imported, and the predicate is mirrored here
  * instead, the same way and for the same reason
@@ -813,7 +813,7 @@ describe("0148 (d) — the theta stops registering", () => {
   it("d1: the pin blocks registration", () => {
     // The S1 cell: `hasLoadParseError` drops a theta carrying any
     // error-severity `theta/load/*` or `theta/parse/*` diagnostic
-    // (src/extension/production-composition.ts:2047–2054, applied at `:2094`),
+    // (src/extension/production-composition.ts:3263–3270, applied at `:3313`),
     // so the emission the a-rows require is exactly what stops the spelling
     // lexical.md:20 refuses from loading, registering and running.
     const doc = theta("fn h(let: string): number { 1 }\n");

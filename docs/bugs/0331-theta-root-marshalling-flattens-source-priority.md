@@ -44,13 +44,13 @@
     flag, all roots joined".
   - `src/extension/production-theta-producer.ts:2200` —
     `thetaDirs: this.#input.activeRoots ?? []`.
-  - `src/extension/production-composition.ts:634–636` — `activeRoots` =
+  - `src/extension/production-composition.ts:644–646` — `activeRoots` =
     dirnames of discovered (post-shadow WINNER) thetas; the shadowed
     copy's dir enters via any sibling theta it hosts.
   - `resolveSlashNames` (`src/discovery/discovery-walk.ts`) —
     same-priority theta-vs-theta: "every colliding theta drops"; all
     `--theta` components are one priority tier.
-  - `src/extension/production-composition.ts:1119`
+  - `src/extension/production-composition.ts:1183`
     (`markedRootRegistrationRefusal`) — converts the child-side drop into
     the terminal refusal envelope.
 - **Observed at:** v0.287.0 (ee681f7b), offline — deterministic vitest
@@ -91,7 +91,7 @@ alt/zqx-review.theta         description: ALT COPY    (settings source)
    registers `zqx-review` (description ALT COPY — settings tier 2 beats
    project tier 3) + `zqx-other`; one `theta/load/cross-source-shadow`
    warning. Legal, working configuration; `/zqx-review` invocable.
-   `activeRoots` per `production-composition.ts:634` =
+   `activeRoots` per `production-composition.ts:644` =
    `{.pi/theta, alt}` (dirnames of the two discovered thetas).
 2. **Child pass** (regime env authenticated, `PI_THETA_SUBAGENT_ROOT=
    zqx-review`, `pi.getFlag('theta')` = `.pi/theta<delim>alt` — the exact

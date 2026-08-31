@@ -311,7 +311,7 @@ function assertMissingObjectKeyPanic(probe: Probe, expectedMessage: string, what
 
 // ===========================================================================
 // (a) The production EXECUTOR route — the wire-facing observable. Both hosts
-// (src/runtime/statement-executor.ts:775 and
+// (src/runtime/statement-executor.ts:882 and
 // src/extension/production-theta-producer.ts:5749) call the same
 // `evaluateIndexAccess`, so the rendering has one definition point and one
 // executor route pins it.

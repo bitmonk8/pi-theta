@@ -56,7 +56,7 @@ import {
 // every caller:
 //   (a) `isResultValue` classifies plain user/model data `{ ok: boolean, … }`
 //       as a `Result`;
-//   (b) `asResultValue` (src/runtime/statement-executor.ts:1119, the CONV-6
+//   (b) `asResultValue` (src/runtime/statement-executor.ts:1266, the CONV-6
 //       implicit-`Ok` wrap) passes such data through UNWRAPPED, so `?` /
 //       `match Ok(v)` unwrap its nonexistent `.value` → the binding is
 //       `undefined`/`null` and member access aborts with `null member access`;

@@ -756,8 +756,8 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
   it("RED 11: the emitted severity is the source's row — warning for project / global / settings, ERROR for CLI", async () => {
     // WHY the severity, not the code alone, is load-bearing: the production
     // group sink `emitLoadNoteGroup`
-    // (src/extension/production-composition.ts:1115-1132) routes error-severity
-    // diagnostics through the pre-eval router and, at :1126-1131, batches
+    // (src/extension/production-composition.ts:1462-1479) routes error-severity
+    // diagnostics through the pre-eval router and, at :1473-1478, batches
     // `severity === "warning"` onto the `theta-system-note` channel with NO
     // code allow-list. The discovery walk's diagnostics reach that sink as one
     // group (`sink.emitGroup(walk.diagnostics)`, :447); the bug-0013 pin

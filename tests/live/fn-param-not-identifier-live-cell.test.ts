@@ -51,7 +51,7 @@
 //      `SessionManager`: an error-severity load-phase diagnostic routes onto
 //      that channel through the V4e pre-eval router (`preEvalCauseOf` maps
 //      `theta/parse/*` → `lex-parse-type`,
-//      src/extension/production-composition.ts:309–311; the note content is
+//      src/extension/production-composition.ts:322–324; the note content is
 //      `renderDiagnosticBatch([diagnostic])`, and `renderDiagnosticLine`
 //      writes the CODE into the line, src/diagnostics/diagnostic.ts:87), so
 //      the new code must appear by name on the real channel the suite

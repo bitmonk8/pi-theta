@@ -34,7 +34,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 // alias-typed array, each against a concrete-parameter control that emits it —
 // group (c). All six are `E`, so where a missing emission would ordinarily be a
 // lost warning, here an illegal theta REGISTERS: `hasLoadParseError`
-// (src/extension/production-composition.ts:2045) has nothing to act on. The
+// (src/extension/production-composition.ts:3263) has nothing to act on. The
 // runtime disposition of three of them is pinned separately, in
 // tests/index-element-alias-runtime-disposition.test.ts.
 //
@@ -273,7 +273,7 @@ describe("0125 (a) — an index read on an alias-typed array narrows to the alia
     // `E` (code-registry-parse.md:63, *Severity* column), and
     // `parseDiscoveredTheta` drops any theta carrying an error-severity
     // `theta/parse/*` diagnostic (`hasLoadParseError`,
-    // src/extension/production-composition.ts:2045), so silencing this code
+    // src/extension/production-composition.ts:3263), so silencing this code
     // registers a theta the spec refuses.
     const diags = diagsOf(["schema L = array<string>", ...LET_METHOD("L")]);
     expect(

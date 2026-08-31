@@ -54,7 +54,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //  3. PIC-11 (docs/spec_topics/pi-integration-contract/host-interfaces-services.md:46)
 //     keys the per-query validator cache by the schema slug; the production
 //     wiring (`productionSchemaSlugOf`,
-//     src/extension/production-composition.ts:2728) returns
+//     src/extension/production-composition.ts:3789) returns
 //     `{ slug: schemaSlug(v), canonicalBytes: canonicalForm(v) }` — a 16-hex
 //     digest distinct from the bytes it is taken over.
 //

@@ -351,7 +351,7 @@ function ownValue(record: object, key: string): unknown {
   return Object.getOwnPropertyDescriptor(record, key)?.value;
 }
 
-/** The production content-addressing of `src/extension/production-composition.ts:318`. */
+/** The production content-addressing of `src/extension/production-composition.ts:3789`. */
 function productionSlugOf(schema: LoweredSchema): SchemaSlug {
   const canonicalBytes = JSON.stringify(schema);
   return { slug: canonicalBytes, canonicalBytes };

@@ -469,7 +469,7 @@ function messageFor(marker: string): string {
 /**
  * The file-only `Diagnostic` the emission site pushes, reconstructed for the
  * line-oriented renderers. The toast router hands `ctx.ui.notify` the bare
- * `message` (src/extension/production-composition.ts:218), and the malformed
+ * `message` (src/extension/production-composition.ts:226), and the malformed
  * arm pushes `severity` / `code` / `file` / `message` with no `range`
  * (src/parser/callable-set.ts:194–199) — the file-only category of
  * diagnostic-shape.md's located-site classification.

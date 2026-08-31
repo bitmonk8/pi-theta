@@ -143,7 +143,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // loop's other rules): the per-field default check is `parseParams`'s
 // per-field default loop (`src/parser/params.ts`) — the `checkLiteralSublanguage`
 // call, preceded by bug 0102's `hasRawNewlineInStringLiteral` refusal — and the
-// registration gate `hasLoadParseError` is src/extension/production-composition.ts:2045–2052.
+// registration gate `hasLoadParseError` is src/extension/production-composition.ts:3263–3270.
 //
 // FOUR ROWS ABOVE ARE SUBSTITUTED, NOT THE PROBE'S OWN BYTES (bug 0059 §Fix +
 // operator grant, HEAD 948b7814): R1, R1b, F1 and R3e originally recorded
@@ -361,7 +361,7 @@ interface LoadedParams {
  * The empty-diagnostic assertion runs first (every fixture read through this
  * helper pins a zero-diagnostic disposition — that is what makes it a theta
  * that REGISTERS, per `hasLoadParseError`,
- * src/extension/production-composition.ts:1904–1911), and every absent
+ * src/extension/production-composition.ts:3263–3270), and every absent
  * intermediate THROWS with the diagnostics rendered.
  */
 function loadCleanly(label: string, paramsBlock: string): LoadedParams {

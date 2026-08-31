@@ -31,10 +31,10 @@
     refusal is a child-side notify line plus a registry drop, and the
     stale-hashed callable still dispatches.
 - **Affected** (at ee681f7b, v0.287.0):
-  - `src/extension/production-composition.ts:1157–1230`
+  - `src/extension/production-composition.ts:1236–1340`
     (`refuseDivergedChildCallables`) — "refuses" = `thetas.filter(...)`
     over the discovered list + `emitDiagnostic`; nothing else.
-  - `src/extension/production-composition.ts:1119`
+  - `src/extension/production-composition.ts:1183`
     (`markedRootRegistrationRefusal`) — the only bridge from a drop to an
     invocation-level refusal; keys on the marked root's own slug.
   - `src/extension/production-theta-producer.ts` `#classifyCall` /
@@ -141,7 +141,7 @@ any refusal in `verifyChildCallableHashes`, also drop the marked root from
 the survivors so `markedRootRegistrationRefusal` fires and the parent gets
 `Err(InvokeInfraError{cause:"load_failure"})` naming the hash-mismatch
 diagnostic. One-line-ish at
-`production-composition.ts:1104`'s call site; regression-lock with the
+`production-composition.ts:1167`'s call site; regression-lock with the
 existing e2e harness by asserting the ROOT absent (today it asserts only
 the callable absent). Option B (narrower blast radius): thread the refusal
 set into the root's callable-set snapshot and refuse at dispatch with the

@@ -33,7 +33,7 @@
      `theta /infraleaf returned Err: invoke of ./missing.theta failed
      (internal_error)`.
   2. *Unparseable callee → `load_failure`.* `parseCalleeTheta`
-     (`src/extension/production-composition.ts:2891–2917`) returns
+     (`src/extension/production-composition.ts:3091–3116`) returns
      `undefined` for BOTH the unreadable-bytes case (`readBytes` rejection,
      `:2903–2906`) and the parse-failure case (`frontmatter === null ||
      hasLoadParseError`, `:2913–2915`); `#driveCallee` maps every `undefined`
@@ -66,7 +66,7 @@
     when the re-check did not throw), `#recheckCalleeContainment`
     (`:3793–3814`; skips when `fileSystem`/`activeRoots` are undefined —
     the unit-harness condition that keeps existing pins green).
-  - `src/extension/production-composition.ts:2891–2917` (`parseCalleeTheta`'s
+  - `src/extension/production-composition.ts:3091–3116` (`parseCalleeTheta`'s
     two collapsed `undefined` returns).
   - `src/runtime/invoke-cancellation.ts:122–139` (the boundary catch that
     supplies the `internal_error` default).
@@ -176,7 +176,7 @@ return:
    (`invoke-cancellation.ts:134–139`) then applies its defect default. The
    error's `message` is the raw Node `ENOENT` text (via `panicMessage`),
    not the arm's minted `invoke callee '<path>' could not be loaded`.
-2. `parseCalleeTheta` (`production-composition.ts:2903–2915`) has one
+2. `parseCalleeTheta` (`production-composition.ts:3108–3116`) has one
    `undefined` for two spec-distinct classes, and `#driveCallee` cannot
    re-split what the seam collapsed.
 

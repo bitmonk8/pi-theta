@@ -38,7 +38,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // Bug 0110 found two elements, one rule, true at `v0.65.0` (`CHANGELOG.md:9`).
 // Element 1: no load-time containment check reached a
 // `tools:` entry — `parseCalleeForTools`
-// (`src/extension/production-composition.ts:1907`) resolved the entry with a
+// (`src/extension/production-composition.ts:2178`) resolved the entry with a
 // bare `isAbsolute(spec) ? spec : resolvePath(callerDir, spec)` (`:1914`) and
 // read its bytes, with no `realpath` and no comparison against the active-root
 // union `discoverAndComposeFixtures` derives into `activeRoots`. Element 2
@@ -797,7 +797,7 @@ describe("bug 0110 cells H1-H2 — a path-rejected entry draws no callee-derived
 // A directory junction `<ws>/.pi/theta/farlink` points at the out-of-root
 // directory. The entry `./farlink/linkfar.theta` bare-resolves INSIDE the
 // active root — so the bare `resolvePath` at
-// `src/extension/production-composition.ts:1914` cannot distinguish it from an
+// `src/extension/production-composition.ts:2187` cannot distinguish it from an
 // in-root sibling — while its `realpath` lies outside every root. Only a
 // `realpath`-based check reds this cell, which is what makes it the witness for
 // "call `checkInvokePathAtLoad`, do not substitute `resolvePath`".

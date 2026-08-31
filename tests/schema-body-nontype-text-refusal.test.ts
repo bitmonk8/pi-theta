@@ -23,7 +23,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // catch-all — the `unspellable` sink push, then the permissive `return {}` —
 // lower `{}`, and draw NO diagnostic at any
 // severity — so `hasLoadParseError`
-// (src/extension/production-composition.ts:2047) never fires and the theta
+// (src/extension/production-composition.ts:3263) never fires and the theta
 // registers with a declaration that validates nothing
 // (docs/bugs/0061-nonparams-type-positions-keep-junk-arm-text-silent.md).
 //
@@ -154,7 +154,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // that has none. The registration consequence is reached the way the sibling
 // unit locks reach it: by asserting the two properties the shipped drop gate
 // reads — error severity and the `theta/parse/` namespace (`hasLoadParseError`,
-// src/extension/production-composition.ts:2047) — rather than by re-driving
+// src/extension/production-composition.ts:3263) — rather than by re-driving
 // discovery, which witnesses nothing more.
 //
 // NO SILENT SKIPPING: every reader THROWS, naming the absent intermediate, when
@@ -427,7 +427,7 @@ function expectRefused(label: string, read: DeclRead, fragments: number, lowered
 
 /**
  * The predicate `hasLoadParseError`
- * (src/extension/production-composition.ts:2047) computes, evaluated over the
+ * (src/extension/production-composition.ts:3263) computes, evaluated over the
  * diagnostics this fixture actually emitted. This is the reachability link
  * between the refusal and a theta that does not register: without an
  * error-severity `theta/load/` or `theta/parse/` diagnostic the drop arm is not

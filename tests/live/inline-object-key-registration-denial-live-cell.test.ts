@@ -12,7 +12,7 @@
 // constraint 6 witness). The offline file pins `parseThetaDocument`'s
 // diagnostic bytes directly. Nothing offline observes the REAL
 // discovery → load → `pi.registerCommand` step
-// (`hasLoadParseError`, src/extension/production-composition.ts:2360) that
+// (`hasLoadParseError`, src/extension/production-composition.ts:3263) that
 // turns those bytes into a registration outcome — at HEAD (pre-fix) both
 // shapes below draw `[]` and REGISTER; after the fix each draws an
 // error-severity `theta/parse/reserved-keyword-as-identifier` and is DENIED.

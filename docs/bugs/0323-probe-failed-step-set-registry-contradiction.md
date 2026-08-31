@@ -55,7 +55,7 @@
      (`capability-probe.ts:468–486`) and `resolveSubagentExecutable`
      (`src/runtime/subagent-launcher.ts:149–166`) contain no trap, and the
      call site runs bare inside the compose pass
-     (`src/extension/production-composition.ts:836`) — a throw from the
+     (`src/extension/production-composition.ts:872`) — a throw from the
      injected `ExecutableHost` would unwind the load pass, not route to
      `probe-failed`.
   4. *Production reachability of the (f) throw is closed at this pin.* The
@@ -83,7 +83,7 @@
     (`probeFailed`), `:377` (the `"peer-dep-version"` emit), `:468–486`
     (`probeSubagentExecutable`, no trap).
   - `src/runtime/subagent-launcher.ts:149–166` (`resolveSubagentExecutable`,
-    no trap); `src/extension/production-composition.ts:836` (bare call in
+    no trap); `src/extension/production-composition.ts:872` (bare call in
     the compose pass); `src/extension/production-subagent-host.ts:109–126`
     (the throw-free production host).
   - Committed pins: `tests/capability-probe.test.ts:288`;
@@ -120,7 +120,7 @@ shipped production host the gap is latent (`existsSync` converts the spec's
 own `EACCES` example to a clean `false`), so the member is dead rather than
 the crash live; an `ExecutableHost` whose `fileExists` throws — the seam is
 injectable (`passExecutableHost`,
-`production-composition.ts:471/:489`) — unwinds the load pass instead of
+`production-composition.ts:481/:499`) — unwinds the load pass instead of
 producing the documented refusal.
 
 ## Reproduction
@@ -140,7 +140,7 @@ rg -n '"subagent-executable"' src/     → no hits
 Wrap absence: read `probeSubagentExecutable`
 (`capability-probe.ts:468–486`) and `resolveSubagentExecutable`
 (`subagent-launcher.ts:149–166`) — no try/catch; call site
-`production-composition.ts:836` bare. Contrast any of steps (a)–(e) in
+`production-composition.ts:872` bare. Contrast any of steps (a)–(e) in
 `runCapabilityProbe` (each body wrapped, catch → `probeFailed`).
 
 ## Expected behaviour
@@ -190,7 +190,7 @@ still ends at `"typebox-shape"`.
   correct on both pages and in `capability-probe.ts:407`; nothing here
   touches the kind set.
 - `theta/load/subagent-executable-unresolved` (the clean (f) verdict) is
-  correctly wired (`production-composition.ts:843–846`) and out of scope.
+  correctly wired (`production-composition.ts:891–894`) and out of scope.
 - Whether the (f) check should also emit `host-incompatible` rather than its
   own code is settled by capability-probe.md:63/:77 and not reopened.
 

@@ -73,7 +73,7 @@
   - `src/runtime/subagent-json-driver.ts:155` — the envelope `err` arm's
     verbatim settle (correct in itself; the arbitration belongs to the wrap
     seam or here, not nowhere).
-  - `src/runtime/statement-executor.ts:845–852`, `:1085–1092` — the
+  - `src/runtime/statement-executor.ts:977–984`, `:1256–1258` — the
     executor's cancelled-effect mapping (`flow: "cancel"`), which handles the
     parent-own-signal arm correctly today: a parent whose OWN signal fired
     gets the bare cancelled outcome through the no-envelope/kill path, and
@@ -184,7 +184,7 @@ path, `subagent-json-driver.ts:178`) and does not consult it here.
   the parent's own signal by construction; bare is correct there.
 - In-process `subagent fn` bodies share the invocation's controller, so the
   child-internal/parent distinction does not arise for them; their wrap of a
-  `?`-propagated `cancelled` VALUE (`statement-executor.ts:577`) is a
+  `?`-propagated `cancelled` VALUE (`statement-executor.ts:611`) is a
   separate consistency question not claimed here.
 - The `invoke_infra` half of the exemption line is candidate 04.
 

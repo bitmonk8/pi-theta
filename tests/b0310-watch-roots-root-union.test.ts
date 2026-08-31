@@ -27,8 +27,8 @@ import { FakeClock } from "./helpers/fake-clock";
 // at scan time), NOT the dirnames of the
 // `.theta` files discovery FOUND. `activeRoots` is derived from found files
 // (`Array.from(new Set(discovered.map((theta) => dirname(theta.path))))`,
-// production-composition.ts:634), and the watch list unions exactly that subset
-// with the two settings-file paths (production-composition.ts:1416). A
+// production-composition.ts:644), and the watch list unions exactly that subset
+// with the two settings-file paths (production-composition.ts:1544). A
 // present-but-EMPTY active root — a scaffolded `<ws>/.pi/theta/` with no thetas
 // yet — contributes no found file, so it is never armed. §Fix constraint 1
 // requires the watch list to consume the resolved root union (unioned with the
