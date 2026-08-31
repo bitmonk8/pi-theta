@@ -49,6 +49,15 @@ export interface DiscoveryInput {
   readonly settings: ThetaSettings;
   readonly cliPaths?: readonly string[];
   readonly piOwnedNames?: readonly PiOwnedCommand[];
+  /**
+   * Bug 0331: the marked root's winning source path, as the parent resolved
+   * it, threaded from the AUTHENTICATED control plane
+   * (`detectMarkedRootWinner`). `undefined` outside the subagent-root regime
+   * or when the carrier is absent/malformed — the walk then applies today's
+   * collision resolution unconditionally. Scoped to `slug` alone: a genuine
+   * collision or shadow under any OTHER name is unaffected.
+   */
+  readonly markedRoot?: { readonly slug: string; readonly winnerPath: string } | undefined;
 }
 
 /** One discovered, registrable theta: its slash name, absolute path, and source. */
@@ -1126,7 +1135,12 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   // then cross-source/format collision resolution over the survivors.
   const caseResolved = resolveBySource(candidates, diagnostics);
   const valid = validateAndRead(fs, caseResolved, diagnostics);
-  const thetas = await resolveSlashNames(await valid, input.piOwnedNames ?? [], diagnostics);
+  const thetas = await resolveSlashNames(
+    await valid,
+    input.piOwnedNames ?? [],
+    diagnostics,
+    input.markedRoot,
+  );
 
   return { thetas, diagnostics, roots: [...roots] };
 }
@@ -1241,13 +1255,43 @@ async function validateAndRead(
   return out;
 }
 
+/** Bug 0331: within one name group, collapse candidates whose
+ *  separator-normalized path is identical down to ONE candidate, keeping the
+ *  HIGHEST-priority (lowest `PRIORITY` number) tier — one physical file is one
+ *  candidate, regardless of how many discovery sources reach it. Regime-
+ *  independent (runs for every group, not just a marked root): a source
+ *  reaching the SAME file via a different separator spelling is not a
+ *  distinct copy, so it must not draw its own cross-source-shadow warning.
+ *  Genuinely-distinct files (different normalized paths) are untouched —
+ *  separator normalization alone decides identity here, deliberately short of
+ *  `fs.realpath` (parent-side symlink/`..` semantics for distinct files stay
+ *  exactly as today). Map iteration preserves each surviving key's first-seen
+ *  position, so diagnostic message ordering for the untouched groups is
+ *  unaffected. */
+function dedupeByIdentity(group: readonly SourcedCandidate[]): SourcedCandidate[] {
+  const byPath = new Map<string, SourcedCandidate>();
+  for (const candidate of group) {
+    const key = normalizePath(candidate.path);
+    const existing = byPath.get(key);
+    if (existing === undefined || PRIORITY[candidate.source] < PRIORITY[existing.source]) {
+      byPath.set(key, candidate);
+    }
+  }
+  return [...byPath.values()];
+}
+
 /** Resolve cross-source-shadow (different priority → higher wins) and
  *  cross-format-collision (same priority theta-vs-theta, or theta-vs-Pi-owned;
- *  the theta always loses asymmetrically) over the validated candidates. */
+ *  the theta always loses asymmetrically) over the validated candidates.
+ *  Bug 0331: identity-dedup runs first (regime-independent); then, past the
+ *  Pi-owned guard (a Pi-owned collision is decided first), a marked-root
+ *  pre-emption scoped to `markedRoot?.slug` (regime-gated) may register that
+ *  group's winner alone before the tier adjudication runs. */
 async function resolveSlashNames(
   candidates: readonly SourcedCandidate[],
   piOwned: readonly PiOwnedCommand[],
   diagnostics: Diagnostic[],
+  markedRoot?: { readonly slug: string; readonly winnerPath: string },
 ): Promise<DiscoveredTheta[]> {
   const piNames = new Set(piOwned.map((command) => command.name));
   const byName = new Map<string, SourcedCandidate[]>();
@@ -1261,7 +1305,9 @@ async function resolveSlashNames(
   }
 
   const thetas: DiscoveredTheta[] = [];
-  for (const [name, group] of byName) {
+  for (const [name, rawGroup] of byName) {
+    const group = dedupeByIdentity(rawGroup);
+
     // Theta-vs-Pi-owned: the theta always loses; the Pi-owned entry survives.
     if (piNames.has(name)) {
       diagnostics.push({
@@ -1272,6 +1318,28 @@ async function resolveSlashNames(
           .join(", ")} (Pi-owned command '${name}' survives)`,
       });
       continue;
+    }
+
+    // Bug 0331: marked-root pre-emption, scoped to `markedRoot.slug` alone,
+    // adjudicated AFTER the Pi-owned guard above because a Pi-owned collision
+    // is decided FIRST. The parent's carrier resolved this slug across theta
+    // TIERS, not against Pi-ownedness, so a name a foreign extension owns in
+    // the child (but not the parent) takes the Pi-owned arm and drops the
+    // theta — the theta never pre-empts a non-theta registration
+    // (discovery-sources.md#disc-4), matching the parent. Past that guard,
+    // when the parent-named winner survives dedup here it registers ALONE —
+    // no cross-format-collision / cross-source-shadow diagnostic — and every
+    // sibling for THIS slug drops silently. A winner that names no surviving
+    // candidate (absent carrier, hostile value, stale path) falls through to
+    // today's tier adjudication below — the safe fallback the trust boundary
+    // and the skew fence both rely on.
+    if (markedRoot !== undefined && name === markedRoot.slug) {
+      const winnerKey = normalizePath(markedRoot.winnerPath);
+      const winner = group.find((candidate) => normalizePath(candidate.path) === winnerKey);
+      if (winner !== undefined) {
+        thetas.push({ name, path: winner.path, source: winner.source });
+        continue;
+      }
     }
 
     const minPriority = Math.min(...group.map((candidate) => PRIORITY[candidate.source]));

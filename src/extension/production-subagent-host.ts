@@ -41,7 +41,10 @@ import {
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
 } from "../runtime/subagent-launcher";
-import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
+import {
+  SUBAGENT_ROOT_ENV_MARKER,
+  SUBAGENT_ROOT_WINNER_ENV,
+} from "../runtime/subagent-root-regime";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
 import {
   SUBAGENT_PARAMS_ENV,
@@ -137,11 +140,15 @@ export function createProductionExecutableHost(): ExecutableHost {
  *     suppression, in-process root drive, a machine envelope on fd 1);
  *   - the params carriers supply the callee's arguments and BYPASS the binder;
  *   - the invoke depth seeds the recursion ceiling;
- *   - the callable-hash map is the load-to-spawn tamper check.
+ *   - the callable-hash map is the load-to-spawn tamper check;
+ *   - the marked-root winner path (bug 0331) steers the child's collision
+ *     resolution to the parent's own source-priority outcome, for the marked
+ *     root's slug alone.
  */
 const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
   SUBAGENT_EXTENSION_PIN_ENV,
   SUBAGENT_ROOT_ENV_MARKER,
+  SUBAGENT_ROOT_WINNER_ENV,
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
   SUBAGENT_INVOKE_DEPTH_ENV,

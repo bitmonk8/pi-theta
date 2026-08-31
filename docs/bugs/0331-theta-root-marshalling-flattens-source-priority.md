@@ -1,6 +1,6 @@
 # Bug 0331 — marshalling every discovery root into one child `--theta` flag flattens the parent's source-priority structure to a single CLI tier: a slug legally shadowed in the parent (settings copy wins over project copy, warning only) re-collides in the child at the same priority, both copies drop, and the marked root never registers — the subagent invocation of a parent-runnable theta refuses on every attempt
 
-- **Status:** open.
+- **Status:** fixed (0.323.0).
 - **Sev/Diff estimate:** S2/D3 — S2 because a documented-legal
   configuration (cross-source shadowing is a warning; "the higher-priority
   source wins", discovery-sources.md §Source priority) makes the shadowed
@@ -181,6 +181,101 @@ Not yet decided — needs a spec adjudication first. Options:
    Any fix must keep bug 0008's single-flag carriage and add a
    regression cell: parent-shadowed slug + arming sibling → child
    registers the parent's winner.
+
+## Fix (0.323.0)
+
+**Settled route (parent adjudication, recorded verbatim).** The §Fix above said
+"Not yet decided". The parent adjudicated: "OPTION 1 IMPLEMENTED VIA OPTION 3's
+CARRIER — marshal the MARKED ROOT's winning source path on the existing control
+plane (beside bug 0328's root closure hash carriage), and the child's load pass
+under the regime marker pre-empts collision resolution FOR THE MARKED ROOT ALONE
+by the parent's outcome: when the marked root's slug would collide or be shadowed
+in the child's walk, the parent-named winning path wins and registers, siblings
+for that slug drop. Option 2 (spec-side acceptance) REJECTED — it leaves the
+mode-dependent split (interactive works, subagent dies) standing. Bug 0008's
+single-flag `--theta` carriage is UNCHANGED — the winner path is control-plane
+data (env/marshalled artefact beside the root hash), not a new argv flag. The
+doc's incidental observation (per-launch spurious self-shadow warning for the
+SAME physical file reached via two separator spellings, surviving by tier instead
+of identity) is IN SCOPE ('same root cause, same fix surface'): canonicalise
+physical identity in the child-relevant collision/shadow comparison so one
+physical file is one candidate — scoped so parent-side discovery semantics for
+genuinely-distinct files are untouched."
+
+- **What shipped:**
+  - `src/runtime/subagent-root-regime.ts` — new authenticated control-plane env
+    var `PI_THETA_SUBAGENT_ROOT_WINNER` (`SUBAGENT_ROOT_WINNER_ENV`) plus
+    `detectMarkedRootWinner(env, regime)`, returning the marked root's winning
+    source path only under the active regime with a present carrier, else
+    `undefined` (the trust-boundary guard for an absent/empty/hostile value).
+  - `src/extension/production-theta-producer.ts` — the launched theta's own
+    `sourcePath` (its slug IS the child's marked root) marshalled forward-slash-
+    normalized on `PI_THETA_SUBAGENT_ROOT_WINNER` beside the callable-hash
+    carrier, named on every launch and cleared to `undefined` when absent (the
+    same anti-leak layering as the hash carrier).
+  - `src/extension/production-subagent-host.ts` — `SUBAGENT_ROOT_WINNER_ENV`
+    added to the frozen `CONTROL_PLANE_ENV_KEYS`, so it is dropped on a
+    parent-pid authentication mismatch like every other control-plane datum.
+  - `src/extension/production-composition.ts` — the subagent-root regime
+    detected once ahead of the discovery walk; `detectMarkedRootWinner` builds
+    the marked-root descriptor from the authenticated env and threads it into
+    `discoverThetas`. A parent/prompt-mode pass (regime inactive) never consults
+    the carrier.
+  - `src/discovery/discovery-walk.ts` — `DiscoveryInput.markedRoot`; in
+    `resolveSlashNames` a regime-independent `dedupeByIdentity` collapses one
+    physical file reached through several sources to a single highest-priority
+    candidate (kills the spurious self-shadow), then — past the theta-vs-Pi-owned
+    guard — a marked-root pre-emption scoped to the marked slug alone registers
+    the parent-named winner with no collision/shadow diagnostic, falling through
+    to today's tier adjudication when the carrier names no surviving candidate.
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — the control-plane
+    purpose enumeration extended and a new mechanism note
+    `#subagent-marked-root-winner-path` (the winner-path carrier is control-plane
+    data, not a fifth marshalled artefact — the "closed four" sentence is
+    untouched). CRLF/LF: this file is LF in this tree; the edit preserved LF.
+  - `docs/spec_topics/discovery/discovery-sources.md` — §Source priority
+    qualified with the separator-normalized identity rule (one physical file
+    reached through two sources is one candidate), cross-referencing the note
+    above and lexical.md "Path literals".
+- **Gates (verbatim):**
+  - Witness `tests/b0331-root-winner-preempt.test.ts` — 11 cells, RED before /
+    GREEN after; the verifier reverted the pre-emption, the dedup, and the
+    Pi-owned ordering one at a time (each restored byte-exact,
+    `git hash-object b50df733…`), reproducing the doc's §Reproduction /
+    self-shadow / Pi-owned symptoms.
+  - Full default suite — `npm test` 502 files / 9733 tests, all green (fork
+    501/9722 + the 11-cell witness).
+  - Typecheck — `npx tsc -p tsconfig.json --noEmit` clean. Lint —
+    `npm run lint` clean.
+  - Live — `tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts`
+    green under the shared live-lock (real depth-2 subagent chain; exercises the
+    winner-carrier marshalling on every launch + `detectMarkedRootWinner` + the
+    pre-emption branch on each real child spawn).
+- **Review:** 3 rounds. R1 (deep) — F1 correctness (pre-emption ordered before
+  the theta-vs-Pi-owned guard could let a theta register over a Pi-owned name;
+  moved below), F2/F3 spec (identity rule cross-ref in discovery-sources.md; the
+  no-match fall-through clause in subagent.md), R1 test (added the marked-slug
+  shadow-suppression witness). R2 (deep) — CLEAN, two residuals (the Pi-owned
+  ordering was unwitnessed; a comment carried a historical reference). R3 (fast)
+  — CLEAN, confirming the polish (a discriminating Pi-owned-ordering cell + the
+  comment reword).
+- **Verification:** all obligations discharged. Witness genuinely reds without
+  the fix (3 reversions, byte-exact restore). Full default suite green. Live
+  b0342live green under the lock. Typecheck + lint clean.
+- **Residuals:** none blocking. A bespoke H9a acceptance cell for a full
+  shadowed-config subagent spawn is feasible but not cheap (three-tier fixture
+  authoring + a discriminating prompt); the live obligation is satisfied by
+  b0342live, which reaches the fixed code path (confirmed from source). The
+  settings FILE-entry widening (a `thetaPaths` FILE entry contributes its parent
+  dir) is the same root cause, unprobed, and left for a separate report — this
+  fix does not widen it (§Non-goals).
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** bug 0008's single `--theta` flag carriage
+  is unchanged (delimiter-in-path stays an accepted limitation). The
+  dirnames-vs-union root derivation (0310) is untouched (either derivation
+  flattens). The identity-dedup is separator-normalization only (no
+  `fs.realpath`) so parent-side symlink/`..` semantics for genuinely-distinct
+  files are untouched.
 
 ## Provenance
 

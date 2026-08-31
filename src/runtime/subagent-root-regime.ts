@@ -47,6 +47,45 @@ export type RootRegime =
   | { readonly active: true; readonly slug: string };
 
 /**
+ * The env carrier for the marked root's winning source path (bug 0331), set
+ * ONLY by the parent launcher beside the callable-hash map
+ * (`SUBAGENT_CALLABLE_HASHES_ENV`) on the SAME authenticated control-plane
+ * channel — it is control-plane data, not a marshalled artefact: it steers the
+ * child's collision resolution rather than supplying a callee argument
+ * (subagent.md #subagent-control-plane-authentication). Honoured only under
+ * the regime marker above and the parent-pid authentication gate that
+ * channel enforces.
+ */
+export const SUBAGENT_ROOT_WINNER_ENV = "PI_THETA_SUBAGENT_ROOT_WINNER";
+
+/** The marked root's winning source path, as the parent resolved it. */
+export interface MarkedRootWinner {
+  readonly slug: string;
+  readonly winnerPath: string;
+}
+
+/**
+ * Detect the marked-root winner descriptor from the AUTHENTICATED env plus the
+ * detected regime. `undefined` when the regime is inactive (nothing is marked)
+ * or the carrier is absent/empty/whitespace-only — the trust-boundary guard: a
+ * hostile or malformed carrier value falls back to today's collision
+ * resolution rather than naming a winner the child cannot use.
+ */
+export function detectMarkedRootWinner(
+  env: Readonly<Record<string, string | undefined>>,
+  regime: RootRegime,
+): MarkedRootWinner | undefined {
+  if (!regime.active) {
+    return undefined;
+  }
+  const raw = env[SUBAGENT_ROOT_WINNER_ENV];
+  if (raw === undefined || raw.trim().length === 0) {
+    return undefined;
+  }
+  return { slug: regime.slug, winnerPath: raw.trim() };
+}
+
+/**
  * Detect the subagent-root regime from the env marker (PIC-58). Returns the
  * active regime carrying the marked root slug when `PI_THETA_SUBAGENT_ROOT` is
  * set, else the inactive verdict.

@@ -63,6 +63,7 @@ import {
   readParentPid,
 } from "./production-subagent-host";
 import {
+  detectMarkedRootWinner,
   detectSubagentRootRegime,
   markedRootRegistrationRefusal,
   type LoadRefusalDiagnostic,
@@ -549,6 +550,22 @@ async function runComposePass(
   sink.emitGroup(settingsResult.diagnostics);
   const settings: ThetaSettings = settingsResult.settings;
 
+  // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
+  // env, hoisted ahead of the discovery walk so bug 0331's marked-root winner
+  // threads INTO the walk rather than only being consulted after it. Active
+  // ONLY inside a spawned subagent child; drives the child-side in-process
+  // root drive.
+  const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
+  // Bug 0331: the marked root's winning source path, from the SAME
+  // authenticated control-plane channel the callable-hash map rides
+  // (subagent.md #subagent-control-plane-authentication). Constraint: this
+  // reads `readParentEnv()` (authenticated) rather than raw `process.env`, so a
+  // parent's own top-level prompt-mode registration (regime inactive) never
+  // consults the carrier — the regime gate alone enforces that. `undefined`
+  // when the regime is inactive or the carrier is absent/malformed, in which
+  // case `discoverThetas` falls back to today's collision resolution.
+  const markedRoot = detectMarkedRootWinner(readParentEnv(), subagentRootRegime);
+
   // Discovery walk. CLI `--theta` roots are split on the platform path
   // delimiter (the walk is platform-independent over already-split paths).
   const cliPaths = readThetaFlagPaths(pi);
@@ -558,6 +575,7 @@ async function runComposePass(
     settings,
     cliPaths,
     piOwnedNames,
+    markedRoot,
   });
   sink.emitGroup(walk.diagnostics);
 
@@ -686,11 +704,10 @@ async function runComposePass(
     ]),
   );
 
-  // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
-  // env. Active ONLY inside a spawned subagent child; drives the child-side
-  // in-process root drive. PIC-64 host-loop-dispatch rung availability is NOT
-  // regime-gated — the probe below reads only the Pi surfaces.
-  const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
+  // PIC-64 host-loop-dispatch rung availability is NOT regime-gated — the probe
+  // below reads only the Pi surfaces. `subagentRootRegime` itself is hoisted
+  // above the discovery walk (see there) so bug 0331's marked-root winner is
+  // available before `discoverThetas` runs.
   // Bug 0178 element (b): hoisted here (not inline in `producerDeps` below) so
   // ONE writer instance serves both `driveSubagentRootRegime`'s own PIC-59
   // envelope and this pass's marked-root registration-refusal envelope

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.323.0]
+
+### Fixed
+
+- **Bug 0331** — the parent's five-tier source priority could not survive the process hop: `assembleSubagentArgv` had one expressive slot (`--theta`, tier 1) for five parent tiers, so a shadowing configuration the parent resolved cleanly re-collided in the child at a single priority — the child emitted `theta/load/cross-format-collision`, dropped BOTH candidates under the within-tier rule, the marked root never registered, and every `invoke`/`tools:` use of a shadowed subagent-mode theta died with the `load_failure` envelope while the same slash worked interactively (a mode-dependent split nothing documented); incidentally, every project theta in every real child drew a spurious per-launch self-shadow warning for the SAME physical file reached via two separator spellings, surviving by tier instead of identity. Adjudicated Option 1 via Option 3's carrier (Option 2 rejected — it documents the trap instead of removing it): the parent marshals the marked root's winning `sourcePath` on a new authenticated control-plane variable (`PI_THETA_SUBAGENT_ROOT_WINNER`, riding beside bug 0328's root-hash carriage under the parent-pid gate), and the child's regime-gated discovery pre-empts collision resolution for the MARKED SLUG ALONE — the parent's winner registers, its siblings drop, non-marked slugs keep today's within-tier semantics, and an absent or malformed carrier falls back to today's behaviour (version-skew and trust-boundary fences pinned). A regime-independent physical-identity dedup (separator-normalised, mirroring 0329's canonicalisation) makes one physical file one candidate, killing the spurious self-shadow warning while genuinely-distinct files keep their real one. Bug 0008's single-flag `--theta` carriage is unchanged; same-commit spec sentences in `subagent.md` and `discovery-sources.md`. Witnessed by `tests/b0331-root-winner-preempt.test.ts` (11 cells: the doc's parent-shadowed-slug + arming-sibling cell red-proven, the §Repro double-root collision, skew fence, non-marked-slug scope, identity-dedup both directions, authenticated-carrier fence, hostile-value fallback). Residual recorded: a bespoke shadowed-config H9a acceptance cell is feasible-but-not-cheap and deferred — the live obligation ran the real-spawn path via the depth-2 chain cell.
+
 ## [0.322.0]
 
 ### Fixed

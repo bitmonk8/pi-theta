@@ -52,6 +52,7 @@ import {
   type ParamsSchemaValidator,
 } from "../runtime/subagent-params";
 import type { RootRegime } from "../runtime/subagent-root-regime";
+import { SUBAGENT_ROOT_WINNER_ENV } from "../runtime/subagent-root-regime";
 import {
   resolveDispatchLadder,
   type DispatchLadderProbe,
@@ -2207,6 +2208,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // CALLER's callable names against its own discovery — a spurious
     // `subagent-callable-hash-mismatch` drop for a file edited between the two
     // launches (subagent.md #subagent-theta-callable-hash).
+    // The winner-path carrier is likewise named on EVERY launch, cleared to
+    // `undefined` when this launch marshals none, for the same layering reason
+    // as the hash carrier above: this theta IS the marked root of the child it
+    // spawns (its slug is `theta.slashName`), and an inherited grandparent
+    // value must not leak into a child marked for a different slug
+    // (subagent.md #subagent-control-plane-authentication). Forward-slash
+    // normalized defensively — discovery already normalizes `sourcePath`, but
+    // the carrier is the child's collision-resolution comparison key, so this
+    // guards against a future upstream change to that invariant.
     const parentEnv: Record<string, string | undefined> = {
       ...baseParentEnv,
       ...marshalled.env,
@@ -2214,6 +2224,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         Object.keys(callableHashes).length > 0
           ? JSON.stringify(callableHashes)
           : undefined,
+      [SUBAGENT_ROOT_WINNER_ENV]:
+        theta.sourcePath !== undefined ? theta.sourcePath.replace(/\\/g, "/") : undefined,
     };
 
     // PIC-65 launch. The spawn seam + executable host are wired at the composition
