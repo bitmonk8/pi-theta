@@ -1,6 +1,6 @@
 # Bug 0319 — the prompt-mode bidirectional cancellation propagation (`thetaAbort.abort()` → the unwrapped Pi-supplied `ctx.abort()`) is implemented nowhere: no production code path ever calls the captured `ExtensionCommandContext`'s `abort()`, so a `thetaAbort` fired mid-driven-turn (the `session_shutdown` sub-step-2 co-abort is the reachable trigger) leaves the live user run streaming after the theta has already settled cancelled
 
-- **Status:** open.
+- **Status:** fixed (0.339.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the theta itself still settles
   `Err(cancelled)` promptly (every `#pollWhile` gates on
   `thetaAbort.signal.aborted`), so nothing binds a wrong value and nothing
@@ -219,3 +219,113 @@ producer + scripted session double; grep sweeps for `.abort(` /
 `tests/production-cancellation-wiring.test.ts`,
 `tests/checkpoint-granularity.test.ts`, `tests/binder-call-cancellation.test.ts`
 all green at this HEAD (47/47) — none asserts the bidirectional direction.
+
+## Fix (0.339.0)
+
+- What shipped: `src/extension/production-theta-producer.ts` — in
+  `LivePromptQueryModel` (§Fix option 1, "per-turn listener, recommended"):
+  (a) the reverse bidirectional bridge — a per-invocation one-shot flag
+  `#promptCancelPropagated` and, inside `#driveUserVisibleTurn`, a
+  `{ once: true }` listener on `this.#thetaAbort.signal` attached AFTER the
+  pre-send gate clears (so `ctx.isIdle()` is established — the in-flight-only
+  scoping) that calls the UNWRAPPED, Pi-supplied `this.#ctx.abort()` under the
+  flag inside a `try`/`catch`, detached as the first statement of the existing
+  governor `finally` (structural in-flight-only scoping); (b) the abort leg —
+  a third `settleAbort` arm on the settle-phase `Promise.race([ctx.waitForIdle
+  …, idleBound …])`, resolving on `thetaAbort.signal`'s abort with leak-free
+  listener cleanup in the race `finally`, so an abort landing in that window
+  resolves it promptly (PIC-70) instead of sitting out `WAIT_FOR_IDLE_BOUND_MS`.
+  The raw `this.#ctx` is the callee (never the synthesised tool-execution
+  wrapper whose body re-enters `thetaAbort.abort()`); the existing one-direction
+  forward and the PIC-18 forward are byte-unchanged; no cross-file plumbing was
+  needed (`this.#ctx` / `this.#thetaAbort` are already fields). Pure additive
+  diff (65 insertions, 0 deletions).
+- What shipped: `tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts` —
+  the offline witness over the REAL producer (the bug-0288 scripted-session
+  pattern: `createProductionProducerDeps` → `bindPromptConversation` with an
+  externally-held `thetaAbort` → `executeBody`, injected virtual `Clock`, a
+  `ctx` double carrying an `abort()` spy). Cells: (A) mid-turn abort →
+  `ctx.abort()` ≥ 1 + cancel; (B) re-entrant double-abort → exactly one
+  `ctx.abort()`; (C) idle-time abort (no turn in flight) → `ctx.abort()` never
+  called — the unrelated-run guard; (D) settle-race abort leg resolves in
+  ≤ 20 quanta not ~200 (tick accounting); (E) listener throw does not crash the
+  drive; (F) Esc-path forward control; (G) non-cancelled drive byte-identical.
+- Gates: witness `npx vitest run tests/b0319-…` → 7/7 green; reverting the fix
+  reds exactly (A)/(B)/(D) (ctxAbortCalls 0; 199-quantum sit-out), restore
+  byte-exact (`git hash-object` = `43ac411aedff197eed608c3b9baca0257cf76246`)
+  greens 7/7. Full suite `npm test` → 522 files / 9890 tests passed (521/9883
+  baseline + 1 file / 7 tests). `npm run typecheck` clean. `npm run lint` clean
+  (the `catch (thrown: unknown)` carries a valid `// allow-broad-catch:
+  theta/runtime/internal-error` annotation). Live (under the shared lock):
+  `session-promptloop` 2/2, `session-promptstream` 1/1, `session-convdrive`
+  2/2 — the listener-carrying `#driveUserVisibleTurn` seam exercised on real
+  driven turns (untyped, typed, multi-turn, invoke-crossing); none flipped.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec
+  blocker; raw-callee trace confirmed, in-flight-only scoping confirmed,
+  one-shot/double-Esc confirmed, abort leg leak-free, throw trap compliant).
+  Prose residuals R1 (wrong spec-page citation) and R2 (imprecise
+  "per-invocation" comment) fixed by `bug-fix-fixer-light` (comment-only;
+  post-polish confirmation round skipped per the gate-diff rule — every polish
+  hunk comment-only and gate re-run green).
+- Verification: `bug-fix-verifier` SOLID — (1) revert-witness reds A/B/D and
+  restore byte-exact greens 7/7 (hash match); (2) full suite 522/9890 green,
+  no existing test flipped; (3) live prompt-mode drive cells green (fixed seam
+  exercised live; the reachable `session_shutdown` mid-turn co-abort trigger is
+  not cheaply witnessable from a committed live cell — it needs killing/
+  reloading the host mid-driven-turn — so the obligation is discharged by the
+  existing prompt-mode drive cells proving the listener-carrying drive is green
+  live); (4) lint + typecheck clean.
+- Residuals: (1) `driveStreamedUserTurn` (the free-function degraded-arm repair
+  follow-up drive, and its own settle-phase `waitForIdle` race) carries no
+  reverse bridge and no abort leg. It is UNREACHABLE from parsed source on two
+  independent counts — the degraded arm requires an empty `@<>`/whitespace
+  annotation, rejected at parse since bug 0014 (`theta/parse/empty-query-
+  annotation`); and `driveFollowUp`/`validation` are built only when
+  `lowered !== undefined`, which implies `respond !== undefined`, so the
+  `driveStreamedUserTurn` branch is never selected — AND it holds no
+  `thetaAbort` in scope. Out of scope per §Fix's explicit `LivePromptQueryModel`
+  scoping; not a reachable defect, so no follow-up bug is filed.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - Parent adjudication (recorded verbatim): "Implement the doc's §Fix OPTION 1
+    — the per-turn listener … attach a { once: true } listener on
+    thetaAbort.signal that calls the unwrapped ctx.abort() inside try/catch …
+    detach in the turn's finally, one-shot flag held per invocation … ALSO add
+    the abort leg to the settle-phase waitForIdle race … take the abort leg
+    unless the reliance proof is airtight … Option 2 (invocation-scoped flag)
+    REJECTED … Preserve: the double-Esc no-op property; the existing
+    one-directional forwards byte-identical; the synthesised wrapper must NOT be
+    the callee." Implemented as specified; the abort leg was TAKEN (the
+    reliance-on-teardown-resolving-`waitForIdle` proof is not airtight —
+    teardown→`waitForIdle` resolution is unpinned Pi-side behaviour, and witness
+    (D)'s `ctx` double has a never-resolving `waitForIdle`).
+  - Throw routing: the caught `ctx.abort()` throw is trapped-and-continued (it
+    does not escape the abort-listener boundary and does not swallow the
+    already-fired cancellation — `thetaAbort` fired to reach the listener). It
+    is NOT routed to the `theta/runtime/internal-error` defect sink: the
+    live-driver's existing forwards (`forwardSignalReason`) do not route either,
+    `forwarding-listener-trap.ts` is not wired into this driver, and routing
+    would require new plumbing the settled §Fix excludes. The spec's
+    §"Forwarding-listener throw" clause enumerates only the three forward-
+    direction forwarders; no sentence binds this reverse listener to the defect
+    surface.
+  - Self-adjudication (bounded, recorded): the scoping decision to attach the
+    listener ONLY in `#driveUserVisibleTurn` and NOT in `driveStreamedUserTurn`
+    (see Residual 1) — settled by three evidence sources (the §Fix
+    `LivePromptQueryModel` scoping; the code's `lowered ⟹ respond`
+    unreachability at `driveFollowUp`; the absence of `thetaAbort` in
+    `driveStreamedUserTurn`'s deps). Bound: no assertion or behaviour changed on
+    any other path; STOP valve honoured (no reachable parsed-source drive path
+    outside `#driveUserVisibleTurn` was found).
+  - Flip census: the doc enumerates no flips; the four cancellation suites
+    (`cancellation-core`, `production-cancellation-wiring`,
+    `checkpoint-granularity`, `binder-call-cancellation`) assert nothing about
+    the bidirectional direction (verified) and none flipped; the live flip
+    census over the three prompt-mode drive cells is clean. No existing test
+    changed.
+  - Process deviation (named, zero-tolerance): the round-1 `bug-fix-reviewer`
+    used `git stash`/`git stash pop` to prove the red direction — a breach of
+    the no-stash convention (the convention was not spelled into that phase
+    task). It left the tree byte-identical (stash list empty; the 62→65-insertion
+    diff preserved; witness re-verified 7/7) so no work was lost; recorded here
+    per the zero-tolerance rule.

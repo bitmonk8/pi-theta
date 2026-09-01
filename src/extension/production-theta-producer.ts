@@ -4696,6 +4696,16 @@ class LivePromptQueryModel implements QueryModelDriver {
   #earlyRespond: { readonly captured: boolean; readonly payload?: unknown } = {
     captured: false,
   };
+  /**
+   * Bug 0319 (cancellation.md §"Forwarding into `thetaAbort`", bidirectional
+   * prompt-mode clause): guards the reverse `thetaAbort` -> `ctx.abort()`
+   * propagation so a re-entrant `thetaAbort.abort()` does not double-cancel
+   * the unwrapped Pi-supplied run. The flag lives on this per-`@`-query model
+   * and is never reset; combined with the listener's already-aborted attach
+   * guard (a later query's model never attaches after the abort), `ctx.abort()`
+   * fires at most once for the whole invocation — the spec's one-shot guard.
+   */
+  #promptCancelPropagated = false;
 
   constructor(deps: {
     readonly pi: ExtensionAPI;
@@ -5132,6 +5142,36 @@ class LivePromptQueryModel implements QueryModelDriver {
     // text (P2's exact failure shape) instead of failing loudly over this
     // turn's own, still-unattributed one.
     const turnStart = this.#readMessages().length;
+    // Bug 0319 (cancellation.md §"Forwarding into `thetaAbort`", bidirectional
+    // prompt-mode clause): the reverse bridge. `gateCleared` above already
+    // established `ctx.isIdle()`, so from here a turn is genuinely being
+    // driven -- attaching only for this window is the in-flight-only scoping
+    // the clause requires (an idle-time thetaAbort must never tear down an
+    // unrelated user run). Calls the RAW, Pi-supplied `ctx.abort()` -- never
+    // the synthesised tool-execution wrapper, whose body re-enters
+    // `thetaAbort.abort()` (cancellation.md §"Forwarding into `thetaAbort`";
+    // conversation-drive.md §"Hang handling").
+    const onThetaAbortTeardown = (): void => {
+      if (this.#promptCancelPropagated) {
+        return;
+      }
+      this.#promptCancelPropagated = true;
+      try {
+        this.#ctx.abort(); // unwrapped, Pi-supplied -- tears the user run down, unblocks waitForIdle
+      } catch (thrown: unknown) { // allow-broad-catch: theta/runtime/internal-error -- cancellation.md §Forwarding-listener throw
+        // Trap at the listener boundary: a throw inside an AbortSignal "abort"
+        // listener is otherwise reported out-of-band (Node uncaughtException). The
+        // cancellation already took effect (thetaAbort fired to reach this listener),
+        // so trapping the defect does NOT swallow the cancellation -- the drive's own
+        // #pollWhile gates still settle Err(cancelled). (cancellation.md §Forwarding-
+        // listener throw: "The trap MUST NOT swallow the cancellation itself".)
+        void thrown;
+      }
+    };
+    const teardownSignal = this.#thetaAbort.signal;
+    if (!teardownSignal.aborted) {
+      teardownSignal.addEventListener("abort", onThetaAbortTeardown, { once: true });
+    }
     try {
       await withActiveSetGating(this.#pi, install, async () => {
         // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
@@ -5223,16 +5263,37 @@ class LivePromptQueryModel implements QueryModelDriver {
           const idleBound = new Promise<void>((resolve) => {
             idleBoundTimer = this.#clock.setTimeout(() => resolve(), WAIT_FOR_IDLE_BOUND_MS);
           });
+          // Bug 0319 (PIC-70 stop-promptly): a third race leg so an abort landing
+          // in this window resolves the race immediately rather than sitting out
+          // `WAIT_FOR_IDLE_BOUND_MS` -- belt-and-braces alongside the teardown
+          // listener above, since that listener's `ctx.abort()` unblocking
+          // `waitForIdle()` is unpinned Pi-side behaviour, not a guarantee. Leaves
+          // `idleSettled` false, so control falls to the settle-phase expiry check
+          // below, which already no-ops on an aborted `thetaAbort` (compensating
+          // gate) rather than minting a transport Err.
+          let onSettleAbort: (() => void) | undefined;
+          const settleAbort = new Promise<void>((resolve) => {
+            if (this.#thetaAbort.signal.aborted) {
+              resolve();
+              return;
+            }
+            onSettleAbort = (): void => resolve();
+            this.#thetaAbort.signal.addEventListener("abort", onSettleAbort, { once: true });
+          });
           try {
             await Promise.race([ // allow: cka-62 — pi-integration-contract/conversation-drive.md
               this.#ctx.waitForIdle().then(() => {
                 idleSettled = true;
               }),
               idleBound.then(() => {}),
+              settleAbort,
             ]);
           } finally {
             if (idleBoundTimer !== undefined) {
               this.#clock.clearTimeout(idleBoundTimer);
+            }
+            if (onSettleAbort !== undefined) {
+              this.#thetaAbort.signal.removeEventListener("abort", onSettleAbort);
             }
           }
           if (!idleSettled) {
@@ -5264,6 +5325,10 @@ class LivePromptQueryModel implements QueryModelDriver {
         }
       });
     } finally {
+      // Bug 0319: detach first so every exit path -- including the throws the
+      // gating callback body can raise -- leaves no listener attached beyond
+      // this turn's own window (structural in-flight-only scoping).
+      teardownSignal.removeEventListener("abort", onThetaAbortTeardown);
       // STAGE B: disarm the governor and capture the exhaustion snapshot the
       // moment the turn settles, even on an error/abort path.
       if (bound && this.#governor !== undefined) {

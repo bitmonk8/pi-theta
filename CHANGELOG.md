@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.339.0]
+
+### Fixed
+
+- **Bug 0319** — the prompt-mode BIDIRECTIONAL cancellation propagation pinned twice by the spec (`cancellation.md` §Forwarding: when `thetaAbort.abort()` fires while a prompt-mode user turn is in flight, the runtime calls the unwrapped Pi-supplied `abort()` on the captured `ExtensionCommandContext` "to tear down the user run and unblock `await ctx.waitForIdle()`", one-shot-guarded; restated in `conversation-drive.md` §Hang handling) was implemented NOWHERE: no production module registered a `thetaAbort.signal` listener reaching Pi, no code path called `ExtensionCommandContext.abort()`, and the settle-phase `waitForIdle` race had no abort leg — so a `thetaAbort` fired mid-driven-turn (the reachable trigger: the `session_shutdown` sub-step-2 co-abort on `/reload`, `/new`, fork, or quit with a prompt-mode theta mid-query) left the driven model turn streaming into the user session after the invocation settled `Err(cancelled)`, kept burning tokens through a drain that exists to prevent exactly that, and let an abort landing in the settle window sit out the full 2000 ms bound in violation of PIC-70's stop-promptly-on-abort. `LivePromptQueryModel` now implements the doc's recommended per-turn form: `#driveUserVisibleTurn` attaches a `{ once: true }` listener on `thetaAbort.signal` calling the unwrapped raw `ctx.abort()` in a try/catch (never the synthesised tool-execution wrapper — re-entrancy), detaches it in the turn governor's `finally`, and holds a per-invocation one-shot flag so re-entrant aborts cannot double-cancel; the in-flight-only scoping is structural (the listener exists only while a turn is driven, so an idle-time abort never touches an unrelated user run); the settle-phase race gains a third abort leg resolving promptly. The Esc path, the existing one-directional forwards, and every non-cancelled drive outcome are byte-identical. Witnessed by `tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts` over the real producer (mid-turn teardown, exactly-once one-shot, the idle-time never-call guard, prompt settle-window resolution by clock-tick accounting, listener-throw containment, Esc-first control, non-cancelled controls), red at fork on the teardown, one-shot, and settle-window cells.
+
 ## [0.338.0]
 
 ### Fixed
