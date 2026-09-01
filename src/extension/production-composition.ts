@@ -1113,6 +1113,9 @@ async function runComposePass(
           ...(input.frontmatter.bindModel !== undefined
             ? { bindModel: input.frontmatter.bindModel }
             : {}),
+          ...(input.frontmatter.bindModelUnresolvable === true
+            ? { bindModelUnresolvable: true }
+            : {}),
           ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
           bypassEligible,
           matcher: modelMatcher,

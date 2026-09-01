@@ -216,8 +216,11 @@ trigger.
 | `theta/load/unknown-mode-value` | E | load | `unknown 'mode:' value '<value>'; expected 'prompt' or 'subagent'` |
 | `theta/load/unknown-methodology-value` | E | load | `unknown 'respond_repair.methodology:' value '<value>'; expected 'validator_error', 'schema_repeat', or 'none'` |
 | `theta/load/unknown-bind-context-value` | E | load | `unknown 'bind_context:' value '<value>'; expected 'none' or 'session'` |
+| `theta/load/unknown-bind-echo-value` | E | load | `unknown 'bind_echo:' value '<value>'; expected true or false` |
 | `theta/load/malformed-tool-entry` | E | load | `malformed 'tools:' entry '<value>'; expected a Pi tool name or a .theta path, optionally followed by an 'as' clause` |
 | `theta/load/malformed-tools-field` | E | load | `malformed 'tools:' field; expected a comma-separated list of entries or a YAML sequence` |
+| `theta/load/malformed-tool-loop-field` | E | load | `malformed 'tool_loop:' field; expected a mapping, got <kind>` |
+| `theta/load/malformed-respond-repair-field` | E | load | `malformed 'respond_repair:' field; expected a mapping, got <kind>` |
 | `theta/load/unknown-tool` | E | load | `unknown Pi tool '<name>'` |
 | `theta/load/unresolvable-theta-path` | E | load | `cannot resolve .theta path '<path>'` |
 | `theta/load/prompt-mode-callable` | E | load | `'tools:' entry '<path>' points at a prompt-mode theta; only subagent-mode thetas are permitted` |

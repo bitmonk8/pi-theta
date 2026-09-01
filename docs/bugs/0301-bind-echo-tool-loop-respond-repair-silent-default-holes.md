@@ -1,6 +1,6 @@
 # Bug 0301 — Three recognised-field value shapes silently take defaults with zero diagnostics: a non-boolean `bind_echo:` (`no`, `"false"`, `0`) leaves echo ON; a non-mapping `tool_loop:` / `respond_repair:` value (`tool_loop: 5`, `respond_repair: none`) discards the author's cap or methodology; and a typo'd sub-key inside either block (`max_round:`, `methodolgy:`) is ignored without the unknown-key warning top-level keys get
 
-- **Status:** open.
+- **Status:** fixed (0.332.0).
 - **Sev/Diff estimate:** S3/D2 — silent author-intent drops on three
   recognised fields, each landing on a default that changes runtime
   behaviour (echo notes emitted against an author who suppressed them; a
@@ -181,3 +181,90 @@ FRNT-1 (`frontmatter-fields-b-and-templates.md`),
 Prior-bug sweep: 0104/0206 (shape-refusal precedents), 0087 (bind_echo
 note rendering — different subject), README index for
 `bind_echo`/`tool_loop`/`respond_repair` — no prior report on any face.
+
+## Fix (0.332.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — face (a): the `bind_echo:` arm now records
+    presence + a scalar/kind rendering (mirroring the `bind_context:` arm) and a
+    present non-boolean value draws the new `theta/load/unknown-bind-echo-value`
+    (E), un-registering the theta — no truth-coercion. Face (b): a new
+    `checkBlockShape` refuses a present non-mapping `tool_loop:` / `respond_repair:`
+    value with `theta/load/malformed-tool-loop-field` /
+    `theta/load/malformed-respond-repair-field` (E), naming the observed node kind;
+    absent, a null scalar, and a mapping (incl. `{}`) stay silent. Face (c): a new
+    `unknownSubKeyDiagnostics` walk over each block's mapping emits the EXISTING
+    `theta/load/unknown-frontmatter-field` (W) with the dotted `<block>.<sub-key>`
+    key for any sub-key outside the module-level `TOOL_LOOP_SUBKEYS` /
+    `RESPOND_REPAIR_SUBKEYS` `Set`s, keeping the theta registered.
+  - `docs/spec_topics/binder/defaulting-system-note-echo.md` — Echo policy states
+    the unknown-bind-echo-value disposition (closed-set, no truth-coercion).
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` — `bind_echo:` /
+    `tool_loop:` / `respond_repair:` rows gain their present-but-bad refusal
+    sentences; the unknown-key paragraph gains the nested dotted-sub-key sentence.
+  - `docs/reference/frontmatter.md` — the three mirror rows + unknown-key mirror.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — three new DIAG-2 rows.
+  - `docs/reference/diagnostics.md` — three DIAG-2 mirror rows.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — `<value>` list +
+    0296/0297 except-clause extended to name `unknown-bind-echo-value`; a new
+    `<kind>` emitting-site sub-bullet for the two malformed-*-field codes (token
+    set unchanged — the existing settings-invalid-entry JSON-kind members); a
+    `<field>` clause admitting the dotted nested-key form on
+    `unknown-frontmatter-field`.
+  - `tests/b0301-bind-echo-tool-loop-respond-repair-holes.test.ts` (offline
+    witness, 20 cells) + `tests/live/acceptance/b0301live-bind-echo-nonboolean-load-refusal.test.ts`
+    (one H9a cell).
+- Gates: witness `npx vitest run tests/b0301-…` 20/20 green; full default suite
+  `npm test` 514 files / 9843 tests green (was 513 / 9823); `npm run typecheck`
+  clean; `npm run lint` clean; DIAG-2 corpus + mirror-parity gate
+  (`registry-closed-set-corpus-gate`) 6/6 green; live cell green under the shared
+  lock (offender `bind_echo: no` refused via invoke→Err→`REFUSED`; control
+  `bind_echo: false` registered and drove, `877`).
+- Review: 1 round — `bug-fix-reviewer` returned findings with no
+  correctness/fidelity/spec blocker (one non-blocker spec-prose citation F1, two
+  prose/comment residuals R2/R3); a `bug-fix-fixer-light` round applied F1
+  (dropped a false Future-Considerations citation), R2b (accurate JSDoc bullet),
+  R3 (mirror-row symmetry); all hunks comment/doc/prose only, so the post-polish
+  confirmation review round was skipped per the gate-diff rule.
+- Verification: SOLID. (1) revert-witness — neutralising the three 0301 emission
+  sites red the 9 face cells, byte-exact restore (`git hash-object` matched) →
+  20/20 green; (2) full suite 514 / 9843 green; (3) one end-to-end live H9a cell
+  green (fixed path exercised for real); (4) lint + typecheck clean.
+- Residuals:
+  1. Live red-path was established OFFLINE (the revert-witness reds the exact
+     `theta/load/unknown-bind-echo-value` the live cell's attribution guard
+     requires; the sentinel channel flips `REFUSED`↔`LOADED` with the fix, so the
+     cell cannot pass without it). A bespoke live-RED run was deliberately not
+     performed — it would require reverting the SHARED, sibling-owned uncommitted
+     `frontmatter.ts` and rebuilding, which risks sibling work; bounded and
+     recorded here.
+  2. `renderNonScalarBindContextKind`'s doc comment (sibling 0297 content) now
+     also has a `bind_echo:` call site; its comment was left untouched because it
+     is unowned by this fix and its statement is illustrative, not false.
+- Discharge notes appended: none (no sibling bug doc required a note; the shared
+  `frontmatter.ts` and `placeholder-rendering-b.md` were extended surgically
+  without disturbing the 0296/0297/0299 additions).
+- Pinned dispositions / non-goals:
+  - Parent adjudications implemented verbatim: (a) `bind_echo:` outside literal
+    boolean → NEW `theta/load/unknown-bind-echo-value` (a warning was REJECTED;
+    the closed-set field refuses like its siblings; no truth-coercion —
+    `bind_echo: "false"` refuses, does not coerce). (b) present non-mapping
+    `tool_loop:` / `respond_repair:` → NEW dedicated
+    `theta/load/malformed-tool-loop-field` / `theta/load/malformed-respond-repair-field`
+    (the widened-`frontmatter-value-out-of-range` alternative was REJECTED);
+    `{}` and absent stay silent. (c) unrecognised sub-keys → the EXISTING
+    `theta/load/unknown-frontmatter-field` warning with the dotted key, theta
+    stays REGISTERED — NO new code.
+  - Bounded self-adjudication (recorded): a bare/null-scalar `tool_loop:` /
+    `respond_repair:` block is treated as equivalent-to-absent (silent), not
+    malformed — corpus-consistent with bug 0299's null-scalar-is-the-absent-case
+    rule, the `tools:` field's null→`unknown-tool` (not malformed) disposition,
+    and the `{}`/absent equivalence sentence. Pinned in the spec rows and locked
+    by a control cell. It touches no witnessed reproduction row.
+  - GOV-7/GOV-8: the three new registry rows + the widened `<kind>` emitting-site
+    list ship in the same change under the version bump; the `<kind>` token SET is
+    unchanged (reuses the settings-invalid-entry JSON-kind members), and the
+    `<dotted-key>` closed enum is untouched (face (c) renders through `<field>`).
+  - Non-goals held (per §Non-goals): no `<observed>` newline work; no
+    mode/bind_context/system/description node-kind faces (sibling 0296/0297/0299);
+    no truth-coercion.

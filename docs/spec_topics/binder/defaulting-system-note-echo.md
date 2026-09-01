@@ -25,7 +25,7 @@ All binder-emitted system notes — the success echo, the `needs_info` and `ambi
 
 ## Echo policy
 
-Configured via `bind_echo:` (`true` | `false`; default `true`). When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the theta starts. The example below is illustrative — the format rules that follow are normative; no single example string can be (the formatter is data-driven and the rendered text depends on the theta's `params:` and the bound values):
+Configured via `bind_echo:` (`true` | `false`; default `true`). A present `bind_echo:` value that is neither the literal boolean `true` nor `false` — a non-boolean scalar such as `no`, `"false"`, or `0`, or a non-scalar node — is the load-time error `theta/load/unknown-bind-echo-value` and the theta is not registered, mirroring the `mode:` / `bind_context:` recognised-key / unrecognised-value split; there is no truth-coercion, so a quoted `"false"` refuses rather than reading as the boolean `false`. When echo is on (and the bypass did not apply), the runtime appends a one-line system note to the user's session immediately before the theta starts. The example below is illustrative — the format rules that follow are normative; no single example string can be (the formatter is data-driven and the rendered text depends on the theta's `params:` and the bound values):
 
 > Running /code-review: language=TypeScript, focus_areas=["error handling", async], author={"Ada Lovelace", …}
 

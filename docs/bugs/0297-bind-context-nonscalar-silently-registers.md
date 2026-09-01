@@ -1,6 +1,6 @@
 # Bug 0297 — A `bind_context:` whose value is a YAML sequence or mapping registers the theta silently with the default `none`, where the registry row refuses registration for a present value that "is neither `none` nor `session`" — and the sibling `bind_model:` non-scalar falls back to `theta.binderModel` on the same silent path
 
-- **Status:** open.
+- **Status:** fixed (0.330.0).
 - **Sev/Diff estimate:** S3/D1 — silent permissive acceptance: the load-time
   error the spec prescribes does not fire, the theta registers, and the
   binder runs with `none` (no session context) against an author who
@@ -152,3 +152,129 @@ above; deleted). Spec read: `frontmatter-fields-a.md` rows for
 Prior-bug sweep: 0104/0206 (the `tools:` precedent), 0064/0178 (binder-model
 family — different subjects), README index for `bind_context` (no prior
 report).
+
+## Fix (0.330.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — the `bind_context` arm now records
+    `bindContextPresent` for any present `bind_context:` and, for a non-scalar
+    value node, its bounded kind token via the new
+    `renderNonScalarBindContextKind` helper (null-value-node→`null`,
+    sequence→`array`, mapping→`object`, alias→`object` fallback), mirroring
+    0296's `mode:` Route-1 mechanism; the unknown-bind-context-value arm gates
+    on `bindContextPresent` (not `bindContextValue !== undefined`) and renders
+    `<value>` as the scalar bytes (line-break-normalised) or the recorded kind
+    token — so a present non-scalar `bind_context:` draws
+    `theta/load/unknown-bind-context-value` and the theta is not registered.
+    The `bind_model` arm now records a `bindModelUnresolvable` marker (no
+    fabricated string) for a present non-scalar value, carried on
+    `ParsedFrontmatter.bindModelUnresolvable`. No new code minted; no registry
+    text edited.
+  - `src/binder/binder-model.ts` — `BinderModelResolutionInput` gains
+    `bindModelUnresolvable?: boolean`; `resolveChainReference` returns `null`
+    immediately when it is set, before the `bind_model:` → `theta.binderModel`
+    settings fallback — so a present non-scalar `bind_model:` is
+    present-but-unresolvable (routes through the EXISTING
+    `theta/load/binder-model-unresolved` machinery as an unresolvable declared
+    string) instead of silently taking the settings fallback the spec reserves
+    for the ABSENT field.
+  - `src/extension/production-composition.ts` — threads
+    `frontmatter.bindModelUnresolvable` into the single production
+    `resolveBinderModel({...})` call.
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — EXTENDED the
+    one shared except-clause 0296 added on the Parse-time literal-value
+    (`<value>`) bullet so it names BOTH `theta/load/unknown-mode-value` and
+    `theta/load/unknown-bind-context-value` (bugs 0296/0297), one clause, same
+    kind-token rendering rule. No second parallel clause; the registry row
+    (`code-registry-load.md`) is untouched.
+  - `tests/b0297-bind-context-bind-model-nonscalar.test.ts` — offline witness
+    (12 cells): bind_context flow-seq/block-seq→`array`, flow-map/alias→`object`,
+    `? bind_context` no-value-node→`null` (all refused, not registered);
+    controls `bind_context: banana`/bare-`null`/`session`; bind_model non-scalar
+    non-bypass→`binder-model-unresolved`, bypass control, scalar control; a
+    DIAG-4 anchor on the reused registry Message template.
+  - `tests/b0297-bind-model-nonscalar-production-load.test.ts` — a
+    composition-level offline witness (3 cells) driving the real
+    `discoverAndComposeFixtures` compose pass over a planted workspace with a
+    resolvable `theta.binderModel`, so the production `bindModelUnresolvable`
+    spread has a red path (dropping it reverts the offender to the silent
+    settings fallback).
+  - `tests/live/acceptance/b0297live-bind-context-nonscalar-load-refusal.test.ts`
+    — H9a live acceptance: a non-scalar-`bind_context:` offender refuses at load
+    (observed via `invoke`→`Err`→`REFUSED`) while a scalar-`bind_context:`
+    control registers and drives (`877`), through the real `pi -p`. Both
+    fixtures are `mode: subagent` (see Residuals 1).
+- Gates:
+  - Witness: `npx vitest run tests/b0297-bind-context-bind-model-nonscalar.test.ts`
+    → 12/12; `npx vitest run tests/b0297-bind-model-nonscalar-production-load.test.ts`
+    → 3/3. Red-before/green-after proven by the verifier via copy-based revert
+    (no git stash/checkout): reverting the `bind_context` arm reds cells A-D +
+    `? bind_context` with `got codes []`; dropping the production
+    `bindModelUnresolvable` spread reds the production-load offender (registers
+    via settings fallback); both restorations byte-identical (`git hash-object`
+    match).
+  - Full suite: `npm test` → 512 files / 9811 tests pass.
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - Lint: `npm run lint` (`eslint "src/**/*.ts"`) — clean.
+  - Live: `b0297live-bind-context-nonscalar-load-refusal` → 1/1 pass under the
+    shared lock (`C:/UnitySrc/pi-theta/.pi/tmp/fix-open-bugs/live.lock`, VERBATIM
+    protocol) — the offender refuses (`REFUSED`) and the control drives (`877`)
+    through the real `pi -p`.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`) — CLEAN on correctness/fidelity/spec;
+    two [test] findings: F1 (the production `bindModelUnresolvable` spread had no
+    red path — cell H hand-built the resolver input) and F2 (the `null` branch of
+    `renderNonScalarBindContextKind`, `? bind_context`, unwitnessed). Both closed
+    by adding tests only (new production-load witness + one `? bind_context`
+    cell); no src change. R2 (`bug-fix-reviewer-fast`, allowed because R1 raised
+    no correctness/fidelity/spec) — CLEAN, no escalation; confirmed F1 reds on a
+    dropped production spread and F2 exercises the null branch non-vacuously.
+- Verification: `bug-fix-verifier` SOLID (offline obligations) — witness
+    reds-on-revert / greens-on-restore both faces with byte-identical
+    restoration; full suite 512/9811 green; typecheck + lint clean; the live
+    obligation discharged by the orchestrator under the lock.
+- Residuals:
+  1. [test-design — RESOLVED in-run] the live acceptance fixtures are
+     `mode: subagent`, not `mode: prompt`. `bind_context` is primarily a
+     prompt-mode switch, but the `theta/load/unknown-bind-context-value` refusal
+     arm is MODE-INDEPENDENT. The invoke-sentinel observation channel (b0298
+     precedent) requires a SUBAGENT callee — `invoke` refuses a prompt-mode
+     callee with `theta/load/prompt-mode-callable`, which would make a
+     prompt-mode offender resolve `Err` for the wrong reason (vacuous) and a
+     prompt-mode control non-invocable (this was the first live red). Both
+     fixtures are subagent-mode so the same mode-independent refusal is
+     exercised through a working channel; the pair still flips only the value's
+     node kind (`bind_context: none` scalar vs. block sequence). Recorded, not a
+     product defect.
+  2. [test — non-blocking, pre-existing] `BinderModelLoadPassFile` /
+     `loadPassResolveBinderModels` (`src/binder/binder-model.ts`) build a
+     `BinderModelResolutionInput` from `bindModel?` only and lack the
+     `bindModelUnresolvable` marker. Non-blocking because the seam has no
+     production caller (production flows through `runComposePass`; only
+     `tests/binder-model-resolution.test.ts` uses it) — no shipped behaviour is
+     wrong. Worth aligning when the seam is next touched.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: NON-GOALS unchanged — the `mode:` face (0296,
+    done), `description:`/`system:` non-scalar silence (0299/0301 territory), the
+    `theta/parse/bind-context-session-on-subagent` warning (untouched, still keyed
+    on scalar `"session"`), and truth-coercion of sequence contents (none — the
+    non-scalar is refused, its contents never read) all stay out of scope. Parent
+    adjudications (verbatim): (1) "`bind_context:` present-non-scalar routes to the
+    existing `theta/load/unknown-bind-context-value` — mirroring 0296's Route-1
+    mechanism exactly: a presence flag at the arm, `<value>` rendered as the
+    bounded kind token (`array` for a sequence, `object` for a mapping or alias,
+    `null` otherwise). EXTEND the placeholder-rendering-b.md:74 except-clause that
+    0296 added so it names BOTH `theta/load/unknown-mode-value` and
+    `theta/load/unknown-bind-context-value` (one shared clause, bug 0296/0297
+    cited) — do not add a second parallel clause." (2) "`bind_model:`
+    present-non-scalar is PRESENT-but-unresolvable: route it through the EXISTING
+    binder-model-unresolved machinery exactly as an unresolvable declared string —
+    record presence + an unresolvable marker, do NOT fabricate a string value; the
+    rendering where a value is named is the same kind token; the bypass-eligible
+    path keeps its existing present-but-unresolvable disposition
+    (binder-bypass-and-envelope.md:10 — silently ignored there today for
+    unresolvable strings; non-scalar behaves identically); record this disposition
+    in the fix record. If threading the existing machinery without a fabricated
+    string proves structurally impossible, STOP and report rather than inventing a
+    new code." The bind_model disposition shipped exactly as adjudicated: a marker
+    (no fabricated string), the existing `binder-model-unresolved` on non-bypass,
+    the existing silently-ignored disposition on the bypass path (cell I control).

@@ -1,6 +1,6 @@
 # Bug 0299 — A value-less `description:` or `system:` (a YAML null scalar: bare key, `null`, or `~`) is stringified to the four characters `null` and threaded verbatim: the slash command registers with the autocomplete description `null`, the binder system prompt renders `Description: null`, and a subagent child is spawned with the system prompt text `null` — where the sibling `argument-hint:` arm's `typeof === "string"` guard maps the same shape to absent
 
-- **Status:** open.
+- **Status:** fixed (0.331.0).
 - **Sev/Diff estimate:** S3/D1 — silent wrong values on three surfaces (Pi's
   autocomplete dropdown, the binder's grounding prompt, the spawned child's
   system prompt), each fabricated from a field the author left value-less;
@@ -167,6 +167,62 @@ diagnostics before and after (the absent case is warning-free by spec);
 (`tests/binder-prompt-all-break-description-hint-empty-line.test.ts`) stays
 green; a `system:`-side change keeps `system: ""` behaviour byte-identical
 (zero-part template).
+
+## Fix (0.331.0)
+
+- What shipped: `src/parser/frontmatter.ts` — the `description` arm gains the
+  minimal null guard `isScalar(item.value) && item.value.value !== null ?
+  String(item.value.value) : undefined` (§Fix); the `system` arm becomes a
+  three-way `if/else` mapping a non-scalar node → `undefined` (the pre-existing
+  `theta/load/malformed-system-field` refusal is preserved), a null scalar →
+  `""` (flows through the identical `system: ""` path to a zero-part template
+  `{ parts: [] }`), and any other scalar → `String(value)` (numeric/boolean
+  coercion stays). Both arms carry a WHY comment citing bug 0299.
+- Parent adjudication (verbatim): "Map the null scalar to absent at BOTH arms
+  via the minimal guard `isScalar(v) && v.value !== null` — numeric/boolean
+  coercion STAYS at both arms (a written `description: 42` keeps recording
+  "42"; non-null non-string scalars are the doc's recorded non-goal — 'a
+  different (and defensible) disposition'). The stricter typeof-string guard is
+  NOT adopted: minimality wins; only the null fabrication stops." The `system`
+  arm maps the null scalar to `""` (not `undefined`): the literal `undefined`
+  would trip `theta/load/malformed-system-field` (its non-scalar detector keys
+  on `systemValue === undefined`), emitting a NEW error and breaking the §Fix
+  constraints "zero diagnostics" and "`system: ""` byte-identical" — `""` is the
+  bounded reconciliation that meets both constraints.
+- Gates: witness `tests/b0299-null-scalar-description-system-absent.test.ts`
+  12/12 green (7 formerly-red rows flip, 5 controls hold); revert-witness
+  confirmed RED (7 fail with the fabrication signature) then GREEN, restore
+  byte-exact (`git hash-object` 99fb6fb35c3f5ce5bfb42ac67253aa954f77414f
+  unchanged); full `npm test` 513 files / 9823 tests green; `npm run typecheck`
+  clean; `npm run lint` clean.
+- Review: 1 round — `bug-fix-reviewer` verdict CLEAN, no
+  correctness/fidelity/spec finding; two non-blocking residuals (R1 direct
+  `system: ""` control, R2 comment naming the malformed-system-field trap) both
+  discharged by a `bug-fix-fixer-light` polish round (comment + one test
+  control row); confirmation round skipped — polish verified by gate-diff
+  (comment/test-only, no executable line; gates re-run green).
+- Verification: `bug-fix-verifier` verdict SOLID — witness reds on revert with
+  byte-exact restore; suite green (one unrelated cross-file flake
+  `tests/invoke-prompt-cell-enum-return.test.ts`, bug 0174 fixed 0.98.0, passed
+  on isolated and full re-run); lint/typecheck clean; 0209 witness
+  `tests/binder-prompt-all-break-description-hint-empty-line.test.ts` stays
+  green.
+- Live: registration outcome is unchanged by this fix (a null-scalar
+  `description:`/`system:` theta registers before and after — only the recorded
+  values are corrected), so no bespoke live cell is owed. Satisfied under the
+  shared live lock by two existing cells:
+  `tests/live/acceptance/b0297live-bind-context-nonscalar-load-refusal.test.ts`
+  (registers and drives the scalar control theta through real `pi -p`) and
+  `tests/live/acceptance/b0298live-system-nonscalar-load-refusal.test.ts`
+  (registers and drives a scalar-`system:` subagent control child — exercising
+  the system-prompt surface this fix touches — and its refusal leg confirms the
+  non-scalar `system:` malformed refusal my `system` arm preserves). Both green.
+- Residuals: none.
+- Discharge notes appended: none (no sibling doc affected).
+- Pinned dispositions / non-goals: non-scalar `description:`/`system:` values
+  untouched; `mode:`/`bind_context:` bare keys untouched (fail closed today);
+  `bind_model:` bare untouched (loud where it matters); non-string non-null
+  scalars still coerced (`description: 42` → "42", `system: 42` → "42").
 
 ## Provenance
 

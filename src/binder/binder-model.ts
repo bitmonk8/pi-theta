@@ -137,6 +137,12 @@ export interface BinderModelResolutionInput {
   readonly file: string;
   /** The frontmatter `bind_model:` reference (chain step 1), when present. */
   readonly bindModel?: string;
+  /**
+   * A present non-scalar `bind_model:` (bug 0297): present-but-unresolvable. When
+   * set, the chain does NOT fall back to the `theta.binderModel` setting — the
+   * reference resolves to null exactly as an unresolvable declared string does.
+   */
+  readonly bindModelUnresolvable?: boolean;
   /** The merged `theta.binderModel` setting (chain step 2), when present. */
   readonly settingsBinderModel?: string;
   /**
@@ -255,6 +261,12 @@ export function resolveBinderModel(
 function resolveChainReference(
   input: BinderModelResolutionInput,
 ): string | null {
+  // A present non-scalar `bind_model:` is present-but-unresolvable: it must not
+  // fall back to the settings chain step (the ABSENT-field behaviour) — resolve
+  // to null exactly as an unresolvable declared string does (bug 0297).
+  if (input.bindModelUnresolvable === true) {
+    return null;
+  }
   const reference = input.bindModel ?? input.settingsBinderModel;
   if (reference === undefined || reference === "") {
     return null;
