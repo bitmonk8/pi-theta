@@ -1,6 +1,6 @@
 # Bug 0349 — the `.theta`-callable CODE-CALL leg never applies cancellation.md's two-arm rule: `runToolCallEffect`'s theta-callable branch returns the callee's top-level `Result` bare (`effectful-statement-host.ts:338`), so a subagent-mode `.theta` tool whose child aborts ITSELF (envelope `err: cancelled`, exit 0, caller signal quiet) surfaces to a non-cancelled caller as bare `Err(cancelled)` — the shape the spec reserves for "the parent's own signal fired first" — where `tool-calls.md:46` pins the SAME single error model as `invoke`; the sibling collapse 0295 (fixed 0.337.0) closed at the `runInvokeEffect` invoke seam, unclosed on the code-call leg
 
-- **Status:** open.
+- **Status:** fixed (0.338.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the conformant child-internal
   shape (`invoke_callee { inner: cancelled }`) is unconstructable from any
   real code-call drive at this HEAD: the theta-callable branch returns the
@@ -298,3 +298,106 @@ fixed/open but distinct seam), 0012 (fixed) — no open bug owns the
 `runToolCallEffect` theta-callable leg's cancelled surfacing. Probe: scratch
 `tests/scratch-0349-codecall-cancel.test.ts`, run and deleted; a sweep for
 `scratch` / `0349` in `tests/` and `git status --short` shows no residue.
+
+## Fix (0.338.0)
+
+- What shipped:
+  - `src/runtime/effectful-statement-host.ts` (`runToolCallEffect` theta-callable
+    branch) — the `case "value"` arm now mirrors `runInvokeEffect`'s value arm:
+    `result.ok` returns the callee's typed top-level `Result` directly (FN-5,
+    byte-identical to the pre-0349 pass-through; NO INVCEIL-3 untyped-`null`
+    discard — that discard is exclusive to the untyped-`invoke` seam); a
+    callee-returned `Err` is gated `invokeOutcome.source === "boundary-minted" ||
+    (innerKind === "cancelled" && deps.signal.aborted)` → bare (boundary-minted
+    per 0294; caller-own cancel and the envelope-after-abort race per 0295),
+    else wraps via `surfaceThetaCallableCalleeFailure` and records the SLSH-5 hop
+    via `deps.recordInvokeHop` with `{ style: "theta_callable_bare",
+    calleeNameToken: expr.range.start }` (the callee-name identifier token of the
+    bare call). The pre-dispatch `case "cancelled"` arm is byte-identical. The
+    branch's leading comment and the `recordInvokeHop` deps doc were rewritten:
+    FN-5 governs only the success value, a callee-returned `Err` cascades through
+    `InvokeCalleeError` (tool-calls.md:38/46), and the deps doc now names both
+    hop producers.
+  - `src/runtime/invoke-provenance-ledger.ts` (module header) — the "WHICH
+    WRAPPERS CARRY A HOP" inventory now names THREE hop-producing sites (was
+    two): the literal-`invoke` hop (`runInvokeEffect`), the `.theta`-callable
+    code-call hop (`runToolCallEffect`'s theta-callable branch, `theta_callable_bare`),
+    and the `subagent fn` callee site (`subagentCalleeError`). The stale
+    FN-5-pass-through claim ("the code-side call constructs none") is removed.
+    Comment-only, no behaviour change.
+  - `tests/b0349-codecall-child-internal-cancel-wrap-arm.test.ts` (new) — the
+    6-cell offline witness over the real `executeBody` / `createEffectfulStatementHost`
+    with a `CallExpr` tail classified `theta-callable` and a `resolveCallAsInvoke`
+    `InvokeChild` double: (A) child-internal cancelled (signal quiet) wraps
+    `invoke_callee{inner:cancelled}` + hop; (B) caller-own pre-dispatch abort →
+    bare `cancel`; (C) envelope-after-abort race (signal aborted at wrap time) →
+    bare `cancelled`; (D) non-cancelled callee `code_tool` Err → general wrap +
+    hop; (E) boundary-minted Err stays bare, no hop; (F) caller `match` on
+    `invoke_callee` recovers.
+  - `tests/live/err-note-render-record-error-field-live-cell.test.ts` (bug 0177
+    live cell) — its exact-string note expectation was flipped from the pre-fix
+    bare note to the SLSH-5-suffixed note (Residual 1). Pre-ratified incidental
+    flip: the 0177 subject (record `kind` field → compact JSON `{"n":"x"}` at
+    SNK-k) is preserved byte-exact in the note PREFIX; the fix only appends the
+    spec-correct SLSH-5 suffix (` from <kid> invoked at <parent>:6`,
+    slash-invocation.md:59) because the code-call leg now cascades through
+    `invoke_callee`. Reconstructed deterministically in-body via `realpathSync`.
+- Gates:
+  - Witness: `npx vitest run tests/b0349-codecall-child-internal-cancel-wrap-arm.test.ts`
+    → 6/6 green. Revert the value arm to the bare pass-through → cells A/D/F RED
+    for the right reason (`expected 'cancelled'/'code_tool' to be 'invoke_callee'`;
+    recovery `false`), B/C/E green; restore byte-exact (`git hash-object`
+    round-trips) → 6/6 green.
+  - Full offline suite: `npx vitest run` → 521 files / 9883 tests green (fork
+    baseline 520/9877 + the new witness file's 6 cells; zero committed offline
+    cells flipped).
+  - Typecheck: `npm run typecheck` clean. Lint: `npm run lint` clean.
+  - `tests/citation-symbol-form-gate.test.ts` → 3/3 green (RESIDUAL held at 415,
+    not raised).
+  - Live (under the cross-lane live-lock): the bug 0177 cell — the DIRECT live
+    witness of the fix's Err-wrap path through `runToolCallEffect`'s theta-callable
+    branch — GREEN 1/1, the reconstructed SLSH-5-suffixed note byte-matched the
+    real note; the LPA "bug 0172 boundary 2" cell (the same branch's success
+    value arm) GREEN 1/1.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — three findings: F1
+  (0177 live-cell flip, test/blocker), F2 (ledger header stale FN-5 claim,
+  house-rule/blocker), F3 (stale `:453` same-file citations + under-scoped
+  `recordInvokeHop` deps doc, prose). All fixed by one `bug-fix-fixer` round.
+  Round 2 (`bug-fix-reviewer-fast`) — CLEAN, no correctness/fidelity/spec
+  finding; one cosmetic residual R1 (b0349 header `:453` narrative), resolved by
+  an orchestrator comment-only polish (gate-diff verified, confirmation round
+  skipped).
+- Verification: SOLID. Obl 1 (revert → A/D/F RED for the right reason → restore
+  byte-exact, hash-verified → GREEN 6/6) proven. Obl 2 (521/9883) green. Obl 3
+  (end-to-end live: 0177 direct Err-wrap witness + 0172-b2 success arm both GREEN
+  under the lock; a bespoke self-aborting-callee live cell is not cheap — same
+  posture as 0295, which satisfied its live obligation via the 0294 live cell) —
+  conclusive. Obl 4 (typecheck + lint) clean.
+- Residuals:
+  1. (pre-ratified incidental flip — disclosed) The bug 0177 live cell's
+     exact-string note expectation was flipped from the bare note to the
+     SLSH-5-suffixed note. This was NOT enumerated in premeasure — it is a
+     LIVE-cell behavioural flip through the top-level note renderer, invisible to
+     the offline suite and to the `tests/`-grep enumeration (which found zero
+     offline flips). Subject-preservation: 0177's subject is the record-`kind`-field
+     compact-JSON rendering at SNK-k, preserved byte-exact in the note prefix;
+     the fix appends only the spec-correct SLSH-5 suffix. Flipped citing 0349 +
+     slash-invocation.md §SLSH-5 + tool-calls.md:38; verified GREEN live under
+     the lock. Adjudication valve check: (a) not triggered — 0177's subject is
+     not the bare-pass-through disposition; (b) flip set = 1, under ~10; (c) no
+     non-test `src/` consumer pattern-matches on bare callee-Err shapes from
+     code-call results. Within the adjudication's pre-ratified incidental class.
+  2. (comment-coherence, `src/`) `src/runtime/invoke-provenance-ledger.ts`'s
+     module header was updated (comment-only, no behaviour) to name the third
+     hop-producing site — required to keep the codebase truthful after the fix;
+     no open bug owns it (0088 closed).
+- Discharge notes appended: none. (Bug 0088 §Fix Residuals item 1's ledger
+  exclusion for this leg is SUPERSEDED ON THE RECORD — its deferral was scope,
+  not a ruling that bare surfacing is intended; recorded HERE, not by editing
+  0088's closed fix record, per era-pinning.)
+- Pinned dispositions / non-goals: the caller's-own pre-dispatch cancelled arm
+  (`case "cancelled"`) byte-identical; the invoke seam (`runInvokeEffect`, bug
+  0295) untouched; the `invoke_infra` wrap-parity on the subagent leg (bug 0347)
+  untouched; no wire-format change; no spec amendment owed (the fix implements
+  tool-calls.md:38/46, cancellation.md:66, error-model.md:35 as written); no new
+  author-string-keyed record (0343 N/A).

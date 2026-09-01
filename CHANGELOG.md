@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.338.0]
+
+### Fixed
+
+- **Bug 0349** — the `.theta`-callable CODE-CALL leg applied none of the `invoke` error model on its value path: `runToolCallEffect`'s theta-callable branch returned the driven callee `Result` bare — reading neither the 0294 `outcome.source` provenance nor the caller's `deps.signal`, and never calling `surfaceThetaCallableCalleeFailure` — so a subagent-mode `.theta` TOOL callee that aborted ITSELF (envelope `err: cancelled`, clean exit, caller signal quiet) surfaced to a never-cancelled caller as bare `Err(cancelled)`, and in fact EVERY callee-returned `Err` (`code_tool` included) surfaced bare, the exact call-syntax divergence `tool-calls.md`'s "single error model" forbids (`invoke("./worker.theta")` wrapped post-0295 while `worker(...)` after a `tools:` listing did not). The branch now mirrors the invoke seam's full arbitration: a boundary-minted outcome stays bare; a callee-returned `Err` cascades through `InvokeCalleeError` via `surfaceThetaCallableCalleeFailure`, recording a `theta_callable_bare` SLSH-5 hop naming the callee and call site; the `cancelled` kind is signal-gated exactly as at 0295's seam (caller signal aborted → bare, including the envelope-after-abort race; quiet → wrapped child-internal arm); the caller's-own pre-dispatch arm is byte-identical. The general callee-returned wrap was parent-adjudicated over the cancelled-only minimal (tool-calls.md:38's letter demands all callee failures cascade), with a premeasure valve that cleared on all three conditions (no cell pins bare-as-subject, flip set = one, no src consumer matches bare code-call shapes); bug 0088's ledger scope-deferral for this leg is superseded on the record in the fix record (era-pinned, 0088's closed doc untouched). Witnessed by `tests/b0349-codecall-child-internal-cancel-wrap-arm.test.ts` (child-internal wrap + hop, pre-dispatch control, race cell, general-wrap `code_tool` cell, boundary-minted control, match-recovery), red at fork on the wrap cells; the 0177 live cell's landed note gains the SLSH-5 chain suffix (subject — compact-JSON prefix — preserved; verified green live in-lane).
+
 ## [0.337.0]
 
 ### Fixed

@@ -22,13 +22,13 @@
 // is theta-visible and the ledger reads it for nothing.
 //
 // WHICH WRAPPERS CARRY A HOP. The ledger records against `invoke_callee`
-// wrappers. Two sites in `src/` construct one: the literal-`invoke` hop
-// (`runInvokeEffect`, via `surfaceThetaCallableCalleeFailure`) and the
-// `subagent fn` callee site (`subagentCalleeError` in `statement-executor.ts`).
-// The code-side `.theta`-callable bare-identifier call constructs none — the
-// theta-callable branch of `runToolCallEffect` returns the callee's own
-// top-level `Result` through unchanged (FN-5) — so that surface carries no hop
-// and contributes nothing to a chain.
+// wrappers. Three sites in `src/` construct one: the literal-`invoke` hop
+// (`runInvokeEffect`, via `surfaceThetaCallableCalleeFailure`), the code-side
+// `.theta`-callable bare-identifier call (`runToolCallEffect`'s theta-callable
+// branch, also via `surfaceThetaCallableCalleeFailure`, recording a
+// `theta_callable_bare` hop — bug 0349), and the `subagent fn` callee site
+// (`subagentCalleeError` in `statement-executor.ts`). Every executed hop of
+// these three shapes contributes to the SLSH-5 chain.
 //
 // Spec: slash-invocation.md SLSH-5. Producer: invoke-provenance.ts. Consumer:
 // err-note-render.ts (`ChainHop`, `ErrNoteInput.chain`).

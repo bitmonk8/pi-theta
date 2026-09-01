@@ -150,11 +150,14 @@ export interface EffectfulStatementHostDeps {
   ): CodeSideToolCall;
   resolveInvoke(expr: InvokeExpr, env: LexicalEnvironment): InvokeChild;
   /**
-   * Bug 0088 (slash-invocation.md SLSH-5): record this executed `invoke` hop's
-   * provenance against the `invoke_callee` wrapper `runInvokeEffect` just built,
-   * so the SLSH-5 chain suffix has a `ChainHop` to render at the slash-dispatch
-   * boundary. `calleePath` is the literal callee path from the `invoke(...)`
-   * expression (the same value on the wrapper's own `callee_path` field);
+   * Bug 0088 (slash-invocation.md SLSH-5): record this executed hop's
+   * provenance against the `invoke_callee` wrapper its producer built, so
+   * the SLSH-5 chain suffix has a `ChainHop` to render at the slash-dispatch
+   * boundary. Two producers record here: `runInvokeEffect` (the literal
+   * `invoke(...)` hop, `calleePath` the literal callee path from the expression)
+   * and `runToolCallEffect`'s theta-callable branch (the `.theta`-callable
+   * code-call hop, bug 0349, `calleePath` the callable-set-resolved callee path)
+   * — in both cases the same value on the wrapper's own `callee_path` field.
    * `callSite` is the call-site token descriptor (invoke-provenance.ts). Absent
    * dep (a caller with no ledger to record into) leaves the SLSH-5 chain empty
    * for every hop it would otherwise have covered.
@@ -318,10 +321,14 @@ async function runToolCallEffect(
   evaluatedToolArgs?: Record<string, ThetaValue>,
 ): Promise<OperationResult> {
   // A `<name>(args)` call bound to a `.theta`-callable (frontmatter `tools:`) is
-  // semantically an invoke: drive it through the real invoke trampoline and
-  // return the callee's typed top-level `Result` directly (FN-5), NOT the
-  // string-lowered tool-call value. A name bound to a Pi tool falls through to
-  // the code-side `execute` dispatch below.
+  // semantically an invoke (tool-calls.md:38/46): drive it through the real
+  // invoke trampoline. FN-5 (functions.md:44) governs only the SUCCESS value —
+  // the callee's typed top-level `Result` flows back directly, NOT the
+  // string-lowered tool-call value. A callee-RETURNED `Err` cascades through
+  // `InvokeCalleeError` exactly as `runInvokeEffect`'s value arm wraps it,
+  // and the `cancelled` kind is gated by the 0295 two-arm rule
+  // (cancellation.md:66). A name bound to a Pi tool falls through to the
+  // code-side `execute` dispatch below.
   if (
     deps.classifyCall?.(expr, env) === "theta-callable" &&
     deps.resolveCallAsInvoke !== undefined
@@ -334,8 +341,49 @@ async function runToolCallEffect(
       child,
     );
     switch (invokeOutcome.kind) {
-      case "value":
-        return { ok: true, value: invokeOutcome.result };
+      case "value": {
+        const result = invokeOutcome.result;
+        // FN-5 (functions.md:44): a successful `.theta`-callable call returns the
+        // callee's typed top-level `Result` directly — byte-identical to the
+        // pre-0349 pass-through. Only a callee-RETURNED failure changes shape.
+        if (result.ok) {
+          return { ok: true, value: result };
+        }
+        // tool-calls.md:38/46: a `.theta`-callable call is semantically an
+        // `invoke` and shares its single error model, so a callee-returned
+        // `Err` cascades through `InvokeCalleeError` exactly as
+        // `runInvokeEffect`'s value arm wraps it. The wrap/bare split is
+        // decided by PROVENANCE
+        // (boundary-minted stays bare, bug 0294) and, for `cancelled`, by the
+        // caller's OWN signal (bug 0295, cancellation.md:66's two-arm rule):
+        // signal ABORTED (the caller-own arm, and the envelope-after-abort
+        // race) surfaces bare; signal QUIET means the child aborted itself, so
+        // it wraps. Bug 0088's SLSH-5 ledger exclusion for this leg was scope,
+        // not a ruling that bare is intended; 0349 supersedes it. The
+        // pre-dispatch cancelled arm below (the caller's own signal) is
+        // untouched by this gate.
+        const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
+        if (
+          invokeOutcome.source === "boundary-minted" ||
+          (innerKind === "cancelled" && deps.signal.aborted)
+        ) {
+          return { ok: true, value: result };
+        }
+        const wrapped = surfaceThetaCallableCalleeFailure(
+          child.calleePath,
+          result.error as unknown as QueryError,
+          `.theta-callable call of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
+        );
+        // Bug 0088 (SLSH-5): record this hop's provenance against the wrapper.
+        // The call-site token is the callee-name identifier of the bare-identifier
+        // call (`worker` in `worker(...)`), i.e. `expr.range.start` — NOT a
+        // receiving binding's line — hence style `theta_callable_bare`.
+        await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, {
+          style: "theta_callable_bare",
+          calleeNameToken: expr.range.start,
+        });
+        return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
+      }
       case "cancelled":
         return { ok: false, error: makeCancelledError() };
     }

@@ -57,6 +57,9 @@
 // precondition when no live provider/model resolves — this file never
 // silently skips.
 
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
@@ -104,7 +107,18 @@ function parentTheta(): string {
   );
 }
 
-/** The exact SNK-k rendering under bug 0177's chosen law (rule 4: compact JSON). */
+/**
+ * The exact SNK-k rendering under bug 0177's chosen law (rule 4: compact JSON)
+ * — the note PREFIX, the 0177 subject, unchanged by bug 0349.
+ *
+ * Post-0349 the `.theta`-callable branch of `runToolCallEffect` cascades a
+ * callee-returned `Err` through `InvokeCalleeError` and records a
+ * `theta_callable_bare` SLSH-5 hop (bug 0349, tool-calls.md:38), so the landed
+ * note GAINS the SLSH-5 chain suffix naming the kid (the §SLSH-5 worked
+ * example, slash-invocation.md:59). That suffix carries per-run temp-dir absolute
+ * paths, so the full suffixed note is reconstructed in-body from the planted
+ * workspace; this const stays the path-free prefix.
+ */
 const EXPECTED_NOTE = `theta /${PARENT_STEM} returned Err: {"n":"x"} \u2014 m`;
 
 describe("bug 0177 (live) — a record at the SNK-k `kind` field renders as compact JSON at the real slash-dispatch boundary, through a REAL spawned subagent child", () => {
@@ -114,6 +128,17 @@ describe("bug 0177 (live) — a record at the SNK-k `kind` field renders as comp
       { source: "project", stem: KID_STEM, text: kidTheta() },
       { source: "project", stem: PARENT_STEM, text: parentTheta() },
     ]);
+    // The landed note is the 0177 prefix plus the SLSH-5 chain suffix
+    // ` from <kidAbs> invoked at <parentAbs>:<line>`. Both paths are the
+    // post-realpath absolute forms the invocation ledger canonicalises to;
+    // `<line>` is CALL_SITE_LINE — the `${KID_STEM}()?` callee-name token line
+    // in the parent (line 1 `---`, 2 `mode: prompt`, 3 `tools:`,
+    // 4 `  - ./<kid>.theta`, 5 `---`, 6 the call). Reconstructed here because
+    // the temp dir is per-run.
+    const CALL_SITE_LINE = 6;
+    const kidAbs = realpathSync(join(workspace.cwd, ".pi", "theta", `${KID_STEM}.theta`));
+    const parentAbs = realpathSync(join(workspace.cwd, ".pi", "theta", `${PARENT_STEM}.theta`));
+    const EXPECTED_NOTE_SUFFIXED = `${EXPECTED_NOTE} from ${kidAbs} invoked at ${parentAbs}:${CALL_SITE_LINE}`;
     const handle = await bootShippedExtension({ workspace, provider });
     try {
       if (handle.command(PARENT_STEM) === undefined) {
@@ -144,12 +169,17 @@ describe("bug 0177 (live) — a record at the SNK-k `kind` field renders as comp
       // rendering below.
       expect(
         turn.systemNotes,
-        "bug 0177: the SLSH-3 note for a record-valued `kind` field must be " +
-          `exactly ${JSON.stringify(EXPECTED_NOTE)} — compact JSON.stringify, ` +
-          "not `[object Object]` and not a `theta/runtime/internal-error` " +
-          "abort framing from a coercion TypeError. observed systemNotes: " +
-          JSON.stringify(turn.systemNotes),
-      ).toEqual([EXPECTED_NOTE]);
+        "bug 0177: the SLSH-3 note's PREFIX for a record-valued `kind` field " +
+          `must be exactly ${JSON.stringify(EXPECTED_NOTE)} — compact ` +
+          "JSON.stringify, not `[object Object]` and not a " +
+          "`theta/runtime/internal-error` abort framing from a coercion " +
+          "TypeError. Post-0349 the code-call leg wraps the callee-returned " +
+          "`Err` (invoke_callee cascade) and records a `theta_callable_bare` " +
+          "SLSH-5 hop, so the note carries the chain suffix naming the kid " +
+          "(bug 0349, slash-invocation.md:59 §SLSH-5, tool-calls.md:38); the " +
+          `full landed note is ${JSON.stringify(EXPECTED_NOTE_SUFFIXED)}. ` +
+          "observed systemNotes: " + JSON.stringify(turn.systemNotes),
+      ).toEqual([EXPECTED_NOTE_SUFFIXED]);
     } finally {
       await handle.dispose();
       workspace.dispose();
