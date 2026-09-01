@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.340.0]
+
+### Fixed
+
+- **Bug 0348** — the `theta/load/unknown-frontmatter-field` warning interpolated the unrecognised KEY into its single-line message with no line-break transform, so a crafted key carrying a raw newline (YAML quoted/flow forms admit one) embedded literal U+000A/U+000D bytes into the diagnostics surface — the same broken-invariant class 0300 closed for the out-of-range `<observed>` rows — on BOTH carriers: the top-level unknown-key message and 0301's dotted typo'd-sub-key variant, which mint at two distinct sites in the frontmatter field loop. Both sites now route the author key through the existing `normaliseLiteralValueLineBreaks` collapse before interpolation (collapse, not escape: the category-5 `<field>`/`<key>` placeholders render verbatim text, so no byte-identical carve-out applies — the in-lane bounded adjudication 0300's sibling record anchors), and `placeholder-rendering-b.md` gains the reconciling except-clause naming the transform for this placeholder in the 0296/0297/0301 house style. The warning's code, severity, still-registered semantics, and every other message byte are identical. Witnessed by `tests/b0348-unknown-frontmatter-field-key-single-line.test.ts` (LF/CR/CRLF/blank-hint break forms on both carriers red at fork with the raw bytes, no-break controls byte-identical, registration-semantics cell, sweep cell); no live cell owed — registration outcome unchanged and zero live cells pin these message bytes (census recorded).
+
 ## [0.339.0]
 
 ### Fixed

@@ -714,7 +714,7 @@ function unknownSubKeyDiagnostics(
       code: "theta/load/unknown-frontmatter-field",
       file,
       ...(range !== undefined ? { range } : {}),
-      message: `unknown frontmatter field '${dottedPrefix}.${sub}'`,
+      message: `unknown frontmatter field '${dottedPrefix}.${normaliseLiteralValueLineBreaks(sub)}'`,
     });
   }
   return out;
@@ -1403,7 +1403,7 @@ export function parseFrontmatter(
           code: "theta/load/unknown-frontmatter-field",
           file,
           ...(keyRange !== undefined ? { range: keyRange } : {}),
-          message: `unknown frontmatter field '${key}'`,
+          message: `unknown frontmatter field '${normaliseLiteralValueLineBreaks(key)}'`,
         });
       }
     }
