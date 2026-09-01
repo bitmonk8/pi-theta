@@ -24,7 +24,7 @@ import type {
   CodeSideToolCall,
   ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
-import type { InvokeChild } from "../src/runtime/invoke-cancellation";
+import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import { makeOk, type ResultValue } from "../src/runtime/value";
 import type {
@@ -154,8 +154,10 @@ class NoopToolCall implements CodeSideToolCall {
 class NoopInvokeChild implements InvokeChild {
   readonly calleePath = "./noop.theta";
   readonly committed: readonly CommittedSideEffect[] = [];
-  drive(): Promise<ResultValue> {
-    return Promise.resolve(makeOk(null));
+  drive(): Promise<DrivenInvokeResult> {
+    // Unreached (empty_template short-circuits before any invoke drive); the
+    // callee ran, so the fake models an ordinary callee-returned Ok.
+    return Promise.resolve({ source: "callee-returned", result: makeOk(null) });
   }
 }
 

@@ -262,7 +262,7 @@ const SITE = {
 /**
  * One probe's disposition: the body produced a value, or the runtime threw. A
  * raw non-panic throw propagates out of `executeBody` uncaught (the framing that
- * reclassifies it lives one layer up, theta-composition-producer.ts:481), so
+ * reclassifies it lives one layer up, theta-composition-producer.ts:492), so
  * both dispositions are observable here.
  */
 type Probe =

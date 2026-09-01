@@ -216,7 +216,7 @@ describe("bug 0293 — invoke callee containment fences (injected FakeFileSystem
 
     // queryerror-variants.md:182 — a missing/unreadable callee is `load_failure`,
     // not the runtime-defect surface. RED now: `internal_error` (the re-check's
-    // `realpath` ENOENT reaches the boundary default, invoke-cancellation.ts:138).
+    // `realpath` ENOENT reaches the boundary default, invoke-cancellation.ts:168).
     expect(err.cause, "a missing callee is the load/unreadable class").toBe("load_failure");
     // The arm's minted sentence, not the raw Node ENOENT text (RED now).
     expect(err.message).toBe(`invoke callee '${missing}' could not be loaded`);

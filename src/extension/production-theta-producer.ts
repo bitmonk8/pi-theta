@@ -171,7 +171,7 @@ import {
   ShadowedCalleeDispatchDefectError,
 } from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
-import type { InvokeChild } from "../runtime/invoke-cancellation";
+import type { InvokeChild, DrivenInvokeResult, InvokeResultSource } from "../runtime/invoke-cancellation";
 import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type {
   CodeToolError,
@@ -1473,7 +1473,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * declaring-enum tag / schema brand a wire-form default loses here is
    * re-established downstream by the binder-`args` inbound boundary
    * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
-   * `paramBindingsFrom`, `theta-composition-producer.ts:99`, called at `:417`)
+   * `paramBindingsFrom`, `theta-composition-producer.ts:102`, called at `:512`)
    * that `runtime-value-model.md:34` already mandates over binder `args`.
    */
   async #recoverDeclaredDefaults(
@@ -2363,6 +2363,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // the envelope carried no sidecar (an enum-free return, or an
     // envelope-version predating it).
     let forwardedEnumTagsHolder: readonly EnumTagEntry[] | undefined;
+    // Bug 0294 provenance sidecar (mirrors `forwardedEnumTagsHolder`'s
+    // holder/accessor pattern): an `Ok` settle is always the callee's own
+    // return; an `err` settle carries the envelope-consumption seam's own
+    // `source` tag (`SubagentInvocationResult`'s err arm), which `#driveCallee`
+    // reads via `driveSource()` to source-tag the subagent leg's body outcome.
+    let lastDriveSource: InvokeResultSource = "callee-returned";
     const drive = async (): Promise<ResultValue> => {
       const result: SubagentInvocationResult = await driveSubagentChild({
         child,
@@ -2373,8 +2379,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       });
       if (result.ok) {
         forwardedEnumTagsHolder = result.enumTags;
+        lastDriveSource = "callee-returned";
         return makeOk(result.value as ThetaValue);
       }
+      lastDriveSource = result.source;
       return makeErr(result.error as unknown as ThetaValue);
     };
 
@@ -2412,6 +2420,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // invoke-return retag. Undefined on the in-process `subagent fn` path,
       // which never calls `drive()`.
       forwardedEnumTags: (): readonly EnumTagEntry[] | undefined => forwardedEnumTagsHolder,
+      // Bug 0294: exposes `lastDriveSource` (set by `drive()`, above) so
+      // `#driveCallee` can source-tag the subagent leg's body outcome for the
+      // XMODE-1 wrap without re-deriving it from the settled `Result`'s `kind`.
+      driveSource: (): InvokeResultSource => lastDriveSource,
       // FN-5: on the in-process `subagent fn` path the caller's executor runs the
       // inline body against `effectHostDeps`, then surfaces the body's terminal
       // final value the same way the file-callee `drive()` maps its envelope.
@@ -3717,7 +3729,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     return {
       calleePath,
       committed: [],
-      drive: (): Promise<ResultValue> => {
+      drive: (): Promise<DrivenInvokeResult> => {
         // INV-4 / ceiling #1 (invocation.md §INV-4, CIO-2): push a countable
         // frame BEFORE the callee body runs. The cap is breached when about to
         // push the 33rd frame; the nested overflow surfaces to this invoke
@@ -3735,7 +3747,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               calleePath,
             });
             if (surfaced.mode === "nested") {
-              return Promise.resolve(makeErr(surfaced.error as unknown as ThetaValue));
+              // This ceiling refusal is THIS hop's own trampoline guard — the
+              // callee never ran (bug 0294 provenance).
+              return Promise.resolve({
+                source: "boundary-minted",
+                result: makeErr(surfaced.error as unknown as ThetaValue),
+              });
             }
           }
           throw panic;
@@ -3782,7 +3799,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     returnTyping: InvokeReturnTyping,
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
-  ): Promise<ResultValue> {
+  ): Promise<DrivenInvokeResult> {
     // INV-1 (invocation.md §Resolution): re-run the realpath + discovery-root
     // containment check at the moment the runtime opens the callee,
     // against the *currently* active roots. An escape fails closed with
@@ -3800,13 +3817,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     for (const argValue of argValues) {
       const breach = enforceInvokeParamsDepth(calleePath, argValue);
       if (breach !== undefined) {
-        return breach.result;
+        // This ceiling refusal is THIS hop's own guard on the caller-supplied
+        // argument — the callee never ran (bug 0294 provenance).
+        return { source: "boundary-minted", result: breach.result };
       }
     }
 
     const escape = await this.#recheckCalleeContainment(theta, calleePath);
     if (escape !== undefined) {
-      return makeErr(escape as unknown as ThetaValue);
+      // The containment re-check is THIS hop's own guard — the callee never ran
+      // (bug 0294 provenance).
+      return { source: "boundary-minted", result: makeErr(escape as unknown as ThetaValue) };
     }
     // Bug 0293 (queryerror-variants.md:182-183): the verdict discriminates the
     // spec's `load_failure` (callee unreadable / un-loadable) from `parse_failure`
@@ -3827,7 +3848,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         callee_path: calleePath,
         cause,
       };
-      return makeErr(error as unknown as ThetaValue);
+      // A load / parse failure is THIS hop's own guard — the callee's own code
+      // never ran (bug 0294 provenance).
+      return { source: "boundary-minted", result: makeErr(error as unknown as ThetaValue) };
     }
     const callee = parsed.input;
     // tool-calls.md §"Return type" (registered-theta row): the return type of a
@@ -3887,14 +3910,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             return surfaceCalleeFinalValue(execution);
           },
         });
+        // The child's own body ran and settled `outcome.result` — callee-returned
+        // (bug 0294 provenance), whatever `kind` its `Err` (if any) carries.
+        const bodySource: InvokeResultSource = "callee-returned";
         // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
         // validation to the child's `Ok` payload, exactly as the spawn path below.
-        return this.#validateInvokeReturn(
+        const validated = this.#validateInvokeReturn(
           calleePath,
           returnSite,
           outcome.result,
           callee.sourcePath,
         );
+        // A return_validation `Err` minted from an `Ok` body payload is THIS
+        // hop's own guard, not the callee's (bug 0294 provenance).
+        if (!validated.ok && outcome.result.ok) {
+          return { source: "boundary-minted", result: validated };
+        }
+        return { source: bodySource, result: validated };
       } finally {
         childBinding.finishInvocation?.();
       }
@@ -3924,21 +3956,39 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // self-contained `drive()` (launch → await envelope → map), NOT by running
       // `executeBody` in-parent. `drive` is always present on the subagent
       // binding; `surface(executeBody(...))` is the harness fallback.
-      const result =
-        binding.drive !== undefined
-          ? await binding.drive()
-          : binding.surface(await executeBody(callee.body, binding.executeDeps));
+      //
+      // Provenance (bug 0294): a `drive()` settle is the envelope-consumption
+      // seam's own `source` tag (`driveSource()`, mirroring `forwardedEnumTags`)
+      // — `callee-returned` on `Ok` and on the envelope's own `err` arm,
+      // `boundary-minted` on a parent-side fail-closed map. The in-process
+      // `surface(executeBody(...))` fallback is always the callee's own body,
+      // so it is unconditionally `callee-returned`.
+      let result: ResultValue;
+      let bodySource: InvokeResultSource;
+      if (binding.drive !== undefined) {
+        result = await binding.drive();
+        bodySource = binding.driveSource?.() ?? "callee-returned";
+      } else {
+        result = binding.surface(await executeBody(callee.body, binding.executeDeps));
+        bodySource = "callee-returned";
+      }
       // INV-6 (invocation.md §Typed return; hard-ceilings ceiling #4): AJV-validate
       // the child's returned value against the `invoke<Schema>` annotation. A
       // mismatch (e.g. a `string` under `invoke<number>`) is
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
-      return this.#validateInvokeReturn(
+      const validated = this.#validateInvokeReturn(
         calleePath,
         returnSite,
         result,
         callee.sourcePath,
         binding.forwardedEnumTags?.(),
       );
+      // A return_validation `Err` minted from an `Ok` body payload is THIS
+      // hop's own guard, not the callee's (bug 0294 provenance).
+      if (!validated.ok && result.ok) {
+        return { source: "boundary-minted", result: validated };
+      }
+      return { source: bodySource, result: validated };
     } finally {
       // PIC-65: await the (idempotent, non-throwing) child-process teardown BEFORE
       // `finishInvocation`, so the child is killed / has exited (abort listener

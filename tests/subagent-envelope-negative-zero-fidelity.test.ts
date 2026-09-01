@@ -18,7 +18,7 @@
 // serialisation call, now `stringifyPreservingNegativeZero` (`:162`) where it
 // was plain `JSON.stringify`. THE PARENT IS UNCHANGED: `parseEnvelopeLine`
 // (`:354`), the driver's parse and settle
-// (`src/runtime/subagent-json-driver.ts:156`, `:158`), the envelope schema, the
+// (`src/runtime/subagent-json-driver.ts:157`, `:159`), the envelope schema, the
 // `v` field and every parse behaviour stay exactly as they are, because
 // `JSON.parse` already recovers `-0` at the root, at a field and in an array
 // (§Reproduction (b)).
@@ -724,7 +724,7 @@ describe("bug 0188 (TRIP) — the parent re-reads the sign the child wrote", () 
     // PRIMARY. This is the composition that decides what a subagent-leg caller
     // binds: the child's writer, then the parent's reader
     // (`src/runtime/subagent-envelope.ts:299`), then the driver's settle
-    // (`src/runtime/subagent-json-driver.ts:149`, `:152`). The reader is
+    // (`src/runtime/subagent-json-driver.ts:150`, `:153`). The reader is
     // UNCHANGED by route (a) — the JSON grammar already carries the sign — so
     // every red here is the writer's.
     const rows: readonly {

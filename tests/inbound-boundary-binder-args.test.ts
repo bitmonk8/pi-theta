@@ -52,7 +52,7 @@ import {
 } from "../src/runtime/value";
 
 // Bug 0172, boundary 3 — binder `args` reach body scope through a cast, not a
-// walk. `paramBindingsFrom` (`src/extension/theta-composition-producer.ts:90`)
+// walk. `paramBindingsFrom` (`src/extension/theta-composition-producer.ts:102`)
 // projects each merged-args entry with `bindings.set(name, value as ThetaValue)`
 // (`:98`), so the AJV-validated payload IS the bound value: a `params:` field
 // declared as a named `enum` reaches the body as a plain string, and one

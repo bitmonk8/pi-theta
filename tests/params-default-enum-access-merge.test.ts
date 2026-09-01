@@ -525,8 +525,8 @@ interface DispatchCapture {
  *
  * This is the HIGHER-FIDELITY route `tests/inbound-boundary-binder-args.test.ts`
  * establishes: `composeThetaFixture(...).run(...)` reaches the real
- * `paramBindingsFrom` (`src/extension/theta-composition-producer.ts:99`) at its
- * real call site (`:417`), which is where production hands it
+ * `paramBindingsFrom` (`src/extension/theta-composition-producer.ts:102`) at its
+ * real call site (`:512`), which is where production hands it
  * `deps.schemaValidator`. That file stubs the binder step; this one keeps it —
  * `runBinder` delegates to the production `ProductionThetaProducer`, so the
  * merged `args` the projection receives are the ones
@@ -895,7 +895,7 @@ describe("bug 0181 (5) — an `Enum.Variant` default at a union-typed param bind
     // (`src/runtime/inbound-boundary.ts`, `ParamsBindingInput.schemaValidator`),
     // and the shipped composition supplies it off the producer's own accessor
     // (`src/extension/production-theta-producer.ts:718`), consumed at
-    // `src/extension/theta-composition-producer.ts:417`.
+    // `src/extension/theta-composition-producer.ts:512`.
     expect(
       capture.schemaValidatorThreaded,
       "the dispatch must carry the runtime's `SchemaValidator`; without it a union-arm value keeps the documented pass-through and this cell would bind an UNTAGGED string while still reporting `bound: true`",
@@ -904,7 +904,7 @@ describe("bug 0181 (5) — an `Enum.Variant` default at a union-typed param bind
     // PREMISE 2 (behavioural): the same projection with the validator withheld
     // yields an untagged value. The three other inputs are the ones
     // `paramBindingsFrom` passes verbatim
-    // (`src/extension/theta-composition-producer.ts:99`) — the merged `args`, the
+    // (`src/extension/theta-composition-producer.ts:102`) — the merged `args`, the
     // theta's own `frontmatter.params.loweredSchema`, and the parsed body — so
     // the only difference between this call and the production one is the
     // withheld validator, and a `false` here is attributable to nothing else.

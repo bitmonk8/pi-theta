@@ -34,7 +34,7 @@ import {
   type ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
 import { ToolReturnShapeDefectError } from "../src/runtime/tool-call-off-surface";
-import { runInvokeChild, type InvokeChild } from "../src/runtime/invoke-cancellation";
+import { runInvokeChild, type InvokeChild, type DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import {
   createEffectfulStatementHost,
@@ -316,7 +316,7 @@ describe("V14c live wiring (a) — invoke parent observes Err(InvokeInfraError{c
     const child: InvokeChild = {
       calleePath: "./child.theta",
       committed,
-      drive: (): Promise<ResultValue> => {
+      drive: (): Promise<DrivenInvokeResult> => {
         // The callee subtree's tool-return-shape defect unwinds as the carrier —
         // exactly what `runToolCallEffect` raises on the live path.
         throw new ToolReturnShapeDefectError(diagnostic);

@@ -54,6 +54,7 @@ import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
 import type { EnumTagEntry } from "../runtime/subagent-envelope";
+import type { InvokeResultSource } from "../runtime/invoke-cancellation";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import {
@@ -260,6 +261,16 @@ export interface ConversationBinding {
    * envelope-version predating it).
    */
   readonly forwardedEnumTags?: () => readonly EnumTagEntry[] | undefined;
+  /**
+   * Bug 0294 provenance sidecar: which side of the invoke boundary minted
+   * `drive()`'s most recently settled `Result` (`InvokeResultSource`) —
+   * `"callee-returned"` on `Ok` and on the envelope's own `err` arm,
+   * `"boundary-minted"` on a parent-side fail-closed map (exit-without-envelope,
+   * parse/schema failure, cancel short-circuit). `#driveCallee` reads it after
+   * `drive()` settles to source-tag the subagent leg's body outcome for the
+   * XMODE-1 wrap. Absent on non-subagent bindings, which never call `drive()`.
+   */
+  readonly driveSource?: () => InvokeResultSource;
   /**
    * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
    * invocation registry"): settles the invocation's `disposeBarrier` and

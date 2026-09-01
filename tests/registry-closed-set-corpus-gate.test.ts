@@ -129,7 +129,7 @@ const CARVE_OUT: Record<string, string> = {
     "tests/, so no witness exists at HEAD and this entry records the absence " +
     "rather than hiding it.",
   "runtime/subagent-wire-parse-failed":
-    "Emitted at src/runtime/subagent-json-driver.ts:145 and genuinely witnessed at " +
+    "Emitted at src/runtime/subagent-json-driver.ts:146 and genuinely witnessed at " +
     "tests/subagent-wire-parse-failed-emitter.test.ts:182-207 through a " +
     "registry-derived code composed from parts (no literal span, per DIAG-4's " +
     "parseRegistry / registryMessage) and at tests/subagent-json-wire.test.ts:82 " +

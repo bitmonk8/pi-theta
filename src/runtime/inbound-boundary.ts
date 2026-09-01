@@ -139,7 +139,7 @@ export interface ParamsBindingInput {
  * record is projected unchanged. A filled default DOES arrive here: the
  * merged `args` `fillDefaultsAndRevalidate` (`src/binder/defaulting.ts`)
  * produces are exactly what `paramBindingsFrom`
- * (`src/extension/theta-composition-producer.ts:99`) hands this function,
+ * (`src/extension/theta-composition-producer.ts:102`) hands this function,
  * defaulted fields included, and for a value in WIRE form this pass is what
  * re-tags a named-enum position / re-brands a schema-typed one.
  * `runtime-value-model.md:37` states the same mechanism: a default projected

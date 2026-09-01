@@ -39,7 +39,7 @@ import type {
   CodeSideToolCall,
   ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
-import type { InvokeChild } from "../src/runtime/invoke-cancellation";
+import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type { Expr, ThetaBody, QueryExpr } from "../src/parser/theta-document";
 import type { ThetaMode, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -229,8 +229,10 @@ const INERT_TOOL_CALL: CodeSideToolCall = {
 const INERT_INVOKE: InvokeChild = {
   calleePath: "./unused.theta",
   committed: [],
-  drive(): Promise<ResultValue> {
-    return Promise.resolve(makeOk(null));
+  drive(): Promise<DrivenInvokeResult> {
+    // Inert double (never reached in these cases); models an ordinary
+    // callee-returned Ok when it is.
+    return Promise.resolve({ source: "callee-returned", result: makeOk(null) });
   },
 };
 

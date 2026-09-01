@@ -42,25 +42,54 @@ import type { InvokeInfraError } from "./query-error";
 import { InvokeInfraCauseError } from "./query-error";
 
 /**
+ * Which side of the invoke boundary minted a `drive()` result's top-level
+ * `Result` (bug 0294): `"callee-returned"` is the callee's own `Ok`/`Err` (the
+ * in-process body outcome, or a subagent's envelope `err` arm — a value the
+ * callee itself produced, possibly by `?`-propagating ITS OWN nested invoke's
+ * infra failure); `"boundary-minted"` is an `Err` THIS hop's trampoline
+ * fabricated around the callee (the boundary catch below, a parent-side
+ * fail-closed envelope map, or a pre-dispatch guard) and never reached the
+ * callee's own code. `runInvokeEffect`'s XMODE-1 wrap keys on this provenance,
+ * not on the resulting `Err`'s `kind`, because a callee-returned `Err` can
+ * legitimately carry `kind: "invoke_infra"` (its own propagated grandchild
+ * failure) — a case `kind`-only discrimination could not tell apart from a
+ * trampoline-minted one of the same kind.
+ */
+export type InvokeResultSource = "callee-returned" | "boundary-minted";
+
+/**
+ * One `drive()` call's top-level `Result` together with which side of the
+ * invoke boundary minted it (`InvokeResultSource`) — the provenance
+ * `runInvokeEffect`'s XMODE-1 wrap discriminates on (bug 0294).
+ */
+export interface DrivenInvokeResult {
+  readonly source: InvokeResultSource;
+  readonly result: ResultValue;
+}
+
+/**
  * One `invoke` child driven on the live execution surface.
  *
  *   - `calleePath` is the resolved callee path the child was spawned from.
  *   - `drive()` runs the child to completion and returns its top-level
- *     `Result<T, QueryError>` (an `Ok` payload on success, an `Err` envelope on
- *     the callee's own failure or an infra failure around the callee body).
+ *     `Result<T, QueryError>` together with its provenance (`InvokeResultSource`):
+ *     an `Ok` payload on success, or an `Err` envelope that is either the
+ *     callee's own failure (`"callee-returned"`) or an infra failure THIS hop
+ *     minted around the callee body (`"boundary-minted"`).
  *   - `committed` exposes the side effects the completed callee produced before
  *     any downstream terminal event, so the ERR-13 witness can assert they
  *     remain final.
  */
 export interface InvokeChild {
   readonly calleePath: string;
-  drive(): Promise<ResultValue>;
+  drive(): Promise<DrivenInvokeResult>;
   readonly committed: readonly CommittedSideEffect[];
 }
 
 /**
  * The outcome of driving one `invoke` child on the live surface:
- *   - `value` — the child ran to completion; `result` is its top-level `Result`
+ *   - `value` — the child ran to completion; `result` is its top-level `Result`,
+ *     `source` is which side of the boundary minted it (`InvokeResultSource`),
  *     and `committed` are the side effects it produced (each final under any
  *     downstream terminal event, ERR-13);
  *   - `cancelled` — the pre-dispatch checkpoint observed the abort; the child
@@ -70,6 +99,7 @@ export type InvokeChildOutcome =
   | {
       readonly kind: "value";
       readonly result: ResultValue;
+      readonly source: InvokeResultSource;
       readonly committed: readonly CommittedSideEffect[];
     }
   | { readonly kind: "cancelled"; readonly committed: readonly CommittedSideEffect[] };
@@ -120,8 +150,8 @@ export async function runInvokeChild(
   // `Err(InvokeInfraError{ cause: "internal_error", ... })`. An uncatchable host
   // fatal (NOCEIL-3) must terminate the process and is rethrown unwrapped.
   try {
-    const result = await child.drive();
-    return { kind: "value", result, committed: child.committed };
+    const driven = await child.drive();
+    return { kind: "value", result: driven.result, source: driven.source, committed: child.committed };
   } catch (thrown) { // allow-broad-catch: invoke-boundary-panic-wrap — errors-and-results.md#runtime-panics
     if (thrown instanceof HostFatal) {
       throw thrown;
@@ -137,9 +167,13 @@ export async function runInvokeChild(
       callee_path: child.calleePath,
       cause: pinnedCause ?? (isThetaPanic(thrown) ? "panic" : "internal_error"),
     };
+    // This catch is THIS hop's boundary re-wrapping a thrown panic /
+    // interpreter defect into the documented `Err` envelope — the callee never
+    // returned it, so it is boundary-minted (bug 0294).
     return {
       kind: "value",
       result: makeErr(error as unknown as ThetaValue),
+      source: "boundary-minted",
       committed: child.committed,
     };
   }

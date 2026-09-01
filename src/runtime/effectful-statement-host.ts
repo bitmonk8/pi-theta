@@ -421,19 +421,29 @@ async function runInvokeEffect(
       // `InvokeCalleeError { kind: "invoke_callee", callee_path, inner, message }`
       // so a spec-conformant parent can read `e.kind == "invoke_callee"`,
       // `e.inner` (the callee's original `QueryError`), and `e.callee_path`.
-      // Two envelopes are NOT callee-returned Errs and pass through unchanged:
-      //   - `invoke_infra` — an infra-side error the trampoline already
-      //     produced (panic / internal_error / return_validation, see
-      //     `runInvokeChild` and the typed-return validation path); and
-      //   - `cancelled` — cancellation is its own terminal outcome.
-      // Every other `QueryError` (the callee's own validation / code_tool /
-      // transport / model_tool / context_overflow / tool_loop_exhausted /
-      // invoke_callee failure) is the callee's returned `Err` and is wrapped.
-      // `invoke_callee` is NOT special-cased: each invoke hop adds exactly one
-      // wrapper (the SLSH-5 chain), so a deeper hop's `invoke_callee` is
-      // wrapped again. This applies to both untyped and typed invoke.
+      //
+      // The wrap/bare split is decided by PROVENANCE (`outcome.source`), not by
+      // `result.error.kind` (bug 0294). `outcome.source === "boundary-minted"`
+      // means THIS hop's own trampoline fabricated the `Err` (`runInvokeChild`'s
+      // panic-wrap catch, a fail-closed envelope map, a pre-dispatch guard) —
+      // the callee's code never ran or never returned it, so it stays bare per
+      // error-model.md's per-cause table (Panic row). `outcome.source ===
+      // "callee-returned"` means the callee's own body produced this `Err` —
+      // including a callee that `?`-propagated ITS OWN nested invoke's
+      // `invoke_infra` failure — so invocation.md:75 wraps it regardless of its
+      // `kind`. `cancelled` stays a `kind` test (bug 0295's own two-arm rule;
+      // untouched here): cancellation is its own terminal outcome, and every
+      // `drive()` implementation must mark a cancelled callee-side result with
+      // that `kind` however it is minted.
+      // Every callee-returned `QueryError` other than a cancellation (the
+      // callee's own validation / code_tool / transport / model_tool /
+      // context_overflow / tool_loop_exhausted / invoke_callee / invoke_infra
+      // failure) is wrapped. `invoke_callee` is NOT special-cased: each invoke
+      // hop adds exactly one wrapper (the SLSH-5 chain), so a deeper hop's
+      // `invoke_callee` is wrapped again. This applies to both untyped and
+      // typed invoke.
       const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
-      if (innerKind === "invoke_infra" || innerKind === "cancelled") {
+      if (outcome.source === "boundary-minted" || innerKind === "cancelled") {
         return { ok: true, value: result };
       }
       const wrapped = surfaceThetaCallableCalleeFailure(

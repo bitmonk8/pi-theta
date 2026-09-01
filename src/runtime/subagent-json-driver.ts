@@ -25,6 +25,7 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { QueryError } from "./query-error";
+import type { InvokeResultSource } from "./invoke-cancellation";
 import type { SubagentChildProcess, ChildExitInfo } from "./subagent-launcher";
 import type { Clock } from "../seams/clock";
 import { makeCancelledError } from "./cancellation-core";
@@ -59,6 +60,43 @@ function renderExitDetail(info: ChildExitInfo): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * The three `invoke_infra` causes with NO child-side envelope writer, over the
+ * closed `InvokeInfraCause` union (`query-error.ts`). The wire carries no
+ * provenance marker, so `cause` is the driver's PROXY for where an
+ * `invoke_infra` err was minted. These three have no production that mints them
+ * onto a child's `theta_result` envelope, so an `invoke_infra` err carrying one
+ * of them reaches this parent solely by the callee `?`-propagating its OWN
+ * nested `invoke(...)` failure — it is callee-returned and must WRAP for INV-5
+ * wrap parity vs the in-process leg:
+ *
+ *   - `parse_failure` — sole mint at `production-theta-producer.ts:3840`
+ *     (`#driveCallee`); reaches the envelope only by body `?`-propagation.
+ *   - `panic` — the child-side regime catch routes body panics to
+ *     `internal_error` (`production-theta-producer.ts:2684`), so every
+ *     `cause:"panic"` reaching the envelope is a propagated body value (a
+ *     nested-hop boundary catch, a nested depth overflow, `par for` ERR-20, a
+ *     `subagent fn` downgrade).
+ *   - `subagent_model_unresolved` — minted PARENT-SIDE only (`guardResolvedModel`,
+ *     `subagent-model-guard.ts:116`, thrown at
+ *     `production-theta-producer.ts:2053`); the child-side preflight mints
+ *     `subagent_model_preflight_mismatch` instead, so it reaches the envelope
+ *     only by a nested modelless subagent invoke propagating.
+ *
+ * The other five causes (`load_failure`, `validation`, `return_validation`,
+ * `internal_error`, `subagent_model_preflight_mismatch`) DO have a child-side
+ * envelope writer, so their `cause` on the wire is provenance-ambiguous and
+ * defaults BARE (boundary-minted). A future `invoke_infra` cause not listed here
+ * therefore defaults to boundary-minted — the spec-safe conservative default,
+ * since an over-bare missed-fix is safer than an over-wrap phantom-hop spec
+ * violation.
+ */
+const PROPAGATED_INVOKE_INFRA_CAUSES: ReadonlySet<string> = new Set([
+  "parse_failure",
+  "panic",
+  "subagent_model_unresolved",
+]);
+
+/**
  * The parent-observed subagent invocation result reconstructed from the
  * envelope (INV-5). `enumTags` carries the PIC-59 §D3 sidecar
  * (`EnumTagEntry[]`, bug 0342 §Fix) through to the invoke-return retag when
@@ -67,7 +105,7 @@ function renderExitDetail(info: ChildExitInfo): string {
  */
 export type SubagentInvocationResult =
   | { readonly ok: true; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
-  | { readonly ok: false; readonly error: QueryError };
+  | { readonly ok: false; readonly error: QueryError; readonly source: InvokeResultSource };
 
 /** The collaborators the parent-side drive consumes (all injected; fake child in tests). */
 export interface SubagentDriveDeps {
@@ -162,19 +200,70 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
             ...(parse.enumTags !== undefined ? { enumTags: parse.enumTags } : {}),
           });
           return;
-        case "err":
-          settle({ ok: false, error: parse.error });
+        case "err": {
+          // Provenance over the CLOSED `InvokeInfraCause` union, read from a wire
+          // that carries no provenance marker — so `cause` is the driver's
+          // PROXY, partitioning the union into two groups.
+          //
+          // CALLEE-RETURNED (wrap) — no child-side envelope writer, so the cause
+          // reaches this arm solely by the callee `?`-propagating its OWN nested
+          // `invoke(...)` (the bug-0294 subagent-leg fix, INV-5 wrap parity):
+          // `parse_failure`, `panic`, `subagent_model_unresolved` (see
+          // `PROPAGATED_INVOKE_INFRA_CAUSES` for the per-cause evidence).
+          //
+          // BOUNDARY-MINTED (stay bare) — each HAS a child-side envelope writer,
+          // so its `cause` on the wire is provenance-ambiguous and is spec'd
+          // BARE to an invoke parent:
+          //   - `load_failure` — marked-root registration refusal (bug 0178,
+          //     `subagent-root-regime.ts:218` → `production-composition.ts:1244`);
+          //   - `validation` — params-intake refusal
+          //     (`production-theta-producer.ts:2590`; `subagent-params.ts:313`);
+          //   - `return_validation` — return-value refusal
+          //     (`production-theta-producer.ts:2658/2661`;
+          //     `subagent-envelope.ts:862/900`);
+          //   - `internal_error` — child body panic / defect catch
+          //     (`production-theta-producer.ts:2684`);
+          //   - `subagent_model_preflight_mismatch` — child-side preflight
+          //     (`production-theta-producer.ts:2574`; `subagent-model-guard.ts:164`).
+          //
+          // A non-`invoke_infra` err (ValidationError, CodeToolError, transport,
+          // model_tool, context_overflow, tool_loop_exhausted, invoke_callee) is
+          // the callee's own returned Err — callee-returned.
+          //
+          // KNOWN RESIDUAL (bug 0294 F2): the FIVE boundary-minted causes above
+          // — a callee that `?`-propagates a NESTED `invoke_infra` of
+          // `load_failure` / `validation` / `return_validation` /
+          // `internal_error` / `subagent_model_preflight_mismatch` through the
+          // subagent leg is left BARE here, indistinguishable from a child-side
+          // mint of the same cause without an envelope provenance sidecar
+          // (0342-scale, out of scope), an INV-5 parity gap vs the in-process
+          // leg. The three no-writer causes (`parse_failure`, `panic`,
+          // `subagent_model_unresolved`) ARE wrapped, so they achieve full
+          // parity. A future `invoke_infra` cause defaults to boundary-minted —
+          // the spec-safe conservative default, since an over-bare missed-fix
+          // is safer than an over-wrap phantom-hop spec violation.
+          const err = parse.error as { readonly kind?: unknown; readonly cause?: unknown };
+          const source: InvokeResultSource =
+            err.kind === "invoke_infra" && !PROPAGATED_INVOKE_INFRA_CAUSES.has(err.cause as string)
+              ? "boundary-minted"
+              : "callee-returned";
+          settle({ ok: false, error: parse.error, source });
           return;
+        }
         case "parse-failed": {
           const mapping = mapEnvelopeParseFailure(parse.line, calleePath);
           emitDiagnostic(mapping.diagnostic);
-          settle({ ok: false, error: mapping.error });
+          // The parent minted this `Err` from a malformed envelope; the callee
+          // never returned it (bug 0294 provenance).
+          settle({ ok: false, error: mapping.error, source: "boundary-minted" });
           return;
         }
         case "schema-skew": {
           const mapping = mapEnvelopeSchemaSkew(parse.observed, parse.required, calleePath);
           emitDiagnostic(mapping.diagnostic);
-          settle({ ok: false, error: mapping.error });
+          // The parent minted this `Err` from an envelope-shape mismatch; the
+          // callee never returned it (bug 0294 provenance).
+          settle({ ok: false, error: mapping.error, source: "boundary-minted" });
           return;
         }
       }
@@ -188,7 +277,9 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
       // invocation whose abort-driven kill exited the child WITHOUT an envelope
       // maps to `Err(cancelled)`, not `internal_error` (PIC-66).
       if (thetaAbort.signal.aborted) {
-        settle({ ok: false, error: makeCancelledError() });
+        // The parent's own cancellation short-circuit minted this `Err`; the
+        // callee never returned it (bug 0294 provenance).
+        settle({ ok: false, error: makeCancelledError(), source: "boundary-minted" });
         return;
       }
       const detail = renderExitDetail(info);
@@ -205,7 +296,9 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
       // Fail-closed: the child exited without emitting an envelope.
       const mapping = mapExitWithoutEnvelope(detail, calleePath);
       emitDiagnostic(mapping.diagnostic);
-      settle({ ok: false, error: mapping.error });
+      // The parent minted this fail-closed `Err` from a missing envelope; the
+      // callee never returned it (bug 0294 provenance).
+      settle({ ok: false, error: mapping.error, source: "boundary-minted" });
     });
   });
 }

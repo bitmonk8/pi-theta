@@ -398,7 +398,9 @@ describe("bug 0316 EFFECT control — a `match` over a live query still sees Ok/
         return {
           calleePath: "./unused.theta",
           value: null,
-          drive: () => Promise.resolve(makeOk(null)),
+          // Inert double (unreached in this cell); models an ordinary
+          // callee-returned Ok (bug 0294 provenance).
+          drive: () => Promise.resolve({ source: "callee-returned", result: makeOk(null) }),
         } as unknown as InvokeChild;
       },
     };

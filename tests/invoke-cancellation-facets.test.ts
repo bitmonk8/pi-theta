@@ -86,7 +86,8 @@ function drivenChild(
     calleePath,
     drive: async () => {
       log.push("drive");
-      return makeOk(value);
+      // Models an ordinary callee that ran and returned Ok (bug 0294 provenance).
+      return { source: "callee-returned", result: makeOk(value) };
     },
     committed,
   };

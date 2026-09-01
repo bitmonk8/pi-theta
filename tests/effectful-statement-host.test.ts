@@ -24,7 +24,7 @@ import type {
   CodeSideToolCall,
   ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
-import type { InvokeChild } from "../src/runtime/invoke-cancellation";
+import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type {
   CallExpr,
@@ -230,10 +230,11 @@ class RecordingInvokeChild implements InvokeChild {
   ) {
     this.#onDrive = onDrive;
   }
-  drive(): Promise<ResultValue> {
+  drive(): Promise<DrivenInvokeResult> {
     this.driven = true;
     this.#onDrive?.();
-    return Promise.resolve(makeOk(this.value));
+    // Models an ordinary callee that ran and returned Ok (bug 0294 provenance).
+    return Promise.resolve({ source: "callee-returned", result: makeOk(this.value) });
   }
 }
 
@@ -496,9 +497,11 @@ class ErrReturningInvokeChild implements InvokeChild {
     readonly calleePath: string,
     readonly errorPayload: ThetaValue,
   ) {}
-  drive(): Promise<ResultValue> {
+  drive(): Promise<DrivenInvokeResult> {
     this.driven = true;
-    return Promise.resolve(makeErr(this.errorPayload));
+    // Models a callee that ran and returned its own Err (bug 0294 provenance) —
+    // exactly the XMODE-1 wrap's intended input.
+    return Promise.resolve({ source: "callee-returned", result: makeErr(this.errorPayload) });
   }
 }
 
