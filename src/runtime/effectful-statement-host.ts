@@ -431,19 +431,26 @@ async function runInvokeEffect(
       // "callee-returned"` means the callee's own body produced this `Err` —
       // including a callee that `?`-propagated ITS OWN nested invoke's
       // `invoke_infra` failure — so invocation.md:75 wraps it regardless of its
-      // `kind`. `cancelled` stays a `kind` test (bug 0295's own two-arm rule;
-      // untouched here): cancellation is its own terminal outcome, and every
-      // `drive()` implementation must mark a cancelled callee-side result with
-      // that `kind` however it is minted.
-      // Every callee-returned `QueryError` other than a cancellation (the
-      // callee's own validation / code_tool / transport / model_tool /
+      // `kind`. `cancelled` is a two-arm rule of its OWN, orthogonal to
+      // provenance (bug 0295; cancellation.md:66): a child invoke's own abort
+      // wraps like any other callee-returned failure, but the PARENT'S own
+      // abort must stay bare (it IS the parent's terminal cancel outcome, not
+      // a callee failure to report). `outcome.source` cannot arbitrate this —
+      // both arms can carry `source: "callee-returned"` — so the disjunct reads
+      // `deps.signal`, the one input that actually distinguishes them: signal
+      // ABORTED means the parent's own abort raced the child's envelope home
+      // (still the parent-own arm — bare), signal QUIET means the envelope's
+      // `cancelled` can only have been minted by the child's own code calling
+      // `ctx.abort()`, so it wraps.
+      // Every callee-returned `QueryError` other than a parent-own cancellation
+      // (the callee's own validation / code_tool / transport / model_tool /
       // context_overflow / tool_loop_exhausted / invoke_callee / invoke_infra
-      // failure) is wrapped. `invoke_callee` is NOT special-cased: each invoke
-      // hop adds exactly one wrapper (the SLSH-5 chain), so a deeper hop's
-      // `invoke_callee` is wrapped again. This applies to both untyped and
-      // typed invoke.
+      // failure, or a child-internal cancellation) is wrapped. `invoke_callee`
+      // is NOT special-cased: each invoke hop adds exactly one wrapper (the
+      // SLSH-5 chain), so a deeper hop's `invoke_callee` is wrapped again. This
+      // applies to both untyped and typed invoke.
       const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
-      if (outcome.source === "boundary-minted" || innerKind === "cancelled") {
+      if (outcome.source === "boundary-minted" || (innerKind === "cancelled" && deps.signal.aborted)) {
         return { ok: true, value: result };
       }
       const wrapped = surfaceThetaCallableCalleeFailure(

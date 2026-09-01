@@ -1,7 +1,7 @@
 // Bug 0294 (offline unit cells) — the two seams the composition-root witnesses
 // (`tests/b0294-callee-propagated-invoke-infra-wrapped.test.ts`) cannot reach
 // cheaply: the subagent-leg provenance tag (INV-5) and the cancelled-exemption
-// fence (0295's preserved subject).
+// fence (bug 0295's subject; re-pinned to 0295's fix below).
 //
 // (F) SUBAGENT-LEG PARITY (INV-5). The parent-side subagent driver
 // (`driveSubagentChild`, `src/runtime/subagent-json-driver.ts`) settles the
@@ -18,13 +18,20 @@
 //     (provider-error-mapping.md's parent-side rows stay bare).
 // RED at this HEAD: the `source` field is absent, so both reads are `undefined`.
 //
-// (G) CANCELLED-EXEMPTION FENCE (control, GREEN both sides). The fix flips only
-// the `invoke_infra` arm of the XMODE-1 exemption to provenance; the `cancelled`
-// arm STAYS kind-based (bug 0295's subject —
-// `.pi/tmp/fixes/0294-design.md` §Fix / §Scope fences). A callee-returned Err
-// whose `kind` is `cancelled` must therefore pass the parent's wrap BARE (stay
-// `kind: "cancelled"`, never rewritten to `invoke_callee`) both before and after
-// the fix. Witnessed at the `runInvokeEffect` seam
+// (G) CANCELLED-EXEMPTION FENCE, RE-PINNED BY BUG 0295. 0294 flips only the
+// `invoke_infra` arm of the XMODE-1 exemption to provenance; `cancelled` was
+// left explicitly OUT OF SCOPE for 0294 (`.pi/tmp/fixes/0294-design.md`
+// §Fix / §Scope fences) and assigned to 0295 as its own two-arm rule
+// (cancellation.md:66): a child invoke's own abort wraps; the parent's own
+// abort stays bare. This fence's double carries `source: "callee-returned"`
+// and `seamHarness` drives with a QUIET parent signal (`new
+// AbortController().signal`, never aborted) — by cancellation.md:66 /
+// provider-error-mapping.md:44 that combination is, by construction, the
+// CHILD-INTERNAL arm, so bug 0295's fix wraps it as
+// `invoke_callee { inner: cancelled }`. The cell held the pre-0295
+// bare-cancelled assertion only until 0295's lane landed the parent-signal
+// gate at the wrap seam; it now pins the post-fix child-internal disposition.
+// Witnessed at the `runInvokeEffect` seam
 // (`src/runtime/effectful-statement-host.ts`) — the seam that owns the wrap
 // decision — driven by the real body executor over a legitimate `InvokeChild`
 // boundary double.
@@ -298,7 +305,8 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
 });
 
 // ===========================================================================
-// (G) Cancelled-exemption fence (control, GREEN both sides).
+// (G) Cancelled-exemption fence, re-pinned to bug 0295's parent-signal gate
+// (GREEN post-fix: child-internal arm wraps).
 // ===========================================================================
 
 function span(): SourceRange {
@@ -337,10 +345,10 @@ const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
  * An `InvokeChild` boundary double whose completed drive resolves the callee's
  * own `Err(cancelled)`. The returned object carries BOTH drive shapes (see the
  * file header): `ok`/`error` for the fork reader and `source`/`result` for the
- * post-fix reader, so the fence is GREEN on both sides without the implementer
- * touching this file. `source: "callee-returned"` deliberately exercises the
- * path where provenance alone would wrap — the fence proves the `cancelled`
- * kind-arm keeps it bare regardless.
+ * post-fix (0294) reader. `source: "callee-returned"` deliberately exercises
+ * the path where provenance alone would wrap — `seamHarness`'s QUIET parent
+ * signal is what actually arbitrates the outcome under bug 0295's fix (the
+ * child-internal arm), per cancellation.md:66.
  */
 function cancelledReturningInvokeChild(calleePath: string): InvokeChild {
   const cancelledErr = { kind: "cancelled", message: "callee cancelled" };
@@ -388,8 +396,8 @@ function seamHarness(invoke: InvokeChild): ExecuteBodyDeps {
   };
 }
 
-describe("bug 0294 (G) — a callee-returned cancelled Err passes the parent wrap BARE (0295 preserved)", () => {
-  it("the cancelled arm stays kind-based: the surfaced Err keeps kind `cancelled`, not `invoke_callee` — ", async () => {
+describe("bug 0294 (G) — a callee-returned cancelled Err with the parent signal QUIET wraps invoke_callee (0295 re-pin)", () => {
+  it("the child-internal arm wraps: with the parent signal quiet, the surfaced Err is invoke_callee{inner:cancelled}, not bare cancelled", async () => {
     const invoke = cancelledReturningInvokeChild("./worker.theta");
     const program = body([], invokeExpr("./worker.theta"));
 
@@ -397,12 +405,21 @@ describe("bug 0294 (G) — a callee-returned cancelled Err passes the parent wra
 
     const value = r.result.value as ResultValue;
     expect(value.ok, "a callee-returned Err surfaces as an Err at the parent").toBe(false);
-    const errKind = (value as { readonly error: { readonly kind?: string } }).error.kind;
+    const err = (value as { readonly error: { readonly kind?: string; readonly inner?: { readonly kind?: string }; readonly callee_path?: string } }).error;
+    // 0294 established the PROVENANCE machinery (`source: "callee-returned"`)
+    // this fence's double carries; 0295 established that `cancelled` is its
+    // OWN two-arm rule keyed on the PARENT's signal, not on provenance
+    // (cancellation.md:66). `seamHarness` here uses a QUIET parent signal, so
+    // an envelope-delivered `cancelled` is, by construction, the callee's own
+    // abort (provider-error-mapping.md:44) — the child-internal arm, which
+    // wraps like any other callee-returned failure. This cell held the
+    // pre-0295 bare-cancelled contract only until 0295's lane landed the
+    // signal gate; it now pins the post-fix child-internal disposition.
     expect(
-      errKind,
-      "the `cancelled` exemption arm is 0295's subject and stays kind-based: the fix must NOT " +
-        "wrap a callee-returned cancelled Err in an invoke_callee hop",
-    ).toBe("cancelled");
-    expect(errKind).not.toBe("invoke_callee");
+      err.kind,
+      "the child-internal arm (parent signal quiet) wraps invoke_callee, per cancellation.md:66 and bug 0295's fix",
+    ).toBe("invoke_callee");
+    expect(err.inner?.kind, "the wrapper carries the callee's own cancellation as its inner QueryError").toBe("cancelled");
+    expect(err.callee_path, "the wrapper names the callee that aborted itself").toBe("./worker.theta");
   });
 });

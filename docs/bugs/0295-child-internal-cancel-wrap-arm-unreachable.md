@@ -1,6 +1,6 @@
 # Bug 0295 — the child-internal arm of cancellation.md's two-arm invoke rule is unreachable: `runInvokeEffect` passes every callee-returned `kind: "cancelled"` through bare (`effectful-statement-host.ts:433`), so a subagent callee that aborts ITSELF (its tool code calls `ctx.abort()`) surfaces to a non-cancelled parent as bare `Err(cancelled)` — the shape the spec reserves for "the parent's own signal fired first" — and an unhandled propagation renders `theta /<parent> cancelled` for a parent nobody cancelled, instead of `Err(invoke_callee, inner: { kind: "cancelled" })`
 
-- **Status:** open.
+- **Status:** fixed (0.337.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the input class is narrow (a
   callee that cancels itself from its own tool code, with the parent's
   signal quiet) but the wrongness is a terminal-outcome misclassification:
@@ -214,3 +214,63 @@ Error-classification bug hunt, worktree `C:/UnitySrc/pi-theta-hunt` at
 error-model.md per-cause table, provider-error-mapping.md audit table,
 invocation.md §Failures. Probe: scratch fake-child drive, run and deleted;
 result bytes verbatim.
+
+## Fix (0.337.0)
+
+- What shipped:
+  - `src/runtime/effectful-statement-host.ts` (`runInvokeEffect` wrap seam) —
+    the `cancelled` disjunct is signal-gated: `outcome.source === "boundary-minted"
+    || (innerKind === "cancelled" && deps.signal.aborted)`. Parent signal ABORTED
+    (parent-own-signal arm, including the envelope-after-abort race) → bare
+    `cancelled`; signal QUIET (child-internal arm) → falls through to the existing
+    `surfaceThetaCallableCalleeFailure` wrap + `recordInvokeHop`, surfacing
+    `Err(invoke_callee, inner: { kind: "cancelled" })` with the SLSH-5 hop naming
+    the callee (§Fix, verbatim). No new diagnostic code; the seam comment rewritten
+    to WHY the gate is signal-based (not source-keyed), citing cancellation.md:66.
+  - `tests/b0295-child-internal-cancel-wrap-arm.test.ts` (new) — the 7-cell witness
+    (A child-internal wrap, B pre-dispatch bare, C race bare, D unhandled note names
+    the callee, E parent match-ability, F ordinary non-cancelled wrap, G in-process
+    subagent-fn control).
+  - `tests/b0294-callee-propagated-invoke-infra-wrapped-unit.test.ts` — the (G)
+    cancelled-exemption fence re-pinned from bare `cancelled` to the child-internal
+    wrap `invoke_callee{inner:cancelled}` (quiet signal is the child-internal arm
+    under the new gate). Pre-authorized by the 0294 record; strengthened, not
+    weakened; cites both bugs. All other content byte-untouched.
+- Gates: witness `npx vitest run tests/b0295-*.test.ts` → 7/7 green (revert→RED on
+  A/D/E for the right reason→restore→GREEN; a source-only gate reds cell C, proving
+  the gate must be signal-based); full default suite `npx vitest run` → 520 files /
+  9877 tests green; `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round (`bug-fix-reviewer`, deep) — CLEAN, no correctness/fidelity/spec
+  blocker; one non-blocking residual (R1, below). Loop converged at round 1.
+- Verification: SOLID. Obl 1 (witness reds/greens on revert/restore + the signal-vs-
+  source discriminator on cell C) — proven. Obl 2 (default suite 520/9877) — green.
+  Obl 3 (live end-to-end) — the b0294 live cell drives the real AgentSession
+  slash-dispatch through this exact wrap seam (invoke_callee wrap + SLSH-5 suffix)
+  green under the cross-lane live-lock, with b0271live (depth-2 invoke) green; a
+  bespoke self-aborting-callee live cell is not cheap (needs custom abort-calling
+  tool code in a spawned child), so the invoke seam is proven live via these
+  existing cells. Obl 4 (typecheck + lint) — clean.
+- Residuals:
+  1. (correctness — non-blocking, pre-adjudicated) The `.theta`-callable code-call
+     leg (`runToolCallEffect`, theta-callable branch) still surfaces a child-internal
+     `cancelled` bare — it constructs no `invoke_callee` wrapper and reads no signal.
+     Pre-existing and adjudicated out of scope by bug 0088 (Residuals item 1); 0295
+     §Fix scopes only `runInvokeEffect`. After 0295 the leg asymmetry now also covers
+     the cancelled two-arm rule — follow-up filing material, not a defect of this fix.
+  2. (doc discrepancy) The doc §"Why it matters" / §"Actual behaviour" claim that the
+     wrap flips the top-level note to the SLSH-3 `returned Err:` row is inexact: the
+     shipped `renderTopLevelErrNote` walks every `invoke_callee` wrapper to the leaf,
+     and `theta-composition-producer.ts` routes every returned `!terminal.ok` through
+     it, so a cancelled leaf renders SNK-f `theta /<name> cancelled` whether bare or
+     wrapped. The wrap’s real behavioural effects are (1) the Err kind becomes
+     `invoke_callee` → matchable by the parent (cell E), and (2) the SLSH-5 hop
+     suffix naming the callee is appended (cell D). §Fix (the signal-gated wrap) is
+     unaffected; the renderer is out of scope and untouched.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the parent-own-signal arm (kill → no-envelope →
+  cancellation short-circuit → bare) byte-identical; the pre-dispatch checkpoint abort
+  stays bare; in-process `subagent fn` bodies (shared controller) untouched;
+  `statement-executor.ts` cancelled-flow mappings untouched; the `invoke_infra` half
+  (0294) — its wrap rule, ledger hop, and closed set — untouched. No new author-string-
+  keyed record (0343 N/A). No wire-format change. No spec amendment owed (the fix
+  implements cancellation.md:66 / error-model.md:35 as written).

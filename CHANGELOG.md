@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.337.0]
+
+### Fixed
+
+- **Bug 0295** — cancellation.md's two-arm invoke rule (child-internal abort → `Err(invoke_callee, inner: {kind: "cancelled"})`; parent-own-signal abort → bare `cancelled`) was collapsed to one arm: `runInvokeEffect`'s wrap exempted `cancelled` unconditionally, so a subagent callee that aborted ITSELF (its tool code calling the overridden `ctx.abort()` → the child's own thetaAbort; envelope `err: cancelled`, clean exit) surfaced to a never-cancelled parent as bare `Err(cancelled)` — the shape reserved for "the parent's own signal fired first" — ending an unhandled parent on the Cancelled arm of the trichotomy for an invocation nobody cancelled, and denying a parent `match` the my-user-pressed-Esc vs my-callee-gave-up distinction the rule exists to carry. The wrap seam's cancelled disjunct is now signal-gated per the doc's settled fix: parent signal aborted → bare (including the envelope-after-abort race, which the doc's letter assigns to the bare arm); signal quiet → wrapped via `surfaceThetaCallableCalleeFailure` with the SLSH-5 hop naming the callee (a source-keyed gate was rejected — 0294's provenance machinery composes with but cannot replace the signal, whose race disposition the doc pins; the witness proves a source-only gate reds the race cell). The parent-own-signal kill path, pre-dispatch checkpoint, in-process `subagent fn` sharing, statement-executor cancel flows, and 0294's invoke_infra wrap rule are all byte-identical; the 0294 unit fence cell for the cancelled disjunct re-pinned to the child-internal wrap exactly as the 0294 record pre-authorized ("0295 fence … in place for its lane"). Witnessed by `tests/b0295-child-internal-cancel-wrap-arm.test.ts` (child-internal wrap + hop, parent-aborted bare control, race cell, renderer walk, match-recovery, ordinary-Err and in-process controls), red at fork on the child-internal cells. Residual recorded: the `.theta`-callable code-call leg's sibling collapse filed separately.
+
 ## [0.336.0]
 
 ### Fixed
