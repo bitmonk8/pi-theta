@@ -154,7 +154,7 @@ Two ambiguities deserve explicit rules:
 ```theta
 let score = match @<ReviewScore>`Rate the critique 1-5: ${critique}` {
   Ok(s)  => s,
-  Err(e) => ReviewScore { value: 0, reason: "unrated: ${e.message}" }
+  Err(e) => ReviewScore { value: 0, reason: "unrated: " + e.message }
 }
 ```
 
@@ -229,7 +229,7 @@ For a discriminated union `schema Animal = Cat | Dog | Lizard`, construct via th
 2. Otherwise, the parser computes the *least upper bound* of the element types under `⊑`: identical types collapse ([TYPE-1](./type-system.md#type-1)); `integer` widens to `number` when mixed with `number` ([TYPE-2](./type-system.md#type-2)); otherwise the element types are unioned via [TYPE-5](./type-system.md#type-5) and [TYPE-6](./type-system.md#type-6) (`["a", null]` → `array<string | null>`; `[1, "a"]` → `array<number | string>`). This is the one rule of the three that also governs ternary branches.
 3. Object schemas do not unify implicitly — array literal only: an array literal containing two different named schemas yields `array<A | B>` only if some sink in scope expects a union; otherwise it is `theta/parse/array-no-common-type` ("array elements have no common type; annotate the binding with `array<A | B>` or use a single schema"). A ternary's branches never reach this rule; see [Type System — TYPE-9](./type-system.md#type-9) for what a ternary reports instead.
 
-**`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number` — the same `integer ⊑ number` widening defined in [Type System — Type compatibility](./type-system.md#type-2) (TYPE-2). On two `string` operands, concatenation. Mixed-type operands are `theta/parse/mixed-plus-operands` — write an explicit conversion or interpolate inside a string. `+` on `array<T>` is not supported; use `arr.concat(other)`. See [Diagnostics](./diagnostics.md) for the full code registry.
+**`+` operator.** On two `number` (or `integer`) operands, addition; the result widens to `number` if either operand is `number` — the same `integer ⊑ number` widening defined in [Type System — Type compatibility](./type-system.md#type-2) (TYPE-2). On two `string` operands, concatenation. Mixed-type operands are `theta/parse/mixed-plus-operands` — write an explicit conversion or interpolate inside a `@`...`` query template (regular strings do not interpolate; see [Lexical Structure](./lexical.md#string-literals)). `+` on `array<T>` is not supported; use `arr.concat(other)`. See [Diagnostics](./diagnostics.md) for the full code registry.
 
 ## Other arithmetic
 

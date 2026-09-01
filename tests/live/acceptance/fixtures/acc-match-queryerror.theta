@@ -6,6 +6,6 @@ mode: prompt
 // handled rather than thrown, so the run exits cleanly either way.
 let outcome = match @`Reply with a short one-line greeting.` {
   Ok(text) => text,
-  Err(e) => "handled query error: ${e.message}"
+  Err(e) => "handled query error: " + e.message
 }
 outcome

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.341.0]
+
+### Fixed
+
+- **Bug 0309** — the corpus itself taught a silently-inert idiom: `lexical.md`'s normative rule ("No interpolation — the sequence `${` inside a regular string is plain text"; interpolation belongs in `@`-query templates) is implemented and live-verified, yet `expressions.md`'s own leading `match` example constructed its recovery value with `reason: "unrated: ${e.message}"` — a regular string, so the spelled program emits the literal bytes `${e.message}` with zero diagnostics — the committed H9a area-(h) fixture `acc-match-queryerror.theta` shipped the same inert Err arm, and the `+`-operator note read "interpolate inside a string" as if regular strings interpolate. All three sites are rewritten to spec-legal-AND-working idioms per the example-fix adjudication (the language-change alternative — interpolation in regular strings — is RFC territory, rejected): the example's Err arm and the fixture's Err arm carry the message via `"…: " + e.message` string concatenation (same teaching, same fixture contract — loads clean, drives to completion, exits cleanly either way; its assertions never pinned the old bytes), and the note now names the query template as the interpolation surface. `lexical.md` untouched (the rule is correct); no diagnostic added for `${` in regular strings (language-surface change, out of scope). Locks: the committed-fixture parse gate over the rewritten fixture plus the H9a area-(h) cell (run green live under the lock in-lane); the rewritten example scratch-verified to parse zero-diagnostic. Residual: a fourth site with the same misleading phrasing in `code-registry-parse.md` filed separately.
+
 ## [0.340.0]
 
 ### Fixed
