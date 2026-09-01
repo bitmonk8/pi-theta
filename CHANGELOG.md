@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.327.0]
+
+### Fixed
+
+- **Bug 0320** — the `tools:` half of `theta/parse/invoke-non-theta-extension` was unenforced: `resolveEntry` classified every non-bare-identifier spec as a theta path and went straight to callee resolution, so the wrong-extension outcome was decided by the named file's CONTENTS instead of the rule — a `.txt` file whose bytes parsed as a subagent theta REGISTERED SILENTLY as a live model-facing callable, and a valid `.thetalib` entry drew `theta/load/callee-has-errors` with an empty `related` list (a message asserting the callee is broken when the defect is the entry's extension), while the invoke-literal twin correctly E-rejected the same path in a body. `resolveEntry`'s theta-path arm now runs `checkInvokeExtension({ surface: "tools" })` — the purpose-built checker that had been dead since bug 0137's census — BEFORE any callee read or parse, drawing the registry row's E message and un-registering the caller; the pre-parse callee cache loop is gated on the same check, and the never-called `"tools"` arm of `validatePathLiteral` is deleted so the surface has one owner. Bare-identifier Pi-tool entries and `.theta`-suffixed specs are byte-unchanged (0248 lockstep + 0270/0271/0280 + containment suites green); no new code minted. One committed flip parent-ratified as vehicle-collateral: bug 0108's C5 cells (`web-search`, `web.search`, `9tool` — non-bare-identifier specs not ending in `.theta`) move from `unresolvable-theta-path` to the extension row, spec-forced because `frontmatter-fields-a.md` scopes `unresolvable-theta-path` to `.theta`-suffixed misses — the cells' refusal-contract subject is untouched and their messages now read from the parse registry per DIAG-4. Witnessed by `tests/b0320-tools-entry-extension-rule-unenforced.test.ts` (10 cells: the masq-`.txt` silent-registration and `.thetalib` misdiagnosis rows red at fork, invoke-literal and Pi-tool/`.theta` controls, byte-exact-lowercase casing, fires-before-callee-read precedence with no FS read, `as`-alias form).
+
 ## [0.326.0]
 
 ### Fixed

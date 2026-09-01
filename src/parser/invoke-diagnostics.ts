@@ -48,6 +48,7 @@
 import {
   type Diagnostic,
   type RelatedSite,
+  type SourceRange,
 } from "../diagnostics/diagnostic";
 import {
   type CompatSite,
@@ -547,8 +548,13 @@ export interface InvokeExtensionInput {
   readonly literalPath: string;
   /** The referencing surface: an `invoke(...)` literal or a `tools:` `.theta` entry. */
   readonly surface: InvokePathSurface;
-  /** The located referencing site the diagnostic attaches to. */
-  readonly site: CompatSite;
+  /**
+   * The located referencing site the diagnostic attaches to. `range` is
+   * optional because the `tools:` seam has no per-entry source range (it is
+   * YAML-list frontmatter, not a parsed expression) — every sibling
+   * `resolveEntry` diagnostic on that seam is file-only.
+   */
+  readonly site: { readonly file: string; readonly range?: SourceRange };
 }
 
 /**
@@ -571,7 +577,7 @@ export function checkInvokeExtension(input: InvokeExtensionInput): Diagnostic[] 
       severity: "error",
       code: INVOKE_NON_THETA_EXTENSION_CODE,
       file: site.file,
-      range: site.range,
+      ...(site.range !== undefined ? { range: site.range } : {}),
       message: invokeNonThetaExtensionMessage(literalPath),
       hint: INVOKE_NON_THETA_EXTENSION_HINT,
     },

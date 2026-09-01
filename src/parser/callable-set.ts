@@ -11,11 +11,13 @@
 //     entries (resolved against the per-load-pass parse cache);
 //   - the default name derivation (Pi-tool name verbatim; `.theta` basename with
 //     hyphens replaced by underscores) and the `as <name>` rename override;
-//   - the eight load-time rejections — `theta/load/malformed-tool-entry` (an
-//     entry outside the closed per-entry grammar), `theta/load/unknown-tool`,
-//     `theta/load/unresolvable-theta-path`, `theta/load/prompt-mode-callable`,
-//     `theta/load/invalid-tool-rename`, `theta/load/invalid-derived-tool-name`,
-//     `theta/load/invalid-pi-tool-name`, `theta/load/tool-name-collision`;
+//   - the nine load-time rejections — `theta/load/malformed-tool-entry` (an
+//     entry outside the closed per-entry grammar), `theta/parse/invoke-non-theta-extension`
+//     (a `.theta`-path spec not ending byte-exact-lowercase `.theta`),
+//     `theta/load/unknown-tool`, `theta/load/unresolvable-theta-path`,
+//     `theta/load/prompt-mode-callable`, `theta/load/invalid-tool-rename`,
+//     `theta/load/invalid-derived-tool-name`, `theta/load/invalid-pi-tool-name`,
+//     `theta/load/tool-name-collision`;
 //   - the frozen resolution snapshot (no ambient inheritance): only the
 //     explicitly-listed callables appear, and an absent / empty `tools:` yields
 //     the empty callable set.
@@ -32,6 +34,7 @@
 // lexical.md (§Extension matching, §Path literals).
 
 import { normaliseLiteralValueLineBreaks, type Diagnostic } from "../diagnostics/diagnostic";
+import { checkInvokeExtension } from "./invoke-diagnostics";
 import type { ThetaMode } from "./frontmatter";
 
 /**
@@ -399,7 +402,24 @@ function resolveEntry(
     return { callable: resolved, defaultName: spec };
   }
 
-  // `.theta` path entry.
+  // `.theta` path entry. The extension check owns the wrong-extension case
+  // (frontmatter-fields-a.md §`.theta` paths, byte-exact lowercase) and runs
+  // before `resolveThetaCallee` so a wrong-extension entry never reaches
+  // callee resolution — contrast `theta/load/unresolvable-theta-path` below,
+  // which is scoped to specs that already end in `.theta` but resolve to no
+  // file.
+  const [extensionDiagnostic] = checkInvokeExtension({
+    literalPath: spec,
+    surface: "tools",
+    site: { file },
+  });
+  if (extensionDiagnostic !== undefined) {
+    return {
+      callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
+      defaultName: thetaDefaultName(spec),
+      diagnostic: extensionDiagnostic,
+    };
+  }
   const resolved = deps.resolveThetaCallee(spec);
   const defaultName = thetaDefaultName(spec);
   if (resolved === undefined) {

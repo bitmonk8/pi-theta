@@ -1,6 +1,6 @@
 # Bug 0320 — the `tools:` half of `theta/parse/invoke-non-theta-extension` is unenforced: a `tools:` entry naming a non-`.theta` path is never extension-checked, so a `.txt` file whose contents parse as a subagent theta registers silently as a live callable, and a valid `.thetalib` entry draws the wrong code (`theta/load/callee-has-errors` with empty `related`) instead of the parse error three spec pages assign to both surfaces
 
-- **Status:** open.
+- **Status:** fixed (0.327.0).
 - **Sev/Diff estimate:** S2/D2 — S2 on "silent permissive acceptance": the
   registry row's Trigger names two surfaces ("An `invoke(...)` literal **or a
   `tools:` `.theta` entry** whose path string does not end in `.theta`",
@@ -216,6 +216,97 @@ Not yet decided; constraints any fix must satisfy:
    witnesses stay green).
 4. No new diagnostic code (DIAG-2): the registered row already covers the
    input.
+
+## Fix (0.327.0)
+
+- What shipped:
+  - `src/parser/callable-set.ts` — `resolveEntry`'s `.theta`-path arm now calls
+    `checkInvokeExtension({ surface: "tools", site: { file } })` BEFORE
+    `deps.resolveThetaCallee`; a spec that is not a bare identifier and does not
+    end byte-exact-lowercase `.theta` returns the
+    `theta/parse/invoke-non-theta-extension` (E) diagnostic and the caller
+    un-registers, with no callee read or parse (§Fix constraint 1).
+  - `src/parser/invoke-diagnostics.ts` — `checkInvokeExtension`'s `site` relaxed
+    from `CompatSite` (range required) to `{ file; range? }`; the `range` key is
+    omitted when absent, so the `tools:` seam (which has no per-entry source
+    range) gets a file-only diagnostic matching its sibling `resolveEntry`
+    rejections. The four existing unit tests (ranged `SITE`) stay green.
+  - `src/lexer/literals.ts` — the dormant `"tools"` member is removed from
+    `PathLiteralKind`, and `validatePathLiteral`'s doc updated: the `tools:`
+    surface's extension check is now owned solely by `checkInvokeExtension`
+    (one owner). `validatePathLiteral` is unchanged for `import`/`invoke`.
+  - `src/extension/production-composition.ts` — the pre-parse `calleeCache`
+    population loop in `resolveThetaToolsAtLoad` is gated on the same
+    `checkInvokeExtension` check (guard only, emits no diagnostic there), so a
+    wrong-extension entry's bytes are never read there either — required by
+    "before any callee read or parse" and to stop `callee-has-errors` co-firing
+    for the valid-`.thetalib` cell.
+  - Mechanism choice (the §Fix's "one of the two dormant checkers is wired, the
+    other deleted"): `checkInvokeExtension` was wired and
+    `validatePathLiteral`'s `"tools"` capability deleted — because
+    `checkInvokeExtension` does ONLY the extension check (constraint 3: a
+    `.theta`-suffixed spec with a backslash is unaffected, whereas
+    `validatePathLiteral` would also run its separator check on `tools:`), and
+    it already carries a purpose-built `surface: "tools"` unit test that
+    `validatePathLiteral`'s untested `"tools"` arm does not.
+- Gates: witness `tests/b0320-tools-entry-extension-rule-unenforced.test.ts`
+  10/10 green (red at fork on cells A/B/E-upper/F/G/H, controls C/D green;
+  genuine-red confirmed by reverting the check → the same six cells red, restore
+  → green, file byte-identical); full default suite `npm test` 508 files /
+  9779 tests green; `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN, no findings; four non-blocking
+  `test`-class residuals (see Residuals).
+- Verification: PASS — witness reds on revert and greens on restore (file hash
+  identical before/after); full suite green; typecheck+lint clean; live channel
+  exercised (see Residuals for why a bug-0320-specific live cell was not
+  authored).
+- Residuals:
+  1. R1 (follow-up, unfiled) — the `invoke(...)`/nested-callee static-resolution
+    predicate (`calleeFailsOwnStructuralChecks`,
+    `src/extension/production-composition.ts`) uses a closed code list
+    (`unknown-tool | unresolvable-theta-path | prompt-mode-callable`) that does
+    NOT include `theta/parse/invoke-non-theta-extension`, so a callee whose OWN
+    `tools:` has a wrong-extension entry does not propagate an
+    `callee-has-errors` to its `tools:` caller, and an `invoke` by path of such
+    a theta still resolves `Ok`. This is bug 0320's own class at a sibling
+    surface (rule enforced at the direct `tools:` position, absent at the
+    invoke/nested-propagation position) and warrants its own filing;
+    `frontmatter-fields-a.md` §`.theta` paths pairs the code with
+    `unresolvable-theta-path`, which DOES propagate, so the taxonomy tension is
+    real. Out of scope here (this bug's witnesses are all the direct surface).
+  2. R2 (follow-up, unfiled) — the `theta/parse/invalid-path-separator` half of
+    the same three-surface rule is still unenforced on the `tools:` surface
+    (`.\callee.theta` draws nothing). Pre-existing at fork; constraint 3
+    forbade fixing it here (the wired checker is extension-only). Its own
+    filing, mirroring how 0137's census missed the `tools:` half.
+  3. R4 (mitigated) — the e2e witness's message assertion opens `<path>` to
+    `.+`; exact-substitution is witnessed at the C5 unit seam
+    (`tests/uppercase-pi-tool-name-refusal.test.ts`, `parseExpectedMessage`)
+    and in cell H (exact registry-template equality).
+  4. Live obligation discharged by fallback: no cheap, robust bug-0320-specific
+    live acceptance cell is expressible — the fix's observable is load-time
+    slash-registration, which `pi -p` observes only through `invoke`, and
+    `invoke`'s static-resolution predicate excludes the new code (R1), so a
+    prompt-mode offender invoked by path still runs (LOADED) even when
+    un-registered; a direct-slash observable hangs on an unregistered stem.
+    Instead the tools:-entry load-refusal channel was exercised end-to-end
+    under the live lock via the existing `tests/live/b0270live-...` and
+    `tests/live/b0267live-...` registration cells (both green), which drive the
+    same `resolveEntry`/`resolveCallableSet` seam through real live production
+    load with this change in place.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the C5 cells of
+  `tests/uppercase-pi-tool-name-refusal.test.ts` (`web-search`, `web.search`,
+  `9tool`) flip from `theta/load/unresolvable-theta-path` to
+  `theta/parse/invoke-non-theta-extension`. This is spec-forced and
+  strengthening (adds an assertion that `unresolvable-theta-path` does NOT
+  fire): those specs are non-bare-identifiers that do not end in `.theta`, and
+  `frontmatter-fields-a.md` §`.theta` paths scopes `unresolvable-theta-path` to
+  literals that END in `.theta` but resolve to no file. **PARENT RATIFICATION
+  REQUESTED** — this is the task's "anything ELSE red ⇒ STOP for parent
+  ratification" case (a non-`callee-has-errors` disposition flip on a closed
+  bug's, 0108, test); it is forced by any correct implementation of the settled
+  §Fix and cannot be avoided without leaving those specs mis-coded.
 
 ## Provenance
 

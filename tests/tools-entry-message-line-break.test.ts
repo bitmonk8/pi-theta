@@ -20,7 +20,7 @@ import {
 // Bug 0105 — a parse-time literal `<value>` reaches its diagnostic `message`
 // carrying the author's own line breaks. `resolveCallableSet`'s malformed arm
 // interpolates the entry text with no transform
-// (src/parser/callable-set.ts:198), and `extractToolsList` recovers a
+// (src/parser/callable-set.ts:201), and `extractToolsList` recovers a
 // non-scalar `tools:` sequence item as its verbatim YAML source slice
 // (src/parser/frontmatter.ts:551, via `paramValueSource`), so a
 // block-mapping item of two or more keys yields a `message` spanning physical
@@ -190,7 +190,7 @@ const THETAS: readonly PlantedTheta[] = [
     text: theta("---", "mode: prompt", "tools: read, grep", "---", "@`hi`"),
   },
 
-  // --- the recovered non-scalar slice (src/parser/callable-set.ts:198) ------
+  // --- the recovered non-scalar slice (src/parser/callable-set.ts:201) ------
 
   // Two keys: the shape bug 0069 §Fix Residuals item 2 names. The slice spans
   // one break plus the item's continuation indent.
@@ -471,7 +471,7 @@ function messageFor(marker: string): string {
  * line-oriented renderers. The toast router hands `ctx.ui.notify` the bare
  * `message` (src/extension/production-composition.ts:226), and the malformed
  * arm pushes `severity` / `code` / `file` / `message` with no `range`
- * (src/parser/callable-set.ts:194–199) — the file-only category of
+ * (src/parser/callable-set.ts:197–202) — the file-only category of
  * diagnostic-shape.md's located-site classification.
  */
 function fileOnlyDiagnostic(

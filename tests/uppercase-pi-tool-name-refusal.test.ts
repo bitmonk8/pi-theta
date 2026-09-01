@@ -191,6 +191,21 @@ const REGISTRY = parseRegistry(
   ),
 ) as { code: string; message: string }[];
 
+// Bug 0320's fix moved `theta/parse/invoke-non-theta-extension` (a PARSE code)
+// in front of the `.theta`-path arm's `resolveThetaCallee` call, so the C5 test
+// below now needs the PARSE registry page's Message, not the LOAD page's.
+const PARSE_REGISTRY = parseRegistry(
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        "../docs/spec_topics/diagnostics/code-registry-parse.md",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  ),
+) as { code: string; message: string }[];
+
 /** Source a code's registered *Message* template and fill its `<…>` placeholders. */
 function expectedMessage(
   code: string,
@@ -212,6 +227,19 @@ const COLLISION_CODE = "theta/load/tool-name-collision";
 const UNKNOWN_TOOL_CODE = "theta/load/unknown-tool";
 const UNRESOLVABLE_PATH_CODE = "theta/load/unresolvable-theta-path";
 const MALFORMED_ENTRY_CODE = "theta/load/malformed-tool-entry";
+const INVOKE_NON_THETA_EXTENSION_CODE = "theta/parse/invoke-non-theta-extension";
+
+/** Source a code's registered *Message* template from the PARSE registry page. */
+function parseExpectedMessage(
+  code: string,
+  subs: Readonly<Record<string, string>>,
+): string {
+  let message = registryMessage(PARSE_REGISTRY, code) as string;
+  for (const [placeholder, value] of Object.entries(subs)) {
+    message = message.replaceAll(placeholder, value);
+  }
+  return message;
+}
 
 /**
  * The *Message* template the new registry row must carry. It names the host
@@ -646,23 +674,36 @@ describe("Bug 0108 (C4) — every host built-in still registers ", () => {
 
 describe("Bug 0108 (C5) — the isBareIdentifier arm split is undisturbed ", () => {
   it.each(["web-search", "web.search", "9tool"])(
-    "theta/load/unresolvable-theta-path: `%s` keeps its current code and message",
+    "theta/parse/invoke-non-theta-extension: `%s` keeps its current code and message",
     (spec) => {
       // A hyphen, a dot or a leading digit fails `isBareIdentifier`, so the spec
       // routes to the `.theta`-path arm and never reaches the Pi-tool arm even
       // though the registry publishes it. That framing misdescribes a Pi-tool
       // name as a `.theta` path; it is a separate, unfiled defect and narrowing
       // the arm split to fix it is out of scope here (bug 0108 §Non-goals).
+      //
+      // Bug 0320 changed what this arm draws for an entry that reaches it: none
+      // of these three specs ends in `.theta`, so `resolveEntry`'s extension
+      // check (bug 0320 §Fix) now rejects them with
+      // `theta/parse/invoke-non-theta-extension` BEFORE `resolveThetaCallee`
+      // ever runs — `theta/load/unresolvable-theta-path` no longer fires here,
+      // because that code is scoped to a spec that already ends in `.theta`
+      // but resolves to no file, which none of these three do. The arm-split
+      // defect this describe block pins is otherwise unchanged.
       const r = resolveList([spec], deps({ piTools: [spec] }));
-      const dg = withCode(r.diagnostics, UNRESOLVABLE_PATH_CODE);
+      const dg = withCode(r.diagnostics, INVOKE_NON_THETA_EXTENSION_CODE);
       expect(
         dg,
-        `${UNRESOLVABLE_PATH_CODE} for \`${spec}\`; diagnostics: ` +
+        `${INVOKE_NON_THETA_EXTENSION_CODE} for \`${spec}\`; diagnostics: ` +
           JSON.stringify(r.diagnostics),
       ).toBeDefined();
       expect(dg?.message).toBe(
-        expectedMessage(UNRESOLVABLE_PATH_CODE, { "<path>": spec }),
+        parseExpectedMessage(INVOKE_NON_THETA_EXTENSION_CODE, { "<path>": spec }),
       );
+      expect(
+        withCode(r.diagnostics, UNRESOLVABLE_PATH_CODE),
+        "the extension check fires before `resolveThetaCallee`, so the spec never reaches unresolvable-theta-path",
+      ).toBeUndefined();
       expect(
         withCode(r.diagnostics, INVALID_PI_TOOL_CODE),
         "an entry that never reached the Pi-tool arm cannot draw its code",

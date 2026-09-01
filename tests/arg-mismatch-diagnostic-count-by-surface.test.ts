@@ -40,7 +40,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // THE FOUR SURFACES, and the loop in each whose shape this file pins (every
 // citation re-derived against the tree at the time of writing):
 //   S1 `invoke("./callee.theta", …)` literal — `checkInvokeArgTypes`, the
-//      per-slot loop `src/parser/invoke-diagnostics.ts:266–291`, no `break`.
+//      per-slot loop `src/parser/invoke-diagnostics.ts:267–292`, no `break`.
 //   S2 same-file `fn` call — `checkFnCallArgs`, the per-slot loop
 //      `src/parser/type-layer-checks.ts:2600–2651`, no `break`.
 //   S3 `.theta`-callable call — the per-slot loop in

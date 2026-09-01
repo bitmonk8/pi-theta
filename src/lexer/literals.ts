@@ -15,8 +15,10 @@
 //     separators only (`theta/parse/invalid-path-separator`) and the byte-exact
 //     lowercase `.theta` / `.thetalib` final-segment check
 //     (`theta/parse/invoke-non-theta-extension` / `theta/parse/import-non-thetalib-extension`).
-//     Later import / invoke / `tools:` parser leaves call this against the
-//     resolved path literal.
+//     Later import / invoke parser leaves call this against the resolved path
+//     literal; the `tools:` surface's extension check is owned solely by
+//     `checkInvokeExtension` (src/parser/invoke-diagnostics.ts), since that
+//     seam has no per-entry source range for this ranged checker to attach to.
 //   - `checkIntegerNarrowing` — the one-way `integer → number` widening rule from
 //     lexical.md §"Number literals" (`theta/parse/integer-narrowing` when a
 //     `number` value reaches an `integer` position). The full type-compatibility
@@ -32,7 +34,7 @@ import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 export type NumericLiteralType = "integer" | "number";
 
 /** Where a path literal appears — selects the byte-exact extension check. */
-export type PathLiteralKind = "import" | "invoke" | "tools";
+export type PathLiteralKind = "import" | "invoke";
 
 /** A path literal as written in source (post-escape-decode value + its span). */
 export interface PathLiteral {
@@ -51,9 +53,9 @@ export interface NarrowingSite {
 /**
  * Validate a path literal against the lexical.md path-literal rules. Produces
  * (in spec order) `theta/parse/invalid-path-separator` for any backslash, then
- * the byte-exact lowercase final-segment check: an `invoke` / `tools:` path that
- * does not end in `.theta` is `theta/parse/invoke-non-theta-extension`, and an
- * `import` path that does not end in `.thetalib` is
+ * the byte-exact lowercase final-segment check: an `invoke` path that does not
+ * end in `.theta` is `theta/parse/invoke-non-theta-extension`, and an `import`
+ * path that does not end in `.thetalib` is
  * `theta/parse/import-non-thetalib-extension`. The check is byte-exact lowercase, so
  * `.THETA` is rejected identically on case-sensitive and case-insensitive hosts.
  *
@@ -81,9 +83,9 @@ export function validatePathLiteral(
   }
 
   // Byte-exact lowercase final-segment check, on the literal as written (no
-  // realpath normalisation). `import` paths must end in `.thetalib`; `invoke` and
-  // `tools:` paths must end in `.theta`. The comparison is byte-exact lowercase,
-  // so `.THETA` / `.THETALIB` is rejected identically cross-OS
+  // realpath normalisation). `import` paths must end in `.thetalib`; `invoke`
+  // paths must end in `.theta`. The comparison is byte-exact lowercase, so
+  // `.THETA` / `.THETALIB` is rejected identically cross-OS
   // (lexical.md §"Extension matching").
   if (kind === "import") {
     if (!value.endsWith(".thetalib")) {

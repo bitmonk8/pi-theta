@@ -132,7 +132,7 @@ import {
   type CallableSetDeps,
   type CallableSetSnapshot,
 } from "../parser/callable-set";
-import { checkCalleeHasErrors } from "../parser/invoke-diagnostics";
+import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import {
@@ -1990,13 +1990,29 @@ async function resolveThetaToolsAtLoad(
   // load.md:35) names "a `tools:` `.theta` entry" as one of its two admitted
   // subjects, and a malformed token sequence is no entry of either admitted
   // kind, so it is not that subject either.
+  // Bug 0320 §Fix constraint 1, second placement: gate on the extension check
+  // BEFORE this pre-parse loop reads any callee bytes. `resolveEntry`
+  // (`callable-set.ts`) already rejects a wrong-extension spec before calling
+  // `resolveThetaCallee`, but that rejection runs later, inside
+  // `resolveCallableSet` below — this loop runs first and would otherwise read
+  // and parse the named file regardless of its extension, so a wrong-extension
+  // entry could still co-fire `theta/load/callee-has-errors` (or the escape
+  // check) alongside the extension row. Skipping population here mirrors the
+  // bug-0106 malformed-entry gate immediately above: an entry the extension
+  // rule has already condemned is not this loop's subject either.
   const calleeCache = new Map<string, CalleeParse>();
   for (const entry of toolsList) {
     if (parseToolsEntry(entry.trim()).kind !== "ok") {
       continue;
     }
     const spec = toolsEntrySpec(entry);
-    if (spec.length > 0 && !isBareToolName(spec) && !calleeCache.has(spec)) {
+    if (
+      spec.length > 0 &&
+      !isBareToolName(spec) &&
+      !calleeCache.has(spec) &&
+      checkInvokeExtension({ literalPath: spec, surface: "tools", site: { file: parsed.sourcePath } })
+        .length === 0
+    ) {
       calleeCache.set(
         spec,
         await parseCalleeForTools(fs, ctx, callerDir, spec, parseDeps, getAllTools, activeRoots),
@@ -2510,7 +2526,7 @@ async function parseCalleeForTools(
  *       route (ii) above): the pre-resolution probe below records each
  *       readable-and-parsed spec's declared `mode`, keyed exactly as
  *       `readable` is, and the stub returns it instead of a constant.
- *       `resolveEntry` (`callable-set.ts:422`) is the one implementation that
+ *       `resolveEntry` (`callable-set.ts:442`) is the one implementation that
  *       raises `theta/load/prompt-mode-callable`, so this frame raises the
  *       same code the depth-1 path raises — one code site, every depth, no
  *       divergence between depths (bug 0248's class). A declared mode is a
