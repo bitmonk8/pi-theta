@@ -20,6 +20,7 @@ import type {
 } from "./query-tool-loop";
 import type { LoweredSchema, SchemaValidator } from "../seams/schema-validator";
 import {
+  orderValidationIssues,
   synthesizeForcedRespondIssue,
   type ForcedRespondBranch,
   type QueryError,
@@ -330,7 +331,13 @@ function validateAgainst(
     message: e.message,
     schema_keyword: e.keyword,
   }));
-  return { ok: false, issues, raw_response: JSON.stringify(payload) };
+  // Bug 0292 (0.333.0) / ERR-14 (queryerror-variants.md:56): the ValidationError.validation_errors
+  // array is the author-matchable surface; ERR-14 orders it at the mapping site.
+  return {
+    ok: false,
+    issues: orderValidationIssues(issues),
+    raw_response: JSON.stringify(payload),
+  };
 }
 
 /**

@@ -40,7 +40,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // its equality check is a byte comparison).
 //
 // THE THREE ELEMENTS, EACH ROUTED THROUGH ONE RECIPE.
-//  1. `respondSchemaSlug` (src/runtime/typed-query-validation.ts:347) delegates
+//  1. `respondSchemaSlug` (src/runtime/typed-query-validation.ts:354) delegates
 //     to `schemaSlug(toLoweredJsonValue(lowered))` — the CANONICAL form, not
 //     the emitted serialisation. It names `__theta_respond_<slug>` and
 //     `__theta_bind_<slug>`, agreeing with `__inline_<slug>`

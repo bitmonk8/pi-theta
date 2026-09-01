@@ -220,8 +220,9 @@ nine variants plus a catch-all):
 `invoke_callee` has no dedicated row — the chain suffix (SLSH-5) recurses through
 `inner` to the leaf `kind` and renders that leaf's row, appending
 ` from <callee_path> invoked at <parent_path>:<line>` per `invoke_callee` hop
-(leaf-first order). For `tool_loop_exhausted`, `<last_tool_name>` renders the
-literal `respond` when `last_tool_name` is `null`.
+(leaf-first order). For `tool_loop_exhausted`, `<last_tool_name>` renders through the
+standard field-summarisation rule, so a `null` renders as `null`
+(reachable via a cap-0 untyped-query exhaustion).
 
 ## `invoke` invocation
 

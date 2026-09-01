@@ -627,12 +627,17 @@ function isIdentifierShaped(s: string): boolean {
  * `theta/load/frontmatter-value-out-of-range` (`placeholder-rendering-b.md` §8
  * parsed-scalar carve-out): a `number` (including integer-valued numbers) bare,
  * a `boolean` as `true`/`false`, `null` as the literal `null`, and a `string`
- * per category 5's `<key>` rule (bare when identifier-shaped, double-quoted
- * otherwise — so a stringly-typed `"25"` renders `"25"`, distinct from `25`).
+ * by category 5's `<key>` identifier-shape split (bare when identifier-shaped;
+ * otherwise — unlike `<key>`'s plain double-quoting — via `JSON.stringify`, so
+ * every break, interior `"`/`\`, and other control character renders as its
+ * two-character JSON form, keeping `message` single-line
+ * (diagnostic-shape.md:34) and matching the settings twin's already-shipped
+ * rendering (settings.ts:132-135); a stringly-typed `"25"` still renders
+ * `"25"`, distinct from `25`).
  */
 function renderObserved(value: unknown): string {
   if (typeof value === "string") {
-    return isIdentifierShaped(value) ? value : `"${value}"`;
+    return isIdentifierShaped(value) ? value : JSON.stringify(value);
   }
   if (value === null || value === undefined) {
     return "null";

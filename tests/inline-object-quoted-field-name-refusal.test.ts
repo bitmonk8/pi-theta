@@ -101,7 +101,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // `lowerParamsFieldType` src/parser/params.ts), one real
 // `AjvSchemaValidator.compile` (src/seams/schema-validator.ts:390, `#build` at
 // :441) or one real `buildTypedQueryValidation`
-// (src/runtime/typed-query-validation.ts:168) drive over a SCRIPTED follow-up.
+// (src/runtime/typed-query-validation.ts:169) drive over a SCRIPTED follow-up.
 // An integration tier would add a session round-trip and could assert none of
 // these more sharply; a live tier would make the group (E) assertion stochastic
 // on top with no new reach, because the whole repair loop
@@ -724,7 +724,7 @@ describe("bug 0176 (D) — the fragment compiles cleanly and is unsatisfiable by
 
 // ===========================================================================
 // (E) THE END-TO-END TYPED-QUERY DRIVE — 0176 §Reproduction (e) row r1, through
-// the real `buildTypedQueryValidation` (src/runtime/typed-query-validation.ts:168)
+// the real `buildTypedQueryValidation` (src/runtime/typed-query-validation.ts:169)
 // and the real `runRespondRepairLoop` (src/runtime/query-respond-repair.ts:201)
 // with a SCRIPTED follow-up drive. No provider is involved: the drive returns a
 // fixed reply text, so the whole outcome is deterministic and offline. This is
@@ -760,9 +760,13 @@ describe("bug 0176 (E) — the honest payload burns the whole repair budget", ()
         "two issues group (D) row v2 measures",
     ).toEqual({
       ok: false,
+      // Bug 0292 (0.333.0): `validateAgainst` now returns ERR-14-canonically-ordered issues, so at equal
+      // `path` the order follows `schema_keyword` by Unicode code point — 'additionalProperties'
+      // (97) sorts before 'required' (114). The raw AJV emission order this cell previously
+      // pinned (bug 0176's fix) is superseded by ERR-14 as the ordering authority.
       issues: [
-        { path: "", message: 'must have required property \'"a"\'', schema_keyword: "required" },
         { path: "", message: "must NOT have additional properties", schema_keyword: "additionalProperties" },
+        { path: "", message: 'must have required property \'"a"\'', schema_keyword: "required" },
       ],
       raw_response: '{"a":"hello"}',
     });
@@ -796,9 +800,11 @@ describe("bug 0176 (E) — the honest payload burns the whole repair budget", ()
         cause: "schema_validation",
         message: "typed query response failed schema validation",
         attempts: 3,
+        // Bug 0292 (0.333.0): the terminal ValidationError carries the same ERR-14-ordered array the
+        // opening validation above produced ('additionalProperties' before 'required' at equal path).
         validation_errors: [
-          { path: "", message: 'must have required property \'"a"\'', schema_keyword: "required" },
           { path: "", message: "must NOT have additional properties", schema_keyword: "additionalProperties" },
+          { path: "", message: 'must have required property \'"a"\'', schema_keyword: "required" },
         ],
         raw_response: '{"a":"hello"}',
       },

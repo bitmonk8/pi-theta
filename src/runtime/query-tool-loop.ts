@@ -91,7 +91,17 @@ export interface ToolCallRequest {
  * reason `end_turn` / `stop`) that ends the free phase.
  */
 export type FreePhaseTurn =
-  | { readonly kind: "tool_use"; readonly batch: readonly ToolCallRequest[] }
+  | {
+      readonly kind: "tool_use";
+      readonly batch: readonly ToolCallRequest[];
+      // ERR-19's biconditional (queryerror-variants.md:151/:211):
+      // `raw_response` carries the text the model emitted alongside a
+      // terminating tool-use block, `null` on a pure tool-use turn. Optional
+      // (mirrors provider-error-mapping.ts:358 `rawResponse?: string | null`)
+      // because a driver surfaces it "when available" — the loop only reads
+      // this member off the LAST consumed tool_use turn, at exhaustion.
+      readonly text?: string | null;
+    }
   | { readonly kind: "text"; readonly text: string }
   // PIC-51: the driven free-phase provider turn carried `stopReason: "error"`
   // (or PIC-50: a synchronous throw from the send surface). The loop surfaces
@@ -368,6 +378,11 @@ export async function runUntypedQueryLoop(
   let slotCount = 0;
   let round = 0;
   let lastToolName: string | null = null;
+  // ERR-19 (queryerror-variants.md:151/:211): the LAST consumed tool_use
+  // turn's accompanying text, threaded into the exhaustion branch's
+  // `raw_response`. Tracked alongside `lastToolName` for the same reason—
+  // the terminal round's turn is gone by the time exhaustion fires.
+  let lastTurnText: string | null = null;
 
   for (;;) {
     // CIO-4 round boundary: cancellation preempts the loop at any round
@@ -385,7 +400,7 @@ export async function runUntypedQueryLoop(
         message: `Tool-call loop exhausted after ${config.maxRounds} round(s) without a terminating response`,
         maxRounds: config.maxRounds,
         last_tool_name: lastToolName,
-        raw_response: null,
+        raw_response: lastTurnText,
       });
       return { kind: "tool_loop_exhausted", error, rounds, committed };
     }
@@ -439,6 +454,7 @@ export async function runUntypedQueryLoop(
     if (turn.batch.length > 0) {
       lastToolName = turn.batch[turn.batch.length - 1]!.toolName;
     }
+    lastTurnText = turn.text ?? null;
     slotCount += 1;
     rounds.push({ round, batchSize: turn.batch.length, slotCountAfter: slotCount });
     round += 1;

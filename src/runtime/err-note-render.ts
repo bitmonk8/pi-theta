@@ -146,14 +146,14 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
       return `${prefix} returned Err: tool ${summariseErrorField(e.tool_name)} call failed (${summariseErrorField(e.cause)}) ${DASH} ${summariseErrorField(e.message)}`;
     }
     case "tool_loop_exhausted": {
-      // SNK-h — `last_tool_name` renders as the literal `respond` when null
-      // (defensive forward-compat rendering; no theta 1.0-reachable null case).
+      // SNK-h — `last_tool_name` can be null: an untyped query under
+      // `tool_loop.max_rounds: 0` exhausts at initialisation (slot_count ==
+      // max_rounds, 0 == 0) before any tool call exists to name (bug 0308).
+      // A null renders through `summariseErrorField` per the bug-0177 law
+      // (`String(null) === "null"`), the same as every other SNK field —
+      // no fabricated tool name is substituted.
       const e = leaf as ToolLoopExhaustedError;
-      // `??` runs BEFORE the summariser so a `null` (not a record) still
-      // renders the literal `respond` — the summariser only ever sees a
-      // present value here.
-      const lastTool = e.last_tool_name ?? "respond";
-      return `${prefix} returned Err: tool-call loop exhausted after ${summariseErrorField(e.rounds)} rounds (last tool: ${summariseErrorField(lastTool)})`;
+      return `${prefix} returned Err: tool-call loop exhausted after ${summariseErrorField(e.rounds)} rounds (last tool: ${summariseErrorField(e.last_tool_name)})`;
     }
     case "invoke_infra": {
       // SNK-i

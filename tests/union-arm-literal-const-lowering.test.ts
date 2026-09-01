@@ -62,7 +62,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // the compile at `:2147`) — and `relaxParamsSchema` copies the arm verbatim into the
 // model-facing envelope, so grammar-constrained decoding has nothing to
 // constrain there either. At the `@<T>` position the same fragment names a
-// registered tool (`respondSchemaSlug`, src/runtime/typed-query-validation.ts:347)
+// registered tool (`respondSchemaSlug`, src/runtime/typed-query-validation.ts:354)
 // and is interpolated into the QRY-15 instruction
 // (production-theta-producer.ts:5380).
 //
@@ -399,7 +399,7 @@ function refNameOf(label: string, position: Position, typeSource: string): strin
 /**
  * Every object's OWN key order inside `value`, keyed by JSON Pointer. `toEqual`
  * cannot see key order and order is contractual here: `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts:347) hashes `JSON.stringify(lowered)`
+ * (src/runtime/typed-query-validation.ts:354) hashes `JSON.stringify(lowered)`
  * and the `__inline_<slug>` mint hashes the canonical form of the same
  * fragment, so two positions agreeing on the key SET and disagreeing on the
  * order would mint two names for one declared value set (bug 0056 §Fix
@@ -652,7 +652,7 @@ describe("bug 0184 (0) — the independent slug oracle", () => {
   }
 
   it("CONTROL (o3): each respond-tool document string parses back and is the emission's OWN key order, not the sorted one", () => {
-    // `respondSchemaSlug` hashes `JSON.stringify(lowered)` (typed-query-validation.ts:347),
+    // `respondSchemaSlug` hashes `JSON.stringify(lowered)` (typed-query-validation.ts:354),
     // so these strings stand for the EMITTED bytes — `anyOf` before `$defs`,
     // `type` before `enum` inside `Sev` — which is the opposite of the
     // canonical form's sort. Pinning both properties keeps the two oracles

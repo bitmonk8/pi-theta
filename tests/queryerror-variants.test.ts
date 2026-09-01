@@ -200,7 +200,7 @@ describe("ERR-19 — ToolLoopExhaustedError shape (queryerror-variants.md ERR-19
     expect(err.raw_response).toBeNull();
   });
 
-  it("ERR-19: last_tool_name may be null (forward-compatibility branch)", () => {
+  it("ERR-19: last_tool_name may be null (reachable via max_rounds: 0 untyped exhaustion)", () => {
     const err = makeToolLoopExhaustedError({
       message: "tool-call loop exhausted",
       maxRounds: 5,

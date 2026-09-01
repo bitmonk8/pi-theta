@@ -320,7 +320,7 @@ function refNameOf(label: string, position: Position, typeSource: string): strin
 /**
  * Every object's OWN key order inside `value`, keyed by JSON Pointer. `toEqual`
  * cannot see key order and order is contractual here: `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts:347) hashes `JSON.stringify(lowered)`
+ * (src/runtime/typed-query-validation.ts:354) hashes `JSON.stringify(lowered)`
  * and the `__inline_<slug>` mint hashes the canonical form of the same
  * fragment, so two positions agreeing on the key SET and disagreeing on the
  * order would mint two names for one declared value set. `type` before `enum`
@@ -576,7 +576,7 @@ describe("bug 0164 (0) — the independent slug oracle", () => {
 
   it("CONTROL (o3): each respond-tool document string parses back and carries the EMISSION's key order, not the sorted one", () => {
     // `respondSchemaSlug` hashes `JSON.stringify(lowered)`
-    // (typed-query-validation.ts:347), so these strings stand for the EMITTED
+    // (typed-query-validation.ts:354), so these strings stand for the EMITTED
     // bytes — `type` before `items` at the root, `type` before `enum` inside a
     // string-literal union's `items` — which is the opposite of the canonical
     // form's sort. Pinning both properties keeps the two oracles from being
@@ -1377,7 +1377,7 @@ describe("bug 0164 (f) — the enforcing `items` reaches the model-facing schema
 
 // ===========================================================================
 // (g) THE `@<T>` POSITION'S REGISTERED-TOOL NAME (§Fix constraint 4, second
-// half) — `respondSchemaSlug` (src/runtime/typed-query-validation.ts:347) hashes
+// half) — `respondSchemaSlug` (src/runtime/typed-query-validation.ts:354) hashes
 // `JSON.stringify(lowered)` to name the registered `__theta_respond_<slug>` tool
 // AND the QRY-12 / QRY-15 template references, and `renderTypedAwareQueryText`
 // interpolates the fragment itself into the instruction shown to the model. So

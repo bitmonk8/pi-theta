@@ -225,12 +225,13 @@ describe("V12b-T — SLSH-4 per-kind note templates (SNK-a…SNK-k)", () => {
     expect(boundary("demo", err)).toBe(expected);
   });
 
-  it("SLSH-4 / SNK-h: tool_loop_exhausted renders the literal 'respond' when last_tool_name is null", () => {
-    // SLSH-4: <last_tool_name> is rendered as the literal string `respond` when
-    // last_tool_name is null (a defensive rendering with no theta 1.0-reachable
-    // case, retained for forward compatibility).
+  it("SLSH-4 / SNK-h: tool_loop_exhausted renders null when last_tool_name is null", () => {
+    // SLSH-4: <last_tool_name> renders through summariseErrorField like any
+    // other field, including its null case (`String(null) === "null"`) —
+    // reachable when a cap-0 untyped query exhausts before any tool call
+    // exists to name (bug 0308).
     const err = toolLoopExhausted(2, null);
-    const expected = "theta /demo returned Err: tool-call loop exhausted after 2 rounds (last tool: respond)";
+    const expected = "theta /demo returned Err: tool-call loop exhausted after 2 rounds (last tool: null)";
     expect(renderLeafKindNote("demo", err)).toBe(expected);
     expect(boundary("demo", err)).toBe(expected);
   });
@@ -462,17 +463,16 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
     });
 
     it(`SNK-h: records at 'rounds' and at 'last_tool_name' render as compact JSON — ${proto}`, () => {
-      // §Reproduction (b) row 9 measures `rounds`; `last_tool_name` reaches the
-      // same template through `e.last_tool_name ?? "respond"`, where `??`
-      // passes a record through unchanged. Both sit in `err-note-render.ts`'s
-      // `tool_loop_exhausted` case.
+      // §Reproduction (b) row 9 measures `rounds`; `last_tool_name: null` routes
+      // through `summariseErrorField` directly (bug 0308) and renders `null`.
+      // Both sit in `err-note-render.ts`'s `tool_loop_exhausted` case.
       expect(
         renderLeafKindNote(
           "t",
           leafOf({ kind: "tool_loop_exhausted", rounds: mk(), last_tool_name: null }),
         ),
       ).toBe(
-        `theta /t returned Err: tool-call loop exhausted after ${REC_JSON} rounds (last tool: respond)`,
+        `theta /t returned Err: tool-call loop exhausted after ${REC_JSON} rounds (last tool: null)`,
       );
       expect(
         renderLeafKindNote(
@@ -557,7 +557,7 @@ describe("bug 0177 — a record at an interpolating SNK field renders through th
       "theta /demo returned Err: tool-call loop exhausted after 5 rounds (last tool: grep)",
     );
     expect(renderLeafKindNote("demo", toolLoopExhausted(2, null))).toBe(
-      "theta /demo returned Err: tool-call loop exhausted after 2 rounds (last tool: respond)",
+      "theta /demo returned Err: tool-call loop exhausted after 2 rounds (last tool: null)",
     );
     expect(renderLeafKindNote("demo", invokeInfra("/abs/c.theta", "load_failure"))).toBe(
       "theta /demo returned Err: invoke of /abs/c.theta failed (load_failure)",

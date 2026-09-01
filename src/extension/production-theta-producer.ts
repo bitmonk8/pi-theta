@@ -4801,13 +4801,36 @@ class LivePromptQueryModel implements QueryModelDriver {
   /**
    * The synthetic single-call `tool_use` round that drives `runUntypedQueryLoop`
    * to its `max_rounds`-final branch on the exhausted path. Its `toolName` is the
-   * last tool the model tried (surfaced as ERR-19 `last_tool_name`).
+   * last tool the model tried (surfaced as ERR-19 `last_tool_name`). This method
+   * only runs under `#exhaustion.exhausted === true`, which the governor sets
+   * only while recording a concrete non-null `lastToolName` in the same
+   * `#onToolCall` event, so the name is always recorded on this path.
    */
   #exhaustionTurn(): FreePhaseTurn {
-    const toolName = this.#exhaustion?.lastToolName ?? "respond";
+    const toolName = this.#exhaustion?.lastToolName;
+    if (toolName === undefined || toolName === null) {
+      throw new Error(
+        "prompt-mode exhaustion turn reached without a recorded last tool name",
+      );
+    }
+    // ERR-19 (queryerror-variants.md:151/:211): the blocked terminal turn's
+    // narration is in the same user-session transcript the SUCCESS path reads
+    // via `extractTrailingTurnText` (production-theta-producer.ts:4788) —
+    // threading it here satisfies the biconditional instead of hardcoding
+    // `raw_response: null` regardless of what the model said.
+    //
+    // `extractTrailingTurnText` joins the driven turn's `assistant` messages
+    // with "\n" (tool-result messages carry role `"toolResult"`, not `"user"`,
+    // so the whole multi-round turn is one anchored span). A pure tool-use turn
+    // (no narration on any round) therefore collapses to separator-only
+    // whitespace, e.g. `["", ""].join("\n") === "\n"` — which must map to null
+    // per the biconditional's reservation for text the model never emitted.
+    // Genuine narration (any non-whitespace) is surfaced verbatim, untrimmed.
+    const text = extractTrailingTurnText(this.#readMessages());
     return {
       kind: "tool_use",
       batch: [{ toolName, toolUseId: "theta-prompt-loop-exhausted" }],
+      text: text.trim().length > 0 ? text : null,
     };
   }
 
@@ -5871,9 +5894,15 @@ class OffSessionQueryModel implements QueryModelDriver {
     );
     if (calls.length > 0) {
       this.#pendingCalls = calls;
+      // ERR-19 (queryerror-variants.md:151/:211): `classified.text` is already
+      // `assistantText(reply)` — the reply's joined text parts — computed
+      // above by `classifyOffSessionReply` regardless of this branch. Thread it
+      // so the narration alongside a blocked terminal tool call can reach
+      // `raw_response` instead of being dropped with the toolCall-only batch.
       return {
         kind: "tool_use",
         batch: calls.map((call) => ({ toolName: call.name, toolUseId: call.id })),
+        text: classified.text.length > 0 ? classified.text : null,
       };
     }
     return { kind: "text", text: classified.text };

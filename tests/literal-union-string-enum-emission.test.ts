@@ -35,7 +35,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // WHAT THE MISSING KEY COSTS. Both fragments admit and refuse the same JSON
 // values, so the divergence is not a validation defect; the bytes are the
 // defect, and the bytes are load-bearing at four sites: `respondSchemaSlug`
-// (src/runtime/typed-query-validation.ts:347–348) hashes `JSON.stringify`, so it
+// (src/runtime/typed-query-validation.ts:354–355) hashes `JSON.stringify`, so it
 // is sensitive to the presence AND the position of `type` and names the
 // registered `__theta_respond_<slug>` tool; the `__inline_<slug>` mint hashes
 // the key-sorted canonical form, so it moves too; the QRY-15 instruction

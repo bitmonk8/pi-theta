@@ -1046,7 +1046,7 @@ describe("bug 0053 (d) — the corrected root admits exactly the declared arms a
     const slug = respondSchemaSlug(lowered);
     expect(
       slug,
-      `src/runtime/typed-query-validation.ts:194/:347 names \`__theta_respond_<slug>\` from the lowered bytes, so a corrected lowering cannot keep the mis-parsed fragment's name; observed ${slug}`,
+      `src/runtime/typed-query-validation.ts:195/:354 names \`__theta_respond_<slug>\` from the lowered bytes, so a corrected lowering cannot keep the mis-parsed fragment's name; observed ${slug}`,
     ).not.toBe(MISPARSED_ROOT_SLUG);
     expect(
       slug,

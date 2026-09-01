@@ -1,6 +1,6 @@
 # Bug 0292 — `ValidationError.validation_errors` is emitted in AJV's native error order, not the ERR-14 canonical (path, schema_keyword, message) sort: `validateAgainst` maps `result.errors` positionally (`typed-query-validation.ts:328–332`) and no site on the typed-query path calls `orderValidationIssues`, so a `{ b, a }` schema failing on both fields surfaces `validation_errors[0]` naming `'b'` where ERR-14 defines the canonically-first issue as `'a'` — while the sibling `<ajv-summary>` renderer orders the same issues canonically, so the follow-up turn and the terminal error disagree on order for one failure
 
-- **Status:** open.
+- **Status:** fixed (0.333.0).
 - **Sev/Diff estimate:** S3/D1 — S3 because the divergence is order-only on an
   author-visible array whose content is otherwise correct: no issue is lost,
   no value corrupted, and the failure is loud. What breaks is the
@@ -177,3 +177,105 @@ Error-classification bug hunt, worktree `C:/UnitySrc/pi-theta-hunt` at
 (`#build`'s raw-order passthrough and its ERR-14 comment); spec ERR-14 in
 full. Probe: scratch vitest file on the `e2e-s3` harness, run and deleted;
 outputs quoted verbatim above.
+
+## Fix (0.333.0)
+
+- **What shipped:**
+  - `src/runtime/typed-query-validation.ts` — `validateAgainst` wraps the
+    AJV→`ValidationIssue` mapping in `orderValidationIssues(...)` at the
+    ERR-14-named mapping site (one line, plus `orderValidationIssues` added to
+    the existing `./query-error` import), so `ValidationError.validation_errors`
+    carries the canonical `(path, schema_keyword, message)` order. §Fix
+    implemented verbatim; the rejected `terminalValidationError` alternative
+    stays rejected; the `<ajv-summary>` renderer, the binder path and the
+    ERR-17 synthesised-issue arm are byte-unchanged (the follow-up renderer's
+    own sort becomes an idempotent re-sort).
+  - `tests/b0292-validation-errors-canonical-order.test.ts` — new offline
+    witness (cells A–E) over `schema Pair { b, a }` driven through the real
+    parser + lowering + `AjvSchemaValidator` + `runTypedQueryLoop`: (A) `{}`
+    → canonical `['a'-required, 'b'-required]` byte-for-byte; (B) `{ b:1, a:2 }`
+    → canonical `/a` before `/b`; (C) single-issue control (order-invariant);
+    (D) `<ajv-summary>` renderer-path control (byte-identical pre/post);
+    (E) determinism repeat-run.
+  - `tests/inline-object-quoted-field-name-refusal.test.ts` — the
+    parent-ratified flip of the CONTROL E1 cell's two expected literals from
+    the raw AJV order `[required, additionalProperties]` to the ERR-14
+    canonical order `[additionalProperties, required]` (message text and
+    `schema_keyword` unchanged; only the array order moved); bug-0292 WHY
+    comments at both literals.
+  - Comment/citation-only line-number maintenance in five sibling test files
+    (the fix shifted `respondSchemaSlug` +7 and `buildTypedQueryValidation`
+    +1): `tests/annotation-root-brace-union-lowering.test.ts`,
+    `tests/generic-argument-literal-lowering.test.ts`,
+    `tests/literal-union-string-enum-emission.test.ts`,
+    `tests/schema-slug-canonical-form-mints.test.ts`,
+    `tests/union-arm-literal-const-lowering.test.ts` — 11 stale citations
+    total (plus two comments in the flip file itself), no assertion touched;
+    every file cited only by closed bugs, no open sibling owns them.
+
+- **Gates:** witness `npx vitest run tests/b0292-…test.ts
+  tests/inline-object-…test.ts` → 21 passed (cells A/B/E red at fork, green
+  post-fix); full `npm test` → 515 files / 9848 tests passed; `npm run
+  typecheck` clean; `npm run lint` clean; live
+  `tests/live/typed-query-wire-shapes.test.ts` (3 typed-query cells) → 3
+  passed under the exclusive live lock.
+
+- **Review:** 2 rounds. R1 (`bug-fix-reviewer`, full) — clean on
+  correctness/fidelity/spec/house-rule/test; raised 2 `prose` findings
+  (self-inflicted stale line-citations). R2 (`bug-fix-reviewer-fast`,
+  confirmation) — CLEAN. Loop converged at round 2. One pre-review
+  comment/citation-only correction round and one comment/citation-only
+  `bug-fix-fixer-light` round (each a bounded self-adjudication: comment/
+  citation-only, zero assertion, files owned by no open bug, gates re-run
+  green) resolved the stale citations. Post-record `0.333.0` placeholder edits
+  are comment-only, polish verified by gate-diff; confirmation round skipped.
+
+- **Verification:** SOLID (`bug-fix-verifier`). (1) Destructive revert of the
+  wrap reds witness cells A/B/E and the ratified E1 cell with pure order
+  inversions (received `b`/`/b` first vs expected `a`/`/a` first), restore →
+  green, tree byte-exact (`git hash-object` equal). (2) Full default suite
+  green. (3) Live obligation — no bespoke live cell owed: the change is an
+  order-only transform on `validation_errors`, fully observable offline
+  through the real parser/lowering/AJV/`runTypedQueryLoop`, so a live model
+  turn adds no observability the offline witness lacks; the orchestrator ran
+  one existing typed-query live cell green under the lock as the end-to-end
+  confirmation. (4) typecheck + lint clean.
+
+- **Residuals:** none.
+
+- **Discharge notes appended:** none.
+
+- **Pinned dispositions / non-goals:** §Non-goals hold — `<ajv-summary>`
+  renderer and binder path conformant and untouched; the ERR-17 arm carries a
+  single issue so no ordering question arises; AJV native emission order is out
+  of scope (ERR-14 exists precisely so it does not matter). The
+  `terminalValidationError` alternative stays rejected.
+
+### Parent ratification (verbatim)
+
+> The flip authority is extended to the one premeasure-identified cell:
+> tests/inline-object-quoted-field-name-refusal.test.ts '(D) row v2' — its two
+> expected literals flip from the raw AJV order [required, additionalProperties]
+> to the ERR-14 canonical order [additionalProperties, required] as
+> vehicle-collateral scaffolding: the cell's subject (WHICH issues the
+> quoted-field-name refusal carries) is preserved; only the array order moves to
+> the spec-defined sort; the raw order was never the subject (bug 0176's fix
+> pinned what the tree produced; ERR-14 is the authority). Cite bug 0292 in a
+> comment at the flip. The doc's blast-radius sentence was a census error,
+> recorded in the fix record without rewriting the filing text. ANY FURTHER
+> un-enumerated red ⇒ STOP again.
+
+### Census correction (filing text left intact)
+
+The report's D1 and §Affected reasoning — "no committed cell pins the raw
+order (all existing cells use single-issue failures or assert membership)" —
+was a census error. Exactly one committed cell pinned the raw AJV order
+`[required, additionalProperties]` through `validateAgainst`: the CONTROL E1
+cell in `tests/inline-object-quoted-field-name-refusal.test.ts` (measuring the
+"(D) row v2" two-issue case). The premeasure caught it, the orchestrator
+STOPPED with the tree byte-identical to HEAD, and the parent ratified
+extending the flip authority to exactly that cell — an order-only move that
+preserves the cell's subject; ERR-14 is the ordering authority and supersedes
+bug 0176's fix, which pinned what the tree then produced. Bug 0176 is closed;
+per the lane's era-pinning rule this correction is recorded here only, not in
+0176's document. The original filing text above is left unchanged.
