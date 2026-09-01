@@ -1495,7 +1495,7 @@ describe("bug 0010 (regression pins) — live typed query: free phase on-session
         "respond turn takes that resolved model's `.api`; bug 0009 alignment)",
     ).toBe("anthropic-messages");
     expect(err.http_status, "no HTTP status is observable at the complete() seam").toBeNull();
-    expect(err.retryable, "an error-stop is a definite outcome — retryable: false").toBe(false);
+    expect(err.retryable, "the no-HTTP-response class routes retryable:true (provider-error-mapping.md:7/:13; bug 0291)").toBe(true);
   });
 
   it("(h) success extraction PRECEDES stopReason classification: a reply carrying BOTH the matching respond ToolCall AND stopReason 'error' resolves Ok({score: 1})", async () => {
@@ -1803,7 +1803,7 @@ describe("bug 0010 (regression pins) — live typed query: free phase on-session
         "(queryerror-variants.md §provider derivation; fix review F7a)",
     ).toBe("openai-completions");
     expect(err.http_status, "no HTTP status at the complete() seam").toBeNull();
-    expect(err.retryable, "an error-stop is definite — retryable: false").toBe(false);
+    expect(err.retryable, "the no-HTTP-response class routes retryable:true (provider-error-mapping.md:7/:13; bug 0291)").toBe(true);
   });
 });
 

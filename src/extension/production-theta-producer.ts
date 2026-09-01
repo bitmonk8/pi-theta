@@ -6262,14 +6262,14 @@ function classifyOffSessionReply(
   if (classified.kind === "context_overflow") {
     return { kind: "failure", error: classified as ContextOverflowError };
   }
-  // Every other classification folds to the pinned off-session transport
-  // surface — the binder's fold: message from the classifier, fixed surface
-  // fields. The off-session transport surface is pinned (PIC-51 / bug
-  // 0007): `http_status: null` and `retryable: false` regardless of any
-  // captured status; `provider` is the resolved model's api-shaped `.api`
-  // (queryerror-variants.md provider derivation — the model this wrapper
-  // actually dispatched, not ctx's user-session model). An empty/absent
-  // classifier message takes PIC-51's fixed fallback.
+  // Every other classification folds to the off-session transport surface:
+  // message from the classifier, `http_status` / `retryable` threaded from the
+  // classifier's OWN verdict (bug 0291; provider-error-mapping.md:7 routes the
+  // no-HTTP-response class through `{ retryable: true, http_status: null }`, :13
+  // gives 5xx/429 `retryable: true` and carries a captured status). `provider`
+  // is the resolved model's api-shaped `.api` (queryerror-variants.md). An
+  // empty/absent classifier message still takes PIC-51's fixed fallback; the
+  // `as` casts mirror the overflow arm (`kind` is `string`, ERR-15 openness).
   const message =
     classified.kind === "transport" && classified.message !== ""
       ? classified.message
@@ -6279,9 +6279,9 @@ function classifyOffSessionReply(
     error: {
       kind: "transport",
       message,
-      http_status: null,
+      http_status: classified.kind === "transport" ? (classified as TransportError).http_status : null,
       provider,
-      retryable: false,
+      retryable: classified.kind === "transport" ? (classified as TransportError).retryable : false,
     },
   };
 }

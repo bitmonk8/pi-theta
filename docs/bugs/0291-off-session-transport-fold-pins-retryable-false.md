@@ -1,6 +1,6 @@
 # Bug 0291 — `classifyOffSessionReply`'s transport fold pins `retryable: false` / `http_status: null` regardless of transport-error class, so the no-HTTP-response class `provider-error-mapping.md:7` routes through `TransportError { retryable: true, http_status: null }` — and the 5xx/429 classes `:13` assigns `retryable: true` — are author-unreachable at every off-session seam, making the fold a second path that "pins `retryable: false` independent of HTTP class" where `:13` says the unsupported-provider synthesis is the one such path
 
-- **Status:** open.
+- **Status:** fixed (0.328.0).
 - **Sev/Diff estimate:** S2/D3 — S2 because the observable is a wrong value on
   two author-visible machine-readable fields of a loud `Err`, not silence: the
   failure surfaces, its `message` carries the provider text, but `retryable`
@@ -282,6 +282,118 @@ move; the `message` selection and PIC-51 fallback stay byte-identical; cell
 Mechanism 1 is recommended: it is the reading under which every quoted spec
 sentence is already true, and its blast radius is exactly the three committed
 cells named above.
+
+## Fix (0.328.0)
+
+Mechanism 1, adjudicated and shipped. The `## Fix` text above is the original
+filing and is preserved unedited; this section records what shipped and
+corrects one census error in it.
+
+- **Census correction (parent-ratified).** The filing's sentence *"its blast
+  radius is exactly the three committed cells named above"* is a **filing
+  census error, not a scope boundary**. Mechanism 1 flips the `retryable` (and,
+  where a status was captured, `http_status`) expectation on **eleven** cells,
+  not three — every one the same no-HTTP-response transport class through the
+  same `classifyOffSessionReply` fold, each scaffolding the constant-false
+  posture this bug corrects. The three the filing named (W2, 0182-W5, 0182-W6)
+  plus eight it missed: (ii)/(iv)/(iv-b) in
+  `tests/off-session-transport-classification.test.ts`, (d13)/(l-off) in
+  `tests/off-session-two-phase.test.ts`, (r3) in
+  `tests/typed-repair-two-phase.test.ts`, and (g)/(g2) in
+  `tests/typed-two-phase-live.test.ts`. The parent RATIFIED extending the flip
+  authority to all eleven (the full ratification text and its four conditions
+  are recorded verbatim in `.pi/tmp/fixes/0291-report.md`). Ratification
+  condition (1) verified before any pin moved: each of the eight extended
+  cells routes through `classifyOffSessionReply` and **not**
+  `synthesizeUnsupportedProviderTransportError` — all eleven drive
+  `anthropic-messages`/`openai-completions` (both in
+  `TYPED_QUERY_SUPPORTED_PROVIDER_APIS`), so the synthesize gate never fires;
+  the two synthesize/on-session controls (the google-generative-ai gate cell
+  in `off-session-two-phase.test.ts`, the (g-control) complete()-count-0 fence
+  in `typed-two-phase-live.test.ts`) correctly do NOT flip and stay null/false.
+
+- **What shipped:**
+  - `src/extension/production-theta-producer.ts` — `classifyOffSessionReply`'s
+    transport arm threads `classified.http_status` / `classified.retryable`
+    from the classifier's own verdict in place of the pinned literals
+    `http_status: null` / `retryable: false` (§Fix Mechanism 1). Message
+    selection and the PIC-51 fixed fallback byte-identical; the overflow and
+    stop-reason arms, `provider` derivation,
+    `synthesizeUnsupportedProviderTransportError`, `prompt-transport-mapping.ts`,
+    the binder path,
+    `dispatchForcedRespondTurn`'s abort/no-model gates and every other
+    hardcoded transport site unchanged; no spec edit; no new diagnostic code.
+    Comment re-cites provider-error-mapping.md:7/:13 + bug 0291 in place of the
+    PIC-51/0007 pin. The edit is **net-zero** (file stays 7389 lines) so no
+    line citation in a sibling file shifts.
+  - `tests/off-session-transport-classification.test.ts` — cells (i)=W2, (ii),
+    (iv), (iv-b) re-pinned `retryable` false→true (http_status stays null);
+    0182-W5 `retryable` false→true in its `toEqual` (http_status null, openai
+    no-capture = network-level); 0182-W6 reworked as the filing's blessed
+    both-fields flip — a captured 500 now threads `http_status:500`/
+    `retryable:true`, a no-capture leaf stays `http_status:null`/`retryable:true`
+    (they no longer coincide). The file header's stale PIC-51 shape clause was
+    corrected to attribute only the message fallback to PIC-51.
+  - `tests/off-session-two-phase.test.ts` — (d13) and (l-off) `retryable`
+    false→true (net-zero, HEAD line-structure preserved).
+  - `tests/typed-repair-two-phase.test.ts` — (r3) `retryable` false→true
+    (net-zero).
+  - `tests/typed-two-phase-live.test.ts` — (g) and (g2) `retryable` false→true
+    (net-zero). This suite is offline default-suite (scripted `vi.mock`)
+    despite "live" in the name; it runs under `npm test`.
+  - Every re-pin cites bug 0291 / provider-error-mapping.md:7/:13 and
+    byte-preserves the cell's kind/message/provider/call-count assertions
+    (ratification condition 2).
+  - New RED witness `tests/b0291-off-session-transport-fold-threading.test.ts`
+    (cases A–H): A (no-response → retryable:true), B (500→true), C (429→true),
+    F (typed forced-respond seam, 503→true) red at fork; D (400→false,
+    class-sensitivity) reds on http_status:400 at fork; E (overflow arm),
+    G (on-session PIC-51 fence), H (message/provider byte-preserved) green
+    controls.
+
+- **Gates:** witness `npx vitest run tests/b0291-…` 8/8; the five changed/new
+  suites 79/79; full default suite `npm test` **509 files / 9787 passed**
+  (fork baseline 508/9779 + the 1 witness file / 8 tests); `npm run typecheck`
+  clean; `npm run lint` clean.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — clean on
+  correctness/fidelity/spec; one prose finding (stale PIC-51 header clause),
+  fixed. Round 2 (`bug-fix-reviewer-fast`) — CLEAN, convergence reached, no
+  deep review recommended.
+- **Verification:** SOLID. Destructive proof — reverting the two threaded
+  field lines to the pre-fix literals reds the witness (A–D/F) and all eleven
+  re-pins; byte-exact restore confirmed by matching `git hash-object`; re-run
+  green 79/79. Full suite green. Typecheck + lint clean. LIVE (run by the
+  orchestrator under the shared live-lock): `tests/live/off-session-overflow-
+  classification.test.ts` (2/2) drives the fixed `classifyOffSessionReply`
+  end-to-end against a real provider (overflow arm reaches the author, transport
+  arm not mis-fired) and `tests/live/provider-error-revalidation-gate.test.ts`
+  (3/3) confirms the classifier's live verdict — gate (b) captured a real
+  anthropic HTTP 400 with ZERO `onResponse` firings (`httpStatus: null`), the
+  live no-HTTP-response class whose `transportRetryable(null)=true` the fold now
+  delivers to the author.
+- **Residuals:**
+  1. No dedicated live cell exercises the off-session **transport** arm end to
+     end, because a non-overflow provider transport failure cannot be induced
+     deterministically at a live seam. Bounded rationale (self-authorized, no
+     assertion touched): the composition (fold threads the classifier verdict)
+     is proven offline by the witness + eleven re-pins + the destructive proof;
+     the live no-HTTP-response class and its `httpStatus: null` are proven by
+     `provider-error-revalidation-gate` cell (b); the live end-to-end delivery
+     of a classifier verdict through the fixed fold is proven by
+     `off-session-overflow-classification`. Evidence: three independent live/
+     offline sources converge on the flipped value.
+  2. Closed sibling bug docs (0007/0009/0012/0014/0028/0099/0182) cite line
+     numbers in the touched test files. All external citations were preserved:
+     the source and header edits are net-zero, and the four one-liner-at-fork
+     re-pins were kept one-line so the three files they live in stay net-zero,
+     leaving every cited line (incl. bug 0014's :1711 and :1740) byte-identical
+     to fork. No closed doc was edited (era-pinning).
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** cell (v)'s openai HTTP-200 body-envelope
+  overflow arm keeps its captured-200 gate (not in the flip set); the
+  on-session prompt-mode PIC-50/51/51b/70 surface
+  (`prompt-transport-mapping.ts`) and the binder path are unchanged per
+  §Non-goals; Mechanism 2 (spec carve-out) was not taken.
 
 ## Provenance
 

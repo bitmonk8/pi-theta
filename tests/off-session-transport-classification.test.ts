@@ -28,9 +28,9 @@
 // Spec: pi-integration-contract/provider-error-mapping.md (§Provider error
 // mapping, §Stop-reason classification, §Overflow signatures),
 // pi-integration-contract/conversation-drive.md (PIC-50 off-session
-// classification obligation; PIC-51 shape: `Err(QueryError { kind: "transport",
-// message: <errorMessage>, http_status: null, provider: <provider>,
-// retryable: false })`, fallback `"provider transport failure"`),
+// classification obligation; PIC-51 fixes ONLY the message fallback
+// `"provider transport failure"`; `http_status`/`retryable` thread from the
+// classifier's verdict — provider-error-mapping.md:7/:13, bug 0291),
 // query/query-failure-and-repair.md (QRY-10; §respond-repair — a follow-up's
 // non-validation failure terminates repair immediately, no `attempts` debit),
 // errors-and-results/queryerror-variants.md (§TransportError, provider
@@ -456,7 +456,10 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
       "TransportError.provider is the resolved model's API-shaped `.api` value " +
         "(queryerror-variants.md provider derivation), not its `.provider`",
     ).toBe("anthropic-messages");
-    expect(err.retryable, "an error-stop is a definite outcome — retryable: false").toBe(false);
+    expect(
+      err.retryable,
+      "the no-HTTP-response class routes retryable:true (provider-error-mapping.md:7/:13; bug 0291)",
+    ).toBe(true);
     expect(scripted.calls, "exactly one provider call resolves the untyped query").toBe(1);
   });
 
@@ -479,7 +482,9 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
     const err = expectErrQueryError(execution);
     expect(err.kind, `observed: ${JSON.stringify(err)}`).toBe("transport");
     expect(err.message).toBe("stream terminated unexpectedly");
-    expect(err.retryable).toBe(false);
+    // no `onResponse` fired — a no-HTTP-response failure is network-level,
+    // retryable:true (provider-error-mapping.md:7/:13; bug 0291).
+    expect(err.retryable).toBe(true);
   });
 
   it("(iii) untyped: a `stopReason: \"length\"` reply is Err(context_overflow) with null token counts (stop-reason classification)", async () => {
@@ -512,7 +517,9 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
       "PIC-51: when errorMessage is absent, message is EXACTLY the fixed fallback",
     ).toBe(TRANSPORT_FALLBACK_MESSAGE);
     expect(err.http_status).toBeNull();
-    expect(err.retryable).toBe(false);
+    // no captured HTTP status — the no-HTTP-response class routes
+    // retryable:true (provider-error-mapping.md:7/:13; bug 0291).
+    expect(err.retryable).toBe(true);
   });
 
   it("(iv-b) untyped: an error-stop with an EMPTY-STRING errorMessage takes the fixed fallback message", async () => {
@@ -532,7 +539,9 @@ describe("bug 0007 (RED) — off-session error-stop classification (PIC-50/PIC-5
       "PIC-51: an empty-string errorMessage folds to EXACTLY the fixed fallback — never a blank message",
     ).toBe(TRANSPORT_FALLBACK_MESSAGE);
     expect(err.http_status).toBeNull();
-    expect(err.retryable).toBe(false);
+    // no captured HTTP status — the no-HTTP-response class routes
+    // retryable:true (provider-error-mapping.md:7/:13; bug 0291).
+    expect(err.retryable).toBe(true);
     expect(scripted.calls, "exactly one provider call resolves the untyped query").toBe(1);
   });
 
@@ -930,7 +939,7 @@ describe("bug 0182 — the off-session fold's fabricated httpStatus 200 vetoes t
     expect(scripted.calls, "one provider call resolves the second drive").toBe(1);
   });
 
-  it("(0182 W5) untyped, openai-completions: an HTTP-400 overflow — the measured no-firing shape — is Err(transport) with http_status null and retryable false", async () => {
+  it("(0182 W5) untyped, openai-completions: an HTTP-400 overflow — the measured no-firing shape — is Err(transport) with http_status null and retryable true", async () => {
     // REGRESSION BY HONESTY, and it is the SPECIFIED outcome rather than a
     // defect.
     // (a) MEASURED live: the `openai-completions` pi-ai adapter fires
@@ -964,25 +973,25 @@ describe("bug 0182 — the off-session fold's fabricated httpStatus 200 vetoes t
     expect(
       err,
       "bug 0182: with no captured status openai's gate refuses the signature " +
-        "match, and the fold's pinned surface publishes `http_status: null` / " +
-        `\`retryable: false\` regardless. observed: ${JSON.stringify(err)}`,
+        "match; bug 0291: the fold threads the classifier's own verdict, and a " +
+        "no-capture openai response is the no-HTTP-response class, so " +
+        `\`http_status: null\` / \`retryable: true\`. observed: ${JSON.stringify(err)}`,
     ).toEqual({
       kind: "transport",
       message: OPENAI_OVERFLOW_MESSAGE,
       http_status: null,
       provider: "openai-completions",
-      retryable: false,
+      retryable: true,
     });
     expect(scripted.calls, "one provider call resolves the untyped query").toBe(1);
   });
 
-  it("(0182 W6 control) non-perturbation: a NON-overflow error-stop renders a byte-identical leaf with and without a captured 500", async () => {
-    // §Fix constraint 2: threading the captured status must move no non-overflow
-    // outcome. A captured 500 would make the classifier's OWN verdict
-    // `http_status: 500` / `retryable: true` (`transportRetryable`), so this pair
-    // proves the fold still overwrites both fields with its pinned values
-    // (PIC-51 / conversation-drive.md:16) rather than publishing what it
-    // captured.
+  it("(0182 W6) a captured 500 threads to http_status:500/retryable:true; a no-capture leaf stays http_status:null/retryable:true", async () => {
+    // bug 0291 / provider-error-mapping.md:13 (5xx): the fold now publishes
+    // the classifier's OWN verdict instead of overwriting it, so a captured
+    // 500 and a no-firing response are no longer byte-identical — they
+    // diverge on `http_status` while agreeing on `retryable` (both classes
+    // route `retryable: true`: 5xx per :13, no-HTTP-response per :7).
     scripted.queue = [
       reply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE, onResponseStatus: 500 }),
     ];
@@ -993,20 +1002,31 @@ describe("bug 0182 — the off-session fold's fabricated httpStatus 200 vetoes t
     const withoutCapture = expectErrQueryError(await driveTheta(UNTYPED_THETA, ANTHROPIC_MODEL));
 
     expect(
-      withCapture,
-      "a captured status must not leak into the fold's transport surface. " +
-        `captured-500 leaf: ${JSON.stringify(withCapture)}; no-firing leaf: ` +
-        JSON.stringify(withoutCapture),
-    ).toEqual(withoutCapture);
+      withCapture.http_status,
+      `a captured 500 threads through the fold (bug 0291). observed: ${JSON.stringify(withCapture)}`,
+    ).toBe(500);
+    expect(
+      withoutCapture.http_status,
+      "no captured status is the no-HTTP-response class, `http_status: null` " +
+        `(provider-error-mapping.md:7). observed: ${JSON.stringify(withoutCapture)}`,
+    ).toBeNull();
+    expect(
+      withCapture.retryable,
+      `both classes route retryable:true (provider-error-mapping.md:7/:13; bug 0291). observed: ${JSON.stringify(withCapture)}`,
+    ).toBe(true);
+    expect(
+      withoutCapture.retryable,
+      `both classes route retryable:true (provider-error-mapping.md:7/:13; bug 0291). observed: ${JSON.stringify(withoutCapture)}`,
+    ).toBe(true);
     expect(
       withCapture,
-      `the pinned off-session transport surface. observed: ${JSON.stringify(withCapture)}`,
+      `the threaded off-session transport surface. observed: ${JSON.stringify(withCapture)}`,
     ).toEqual({
       kind: "transport",
       message: AUTH_ERROR_MESSAGE,
-      http_status: null,
+      http_status: 500,
       provider: "anthropic-messages",
-      retryable: false,
+      retryable: true,
     });
   });
 

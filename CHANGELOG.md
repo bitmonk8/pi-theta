@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.328.0]
+
+### Fixed
+
+- **Bug 0291** — `classifyOffSessionReply`'s transport fold called the classifier with the real captured HTTP status (bug 0182's input fix) and then DISCARDED its verdict, rebuilding the author-visible `TransportError` from the literals `http_status: null` / `retryable: false` and keeping only `message` — so the two documented machine-readable fields were constants on every author-visible surface: the no-HTTP-response class `provider-error-mapping.md` routes `retryable: true`, and the 429/5xx classes it assigns `true`, never informed author retry logic, and a captured status read as "no HTTP response". The fold's cited authority (PIC-51) is scoped by its own text to the prompt-mode driven turn whose read surface captures no status — false at the off-session seams, where the same function consults the captured status for the overflow gate. The transport arm now threads `classified.http_status` / `classified.retryable` through (Mechanism 1 — the reading under which every quoted spec sentence is already true; the spec-carve-out alternative was rejected as making `retryable` decorative), with message selection, the PIC-51 fallback, and the overflow/stop-reason arms byte-identical, and the fold's comment re-cites `provider-error-mapping.md` + this bug. Bug 0182's constraint-2 output freeze was fix-run scoping, superseded on the record. The lane's premeasure proved the doc's "exactly three committed cells" blast-radius claim a census error — ELEVEN cells across four files pinned the constant-false posture on the same class through the same fold; the parent extended the flip authority to all of them as scaffolding (per-cell confirmation that each routes through the fold and none through `synthesizeUnsupportedProviderTransportError`, the spec's one legitimate constant-false path), and the prompt-mode PIC-50/51/51b/70 sites, the binder's fixed-budget path, and the synthesis path are fence-pinned byte-unchanged. Witnessed by `tests/b0291-off-session-transport-fold-threading.test.ts` (no-response → `true`/`null`, captured 500/429 → `true`/status, captured 400 → `false`/400 class-sensitivity control, overflow control, forced-respond seam threading, prompt-mode fence, message-stability cell), red at fork on the divergent cells.
+
 ## [0.327.0]
 
 ### Fixed

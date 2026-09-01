@@ -1603,7 +1603,7 @@ describe("bug 0010 fix review (F1/F7b) — off-session cancellation surfacing an
         "MODEL's api-shaped `.api` (queryerror-variants.md §provider derivation)",
     ).toBe("anthropic-messages");
     expect(err.http_status, "no HTTP status is observable at the complete() seam").toBeNull();
-    expect(err.retryable, "an error-stop is a definite outcome — retryable: false").toBe(false);
+    expect(err.retryable, "the no-HTTP-response class routes retryable:true (provider-error-mapping.md:7/:13; bug 0291)").toBe(true);
     expect(
       scripted.calls.length,
       "exactly FOUR complete() calls — free phase, initial respond, restarted " +
@@ -1880,8 +1880,8 @@ describe("bug 0012 — off-session UNTYPED cancellation surfacing: mid-flight ab
     expect(err.http_status, "no HTTP status is observable at the complete() seam").toBeNull();
     expect(
       err.retryable,
-      "a stop-reason classification is a definite outcome — retryable: false",
-    ).toBe(false);
+      "the no-HTTP-response class routes retryable:true (provider-error-mapping.md:7/:13; bug 0291)",
+    ).toBe(true);
   });
 });
 
