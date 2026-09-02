@@ -61,6 +61,15 @@ export interface PromptToolLoopExhaustion {
   readonly rounds: number;
   /** The last tool the model tried in the blocked round (ERR-19 `last_tool_name`). */
   readonly lastToolName: string | null;
+  /**
+   * The number of tool-use rounds the governor ALLOWED to open (the fresh
+   * `tool_loop` slot count actually consumed, capped at `max_rounds`). A
+   * repair-attempt drive reads this as the follow-up's OWN post-increment slot
+   * count for the PIC-1 (d) ceiling-#2 predicate — distinct from `rounds`,
+   * which is pinned to `max_rounds` for the ERR-19 message even when fewer
+   * rounds ran.
+   */
+  readonly slotCount: number;
 }
 
 /** The per-drive mutable bound state (transient; null between drives). */
@@ -127,13 +136,16 @@ export class PromptToolLoopGovernor {
     const active = this.#active;
     this.#active = null;
     if (active === null) {
-      return { exhausted: false, rounds: 0, lastToolName: null };
+      return { exhausted: false, rounds: 0, lastToolName: null, slotCount: 0 };
     }
     return {
       exhausted: active.exhausted,
       // ERR-19: `rounds == max_rounds` on exhaustion.
       rounds: active.maxRounds,
       lastToolName: active.lastToolName,
+      // The slots actually consumed (a repair follow-up reads this as its own
+      // post-increment `tool_loop` slot count, PIC-1 (d)).
+      slotCount: active.roundsAllowed,
     };
   }
 

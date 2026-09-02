@@ -1,6 +1,6 @@
 # Bug 0355 — The terminal repair-validation `RuntimeEvent` computes `masked` from the PARENT query's slot-count-at-dispatch: a validation error originating on a respond-repair follow-up (fresh `tool_loop` budget, own slot count 0) is emitted with `masked: ["ceiling#2"]` whenever the parent's free phase had exhausted and at least one repair follow-up ran (`attempts ≥ 1`), where PIC-1 (d) says the predicate is evaluated against the follow-up's own slot count
 
-- **Status:** open.
+- **Status:** fixed (0.365.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the wrong bytes are confined to
   the operator-facing `RuntimeEvent`'s `masked` field (diagnostics that lie
   about a co-fire; the `Err` itself, its issues, and `attempts` are correct,
@@ -224,3 +224,79 @@ Not yet decided; constraints:
   `af476df2`, deleted); output quoted verbatim above, with the initial-site
   control (masked correctly present) and the `max_rounds: 0` control (masked
   correctly absent) in the same run.
+
+## Fix (0.365.0)
+
+- What shipped (Option A1 — widen the repair seam, full thread; keyed to §Fix):
+  - `src/runtime/query-respond-repair.ts` — new `FollowUpSurfacingTurn`
+    (post-increment slot count + surfacing turn kind); `FollowUpResult`'s
+    `schema_validation`/`noncompliance` arms and `RespondRepairOutcome.validation`
+    gain optional `surfacing`; the loop tracks the FINAL re-validated follow-up's
+    surfacing turn and carries it on the exhaustion terminal (the `none`/`0`
+    early terminal carries none — §Fix 2a).
+  - `src/runtime/typed-query-validation.ts` — `FollowUpRespondOutcome` gains
+    optional `slotCountAtDispatch`; `nextFollowUp` attaches `surfacing` on both
+    the two-phase-restart arm (`reply.slotCountAtDispatch ?? 0`) and the legacy
+    string arm (single reply, no restarted free phase ⇒ slot 0).
+  - `src/extension/prompt-tool-loop-governor.ts` — `PromptToolLoopExhaustion`
+    gains `slotCount` (`roundsAllowed`, the slots actually consumed; `rounds`
+    stays pinned to `max_rounds` for ERR-19).
+  - `src/extension/production-theta-producer.ts` — `mapForcedTurnToRepairOutcome`
+    gains `slotCountAtDispatch`; both `driveRepairAttempt` variants surface the
+    follow-up's OWN fresh slot count (live: `#exhaustion.slotCount`; off-session:
+    the `slots` local; `max_rounds: 0` boundary ⇒ 0) — the discarded governor
+    slot count the doc named.
+  - `src/runtime/query-tool-loop.ts` — `buildValidationEvent` gains a
+    `surfacing?` param, discriminates on `error.attempts >= 1` (§Fix 2a), and
+    sources `toolLoopSlotCount`/`turnKind` from the follow-up's surfacing when a
+    follow-up ran, else the parent scalar. All THREE repair-terminal sites
+    (noncompliance-opened, 0353's depth-arm, AJV-opened) pass `repair.surfacing`;
+    the parent-initial no-machinery sites and the inline depth arm keep the
+    parent scalar. `computeMasked` byte-identical; PIC-1 (e) held (no new
+    emission; the payload changes only in `masked`).
+- Gates: b0355 witness 5/5 green (cell 1 reproduction RED at HEAD for the right
+  reason — `masked: ["ceiling#2"]` present — GREEN after; cell 5 under-fire
+  GREEN post-fix only, cannot red at HEAD — no follow-up slot count exists until
+  the seam widens); full default suite 10139 green (the only reds across runs
+  were TIMEOUT-only load noise on `b0331-root-winner-preempt` /
+  `shared-subtree-judged-once-per-pass` / `invoke-arg-*` / `production-tools-load-resolution`
+  / `theta-callable-call-arity` — all green isolated, none on this surface);
+  `npm run typecheck` clean; `npm run lint` clean; live `b0351live` value-position
+  query-success cell PASSED under the lock (adjacent typed-query boundary — the
+  seam change does not over-fire on a legal drive that binds Ok without opening
+  repair).
+- Review: 1 round — `bug-fix-reviewer` CLEAN, no correctness/fidelity/spec
+  finding; residuals R1 (producer-side threading has no direct offline witness),
+  R2 (`turnKind` union admits an unused `"free_phase"`), R3 (comment nits), all
+  non-blocking.
+- Verification: SOLID. Obligation 1 — revert-red-restore proved cells 1 AND 5
+  red with the parent scalar forced, cells 2/3/4 green; restored byte-exact,
+  5/5 green. Obligation 2 — default suite green modulo isolated-green load
+  noise. Obligation 3 — lint + typecheck exit 0. Obligation 4 — live coverage is
+  the adjacent legal-drive no-over-fire boundary (`b0351live`); see Residual 1.
+- Residuals:
+  1. No live/E2E test drives a respond-repair follow-up terminal and inspects
+     `RuntimeEvent.masked` end-to-end through a real host (verifier F1). NOT a
+     blocker: this fix changes ONLY the operator-facing `masked` diagnostic — the
+     drive's terminal outcome, its `Err`, `attempts`, and issues are unchanged
+     (§Sev "no wrong value binds") — so the live obligation is the "otherwise ONE
+     adjacent existing live cell" branch, discharged by `b0351live` per the parent
+     dispatch's ratified live plan; the `masked` observable itself is
+     authoritatively witnessed offline through the real `runTypedQueryLoop` +
+     `buildTypedQueryValidation` + real AJV seam (b0355's 5 cells, not mocks).
+  2. Seam fields (`FollowUpResult.surfacing`, `FollowUpRespondOutcome.slotCountAtDispatch`)
+     are OPTIONAL, not required — a deliberate blast-radius choice: every
+     production drive supplies them, and absence falls back to the parent scalar
+     (the pre-widening behaviour) for scripted doubles that pin no follow-up
+     metadata, keeping the change src-only rather than forcing edits into
+     non-enumerated existing seam tests.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `computeMasked` byte-identical (only its
+  input sourcing changed); the initial-payload co-fire (worked example) and the
+  `masked` wire location / verbatim-copy (f) / dedup (g) clauses untouched
+  (§Non-goals). One ratification-covered flip:
+  `tests/inline-object-quoted-field-name-refusal.test.ts` (bug 0176 E control)
+  gained `surfacing: {slotCountAtDispatch:0, turnKind:"forced_respond"}` on a
+  `.toEqual` over `RespondRepairOutcome.validation` — the direct, parent-ratified
+  consequence of threading `surfacing` through that outcome (the dispatch
+  explicitly ordered it); a mechanical shape-reflection, no behavioural change.

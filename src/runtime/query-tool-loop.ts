@@ -73,7 +73,11 @@ import {
 import { DEPTH_VIOLATION_MESSAGE, depthWalk } from "./depth-walk";
 import type { LoweredSchema } from "../seams/schema-validator";
 import { NONCOMPLIANCE_TERMINAL_MESSAGE } from "./query-respond-repair";
-import type { RespondRepairOutcome, ValidationFailure } from "./query-respond-repair";
+import type {
+  FollowUpSurfacingTurn,
+  RespondRepairOutcome,
+  ValidationFailure,
+} from "./query-respond-repair";
 
 // ---------------------------------------------------------------------------
 // The model turns the loop drives.
@@ -632,7 +636,9 @@ export async function runTypedQueryLoop(
         case "validation": {
           // Terminal non-compliance / non-conformance: surface the repair
           // loop's ValidationError with the operator-facing RuntimeEvent.
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          // PIC-1 (d): when a follow-up ran, its own slot count masks the event
+          // (bug 0355) — `repair.surfacing` carries it.
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
           return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
         }
         case "propagated":
@@ -685,9 +691,10 @@ export async function runTypedQueryLoop(
           return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
         case "validation": {
           // Terminal non-conformance: surface the repair loop's ValidationError
-          // on the operator-facing RuntimeEvent (bug 0355 owns the repair-terminal
-          // masked accounting; no new masked computation here).
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          // on the operator-facing RuntimeEvent. PIC-1 (d) / bug 0355: a
+          // depth-arm repair terminal raised on a follow-up masks against the
+          // follow-up's own slot count (`repair.surfacing`), not the parent's.
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
           return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
         }
         case "propagated":
@@ -760,7 +767,9 @@ export async function runTypedQueryLoop(
           // Terminal non-conformance: surface the schema_validation
           // `ValidationError` on the operator-facing `RuntimeEvent`, enumerating
           // any co-satisfied ceiling #2 via `V9d`'s V1-reachable predicate.
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          // PIC-1 (d) / bug 0355: a follow-up-originated terminal masks against
+          // the follow-up's own slot count (`repair.surfacing`).
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
           return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
         }
         case "propagated":
@@ -786,18 +795,31 @@ export async function runTypedQueryLoop(
  * failure surfaced through respond-repair (QRY-22). `masked` is populated only
  * at the ceiling #2 co-fire per `V9d`'s V1-reachable predicate (unreachable for
  * a `max_rounds: 0` query); every other surface omits it (never `[]`).
+ *
+ * PIC-1 (d) / bug 0355: the co-fire predicate reads the SURFACING turn's own
+ * post-increment slot count. When the surfaced failure originated on a
+ * respond-repair follow-up (`error.attempts >= 1`, `surfacing` supplied), that
+ * follow-up's fresh `tool_loop` budget is the scalar — each follow-up gets a
+ * fresh budget, so the parent query's exhausted count must not leak in. The
+ * `none`/`0` early terminal and any failure genuinely raised on the parent's
+ * own forced respond turn (`error.attempts == 0`, `surfacing` absent) keep the
+ * parent's `parentSlotCountAtDispatch`.
  */
 function buildValidationEvent(
   config: QueryToolLoopConfig,
   error: ValidationError,
-  slotCountAtDispatch: number,
+  parentSlotCountAtDispatch: number,
+  surfacing?: FollowUpSurfacingTurn,
 ): RuntimeEvent {
+  // `error.attempts` discriminates the sourcing (bug 0355 §Fix 2a): only a
+  // follow-up-originated terminal reads the follow-up's own scalars.
+  const followUpSurfacing = error.attempts >= 1 ? surfacing : undefined;
   const masked = computeMasked({
     kind: "validation",
     validationCause: error.cause,
     atTypedQueryResponse: true,
-    turnKind: "forced_respond",
-    toolLoopSlotCount: slotCountAtDispatch,
+    turnKind: followUpSurfacing?.turnKind ?? "forced_respond",
+    toolLoopSlotCount: followUpSurfacing?.slotCountAtDispatch ?? parentSlotCountAtDispatch,
     maxRounds: config.maxRounds,
   });
   return {

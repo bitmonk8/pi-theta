@@ -808,6 +808,11 @@ describe("bug 0176 (E) — the honest payload burns the whole repair budget", ()
         ],
         raw_response: '{"a":"hello"}',
       },
+      // Bug 0355: the terminal `validation` outcome carries the FINAL follow-up's
+      // own surfacing turn scalars (each follow-up here is a single text reply
+      // running no restarted free phase, so its fresh slot count is 0). The
+      // event builder masks against these, not the parent's exhausted budget.
+      surfacing: { slotCountAtDispatch: 0, turnKind: "forced_respond" },
     });
     expect(
       prompts.length,

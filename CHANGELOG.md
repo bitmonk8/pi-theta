@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.365.0]
+
+### Fixed
+
+- **Bug 0355** — the terminal repair-validation `RuntimeEvent` computed `masked` from the PARENT query's slot-count-at-dispatch: a validation error surfacing from a respond-repair FOLLOW-UP (fresh `tool_loop` budget, own slot count 0) carried `masked: ["ceiling#2"]` whenever the parent's free phase had exhausted and `attempts ≥ 1` — a co-fire that did not occur, on theta 1.0's only V1 cross-ceiling co-fire signal (PIC-1 pins it falsifiable by stream comparison), and the UNDER-fire direction (a follow-up that itself exhausts its fresh budget) was structurally unreachable. PARENT ADJUDICATION Option A1 (recorded: the doc lists the seam-widening first and calls the spec-side route "not preferred — PIC-1 (d) is explicit and normative"; witness-4's under-fire direction is only satisfiable by the full thread): the follow-up attempt's own POST-INCREMENT slot count and surfacing turn kind now thread through `FollowUpRespondOutcome` / `RespondRepairOutcome.validation` / the governor / both production `driveRepairAttempt` variants into `buildValidationEvent`, discriminated on `error.attempts ≥ 1` (§Fix 2a: the parent-initial sites, the parent-raised depth arm, and the attempts:0 early terminal keep the parent's scalar) — across all THREE repair-terminal sites at the fork (the third added by 0353, the lane's own composition delta). `computeMasked` is byte-identical; PIC-1 (e)'s pure-read MUST holds (payload changes only in `masked`). Witnessed by `tests/b0355-repair-terminal-masked-followup-slot.test.ts` (5 cells: the doc's reproduction red at HEAD [masked present on the attempts:1 terminal] → green [omitted]; the worked-example initial-site co-fire control byte-identical; the max_rounds:0 guard; the attempts:0 terminal keeping the parent scalar; the UNDER-fire witness pinned green post-fix with the doc's recorded post-fix-only rationale — it cannot red at HEAD because no follow-up slot count existed until the seam widened). One mechanical flip ratified at merge (the 0322 exhaustiveness class): `inline-object-quoted-field-name-refusal.test.ts`'s `.toEqual` over the widened outcome gained the new `surfacing` field — zero behaviour change, disclosed. Live: `b0351live` green under the lock (the fix touches only the operator `masked` field — drive outcomes unchanged; no live cell asserts repair-terminal masked, recorded residual).
+
 ## [0.364.0]
 
 ### Fixed

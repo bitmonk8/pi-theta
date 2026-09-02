@@ -5122,6 +5122,11 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (!probe.ok) {
         return { kind: "provider_failure", error: probe.error };
       }
+      // PIC-1 (d) / bug 0355: this restarted free phase's OWN slot count — the
+      // governor's `roundsAllowed`, read from the exhaustion snapshot
+      // `#driveUserVisibleTurn` just set. It masks a terminal event raised on
+      // this follow-up against the follow-up's fresh budget, never the parent's.
+      const followUpSlots = this.#exhaustion?.slotCount ?? 0;
       // QRY-14 ¶3: a valid mid-turn respond-tool call during the RESTARTED
       // free phase resolves the attempt — the fresh off-session dispatch is
       // skipped exactly as the original phase's early capture skips its
@@ -5129,6 +5134,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (this.#earlyRespond.captured) {
         return {
           kind: "respond_outcome",
+          slotCountAtDispatch: followUpSlots,
           turn: { kind: "payload", payload: this.#earlyRespond.payload },
         };
       }
@@ -5142,6 +5148,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       return mapForcedTurnToRepairOutcome(
         await this.#dispatchRespondOverWindow(respond),
         this.#thetaAbort.signal,
+        followUpSlots,
       );
     }
     // `max_rounds: 0` (QRY-14 step 2 boundary applied to the restarted loop):
@@ -5164,6 +5171,8 @@ class LivePromptQueryModel implements QueryModelDriver {
         { role: "user", content: prompt, timestamp: 0 },
       ]),
       this.#thetaAbort.signal,
+      // The `max_rounds: 0` boundary ran no restarted free phase (0 slots).
+      0,
     );
   }
 
@@ -5642,17 +5651,29 @@ function thisTurnSettled(messages: readonly Message[], turnStart: number): boole
  * of the loop's forced-respond guard (query-tool-loop.ts `runTypedQueryLoop`,
  * signal-aborted transport → cancelled) applied to the repair-side dispatch. A
  * transport verdict with a NON-aborted signal stays transport.
+ *
+ * `slotCountAtDispatch` is the follow-up's OWN fresh `tool_loop` slot count at
+ * this dispatch (post-increment: the restarted free phase's rounds, capped at
+ * `max_rounds`; 0 at the `max_rounds: 0` boundary). PIC-1 (d) / bug 0355: a
+ * terminal event raised on this attempt masks against THIS scalar, not the
+ * parent query's exhausted budget.
  */
 function mapForcedTurnToRepairOutcome(
   turn: ForcedRespondTurn,
   signal: AbortSignal,
+  slotCountAtDispatch: number,
 ): FollowUpDriveFailure | FollowUpRespondOutcome {
   switch (turn.kind) {
     case "respond":
-      return { kind: "respond_outcome", turn: { kind: "payload", payload: turn.payload } };
+      return {
+        kind: "respond_outcome",
+        slotCountAtDispatch,
+        turn: { kind: "payload", payload: turn.payload },
+      };
     case "noncompliance":
       return {
         kind: "respond_outcome",
+        slotCountAtDispatch,
         turn: {
           kind: "noncompliance",
           branch: turn.branch,
@@ -6001,6 +6022,10 @@ class OffSessionQueryModel implements QueryModelDriver {
       if (this.#earlyRespond.captured) {
         return {
           kind: "respond_outcome",
+          // PIC-1 (d) / bug 0355: this restarted free phase's OWN slot count
+          // (`slots`) masks a terminal event raised on this follow-up against
+          // the follow-up's fresh budget, not the parent's exhausted one.
+          slotCountAtDispatch: slots,
           turn: { kind: "payload", payload: this.#earlyRespond.payload },
         };
       }
@@ -6016,6 +6041,8 @@ class OffSessionQueryModel implements QueryModelDriver {
           { role: "user", content: respond.template, timestamp: 0 },
         ]),
         this.#signal,
+        // PIC-1 (d) / bug 0355: the follow-up's own fresh slot count.
+        slots,
       );
     }
     // `max_rounds: 0` (QRY-14 step 2 boundary applied to the restarted loop):
@@ -6034,6 +6061,8 @@ class OffSessionQueryModel implements QueryModelDriver {
         { role: "user", content: prompt, timestamp: 0 },
       ]),
       this.#signal,
+      // The `max_rounds: 0` boundary ran no restarted free phase (0 slots).
+      0,
     );
   }
 

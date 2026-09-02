@@ -35,6 +35,7 @@ import { respondToolWireSchema } from "./respond-tool-wire";
 import {
   runRespondRepairLoop,
   type FollowUpResult,
+  type FollowUpSurfacingTurn,
   type RespondRepairConfig,
   type RespondRepairDriver,
   type RespondRepairOutcome,
@@ -104,6 +105,15 @@ export interface FollowUpDriveFailure {
  */
 export interface FollowUpRespondOutcome {
   readonly kind: "respond_outcome";
+  /**
+   * The fresh `tool_loop` slot count at THIS follow-up's forced respond
+   * dispatch (post-increment: one per free-phase round the two-phase restart
+   * ran, capped at `max_rounds`). PIC-1 (d): a terminal event raised on this
+   * attempt is masked against this scalar, not the parent's exhausted budget.
+   * Absent (legacy scripted drives) ⇒ read as `0` — a single text reply runs no
+   * free phase, so its fresh slot count is 0.
+   */
+  readonly slotCountAtDispatch?: number;
   readonly turn:
     | { readonly kind: "payload"; readonly payload: unknown }
     | {
@@ -267,6 +277,15 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
           // ERR-17 noncompliance debits one slot through the loop's existing
           // noncompliance arm, and its synthesised issue drives the NEXT
           // follow-up's <ajv-summary> exactly as a noncompliance opener does.
+          // PIC-1 (d): this follow-up's OWN forced respond turn is the surfacing
+          // frame. Its fresh slot count (absent ⇒ 0: no restarted free phase
+          // ran) and turn kind travel with a validation-family failure so a
+          // terminal event masks against the follow-up's budget, not the
+          // parent's.
+          const surfacing: FollowUpSurfacingTurn = {
+            slotCountAtDispatch: reply.slotCountAtDispatch ?? 0,
+            turnKind: "forced_respond",
+          };
           const turn = reply.turn;
           if (turn.kind === "payload") {
             const result = validateAgainst(
@@ -282,6 +301,7 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
               kind: "schema_validation",
               issues: result.issues,
               raw_response: result.raw_response,
+              surfacing,
             };
           }
           latestIssues = [synthesizeForcedRespondIssue(turn.branch)];
@@ -289,6 +309,7 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
             kind: "noncompliance",
             branch: turn.branch,
             raw_response: turn.raw_response,
+            surfacing,
           };
         }
         const parse = await parseStructuredPayload(reply);
@@ -306,6 +327,9 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
           kind: "schema_validation",
           issues: result.issues,
           raw_response: parse.parsed ? JSON.stringify(payload) : parse.raw,
+          // The LEGACY text drive is a single reply with no restarted free phase
+          // (fresh slot count 0); its surfacing turn is the forced respond turn.
+          surfacing: { slotCountAtDispatch: 0, turnKind: "forced_respond" },
         };
       },
     };

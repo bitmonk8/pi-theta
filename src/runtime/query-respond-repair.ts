@@ -103,6 +103,20 @@ export type ValidationFailure =
     };
 
 /**
+ * The follow-up turn's OWN ceiling-#2 co-fire inputs (PIC-1 (d)): the fresh
+ * `tool_loop` slot count at the follow-up's forced respond dispatch
+ * (post-increment: one per free-phase round the restart ran, capped at
+ * `max_rounds`) and the surfacing turn kind. A terminal validation error raised
+ * on a follow-up is masked against THESE, not the parent query's exhausted
+ * budget — each follow-up gets a fresh `tool_loop` budget (query-tool-loop.md
+ * worked example; runtime-event-channel.md PIC-1 (d)).
+ */
+export interface FollowUpSurfacingTurn {
+  readonly slotCountAtDispatch: number;
+  readonly turnKind: "forced_respond" | "free_phase";
+}
+
+/**
  * One respond-repair follow-up turn's outcome:
  *  - `validated`     — the follow-up produced a response the runtime re-validated
  *                      successfully; the loop returns this value (one slot used).
@@ -112,6 +126,14 @@ export type ValidationFailure =
  *                      (ERR-17); the loop synthesises the issue (one slot used).
  *  - `non_validation` — the follow-up failed for a non-validation reason; the
  *                      loop propagates it and consumes NO slot.
+ *
+ * The `schema_validation` / `noncompliance` arms carry `surfacing` — the
+ * follow-up turn's own slot count and turn kind — so a terminal event raised on
+ * this attempt is masked against the follow-up's budget (PIC-1 (d)). It is
+ * OPTIONAL: the production drive always supplies it, but a driver that has no
+ * follow-up turn metadata (a scripted double, the legacy string arm) may omit
+ * it, and its absence falls back to the parent's scalar at the event build —
+ * the pre-widening behaviour.
  */
 export type FollowUpResult =
   | { readonly kind: "validated"; readonly value: unknown }
@@ -119,11 +141,13 @@ export type FollowUpResult =
       readonly kind: "schema_validation";
       readonly issues: readonly ValidationIssue[];
       readonly raw_response: string | null;
+      readonly surfacing?: FollowUpSurfacingTurn;
     }
   | {
       readonly kind: "noncompliance";
       readonly branch: ForcedRespondBranch;
       readonly raw_response: string | null;
+      readonly surfacing?: FollowUpSurfacingTurn;
     }
   | { readonly kind: "non_validation"; readonly error: QueryError };
 
@@ -156,12 +180,21 @@ export interface RespondRepairInput {
  *  - `validation` — terminal exhaustion (or `none`/`0`): the `ValidationError`
  *                   whose `attempts` equals the number of re-validated follow-ups
  *                   (== the configured budget on exhaustion, `0` on `none`/`0`).
+ *                   `surfacing` carries the FINAL follow-up's own turn scalars
+ *                   when a follow-up ran (`attempts >= 1`) so the terminal event
+ *                   masks against the follow-up's fresh budget (PIC-1 (d)); it
+ *                   is absent on the `none`/`0` early terminal (`attempts == 0`),
+ *                   whose surfaced failure is the parent's own.
  *  - `propagated` — a proximate non-validation failure won; `error` is that
  *                   variant and `attemptsUsed` is the slots debited before it.
  */
 export type RespondRepairOutcome =
   | { readonly kind: "value"; readonly value: unknown; readonly attemptsUsed: number }
-  | { readonly kind: "validation"; readonly error: ValidationError }
+  | {
+      readonly kind: "validation";
+      readonly error: ValidationError;
+      readonly surfacing?: FollowUpSurfacingTurn;
+    }
   | { readonly kind: "propagated"; readonly error: QueryError; readonly attemptsUsed: number };
 
 /**
@@ -218,6 +251,12 @@ export async function runRespondRepairLoop(
   // spec pins that only the *final* attempt's issue survives (never a cumulative
   // concatenation across attempts).
   let latest: ValidationFailure = initial;
+  // The final re-validated follow-up's own turn scalars (PIC-1 (d)): replaced on
+  // each re-validated follow-up, and carried on the terminal `validation`
+  // outcome so the event masks against the FOLLOW-UP's fresh budget, not the
+  // parent's. Stays `undefined` only if no follow-up ever re-validates (which
+  // cannot reach the exhaustion terminal — the first iteration always debits).
+  let latestSurfacing: FollowUpSurfacingTurn | undefined = undefined;
   // Slots debited: one per *re-validated* follow-up (a schema-validation or
   // forced-respond-non-compliance outcome). A non-validation failure debits none.
   let attemptsUsed = 0;
@@ -242,6 +281,7 @@ export async function runRespondRepairLoop(
           issues: result.issues,
           raw_response: result.raw_response,
         };
+        latestSurfacing = result.surfacing;
         break;
       case "noncompliance":
         // Forced-respond non-compliance on the follow-up turn: same accounting as
@@ -253,6 +293,7 @@ export async function runRespondRepairLoop(
           branch: result.branch,
           raw_response: result.raw_response,
         };
+        latestSurfacing = result.surfacing;
         break;
       case "non_validation":
         // A non-validation failure (transport, cancelled, model_tool,
@@ -268,7 +309,14 @@ export async function runRespondRepairLoop(
   // ValidationError whose `attempts` equals the re-validated-follow-up count
   // (== the configured budget on exhaustion), carrying only the final attempt's
   // issue(s) and `raw_response`.
-  return { kind: "validation", error: terminalValidationError(latest, attemptsUsed) };
+  return {
+    kind: "validation",
+    error: terminalValidationError(latest, attemptsUsed),
+    // Conditional so the property is ABSENT (not explicitly `undefined`) when no
+    // follow-up supplied turn metadata — `exactOptionalPropertyTypes` demands it,
+    // and the event build reads absence as the parent-scalar fallback.
+    ...(latestSurfacing !== undefined ? { surfacing: latestSurfacing } : {}),
+  };
 }
 
 /**
