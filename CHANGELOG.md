@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.369.0]
+
+### Fixed
+
+- **Bug 0381** — the echo note's OBJECT first-field descriptor followed the MODEL's key order: `renderArgumentEcho` picked the first key of the model-supplied args object, so two semantically identical binder replies produced different echo lines (the model's serialisation order leaked into a user-facing note the spec renders from the DECLARATION). The first-field descriptor now derives from declaration order (the lowered schema's property order, with `$defs`/`$ref` dereference for alias-array elements found in review), on both the echo derivation and the producer's threading. One doc-enumerated existing-cell flip: `echo-array-per-element-descriptor.test.ts` a2 `{x,…}`→`{circle,…}` (the 0381 §Fix union clause; bug 0092's own comment predicted it) — the sole census flip. Witnessed by `tests/b0381-echo-object-first-field-declaration-order.test.ts` (w1–w6: inline/schema/union/alias-array/nested; red→green with byte-identical restore). Live: the echo cell green under the lock. Residuals recorded (follow-up candidates, out of the settled §Fix's scope): undiscriminated multi-object-arm unions and numeric-string wire names — both exotic, determinism satisfied, honestly comment-scoped.
+
 ## [0.368.0]
 
 ### Fixed

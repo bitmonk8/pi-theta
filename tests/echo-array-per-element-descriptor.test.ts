@@ -49,14 +49,17 @@
 //      raises the same `RangeError` class, naming the offending field and the
 //      value's own keys.
 //
-// FIELD ORDER IS AN EXPLICIT §Non-goal OF 0092. The descriptor keeps the
-// VALUE's own key insertion order; only the crash goes away. The carrier-2
-// expectation below is therefore `items=[{x, …}, {square, …}]` — element 0's
-// own key order puts `label` first — and NOT the `{circle, …}` the bug
-// document's §"Expected behaviour" writes, which silently adopts the declaring
-// schema's source order that §Non-goals forbids this fix from settling. That is
-// the one place the bug document is internally inconsistent with its own
-// §Non-goals; the §Non-goal governs.
+// FIELD ORDER WAS AN EXPLICIT §Non-goal OF 0092 (this fix keeps the VALUE's own
+// key insertion order; only the crash goes away here). Bug 0381 has since
+// SETTLED field order to the declaring schema's source order
+// (defaulting-system-note-echo.md:43; docs/bugs/0381-echo-object-first-field-model-key-order.md
+// §Fix), and the producer now threads the matching discriminated-union
+// variant's own `properties` order into `echoTypeFromValue`. The carrier-2
+// expectation below is therefore `items=[{circle, …}, {square, …}]` —
+// element 0 (`{label:"x", kind:"circle"}`) matches the `Circle` variant, which
+// declares `kind` first — rather than the `{x, …}` this fix's own 0092
+// §Non-goals left in place at the time; only the ORDER changed, not the
+// per-element-descriptor primary assertion 0092 fixed.
 //
 // RED / GREEN LEDGER, measured at HEAD 670875c8 (v0.205.0).
 //   RED here, green once the fix lands:
@@ -433,9 +436,13 @@ describe("bug 0092 — an array whose element shapes differ echoes each element 
     // is described as `{label: string}` and element 1 (a `Square`, which
     // carries no `label`) reaches `sanitizeSystemNoteSubstring` as `undefined`
     // → `TypeError: Cannot read properties of undefined (reading 'replace')`.
-    // Post-fix each element is described by itself. FIELD ORDER is a §Non-goal:
-    // the descriptor keeps each value's own key insertion order, so element 0
-    // renders its `label` (`x`) and element 1 its `kind` (`square`).
+    // Post-fix each element is described by itself. FIELD ORDER is settled by
+    // bug 0381 to the declaring schema's source order, not value key order:
+    // element 0 (`{label:"x", kind:"circle"}`) matches the `Circle` variant
+    // (declares `kind` first), so it renders `kind` (`circle`); element 1
+    // matches `Square` (declares `kind` first too), so it renders `kind`
+    // (`square`) — unchanged from before 0381 since it was already the first
+    // key in both declaration and value order.
     const content = await bindAndReadNote(CARRIER_2, {
       topic: "t",
       items: [
@@ -443,7 +450,7 @@ describe("bug 0092 — an array whose element shapes differ echoes each element 
         { kind: "square", size: 2 },
       ],
     });
-    expect(content).toBe("Running /t: items=[{x, …}, {square, …}], topic=t");
+    expect(content).toBe("Running /t: items=[{circle, …}, {square, …}], topic=t");
   });
 
   it("a3: the `[null, {…}]` array no longer renders its object element as `null` ", async () => {

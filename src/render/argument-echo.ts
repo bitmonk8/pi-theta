@@ -40,8 +40,13 @@ import { renderCanonicalNumber } from "./canonical-number";
  * per element in element order, so a heterogeneous array (e.g. a
  * discriminated-union `anyOf`) describes each element by its own shape
  * instead of reusing one element's shape for all; `object` carries `fields`
- * in the order the sole producer supplies (the value's own key insertion
- * order) so the object rule can pick the first field.
+ * in the order the sole producer derives from the lowered schema
+ * (`defaulting-system-note-echo.md:43`;
+ * docs/bugs/0381-echo-object-first-field-model-key-order.md) so the object
+ * rule can pick the first field — declaration order for the schema-typed,
+ * inline-object, and matching-discriminated-union classes, with the value's
+ * own key order as the fallback for the producer's descriptor-less recursion
+ * arms.
  */
 export type EchoType =
   | { readonly kind: "string" }
@@ -53,9 +58,9 @@ export type EchoType =
   | { readonly kind: "array"; readonly elements: readonly EchoType[] }
   | { readonly kind: "object"; readonly fields: readonly EchoField[] };
 
-/** One object field: its theta-side name and its type, in the order the producer supplies (see `renderObject`). */
+/** One object field: its theta-side name and its type (see `renderObject`). */
 export interface EchoField {
-  /** The field's theta-side name; ordering across fields is whatever the producer supplies (see `renderObject`). */
+  /** The field's theta-side name; ordering across fields is the declaring schema's source order where the producer has a descriptor, the value's own key order in its descriptor-less recursion arms (see `EchoType`). */
   readonly name: string;
   /** The field's static type, used to render the field value recursively. */
   readonly type: EchoType;
@@ -148,13 +153,14 @@ function renderArray(elements: readonly ThetaValue[], descriptors: readonly Echo
 /**
  * Render an object per the §"Echo policy" object rule: `{first-field-value, …}`
  * — just the first field's value, rendered recursively by that field's static
- * type. The first field is `fields[0]`; at the sole producer
- * (`echoTypeFromValue`, `src/extension/production-theta-producer.ts`) `fields`
- * carries the value's own key insertion order, not the declaring schema
- * block's source order — which order the echo should use is an open question
- * this function does not settle (docs/bugs/0092-renderobject-first-field-unguarded-cast.md
- * §Non-goals). The trailing `, …` is fixed text rendered for every object
- * value, including single-field objects.
+ * type. The first field is `fields[0]`; the sole producer
+ * (`echoTypeFromValue`, `src/extension/production-theta-producer.ts`) orders
+ * `fields` by the lowered schema's declaration order — the declaring `schema`
+ * block's source order, or the matching discriminated-union variant's own
+ * source order — per `defaulting-system-note-echo.md:43` and
+ * docs/bugs/0381-echo-object-first-field-model-key-order.md §Fix (settling the
+ * question 0092 §Non-goals left open). The trailing `, …` is fixed text
+ * rendered for every object value, including single-field objects.
  */
 function renderObject(
   value: unknown,
