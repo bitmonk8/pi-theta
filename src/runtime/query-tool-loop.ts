@@ -662,6 +662,43 @@ export async function runTypedQueryLoop(
   // "schema_validation" })` with `schema_keyword: "maxDepth"`.
   const walk = depthWalk(forced.payload);
   if (!walk.ok) {
+    // schema-subset.md:59 (Depth Enforcement row #1): depth violations are
+    // `validation` failures, so typed-query respond-repair follow-ups apply
+    // to them exactly as they apply to AJV non-conformance below. CIO-3 licenses
+    // the walk running BEFORE AJV at this boundary — not a terminal return that
+    // skips repair. QRY-22 routes any non-conforming response through
+    // respond-repair; the depth issue is already a `ValidationIssue`, so it
+    // fits the AJV arm's `schema_validation` failure channel unwidened. Must
+    // land with bug 0353 (the follow-up payload depth re-walk), or a repaired
+    // follow-up's own depth breach would be invisible.
+    if (schemaValidation !== undefined) {
+      const failure: ValidationFailure = {
+        kind: "schema_validation",
+        issues: [walk.issue],
+        raw_response: JSON.stringify(forced.payload),
+      };
+      const repair = await schemaValidation.runRespondRepair(failure);
+      switch (repair.kind) {
+        case "value":
+          // A respond-repair follow-up re-validated successfully: its corrected
+          // value is the typed query's final result.
+          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
+        case "validation": {
+          // Terminal non-conformance: surface the repair loop's ValidationError
+          // on the operator-facing RuntimeEvent (bug 0355 owns the repair-terminal
+          // masked accounting; no new masked computation here).
+          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch);
+          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
+        }
+        case "propagated":
+          // A proximate non-validation failure won respond-repair (QRY-11).
+          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
+      }
+    }
+    // No respond-repair machinery exists (no schema-validation collaborator),
+    // mirroring the noncompliance arm's split: surface the depth-violation
+    // terminal ValidationError DIRECTLY — attempts 0, the fixed terminal
+    // message, the depth issue, and the raw payload.
     const error: ValidationError = {
       kind: "validation",
       cause: walk.cause,

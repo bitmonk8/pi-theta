@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.362.0]
+
+### Fixed
+
+- **Bug 0352** — a depth-6+ payload on the INITIAL forced-respond turn terminated the typed query with `attempts: 0` and never opened respond-repair: `runTypedQueryLoop`'s depth arm returned immediately, where schema-subset row #1 grants respond-repair to depth violations and the AJV / ERR-17 arms of the SAME loop already enter it — the model never got the repair chance the spec grants for exactly this violation class. The initial-turn depth arm now routes the breach into `schemaValidation.runRespondRepair(...)` mirroring the AJV arm (+37 lines in `src/runtime/query-tool-loop.ts`), with the no-collaborator fallback byte-identical and the depth arm reporting debited `attempts` like its siblings. Witnessed by `tests/b0352-initial-depth-breach-opens-repair.test.ts` (6 cells: recovery + exhaustion rows red at fork with the doc's `attempts: 0` signature; AJV / ERR-17 / legitimate-`attempts:0` controls green). Live: `b0351live` green under the lock (real `pi -p`, no over-fire); the bespoke two-turn depth-repair cell is model-stochastic (0353's recorded rationale, reused). Co-landed with bug 0353 as ONE commit (its landing-order clause): the depth discipline is now coherent across both legs. Residuals recorded: the collaborator-present `attempts:0` terminal message homogenises to the shared schema-validation message (no test pinned the old literal); no per-opener `propagated` cell (arm parity); sibling 0355 owns the repair-terminal `masked`/slot accounting — untouched, noting the depth arm now debits attempts.
+
+## [0.361.0]
+
+### Fixed
+
+- **Bug 0353** — respond-repair FOLLOW-UP payloads were never depth-walked: `runTypedQueryLoop`'s repair legs validated the model's corrected payload through AJV only, so a depth-6+ follow-up bound where schema-subset row #1's depth discipline refuses the identical initial payload. The shared `validateAgainst` choke in `src/runtime/typed-query-validation.ts` now runs `depthWalk(payload)` as a short-circuit BEFORE AJV (the CIO-3 ordering), and both `nextFollowUp` arms inherit it — +9 lines, the 0292 canonical-ordering AJV path byte-identical. Witnessed by `tests/b0353-followup-respond-payload-depth-walk.test.ts` (5 cells: deep follow-up must-not-bind rows red at fork, leading-maxDepth row, depth-5 boundary control, the single-issue CIO-3 row). Live: `b0351live` (the adjacent typed-query response boundary through a real `pi -p`) green under the lock — no over-fire on legal payloads; a bespoke two-turn depth-repair live cell is model-stochastic and out of budget (recorded rationale). Co-landed with bug 0352 (one commit) per its landing-order clause: together they make schema-subset row #1's grant coherent across BOTH legs — the initial turn opens repair (0352) and the repair legs enforce depth (0353), so neither leg accepts what the other refuses.
+
 ## [0.360.0]
 
 ### Fixed

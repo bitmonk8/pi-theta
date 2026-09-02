@@ -1,6 +1,6 @@
 # Bug 0352 — A depth-6+ payload on the initial forced respond turn terminates the typed query with `attempts: 0` and never opens respond-repair: `runTypedQueryLoop`'s depth arm returns immediately, where schema-subset.md row #1 grants respond-repair to depth violations and the AJV / ERR-17 arms of the same loop do enter it
 
-- **Status:** open.
+- **Status:** fixed (0.362.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the surfaced `Err` is loud and
   correctly shaped (`validation`/`schema_validation`, `maxDepth` issue) but
   the documented recovery mechanism is silently withheld for exactly one
@@ -193,3 +193,76 @@ Constraints:
    byte-identical: `runRespondRepairLoop`'s `none`/`0` early terminal
    (`query-respond-repair.ts:211–212`) already returns `attempts: 0` with
    the opening failure's issue.
+
+## Fix (0.362.0)
+
+- What shipped: `src/runtime/query-tool-loop.ts` — `runTypedQueryLoop`'s
+  depth arm (`if (!walk.ok)`) now routes an initial forced-respond depth
+  breach into `schemaValidation.runRespondRepair({ kind: "schema_validation",
+  issues: [walk.issue], raw_response: JSON.stringify(forced.payload) })` when
+  the collaborator is present — the same machinery the AJV and ERR-17 arms of
+  the same function use — switching on `repair.kind` (value → bind; validation
+  → `buildValidationEvent(config, repair.error, slotCountAtDispatch)` terminal;
+  propagated → propagate). With no collaborator the arm falls back to the
+  prior terminal depth shape byte-identically (mirroring the noncompliance
+  arm's split). §Fix sketch implemented verbatim; constraints 1–3 honoured
+  (co-lands with bug 0353; no new `masked`/slot-count plumbing — bug 0355's
+  seam untouched; the `attempts: 0` path stays terminal via
+  `runRespondRepairLoop`'s none/0 early terminal).
+- Gates: witness `npx vitest run
+  tests/b0352-initial-depth-breach-opens-repair.test.ts` → 6/6 green (A
+  recovery binds Ok(recovered), B exhaustion attempts:3 + maxDepth issue, C
+  AJV-arm control, D ERR-17-arm control, E attempts:0 no-over-fire control);
+  full default suite `npx vitest run` → 533 files / 10041 tests green;
+  `npm run typecheck` exit 0; `npm run lint` exit 0.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no
+  correctness/fidelity/spec/house-rule/test/prose finding; verified fidelity
+  to §Fix sketch + constraints 1–3, fallback byte-identity vs HEAD, exhaustive
+  `repair.kind` switch, witness reds-at-HEAD by construction, C/D/E as real
+  controls). Converged at round 1; no fixer round warranted.
+- Verification: `bug-fix-verifier` SOLID — (1) witness revert→red (Cell A
+  kind=validation/attempts:0 where value expected; Cell B attempts=0 where 3),
+  byte-exact restore (`git diff` shows only the +37-line fix hunk),
+  restore→6/6 green; (2) full default suite 533/10041 green; (3) live
+  discharged (below); (4) `npm run lint` + `npm run typecheck` exit 0.
+- Live: the orchestrator ran the adjacent typed-query response-boundary cell
+  `tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts`
+  under the live lock → GREEN (12.6s, real `pi -p`, `@<{ code: integer }>`
+  binds Ok(42)→142), witnessing no over-fire on a legal typed-query
+  response-boundary drive adjacent to the fixed depth arm. A bespoke 2-turn
+  depth-repair live witness is model-stochastic across two turns (bug 0353's
+  recorded rationale, reused), so the adjacent cell stands with recorded WHY.
+- Residuals:
+  1. Collaborator-present `attempts: 0` depth terminal: its top-level
+     `message` homogenises from `DEPTH_VIOLATION_MESSAGE` ("JSON document
+     depth exceeds 5") to `SCHEMA_VALIDATION_TERMINAL_MESSAGE` ("typed query
+     response failed schema validation"), because the arm routes through
+     `runRespondRepairLoop`'s none/0 early terminal (`terminalValidationError`).
+     The canonical depth text is preserved on the *issue*
+     (`validation_errors[0]`); `attempts`/`cause`/`raw_response`/`masked` are
+     byte-identical, making the depth class consistent with the AJV class at
+     the same boundary. No committed or live test pins the old top-level
+     literal on this path (full suite green). §Fix constraint 3's
+     "byte-identical" overstates only this one field; the no-collaborator
+     worked-example control (query-tool-loop.test.ts QRY-16 co-fire) is fully
+     byte-identical (fallback path).
+  2. No witness cell drives `repair.kind === "propagated"` through the depth
+     opener — parity with the AJV/ERR-17 arms (no such per-opener cell
+     either); propagation is owned and tested at the shared
+     `runRespondRepairLoop` (`non_validation`). Not a regression.
+  3. Citation shift: the +37-line insertion moves `query-tool-loop.ts` line
+     numbers below the depth arm (e.g. the AJV guard 711→745,
+     `buildValidationEvent` def 753→790). Stale `query-tool-loop.ts:NNN`
+     citations exist in unowned closed/sibling bug docs (0052, 0066, 0120,
+     0159, 0172, 0202, 0327, 0355) and two test comments
+     (inbound-boundary-typed-query.test.ts,
+     invoke-depth-wire-form-metric.test.ts). NOT corrected: already stale
+     since af476df2, closed docs are era-pinned, and sibling/other-bug files
+     are not owned by this bug; the campaign re-derives citations by symbol
+     at merge.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the repair-terminal `masked` slot-count
+  input (bug 0355), the in-turn early-respond depth feedback
+  (`#executeRespondTool`), and the CIO-3 initial-payload depth-walk position
+  are non-goals — left unchanged. The co-landed bug 0353 depthWalk choke in
+  `src/runtime/typed-query-validation.ts` is sanctioned in-tree and untouched.

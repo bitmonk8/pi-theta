@@ -1,6 +1,6 @@
 # Bug 0353 — Respond-repair follow-up payloads are never depth-walked: `nextFollowUp` validates with AJV alone, so a depth-6+ follow-up payload that conforms to the lowered schema (a permissive `{}` root, or a legal nested-array declaration) BINDS as the typed query's value (ceiling #4 bypassed), and under a closed root that rejects it the payload is AJV-rejected without the canonical `maxDepth` issue — where schema-subset.md pins "the depth walk re-runs on each follow-up's response"
 
-- **Status:** open.
+- **Status:** fixed (0.361.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because a JSON document deeper than the
   hard ceiling binds to theta code as a typed query's value on reachable
   paths: a follow-up payload is validated by AJV only, and any lowered schema
@@ -228,3 +228,59 @@ Constraints:
    and green after; a depth-5 follow-up control (binds); a depth-6 follow-up
    under a schema AJV would also reject (the walk's issue wins, single-issue
    form — the CIO-3 walk-before-AJV ordering observable).
+
+
+## Fix (0.361.0)
+
+- What shipped: `src/runtime/typed-query-validation.ts` — a
+  `depthWalk(payload)` short-circuit at the top of `validateAgainst`, BEFORE
+  the AJV `compile`/`validate` (CIO-3 walk-before-AJV); on breach it returns
+  `{ ok: false, issues: [walk.issue], raw_response: JSON.stringify(payload) }`.
+  Both `nextFollowUp` arms (the two-phase-restart payload arm and the legacy
+  text arm) route through `validateAgainst`, so both inherit the walk (§Fix
+  sketch constraint 1 — natural home inside `validateAgainst`). The bug-0292
+  `orderValidationIssues` AJV path below is byte-identical; the single canonical
+  walk issue is returned unwrapped per the sketch. The initial `validate()`
+  (query-tool-loop.ts:709) also routes here but its payload already passed the
+  initial-turn walk (query-tool-loop.ts:663, bug 0352's surface), so the inner
+  walk is a deterministic no-op there — `query-tool-loop.ts` is untouched.
+- Gates: witness `npx vitest run tests/b0353-*.test.ts` → 5/5 green (B1/B3 no
+  longer bind, B2 leads with `maxDepth`, C2 single `maxDepth` issue, C1 depth-5
+  control binds); full default suite `npx vitest run` → 532 files / 10035 tests
+  green (baseline 531/10030 + this bug's 1 file/5 tests); `npm run typecheck`
+  exit 0; `npm run lint` exit 0.
+- Review: 1 round — `bug-fix-reviewer` returned no code blocker ("no code
+  change to the two owned files is required"): one non-blocking fidelity
+  finding (F1: must land with bug 0352 — a landing-order clause, not a code
+  defect) plus two non-blocking residuals (R1 no text-arm cell — matches the
+  settled witness list, arm inherits by construction; R2 header line-citation
+  drift — repo convention). Converged at round 1; no fixer round warranted.
+- Verification: `bug-fix-verifier` SOLID — witness revert→red (B1/B3/B2/C2 red,
+  C1 green) → byte-exact restore (`git hash-object` identical) → 5/5 green; full
+  suite 532/10035 green; typecheck + lint exit 0; live recorded (below).
+- Live: orchestrator ran the adjacent typed-query response-boundary cell
+  `tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts`
+  under the live lock → GREEN (11.2s, real `pi -p`, binds `Ok(42)→142`),
+  witnessing that the new walk is a no-op on a shallow conforming payload (no
+  over-fire). A bespoke 0353 two-turn depth-follow-up live witness is
+  model-stochastic across two turns and out of budget per this doc's
+  §Observed-at note, so the adjacent cell stands with recorded WHY.
+- Residuals:
+  1. Must land with bug 0352 (initial-turn depth arm) for a coherent row-#1
+     story (§Fix constraint 2; reviewer F1). 0352 is a later lane-sibling whose
+     surface (`query-tool-loop.ts:663`) is owned by it; not editable here. The
+     merge/landing sequence must co-land the two halves.
+  2. No dedicated legacy-text-arm witness cell (reviewer R1). The text arm
+     inherits the walk by construction through the shared `validateAgainst`
+     choke; the settled §Fix witness list names no text-arm cell. A future
+     refactor splitting the arms would want a sixth cell.
+  3. This edit adds 9 lines to `typed-query-validation.ts`, shifting `path:line`
+     citations into that file in other bug docs (notably still-open bug 0355's
+     `:104-113`/`:110-116`). Not corrected here — other docs are not owned by
+     this bug (0355 is sibling-owned; closed docs are era-pinned) and the
+     campaign re-derives every citation by symbol at merge.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the initial-payload depth walk, the
+  in-turn early-respond depth feedback (`#executeRespondTool`), and the
+  `masked` slot-count input on repair-terminal events (bug 0355) are the doc's
+  non-goals — all left unchanged.

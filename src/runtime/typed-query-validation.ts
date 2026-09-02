@@ -14,6 +14,7 @@
 // variants.md (ValidationError shape).
 
 import { schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
+import { depthWalk } from "./depth-walk";
 import type {
   TypedQuerySchemaValidation,
   TypedQueryValidationResult,
@@ -321,6 +322,14 @@ function validateAgainst(
   lowered: LoweredSchema,
   payload: unknown,
 ): TypedQueryValidationResult {
+  // CIO-3 (walk-before-AJV): a depth-6+ payload short-circuits here so a
+  // rejecting root's AJV verdict never masks the canonical maxDepth issue,
+  // and a permissive/legal-but-deep root never binds the payload as the
+  // typed query's Ok value (bug 0353).
+  const walk = depthWalk(payload);
+  if (!walk.ok) {
+    return { ok: false, issues: [walk.issue], raw_response: JSON.stringify(payload) };
+  }
   const compiled = validator.compile(lowered);
   const result = compiled.validate(payload);
   if (result.ok) {
