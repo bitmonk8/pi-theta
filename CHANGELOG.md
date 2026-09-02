@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.344.0]
+
+### Fixed
+
+- **Bug 0350** — two spec-prose sites still taught the inert `${…}`-in-regular-string idiom bug 0309 reworded out of `expressions.md`, surviving because neither is a `${` occurrence and so neither fell inside 0309's census: the `theta/parse/mixed-plus-operands` registry row's *Hint* column ("Convert explicitly or interpolate inside a string." — the diagnostic's own rendered remedy, the single most likely prose an author follows at the moment the `+` type error fires) and a QRY-18-page Notes bullet quoting the pre-0309 `+`-advice as "interpolate inside a string" while attributing it to a page that no longer says it. An author taking the Hint's second remedy wrote `"n=${3}"` and got the eight literal bytes `n=${3}` with no diagnostic — exactly the silent wrong-bytes failure lexical.md:26 exists to prevent. Both sites now mirror 0309's landed rewording: the Hint reads "Convert explicitly, or interpolate inside a `@`...`` query template (regular strings do not interpolate).", and the QRY-18 bullet quotes the current `expressions.md` phrasing accurately — the corpus-wide census `rg -n "interpolate inside a string" docs/spec_topics` now returns empty. The row's *Trigger*, *Spec rule*, *Sev*, *Phase* and *Message* columns are byte-identical (the normative DIAG-4 Message surface was clean and stays untouched); no language change (interpolation in regular strings stays RFC territory per 0309's pinned disposition); no new diagnostic. Docs-only: witnessed by the existing suite showing zero flips (no committed test pins the Hint column) and the spec-prose review, consistent with 0309's posture; no live owed — registration and drive outcomes are untouched by prose.
+
 ## [0.343.0]
 
 ### Fixed

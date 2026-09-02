@@ -1,6 +1,6 @@
 # Bug 0350 — the `theta/parse/mixed-plus-operands` registry row's *Hint* column ("Convert explicitly or interpolate inside a string") and a QRY-18-page cross-reference quoting it both teach the inert `${…}`-in-regular-string idiom, contradicting lexical.md:26 ("No interpolation — the sequence `${` inside a regular string is plain text") — the same misleading phrasing bug 0309 reworded at expressions.md:232, left standing at two sites 0309's `${`-in-regular-string census could not see because neither is a `${` occurrence
 
-- **Status:** open.
+- **Status:** fixed (0.344.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because no runtime behaviour is wrong
   (the runtime follows lexical.md:26: `${` in a regular string is plain text,
   live-verified under bug 0309), and the defect is spec-prose only: an author
@@ -176,3 +176,54 @@ nothing (the two 0309-doc matches are that dated record and stay as-filed). No
 runtime red exists — the idiom is spec-conformant plain text — so the witness
 posture is docs-only, discharged by the standing spec-prose review, consistent
 with 0309's fix.
+
+## Fix (0.344.0)
+
+- What shipped:
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — the
+    `theta/parse/mixed-plus-operands` row's *Hint* reworded from "Convert
+    explicitly or interpolate inside a string." to "Convert explicitly, or
+    interpolate inside a `@`...`` query template (regular strings do not
+    interpolate)." (§Fix item 1; *Trigger*/*Spec rule*/*Sev*/*Phase*/*Message*
+    columns byte-identical).
+  - `docs/spec_topics/query/query-escapes-stringification.md` — the QRY-18
+    Notes bullet's quoted `+`-advice fragment updated from "interpolate inside
+    a string" to "interpolate inside a `@`...`` query template" so the
+    attribution to `expressions.md:232` is accurate and no longer reproduces
+    the inert idiom (§Fix item 2).
+- Gates: witness posture DOCS-ONLY — no runtime claim changes, so no new test
+  cell and no live owed (parent adjudication). Full offline suite `npm test` —
+  525 files / 9914 tests pass, ZERO flips (identical to the fork baseline).
+  `npm run typecheck` clean; `npm run lint` clean. Post-fix census
+  `rg -n "interpolate inside a string" docs/spec_topics` → EMPTY (the two
+  docs/bugs matches — the 0309 and 0350 records — stay as-filed, era-pinned).
+- Review: 1 round — `bug-fix-reviewer` CLEAN. Fidelity: both sites and only
+  those sites; other columns byte-identical; no §Non-goals surface touched.
+  Correctness: new Hint names the `@`...`` query template consistent with
+  lexical.md:26 and expressions.md:232; QRY-18 attribution now a verbatim
+  substring of expressions.md:232. Census EMPTY; STYLE clean; code-registry
+  parse gate 11/11 green.
+- Verification: `bug-fix-verifier` VERIFIED. (A) diff fidelity — exactly two
+  files, 1/1 each, other columns byte-identical; (B) census EMPTY; (C) no code
+  change — `tests/fixtures/h7a/permitted-codes.json` hash
+  `a4a8da04209f90e13d815edd92c1fc682e2a2236` byte-identical, no `src/`/`tests/`
+  in the diff, suite 9914/9914 zero flips; (D) typecheck + lint clean.
+- Residuals:
+  1. One transient red on the first post-fix full-suite run —
+     `tests/inbound-union-arm-dispatch.test.ts` (bug 0172 face 2, a
+     real-subagent-child-spawn test): child exit code 1 vs 0. Proven
+     environmental, not a flip — GREEN in isolation (19/19) and on the
+     full-suite re-run (9914/9914); no causal path from a spec-doc *Hint* prose
+     reword to a child-process exit code; no committed test reads this row's
+     *Hint* column (DIAG-4 witnesses read `registryMessage` = *Message*).
+     Recorded via bounded self-adjudication (report `.pi/tmp/fixes/0350-report.md`).
+- Discharge notes appended: none (0309 and its `expressions.md:232` anchor are
+  era-pinned read-only anchors — cited, not edited).
+- Pinned dispositions / non-goals: no language change (interpolation in regular
+  strings stays RFC territory); no new diagnostic for `${` in a regular string;
+  `lexical.md:26` untouched; the DIAG-4 *Message* column of the
+  `mixed-plus-operands` row untouched; no re-edit of bug 0309; no corpus sweep
+  beyond the two enumerated sites.
+
+Parent adjudication is recorded verbatim in the fix record
+`.pi/tmp/fixes/0350-report.md`.
