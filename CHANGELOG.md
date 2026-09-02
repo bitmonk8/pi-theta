@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.367.0]
+
+### Fixed
+
+- **Bug 0354** — cross-file `.thetalib` `fn` calls were never counted against ceiling #1: `thetalibFnFrameKind` had NO production caller and `evalUserFnCall` consulted no chain, so a 40-deep cross-file fn chain completed with zero diagnostics where INV-4 prescribes `theta/runtime/invoke-depth-exceeded` at frame 33 — and a genuine runaway died thousands of frames later as V8's `RangeError` → `theta/runtime/internal-error`, the code NOCEIL-4 reserves for the HOST bound. Three of INV-4's four countable frame classes were wired; this was the fourth. PARENT ADJUDICATION A1+B(i)+C (recorded: the doc's own constraint 3 decides the carriage — an immutable chain value passed down, never a mutable counter; the moduleEnv is the declaration-residence carrier 0303 minted, so residence follows the DECLARATION through re-exports exactly as constraint 1 demands where an import record could name a re-export intermediary; the pure host needs the same pass-down per constraint 2): the existing `thetalibFnFrameKind`/`pushCountableFrame` are WIRED via a new residence carrier (`ModuleScope.residence` → `currentResidence()`) and an optional `ExecuteBodyDeps.invokeChain`, on BOTH executor paths; the breach surfaces through the existing `surfaceDepthOverflow` routing; the stale `evalUserFnCall` header comment is corrected; NO new registry row, permitted-codes byte-identical. Witnessed by `tests/b0354-crossfile-fn-depth-uncounted.test.ts` (10 cells: the >32 breach with the registered `33 > 32` message red at fork [the doc's 40-deep repro bound 40 silently], the 32-deep boundary completing, the intra-file same-depth control [NOCEIL-3/-4 preserved], the MIXED invoke+fn sum, the RE-EXPORT residence row, the pure-host row, byte-identity controls for the two existing push sites). Live: `imports-thetalib-fn` (IMP-G) green under the lock — a legal-depth cross-file fn drive, now counted, stays green. Residual recorded (bounded, new-filing candidate): an `invoke`/`@`-query/`subagent fn` dispatched from INSIDE a cross-file fn body counts from the bind-level chain, not the executor-accumulated one (bind-scope effect resolvers) — each segment still caps at 32; closing it needs a `StatementEvalHost` widening beyond the adjudicated scope.
+
 ## [0.366.0]
 
 ### Fixed

@@ -181,6 +181,15 @@ export interface ModuleScope {
   readonly body: ThetaBody;
   readonly imports: readonly MaterializedImport[];
   readonly enums: readonly EnumRegistration[];
+  /**
+   * The declaring lib's own resolved path (bug 0354, INV-4). The cross-file
+   * `.thetalib` `fn` classifier (`thetalibFnFrameKind`) compares a caller's
+   * residence against a callee's — this is the callee's, fixed to the file
+   * that DECLARED the `fn`, so a re-export or `as`-alias (which name a
+   * different import record but not a different declaration) does not change
+   * which frame class the call counts as.
+   */
+  readonly residence: string;
 }
 
 /**
@@ -222,6 +231,14 @@ export interface EnvironmentInputs {
   readonly imports?: readonly MaterializedImport[];
   readonly enums?: readonly EnumRegistration[];
   readonly callables?: readonly string[];
+  /**
+   * The declaring lib's own resolved path when this environment IS a
+   * declaring module's nested root (bug 0354, INV-4) — undefined for the
+   * top-level app scope. Stored at the root and read back through
+   * `currentResidence()` so `evalUserFnCall` / `evaluatePureFnCall` can
+   * compare a callee's declaration residence against its caller's.
+   */
+  readonly moduleResidence?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -339,6 +356,12 @@ export class LexicalEnvironment {
   private readonly moduleEnvs: Map<string, LexicalEnvironment>;
   /** The callable-set names (`tools:`, `V6c`) — the arm `V19b` defines but does not populate. */
   private readonly callables: ReadonlySet<string>;
+  /**
+   * The declaring lib's resolved path when this environment IS a declaring
+   * module's nested root (bug 0354, INV-4) — undefined at the top-level app
+   * scope. Root only; read back through `currentResidence()`.
+   */
+  private readonly moduleResidencePath: string | undefined;
 
   /**
    * True iff this scope is the root of a plain `fn` call's activation
@@ -367,6 +390,11 @@ export class LexicalEnvironment {
     // resolve) but carries NONE of the caller's local `let` / parameter slots
     // (no closure capture). `shared` threads those registry references into a
     // new root whose `locals` start empty.
+    // Root-only carriage (bug 0354, INV-4): stamped from `inputs` before the
+    // `shared` early-return so an isolated `subagent fn` scope (also a fresh
+    // root, RFC 0001 FN-6) keeps its own declaring residence rather than
+    // inheriting the enclosing file's.
+    this.moduleResidencePath = inputs.moduleResidence;
     if (shared !== undefined) {
       this.fns = shared.fns;
       this.schemas = shared.schemas;
@@ -434,6 +462,7 @@ export class LexicalEnvironment {
                 imports: imp.moduleScope.imports,
                 enums: imp.moduleScope.enums,
                 callables: inputs.callables ?? [],
+                moduleResidence: imp.moduleScope.residence,
               },
               null,
             ),
@@ -462,6 +491,18 @@ export class LexicalEnvironment {
   /** The root environment (the scope that owns the fn / schema / enum / import / callable registries). */
   private root(): LexicalEnvironment {
     return this.parent === null ? this : this.parent.root();
+  }
+
+  /**
+   * The declaration-residence of the currently-executing module (bug 0354,
+   * INV-4): undefined at the top-level app scope, the declaring lib's
+   * resolved path inside an imported `fn`'s body (that body's scope chains
+   * down from the nested moduleEnv this residence was stamped on). Read at
+   * the root because only a module's own root carries its stamp; a nested
+   * `child()` scope has no stamp of its own to consult.
+   */
+  public currentResidence(): string | undefined {
+    return this.root().moduleResidencePath;
   }
 
   /**
@@ -633,7 +674,19 @@ export class LexicalEnvironment {
   public spawnIsolatedScope(): LexicalEnvironment {
     const root = this.root();
     return new LexicalEnvironment(
-      { body: { statements: [], tail: null } },
+      // Carry the declaring module's residence into the isolated root (bug
+      // 0354, INV-4): the receiver is `(moduleEnv ?? env)`, so its root's
+      // `moduleResidencePath` is the declaring lib's residence for a
+      // lib-declared `subagent fn` (undefined for an app-declared one). The
+      // constructor reads this before the `shared` early-return, so the
+      // isolated body's intra-module calls resolve residence-equal instead of
+      // misattributing the caller to the enclosing app file.
+      {
+        body: { statements: [], tail: null },
+        ...(root.moduleResidencePath !== undefined
+          ? { moduleResidence: root.moduleResidencePath }
+          : {}),
+      },
       null,
       {
         fns: root.fns,

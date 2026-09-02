@@ -1,6 +1,6 @@
 # Bug 0354 — Cross-file `.thetalib` `fn` calls are never counted against ceiling #1: `thetalibFnFrameKind` has no production caller and `evalUserFnCall` executes imported-fn frames with no chain consultation, so a 40-deep cross-file fn chain completes with zero diagnostics where INV-4 prescribes `theta/runtime/invoke-depth-exceeded` at frame 33
 
-- **Status:** open.
+- **Status:** fixed (0.367.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because a documented hard runtime ceiling
   (ceiling #1, the only *runtime panic*-class ceiling) is silently unenforced
   for one of its four countable frame classes: the input class INV-4 exists to
@@ -189,28 +189,94 @@ bound, not the theta bound — thousands of frames past depth 32.
   time ("must terminate via control flow"), which is exactly why the runtime
   bound has to count these frames.
 
-## Fix
+## Fix (0.367.0)
 
-Not yet decided; constraints any fix must satisfy:
+Adjudicated as A1 + B(i) + C (parent adjudication, `0354-impl-brief.md`).
 
-1. The countable-frame test is the spec's residence test: compare the caller's
-   source file against the callee `fn`'s declaration residence (re-exports and
-   `as`-aliases do not change residence). `thetalibFnFrameKind` already
-   implements it — wire it rather than re-deriving.
-2. Both executors need the increment: `evalUserFnCall`
-   (statement-executor.ts) and the pure host's `evaluatePureFnCall`
-   (production-theta-producer.ts:7326) — the same frame class is reachable on
-   both paths.
-3. The chain (or an equivalent per-chain counter) must be threaded to the fn
-   dispatch without breaking the "sibling invokes do not share budget" rule —
-   an immutable chain value passed down, not a mutable global.
-4. The breach surfaces per INV-4's routing: top-level → Pi system note;
-   nested → `Err(InvokeInfraError { cause: "panic" })` to the invoke parent
-   (the existing `surfaceDepthOverflow` covers both).
-5. Witnesses: a >32 cross-file chain panics with the registered message; a
-   32-deep chain completes (boundary); an intra-file recursive fn of the same
-   depth still completes (the non-countable control); a mixed
-   invoke+cross-file-fn chain counts the sum.
+1. **Residence carriage (B(i)).** `ModuleScope` (`lexical-environment.ts`)
+   carries a new `residence: string` field — the declaring lib's own resolved
+   path, set by `buildModuleScope` (`import-static-checks.ts`, both the
+   normal and the in-progress-cycle return). `LexicalEnvironment` gained a
+   root-only `moduleResidencePath` (from a new `EnvironmentInputs.moduleResidence?`),
+   stamped when the nested declaring-module environment is built, and a public
+   `currentResidence(): string | undefined` reader. Residence therefore
+   follows the DECLARATION (the 0303 `moduleEnv` carrier), not a re-exporter
+   an import record might name. `spawnIsolatedScope` (the RFC-0001 `subagent
+   fn` body root) carries the declaring module's residence forward too, so a
+   lib-declared `subagent fn`'s intra-lib calls classify residence-equal
+   (uncounted) rather than being misattributed to the enclosing app file.
+2. **Chain field + accounting (A1), async path.** `ExecuteBodyDeps`
+   (`statement-executor.ts`) gained an optional `invokeChain?: InvokeChain`
+   (the `emitDiagnostic?` precedent shape — immutable value passed down,
+   never a mutable global). `evalUserFnCall` classifies the call via the
+   EXISTING `thetalibFnFrameKind` (caller residence vs. callee declaration
+   residence) before running the body, and pushes a countable frame via the
+   EXISTING `pushCountableFrame` when the classifier returns a kind — letting
+   `InvokeDepthExceededPanic` propagate on breach (no new explicit surfacing
+   call; the existing top-level / nested `ThetaPanic` routing applies
+   unchanged). The stale header comment ("NOT against the invoke-depth
+   ceiling" for every `fn` call) is corrected: true for intra-file, wrong for
+   the cross-file half the same function executes.
+3. **Seeding.** The two producer `ExecuteBodyDeps` constructions (prompt bind,
+   subagent bind) seed `invokeChain: chain` — the same per-chain counter their
+   own `invoke` / `subagent fn` frames increment.
+4. **Pure-host twin (C).** `evaluatePureFnCall` and its five callees
+   (`evaluatePureExpression`, `evaluatePureBlock`, `evaluatePureStatement`,
+   `evaluatePureIf`, `evaluateBinaryExpression`) thread an optional trailing
+   `chain?: InvokeChain`, forwarded at every recursive call. The
+   interpolation-render path (`renderQueryText` → `stringifyInterpolation` →
+   `evaluatePureExpression`, `renderTypedAwareQueryText`,
+   `#resolvePromptQuery`'s `deps.chain`, and the prompt short-circuit render)
+   carries the same chain, so a cross-file `fn` call reached through a query
+   template counts identically to one reached through a statement.
+
+- **Gates.** Witness `tests/b0354-crossfile-fn-depth-uncounted.test.ts` —
+  10/10 green (5 breach rows now panic with the registered `invoke chain
+  depth exceeded: 33 > 32`; 5 controls green). Revert-red confirmed: neutralise
+  the two push blocks and the 5 breach rows red on the exact symptom, restore
+  and they green. Full default suite 531 files / 10030 tests green (the sole
+  red under parallel load, `shared-subtree-judged-once-per-pass` / bug 0276, is
+  the known load-timeout flake — green in isolation, no INV-4/lexical surface).
+  `npm run typecheck` clean; `npm run lint` clean. Live:
+  `tests/live/hardening/imports-thetalib-fn.test.ts` (IMP-G, a real cross-file
+  imported-fn drive issuing a query) green under the live lock — a legal-depth
+  cross-file fn drive stays green now that it is counted (counting adds panics
+  only past depth 32, which only crafted fixtures reach).
+- **Review.** Round 1 (`bug-fix-reviewer`): main path verified sound; 2 bounded
+  findings (F1, F2) + 1 residual (R1). Round 2 (`bug-fix-reviewer-fast`, after
+  the F2 fixer): clean, no correctness/fidelity/spec finding.
+- **Verification.** `bug-fix-verifier`: SOLID — witness genuinely reds on
+  revert and greens on restore (byte-exact); suite green; typecheck + lint
+  clean; the two production push sites, `permitted-codes.json`, and
+  `tests/live/live-production-acceptance.test.ts` (14864 lines) byte-identical.
+- **Residuals.**
+  1. *Fn-frames-then-effect undercount (F1, bounded).* An `invoke` / `@`-query
+     / `subagent fn` dispatched from INSIDE a cross-file `fn` body counts from
+     the bind-level chain, not the executor-accumulated `ExecuteBodyDeps.invokeChain`,
+     because those effect resolvers are bind-scope closures. Bounded — each
+     segment still caps at 32, no unbounded runaway survives, and the S2 defect
+     (a whole cross-file `fn` chain running past the cap) is fixed; the doc's
+     witnessed invoke-then-fn mixed case (§Why it matters 3) is counted in
+     full. Closing the reverse direction needs a `StatementEvalHost` widening
+     (thread the live chain into effect dispatch) — a behavioural change beyond
+     this fix's adjudicated scope, flagged for the parent.
+  2. *Row-7 control witnesses the primitive (R1).* The "byte-identical
+     controls" cell asserts `pushCountableFrame` directly rather than the two
+     production push sites; those sites are proven untouched by `git diff` and
+     their wiring is pinned by `tests/invoke-depth-cycle.test.ts`.
+  3. *No dedicated lib-self-import subagent-fn cell (R2).* The F2 residence
+     pass-through is covered by type-level tracing and the green suite, not a
+     named regression cell for that exotic shape.
+- **Discharge notes appended:** none (no sibling bug docs implicated).
+- **Pinned dispositions / non-goals.** No new registry row —
+  `theta/runtime/invoke-depth-exceeded` was already registered and
+  `permitted-codes.json` is byte-identical. The two production
+  `pushCountableFrame` sites (`"direct-invoke"`, `"subagent-fn"`) are untouched.
+  Intra-file `fn` recursion stays uncounted (NOCEIL-3/-4, §Non-goals). Param /
+  schema defaults evaluate chainless (§Fix constraint 2 names only the
+  interpolation and invoke-arg pure positions). `docs/spec_topics/invocation.md`
+  INV-4 already prescribed this behaviour — no spec prose changed; the fix
+  brings the implementation into conformance.
 
 ## Provenance
 

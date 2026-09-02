@@ -789,7 +789,7 @@ export async function checkThetaImports(
       // A lib-to-lib import cycle reached while BUILDING a module scope
       // returns a bounded partial — this lib's own enums, no imports — rather
       // than recursing without termination.
-      return { body, imports: [], enums: enumsOf(body, resolvedPath) };
+      return { body, imports: [], enums: enumsOf(body, resolvedPath), residence: resolvedPath };
     }
     moduleScopeInProgress.add(resolvedPath);
     const moduleImports: MaterializedImport[] = [];
@@ -823,7 +823,16 @@ export async function checkThetaImports(
         }
       }
     }
-    const scope: ModuleScope = { body, imports: moduleImports, enums: enumsOf(body, resolvedPath) };
+    const scope: ModuleScope = {
+      body,
+      imports: moduleImports,
+      enums: enumsOf(body, resolvedPath),
+      // Bug 0354, INV-4: the DECLARING lib's own resolved path (this function
+      // is always called with the declaring lib's `resolvedPath`/`body`, see
+      // `materializeChain`'s doc-comment above) — the cross-file classifier's
+      // callee-residence input.
+      residence: resolvedPath,
+    };
     moduleScopeInProgress.delete(resolvedPath);
     moduleScopeCache.set(resolvedPath, scope);
     return scope;

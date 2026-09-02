@@ -53,6 +53,8 @@ import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
 import { makeCancelledError, runCancellableSequence } from "./cancellation-core";
 import { HostFatal, isThetaPanic } from "./runtime-panics";
+import type { InvokeChain } from "./invoke-depth-cycle";
+import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
@@ -201,6 +203,16 @@ export interface ExecuteBodyDeps {
    * this fix's enumerated scope.
    */
   readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
+  /**
+   * The per-chain INV-4 depth counter (bug 0354), passed down so
+   * `evalUserFnCall` can push a countable frame for a CROSS-FILE `.thetalib`
+   * `fn` call before its body runs. OPTIONAL because existing constructors of
+   * this interface omit it (the `emitDiagnostic?` precedent) — a required
+   * field would flip every one of them outside this fix's enumerated scope.
+   * Immutable value passed down (never a mutable global), so sibling invokes
+   * never share budget.
+   */
+  readonly invokeChain?: InvokeChain;
 }
 
 /**
@@ -422,8 +434,11 @@ function resolveUserFn(
 
 /**
  * Execute a user `fn` call `<name>(args)` in-process (functions.md FN-1…FN-5) —
- * NOT as a host tool-call or an invoke, and NOT against the invoke-depth ceiling
- * (intra-file `fn` calls are unbounded, hard-ceilings NOCEIL-3/-4). Each argument
+ * NOT as a host tool-call or an invoke. An INTRA-file `fn` call is unbounded
+ * (hard-ceilings NOCEIL-3/-4); a CROSS-FILE `.thetalib` `fn` call IS a
+ * countable INV-4 frame (bug 0354) — counted below via `thetalibFnFrameKind` /
+ * `pushCountableFrame`, the same cap direct `invoke(...)` and `subagent fn`
+ * calls push against. Each argument
  * is evaluated in the caller's scope through the same expression machinery (so a
  * nested effect / user-`fn` argument runs on its normal path), bound as an
  * immutable local into a fresh child scope, and the `fn` body runs through the
@@ -462,7 +477,25 @@ async function evalUserFnCall(
     }
     scope.defineLocal((fn.params[i] as FnDecl["params"][number]).name, arg.value, false);
   }
-  const flow = await executeBlock(fn.body, scope, deps);
+  // INV-4 / ceiling #1 (invocation.md §INV-4): a CROSS-FILE `.thetalib` fn
+  // frame is countable. The classifier is the spec's residence test — caller
+  // file vs the callee's declaration residence (moduleEnv = the 0303
+  // declaring-module carrier, so re-exports/as-aliases keep the DECLARING
+  // file's residence). Push BEFORE the body runs so a breach panics at the
+  // 33rd frame; the incremented chain flows into the body so nested cross-file
+  // calls stack. An intra-file fn (moduleEnv undefined, or residence equal) is
+  // NOT countable and inherits the parent chain unchanged.
+  let bodyDeps = deps;
+  if (moduleEnv !== undefined && deps.invokeChain !== undefined) {
+    const kind = thetalibFnFrameKind({
+      callerFile: env.currentResidence() ?? deps.file,
+      calleeResidence: moduleEnv.currentResidence() ?? deps.file,
+    });
+    if (kind !== undefined) {
+      bodyDeps = { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, kind) };
+    }
+  }
+  const flow = await executeBlock(fn.body, scope, bodyDeps);
   switch (flow.kind) {
     case "return":
     case "normal":

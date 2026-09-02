@@ -191,6 +191,7 @@ import {
   newInvokeChainAtDepth,
   pushCountableFrame,
   surfaceDepthOverflow,
+  thetalibFnFrameKind,
   InvokeDepthExceededPanic,
   type InvokeChain,
 } from "../runtime/invoke-depth-cycle";
@@ -1913,7 +1914,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: theta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
+      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, chain),
       resolveQuery: (expr, env) => {
         // SLSH-2: EVERY non-short-circuit prompt-mode query is a user-visible
         // streamed turn against the user session — assistant tokens for every
@@ -1922,9 +1923,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // executor awaits each query), so there is no stream-interleaving risk.
         // QRY-6/QRY-8: a query whose rendered template is empty short-circuits
         // to `Err(empty_template)` with NO provider turn (not user-visible — no
-        // turn is issued at all).
+        // turn is issued at all). Bug 0354: the render is chain-threaded so a
+        // cross-file `fn` interpolation call breaches here, BEFORE any turn.
         const shortCircuits =
-          renderEmptyShortCircuit(renderQueryText(expr, env)) !== undefined;
+          renderEmptyShortCircuit(renderQueryText(expr, env, chain)) !== undefined;
         const userVisible = !shortCircuits;
         return this.#resolvePromptQuery(expr, env, {
           pi,
@@ -1934,6 +1936,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages,
           userVisible,
+          chain,
         });
       },
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
@@ -1973,6 +1976,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // Bug 0324: thread the real runtime-diagnostic channel so a non-number
       // `par for` `max` value's clamp-to-1 is not silent.
       emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+      // Bug 0354, INV-4: seed the cross-file `.thetalib` fn accounting with
+      // THIS invocation's own chain (already seeded at
+      // `subagentInboundInvokeDepth` above), so an invoke child's fn frames
+      // share the same per-chain counter its invoke frames increment.
+      invokeChain: chain,
     };
 
     // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
@@ -2207,7 +2215,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: theta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
+      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, chain),
       resolveQuery: (expr, env) =>
         this.#resolvePromptQuery(expr, env, {
           pi: this.#input.pi,
@@ -2217,6 +2225,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages: () => [],
           userVisible: false,
+          chain,
         }),
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
@@ -2249,6 +2258,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // Bug 0324: thread the real runtime-diagnostic channel so a non-number
       // `par for` `max` value's clamp-to-1 is not silent.
       emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+      // Bug 0354, INV-4: seed the cross-file `.thetalib` fn accounting with
+      // THIS invocation's own chain, so a `subagent fn` body's fn frames share
+      // the same per-chain counter its invoke frames increment.
+      invokeChain: chain,
     };
 
     // Decision 6 / Increment B1: the invocation's registry entry, opened before
@@ -2845,7 +2858,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: overriddenTheta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env),
+      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, childChain),
       resolveQuery: (expr, env) =>
         this.#resolvePromptQuery(expr, env, {
           pi: this.#input.pi,
@@ -2855,6 +2868,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages: () => [],
           userVisible: false,
+          chain: childChain,
         }),
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(overriddenTheta, expr, env, signal, evaluatedToolArgs),
@@ -2925,6 +2939,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       readonly thetaAbort: AbortController;
       readonly readMessages: () => readonly Message[];
       readonly userVisible: boolean;
+      /** Bug 0354, INV-4: the per-chain depth counter, forwarded to the render so a cross-file `fn` interpolation call is counted. */
+      readonly chain?: InvokeChain;
     },
   ): QueryHostDispatch {
     const { root } = this.#input;
@@ -2957,7 +2973,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // QRY-6: the bare rendered template body (typed-query schema conveyance
     // excluded) the empty-template short-circuit is evaluated over before any
     // provider turn is issued.
-    const renderedText = renderQueryText(expr, env);
+    const renderedText = renderQueryText(expr, env, deps.chain);
     // WHY two text shapes (bug 0010): the restored two-phase path — live AND
     // off-session (increment D) — opens its free phase with the RENDERED QUERY
     // TEMPLATE BODY ONLY (QRY-14 step 1 — no JSON-only instruction, no inlined
@@ -2967,7 +2983,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // where the old fused-turn + text-parse fallback keeps typed behaviour
     // total.
     const queryText =
-      respond !== undefined ? renderedText : renderTypedAwareQueryText(expr, env, lowered);
+      respond !== undefined ? renderedText : renderTypedAwareQueryText(expr, env, lowered, deps.chain);
 
     // STAGE B (ceiling #2) / CIO-4 (bug 0010): bound the native prompt-mode
     // agentic tool loop to the theta's `tool_loop.max_rounds` for EVERY driven
@@ -3734,7 +3750,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): InvokeChild {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
-    const argValues = expr.args.slice(1).map((arg) => evaluatePureExpression(arg, env));
+    const argValues = expr.args.slice(1).map((arg) => evaluatePureExpression(arg, env, chain));
     // INV-6: the `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
     // return; hard-ceilings ceiling #4). invocation.md §"Typed return": untyped
@@ -3771,7 +3787,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     callerMode: ThetaMode,
   ): InvokeChild {
     const calleePath = thetaCalleePath(theta, expr.callee) ?? `./${expr.callee}.theta`;
-    const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env));
+    const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
     // A `.theta`-callable call through `tools:` carries no `invoke<Schema>`
     // annotation, so there is no parse-time return-type site. tool-calls.md
     // §"Return type" types the row by INFERENCE over the statically resolved
@@ -6360,8 +6376,9 @@ function renderTypedAwareQueryText(
   expr: QueryExpr,
   env: LexicalEnvironment,
   lowered?: LoweredSchema,
+  chain?: InvokeChain,
 ): string {
-  const base = renderQueryText(expr, env);
+  const base = renderQueryText(expr, env, chain);
   if (expr.schema === null) {
     return base;
   }
@@ -7080,7 +7097,7 @@ function splitParamDefaultSource(raw: string): string | undefined {
  * type-layer gate could not prove instead aborts the theta with QRY-18's
  * runtime-fallback panic (see `stringifyInterpolation`).
  */
-function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
+function renderQueryText(expr: QueryExpr, env: LexicalEnvironment, chain?: InvokeChain): string {
   const lexed = lexQueryTemplate(expr.template);
   let text = "";
   for (const part of lexed.parts) {
@@ -7088,7 +7105,7 @@ function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
       text += part.value;
       continue;
     }
-    text += stringifyInterpolation(part.exprSource, env);
+    text += stringifyInterpolation(part.exprSource, env, chain);
   }
   return renderTemplateText(text);
 }
@@ -7111,7 +7128,7 @@ function renderQueryText(expr: QueryExpr, env: LexicalEnvironment): string {
  * render raises `INTERPOLATED_RESULT_CODE` as a panic (QRY-18's runtime
  * fallback) instead of serialising the interpreter-private carrier (bug 0079).
  */
-function stringifyInterpolation(source: string, env: LexicalEnvironment): string {
+function stringifyInterpolation(source: string, env: LexicalEnvironment, chain?: InvokeChain): string {
   const parsed = parseExpressionSource(source);
   if (parsed === null) {
     // An unparseable interpolation has no value; render the inert `null` rather
@@ -7119,7 +7136,7 @@ function stringifyInterpolation(source: string, env: LexicalEnvironment): string
     // rule expressions.md states (bug 0116).
     return "null";
   }
-  const value = evaluatePureExpression(parsed, env);
+  const value = evaluatePureExpression(parsed, env, chain);
   const type = interpolationTypeOf(value);
   const reach: NestedResultReach = { found: false };
   if (type.kind === "object" || type.kind === "array") {
@@ -7310,7 +7327,11 @@ function interpolationTypeOf(value: ThetaValue): InterpolationType {
  * fallback (bug 0116: no such rule is stated in expressions.md) — rather than
  * throwing out of the executor.
  */
-function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue {
+function evaluatePureExpression(
+  expr: Expr,
+  env: LexicalEnvironment,
+  chain?: InvokeChain,
+): ThetaValue {
   switch (expr.kind) {
     case "number":
       return Number(expr.text);
@@ -7324,7 +7345,7 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       return resolution.arm === "local" ? resolution.value ?? null : null;
     }
     case "array":
-      return expr.elements.map((element) => evaluatePureExpression(element, env));
+      return expr.elements.map((element) => evaluatePureExpression(element, env, chain));
     case "object": {
       // An object-literal / schema-constructor value (expressions.md §"Object
       // construction"): the runtime value is the plain field object keyed by
@@ -7337,7 +7358,7 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       // bug 0027 records for its four read entry points.
       const obj: Record<string, ThetaValue> = {};
       for (const field of expr.fields) {
-        defineRecordField(obj, field.name, evaluatePureExpression(field.value, env));
+        defineRecordField(obj, field.name, evaluatePureExpression(field.value, env, chain));
       }
       return buildObjectSchemaValue(obj, expr.typeName, (name) => env.resolveSchema(name));
     }
@@ -7352,16 +7373,18 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
         }
       }
       // `.field` access — a `null` target raises `NullMemberAccessPanic` (V4b).
-      return evaluateMemberAccess(evaluatePureExpression(expr.target, env), expr.field);
+      return evaluateMemberAccess(evaluatePureExpression(expr.target, env, chain), expr.field);
     }
     case "index": {
       // `[i]` access — a `null` target / out-of-bounds / missing key panics (V4b).
       // The `String()` coercion is removed (bug 0365 §Fix): a non-number,
       // non-string index the static layer deferred on throws the
       // `IndexKindDefectError` belt instead of manufacturing a key. Both hosts
-      // move in lockstep (statement-executor.ts's index arm, same belt).
-      const target = evaluatePureExpression(expr.target, env);
-      const index = evaluatePureExpression(expr.index, env);
+      // move in lockstep (statement-executor.ts's index arm, same belt). The
+      // `chain` threads through both operand evaluations (bug 0354) so a
+      // cross-file `fn` call reached from an index operand still counts.
+      const target = evaluatePureExpression(expr.target, env, chain);
+      const index = evaluatePureExpression(expr.index, env, chain);
       if (typeof index !== "number" && typeof index !== "string") {
         throw new IndexKindDefectError(index);
       }
@@ -7392,20 +7415,21 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
             expr,
             env,
             resolution.arm === "import" ? resolution.moduleEnv : undefined,
+            chain,
           )
         : null;
     }
     case "result-ctor":
       // `Ok(arg)` / `Err(arg)` — a pure Result construction (never a tool-call).
       return expr.ctor === "Ok"
-        ? makeOk(evaluatePureExpression(expr.arg, env))
-        : makeErr(evaluatePureExpression(expr.arg, env));
+        ? makeOk(evaluatePureExpression(expr.arg, env, chain))
+        : makeErr(evaluatePureExpression(expr.arg, env, chain));
     case "method-call": {
       // `target.method(args)` — evaluate the receiver and arguments, then
       // dispatch to the stdlib member surface by the receiver's runtime type
       // (expressions.md §"Built-in methods and properties").
-      const receiver = evaluatePureExpression(expr.target, env);
-      const args = expr.args.map((arg) => evaluatePureExpression(arg, env));
+      const receiver = evaluatePureExpression(expr.target, env, chain);
+      const args = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
       return evaluateStdlibMethod(receiver, expr.method, args);
     }
     case "try": {
@@ -7414,7 +7438,7 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       // primitive `evalTry` (statement-executor.ts) also calls, so this host
       // and the executor cannot drift apart on `?` (bug 0027's lockstep rule
       // for this exact pair).
-      const operand = evaluatePureExpression(expr.operand, env);
+      const operand = evaluatePureExpression(expr.operand, env, chain);
       // §Fix (b) — the ERR-18 brand guard travels with the primitive, exactly
       // as `evalTry` guards before unwrapping; reusing bug 0019's defect class
       // rather than minting a new one.
@@ -7439,19 +7463,19 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       raiseInterpolatedResult(INTERPOLATED_RESULT_MESSAGE);
     }
     case "binary":
-      return evaluateBinaryExpression(expr.op, expr.left, expr.right, env);
+      return evaluateBinaryExpression(expr.op, expr.left, expr.right, env, chain);
     case "ternary": {
       // `cond ? a : b` — only the taken branch is evaluated (short-circuit).
       // Bug 0369 belt: mirrors the executor's ternary belt into this pure
       // host, so a statically-deferred non-boolean condition throws loudly
       // instead of steering to the alternate branch as a fabricated `false`.
-      const condition = evaluatePureExpression(expr.condition, env);
+      const condition = evaluatePureExpression(expr.condition, env, chain);
       if (typeof condition !== "boolean") {
         throw new BooleanPositionKindDefectError(condition);
       }
       return condition
-        ? evaluatePureExpression(expr.consequent, env)
-        : evaluatePureExpression(expr.alternate, env);
+        ? evaluatePureExpression(expr.consequent, env, chain)
+        : evaluatePureExpression(expr.alternate, env, chain);
     }
     case "block": {
       // A block expression's value is its tail (grammar.md §"Block expressions"),
@@ -7461,7 +7485,7 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       // control flow this evaluator has no channel to propagate out of an
       // expression position, so it falls to the inert `null` the surrounding
       // pure-host convention uses for the forms it does not model.
-      const outcome = evaluatePureBlock(expr.body, env.child());
+      const outcome = evaluatePureBlock(expr.body, env.child(), chain);
       return outcome.kind === "value" ? outcome.value : null;
     }
     default:
@@ -7489,6 +7513,7 @@ function evaluatePureFnCall(
   expr: CallExpr,
   env: LexicalEnvironment,
   bodyRoot: LexicalEnvironment = env,
+  chain?: InvokeChain,
 ): ThetaValue {
   if (expr.args.length !== fn.params.length) {
     throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
@@ -7498,9 +7523,29 @@ function evaluatePureFnCall(
   // 0303), or `env` itself (the default) for a same-file `fn`.
   const scope = bodyRoot.child();
   fn.params.forEach((param, index) => {
-    scope.defineLocal(param.name, evaluatePureExpression(expr.args[index] as Expr, env), false);
+    scope.defineLocal(
+      param.name,
+      evaluatePureExpression(expr.args[index] as Expr, env, chain),
+      false,
+    );
   });
-  return evaluatePureBlock(fn.body, scope).value;
+  // INV-4 / ceiling #1 (bug 0354, adjudication C): the pure-host twin of
+  // `evalUserFnCall`'s cross-file accounting — same classifier, same push,
+  // reached from a query-template interpolation or an invoke-arg position
+  // instead of a statement. `bodyRoot !== env` mirrors `moduleEnv !== undefined`
+  // there (a same-file `fn` defaults `bodyRoot` to `env`, so the identity check
+  // alone already excludes it before the residence comparison runs).
+  let bodyChain = chain;
+  if (chain !== undefined && bodyRoot !== env) {
+    const kind = thetalibFnFrameKind({
+      callerFile: env.currentResidence() ?? "",
+      calleeResidence: bodyRoot.currentResidence() ?? "",
+    });
+    if (kind !== undefined) {
+      bodyChain = pushCountableFrame(chain, kind);
+    }
+  }
+  return evaluatePureBlock(fn.body, scope, bodyChain).value;
 }
 
 /** The outcome of evaluating a pure block: a fallen-through value or an explicit `return`. */
@@ -7513,16 +7558,20 @@ type PureBlockOutcome =
  * yield the tail expression's value (or `null` for a statement-terminated body).
  * An explicit `return` short-circuits the block to its operand (FN-3…FN-5).
  */
-function evaluatePureBlock(block: Block, env: LexicalEnvironment): PureBlockOutcome {
+function evaluatePureBlock(
+  block: Block,
+  env: LexicalEnvironment,
+  chain?: InvokeChain,
+): PureBlockOutcome {
   for (const stmt of block.statements) {
-    const outcome = evaluatePureStatement(stmt, env);
+    const outcome = evaluatePureStatement(stmt, env, chain);
     if (outcome.kind === "return") {
       return outcome;
     }
   }
   return {
     kind: "value",
-    value: block.tail !== null ? evaluatePureExpression(block.tail, env) : null,
+    value: block.tail !== null ? evaluatePureExpression(block.tail, env, chain) : null,
   };
 }
 
@@ -7534,22 +7583,26 @@ function evaluatePureBlock(block: Block, env: LexicalEnvironment): PureBlockOutc
  * a captured slot) falls through as a plain value — the pure evaluator does not
  * model the effect/loop control flow the async executor owns.
  */
-function evaluatePureStatement(stmt: Stmt, env: LexicalEnvironment): PureBlockOutcome {
+function evaluatePureStatement(
+  stmt: Stmt,
+  env: LexicalEnvironment,
+  chain?: InvokeChain,
+): PureBlockOutcome {
   switch (stmt.kind) {
     case "let": {
-      const value = stmt.init !== null ? evaluatePureExpression(stmt.init, env) : null;
+      const value = stmt.init !== null ? evaluatePureExpression(stmt.init, env, chain) : null;
       env.defineLocal(stmt.name, value, stmt.mutable);
       return { kind: "value", value: null };
     }
     case "return":
       return {
         kind: "return",
-        value: stmt.operand !== null ? evaluatePureExpression(stmt.operand, env) : null,
+        value: stmt.operand !== null ? evaluatePureExpression(stmt.operand, env, chain) : null,
       };
     case "if":
-      return evaluatePureIf(stmt, env);
+      return evaluatePureIf(stmt, env, chain);
     case "expr":
-      return { kind: "value", value: evaluatePureExpression(stmt.expr, env) };
+      return { kind: "value", value: evaluatePureExpression(stmt.expr, env, chain) };
     default:
       return { kind: "value", value: null };
   }
@@ -7559,25 +7612,26 @@ function evaluatePureStatement(stmt: Stmt, env: LexicalEnvironment): PureBlockOu
 function evaluatePureIf(
   stmt: Extract<Stmt, { kind: "if" }>,
   env: LexicalEnvironment,
+  chain?: InvokeChain,
 ): PureBlockOutcome {
   // Bug 0369 belt: the pure-host statement `if` is a boolean-position
   // consumer, kept uniform with the effectful `executeIf` and the pure
   // ternary. A statically-deferred non-boolean condition here is bug 0369's
   // loud defect; a `=== true` comparison would instead silently steer a
   // laundered non-boolean to the alternate arm as a fabricated `false`.
-  const condition = evaluatePureExpression(stmt.condition, env);
+  const condition = evaluatePureExpression(stmt.condition, env, chain);
   if (typeof condition !== "boolean") {
     throw new BooleanPositionKindDefectError(condition);
   }
   if (condition) {
-    return evaluatePureBlock(stmt.then, env.child());
+    return evaluatePureBlock(stmt.then, env.child(), chain);
   }
   if (stmt.otherwise === null) {
     return { kind: "value", value: null };
   }
   return "statements" in stmt.otherwise
-    ? evaluatePureBlock(stmt.otherwise, env.child())
-    : evaluatePureIf(stmt.otherwise, env);
+    ? evaluatePureBlock(stmt.otherwise, env.child(), chain)
+    : evaluatePureIf(stmt.otherwise, env, chain);
 }
 
 /**
@@ -7630,21 +7684,22 @@ function evaluateBinaryExpression(
   leftExpr: Expr,
   rightExpr: Expr,
   env: LexicalEnvironment,
+  chain?: InvokeChain,
 ): ThetaValue {
   if (op === "!") {
     // Bug 0369 belt: mirrors the executor's `!` belt into this pure host, so a
     // statically-deferred non-boolean operand throws loudly instead of being
     // cast to `boolean` and JS-negated (`!0` → `true`).
-    const right = evaluatePureExpression(rightExpr, env);
+    const right = evaluatePureExpression(rightExpr, env, chain);
     if (typeof right !== "boolean") {
       throw new BooleanPositionKindDefectError(right);
     }
     return !right;
   }
   if (op === "-" && leftExpr.kind === "null") {
-    return -(evaluatePureExpression(rightExpr, env) as number);
+    return -(evaluatePureExpression(rightExpr, env, chain) as number);
   }
-  const left = evaluatePureExpression(leftExpr, env);
+  const left = evaluatePureExpression(leftExpr, env, chain);
   if (op === "&&") {
     // Bug 0369 belt: mirrors the executor's `&&` belt into this pure host, so
     // a statically-deferred non-boolean operand throws loudly instead of
@@ -7655,7 +7710,7 @@ function evaluateBinaryExpression(
     if (!left) {
       return false;
     }
-    const right = evaluatePureExpression(rightExpr, env);
+    const right = evaluatePureExpression(rightExpr, env, chain);
     if (typeof right !== "boolean") {
       throw new BooleanPositionKindDefectError(right);
     }
@@ -7669,13 +7724,13 @@ function evaluateBinaryExpression(
     if (left) {
       return true;
     }
-    const right = evaluatePureExpression(rightExpr, env);
+    const right = evaluatePureExpression(rightExpr, env, chain);
     if (typeof right !== "boolean") {
       throw new BooleanPositionKindDefectError(right);
     }
     return right;
   }
-  const right = evaluatePureExpression(rightExpr, env);
+  const right = evaluatePureExpression(rightExpr, env, chain);
   switch (op) {
     case "==":
       return valuesEqual(left, right);
