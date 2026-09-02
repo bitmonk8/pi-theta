@@ -1,6 +1,6 @@
 # Bug 0351 — A value-position query SUCCESS binds the raw payload instead of `Ok(payload)`: `let r = @<T>`…`` then `match r { Ok(v) …, Err(e) … }` MatchError-panics on the success path, and `let v = r?` aborts through the 0019 brand guard — the author's documented Result consumption is unusable exactly when the model answered correctly
 
-- **Status:** open.
+- **Status:** fixed (0.351.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because both documented consumption forms
   of a `let`-bound query Result abort the theta on the SUCCESS path: the
   `Ok`/`Err` `match` panics `MatchError` (the raw payload matches neither
@@ -173,3 +173,79 @@ bare-tail query would return `Ok(Ok(payload))`. The wrap must be gated on
 `!atTerminal`, exactly like 0307's `Err` split in the same arm (the failure
 branch wraps `makeErr` only when `!atTerminal`, `:994–995`); the fix must
 state which shape a bare tail / ``return @`q` `` yields.
+
+## Fix (0.351.0)
+
+- What shipped:
+  - `src/runtime/statement-executor.ts` — `evalExpr`'s checkpointed-effect
+    value arm success branch now binds `asResultValue(result.value)` gated on
+    `!atTerminal` (§Fix sketch), symmetric with the failure branch's
+    `makeErr`/`fail` split (bug 0307) and the direct `?`/`match`-scrutinee
+    route (`evalAsResult`). `asResultValue` is idempotent
+    (`isResultValue(v) ? v : makeOk(v)`), so a checkpointed effect whose value
+    is already a `Result` (production tool-call / invoke / `.theta`-callable)
+    passes through UNWRAPPED — only a query's raw payload/string is wrapped.
+    A terminal / returning / par-for position stays RAW (the `!atTerminal`
+    gate) so the single downstream re-wrap yields `Ok(payload)`, never
+    `Ok(Ok(payload))`: a bare tail ``@`q` `` / ``return @`q` `` yields
+    `Ok(payload)` (STL-6).
+  - `tests/statement-executor.test.ts` — one ratified committed-cell flip: the
+    RFC-0002 Pi-tool `store({ x: probe({}) })` pre-eval-ordering cell now
+    asserts `x: Ok(null)` (was `x: null`), with a WHY comment citing the
+    production `Result` sources. Ratification (parent, verbatim): the old
+    `x: null` pinned a SCAFFOLD ARTIFACT — the test double feeds a raw null
+    where production Pi-tool/invoke values are already `Result`s
+    (`tool-call-execute.ts` `makeOk(filterJoinToolText(...))` / `kind:"value"`
+    `ResultValue`; `effectful-statement-host.ts` tool-call/invoke/
+    `.theta`-callable success arms return a `Result`), so production `store`
+    would receive `Ok(null)`; the flip RESTORES production fidelity at the
+    shared value-position seam. Model class: scaffold-of-superseded-premise
+    (0292 (D)-row-v2 family). FLIP SET = exactly this one cell.
+  - `tests/b0351-value-position-query-success-binds-ok.test.ts` — the offline
+    production-executor witness (W1–W6, 10 tests).
+  - `tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts`
+    — the H9a success-side live witness (the mirror of b0307live).
+- Gates:
+  - Witness: RED-at-fork (fix reverted) — W1 `MatchError: no arm matched
+    PAYLOAD`, W2 bug-0019 `'?' operand evaluated to a non-Result value` internal
+    defect, W3 `.ok` undefined (raw element/field); the W4 double-wrap controls,
+    W5 `atTerminal` guards and W6 Err-side guards stayed GREEN pre-revert
+    (regression controls). GREEN-with-fix — 10/10.
+  - Full suite: `npm test` → 531 files / 10030 tests passed (verifier's clean
+    run; the orchestrator's earlier run showed the one known load-noise timeout,
+    `shared-subtree-judged-once-per-pass-not-once-per-path.test.ts` (bug 0276),
+    GREEN isolated).
+  - Typecheck: `npm run typecheck` clean. Lint: `npm run lint` clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts`
+    → 1 passed (real `pi -p`; `142` = the value-position query success bound
+    `Ok(payload)` and the `Ok` arm ran). Run under the mandated single-command
+    LIVE LOCK.
+- Review: 1 round — `bug-fix-reviewer` CLEAN; two non-blocking residuals (R1
+  prose redundancy in the flip comment — fixed directly, comment-only; R2 the
+  block-expression-tail disposition is unpinned — a follow-up report candidate,
+  not a defect of this diff). Deep re-review not recommended. The R1 comment-only
+  polish was verified by gate-diff (cell green, comment-only hunk); the
+  confirmation review round was skipped per the post-polish rule.
+- Verification: `bug-fix-verifier` SOLID — witness reds on revert / greens
+  restored with byte-exact restoration; full suite green; typecheck + lint
+  clean; flip cell passes with the correct comment. Live obligation run by the
+  orchestrator (verifier never runs live) and green.
+- Residuals:
+  1. Block-expression-tail disposition (`let r = { @`q` }`) still binds the RAW
+     payload post-fix, because a block tail is a terminal position (the
+     `!atTerminal` gate keeps it raw) — this mirrors bug 0307's landed Err-side
+     law for the same spelling and the fix changes nothing for it, so it is not
+     a defect of this change. A same-class input an author could write expecting
+     `Ok(payload)`; a follow-up report candidate. Evidence: reviewer round-1 R2;
+     `statement-executor.ts` block-tail evaluation runs `evalExpr(..., true)`.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the fix is scoped to the checkpointed-EFFECT
+  arm only — 0316's non-effect scrutinee rule (`evalMatch` passes
+  `wrapInlineComposites=false`) and the CONV-6/0017 fn-call-boundary implicit-Ok
+  wrap are untouched and NOT re-introduced. The failure branch (bug 0307) is
+  byte-identical (W6). Live bidirectional red-direction for the live cell is
+  discharged by the offline revert→red of the SAME seam with the SAME
+  `MatchError` mechanism the live UNFIXED path is built on, plus `142` being
+  absent from the prompt and producible only by the fixed path (attribution
+  guard: both thetas parse clean).

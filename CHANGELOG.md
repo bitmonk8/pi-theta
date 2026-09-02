@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.351.0]
+
+### Fixed
+
+- **Bug 0351** — a value-position query SUCCESS bound the raw payload instead of `Ok(payload)`: `let r = @`…`` then `match r { Ok(v) …, Err(e) … }` MatchError-panicked on the success path, and `let v = r?` aborted through the 0019 brand guard — the author's documented Result consumption was unusable exactly when the model answered correctly, while the Err side (bug 0307's landed handledness law) already bound properly. The checkpointed-effect value arm's success branch now binds `asResultValue(result.value)` gated on `!atTerminal`, mirroring 0307's failure split and `evalAsResult`: non-terminal value positions bind `Ok(payload)`, the bare tail / `return @q` terminal stays raw so the boundary wrap stays single (STL-6), and already-`Result` effect values pass through UNWRAPPED (idempotent — the double-wrap guard is cell-pinned: `Ok(v)` in yields `Ok(v)` out, never `Ok(Ok(v))`; `Err(e)` stays `Err(e)`). QRY-8 handledness-at-consumption, the 0019 brand guard, and CONV-6 are untouched. Witnessed by `tests/b0351-value-position-query-success-binds-ok.test.ts` (W1–W6: the MatchError success-path death, the `?`-unwrap restoration, raw element/field escapes, the double-wrap controls, the atTerminal gate, the Err-side byte-identity) and the new H9a acceptance cell `tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts` (a real `pi -p` drive consuming a succeeding typed query through `match`, green under the lock). One committed-cell flip under PARENT RATIFICATION (scaffold-of-superseded-premise, the 0292 (D)-row-v2 family): the `statement-executor.test.ts` Pi-tool `store({x: probe({})})` cell's `x: null` pinned a scaffold artifact — its double feeds a raw null where production Pi-tool/invoke values are already `Result`s — so the flip to `x: Ok(null)` RESTORES production fidelity at the shared seam (WHY comment cites the production sources). Residual recorded: the block-tail `let r = { @`q` }` position still binds raw per 0307's terminal law — follow-up filing candidate.
+
 ## [0.350.0]
 
 ### Fixed

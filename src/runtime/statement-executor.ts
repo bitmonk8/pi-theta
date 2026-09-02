@@ -1061,6 +1061,23 @@ async function evalExpr(
   );
   const result = outcome.result;
   if (result.ok) {
+    // Handledness/consumption symmetry with the failure branch below (QRY-8 /
+    // query-forms.md QRY-1/QRY-2: both query forms return a `Result`): a value
+    // position (let-init, reassignment RHS, array element, object field, ctor /
+    // fn-call argument) binds the clean outcome as a `Result` VALUE so the
+    // author's documented `match r { Ok(v) … }` / `let v = r?` consumption sees
+    // an `Ok(payload)`, not the raw payload (which matches no ctor pattern and
+    // fails the ERR-18 `?` brand guard). `asResultValue` mirrors the direct
+    // `?`/`match` scrutinee route (`evalAsResult`) exactly, and is idempotent
+    // for effects whose value is already a `Result` (tool-call / invoke /
+    // `.theta`-callable), so only a query's raw payload/string is wrapped.
+    // A terminal / returning / par-for position stays RAW: the body boundary
+    // (`makeOk(flow.value)`) and the par-for element normaliser re-wrap the
+    // clean value, so a bare tail `@`q`` / `return @`q`` yields `Ok(payload)`
+    // without the double-wrap an unconditional wrap here would produce.
+    if (!atTerminal) {
+      return { flow: "value", value: asResultValue(result.value as ThetaValue) };
+    }
     return { flow: "value", value: result.value as ThetaValue };
   }
   if (result.error.kind === "cancelled") {

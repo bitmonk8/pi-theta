@@ -1108,10 +1108,17 @@ describe("RFC 0002 / Finding #3 — pre-evaluation gated on the Pi-tool callee k
     ]);
     // `probe`'s own empty object-literal arg pre-evaluated to `{}`; `store`
     // received the pre-evaluated field object, `x` bound to probe's returned
-    // value (`ok(null)` → the unwrapped `null`).
+    // value. Bug 0351 (0.351.0): the value-position seam wraps a checkpointed
+    // effect's clean success as a `Result`, so the raw `null` this scaffold
+    // double feeds binds as `Ok(null)` — the production-faithful shape, because a
+    // real Pi-tool value is ALREADY a `Result`: `tool-call-execute.ts`
+    // (`makeOk(filterJoinToolText(...))`, its `kind:"value"` outcome typed
+    // `ResultValue`) and `effectful-statement-host.ts` (the tool-call / invoke /
+    // `.theta`-callable success arms all return a `Result` value). The scaffold
+    // double feeds a raw null; the value-position seam restores that fidelity.
     expect(host.argsSeen[0], "the nested Pi-tool field effect got its own pre-evaluated args").toEqual({});
     expect(host.argsSeen[1], "the outer Pi tool receives the pre-evaluated field object").toEqual({
-      x: null,
+      x: makeOk(null),
     });
   });
 });
