@@ -481,6 +481,21 @@ export interface ReassignStmt extends NodeBase {
   readonly target: string;
   readonly op: "=" | "+=" | "-=" | "*=" | "/=" | "%=";
   readonly value: Expr;
+  /**
+   * True iff `buildReassign` drew `theta/parse/immutable-rebinding` for this
+   * target — the `_` discard, or a target `buildReassign`'s file-linear
+   * mutability map already knows as immutable. The ident walk reads it as the
+   * EXACT signal that the immutability check already fired, so it defers the
+   * out-of-scope `unknown-identifier` for exactly those targets and no others
+   * (bug 0370 §Fix layer 1's G6-defer). A positional guess over declaration
+   * order mis-fired on a redeclared name (`let y` / `let mut y`), where the
+   * map recorded the first immutable `y` but `buildReassign` saw the shadowing
+   * mutable and drew nothing. Set `true` exactly when `buildReassign` emits
+   * `immutable-rebinding` for this target, `false` otherwise — `buildReassign`
+   * writes an explicit boolean on every node it builds, so a parser-built
+   * `ReassignStmt` never leaves this field absent.
+   */
+  readonly immutableRebindingEmitted?: boolean;
 }
 
 /** A statement-form `if` / `else` (`IfStmt`; control-flow.md). */
@@ -978,7 +993,28 @@ export function parseThetaDocument(
   // depend on the frontmatter, so the reorder is behaviour-preserving.
   const lex = lexTheta({ path: file, bytes: encodeSource(split.bodyText) }, deps.systemNote);
 
-  const parser = new BodyParser(lex.tokens, file, split.bodyText);
+  // The `params:` field wire names, extracted from the frontmatter BEFORE the
+  // body parse so they seed `BodyParser`'s mutability map as immutable at file
+  // scope (bug 0370 §Fix F3 — a `params:` field is a parameter, bindings.md:31,
+  // always immutable). The authoritative frontmatter parse below needs the
+  // body's `bodyTypes` to resolve `params:` NAMED types, so it cannot run
+  // first; this early pass reads only the YAML field KEYS — which no `bodyTypes`
+  // resolution touches — and its own diagnostics are discarded (the parse below
+  // is the authoritative one).
+  const paramFieldNames = new Set<string>();
+  if (split.frontmatterText !== null) {
+    const earlyFm = parseFrontmatter(`---\n${split.frontmatterText}\n---`, {
+      file,
+      modelMatcher: deps.modelMatcher,
+    });
+    for (const f of earlyFm.paramFields) {
+      if (f.name !== "_") {
+        paramFieldNames.add(f.name);
+      }
+    }
+  }
+
+  const parser = new BodyParser(lex.tokens, file, split.bodyText, paramFieldNames);
   const body = parser.parseBody();
 
   // The `///` doc-comment runs are lexed away (the lexer emits no comment
@@ -1098,7 +1134,11 @@ export function parseThetaDocument(
   }
   const unknownIdentDiags = checkUnknownIdentifiers(
     { statements, tail: resolvedTail },
-    { roots: nonDeclarationRoots, typeOnlyNames, declaredEnums: bodyTypes.enums },
+    {
+      roots: nonDeclarationRoots,
+      typeOnlyNames,
+      declaredEnums: bodyTypes.enums,
+    },
     file,
   );
 
@@ -2217,7 +2257,22 @@ class BodyParser {
      * lossy space-join of the interior tokens.
      */
     private readonly bodyText: string = "",
-  ) {}
+    /**
+     * The frontmatter `params:` field wire names. A theta's `params:` fields ARE
+     * its parameters (bindings.md:31 "Function parameters"), an always-immutable
+     * context, and they are whole-file-visible — so they seed `this.bindings` as
+     * immutable at file scope before any body statement parses, and
+     * `buildReassign` draws `immutable-rebinding` for a write to one exactly as
+     * for an immutable top-level `let` (bug 0370 §Fix F3). A body `let` of the
+     * same name overwrites the seed file-linearly, so a shadowing `let mut`
+     * write stays writable.
+     */
+    paramFieldNames: ReadonlySet<string> = new Set(),
+  ) {
+    for (const name of paramFieldNames) {
+      this.bindings.set(name, false);
+    }
+  }
 
   // --- cursor helpers -----------------------------------------------------
 
@@ -2632,17 +2687,40 @@ class BodyParser {
     value: Expr | null,
   ): Stmt {
     const target = nameTok.text;
-    // Delegate the immutable-rebinding check to V3b over the real binding
-    // scope: fire only for a known immutable (`let`, non-`mut`) target;
-    // undeclared targets are another leaf's binding-resolution concern.
-    const known = this.bindings.get(target);
-    if (known === false) {
-      const diag = checkReassignment(
-        { name: target, mutable: false },
-        { file: this.file, range: nameTok.range },
-      );
-      if (diag !== undefined) {
-        this.diagnostics.push(diag);
+    // The EXACT signal the ident walk reads to defer its out-of-scope
+    // `unknown-identifier`: set true in precisely the two branches below that
+    // push `theta/parse/immutable-rebinding`, so the walk suppresses a spurious
+    // second refusal for exactly those targets (bug 0370 §Fix layer 1's
+    // G6-defer), never for a name this pass drew nothing on.
+    let immutableRebindingEmitted = false;
+    if (target === "_") {
+      // `_` is the discard binding and cannot be reassigned (bindings.md:34,
+      // an immutable context). The ident walk's own `_` exemption stays silent,
+      // so this is the single emission for a `_` target (bug 0370 §Fix F4).
+      this.diagnostics.push({
+        severity: "error",
+        code: "theta/parse/immutable-rebinding",
+        file: this.file,
+        range: nameTok.range,
+        message: "cannot reassign immutable binding '_'",
+      });
+      immutableRebindingEmitted = true;
+    } else {
+      // Delegate the immutable-rebinding check to V3b over the real binding
+      // scope: fire only for a known immutable (`let`, non-`mut`) target — a
+      // top-level `let`, a save/restore-scoped parameter / `for` / `par for` /
+      // `match` binder, or a whole-file `params:` field seed (bug 0370 §Fix
+      // F1/F3); undeclared targets are the ident walk's concern.
+      const known = this.bindings.get(target);
+      if (known === false) {
+        const diag = checkReassignment(
+          { name: target, mutable: false },
+          { file: this.file, range: nameTok.range },
+        );
+        if (diag !== undefined) {
+          this.diagnostics.push(diag);
+          immutableRebindingEmitted = true;
+        }
       }
     }
     return {
@@ -2651,7 +2729,40 @@ class BodyParser {
       op,
       value: value ?? nullExpr(nameTok.range),
       range: spanRange(nameTok.range, this.prevRange()),
+      immutableRebindingEmitted,
     };
+  }
+
+  /**
+   * Record `names` as immutable (`this.bindings.set(name, false)`) for the
+   * duration of `body` and restore the map to its EXACT prior state
+   * afterward — a parameter, `for` variable, or `match` binder is an
+   * always-immutable context (bindings.md §"Immutable contexts"), and
+   * `buildReassign`'s flat mutability map has to see that for the scope `body`
+   * parses, without leaking the entry file-linearly onto an unrelated
+   * top-level binding of the same name once `body` returns (bug 0370 §Fix
+   * layer 1). Restore replays each name's PRIOR entry (present or absent),
+   * rather than a fixed `true`, so a same-named outer binding's own
+   * mutability survives a nested parameter/loop/pattern shadow unchanged.
+   */
+  private withImmutableBindings<T>(names: readonly string[], body: () => T): T {
+    const saved: Array<readonly [string, boolean | undefined]> = names.map(
+      (name) => [name, this.bindings.get(name)] as const,
+    );
+    for (const name of names) {
+      this.bindings.set(name, false);
+    }
+    try {
+      return body();
+    } finally {
+      for (const [name, prior] of saved) {
+        if (prior === undefined) {
+          this.bindings.delete(name);
+        } else {
+          this.bindings.set(name, prior);
+        }
+      }
+    }
   }
 
   /**
@@ -2761,7 +2872,11 @@ class BodyParser {
       this.advance();
     }
     const iterand = this.parseHeaderExpression() ?? nullExpr(kw.range);
-    const body = this.parseBlock();
+    // The loop variable is an always-immutable context (bindings.md §"Immutable
+    // contexts"); scope it to the body's parse only so a reassignment to it
+    // draws `immutable-rebinding` (bug 0370 §Fix layer 1) without leaking onto
+    // an unrelated same-named binding once the loop's own scope ends.
+    const body = this.withImmutableBindings([variable], () => this.parseBlock());
     return {
       kind: "for",
       variable,
@@ -2996,7 +3111,14 @@ class BodyParser {
     ) {
       withClause = this.parseWithClause();
     }
-    const body = this.parseBlock();
+    // Each parameter is an always-immutable context (bindings.md §"Immutable
+    // contexts"); scope the record to the body's parse only so a reassignment
+    // to a parameter draws `immutable-rebinding` (bug 0370 §Fix layer 1)
+    // without leaking onto an unrelated same-named binding once the fn body's
+    // own scope ends.
+    const body = this.withImmutableBindings(params.map((p) => p.name), () =>
+      this.parseBlock(),
+    );
     return {
       kind: "fn",
       name,
@@ -4925,11 +5047,19 @@ class BodyParser {
           this.advance();
         }
         // The arm body is an expression, not a bare statement (grammar.md
-        // §"match arm body").
-        const consumedStmt = this.tryConsumeArmBodyStatement();
-        const body = consumedStmt
-          ? nullExpr(kw.range)
-          : (this.parseExpressionAtBlockSite() ?? nullExpr(kw.range));
+        // §"match arm body"). Every name the pattern binds is an
+        // always-immutable context (bindings.md §"Immutable contexts"); scope
+        // the record to the arm body's parse only (bug 0370 §Fix layer 1) so a
+        // reassignment to a binder draws `immutable-rebinding` without leaking
+        // onto an unrelated same-named binding once the arm's own scope ends.
+        const boundNames = new Set<string>();
+        collectPatternBindings(pattern, boundNames);
+        const body = this.withImmutableBindings([...boundNames], () => {
+          const consumedStmt = this.tryConsumeArmBodyStatement();
+          return consumedStmt
+            ? nullExpr(kw.range)
+            : (this.parseExpressionAtBlockSite() ?? nullExpr(kw.range));
+        });
         arms.push({ pattern, body });
         if (this.isPunct(",")) {
           this.advance();
@@ -5459,8 +5589,13 @@ class BodyParser {
     } finally {
       this.suppressBrace = save;
     }
-    const body = this.parseBlock();
-    this.emitParForBodyDiagnostics(body, outerMutables);
+    // The loop variable is an always-immutable context (bindings.md §"Immutable
+    // contexts") — a `par for` variable is a `for` iteration variable
+    // (bindings.md:32) — so scope it to the body parse exactly as `parseFor`
+    // does, so a write to it draws `immutable-rebinding` (bug 0370 §Fix layer 1;
+    // F1) instead of silently reaching the runtime belt.
+    const body = this.withImmutableBindings([variable], () => this.parseBlock());
+    this.emitParForBodyDiagnostics(body, outerMutables, variable);
     return {
       kind: "par-for",
       variable,
@@ -5484,8 +5619,18 @@ class BodyParser {
   private emitParForBodyDiagnostics(
     body: Block,
     outerMutables: ReadonlySet<string>,
+    loopVariable: string,
   ): void {
     const bodyLocals = new Set<string>();
+    // The loop variable is a fresh per-iteration binding local to the body, not
+    // the outer mutable it may shadow: a write to it is a write to that fresh
+    // immutable binding (drawing `immutable-rebinding`, bug 0370 §Fix F1), never
+    // a `par-shared-mutation` against the shadowed outer slot. Counting it as a
+    // body-local keeps the shared-mutation scan from double-coding a
+    // loop-variable write that shadows an outer `let mut` of the same name.
+    if (loopVariable !== "_") {
+      bodyLocals.add(loopVariable);
+    }
     this.scanParForBlock(body, outerMutables, bodyLocals, 0);
   }
 
@@ -6330,6 +6475,33 @@ function emitUnknownIdentifier(
   });
 }
 
+/**
+ * Refuse a reassignment TARGET that resolves against no value binding (bug 0370
+ * §Fix F6). A write target is NOT a value read: unlike `emitUnknownIdentifier`'s
+ * `"value"` site, a type-only `schema` / `enum` name here resolves to no value
+ * binding to write, so it is `unknown-identifier`, never the read-position
+ * `type-as-value` (which stays firing for genuine RHS reads through the
+ * read-oriented emitter). `_` is the discard context, refused at `buildReassign`
+ * as `immutable-rebinding`, so the target arm stays silent for it.
+ */
+function emitReassignTargetUnknown(
+  target: string,
+  range: SourceRange,
+  file: string,
+  out: Diagnostic[],
+): void {
+  if (target.length === 0 || target === "_") {
+    return;
+  }
+  out.push({
+    severity: "error",
+    code: "theta/parse/unknown-identifier",
+    file,
+    range,
+    message: `unknown identifier '${target}'`,
+  });
+}
+
 function walkIdentBlock(
   block: Block,
   scope: Set<string>,
@@ -6361,9 +6533,25 @@ function walkIdentStmt(
         scope.add(s.name);
       }
       return;
-    case "reassign":
+    case "reassign": {
       walkIdentExpr(s.value, scope, walkCtx, file, out);
+      // The TARGET resolves against the same scope reads use (bug 0370 §Fix
+      // layer 1): an in-scope target (a `let`, a parameter, a `for` / `par for`
+      // / `match` binder, or a `params:` field already added to `scope`) is
+      // silent here — `buildReassign` handled its immutability, if any. An
+      // out-of-scope target `buildReassign` already refused as immutable carries
+      // `immutableRebindingEmitted`, the EXACT signal that the immutability
+      // check fired (G6); the walk defers to it rather than ALSO drawing
+      // `unknown-identifier`. A write `buildReassign` drew nothing on — an
+      // order-reversed write to a later `let` (F2), or a redeclared name whose
+      // shadowing `let mut` made `buildReassign` see a mutable target — has the
+      // flag unset, so the walk refuses it. Every other out-of-scope or
+      // undeclared target is genuinely unresolvable.
+      if (!scope.has(s.target) && !s.immutableRebindingEmitted) {
+        emitReassignTargetUnknown(s.target, s.range, file, out);
+      }
       return;
+    }
     case "if": {
       walkIdentExpr(s.condition, scope, walkCtx, file, out);
       walkIdentBlock(s.then, new Set(scope), walkCtx, file, out);

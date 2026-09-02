@@ -749,36 +749,44 @@ describe("bug 0115 (f) — an immutable target reports BOTH codes; a loop variab
     ]);
   });
 
-  it("RED f2: `for x in [1, 2] { x = \"b\" }` reports the new row ALONE", () => {
-    // A loop variable is an immutable per-iteration local, and at HEAD writing
-    // to it draws NO `theta/parse/immutable-rebinding` at all — a separate,
-    // already-recorded silence of the structural-parse surface (bug 0126's PIN
-    // e2 comment attributes it to bug 0115's SURFACE, not to this check). This
-    // fix adds the TYPE verdict only and leaves that mutability silence to its
-    // own report, which is why exactly one code is expected here rather than
-    // f1's pair. The target's type is the iterand's proven element `integer`.
-    expectSoleMismatch(
-      'for x in [1, 2] { x = "b" }\n1\n',
-      "x",
-      "integer",
-      "string",
-      "f2 — the loop variable's recorded element type governs the write; its mutability is another report's subject",
-    );
+  it("RED f2: `for x in [1, 2] { x = \"b\" }` reports immutable-rebinding AND the new row", () => {
+    // A loop variable is an always-immutable context (bindings.md §"Immutable
+    // contexts"). At 0115's HEAD the mutability refusal was NOT wired for a
+    // `for`-variable write, so this cell drew the TYPE verdict alone and 0115
+    // §Residuals 3 recorded the missing mutability row as bug 0126's PIN e2
+    // observation. Bug 0370 (§Fix layer 1) wires that refusal, so the write now
+    // draws BOTH codes in the f1 order — the statement-ranged
+    // `immutable-rebinding` (parse) first, then the compatibility verdict
+    // (type). The target's type is the iterand's proven element `integer`, so
+    // the `string` RHS is `⋢` it: 0115's own verdict is PRESERVED, and 0370
+    // adds the row 0115 flagged as then-missing.
+    const doc = parse('for x in [1, 2] { x = "b" }\n1\n');
+    expect(
+      fullOf(doc),
+      `f2 — a loop variable is both immutable and mistyped here; actual diagnostics=${render(doc)}`,
+    ).toEqual([
+      `error ${IMMUTABLE_CODE}: ${immutableMessage("x")}`,
+      `error ${CODE}: ${reassignMismatch("x", "integer", "string")}`,
+    ]);
   });
 
-  it("RED f3: `fn g(s: integer) { s = \"a\" … }` reports the new row ALONE", () => {
+  it("RED f3: `fn g(s: integer) { s = \"a\" … }` reports immutable-rebinding AND the new row", () => {
     // The same disposition at the `fn`-parameter class: an annotated parameter
-    // is recorded by `walkFn`, so the write is judgeable, while the mutability
-    // silence is again out of scope. This cell is also g4's EMITTING twin — it
-    // differs from g4 only in that the parameter carries an annotation, so the
-    // read is judged instead of withheld.
-    expectSoleMismatch(
-      'fn g(s: integer) { s = "a"\ns }\ng(1)\n',
-      "s",
-      "integer",
-      "string",
-      "f3 — a declared parameter type governs a write to the parameter",
-    );
+    // is recorded by `walkFn`, so the compatibility verdict is judgeable, and
+    // bug 0370 (§Fix layer 1) wires the mutability refusal for a parameter
+    // write. Both codes, f1 order. 0115's verdict is PRESERVED; 0370 adds the
+    // mutability row 0115 §Residuals 3 recorded as the parameter's then-missing
+    // refusal. This cell is still g4's EMITTING twin — the two now SHARE
+    // `immutable-rebinding` and differ only in the compatibility verdict: f3's
+    // annotated parameter is judged where g4's unannotated one is withheld.
+    const doc = parse('fn g(s: integer) { s = "a"\ns }\ng(1)\n');
+    expect(
+      fullOf(doc),
+      `f3 — a declared parameter is both immutable and mistyped here; actual diagnostics=${render(doc)}`,
+    ).toEqual([
+      `error ${IMMUTABLE_CODE}: ${immutableMessage("s")}`,
+      `error ${CODE}: ${reassignMismatch("s", "integer", "string")}`,
+    ]);
   });
 });
 
@@ -825,23 +833,26 @@ describe("bug 0115 (g) — compatible and statically unresolvable writes stay si
     );
   });
 
-  it("g4: a top-level WITHHELD-binder TARGET defers — doubly guarded, so not a gate pin", () => {
+  it("g4: a top-level WITHHELD-binder TARGET — the compatibility verdict defers; bug 0370 adds the mutability refusal", () => {
     // An UNANNOTATED `fn` parameter is recorded WITHHELD by the walk
     // (`recordWithheldBinders`), a sentinel-named entry no `.theta` text can
     // declare, read through `containsWithheldBinderType`
     // (src/parser/type-layer-checks.ts:445). A withheld entry is a SPELLING and
     // not a proven type, so judging a write against it would manufacture a
-    // verdict the position never supported. This cell does NOT pin the new gate:
-    // the sentinel is an unresolvable NAMED at top level, so `checkCompatible`
+    // verdict the position never supported. 0115's own subject is PRESERVED:
+    // the COMPATIBILITY verdict still defers, so NO `reassign-rhs-type-mismatch`
+    // fires here, and this cell still does NOT pin the type-side gate — the
+    // sentinel is an unresolvable NAMED at top level, so `checkCompatible`
     // answers `"unknown"` and the emitter's own `"unknown"` arm defers even with
-    // the target-side conjunct deleted — measured green under that removal. It
-    // is kept as a true deferral row for the commonest withheld shape; g7 is the
-    // target-side pin. Its emitting twin is f3, which differs only by annotating
-    // the parameter.
+    // the target-side conjunct deleted (g7 is the target-side pin). Bug 0370
+    // (§Fix layer 1) independently wires the mutability refusal for a parameter
+    // write, so this draws `immutable-rebinding` ALONE — the parse-phase row
+    // its EMITTING twin f3 also carries, differing only in that f3's annotated
+    // parameter adds the compatibility row on top.
     expectCodes(
       'fn h(x) { x = "hi"\n1 }\nh(1)\n',
-      [],
-      "g4 — the target's recorded entry is withheld, so the compatibility verdict is withheld with it",
+      [IMMUTABLE_CODE],
+      "g4 — the parameter write is refused as immutable (0370); the compatibility verdict stays withheld because the binder's recorded type is (0115)",
     );
   });
 

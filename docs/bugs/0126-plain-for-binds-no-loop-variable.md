@@ -1411,3 +1411,16 @@ this report named as the flip condition.
   stays out (bug 0124). The fn-argument sink's withholding on member reads
   stays out (bug 0190). No new diagnostic code, no registry row, no new
   placeholder.
+
+## Coordination note — bug 0370 wired the loop-variable mutability refusal (2026-09-03)
+
+Bug 0370 (a reassignment's TARGET is never resolved against the scope model)
+lands the `for`-iteration-variable mutability refusal this report's PIN e2
+observed as then-missing (attributed there to bug 0115's surface / the
+mutability non-goal). Under the parent's class-scoped ratification, PIN e2
+(`for x in array<string> { x = "b" }`) re-anchors — subject preserved: it now
+reports `[theta/parse/immutable-rebinding]` (the loop variable is an immutable
+context, bindings.md:29-34) while the ELEMENT-TYPE check still does not fire
+(`x = "b"` is a `string` into a `string` element, compatible), so this report's
+own element-typing subject is unmoved. This note is append-only; nothing above
+is revised. 0.370.0 is the version bug 0370 ships in.

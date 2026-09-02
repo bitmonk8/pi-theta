@@ -1056,3 +1056,25 @@ list). Cells b5–b8 (`-=`/`*=`/`/=`/`%=`, the numeric-only forms that get no
 parse operand check under 0314) keep `expectSoleMismatch` unchanged; b9
 (numeric narrowing) is unaffected. This note is append-only; nothing above is
 revised.
+
+## Coordination note — bug 0370 wired the reassign-target scope/mutability refusals (2026-09-03)
+
+Bug 0370 (a reassignment's TARGET is never resolved against the scope model)
+lands the mutability and scope refusals this report's §Residuals 3 recorded as
+then-missing. Under the parent's class-scoped ratification (the 0291 3-11
+vehicle-collateral model), three of this file's witness cells re-anchor —
+subjects preserved, the pre-0370 silence replaced by the now-correct refusal:
+
+- `f2` (`for x in [1, 2] { x = "b" }`) and `f3` (`fn g(s: integer) { s = "a" }`)
+  now report `[theta/parse/immutable-rebinding, theta/parse/reassign-rhs-type-mismatch]`
+  in that order — a `for` iteration variable and a `fn` parameter are immutable
+  contexts (bindings.md:29-34), so bug 0370 draws the mutability row bug 0115
+  §Residuals 3 named as then-missing, ON TOP OF this report's own type verdict
+  (preserved). f2/f3 were the cells that PINNED the silence.
+- `g4` (`fn h(x) { x = "hi" }`, an unannotated/withheld parameter) now reports
+  `[theta/parse/immutable-rebinding]` alone — this report's compatibility
+  verdict still DEFERS (the withheld binder is not a proven type), so no
+  `reassign-rhs-type-mismatch`; bug 0370 adds the parameter mutability refusal.
+
+This note is append-only; nothing above is revised. 0.370.0 is the version bug
+0370 ships in (the parent substitutes at merge).

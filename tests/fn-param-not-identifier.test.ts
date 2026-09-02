@@ -743,19 +743,36 @@ describe("0225 (c) — the predicate's edges: the `mut` exemption's scope, a dou
 // ===========================================================================
 
 describe("0225 (d) — the rows this route must leave byte-identical", () => {
-  it("A10: the closed control `fn h(a: string) { 1 }` + `x = 1` keeps its `reassign` and registers", () => {
+  it("A10: the closed control `fn h(a: string) { 1 }` + `x = 1` keeps its `reassign`; bug 0370 refuses the UNDECLARED target", () => {
     // The sharpest control against A1: the same two lines with the `)` where
-    // the author put it. One parameter, the reassignment present in
-    // `doc.body.statements`, nothing reported. A route whose predicate fired on
-    // a well-formed list reds here (bug 0225 §Fix constraint 1).
+    // the author put it. This route's own subject is PRESERVED byte-for-byte:
+    // one recorded parameter, and the reassignment PRESENT in
+    // `doc.body.statements` (not swallowed into the parameter list, the way A1
+    // proves it is when the `)` is misplaced). Bug 0225's fn-param-not-identifier
+    // route stays silent on this well-formed list — its predicate never fires
+    // here.
+    //
+    // What bug 0370 (§Fix layer 1) adds is orthogonal to this route: `x` is an
+    // UNDECLARED top-level reassignment target, and the target-scope walk now
+    // refuses it with `theta/parse/unknown-identifier` (spanning the whole
+    // statement, `5:1-5:6`) exactly as it refuses an undeclared write inside an
+    // `fn` body — the walk is unconditional on statement position. That error
+    // consequently denies registration. Both are 0370 collateral, NOT this
+    // route firing; the `paramsOf` and `topKinds` pins below are the byte-
+    // identical observables that still guard bug 0225's route.
     const doc = theta("fn h(a: string) { 1 }\nx = 1\n");
-    expect(triples(doc), `a conformant list is silent; diagnostics=${render(doc)}`).toEqual([]);
+    expect(
+      triples(doc),
+      `the reassign survives; bug 0370 refuses its undeclared target; diagnostics=${render(doc)}`,
+    ).toEqual([e(UNKNOWN_IDENT, "5:1-5:6")]);
     expect(paramsOf(doc)).toEqual([{ name: "a", type: "string" }]);
     expect(
       topKinds(doc),
       `the author's reassignment is present when the list closes; diagnostics=${render(doc)}`,
     ).toEqual(["fn", "reassign"]);
-    expect(registered(doc)).toBe(true);
+    // 0370's undeclared-target refusal is error-severity, so it denies
+    // registration; bug 0225's route contributed nothing to this.
+    expect(registered(doc)).toBe(false);
   });
 
   it("A11: `fn h(p): number { 1 }` — an annotation-less legal `Ident` is NOT refused (bug 0150's, open)", () => {

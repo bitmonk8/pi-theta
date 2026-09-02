@@ -821,3 +821,19 @@ observable is involved: every value settles inside one parse.
   resynchronises nothing), bug 0131's in-document arity check, bug 0133's
   `parseSchemaObjectBody` recovery, bug 0063's `<construct>` table, and the
   newline-continuation rule — all unmoved.
+
+## Coordination note — bug 0370 refuses the undeclared top-level reassign target (2026-09-03)
+
+Bug 0370 (a reassignment's TARGET is never resolved against the scope model)
+resolves every reassignment target against the scope model unconditionally on
+statement position. Under the parent's class-scoped ratification, this report's
+byte-identical control A10 (`fn h(a: string) { 1 }` + `x = 1`) re-anchors:
+`x` is an UNDECLARED top-level reassignment target, so bug 0370 now draws
+`theta/parse/unknown-identifier` (spanning the statement, `5:1-5:6`), which
+denies registration. This report's OWN subject is preserved byte-for-byte —
+the fn-param-not-identifier route still stays silent on the well-formed list,
+the single recorded parameter and the surviving `reassign` in
+`doc.body.statements` are unchanged (the `paramsOf` / `topKinds` pins that guard
+this route). The added `unknown-identifier` and the non-registration are bug
+0370 collateral, not this route firing. This note is append-only; nothing above
+is revised. 0.370.0 is the version bug 0370 ships in.

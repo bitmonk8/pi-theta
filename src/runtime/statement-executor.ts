@@ -825,6 +825,27 @@ export class IndexKindDefectError extends Error {
 }
 
 /**
+ * Bug 0370 (docs/bugs/0370-reassign-target-scope-unchecked-cross-boundary-writes.md)
+ * belt: the sibling of `IndexKindDefectError` for the reassign arm's
+ * `WriteResult`. The static layer's target-scope walk (§Fix layer 1) refuses
+ * every statically-resolvable out-of-scope, undeclared, or immutable-context
+ * write target at parse; a rejected `WriteResult` reaching this arm after
+ * those gates hold is a broken invariant, not a no-op — discarding it (the
+ * original defect) silently drops the author's mutation. A plain `Error`,
+ * NOT a `ThetaPanic` — it propagates uncaught out of `executeBody` and is
+ * reframed one layer up through `surfaceUnexpectedThrow` to
+ * `INTERNAL_ERROR_CODE`, exactly as `IndexKindDefectError` is.
+ */
+export class RejectedWriteDefectError extends Error {
+  public constructor(target: string) {
+    super(
+      `internal defect: reassignment target '${target}' was rejected by the runtime scope layer after the parse gates held; a rejected write must not be silently discarded (bug 0370)`,
+    );
+    this.name = "RejectedWriteDefectError";
+  }
+}
+
+/**
  * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
  * `+` arm exactly (string+string concatenates, two-number addition, else the
  * bug 0368 belt) — the shared runtime semantics for `+`, since bindings.md
@@ -1953,13 +1974,35 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
       return { kind: "normal", value: null };
     }
     case "reassign": {
-      const r = await evalExpr(stmt.value, env, deps);
-      if (r.flow !== "value") {
-        return terminalFlow(r);
+      let next: ThetaValue;
+      if (stmt.op === "=") {
+        const r = await evalExpr(stmt.value, env, deps);
+        if (r.flow !== "value") {
+          return terminalFlow(r);
+        }
+        next = r.value;
+      } else {
+        // bindings.md #compound-assignment-desugar: `x <op>= e` computes as
+        // `x = x <op> e` — read the target BEFORE evaluating the RHS,
+        // matching `evalBinary`'s left-then-right operand order (bug 0370
+        // §Fix layer 3), so a target-mutating RHS cannot make the two
+        // spellings diverge.
+        const current = env.resolve(stmt.target).value ?? null;
+        const r = await evalExpr(stmt.value, env, deps);
+        if (r.flow !== "value") {
+          return terminalFlow(r);
+        }
+        next = applyCompound(stmt.op, current, r.value);
       }
-      const next =
-        stmt.op === "=" ? r.value : applyCompound(stmt.op, env.resolve(stmt.target).value ?? null, r.value);
-      env.writeBinding(stmt.target, next);
+      const write = env.writeBinding(stmt.target, next);
+      if (!write.accepted) {
+        // The parse-time target-scope walk (bug 0370 §Fix layer 1) refuses
+        // every statically-resolvable rejection before this arm runs; a
+        // rejected write reaching here anyway is a broken invariant, and
+        // silently discarding it (the pre-fix behaviour) drops the author's
+        // mutation with no diagnostic.
+        throw new RejectedWriteDefectError(stmt.target);
+      }
       return { kind: "normal", value: null };
     }
     case "if":

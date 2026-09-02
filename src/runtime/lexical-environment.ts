@@ -549,6 +549,17 @@ export class LexicalEnvironment {
         slot.value = value;
         return { accepted: true };
       }
+      if (env.fnActivationBoundary) {
+        // Mirrors `localShadowsCallable`'s stop (bug 0016's activation
+        // boundary; bug 0370 §Fix layer 2): a caller-frame local is not in
+        // scope inside the body under the no-closures model, so the walk
+        // must not continue past the boundary into the caller's frames. The
+        // root frame's `params:`-field locals ARE visible at the boundary
+        // (parse-model parity), but `defineParamsFieldLocal` always records
+        // them immutable, so a write reaching here is rejected either way
+        // without a caller-slot mutation ever taking place.
+        return { accepted: false };
+      }
     }
     return { accepted: false };
   }

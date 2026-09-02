@@ -1,6 +1,6 @@
 # Bug 0370 — A reassignment's TARGET is never resolved against the scope model: inside a `fn` body a write to an undeclared name or an immutable parameter parses clean and is silently discarded, a write to a caller-scope `let mut` parses clean and LANDS across the no-closures activation boundary, and through that channel `x += f()` computes a different value than its normative desugar `x = x + f()` (12 vs 3)
 
-- **Status:** open.
+- **Status:** fixed (0.370.0).
 - **Sev/Diff estimate:** S1/D2 — S1 twice over: (a) silent no-op writes — an
   author's mutation statement (`a = 3` on a parameter, `z = 10` on a typo'd
   name, `i = 9` on a loop variable) is parse-clean and dropped at runtime with
@@ -223,3 +223,93 @@ the executor's `writeBinding` walk has no boundary stop where the 0016 call
 walk does. All nine rows probed offline through the production executor
 harness before filing; the G3/G4 pair verified in both directions (compound vs
 spelled) in one run. Scratch probes deleted.
+
+## Fix (0.370.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — §Fix layer 1. `walkIdentStmt`'s `reassign`
+    arm now resolves the TARGET against the same scope reads use and emits
+    `theta/parse/unknown-identifier` (via `emitReassignTargetUnknown`) for an
+    out-of-scope, undeclared, or type-only-named target; `buildReassign` draws
+    `theta/parse/immutable-rebinding` for an immutable-context target after
+    `withImmutableBindings` records `fn`/`par for`/`for`/`match` binders (and a
+    whole-file `params:` seed) immutable for the scope they govern, plus the `_`
+    discard. The G6-defer is an EXACT `ReassignStmt.immutableRebindingEmitted`
+    flag set in `buildReassign` — the walk suppresses `unknown-identifier` iff
+    that flag is set, keeping G6 `[immutable-rebinding]` byte-identical and
+    correctly refusing order-reversed and redeclaration shapes.
+  - `src/runtime/lexical-environment.ts` — §Fix layer 2a. `writeBinding` gains
+    the `fnActivationBoundary` stop mirroring `localShadowsCallable`, so a
+    closure-free `fn`-body write cannot cross the boundary onto a caller slot.
+  - `src/runtime/statement-executor.ts` — §Fix layer 2b/3. The reassign arm
+    stops discarding the `WriteResult` and throws `RejectedWriteDefectError`
+    (plain `Error` → `surfaceUnexpectedThrow` → `theta/runtime/internal-error`,
+    the 0314 belt pattern) on a rejected write; the compound arm reads the
+    target BEFORE evaluating the RHS (`evalBinary` left-then-right order), so
+    the `#compound-assignment-desugar` rule holds.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2 same-commit
+    Trigger widening (prose only, no rows minted): `immutable-rebinding` now
+    names the four immutable contexts written by reassignment; `unknown-identifier`
+    now names the reassignment-target position. `permitted-codes.json`
+    byte-identical (blob `a4a8da04`).
+  - `tests/b0370-reassign-target-scope.test.ts` (new, 33 cells) — the offline
+    witness (parse rows G2/G6/G7/G8/G9/G10/G11/match + controls; belt-i/ii unit
+    cells; Layer-3 order cell; the doc-faithful loud-belt residual cells).
+  - `tests/live/b0370-reassign-target-scope-live-cell.test.ts` (new, H8a) — the
+    live registration cell (a parameter write and a cross-boundary write
+    un-register; a control registers), carrying the literal token
+    `reassign-target-scope live cell` in place of a numeric H8a id.
+  - Re-anchored existing witness cells under the parent's class-scoped
+    ratification (vehicle-collateral of the pre-0370 silence): 0115 f2/f3
+    (`[immutable-rebinding, reassign-rhs-type-mismatch]`), 0115 g4
+    (`[immutable-rebinding]`), 0126 e2 (`[immutable-rebinding]`), 0225 A10
+    (`[unknown-identifier]`, `registered:false`) — each subject-preserved with a
+    WHY comment.
+- Gates: witness `npx vitest run tests/b0370-reassign-target-scope.test.ts` →
+  33/33; full default suite `npx vitest run` → 538 files / 10138 tests passed
+  (fork baseline bd76794f: 537 / 10105; delta = the new b0370 witness file);
+  `npm run typecheck` clean; `npm run lint` clean; live cell green under the lock
+  and red-proven both directions; `permitted-codes.json` byte-identical
+  (`a4a8da04`).
+- Review: 4 rounds. R1 (`bug-fix-reviewer`) — correctness cluster: the Layer-2
+  belt was reachable from parse-clean par-for/params-field/`_`/order-reversed
+  targets and schema-named targets drew `type-as-value` (unratified 3rd class);
+  spec (DIAG-2 Trigger widening owed); test (Layer-3 order unwitnessed). R2
+  (`bug-fix-reviewer`) — belt still reachable from fn/import/callable and
+  params-shadow/redeclaration targets. R3 (`bug-fix-reviewer`) — one residual
+  belt-reachable class (dead block-scoped `let mut` shadow of a live immutable
+  outer `let`), adjudicated. Round-4 polish (`bug-fix-fixer-light`) — residual
+  pin + two prose nits; gate-diff comment/test-only, confirmation review skipped
+  per the post-polish rule.
+- Verification: PASS (`bug-fix-verifier` verdict SOLID). (i) Witness genuinely
+  witnesses — full byte-revert of the three source files → 23/33 red for the
+  doc's symptoms, restored byte-exact (`git hash-object` match) → 33/33 green;
+  belt-i/ii and the order cell red-capable. (ii) Full suite 538/10138 green.
+  (iii) Live discharged by the orchestrator (green + red-proven). (iv) Lint and
+  typecheck clean.
+- Residuals:
+  1. Three input classes intentionally reach the §Fix layer-2 belt as the
+     DOC-FAITHFUL loud disposition (LOUD `theta/runtime/internal-error`, NOT the
+     pre-fix silent no-op), because the pre-existing flat, scope-blind
+     `this.bindings` map (§Affected: "no fn/loop scoping") cannot statically
+     distinguish them so they pass the specced Layer-1 gates: (a) a write to an
+     in-scope-but-non-writable root (top-level `fn` name, imported symbol,
+     `tools:` callable); (b) a `params:` field written from an `fn` body while a
+     top-level `let mut` shadows it file-linearly; (c) a same-scope write to a
+     live immutable outer `let` hidden by a dead block-scoped `let mut` of the
+     same name. Each is pinned by a witness cell asserting parse `[]` + loud
+     `internal-error`. The clean-parse-refusal ideal (`immutable-rebinding`) for
+     (b)/(c) requires block-scoping the flat mutability map — a pre-existing
+     limitation out of this §Fix's scope.
+  2. Follow-up candidate (NOT this bug): the flat `this.bindings` map is not
+     block-scoped, so a dead block-scoped `let` leaks its mutability both ways —
+     residual 1(c) above, and the reverse pre-existing FALSE `immutable-rebinding`
+     on the legal write `let mut x = 1` / `if true { let x = 2 }` / `x = 3`. No
+     committed cell asserts the false-refusal. Block-scoping the map is the fix.
+- Discharge notes appended: 0115 (f2/f3/g4), 0126 (e2), 0225 (A10) — dated notes
+  recording the 0370 supersession of each cell's pre-0370 silence.
+- Pinned dispositions / non-goals: no new registry rows (0326 anti-fork — reuse
+  `immutable-rebinding` / `unknown-identifier` at the new positions); the belt
+  (Layer 2) is a loud defect, not a new registry row (0314/0332 belt law);
+  block-scoping the flat mutability map is a pre-existing separate defect
+  (residual 2); the sibling 0367 unary surface is untouched.

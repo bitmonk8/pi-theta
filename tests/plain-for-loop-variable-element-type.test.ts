@@ -1381,18 +1381,24 @@ describe("bug 0126 (e) — attribution", () => {
     );
   });
 
-  it("PIN e2: a reassignment of the loop variable stays silent — 0115 / the mutability non-goal", () => {
+  it("PIN e2: a reassignment of the loop variable draws immutable-rebinding (0370) — the type check still does not fire", () => {
     // bindings.md:30 makes a `for` iteration variable immutable, and `x = "b"`
-    // draws nothing where the `let` control (e3) draws
-    // `theta/parse/immutable-rebinding`. That check runs over the real binding
-    // rather than over the type-layer `CompatType` map, so it is bug 0115's
-    // surface plus this report's own §Non-goals — unmoved in both directions.
+    // now draws `theta/parse/immutable-rebinding` exactly as the `let` control
+    // (e3) does. At this report's HEAD the mutability refusal was NOT wired for
+    // a `for`-variable write (that silence was this cell's original pin, bug
+    // 0115 §Residuals 3); bug 0370 (§Fix layer 1) wires it. This cell's own
+    // subject is PRESERVED: it is a mutability question, not a typing one, so
+    // NO element-type diagnostic fires (`x = "b"` is `string` into a `string`
+    // element, compatible) — binding the element type still neither adds nor
+    // removes an element-type verdict here. The reassignment check runs over
+    // the real binding, not the type-layer `CompatType` map, so it is bug
+    // 0370's surface, orthogonal to this report's element-typing subject.
     expectRow(
       "e2",
       ITER("array<string>", "for", 'x = "b"'),
       [ITER_FOR_SITE],
-      CLEAN,
-      "a mutability question is not a typing question; binding the element type neither adds nor removes this silence",
+      one(IMMUTABLE_REBINDING, immutableRebinding("x")),
+      "the loop variable is immutable (0370) and the `string` write is element-type compatible, so only the mutability row fires; binding the element type adds no element-type verdict",
     );
   });
 
