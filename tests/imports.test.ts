@@ -77,6 +77,11 @@ function probe(
     entryReadable(dir: string, name: string): boolean {
       return !unreadable.has(`${dir}/${name}`);
     },
+    // The in-memory fake paths have no real disk, so the canonical form is the
+    // path itself (identity) — this changes no existing assertion.
+    canonicalize(path: string): string {
+      return path;
+    },
   };
 }
 

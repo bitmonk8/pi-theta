@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.353.0]
+
+### Fixed
+
+- **Bug 0361** — on a case-insensitive host, a case-variant spelling of a `.thetalib` import directory split one physical file into TWO declaring identities: the same declaration materialised under both spellings, so enum tags minted under one spelling compared unequal to the other's, collision detection missed the twin, and the parse cache held two entries for one file. The resolved `.thetalib` path is now canonicalised ONCE at the resolver boundary via the existing `canonicalizePath` (`src/parser/imports.ts` + `src/extension/import-static-checks.ts`), so every downstream identity key — enum declaring key, collision site, cycle node, parse-cache key — compares under the on-disk spelling; legal non-case-variant programs are byte-identical, and the 0305 declaration-identity law / 0329-0331 canonicalisation precedents compose unchanged. One normative sentence in `imports.md` names the on-disk-spelling identity rule. Witnessed by `tests/b0361-case-variant-import-dir-identity.test.ts` (5 cells on a REAL NTFS scratch root through `PiFileSystem`, host-adaptive with BOTH FS branches asserted loudly — reverting the resolver reds cells (a)/(a2)/(b) with the doc's pinned signatures). Live: the adjacent declaring-identity cell `b0305live` ran green under the lock (the change is byte-identity for legal programs — recorded WHY). The invoke-graph face of the same theme is sibling bug 0362 (untouched here).
+
 ## [0.352.0]
 
 ### Fixed

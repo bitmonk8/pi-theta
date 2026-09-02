@@ -55,6 +55,7 @@
 import { posix } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
+import { canonicalizePath } from "../runtime/invocation";
 import {
   IMPORT_NAME_COLLISION_CODE,
   IMPORT_NAME_COLLISION_HINT,
@@ -285,6 +286,8 @@ class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
   private readonly entriesCache = new Map<string, readonly string[] | null>();
   /** `${dir}\u0000${name}` → whether the byte-exact entry is readable. */
   private readonly readableCache = new Map<string, boolean>();
+  /** Resolved-path string → its canonical `realpath` form, precached beside the directory listing (bug 0361). */
+  private readonly canonicalCache = new Map<string, string>();
 
   constructor(private readonly fs: FileSystem) {}
 
@@ -298,6 +301,21 @@ class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
     }
     const resolved = posix.join(posix.dirname(fromFile), spec);
     const parent = posix.dirname(resolved);
+    if (!this.canonicalCache.has(resolved)) {
+      // `canonicalizePath` mints the on-disk-cased identity (realpath.native
+      // folds case-variant DIRECTORY segments on a case-insensitive host;
+      // byte-identity on a case-sensitive host). A realpath failure — the
+      // file removed between readdir and here, or an in-memory FS double whose
+      // realpath rejects — falls back to the joined string, the
+      // pre-canonicalisation identity, so this never worsens resolution and
+      // never throws. The `.then(ok, err)` arm is the sanctioned I/O-boundary
+      // pattern (mirrors the readdir read below), not a broad catch.
+      const canonical = await canonicalizePath(this.fs, resolved).then(
+        (real) => real,
+        () => resolved,
+      );
+      this.canonicalCache.set(resolved, canonical);
+    }
     if (this.entriesCache.has(parent)) {
       return;
     }
@@ -330,6 +348,13 @@ class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
 
   entryReadable(dir: string, name: string): boolean {
     return this.readableCache.get(`${dir}\u0000${name}`) ?? false;
+  }
+
+  canonicalize(resolvedPath: string): string {
+    // Identity fallback when precache found no realpath (an unresolved miss,
+    // or a double without realpath) preserves the pre-fix string identity —
+    // strictly no worse than before this fix.
+    return this.canonicalCache.get(resolvedPath) ?? resolvedPath;
   }
 }
 

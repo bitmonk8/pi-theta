@@ -176,6 +176,17 @@ export interface ThetaLibDirectoryProbe {
   entries(dir: string): readonly string[];
   /** Whether the byte-exact entry `dir`/`name` is readable (`EACCES` / `EPERM` / broken symlink → `false`). */
   entryReadable(dir: string, name: string): boolean;
+  /**
+   * The canonical (`realpath`, forward-slash) form of `resolvedPath`, precached
+   * exactly like {@link entries}. The resolver's `posix.join` string is a
+   * FILE-SYSTEM SPELLING, not a file identity — on a case-insensitive host two
+   * spellings of one physical file join to two different strings. The probe
+   * supplies the on-disk-cased identity it precached (the sync counterpart of
+   * `canonicalizePath`), so `resolve`'s return is the identity every
+   * downstream key (declaring-enum tag, re-export collision site, cycle node,
+   * parse cache) compares under.
+   */
+  canonicalize(resolvedPath: string): string;
 }
 
 /**
@@ -223,7 +234,13 @@ export class RelativeThetaLibResolver implements Resolver {
     if (!this.probe.entryReadable(parent, finalSegment)) {
       throw new UnresolvableThetaLibPathError(spec);
     }
-    return resolved;
+    // Canonicalise once at the resolver boundary (bug 0361): IMP-1's
+    // byte-exact FINAL-segment match already ran above, so a case-variant
+    // final segment is still rejected — this only folds a case-variant
+    // DIRECTORY segment (`../LIBS/` for on-disk `libs/`) to the on-disk
+    // spelling, so every downstream key compares under one identity. Identity
+    // on a case-sensitive host (`realpath.native` preserves byte identity).
+    return this.probe.canonicalize(resolved);
   }
 }
 

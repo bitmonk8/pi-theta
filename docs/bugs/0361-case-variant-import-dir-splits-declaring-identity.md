@@ -1,6 +1,6 @@
 # Bug 0361 — A case-variant directory spelling in a `.thetalib` import path splits one physical file into two declaring identities on a case-insensitive host: the same `enum` declaration reached via `../LIBS/` and `./libs/` mints two declaring-enum tags so its own variants compare `==` false with zero diagnostics, and a re-export diamond over two such spellings draws a false `theta/parse/import-name-collision` on a program whose edges resolve to one declaring file
 
-- **Status:** open.
+- **Status:** fixed (0.353.0).
 - **Sev/Diff estimate:** S1/D2 — S1 on face (a): a value comparison the spec
   fixes as `true` evaluates `false` with zero diagnostics at any phase, wire
   output identical on both sides (`JSON.stringify` prints the bare wire string),
@@ -208,3 +208,23 @@ windows-paths bug-hunt sweep, af476df2 (v0.347.0). Probes:
 six cells (A/B/C × variant/control) over a real NTFS scratch directory via
 `PiFileSystem`; face (a) and face (b) observed as quoted, cycle face probed
 clean both directions.
+
+## Fix (0.353.0)
+
+- What shipped:
+  - `src/parser/imports.ts` — `ThetaLibDirectoryProbe` gains `canonicalize(resolvedPath)`; `RelativeThetaLibResolver.resolve` returns `this.probe.canonicalize(resolved)` after the byte-exact final-segment check (§Fix: canonicalise once at the resolver boundary). IMP-1's final-segment rejection is untouched — only case-variant DIRECTORY segments fold.
+  - `src/extension/import-static-checks.ts` — `CachingThetaLibProbe` precaches the canonical form through the existing `canonicalizePath` (`fs.realpath` + forward-slash) into a `canonicalCache`, guarded independently of the parent-listing early-return (so a second lib under an already-listed variant parent still folds), and serves it with an identity fallback (§Fix: through the existing `canonicalizePath`, cacheable beside the probe cache). Every downstream key — `enumDeclaringKey` tag, `resolveDeclaringSite` collision key, cycle-graph node, per-pass parse cache — now receives the canonical identity unchanged.
+  - `docs/spec_topics/imports.md` — one normative sentence in §Path resolution pinning declaring-site / import-graph / parse-cache identity to the resolved path's canonical `FileSystem.realpath` form, mirroring invocation.md's containment wording (§Fix: spec sentence).
+  - `tests/imports.test.ts` — the fake `ThetaLibDirectoryProbe` gains an identity `canonicalize` (interface conformance; no assertion changed).
+- Gates:
+  - Witness `tests/b0361-case-variant-import-dir-identity.test.ts` — 5 cells GREEN (real `PiFileSystem`, host-adaptive both-branch, no silent skip). Reverting `resolve` to the raw path reds cells (a)/(a2)/(b) with the pinned signatures (`expected false to be true`; `[false,false]` vs `[true,true]`; collision falsely present).
+  - Full suite `npm test` — 9975 passed / 50 skipped / 10025 total; the single red was a `beforeEach` hook timeout on `production-tools-load-resolution.test.ts` (green in isolation — parallel-load flake, not this surface).
+  - Typecheck `tsc -p tsconfig.json --noEmit` clean; lint `eslint src/**/*.ts` clean.
+  - Live `tests/live/b0305live-imported-enum-alias-identity-live-cell.test.ts` GREEN (adjacent declaring-identity cell). WHY this cell: my change is byte-identity for legal non-case-variant programs (`realpath.native` is identity on already-on-disk-cased paths), so no existing live-tested input class changes outcome; the case-variant class has no live cell and the LPA is line-pinned.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec/house-rule defect). Residual R1 (missing regression-lock for the guard-before-early-return invariant) fixed via one `bug-fix-fixer-light` hardening round adding cell (a2); post-polish confirmation round skipped (test-only diff, gate-verified green).
+- Verification: `bug-fix-verifier` SOLID — witness reds-without-fix / greens-with-fix (byte-exact restore proven via `git diff`), full suite green, lint+typecheck clean, live delegated green, tree exactly the owned set.
+- Residuals:
+  1. R3 (doc parenthetical, non-blocking): §Fix's "no behaviour change on case-sensitive hosts" is exact for CASE only; `realpath` also folds symlink components on every host, so a symlink-reached lib now mints its target's identity on case-sensitive hosts too — the settled mechanism's inherent, correct effect (matches invocation.md's "after `realpath` symlink normalisation" containment precedent) and the new spec sentence pins the `realpath` form honestly. No code or spec defect.
+  2. R2/R4 (non-blocking): Phase-5 companion artifacts (version bump, CHANGELOG, README index) are deferred to the merge parent per lane policy; `Ran.raw` in the witness is an unused helper field (cosmetic).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: import-cycle face does not reproduce (§Non-goals; unchanged); the `invoke(...)` case-variant-edge face is bug 0362 (sibling-owned, untouched); Unicode NFC/NFD path spellings out of scope (unchanged).
