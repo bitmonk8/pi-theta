@@ -31,7 +31,11 @@
 // and red on their own primary assertions (the `params:` contract is absent).
 // The paired V6b implementation leaf fills it in.
 
-import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+// The rendered message's field-name interpolation is collapsed through
+// `normaliseLiteralValueLineBreaks` so an author-controlled name carrying a
+// break cannot forge the diagnostic message's reserved multi-line shapes
+// (bug 0384; diagnostic-shape.md single-line-summary rule).
+import { normaliseLiteralValueLineBreaks, type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { reservedKeywords } from "../lexer/lexer";
 import { type LoweredSchema } from "../seams/schema-validator";
 import {
@@ -313,7 +317,7 @@ export function parseParams(
           code: "theta/load/params-type-not-expression",
           file: site.file,
           range: field.range,
-          message: `'params:' field '${field.name}' right-hand side is not a theta type expression`,
+          message: `'params:' field '${normaliseLiteralValueLineBreaks(field.name)}' right-hand side is not a theta type expression`,
         },
       );
     }
@@ -351,7 +355,7 @@ export function parseParams(
         code: "theta/parse/non-trailing-default",
         file: site.file,
         range: field.range,
-        message: `non-defaulted param '${field.name}' follows a defaulted param; defaulted params must be trailing`,
+        message: `non-defaulted param '${normaliseLiteralValueLineBreaks(field.name)}' follows a defaulted param; defaulted params must be trailing`,
       });
       break;
     }
@@ -415,7 +419,7 @@ export function parseParams(
         code: "theta/parse/default-without-literal",
         file: site.file,
         range: field.range,
-        message: `params default for '${field.name}' is empty; '=' must be followed by a literal-sublanguage form`,
+        message: `params default for '${normaliseLiteralValueLineBreaks(field.name)}' is empty; '=' must be followed by a literal-sublanguage form`,
       });
       continue;
     }

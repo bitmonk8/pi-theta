@@ -1,6 +1,6 @@
 # Bug 0384 — Seven field-name diagnostic interpolations render an author-controlled break raw into `message`: the four `params:`-key sites (`params-type-not-expression` ×2, `non-trailing-default`, `default-without-literal`) interpolate the cooked YAML key and the three inline-object rows (`duplicate-inline-field-name`, `quoted-inline-field-name`, `inline-field-name-not-identifier`) interpolate the raw pre-colon source slice, so an explicit-key block-scalar `params:` key cooking to `a\nb` (RHS `[1, 2]`) and `{ a<LF>b: string }` each render a two-physical-line `message` where `diagnostic-shape.md:34` says single-line summary — the 0105/0250/0300/0348 class at the `<param>`/`<field>` rows the `<value>` normalisation list never covered, including the exact `frontmatter.ts` params-name candidate 0348 §Non-goals named and did not sweep
 
-- **Status:** open.
+- **Status:** fixed (0.366.0).
 - **Sev/Diff estimate:** S3/D1–D2 — the class's established letter
   (0250/0300/0348 precedent: wrong rendered shape on the diagnostics channel;
   an author-chosen name forges the serialised content format's reserved
@@ -180,3 +180,20 @@ rows the same sweep surfaced. Spec read: `diagnostic-shape.md:34,63`;
 Prior bugs read in full: 0105, 0250, 0300, 0348. Probes: two scratch vitest
 files over `parseDoc` (the seven-row matrix plus controls), run at `9474dfa8`,
 deleted.
+
+## Fix (0.366.0)
+
+- What shipped:
+  - `src/parser/params.ts` — the three `params:`-key message interpolations (`params-type-not-expression` recovered-text stage, `non-trailing-default`, `default-without-literal`) wrapped through `normaliseLiteralValueLineBreaks`; new value import with a WHY comment.
+  - `src/parser/type-grammar.ts` — the three inline-object row messages (`duplicate-inline-field-name`, `quoted-inline-field-name`, `inline-field-name-not-identifier`) wrapped; new value import with a WHY comment. `renamed-inline-field-name` left untouched (its subject is a theta-side identifier, no raw break reaches it).
+  - `src/parser/frontmatter.ts` — the `params-type-not-expression` value-shape-refusal message wrapped (transform already imported).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — category-5: the three-inline-object `<field>` carve-out now names the raw U+000A as reachable and applies to the normalised slice; a cooked-`params:`-key `<field>` clause added for `non-trailing-default` / `default-without-literal` (the registry spells `<field>` there, not `<param>`); a `<param>` clause added for `params-type-not-expression` (both sites). Category-7: the `<value>` bullet clarified that the `duplicate-discriminator-value` raw-source-slice exemption does NOT cover the three inline rows, where a raw U+000A does reach the site.
+  - Detection/comparison keys and registered/wire names untouched; registry *Message* templates unmoved (DIAG-4).
+- Gates: witness `tests/b0384-field-name-diagnostic-single-line.test.ts` 14/14 green (RED before: 9 cells failed on raw U+000A under a temporary code revert, restored byte-exact); full default suite `npm test` 531 files / 10034 tests green (two real-spawn/timing files flaked under parallel load, both green isolated and off-surface); `npm run typecheck` clean; `npm run lint` clean; live `tests/live/inline-field-name-not-identifier-live-cell.test.ts` green under the live lock (renders a fixed code with a break-free name — byte-identical); `tests/fixtures/h7a/permitted-codes.json` byte-identical at blob a4a8da04.
+- Review: 2 rounds. Round 1 (deep, `bug-fix-reviewer`) — one spec-fidelity defect F1: the `<param>` amendment misattributed `<param>` to `non-trailing-default` / `default-without-literal`, which the normative registry spells `<field>`; fixed spec-prose-only. Round 2 (fast, `bug-fix-reviewer-fast`) — clean.
+- Verification: PASS (`bug-fix-verifier`). Witness genuinely reds under a code revert on the raw-U+000A symptom and restores byte-exact to green; full suite green; typecheck + lint clean; detection semantics confirmed unmoved by diff read; live obligation discharged by the orchestrator.
+- Residuals:
+  1. `theta/parse/params-default-type-mismatch` (`src/parser/type-compat.ts`, fed the cooked `params:` key via `src/parser/params.ts`) interpolates the same cooked key un-normalised and renders a two-physical-line message for a break-carrying key — a same-class carrier that is NOT among this bug’s seven sites nor named in its §Non-goals. Out of scope per 0348’s no-widening bound and 0250’s chain discipline; a new-filing candidate, not a defect of this fix.
+  2. The witness header retains the pinned 0348 witness convention “THE FIX (seeded, NOT implemented here)” (“here” = in this test file); convention-consistent, not stale.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: DIAG-4 honoured (registry Message templates unmoved; only placeholder rendering changed, governed by placeholder-rendering-b.md); 0105-chain break-discipline honoured (collapse via `normaliseLiteralValueLineBreaks`, not JSON-escape). Not widened to: report 01 (0380) clean-load half, report 06 `<key>` quoting, the reserved-keyword / binding-case params faces, or the FN-7 `with`-clause key site.

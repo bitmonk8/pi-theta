@@ -100,7 +100,11 @@
 // their own primary assertions (the type-expression parser and sink-resolution
 // engine are absent). The paired V2a implementation leaf fills them in.
 
-import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+// The rendered message's field-name interpolation is collapsed through
+// `normaliseLiteralValueLineBreaks` so an author-controlled name carrying a
+// break cannot forge the diagnostic message's reserved multi-line shapes
+// (bug 0384; diagnostic-shape.md single-line-summary rule).
+import { normaliseLiteralValueLineBreaks, type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { reservedKeywords } from "../lexer/lexer";
 import { splitTopLevel, topLevelColon } from "./params";
 import { emptySchemaBodyDiagnostic } from "./schema-declarations";
@@ -1652,7 +1656,7 @@ function walkType(
               code: "theta/parse/duplicate-inline-field-name",
               file: site.file,
               range: site.range,
-              message: `duplicate field name '${key}' within one inline object type`,
+              message: `duplicate field name '${normaliseLiteralValueLineBreaks(key)}' within one inline object type`,
             });
             continue;
           }
@@ -1670,7 +1674,7 @@ function walkType(
               code: "theta/parse/quoted-inline-field-name",
               file: site.file,
               range: site.range,
-              message: `quoted field name '${key}' within one inline object type; field names are identifiers`,
+              message: `quoted field name '${normaliseLiteralValueLineBreaks(key)}' within one inline object type; field names are identifiers`,
             });
             continue;
           }
@@ -1730,7 +1734,7 @@ function walkType(
               code: "theta/parse/inline-field-name-not-identifier",
               file: site.file,
               range: site.range,
-              message: `field name '${key}' within one inline object type is not an identifier`,
+              message: `field name '${normaliseLiteralValueLineBreaks(key)}' within one inline object type is not an identifier`,
             });
           }
         }

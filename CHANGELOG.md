@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.366.0]
+
+### Fixed
+
+- **Bug 0384** — seven field-name diagnostic-message interpolations embedded a break-carrying cooked key RAW (the `params-type-not-expression` / `non-trailing-default` / `default-without-literal` family and the type-grammar field-name sites), so a crafted key forged continuation lines on the single-line diagnostics channel — the 0105/0250/0300/0348 class on the field-name carriers. All seven sites now wrap the interpolated name through `normaliseLiteralValueLineBreaks` (the 0348 collapse, imported — no fork): `frontmatter.ts` (1), `params.ts` (3), `type-grammar.ts` (3), with the same-commit `placeholder-rendering-b.md` category-5/-7 amendment; registry Message templates unmoved (DIAG-4), and the co-firing feeder refusal bug 0380 landed remains the first line of defence (this fix covers the co-fire renders and the non-params carriers). Review corrected one spec misattribution (`<param>` vs the registry's `<field>` on two parse rows — spec-prose-only). Witnessed by `tests/b0384-field-name-diagnostic-single-line.test.ts` (14 cells; 9 red at fork on raw U+000A; break-free names byte-identical). Live: the inline-field-name refusal cell green under the lock (break-free path byte-identical). Residual recorded (new-filing candidate, the 0348 no-widening law): `theta/parse/params-default-type-mismatch` in `type-compat.ts` is a same-class break carrier outside this doc's seven sites and its §Non-goals.
+
 ## [0.365.0]
 
 ### Fixed

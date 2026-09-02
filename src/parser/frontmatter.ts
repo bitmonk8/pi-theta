@@ -1074,7 +1074,7 @@ function extractParsedParams(
         code: "theta/load/params-type-not-expression",
         file,
         range,
-        message: `'params:' field '${name}' right-hand side is not a theta type expression`,
+        message: `'params:' field '${normaliseLiteralValueLineBreaks(name)}' right-hand side is not a theta type expression`,
       });
     }
     fieldInputs.push({
