@@ -6,6 +6,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.352.0]
+
+### Fixed
+
+- **Bug 0371** — the session-swap fail-fast tripwire's TRIP half was unwired: the arming half existed but no site ever consulted it, so the fail-fast the PIC lifecycle contract promises on a swapped-session dispatch could never fire. The trip sites are now wired per §Fix: a guard at the `session_start` handler head and `runGuardedSlashHandler` wrapping the `drainGatedHandler` dispatch body, both reading the factory-scoped `liveRegistry`, with the terminator injectable (`terminator?` seam) and the production default `createProductionFailFastTerminator()` — a `process.exit(1)` let-crash in `src/extension/session-swap-tripwire.ts`, honouring the no-catch discipline. Witnessed by `tests/b0371-tripwire-trip-sites-wired.test.ts` (3 cells through the REAL registered handler with a rebound `session_start`, red at fork, revert-proven). The dormant-guard live witness `double-session-start-live.test.ts` ran green under the lock (a real turn through the guarded head); the trip itself is unreachable-live under the governed-by-rebind discipline — no-live-owed rationale recorded. Merge coordination recorded: open bug 0375 also edits the `drainGatedHandler` dispatch head — its fix must COMPOSE with this wrap, not drop it.
+>>>>>>> 8aeb44e7 (fix(bug-0371): session-swap tripwire trip sites wired — v0.352.0)
+
 ## [0.351.0]
 
 ### Fixed

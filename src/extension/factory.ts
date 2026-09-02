@@ -40,9 +40,17 @@ import {
 } from "./drain-state";
 import {
   runSessionShutdown,
+  createProductionEmissionSink,
   type SessionShutdownDeps,
   type ForwardingSignalSource,
 } from "./session-shutdown";
+import {
+  guardSessionSwapTripwire,
+  runGuardedSlashHandler,
+  createProductionFailFastTerminator,
+  type FailFastTerminator,
+  type TripwireGuardDeps,
+} from "./session-swap-tripwire";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { Clock } from "../seams/clock";
 import type { HotReloadHandle } from "./hot-reload";
@@ -382,6 +390,19 @@ export interface ThetaExtensionDeps {
    * absent (falsey) on the parent / harness paths.
    */
   readonly isSubagentChild?: boolean;
+
+  /**
+   * The NFR-2.1 fail-fast terminator seam (session-swap-tripwire.ts): the
+   * `Environment.FailFast`-equivalent "let crash" path the session-swap
+   * tripwire's trip-site guard invokes immediately after emitting the single
+   * `theta/host/session-swap-instance-survived` diagnostic. Injected here so
+   * the guard can terminate the process without the trip site inlining a
+   * `process.exit` literal; the shipped production default export supplies the
+   * real terminator, and the H4a / integration harness paths inject a fake so
+   * termination is observable without ending the test process. Optional: the
+   * paths that never reach the trip guard omit it.
+   */
+  readonly terminator?: FailFastTerminator;
 }
 
 /**
@@ -410,6 +431,28 @@ export function createThetaExtension(
     // handler treats as "nothing to tear down".
     let liveRegistry: ThetaRegistry | undefined;
     let liveClock: Clock | undefined;
+    // Bug 0371 — resolve the fail-fast terminator ONCE per extension instance
+    // (not once per trip site), falling back to the real `process.exit`-style
+    // adapter when the caller injects none (the production default export's
+    // path). session-only-degraded-state.md §Trip.
+    const failFastTerminator = deps.terminator ?? createProductionFailFastTerminator();
+    /**
+     * Build the trip-site guard's collaborators for `registry`. The armed flag
+     * lives on the registry a session-only teardown drained, which for a
+     * SURVIVED instance IS the retained factory-scoped `liveRegistry` (kept
+     * across shutdown — assignment below, retention pinned at the teardown
+     * comment near the end of this factory body); a fresh session's registry
+     * is unarmed (dormant). Both trip sites therefore read `liveRegistry`
+     * rather than a per-handler/per-generation registry, so a rebind-pass
+     * `session_start` is covered as well as a post-teardown slash dispatch.
+     */
+    function tripwireGuardDeps(registry: ThetaRegistry): TripwireGuardDeps {
+      return {
+        registry,
+        sink: createProductionEmissionSink(),
+        terminator: failFastTerminator,
+      };
+    }
     // Decision 6 / Increment B1: the live shared in-flight-invocation registry
     // published by compose. `undefined` until compose runs; the shutdown handler
     // falls back to a fresh empty registry (a no-op teardown) when compose never
@@ -534,6 +577,15 @@ export function createThetaExtension(
     // Pi's `session_start` dispatch.
     try {
       pi.on("session_start", (_event, ctx: ExtensionContext) => {
+        // Bug 0371 — the trip-site guard runs FIRST, before the ctx latch or
+        // any registration work: a rebind-pass `session_start` against a
+        // survived armed instance must fail-fast-terminate before the normal
+        // supersession pass runs (session-only-degraded-state.md §Trip). Dormant
+        // until compose has published a `liveRegistry` (a first `session_start`
+        // has nothing armed to read yet).
+        if (liveRegistry !== undefined) {
+          guardSessionSwapTripwire(tripwireGuardDeps(liveRegistry));
+        }
         // Bug 0023 D1: latch the ctx BEFORE any registration work, so every
         // `emitDiagnostic` site reached from inside this handler (or later,
         // e.g. `session_shutdown`) can route through the sink's full
@@ -632,26 +684,27 @@ export function createThetaExtension(
       name: string,
       registry: ThetaRegistry,
     ): (args: string, ctx: ExtensionCommandContext) => Promise<void> {
-      return async (args: string, ctx: ExtensionCommandContext) => {
-        const outcome = resolveSlashDispatchWithReadFailover(
-          name,
-          () => registry.readDrainState(),
-          registry,
-        );
-        if (outcome.kind === "note") {
-          pi.sendMessage(
-            {
-              customType: SYSTEM_NOTE_CHANNEL,
-              content: outcome.content,
-              display: true,
-              details: { event: {} },
-            },
-            { triggerTurn: false },
+      return async (args: string, ctx: ExtensionCommandContext) =>
+        runGuardedSlashHandler(tripwireGuardDeps(liveRegistry ?? registry), async () => {
+          const outcome = resolveSlashDispatchWithReadFailover(
+            name,
+            () => registry.readDrainState(),
+            registry,
           );
-          return;
-        }
-        await outcome.theta.run(args, ctx);
-      };
+          if (outcome.kind === "note") {
+            pi.sendMessage(
+              {
+                customType: SYSTEM_NOTE_CHANNEL,
+                content: outcome.content,
+                display: true,
+                details: { event: {} },
+              },
+              { triggerTurn: false },
+            );
+            return;
+          }
+          await outcome.theta.run(args, ctx);
+        });
     }
 
     /**

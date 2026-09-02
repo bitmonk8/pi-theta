@@ -20,20 +20,6 @@
 // (clause (a) `governed-by-rebind`, clauses (b)/(d)), drain-state-contract.md,
 // diagnostics/code-registry-host.md (the `theta/host/session-swap-instance-
 // survived` row), diagnostics/diagnostic-emission-isolation.md.
-//
-// V9r-T (tests-task) declares these seams and stubs the behaviour-bearing
-// functions DELIBERATELY NON-COMPLIANTLY so the failing tests compile and red on
-// their own primary assertions:
-//   - `sessionSwapInstanceSurvivedDiagnostic` returns a SENTINEL diagnostic (not
-//     the registry *Message* row / severity / `details.event.reason`);
-//   - `armSessionSwapTripwireForReason` is a NO-OP (never arms the registry);
-//   - `guardSessionSwapTripwire` is INVERTED (fires on the UNARMED registry and
-//     stays dormant on the ARMED one), so both the "fires when armed" and the
-//     "dormant when unset" assertions red;
-//   - `runGuardedSlashHandler` dispatches WITHOUT guarding (the guard-before-
-//     dispatch wiring is absent).
-// The paired V9r implementation fills these in. No test reds on a compile error,
-// a missing fixture, or a harness throw.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { ThetaRegistry, SessionOnlyReason } from "./reload-wiring";
@@ -69,6 +55,24 @@ export function isSessionOnlyReason(reason: string): reason is SessionOnlyReason
  */
 export interface FailFastTerminator {
   terminate(): never;
+}
+
+/**
+ * The production `FailFastTerminator`: `process.exit(1)`, the NFR-2.1
+ * `Environment.FailFast`-equivalent "let crash" path (mirrors
+ * `createProductionEmissionSink` in session-shutdown.ts). The trip has proven
+ * the host violated the teardown-and-rebind lifecycle the
+ * `governed-by-rebind` resolution rests on, so the only correct posture is to
+ * crash rather than run any further logic past a proven-false premise —
+ * `process.exit`'s `never` return type already forces callers to treat this
+ * as non-returning, so the body needs no explicit `return`.
+ */
+export function createProductionFailFastTerminator(): FailFastTerminator {
+  return {
+    terminate: (): never => {
+      process.exit(1);
+    },
+  };
 }
 
 /** Collaborators for the trip-site guard. */

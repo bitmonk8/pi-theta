@@ -1,6 +1,6 @@
 # Bug 0371 — The session-swap fail-fast tripwire's trip half is unwired: `guardSessionSwapTripwire` / `runGuardedSlashHandler` have no production caller, so an armed tripwire never emits `theta/host/session-swap-instance-survived` and never fail-fast-terminates — dispatch against a survived instance returns the ordinary shutting-down note and `session_start` proceeds into a normal supersession pass
 
-- **Status:** open.
+- **Status:** fixed (0.352.0).
 - **Sev/Diff estimate:** S2/D1 — S2 because the guarded condition is dormant on
   every conformant Pi minor (the tripwire exists precisely to fail loudly if a
   future Pi minor violates the teardown-and-rebind lifecycle the
@@ -160,3 +160,67 @@ callers (`rg` over `src/` + `extensions/`), then witnessing the arming/trip
 asymmetry with an offline factory-level probe (fake `pi`, real
 `ThetaRegistry`, real `runSessionShutdown` path). Probe deleted after
 confirmation.
+
+## Fix (0.352.0)
+
+- What shipped:
+  - `src/extension/session-swap-tripwire.ts` — added the production
+    `createProductionFailFastTerminator()` (`process.exit(1)`, the NFR-2.1
+    `Environment.FailFast`-equivalent let-crash) the §Fix names as the
+    `FailFastTerminator` adapter; removed the module header's stale
+    already-filled-stub narrative (WHY-not-history house rule).
+  - `src/extension/factory.ts` — wired the trip half at both mandated read
+    sites: `guardSessionSwapTripwire` at the `session_start` handler head
+    (before the ctx-latch, gated on `liveRegistry !== undefined`) and
+    `runGuardedSlashHandler` wrapping the `drainGatedHandler` dispatch body
+    (before the `readDrainState` branch), each with
+    `{ registry, sink: createProductionEmissionSink(), terminator }` where
+    the guard reads the factory-scoped `liveRegistry` (kept across a
+    session-only teardown, so a survived instance's armed flag is visible to
+    both a post-teardown slash dispatch and a rebind-pass `session_start`);
+    added the injectable `terminator?: FailFastTerminator` seam on
+    `ThetaExtensionDeps` (production default via
+    `deps.terminator ?? createProductionFailFastTerminator()`; the default
+    export supplies none, so production gets the real adapter).
+- Gates:
+  - Witness `tests/b0371-tripwire-trip-sites-wired.test.ts` (offline, 3 cells
+    through the REAL `createThetaExtension` registered handler + rebind
+    `session_start`): RED before (cells 1&2 fail
+    `.rejects.toThrow(FailFastSignal)` / `survivedRows().toHaveLength(1)` — the
+    §Actual-behaviour symptom), GREEN after; revert-proof (verifier neutralised
+    only the two guard sites → RED → byte-exact restoration → GREEN).
+  - Full default suite: 531 files / 10023 tests; every file green in isolation
+    (6 discovery/tools/invoke files timed out only under ~16-lane parallel
+    load — each passes isolated with `--test-timeout=60000`, none reference the
+    tripwire/factory-guard surface; classified load noise per LANE machine-load
+    caveat).
+  - Typecheck `tsc -p tsconfig.json --noEmit` clean; lint `eslint src/**/*.ts`
+    clean.
+  - Live `tests/live/double-session-start-live.test.ts` GREEN (21.3 s, one real
+    turn, under the shared live lock): both live `session_start` binds and the
+    live `/greetlive` dispatch run the now-installed guard DORMANT (unarmed
+    registry) with unchanged re-ownership / no-shutting-down-note observables.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec/
+  house-rule/test findings; two prose residuals R1 stale header + R2 banned
+  token `just`). One comment-only `bug-fix-fixer-light` round cleared both;
+  post-polish confirmation via gate-diff (every hunk comment-only, gates green)
+  — confirmation review round skipped per charter.
+- Verification: `bug-fix-verifier` SOLID — witness revert-proof (RED→GREEN,
+  identical git-diff content hashes before/after restoration); full suite green
+  (parallel-load timeouts all pass isolated, off-surface); lint + typecheck
+  clean; live discharged by the orchestrator (adjacent dormant-guard cell green
+  + no-live-owed rationale: the armed-trip path is structurally unreachable
+  under the pinned `governed-by-rebind` Pi-SDK, so no live input class changes
+  registration/drive outcomes).
+- Residuals: none. (The full-suite parallel timeouts are load noise, not a
+  residual; each is green isolated.)
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the arming half
+  (`armSessionSwapTripwireForReason`, `ThetaRegistry.armSessionSwapTornDown` /
+  `readSessionSwapTornDown`) is unchanged; the Pi-owned `/reload` stays
+  unguarded (clause (c-i) — only theta-registered handlers + `session_start`
+  are wrapped); no new diagnostic-registry row
+  (`theta/host/session-swap-instance-survived` pre-exists); no spec-doc edit.
+  MERGE NOTE for the rebaser: [bug 0375] also edits the `drainGatedHandler`
+  dispatch head — this fix wraps the whole body in `runGuardedSlashHandler`;
+  sequence, do not merge the two hunks blindly.
