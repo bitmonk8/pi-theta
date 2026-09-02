@@ -245,10 +245,10 @@ by the fixed message stem.
 
 ### `ModelToolError`
 
-Fires on a non-recoverable adapter-layer failure of the model's tool-call loop
-(named tool absent from the callable set, or a Pi-adapter/transport failure while
-feeding a tool-result back). An in-loop tool failure the runtime can lower to a
-tool-result does **not** fire this variant.
+Reserved: no theta 1.0-reachable input produces `ModelToolError`. The named tool
+being absent is answered by the in-loop feedback rule (fed back as an `isError`
+tool-result, the loop continuing); a turn-level Pi-adapter/transport failure
+classifies as `TransportError`. Retained for forward compatibility per ERR-15.
 
 ```theta
 schema ModelToolError {
@@ -307,7 +307,7 @@ schema CodeToolError {
   cause: "validation"            // arguments failed input-schema validation
        | "execution"             // tool's execute() threw or returned isError: true
        | "cancelled"             // AbortSignal fired
-       | "unknown_tool"          // callable lost across a file-watcher reload
+       | "unknown_tool"          // dispatch-time snapshot miss (no load-admitted reachable case)
 }
 ```
 

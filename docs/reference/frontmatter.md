@@ -266,8 +266,14 @@ strips `execute`), its code-side dispatch routing through host-loop dispatch
 (PIC-64); each `.theta`-path entry holds a strong reference to the parsed callee
 plus its lowered tool spec. Calls dispatch through the held reference (or, for
 an extension tool, against the pinned name); the runtime never re-queries Pi's
-tool registry by name during execution. The `unknown_tool` cause on
-`CodeToolError` is reachable only via the file-watcher reload path.
+tool registry by name during execution. The file-watcher reload path is
+intercepted at load, not at dispatch: a rebuild that drops a previously-resolved
+tool refuses registration (`docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`),
+so no invocation of a registered theta ever observes a lost callable. The
+`unknown_tool` cause on `CodeToolError` answers a different input instead — a
+dispatch-time snapshot miss at the `#resolveToolCall` dispatch seam, reachable
+only by a caller that bypasses load admission (`docs/spec_topics/tool-calls.md`
+§Failures).
 
 ## `system:`
 

@@ -289,6 +289,21 @@ export interface CodeSideToolCall {
     readonly result: ResultValue;
     readonly error: CodeToolError;
   };
+  /**
+   * Bug 0322 §Fix (settled route: mint-at-the-seam): a dispatch-time snapshot
+   * miss — the resolver could not find a host tool for the callee name in the
+   * frozen callable-set snapshot. Set only by the regime-inactive
+   * `tool === undefined` arm of `#resolveToolCall`
+   * (`src/extension/production-theta-producer.ts`), never by an ordinary
+   * resolved call. When present, `runCodeSideToolCall` surfaces the wrapped
+   * `Err(CodeToolError { cause: "unknown_tool" })` and NEVER dispatches —
+   * distinct from `execution-error`, which is an `execute()` throw from a call
+   * that DID dispatch.
+   */
+  readonly unknownHostTool?: {
+    readonly result: ResultValue;
+    readonly error: CodeToolError;
+  };
 }
 
 /**
@@ -334,6 +349,18 @@ export type ToolCallExecOutcome =
       // Distinct from `execution-error` (an `execute()` throw,
       // `cause: "execution"`).
       readonly kind: "arg-schema-error";
+      readonly result: ResultValue;
+      readonly error: CodeToolError;
+      readonly committed: readonly CommittedSideEffect[];
+    }
+  | {
+      // Bug 0322 §Fix (settled route: mint-at-the-seam): a dispatch-time
+      // snapshot miss — the callee name is absent from the frozen
+      // callable-set snapshot, so `result` is the wrapped
+      // `Err(CodeToolError { cause: "unknown_tool" })` and the tool never
+      // ran, so `committed` is empty. Distinct from `execution-error` (an
+      // `execute()` throw from a call that DID dispatch).
+      readonly kind: "unknown-tool-error";
       readonly result: ResultValue;
       readonly error: CodeToolError;
       readonly committed: readonly CommittedSideEffect[];
@@ -418,6 +445,19 @@ export async function runCodeSideToolCall(
       kind: "arg-schema-error",
       result: call.argSchemaViolation.result,
       error: call.argSchemaViolation.error,
+      committed: [],
+    };
+  }
+
+  // Bug 0322 §Fix (settled route: mint-at-the-seam): a dispatch-time snapshot
+  // miss, set only by the regime-inactive `tool === undefined` arm of
+  // `#resolveToolCall` — never dispatches, so the host tool's `execute()` is
+  // not called and no side effect is committed.
+  if (call.unknownHostTool !== undefined) {
+    return {
+      kind: "unknown-tool-error",
+      result: call.unknownHostTool.result,
+      error: call.unknownHostTool.error,
       committed: [],
     };
   }

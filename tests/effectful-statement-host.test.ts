@@ -461,7 +461,7 @@ describe("V19d-T — invoke-dispatch cancellation checkpoint on the real trampol
 // the XMODE-1 wrapper message
 // `invoke of ${child.calleePath} callee returned Err(${String(innerKind)})`
 // (`:423`, into `surfaceThetaCallableCalleeFailure`,
-// `src/runtime/tool-call.ts:804`). The bug doc's `:394` / `:401` citations are
+// `src/runtime/tool-call.ts:833`). The bug doc's `:394` / `:401` citations are
 // stale at this HEAD; the symbols are the stable anchors. (Bug 0177's fix
 // routes `:423`'s coercion through `summariseErrorField` — the site still
 // reads `String(innerKind)` in this comment only because it is quoting the

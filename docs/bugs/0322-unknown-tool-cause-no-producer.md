@@ -1,6 +1,6 @@
 # Bug 0322 — `CodeToolError.cause: "unknown_tool"` has no producer: `rg '"unknown_tool"' src/` matches only the union declaration and the `codeToolErrorCauses()` contract list, the reference page's flat claim "the `unknown_tool` cause … is reachable only via the file-watcher reload path" names a path its own spec_topics expansion describes as intercepted at load (`theta/load/unknown-tool` + refusal to register), and the closest reachable input — a snapshot miss at dispatch — mints `cause: "execution"` instead
 
-- **Status:** open.
+- **Status:** fixed (0.346.0).
 - **Sev/Diff estimate:** S4/D3 — S4 because the observable cost is a dead
   author-facing `match` arm plus an unfalsifiable conformance member, with no
   silent acceptance and no wrong value on a reachable path: the reload path
@@ -208,6 +208,158 @@ Not yet decided; the adjudication is which spec voice wins:
 
 Either fix must not weaken load-refusal or the strong-reference dispatch
 model.
+
+## Fix (0.346.0)
+
+The settled COMBINED route (mint-at-the-seam PLUS the reachability correction),
+adjudicated by the parent and shipped. The `## Fix` text above is the original
+filing (options open) and is preserved unedited; this section records what
+shipped.
+
+- Parent adjudication (verbatim): "COMBINED route — mint-at-the-seam PLUS the
+  reachability correction. (a) SRC: the regime-INACTIVE `tool === undefined` arm
+  stops rejecting with the execution-bound UnknownHostToolError and instead
+  produces the typed carrier lowering to Err(CodeToolError{ cause: 'unknown_tool',
+  … }) with the human-visible message text UNCHANGED and the same refusal surface
+  (the call never dispatches; the loop/round accounting unchanged); the
+  subagent-root-regime branch (PIC-58 ladder) is UNTOUCHED (doc non-goal); exact
+  carrier mechanics = lane's choice within these constraints (thread the existing
+  seam's tool name into the carrier's fields per the CodeToolError schema; do NOT
+  invent new fields), recorded in the fix record. Rationale: unlike 0321 (retired
+  this same batch — no input class remained), here a concrete seam already
+  ISOLATES exactly the named condition ('the name is not in the frozen snapshot
+  at dispatch' IS 'unknown tool' literally) and currently answers with a
+  documented-false cause; minting there is a cause-correctness fix that flips no
+  committed cell (the doc: the arm is untested from registered thetas —
+  premeasure MUST verify), weakens neither load-refusal nor the strong-reference
+  dispatch model (structural guarantees intact — the arm stays harness-only-
+  reachable from theta-1.0 inputs), and makes the member's name,
+  codeToolErrorCauses()'s contract, and tool-calls.md:38's safety-net sentence
+  TRUE. (b) SPEC: reference/frontmatter.md:265-266's flat reload claim is
+  CORRECTED under either voice — the reload path is intercepted at load (cite the
+  fields-b expansion's mechanism); the truthful statement: unknown_tool is the
+  dispatch-time safety net's answer, with NO theta-1.0 load-admitted reachable
+  case (the last_tool_name|null precedent wording); (c) tool-calls.md:27's
+  parenthetical reconciled to the same story (the 'cannot occur during the
+  lifetime of a single invocation' clause is TRUE and stays; the reload
+  implication goes); :38 as landed by 0349 — under this fix its safety-net
+  assertion becomes TRUE; adjudicate in-lane whether it needs ANY edit (prefer
+  none or a minimal truth-tightening; record); (d)
+  frontmatter-fields-b-and-templates.md:25's expansion names the actual seam
+  (dispatch-time snapshot miss answers unknown_tool) alongside its correct
+  interception story; (e) queryerror-variants.md:160-168: the enum comment at
+  :167 ('callable was lost across a file-watcher reload') → truthful safety-net
+  wording — EDIT ONLY the CodeToolError section; the §model_tool region above
+  (:110-119) carries 0321's fresh edits — do not touch it. NO new diagnostic code
+  (the carrier is an existing QueryError variant — permitted-codes stays
+  byte-identical). NO change to the other three causes' producers."
+
+- In-lane adjudications (recorded):
+  - tool-calls.md:38 — NO EDIT. `.theta`-callable calls classify as
+    `"theta-callable"` (`#classifyCall`) and route through the invoke trampoline,
+    never `#resolveToolCall`; the fix mints `unknown_tool` only on the
+    `"pi-tool"`-classified dispatch arm. The sentence's plain reading is
+    compatible with the enum-level enumeration at `:27` (which WAS corrected);
+    minimal-touch per the steer.
+  - errors-and-results.md:310 — bounded, recorded self-authorization: the
+    CodeToolError enum comment there is a byte-identical mirror of
+    queryerror-variants.md:167 (0321 touched only that file's ModelToolError
+    section); fixing one and not the other would reintroduce the very
+    spec-internal divergence this bug is about. Comment/prose-only, no
+    assertion, no behaviour. Evidence: (1) the two comments are byte-identical
+    mirrors of the same enum; (2) the bug IS spec-internal inconsistency — a
+    split mirror reintroduces it; (3) prose-only. STOP valve (unused): if not a
+    plain mirror, stop and report.
+
+- What shipped (keyed to §Fix):
+  - `src/runtime/tool-call.ts` — new `buildCodeToolUnknownTool(toolName)`
+    producer (co-located with `buildCodeToolArgSchemaViolation` /
+    `codeToolErrorCauses()`) minting `Err(CodeToolError{ cause: "unknown_tool",
+    tool_name, message })`; message byte-identical to the pre-fix lowered text
+    `code-side call names no resolvable host tool '<name>'`. §Fix (a).
+  - `src/runtime/tool-call-execute.ts` — `unknownHostTool` pre-dispatch carrier
+    field on `CodeSideToolCall`, the `unknown-tool-error` `ToolCallExecOutcome`
+    kind, and the short-circuit in `runCodeSideToolCall` (before dispatch,
+    beside `argSchemaViolation`; `committed: []`). §Fix (a).
+  - `src/runtime/effectful-statement-host.ts` — `case "unknown-tool-error"`
+    grouped with `arg-schema-error`, surfacing the `Err` as the tool-call
+    expression value. §Fix (a).
+  - `src/extension/production-theta-producer.ts` — `#resolveToolCall` evaluates
+    the regime at resolve time and sets the `unknownHostTool` carrier when
+    `tool === undefined && !regime.active`; the regime-inactive dispatch reject
+    became an unreachable defensive `throw` (kept for type-narrowing and to keep
+    `UnknownHostToolError` referenced by the PIC-58 ladder rungs); the
+    regime-ACTIVE ladder branch is untouched. Arm comments updated to the new
+    disposition. §Fix (a).
+  - `docs/reference/frontmatter.md` — the flat "reachable only via the
+    file-watcher reload path" claim corrected: reload intercepted at load;
+    unknown_tool is the dispatch-time safety-net answer, no load-admitted case.
+    §Fix (b).
+  - `docs/spec_topics/tool-calls.md` — `:27` parenthetical keeps the true
+    "cannot occur during the lifetime of a single invocation … strong
+    references" clause and drops the reload implication for the dispatch-time
+    safety-net truth. `:36` (0321's) and `:38` untouched. §Fix (c).
+  - `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` — `:25`
+    keeps the correct load-interception mechanism and names the actual
+    dispatch-time snapshot-miss seam (harness-only-reachable). §Fix (d).
+  - `docs/spec_topics/errors-and-results/queryerror-variants.md` — the
+    CodeToolError enum comment `:167` truth-tightened to the dispatch-time
+    snapshot-miss wording; the §model_tool region (0321's) untouched. §Fix (e).
+  - `docs/reference/errors-and-results.md` — the byte-mirror CodeToolError enum
+    comment `:310` given the same wording (bounded mirror above). §Fix (e).
+  - `tests/b0322-unknown-tool-dispatch-safety-net.test.ts` (NEW) — the witness:
+    (A) the regime-inactive snapshot miss surfaces cause `unknown_tool` with the
+    same message/kind/tool_name/ok (RED `execution` at fork → GREEN
+    `unknown_tool`); (B) known-tool dispatch control (byte-identical `Ok`); (C)
+    the closed four-member `codeToolErrorCauses()` contract cell; (D) the PIC-58
+    regime-active control (ladder route untouched).
+  - Comment/citation-only line-drift reconciliations caused by the src
+    insertions: `tests/b0295-child-internal-cancel-wrap-arm.test.ts`
+    (:453→:507), `tests/effectful-statement-host.test.ts` (:804→:833),
+    `tests/invoke-depth-wire-form-metric.test.ts` (:743→:772). No assertion or
+    executable change.
+
+- Gates: witness — RED-to-GREEN by revert-in-place (verifier neutralised the
+  mint → case (A) reds observing cause `execution` vs `unknown_tool`; restored
+  byte-exact → 4/4 green). Full default suite `npm test` 526 files / 9918 tests
+  passed (baseline 525/9914 + the new witness file 1/4; zero flips).
+  `npm run typecheck` (tsc --noEmit) exit 0. `npm run lint` (eslint) exit 0.
+  permitted-codes.json hash byte-identical
+  (`a4a8da04209f90e13d815edd92c1fc682e2a2236`); LPA held at 14864 lines
+  (grepped, not edited).
+- Review: 1 round. R1 (`bug-fix-reviewer`, deep) — CLEAN, zero
+  correctness/fidelity/spec/test/house-rule findings; confirmed 0321/0322 hunk
+  disjointness, message byte-identity, the never-dispatched short-circuit,
+  regime-active untouched, no new fields / no diagnostic, 0343 N/A, spec (b)-(e)
+  mutually consistent, witness cases A-D. A comment/citation-only pre-review
+  correction round (witness file line-citation refresh) preceded it and is not a
+  review round.
+- Verification: SOLID (`bug-fix-verifier`). (1) witness reds without the fix and
+  greens after a byte-exact restore; (2) full suite 526/9918 green; (3) LIVE —
+  not owed: the minted seam is harness-only-reachable (parse denies an
+  out-of-scope callee; load-time admission freezes every `tools:` name), so
+  registration and drive outcomes for load-admitted thetas are unchanged
+  (`git grep` over `tests/live` for the seam / `unknown_tool` empty; the fix
+  touches no registration/load path); (4) typecheck + lint exit 0.
+- Residuals:
+  1. R1 (non-blocking, house-rule): `buildCodeToolUnknownTool` reuses the
+     `CodeToolArgSchemaViolation` return-type name (shape-identical `{ result,
+     error }`); the docstring explains the reuse. A neutral shared alias would
+     read cleaner. No behavioural effect.
+  2. R2 (non-blocking, test): the mint does not apply the 4096-byte
+     `truncateUtf8CodePointBoundary` cap the pre-fix `execute()`-throw lowering
+     applied; it diverges only for a ≥~4KB harness-injected callee name (the
+     seam is itself harness-only). The sibling `validation` builder does not
+     truncate either; message-identity holds for the entire realistic input
+     class.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the `theta/load/unknown-tool` load
+  diagnostic, the strong-reference dispatch model (bug 0016), and load-refusal
+  are unweakened (§Non-goals). The regime-ACTIVE PIC-58 ladder branch and the
+  other three `CodeToolCause` producers are untouched. No new CodeToolError
+  fields; no new diagnostic code. `unknown_tool` is now the truthful disposition
+  of the dispatch-time snapshot miss; no theta-1.0 load-admitted reachable case
+  exists.
 
 ## Provenance
 

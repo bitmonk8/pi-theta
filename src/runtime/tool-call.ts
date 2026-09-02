@@ -512,8 +512,8 @@ export function codeToolErrorKind(): string {
 /**
  * The `kind` wire discriminator of `ModelToolError` (`"model_tool"`) — a
  * *distinct* variant from `CodeToolError`: a code-side call carries a structured
- * `cause` enum and no `tool_call_id` / `raw_response`, whereas the model-loop
- * adapter failure carries both and no `cause`.
+ * `cause` enum and no `tool_call_id` / `raw_response`, whereas `ModelToolError` —
+ * the reserved model-loop adapter-failure variant — carries both and no `cause`.
  *
  * V14a-T stubs this to `""` so the distinctness assertion reds.
  */
@@ -682,6 +682,35 @@ export function buildCodeToolArgSchemaViolation(
 }
 
 // --------------------------------------------------------------------------
+// Bug 0322 §Fix (settled route: mint-at-the-seam) — the dispatch-time
+// snapshot-miss safety net for `cause: "unknown_tool"`.
+// --------------------------------------------------------------------------
+
+/**
+ * Build the `Err(CodeToolError { cause: "unknown_tool" })` carrier for a
+ * code-side call whose callee name the frozen callable-set snapshot does not
+ * hold at dispatch (`#resolveToolCall`'s regime-inactive `tool === undefined`
+ * arm, `src/extension/production-theta-producer.ts`). This is the sole
+ * producer of `unknown_tool` (bug 0322): a registered theta cannot reach it
+ * (load-time admission freezes every `tools:` name into the snapshot; a
+ * reload rebuild that drops a tool is refused registration at load, per
+ * `theta/load/unknown-tool`), so it is harness-only-reachable — but any input
+ * that does reach it gets the truthful cause instead of the `execution`
+ * mis-attribution a throw-based rejection would lower to. Same shape as
+ * `CodeToolArgSchemaViolation` above (`result` the wrapped `Err`, `error` the
+ * carrier itself) so both compose identically at their call site.
+ */
+export function buildCodeToolUnknownTool(toolName: string): CodeToolArgSchemaViolation {
+  const error: CodeToolError = {
+    kind: "code_tool",
+    message: `code-side call names no resolvable host tool '${toolName}'`,
+    tool_name: toolName,
+    cause: "unknown_tool",
+  };
+  return { result: makeErr(error as unknown as ThetaValue), error };
+}
+
+// --------------------------------------------------------------------------
 // Ceiling-#4 depth-6 MODEL-DRIVEN tool-args carrier (the `@`-query loop's
 // `tool_use` args row).
 //
@@ -689,8 +718,8 @@ export function buildCodeToolArgSchemaViolation(
 // ceiling-#4 per-boundary table (ceilings-3-and-4.md#ceiling-4-table;
 // schema-subset.md §Depth Enforcement point #2) routes to *the model*, NOT to
 // theta code. A depth-6 model-produced argument does NOT surface as a theta
-// `Err` and specifically NOT as `ModelToolError` (reserved for non-recoverable
-// adapter-layer failures); it is materialised as a tool-error result fed back
+// `Err` and specifically NOT as `ModelToolError` (a reserved variant with no
+// theta 1.0-reachable producer); it is materialised as a tool-error result fed back
 // to the model as the next turn, the round still counts against
 // `tool_loop.max_rounds`, and the loop continues (re-trying naturally on the
 // model's next turn). No `QueryError` reaches theta code unless the loop later

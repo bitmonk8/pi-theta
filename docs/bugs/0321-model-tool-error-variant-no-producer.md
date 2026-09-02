@@ -1,6 +1,6 @@
 # Bug 0321 — `ModelToolError` (`kind: "model_tool"`) is a nine-variant union member with no producer: `rg '"model_tool"' src/` matches only the union declaration, the SNK-d renderer arm, the runtime-event kind list, and a string helper — both documented firing conditions route elsewhere (absent tool → `isError` tool-result feedback, the loop continues; adapter/transport failure mid-loop → `TransportError` via the provider classifier), so the variant the spec says "can surface … exactly as for untyped queries" is author-unreachable at every seam
 
-- **Status:** open.
+- **Status:** fixed (0.345.0).
 - **Sev/Diff estimate:** S3/D3 — S3 because no wrong value binds and no
   failure is silenced: the inputs the spec assigns to `model_tool` all
   surface loudly, just under sibling variants (`isError` feedback consuming
@@ -211,6 +211,119 @@ Not yet decided; two spec-coherent directions needing adjudication:
 
 Either way: no change to the feedback rule, the transport fold's existing
 cells, or the renderer.
+
+## Fix (0.345.0)
+
+Direction 2 (retire the firing claims; the member becomes documented-reserved),
+adjudicated by the parent and shipped. The `## Fix` text above is the original
+filing and is preserved unedited; this section records what shipped.
+
+- Parent adjudication (verbatim): "Direction 2 — RETIRE THE FIRING CLAIMS; the
+  member becomes documented-reserved. Rationale: (i) post-0291 the transport
+  fold treats every loop-round provider failure uniformly with evidence-derived
+  retryable — splitting rounds by 'carried tool-results' would present the SAME
+  network blip as different variants depending on loop phase, forking the
+  transport taxonomy (the same anti-fork law as 0326's clamp adjudication), and
+  no decision rule can keep the two variants disjoint because the underlying
+  event class is identical; (ii) the absent-tool condition is covered by the
+  in-loop feedback rule the doc's own Non-goals marks correct; (iii) therefore
+  NO theta-1.0 input class remains for model_tool, and the honest disposition is
+  the documented-reserved wording on the last_tool_name|null precedent. The
+  union member, the schema block, the SNK-d row, the runtime-event kind, the
+  wire-kind list entry, and modelToolErrorKind() ALL STAY — ERR-15 forbids
+  tightening the closed set, and the renderer/event surfaces are correct as
+  written for forward compatibility and hand-built values. Spec edits: (a)
+  queryerror-variants.md's firing sentence → reserved wording that NAMES both
+  actual routes (absent tool → the in-loop feedback rule; turn-level
+  adapter/transport failures → transport classification per the fold); (b)
+  query-tool-loop.md → reworded to say tool-loop failures surface per the
+  transport classification / feedback rules, with model_tool reserved (no
+  theta-1.0-reachable case); (c) query-failure-and-repair.md's proximate list —
+  adjudicate in-lane whether model_tool leaves the proximate list or gains a
+  reserved parenthetical; (d) the 'may fail with model_tool mid-loop' sentence →
+  reworded to the transport disposition; (e) census src comments claiming
+  producibility — comment-only reconciliation where a comment LIES post-reword;
+  keep src churn comment-only and minimal. NO src operand changes at all. NO new
+  diagnostic. NO test flips expected. NO new test cell owed (nothing runtime
+  changes — docs + comments only); the locks are the existing suite (zero flips)
+  and the spec-prose review."
+
+- In-lane adjudication (c) — recorded choice: `model_tool` KEEPS its place in
+  the `query-failure-and-repair.md` proximate-failure list (the list's job is
+  propagation semantics over the closed union) and GAINS a reserved parenthetical
+  stating it is reserved with no theta-1.0-reachable producer, so it no longer
+  asserts producibility. This is the minimal edit that stops asserting
+  producibility while keeping the closed-set enumeration intact.
+
+- What shipped:
+  - `docs/spec_topics/errors-and-results/queryerror-variants.md` — the
+    `ModelToolError` firing sentence (`:110`) → reserved wording naming both
+    actual routes (absent tool → in-loop `isError` feedback; turn-level
+    adapter/transport failure → `TransportError` via the off-session fold). The
+    in-loop feedback rule sentences and the schema block (`:113–119`) are
+    byte-intact (§Non-goals) — §Fix (a).
+  - `docs/spec_topics/query/query-tool-loop.md` — QRY-13's `ModelToolError`
+    cross-ref clause and QRY-14's free-phase "can surface `ModelToolError`"
+    clause both reworded to reserved / routed-elsewhere wording — §Fix (b).
+  - `docs/spec_topics/query/query-failure-and-repair.md` — the QRY-11 proximate
+    list keeps `model_tool` with a reserved caveat (§Fix (c) choice above), and
+    the "may fail with `model_tool` mid-loop" edge-case sentence reworded to the
+    transport disposition — §Fix (d).
+  - `src/runtime/tool-call.ts` — two comments reconciled (the `modelToolErrorKind`
+    JSDoc and the depth-6 model-driven carrier block) from "reserved for
+    non-recoverable adapter-layer failures" / "the model-loop adapter failure
+    carries…" to "reserved variant with no theta 1.0-reachable producer"
+    framing; comment-only, line count preserved (815) — §Fix (e). No operand or
+    executable change.
+  - Bounded doc-only extension (recorded self-authorization; 0308 precedent):
+    five residual corpus sites that still asserted producibility or dangled
+    against the reworded target were reconciled to the same documented-reserved
+    framing — `docs/reference/errors-and-results.md` (§ModelToolError firing
+    paragraph, held at the same line count), `docs/spec_topics/query/query-failure-and-repair.md`
+    (`:11` six-variant sentence + `:13` counterpart sentence; `:13` is in this
+    doc's own §Affected list), `docs/spec_topics/tool-calls.md` (dangling
+    "reserved for the conditions enumerated in" cross-ref, `:36` — bug 0322's
+    `:27`/`:38` `unknown_tool` citations left untouched),
+    `docs/spec_topics/schema-subset.md` (table row #2 cross-ref),
+    `docs/spec_topics/pi-integration-contract/conversation-drive.md` (the
+    "stay live" list mirroring old QRY-14). All single-line→single-line, zero
+    assertion / executable / test change, no shift of any sibling bug's cited
+    line. Surfaced by review round 1's corpus census.
+
+- Gates: witness — census, not revert-to-red (a doc-only reword reds no test;
+  model_tool has no producer at HEAD, which is the bug): `rg -n 'kind:\s*"model_tool"'
+  src/` no matches, both routes re-confirmed by symbol (`lowerModelDrivenToolCall`
+  isError feedback; `classifyOffSessionReply` transport/overflow only). Full
+  default suite `npm test` 525 files / 9914 tests passed (baseline, post-fix,
+  post-reconcile — zero flips). `npm run typecheck` (tsc --noEmit) exit 0.
+  `npm run lint` (eslint) exit 0. permitted-codes.json hash byte-identical
+  (`a4a8da04209f90e13d815edd92c1fc682e2a2236`); LPA held at 14864 lines.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep) — 3 `spec` findings: residual
+  producibility claims / dangling cross-refs at the five corpus sites above;
+  recommended no deep re-review. Remediated by one `bug-fix-fixer` round. R2
+  (`bug-fix-reviewer-fast`) — CLEAN, no deep re-review recommended.
+- Verification: VERIFIED (`bug-fix-verifier`). (1) witness — census establishes
+  no producer at HEAD and the corpus no longer asserts firing; the ERR-15
+  surfaces stay green; (2) full suite 525/9914 green; (3) live — no live test
+  owed (docs+comments only; `rg model_tool tests/live/` zero hits; registration
+  and drive outcomes untouched); (4) typecheck + lint exit 0.
+- Residuals:
+  1. Test-comment framing (non-blocking, out of §Fix (e) src-only scope):
+     `tests/e2e-s5-slsh-chain-suffix.test.ts:25–27`/`:60–62` describe the
+     hand-built `model_tool` fixture as "the non-recoverable adapter-layer
+     failure that CAN surface a `QueryError` out of the loop". The fixtures
+     themselves are correct and blessed (test-fabricated `model_tool` values
+     exercise the renderer/SLSH-5 surfaces per 0177); only the descriptive
+     framing predates the reserved disposition. Left untouched: the parent
+     scoped (e) to src comments and the tests are locks (zero flips); a
+     comment-only follow-up may retouch them.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the in-loop feedback rule, the transport
+  fold's existing cells, and the renderer are unchanged (§Non-goals). The union
+  member, schema, SNK-d row, runtime-event kind, wire-kind, and
+  `modelToolErrorKind()` are retained per ERR-15 (documented-reserved, not
+  dropped). No producer minted (Direction 1 rejected). Bug 0291's
+  `retryable`/`http_status` pinning not re-claimed.
 
 ## Provenance
 

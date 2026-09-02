@@ -20,7 +20,9 @@
 //     envelope `cancelled`.
 //
 // THE COLLAPSE (pre-fix; the guard has since moved to
-// `src/runtime/effectful-statement-host.ts:453` under the fix below). The wrap
+// `src/runtime/effectful-statement-host.ts:507` under the fix below — line
+// drifted by bug 0322's unrelated `unknown-tool-error` outcome arm added
+// earlier in the same file). The wrap
 // seam `runInvokeEffect` read:
 //     if (outcome.source === "boundary-minted" || innerKind === "cancelled")
 //       return { ok: true, value: result };   // passes BARE

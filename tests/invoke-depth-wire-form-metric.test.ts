@@ -93,7 +93,7 @@
 // `enforceInvokeParamsDepth` through the shared `enforceInvokeDepth`
 // (`src/runtime/invoke-ceiling-depth.ts:136`), and `enforceCodeToolArgDepth`
 // (`src/runtime/tool-call.ts:610`). The parsed-JSON sites do NOT move and keep
-// `depthWalk`: `enforceModelToolArgDepth` (`tool-call.ts:743`) and the
+// `depthWalk`: `enforceModelToolArgDepth` (`tool-call.ts:772`) and the
 // typed-query-response gate (`src/runtime/query-tool-loop.ts:647`); so does the
 // binder slash-load `params` arm (`src/binder/defaulting.ts:146`), whose
 // defaults are already wire-projected upstream
@@ -829,7 +829,7 @@ describe("bug 0202 SITE SCOPE — what stays on the parsed-JSON metric", () => {
 
   it("CONTROL (SITE-SCOPE-MODEL-DRIVEN): the model-driven tool-args gate still breaches on a carrier (green now, green after)", () => {
     // THIS CELL PINS THE SITE-SCOPE BOUNDARY, NOT A REACHABLE BEHAVIOUR.
-    // `enforceModelToolArgDepth` (`src/runtime/tool-call.ts:743`) keeps
+    // `enforceModelToolArgDepth` (`src/runtime/tool-call.ts:772`) keeps
     // `depthWalk` because every one of its call sites is handed a model-produced
     // argument document — parsed JSON, in which a boxed `String` cannot occur.
     // Read from source: `src/extension/production-theta-producer.ts:2932`

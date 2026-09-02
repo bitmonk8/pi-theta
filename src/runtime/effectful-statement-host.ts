@@ -409,6 +409,12 @@ async function runToolCallEffect(
     // the same shape as the depth breach above — an `Err(CodeToolError)` value
     // with no dispatch, not a failed operation.
     case "arg-schema-error":
+    // Bug 0322 §Fix (settled route: mint-at-the-seam): a dispatch-time
+    // snapshot miss surfaces its wrapped `Err(CodeToolError { cause:
+    // "unknown_tool" })` as the tool-call expression's value — the call never
+    // dispatched. Same shape as the arms above: the `Err` value flows through,
+    // not a failed operation.
+    case "unknown-tool-error":
       return { ok: true, value: outcome.result };
     case "return-shape-defect":
       // V14c non-conforming return shape (host-interfaces-core.md §"Tool

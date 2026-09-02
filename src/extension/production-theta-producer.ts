@@ -165,6 +165,7 @@ import type {
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
 import {
   buildCodeToolArgSchemaViolation,
+  buildCodeToolUnknownTool,
   enforceCodeToolArgDepth,
   enforceModelToolArgDepth,
   PiToolArgShapeDefectError,
@@ -3366,9 +3367,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `CodeSideToolCall` whose `dispatch()` invokes the resolved host tool's
    * `execute(...)` (V14g lowering turns a clean resolve into `Ok(text)`, a throw
    * into `Err(CodeToolError{cause:"execution"})`). A callable name that is NOT
-   * in the set (or resolves to no host tool) throws `UnknownHostToolError` from
-   * `dispatch()`, lowering to the code-tool `Err` rather than executing an
-   * ambient host tool or fabricating a value.
+   * in the set, with the subagent-root regime INACTIVE, is a dispatch-time
+   * snapshot miss (bug 0322 §Fix): the returned `CodeSideToolCall` carries the
+   * `unknownHostTool` carrier, so `runCodeSideToolCall` surfaces
+   * `Err(CodeToolError{cause:"unknown_tool"})` and NEVER calls `dispatch()` at
+   * all. With the regime ACTIVE, the same missing name routes through the
+   * PIC-58 dispatch ladder instead (unchanged; see `dispatch()` below), which
+   * can still throw `UnknownHostToolError` on its own fail-closed rungs.
    */
   #resolveToolCall(
     theta: ConversationBindInput["theta"],
@@ -3409,6 +3414,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? this.#checkPiToolArgSchema(toolName, tool?.parameters, params)
         : undefined;
     const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
+    // Bug 0322 §Fix (settled route: mint-at-the-seam): decide the disposition of
+    // an un-snapshotted callee HERE, at resolve time, not inside the `dispatch()`
+    // closure. The regime-INACTIVE half is a dispatch-time snapshot miss with no
+    // theta-1.0-reachable path from a REGISTERED theta (parse rejects an
+    // out-of-scope callee; load-time admission froze every `tools:` name into
+    // the snapshot) — mint the typed `unknown_tool` carrier so
+    // `runCodeSideToolCall` short-circuits without ever calling `dispatch()`.
+    // The regime-ACTIVE half is untouched (PIC-58 ladder, a non-goal here) and
+    // stays inside `dispatch()` below.
+    const regime = this.#input.subagentRootRegime ?? { active: false as const };
+    const unknownHostTool =
+      tool === undefined && !regime.active ? buildCodeToolUnknownTool(toolName) : undefined;
     return {
       toolName,
       committed: [],
@@ -3416,6 +3433,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? { argDepthBreach: { result: argDepthBreach.result, error: argDepthBreach.error } }
         : {}),
       ...(argSchemaViolation !== undefined ? { argSchemaViolation } : {}),
+      ...(unknownHostTool !== undefined ? { unknownHostTool } : {}),
       dispatch: (): Promise<AgentToolResultEnvelope> => {
         // PIC-64 (#subagent-host-loop-dispatch): an EXTENSION tool's snapshot
         // entry pins only the tool's name + `parameters` schema — the public
@@ -3438,8 +3456,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           //  - regime inactive (parent): the backing session is the USER's
           //    live session carrying the full ambient tool set — routing an
           //    un-snapshotted name through the host loop could execute an
-          //    ambient tool the theta never declared, so the QTL-2 rejection
-          //    stands.
+          //    ambient tool the theta never declared, so this path is
+          //    resolved BEFORE `dispatch()` is ever built (bug 0322 §Fix): the
+          //    caller sees the `unknownHostTool` carrier on the returned
+          //    `CodeSideToolCall` and this branch is unreachable for that half —
+          //    kept only so the regime-active half below stays inside the same
+          //    `if (tool === undefined)` shape.
           //  - regime active (subagent-root child): PIC-58 bounds the child
           //    session's tools to the callable set's HOST-tool half (the
           //    `--tools` allowlist derived from the same snapshot — `.theta`
@@ -3449,12 +3471,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           //    fail-closed isError no-result) and stays the PIC-64 rung-3
           //    fail-closed floor the child-leg wiring suites drive, never a
           //    fabricated value.
-          const regime = this.#input.subagentRootRegime ?? { active: false as const };
           if (regime.active) {
             return this.#dispatchExtensionToolViaLadder(toolName, params, signal);
           }
-          return Promise.reject(
-            new UnknownHostToolError(`code-side call names no resolvable host tool '${toolName}'`),
+          // Unreachable: `unknownHostTool` is set above whenever
+          // `tool === undefined && !regime.active`, so `runCodeSideToolCall`
+          // short-circuits on that carrier before `dispatch()` is ever called.
+          // A synchronous throw (not a rejected Promise) is fine here — the
+          // only purpose is keeping `tool` narrowed non-undefined for the
+          // checks below and `UnknownHostToolError` alive as a used class (the
+          // PIC-58 ladder still throws it on its own fail-closed rungs).
+          throw new UnknownHostToolError(
+            `code-side call names no resolvable host tool '${toolName}'`,
           );
         }
         if (typeof tool.execute !== "function") {
