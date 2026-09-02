@@ -891,7 +891,7 @@ async function runComposePass(
   // INV-4 (invocation.md §Cycle detection): build the per-load-pass
   // static-resolution invoke graph across the parsed thetas once, so the cycle
   // walk below runs per entry against a shared graph.
-  const invokeGraph = buildInvokeGraph(parsedInputs);
+  const invokeGraph = await buildInvokeGraph(parsedInputs, fileSystem);
 
   // capability-probe.md Step 0 (f): the subagent-executable-resolution probe.
   // Run the executable-resolution ladder ONCE per pass (the host snapshot is

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.359.0]
+
+### Fixed
+
+- **Bug 0362** — the invoke cycle graph dropped case-variant edges on case-insensitive hosts: graph nodes and resolved edge callees were keyed on the reference's spelling, so an `a⇄b` cycle spelled through case variants split into distinct nodes and cycle detection never saw the edge. PARENT ADJUDICATION Option (b) (recorded, selecting among the doc's enumerated options on measured evidence: the lane's re-derivation proved option (a)'s feasibility premise false — reusing containment's per-input `canonicalPath` forces deferring cycle detection into a second compose pass, a restructure the doc understated [doc-was-wrong note in the fix record]; (b) applies the SAME `canonicalizePath` discipline bug 0361 landed at the import face — one canonicalisation mechanism, 0326 anti-fork — at ~15 lines): `buildInvokeGraph` is now async over `fs.realpath`, minting both node keys and resolved edge callees through `canonicalizePath` with the sanctioned `.then(ok, err)` fallback preserving leaf termination; one production call-site await; the single ratified mechanical test flip (`tool-arg-parse-checks.test.ts` sync→await). Witnessed by `tests/b0362-case-variant-invoke-cycle-edge.test.ts` (real-NTFS case-variant cycle red at fork with the control cycle green; both host branches loud). Live: `b0146live` (a real compose root through the now-async builder + real subagent spawn) 2/2 green under the lock.
+
 ## [0.358.0]
 
 ### Fixed

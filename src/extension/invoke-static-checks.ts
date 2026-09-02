@@ -80,7 +80,7 @@ import {
   detectInvocationCycle,
   type InvokeGraph,
 } from "../runtime/invoke-depth-cycle";
-import { checkInvokePathAtLoad } from "../runtime/invocation";
+import { canonicalizePath, checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
@@ -368,16 +368,39 @@ function resolveCalleeAbsolute(callerPath: string, literalPath: string): string 
  * Build the per-load-pass static-resolution invoke graph across the discovered,
  * successfully-parsed thetas (invocation.md §Static resolution / §Cycle
  * detection). Nodes are discovered slash names; an edge `A → B` exists when
- * `A.theta` has a literal `invoke("./B.theta")` resolving (byte-exact absolute
- * path) to a discovered theta `B`. Edges to non-discovered callees are dropped —
- * a cycle routed only through undiscovered files is not detected until they are
- * discovered (the spec's leaf-termination rule).
+ * `A.theta` has a literal `invoke("./B.theta")` resolving to a discovered theta
+ * `B`. Edges to non-discovered callees are dropped — a cycle routed only through
+ * undiscovered files is not detected until they are discovered (the spec's
+ * leaf-termination rule).
+ *
+ * Both the node keys and the resolved edge callees are minted through
+ * `canonicalizePath` (`realpath`), so an `invoke(...)` literal whose directory
+ * spelling differs only in case from the discovered path matches its node on a
+ * case-insensitive host — the same `realpath` identity every sibling consumer
+ * of this pass (INV-1 containment, the realpath-keyed parse cache) compares
+ * under (invocation.md §Static resolution; `src/runtime/invocation.ts`). A
+ * byte-exact string match would silently drop that edge and withhold the
+ * mandated `theta/load/invocation-cycle` refusal (bug 0362). A `realpath`
+ * rejection (a callee removed between discovery and here, or an in-memory FS
+ * double whose realpath rejects) falls back to the separator-normalised
+ * spelling — the pre-canonicalisation identity — so a non-existent callee
+ * matches no discovered node and its edge drops, preserving leaf-termination.
+ * The `.then(ok, err)` arm is the sanctioned I/O-boundary pattern, not a broad
+ * catch (mirrors bug 0361's import-resolver canonicalisation).
  */
-export function buildInvokeGraph(inputs: readonly ThetaCompositionInput[]): InvokeGraph {
+export async function buildInvokeGraph(
+  inputs: readonly ThetaCompositionInput[],
+  fs: Pick<FileSystem, "realpath">,
+): Promise<InvokeGraph> {
+  const canonical = (path: string): Promise<string> =>
+    canonicalizePath(fs, path).then(
+      (real) => real,
+      () => normalizePath(path),
+    );
   const byPath = new Map<string, string>();
   for (const input of inputs) {
     if (input.sourcePath !== undefined) {
-      byPath.set(normalizePath(input.sourcePath), input.slashName);
+      byPath.set(await canonical(input.sourcePath), input.slashName);
     }
   }
   const edges = new Map<string, string[]>();
@@ -386,7 +409,7 @@ export function buildInvokeGraph(inputs: readonly ThetaCompositionInput[]): Invo
     const targets: string[] = [];
     for (const invoke of collectInvokeExprs(input.body)) {
       if (invoke.path.length === 0 || !invoke.path.endsWith(".theta")) continue;
-      const abs = resolveCalleeAbsolute(input.sourcePath, invoke.path);
+      const abs = await canonical(resolveCalleeAbsolute(input.sourcePath, invoke.path));
       const targetName = byPath.get(abs);
       if (targetName !== undefined) targets.push(targetName);
     }

@@ -1,6 +1,6 @@
 # Bug 0362 — `buildInvokeGraph` matches an `invoke` edge to a discovered theta by byte-exact path string, so a case-variant directory spelling inside the literal drops the edge on a case-insensitive host: a physical `a ⇄ b` invocation cycle loads with zero diagnostics — containment and arity both pass on the same spelling — and INV-4's "unreachable" runtime depth panic becomes the first observable
 
-- **Status:** open.
+- **Status:** fixed (0.359.0).
 - **Sev/Diff estimate:** S2/D1 — S2: a mandated parse-time refusal
   (`theta/load/invocation-cycle`) is withheld for an input class the walk's own
   sibling checks accept and the runtime executes; the failure mode the spec
@@ -172,3 +172,52 @@ windows-paths bug-hunt sweep, af476df2 (v0.347.0). Probe:
 NTFS scratch root via `PiFileSystem`, `buildInvokeGraph` +
 `checkInvokeStaticResolution` over variant and control cycle pairs; output as
 quoted in §Reproduction.
+
+## Fix (0.359.0)
+
+- What shipped: `src/extension/invoke-static-checks.ts` — `buildInvokeGraph`
+  is now `async` and takes `fs: Pick<FileSystem, "realpath">`; both the graph
+  node keys and each resolved edge callee are minted through the existing
+  `canonicalizePath` (`realpath`), the same identity every sibling consumer of
+  the static-resolution pass compares under (invocation.md §Static resolution;
+  `src/runtime/invocation.ts`). A `realpath` rejection falls back to the
+  separator-normalised spelling (leaf-termination preserved) via the sanctioned
+  `.then(ok, err)` I/O-boundary arm — the same discipline bug 0361 landed at the
+  import-resolver boundary (0326 anti-fork: one canonicalisation across both
+  faces). `src/extension/production-composition.ts:894` — the sole production
+  call site awaits the async builder with the in-scope `PiFileSystem`.
+- Gates: witness `tests/b0362-case-variant-invoke-cycle-edge.test.ts` red at
+  fork (canonicalisation neutralised → variant `a ⇄ b` cycle undetected,
+  "expected false to be true"; control `c ⇄ d` stayed green) → green after;
+  full default suite 534 files / 10040 tests passed; `npm run typecheck` exit 0;
+  `npm run lint` exit 0.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec
+  finding; two non-blocking residuals: a banned prose adverb in a test comment,
+  since removed, and a test sentinel whose loud-throw is structurally unreachable on
+  the empty-input `buildInvokeGraph([])` — mirrors the file's ratified D-cell
+  idiom).
+- Verification: SOLID — witness reds for the doc's symptom and restores green
+  (byte-exact, `git stash list` empty); full suite 534/10040 green; lint +
+  typecheck exit 0; live run by the orchestrator (b0146live 2/2 green) under the
+  campaign live lock, not by the verifier.
+- Live: `tests/live/b0146live-invoke-array-arg-live-cell.test.ts` (2/2 green) —
+  the invoke-face adjacent live cell. It drives the REAL production composition
+  root (`discoverAndComposeFixtures` → the now-async `buildInvokeGraph` →
+  `checkInvokeStaticResolution`) plus a real RFC-0006 subagent spawn, witnessing
+  the async-builder flip is live-clean. WHY this cell: the case-variant-cycle
+  observable is proven deterministically offline by `tests/b0362-*` (a bespoke
+  case-variant-cycle live cell would need NTFS scratch fixtures this doc does not
+  mandate); the live obligation here is to prove the compose-path flip did not
+  regress live invoke composition, which b0146live witnesses directly.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the doc RECOMMENDED option (a) (reuse the
+  containment check's per-site `canonicalPath`) but kept option (b) live. The
+  parent adjudicated (b) on measured evidence: (a)'s "sync today / zero extra
+  realpath" premise is false against current code — reusing containment's
+  per-input `canonicalPath` forces deferring cycle detection out of
+  `checkInvokeStaticResolution` into a second compose pass, a restructure the doc
+  understated (DOC-WAS-WRONG note). (b) is ~15 lines + one mechanical call-site
+  update, uses the same `canonicalizePath` mechanism 0361 landed (0326 anti-fork),
+  and is behaviourally identical. The `tools:` `.theta`-entry cycle surface and
+  the `.thetalib` import-cycle detector remain out of scope (§Non-goals).

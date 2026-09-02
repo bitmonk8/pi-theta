@@ -734,7 +734,14 @@ async function composeCheck(src: string): Promise<readonly Diagnostic[]> {
       },
     },
     activeRoots: [],
-    graph: buildInvokeGraph([]),
+    graph: await buildInvokeGraph([], {
+      realpath: (): Promise<string> => {
+        throw new Error(
+          "unmet precondition: buildInvokeGraph([]) has no inputs, so it must " +
+            "never reach realpath; a D cell routed a discovered input through it",
+        );
+      },
+    }),
     resolveCalleeArity: (): Promise<undefined> => {
       throw new Error(
         "unmet precondition: a D cell reached the callee-arity seam; these " +
