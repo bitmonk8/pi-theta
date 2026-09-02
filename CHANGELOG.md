@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.356.0]
+
+### Fixed
+
+- **Bug 0357** — `scanDocComments` classified a `///` run's anchor by the NEXT LINE'S LEADING WORD against the three-member set `schema`/`enum`/`fn`, so the two body-interior anchors the placement rule admits (a field within an object-schema body, a variant within an `enum` body) and the modifier-prefixed `subagent fn` all classified `"other"` and drew `theta/parse/doc-comment-misplaced` — the canonical example in descriptions.md was a four-error load failure, and one field `///` in a `.thetalib` killed every importer. PARENT ADJUDICATION (Option B-lite, recorded): the anchor verdict is now derived STRUCTURALLY from the parsed AST — the new pure `classifyDocAnchor(statements, anchorLine)` maps an exact declaration start to schema/enum/fn (including `SubagentMod`), a body-interior line to field/variant by range containment, anything else to other — no parallel lexical brace model (Option A's drift risk), no lexer change (full Option B's blast radius), and the `///`-run→AST association sibling 0358 will need is laid. `checkDocCommentPlacement` (descriptions.ts) stays the byte-identical authority — its `field`/`variant` arms are now REACHABLE; the registry row, message bytes, and misplaced controls (let/import/export/block-interior, `///` at EOF, `////`) are unchanged; the name-sensitivity defect dies (a field spelled `fn:` and one spelled `language:` classify identically). The invited one-line drift reconciliation lands: spec-topics `grammar.md`'s `FnDecl` gains `SubagentMod?` matching the reference grammar. Witnessed by `tests/b0357-doc-comment-field-variant-anchors.test.ts` (24 cells — fixtures A/B/C/D end-to-end incl. registration via the composition rig, the `fn:`-field name-insensitivity probe, all controls; 8 red at fork naming doc-comment-misplaced) and the NEW bespoke H9a acceptance cell `tests/live/acceptance/b0357-doc-comment-anchor-registration.test.ts` (a theta carrying field + variant `///`s REGISTERS and drives `777` through a real `pi -p`; red-proven at fork, green under the lock). Residual recorded: spec-topics `FnDecl` still lacks the `WithClause?` definition — named follow-up, parent-bounded.
+
 ## [0.355.0]
 
 ### Fixed

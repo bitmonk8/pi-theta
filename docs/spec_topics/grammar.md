@@ -135,7 +135,7 @@ A statement-form `if` / `for` / `while` (the `IfStmt` / `WhileStmt` / `ForStmt` 
 <a id="fn-declarations"></a>
 
 ```
-FnDecl       ::= "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody
+FnDecl       ::= SubagentMod? "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody
 FnParams     ::= FnParam ("," FnParam)* ","?
 FnParam      ::= Ident (":" Type)?
 ```

@@ -948,7 +948,7 @@ export function parseThetaDocument(
   // merged into the statement list in source order; each run's placement is
   // delegated to V5c's `checkDocCommentPlacement` over the following
   // production.
-  const docScan = scanDocComments(split.bodyText, file);
+  const docScan = scanDocComments(split.bodyText, file, body.statements);
   const mergedStatements = mergeByLine(body.statements, docScan.nodes);
 
   // V13b integration — resolve each INDIRECT typed query's response schema from
@@ -1600,13 +1600,66 @@ function splitFrontmatter(text: string): {
 // --------------------------------------------------------------------------
 
 /**
+ * Classify a `///` run's anchor by RANGE LOOKUP against the already-parsed
+ * top-level statement list, per descriptions.md §Placement / grammar.md §`///`
+ * placement (five eligible anchors: `schema`, `enum`, schema field, enum
+ * variant, `fn`). The verdict is structural — a range containment test —
+ * rather than a leading-word sniff, because a field or variant line leads
+ * with its own NAME, not a keyword, so no lexical test can place it: `Low,`
+ * and `language: string,` carry no shared prefix an eligible-set match could
+ * key on, and their only distinguishing fact is that a schema/enum DECLARATION
+ * encloses their line.
+ *
+ * Two passes, in this order, because a declaration HEAD line and a BODY
+ * INTERIOR line need different tests and a line can satisfy only one:
+ *   1. exact start: `anchorLine` IS a declaration's first line — `schema`,
+ *      `enum`, or `fn` (reference/grammar.md:311 `FnDecl ::= SubagentMod?
+ *      "fn" …`, so a `subagent fn` head-line still classifies `"fn"`).
+ *   2. body interior: `anchorLine` falls strictly inside a schema/enum
+ *      declaration's range (after its head, at/before its closing `}`) — a
+ *      field row (only when the schema is the object form, `fields` present;
+ *      the alias/`by` forms carry no field list to anchor against) or a
+ *      variant row.
+ * Anything neither pass matches — `let`, `import`, `export`, expression /
+ * control-flow statements, or a line past the last statement (EOF) — is
+ * `"other"`.
+ */
+function classifyDocAnchor(
+  statements: readonly Stmt[],
+  anchorLine: number | undefined,
+): string {
+  if (anchorLine === undefined) {
+    return "other";
+  }
+  for (const stmt of statements) {
+    if (stmt.range.start.line === anchorLine) {
+      if (stmt.kind === "schema") return "schema";
+      if (stmt.kind === "enum") return "enum";
+      if (stmt.kind === "fn") return "fn";
+    }
+  }
+  for (const stmt of statements) {
+    if (stmt.range.start.line < anchorLine && anchorLine <= stmt.range.end.line) {
+      if (stmt.kind === "schema" && stmt.fields !== undefined) return "field";
+      if (stmt.kind === "enum") return "variant";
+    }
+  }
+  return "other";
+}
+
+/**
  * Recover `///` doc-comment runs from the body text (the lexer emits no
  * comment tokens) and delegate each run's placement to V5c's
- * `checkDocCommentPlacement` over the following production's leading keyword.
+ * `checkDocCommentPlacement`. The anchor is derived structurally, by range
+ * lookup against the already-parsed statement list (`classifyDocAnchor`), not
+ * by sniffing the following line's leading word — the leading word cannot
+ * distinguish a schema field or enum variant (which lead with their own name)
+ * from any other statement.
  */
 function scanDocComments(
   bodyText: string,
   file: string,
+  statements: readonly Stmt[],
 ): { nodes: DocComment[]; diagnostics: Diagnostic[] } {
   const lines = bodyText.split("\n");
   const nodes: DocComment[] = [];
@@ -1636,23 +1689,21 @@ function scanDocComments(
     };
     nodes.push({ kind: "doc-comment", lines: content, range });
 
-    // The anchored production is the next non-blank, non-comment line's leading
-    // word. `schema` / `enum` / `fn` are eligible anchors; every other
-    // production (`let`, `import`, `export`, expression / control-flow
-    // statements) is `theta/parse/doc-comment-misplaced`.
-    let production = "";
+    // The anchor line is the next non-blank, non-comment line's 1-indexed
+    // line number — NOT its leading word (a field or variant line leads with
+    // its own name, which the classifier must not read). `undefined` when no
+    // such line exists (EOF): `classifyDocAnchor` maps that to "other", so a
+    // trailing `///` with no following production stays misplaced.
+    let anchorLine: number | undefined;
     for (let j = i; j < lines.length; j += 1) {
       const raw = lines[j] ?? "";
       if (raw.trim() === "" || /^[ \t]*\/\//.test(raw)) {
         continue;
       }
-      production = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(raw)?.[1] ?? "other";
+      anchorLine = j + 1;
       break;
     }
-    const anchor =
-      production === "schema" || production === "enum" || production === "fn"
-        ? production
-        : "other";
+    const anchor = classifyDocAnchor(statements, anchorLine);
     const diag = checkDocCommentPlacement(anchor, { file, range });
     if (diag !== undefined) {
       diagnostics.push(diag);

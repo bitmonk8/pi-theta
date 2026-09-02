@@ -1,6 +1,6 @@
 # Bug 0357 — `scanDocComments` classifies the doc-comment anchor by the next line's leading word against the three-member set `schema`/`enum`/`fn`, so a `///` above a schema field, an enum variant, or a `subagent fn` — three anchors the placement rule admits — draws error `theta/parse/doc-comment-misplaced` and the theta is refused registration: the canonical example in descriptions.md is a four-error load failure
 
-- **Status:** open.
+- **Status:** fixed (0.356.0).
 - **Sev/Diff estimate:** S2/D2 — every theta that uses the field- or
   variant-level description feature the spec documents (its own worked
   example included) fails to load with a wrong-cause error; in a `.thetalib`
@@ -258,7 +258,9 @@ committed-fixture parse gate therefore cannot see it, and
 
 ## Fix
 
-Not yet decided; constraints any fix must satisfy:
+Settled (parent adjudication): **Option B-lite — AST-range anchor
+classification** (recorded in the `## Fix (0.356.0)` section below). The
+constraints the shipped fix satisfies:
 
 1. `///` immediately above a field inside an object-`schema` body, a
    variant inside an `enum` body, an (optionally `subagent`-modified)
@@ -279,6 +281,55 @@ Not yet decided; constraints any fix must satisfy:
 5. Witness: fixture A end-to-end (zero diagnostics AND registration), the
    name-sensitivity probe, `subagent fn`, and the misplaced controls — all
    offline through `parseDoc` + `discoverAndComposeFixtures`.
+
+## Fix (0.356.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — new pure `classifyDocAnchor(statements,
+    anchorLine)` derives the `///` anchor STRUCTURALLY by AST-range lookup
+    against the already-parsed statement list (§Fix constraints 2/3): exact
+    declaration-start → `schema`/`enum`/`fn` (a `subagent fn` head-line
+    included — `FnDecl` spans from the `fn` keyword); a line strictly inside an
+    object-`schema` body (`fields` present) → `field`; inside an `enum` body →
+    `variant`; EOF / anything else → `other`. `scanDocComments` now takes
+    `body.statements` and captures the next non-blank/non-comment line's
+    1-indexed NUMBER instead of its leading word; the call site (post-parse,
+    the AST already in scope) passes `body.statements`. `checkDocCommentPlacement`
+    (`descriptions.ts`) is UNTOUCHED — its `field`/`variant` arms are now
+    reachable; five-arm contract, registry row and message bytes unchanged
+    (§Fix constraint 4).
+  - `docs/spec_topics/grammar.md` — the `FnDecl` production gains `SubagentMod?`,
+    reconciling the spec-internal drift the §Non-goals noted (matches
+    `docs/reference/grammar.md:311`).
+- Gates:
+  - Witness: `npx vitest run tests/b0357-doc-comment-field-variant-anchors.test.ts`
+    → 24/24 (RED 8/24 at the fork, incl. the four canonical-example misplaced
+    verdicts + the 0-runnable registration flips; GREEN after).
+  - Full default suite: `npx vitest run` → 531 files / 10044 tests passed.
+  - Typecheck `npm run typecheck` and lint `npm run lint`: clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec
+  finding); residuals R1 (unpinned range-precision corners) folded in as
+  characterization rows, R2 (`WithClause?` in spec-topics grammar) left as
+  named out-of-scope follow-up.
+- Verification: SOLID — witness reds when the body-interior pass is neutered and
+  greens byte-exact on restore; full suite green; live recorded; lint+typecheck
+  clean.
+- Residuals:
+  1. The spec-topics `FnDecl` reconciliation adds only `SubagentMod?`; the
+     reference production `docs/reference/grammar.md:311` also carries
+     `WithClause?`, and `SubagentMod` has no in-file definition (the reference
+     appendix at :312 defines it; functions.md owns the subagent surface). The
+     parent bounded this edit to the one authorized line; the `WithClause?` /
+     `SubagentMod` definition drift is named follow-up, not this fix's subject.
+  2. A `///` directly above a bare closing `}` now draws nothing (a lost error
+     on a comment documenting nothing), a deliberate consequence of the
+     inclusive body-interior upper bound required so a last field/variant on the
+     `}` line still anchors; pinned as a characterization row. Same tolerated
+     looseness family as the §Non-goals interposition note.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the §Non-goals hold — this fix makes
+  field/variant descriptions LOAD, not LOWER (bug 0358); `///` at EOF stays
+  misplaced (a control pins it); `////` stays a regular comment.
 
 ## Provenance
 
