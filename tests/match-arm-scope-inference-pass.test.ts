@@ -1483,11 +1483,22 @@ describe("bug 0145 (f) — the runtime disposition of each refused row's control
     ).toBe("hi");
   });
 
-  it("PIN f8: c2's source (c1's control) runs to success with the value `\"t\"`", async () => {
-    expect(
-      await runValue("f8", 'if match "hi" { x => x } { let z = 1 }\n"t"\n'),
-      "c1 refuses this condition as `condition must be boolean; got integer` when a `let x = 1` precedes it. The bug document's group-(f) row for c2 records that the condition row is not a runtime failure either way: the body runs to completion and the theta's final value is the trailing `\"t\"`. Green in both directions",
-    ).toBe("t");
+  it("PIN f8: c2's source aborts loudly — bug 0369's boolean-position belt rejects the laundered non-boolean condition", async () => {
+    // SUBJECT PRESERVED: this row's subject is bug 0145's match-arm scope
+    // inference and its vehicle is the CONDITION position; both are kept. The
+    // condition `match "hi" { x => x }` still exercises the arm binder `x`,
+    // and the belt's `got string` kind-evidence witnesses that the binder
+    // bound and produced the string — a broken scope inference would surface
+    // as an unknown-identifier/resolution failure, never as a string reaching
+    // boolean position, so the outcome assertion still measures the arm
+    // scope. The OUTCOME flips: bug 0369's runtime belt now makes a laundered
+    // non-boolean condition a loud defect (theta/runtime/internal-error)
+    // instead of the former silent steer-false. Re-anchored under parent
+    // ratification (0.350.0); the flip set is exactly this row.
+    await expect(
+      startRun("f8", 'if match "hi" { x => x } { let z = 1 }\n"t"\n'),
+      "c1 refuses this condition as `condition must be boolean; got integer` when a `let x = 1` precedes it; c2 — this source — is silent at parse because the arm binder makes the scrutinee type unresolvable. The string `\"hi\"` therefore reaches the runtime boolean position, where bug 0369's BooleanPositionKindDefectError aborts naming the offending kind. The `got string` framing is the subject linkage: the arm binder `x` bound and produced the string that reached boolean position",
+    ).rejects.toThrow(/boolean-position operand .* requires a boolean, got string/);
   });
 
   it("PIN f9: c6's source (c5's control) ABORTS on the string receiver — bug 0136's cost, not this fix's subject", async () => {

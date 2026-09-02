@@ -1079,3 +1079,7 @@ observable is determined inside one parse or one `executeBody`.
   `docs/spec_topics/governance/source-language-stability.md:5`, `:9`. Mirrors:
   `docs/reference/diagnostics.md:70`, `:80`, `:82`, `:86`, `:92`, `:100`,
   `:109`, `:110`, `:124`, `:165`.
+
+## Note (2026-09-02, 0.350.0)
+
+PIN f8 (`if match "hi" { x => x } { … }`, `tests/match-arm-scope-inference-pass.test.ts`) had its OUTCOME assertion re-anchored to bug 0369's boolean-position runtime belt (0.350.0) under parent ratification. The condition launders a non-boolean through the match arm binder (the scrutinee type is statically unresolvable, so the boolean-position gate defers), and bug 0369 now makes that laundered non-boolean a loud runtime defect instead of a silent steer-false. The match-arm scope-inference SUBJECT of this row is preserved and is witnessed via the belt message's kind evidence (`… got string`): the arm binder `x` bound and produced the string that reached boolean position — a broken scope inference would surface as an unknown-identifier/resolution failure, never as a string in boolean position. No other row changed.

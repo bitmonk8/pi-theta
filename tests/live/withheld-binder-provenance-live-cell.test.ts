@@ -21,8 +21,16 @@
 // TWO HALVES:
 //   (i) CLEAN — a theta whose body reads a match-arm binder into a position
 //       where the withhold gate defers (the join-element gate over
-//       `match 1 { n => [n] }.join(",")`, measured offline at HEAD to report
-//       `[]`) LOADS CLEANLY, REGISTERS, and drives ONE real turn. The prompt is
+//       `match "hi" { x => [x] }.join(",")`, measured offline at HEAD to
+//       report `[]`) LOADS CLEANLY, REGISTERS, and drives ONE real turn. The
+//       carrier's scrutinee/binder were re-anchored from an integer (`1`/`n`)
+//       to a string (`"hi"`/`x`) under parent ratification when bug 0366's
+//       runtime `join` element belt landed — the binder is withheld
+//       regardless of scrutinee type, so the withhold-provenance subject this
+//       cell measures (a match-arm binder's element type is withheld, so the
+//       join gate defers) is preserved exactly; only the incidental runtime
+//       coercion of an integer element (a premise bug 0366 now forbids) is
+//       removed. The prompt is
 //       an ARITHMETIC DISCRIMINATOR (never a "reply with exactly this string"
 //       sentinel echo — models refuse bare sentinel echoes, and AGENTS.md's
 //       "sentinel-refusal hardening" names the resulting red a false
@@ -138,21 +146,27 @@ const CLEAN_STEM = "b0143liveclean";
 const CONTROL_STEM = "b0143livecontrol";
 
 /**
- * CLEAN — the fixed-path shape. `match 1 { n => [n] }` reads its pattern
- * binder `n` through the settled fix's mint site (the type layer's own
+ * CLEAN — the fixed-path shape. `match "hi" { x => [x] }` reads its pattern
+ * binder `x` through the settled fix's mint site (the type layer's own
  * `matchArmScope`, ./type-layer-checks.ts, which this join-element position
  * exercises via `checkMethodCall`'s withhold gate); measured offline at HEAD
- * to report zero diagnostics. `18 + 24` is the fixture's fixed arithmetic
- * oracle (42) — an ARITHMETIC DISCRIMINATOR prompt, not a sentinel echo, per
- * AGENTS.md's sentinel-refusal hardening.
+ * to report zero diagnostics. The carrier's scrutinee/binder were
+ * re-anchored from an integer (`1`/`n`) to a string (`"hi"`/`x`) under parent
+ * ratification when bug 0366's runtime `join` element belt landed: the
+ * binder is withheld regardless of scrutinee type, so the withhold subject
+ * (a match-arm binder's element type is withheld, so the join gate defers)
+ * is preserved exactly, while the runtime `join` no longer relies on the
+ * integer-to-string coercion bug 0366 forbids. `18 + 24` is the fixture's
+ * fixed arithmetic oracle (42) — an ARITHMETIC DISCRIMINATOR prompt, not a
+ * sentinel echo, per AGENTS.md's sentinel-refusal hardening.
  */
 const CLEAN_THETA =
   [
     "---",
     "mode: prompt",
     "---",
-    "// bug 0143 join-element withhold-gate live carrier",
-    'let q = match 1 { n => [n] }.join(",")',
+    "// bug 0143 join-element withhold-gate live carrier (string element, re-anchored from an integer under parent ratification, bug 0366 belt)",
+    'let q = match "hi" { x => [x] }.join(",")',
     "@`What is 18 + 24? Reply with only the resulting integer digits and nothing else.`",
   ].join("\n") + "\n";
 

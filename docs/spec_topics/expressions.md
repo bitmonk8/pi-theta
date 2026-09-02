@@ -58,7 +58,7 @@ A call whose winning arm is (1) — a local `let` binding or function parameter,
 
 ## Truthiness
 
-Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is `theta/parse/non-boolean-condition`; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity.
+Only `true` and `false` are accepted in boolean position (`if`, `while`, `&&`, `||`, `!`, ternary condition). Using a non-boolean (`if (x)` where `x: string`) is `theta/parse/non-boolean-condition`; write `if (x != "")`, `if (xs.length > 0)`, etc. This avoids the JS empty-string / zero / `null` ambiguity. A boolean-position value that evades this parse refusal by static unresolvability and turns out non-boolean at runtime aborts loudly (`theta/runtime/internal-error`) rather than steering to the false arm or coercing under `!`.
 
 ## Evaluation order and short-circuiting
 
@@ -105,7 +105,7 @@ The first vector exercises both the "Replaces all occurrences" clause and litera
 | Member | Signature | Semantics |
 |---|---|---|
 | `length` | `: integer` | Element count |
-| `join(sep)` | `(sep: string): string` | Concatenates elements with `sep`. Element type must be `string`; non-string element types are `theta/parse/non-string-array-join` (no implicit type conversion in theta 1.0) |
+| `join(sep)` | `(sep: string): string` | Concatenates elements with `sep`. Element type must be `string`; non-string element types are `theta/parse/non-string-array-join` (no implicit type conversion in theta 1.0). When the gate defers on a laundered/withheld receiver and a non-string element reaches `join` at runtime, it is a `theta/runtime/internal-error` runtime defect, never an implicit conversion |
 | `includes(x)` | `(x: T): boolean` | Membership test using theta structural equality |
 | `indexOf(x)` | `(x: T): integer` | First index by structural equality, or `-1` if absent |
 | `slice(start, end?)` | `(start: integer, end?: integer): array<T>` | JS semantics: negative indices count from the end; `end` exclusive; omitted `end` slices to length |

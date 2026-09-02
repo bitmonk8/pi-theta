@@ -612,9 +612,20 @@ async function evalSubagentFnCall(
   }
 }
 
-/** A theta condition is a boolean; only the literal `true` steers control flow. */
-function isTruthy(value: ThetaValue): boolean {
-  return value === true;
+/**
+ * A boolean-position value (an `if`/`while`/ternary condition, or an operand
+ * of `&&`/`||`/`!`) must be a boolean (expressions.md §Truthiness); the static
+ * layer defers judgment on a statically-unresolvable value, so this is the
+ * runtime's only re-judgment point for every consumer. A genuine boolean
+ * passes through unchanged; a value the parse gate deferred on and that turns
+ * out non-boolean is a bug 0369 loud defect, not a fabricated `false` (or, for
+ * `!`, a JS-coerced negation).
+ */
+function requireBoolean(value: ThetaValue): boolean {
+  if (typeof value !== "boolean") {
+    throw new BooleanPositionKindDefectError(value);
+  }
+  return value;
 }
 
 /**
@@ -668,6 +679,73 @@ export class BinaryNonNumericError extends Error {
 }
 
 /**
+ * Bug 0368 (docs/bugs/0368-plus-and-ordering-laundered-operands-silent-js-coercion.md)
+ * belt: the sibling of `BinaryNonNumericError` for `+` and the four ordering
+ * operators. Their parse-time gates (`type-layer-checks.ts`'s
+ * `checkPlusOperands` / `checkOrderingOperands`) refuse every
+ * statically-resolvable mixed or non-orderable pair; a pair either gate
+ * DEFERRED on (an unannotated fn param, WITHHELD) can still reach this belt,
+ * and applying `+` or a relational operator to it would silently JS-coerce
+ * (the original defect: `"x" + 1` → `"x1"`, `true < 2` → `true`). A plain
+ * `Error`, NOT a `ThetaPanic` — it propagates uncaught out of `executeBody`
+ * and is reframed one layer up through `surfaceUnexpectedThrow` to
+ * `INTERNAL_ERROR_CODE`, exactly as `BinaryNonNumericError` is.
+ */
+export class BinaryMixedOperandError extends Error {
+  public constructor(op: "+" | "<" | "<=" | ">" | ">=", left: ThetaValue, right: ThetaValue) {
+    super(
+      `internal defect: operator '${op}' requires two numbers or two strings, got ${typeof left} and ${typeof right}; a mixed or non-orderable operand pairing reached the runtime after the plus/ordering type gate deferred (bug 0368)`,
+    );
+    this.name = "BinaryMixedOperandError";
+  }
+}
+
+/**
+ * Bug 0369 (docs/bugs/0369-control-flow-runtime-kind-fallbacks-silent.md)
+ * belt: the sibling of `BinaryMixedOperandError` for the `for`/`par for`
+ * iterand. The static layer's iterand check (control-flow.md CTRL-1) refuses
+ * every statically-resolvable non-array iterand at parse; a value it DEFERRED
+ * on (an unannotated fn param, WITHHELD) can still reach a loop entry, and
+ * substituting the empty array there would silently run the body zero times
+ * (the original defect: `for i in "abc"` completing with no iterations and no
+ * diagnostic). A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught
+ * out of `executeBody` and is reframed one layer up through
+ * `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
+ * `BinaryMixedOperandError` is.
+ */
+export class ForIterandKindDefectError extends Error {
+  public constructor(value: ThetaValue) {
+    super(
+      `internal defect: 'for'/'par for' requires an array<T> iterand, got ${typeof value}; a non-array value reached the loop entry after the iterand type gate deferred (bug 0369)`,
+    );
+    this.name = "ForIterandKindDefectError";
+  }
+}
+
+/**
+ * Bug 0369 belt: the sibling of `BinaryMixedOperandError` for every
+ * boolean-position consumer — an `if`/`while`/ternary condition, and an
+ * operand of `&&`/`||`/`!`. The static layer's boolean-position check
+ * (expressions.md §Truthiness) refuses every statically-resolvable
+ * non-boolean at parse; a value it DEFERRED on can still reach one of these
+ * sites, and the prior fallbacks (a strict `=== true` comparison for the
+ * conditions/`&&`/`||`, raw JS `!` for the negation) would silently fabricate
+ * a boolean verdict instead of interpreting the actual value (the original
+ * defect: `if 1` steering false, `!0` fabricating `true`). A plain `Error`,
+ * NOT a `ThetaPanic` — it propagates uncaught out of `executeBody` and is
+ * reframed one layer up through `surfaceUnexpectedThrow` to
+ * `INTERNAL_ERROR_CODE`, exactly as `BinaryMixedOperandError` is.
+ */
+export class BooleanPositionKindDefectError extends Error {
+  public constructor(value: ThetaValue) {
+    super(
+      `internal defect: a boolean-position operand (condition, '&&', '||', or '!') requires a boolean, got ${typeof value}; a non-boolean value reached the runtime after the boolean-position type gate deferred (bug 0369)`,
+    );
+    this.name = "BooleanPositionKindDefectError";
+  }
+}
+
+/**
  * Bug 0325 (docs/bugs/0325-nan-max-zero-workers-fabricated-ok-null-array.md)
  * belt: the CTRL-3 join's per-index write is the sibling of `BinaryNonNumericError`
  * for the `par for` worker pool. Index claiming is synchronous and the pool
@@ -693,13 +771,15 @@ export class ParForUnwrittenSlotError extends Error {
 
 /**
  * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
- * `+` arm exactly (string+string concatenates, else numeric addition) — the
- * shared runtime semantics for `+`, since bindings.md defines `x += e` as
- * `x = x + e` and the parse-time `+`-operand gate has already refused every
- * statically-resolvable mixed pair; an unresolvable pair defers and takes
- * the same shared `+` arm as the spelled binary. `-=`/`*=`/`/=`/`%=` are
- * numeric-only: a non-number operand throws `CompoundNonNumericError` rather
- * than silently computing over a fabricated `0` (bug 0314).
+ * `+` arm exactly (string+string concatenates, two-number addition, else the
+ * bug 0368 belt) — the shared runtime semantics for `+`, since bindings.md
+ * defines `x += e` as `x = x + e` and the parse-time `+`-operand gate has
+ * already refused every statically-resolvable mixed pair; an unresolvable
+ * pair defers and takes the same shared `+` arm as the spelled binary, so a
+ * mixed pair laundered past the reassign gate must abort loudly rather than
+ * silently coerce (bug 0368). `-=`/`*=`/`/=`/`%=` are numeric-only: a
+ * non-number operand throws `CompoundNonNumericError` rather than silently
+ * computing over a fabricated `0` (bug 0314).
  */
 function applyCompound(
   op: "+=" | "-=" | "*=" | "/=" | "%=",
@@ -707,9 +787,13 @@ function applyCompound(
   delta: ThetaValue,
 ): ThetaValue {
   if (op === "+=") {
-    return typeof current === "string" && typeof delta === "string"
-      ? current + delta
-      : (current as number) + (delta as number);
+    if (typeof current === "string" && typeof delta === "string") {
+      return current + delta;
+    }
+    if (typeof current === "number" && typeof delta === "number") {
+      return current + delta;
+    }
+    throw new BinaryMixedOperandError("+", current, delta);
   }
   if (typeof current !== "number" || typeof delta !== "number") {
     throw new CompoundNonNumericError(op, current, delta);
@@ -906,7 +990,12 @@ async function evalExpr(
     // Only the taken branch is evaluated — a not-taken effect never dispatches.
     // The enclosing position carries through: a ternary is a pass-through, not
     // a boundary, so a DIRECT effect in the taken branch inherits it.
-    return evalExpr(condition.value === true ? expr.consequent : expr.alternate, env, deps, atTerminal);
+    return evalExpr(
+      requireBoolean(condition.value) ? expr.consequent : expr.alternate,
+      env,
+      deps,
+      atTerminal,
+    );
   }
   if (expr.kind === "binary") {
     return evalBinary(expr, env, deps);
@@ -1016,7 +1105,7 @@ async function evalBinary(expr: BinaryExpr, env: LexicalEnvironment, deps: Execu
     if (right.flow !== "value") {
       return right;
     }
-    return { flow: "value", value: !(right.value as boolean) };
+    return { flow: "value", value: !requireBoolean(right.value) };
   }
   if (expr.op === "-" && expr.left.kind === "null") {
     const right = await evalExpr(expr.right, env, deps);
@@ -1030,24 +1119,24 @@ async function evalBinary(expr: BinaryExpr, env: LexicalEnvironment, deps: Execu
     return left;
   }
   if (expr.op === "&&") {
-    if (left.value !== true) {
+    if (!requireBoolean(left.value)) {
       return { flow: "value", value: false };
     }
     const right = await evalExpr(expr.right, env, deps);
     if (right.flow !== "value") {
       return right;
     }
-    return { flow: "value", value: right.value === true };
+    return { flow: "value", value: requireBoolean(right.value) };
   }
   if (expr.op === "||") {
-    if (left.value === true) {
+    if (requireBoolean(left.value)) {
       return { flow: "value", value: true };
     }
     const right = await evalExpr(expr.right, env, deps);
     if (right.flow !== "value") {
       return right;
     }
-    return { flow: "value", value: right.value === true };
+    return { flow: "value", value: requireBoolean(right.value) };
   }
   const right = await evalExpr(expr.right, env, deps);
   if (right.flow !== "value") {
@@ -1072,10 +1161,24 @@ function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): The
       return valuesEqual(left, right);
     case "!=":
       return !valuesEqual(left, right);
-    case "+":
-      return typeof left === "string" && typeof right === "string"
-        ? left + right
-        : (left as number) + (right as number);
+    case "+": {
+      // Bug 0368 belt: the parse-time gate (`type-layer-checks.ts`'s
+      // `checkPlusOperands`) refuses a statically-resolvable mixed pair
+      // before this runs; a pair it DEFERRED on (an unannotated fn param,
+      // WITHHELD) can still reach here, so anything other than two strings
+      // or two numbers throws loudly rather than JS-coercing (the original
+      // defect: `"x" + 1` → `"x1"`, `null + 5` → `5`). `NaN`/`Infinity` are
+      // `typeof "number"` and stay admitted — `1 % 0` → `NaN` and `3 / 0` →
+      // `Infinity` flow through `+` unbelted, per the spec's non-panicking
+      // div/mod behaviour.
+      if (typeof left === "string" && typeof right === "string") {
+        return left + right;
+      }
+      if (typeof left === "number" && typeof right === "number") {
+        return left + right;
+      }
+      throw new BinaryMixedOperandError("+", left, right);
+    }
     case "-":
     case "*":
     case "/":
@@ -1103,13 +1206,34 @@ function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): The
       }
     }
     case "<":
-      return (left as number | string) < (right as number | string);
     case "<=":
-      return (left as number | string) <= (right as number | string);
     case ">":
-      return (left as number | string) > (right as number | string);
-    case ">=":
-      return (left as number | string) >= (right as number | string);
+    case ">=": {
+      // Bug 0368 belt: the parse-time gate (`type-layer-checks.ts`'s
+      // `checkOrderingOperands`) refuses a statically-resolvable
+      // non-orderable pair before this runs; a pair it DEFERRED on (an
+      // unannotated fn param, WITHHELD) can still reach here, so anything
+      // other than two numbers or two strings throws loudly rather than
+      // applying raw JS relational coercion (the original defect: `true < 2`
+      // → `true`, `"5" < 3` → `false`). `NaN`/`Infinity` are `typeof
+      // "number"` and stay admitted — ordering over a div/mod-by-zero product
+      // is the spec's non-panicking behaviour.
+      const bothNumbers = typeof left === "number" && typeof right === "number";
+      const bothStrings = typeof left === "string" && typeof right === "string";
+      if (!bothNumbers && !bothStrings) {
+        throw new BinaryMixedOperandError(op, left, right);
+      }
+      switch (op) {
+        case "<":
+          return (left as number | string) < (right as number | string);
+        case "<=":
+          return (left as number | string) <= (right as number | string);
+        case ">":
+          return (left as number | string) > (right as number | string);
+        case ">=":
+          return (left as number | string) >= (right as number | string);
+      }
+    }
     default:
       return null;
   }
@@ -1557,9 +1681,13 @@ async function evalParFor(
     }
     iterandValue = iterand.value;
   }
-  const snapshot: readonly ThetaValue[] = Array.isArray(iterandValue)
-    ? iterandValue
-    : [];
+  // Bug 0369 belt: this must fire BEFORE the CTRL-2 width resolution and worker
+  // scheduling below, so a laundered non-array iterand aborts loudly instead of
+  // scheduling a fabricated empty fan-out.
+  if (!Array.isArray(iterandValue)) {
+    throw new ForIterandKindDefectError(iterandValue);
+  }
+  const snapshot: readonly ThetaValue[] = iterandValue;
 
   // CTRL-2 — resolve the in-flight width: `max` (evaluated once at loop entry)
   // only lowers the width, and the 64 throttle is the hard upper bound; a `max`
@@ -1836,7 +1964,7 @@ async function executeIf(stmt: IfStmt, env: LexicalEnvironment, deps: ExecuteBod
   if (condition.flow !== "value") {
     return terminalFlow(condition);
   }
-  if (isTruthy(condition.value)) {
+  if (requireBoolean(condition.value)) {
     return executeBlock(stmt.then, env.child(), deps);
   }
   if (stmt.otherwise === null) {
@@ -1901,7 +2029,7 @@ async function executeWhile(
     if (condition.flow !== "value") {
       return terminalFlow(condition);
     }
-    if (!isTruthy(condition.value)) {
+    if (!requireBoolean(condition.value)) {
       return { kind: "normal", value: null };
     }
     const flow = await executeBlock(stmt.body, env.child(), deps);
@@ -1929,7 +2057,13 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
   if (iterand.flow !== "value") {
     return terminalFlow(iterand);
   }
-  const snapshot: readonly ThetaValue[] = Array.isArray(iterand.value) ? iterand.value : [];
+  // Bug 0369 belt: a non-array iterand that evaded the parse refusal by static
+  // unresolvability must abort loudly, not silently satisfy the loop with a
+  // fabricated empty snapshot.
+  if (!Array.isArray(iterand.value)) {
+    throw new ForIterandKindDefectError(iterand.value);
+  }
+  const snapshot: readonly ThetaValue[] = iterand.value;
 
   // Drive `V3c`'s real `evaluateForLoop` to fix the iteration order over the
   // snapshot (iterand evaluated exactly once — CTRL-1). The body's effects are

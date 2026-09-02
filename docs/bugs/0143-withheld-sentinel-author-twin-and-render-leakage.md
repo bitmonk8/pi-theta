@@ -1127,3 +1127,13 @@ changed. Residual 2 (the marker predicate's missing in-tree red path) and residu
 4 (citation churn) are untouched by 0247. Full details, gates and residuals:
 `docs/bugs/0247-untypeable-static-type-has-no-category-1-rendering-clause.md`
 §Fix (0.227.0).
+
+> **Dated note — 2026-09-02 (bug 0366, v0.349.0):** the H8a live witness
+> `tests/live/withheld-binder-provenance-live-cell.test.ts` had its CLEAN-half
+> carrier re-anchored from an integer element (`match 1 { n => [n] }.join(",")`)
+> to a string element (`match "hi" { x => [x] }.join(",")`) under parent
+> ratification when bug 0366's runtime `array.join` element belt landed. The
+> withheld-binder provenance subject this cell measures — a match-arm binder's
+> element type is withheld, so the join gate defers and the theta loads clean
+> and drives — is preserved exactly; only the incidental integer→string runtime
+> coercion the 0366 belt now forbids was removed. Body above untouched.

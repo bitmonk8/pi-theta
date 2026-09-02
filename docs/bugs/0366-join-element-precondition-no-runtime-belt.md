@@ -1,6 +1,6 @@
 # Bug 0366 — `array.join` on a laundered receiver silently JS-coerces non-string elements against the spec's "no implicit type conversion" rule: `f([1, 2])` → `"1,2"`, objects render `"[object Object]"`, `null` elements render `""`, and nested arrays flatten — where the identical direct spelling is parse-refused `theta/parse/non-string-array-join`
 
-- **Status:** open.
+- **Status:** fixed (0.349.0).
 - **Sev/Diff estimate:** S1/D1 — S1 because a parse-clean call binds a silently
   coerced string on the production evaluation path with zero diagnostics on
   any channel, and the coerced forms (`"[object Object]"`, `""` for `null`,
@@ -176,3 +176,24 @@ no-implicit-conversion clause during the runtime-exec-2 re-sweep at af476df2,
 after checking 0315's pinned belt scope (arity-only) and 0127's ratified parse
 deferral. All five rows probed offline through the production executor harness
 before filing. Scratch probes deleted.
+
+## Fix (0.349.0)
+- What shipped:
+  - `src/runtime/stdlib-array.ts` — runtime element belt in `evaluateArrayMember`'s `join` arm: walks the receiver (`typeof element !== "string"`) before host `Array.prototype.join` and throws a new `StdlibJoinElementDefectError` (a plain `Error`, defined in this file to keep the change in the owned set) on the first non-string element, routed through the existing `surfaceUnexpectedThrow` → `theta/runtime/internal-error` exactly as the 0315 arity belt is; the false parse-gate guarantee comment corrected to the truthful "resolvable-only" scoping; 0315 arity belt and `includes`/`indexOf`/`slice`/`concat`/`length` arms byte-identical; NO new registry row.
+  - `docs/spec_topics/expressions.md` — one sentence added to the `join` row naming the laundered-path runtime disposition (`theta/runtime/internal-error`), LF preserved, no other line touched.
+  - `tests/live/withheld-binder-provenance-live-cell.test.ts` — bug 0143's live witness CLEAN-half carrier re-anchored integer→string under parent ratification (see §Ratification); subject preserved, no assertion changed.
+- Gates: witness `npx vitest run tests/b0366-join-element-laundered-belt.test.ts` 11/11 green (7 flips B1–B4/ENUM/PI/PInvoke, 4 controls B5/ALLSTR/EMPTY/ARITY); full default suite `npx vitest run` 529 files / 9986 tests green (528/9975 premeasure + this fix's 1 file / 11 tests); `npm run typecheck` clean; `npm run lint` clean; live `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/withheld-binder-provenance-live-cell.test.ts` 1/1 green under the shared lock.
+- Review: 1 round — `bug-fix-reviewer` CLEAN. One prose residual (R1: class doc-comment "the runtime walk below" → "the runtime walk in the `join` arm above") fixed as comment-only gate-diff polish; confirmation review round skipped (comment-only hunk, gates re-run green).
+- Verification: PASS on all four obligations — (1) the witness reds for the right reason under a temporary belt neutralisation (all 7 flips RED naming their coerced value, byte-exact restore proven via `git diff --stat`, green after); (2) full suite 529/9986 green; (3) the fixed seam is exercised end-to-end by the re-anchored b0143 live cell, run under the lock (1/1 green) — a withheld-element join reaching the runtime belt boundary through a real drive; the string element means the belt does not fire and the drive stays clean; (4) typecheck + lint clean.
+- Residuals: the OLD integer carrier's would-red (had it shipped unchanged against this belt) is proven OFFLINE by the b0366 witness B1 row — an integer-element laundered join throws at the belt; no live red-proof run is owed (parent ratification condition 2). No other residual.
+- Discharge notes appended: `docs/bugs/0143-withheld-sentinel-author-twin-and-render-leakage.md` — a dated note recording the ratified carrier re-anchor; body untouched.
+- Pinned dispositions / non-goals: wrong-TYPE arguments (0315 arity-only belt) untouched; parse-gate dispositions kept (0127 judge-and-refuse for provably-unresolvable elements; 0089/0127/0205 withheld receiver/element deferrals); `includes`/`indexOf`/`slice`/`concat` remain unbelted (their semantics carry no coercion). Boxed-`String` enum carriers REFUSE at the belt per the recorded parent adjudication.
+
+### Ratification (parent, verbatim)
+The b0143 cell's SUBJECT is withheld-binder parse PROVENANCE — a match-arm binder's element type is withheld, the join gate defers, the theta loads clean and drives. The integer carrier's runtime coercion to "1" is incidental scaffolding of the pre-0366 premise, not the subject. Swapping the CLEAN half's carrier to a string-element binder (`match "hi" { x => [x] }.join(",")` → element "hi", still a withheld match binder, still parse-deferred, still loads clean, still drives clean) preserves the withhold subject exactly while removing the reliance on the coercion the adjudicated belt forbids. Model class: the 0292 (D)-row-v2 / 0347 row-H vehicle-collateral re-anchor; Option B (documented red on a FIXED bug's witness) rejected — the campaign retired that pattern with 0340. FLIP SET = EXACTLY this one live cell. Any FURTHER un-enumerated red ⇒ STOP again.
+
+### Flip-census correction to §Fix / §Reproduction
+The doc's premeasure premise of zero committed-cell flips was incomplete: the b0143 live witness's CLEAN half (`match 1 { n => [n] }.join(",")`) was the one un-enumerated LIVE-cell flip — a withheld-element (`containsWithheldBinderType`) join whose runtime integer coercion to "1" this belt converts to a loud defect. Per the ratification it was re-anchored to a string carrier (Option A), not shipped as a documented red on a fixed bug's witness.
+
+### Orchestrator self-authorization (recorded)
+Before review round 1, the orchestrator applied one bounded citation/comment-only correction to its own owned witness file `tests/b0366-join-element-laundered-belt.test.ts`: the header cited `stdlib-array.ts:98-99`/`:96` and quoted the false-guarantee comment the fix removed. Evidence: `git diff` (join arm moved off 98-99, comment at 96 rewritten), `grep` (join `return` now at line 106, `case "join"` at 101), and the implementer's own flag. Bound: header comment block only; no `it`/`expect`/executable line touched. STOP valve honoured (no further file redded; bound not exceeded).

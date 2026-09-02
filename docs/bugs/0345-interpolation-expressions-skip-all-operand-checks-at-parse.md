@@ -386,3 +386,18 @@ source-tree residue.
   bare-path change. The bug 0338 belt stays the deferred-operand backstop
   (0332 Option-B and 0338 belt are landed law). No new registry row; the
   permitted-codes baseline is byte-unchanged.
+
+## Coordination note — 2026-09-02 (bug 0368)
+
+The §Fix §Residuals item 1 runtime concession — that a deferred `+`/ordering
+operand pairing reaching the runtime keeps JS coercion (`v=a1`, `v=false`) — is
+superseded by bug 0368's runtime belt as of v0.348.0. Bug 0368 mirrors the
+0332/0338 belt into the `+` and ordering arms of both evaluation hosts, so a
+withheld-operand mixed/non-orderable pair now aborts loudly
+(`theta/runtime/internal-error`) instead of coercing. This closes the runtime
+surface of residual 1; the parse-boundary deferral posture it describes is
+unchanged (statically-unresolvable operands still defer past the parse gate).
+Under parent ratification, this file's witness PARITY (5c)
+(tests/b0345-interpolation-operand-checks-at-parse.test.ts) was re-anchored from
+asserting the coerced render to asserting the bug 0368 belt's loud framed abort,
+mirroring sibling 5b.

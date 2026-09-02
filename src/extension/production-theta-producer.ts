@@ -129,7 +129,9 @@ import {
   type MaterializedImport,
 } from "../runtime/lexical-environment";
 import {
+  BinaryMixedOperandError,
   BinaryNonNumericError,
+  BooleanPositionKindDefectError,
   executeBody,
   ThetaFnArityError,
   type BodyExecution,
@@ -7287,8 +7289,14 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
       return evaluateBinaryExpression(expr.op, expr.left, expr.right, env);
     case "ternary": {
       // `cond ? a : b` — only the taken branch is evaluated (short-circuit).
+      // Bug 0369 belt: mirrors the executor's ternary belt into this pure
+      // host, so a statically-deferred non-boolean condition throws loudly
+      // instead of steering to the alternate branch as a fabricated `false`.
       const condition = evaluatePureExpression(expr.condition, env);
-      return condition === true
+      if (typeof condition !== "boolean") {
+        throw new BooleanPositionKindDefectError(condition);
+      }
+      return condition
         ? evaluatePureExpression(expr.consequent, env)
         : evaluatePureExpression(expr.alternate, env);
     }
@@ -7399,7 +7407,16 @@ function evaluatePureIf(
   stmt: Extract<Stmt, { kind: "if" }>,
   env: LexicalEnvironment,
 ): PureBlockOutcome {
-  if (evaluatePureExpression(stmt.condition, env) === true) {
+  // Bug 0369 belt: the pure-host statement `if` is a boolean-position
+  // consumer, kept uniform with the effectful `executeIf` and the pure
+  // ternary. A statically-deferred non-boolean condition here is bug 0369's
+  // loud defect; a `=== true` comparison would instead silently steer a
+  // laundered non-boolean to the alternate arm as a fabricated `false`.
+  const condition = evaluatePureExpression(stmt.condition, env);
+  if (typeof condition !== "boolean") {
+    throw new BooleanPositionKindDefectError(condition);
+  }
+  if (condition) {
     return evaluatePureBlock(stmt.then, env.child());
   }
   if (stmt.otherwise === null) {
@@ -7462,17 +7479,48 @@ function evaluateBinaryExpression(
   env: LexicalEnvironment,
 ): ThetaValue {
   if (op === "!") {
-    return !(evaluatePureExpression(rightExpr, env) as boolean);
+    // Bug 0369 belt: mirrors the executor's `!` belt into this pure host, so a
+    // statically-deferred non-boolean operand throws loudly instead of being
+    // cast to `boolean` and JS-negated (`!0` → `true`).
+    const right = evaluatePureExpression(rightExpr, env);
+    if (typeof right !== "boolean") {
+      throw new BooleanPositionKindDefectError(right);
+    }
+    return !right;
   }
   if (op === "-" && leftExpr.kind === "null") {
     return -(evaluatePureExpression(rightExpr, env) as number);
   }
   const left = evaluatePureExpression(leftExpr, env);
   if (op === "&&") {
-    return left === true ? evaluatePureExpression(rightExpr, env) === true : false;
+    // Bug 0369 belt: mirrors the executor's `&&` belt into this pure host, so
+    // a statically-deferred non-boolean operand throws loudly instead of
+    // being compared against `true` and fabricating `false`.
+    if (typeof left !== "boolean") {
+      throw new BooleanPositionKindDefectError(left);
+    }
+    if (!left) {
+      return false;
+    }
+    const right = evaluatePureExpression(rightExpr, env);
+    if (typeof right !== "boolean") {
+      throw new BooleanPositionKindDefectError(right);
+    }
+    return right;
   }
   if (op === "||") {
-    return left === true ? true : evaluatePureExpression(rightExpr, env) === true;
+    // Bug 0369 belt: mirrors the executor's `||` belt into this pure host.
+    if (typeof left !== "boolean") {
+      throw new BooleanPositionKindDefectError(left);
+    }
+    if (left) {
+      return true;
+    }
+    const right = evaluatePureExpression(rightExpr, env);
+    if (typeof right !== "boolean") {
+      throw new BooleanPositionKindDefectError(right);
+    }
+    return right;
   }
   const right = evaluatePureExpression(rightExpr, env);
   switch (op) {
@@ -7480,10 +7528,21 @@ function evaluateBinaryExpression(
       return valuesEqual(left, right);
     case "!=":
       return !valuesEqual(left, right);
-    case "+":
-      return typeof left === "string" && typeof right === "string"
-        ? left + right
-        : (left as number) + (right as number);
+    case "+": {
+      // Bug 0368 belt: mirrors the executor's `applyBinaryScalar` bug 0368
+      // belt into this pure host, so a statically-deferred mixed operand (a
+      // WITHHELD fn param reaching an interpolation or an invoke argument)
+      // throws loudly instead of being cast to `number` and JS-coerced.
+      // `NaN`/`Infinity` are `typeof "number"`, so the guard does not fire on
+      // them — `+` over a div/mod-by-zero product stays admitted.
+      if (typeof left === "string" && typeof right === "string") {
+        return left + right;
+      }
+      if (typeof left === "number" && typeof right === "number") {
+        return left + right;
+      }
+      throw new BinaryMixedOperandError("+", left, right);
+    }
     case "-":
     case "*":
     case "/":
@@ -7510,13 +7569,30 @@ function evaluateBinaryExpression(
       }
     }
     case "<":
-      return (left as number | string) < (right as number | string);
     case "<=":
-      return (left as number | string) <= (right as number | string);
     case ">":
-      return (left as number | string) > (right as number | string);
-    case ">=":
-      return (left as number | string) >= (right as number | string);
+    case ">=": {
+      // Bug 0368 belt: mirrors the executor's `applyBinaryScalar` bug 0368
+      // belt into this pure host, so a statically-deferred non-orderable
+      // pair (a WITHHELD fn param reaching an interpolation or an invoke
+      // argument) throws loudly instead of applying raw JS relational
+      // coercion. `NaN`/`Infinity` are `typeof "number"` and stay admitted.
+      const bothNumbers = typeof left === "number" && typeof right === "number";
+      const bothStrings = typeof left === "string" && typeof right === "string";
+      if (!bothNumbers && !bothStrings) {
+        throw new BinaryMixedOperandError(op, left, right);
+      }
+      switch (op) {
+        case "<":
+          return (left as number | string) < (right as number | string);
+        case "<=":
+          return (left as number | string) <= (right as number | string);
+        case ">":
+          return (left as number | string) > (right as number | string);
+        case ">=":
+          return (left as number | string) >= (right as number | string);
+      }
+    }
     default:
       return null;
   }

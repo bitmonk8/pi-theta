@@ -38,10 +38,13 @@
 //   PARSE cells 1–3, 6 — RED now: the interpolation draws `[]` (cells 1–3) or
 //     drops the operand row (cell 6) where the settled rule requires the
 //     relocated operand diagnostic; GREEN after the descent lands.
-//   RENDER cells 4–5 — GREEN now and after: the numeric baseline renders `v=3`
-//     byte-identically, and the withheld-binder interpolation loads clean and
-//     defers (arithmetic reaches the bug 0338 belt as a loud framed abort;
-//     `+`/ordering over unresolvable operands still render).
+//   RENDER cells 4–5 — the numeric baseline renders `v=3` byte-identically, and
+//     the withheld-binder interpolation loads clean and defers. The deferred
+//     runtime disposition: arithmetic reaches the bug 0338 belt as a loud framed
+//     abort (5b); `+`/ordering reach the bug 0368 belt as a loud framed abort
+//     (5c, re-anchored — bug 0368 supersedes bug 0345 §Residuals-1's runtime
+//     concession on the runtime surface; the parse-boundary deferral is 5a's and
+//     unchanged).
 //
 // TIER. Unit (offline, provider-free, deterministic). The seam is the parser's
 // `walkExpr` query arm and the pure-host render, both reachable through
@@ -681,21 +684,41 @@ describe("bug 0345 (render) — numeric baseline and deferral parity (green now 
     ).toEqual([]);
   });
 
-  it("PARITY (5c): deferred `+`/ordering over unresolvable operands still RENDER (no belt covers them)", async () => {
-    // The `+`/ordering runtime surface is unchanged by this fix: the descent only
-    // adds the statically-resolvable PARSE refusal. A withheld-param `+`/`<` still
-    // renders the JS-coerced value, exactly as today.
+  it("PARITY (5c): deferred `+`/ordering reach the bug 0368 belt — loud framed abort, no prompt sent", async () => {
+    // Re-anchored under bug 0368 (docs/bugs/0368-plus-and-ordering-laundered-
+    // operands-silent-js-coercion.md): bug 0368's runtime belt supersedes bug
+    // 0345's §Fix §Residuals item 1 runtime concession ("JS coercion for
+    // `+`/ordering") ON THE RUNTIME SURFACE. A withheld-param `+`/`<` is
+    // statically unresolvable, so it defers past the parse gate exactly as 5a
+    // witnesses — that parse-boundary deferral subject is 5a's and is UNCHANGED.
+    // What changes is only the deferred pair's runtime disposition: instead of
+    // JS-coercing (`v=a1`, `v=false`), it now hits the bug 0368 belt and aborts
+    // loudly, mirroring 5b's `-` belt disposition exactly.
     const plus = await driveInterp(withheldSrc("+"));
+    if (plus.kind === "rendered") {
+      expect(
+        `rendered + sent ${JSON.stringify(plus.sent)}`,
+        "(5c): a deferred withheld-param `+` must abort loudly at the bug 0368 belt, not render",
+      ).toBe("loud framed abort (no prompt sent)");
+      return;
+    }
+    assertFramesToInternalError(plus.thrown, "5c `+`");
     expect(
-      plus.kind === "rendered" ? plus.sent : `threw ${String((plus as { thrown: unknown }).thrown)}`,
-      "(5c): withheld-param `+` defers and renders `v=a1` (no `+` runtime belt)",
-    ).toEqual(["v=a1"]);
+      plus.sent,
+      "(5c): the `+` belt throws at render, so no prompt is sent",
+    ).toEqual([]);
     const ordering = await driveInterp(withheldSrc("<"));
+    if (ordering.kind === "rendered") {
+      expect(
+        `rendered + sent ${JSON.stringify(ordering.sent)}`,
+        "(5c): a deferred withheld-param `<` must abort loudly at the bug 0368 belt, not render",
+      ).toBe("loud framed abort (no prompt sent)");
+      return;
+    }
+    assertFramesToInternalError(ordering.thrown, "5c `<`");
     expect(
-      ordering.kind === "rendered"
-        ? ordering.sent
-        : `threw ${String((ordering as { thrown: unknown }).thrown)}`,
-      "(5c): withheld-param `<` defers and renders `v=false` (no ordering runtime belt)",
-    ).toEqual(["v=false"]);
+      ordering.sent,
+      "(5c): the ordering belt throws at render, so no prompt is sent",
+    ).toEqual([]);
   });
 });

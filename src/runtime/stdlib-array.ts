@@ -25,7 +25,7 @@
 
 import { displayType, type CompatType, type CompatSite } from "../parser/type-compat";
 import { type Diagnostic } from "../diagnostics/diagnostic";
-import { StdlibMethodArgumentDefectError } from "./runtime-panics";
+import { StdlibMethodArgumentDefectError, summariseNonResultOperand } from "./runtime-panics";
 import type { StdlibMemberSignature } from "./stdlib-string";
 import { valuesEqual, type ThetaValue } from "./value";
 
@@ -93,10 +93,18 @@ export function evaluateArrayMember(
     case "length":
       return receiver.length;
     // `join(sep)` — concatenate the (string) elements with `sep`. The parse-
-    // time `checkArrayJoin` precondition guarantees a `string` element type, so
-    // no implicit conversion happens here.
-    case "join":
+    // time `checkArrayJoin` precondition guarantees a `string` element type
+    // ONLY for a statically-resolvable receiver; a laundered/withheld receiver
+    // (an unannotated `fn` param, e.g.) defers that gate (bugs 0089/0127/0205)
+    // and reaches this arm unchecked, so the walk below is the runtime belt
+    // (bug 0366).
+    case "join": {
+      const nonStringElement = receiver.find((element) => typeof element !== "string");
+      if (nonStringElement !== undefined) {
+        throw new StdlibJoinElementDefectError(nonStringElement);
+      }
       return receiver.join(args[0] as string);
+    }
     // `includes(x)` — membership test using theta structural equality (V2c).
     case "includes":
       return receiver.some((element) => valuesEqual(element, args[0] as ThetaValue));
@@ -119,6 +127,29 @@ export function evaluateArrayMember(
       return receiver.concat(args[0] as readonly ThetaValue[]);
     default:
       throw new Error(`unknown array stdlib member: ${member}`);
+  }
+}
+
+/**
+ * Bug 0366 (docs/bugs/0366-join-element-precondition-no-runtime-belt.md)
+ * belt-and-braces, defined here (not in runtime-panics.ts) because the fix is
+ * confined to this file's owned surface: the routing to
+ * `theta/runtime/internal-error` already works for any non-`ThetaPanic` Error
+ * via the existing `surfaceUnexpectedThrow`, exactly as the bug-0315 arity
+ * belt (`StdlibMethodArgumentDefectError`) routes through it, so no change to
+ * that shared surface is needed. `join`'s element-type precondition is a
+ * static gate that defers on a laundered/withheld receiver (bugs 0089/0127/
+ * 0205); this defect fires when the runtime walk in the `join` arm above finds
+ * an element the gate never got to judge, so the call fails loudly instead of silently
+ * JS-coercing the element (`String(n)`, `Object.prototype.toString`, `null`
+ * to `""`, boxed-`String` enum carriers to their wire text).
+ */
+export class StdlibJoinElementDefectError extends Error {
+  public constructor(element: ThetaValue) {
+    super(
+      `internal defect: array.join reached a non-string element (${summariseNonResultOperand(element)}) at runtime; the parse-time element gate (theta/parse/non-string-array-join) deferred on a laundered/withheld receiver and did not reject this site — no implicit type conversion in theta 1.0 (bug 0366)`,
+    );
+    this.name = "StdlibJoinElementDefectError";
   }
 }
 

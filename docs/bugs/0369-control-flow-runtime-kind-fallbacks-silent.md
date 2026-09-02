@@ -1,6 +1,6 @@
 # Bug 0369 — Control-flow constructs have no runtime kind discipline for values the static layer deferred on: `for`/`par for` over a laundered non-array silently iterate zero times, `if`/`while`/ternary/`&&`/`||` treat any laundered non-boolean as `false`, and unary `!` applies JS truthiness — so for `c = "x"`, `if c` and `if !c` BOTH skip
 
-- **Status:** open.
+- **Status:** fixed (0.350.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because whole statement bodies are silently
   not executed (a `for` loop over a string/number/object/null runs zero
   iterations and the theta reports success; a condition the spec refuses
@@ -197,3 +197,125 @@ comments to their landing sites during the runtime-exec-2 re-sweep at
 af476df2 — the safety net is absent at every one. All twelve rows probed
 offline through the production executor harness before filing. Scratch probes
 deleted.
+
+## Fix (0.350.0)
+
+- **What shipped** (ROUTE 1 — loud defect — keyed to §Fix):
+  - `src/runtime/statement-executor.ts` — minted `ForIterandKindDefectError`
+    and `BooleanPositionKindDefectError` (plain `Error`s routed through
+    `surfaceUnexpectedThrow` → `theta/runtime/internal-error`, no new registry
+    rows); `isTruthy` replaced by `requireBoolean` (throws on non-boolean),
+    consumed at `executeIf`, `executeWhile`, the executor ternary, `!`, `&&`,
+    `||`; `ForIterandKindDefectError` belts at the `executeFor` snapshot and
+    the `evalParFor` snapshot (before width resolution / worker scheduling, so
+    CTRL-5 never observes a fabricated empty fan-out).
+  - `src/extension/production-theta-producer.ts` — the pure host's ternary,
+    statement-`if` (`evaluatePureIf`), `!`, `&&`, `||` arms belt with
+    `BooleanPositionKindDefectError`; `!` stops JS-coercing entirely. (The dead
+    `ForIterandKindDefectError` import — the pure host has no loop path — was
+    dropped.)
+  - `src/runtime/expression-evaluator.ts` — comment-only: the
+    `checkBooleanPosition` "deferred to the runtime safety net" note now names
+    the bug-0369 belt as that net.
+  - `docs/spec_topics/control-flow.md` — a deferred non-array iterand aborts
+    loudly (`theta/runtime/internal-error`) rather than iterating zero times;
+    `par for` reuses the contract and aborts before any worker is scheduled.
+  - `docs/spec_topics/expressions.md` §Truthiness — `!` added to the
+    boolean-position list; a deferred non-boolean aborts loudly rather than
+    steering false or coercing under `!`. (§Truthiness only; the join row is
+    bug 0366's landed work.)
+  - `tests/b0369-control-flow-kind-belts.test.ts` — NEW witness, 34 cells
+    (17 flips / 17 controls) across both hosts; offline, deterministic.
+  - `tests/match-arm-scope-inference-pass.test.ts` — PIN f8 re-anchored (f8
+    row only; see the falsification note below).
+
+- **Gates** (re-run by the orchestrator):
+  - Witness: `npx vitest run tests/b0369-control-flow-kind-belts.test.ts` →
+    34 passed (34).
+  - Full default suite: `npm test` → 530 files / 10020 tests passed.
+  - Typecheck: `npm run typecheck` → clean. Lint: `npm run lint` → clean.
+  - Live (under the shared cross-process lock):
+    `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/par-for-body-return-live-cell.test.ts` → 1 passed — `par for`
+    over a genuine `[1, 2, 3]` through live production load exercises the
+    `evalParFor` admit branch the `ForIterandKindDefectError` belt guards, green
+    end-to-end on the live host.
+
+- **Review**: 2 rounds + one comment-only polish.
+  - Round 1 (`bug-fix-reviewer`): FINDINGS — 1 blocker (F1: the pure host's
+    statement-`if` `evaluatePureIf` was unbelted, breaking the §Fix "uniform
+    across if/while/ternary/&&/||/! and both evaluation hosts" clause) + 2
+    non-blocking residuals. `bug-fix-fixer` belted `evaluatePureIf` (same
+    class, same channel, no scope widening) and added 4 witness cells (34
+    total); the full suite stayed green — no further committed-cell flip.
+  - Round 2 (`bug-fix-reviewer`, deep per routing rule (a) — round 1 raised a
+    correctness blocker): CLEAN; 2 non-blocking test/comment residuals.
+  - Polish (`bug-fix-fixer-light`): comment-only — rebased three pure-host
+    line citations in the witness header (staled by the round-1 insertion) and
+    added the PIf/POr rows to the witness table. Gate-diff verified (34/34, no
+    executable line touched); confirmation round skipped per charter.
+
+- **Verification** (`bug-fix-verifier`): PASS.
+  - The witness genuinely witnesses the bug: belts neutralized by hand → the
+    b0369 flips red 17/34 for the right reason (silent value / fabricated empty
+    fan-out / steer-false), and f8 reds (its promise resolves `"t"` instead of
+    rejecting); restored byte-exact (`git hash-object` matched before), re-run
+    34/34 + f8 green.
+  - Full default suite green (530/10020); lint + typecheck clean.
+  - Live deferred to the orchestrator and run under lock (green — above);
+    reviewer/verifier never run live.
+
+- **Falsification of the doc's premeasure (disclosed)**: this document's §Fix
+  census claimed ZERO committed-cell flips — FALSE. Bug 0145's PIN f8
+  (`tests/match-arm-scope-inference-pass.test.ts`,
+  `if match "hi" { x => x } { … }`) is a match-as-condition laundering vector:
+  the arm binder makes the scrutinee type statically unresolvable, so
+  `checkBooleanPosition` defers and the string `"hi"` reaches the runtime
+  boolean position — which both this doc's census and the orchestrator's own
+  offline+live flip census MISSED (both searched for bare-`fn`-param laundering,
+  not `match`-arm laundering). f8 is a genuine instance of THIS bug's defect
+  that bug 0145's author (predating 0369) had asserted "Green in both
+  directions".
+
+- **Parent ratification (verbatim-summarized)**: the parent examined the
+  evidence and RATIFIED re-anchoring PIN f8 — "PIN f8's SUBJECT is bug 0145's
+  match-arm scope inference with the CONDITION position as its vehicle row. The
+  position is part of the subject and is PRESERVED; the outcome assertion flips
+  because the adjudicated 0369 belt makes a laundered non-boolean condition a
+  loud defect. Subject-preservation linkage: the belt's error message carries
+  the offending kind ('… got string'), which itself witnesses that the match
+  arm's binder x bound and produced the string — a broken scope inference would
+  surface as an unknown-identifier/resolution failure, never as a string
+  reaching boolean position. Model class: the 0292 (D)-row-v2 / 0347 row-H
+  vehicle-collateral flip, forced by the adjudicated fix. FLIP SET = EXACTLY
+  f8." f8's outcome assertion was re-anchored to a regex pinning both the
+  boolean-position framing and `got string`; a dated note was appended to bug
+  0145's doc; no other row in that file changed. No further un-enumerated red
+  appeared.
+
+- **Residuals**:
+  1. Pure-host `&&` has no admitted-boolean control cell (round-2 R2, `test`,
+     non-blocking). The guard `typeof left !== "boolean"` is structurally
+     incapable of firing on a genuine boolean and the arm is typechecked; a
+     `${c && true}` / `f(true)` cell would complete the control symmetry the
+     pure ternary / `!` / `||` / statement-`if` already carry. Evidence:
+     round-2 reviewer note.
+  2. The (f)-group banner comment in
+     `tests/match-arm-scope-inference-pass.test.ts` still reads "GREEN IN BOTH
+     DIRECTIONS" — now stale for f8 (which reds-before / greens-after). Left
+     untouched under the ratified "f8 ONLY / no other row changes" bound;
+     disclosed here. Evidence: ratification Condition 1.
+
+- **Discharge notes appended**:
+  `docs/bugs/0145-inference-pass-no-match-arm-scope.md` — a dated note recording
+  the f8 re-anchor under parent ratification (dated note only; body untouched;
+  LF preserved).
+
+- **Pinned dispositions / non-goals**: registered-rejection (§Fix route 2) not
+  taken — ROUTE 1 adjudicated. The V3a mini-interpreter's strict-`true` arms
+  (`expression-evaluator.ts`) are dead at runtime (`evaluateSource` has no
+  production call site) and correctly out of scope. The arithmetic unary `-`
+  `as number` cast is the 0332/0338/0368/0367 arithmetic family, not this
+  boolean/iterand class — untouched. Per lane deltas: version left as the
+  0.350.0 placeholder, and no package.json / CHANGELOG / README edit and no
+  commit were made in this run.

@@ -584,8 +584,10 @@ export function checkBooleanPosition(opts: {
   // Only `boolean` is admissible in boolean position; theta performs no
   // truthiness coercion. Routed through the V2b `⊑` relation against `boolean`:
   // a `boolean` (or a boolean literal) is `compatible`; a statically
-  // unresolvable operand is `unknown` and deferred to the runtime safety net
-  // (it raises nothing here); anything else fires the diagnostic.
+  // unresolvable operand is `unknown` and deferred to the bug 0369 runtime
+  // belt (`BooleanPositionKindDefectError`, statement-executor.ts /
+  // production-theta-producer.ts) (it raises nothing here); anything else
+  // fires the diagnostic.
   const booleanType: CompatType = { kind: "prim", name: "boolean" };
   const r = checkCompatible(operandType, booleanType, {});
   if (r === "compatible" || r === "unknown") {
