@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.342.0]
+
+### Fixed
+
+- **Bug 0323** — the `probe-failed` `details.step` closed set was stated differently by the two pages that own it, and its sixth member had no producer: `code-registry-load.md`'s `theta/load/host-incompatible` row enumerated `"peer-dep-out-of-range"` (and keyed the `details.package` carriage on it) where the self-declared canonical `capability-probe.md` and the implementation both use the deliberately NEUTRAL `"peer-dep-version"` (a step-(d) throw cannot know which verdict arm would have fired — the canonical page records the rationale the registry missed), so a diagnostics consumer coded against the registry never matched a real payload for exactly the class that names a broken package install; and sub-step (f) was the ONE probe check with no try/catch — `probeSubagentExecutable` through `resolveSubagentExecutable` to the compose-pass call ran bare, contradicting PIC-6's "Each check is wrapped in a try/catch" MUST and leaving the canonical page's required `"subagent-executable"` routing dead (latent with the shipped throw-free host, but the seam is injectable: a throwing `ExecutableHost` unwound the load pass instead of producing the documented refusal). Both halves shipped per the wrap adjudication (the spec-carve-out alternative rejected — fix-toward-spec): the registry row's two tokens reconcile to `"peer-dep-version"`, and the (f) ladder now wraps in the (a)–(e) catch shape routing a throw to `theta/load/host-incompatible` with `details.step = "subagent-executable"` and the coerced cause, `ProbeStep` gaining the sixth member; the clean both-rungs-fail verdict keeps its `subagent-executable-unresolved` route and the shipped production host's pass byte-identical. The kind enumeration (where `peer-dep-out-of-range` IS correct) is untouched. Witnessed by `tests/b0323-subagent-executable-probe-wrap.test.ts` (throwing-host unit red at fork with the precise unwind, compose-pass integration, clean-route and production-host controls); no live owed — the throw is reachable only from an injected host (recorded).
+
 ## [0.341.0]
 
 ### Fixed

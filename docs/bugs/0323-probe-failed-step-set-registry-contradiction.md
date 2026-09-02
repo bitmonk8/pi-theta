@@ -1,6 +1,6 @@
 # Bug 0323 — the `probe-failed` `details.step` closed set is stated differently by the registry and the canonical PIC page: `code-registry-load.md:11` enumerates `"peer-dep-out-of-range"` where `capability-probe.md:80` (self-declared canonical) and the implementation both use `"peer-dep-version"` — and the set's `"subagent-executable"` member has no producer, because sub-step (f) is the one probe check with no try/catch (`probeSubagentExecutable` and `resolveSubagentExecutable` run bare), contradicting PIC-6's "Each check is wrapped in a try/catch"
 
-- **Status:** open.
+- **Status:** fixed (0.342.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the reachable-observable surface
   is documentation truth: the step-(d) mismatch is registry-vs-canonical
   wording (the implementation follows the canonical page, so no wrong bytes
@@ -224,3 +224,68 @@ Dead-arms-sweep bug hunt, worktree `C:/UnitySrc/pi-theta-hunt` at `ee681f7b`
 `production-composition.ts` (the (f) call site and refusal loop); spec
 `capability-probe.md` in full, `code-registry-load.md` host-incompatible
 row. Measurement: `rg` censuses quoted above; committed step pins named.
+
+## Fix (0.342.0)
+
+- What shipped:
+  - `docs/spec_topics/diagnostics/code-registry-load.md` (§Fix item 1) — two
+    token edits in the `theta/load/host-incompatible` row: `"peer-dep-out-of-range"`
+    → `"peer-dep-version"` in the `probe-failed` `details.step` set and in the
+    `details.package` carriage condition, reconciling to canonical
+    `capability-probe.md:80`. The `kind`-value occurrence is untouched (non-goal).
+  - `src/extension/capability-probe.ts` (§Fix item 2, WRAP route) — `ProbeStep`
+    extended with the sixth member `"subagent-executable"`; `probeSubagentExecutable`
+    wraps the `resolveSubagentExecutable` ladder run in a `try`/`catch`, catch →
+    `hostIncompatibleDiagnostic({ kind: "probe-failed", observed: "<unreadable>",
+    required: "<unreadable>", step: "subagent-executable", cause: coerceCause(e) })`,
+    mirroring the (a)–(e) `allow-broad-catch: PIC-6` arms byte-for-byte (same
+    carve-out comment, same `coerceCause`, same `"<unreadable>"` literals). The clean
+    `{ ok: false }` → `subagent-executable-unresolved` route is byte-identical.
+- Wrap-site choice (recorded): INSIDE `probeSubagentExecutable`, `try` scoped to
+  exactly the `resolveSubagentExecutable(host)` call. This keeps the clean-verdict
+  return byte-identical and leaves the compose-pass call site
+  (`production-composition.ts` — the `mode === "subagent" && !probe.ok` gate)
+  untouched, so a (f) throw rides the existing per-theta emission channel scoped to
+  subagent-mode thetas, exactly as the clean (f) verdict is.
+- Parent adjudication (verbatim): "Both halves ship, per the doc's §Fix items 1 and 2 with the WRAP route (the carve-out alternative — amending the spec to scope (f) out — is REJECTED: PIC-6's per-check wrap is a MUST, the canonical page requires the routing with a worked EACCES example, the seam is injectable so a conforming witness exists, and the campaign's default posture is fix-toward-spec). Half 1: two token edits in code-registry-load.md:11 — replace peer-dep-out-of-range with peer-dep-version in the step set AND in the details.package condition, reconciling to the canonical page; not one byte more. Half 2: wrap sub-step (f) — try/catch around the ladder run, catch → the probe-failed host-incompatible diagnostic with details.step = 'subagent-executable' and details.cause = the coerced underlying string (reuse the (a)–(e) catch shape/coercion exactly — read runCapabilityProbe's existing arms), extending the ProbeStep union with the sixth member; the CLEAN {ok:false} verdict keeps its existing subagent-executable-unresolved route byte-identical (the doc's Non-goals pin it). WHERE to wrap (inside probeSubagentExecutable vs at the compose-pass call site) is the lane's choice — pick the site that keeps the clean-verdict path untouched and the wrap scoped to exactly the (f) ladder, and record the choice with reasoning. The kind enumeration (peer-dep-out-of-range as a KIND) is correct everywhere and untouched."
+- Gates: witness `npx vitest run tests/b0323-subagent-executable-probe-wrap.test.ts`
+  → 5/5 green (RED at fork: (A)/(B) unwound the injected `EACCES` throw); full
+  suite `npm test` → 524 files / 9906 tests passing (fork baseline 523 / 9901 + 5
+  new); `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness / fidelity / spec /
+  house-rule findings); two non-blocking prose residuals (R1, R2 below). Post-R1
+  polish (comment-only) verified by gate-diff; confirmation round skipped.
+- Verification: SOLID — (1) witness reds on a hand-reverted wrap ((A)/(B)
+  EACCES-unwind), restored byte-identical (`git hash-object` `c80269c2…`), greens
+  5/5; (2) full suite 524 / 9906 green; (3) live NOT owed — the fixed path is a
+  throw from an injected host, the shipped `createProductionExecutableHost` is
+  throw-free by construction (bug-doc element 4: `existsSync` never throws,
+  `isEmbeddedFsPath` / `isGenericRuntime` are pure string tests), no committed live
+  cell pins the host-incompatible payload (`rg tests/live/` empty), and witness (C)
+  proves the production host passes the probe; (4) lint + typecheck clean.
+- Residuals:
+  1. R1 [prose, fixed] — the witness header cite `capability-probe.ts:468` →
+     `:470` after the +2 line shift; corrected in-file.
+  2. R2 [prose, pinned non-goal] — the registry row's pre-existing sentence “On
+     any of the seven kinds the factory refuses every subsequent … and emits this
+     single diagnostic” over-claims for the `probe-failed`/`subagent-executable`
+     (f)-throw sub-case (which is emitted per refused subagent theta in the
+     compose pass). The tension predates this diff verbatim and Half 1 is
+     adjudicated to exactly two token edits, so it is out of scope; left as filed
+     spec-prose follow-up.
+  3. Citation drift [pinned, out of scope] — the +2 line shift in
+     `capability-probe.ts` staled `path:line` cites in `docs/bugs/0023` (fixed
+     0.34.0) and `docs/bugs/0034` (fixed 0.46.0), both CLOSED/frozen historical
+     records (era-pinned, read-only), and comments in
+     `tests/supersession-inflight-rebuild-quiesce.test.ts` (unowned; imports by
+     symbol, suite green). None is a live assertion or gate-checked; not this
+     lane's to edit under the two-file scope.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the `kind` enumeration (`peer-dep-out-of-range`
+  as a KIND value) is correct on both pages and in `capability-probe.ts` and is
+  untouched; `theta/load/subagent-executable-unresolved` (the clean (f) verdict) is
+  byte-identical; the spec carve-out for (f) is REJECTED; no new diagnostic code is
+  minted (a new `details.step` VALUE is not a new code — permitted-codes baseline
+  `a4a8da04…` byte-unchanged; the DIAG-2 closed-set gate keys on codes, not on
+  `details.step` prose, so the reworded step set has no gate and its witness is the
+  doc diff itself).

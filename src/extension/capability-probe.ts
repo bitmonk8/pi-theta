@@ -29,6 +29,7 @@ import {
   SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
   SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE,
   type ExecutableHost,
+  type ExecutableResolution,
 } from "../runtime/subagent-launcher";
 
 /**
@@ -186,7 +187,8 @@ type ProbeStep =
   | "abortsignal-shape"
   | "sdk-capability-missing"
   | "peer-dep-version"
-  | "typebox-shape";
+  | "typebox-shape"
+  | "subagent-executable";
 
 /**
  * Read a property off a value that may be a function (a constructor such as
@@ -468,7 +470,27 @@ export type SubagentExecutableProbeOutcome =
 export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutableProbeOutcome {
   // Filesystem-existence only — no spawn, no version handshake. Run the ladder;
   // a runnable entry point on either rung passes.
-  const resolution = resolveSubagentExecutable(host);
+  let resolution: ExecutableResolution;
+  try {
+    resolution = resolveSubagentExecutable(host);
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    // PIC-6 requires every probe check be wrapped; a throw inside sub-step (f)
+    // (e.g. a hostile ExecutableHost whose fileExists throws EACCES) routes to
+    // host-incompatible/probe-failed with details.step = "subagent-executable"
+    // — NOT the clean subagent-executable-unresolved verdict, which is reserved
+    // for the both-rungs-fail case. Mirrors the (a)–(e) coerceCause shape.
+    const step: ProbeStep = "subagent-executable";
+    return {
+      ok: false,
+      diagnostic: hostIncompatibleDiagnostic({
+        kind: "probe-failed",
+        observed: "<unreadable>",
+        required: "<unreadable>",
+        step,
+        cause: coerceCause(e),
+      }),
+    };
+  }
   if (resolution.ok) {
     return { ok: true };
   }
