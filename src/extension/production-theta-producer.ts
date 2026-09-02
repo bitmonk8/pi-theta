@@ -133,6 +133,7 @@ import {
   BinaryNonNumericError,
   BooleanPositionKindDefectError,
   executeBody,
+  IndexKindDefectError,
   ThetaFnArityError,
   type BodyExecution,
   type ExecuteBodyDeps,
@@ -7210,9 +7211,16 @@ function evaluatePureExpression(expr: Expr, env: LexicalEnvironment): ThetaValue
     }
     case "index": {
       // `[i]` access — a `null` target / out-of-bounds / missing key panics (V4b).
+      // The `String()` coercion is removed (bug 0365 §Fix): a non-number,
+      // non-string index the static layer deferred on throws the
+      // `IndexKindDefectError` belt instead of manufacturing a key. Both hosts
+      // move in lockstep (statement-executor.ts's index arm, same belt).
       const target = evaluatePureExpression(expr.target, env);
       const index = evaluatePureExpression(expr.index, env);
-      return evaluateIndexAccess(target, typeof index === "number" ? index : String(index));
+      if (typeof index !== "number" && typeof index !== "string") {
+        throw new IndexKindDefectError(index);
+      }
+      return evaluateIndexAccess(target, index);
     }
     case "call": {
       // A `<name>(args)` call whose callee resolves to a user `fn` executes the

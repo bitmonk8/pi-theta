@@ -1,6 +1,6 @@
 # Bug 0365 — A fractional or NaN array index passes the runtime bounds check and silently fabricates an out-of-model value: `xs[1.5]` and `xs[0 / 0]` load clean, bind raw JS `undefined`, and read back as `null`, while `[xs[1.5]] == [null]` is `false` on a value that prints `[null]`; a string index on an array panics with a message asserting a falsehood
 
-- **Status:** open.
+- **Status:** fixed (0.357.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because a parse-clean spelled expression
   (`xs[1.5]`, `xs[0 / 0]`) silently fabricates a value instead of panicking or
   being refused: the binding holds raw JS `undefined` (a value bindings.md says
@@ -181,25 +181,110 @@ wrong value with zero diagnostics on any channel).
 
 ## Fix
 
-Not yet decided between:
+Adjudicated (parent, settled): **OPTION 1 — widen the panic trigger.** In
+`evaluateIndexAccess`'s array arm a non-integer (`!Number.isInteger(i)`) or
+non-number index panics `theta/runtime/index-out-of-bounds`, the message
+rendering the actual offending value (strings quoted `JSON.stringify`-style,
+the 0300 precedent, so H1's lie dies), with same-commit spec sentences defining
+the trigger as "not an integer in `0..arr.length`". The closed panic list stays
+closed; no taxonomy fork — `xs[5]` and `xs[1.5]` are one concept (the index
+addresses no element), against the 0326 anti-fork law. The object-index
+`String()` coercion at BOTH hosts is REMOVED: a non-string/non-number index the
+parse gate deferred on throws a loud belt (plain `Error` via
+`surfaceUnexpectedThrow` → `theta/runtime/internal-error`, the
+0332/0338/0368/0369 belt family) — not a manufactured key, not a new registry
+row. Option 2 (a registered rejection) was rejected: it forks the index-miss
+taxonomy against 0326.
 
-1. **Widen the panic trigger** — in `evaluateIndexAccess`'s array arm, treat a
-   non-integer (`!Number.isInteger(i)`) or non-number index as out-of-bounds
-   (message rendering the actual offending value, quoted for strings so H1's
-   lie disappears), with a same-commit spec sentence in expressions.md
-   defining the trigger as "not an integer in `0..arr.length`". Smallest
-   change; keeps the closed panic list closed.
-2. **Registered rejection** — route non-integral/non-number indices to a
-   registered runtime-defect-surface code (the 0027
-   `non-object-receiver`-style pattern), distinguishing them from genuine
-   bounds misses.
+## Fix (0.357.0)
 
-Either way the object-index `String()` coercion at the two hosts
-(`statement-executor.ts:881`, `production-theta-producer.ts:7209-7214`) must
-stop manufacturing keys from non-string indices (H3): a non-string object
-index the static layer deferred on should take the same loud disposition.
-Constraint: `xs[-0]` must keep reading element 0 (JS `-0` indexing), and
-in-range integer reads must stay byte-identical (A6 control).
+- **What shipped** (keyed to §Fix):
+  - `src/runtime/runtime-panics.ts` — `evaluateIndexAccess`'s array arm widened:
+    reads `target[index]` only when `Number.isInteger(index) && index >= 0 &&
+    index < target.length`, else throws `IndexOutOfBoundsPanic`; new module-local
+    `renderIndexOperand` renders the offending value (string → `JSON.stringify`,
+    integer → `renderInteger` byte-identical, non-integer number → decimal). `-0`
+    is an integer and still reads element 0. Two contract docstrings updated to
+    the widened trigger.
+  - `src/runtime/statement-executor.ts` — new `export class IndexKindDefectError
+    extends Error` (plain `Error`, reframed via `surfaceUnexpectedThrow` →
+    `theta/runtime/internal-error`, the b0368/b0369 sibling); the index arm drops
+    the `String()` coercion and throws it for a non-number/non-string key.
+  - `src/extension/production-theta-producer.ts` — imports `IndexKindDefectError`;
+    the pure-host index arm belts byte-identically (both hosts lockstep, no
+    coercion).
+  - `docs/spec_topics/expressions.md` — the array-index runtime-panic sentence
+    widened to "not an integer in `0..arr.length`" (parent-named same-commit
+    edit).
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md`,
+    `docs/spec_topics/errors-and-results/error-model.md` — the
+    `index-out-of-bounds` Trigger column and closed-list entry propagated to the
+    widened trigger (DIAG-2 same-commit consistency: one trigger stated in three
+    co-located sites; error-model.md declares the registry authoritative on
+    drift, so a stale row would conformance-defeat the fix).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-a.md` — category-4 `<i>`
+    exception at `index-out-of-bounds` (the widened trigger makes a non-integer /
+    `NaN` / quoted-string index reachable at `<i>`, which the prior "unreachable
+    by construction" clause denied).
+  - `tests/b0365-index-kind-belt.test.ts` — new witness, 23 rows (8 unit + 12
+    production-executor + 3 pure-host): 14 flips (A1/A3/A5/A8/A9/A4/H1/H2/H3 +
+    unit frac/nan/str + PA/PH3) and 9 controls (A6, `-0`, in-range, genuine
+    object string-key; both hosts).
+
+- **Gates (verbatim):**
+  - Witness revert-red: reverting the array arm + both host coercions reds 14
+    flip rows on their pre-fix signatures (`U-str/H1/H2 'index out of bounds: 1
+    not in 0..3'` lying message; `H3/PH3 MissingObjectKeyPanic: missing object
+    key: true`; `PA success; sent=["v=undefined"]`); restored byte-exact
+    (`git hash-object`: runtime-panics `3de0e13e…`, statement-executor
+    `2323fdc5…`, producer `4615f14d…`) → witness 23/23 green.
+  - Full default suite `npx vitest run` → 531 files / 10043 tests passed (the
+    timeout files under peak parallel load are green isolated — known
+    parallel-load flakes, none on the index surface).
+  - `npm run typecheck` clean (tsc exit 0); `npm run lint` clean (eslint exit 0).
+  - Live (under the shared lock) `... vitest.live.config.ts
+    tests/live/b0274live-reserved-keyword-type-head-registration.test.ts` → 1
+    passed (7.7s): the adjacent cell whose driven turn computes `700 + xs[0]`,
+    exercising the widened `evaluateIndexAccess` array arm with an in-range
+    integer on the live executor (byte-identical control). Live census of
+    `tests/live/` found ZERO index fixtures with a fractional / string / boolean
+    index → no live outcome flips.
+
+- **Review:** 1 round. Round 1 (`bug-fix-reviewer`) → FINDINGS: F1 [spec] the
+  widened trigger not propagated to the registry Trigger column + error-model
+  closed list; F2 [house-rule] two `runtime-panics.ts` docstrings still narrated
+  the old trigger; residuals R1 (expressions.md parenthetical omitted the string
+  case), R2/R3 (pre-existing, out of scope), R4 (Phase-5 doc flip). F1 + F2 + R1
+  corrected by an orchestrator prose/comment round (every hunk comment or docs
+  prose, no executable line; gates re-run green) → confirmation review round
+  skipped per the post-polish gate-diff rule.
+
+- **Verification:** `bug-fix-verifier` → VERIFIED. Witness reds-when-reverted
+  (14 rows, right reason) and greens-restored byte-exact (no `git stash`); full
+  suite green (7 load-timeout files green isolated); lint + typecheck clean;
+  belt-disposition + byte-identity + scope spot-checks (a)–(e) all pass.
+
+- **Residuals:**
+  1. `<i>` at `theta/runtime/null-index-access` (and the arithmetic non-finite
+     paths) can still render `String(NaN)` / `String(Infinity)` for a laundered
+     non-finite index (`f(null, 0 / 0)` → `null index access: [NaN]`) —
+     byte-identical pre/post this fix, a different arm outside 0365's rows
+     (reviewer R2). Follow-up material, not this fix.
+  2. A laundered *number* index on an OBJECT receiver still key-coerces inside
+     the object arm (`f(P { a: 7 }, 1)` → loud `MissingObjectKeyPanic: missing
+     object key: 1` via `assertKeyPresent`'s JS property lookup) — loud, not
+     silent, byte-identical pre/post; H3's nearest uncovered neighbour, no test
+     pins it (reviewer R3). An in-object-arm kind gate is a separate
+     adjudication.
+
+- **Discharge notes appended:** none.
+
+- **Pinned dispositions / non-goals:** the static-layer question (an
+  integer-index rule for array receivers) is out of scope (§Non-goals —
+  laundered indices A5/H2/H3 bypass any static gate); the ident-read `?? null`
+  launder is load-bearing and untouched (§Non-goals — only the feeders close,
+  which here are the two host index arms, now belted); the member-access
+  spelling is closed by bug 0032.
 
 ## Provenance
 

@@ -11,7 +11,7 @@ Wherever a row below carries a caught throw's error message — in its Message t
 | Code | Sev | Phase | Trigger | Spec rule | Message template |
 |---|---|---|---|---|---|
 | `theta/runtime/match-error` | E | runtime | A `match` whose arms collectively fail to cover the scrutinee at runtime. | [Errors and Results — Runtime panics](../errors-and-results.md) | `MatchError: no arm matched <scrutinee summary>`. |
-| `theta/runtime/index-out-of-bounds` | E | runtime | `arr[i]` with `i < 0` or `i >= arr.length`. | [Errors and Results — Runtime panics](../errors-and-results.md) | `index out of bounds: <i> not in 0..<length>`. |
+| `theta/runtime/index-out-of-bounds` | E | runtime | `arr[i]` where `i` is not an integer in `0..arr.length` (a fractional or `NaN` index, a `string` index, or an integer outside the range). | [Errors and Results — Runtime panics](../errors-and-results.md) | `index out of bounds: <i> not in 0..<length>`. |
 | `theta/runtime/null-member-access` | E | runtime | `expr.field` where `expr` evaluated to `null`. | [Errors and Results — Runtime panics](../errors-and-results.md) | `null member access: .<field>`. |
 | `theta/runtime/null-index-access` | E | runtime | `expr[i]` where `expr` evaluated to `null`. | [Errors and Results — Runtime panics](../errors-and-results.md) | `null index access: [<i>]`. |
 | `theta/runtime/missing-object-key` | E | runtime | `obj[k]` or `obj.field` where `k` / `field` is not a present theta-side name on the receiver. | [Errors and Results — Runtime panics](../errors-and-results.md) | `missing object key: <key>`. |

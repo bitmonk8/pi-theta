@@ -770,6 +770,28 @@ export class ParForUnwrittenSlotError extends Error {
 }
 
 /**
+ * Bug 0365 (docs/bugs/0365-array-index-nonintegral-silent-undefined.md)
+ * belt: the sibling of the b0332/b0338/b0368/b0369 belts for an index
+ * expression's key. The static layer's object-index check (expressions.md
+ * §Indexing) refuses a statically-resolvable non-string index on an object
+ * receiver at parse; a value it DEFERRED on (an unannotated fn param,
+ * WITHHELD) can still reach this arm, and the removed `String()` coercion
+ * would silently manufacture a key from it (the original defect: a laundered
+ * boolean index reading the key `"true"`). A plain `Error`, NOT a
+ * `ThetaPanic` — it propagates uncaught out of `executeBody` and is
+ * reframed one layer up through `surfaceUnexpectedThrow` to
+ * `INTERNAL_ERROR_CODE`, exactly as `BinaryMixedOperandError` is.
+ */
+export class IndexKindDefectError extends Error {
+  public constructor(value: ThetaValue) {
+    super(
+      `internal defect: an index expression requires an integer (array) or string (object) key, got ${typeof value}; a non-number/non-string index reached the runtime after the object-index type gate deferred (bug 0365)`,
+    );
+    this.name = "IndexKindDefectError";
+  }
+}
+
+/**
  * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
  * `+` arm exactly (string+string concatenates, two-number addition, else the
  * bug 0368 belt) — the shared runtime semantics for `+`, since bindings.md
@@ -962,7 +984,10 @@ async function evalExpr(
     if (index.flow !== "value") {
       return index;
     }
-    const key = typeof index.value === "number" ? index.value : String(index.value);
+    const key = index.value;
+    if (typeof key !== "number" && typeof key !== "string") {
+      throw new IndexKindDefectError(key);
+    }
     return { flow: "value", value: evaluateIndexAccess(target.value, key) };
   }
   if (expr.kind === "member") {

@@ -68,7 +68,7 @@ export abstract class ThetaPanic extends Error {
   abstract readonly code: string;
 }
 
-/** `arr[i]` with `i < 0` or `i >= arr.length` (`theta/runtime/index-out-of-bounds`). */
+/** `arr[i]` where `i` is not an integer in `0..arr.length` (`theta/runtime/index-out-of-bounds`). */
 export class IndexOutOfBoundsPanic extends ThetaPanic {
   readonly code = INDEX_OUT_OF_BOUNDS_CODE;
   constructor(message: string) {
@@ -230,7 +230,7 @@ function assertKeyPresent(target: ThetaValue, key: string): void {
  * Runtime `[i]` indexed access (errors-and-results/error-model.md §"Runtime
  * panics"). `target[index]`:
  *   - `null` target               → `NullIndexAccessPanic` (`[<i>]`);
- *   - array, `i < 0 || i >= len`  → `IndexOutOfBoundsPanic` (`<i> not in 0..<length>`);
+ *   - array, `i` not an integer in `0..len` → `IndexOutOfBoundsPanic` (`<i> not in 0..<length>`);
  *   - a primitive, an enum value, or a `Result` value → `NonObjectReceiverError`
  *     (`theta/runtime/non-object-receiver`, bug 0027 §Fix — a registered
  *     runtime-defect-surface rejection, not a panic);
@@ -247,6 +247,16 @@ function assertKeyPresent(target: ThetaValue, key: string): void {
  * rendering categories (`<i>` / `<length>` are category-4 numerics; `<key>` is
  * a category-5 source-derived identifier).
  */
+// A string index renders QUOTED (JSON.stringify — the bug 0300 precedent) so a
+// string cannot masquerade as an in-range integer in the message; an integer
+// renders via the category-4 numeric rule (renderInteger), byte-identical to
+// the pre-widening message; a non-integer number (1.5, NaN) renders as its
+// plain decimal — the honest offending value.
+function renderIndexOperand(index: number | string): string {
+  if (typeof index === "string") return JSON.stringify(index);
+  return Number.isInteger(index) ? renderInteger(index) : String(index);
+}
+
 export function evaluateIndexAccess(
   target: ThetaValue,
   index: number | string,
@@ -257,15 +267,17 @@ export function evaluateIndexAccess(
     throw new NullIndexAccessPanic(`null index access: [${rendered}]`);
   }
   if (Array.isArray(target)) {
-    // Array indexing: bounds-check `i < 0 || i >= arr.length`
-    // (`theta/runtime/index-out-of-bounds`). `<i> not in 0..<length>`.
-    const i = index as number;
-    if (typeof i !== "number" || i < 0 || i >= target.length) {
-      throw new IndexOutOfBoundsPanic(
-        `index out of bounds: ${renderInteger(i)} not in 0..${renderInteger(target.length)}`,
-      );
+    // Array indexing: the trigger is "not an integer in 0..arr.length"
+    // (`theta/runtime/index-out-of-bounds`, bug 0365 §Fix) — a fractional or
+    // `NaN` number and a string index all address no element and panic
+    // alongside a genuinely out-of-range integer; `Number.isInteger(-0)` is
+    // true, so `xs[-0]` still reads element 0. `<i>`.
+    if (typeof index === "number" && Number.isInteger(index) && index >= 0 && index < target.length) {
+      return target[index] as ThetaValue;
     }
-    return target[i] as ThetaValue;
+    throw new IndexOutOfBoundsPanic(
+      `index out of bounds: ${renderIndexOperand(index)} not in 0..${renderInteger(target.length)}`,
+    );
   }
   // A primitive receiver (`string` / `number` / `boolean`) is not indexable:
   // the type layer rejects a *statically-resolvable* one at parse time

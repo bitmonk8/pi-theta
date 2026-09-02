@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.357.0]
+
+### Fixed
+
+- **Bug 0365** — a fractional or NaN array index passed the runtime bounds check (`1.5` sits between the ordered comparisons, `NaN` is unordered against both) and silently fabricated an out-of-model value: `xs[1.5]` / `xs[0 / 0]` loaded clean, bound raw JS `undefined` (a value bindings.md says the language does not have), read back as `null`, escaped raw into composites where `[xs[1.5]] == [null]` was `false` on a value that prints `[null]`, and a string index drew an `IndexOutOfBoundsPanic` whose message asserted a falsehood (`index out of bounds: 1 not in 0..3` for `xs["1"]`) — the bug-0032 out-of-model class re-opened on the index arm. PARENT ADJUDICATION Option 1 (recorded: expressions.md:10 already prescribes the panic for indices addressing no element; a second code would fork the index-miss taxonomy, 0326 anti-fork; the closed panic list stays closed): `evaluateIndexAccess`'s array arm now panics on any non-number, non-integer, or NaN index with the message rendering the ACTUAL offending value — strings quoted, so H1's lie dies — and the same-commit expressions.md sentence defines the trigger as "not an integer in `0..arr.length`"; the OBJECT-index `String()` coercion at BOTH hosts is REMOVED (H3: a non-string object index the parse gate deferred on now throws the new `IndexKindDefectError` belt → `surfaceUnexpectedThrow` → `theta/runtime/internal-error`, the 0338/0369 family — no manufactured `"true"`/`"null"` keys, no new registry row). `xs[-0]` keeps reading element 0, A6 (`xs[5]`) and all in-range reads are byte-identical, and the ident-read `?? null` launder stays (load-bearing, doc §Non-goals — only the feeders close). Registry/spec consistency edits landed with DIAG-2 discipline (runtime registry Trigger, error-model panic list, placeholder-rendering `<i>`). Witnessed by `tests/b0365-index-kind-belt.test.ts` (23 rows: 14 flips red at fork across unit/executor/pure-host — the A-row fabrications, the H1/H2 quoted-string message, H3's belt, A4's false NullIndexAccessPanic now honest — and 9 byte-identity controls incl. `-0`). Live: `b0274live` ran green under the lock (`700 + xs[0]` exercises the widened arm through a real drive; census found zero flipping index fixtures). Residuals recorded (pre-existing, out of scope): the null-index NaN render and number-index-on-object key coercion.
+
 ## [0.356.0]
 
 ### Fixed
