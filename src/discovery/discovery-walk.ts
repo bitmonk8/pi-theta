@@ -519,6 +519,52 @@ async function isCanonicalDuplicate(
   return false;
 }
 
+/** Bug 0363: for an EXPLICIT file reference (a CLI `--theta` component or a
+ *  settings `thetaPaths` literal/glob match) the slash name and candidate path
+ *  must come from the ON-DISK directory entry, not the reference's own
+ *  spelling. A case-insensitive host resolves a case-variant reference to the
+ *  real file, and DISC-3 Filename validity pins the slash name to that file's
+ *  own stem taken verbatim — so `Plan.theta` reached via `plan.theta` is judged
+ *  on `Plan` (refused) and `good.theta` reached via `GOOD.theta` registers
+ *  `/good`. `readdir` the parent and take the entry the filesystem resolved: a
+ *  byte-exact name wins (a case-sensitive host can hold `good.theta` and
+ *  `GOOD.theta` as distinct entries, and the reference named exactly one), else
+ *  the case-insensitive host's unique fold answers. This makes the explicit-file
+ *  arm consistent with the enumeration arm (`enumerateDirectory`, whose
+ *  candidates already carry `readdir` names). When the parent cannot be
+ *  enumerated the reference spelling is the best available answer —
+ *  classification already proved a file is present, so this is not the common
+ *  path. */
+async function onDiskFileCandidate(fs: FileSystem, path: string): Promise<RawCandidate> {
+  const norm = normalizePath(path);
+  const dir = dirnameOf(norm);
+  const wanted = basename(norm);
+  const wantedLower = wanted.toLowerCase();
+  // A bare `X:` drive spec is drive-RELATIVE on Windows (the cwd on that drive);
+  // the drive root is `X:/`, so enumerate that form while the returned candidate
+  // path still joins the bare `dir` (paths stay `C:/plan.theta`, never `C://`).
+  const dirForReaddir = /^[A-Za-z]:$/.test(dir) ? `${dir}/` : dir;
+  const names = await fs.readdir(dirForReaddir).then(
+    (entries) => entries,
+    () => undefined,
+  );
+  if (names !== undefined) {
+    let folded: string | undefined;
+    for (const name of names) {
+      if (name === wanted) {
+        return { path: joinPosix(dir, name), stem: splitExtension(name).stem };
+      }
+      if (folded === undefined && name.toLowerCase() === wantedLower) {
+        folded = name;
+      }
+    }
+    if (folded !== undefined) {
+      return { path: joinPosix(dir, folded), stem: splitExtension(folded).stem };
+    }
+  }
+  return { path: norm, stem: splitExtension(wanted).stem };
+}
+
 /** Resolve one source entry (a directory root, or a single `.theta` file) into
  *  raw candidates, emitting the per-source failure diagnostic on any miss. */
 async function resolveEntry(
@@ -537,9 +583,11 @@ async function resolveEntry(
       roots.add(normalizePath(path));
       return enumerateDirectory(fs, path, descriptor, modes, diagnostics);
     case "file":
-      // A single `.theta` file entry contributes itself directly.
+      // A single `.theta` file entry contributes itself directly. Bug 0363: the
+      // slash name and candidate path come from the ON-DISK directory entry,
+      // not this reference's own spelling.
       roots.add(dirnameOf(normalizePath(path)));
-      return [{ path: normalizePath(path), stem: splitExtension(basename(path)).stem }];
+      return [await onDiskFileCandidate(fs, path)];
     case "invalid-extension":
       // An explicit file reference (CLI `--theta` / settings `thetaPaths`) that
       // resolves to a non-`.theta` regular file is an `invalid-extension` error
@@ -904,9 +952,11 @@ async function resolveSettingsSource(
       selected.set(cand.path, cand);
     }
   };
-  const addFile = (absPath: string, index: number): void => {
+  const addFile = async (absPath: string, index: number): Promise<void> => {
     // A file match must end in `.theta` (byte-exact lowercase); anything else is
     // an `invalid-extension` error, reported per match, and does not register.
+    // This check stays over the ENTRY text `absPath` (Lexical §Extension matching):
+    // extension validity is about what the operator wrote, not the on-disk name.
     if (splitExtension(basename(absPath)).ext !== "theta") {
       diagnostics.push({
         severity: "error",
@@ -917,7 +967,11 @@ async function resolveSettingsSource(
       return;
     }
     roots.add(dirnameOf(absPath));
-    selected.set(absPath, { path: absPath, stem: splitExtension(basename(absPath)).stem });
+    // Keyed by the entry-spelled `absPath` (not the on-disk path) so the DISC-5
+    // `!`/`-` drop operands, which compare against `entry.abs`, still match this
+    // entry; only the stored candidate's path/stem carry the on-disk answer
+    // (bug 0363).
+    selected.set(absPath, await onDiskFileCandidate(fs, absPath));
   };
 
   // A literal (non-glob) entry classifies directly, preserving the per-entry
@@ -933,7 +987,7 @@ async function resolveSettingsSource(
         await addDir(entry.abs, descriptor);
         return;
       case "file":
-        addFile(entry.abs, entry.index);
+        await addFile(entry.abs, entry.index);
         return;
       case "missing":
         emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, descriptor, entry.abs, diagnostics, "missing");
@@ -959,7 +1013,7 @@ async function resolveSettingsSource(
       if (universeEntry.isDir) {
         await addDir(universeEntry.abs, `settings entry index ${entry.index}`);
       } else if (universeEntry.isFile) {
-        addFile(universeEntry.abs, entry.index);
+        await addFile(universeEntry.abs, entry.index);
       }
     }
   };

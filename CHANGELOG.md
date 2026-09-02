@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.355.0]
+
+### Fixed
+
+- **Bug 0363** — an explicit `.theta` FILE entry's slash-name stem and candidate path were judged on the ENTRY'S spelling, not the on-disk directory entry, so on a case-insensitive host a `plan.theta` reference to an on-disk `Plan.theta` registered the wrong-case `/plan` (DISC-3 violation in one direction) while `GOOD.theta` referencing `good.theta` was refused in the other. The discovery walk now derives both from the on-disk entry via the new `onDiskFileCandidate` (`src/discovery/discovery-walk.ts`), wired into `resolveEntry`'s file case and the settings `addFile` path, with a drive-root `X:`→`X:/` guard; both DISC-3 directions close (`Plan.theta` via `plan.theta` → refused; `good.theta` via `GOOD.theta` → registers `/good`). One "Filename validity" sentence lands in `discovery-sources.md` (DISC-3). Witnessed by `tests/b0363-file-entry-stem-judged-on-entry-spelling.test.ts` (real-FS cells asserting BOTH case-sensitivity branches loudly; A/B/E witness rows red at fork, C control). Live: the CLI `--theta` discovery→registration cell ran green under the lock (the on-disk-spelling seam through a real host). Recorded for the sibling: 0379 is the same judged-on-entry-spelling theme but its fix site (`callable-set.ts` thetaDefaultName) is DISJOINT from this one.
+
 ## [0.354.0]
 
 ### Fixed

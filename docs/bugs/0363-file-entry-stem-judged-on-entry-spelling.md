@@ -1,6 +1,6 @@
 # Bug 0363 — An explicit `.theta` file entry's slash name is derived from the entry's OWN spelling, not the on-disk filename, so on a case-insensitive host a `thetaPaths`/`--theta` entry `plan.theta` naming on-disk `Plan.theta` registers `/plan` with zero diagnostics where DISC-3 mandates `invalid-slash-name` refusal — and the registered theta's every subagent-mode invocation then refuses child-side, because the child's directory enumeration sees the real `Plan.theta` and never re-discovers the slug
 
-- **Status:** open.
+- **Status:** fixed (0.355.0).
 - **Sev/Diff estimate:** S2/D2 — S2: two silent divergences from one root
   cause. Direction (i) is silent permissive acceptance (a stem the spec
   rejects registers, under a name the file does not carry) whose downstream is
@@ -174,3 +174,62 @@ windows-paths bug-hunt sweep, af476df2 (v0.347.0). Probe:
 `tests/scratch-winpaths-discovery.test.ts` cells P1/P2/P6 (deleted after the
 run) — real NTFS scratch root via `PiFileSystem`, `discoverThetas` driven
 directly; outputs as quoted in §Reproduction.
+
+## Fix (0.355.0)
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — new `onDiskFileCandidate(fs, path)`
+    derives an explicit `.theta` file reference's slash-name stem AND candidate
+    path from the ON-DISK directory entry (`readdir` the parent; a byte-exact
+    name wins, else the case-insensitive fold; a bare drive spec `X:` is
+    `readdir`'d as `X:/`; reference-spelling fallback when the parent is
+    unenumerable). Wired into both explicit-file arms named in §Fix:
+    `resolveEntry` `case "file"` (CLI `--theta` / settings literal) and the
+    settings-collector `addFile` (glob matches / `+` re-admissions). The
+    byte-exact extension check stays over the ENTRY text (§Non-goals 1) and
+    `selected` stays keyed by the entry-spelled path so the DISC-5 `!`/`-`/`+`
+    drop operands still match. `validateAndRead` now judges the on-disk stem
+    with no change of its own.
+  - `docs/spec_topics/discovery/discovery-sources.md` — DISC-3 "Filename
+    validity" gains one sentence pinning the on-disk directory entry as the
+    stem source for explicit file references (the stem-casing invariant; the
+    extension stays subject to the byte-exact check).
+- Gates: witness `npx vitest run tests/b0363-file-entry-stem-judged-on-entry-spelling.test.ts`
+  4/4 green; full default suite 531 files / 10024 tests green (one
+  concurrent-load timeout in `shared-subtree-judged-once-per-pass-not-once-per-path`,
+  green in isolation, off the discovery surface); `npm run typecheck` clean;
+  `npm run lint` clean.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`) → FINDINGS: F1 spec-blocker (DISC-3
+  over-claimed casing invariance vs the extension check), F2 test (witness the
+  on-disk candidate PATH in the registering direction), F3 correctness
+  (drive-root `readdir("X:")` is drive-relative on Windows). F4 declined
+  (sanctioned b0329 reporter-label pattern); R1-residual recorded below. R2
+  (`bug-fix-reviewer-fast`) → CLEAN (F1/F2/F3 resolved, no new findings).
+- Verification: SOLID. Witness — revert→RED (A/E register `/plan` silently with
+  zero diagnostics; B refuses the legal on-disk stem `good`) → restore →
+  GREEN (4/4). Full suite — green (numbers above; the one red was a load-noise
+  timeout, green isolated). Live — no live cell is prescribed by the doc; the
+  adjacent CLI `--theta` discovery→registration cell
+  `tests/live/discovery-cli-override-prefix-missing-source-live-cell.test.ts`
+  ran 1/1 green through the real production composition root under the shared
+  live lock, exercising the modified `resolveEntry` explicit-file arm
+  end-to-end (recorded WHY). Lint + typecheck — clean.
+- Residuals:
+  1. Extension-case sibling (reviewer R1): on a case-insensitive host an on-disk
+     extension-case variant (`good.THETA`) reached by an explicit reference
+     spelled `good.theta` still registers — a file the byte-exact rule says is
+     "not a `.theta` file at all", so it stays invisible to enumeration and the
+     child-side skew persists for it. Pre-existing (pre-fix it also registered,
+     under the entry-spelled path; this fix changed only the recorded path to
+     the honest on-disk one). Extension-side, outside this §Fix and adjacent to
+     §Non-goals bullet 1 — candidate for its own bug report, not widened here.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Non-goals bullet 1 upheld — an entry whose
+  extension is mis-cased (`plan.THETA`) stays `theta/load/invalid-extension`
+  (the check is kept over the entry text). `readdir` was chosen over `realpath`
+  so symlink/junction leaf semantics stay consistent with the enumeration arm
+  (0075) and clear of the 0331 separator-normalised identity dedup and the
+  0329/0330 realpath drop-target canonicalisation — all untouched. Lane sibling
+  0379 (tools-derived-name-judged-on-entry-spelling) fixes
+  `src/parser/callable-set.ts` (`thetaDefaultName`), DISJOINT from this change;
+  no shared fix site.
