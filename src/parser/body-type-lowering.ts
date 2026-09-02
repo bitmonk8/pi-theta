@@ -69,11 +69,24 @@ export interface InlineHoistSinks {
 export interface LowerableField {
   readonly name: string;
   readonly typeSource: string;
+  /**
+   * The lowered field description (A1: a schema-FIELD `///` lowers into the
+   * property's own `description` key). Absent when the field carries no doc
+   * comment.
+   */
+  readonly description?: string;
 }
 
 /** A schema declaration reduced to what lowering needs. */
 export interface LowerableSchema {
   readonly name: string;
+  /**
+   * The lowered schema-DECL description (A1: a `///` above `schema` lowers
+   * into the emitted `$defs` fragment's own `description` key, on both the
+   * object-body and alias/union forms). Absent when the declaration carries
+   * no doc comment.
+   */
+  readonly description?: string;
   /** Object-body field sources; absent for the alias/union form and for the head-only form. */
   readonly fields?: readonly LowerableField[];
   /**
@@ -95,6 +108,13 @@ export interface LowerableEnum {
   readonly variants?: readonly string[];
   /** Explicit `= "wire"` values keyed by variant name; a variant absent here uses its name. */
   readonly variantValues?: Readonly<Record<string, string>>;
+  /**
+   * The lowered enum-DECL description (A1: a `///` above `enum` lowers into
+   * the emitted flat fragment's own `description` key; a per-variant `///`
+   * has no lowering target and never reaches this field). Absent when the
+   * declaration carries no doc comment.
+   */
+  readonly description?: string;
 }
 
 /**
@@ -107,9 +127,16 @@ export interface LowerableEnum {
 export function lowerEnumToSchema(
   variants: readonly string[] | undefined,
   variantValues: Readonly<Record<string, string>> | undefined,
+  description?: string,
 ): Record<string, unknown> {
   const values = (variants ?? []).map((name) => variantValues?.[name] ?? name);
-  return { type: "string", enum: values };
+  // A1: the wire shape stays flat regardless of per-variant `///` (those lower
+  // nowhere); only the enum-DECL's OWN description, when present, appends —
+  // last, so the flat `{type,enum}` shape a description-less enum already
+  // pins reads as an unchanged prefix.
+  return description !== undefined
+    ? { type: "string", enum: values, description }
+    : { type: "string", enum: values };
 }
 
 /**
@@ -130,20 +157,24 @@ export function lowerObjectFields(
   const required: string[] = [];
   const defs: Record<string, Record<string, unknown>> = {};
   for (const field of fields) {
+    // Compute the lowered node first so a described field can append its
+    // `description` to the VALUE only — `defineRecordField`'s __proto__
+    // discipline governs the field NAME, not what the name's value carries.
+    const lowered = lowerTypeSource(
+      field.typeSource,
+      bodyTypeMap,
+      defs,
+      unresolved,
+      sinks,
+      reservedKeywords,
+      unspellable,
+    );
     // A declared field name is author-controlled; see `defineRecordField`'s
     // doc-comment for why the lowered node must be defined, not assigned.
     defineRecordField(
       properties,
       field.name,
-      lowerTypeSource(
-        field.typeSource,
-        bodyTypeMap,
-        defs,
-        unresolved,
-        sinks,
-        reservedKeywords,
-        unspellable,
-      ),
+      field.description !== undefined ? { ...lowered, description: field.description } : lowered,
     );
     required.push(field.name);
   }
@@ -433,7 +464,7 @@ export function buildBodyTypeSchemas(
   // PASS 1 — seed the name set before any body lowers.
   const bodies = new Map<string, Record<string, unknown>>();
   for (const decl of enums) {
-    bodies.set(decl.name, lowerEnumToSchema(decl.variants, decl.variantValues));
+    bodies.set(decl.name, lowerEnumToSchema(decl.variants, decl.variantValues, decl.description));
   }
   for (const decl of schemas) {
     if (decl.fields === undefined && decl.arms === undefined) {
@@ -470,6 +501,9 @@ export function buildBodyTypeSchemas(
       // `computed` is fresh — `lowerObjectFields` built it above — so mutating
       // it here touches nothing else.
       delete computed["$defs"];
+      if (decl.description !== undefined) {
+        computed["description"] = decl.description;
+      }
     } else if (decl.arms !== undefined) {
       // A fresh local `defs` per decl, exactly as `lowerObjectFields` builds
       // its own — `lowerTypeSource` never attaches a `$defs` key to the
@@ -478,6 +512,9 @@ export function buildBodyTypeSchemas(
       // `delete` here).
       const localDefs: Record<string, Record<string, unknown>> = {};
       computed = lowerTypeSource(decl.arms.join(" | "), bodies, localDefs, undefined, sinks);
+      if (decl.description !== undefined) {
+        computed["description"] = decl.description;
+      }
       direct = Object.keys(localDefs);
       // First-wins, as in the object-body arm above.
       for (const [mintedName, fragment] of Object.entries(localDefs)) {

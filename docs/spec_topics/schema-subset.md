@@ -4,7 +4,7 @@ Theta's `schema` keyword does **not** target the full JSON Schema standard. It t
 
 - **Types**: `string`, `number`, `integer`, `boolean`, `object`, `array`, `null`.
 - **Composition**: `anyOf` only. `oneOf`, `allOf`, `not`, `if`/`then`/`else` are rejected at parse time.
-- **Validation**: `enum`, `const`.
+- **Validation**: `enum`, `const`. Plus one **annotational** keyword, `description` — it constrains no value, is emitted from a `///` doc comment on a `schema` / `enum` declaration or a schema field (see [Descriptions](./descriptions.md)) and passed to the model as schema metadata, is **not** in the rejected-keyword set below, and lowers from no `///` on a top-level `fn` or an `enum` variant.
 - **Objects**: `properties`, `required` (must list *every* declared property), `additionalProperties: false` (always emitted).
 - **Arrays**: `items` (a single subschema). Bare `array` is not a Theta type; use `array<T>`.
 - **Reuse**: `$defs` + `$ref`, including recursive references. Generated automatically by the lowering pass; authors do not write `$defs` or `$ref` directly.
@@ -95,7 +95,7 @@ Several runtime sites need a stable, content-addressed identifier for a lowered 
 
 <a id="subs-2"></a> **SUBS-2.** *Schema-slug terminology.* Authors and implementers MUST use `schema slug` (or the bare form `slug` when context is unambiguous) for the 16-hex output of this recipe; the synonyms `schema hash`, `schema-hash`, `sha12`, `lowered-schema hash`, and `lowered-schema content hash` are spec-prose drift to be avoided. This obligation is the source of truth for a future grep gate over those synonyms. The rule is purely terminology — the on-the-wire synthesised tool names ([step 5](#synthesised-names)) and the `<slug>` placeholder token in diagnostic registry rows and template bodies are unaffected.
 
-1. **Input.** The hash is computed over the **lowered** JSON Schema fragment that would be emitted (i.e. the body of the `$defs` entry, or the lowered query response schema), *not* the theta-side AST. Hashing the lowered form is what makes the dedup property in step 2 above mechanical: two source-level inline schemas that lower to the same JSON Schema fragment produce the same slug.
+1. **Input.** The hash is computed over the **lowered** JSON Schema fragment that would be emitted (i.e. the body of the `$defs` entry, or the lowered query response schema), *not* the theta-side AST. Hashing the lowered form is what makes the dedup property in step 2 above mechanical: two source-level inline schemas that lower to the same JSON Schema fragment produce the same slug. A `///`-lowered `description` (on a `schema` / `enum` / field anchor; see [Descriptions](./descriptions.md)) is part of that lowered fragment, so it participates in the hash: adding, removing, or editing such a description changes the fragment's schema slug — and therefore the synthesised names derived from it (`__theta_respond_<slug>`, `__theta_bind_<slug>`, `__theta_callee_<slug>__…`) and the validator cache key. This is an accepted consequence, since a lowered `description` is genuine schema content sent to the provider, unlike `default` — a runtime-filled surface-syntax feature the binder never lowers, so it never enters the fragment and never moves a slug.
 2. **Canonical form.** Serialise the fragment to a deterministic UTF-8 JSON byte sequence:
    - object keys sorted by Unicode code-point (lexical) order;
    - no insignificant whitespace (no spaces, no newlines between tokens);

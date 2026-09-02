@@ -60,7 +60,7 @@ import {
   checkMutModifier,
   checkIncrementDecrement,
 } from "./bindings";
-import { checkDocCommentPlacement } from "./descriptions";
+import { checkDocCommentPlacement, joinDocComment } from "./descriptions";
 import { checkBreakStatement, checkContinueStatement } from "./control-flow";
 import {
   checkFnPlacement,
@@ -680,6 +680,23 @@ export interface SchemaFieldSource {
    * this schema is interpolated into a query template (QRY-18).
    */
   readonly wireName?: string;
+  /**
+   * The field-name token's 1-indexed source line, captured so a `///` run
+   * immediately above the field can be anchored to it by line lookup
+   * (`attachDocDescriptions`) after the enclosing `SchemaDecl` has already been
+   * built. Absent only for a literal `SchemaFieldSource` constructed off-parser
+   * (tests), which carries no doc comment to anchor.
+   */
+  readonly line?: number;
+  /**
+   * The lowered field description: the `///` run that
+   * `scanDocComments`/`classifyDocAnchor` resolve to this field's line via the
+   * placement scan, joined byte-for-byte (descriptions.md §Multi-line / §No
+   * transformation). Lowering and placement agree by construction — blank and
+   * `//` lines between the run and the field name are skipped exactly as the
+   * placement scan skips them. Absent when the field carries no doc comment.
+   */
+  readonly description?: string;
 }
 
 /**
@@ -771,6 +788,16 @@ export interface SchemaDecl extends NodeBase {
    * `malformed-alias-rhs` its only report.
    */
   readonly aliasRhsRefused?: true;
+  /**
+   * The lowered schema-DECL description: the `///` run that
+   * `scanDocComments`/`classifyDocAnchor` resolve to the `schema` keyword via
+   * the placement scan, joined byte-for-byte (descriptions.md §Multi-line / §No
+   * transformation; grammar.md:195 for the alias form). Lowering and placement
+   * agree by construction — blank and `//` lines between the run and the
+   * keyword are skipped exactly as the placement scan skips them. Absent when
+   * the declaration carries no doc comment.
+   */
+  readonly description?: string;
 }
 
 /** An `enum` declaration (`EnumDecl`; schemas.md). */
@@ -801,6 +828,17 @@ export interface EnumDecl extends NodeBase {
    * non-`{ … }` enum shape the body parser could not read.
    */
   readonly variantDecls?: readonly EnumVariantDecl[];
+  /**
+   * The lowered enum-DECL description: the `///` run that
+   * `scanDocComments`/`classifyDocAnchor` resolve to the `enum` keyword via the
+   * placement scan, joined byte-for-byte (descriptions.md §Multi-line / §No
+   * transformation); blank and `//` lines between the run and the keyword are
+   * skipped exactly as the placement scan skips them. A per-variant `///` is
+   * accepted-but-AST-only (A1: the flat enum wire shape has no per-value
+   * description slot) and never reaches this field. Absent when the
+   * declaration carries no doc comment.
+   */
+  readonly description?: string;
 }
 
 /** An `import … from` declaration (imports.md). */
@@ -949,7 +987,13 @@ export function parseThetaDocument(
   // delegated to V5c's `checkDocCommentPlacement` over the following
   // production.
   const docScan = scanDocComments(split.bodyText, file, body.statements);
-  const mergedStatements = mergeByLine(body.statements, docScan.nodes);
+  // Attach schema-DECL / enum-DECL / FIELD descriptions to their anchor decls
+  // BEFORE the floating `DocComment` nodes are folded back in, so every
+  // downstream consumer of `statements` (params loweredSchema, the binder
+  // envelope, `lowerQueryResponseSchema`) sees the described decls without a
+  // second pass (A1 + B1: docs/bugs/0358-… §Fix).
+  const described = attachDocDescriptions(body.statements, docScan.attachments);
+  const mergedStatements = mergeByLine(described, docScan.nodes);
 
   // V13b integration — resolve each INDIRECT typed query's response schema from
   // its surrounding type context (QRY-2) and collect the QRY-4 explicit-schema-
@@ -1660,10 +1704,15 @@ function scanDocComments(
   bodyText: string,
   file: string,
   statements: readonly Stmt[],
-): { nodes: DocComment[]; diagnostics: Diagnostic[] } {
+): {
+  nodes: DocComment[];
+  diagnostics: Diagnostic[];
+  attachments: DocDescriptionAttachment[];
+} {
   const lines = bodyText.split("\n");
   const nodes: DocComment[] = [];
   const diagnostics: Diagnostic[] = [];
+  const attachments: DocDescriptionAttachment[] = [];
   const docLine = /^[ \t]*\/\/\/(?!\/)(.*)$/;
 
   let i = 0;
@@ -1708,8 +1757,109 @@ function scanDocComments(
     if (diag !== undefined) {
       diagnostics.push(diag);
     }
+    // Every run gets an attachment candidate regardless of anchor kind;
+    // `attachDocDescriptions` decides which anchors actually consume it
+    // (schema/enum decl and field lines only — A1: variant/fn lines are never
+    // read, so their doc text stays AST-only via the floating `DocComment`
+    // node above, not this map).
+    attachments.push({ anchorLine, description: joinDocComment(content) });
   }
-  return { nodes, diagnostics };
+  return { nodes, diagnostics, attachments };
+}
+
+/**
+ * One `///` run's join result, paired with the 1-indexed source line of the
+ * production it anchors to (`undefined` when no such line exists, e.g. a
+ * trailing run at EOF). `attachDocDescriptions` consumes these by building an
+ * anchorLine→description map and reading it only at the schema/enum-DECL and
+ * field lines A1 designates as lowering targets.
+ */
+interface DocDescriptionAttachment {
+  readonly anchorLine: number | undefined;
+  readonly description: string;
+}
+
+/**
+ * Attach `///` descriptions to their anchor declarations by line lookup,
+ * BEFORE `mergeByLine` folds the floating `DocComment` nodes back into the
+ * statement list. Per the A1 adjudication (docs/bugs/0358-…, §Fix), only
+ * schema-DECL, enum-DECL, and schema-FIELD anchors consume a description here;
+ * a `fn` head line or an enum variant line is never a key this function reads,
+ * so its doc text is never attached (accepted-but-AST-only: it survives only
+ * as the floating `DocComment` sibling `mergeByLine` still produces).
+ * Statements outside this set (`let`, `import`, `export`, expressions, doc
+ * comments themselves) pass through unchanged. Rebuilds by object-spread so
+ * every unrelated field/statement is preserved verbatim.
+ *
+ * Attachment mirrors placement: a `//` or blank line between the trailing
+ * `///` run and the anchor does NOT disconnect it (`scanDocComments`'s
+ * `anchorLine` scan skips both, 0357's shipped placement behaviour), so a
+ * validly-placed run always lowers — never a silent drop. The `//`-terminates
+ * rule of `extractDescription` governs run FORMATION (a `//` inside the `///`
+ * block breaks the maximal run), which `scanDocComments`'s forward `docLine`
+ * scan already enforces.
+ */
+function attachDocDescriptions(
+  statements: readonly Stmt[],
+  attachments: readonly DocDescriptionAttachment[],
+): Stmt[] {
+  const byLine = new Map<number, string>();
+  for (const attachment of attachments) {
+    if (attachment.anchorLine !== undefined) {
+      byLine.set(attachment.anchorLine, attachment.description);
+    }
+  }
+  return statements.map((stmt) => {
+    if (stmt.kind === "schema") {
+      const description = byLine.get(stmt.range.start.line);
+      let fields = stmt.fields;
+      let fieldsChanged = false;
+      if (stmt.fields !== undefined) {
+        // Mirror `classifyDocAnchor`'s precedence so one `///` run reaches one
+        // anchor: its exact-start pass (a line that IS the decl head) wins over
+        // its body-interior pass (a field row), and a run keyed to a line
+        // carrying several fields sits immediately above the FIRST of them.
+        // `consumed` records each line whose description a field has already
+        // taken, so the same line's text is never re-attached to a later field
+        // sharing that line.
+        const consumed = new Set<number>();
+        const mapped = stmt.fields.map((field) => {
+          // A field on the decl head line is NOT a field anchor: that line is
+          // the schema-DECL anchor, so a `///` above it lowers into the decl's
+          // own `description` (above) and must not leak onto the field.
+          if (field.line === undefined || field.line === stmt.range.start.line) {
+            return field;
+          }
+          if (consumed.has(field.line)) {
+            return field;
+          }
+          const fieldDescription = byLine.get(field.line);
+          if (fieldDescription === undefined) {
+            return field;
+          }
+          consumed.add(field.line);
+          fieldsChanged = true;
+          return { ...field, description: fieldDescription };
+        });
+        if (fieldsChanged) {
+          fields = mapped;
+        }
+      }
+      if (description === undefined && !fieldsChanged) {
+        return stmt;
+      }
+      return {
+        ...stmt,
+        ...(description !== undefined ? { description } : {}),
+        ...(fields !== undefined ? { fields } : {}),
+      };
+    }
+    if (stmt.kind === "enum") {
+      const description = byLine.get(stmt.range.start.line);
+      return description !== undefined ? { ...stmt, description } : stmt;
+    }
+    return stmt;
+  });
 }
 
 /** Merge doc-comment nodes into the statement list, ordered by source line. */
@@ -3334,6 +3484,7 @@ class BodyParser {
       fields.push({
         name: nameTok.text,
         typeSource,
+        line: nameTok.range.start.line,
         ...(wireName !== undefined ? { wireName } : {}),
       });
       // Grammar (`SchemaShape ::= "{" Field ("," Field)* ","? "}"`): fields are

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.364.0]
+
+### Fixed
+
+- **Bug 0358** — accepted `///` doc-comment descriptions lowered NOWHERE: the anchors bug 0357 made loadable (and the three that already loaded) produced zero `description:` bytes anywhere in the lowered surfaces — the feature's documented output was silent byte absence. PARENT ADJUDICATION A1+B1+C (recorded): (A1) schema-DECL, FIELD, and enum-DECL descriptions lower byte-for-byte into the JSON Schema `description` key across the params schema, the binder envelope, and the respond schema, while variant and fn `///`s are accepted-but-AST-only — the lowered enum wire shape is a flat value list with no standard per-value description slot, and inventing a oneOf/const carrier would fork the wire format; the MANDATORY honesty sentence now stands in descriptions.md (variant/fn anchors accepted, do not lower in theta 1.0) so the silent-absence class cannot re-file; (B1) lowered descriptions join the canonical-hash basis — they are lowered content reaching the registered surface, and the census's zero committed `///`s meant zero migration cost (recorded); (C) `description` is an EMITTED annotational keyword in the schema-subset vocabulary (no new diagnostic code). The doc's constraint-5 witness list was stale (pre-0357) — extended to field anchors, doc-was-stale note recorded. Witnessed by `tests/b0358-doc-comment-descriptions-lower.test.ts` (16 cells: descriptions.md's own opening example lowers end-to-end incl. registration via the composition rig; the A1 honesty rows — variant/fn parse-clean, lower nowhere; B1 hash rows — hash CHANGES on a lowered-description change, STABLE under a variant-///-only change; byte-identity controls for ///-free thetas; 8 red at fork on silent byte absence) and the NEW H9a acceptance cell `tests/live/acceptance/b0358-doc-comment-description-lowering.test.ts` (offline attribution guard + a real `pi -p` registration whose lowered schema carries the field description, drives 777 — green under the lock). Sibling sequencing recorded: 0360's dead-seam premise PARTLY changed (`joinDocComment` is now a production call site via `attachDocDescriptions`; `extractDescription`/`lowerDescription` stay dead — 0360 must re-measure); 0359's binder segment is untouched but now has `params.loweredSchema` description text to draw from.
+
 ## [0.363.0]
 
 ### Fixed

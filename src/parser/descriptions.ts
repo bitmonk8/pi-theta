@@ -6,10 +6,15 @@
 // §Multi-line / §`//` is a regular code comment, and grammar.md
 // §`///` placement):
 //
-//   - `///` above a `schema` / `enum` / schema field / enum variant lowers its
-//     joined text byte-for-byte into the anchor's `description:`; a `///` above
-//     a top-level `fn` lowers nowhere (functions have no JSON Schema) and is
-//     preserved on the AST as human-facing documentation only.
+//   - `///` above a schema-DECL / enum-DECL / schema field lowers its joined
+//     text byte-for-byte into the anchor's `description:`. A `///` above an
+//     enum variant or a top-level `fn` is accepted-but-AST-only in theta 1.0
+//     (the flat enum wire shape has no per-value `description:` slot, and a
+//     function has no JSON Schema): it parses clean and is preserved on the
+//     AST as human-facing documentation, but lowers nowhere.
+//   - `lowerDescription`'s `variant` arm is a dead-seam artifact with no
+//     production call site (the variant `///` above never lowers); its
+//     disposition is tracked by bug 0360.
 //   - `theta/parse/doc-comment-misplaced` — a `///` above any other production
 //     (`let`, `import`, `export`, expression / control-flow statements).
 //   - Consecutive `///` lines join with newlines; common leading whitespace is

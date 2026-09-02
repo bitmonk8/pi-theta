@@ -1,6 +1,6 @@
 # Bug 0358 — `///` descriptions never lower: the placement-accepted anchors (object/alias/by-form `schema`, `enum`) emit `$defs` fragments with no `description:` key on every surface (params schema, binder envelope, typed-query respond schema), with zero diagnostics — the join/strip/lower seam (`joinDocComment`, `extractDescription`, `lowerDescription`) ships as dead exports no production code calls
 
-- **Status:** open.
+- **Status:** fixed (0.364.0).
 - **Sev/Diff estimate:** S3/D3 — silent author-intent drop with zero
   diagnostics: the theta loads clean, registers, and every consumer the
   spec names for the text (the model reading a structured-output schema,
@@ -247,3 +247,19 @@ production-theta-producer.ts:936–939; `grep -rn description` over
 `src/parser/` (hits only in frontmatter.ts, descriptions.ts, functions.ts
 doc prose). Spec read: descriptions.md (whole page), grammar.md:181–195,
 schema-subset.md (whole page), reference/grammar.md:141–146/:394–404.
+
+## Fix (0.364.0)
+- What shipped:
+  - `src/parser/theta-document.ts` — added `SchemaFieldSource.line`/`.description`, `SchemaDecl.description`, `EnumDecl.description` AST slots; `parseSchemaObjectBody` captures each field's source line; `scanDocComments` returns per-run `{anchorLine, description}` attachments; new `attachDocDescriptions` binds each `///` run to exactly ONE anchor (mirroring `classifyDocAnchor`'s decl-start-over-interior precedence, first-field-per-line) and attaches schema-DECL/enum-DECL/FIELD descriptions before `mergeByLine`, so every downstream consumer (params `loweredSchema`, binder envelope, respond-tool) sees them (§Fix 1).
+  - `src/parser/body-type-lowering.ts` — `lowerEnumToSchema`/`lowerObjectFields`/`buildBodyTypeSchemas` emit the `description` key on the enum, field-property, object-body, and alias/union `$defs` fragments (§Fix 1); descriptions enter the canonical form automatically — no canonicaliser change (B1, §Fix 3).
+  - `docs/spec_topics/descriptions.md` — §Placement mandatory honesty sentence: schema/enum-DECL + field `///` lower; a `///` on a top-level `fn` or an `enum` variant is accepted-but-AST-only in theta 1.0 (A1, §Fix 1).
+  - `docs/spec_topics/schema-subset.md` — `description` added as emitted annotational keyword (Seam C, §Fix 2; line-count-preserving fold into the Validation bullet to hold the b0098 SUBS-3 line-pin); canonical-hash consequence stated (Seam B1, §Fix 3).
+  - `src/parser/descriptions.ts` — header reconciled to A1 (comment-only; the dead `lowerDescription` `variant` arm's disposition is tracked by bug 0360).
+  - `tests/b0358-doc-comment-descriptions-lower.test.ts` — 16-cell offline witness on lowered bytes off `params.loweredSchema`: schema-DECL/field/enum-DECL lowering, alias form, multi-line join+dedent, A1 flat-enum honesty, B1 hash change/stability, F2 shared-line regression, array/`$ref` field descriptions, byte-identity control.
+  - `tests/live/acceptance/b0358-doc-comment-description-lowering.test.ts` — H9a live cell: offline attribution guard on the lowered surface + real `pi -p` register-and-drive.
+- Gates: witness `npx vitest run tests/b0358-doc-comment-descriptions-lower.test.ts` → 16/16 green (RED 8/16 at fork e0586b1c, silent-byte-absence symptom); full suite `npx vitest run` → 537 files / 10098 tests, EXIT 0; `npm run typecheck` clean; `npm run lint` clean; live `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0358-doc-comment-description-lowering.test.ts` → PASS under the live lock (6.0s isolated; one prior empty-stdout run was a load flake, green on isolated re-run — LANE-BRIEF machine-load caveat).
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep) — F1 spec line-pin shift (blocker), F2 shared-line run double-apply (blocker correctness), F3 "immediately above" comment overclaim (blocker fidelity), F4 descriptions.ts header vs A1 (spec), R1/R2/R4 non-blockers; all fixed. R2 (`bug-fix-reviewer-fast`) — CLEAN, no findings.
+- Verification: SOLID (`bug-fix-verifier`). Witness reverts→RED 12/16 (silent-byte-absence) and restores byte-exact (`git hash-object` match)→GREEN 16/16; full suite green (one unrelated bug-0276 timing-sensitive test flaked under worker contention, green isolated); live path verified (orchestrator-run PASS, real observables); typecheck+lint clean.
+- Residuals: none.
+- Discharge notes appended: none (no sibling bug docs edited).
+- Pinned dispositions / non-goals: A1 — variant `///` and fn `///` are accepted-but-AST-only; the flat enum wire form `{type:"string",enum:[…]}` gains no per-value description carrier (no oneOf/const fork). B1 — `description` joins the canonical-hash basis; zero installed base (zero committed `///`), so no wire artifact / fixture / cache key moves. The §Fix constraint-5 witness list was stale pre-0357 (it named enum-DECL, not per-variant/field); the shipped witness extends to FIELD anchors and to the A1-negative VARIANT anchor. Bug 0359's binder ` — <description>` segment is a separate surface (the binder prompt still does not render `///` text) — untouched here.
