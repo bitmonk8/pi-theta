@@ -70,6 +70,7 @@ import {
   serializeErrEnvelope,
   serializeOkEnvelope,
   type EnumTagEntry,
+  type ErrProvenance,
 } from "../runtime/subagent-envelope";
 import { collectForwardedEnumTags, retagForwardedEnums } from "../runtime/enum-tag-carriage";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
@@ -2536,8 +2537,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const calleePath = theta.sourcePath ?? theta.slashName;
     const emitEnvelope =
       this.#input.emitResultEnvelope ?? ((): void => {});
-    const emitErr = (error: QueryError): void => {
-      emitEnvelope(serializeErrEnvelope(error));
+    const emitErr = (error: QueryError, provenance?: ErrProvenance): void => {
+      emitEnvelope(serializeErrEnvelope(error, provenance));
     };
 
     // PIC-62 obligation 2 (child-side model confirmation): re-resolve the
@@ -2572,10 +2573,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const confirmation = confirmChildModel(qualified, resolvedRef);
       if (!confirmation.ok) {
         (this.#input.emitDiagnostic ?? ((): void => {}))(confirmation.diagnostic);
-        emitErr({
-          ...confirmation.error,
-          callee_path: calleePath,
-        } as unknown as QueryError);
+        emitErr(
+          {
+            ...confirmation.error,
+            callee_path: calleePath,
+          } as unknown as QueryError,
+          "mint",
+        );
         return;
       }
     }
@@ -2588,7 +2592,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const intake = this.#intakeSubagentRootParams(theta);
     if (!intake.ok) {
       (this.#input.emitDiagnostic ?? ((): void => {}))(intake.diagnostic);
-      emitErr({ ...intake.error, callee_path: calleePath } as unknown as QueryError);
+      emitErr({ ...intake.error, callee_path: calleePath } as unknown as QueryError, "mint");
       return;
     }
     // `intake.params` is `undefined` when no params carrier was marshalled (a
@@ -2656,10 +2660,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             ? mapNonRepresentableReturnValue(terminal.value as unknown, calleePath)
             : undefined;
         if (tooDeep !== undefined) {
-          emitErr(tooDeep);
+          emitErr(tooDeep, "mint");
         } else if (nonRepresentable !== undefined) {
           (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
-          emitErr(nonRepresentable.error);
+          emitErr(nonRepresentable.error, "mint");
         } else {
           // Bug 0342 §Fix (D3 carriage): record each enum-boxed position's
           // declaring tag before this envelope collapses the carrier to its
@@ -2673,7 +2677,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           );
         }
       } else {
-        emitErr(terminal.error as unknown as QueryError);
+        // Bug 0347 §Fix: this is the callee's OWN returned Err — whether its
+        // body raised it directly or `?`-propagated it from a nested `invoke`
+        // — so it is stamped `"propagated"` (callee-returned, INV-5), the sole
+        // propagation stamp in this regime. Every other `emitErr` call here is a
+        // boundary mint the trampoline itself fabricated.
+        emitErr(terminal.error as unknown as QueryError, "propagated");
       }
     } catch (thrown: unknown) { // allow-broad-catch: PIC-59 panic→internal-error envelope — pi-integration-contract/subagent.md
       if (thrown instanceof HostFatal) {
@@ -2682,12 +2691,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // PIC-59: a panic (or any catchable interpreter/adapter throw) is routed as
       // the internal-error `Err` on the envelope — never a fabricated value.
       const message = thrown instanceof Error ? thrown.message : String(thrown);
-      emitErr({
-        kind: "invoke_infra",
-        message: `internal error: ${message}`,
-        callee_path: calleePath,
-        cause: "internal_error",
-      } as unknown as QueryError);
+      emitErr(
+        {
+          kind: "invoke_infra",
+          message: `internal error: ${message}`,
+          callee_path: calleePath,
+          cause: "internal_error",
+        } as unknown as QueryError,
+        "mint",
+      );
     } finally {
       await binding.teardown?.();
       binding.finishInvocation?.();

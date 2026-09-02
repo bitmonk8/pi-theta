@@ -129,12 +129,12 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
     const pending = driveSubagentChild(driveDeps(child, thetaAbort));
     await tick();
     // `load_failure` is ALSO minted child-side by `markedRootRegistrationRefusal`
-    // (`subagent-root-regime.ts:218` → `production-composition.ts:1244`, bug
+    // (`subagent-root-regime.ts:218` → `production-composition.ts:1249`, bug
     // 0178): the marked root failed to register and fell through to ordinary
-    // host handling — the callee never ran. The wire carries no provenance
-    // marker, so its `cause` is indistinguishable from a callee-propagated
-    // nested `load_failure`; the wrap must therefore treat it as boundary-minted
-    // so the child-side mint stays bare (INV-5's bare-cause enumeration).
+    // host handling — the callee never ran, so the writer stamps
+    // `err_provenance:"mint"` (bug 0347). The wrap must therefore treat it as
+    // boundary-minted so the child-side mint stays bare (INV-5's bare-cause
+    // enumeration).
     child.emitRawLine(
       envelopeLine({
         v: THETA_ENVELOPE_VERSION,
@@ -144,6 +144,7 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
           callee_path: "./missing.theta",
           cause: "load_failure",
         },
+        err_provenance: "mint",
       }),
     );
     child.crashWith(0);
@@ -155,9 +156,40 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
     }
     expect(
       (result as unknown as { source?: string }).source,
-      "`load_failure` has a child-side envelope writer (marked-root registration refusal), so " +
-        "the cause is child-side-ambiguous — the wrap must treat it as boundary-minted so it stays bare",
+      "`load_failure` has a child-side envelope writer (marked-root registration refusal), stamping " +
+        "`err_provenance:\"mint\"` (bug 0347) — the wrap must treat it as boundary-minted so it stays bare",
     ).toBe("boundary-minted");
+  });
+
+  it("an `invoke_infra` load_failure PROPAGATION (nested `?`-propagated invoke, cause load_failure) is callee-returned — ", async () => {
+    // Bug 0347: the identical cause, but the callee itself `?`-propagated a
+    // NESTED invoke's `load_failure` — the `err_provenance:"propagated"` marker
+    // distinguishes it from the child-side mint above and forces the wrap
+    // (INV-5 parity with the in-process leg).
+    const child = new FakeRpcChild({ exitOnStdinEof: false });
+    const thetaAbort = new AbortController();
+    const pending = driveSubagentChild(driveDeps(child, thetaAbort));
+    await tick();
+    child.emitRawLine(
+      envelopeLine({
+        v: THETA_ENVELOPE_VERSION,
+        err: {
+          kind: "invoke_infra",
+          message: "invoke of ./deeper.theta failed (load_failure)",
+          callee_path: "./deeper.theta",
+          cause: "load_failure",
+        },
+        err_provenance: "propagated",
+      }),
+    );
+    child.crashWith(0);
+
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    expect(
+      (result as unknown as { source?: string }).source,
+      "an explicit `propagated` marker wraps the nested load_failure leaf (bug 0347 INV-5 parity)",
+    ).toBe("callee-returned");
   });
 
   it("a child that EXITS WITHOUT AN ENVELOPE is tagged source boundary-minted — ", async () => {
@@ -184,22 +216,36 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
     ).toBe("boundary-minted");
   });
 
-  // The wire carries no provenance marker, so the driver reads `cause` as a
-  // PROXY over the closed `InvokeInfraCause` union. THREE causes have no
-  // child-side envelope writer (`parse_failure`, `panic`,
+  // The wire carries no provenance marker by default, so the driver falls back
+  // to reading `cause` as a PROXY over the closed `InvokeInfraCause` union.
+  // THREE causes have no child-side envelope writer (`parse_failure`, `panic`,
   // `subagent_model_unresolved`), so the callee reaches this arm with one of
   // them only by `?`-propagating its own nested invoke — callee-returned. The
   // other FIVE (`load_failure`, `validation`, `return_validation`,
   // `internal_error`, `subagent_model_preflight_mismatch`) each have a
-  // child-side envelope writer, so their `cause` is provenance-ambiguous and
-  // resolves boundary-minted. A non-`invoke_infra` err is the callee's own
-  // returned Err and stays callee-returned.
-  async function driveErrEnvelopeSource(err: Record<string, unknown>): Promise<string | undefined> {
+  // child-side envelope writer, so their `cause` alone is provenance-ambiguous:
+  // bug 0347 closed that ambiguity with the `err_provenance` sidecar
+  // (subagent.md `#subagent-err-provenance-marker`) — a genuine child-side mint
+  // stamps `"mint"` (stays boundary-minted, the cells below), while a
+  // `?`-propagated nested leaf of the same cause stamps `"propagated"` (wraps,
+  // callee-returned, each cell's PROPAGATION sibling further down). A
+  // non-`invoke_infra` err is the callee's own returned Err and stays
+  // callee-returned.
+  async function driveErrEnvelopeSource(
+    err: Record<string, unknown>,
+    provenance?: string,
+  ): Promise<string | undefined> {
     const child = new FakeRpcChild({ exitOnStdinEof: false });
     const thetaAbort = new AbortController();
     const pending = driveSubagentChild(driveDeps(child, thetaAbort));
     await tick();
-    child.emitRawLine(envelopeLine({ v: THETA_ENVELOPE_VERSION, err }));
+    child.emitRawLine(
+      envelopeLine({
+        v: THETA_ENVELOPE_VERSION,
+        err,
+        ...(provenance !== undefined ? { err_provenance: provenance } : {}),
+      }),
+    );
     child.crashWith(0);
     const result = await pending;
     expect(result.ok).toBe(false);
@@ -207,45 +253,145 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
   }
 
   it("an `invoke_infra` model-preflight mint (child-side, subagent.md:152) is boundary-minted — ", async () => {
-    const source = await driveErrEnvelopeSource({
-      kind: "invoke_infra",
-      message: "subagent model preflight mismatch",
-      callee_path: "./worker.theta",
-      cause: "subagent_model_preflight_mismatch",
-    });
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "subagent model preflight mismatch",
+        callee_path: "./worker.theta",
+        cause: "subagent_model_preflight_mismatch",
+      },
+      "mint",
+    );
     expect(
       source,
-      "the child root drive mints the model-preflight `invoke_infra` child-side (subagent.md:152); " +
-        "it is spec'd bare to an invoke parent, so the wrap must treat it as boundary-minted",
+      "the child root drive mints the model-preflight `invoke_infra` child-side (subagent.md:152), " +
+        "stamping `err_provenance:\"mint\"`; it is spec'd bare to an invoke parent, so the wrap must " +
+        "treat it as boundary-minted (bug 0347: the marker now drives this, not the closed-set default)",
     ).toBe("boundary-minted");
+  });
+
+  it("an `invoke_infra` model-preflight PROPAGATION (nested `?`-propagated invoke, cause subagent_model_preflight_mismatch) is callee-returned — ", async () => {
+    // Bug 0347: the identical cause, but the callee itself `?`-propagated a
+    // NESTED invoke's model-preflight mismatch — the marker distinguishes it
+    // from the child-side mint above and forces the wrap (INV-5 parity).
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "invoke of ./deeper.theta failed (subagent_model_preflight_mismatch)",
+        callee_path: "./deeper.theta",
+        cause: "subagent_model_preflight_mismatch",
+      },
+      "propagated",
+    );
+    expect(
+      source,
+      "an explicit `propagated` marker wraps the nested model-preflight leaf (bug 0347 INV-5 parity)",
+    ).toBe("callee-returned");
   });
 
   it("an `invoke_infra` params-intake refusal (cause validation) is boundary-minted — ", async () => {
-    const source = await driveErrEnvelopeSource({
-      kind: "invoke_infra",
-      message: "invoke params refused",
-      callee_path: "./worker.theta",
-      cause: "validation",
-    });
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "invoke params refused",
+        callee_path: "./worker.theta",
+        cause: "validation",
+      },
+      "mint",
+    );
     expect(
       source,
-      "the child root drive mints the params-intake refusal child-side (invocation.md ceiling-#4); " +
-        "it is spec'd bare, so the wrap must treat it as boundary-minted",
+      "the child root drive mints the params-intake refusal child-side (invocation.md ceiling-#4), " +
+        "stamping `err_provenance:\"mint\"`; it is spec'd bare, so the wrap must treat it as " +
+        "boundary-minted (bug 0347: the marker now drives this, not the closed-set default)",
     ).toBe("boundary-minted");
   });
 
-  it("an `invoke_infra` child body panic / defect (cause internal_error) is boundary-minted — ", async () => {
-    const source = await driveErrEnvelopeSource({
-      kind: "invoke_infra",
-      message: "internal error",
-      callee_path: "./worker.theta",
-      cause: "internal_error",
-    });
+  it("an `invoke_infra` params-intake PROPAGATION (nested `?`-propagated invoke, cause validation) is callee-returned — ", async () => {
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "invoke of ./deeper.theta failed (validation)",
+        callee_path: "./deeper.theta",
+        cause: "validation",
+      },
+      "propagated",
+    );
     expect(
       source,
-      "a child body panic / interpreter defect is minted child-side (error-model.md Panic row); " +
-        "the panic downgrade stays bare, so the wrap must treat it as boundary-minted",
+      "an explicit `propagated` marker wraps the nested params-intake leaf (bug 0347 INV-5 parity)",
+    ).toBe("callee-returned");
+  });
+
+  it("an `invoke_infra` child body panic / defect (cause internal_error) is boundary-minted — ", async () => {
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "internal error",
+        callee_path: "./worker.theta",
+        cause: "internal_error",
+      },
+      "mint",
+    );
+    expect(
+      source,
+      "a child body panic / interpreter defect is minted child-side (error-model.md Panic row), " +
+        "stamping `err_provenance:\"mint\"`; the panic downgrade stays bare, so the wrap must treat " +
+        "it as boundary-minted (bug 0347: the marker now drives this, not the closed-set default)",
     ).toBe("boundary-minted");
+  });
+
+  it("an `invoke_infra` PROPAGATION (nested `?`-propagated invoke, cause internal_error) is callee-returned — ", async () => {
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "invoke of ./deeper.theta failed (internal_error)",
+        callee_path: "./deeper.theta",
+        cause: "internal_error",
+      },
+      "propagated",
+    );
+    expect(
+      source,
+      "an explicit `propagated` marker wraps the nested internal_error leaf (bug 0347 INV-5 parity)",
+    ).toBe("callee-returned");
+  });
+
+  // `return_validation` had no explicit (F) cell before bug 0347 (bug 0294
+  // §Residuals item 2 — it rode the tested default arm); bug 0347 §Fix
+  // constraint 4 gives it both a mint cell and a propagation cell, matching
+  // the other four child-side-mintable causes above.
+  it("an `invoke_infra` return-value refusal (cause return_validation, child-side mint) is boundary-minted — ", async () => {
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "return value refused",
+        callee_path: "./worker.theta",
+        cause: "return_validation",
+      },
+      "mint",
+    );
+    expect(
+      source,
+      "the child root drive mints the return-value refusal child-side (subagent-envelope.ts), stamping " +
+        "`err_provenance:\"mint\"`; it is spec'd bare, so the wrap must treat it as boundary-minted",
+    ).toBe("boundary-minted");
+  });
+
+  it("an `invoke_infra` return-value PROPAGATION (nested `?`-propagated invoke, cause return_validation) is callee-returned — ", async () => {
+    const source = await driveErrEnvelopeSource(
+      {
+        kind: "invoke_infra",
+        message: "invoke of ./deeper.theta failed (return_validation)",
+        callee_path: "./deeper.theta",
+        cause: "return_validation",
+      },
+      "propagated",
+    );
+    expect(
+      source,
+      "an explicit `propagated` marker wraps the nested return-value-refusal leaf (bug 0347 INV-5 parity)",
+    ).toBe("callee-returned");
   });
 
   it("an `invoke_infra` cause parse_failure is callee-returned (nested `?`-propagated invoke) — ", async () => {

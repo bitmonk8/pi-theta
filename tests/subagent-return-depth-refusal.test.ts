@@ -1061,6 +1061,18 @@ function matchMessageBody(call: string, okLabel: string): string {
   return `let r = ${call}\nlet m = match r { Ok(v) => "${okLabel}", Err(e) => e.message }\nm\n`;
 }
 
+/**
+ * The row-H reduction: `middle()`'s OWN failure is now `InvokeCalleeError`
+ * (bug 0347 §Fix — `middle` `?`-propagates its grandchild's `invoke_infra`,
+ * so its own envelope stamps `err_provenance:"propagated"` and `top-h`'s
+ * `.theta`-callable call wraps it, INV-5 parity with an in-process chain), so
+ * the depth-violation text this row pins now lives one level deeper, at
+ * `e.inner.message` rather than the wrapper's own synthesized `e.message`.
+ */
+function matchInnerMessageBody(call: string, okLabel: string): string {
+  return `let r = ${call}\nlet m = match r { Ok(v) => "${okLabel}", Err(e) => e.inner.message }\nm\n`;
+}
+
 /** The same reduction over `callee_path`, for the rows that pin which path the carrier names. */
 function matchCalleePathBody(call: string): string {
   return `let r = ${call}\nlet m = match r { Ok(v) => "OK", Err(e) => e.callee_path }\nm\n`;
@@ -1119,7 +1131,7 @@ const ROOTS: Readonly<Record<string, string>> = {
   "top-f.theta": plainRoot(matchMessageBody('invoke("./deepfin.theta")', "OK-DISCARD")),
   // Row H — the grandchild chain: the refusal happens at each child's own
   // envelope, so an intermediate `tools:` hop does not launder it.
-  "top-h.theta": toolsRoot("middle", matchMessageBody("middle()", "OK")),
+  "top-h.theta": toolsRoot("middle", matchInnerMessageBody("middle()", "OK")),
   // Row I — the prompt leg, untyped: no serialisation, nothing to refuse.
   "top-i.theta": plainRoot(matchMessageBody('invoke("./pdeepfin.theta")', "OK-DISCARD")),
   // Row J — the prompt leg, typed: the PARENT-side walk owns it, unchanged.
@@ -1496,14 +1508,24 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
         // that binds `deepfin`'s value and returns it, so at HEAD the payload
         // crosses TWO uninferred boundaries and arrives intact. Each child
         // refuses at its own envelope, so the grandchild's breach is what the
-        // root reports and no intermediate hop launders it.
+        // root reports and no intermediate hop launders it. CORRECT CONTRACT
+        // POST BUG-0347: `middle` observes `deepfin`'s child-side MINT bare (it
+        // stays `deepfin`'s own boundary refusal to `middle`), then `?`-propagates
+        // that bare leaf as `middle`'s OWN returned `Err` — so `middle`'s envelope
+        // to `top-h` stamps `err_provenance:"propagated"`, and `top-h`'s
+        // `.theta`-callable call now WRAPS it in `InvokeCalleeError` (INV-5 parity
+        // with an in-process chain, closing bug 0347's gap). The depth-violation
+        // text this row pins is unmoved in substance, only in position: it is now
+        // `e.inner.message` (`matchInnerMessageBody`), not the wrapper's own
+        // `e.message`.
         // -----------------------------------------------------------------
         {
           const h = row("top-h");
           expect.soft(
             okValue(h),
             `(H) PRIMARY (bug 0187): an intermediate uninferred hop does not launder a >cap ` +
-              `payload — the refusal happens at each child's own envelope` + outcomeDetail(h),
+              `payload — the refusal happens at each child's own envelope, now surfaced through the ` +
+              `bug-0347 INV-5 wrap as the inner leaf's message` + outcomeDetail(h),
           ).toBe(DEPTH_VIOLATION_MESSAGE);
         }
 

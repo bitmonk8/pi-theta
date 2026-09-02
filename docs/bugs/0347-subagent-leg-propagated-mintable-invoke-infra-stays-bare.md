@@ -1,6 +1,6 @@
 # Bug 0347 — a subagent-mode callee that `?`-propagates a NESTED `invoke_infra` of one of the five child-side-mintable causes (`load_failure` / `validation` / `return_validation` / `internal_error` / `subagent_model_preflight_mismatch`) reaches the parent BARE, not wrapped: the subagent driver reads `cause` as a provenance proxy over the closed `InvokeInfraCause` union (`subagent-json-driver.ts:246`) and tags those five `boundary-minted` because each ALSO has a child-side envelope writer, so the parent's XMODE-1 wrap (`effectful-statement-host.ts:446`) leaves them bare — wrong kind, grandchild `callee_path`, no SLSH-5 hop — where INV-5 (`invocation.md:36`) pins wrap parity with the in-process leg, which wraps the identical propagated leaf for all five
 
-- **Status:** open.
+- **Status:** fixed (0.347.0).
 - **Sev/Diff estimate:** S3/D3 — S3 (not S2 like bug 0294) because the same
   wrong-attribution defect class survives only on the subagent leg and only
   for five of the eight `InvokeInfraCause` members: the in-process leg is
@@ -350,6 +350,112 @@ and the PIC-59 spec surface; bug 0294 (fixed) already shipped the
 `InvokeResultSource` discriminator and the XMODE-1 gate this builds on. A
 future fix landing in `subagent-json-driver.ts` or `subagent-envelope.ts`
 rebases against this one's line positions, per the citation-drift convention.
+
+## Fix (0.347.0)
+
+- What shipped:
+  - `src/runtime/subagent-envelope.ts` — the OPTIONAL `err_provenance` sidecar
+    (`ErrProvenance = "mint" | "propagated"`) on the `theta_result` `err` arm, a
+    SIBLING of `err` (the 0342 `enum_tags` precedent); `serializeErrEnvelope`
+    gains a `provenance?` param emitting the field only when stamped (an
+    unstamped call stays byte-identical); `parseErrProvenance` is a
+    trust-boundary reader that ignores an absent/malformed value (no throw, no
+    diagnostic); `parseEnvelopeLine`'s `err` branch threads it; `v` stays `1`
+    (§Fix constraint 1).
+  - `src/runtime/subagent-json-driver.ts` — the `case "err"` `source` derivation
+    reads the marker DIRECTLY when present (`"mint"` → boundary-minted/bare,
+    `"propagated"` → callee-returned/wrap, for ANY cause), SUPERSEDING the
+    closed-set `cause` proxy; the proxy is RETAINED verbatim when the marker is
+    absent (old-envelope skew, both directions). The `KNOWN RESIDUAL (bug 0294
+    F2)` block is reframed CLOSED-by-sidecar with the fallback retained; the
+    `PROPAGATED_INVOKE_INFRA_CAUSES` doc reframed as the fallback-proxy backing
+    set (§Fix constraints 2, 3).
+  - `src/extension/production-theta-producer.ts` — `driveSubagentRootRegime`'s
+    `emitErr` closure gains a `provenance?` param; the five boundary writers
+    (model preflight, params intake, return-value refusal ×2, panic/defect
+    catch) stamp `"mint"`; the SOLE body-outcome envelope write
+    (`emitErr(terminal.error)`) stamps `"propagated"` — the callee's own
+    returned `Err`, whether raised directly or `?`-propagated (§Fix constraint
+    1).
+  - `src/extension/production-composition.ts` — the marked-root `load_failure`
+    registration-refusal envelope write stamps `"mint"` (§Fix constraint 1).
+  - `docs/spec_topics/pi-integration-contract/subagent.md` — PIC-59 gains the
+    `#subagent-err-provenance-marker` bullet (additive, `v` stays 1,
+    skew-tolerant both directions, no new code) and the *Error fidelity*
+    paragraph names bug 0347's gap mirroring 0342. `invocation.md` INV-5 / `:75`
+    needed NO edit (verified — the rule already demands the cause-agnostic wrap
+    parity); `queryerror-variants.md` untouched.
+  - `tests/b0347-subagent-leg-propagated-mintable-wrapped-unit.test.ts` (new, 32
+    cells) — for each of the 8 causes: stamped-`mint`→bare,
+    stamped-`propagated`→wrap, absent-marker→proxy fallback; skew both
+    directions (old-envelope no-marker; malformed/unknown marker ignored); the
+    INV-5 parity oracle (subagent leg == in-process leg surfaced `Err.kind`); the
+    SLSH-5 hop lands for the wrapped propagation, none for the mint.
+  - `tests/b0294-callee-propagated-invoke-infra-wrapped-unit.test.ts` (the
+    doc-enumerated flip surface, §Fix constraint 4) — the four extant bare-cause
+    cells now stamp `err_provenance:"mint"` and each gained a propagation sibling
+    asserting callee-returned; `return_validation` gained both a mint and a
+    propagation cell.
+- Gates: witness `npx vitest run tests/b0347-…-unit.test.ts` → 32/32
+  (neutralise the driver's marker read → the 5 propagated-mintable + 3 no-writer
+  mint + INV-5 oracle + SLSH-5 hop + row-H go RED for the right reason; restore
+  byte-exact `git hash-object 19a293ce…` → GREEN); full `npm test` = 527 files /
+  9956 tests green; `npm run typecheck` clean; `npm run lint` clean;
+  `git hash-object tests/fixtures/h7a/permitted-codes.json` ==
+  `a4a8da04209f90e13d815edd92c1fc682e2a2236` (no new diagnostic code); LIVE
+  (orchestrator, under the cross-lane lock; verifiers never run live) the
+  existing 0342 multi-hop cell
+  `tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts`
+  GREEN 1/1 — the envelope-compat witness (a real depth-2 subagent chain through
+  the sidecar-carrying envelope module).
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep) — CLEAN on
+  correctness/fidelity/tests, certified the row-H flip forced + subject-preserving;
+  F1 (house-rule: orphaned `enum_tags` docstring), F2 (spec-prose: PIC-59
+  bullet's Error-fidelity claim), F3 (house-rule: stale citations in the
+  rewritten comment blocks), R1 (prose) — all resolved by one `bug-fix-fixer`
+  round, doc/comment-only. R2 (`bug-fix-reviewer-fast`) — CLEAN; one prose
+  residual (the `ErrProvenance` type docstring) resolved by an orchestrator
+  comment-only polish (gate-diff verified, confirmation round skipped).
+- Verification: SOLID (`bug-fix-verifier`, offline). Obl 1 — witness reds
+  without the fix (11 red, right reason), restored byte-exact, greens with it
+  (45/45). Obl 2 — suite 527/9956. Obl 3 — the row-H real-spawn 3-level chain
+  covers the offline end-to-end propagation flip; census confirms no live cell
+  pins the err-propagation shape; a bespoke 3-level live cell DISCHARGED by
+  row-H + the b0342 envelope-compat live witness. Obl 4 — lint + typecheck clean;
+  permitted-codes byte-identical.
+- Residuals:
+  1. **DEVIATION REQUIRING PARENT RATIFICATION — an out-of-enumeration
+     committed-test flip.** `tests/subagent-return-depth-refusal.test.ts` row H
+     flipped `e.message` → `e.inner.message`: post-fix `middle`'s body-outcome
+     envelope stamps `err_provenance:"propagated"`, so `top-h`'s
+     `.theta`-callable call now WRAPS the propagated `return_validation` leaf
+     (`invoke_callee`), moving the depth-violation text one level deeper. The
+     flip is FORCED, SUBJECT-PRESERVING (the depth-violation message still
+     reaches the root, now the inner leaf), certified correct by review R1, and
+     proven red-without/green-with by verification Obl 1. It is the
+     census-identified offline end-to-end witness the adjudication's LIVE
+     OBLIGATION anticipated, but it lies OUTSIDE the doc's enumerated flip
+     surface (b0294 (F) + the new b0347 cells), so per the flip-authority rule it
+     requires PARENT RATIFICATION (flip-and-disclose is a recorded deviation even
+     when correct — 0308). It does NOT qualify for bounded self-authorization (it
+     touches an assertion), so it was NOT self-authorized. Escalated to #swarm at
+     2026-09-02T09:41Z; no response within 180 s. Awaiting parent ratification at
+     merge review.
+  2. (prose, non-blocking) §Reproduction / §Affected still cite `abbb9b30`
+     (v0.326.0) positions; the report's own citation-drift note governs
+     re-basing. Not re-swept corpus-wide (the 0342 Residual-1 class); no gate
+     depends on it.
+- Discharge notes appended: none (no sibling bug docs edited).
+- Pinned dispositions / non-goals: the three no-writer causes
+  (`parse_failure` / `panic` / `subagent_model_unresolved`) wrap byte-identically
+  under both marker and fallback; a genuine child-side mint of any of the five
+  causes STAYS bare (the fix narrows the bare default to the mint case, it does
+  not remove it); the in-process leg (bug 0294) and the XMODE-1 gate
+  (`effectful-statement-host.ts`) are untouched; the `cancelled` arm (bug 0295)
+  is untouched; `v` stays 1, no fifth marshalled artefact, no new diagnostic
+  code; `defineRecordField` (0343) N/A (`err_provenance` is a fixed key, not
+  author-controlled). The full parent adjudication is recorded verbatim in
+  `.pi/tmp/fixes/0347-report.md`.
 
 ## Provenance
 

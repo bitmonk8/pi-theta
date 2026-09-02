@@ -1244,7 +1244,9 @@ async function runComposePass(
     // The one PIC-59 envelope line this pass ever owes: the child fell
     // through to the host's ordinary prompt handling with no theta runtime
     // ever entered, so the load pass is the only remaining writer for it.
-    emitResultEnvelope(serializeErrEnvelope(registrationRefusal));
+    // Bug 0347 §Fix: this refusal is a boundary MINT (the load pass itself
+    // fabricates it; the marked root's own body never ran) — stamp "mint".
+    emitResultEnvelope(serializeErrEnvelope(registrationRefusal, "mint"));
   }
   return { thetas: survivors, activeRoots, watchRoots };
 }

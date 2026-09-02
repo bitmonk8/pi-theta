@@ -90,10 +90,22 @@ export interface EnvelopeOk {
   readonly enum_tags?: readonly EnumTagEntry[];
 }
 
-/** The `err` arm of the envelope payload: a `QueryError` (the `err` arm mirrors the union). */
+/**
+ * The `err` arm's OPTIONAL provenance sidecar (bug 0347 §Fix, a SIBLING of
+ * `err` exactly as `enum_tags` is a sibling of `ok`, bug 0342 precedent):
+ * `"mint"` marks a child-side boundary mint (stays bare to the invoke
+ * parent), `"propagated"` marks a leaf the callee's own body returned —
+ * whether raised directly or `?`-propagated from a nested `invoke` (wraps,
+ * INV-5 parity with the in-process leg). Absent =
+ * today's closed-set `cause` proxy, verbatim, in both skew directions.
+ */
+export type ErrProvenance = "mint" | "propagated";
+
+/** The `err` arm of the envelope payload: a `QueryError` (the `err` arm mirrors the union), plus the OPTIONAL `err_provenance` sidecar (bug 0347 §Fix). */
 export interface EnvelopeErr {
   readonly v: number;
   readonly err: QueryError;
+  readonly err_provenance?: ErrProvenance;
 }
 
 /** The pinned `theta_result` payload — exactly one of the `ok` / `err` arms, plus the version field. */
@@ -247,8 +259,15 @@ function stringifyPreservingNegativeZero(document: unknown): string {
  * (`{"theta_result":{"v":<version>,"err":…}}\n`). Every `Err` variant an
  * in-process subagent could surface is representable (PIC-59).
  */
-export function serializeErrEnvelope(error: QueryError): string {
-  const payload: EnvelopeErr = { v: THETA_ENVELOPE_VERSION, err: error };
+export function serializeErrEnvelope(error: QueryError, provenance?: ErrProvenance): string {
+  const payload: EnvelopeErr = {
+    v: THETA_ENVELOPE_VERSION,
+    err: error,
+    // Emitted only when the caller knows the provenance, so an unstamped call
+    // (an old call site, or one that has not yet been taught the provenance)
+    // stays byte-identical on the wire (bug 0347 §Fix, additive sidecar).
+    ...(provenance !== undefined ? { err_provenance: provenance } : {}),
+  };
   return `${JSON.stringify({ [THETA_RESULT_KEY]: payload })}\n`;
 }
 
@@ -259,7 +278,7 @@ export function serializeErrEnvelope(error: QueryError): string {
 /** The parse verdict for one candidate envelope line (a line carrying the reserved key). */
 export type EnvelopeParse =
   | { readonly kind: "ok"; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
-  | { readonly kind: "err"; readonly error: QueryError }
+  | { readonly kind: "err"; readonly error: QueryError; readonly provenance?: ErrProvenance }
   | { readonly kind: "schema-skew"; readonly observed: number; readonly required: number }
   | { readonly kind: "parse-failed"; readonly line: string };
 
@@ -346,6 +365,19 @@ function parseEnumTagsSidecar(candidate: unknown): readonly EnumTagEntry[] | und
 }
 
 /**
+ * Validate an untrusted `err_provenance` field: only the two recognised
+ * literal values are honoured; anything else — absent, malformed, wrong type
+ * — is IGNORED (returns `undefined`), mirroring {@link parseEnumTagsSidecar}'s
+ * ignore-on-malformed posture. The sidecar is additive and skew-tolerant (bug
+ * 0347 §Fix): a malformed or absent marker never fails the parse and never
+ * mints a diagnostic, it only means the caller falls back to the closed-set
+ * `cause` proxy it already had before this sidecar existed.
+ */
+function parseErrProvenance(candidate: unknown): ErrProvenance | undefined {
+  return candidate === "mint" || candidate === "propagated" ? candidate : undefined;
+}
+
+/**
  * Parse one reserved-key envelope line against the pinned schema. A version the
  * parent does not recognise yields `schema-skew` (detected, not tolerated); a
  * reserved-key line that does not parse against the pinned schema yields
@@ -381,7 +413,8 @@ export function parseEnvelopeLine(line: string): EnvelopeParse {
     return { kind: "ok", value: record.ok, ...(validTags !== undefined ? { enumTags: validTags } : {}) };
   }
   if (Object.prototype.hasOwnProperty.call(record, "err")) {
-    return { kind: "err", error: record.err as QueryError };
+    const provenance = parseErrProvenance(record.err_provenance);
+    return { kind: "err", error: record.err as QueryError, ...(provenance !== undefined ? { provenance } : {}) };
   }
   // A reserved-key line carrying neither arm fails the pinned schema.
   return { kind: "parse-failed", line };
