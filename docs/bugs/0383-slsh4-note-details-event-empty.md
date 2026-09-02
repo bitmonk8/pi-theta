@@ -1,6 +1,6 @@
 # Bug 0383 — Every SLSH-4 `Err` note ships `details: { event: {} }` where the spec pins `details: { event: RuntimeEvent }` "the same value emitted at the originating failure site": the documented consumer dedup key `(kind, query_site, message, occurrence-timestamp)` reads four absent fields, and a renderer that per spec "MUST switch on which key is present" selects the runtime-event arm for an empty payload
 
-- **Status:** open.
+- **Status:** fixed (0.360.0).
 - **Sev/Diff estimate:** S3/D2 — S3 because the wrong bytes are confined to the
   note's structured wire payload (the user-facing `content` line is correct;
   no wrong value binds), but the payload is the note's *only* machine-readable
@@ -158,6 +158,84 @@ Not yet decided; constraints any fix must satisfy:
 3. Witness: capture `pi.sendMessage` on an unhandled top-level `Err`; assert
    `details.event.kind === leaf.kind` and the tuple fields present; red
    direction provable today.
+
+## Fix (0.360.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `emitTopLevelErrNote` gains an
+    optional third `event?: RuntimeEvent`. When PRESENT it is placed on the note
+    verbatim (the forward hook: once origin-site always-log emissions land, they
+    thread their exact value here and slash-invocation.md:63's "same value" holds
+    literally). When ABSENT (every caller today) the emitter constructs the
+    `RuntimeEvent` ONCE from the terminal `Err` leaf — walking the same
+    `isInvokeCalleeError` recogniser the renderer uses down `.inner` — with
+    `kind = leaf.kind`, `theta = /<thetaName>`, `message = leaf.message`, a fresh
+    `invocation_id` (`root.idSource.newInvocationId()`) and `occurred_at`
+    (`root.clock.wallNow()`); `query_site` is OMITTED (optional in the shape, not
+    derivable on this path — no fabricated site). The note is built by REUSING the
+    conformant `buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true,
+    userFacingTemplate: content })` — no forked constructor/builder — which
+    replaces the hardcoded `details: { event: {} }` while leaving `content`
+    (`renderTopLevelErrNote`) and `display: true` byte-identical (§Fix
+    constraint 1, adjudicated route "constructing it once and sharing").
+  - `src/extension/theta-composition-producer.ts` — the `ThetaProducerDeps`
+    interface member widened with the same optional `event?: RuntimeEvent`;
+    `RuntimeEvent` type import added.
+  - `tests/cancelled-by-session-shutdown-note.test.ts` — the `rootWithIds()`
+    root double gained a `clock: new FakeClock()` seam (required fixture
+    completion: the new contract calls `root.clock.wallNow()` when that cell's
+    Esc-style abort surfaces the SNK-f note; no assertion changed).
+  - `tests/b0383-slsh4-note-details-event.test.ts` — the witness (6 tests;
+    §Fix constraint 3).
+- Gates:
+  - Witness: `npx vitest run tests/b0383-slsh4-note-details-event.test.ts` → 6
+    passed. RED at fork (fix reverted to `details: { event: {} }`): 5 failed / 1
+    passed with the empty-payload signature (`expected {} to deeply equal …`,
+    `.kind` undefined, `Object.keys(event).length === 0`); the 1 pass is the
+    byte-identity content control.
+  - Full suite: `npx vitest run` → 535 files / 10060 tests passed.
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+- Review: 1 round. Round 1 (`bug-fix-reviewer`, deep) — CLEAN, no
+  correctness/fidelity/spec findings; three non-blocking residuals recorded
+  (R1 a non-discriminating supplementary `dedupKey` assertion in the witness,
+  R2 a comment-wording accuracy note — applied, "mirror the renderer's leaf
+  walk", comment-only, R3 the doc/version Phase-5 work).
+- Verification: SOLID (`bug-fix-verifier`). Witness reds on hand-revert (5
+  failed, empty-payload signature) and greens on byte-exact restore
+  (`git hash-object` identical; 6 passed); full default suite 535/10060 green;
+  typecheck + lint clean; tree state matches the owned set exactly. Live (run
+  by the orchestrator under the lane live-lock):
+  `tests/live/err-note-render-record-error-field-live-cell.test.ts` passed —
+  it drives `emitTopLevelErrNote` through a REAL spawned subagent child and
+  asserts the SNK-k `content` note, proving the real-path emission still
+  delivers byte-identical content and that constructing the `RuntimeEvent` off
+  `root.idSource`/`root.clock` on the live path does not throw or perturb
+  delivery (no live cell asserts `details.event` today — census).
+- Residuals:
+  1. The wider origin-site always-log surface — the absence of any
+     `topLevelCascade: true` caller of `emitRuntimeEvent`, so no origin
+     `RuntimeEvent` is emitted on this path — remains a NON-GOAL (§Non-goals).
+     The boundary construction here is the origin emission of record until that
+     surface lands; the `event?` forward hook is the seam through which a future
+     origin-site emission threads its exact value, making slash-invocation.md:63's
+     "same value" hold literally. A follow-up filing candidate for that wider
+     surface is RECORDED here as a residual — NOT filed by this fix.
+  2. The seven sibling `{ event: {} }` sites (`factory.ts:700,766`;
+     `production-theta-producer.ts:1152,1386,1398,1585`; `slash-dispatch.ts:187`)
+     are UNTOUCHED per §Fix constraint 2 — each needs its correct `details` arm
+     from PIC's System-notes matrix, and matrix-less notes need DIAG-2 decisions.
+     Recorded, not fixed.
+  3. The witness's `dedupKey(...)` "returns a string" assertion (R1) is
+     non-discriminating (any input including `{}` yields a string); the four
+     dedup-tuple fields are pinned at exact values immediately above, so the test
+     reds hard at fork regardless. Left as-is (harmless).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `query_site` is deliberately omitted on the
+  boundary-constructed path (not derivable from a `QueryError`; optional in the
+  `RuntimeEvent` shape — no fabricated site); the fresh `invocation_id` /
+  `occurred_at` and top-level `theta` on an invoke cascade are inside the
+  adjudication's verbatim field list, accepted consequences of the single
+  constructed emission, restored automatically once the forward hook is fed.
 
 ## Provenance
 

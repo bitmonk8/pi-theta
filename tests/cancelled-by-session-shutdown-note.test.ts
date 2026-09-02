@@ -139,6 +139,11 @@ function rootWithIds(): RuntimeRoot {
       newInvocationId: () => INVOCATION_ID,
       newToolCallId: () => "tc-1",
     },
+    // Bug 0383: the SLSH-4 boundary now builds a `RuntimeEvent` (stamping
+    // `occurred_at` via `root.clock.wallNow()`) whenever cell (b)'s Esc-style
+    // abort surfaces the SNK-f cancelled note, so the double needs a `clock`
+    // seam or that construction throws before `pi.sendMessage` is reached.
+    clock: new FakeClock(),
   } as unknown as RuntimeRoot;
 }
 

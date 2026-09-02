@@ -336,8 +336,10 @@ import {
   type EchoType,
 } from "../render/argument-echo";
 import { renderNoParamsOverflowNote } from "../runtime/slash-dispatch";
-import { renderTopLevelErrNote } from "../runtime/err-note-render";
+import { isInvokeCalleeError, renderTopLevelErrNote } from "../runtime/err-note-render";
 import type { InvokeCalleeError, QueryError } from "../runtime/query-error";
+import type { RuntimeEvent } from "../runtime/runtime-event-channel";
+import { buildRuntimeEventNote } from "../runtime/runtime-event-channel";
 import type { InvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
 import { createInvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
 import type { InvokeCallSite } from "../runtime/invoke-provenance";
@@ -1478,7 +1480,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * declaring-enum tag / schema brand a wire-form default loses here is
    * re-established downstream by the binder-`args` inbound boundary
    * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
-   * `paramBindingsFrom`, `theta-composition-producer.ts:102`, called at `:512`)
+   * `paramBindingsFrom`, `theta-composition-producer.ts:103`, called at `:513`)
    * that `runtime-value-model.md:34` already mandates over binder `args`.
    */
   async #recoverDeclaredDefaults(
@@ -1602,17 +1604,39 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * unaffected either way. Routed through the same `pi.sendMessage`
    * `theta-system-note` delivery as the SLSH-1 overflow note.
    */
-  emitTopLevelErrNote(thetaName: string, error: QueryError): void {
+  emitTopLevelErrNote(thetaName: string, error: QueryError, event?: RuntimeEvent): void {
+    const content = renderTopLevelErrNote({
+      thetaName,
+      error,
+      chain: this.#ledger?.chainFor(error) ?? [],
+    });
+    // This boundary construction IS the origin emission of record for this
+    // path until the wider origin-site always-log surface lands (a filed
+    // residual / non-goal — no `topLevelCascade: true` caller exists today).
+    // The optional `event` is the forward hook: once an origin-site emission
+    // threads its exact value here, slash-invocation.md:63's "same value"
+    // holds literally instead of by reconstruction. Mirror the renderer's leaf
+    // walk and reuse the shared note builder rather than forking a second
+    // RuntimeEvent constructor.
+    const resolvedEvent =
+      event ??
+      (() => {
+        let leaf: QueryError = error;
+        while (isInvokeCalleeError(leaf)) {
+          leaf = leaf.inner;
+        }
+        return {
+          kind: leaf.kind,
+          theta: `/${thetaName}`,
+          invocation_id: this.#input.root.idSource.newInvocationId(),
+          message: leaf.message,
+          occurred_at: this.#input.root.clock.wallNow(),
+        };
+      })();
     this.#input.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
-        content: renderTopLevelErrNote({
-          thetaName,
-          error,
-          chain: this.#ledger?.chainFor(error) ?? [],
-        }),
-        display: true,
-        details: { event: {} },
+        ...buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true, userFacingTemplate: content }),
       },
       { triggerTurn: false },
     );

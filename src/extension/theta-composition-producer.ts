@@ -53,6 +53,7 @@ import type { SchemaValidator } from "../seams/schema-validator";
 import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
+import type { RuntimeEvent } from "../runtime/runtime-event-channel";
 import type { EnumTagEntry } from "../runtime/subagent-envelope";
 import type { InvokeResultSource } from "../runtime/invoke-cancellation";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
@@ -364,7 +365,7 @@ export interface ThetaProducerDeps {
    * (production-theta-producer.ts). The note is the only user-facing surface for
    * a directly-slash-invoked subagent-mode failure (its transcript is private).
    */
-  emitTopLevelErrNote(thetaName: string, error: QueryError): void;
+  emitTopLevelErrNote(thetaName: string, error: QueryError, event?: RuntimeEvent): void;
   /**
    * Runtime-defect / panic surface (errors-and-results/error-model.md
    * §"Runtime panics"). Called by `composeThetaFixture.run`'s top-level outer

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.360.0]
+
+### Fixed
+
+- **Bug 0383** — every SLSH-4 `Err` note shipped `details: { event: {} }` where the spec pins `details: { event: RuntimeEvent }`: the documented consumer dedup tuple `(kind, query_site, message, occurrence-timestamp)` read four absent fields, and a diagnostic-shape key-switching renderer selected the runtime-event arm for an EMPTY payload — the machine-readable half of the note's only failure surface was unusable. PARENT ADJUDICATION (recorded, via the doc's own constraint-1 escape clause "…or constructing it once and sharing" — the lane MEASURED that no `topLevelCascade: true` origin emission exists, so the spec's "same value emitted at the originating site" has no referent on this path and a single boundary construction IS the emission of record): `emitTopLevelErrNote` gains an optional `event?: RuntimeEvent` — used VERBATIM when supplied (the forward hook: when origin-site emissions land under the recorded wider non-goal surface, they thread through and the spec sentence holds literally) — else constructed ONCE from the terminal `Err` leaf via the REUSED conformant `buildRuntimeEventNote` path (kind/theta/message + fresh invocation_id/occurred_at; `query_site` omitted where underivable — optional in the pinned shape, never fabricated); the `content` line and `display` routing are byte-identical (0382's landed collapse discipline composes untouched). SCOPE FENCE held: the SEVEN sibling `{ event: {} }` sites are untouched and recorded as the constraint-2 residual (each needs its PIC System-notes matrix row; matrix-less notes need DIAG-2 decisions). Witnessed by `tests/b0383-slsh4-note-details-event.test.ts` (6 cells: captured `pi.sendMessage` with `details.event.kind === leaf.kind` + tuple fields + shape validation + the verbatim forward-hook row + content byte-identity; 5 red at fork on the empty payload). One mechanical fixture seam ratified at merge (the 0322 exhaustiveness class): `cancelled-by-session-shutdown-note.test.ts` gains a `FakeClock` (the new contract calls `wallNow()`; zero assertions changed). Live: the record-error-field cell drove the emitter through a real spawned subagent child, green under the lock. Residuals recorded: the wider origin-site always-log surface (follow-up candidate), the seven sibling sites.
+
 ## [0.359.0]
 
 ### Fixed
