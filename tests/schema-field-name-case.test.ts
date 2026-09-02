@@ -83,14 +83,16 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     diagnostic and moves no type judgement, so each keeps its current list
 //     with the new code inserted in sort order where a declaration is ill-cased.
 //   - (e) FACE 2 MUST FIRE — the `params:` frontmatter key: e5 (the pin, with
-//     its range), p1, p6, b1, b3, b4, q1, q3, q4 (a quoted but
-//     identifier-shaped key — q2's partner across the spelling test).
+//     its range), p1, p6, b1, b3, b4, q1, q2 (bug 0380: a params key that is
+//     not an identifier at all draws its own registered code,
+//     `theta/parse/params-key-not-identifier` — a `params:` key is a
+//     field-name position twice over, so the identifier rule now applies here
+//     too), q3, q4 (a quoted but identifier-shaped key — q2's partner across
+//     the spelling test).
 //   - (e) FACE 2 MUST STAY CLEAN: e6, p3, p4 (the reserved keyword again), p7
 //     and p8 (its uppercase-first spellings, `Ok` and `Result` — the shapes p4
-//     cannot reach, and f14's face-2 twins), q2 (a key that is not an
-//     identifier at all, outside the *Trigger*'s "Identifier in a … field-name
-//     position"); b5 is the `let` spelling of b1's binding and must keep the
-//     diagnostic it already draws.
+//     cannot reach, and f14's face-2 twins); b5 is the `let` spelling of b1's
+//     binding and must keep the diagnostic it already draws.
 //   - (f) THE COMPANION CONTROLS: c1, c2, c3 — GREEN both before and after the
 //     fix. See their group comment.
 //
@@ -136,9 +138,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 // because row q1 asserts a `theta/load/*` code alongside the `theta/parse/*`
 // ones.
 //
-// ANTI-VACUITY. 30 of the 46 rows expect a non-empty ordered list, so a harness
+// ANTI-VACUITY. 38 of the 46 rows expect a non-empty ordered list, so a harness
 // that stopped reaching the lexer, the parser or the frontmatter fails loudly
-// here rather than turning the 16 `toEqual([])` rows into silent passes. Every
+// here rather than turning the 8 `toEqual([])` rows into silent passes. Every
 // assertion is an ordered whole-list equality over the UNFILTERED
 // `doc.diagnostics` rendered `severity code: message @l:c-l:c`, so neither an
 // extra diagnostic, nor a right diagnostic at the wrong range, nor a right
@@ -213,6 +215,7 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
 const TIMEOUT_REJECTED = "theta/parse/timeout-field-rejected";
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
+const PARAMS_KEY_NOT_IDENT = "theta/parse/params-key-not-identifier";
 /** The pattern-grammar refusal, sourced from expressions.md, not lexical.md:16. */
 const PATTERN_HEAD = "theta/parse/capitalised-pattern-head";
 
@@ -989,18 +992,28 @@ describe("0149 (e) — an uppercase-first `params:` key is a parse error", () =>
     ]);
   });
 
-  it("q2: a `params:` key that is not an identifier reports nothing (control)", () => {
-    // code-registry-parse.md:19's *Trigger* reads "Identifier in a … field-name
-    // position". `"my topic"` is a YAML key that spells no theta identifier, so
-    // it is outside the registered set — the same reasoning that keeps f6's
-    // keyword out. The guard is `isIdentifierShaped`
-    // (src/parser/frontmatter.ts), which already exists in that file, so no new
-    // spelling of the identifier rule is minted.
+  it("q2: a `params:` key that is not an identifier is refused (bug 0380)", () => {
+    // Bug 0380 closed this control: a `params:` key is a field-name position
+    // twice over (schema property + body binding), so the identifier rule
+    // every sibling field-name position already enforces now applies here
+    // too, under its own registered code (not a reuse of `binding-case-mismatch`,
+    // which judges only the first letter's case of an already identifier-shaped
+    // key). `"my topic"` cooks to a non-identifier value and draws
+    // `theta/parse/params-key-not-identifier`, ranged on the key.
     const doc = withParams('  "my topic": string\n', "1\n");
     expect(
       rendered(doc),
-      "a non-identifier key is outside the Trigger's Identifier clause",
-    ).toEqual([]);
+      "a non-identifier key draws its own registered refusal",
+    ).toEqual([
+      diag(
+        "error",
+        PARAMS_KEY_NOT_IDENT,
+        msg(PARAMS_KEY_NOT_IDENT, []),
+        4,
+        3,
+        13,
+      ),
+    ]);
   });
 
   it("q4: a quoted but identifier-shaped `params:` key reports binding-case-mismatch", () => {

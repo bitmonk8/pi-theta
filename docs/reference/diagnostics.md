@@ -67,6 +67,7 @@ trigger.
 | `theta/parse/binding-case-mismatch` | E | parse | `binding name must start with a lowercase letter or _` |
 | `theta/parse/schema-case-mismatch` | E | parse | `schema name must start with an uppercase letter` |
 | `theta/parse/reserved-keyword-as-identifier` | E | parse | `reserved keyword '<keyword>' cannot be used as an identifier` |
+| `theta/parse/params-key-not-identifier` | E | parse | `params key must be an identifier` |
 | `theta/parse/capitalised-pattern-head` | E | parse | `capitalised pattern head '<name>' names no pattern production` |
 | `theta/parse/single-line-if` | E | parse | `single-line body not permitted; wrap in { ... }` |
 | `theta/parse/fn-param-list-unclosed` | E | parse | `fn parameter list is not closed by ')'` |

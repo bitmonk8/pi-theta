@@ -1,6 +1,6 @@
 # Bug 0380 — A non-identifier `params:` key registers with zero diagnostics, and a break-carrying key (an explicit-key block scalar cooking to `a\nb`) then forges both line-oriented renderings that interpolate the field name bare: `renderBinderParamLine` breaks the binder system prompt's two-space per-field line shape (a crafted key forges a second `Theta: /<name>` or phantom per-field line), and `renderArgumentEcho` renders the user-facing echo note across two physical lines with a byte-perfect forged second `Running /<name>: …` line — the 0060/0087 defect class re-opened on the one interpolated token neither fix normalised
 
-- **Status:** open.
+- **Status:** fixed (0.358.0).
 - **Sev/Diff estimate:** S1/D2 — S1 because a theta that loads with zero
   diagnostics and binds successfully emits a forged user-facing system note and
   a forged model-facing binder prompt line (author intent silently exceeded on
@@ -206,7 +206,7 @@ scripted envelope `{ kind: "ok", args: { "a\nRunning /forged: x=1": "v", ok_fiel
 
 ## Fix
 
-Not yet decided; constraints any fix must satisfy:
+Adjudicated **Option A — refusal at load** (the recommendation below); see the dated **Fix (0.358.0)** record. The original constraints any fix had to satisfy:
 
 1. **Adjudicate refusal vs normalisation.** Refusal at load (a
    `theta/parse/*` or `theta/load/*` row for a non-identifier `params:` key,
@@ -222,6 +222,32 @@ Not yet decided; constraints any fix must satisfy:
    (the break-free key byte-identical; the break key single-line or refused).
 3. The wire-name rename mechanism (`as "WireName"`, schema declarations) is
    the sanctioned route for non-identifier wire names and must stay untouched.
+
+## Fix (0.358.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — `extractParsedParams`'s params-key gate restructured into three disjoint arms (reserved-keyword → non-identifier-shape refusal → case gate); the new middle arm draws `theta/parse/params-key-not-identifier` (fixed message `params key must be an identifier`) on a cooked key that fails `isIdentifierShaped`. Reserved and case arms are byte-identical (§Fix constraint 1, Option A). The judgement is on the COOKED key, so a quoted-but-identifier-shaped key (`"topic": string`) stays legal.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — new DIAG-2 registry row (GOV-15 diagnostic-registry carve-out) for the code.
+  - `docs/reference/diagnostics.md` — reference-mirror row.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-a.md` — one sentence closing the spec silence (a `params:` key's cooked value must be identifier-shaped; a quoted identifier-shaped key is admitted).
+  - `tests/b0380-params-key-not-identifier.test.ts` — offline witness (12 cells): the block-scalar carrier, `"a b"`, and the `Running /forged` echo carrier refuse; controls (identifier key binds byte-identical, quoted identifier key legal, `Topic:` keeps `binding-case-mismatch`, a real-break double-quoted key keeps `theta/load/malformed-frontmatter-yaml`, reserved-keyword key keeps its refusal); both render seams covered both directions (§Fix constraint 2: break-free renders byte-identical; the break-carrying key is unreachable-at-render because load refuses); a registration-outcome cell.
+  - `tests/live/acceptance/b0380-params-key-not-identifier-load-refusal.test.ts` — H9a live load-refusal cell.
+  - `tests/schema-field-name-case.test.ts` — cell q2 (the 0149 §Non-goals cell, `"my topic": string`) flipped from the old clean-load acceptance to the new refusal.
+  - The render seams (`renderBinderParamLine` wireName; `renderArgumentEcho` param.name) and the `as "WireName"` rename mechanism are byte-UNTOUCHED (§Fix constraints 2, 3).
+- Gates:
+  - Witness `npx vitest run tests/b0380-params-key-not-identifier.test.ts` → 12/12; revert-neutralised → the 6 refusal cells RED for the right reason (loads with `[]` / zero error diagnostics), restored → 12/12 GREEN.
+  - Full default suite `npx vitest run` → 531 files / 10032 tests green.
+  - `npm run typecheck` (tsc --noEmit) clean; `npm run lint` (eslint `src/**/*.ts`) clean.
+  - Live `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/b0380-params-key-not-identifier-load-refusal.test.ts` → 1/1 (18 s): the identifier-key sibling registered and drove (sentinel 746); the `"a b"` offender was refused → `invoke` resolved `Err` → REFUSED sentinel 1619 (not LOADED 1418); `theta/parse/params-key-not-identifier` did NOT reach the H9a stdout+stderr capture, so `tests/fixtures/h7a/permitted-codes.json` stays byte-identical (blob `a4a8da04`).
+- Review: 1 substantive round. Round 1 (`bug-fix-reviewer`): correctness / fidelity / spec CLEAN; two house-rule/test blockers (a stale "two arms" comment; the q2 test-header ledger) + one non-blocking (stale anti-vacuity counts), all comment/ledger-only → one `bug-fix-fixer-light` round; the confirmation review was skipped (polish verified by gate-diff — every hunk comment-only, gates green).
+- Verification (`bug-fix-verifier`): SOLID. (1) witness reverts RED / restores GREEN, including the flipped q2 cell; (2) full suite green; (3) the live cell is a valid end-to-end witness and its recorded PASS is consistent; (4) typecheck + lint clean. permitted-codes byte-identical; render seams byte-untouched; tree restored byte-exact after the revert-test.
+- Residuals:
+  1. `permitted-codes.json` byte-identical (`a4a8da04`); the new code fires on crafted fixtures only — the live cell measured that it does not reach the H9a capture, so the final disposition is confirmed by the real H9a run on that evidence.
+  2. Recorded DEVIATION (bug-0308 flip-and-disclose discipline): the parent's premeasure "zero committed cells pin that acceptance" was a miscount — `tests/schema-field-name-case.test.ts` cell q2 (`"my topic": string` → `[]`) pinned the old acceptance and was flipped to the new refusal. Within authority: this report's §Related cites "Row q2 (`"my topic": string`) loads" as the report's origin, and the parent ratified the `"a b":`-class acceptance change as deliberate; `"my topic"` is that class. No other committed cell pins it (verified corpus-wide).
+  3. Doc imprecision in §Reproduction: it attributes `theta/load/malformed-frontmatter-yaml` to the double-quoted \n-escape spelling of a break-carrying key; verified FALSE at this fork — the escape form loads clean (a non-identifier key the fix now refuses, witness cell K); only a REAL physical break in double quotes yields the yaml-lib refusal (witness cell G uses that spelling). The §Reproduction control line is inaccurate on this point; the fix and every other claim reproduce exactly.
+  4. Message discipline (recorded per the 0105-chain law): the new row's message is the FIXED string `params key must be an identifier` — the offending key does NOT appear. Rationale: the block-scalar carrier cooks a real U+000A into the key and a single-line diagnostic `message` must never reproduce it (diagnostic-shape.md); the same-position sibling `binding-case-mismatch` likewise embeds no name and relies on the diagnostic `range`. This obviates any `placeholder-rendering-b.md` carve-out.
+- Discharge notes appended: none (0384 / 0381 are open sibling bugs, left untouched — see the interaction note in the fix report).
+- Pinned dispositions / non-goals: the diagnostic-message carriers that embed the key raw (`params-type-not-expression` etc.) are open sibling bug 0384's surface and were LEFT UNTOUCHED per §Non-goals; the echo object first-field order is 0381's surface and was untouched.
 
 ## Provenance
 

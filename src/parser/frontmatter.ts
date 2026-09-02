@@ -983,18 +983,16 @@ function extractParsedParams(
     // on either reading. `range` above is the VALUE node's, not the key's, so
     // a diagnostic naming the key needs a range of its own; on an unranged key
     // node it falls back to `range`, the same `??` fallback `range` itself
-    // already uses. The predicate is `checkName`'s own two-comparison form
-    // (lexer.ts). Its two exclusions hold the guard to the Trigger's
-    // "Identifier in a … field-name position": a key spelling no theta
-    // identifier (a quoted phrase), and a reserved keyword. Two arms split the
-    // position between two rules, in the order every other enforcement site
-    // uses — `checkName` returns from its keyword arm before its first-letter
-    // test, and `parseFn`'s parameter arm tests the keyword kind ahead of the
-    // case arm. The keyword arm below claims a reserved spelling under
-    // lexical.md §Reserved words / code-registry-parse.md:21; the `ident`-
-    // shaped arm after it judges the first letter's case under lexical.md
-    // §Identifiers / code-registry-parse.md:19. The two subjects are disjoint,
-    // so neither arm can reach the other's input.
+    // already uses. Three arms split the field-name position between three
+    // rules, in the order every other enforcement site uses (`checkName`,
+    // lexer.ts; `parseFn`'s parameter check, theta-document.ts):
+    // reserved-keyword refusal first, under lexical.md §Reserved words /
+    // code-registry-parse.md:21; non-identifier-shape refusal second, under
+    // lexical.md §Identifiers / code-registry-parse.md:19; and the case gate
+    // last, over what remains — an identifier-shaped, non-reserved key. The
+    // three subjects are disjoint: a reserved spelling is never
+    // identifier-shaped-but-wrong-shaped, and the case gate only ever sees an
+    // identifier-shaped key, so no arm can reach another arm's input.
     if (RESERVED_KEYWORDS.has(name)) {
       // lexical.md:20 reserves 32 spellings from identifier position with no
       // scope list, and code-registry-parse.md:21's Trigger names no
@@ -1022,7 +1020,28 @@ function extractParsedParams(
         range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
         message: `reserved keyword '${name}' cannot be used as an identifier`,
       });
-    } else if (isIdentifierShaped(name)) {
+    } else if (!isIdentifierShaped(name)) {
+      // A `params:` key is a field-name position twice over (schema property
+      // + body binding), and every sibling field-name position already
+      // refuses a non-`Ident` spelling (inline-object field names,
+      // 0154; `schema` bodies refuse it grammatically). Refusing here at LOAD
+      // closes the one position that did not, and lets the two line-oriented
+      // renderers that interpolate the name bare (renderBinderParamLine,
+      // renderArgumentEcho) stay untouched — a refused key never reaches
+      // them. The message names no key: the cooked value can carry a real
+      // U+000A (an explicit-key block scalar, `? |-`, cooks a line break into
+      // the key), and a single-line diagnostic message must never reproduce
+      // one (diagnostic-shape.md); `range` — not the message — locates the
+      // offender, the same discipline `binding-case-mismatch` above already
+      // uses for its own key.
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/params-key-not-identifier",
+        file,
+        range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
+        message: "params key must be an identifier",
+      });
+    } else {
       const first = name[0] ?? "";
       const isUpper = first >= "A" && first <= "Z";
       if (isUpper) {
