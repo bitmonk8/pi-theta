@@ -36,7 +36,9 @@ par for <var> in <array-expr> [max <n>] { <body> }
   (CTRL-1), and each iteration binds a fresh immutable loop variable.
 - The optional `max <n>` clause caps how many iterations are in flight at once.
   `n` is any `integer`-typed expression, evaluated once at loop entry; `max` only
-  *lowers* the width.
+  *lowers* the width — except that a value resolving below 1 clamps up to 1 and
+  draws `theta/runtime/par-max-non-positive`
+  ([Control flow — CTRL-2](../spec_topics/control-flow.md#ctrl-2)).
 - Independently of `max`, fan-out width is bounded by a throttle of **64**
   in-flight iterations, applied **per loop**. Excess iterations queue and start as
   slots free, so a large iterand runs to completion 64-at-a-time. A `max` above 64

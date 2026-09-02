@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.343.0]
+
+### Fixed
+
+- **Bug 0326** — CTRL-2 grants `max n` "at most `n` iterations in flight" and says `max` only *lowers* the width, but gave `n ≤ 0` no disposition, and the runtime's width resolve silently floored at 1 — the ONE operand class where the clamp RAISED the requested bound, with no diagnostic and no licensing sentence, so a computed "zero capacity, admit nothing" (`max free_slots` at 0, `max budget - used` gone negative) inverted into serial execution with no signal. The disposition is now defined coherently with the landed degenerate-width law (0324: non-number → clamp 1 + diagnostic; 0325: non-finite → same — a refusal here would have forked that taxonomy): the width resolve applies a value-domain `requested < 1` test on the finite-number branch, clamps to 1, and emits the NEW dedicated runtime code `theta/runtime/par-max-non-positive` through 0324's `emitDiagnostic` channel exactly once, uniformly (empty iterand included) — the shared `par-max-non-integer` row was rejected as the carrier because both its name and message are DIAG-4-false for this class (0 IS a finite integer). CTRL-2 gains the `n < 1` sentence and its "only lowers" clause is reconciled to name the documented floor as the single exception; `hard-ceilings.md` mirrors the floor direction beside the 64-clamp, and the fan-out how-to's copy of the "only lowers" claim is reconciled in the same edit; the DIAG-2 registry row and reference mirror land with the code. No static half: the type gate stays type-only per 0324's landed split (a value-domain static rule cannot cover computed operands). Witnessed by `tests/b0326-max-non-positive-runtime.test.ts` (`max 0` and computed-negative cells red at fork — clamp observed but no diagnostic; `max 1` boundary pins `< 1` not `≤ 1`; `max 2` control; 0324/0325 class controls byte-identical; static-clean cell; empty-iterand cell); the max-family live cell green through real `pi -p` under the lock in-lane.
+
 ## [0.342.0]
 
 ### Fixed

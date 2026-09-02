@@ -1563,7 +1563,9 @@ async function evalParFor(
 
   // CTRL-2 — resolve the in-flight width: `max` (evaluated once at loop entry)
   // only lowers the width, and the 64 throttle is the hard upper bound; a `max`
-  // above the throttle clamps to it, a `max` below it lowers to it.
+  // above the throttle clamps down to it, a `max` in [1, 64] lowers to it, and a
+  // width resolving below 1 clamps UP to 1 with
+  // `theta/runtime/par-max-non-positive` (bug 0326).
   let width = PAR_FOR_THROTTLE;
   if (expr.max !== null) {
     const maxResult = await evalExpr(expr.max, env, deps);
@@ -1578,7 +1580,22 @@ async function evalParFor(
       // non-finite leaf test (cf. subagent-envelope.ts), so it gates the
       // number branch the same way here.
       const requested = Math.floor(maxResult.value);
-      width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
+      if (requested < 1) {
+        // CTRL-2 grants `max` only the power to LOWER the width; a resolved
+        // width below 1 (max 0 / a negative operand) admits no work as
+        // written, so it clamps up to the panic-free floor of 1 and is
+        // diagnosed rather than silent (bug 0326).
+        width = 1;
+        deps.emitDiagnostic?.({
+          severity: "error",
+          code: "theta/runtime/par-max-non-positive",
+          file: deps.file,
+          range: expr.max.range,
+          message: "'par for' max operand must be at least 1; in-flight width clamped to 1",
+        });
+      } else {
+        width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
+      }
     } else {
       // CTRL-2: `max` only ever LOWERS the width. A non-number operand value
       // (reached through the deferred/`unknown` static path) or a non-finite

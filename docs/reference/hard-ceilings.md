@@ -126,6 +126,10 @@ four-ceiling model:
   routing-class table above. Excess iterations queue and start as slots free, so a
   large iterand runs to completion 64-at-a-time with no breach surface — there is
   no routing class, no `masked` token, and no diagnostic for reaching the throttle.
+- The throttle clamps the upper direction only; a `max` operand resolving below 1
+  (a finite `integer` `max 0`/negative) clamps in the opposite direction, UP to the
+  floor of 1, and emits `theta/runtime/par-max-non-positive`
+  ([Control flow — CTRL-2](../spec_topics/control-flow.md#ctrl-2)).
 - The [Ceiling-#1 panic-uniqueness invariant](#ceiling-set-invariants) is
   untouched: ceiling #1 remains the only ceiling whose breach reaches the *fail*
   arm via the panic path.
