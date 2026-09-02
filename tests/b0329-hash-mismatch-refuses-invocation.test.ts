@@ -359,23 +359,34 @@ describe("bug 0329 (C) — a matching closure hash admits the root and callee (c
 });
 
 // =============================================================================
-// (D) Case-fold. Probe the workspace filesystem's case-sensitivity by writing a
-//     lowercase file and attempting the uppercase read, then run REAL assertions
-//     on the branch that host exercises — never a skip. On a case-INSENSITIVE FS
-//     an author-written case-mismatched `tools:` spec still hash-verifies (the FS
-//     resolves the sources) but HEAD's case-SENSITIVE callee-locate compare
-//     misses, so the callee is NOT dropped; the fix's case-folded compare locates
-//     and drops it. On a case-SENSITIVE FS the exact/realpath compare already
-//     locates the callee, and a DISTINCT case-only sibling must NOT be dropped
-//     (proving the compare does not blindly case-fold there).
+// (D) Stale-hash root + callee drop, probed on both filesystem branches. Probe
+//     the workspace filesystem's case-sensitivity by writing a lowercase file
+//     and attempting the uppercase read, then run REAL assertions on the branch
+//     that host exercises — never a skip. Both branches plant a BYTE-MATCHED
+//     `tools:` entry (`./zqx-helper.theta` naming on-disk `zqx-helper.theta`):
+//     bug 0379's byte-match discipline now refuses a case-variant entry at load
+//     with `theta/load/unresolvable-theta-path`, so the case-variance carrier
+//     this cell once used no longer reaches the hash-mismatch machinery at all.
+//     What this cell witnesses is therefore the hash-mismatch drop itself — a
+//     stale marked-root hash drops the root with
+//     `theta/runtime/subagent-callable-hash-mismatch`, and the callee-locate
+//     compare (canonical real paths) locates and drops the referenced callee
+//     alongside it.
+//
+//     The 0329 callee-locate compare is still case-folded in the implementation,
+//     but bug 0379 removed its `tools:`-entry case-variance witness; the compare's
+//     remaining reachable case-variance class is directory-case variance, which
+//     this cell does not exercise. The case-SENSITIVE branch keeps a DISTINCT
+//     case-only sibling and asserts it is NOT dropped (the compare does not
+//     blindly case-fold there).
 //
 //     Whether this cell reds pre-fix depends on the branch:
-//       - case-INSENSITIVE (this host, Windows/NTFS): BOTH assertions red — the
-//         root stays registered (Option A absent) AND the callee stays registered
-//         (the case-sensitive find misses). Correct-reason RED on both arms.
+//       - case-INSENSITIVE (this host, Windows/NTFS): both the root-absent and
+//         callee-absent arms red pre-fix (Option A absent, and the callee-locate
+//         compare did not yet drop the referenced callee). Correct-reason RED.
 //       - case-SENSITIVE: the root-absent arm reds pre-fix (Option A absent); the
-//         callee-absent arm is GREEN pre-fix (exact compare already locates it),
-//         so the case-fold half of this cell is green-after-only there.
+//         callee-absent arm is GREEN pre-fix (the exact compare already locates
+//         it), so that half of this cell is green-after-only there.
 // =============================================================================
 
 /**
@@ -402,50 +413,44 @@ function filesystemIsCaseInsensitive(dir: string): boolean {
   }
 }
 
-describe("bug 0329 (D) — the callee-locate compare is case-folded so a mis-cased `tools:` spec still drops the callee", () => {
+describe("bug 0329 (D) — a stale hash drops the marked root and its referenced callee (probed on both filesystem branches)", () => {
   it("drops the root and the callee on the branch this filesystem exercises (both branches assert loudly)", async () => {
     const caseInsensitive = filesystemIsCaseInsensitive(workspaceDir);
 
     if (caseInsensitive) {
-      // MIS-CASED `tools:` spec; the real file is all-lowercase. The spec's
-      // first letter stays lowercase (`zqx-Helper`) so the derived name is
-      // lowercase-first and passes `theta/load/invalid-derived-tool-name` — the
-      // mis-casing is confined to a LATER letter (`H` vs the file's `h`), which
-      // is the case skew this cell isolates and nothing else. On a
-      // case-insensitive FS the spec resolves to the real file, so the root
-      // registers and the hash verifies against the real bytes.
-      plant(
-        "zqx-main.theta",
-        "---\nmode: subagent\ntools:\n  - ./zqx-Helper.theta\n---\nlet r = zqx_Helper(\"hi\")\n@`use ${r}`\n",
-      );
+      // Bug 0379's byte-match discipline (0.368.0) now refuses a case-variant
+      // `tools:` entry AT LOAD with `theta/load/unresolvable-theta-path` (the
+      // entry's basename must byte-match the on-disk basename its callee
+      // resolves to), so the mid-word case-variance carrier this branch
+      // formerly used (`./zqx-Helper.theta` naming on-disk `zqx-helper.theta`)
+      // no longer reaches the hash-mismatch machinery at all — the root would
+      // never register in the first place, and this cell's SUBJECT is the
+      // hash-mismatch root-drop, not the byte-match refusal (that is bug
+      // 0379's own witness, `tests/b0379-tools-entry-byte-match.test.ts`).
+      // Re-anchored to the byte-matched root/callee pair so the cell keeps
+      // witnessing its subject: a byte-edited callee drops the root with
+      // `theta/runtime/subagent-callable-hash-mismatch`, and the callee is
+      // dropped alongside it via the canonical-realpath compare.
+      plant("zqx-main.theta", ZQX_MAIN);
       plant("zqx-helper.theta", ZQX_HELPER);
-      // Presented name derives from the `tools:` SPELLING (`thetaDefaultName`,
-      // src/parser/callable-set.ts): `./zqx-Helper.theta` → basename
-      // `zqx-Helper.theta` → stem `zqx-Helper` → hyphens→underscores →
-      // `zqx_Helper` (mid-word casing preserved). Marshal the STALE hash under
-      // that key.
-      plantChildEnv("zqx-main", { zqx_Helper: "sha256:stale-parent-hash" });
+      plantChildEnv("zqx-main", { zqx_helper: "sha256:stale-parent-hash" });
 
       const outcome = await runCompose(workspaceDir);
 
       // case-INSENSITIVE probe result asserted here so the branch is on the
       // record when this runs.
       expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
-      // RED pre-fix (Option A absent): the mis-cased spec resolves to the real
-      // file and its derived name is valid, so the root registers today. Option A
-      // drops it post-fix.
+      // The stale hash refuses the invocation: the root drops with
+      // `theta/runtime/subagent-callable-hash-mismatch`.
       expect(
         outcome.registered,
         `case-insensitive branch; registered: ${JSON.stringify(outcome.registered)}`,
       ).not.toContain("zqx-main");
-      // RED pre-fix (case-fold absent): HEAD's case-SENSITIVE find compares
-      // `.../zqx-helper.theta` (the discovered file's real casing) against
-      // `.../ZQX-Helper.theta` (the spec's casing) and MISSES, so the callee stays
-      // registered. The fix's canonical-realpath compare locates and drops it —
-      // this callee-absent arm is what witnesses the case-fold.
+      // The callee-locate compare finds the referenced callee by canonical
+      // realpath and drops it alongside the root.
       expect(
         outcome.registered,
-        "the case-folded compare must locate and drop the mis-cased callee",
+        "the canonical-realpath compare must locate and drop the referenced callee",
       ).not.toContain("zqx-helper");
     } else {
       // CORRECT casing on a case-sensitive FS; the exact/realpath compare locates

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.368.0]
+
+### Fixed
+
+- **Bug 0379** — a `tools:` `.theta` entry's derived default name was computed from the ENTRY's spelling, not "the file's basename" the spec pins: on a case-insensitive host `./Util.theta` naming on-disk `util.theta` un-registered the caller with `invalid-derived-tool-name` (its hint ordering a rename the file did not need), while `./util.theta` naming on-disk `Util.theta` silently minted callable `util` where the spec mandates that refusal. PARENT ADJUDICATION Option BM — byte-match discipline (recorded, with the PRIOR Option-1 ratification REVERSED on the record: the lane's split-brain measurement proved the doc's Expected-(ii) — register under the on-disk-derived name — UNACHIEVABLE without a parser rearchitecture, since the parse layer derives body-callable names from the entry spelling with no FS seam; a doc-was-incoherent note stands in the fix record): after `resolveThetaCallee(spec)` succeeds, `resolveEntry` byte-matches the entry basename against the callee's ON-DISK basename (a `readdir` byte-check — the IMP-1 mirror the doc's own root cause cites) and refuses a mismatch as `theta/load/unresolvable-theta-path`, the EXACT outcome both variant entries already produce on case-sensitive hosts. Cross-host parity closes BOTH directions with no split-brain and no unspellable callables: every registered callable now has entry basename == on-disk basename, so the parse layer's entry-derived body names, the load layer's derived name, and the spec's "file's basename" coincide; `thetaDefaultName` and its 0253 no-divergence lock are byte-untouched; the spec sentence under the tools: derived-name bullet aligns with (references, does not fork) 0363's landed DISC-3 sentence. Witnessed by `tests/b0379-tools-entry-byte-match.test.ts` (directions (i)/(ii) red at fork — the silent registration and the lying-hint refusal both quoted — plus the byte-match control, the extension-case non-goal, and a case-sensitive parity row; both FS branches loud). RATIFIED re-anchor: b0329 cell (D)'s case-insensitive branch removed its incidental case-variant carrier (the hash-mismatch-refusal subject preserved exactly; red-direction proven; dated note on the closed 0329 doc). Live: `b0270live` 1/1 under the lock (tools-resolution through a real host; legal byte-matched entries byte-identical).
+
 ## [0.367.0]
 
 ### Fixed

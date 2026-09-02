@@ -80,6 +80,18 @@ export interface ResolvedThetaCallee {
    * callable. Set authoritatively from the entry's `spec` by `resolveEntry`.
    */
   readonly calleePath: string;
+  /**
+   * The callee file's ON-DISK basename (with the `.theta` extension), from the
+   * resolver's parent-directory readdir byte-check — on-disk casing on a
+   * case-insensitive host, byte-identical to the entry on a case-sensitive one.
+   * `resolveEntry` byte-matches the entry's own basename against THIS and
+   * refuses a mismatch as `theta/load/unresolvable-theta-path` (bug 0379), so a
+   * case-variant `tools:` spelling gets the same verdict a case-sensitive host
+   * gives. Absent on isolation harnesses that inject no canonicalised name; the
+   * byte-match is then skipped, sound because those fixtures are
+   * case-sensitive-neutral (entry basename and on-disk basename cannot diverge).
+   */
+  readonly onDiskName?: string;
   /** Strong reference to the parsed callee + lowered tool spec (opaque here). */
   readonly callee: unknown;
   /**
@@ -406,8 +418,9 @@ function resolveEntry(
   // (frontmatter-fields-a.md §`.theta` paths, byte-exact lowercase) and runs
   // before `resolveThetaCallee` so a wrong-extension entry never reaches
   // callee resolution — contrast `theta/load/unresolvable-theta-path` below,
-  // which is scoped to specs that already end in `.theta` but resolve to no
-  // file.
+  // which fires both for a spec that already ends in `.theta` but resolves to
+  // no file and (bug 0379) for a resolved file whose on-disk basename
+  // byte-mismatches the entry's basename.
   const [extensionDiagnostic] = checkInvokeExtension({
     literalPath: spec,
     surface: "tools",
@@ -423,6 +436,39 @@ function resolveEntry(
   const resolved = deps.resolveThetaCallee(spec);
   const defaultName = thetaDefaultName(spec);
   if (resolved === undefined) {
+    return {
+      callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
+      defaultName,
+      diagnostic: {
+        severity: "error",
+        code: "theta/load/unresolvable-theta-path",
+        file,
+        message: `cannot resolve .theta path '${spec}'`,
+      },
+    };
+  }
+  // Byte-match discipline (bug 0379): the entry's basename must equal the
+  // resolved callee's on-disk basename. On a case-insensitive host
+  // `resolveThetaCallee` opens a file whose real directory-entry casing can
+  // differ from the entry's spelling; the `.thetalib` import resolver already
+  // rejects that skew byte-wise and bug 0329's callee-locate map canonicalises
+  // the same `fs.realpath` seam. Refusing a case-variant entry here as
+  // `theta/load/unresolvable-theta-path` gives every host the verdict a
+  // case-sensitive filesystem already produces — the entry names no such file —
+  // and keeps every REGISTERED callable's entry basename equal to its on-disk
+  // basename, so the parse-layer body identifier (entry-derived), this load
+  // layer's derived name, and the spec's "file's basename" all coincide with
+  // `thetaDefaultName` (and its bug-0253 no-divergence lock) byte-untouched. The
+  // message names the entry as written, so the remedy is respelling the entry.
+  // Runs BEFORE the prompt-mode arm below so a case-variant entry gets the
+  // unresolvable verdict a case-sensitive host reaches without ever learning the
+  // callee's mode. `onDiskName` is absent on isolation harnesses that inject no
+  // resolver-canonicalised name; the byte-match is then skipped, sound because
+  // those fixtures cannot diverge in case.
+  if (
+    resolved.onDiskName !== undefined &&
+    entryBasename(spec) !== resolved.onDiskName
+  ) {
     return {
       callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
       defaultName,
@@ -452,6 +498,17 @@ function resolveEntry(
     };
   }
   return { callable: withPath, defaultName };
+}
+
+/**
+ * The basename (with the `.theta` extension) of a `tools:` entry's path literal,
+ * for the bug-0379 byte-match against the resolved callee's on-disk basename.
+ * Separate from `thetaDefaultName` — which strips `.theta` and remaps hyphens —
+ * because the byte-match compares the raw on-disk directory entry, not the
+ * derived callable name.
+ */
+function entryBasename(thetaPath: string): string {
+  return thetaPath.slice(thetaPath.lastIndexOf("/") + 1);
 }
 
 /**

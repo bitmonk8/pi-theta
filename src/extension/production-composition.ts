@@ -21,6 +21,7 @@
 
 import { readFileSync } from "node:fs";
 import {
+  basename,
   delimiter as PATH_DELIMITER,
   dirname,
   isAbsolute,
@@ -1883,6 +1884,18 @@ interface CalleeParse {
    * escape.
    */
   readonly nestedToolsEscapes?: readonly Diagnostic[];
+  /**
+   * The callee file's ON-DISK basename (with `.theta`), from the
+   * parent-directory readdir byte-check (`onDiskCalleeName`) — the byte-match
+   * target for the entry's default-name resolution. On a case-insensitive host
+   * this carries the real directory-entry casing, so a case-variant `tools:`
+   * spelling is caught against the file's basename the spec pins (bug 0379);
+   * byte-identical to the entry on a case-sensitive host.
+   * Present on every `fileExists: true` return (the read that set `fileExists`
+   * already proved the path openable); absent only when the path resolved to no
+   * file.
+   */
+  readonly onDiskName?: string;
 }
 
 /** The outcome of resolving a discovered theta's `tools:` callable set at load. */
@@ -2103,7 +2116,13 @@ async function resolveThetaToolsAtLoad(
       // runtime resolves the callee by presented name from the frozen entry
       // rather than re-deriving it from the basename, which would drop the
       // hyphen→underscore + `as` rewrites and silently omit the callable.
-      return { kind: "theta", mode: callee.mode, callee: undefined, calleePath: thetaPath };
+      return {
+        kind: "theta",
+        mode: callee.mode,
+        callee: undefined,
+        calleePath: thetaPath,
+        ...(callee.onDiskName !== undefined ? { onDiskName: callee.onDiskName } : {}),
+      };
     },
     reservedNames: collectReservedNames(parsed.body),
   };
@@ -2303,6 +2322,8 @@ async function parseCalleeForTools(
     return { fileExists: false, mode: "subagent", hasErrors: false };
   }
 
+  const onDiskName = await onDiskCalleeName(fs, absolute);
+
   // INV-1 (invocation.md §Resolution) / bug 0110: the same `realpath` +
   // discovery-root containment check the `invoke(...)` surface runs
   // (`checkInvokeStaticResolution`), so a `tools:` entry cannot mint a
@@ -2344,6 +2365,7 @@ async function parseCalleeForTools(
         mode: "subagent",
         hasErrors: false,
         escape: containment.diagnostic,
+        onDiskName,
       };
     }
   }
@@ -2355,7 +2377,7 @@ async function parseCalleeForTools(
     // The file exists but produced no parseable frontmatter — an existing callee
     // that failed its own structural checks (callee-has-errors), not a path that
     // resolves to no file (unresolvable-theta-path).
-    return { fileExists: true, mode: "subagent", hasErrors: true };
+    return { fileExists: true, mode: "subagent", hasErrors: true, onDiskName };
   }
   const nestedToolsEscapes = await checkNestedToolsContainment(
     fs,
@@ -2385,8 +2407,48 @@ async function parseCalleeForTools(
     fileExists: true,
     mode: document.frontmatter.mode,
     hasErrors: hasLoadParseError(document.diagnostics) || failsPostParseChecks,
+    onDiskName,
     ...(nestedToolsEscapes !== undefined ? { nestedToolsEscapes } : {}),
   };
+}
+
+/**
+ * The ON-DISK basename (with `.theta`) of a resolved `.theta` callee, for the
+ * byte-match `resolveEntry` (callable-set.ts) runs against the entry's own
+ * basename. Enumerates the callee's parent directory (`fs.readdir`,
+ * byte-for-byte, no case-folding) and returns the entry matching the resolved
+ * basename: the byte-exact entry when present, else the sole case-insensitive
+ * match (the real casing a case-insensitive host stored). This is the IMP-1
+ * byte-check the `.thetalib` import resolver already performs
+ * (src/parser/imports.ts §relative resolver), NOT `fs.realpath`: `realpath`
+ * follows symlinks and would report a symlinked callee's TARGET basename,
+ * refusing a validly-named symlink entry on every host — a refusal the
+ * case-variance parity this fix owns never intends (bug 0379). A parent
+ * directory that vanished between the callee read and this enumeration (racy
+ * ENOENT) degrades to the entry-resolved basename (it byte-matches itself, no
+ * spurious refusal); any other readdir fault is a real fault and crashes
+ * (CLAUDE.md "let crash"), matching the bug-0329 drop-target canonicalisation's
+ * fail-closed posture.
+ */
+async function onDiskCalleeName(fs: FileSystem, absolute: string): Promise<string> {
+  const target = basename(absolute);
+  // Rejection-to-value, the house idiom (never a broad `catch`): a racy ENOENT
+  // degrades to `undefined` (handled as the entry-resolved basename below); any
+  // other readdir fault rethrows and crashes (CLAUDE.md "let crash").
+  const entries = await fs.readdir(dirname(absolute)).then(
+    (value) => value,
+    (readdirError: unknown) => {
+      if ((readdirError as NodeJS.ErrnoException).code === "ENOENT") {
+        return undefined;
+      }
+      throw readdirError;
+    },
+  );
+  if (entries === undefined || entries.includes(target)) {
+    return target;
+  }
+  const lowerTarget = target.toLowerCase();
+  return entries.find((entry) => entry.toLowerCase() === lowerTarget) ?? target;
 }
 
 /**
@@ -2674,6 +2736,13 @@ async function calleeFailsOwnStructuralChecksBody(
   // loop already read.
   const calleeDir = dirname(calleeAbsolutePath);
   const readable = new Map<string, boolean>();
+  // Bug 0379 byte-match discipline at this recursion depth: the on-disk
+  // basename of each readable nested `.theta` entry, keyed by the spec AS
+  // WRITTEN, so the stub below hands `resolveEntry` the same byte-match target
+  // the primary depth-0 site does. Without it a case-variant nested entry
+  // self-skips the byte-match and registers on a case-insensitive host while a
+  // case-sensitive host refuses — the exact cross-host divergence this fix closes.
+  const onDiskNames = new Map<string, string>();
   // Bug 0280 §Fix route (a): each readable-and-parsed spec's declared
   // frontmatter `mode`, keyed exactly as `readable` is (the spec AS
   // WRITTEN) — the SAME `document` this loop already produces for
@@ -2717,6 +2786,7 @@ async function calleeFailsOwnStructuralChecksBody(
       // no document to judge, so this loop has no further business with it.
       continue;
     }
+    onDiskNames.set(spec, await onDiskCalleeName(fs, nestedAbsolute));
 
     // WITHHOLD (c) — termination bound: a resolved absolute path already on
     // this walk's own recursion stack closes a `tools:` cycle here rather than
@@ -2820,15 +2890,21 @@ async function calleeFailsOwnStructuralChecksBody(
     // verdict is otherwise carried through `grandchildFails` instead of the
     // stub's shape (`tests/nested-tools-entry-containment.test.ts:729–743`
     // needs that default to stay neutral for the escape arm).
-    resolveThetaCallee: (thetaPath) =>
-      readable.get(thetaPath) === false
-        ? undefined
-        : {
-            kind: "theta",
-            mode: declaredMode.get(thetaPath) ?? "subagent",
-            callee: undefined,
-            calleePath: thetaPath,
-          },
+    resolveThetaCallee: (thetaPath) => {
+      if (readable.get(thetaPath) === false) {
+        return undefined;
+      }
+      // Bound once so the `exactOptionalPropertyTypes` spread narrows: a bare
+      // second `Map.get` would re-widen to `string | undefined`.
+      const onDiskName = onDiskNames.get(thetaPath);
+      return {
+        kind: "theta",
+        mode: declaredMode.get(thetaPath) ?? "subagent",
+        callee: undefined,
+        calleePath: thetaPath,
+        ...(onDiskName !== undefined ? { onDiskName } : {}),
+      };
+    },
     reservedNames: collectReservedNames(body),
   };
   const result = resolveCallableSet({
