@@ -1,6 +1,6 @@
 # Bug 0382 — The SLSH-3 `Err` note renders string-valued `QueryError` fields with raw line breaks intact: a code tool throwing `Error("boom\ntheta /other returned Err: …")` yields a user-facing note whose second physical line is a byte-perfect forged SLSH-3 note for a theta that never ran — `lowerToolExecuteThrow` byte-caps but keeps breaks, `summariseErrorField` renders strings "verbatim — no escaping", and no seam between them and `pi.sendMessage` applies any line discipline, where SLSH-3 pins "a one-line system note"
 
-- **Status:** open.
+- **Status:** fixed (0.354.0).
 - **Sev/Diff estimate:** S2/D2 — S2 because the wrong bytes are user-facing on
   the channel SLSH-3 makes the *only* failure surface for a subagent-mode
   theta, and the forgery is byte-perfect (a second `theta /<name> returned
@@ -143,7 +143,13 @@ end to end.
 
 ## Fix
 
-Not yet decided; constraints any fix must satisfy:
+Adjudicated (parent, s30): **SEAM = A1** — the SNK render seam in
+`src/runtime/err-note-render.ts` — plus **DISCIPLINE = B1** — collapse each line
+break to one U+0020 by reusing `normaliseLiteralValueLineBreaks` (the bug-0348
+collapse), applied to the interpolated `message`/`tool_name`/`cause`/`kind`
+fields of the reachable rows SNK-c/SNK-d/SNK-g/SNK-k only. `summariseErrorField`
+(the 0177 law) and `lowerToolExecuteThrow`'s byte-cap stay byte-identical. See
+`## Fix (0.354.0)` below for what shipped. Constraints the fix satisfies:
 
 1. Compose with, not re-litigate, the 0177 law: the law's clause (1) was
    adjudicated for information preservation against `[object Object]`; a
@@ -160,6 +166,60 @@ Not yet decided; constraints any fix must satisfy:
    SNK row single-line after; break-free fields byte-identical; the forged
    second-line regex (`^theta /\S+ (returned Err|cancelled|aborted)`) matches
    zero non-first lines after.
+
+## Fix (0.354.0)
+
+- What shipped:
+  - `src/runtime/err-note-render.ts` — added `renderNoteField(value) =
+    normaliseLiteralValueLineBreaks(summariseErrorField(value))` (import from
+    `../diagnostics/diagnostic`; the bug-0348 collapse reused, not forked —
+    `diagnostic.ts` is a leaf module and `src/runtime/**` already value-imports
+    from `src/diagnostics/**`, so no layering violation) and rewired the
+    `message`/`tool_name`/`cause`/`kind` interpolations of SNK-c/SNK-d/SNK-g/SNK-k
+    through it (§Fix constraint 1 — A1 render seam; SNK-a/SNK-h/SNK-i and the
+    SLSH-5 chain suffix untouched; `summariseErrorField` + `lowerToolExecuteThrow`
+    byte-identical, constraints 1 & 3).
+  - `docs/spec_topics/slash-invocation.md` — one sentence appended to the SLSH-4
+    paragraph: interpolated placeholder content has each line break, with any
+    adjoining spaces, collapsed to a single space before insertion and the
+    rendered field edge-trimmed, preserving SLSH-3's one-line pin (§Fix
+    constraint 2).
+  - `tests/b0382-slsh3-note-line-discipline.test.ts` — the witness (16 tests).
+- Gates:
+  - Witness: `npx vitest run tests/b0382-slsh3-note-line-discipline.test.ts` →
+    16 passed. RED at fork (fix reverted): 11 failed / 5 passed with the
+    forged-second-line signature (a raw break produces a genuine second
+    physical line carrying a forged SNK note).
+  - Full suite: `npm test` → 531 files / 10036 tests passed (one file-level
+    vitest timeout under concurrent-lane load, green on isolated re-run —
+    LANE-BRIEF machine-load caveat).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — one `spec` finding F1
+  (the SLSH-4 sentence under-described the reused collapse's run-absorption +
+  edge-trim); resolved (sentence refined; three trim witnesses added). Round 2
+  (`bug-fix-reviewer-fast`) — clean, no findings, no recommend-deep-review.
+- Verification: SOLID (`bug-fix-verifier`). Witness reds on hand-revert (11
+  failed, forged-second-line signature) and greens on byte-exact restore (16
+  passed); full default suite green (timeout flake green isolated, off surface);
+  typecheck + lint clean; scope integrity — `err-field-summary.ts` and
+  `tool-call-execute.ts` byte-identical to HEAD. Live (run by the orchestrator
+  under the lane live-lock): the nearest SLSH-3-note-asserting cell
+  `tests/live/err-note-render-record-error-field-live-cell.test.ts` passed (real
+  spawned subagent child, zero model turns) — the break-free record note renders
+  byte-identical, confirming the discipline is a no-op on the legal green path.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: SNK-i (`callee_path`/`cause`) and the SLSH-5
+  chain suffix are left untouched — a break-carrying `realpath` is the 0105
+  residual-3 out-of-scope class (§Non-goals); SNK-h `last_tool_name` and the
+  numeric `attempts`/`rounds` fields are outside the adjudicated witness set.
+  `summariseErrorField` (the 0177 field-rendering law) and
+  `lowerToolExecuteThrow`'s byte-cap are unchanged. Bounded self-authorization
+  on the record: the F1 remedy refined the ratified minimal spec sentence to
+  state the mechanism's run-absorption + edge-trim (spec-prose only, no
+  assertion/behaviour touched), evidenced by `normaliseLiteralValueLineBreaks`
+  source, `placeholder-rendering-b.md` §7, and `docs/STYLE.md` §Claims; the
+  parent's ratified substance (single-space collapse, one-line pin) is preserved.
 
 ## Provenance
 

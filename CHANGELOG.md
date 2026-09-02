@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.354.0]
+
+### Fixed
+
+- **Bug 0382** — the SLSH-3 `Err` note rendered string-valued `QueryError` fields with raw line breaks intact: a code tool throwing `Error("boom\ntheta /other returned Err: …")` yielded a user-facing note whose second physical line was a byte-perfect FORGED SLSH-3 note for a theta that never ran — `lowerToolExecuteThrow` byte-caps but keeps breaks, `summariseErrorField` renders strings verbatim per the 0177 law, and no seam owned SLSH-3's one-line pin. PARENT ADJUDICATION A1+B1 (recorded: the render seam OWNS the one-line contract — its own module header pins "the single-line theta-system-note string", and 0087 fixed the identical forgery on the echo note at the render seam; amending `summariseErrorField` would move the 0177 law's surface for every consumer; producer fixes leave future producers open per the 0105-chain seam lesson; collapse-not-truncate composes with 0177's information preservation and the landed 0348 family): `src/runtime/err-note-render.ts` gains `renderNoteField(v) = normaliseLiteralValueLineBreaks(summariseErrorField(v))` — REUSING the bug-0348 collapse, no fork — rewiring only the `message`/`tool_name`/`cause`/`kind` interpolations of the SNK rows (including the documented-reserved SNK-d for uniformity); `summariseErrorField` and `lowerToolExecuteThrow` are byte-identical; one sentence lands in the SLSH-4 paragraph of `slash-invocation.md` naming the collapse (run-collapse + edge-trim semantics spelled per review). Witnessed by `tests/b0382-slsh3-note-line-discipline.test.ts` (16 cells: the doc's flagship production-path forgery repro, per-row single-line witnesses, the forged-second-line regex sweeping zero non-first lines, break-free byte-identity controls, `\n`/`\r\n`/`\r`/trim/run-absorption variants — 11 red at fork with the forged-second-line signature). Live: the record-error-field note cell ran green under the lock (real subagent child; break-free note byte-identical). BREACH DISCLOSED: the lane's implementer ran `git stash` as a diagnostic against HARD-RULE 1 — self-reported, tree restored and re-verified intact by the orchestrator, no damage; campaign stash-breach total is now FOUR.
+
 ## [0.353.0]
 
 ### Fixed

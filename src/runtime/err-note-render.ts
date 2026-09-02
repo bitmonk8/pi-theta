@@ -45,12 +45,27 @@ import type {
 } from "./query-error";
 import type { InvocationRecord } from "./invoke-provenance";
 import { summariseErrorField } from "./err-field-summary";
+import { normaliseLiteralValueLineBreaks } from "../diagnostics/diagnostic";
 
 /**
  * The SLSH-4 template separator: em-dash U+2014. The registry/template cells
  * carry the literal em-dash; only the readability backticks are stripped.
  */
 const DASH = "\u2014";
+
+/**
+ * SLSH-3 one-line discipline for an interpolated `QueryError` field: render
+ * per the bug-0177 law (`summariseErrorField`, untouched), then collapse each
+ * line break — with adjoining horizontal whitespace — to a single U+0020, so
+ * a break-carrying string field cannot fabricate a forged second physical
+ * line. Enforced here at the render seam (as bug 0087 did for the echo
+ * note), reusing the diagnostics-channel collapse (bug 0348,
+ * `normaliseLiteralValueLineBreaks`) rather than forking it. A break-free
+ * field returns byte-identical.
+ */
+function renderNoteField(value: unknown): string {
+  return normaliseLiteralValueLineBreaks(summariseErrorField(value));
+}
 
 /**
  * One `invoke_callee` hop's rendering inputs. Each hop pairs the wrapper's
@@ -124,12 +139,12 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
     case "transport": {
       // SNK-c
       const e = leaf as TransportError;
-      return `${prefix} returned Err: transport ${DASH} ${summariseErrorField(e.message)}`;
+      return `${prefix} returned Err: transport ${DASH} ${renderNoteField(e.message)}`;
     }
     case "model_tool": {
       // SNK-d
       const e = leaf as ModelToolError;
-      return `${prefix} returned Err: tool ${summariseErrorField(e.tool_name)} failed ${DASH} ${summariseErrorField(e.message)}`;
+      return `${prefix} returned Err: tool ${renderNoteField(e.tool_name)} failed ${DASH} ${renderNoteField(e.message)}`;
     }
     case "context_overflow": {
       // SNK-e
@@ -143,7 +158,7 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
     case "code_tool": {
       // SNK-g
       const e = leaf as CodeToolError;
-      return `${prefix} returned Err: tool ${summariseErrorField(e.tool_name)} call failed (${summariseErrorField(e.cause)}) ${DASH} ${summariseErrorField(e.message)}`;
+      return `${prefix} returned Err: tool ${renderNoteField(e.tool_name)} call failed (${renderNoteField(e.cause)}) ${DASH} ${renderNoteField(e.message)}`;
     }
     case "tool_loop_exhausted": {
       // SNK-h — `last_tool_name` can be null: an untyped query under
@@ -162,7 +177,7 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
     }
     default: {
       // SNK-k catch-all — total over any unlisted `kind` in the open union.
-      return `${prefix} returned Err: ${summariseErrorField(leaf.kind)} ${DASH} ${summariseErrorField(leaf.message)}`;
+      return `${prefix} returned Err: ${renderNoteField(leaf.kind)} ${DASH} ${renderNoteField(leaf.message)}`;
     }
   }
 }
