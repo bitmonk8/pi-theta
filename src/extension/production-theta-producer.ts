@@ -140,7 +140,7 @@ import {
 } from "../runtime/statement-executor";
 import {
   extractTrailingTurnText,
-  withActiveSetGating,
+  computeActiveSetInstall,
   type CallableSetInstall,
 } from "../runtime/conversation-drive";
 import {
@@ -280,6 +280,8 @@ import {
   createRegistrationCache,
   deriveToolLabel,
   registerToolInCache,
+  withActiveSetGate,
+  type ActiveSetGateDeps,
 } from "../runtime/tool-registration";
 import {
   InterpolatedResultPanic,
@@ -3003,6 +3005,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           // RESPOND MODEL's `.api` inside `dispatchForcedRespondTurn` (bug 0010).
           provider: String(deps.ctx.model?.api ?? "unknown"),
           ...(respond !== undefined ? { respond } : {}),
+          thetaName: deps.theta.slashName,
+          emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
         })
       : undefined;
     // Bug 0010 increment D: the off-session sibling (`subagent fn` in-process
@@ -3063,6 +3067,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               queryText: prompt,
               activeTools,
               provider: String(deps.ctx.model?.api ?? "unknown"),
+              thetaName: deps.theta.slashName,
+              emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
             })
           : offModel !== undefined && respond !== undefined
             ? offModel.driveRepairAttempt(prompt)
@@ -3964,6 +3970,30 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           cell: { callerMode: "prompt", calleeMode: "prompt" },
           childCallableSet: callableSetPiToolNames(callee),
           pi: this.#input.pi,
+          // Bug 0372 §Fix: the compliant `ActiveSetGateDeps` the cross-mode
+          // restore window threads into `withActiveSetGate`.
+          thetaName: callee.slashName,
+          emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+          emitSystemNote: (note): void => {
+            this.#input.pi.sendMessage(
+              {
+                customType: SYSTEM_NOTE_CHANNEL,
+                content: note.content,
+                display: note.display,
+                details: note.details,
+              },
+              { triggerTurn: false },
+            );
+          },
+          // PIC-19: a step-1/step-2 setup throw re-propagates out of
+          // `withActiveSetGate` (it calls this hook THEN re-throws), with no
+          // local catch here — the throw unwinds to `runInvokeChild`'s
+          // boundary catch (invoke-cancellation.ts), which converts it into
+          // `Err(InvokeInfraError{cause:"internal_error"})`, the
+          // registry-pinned internal-error channel for an invoke parent. This
+          // hook stays a no-op so the defect is routed exactly once, never
+          // twice.
+          routeInternalError: (): void => {},
           childBody: async () => {
             const execution = await executeBody(callee.body, childBinding.executeDeps);
             // FN-5 (invocation.md §Final-value propagation across callees): an
@@ -4747,6 +4777,10 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #provider: string;
   /** Bug 0010: the typed query's respond-turn machinery (absent = untyped / degraded). */
   readonly #respond: RespondTurnContext | undefined;
+  /** Bug 0372 §Fix: the bare theta name substituted into the PIC-8(c) note template. */
+  readonly #thetaName: string;
+  /** Bug 0372 §Fix: the runtime-defect diagnostic sink the PIC-8(b) restore-failure diagnostic emits through. */
+  readonly #emitDiagnostic: (diagnostic: Diagnostic) => void;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
   /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
@@ -4792,6 +4826,10 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly provider: string;
     /** Bug 0010: the typed respond-turn machinery (absent = untyped / degraded arm). */
     readonly respond?: RespondTurnContext;
+    /** Bug 0372 §Fix: the bare theta name (no leading `/`) for the PIC-8(c) note template. */
+    readonly thetaName: string;
+    /** Bug 0372 §Fix: the runtime-defect diagnostic sink. */
+    readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -4804,6 +4842,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#maxRounds = deps.maxRounds;
     this.#provider = deps.provider;
     this.#respond = deps.respond;
+    this.#thetaName = deps.thetaName;
+    this.#emitDiagnostic = deps.emitDiagnostic;
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
@@ -5239,8 +5279,36 @@ class LivePromptQueryModel implements QueryModelDriver {
     if (!teardownSignal.aborted) {
       teardownSignal.addEventListener("abort", onThetaAbortTeardown, { once: true });
     }
+    // Bug 0372 §Fix: the compliant PIC-8/PIC-19 gate. A restore throw gets a
+    // single re-attempt, then `active-set-restore-failed` (E) + the display
+    // note, and the completed query's outcome propagates unmasked; a
+    // step-1/step-2 setup throw routes to `theta/runtime/internal-error`.
+    const activeSetGateDeps: ActiveSetGateDeps = {
+      pi: this.#pi,
+      thetaName: this.#thetaName,
+      installVector: computeActiveSetInstall(install),
+      emitDiagnostic: this.#emitDiagnostic,
+      emitSystemNote: (note): void => {
+        this.#pi.sendMessage(
+          {
+            customType: SYSTEM_NOTE_CHANNEL,
+            content: note.content,
+            display: note.display,
+            details: note.details,
+          },
+          { triggerTurn: false },
+        );
+      },
+      // PIC-19: a step-1/step-2 setup throw re-propagates out of
+      // `withActiveSetGate` (it calls this hook THEN re-throws) into this
+      // method's own `try`, which has no local catch — the throw unwinds to
+      // the top-level slash-dispatch outer catch, the authoritative single
+      // owner of `theta/runtime/internal-error` for the producer path. This
+      // hook stays a no-op so the defect is routed exactly once, never twice.
+      routeInternalError: (): void => {},
+    };
     try {
-      await withActiveSetGating(this.#pi, install, async () => {
+      await withActiveSetGate(activeSetGateDeps, async () => {
         // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
         // slot for the duration of the driven turn, so a mid-turn respond-tool
         // call validates and captures against THIS query's lowered schema. The
@@ -6703,6 +6771,10 @@ async function driveStreamedUserTurn(deps: {
   readonly activeTools: readonly string[];
   /** PIC-50/51: the resolved provider for a synthesised `TransportError` on a bound expiry. */
   readonly provider: string;
+  /** Bug 0372 §Fix: the bare theta name (no leading `/`) for the PIC-8(c) note template. */
+  readonly thetaName: string;
+  /** Bug 0372 §Fix: the runtime-defect diagnostic sink. */
+  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
 }): Promise<string | FollowUpDriveFailure> {
   const readMessages = (): readonly Message[] =>
     buildSessionContext(
@@ -6734,9 +6806,31 @@ async function driveStreamedUserTurn(deps: {
           kind: "provider_failure",
           error: mapPromptModeTurnLifecycleExpiry(phase, boundMs, deps.provider),
         };
-  const ambientTools = deps.pi.getActiveTools();
-  deps.pi.setActiveTools([...deps.activeTools]);
-  try {
+  // Bug 0372 §Fix: the compliant PIC-8/PIC-19 gate, byte-identical in shape to
+  // the other two converted windows — a restore throw here gets the single
+  // re-attempt + diagnostic + note instead of masking the follow-up's result.
+  const activeSetGateDeps: ActiveSetGateDeps = {
+    pi: deps.pi,
+    thetaName: deps.thetaName,
+    installVector: [...deps.activeTools],
+    emitDiagnostic: deps.emitDiagnostic,
+    emitSystemNote: (note): void => {
+      deps.pi.sendMessage(
+        {
+          customType: SYSTEM_NOTE_CHANNEL,
+          content: note.content,
+          display: note.display,
+          details: note.details,
+        },
+        { triggerTurn: false },
+      );
+    },
+    // PIC-19: propagates via re-throw into this function's caller with no
+    // local catch of its own — the same top-level slash-dispatch outer catch
+    // that owns `theta/runtime/internal-error` for the sibling query window.
+    routeInternalError: (): void => {},
+  };
+  return withActiveSetGate(activeSetGateDeps, async () => {
     // §Fix item 1: the same pre-send gate as the method — no send while the
     // session reports a run in flight, and no settledness demand over the
     // user's ambient conversation (see the method's own gate for why).
@@ -6793,10 +6887,8 @@ async function driveStreamedUserTurn(deps: {
         return expired("settle", TURN_SETTLE_POLL_BOUND * POLL_INTERVAL_MS);
       }
     }
-  } finally {
-    deps.pi.setActiveTools(ambientTools);
-  }
-  return extractTrailingTurnText(readMessages());
+    return extractTrailingTurnText(readMessages());
+  });
 }
 
 /**

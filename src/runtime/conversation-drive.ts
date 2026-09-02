@@ -1,17 +1,20 @@
 // V9c / V9c-T — prompt-mode conversation drive and active-set gating seam.
 //
-// This module owns the prompt-mode driver's active-set gating window, the
+// This module owns the PIC-17 active-set install-vector computation, the
 // process-global `pi.on` cancel-forwarding subscription, and the untyped-query
 // trailing-turn `Ok(string)` extraction
 // (pi-integration-contract/conversation-drive.md):
 //
-//   - PIC-17 active-set allowlist gating: around each query the runtime
-//     snapshots `pi.getActiveTools()`, installs exactly
-//     `[...thetaCallableSetNames, respondToolName?]` via `pi.setActiveTools(...)`
-//     (the step-1 snapshot is deliberately NOT unioned into the install — the
-//     "ambient tools are deliberately not inherited" invariant), issues the
-//     query, and restores the snapshot in a `finally` so cancellation / panic /
-//     provider exceptions all preserve the invariant.
+//   - PIC-17 active-set install-vector computation: `computeActiveSetInstall`
+//     derives the exact step-2 install vector
+//     `[...thetaCallableSetNames, respondToolName?]` — the theta's callable-set
+//     underlying Pi-tool names plus, on a forced-respond turn, the synthesised
+//     respond tool appended last. The step-1 snapshot is deliberately NOT
+//     unioned in — "ambient tools are deliberately not inherited". The gating
+//     window itself (snapshot / swap-install / restore under the PIC-8/PIC-19
+//     protocol) is `withActiveSetGate` (`../runtime/tool-registration.ts`,
+//     bug 0372 §Fix): every production caller threads this module's computed
+//     install vector into that gate rather than restoring bare.
 //   - PIC-2 prompt-mode sequential execution: within a single user session no
 //     two prompt-mode bodies hold an open snapshot/restore window at a time —
 //     a nested prompt → prompt `invoke(...)` opens its window only after the
@@ -35,17 +38,6 @@ import type { Message } from "@earendil-works/pi-ai";
 // ---------------------------------------------------------------------------
 
 /**
- * The subset of Pi's `ExtensionAPI` the active-set gating window touches: the
- * `pi.getActiveTools()` snapshot read and the `pi.setActiveTools(names)` install
- * / restore. Both are pinned as name-list operations by `ExtensionAPI`
- * (tool-registration-lifetime.md); theta holds them by dependency injection.
- */
-export interface ActiveToolSet {
-  getActiveTools(): string[];
-  setActiveTools(names: string[]): void;
-}
-
-/**
  * The callable set installed for one query's active-set window: the theta's
  * declared callable-set names, plus the synthesised respond tool when the turn
  * is a typed-query forced-respond turn. The step-1 snapshot is NOT a member —
@@ -60,47 +52,17 @@ export interface CallableSetInstall {
  * Compute the PIC-17 step-2 install vector: exactly
  * `[...thetaCallableSetNames, respondToolName?]`, with the respond tool appended
  * last only on a forced-respond turn. The ambient snapshot is deliberately not a
- * parameter here — it is never unioned into the install. Internal to the gating
- * window; not exported, so no speculative API surfaces beyond `withActiveSetGating`.
+ * parameter here — it is never unioned into the install. Exported: every
+ * production gating-window caller (`withActiveSetGate`,
+ * `../runtime/tool-registration.ts`) computes its `installVector` through this
+ * function rather than re-deriving the vector shape at each call site.
  */
-function computeActiveSetInstall(install: CallableSetInstall): string[] {
+export function computeActiveSetInstall(install: CallableSetInstall): string[] {
   const names = [...install.thetaCallableSetNames];
   if (install.respondToolName !== undefined) {
     names.push(install.respondToolName);
   }
   return names;
-}
-
-/**
- * Run one query inside the PIC-17 active-set gating window: snapshot the current
- * active tools, install exactly the theta's callable set (plus the respond tool
- * when present), issue the query, and restore the snapshot in a `finally` (so
- * cancellation, panic, and provider exceptions all preserve the invariant). The
- * snapshot is held only for the restore and is not unioned into the install —
- * ambient tools are not inherited. Because the restore closes the window before
- * this call returns, two prompt-mode bodies against the same session can never
- * hold an open window simultaneously (PIC-2).
- */
-export async function withActiveSetGating<T>(
-  gate: ActiveToolSet,
-  install: CallableSetInstall,
-  query: () => Promise<T>,
-): Promise<T> {
-  // PIC-17 step 1: snapshot the ambient active-set. Held only for the step-4
-  // restore — never unioned into the install (ambient tools not inherited).
-  const snapshot = gate.getActiveTools();
-  // PIC-17 step 2: install exactly the theta's callable set (plus the respond
-  // tool on a forced-respond turn).
-  gate.setActiveTools(computeActiveSetInstall(install));
-  try {
-    // PIC-17 step 3: issue the query inside the open window.
-    return await query();
-  } finally {
-    // PIC-17 step 4: restore the exact step-1 snapshot so cancellation, panic,
-    // and provider exceptions all preserve the invariant and close the window
-    // before this call returns (PIC-2 cross-body non-overlap).
-    gate.setActiveTools(snapshot);
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Bug 0372 — The PIC-8/PIC-19-compliant active-set gate (`withActiveSetGate`, tool-registration.ts) has no production caller: the shipped query window restores through a bare `finally` in `withActiveSetGating`, so a restore throw masks the query's outcome, gets no single re-attempt, and emits neither `theta/runtime/active-set-restore-failed` nor the mandated display note — leaving the theta's install vector active on the user session with zero diagnostics
 
-- **Status:** open.
+- **Status:** fixed (0.363.0).
 - **Sev/Diff estimate:** S2/D2 — S2: the trigger is a host-side
   `pi.setActiveTools` throw at restore time (rare on a healthy host, the case
   PIC-8 exists for), but the consequences stack: the completed query's result
@@ -166,3 +166,20 @@ Found by enumerating `pi.setActiveTools` call sites, diffing the two gate
 implementations against PIC-8/PIC-19, and confirming caller topology with
 `rg`. Divergence witnessed offline on the shipped helper (probe above,
 deleted).
+
+## Fix (0.363.0)
+
+- **What shipped:**
+  - `src/runtime/conversation-drive.ts` — deleted the bare `withActiveSetGating` and the now-dead `ActiveToolSet` interface; exported `computeActiveSetInstall` (§Fix "delete the bare helper"; `CallableSetInstall` kept).
+  - `src/runtime/tool-registration.ts` — replaced the two stale "V9f-T stub" docstrings (module header + the `withActiveSetGate` function) with accurate PIC-17/PIC-8/PIC-19 prose (§Fix same-commit docstring mandate). `withActiveSetGate` itself was already compliant and is unchanged.
+  - `src/extension/production-theta-producer.ts` — converted the producer prompt-mode query window (`#driveUserVisibleTurn`) and `driveStreamedUserTurn` to `withActiveSetGate`, threading `thetaName` (bare `slashName`) / `emitDiagnostic` / `emitSystemNote` (mirrors `emitPanicNote`'s direct `pi.sendMessage` on `SYSTEM_NOTE_CHANNEL`) / `installVector` (= `computeActiveSetInstall(install)`). `routeInternalError` is a documented no-op: a step-1/step-2 setup throw re-propagates unmasked to the existing top-level slash-dispatch outer catch, the single owner of `theta/runtime/internal-error` for the producer path (PIC-19 single-emission preserved).
+  - `src/runtime/invoke-prompt-suspend.ts` — converted `runPromptSuspendInvoke`'s prompt→prompt cell to `withActiveSetGate`; added the four `ActiveSetGateDeps` flat fields to `PromptSuspendInput` (its no-op `routeInternalError` re-propagates to `runInvokeChild`'s boundary catch, which mints `Err(InvokeInfraError{cause:"internal_error"})`).
+- **Gates:** witness `tests/b0372-active-set-restore-protocol.test.ts` 7/7 green (RED 5/7 at the fork for the filed symptom — bare restore masks the result / no code+note / no PIC-19 routing); full default suite 533 files / 10040 tests green (baseline 532 / 10033, +7 witness); typecheck `tsc -p tsconfig.json --noEmit` clean; lint `eslint "src/**/*.ts"` clean; live `tests/live/hardening/session-promptloop.test.ts` 2/2 green (legal drives byte-identical — the PIC-8/PIC-19 branch fires only on a crafted host `setActiveTools` throw, not live-inducible on a healthy host).
+- **Review:** 1 round — `bug-fix-reviewer` round 1 FINDINGS: 2 `prose`, 0 correctness/fidelity/spec (F1: the invoke no-op comment named the wrong internal-error owner; F2: the `conversation-drive.test.ts` header still named the deleted `withActiveSetGating`). Fixed via `bug-fix-fixer-light` (comment-only); confirmation round skipped — polish verified by gate-diff (every hunk a comment; gates re-run green).
+- **Verification:** `bug-fix-verifier` SOLID — (1) revert-witness reds 5/7 for the right reason and restores byte-exact (`git hash-object` 6c1876e8 match) → 7/7 green (the witness cannot pass without the fix); (2) full suite 533 / 10040 green; (3) typecheck + lint clean; (4) no residue — `git status` = owned set, `git stash list` empty; no other open bug pins the `withActiveSetGate` / PIC-8 / PIC-19 surface.
+- **Residuals:**
+  1. `driveStreamedUserTurn` (window 2) has no running OFFLINE witness cell: its only offline reach (the LIVE-DEGRADED repair-follow-up arm) requires an unlowerable annotation the parser rejects since bug 0014. Converted same-commit (byte-identical in shape to the two witnessed windows) and confirmed by reviewer + verifier code inspection.
+  2. Pre-existing stale "V9f-T stub" docstrings remain on the two UNTOUCHED functions in `tool-registration.ts` (`deriveToolLabel`, `registerToolInCache`) and in the `tool-registration-lifetime.test.ts` header — same falsity class but OUT of §Fix scope (touching them is scope-widening). Follow-up candidate.
+  3. The `emitSystemNote` transport closure (`pi.sendMessage(SYSTEM_NOTE_CHANNEL, …, {triggerTurn:false})`) is triplicated verbatim across the three sites — non-blocking (mirrors the established `emitPanicNote` direct-send pattern); a shared producer-level helper would tidy it.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** subagent-mode invocations (child-scoped tools) stay out of PIC-8 scope; the PIC-64(e) host-loop dispatch snapshot/restore (`production-host-loop-dispatch.ts`) keeps its own subagent.md protocol, not assessed here; the `routeInternalError` production no-op is deliberate (PIC-19 single-emission via the existing outer catch / invoke boundary). Bounded scope extension recorded: `tests/invoke-prompt-suspend.test.ts` received an inert `NOOP_GATE_DEPS` spread into its 5 healthy-gate cells, forced by `PromptSuspendInput` gaining required deps — zero assertion/behaviour change, the deps provably never invoked (no throw configured).

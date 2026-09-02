@@ -57,6 +57,18 @@ class RecordingActiveSetPi implements PromptSuspendPi {
 
 const PROMPT_TO_PROMPT: CrossModeCell = { callerMode: "prompt", calleeMode: "prompt" };
 
+// Bug 0372 §Fix: this window now restores through `withActiveSetGate`
+// (tool-registration.ts), so `runPromptSuspendInvoke` requires the compliant
+// PIC-8/PIC-19 deps. Every cell in this file exercises a healthy `pi` (no
+// restore throw, no install throw), so these deps are never invoked — the
+// PIC-8/PIC-19 protocol itself is pinned by tests/b0372-active-set-restore-protocol.test.ts.
+const NOOP_GATE_DEPS = {
+  thetaName: "probe-callee",
+  emitDiagnostic: (): void => {},
+  emitSystemNote: (): void => {},
+  routeInternalError: (): void => {},
+};
+
 // The user session's ambient active set before the invoke (the snapshot), the
 // child's declared callable set (the install vector), and a distinct "foreign"
 // set standing in for a mid-window active-set mutation the restore must
@@ -92,6 +104,7 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,
+      ...NOOP_GATE_DEPS,
     });
     events.push("parent-resumed");
 
@@ -126,6 +139,7 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,
+      ...NOOP_GATE_DEPS,
     });
     events.push("parent-resumed");
 
@@ -163,6 +177,7 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
         childCallableSet: CHILD_CALLABLE_SET,
         pi,
         childBody,
+        ...NOOP_GATE_DEPS,
       }),
     ).rejects.toBe(boom);
 
@@ -187,6 +202,7 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
         childCallableSet: CHILD_CALLABLE_SET,
         pi,
         childBody,
+        ...NOOP_GATE_DEPS,
       }),
     ).rejects.toBe(cancelled);
 
@@ -210,6 +226,7 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,
+      ...NOOP_GATE_DEPS,
     });
 
     // The Err value surfaces unmasked as the child body's result.

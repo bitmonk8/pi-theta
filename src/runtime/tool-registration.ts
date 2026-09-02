@@ -9,19 +9,15 @@
 // un-anchored residue), per
 // pi-integration-contract/tool-registration-lifetime.md.
 //
-// V9f-T (tests-task) declares the seam shapes and stubs every behaviour-bearing
-// function inertly:
-//   - `deriveToolLabel` returns `""` (no capitalisation / no literal),
-//   - `withActiveSetGate` runs the body with NO snapshot/swap/restore and emits
-//     no diagnostic or note (so PIC-17 install-vector, PIC-8 restore-failure,
-//     and PIC-19 setup-failure all go unwitnessed),
-//   - `registerToolInCache` always registers a fresh base name without storing
-//     or byte-comparing canonical-form bytes and never emits a collision.
-// Each paired V9f-T test therefore reds on its own primary assertion — an
-// absent install vector, an absent restore-failure diagnostic/note, an absent
-// internal-error routing, an absent collision diagnostic, a wrong label — not
-// on a compile error, missing fixture, or harness throw. The paired V9f
-// implementation leaf fills these in.
+// `withActiveSetGate` implements the full PIC-17/PIC-8/PIC-19 protocol
+// (snapshot / swap-install / run body / single-re-attempt restore, with a
+// setup-side throw routed to `theta/runtime/internal-error`) and is the ONE
+// gating window every production caller threads its computed `installVector`
+// into (bug 0372 §Fix) — the three shipped snapshot/restore windows
+// (the producer query turn, the `driveStreamedUserTurn` follow-up, and the
+// prompt→prompt cross-mode `invoke` hop) all call it rather than restoring
+// bare. `deriveToolLabel` derives the materialised `ToolDefinition.label`;
+// `registerToolInCache` implements the PIC-44 registration cache.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
@@ -109,12 +105,9 @@ export interface ActiveSetGateDeps {
  * `installVector` (step 2), run `body` (step 3), restore the snapshot (step 4)
  * with the PIC-8 single-re-attempt protocol, routing step-1/step-2 setup
  * failures to `internal-error` per PIC-19. Propagates the original body
- * error/result unmasked.
- *
- * V9f-T stub: runs `body()` directly with NO snapshot/swap/restore and emits
- * nothing — so the install vector is never installed, no restore is attempted,
- * and no diagnostic/note is produced. The paired tests red on those absent
- * effects. The V9f implementation fills this in.
+ * error/result unmasked. Every production shipped snapshot/restore window
+ * calls this function (bug 0372 §Fix) — there is exactly one implementation of
+ * the protocol.
  */
 export async function withActiveSetGate<T>(
   deps: ActiveSetGateDeps,

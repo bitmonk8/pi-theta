@@ -10,9 +10,10 @@
 //
 // These tests red on their own primary assertions while `V9c` is absent,
 // because the V9c-T seam stub is deliberately NON-COMPLIANT:
-//   - `withActiveSetGating` unions the ambient snapshot into the install vector
-//     (PIC-17 "not inherited") and never restores in a `finally` (PIC-17
-//     restore; PIC-2 cross-body non-overlap detects the still-open window);
+//   - the install-vector cells exercise `computeActiveSetInstall` directly,
+//     and the gating-window cells exercise `withActiveSetGate`
+//     (tool-registration.ts) — see the bug-0372 retarget note below for how
+//     each still asserts its ORIGINAL PIC-17/PIC-2 property;
 //   - `subscribePromptModeCancelForwarding` registers per-session-marked event
 //     names (PIC-18 process-global / no-marker) and never forwards the captured
 //     abort into `thetaAbort` (PIC-18 cancel-forwarding role);
@@ -24,12 +25,35 @@ import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-
 import {
   extractTrailingTurnText,
   subscribePromptModeCancelForwarding,
-  withActiveSetGating,
+  computeActiveSetInstall,
   PROMPT_MODE_LIFECYCLE_EVENTS,
   type ActiveInvocationSignals,
-  type ActiveToolSet,
   type PromptModeEventApi,
 } from "../src/runtime/conversation-drive";
+import { withActiveSetGate, type ActiveSetGateDeps, type ActiveSetPi } from "../src/runtime/tool-registration";
+
+// Bug 0372 §Fix: `withActiveSetGating` (the bare gating helper this file used
+// to import) was deleted — the shipped windows now restore through the
+// compliant `withActiveSetGate` (tool-registration.ts), the ONE gating-window
+// implementation. The gating-window cells below retarget onto it with a
+// precomputed `installVector` (via `computeActiveSetInstall`) and no-op
+// PIC-8/PIC-19 deps, keeping each cell's ORIGINAL snapshot/install/restore
+// property — `withActiveSetGate` still satisfies PIC-17 (install vector,
+// non-inheritance, finally-restore) and PIC-2 (cross-body non-overlap). The
+// install-vector-COMPUTATION cells retarget onto `computeActiveSetInstall`
+// directly, asserting the same install-vector property.
+
+/** No-op PIC-8/PIC-19 deps for a gating-window cell exercising a healthy gate (no restore/install throw). */
+function noopGateDeps(): Pick<
+  ActiveSetGateDeps,
+  "emitDiagnostic" | "emitSystemNote" | "routeInternalError"
+> {
+  return {
+    emitDiagnostic: (): void => {},
+    emitSystemNote: (): void => {},
+    routeInternalError: (): void => {},
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Doubles.
@@ -40,12 +64,12 @@ import {
  * current set; `setActiveTools(names)` installs it and logs the exact argument.
  */
 function makeRecordingGate(ambient: readonly string[]): {
-  gate: ActiveToolSet;
+  gate: ActiveSetPi;
   setCalls: string[][];
 } {
   let current = [...ambient];
   const setCalls: string[][] = [];
-  const gate: ActiveToolSet = {
+  const gate: ActiveSetPi = {
     getActiveTools: (): string[] => [...current],
     setActiveTools: (names): void => {
       current = [...names];
@@ -135,59 +159,58 @@ function assistantMessage(
 // ===========================================================================
 
 describe("V9c-T — PIC-17 active-set allowlist gating", () => {
-  it("PIC-17: the step-2 install vector is exactly the theta callable set — the ambient snapshot is not inherited", async () => {
-    const { gate, setCalls } = makeRecordingGate(["ambient-a", "ambient-b"]);
+  it("PIC-17: the step-2 install vector is exactly the theta callable set — the ambient snapshot is not inherited", () => {
+    // Retargeted (bug 0372 §Fix): asserts the same install-vector property
+    // directly against `computeActiveSetInstall`, the function every gating
+    // caller now threads into `withActiveSetGate`.
+    const installVector = computeActiveSetInstall({ thetaCallableSetNames: ["theta-x", "theta-y"] });
 
-    await withActiveSetGating(
-      gate,
-      { thetaCallableSetNames: ["theta-x", "theta-y"] },
-      async () => "ok",
-    );
-
-    // PIC-17: step-2 install is exactly `[...thetaCallableSetNames]` (no respond
-    // tool on an untyped/free turn) and contains no member of the step-1
-    // snapshot — "ambient tools are deliberately not inherited".
-    expect(setCalls[0]).toEqual(["theta-x", "theta-y"]);
-    expect(setCalls[0]?.some((n) => n === "ambient-a" || n === "ambient-b")).toBe(false);
+    // PIC-17: exactly `[...thetaCallableSetNames]` (no respond tool on an
+    // untyped/free turn) and contains no member of the step-1 snapshot —
+    // "ambient tools are deliberately not inherited".
+    expect(installVector).toEqual(["theta-x", "theta-y"]);
+    expect(installVector.some((n) => n === "ambient-a" || n === "ambient-b")).toBe(false);
   });
 
-  it("PIC-17: the forced-respond turn installs exactly [...thetaCallableSetNames, respondToolName]", async () => {
-    const { gate, setCalls } = makeRecordingGate(["ambient-a"]);
-
-    await withActiveSetGating(
-      gate,
-      { thetaCallableSetNames: ["theta-x"], respondToolName: "__theta_respond_abc" },
-      async () => "ok",
-    );
+  it("PIC-17: the forced-respond turn installs exactly [...thetaCallableSetNames, respondToolName]", () => {
+    const installVector = computeActiveSetInstall({
+      thetaCallableSetNames: ["theta-x"],
+      respondToolName: "__theta_respond_abc",
+    });
 
     // PIC-17 acceptance criterion (b): the respond tool is appended last.
-    expect(setCalls[0]).toEqual(["theta-x", "__theta_respond_abc"]);
-    expect(setCalls[0]?.includes("ambient-a")).toBe(false);
+    expect(installVector).toEqual(["theta-x", "__theta_respond_abc"]);
+    expect(installVector.includes("ambient-a")).toBe(false);
   });
 
-  it("PIC-17: an empty callable set on a typed forced-respond turn installs exactly [respondToolName]", async () => {
-    const { gate, setCalls } = makeRecordingGate(["ambient-a"]);
-
-    await withActiveSetGating(
-      gate,
-      { thetaCallableSetNames: [], respondToolName: "__theta_respond_abc" },
-      async () => "ok",
-    );
+  it("PIC-17: an empty callable set on a typed forced-respond turn installs exactly [respondToolName]", () => {
+    const installVector = computeActiveSetInstall({
+      thetaCallableSetNames: [],
+      respondToolName: "__theta_respond_abc",
+    });
 
     // PIC-17 acceptance criterion (b), empty-set case.
-    expect(setCalls[0]).toEqual(["__theta_respond_abc"]);
+    expect(installVector).toEqual(["__theta_respond_abc"]);
   });
 
   it("PIC-17: the snapshot is restored in a finally even when the query throws", async () => {
     const { gate, setCalls } = makeRecordingGate(["ambient-a", "ambient-b"]);
+    const installVector = computeActiveSetInstall({ thetaCallableSetNames: ["theta-x"] });
 
+    // Retargeted (bug 0372 §Fix): `withActiveSetGate` still satisfies the
+    // PIC-8(d) property this cell pins — a restore failure never masks the
+    // inner error, and here (a healthy gate) the restore succeeds so the
+    // ORIGINAL query throw propagates unmasked, exactly as HEAD.
     await expect(
-      withActiveSetGating(gate, { thetaCallableSetNames: ["theta-x"] }, async () => {
-        throw new QueryFailure();
-      }),
+      withActiveSetGate(
+        { pi: gate, thetaName: "probe", installVector, ...noopGateDeps() },
+        async () => {
+          throw new QueryFailure();
+        },
+      ),
     ).rejects.toBeInstanceOf(QueryFailure);
 
-    // PIC-17 step-4: the `finally` restores the exact step-1 snapshot even on a
+    // PIC-17 step-4: the restore recovers the exact step-1 snapshot even on a
     // query exception — the last active-set call returns the ambient snapshot.
     expect(setCalls.at(-1)).toEqual(["ambient-a", "ambient-b"]);
   });
@@ -207,13 +230,16 @@ describe("V9c-T — PIC-17 active-set allowlist gating", () => {
 describe("PIC-17 — prompt-mode extension tool in the query-window active set (bug 0001)", () => {
   it("PIC-17: the install vector CONTAINS the admitted extension tool name and is EXACTLY the callable set", async () => {
     const { gate, setCalls } = makeRecordingGate(["ambient-a", "ambient-b"]);
+    // An admitted extension tool (`finding_store`) is a member of the theta's
+    // callable-set names on the same footing as the built-in.
+    const installVector = computeActiveSetInstall({ thetaCallableSetNames: ["read", "finding_store"] });
 
     let activeDuringQuery: string[] = [];
-    await withActiveSetGating(
-      gate,
-      // An admitted extension tool (`finding_store`) is a member of the theta's
-      // callable-set names on the same footing as the built-in.
-      { thetaCallableSetNames: ["read", "finding_store"] },
+    // Retargeted (bug 0372 §Fix): `withActiveSetGate` with a precomputed
+    // install vector, keeping the ORIGINAL property — the admitted extension
+    // tool is active during the query window because it is in the callable set.
+    await withActiveSetGate(
+      { pi: gate, thetaName: "probe", installVector, ...noopGateDeps() },
       async () => {
         activeDuringQuery = gate.getActiveTools();
         return "ok";
@@ -230,10 +256,10 @@ describe("PIC-17 — prompt-mode extension tool in the query-window active set (
     // The ambient set carries an extension tool the theta did NOT declare
     // (`projection`): it must not leak into the install vector.
     const { gate, setCalls } = makeRecordingGate(["projection", "ambient-b"]);
+    const installVector = computeActiveSetInstall({ thetaCallableSetNames: ["finding_store"] });
 
-    await withActiveSetGating(
-      gate,
-      { thetaCallableSetNames: ["finding_store"] },
+    await withActiveSetGate(
+      { pi: gate, thetaName: "probe", installVector, ...noopGateDeps() },
       async () => "ok",
     );
 
@@ -257,14 +283,32 @@ describe("V9c-T — PIC-2 prompt-mode sequential execution (cross-body non-overl
 
     // Parent body: run a query (opens + closes its own window), then — between
     // queries — invoke a prompt-mode child that runs its own query. The child's
-    // window must open only after the parent's is restored.
-    await withActiveSetGating(gate, { thetaCallableSetNames: ["parent-tool"] }, async () => {
-      /* parent's query turn — the body itself issues no active-set call */
-    });
+    // window must open only after the parent's is restored. Retargeted (bug
+    // 0372 §Fix) onto `withActiveSetGate` — the cross-body non-overlap property
+    // this cell pins is unchanged by the fix.
+    await withActiveSetGate(
+      {
+        pi: gate,
+        thetaName: "parent",
+        installVector: computeActiveSetInstall({ thetaCallableSetNames: ["parent-tool"] }),
+        ...noopGateDeps(),
+      },
+      async () => {
+        /* parent's query turn — the body itself issues no active-set call */
+      },
+    );
     // ...parent body resumes and invokes the child (a distinct prompt-mode body)...
-    await withActiveSetGating(gate, { thetaCallableSetNames: ["child-tool"] }, async () => {
-      /* child's query turn */
-    });
+    await withActiveSetGate(
+      {
+        pi: gate,
+        thetaName: "child",
+        installVector: computeActiveSetInstall({ thetaCallableSetNames: ["child-tool"] }),
+        ...noopGateDeps(),
+      },
+      async () => {
+        /* child's query turn */
+      },
+    );
 
     // PIC-2: classify each active-set install as OPEN (not the ambient set) or
     // CLOSE (a restore back to the ambient snapshot); the running open-window

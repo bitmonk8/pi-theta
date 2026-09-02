@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.363.0]
+
+### Fixed
+
+- **Bug 0372** — the PIC-8/PIC-19-compliant active-set gate (`withActiveSetGate`) had NO production caller: all three shipped snapshot/swap/restore windows restored through the bare `withActiveSetGating`'s `finally`, so a restore throw MASKED the completed query's result (PIC-8(d) violated), got no single re-attempt, emitted neither `theta/runtime/active-set-restore-failed` nor the mandated operator note — and the user session silently kept the theta's install vector active. PARENT ADJUDICATION Option 1 (recorded: one implementation of a wire-contract protocol — the 0073 precedent; option 2 would leave the compliant gate orphaned beside a ported twin, 0326 anti-fork): the compliant `withActiveSetGate` (single re-attempt; on second failure the registered E code with hint = snapshot names + the VERBATIM display note "theta: failed to restore tool active-set after /<name>; the user session may have unexpected tools active. Run /reload to reset."; inner completion propagated; PIC-19 install-throw → routeInternalError) now serves ALL THREE windows — the producer's prompt-mode query window, `driveStreamedUserTurn`'s inline window, and `runPromptSuspendInvoke`'s cross-mode window — with the producer's existing diagnostic/note/route deps threaded; the bare helper is DELETED and both stale "V9f-T stub" docstrings replaced. Witnessed by `tests/b0372-active-set-restore-protocol.test.ts` (7 cells: transient-throw → retry + result preserved [the masking dies], double-throw → code + verbatim note + inner propagation, PIC-19 routing, happy-path byte-identity; 5 red at fork) plus the ratified subject-preserving retarget of the `conversation-drive.test.ts` gating cells and a recorded bounded plumbing round (inert `NOOP_GATE_DEPS` into five healthy-gate `invoke-prompt-suspend.test.ts` cells — required-field consequence, zero assertion changes). Live: `session-promptloop` 2/2 green under the lock (legal drives byte-identical; the protocol branch is not live-inducible — recorded). Residual: the streamed-turn window has no offline witness cell (parser-rejected reach) — converted same-commit, confirmed by inspection, recorded.
+
 ## [0.362.0]
 
 ### Fixed
