@@ -3092,14 +3092,18 @@ class TypeLayerWalk {
           this.checkPlusOperands(e, bindings);
         } else if (ORDERING_OPS.has(e.op)) {
           this.checkOrderingOperands(e, bindings);
-        } else if (ARITHMETIC_OPS.has(e.op) && !(e.op === "-" && e.left.kind === "null")) {
-          // `parseUnary` (theta-document.ts) models unary `-` as a binary
-          // carrying a synthetic `null` left operand; the spec's numeric-operand
-          // rule for `-`/`*`/`/`/`%` is a BINARY-arithmetic rule (bug 0332's
-          // Non-goals excludes unary `-` in expression position explicitly), so
-          // a synthetic-null unary node must not reach `checkArithmeticOperands`
-          // — it would judge the placeholder `null` left operand, not a real
-          // pairing, exactly the collapse `#typeBinary` already guards against.
+        } else if (ARITHMETIC_OPS.has(e.op) && e.unary !== true) {
+          // `parseUnary` (theta-document.ts) models unary `-`/`!` as a binary
+          // carrying a synthetic `null` left operand, and marks that one
+          // minted node `unary: true`. The spec's numeric-operand rule for
+          // `-`/`*`/`/`/`%` is a BINARY-arithmetic rule (bug 0332's Non-goals
+          // excludes unary `-` in expression position explicitly), so the
+          // marked unary node must not reach `checkArithmeticOperands` — it
+          // would judge the placeholder `null` left operand, not a real
+          // pairing. Gating on the marker (bug 0367) rather than on
+          // `e.left.kind === "null"` keeps an authored `null - x` in scope:
+          // that pairing is AST-identical to the synthetic node except for
+          // the marker, and the spec names `null` in the refusal set.
           this.checkArithmeticOperands(e, bindings);
         }
         this.walkExpr(e.left, bindings, flow);

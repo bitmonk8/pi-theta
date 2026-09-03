@@ -1,6 +1,6 @@
 # Bug 0367 — A binary `-` whose left operand is the literal `null` is indistinguishable in the AST from unary minus, so `let x = null - 3` loads clean and evaluates to `-3`: the bug-0332 parse gate's synthetic-null carve-out exempts it, both runtime hosts negate the right operand, and `null - "a"` / `null - null` silently bind `NaN` / `0` — while `null * 3` is correctly refused
 
-- **Status:** open.
+- **Status:** fixed (0.378.0).
 - **Sev/Diff estimate:** S2/D2 — S2 rather than S1 only because the input class
   requires the literal spelling `null` as the left operand of `-` (a computed
   `null` behind a binding takes the belted path and throws loudly), so the
@@ -160,3 +160,59 @@ synthetic-null comment during the runtime-exec-2 re-sweep at af476df2 (the
 "can two source programs share this AST?" question), then confirming the parse
 gate's carve-out at `type-layer-checks.ts:3095`. All five rows probed offline
 through the production executor harness before filing. Scratch probes deleted.
+
+## Fix (0.378.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `BinaryExpr` gains an optional `unary?:
+    boolean` marker; `parseUnary`'s `-`/`!` mint sets `unary: true` (§Fix step
+    1). `nullExpr` itself is left unflagged — its 14 error-recovery call sites
+    stay unbranded, as §Fix cautions.
+  - `src/parser/type-layer-checks.ts` — the `walkExpr` arithmetic carve-out is
+    re-keyed `ARITHMETIC_OPS.has(e.op) && e.unary !== true`, so an authored
+    `null - x` reaches `checkArithmeticOperands` and draws
+    `theta/parse/non-numeric-arithmetic-operands` (§Fix step 2). The separate
+    `checkInterpolationOperands` carve-out is deliberately left keyed on
+    `left.kind === "null"` — §Fix's one-parse-site scope.
+  - `src/runtime/statement-executor.ts` — `evalBinary`'s unary arm keys on
+    `expr.unary === true`; an authored `null` left falls through to
+    `applyBinaryScalar`'s bug-0332 belt (`BinaryNonNumericError`) (§Fix step 3).
+  - `src/extension/production-theta-producer.ts` — `unary` is threaded into
+    `evaluateBinaryExpression`; its unary arm keys on the marker, so an authored
+    `null` left falls through to the bug-0338 belt (§Fix step 3).
+  - `src/parser/static-type-inference.ts` — comment-only: the stale runtime
+    predicate cited in `#typeBinary`'s mirror comment updated to the marker
+    (collateral of the producer edit; the wide static-layer detector stays).
+- Gates: witness `tests/b0367-null-left-binary-minus.test.ts` 15/15 green;
+  `tests/b0332-*` controls 15/15 green (genuine unary byte-identical); full
+  default suite green (2 timing-sensitive real-spawn files timed out under
+  concurrent-lane load — both green isolated, off this surface: load noise);
+  `npm run typecheck` clean; `npm run lint` clean.
+- Live: `tests/live/b0367live-null-left-minus-refusal-live-cell.test.ts` (new
+  H8a registration-only load-refusal cell, the bug-0115 precedent) — GREEN
+  under the fix (1/1: authored `null - 3` absent from `registeredNames()`, the
+  genuine unary-minus control present) and RED-proven with the parse gate
+  neutralised (the authored theta registered). Run under the campaign live-lock.
+- Review: 1 round. `bug-fix-reviewer` → FINDINGS: F1 `prose` (stale runtime-
+  predicate citation in `static-type-inference.ts` mirror comment) fixed
+  comment-only via `bug-fix-fixer-light`; R1 `test` non-blocking residual. No
+  `correctness`/`fidelity`/`spec` finding. Comment-only polish verified by
+  gate-diff; confirmation round skipped.
+- Verification: `bug-fix-verifier` → SOLID. Witness both directions (green →
+  neutralise all three predicates → C1/C2/C5/RS/RP red with the fork symptom
+  [parse `[]`, `success value -3`, `sent=["v=-3"]`] → restore byte-exact →
+  green). Full suite green modulo 2 off-surface load-noise timeouts (green
+  isolated). Live satisfied-by-orchestrator. Lint + typecheck clean.
+- Residuals: 1. R1 — the witness loud-throw rows (RS/RP) assert the framing
+  surface (`surfaceUnexpectedThrow` → `theta/runtime/internal-error`, message
+  `/^internal error: /`) rather than the specific `BinaryNonNumericError`
+  template. Non-vacuous — the reverse-proof reds them at the fork and the
+  paired marker controls (RSc/RPc) pin the discriminator — so tightening the
+  message match is deferred as low-value.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: genuine unary `-` on non-numeric operands
+  (spelled `-"a"`) stays bug-0332's non-goal, now merely expressible to belt
+  later; an interpolation `${null - 3}` is refused at RUNTIME (pure-host belt),
+  not at parse, per §Fix's one-parse-site scope; no new diagnostic code (the
+  registered `theta/parse/non-numeric-arithmetic-operands` row already covers
+  the pairing).

@@ -180,6 +180,14 @@ export interface BinaryExpr extends NodeBase {
   readonly op: string;
   readonly left: Expr;
   readonly right: Expr;
+  /**
+   * Set only on the binary node `parseUnary` mints for unary `-`/`!` (a
+   * synthetic `null` left operand). Distinguishes that lowering from an
+   * authored binary whose left operand is a literal `null`, which is
+   * AST-identical without it — the consumers that special-case unary minus
+   * key on this marker, not on `left.kind === "null"`.
+   */
+  readonly unary?: boolean;
 }
 
 /** A ternary-conditional expression (`cond ? a : b`). */
@@ -4722,6 +4730,7 @@ class BodyParser {
         left: nullExpr(op.range),
         right: operand,
         range: spanRange(op.range, operand.range),
+        unary: true,
       };
     }
     return this.parsePostfix();

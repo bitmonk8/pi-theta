@@ -7660,7 +7660,7 @@ function evaluatePureExpression(
       raiseInterpolatedResult(INTERPOLATED_RESULT_MESSAGE);
     }
     case "binary":
-      return evaluateBinaryExpression(expr.op, expr.left, expr.right, env, chain);
+      return evaluateBinaryExpression(expr.op, expr.left, expr.right, env, chain, expr.unary === true);
     case "ternary": {
       // `cond ? a : b` — only the taken branch is evaluated (short-circuit).
       // Bug 0369 belt: mirrors the executor's ternary belt into this pure
@@ -7882,6 +7882,7 @@ function evaluateBinaryExpression(
   rightExpr: Expr,
   env: LexicalEnvironment,
   chain?: InvokeChain,
+  unary?: boolean,
 ): ThetaValue {
   if (op === "!") {
     // Bug 0369 belt: mirrors the executor's `!` belt into this pure host, so a
@@ -7893,7 +7894,7 @@ function evaluateBinaryExpression(
     }
     return !right;
   }
-  if (op === "-" && leftExpr.kind === "null") {
+  if (op === "-" && unary === true) {
     return -(evaluatePureExpression(rightExpr, env, chain) as number);
   }
   const left = evaluatePureExpression(leftExpr, env, chain);

@@ -1203,7 +1203,7 @@ async function evalBinary(expr: BinaryExpr, env: LexicalEnvironment, deps: Execu
     }
     return { flow: "value", value: !requireBoolean(right.value) };
   }
-  if (expr.op === "-" && expr.left.kind === "null") {
+  if (expr.op === "-" && expr.unary === true) {
     const right = await evalExpr(expr.right, env, deps);
     if (right.flow !== "value") {
       return right;

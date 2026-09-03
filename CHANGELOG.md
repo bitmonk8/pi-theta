@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.378.0]
+
+### Fixed
+
+- **Bug 0367** — a binary `-` whose left operand is the literal `null` was indistinguishable in the AST from unary minus: `parseUnary` lowers `-x` to `binary(-, <synthetic null>, x)` and the synthetic placeholder (`nullExpr`) is byte-identical in kind to a parsed literal `null`, so every consumer that special-cases unary minus (the 0332 parse gate's carve-out and both runtime hosts' unary arms) keyed on `left.kind === "null"` and necessarily captured the AUTHORED program too — `let x = null - 3` loaded with ZERO diagnostics and evaluated to `-3` (the author's binary subtraction reinterpreted as an operation they did not write), `null - "a"` silently bound `NaN`, `null - null` bound `0`, all bypassing the 0332/0338 belts because the unary short-circuit returns before the belt runs — while the homograph-free `null * 3` was correctly refused. The marker approach per §Fix: `BinaryExpr` gains `unary?: boolean`, set at the ONE unary mint (not on `nullExpr` — 14 of its 15 call sites are error-recovery fillers the doc excludes); the three consumers re-key on the marker — the `type-layer-checks` walkExpr arm (authored `null - x` now reaches `checkArithmeticOperands` → `theta/parse/non-numeric-arithmetic-operands`, matching the `null * 3` control) and both runtime unary arms (an authored `null` left falls through to the belted binary path → `BinaryNonNumericError`). Genuine unary (`-3`, `-x`, `-(a+b)`) byte-identical on both hosts; NO new diagnostic code. Witnessed by `tests/b0367-null-left-binary-minus.test.ts` (15 rows: the doc's C1/C2/C5 red at fork — parse `[]`, `success value -3`, echoed `v=-3` — plus 10 byte-identical controls) and the NEW H8a load-refusal live cell `tests/live/b0367live-null-left-minus-refusal-live-cell.test.ts` (green under the lock, red-proven with the gate neutralised). Residual recorded: interpolation `${null - 3}` is refused at RUNTIME via the pure-host belt, not at parse — the deliberate one-parse-site scope; five other `left.kind === "null"` consumers correctly unchanged.
+
 ## [0.377.0]
 
 ### Fixed

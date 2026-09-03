@@ -531,10 +531,15 @@ export class StaticTypeInferencePass {
   ): CompatType {
     // Unary `!` / `-` are modeled by `theta-document` `parseUnary` as a binary
     // with a synthetic `null` left operand. Mirror the runtime's unary handling
-    // (`evaluateBinaryExpression`: `op === "-" && left.kind === "null"`, and
-    // the `!` case) so the operator types as its result, not as the null-mixed
-    // common type of `{null, operand}` (which otherwise collapses to `null` and
-    // trips the A5 mixed-operand / A6 ordering operand-type checks).
+    // (`evaluateBinaryExpression`: `op === "-" && unary === true`, and the `!`
+    // case) so the operator types as its result, not as the null-mixed common
+    // type of `{null, operand}` (which otherwise collapses to `null` and trips
+    // the A5 mixed-operand / A6 ordering operand-type checks). This static
+    // site can stay wider than the runtime's marker check: a genuine unary
+    // node always carries a `null` left operand, and an authored `null - x`
+    // is parse-refused on the statement path and runtime-belted on the
+    // re-lexed (interpolation/invoke-arg) paths, so typing the authored
+    // pairing as unary here is moot — no marker is needed at this layer.
     if (left.kind === "null") {
       if (op === "!") {
         return { kind: "prim", name: "boolean" };
