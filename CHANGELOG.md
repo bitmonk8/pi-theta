@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.394.0]
+
+### Fixed
+
+- **Bug 0391** — the SLSH-5 chain-suffix placeholders (`<callee_path>` / `<parent_path>`) rendered NATIVE backslash paths on Windows: the two provenance mint sites stored bare `fs.realpath(...)` (production realpath = `realpath.native`, returning `C:\…`), where the spec pins the containment path form — realpath THEN forward-slash normalisation (`slash-invocation.md` SLSH-5 → `invocation.md`) as minted by the one corpus helper `canonicalizePath`. Fixed per the settled §Fix: `recordInvocationProvenance`'s parent mint and the ledger `attach`'s callee mint both route through `canonicalizePath(deps.fs, …)` (the doc-named single minter REUSED — 0326 anti-fork; the rejection-to-`undefined` arm byte-preserved; the render seam untouched). POSIX byte-identical throughout. Flips exactly per authority: the doc-enumerated `slsh5-invoke-cascade-chain-suffix` cells + three live twins under the dispatch's live-obligation clause + PARENT RATIFICATION (recorded verbatim in the lane's flip ledger) for the offline `b0294-callee-propagated-invoke-infra-wrapped` compensating cells — the doc's own §Fix invokes the 0268-constraint-6 compensating-test CLASS, b0294 asserts the identical ledger-minted rendered surface, and the move is the byte-identical POSIX-no-op `fwd()` with no assertion weakened. Witnessed by `tests/b0391-slsh5-chain-suffix-pathform.test.ts` (real PiFileSystem + temp dir; red at fork on the path FORM at both mints + the rendered note). Live: the three SLSH-5 twins (`err-note-render-record-error-field`, `slsh5-invoke-cascade`, `b0294`) 3/3 under the lock. Lane history: interrupted by the host outage mid-run, resumed headless twice (work + ratified close-out) — the recovery recipe held.
+
 ## [0.393.0]
 
 ### Fixed

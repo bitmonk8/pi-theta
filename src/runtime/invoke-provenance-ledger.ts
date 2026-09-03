@@ -15,10 +15,10 @@
 // (`expr.path`, e.g. `./child.theta`) — never `realpath`'d (see
 // `runInvokeEffect` in `effectful-statement-host.ts`, which builds the wrapper
 // from `child.calleePath`). SLSH-5's `<callee_path>` is the post-`realpath`
-// absolute form, so `attach` normalises the callee path through the same
-// `FileSystem.realpath` seam call `recordInvocationProvenance` applies to the
-// parent path: both placeholders of one rendered suffix are therefore in one
-// identical form. The wrapper's own `callee_path` field is left untouched — it
+// absolute form, so `attach` canonicalises the callee path through the same
+// shared `canonicalizePath` identity `recordInvocationProvenance` applies to
+// the parent path: both placeholders of one rendered suffix are therefore in
+// one identical form. The wrapper's own `callee_path` field is left untouched — it
 // is theta-visible and the ledger reads it for nothing.
 //
 // WHICH WRAPPERS CARRY A HOP. The ledger records against `invoke_callee`
@@ -38,6 +38,7 @@ import type { ChainHop } from "./err-note-render";
 import { isInvokeCalleeError } from "./err-note-render";
 import type { InvokeCallSite } from "./invoke-provenance";
 import { recordInvocationProvenance } from "./invoke-provenance";
+import { canonicalizePath } from "./invocation";
 import type { InvokeCalleeError, QueryError } from "./query-error";
 
 /** Host dependencies the ledger needs to canonicalise a hop's callee path. */
@@ -66,10 +67,10 @@ export interface InvocationProvenanceLedger {
   /**
    * Record one executed `invoke` hop's provenance against the wrapper it
    * produced: `recordInvocationProvenance` supplies `<parent_path>:<line>`,
-   * and the callee path is normalised through the same `realpath` seam so the
-   * stored `ChainHop.calleePath` is the post-`realpath` absolute form SLSH-5
-   * requires. Resolves for every input: a `realpath` that rejects records no
-   * entry for the hop rather than propagating (see the body).
+   * and the callee path is canonicalised through the same `canonicalizePath`
+   * identity so the stored `ChainHop.calleePath` is byte-identical to the
+   * form SLSH-5 requires. Resolves for every input: a `realpath` that rejects
+   * records no entry for the hop rather than propagating (see the body).
    */
   attach(wrapper: InvokeCalleeError, input: InvokeHopInput): Promise<void>;
   /**
@@ -112,7 +113,7 @@ export function createInvocationProvenanceLedger(
         (value) => value,
         () => undefined,
       );
-      const calleePath = await deps.fs.realpath(input.calleePath).then(
+      const calleePath = await canonicalizePath(deps.fs, input.calleePath).then(
         (value) => value,
         () => undefined,
       );

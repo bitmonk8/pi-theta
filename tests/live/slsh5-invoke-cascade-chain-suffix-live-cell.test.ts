@@ -101,12 +101,15 @@ describe("bug 0088 (live) — the SLSH-5 chain suffix on a real invoke cascade t
     ]);
     // Post-`realpath` absolute, per SLSH-5 and the offline witness's own
     // precaution: canonicalise the workspace root once, up front, so these
-    // expectations agree with the production `FileSystem.realpath` seam.
+    // expectations agree with the production canonicalizePath form: realpath THEN
+    // forward-slash (invocation.md:12; bug 0391), so `fwd` drops the join-native
+    // separators here — a byte-identical no-op on POSIX.
+    const fwd = (p: string): string => p.replace(/\\/g, "/");
     const realCwd = realpathSync(workspace.cwd);
     const thetaDir = join(realCwd, ".pi", "theta");
-    const child = join(thetaDir, "chainchild.theta");
-    const parent = join(thetaDir, "chainparent.theta");
-    const top = join(thetaDir, "chaintop.theta");
+    const child = fwd(join(thetaDir, "chainchild.theta"));
+    const parent = fwd(join(thetaDir, "chainparent.theta"));
+    const top = fwd(join(thetaDir, "chaintop.theta"));
 
     const handle = await bootShippedExtension({ workspace, provider });
     try {

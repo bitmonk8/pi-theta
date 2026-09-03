@@ -1,6 +1,6 @@
 # Bug 0391 — The SLSH-5 chain-suffix placeholders render raw native `realpath` output, so on Windows the delivered err note interpolates `C:\…` backslash paths where SLSH-5 pins "the same `realpath`-normalised absolute paths used for discovery-root containment" — a form the corpus defines as `realpath` THEN forward-slash
 
-- **Status:** open.
+- **Status:** fixed (0.394.0).
 - **Sev/Diff estimate:** S4/D1 — impact class 4 (a spec-pinned diagnostic
   rendering in the wrong form; no value, registration, or containment outcome
   moves). The same physical file renders forward-slashed in every load
@@ -226,6 +226,59 @@ touch per consumer surface. Witness both directions: the committed
 forward-slashed (drop the `join`-native compensation, the move 0268 §Fix
 constraint 6 prescribed for its own compensating tests), red before / green
 after on Windows, byte-identical on POSIX.
+
+## Fix (0.394.0)
+
+- What shipped:
+  - `src/runtime/invoke-provenance.ts` — `recordInvocationProvenance` mints the
+    parent path through the shared `canonicalizePath` (`invocation.ts`) instead
+    of bare `deps.fs.realpath`, so the recorded `parentPath` is the
+    `realpath`-then-forward-slash containment form SLSH-5 pins
+    (`slash-invocation.md:54` → `invocation.md:12`). Mechanism doc-comments
+    corrected to name `canonicalizePath` (now true). No forked normaliser
+    (0326 anti-fork law — the doc-named single minter is reused).
+  - `src/runtime/invoke-provenance-ledger.ts` — `attach` mints
+    `ChainHop.calleePath` through the same `canonicalizePath`; the
+    rejection-to-`undefined` degrade arm is preserved byte-for-byte.
+  - No spec edit (SLSH-5 already pins the form; the optional parenthetical was
+    not added). `err-note-render.ts` untouched — the render-seam alternative
+    the §Fix decision rejected was not taken.
+- Tests (the compensating-test class, all built forward-slashed via a local
+  `fwd = p => p.replace(/\/g, "/")` mirroring src `normalizePath`;
+  byte-identical no-op on POSIX, form-correction only on Windows; no assertion
+  weakened):
+  - `tests/b0391-slsh5-chain-suffix-pathform.test.ts` — NEW offline witness;
+    drives the real `src` units over a real `PiFileSystem` + temp dir. RED at
+    fork for the path-form reason (`C:\u2026` vs `C:/…` on both mints and the
+    rendered note); green after; the backslash-free CONTROL cannot red on POSIX.
+  - `tests/slsh5-invoke-cascade-chain-suffix.test.ts` — the DOC-ENUMERATED
+    witness (§Affected/§Fix); `join`-native compensation dropped.
+  - `tests/b0294-callee-propagated-invoke-infra-wrapped.test.ts` — offline
+    compensating cell (asserts the identical ledger-minted SLSH-5 rendered
+    surface). Beyond the doc's file enumeration; **PARENT-RATIFIED** on the
+    three-source evidence (0268-constraint-6 class member; identical rendered
+    surface the fix canonicalizes, unlike stubbed b0295; byte-identical
+    POSIX-no-op move, no assertion weakened — any spec-conformant fix reds it
+    on Windows).
+  - `tests/live/{slsh5-invoke-cascade-chain-suffix,b0294-callee-propagated-invoke-infra,err-note-render-record-error-field}-live-cell.test.ts`
+    — the three live twins (dispatch live-obligation clause).
+- Gates:
+  - Witnesses green; full default suite 557 files / 10311 tests (baseline
+    556/10307 + the new witness), the only reds being the LANE-BRIEF
+    parallel-load-flake family (`Hook/Test timed out`, off-surface, green on
+    isolated re-run). `npm run typecheck` clean; `npm run lint` clean.
+  - Verification: revert-red / restore-green proved byte-exact on the parent
+    mint (inverse Edit; `git diff` shows only the landed change); the callee
+    mint's red direction witnessed at fork (all 5 b0391 cells red pre-fix).
+- Live (run by the orchestrator under the lane LIVE LOCK; reviewer/verifier
+  never run live): the three SLSH-5 live twins ran GREEN on the real
+  `AgentSession` slash boundary (provider-free short-circuits), confirming the
+  forward-slash form renders end-to-end on Windows.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — F1 [test] blocker: a
+  third compensating live cell (`err-note-render-record-error-field-live-cell`)
+  was missed by the initial flip census; remedied with the same `fwd()` and
+  re-run green live. Round 2 (`bug-fix-reviewer-fast`) — CLEAN; flipped set
+  confirmed complete and exact.
 
 ## Provenance
 

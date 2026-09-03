@@ -130,14 +130,17 @@ describe("bug 0177 (live) — a record at the SNK-k `kind` field renders as comp
     ]);
     // The landed note is the 0177 prefix plus the SLSH-5 chain suffix
     // ` from <kidAbs> invoked at <parentAbs>:<line>`. Both paths are the
-    // post-realpath absolute forms the invocation ledger canonicalises to;
+    // canonicalizePath form the ledger stores: realpath THEN forward-slash
+    // (invocation.md:12; bug 0391), so `fwd` drops the join-native separators
+    // here — a byte-identical no-op on POSIX.
     // `<line>` is CALL_SITE_LINE — the `${KID_STEM}()?` callee-name token line
     // in the parent (line 1 `---`, 2 `mode: prompt`, 3 `tools:`,
     // 4 `  - ./<kid>.theta`, 5 `---`, 6 the call). Reconstructed here because
     // the temp dir is per-run.
     const CALL_SITE_LINE = 6;
-    const kidAbs = realpathSync(join(workspace.cwd, ".pi", "theta", `${KID_STEM}.theta`));
-    const parentAbs = realpathSync(join(workspace.cwd, ".pi", "theta", `${PARENT_STEM}.theta`));
+    const fwd = (p: string): string => p.replace(/\\/g, "/");
+    const kidAbs = fwd(realpathSync(join(workspace.cwd, ".pi", "theta", `${KID_STEM}.theta`)));
+    const parentAbs = fwd(realpathSync(join(workspace.cwd, ".pi", "theta", `${PARENT_STEM}.theta`)));
     const EXPECTED_NOTE_SUFFIXED = `${EXPECTED_NOTE} from ${kidAbs} invoked at ${parentAbs}:${CALL_SITE_LINE}`;
     const handle = await bootShippedExtension({ workspace, provider });
     try {

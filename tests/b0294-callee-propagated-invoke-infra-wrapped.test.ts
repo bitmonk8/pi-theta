@@ -118,6 +118,12 @@ function hopSuffix(calleePath: string, parentPath: string, line: number): string
   return ` from ${calleePath} invoked at ${parentPath}:${line}`;
 }
 
+// Bug 0391 — SLSH-5's `<callee_path>`/`<parent_path>` are the realpath-THEN-
+// forward-slash containment form (`invocation.md:12`), not host-native: wrap the
+// `join`-built native expectations here so these cells assert that spec form
+// (byte-identical no-op on POSIX; drops the native compensation on Windows).
+const fwd = (p: string): string => p.replace(/\\/g, "/");
+
 /** The SNK-i leaf row for a boundary-minted `invoke_infra` over `calleePath`
  *  with `cause` (`renderLeafKindNote`'s `invoke_infra` arm, `err-note-render.ts`). */
 function snkiRow(thetaName: string, calleePath: string, cause: string): string {
@@ -277,7 +283,7 @@ describe("bug 0294 — a callee-propagated invoke_infra Err is wrapped with an i
     const infratopAbs = join(thetaDir, "infratop.theta");
     expect(errNote("infratop")).toBe(
       snkiRow("infratop", "./missing.theta", "load_failure") +
-        hopSuffix(infraleafAbs, infratopAbs, INVOKE_TOKEN_LINE),
+        hopSuffix(fwd(infraleafAbs), fwd(infratopAbs), INVOKE_TOKEN_LINE),
     );
   });
 
@@ -339,8 +345,8 @@ describe("bug 0294 — a callee-propagated invoke_infra Err is wrapped with an i
     const infratopperAbs = join(thetaDir, "infratopper.theta");
     expect(errNote("infratopper")).toBe(
       snkiRow("infratopper", "./missing.theta", "load_failure") +
-        hopSuffix(infraleafAbs, infratopAbs, INVOKE_TOKEN_LINE) +
-        hopSuffix(infratopAbs, infratopperAbs, INVOKE_TOKEN_LINE),
+        hopSuffix(fwd(infraleafAbs), fwd(infratopAbs), INVOKE_TOKEN_LINE) +
+        hopSuffix(fwd(infratopAbs), fwd(infratopperAbs), INVOKE_TOKEN_LINE),
     );
   });
 });

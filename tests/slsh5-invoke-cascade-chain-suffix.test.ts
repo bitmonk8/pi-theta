@@ -101,6 +101,12 @@ function hopSuffix(calleePath: string, parentPath: string, line: number): string
   return ` from ${calleePath} invoked at ${parentPath}:${line}`;
 }
 
+// Bug 0391 — SLSH-5's `<callee_path>`/`<parent_path>` are the realpath-THEN-
+// forward-slash containment form (`invocation.md:12`), not host-native: wrap the
+// `join`-built native expectations here so these cells assert that spec form
+// (byte-identical no-op on POSIX; drops the native compensation on Windows).
+const fwd = (p: string): string => p.replace(/\\/g, "/");
+
 /**
  * The leaf theta whose `@`-query renders empty: the short-circuit yields
  * `Err(ValidationError { cause: "empty_template", attempts: 0 })` with no
@@ -286,7 +292,7 @@ describe("bug 0088 — the SLSH-5 chain suffix on a cascaded top-level Err note"
       "SLSH-5 (slash-invocation.md:54) makes the chain suffix a MUST on the per-kind row " +
         "whenever the failure cascaded out of an invoked child; without it the operator is " +
         "told the failure belongs to the entry theta, with nothing saying another file ran",
-    ).toBe(snkbRow("chainparent") + hopSuffix(child, parent, INVOKE_TOKEN_LINE));
+    ).toBe(snkbRow("chainparent") + hopSuffix(fwd(child), fwd(parent), INVOKE_TOKEN_LINE));
   });
 
   it("a two-hop invoke cascade appends both hops leaf-first, single-space separated, outermost last — ", () => {
@@ -310,8 +316,8 @@ describe("bug 0088 — the SLSH-5 chain suffix on a cascaded top-level Err note"
         "must name the file it was raised in and the call site of every hop that carried it",
     ).toBe(
       snkbRow("chaintop") +
-        hopSuffix(child, parent, INVOKE_TOKEN_LINE) +
-        hopSuffix(parent, top, INVOKE_TOKEN_LINE),
+        hopSuffix(fwd(child), fwd(parent), INVOKE_TOKEN_LINE) +
+        hopSuffix(fwd(parent), fwd(top), INVOKE_TOKEN_LINE),
     );
   });
 

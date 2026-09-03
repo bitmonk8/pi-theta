@@ -3,10 +3,10 @@
 // This module owns the producer seam that, for an executed `invoke` hop,
 // records into the per-frame invocation record:
 //
-//   - the parent theta's **post-`realpath`** path — the same `realpath`-normalised
-//     parent path V15a captures for discovery-root containment (invocation.md
-//     §Resolution), obtained through the injected `FileSystem` seam via the
-//     shared `canonicalizePath` identity; and
+//   - the parent theta's **post-`realpath`** path — the same `realpath`-normalised,
+//     forward-slash-normalised parent path V15a captures for discovery-root
+//     containment (invocation.md §Resolution), minted through the shared
+//     `canonicalizePath` identity so both consumers agree byte-for-byte; and
 //   - the **1-indexed source line** of the call-site token that produced the
 //     `invoke_callee` hop: the `invoke(` token of a literal `invoke(...)`
 //     expression, or the callee-name identifier of a `.theta`-callable
@@ -18,8 +18,8 @@
 // `from <callee_path> invoked at <parent_path>:<line>`; this leaf is its
 // producer, V12b the consumer.
 //
-// V15g implements the producer: it `realpath`-normalises the parent path
-// through the injected `FileSystem` seam and records the call-site token's
+// V15g implements the producer: it canonicalises the parent path through the
+// shared `canonicalizePath` identity and records the call-site token's
 // 1-indexed source line — the `invoke(` token of a literal call, or the
 // callee-name identifier of a `.theta`-callable bare call — never a receiving
 // binding's line.
@@ -28,6 +28,7 @@
 
 import type { FileSystem } from "../seams/file-system";
 import type { Position } from "../diagnostics/diagnostic";
+import { canonicalizePath } from "./invocation";
 
 /**
  * The call-site token descriptor for the two theta 1.0 invocation surfaces that
@@ -88,8 +89,8 @@ export interface InvocationProvenanceDeps {
 export interface InvocationProvenanceInput {
   /**
    * The parent theta's path as resolved at the call site (pre-`realpath`); the
-   * producer `realpath`-normalises it so the recorded `parentPath` is the
-   * post-`realpath` form V15a's containment check uses.
+   * producer canonicalises it through `canonicalizePath` so the recorded
+   * `parentPath` is byte-identical to the form V15a's containment check uses.
    */
   readonly parentPath: string;
   /** The call-site token descriptor whose 1-indexed line is recorded. */
@@ -101,9 +102,9 @@ export interface InvocationProvenanceInput {
  * parent theta's post-`realpath` path and the call-site token's 1-indexed line
  * (slash-invocation.md §SLSH-5; invocation.md §Resolution).
  *
- * The parent path is canonicalised through the injected `FileSystem.realpath`
- * seam so the recorded `parentPath` is the byte-exact post-`realpath` form
- * V15a's discovery-root containment check uses. The recorded `callSiteLine` is
+ * The parent path is canonicalised through the shared `canonicalizePath`
+ * identity so the recorded `parentPath` is byte-identical to the form V15a's
+ * discovery-root containment check uses. The recorded `callSiteLine` is
  * the 1-indexed source line of the call-site token — the `invoke(` token for a
  * literal `invoke(...)` call, or the callee-name identifier for a
  * `.theta`-callable bare-identifier call — never a receiving binding's line.
@@ -112,7 +113,7 @@ export async function recordInvocationProvenance(
   deps: InvocationProvenanceDeps,
   input: InvocationProvenanceInput,
 ): Promise<InvocationRecord> {
-  const parentPath = await deps.fs.realpath(input.parentPath);
+  const parentPath = await canonicalizePath(deps.fs, input.parentPath);
   const callSiteLine =
     input.callSite.style === "literal_invoke"
       ? input.callSite.invokeToken.line

@@ -73,13 +73,15 @@ describe("bug 0294 (live) — a callee-propagated invoke_infra Err is wrapped wi
       { source: "project", stem: "infradirect", text: invoker("missing") },
       { source: "project", stem: "infratop", text: invoker("infraleaf") },
     ]);
-    // Post-`realpath` absolute paths, per SLSH-5 and the production
-    // `FileSystem.realpath` seam — canonicalise the workspace root once up front
-    // so these expectations agree with the ledger's stored hop paths.
+    // Post-`realpath` absolute paths, per SLSH-5. The ledger stores the
+    // canonicalizePath form (realpath THEN forward-slash, invocation.md:12;
+    // bug 0391), so `fwd` drops the join-native separators here — a
+    // byte-identical no-op on POSIX.
+    const fwd = (p: string): string => p.replace(/\\/g, "/");
     const realCwd = realpathSync(workspace.cwd);
     const thetaDir = join(realCwd, ".pi", "theta");
-    const infraleafAbs = join(thetaDir, "infraleaf.theta");
-    const infratopAbs = join(thetaDir, "infratop.theta");
+    const infraleafAbs = fwd(join(thetaDir, "infraleaf.theta"));
+    const infratopAbs = fwd(join(thetaDir, "infratop.theta"));
 
     const handle = await bootShippedExtension({ workspace, provider });
     try {
