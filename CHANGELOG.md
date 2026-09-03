@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.375.0]
+
+### Fixed
+
+- **Bug 0385** — the category-5 `<key>` placeholder rule pinned plain double-quoting for non-identifier keys while the shipped renderer (`renderSourceDerived`'s key arm) JSON-escapes — and the plain-wrap side was UNSATISFIABLE for break-carrying keys against `diagnostic-shape.md`'s single-line rule, the exact two-sentence contradiction bug 0300 resolved for the parsed-scalar rows and no one resolved for `<key>` (the §8 carve-out's "unlike `<key>`'s plain double-quoting" contrast made the spec normatively mischaracterise a sibling category). The 0300 spec-amendment shape, implementation already conformant, NO code moves: `placeholder-rendering-b.md` §5's `<key>` non-identifier arm now states `JSON.stringify` (double-quoted with every break, interior `"`, `\`, and control character escaped — the wording §8 already used), the §8 contrast clause is INVERTED to "exactly as `<key>`'s non-identifier arm", and a new §5 vector pins an escapable key (`obj["a\"b"]` → `missing object key: "a\"b"`). GOV-8 posture: codifying shipped behaviour — no shipped byte changes for any input the prior vectors covered; the reachable divergence set (interior `"`/`\`, C0/C1 controls including breaks, lone surrogates) renders today's bytes, now pinned. Witnessed by `tests/b0385-key-placeholder-json-stringify.test.ts` (16 cells over `renderSourceDerived` and the panic site via index/member access — the doc's `'a"b'`/`"a\\b"`/`"a\nb"` single-line shapes; identifier-shaped and escape-free controls byte-identical under both readings; plain-wrap discrimination proven by the verifier). Live: adjacent `question-operand-defect-abort` cell under the lock (no drive outcome changes). Residuals recorded: `renderObserved` comment polish (F1/R1), §5/§8 C0/C1 gloss imprecision (R3) — comment/prose follow-ups, non-blocking.
+
 ## [0.374.0]
 
 ### Fixed

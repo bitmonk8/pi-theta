@@ -1,6 +1,6 @@
 # Bug 0385 — The shipped category-5 `<key>` renderer JSON-escapes where the spec pins plain double-quoting: `obj["a\"b"]` on a missing key panics `missing object key: "a\"b"` while §5's rule (as §8 itself glosses it, "unlike `<key>`'s plain double-quoting") prescribes `"a"b"` — and the spec's plain-wrap side is itself unsatisfiable for a break-carrying key against `diagnostic-shape.md:34`, the exact two-sentence contradiction bug 0300 resolved for the parsed-scalar rows and no one resolved for `<key>`
 
-- **Status:** open.
+- **Status:** fixed (0.375.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the reachable byte divergence is
   confined to panic messages naming keys that carry `"` or `\` (the shipped
   bytes are arguably the *better* ones: single-line-safe, forge-safe), so no
@@ -174,3 +174,69 @@ Implementation read: `src/diagnostics/placeholder.ts:170–216`;
 `src/runtime/runtime-panics.ts:200–230`. Prior bugs read in full: 0036, 0300,
 0032 (scope), 0027 (scope), 0365 (header, avoided). Probe: one scratch vitest
 (renderer + both panic spellings), run at `9474dfa8`, deleted.
+
+## Fix (0.375.0)
+
+- What shipped:
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` §5 `<key>` bullet
+    — non-identifier arm restated as `JSON.stringify` (double-quoted with every
+    break, interior `"`, `\`, and control character escaped; single-line-safe),
+    reusing §8's existing wording, with a byte-identity note for escape-free
+    keys (§Fix item 1).
+  - same file §8 `<observed>` carve-out — the false contrast "unlike `<key>`'s
+    plain double-quoting" inverted to "exactly as `<key>`'s non-identifier arm
+    (§5)"; the tension-resolution clause kept and now true (§Fix item 2).
+  - same file §5 test vectors — added `obj["a\"b"]` →
+    `missing object key: "a\"b"` (§Fix item 3).
+  - `tests/b0385-key-placeholder-json-stringify.test.ts` (new) — codifying unit
+    cell over `renderSourceDerived`'s key arm AND the panic site
+    (`assertKeyPresent` via `evaluateIndexAccess`/`evaluateMemberAccess`) for
+    `'a"b'`, `"a\\b"`, `"a\nb"` (single-line), plus escape-free/identifier
+    controls (§Fix item 4). No src change — the shipped `renderSourceDerived`
+    key arm was already conformant (GOV-8 codification, zero shipped-byte change
+    for any input the current vectors cover).
+- Gates: witness `tests/b0385-key-placeholder-json-stringify.test.ts` 16/16
+  green; full default suite 551 files / 10248 tests green (3 later hook-timeout
+  reds were parallel-load noise — green isolated, off-surface); typecheck
+  `tsc --noEmit` exit 0; lint (`eslint src/**/*.ts`) exit 0.
+- Review: 1 round — `bug-fix-reviewer` FINDINGS: one house-rule finding (F1,
+  stale `<key>` contrast comment in `src/parser/frontmatter.ts` `renderObserved`)
+  + three residuals; F1 lies on this bug's declared §Non-goal surface (the
+  frontmatter `<observed>` row) and on a src file §Fix does not name, so it was
+  recorded as a follow-up rather than fixed (no in-scope defect → no fixer
+  round).
+- Verification: `bug-fix-verifier` SOLID. Obligation 1 (discrimination):
+  neutralising the key arm to a plain-wrap reds exactly the 9 escapable cells
+  (`"a"b"` vs `"a\"b"`; raw two-line break vs escaped `\n`) while the controls
+  stay green; `src/diagnostics/placeholder.ts` restored byte-exact to HEAD
+  (`git hash-object` == `git rev-parse HEAD:…`). Obligation 2: default suite
+  green (load-noise reds green isolated). Obligation 3: spec/registry coherent
+  (§5 = JSON.stringify, §8 free of "plain double-quoting",
+  `code-registry-runtime.md` row and `diagnostic-shape.md:34` single-line rule
+  intact). Obligation 4: typecheck + lint clean. Live: adjacent cell
+  `tests/live/hardening/question-operand-defect-abort.test.ts` (runtime-defect →
+  `theta /<name> aborted` system-note framing, the pipeline the panic message
+  traverses) run green under the live lock — no drive/registration outcome
+  changed, so an adjacent witness discharges the live obligation.
+- Residuals:
+  1. F1 (follow-up candidate) — `src/parser/frontmatter.ts` `renderObserved`
+     doc comment still reads "unlike `<key>`'s plain double-quoting"; now
+     doubly-stale (spec §8 inverted, code never plain-wrapped). On the
+     frontmatter `<observed>` row, this bug's declared §Non-goal; comment-only
+     fix belongs to a separate bug.
+  2. R1 — `src/diagnostics/placeholder.ts` key-arm comment restates the
+     pre-amendment §5 sentence (accurate, omits the escape step now pinned);
+     align when next touched. Src file §Fix does not name.
+  3. R3 — the reused §5/§8 escape gloss ("every … control character escaped to
+     its two-character JSON form") is imprecise: `JSON.stringify` leaves U+007F
+     and C1 controls raw and uses `\u00NN` six-char form for short-form-less C0
+     controls. Reused verbatim per §Fix (item 1 mandated §8's wording); no
+     conformance divergence (operative rule is "via `JSON.stringify`").
+     Follow-up candidate covering §5, §8, and the bug's own C0/C1 divergence-set
+     phrasing.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the rejected alternative (make the
+  implementation plain-wrap) stays rejected — it re-opens the
+  `diagnostic-shape.md:34` single-line violation for break keys and drops
+  `JSON.stringify`'s forge-safety. The settings/frontmatter `<observed>` rows
+  (0300) remain a §Non-goal (see F1).
