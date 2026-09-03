@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.391.0]
+
+### Fixed
+
+- **Bug 0398** — the registered E-severity `theta/runtime/custom-type-unsafe` diagnostic (BNDR-9's rejection of transcript-unsafe `customType`s in `bind_context: session` compaction) was emitted with no `Diagnostic` on any wire: `#emitCustomTypeUnsafeNote` shipped the conformant content template with `details: { event: {} }` — the code appeared in neither content nor details, so DIAG-1's entitlement ("tests may assert on the specific code at every documented diagnostic site") had nothing to read, a key-switching renderer misclassified the note as an empty group-A runtime event, and the conformant builder `customTypeUnsafeDiagnostic` sat exported, unit-pinned green, and production-uncalled (the 0088/0079 "conformant producer, no caller" pattern). PARENT ADJUDICATION (recorded): (i) pairing = the `emitPanicNote` mirror — ONE `pi.sendMessage` with the existing framed content plus `details: { diagnostics: [customTypeUnsafeDiagnostic(value)] }` (the group-B single-element runtime batch; content bytes untouched; the code lands on the wire exactly once); (ii) the same-commit DIAG-2 spec sentence resolves the one-row group-A/B ambiguity as GROUP B BY REGISTERED CODE — one additive group-B bullet in `runtime-event-channel.md` covering registered `theta/runtime/*` diagnostics routed as notes, matching the shipped `alwaysLogGroup` partition; the group-A binder-failure enumeration untouched (0397's surface). Witnessed by `tests/b0398-custom-type-unsafe-note-details-diagnostics.test.ts` (red at fork: `expected 'event' to be 'diagnostics'`). permitted-codes byte-identical (the code was already registered). Live: `b0297live-bind-context-nonscalar-load-refusal` green under the lock (adjacent bind-context load-refusal drive; recorded WHY). Residual recorded (follow-on candidate): the §content-pairing matrix has no row for this note's display:true/failure-template pairing — extending the matrix is a spec-meaning change beyond the settled DIAG-2 site (carries b0265 pins).
+
 ## [0.390.0]
 
 ### Fixed

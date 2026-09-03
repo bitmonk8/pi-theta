@@ -328,6 +328,7 @@ import {
 } from "../binder/provider-error-mapping";
 import { walkSessionContext } from "../binder/session-context-walk";
 import {
+  customTypeUnsafeDiagnostic,
   renderCompactTranscript,
   renderCustomTypeUnsafeNote,
 } from "../binder/compact-transcript";
@@ -1388,9 +1389,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * BNDR-9: emit the `theta/runtime/custom-type-unsafe` user-facing note on the
-   * theta-system-note channel when an included session-context `custom` message
-   * carries a transcript-unsafe `customType`; binding does not proceed.
+   * BNDR-9: reject an included session-context `custom` message whose
+   * `customType` is transcript-unsafe; binding does not proceed. Emits BOTH
+   * halves of the rejection in one `pi.sendMessage` on the theta-system-note
+   * channel: the framed user-facing note as `content`, and the registered
+   * `theta/runtime/custom-type-unsafe` diagnostic as the group-B
+   * `details: { diagnostics: [Diagnostic] }` runtime batch, mirroring
+   * `emitPanicNote`.
    */
   #emitCustomTypeUnsafeNote(thetaName: string, value: string): void {
     this.#input.pi.sendMessage(
@@ -1398,7 +1403,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         customType: SYSTEM_NOTE_CHANNEL,
         content: renderCustomTypeUnsafeNote(thetaName, value),
         display: true,
-        details: { event: {} },
+        details: { diagnostics: [customTypeUnsafeDiagnostic(value)] },
       },
       { triggerTurn: false },
     );

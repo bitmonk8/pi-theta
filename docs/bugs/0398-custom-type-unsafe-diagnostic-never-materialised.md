@@ -1,6 +1,6 @@
 # Bug 0398 — `theta/runtime/custom-type-unsafe` is emitted with no `Diagnostic` on any wire: the note ships `details: { event: {} }` instead of the group-B `details: { diagnostics: [Diagnostic] }` shape, the registered code appears in neither `content` nor `details`, and the conformant diagnostic builder has zero production callers
 
-- **Status:** open.
+- **Status:** fixed (0.391.0).
 - **Kind:** defect — a registered `E`-severity runtime diagnostic (DIAG-1
   entitlement: "tests are entitled to assert on the specific code at every
   documented diagnostic site") is structurally absent from its own emission;
@@ -174,3 +174,78 @@ Spec read: `diagnostics/code-registry-runtime.md:7,43`,
 `tests/integration-acceptance.test.ts:170–180`. Greps quoted above, run at
 `d63c5148`. Sibling-shape probes P1–P3 (deleted) confirmed the capture surface
 and the shared literal.
+
+## Fix (0.391.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `#emitCustomTypeUnsafeNote`
+    now emits ONE `pi.sendMessage` carrying the untouched framed `content`
+    (`renderCustomTypeUnsafeNote`) plus
+    `details: { diagnostics: [customTypeUnsafeDiagnostic(value)] }` — the
+    `emitPanicNote` group-B single-element mirror (`customTypeUnsafeDiagnostic`
+    newly imported). The registered `theta/runtime/custom-type-unsafe`
+    diagnostic now lands on the wire exactly once, in one message (§Fix
+    constraint 1; not routed through a separate `emitDiagnostic` path).
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — one
+    ADDITIVE group-B bullet (DIAG-2 same-commit sentence, §Fix constraint 2):
+    registered `theta/runtime/*` diagnostics routed as operator-facing notes
+    (not only “Runtime panics”) are group B; the custom-type-unsafe rejection’s
+    structured half is its registered diagnostic (group B), NOT a group-A
+    binder-failure `RuntimeEvent`, matching the shipped `alwaysLogGroup`
+    partition. Parent adjudication: GROUP B BY REGISTERED CODE. The group-A
+    binder-failure rows and the `- Runtime panics` bullet are byte-untouched
+    (bug 0397’s lane owns the group-A enumeration).
+  - `tests/b0398-custom-type-unsafe-note-details-diagnostics.test.ts` — the
+    witness (§Fix constraint 3): drives the real production `runBinder` to the
+    `#emitCustomTypeUnsafeNote` emission via a `bind_context: session` two-param
+    theta and a `sessionManager` whose walked transcript carries a transcript-
+    unsafe `customType`; captures the note; asserts `details.diagnostics[0]`
+    carries the registered code + severity + Message and deep-equals
+    `customTypeUnsafeDiagnostic(value)`, pins the whole `details` to the
+    diagnostics arm (no stray `event` key), and a byte-identity CONTROL on
+    `content`.
+- Gates: witness `npx vitest run tests/b0398-…` → 3/3 green; full default suite
+  → 557 files / 10310 tests green (load-noise flakes — production-tools-load-
+  resolution, shared-subtree-*, invoke-arg-*, theta-callable-call-arity — all
+  green re-run isolated, none on this surface); `npm run typecheck` clean;
+  `npm run lint` clean; doc byte-stability census
+  `tests/b0265-panic-scoping-remnant-surfaces-gate.test.ts` green;
+  `runtime-event-channel.md` still CRLF.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`) — F2 (prose: backtick the
+  `src/runtime/runtime-event-channel.ts` citation) + R1/R2 (test-strengthening:
+  whole-`details` `toEqual` closing the both-keys hole; companion-pin comment)
+  fixed via `bug-fix-fixer-light`; F1 (spec, :20/:32 content-pairing matrix)
+  deferred as Residual 1. R2 (`bug-fix-reviewer-fast`) — CLEAN; independently
+  confirmed the F1 deferral is not a same-commit blocker.
+- Verification: `bug-fix-verifier` SOLID — (1) witness reds without the fix with
+  the exact `expected 'event' to be 'diagnostics'` signature, greens with it,
+  revert left no residue; (2) full suite green (flakes green isolated); (3)
+  typecheck + lint clean. Live: `tests/live/acceptance/`
+  `b0297live-bind-context-nonscalar-load-refusal.test.ts` green under the live
+  lock — registers + drives real `bind_context` thetas through `pi -p`; adjacent
+  witness that registration/drive outcomes are unchanged (WHY: the fix alters
+  only the BNDR-9 note’s `details` payload — no registration/load/drive outcome;
+  LANE live obligation = one adjacent existing cell).
+- Residuals:
+  1. F1 (spec, follow-on) — the four-shape `details` bullet
+     (`runtime-event-channel.md:20`) and the per-variant `display`/`content`
+     matrix (`:32`) enumerate the single-element `details: { diagnostics:
+     [Diagnostic] }` content-pairing only for parse/load/type batches and the
+     runtime-panic framing; the custom-type-unsafe note is now the first
+     non-panic single-element diagnostics-batch note, whose (`display: true`,
+     `content` = failure-mode template) pairing has no matrix row. DEFERRED:
+     §Fix constraint 2 scopes the same-commit DIAG-2 obligation to the
+     group-A/B CLASSIFICATION (landed via the group-B bullet); the :20/:32
+     content-pairing matrix is a distinct normative surface neither the doc nor
+     the parent’s adjudication named, and it carries `tests/b0265` byte-stability
+     pins — extending it is a spec-meaning change beyond the parent’s
+     settlement, which this lane may not self-authorize. Round-2 reviewer
+     confirmed non-blocking. Recommend a follow-on bug/parent decision to add
+     the additive matrix row + four-shape content-case.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `content` bytes (`renderCustomTypeUnsafeNote`)
+  untouched; BNDR-9 detection predicate + transcript-abort untouched; the
+  group-A binder-failure `RuntimeEvent` construction + `#emitBinderFailureNote`
+  NOT touched (bug 0397’s lane); the four matrixless informational `{ event: {} }`
+  sites NOT touched (bug 0401’s lane); `tests/fixtures/h7a/permitted-codes.json`
+  byte-identical (code already registered; blob a4a8da04).
