@@ -55,6 +55,16 @@ export interface ActiveInvocationTicket {
   readonly settleDisposeBarrier: () => void;
   /** Idempotent: settle `disposeBarrier` (if not already settled) and remove the entry. */
   readonly finish: () => void;
+  /**
+   * The entry's minted `invocationId`, exposed so a binder-failure runtime
+   * event (runtime-event-channel.md:83) can source `invocation_id` from THIS
+   * entry rather than fresh-minting — the registry lookup route is unreachable
+   * at the emit site (bug 0397 premeasure: no invocation-id key held there,
+   * and a name-keyed lookup is ambiguous under concurrent same-name siblings).
+   */
+  readonly invocationId: string;
+  /** The entry's `theta` field (bare slash name, no leading slash), same sourcing rationale. */
+  readonly theta: string;
 }
 
 /**

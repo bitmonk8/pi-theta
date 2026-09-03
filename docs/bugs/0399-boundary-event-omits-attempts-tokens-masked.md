@@ -1,6 +1,6 @@
 # Bug 0399 — The SLSH-4 note's boundary-constructed `RuntimeEvent` omits the shape-pinned `attempts` / `tokens_used` / `masked` fields: SNK-a renders `<n>` in `content` while `details.event.attempts` is absent, and the origin-side validation event that 0355's fix taught to compute `masked` (`TypedQueryOutcome.validation.event`) is built and dropped with no consumer
 
-- **Status:** open.
+- **Status:** fixed (0.393.0).
 - **Kind:** defect — the emission 0383 established as "the origin emission of
   record" for this path omits fields the `RuntimeEvent` shape pins as
   populated for exactly these events, all derivable at the construction site;
@@ -188,6 +188,82 @@ Not yet decided; constraints any fix must satisfy:
    `tokens_used` present, `null` overflow → absent; a repair-terminal
    validation cascade under the ceiling-#2 predicate → `masked:
    ["ceiling#2"]` on the note (red today: all absent).
+
+## Fix (0.393.0)
+
+- What shipped (both halves in ONE change; constraint 3's split declined):
+  - `src/runtime/cancellation-core.ts` — `OperationResult`'s `{ ok: false }`
+    arm gains an optional `event?: RuntimeEvent` (additive, mirrors the
+    existing `childDiagnostics`) — the origin-event seam (§Fix 1).
+  - `src/runtime/effectful-statement-host.ts` — the typed-loop `case
+    "validation"` arm feeds `event: outcome.event` (the 0355-corrected origin
+    event: masked, real query_site/occurred_at/attempts); the `propagated` arm
+    is split off (carries no origin event of its own) (§Fix 1).
+  - `src/runtime/statement-executor.ts` — the origin event rides every terminal
+    `fail`-flow hop: `Flow`/`EvalResult` `fail` variants + `BodyExecution` gain
+    optional `event?`/`originEvent?`; `terminalFlow`, the `OperationResult`→
+    fail mint, the fail→fail lifts, and `executeBody`'s `fail` arm carry it
+    (conditional spreads for `exactOptionalPropertyTypes`) (§Fix 1).
+  - `src/extension/theta-composition-producer.ts` — the top-level boundary
+    retains `execution` on the body path and passes `execution?.originEvent` as
+    `emitTopLevelErrNote`'s 3rd (0383 `event?`) arg; the RFC-0006 `drive()`
+    path passes nothing (no in-parent origin event) (§Fix 1).
+  - `src/extension/production-theta-producer.ts` — `emitTopLevelErrNote`'s
+    ABSENT-event (boundary-built) arm preserves `attempts` (validation) /
+    `tokens_used` (context_overflow) from the leaf EXACTLY
+    `buildDiscardEvent`-shaped (`"attempts" in leaf && typeof … === "number"`;
+    `tokens_used` number-only so a `null` count stays canonically absent). A
+    THREADED origin event is used VERBATIM (the `event ?? (…)` branch) — masked
+    is never re-derived at the boundary (PIC-1 (f)) (§Fix 2).
+  - `tests/b0399-boundary-event-attempts-tokens-masked.test.ts` — the witness
+    (6 cells; §Fix 4). `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json`
+    carries only the sibling 0397 `theta/b0397deep` fixture (a witness-comment
+    false-positive `theta/…` span was removed by rewording to comma form, not
+    baselined).
+- Gates:
+  - Witness: `npx vitest run tests/b0399-boundary-event-attempts-tokens-masked.test.ts`
+    → 6 passed. RED at fork / on hand-revert (drop the validation-arm `event`
+    feed + the attempts/tokens_used guards): the 3 discriminating cells red
+    (`attempts`/`tokens_used`/`masked` undefined — the 5-field boundary event);
+    the 3 controls (null-absent guard, byte-identity/freshness, 0355 origin
+    anchor) stay green.
+  - Full suite: `npx vitest run` → 558 files / 10320 tests passed (baseline
+    557/10314 + the 6-cell witness).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live: `tests/live/err-note-render-record-error-field-live-cell.test.ts`
+    passed — `emitTopLevelErrNote` through a REAL spawned subagent child (the
+    exact surface 0399 modifies); adjacent-cell witness (0399 changes no drive
+    outcome or `content` bytes — only the operator-channel structured half — so
+    no new live cell was owed).
+- Review: 1 round. Round 1 (`bug-fix-reviewer`, deep) — CLEAN, no
+  correctness/fidelity/spec findings, no residuals. Verified: threading
+  complete across every fail-flow hop; PIC-1 (f) verbatim (masked appears only
+  in comments, never computed at the boundary; the note's event is the origin
+  instance by reference); constraint 2 exactly `buildDiscardEvent`-shaped in the
+  absent-event arm only; boundary wiring present and correct.
+- Verification: SOLID (`bug-fix-verifier`). Witness reds on hand-revert (3
+  discriminating cells, absent-field signature) and greens on byte-exact
+  restore (`git hash-object` identical for both reverted files); full default
+  suite 558/10320 green on the first unfiltered run; typecheck + lint clean;
+  tree matches the owned set, `git stash` empty.
+- Residuals:
+  1. The `?`-propagation / value-ized `Err` paths (an `Err` bound as a value,
+     then `?`-propagated or discarded) carry NO origin event — masked is absent
+     on their boundary re-emission. This is the accepted scope boundary, not a
+     violation: once an `Err` is an author-manipulable value no origin event
+     can ride it, and PIC-1 (f) makes masked-absence the CONFORMANT output of a
+     boundary reconstruction (re-derivation is forbidden). Constraint 2 still
+     supplies `attempts`/`tokens_used` there from the leaf. The origin-event
+     thread exists on the direct terminal `fail` cascade — the OperationResult
+     seam §Fix 1 is defined over — which is where the doc's masked witness
+     drives.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: 0383's adjudicated freshness set
+  (`invocation_id`/`occurred_at`/`theta` fresh, `query_site` omitted on the
+  boundary-BUILT arm) is UNCHANGED — this fix only ADDS `attempts`/`tokens_used`
+  to that arm and THREADS the origin event (with masked) on the validation
+  path. The user-facing `content` bytes and the `Err` drive outcome are
+  unchanged for every input class.
 
 ## Provenance
 

@@ -279,10 +279,16 @@ async function runQueryEffect(
         };
       }
       case "validation":
+        // A terminal schema-validation failure (QRY-22) surfaces as the typed
+        // query's `Err`, threading the 0355-corrected origin event (masked,
+        // real query_site/occurred_at/attempts) through the `event?` forward
+        // hook (bug 0399) so the boundary note can carry `masked` verbatim
+        // (PIC-1 (f) — the boundary must never re-derive it).
+        return { ok: false, error: outcome.error, event: outcome.event };
       case "propagated":
-        // A terminal schema-validation failure (QRY-22) or a proximate
-        // non-validation failure respond-repair propagated (QRY-11) surfaces as
-        // the typed query's `Err`.
+        // A proximate non-validation failure respond-repair propagated
+        // (QRY-11) surfaces as the typed query's `Err`; it carries no origin
+        // `RuntimeEvent` of its own.
         return { ok: false, error: outcome.error };
       case "transport":
         // PIC-50/51: a prompt-mode provider transport failure on the typed

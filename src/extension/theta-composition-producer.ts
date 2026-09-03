@@ -144,6 +144,14 @@ export interface BinderRunInput {
    * harnesses that call `runBinder` directly; the producer defaults a fresh one.
    */
   readonly thetaAbort?: AbortController;
+  /**
+   * The pre-binder `ActiveInvocationRegistry` ticket `beginInvocation` opened at
+   * dispatch entry (mirrors `ConversationBindInput.invocationTicket`): a binder
+   * failure's runtime event sources `invocation_id`/`theta` from THIS entry
+   * (runtime-event-channel.md:83), not a fresh mint. Absent on harnesses that
+   * call `runBinder` directly without a dispatch-level `beginInvocation`.
+   */
+  readonly invocationTicket?: ActiveInvocationTicket;
 }
 
 /** The outcome of the `V11a` binder step. */
@@ -503,7 +511,13 @@ export function composeThetaFixture(
         //    (needs-info / ambiguous / cancelled) short-circuits — the theta body
         //    never runs. The binder shares THIS `thetaAbort` so the binder-call
         //    checkpoint (CANCEL-4) observes the same abort the body would.
-        const binderResult = await deps.runBinder({ theta, args, ctx, thetaAbort });
+        const binderResult = await deps.runBinder({
+          theta,
+          args,
+          ctx,
+          thetaAbort,
+          ...(invocationTicket !== undefined ? { invocationTicket } : {}),
+        });
         if (!binderResult.bound) {
           return;
         }
@@ -538,10 +552,20 @@ export function composeThetaFixture(
           // `Result` through a self-contained `drive()` (launch child → await
           // envelope → map) rather than the parent running the body; every other
           // binding runs the body against `executeDeps` and surfaces it.
-          const terminal: ResultValue =
-            binding.drive !== undefined
-              ? await binding.drive()
-              : binding.surface(await executeBody(theta.body, binding.executeDeps));
+          // RFC-0006's `drive()` path resolves through a self-contained child
+          // envelope with no in-parent `BodyExecution`, so it carries no origin
+          // event to thread (0383 boundary reconstruction, unchanged); the
+          // ordinary body path retains `execution` so its `originEvent` (bug
+          // 0399 — threaded from the fail-flow cascade) can ride to the note
+          // verbatim per PIC-1 (f).
+          let execution: BodyExecution | undefined;
+          const terminal: ResultValue = await (async (): Promise<ResultValue> => {
+            if (binding.drive !== undefined) {
+              return binding.drive();
+            }
+            execution = await executeBody(theta.body, binding.executeDeps);
+            return binding.surface(execution);
+          })();
           // 4. SLSH-3: a top-level `Err(QueryError)` returned to THIS boundary (a
           //    slash caller, no invoke parent — invoke-reached thetas never go
           //    through `run`) gets a one-line `theta-system-note` formatted from the
@@ -554,7 +578,11 @@ export function composeThetaFixture(
           //    call site passes the raw top-level error unchanged. A returned
           //    `Err` is a VALUE (not a throw) — the outer catch never sees it.
           if (!terminal.ok) {
-            deps.emitTopLevelErrNote(theta.slashName, terminal.error as unknown as QueryError);
+            deps.emitTopLevelErrNote(
+              theta.slashName,
+              terminal.error as unknown as QueryError,
+              execution?.originEvent,
+            );
           }
         } finally {
           // PIC-65: run the (idempotent, non-throwing) session teardown BEFORE

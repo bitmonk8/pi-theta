@@ -327,6 +327,13 @@ export type OperationResult =
       readonly ok: false;
       readonly error: QueryError;
       readonly childDiagnostics?: readonly Diagnostic[];
+      /**
+       * The origin `RuntimeEvent` that produced `error`, when the failing
+       * site already constructed one (bug 0399): threaded so a downstream
+       * boundary re-emission can carry fields (notably PIC-1 (f)'s `masked`)
+       * verbatim instead of re-deriving them.
+       */
+      readonly event?: RuntimeEvent;
     };
 
 /**

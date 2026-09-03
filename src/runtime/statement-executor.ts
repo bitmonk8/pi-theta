@@ -56,6 +56,7 @@ import { HostFatal, isThetaPanic } from "./runtime-panics";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
+import type { RuntimeEvent } from "./runtime-event-channel";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
 import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
@@ -236,6 +237,15 @@ export interface BodyExecution {
    * onto the caller-visible `Err` (FN-5 fail path).
    */
   readonly error?: ThetaValue;
+  /**
+   * The origin `RuntimeEvent` that produced `error` on the fail path (bug
+   * 0399), when the failing effect already constructed one (currently: a
+   * typed-query `validation` outcome, threaded from `OperationResult.event`
+   * through the `fail` flow cascade). Absent otherwise. A composition-root
+   * boundary passes this verbatim to its re-emission per PIC-1 (f) — never
+   * re-derived.
+   */
+  readonly originEvent?: RuntimeEvent;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +275,7 @@ type Flow =
   | { readonly kind: "return"; readonly value: ThetaValue }
   | { readonly kind: "break" }
   | { readonly kind: "continue" }
-  | { readonly kind: "fail"; readonly error: ThetaValue }
+  | { readonly kind: "fail"; readonly error: ThetaValue; readonly event?: RuntimeEvent }
   | { readonly kind: "propagate"; readonly err: ThetaValue }
   | { readonly kind: "cancel" };
 
@@ -281,7 +291,7 @@ type Flow =
  */
 type EvalResult =
   | { readonly flow: "value"; readonly value: ThetaValue }
-  | { readonly flow: "fail"; readonly error: ThetaValue }
+  | { readonly flow: "fail"; readonly error: ThetaValue; readonly event?: RuntimeEvent }
   | { readonly flow: "propagate"; readonly err: ThetaValue }
   | { readonly flow: "return"; readonly value: ThetaValue }
   | { readonly flow: "break" }
@@ -298,7 +308,7 @@ type EvalResult =
 function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
   switch (result.flow) {
     case "fail":
-      return { kind: "fail", error: result.error };
+      return { kind: "fail", error: result.error, ...(result.event !== undefined ? { event: result.event } : {}) };
     case "propagate":
       return { kind: "propagate", err: result.err };
     case "return":
@@ -509,7 +519,7 @@ async function evalUserFnCall(
       // evaluates to that `Err` value so an enclosing `?`/`match` sees it.
       return { flow: "value", value: makeErr(flow.err) };
     case "fail":
-      return { flow: "fail", error: flow.error };
+      return { flow: "fail", error: flow.error, ...(flow.event !== undefined ? { event: flow.event } : {}) };
     case "cancel":
       return { flow: "cancel" };
   }
@@ -999,7 +1009,7 @@ async function evalExpr(
       case "continue":
         return { flow: "continue" };
       case "fail":
-        return { flow: "fail", error: flow.error };
+        return { flow: "fail", error: flow.error, ...(flow.event !== undefined ? { event: flow.event } : {}) };
       case "propagate":
         return { flow: "propagate", err: flow.err };
       case "cancel":
@@ -1227,7 +1237,11 @@ async function evalExpr(
   if (!atTerminal) {
     return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
   }
-  return { flow: "fail", error: result.error as unknown as ThetaValue };
+  return {
+    flow: "fail",
+    error: result.error as unknown as ThetaValue,
+    ...(result.event !== undefined ? { event: result.event } : {}),
+  };
 }
 
 /**
@@ -2302,7 +2316,12 @@ export async function executeBody(body: ThetaBody, deps: ExecuteBodyDeps): Promi
       // effect's own terminating error as `BodyExecution.error` so the mode's
       // `surface` projects the real `Err` (ERR-19 payload preserved) instead of
       // fabricating a `cancelled` — exactly as the `propagate` arm below.
-      return { outcome: "fail", result: functionResult("fail", null), error: flow.error };
+      return {
+        outcome: "fail",
+        result: functionResult("fail", null),
+        error: flow.error,
+        ...(flow.event !== undefined ? { originEvent: flow.event } : {}),
+      };
     case "propagate":
       // A `?`-propagation (ERR-18): the body's terminal `Result` is `Err(err)`;
       // no FN-5 final value flows, but the propagated `Err` is carried so the

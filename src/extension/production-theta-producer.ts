@@ -317,6 +317,7 @@ import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaul
 import { matchAvailableModel } from "../binder/binder-model";
 import {
   renderBinderSystemNote,
+  binderFailureMessage,
   type BinderArgsClassification,
   type BinderAttemptOutcome,
   type BinderFailureSurface,
@@ -943,7 +944,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // Defensive (unreachable on this dispatch path, per the reasoning above):
       // surface the malformed failure note rather than crash the dispatch, and
       // do not run the body.
-      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" });
+      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" }, binderInput.invocationTicket);
       return { bound: false };
     }
     const envelopeSchema = buildBinderEnvelopeSchema({
@@ -1047,12 +1048,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     );
     if (phase.cancelled) {
       // Pre-call checkpoint abort: the LLM call was never issued.
-      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "cancelled" });
+      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "cancelled" }, binderInput.invocationTicket);
       return { bound: false };
     }
     if (phase.value.kind === "cancelled") {
       // In-flight abort: the provider observed the forwarded `options.signal`.
-      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "cancelled" });
+      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "cancelled" }, binderInput.invocationTicket);
       return { bound: false };
     }
     // Route on the terminal (most-recent, HC3-e) classified outcome. The theta
@@ -1062,7 +1063,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // envelope is runtime-internal and is never surfaced verbatim.
     const outcome = phase.value.outcome;
     if (outcome.kind !== "ok") {
-      this.#emitBinderFailureNote(binderInput.theta.slashName, outcome);
+      this.#emitBinderFailureNote(binderInput.theta.slashName, outcome, binderInput.invocationTicket);
       return { bound: false };
     }
     // §Defaulting (defaulting-system-note-echo.md#post-default-merge-ajv-validation;
@@ -1085,7 +1086,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // echo asserts a bind that happened, so it may not precede the verdict that
     // decides whether it did.
     if (merged.classification.kind !== "ok") {
-      this.#emitBinderFailureNote(binderInput.theta.slashName, merged.classification);
+      this.#emitBinderFailureNote(binderInput.theta.slashName, merged.classification, binderInput.invocationTicket);
       return { bound: false };
     }
     // §"Echo policy" (BND-1): on a successful bind the runtime appends the
@@ -1409,13 +1410,49 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     );
   }
 
-  #emitBinderFailureNote(thetaName: string, surface: BinderFailureSurface): void {
+  /**
+   * Bug 0397 §Fix: the binder-failure note is a group-A always-log member
+   * (runtime-event-channel.md:40, runtime-event-channel.md:46-53) whose
+   * `details.event` is sourced from the dispatch-site `ActiveInvocationRegistry`
+   * entry (runtime-event-channel.md:83) — THREADED in via `ticket` (the
+   * `BinderRunInput.invocationTicket` the real dispatch always
+   * supplies; `beginInvocation` inserts the entry ahead of the awaited binder
+   * step). A ticket-less direct-`runBinder` harness (no dispatch-level
+   * `beginInvocation`) has no entry to source from; rather than fabricate one or
+   * throw, that case degrades to the pre-fix `{}` payload — harness-only,
+   * production always threads the ticket. The event is built ONCE and passed
+   * through the shared `buildRuntimeEventNote` (no forked builder), leaving
+   * `content` (`renderBinderSystemNote`) and `display: true` byte-identical.
+   */
+  #emitBinderFailureNote(
+    thetaName: string,
+    surface: BinderFailureSurface,
+    ticket: ActiveInvocationTicket | undefined,
+  ): void {
+    const content = renderBinderSystemNote(thetaName, surface);
+    if (ticket === undefined) {
+      this.#input.pi.sendMessage(
+        {
+          customType: SYSTEM_NOTE_CHANNEL,
+          content,
+          display: true,
+          details: { event: {} },
+        },
+        { triggerTurn: false },
+      );
+      return;
+    }
+    const event: RuntimeEvent = {
+      kind: surface.kind,
+      theta: `/${ticket.theta}`,
+      invocation_id: ticket.invocationId,
+      message: binderFailureMessage(surface),
+      occurred_at: this.#input.root.clock.wallNow(),
+    };
     this.#input.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
-        content: renderBinderSystemNote(thetaName, surface),
-        display: true,
-        details: { event: {} },
+        ...buildRuntimeEventNote(event, { topLevelCascade: true, userFacingTemplate: content }),
       },
       { triggerTurn: false },
     );
@@ -1499,7 +1536,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * declaring-enum tag / schema brand a wire-form default loses here is
    * re-established downstream by the binder-`args` inbound boundary
    * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
-   * `paramBindingsFrom`, `theta-composition-producer.ts:103`, called at `:513`)
+   * `paramBindingsFrom`, `theta-composition-producer.ts:103`, called at `:527`)
    * that `runtime-value-model.md:34` already mandates over binder `args`.
    */
   async #recoverDeclaredDefaults(
@@ -1644,13 +1681,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         while (isInvokeCalleeError(leaf)) {
           leaf = leaf.inner;
         }
-        return {
+        const built: RuntimeEvent = {
           kind: leaf.kind,
           theta: `/${thetaName}`,
           invocation_id: this.#input.root.idSource.newInvocationId(),
           message: leaf.message,
           occurred_at: this.#input.root.clock.wallNow(),
         };
+        // Bug 0399 constraint 2: preserve the leaf's own `attempts`
+        // (validation) / `tokens_used` (context_overflow) exactly
+        // `buildDiscardEvent`-shaped (query-discard.ts) — no other kind
+        // defines these fields, and `tokens_used` is number-only so a `null`
+        // provider count stays canonically absent rather than leaking `null`.
+        if ("attempts" in leaf && typeof leaf.attempts === "number") {
+          built.attempts = leaf.attempts;
+        }
+        if ("tokens_used" in leaf && typeof leaf.tokens_used === "number") {
+          built.tokens_used = leaf.tokens_used;
+        }
+        return built;
       })();
     this.#input.pi.sendMessage(
       {
@@ -1851,6 +1900,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     let finished = false;
     return {
       settleDisposeBarrier: settleDispose,
+      invocationId: entry.invocationId,
+      theta: entry.theta,
       finish: (): void => {
         if (finished) return;
         finished = true;
@@ -4993,7 +5044,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     }
     // ERR-19 (queryerror-variants.md:151/:211): the blocked terminal turn's
     // narration is in the same user-session transcript the SUCCESS path reads
-    // via `extractTrailingTurnText` (production-theta-producer.ts:4788) —
+    // via `extractTrailingTurnText` (this file) —
     // threading it here satisfies the biconditional instead of hardcoding
     // `raw_response: null` regardless of what the model said.
     //

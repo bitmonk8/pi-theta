@@ -1,6 +1,6 @@
 # Bug 0397 — Binder-failure notes ship `details: { event: {} }` where the always-log contract makes binder failures group-A members whose note carries a `RuntimeEvent` sourced from the ActiveInvocationRegistry: every binder failure's sole emission has an empty structured half, so the exactly-once always-log guarantee is unwitnessable and the group-A dedup tuple reads three absent spec-pinned fields
 
-- **Status:** open.
+- **Status:** fixed (0.392.0).
 - **Kind:** defect — implementation diverges from a stated wire-shape rule
   (`runtime-event-channel.md:46–53` group-A enumeration + `:83` binder-failure
   sourcing), the exact 0383 mechanism on the sibling surface whose payload the
@@ -163,6 +163,87 @@ Not yet decided; constraints any fix must satisfy:
    ambiguous, malformed, AJV-on-args, transport, cancelled); assert
    `details.event.kind` = the cause, sourcing fields present, `query_site`
    absent; red direction provable today (probe P2's `{}` signature).
+
+## Fix (0.392.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `#emitBinderFailureNote`
+    constructs the binder-failure `RuntimeEvent` ONCE per failure and emits it
+    via the shared `buildRuntimeEventNote(event, { topLevelCascade: true,
+    userFacingTemplate: content })` (no forked builder), replacing the hardcoded
+    `details: { event: {} }` (§Fix 1/2). `kind = surface.kind`;
+    `message = binderFailureMessage(surface)`; `theta = /${ticket.theta}`;
+    `invocation_id = ticket.invocationId` (the registry entry's minted id, NOT a
+    fresh mint, per `runtime-event-channel.md:83`); `occurred_at =
+    root.clock.wallNow()`; `query_site` omitted. `content`
+    (`renderBinderSystemNote`) and `display: true` stay byte-identical. All five
+    call sites thread `binderInput.invocationTicket`.
+  - `src/runtime/active-invocation-registry.ts` — `ActiveInvocationTicket` gains
+    read-only `invocationId` / `theta`, sourced from the entry in
+    `#openInvocationTicket` (§Fix 3, THREAD route).
+  - `src/extension/theta-composition-producer.ts` — `BinderRunInput` gains
+    `invocationTicket?` (mirrors `ConversationBindInput.invocationTicket`); the
+    dispatch threads the `beginInvocation` ticket into `runBinder` (§Fix 3).
+  - `src/binder/retry-taxonomy.ts` — new `binderFailureMessage(surface)`, the
+    single surface→message source of truth beside `renderBinderSystemNote`
+    (needs_info/ambiguous/transport → `message`, ajv_args → `ajvSummary`,
+    malformed → "could not parse arguments", cancelled → "argument binding
+    cancelled") (§Fix 1).
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — the
+    per-variant matrix's `details: { event }` top-level-cascade `content` cell
+    gets the binder-failure clarifying clause (template comes from the
+    Failure-mode templates table, not SLSH-3), scoped strictly to the
+    binder-failure rows (§Fix 2).
+  - `tests/b0397-binder-failure-note-runtime-event.test.ts` — the witness (7
+    cells; §Fix 4). `tests/cancelled-by-session-shutdown-note.test.ts` — ticket
+    double forwards the two new fields (mechanical interface completion, no
+    assertion changed). `tests/fixtures/diag2/asserted-code-not-in-registry-baseline.json`
+    — the witness fixture theta `theta/b0397deep` added to the DIAG-2 ratchet
+    (same class as the pre-existing `theta/b0191` / `theta/b66deep` entries).
+- Gates:
+  - Witness: `npx vitest run tests/b0397-binder-failure-note-runtime-event.test.ts`
+    → 7 passed. RED at fork / on hand-revert to `details: { event: {} }`: 6
+    failed / 1 passed, the empty-`{}` signature (`.kind` undefined); the 1 pass
+    is the byte-identity `content` control.
+  - Full suite: `npx vitest run` → 557 files / 10314 tests passed (baseline
+    556/10307 + the witness).
+  - `npm run typecheck` → clean. `npm run lint` → clean.
+  - Live: `tests/live/err-note-render-record-error-field-live-cell.test.ts`
+    passed — the sibling `theta-system-note` emission through a REAL spawned
+    subagent child on the same runtime-event-channel surface (adjacent-cell
+    witness; 0397 changes no drive outcome or `content` bytes, so no new live
+    cell was owed).
+- Review: 1 round. Round 1 (`bug-fix-reviewer`, deep) — CLEAN, no
+  correctness/fidelity/spec findings; one non-blocking house-rule residual (R1,
+  a freshly-refreshed line citation into this file's own `LivePromptQueryModel`
+  comment that re-pinned an already-stale target) — resolved by the
+  orchestrator converting it to insertion-invariant symbol-only form
+  (`(this file)`); the companion `:527` refresh into
+  `theta-composition-producer.ts` was reviewer-verified accurate and kept. The
+  post-review touch was comment-only, so a confirmation review round was
+  skipped (polish verified by gate-diff).
+- Verification: SOLID (`bug-fix-verifier`). Witness reds on hand-revert (6
+  failed, empty-`{}` signature) and greens on byte-exact restore
+  (`git hash-object` identical); full default suite 557/10314 green on the
+  first unfiltered run; typecheck + lint clean; tree matches the owned set,
+  `git stash` empty.
+- Residuals:
+  1. The four matrix-less informational `{ event: {} }` sites (binder success
+     echo, SLSH-1 overflow, factory drain/repeat notes, slash-dispatch) remain
+     UNTOUCHED — a different disposition (no group-A row pins their payload) and
+     owned by a sibling lane's report. Recorded, not fixed (§Non-goals).
+  2. Ticket-LESS direct-`runBinder` harnesses (no dispatch-level
+     `beginInvocation`) degrade to the pre-fix `{ event: {} }` payload without
+     throwing — harness-only; production always threads the ticket
+     (`beginInvocation` inserts the entry ahead of the awaited binder step per
+     `runtime-event-channel.md:83`). Documented at the emitter; reviewer
+     confirmed the production caller cannot reach it.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the user-facing `content` bytes and the
+  `bound: false` drive outcome are unchanged for every failure route (only the
+  operator-channel structured half changed). `query_site` is deliberately
+  omitted for binder failures (the binder runs before any theta code, per
+  `runtime-event-channel.md:83`).
 
 ## Provenance
 

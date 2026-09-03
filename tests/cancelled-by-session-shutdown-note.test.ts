@@ -268,6 +268,8 @@ async function dispatchParkedInBody(
           }
           const wrapped: ActiveInvocationTicket = {
             settleDisposeBarrier: real.settleDisposeBarrier,
+            invocationId: real.invocationId,
+            theta: real.theta,
             finish: (): void => {
               finishCalls += 1;
               real.finish();

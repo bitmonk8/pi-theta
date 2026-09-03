@@ -126,6 +126,27 @@ export function renderBinderSystemNote(
   }
 }
 
+/**
+ * The binder-failure runtime event's `message` field (bug 0397 §Fix constraint
+ * 1): the same string interpolated into the user-facing template above, per
+ * surface — the single source of truth for the surface→string map so a
+ * `RuntimeEvent` builder never re-derives its own copy.
+ */
+export function binderFailureMessage(surface: BinderFailureSurface): string {
+  switch (surface.kind) {
+    case "needs_info":
+    case "ambiguous":
+    case "transport":
+      return surface.message;
+    case "ajv_args":
+      return surface.ajvSummary;
+    case "malformed":
+      return "could not parse arguments";
+    case "cancelled":
+      return "argument binding cancelled";
+  }
+}
+
 // --- the `<ajv-summary>` placeholder ----------------------------------------
 
 /**
