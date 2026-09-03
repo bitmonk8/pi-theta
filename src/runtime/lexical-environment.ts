@@ -379,6 +379,20 @@ export class LexicalEnvironment {
    */
   private fnActivationBoundary = false;
 
+  /**
+   * True iff this scope is a `par for` iteration's per-iteration binding
+   * scope (`bindParIterationVariable`). WHY: the CTRL-4 parse-side scan is
+   * the primary defence against a body write reaching an outer `let mut`
+   * (bug 0396) — a data race under concurrent worker scheduling — but a scan
+   * miss must not let the write land silently. Marking the iteration scope
+   * as a write boundary makes `writeBinding` fail closed the same way
+   * `fnActivationBoundary` does (bug 0370), turning any future gap into a
+   * loud `RejectedWriteDefectError` instead of a landed racy write. Reads
+   * are unaffected: `resolve()` does not consult this flag, so an outer
+   * binding stays readable inside the body (CTRL-4's read/write split).
+   */
+  private parIterationBoundary = false;
+
   public constructor(
     inputs: EnvironmentInputs,
     private readonly parent: LexicalEnvironment | null = null,
@@ -560,6 +574,16 @@ export class LexicalEnvironment {
         // without a caller-slot mutation ever taking place.
         return { accepted: false };
       }
+      if (env.parIterationBoundary) {
+        // Belt for bug 0396: a `par for` body write that does not resolve to
+        // a slot inside the iteration scope is reaching for an outer
+        // binding — the CTRL-4 hazard the parse-side scan exists to refuse.
+        // Stopping here (rather than continuing outward like a plain `for`)
+        // turns any scan gap into the same loud `RejectedWriteDefectError`
+        // path as an `fnActivationBoundary` miss, instead of a landed write
+        // racing across concurrent workers.
+        return { accepted: false };
+      }
     }
     return { accepted: false };
   }
@@ -719,6 +743,24 @@ export class LexicalEnvironment {
   public bindIterationVariable(name: string, value: ThetaValue): LexicalEnvironment {
     const scope = this.child();
     scope.defineLocal(name, value, false);
+    return scope;
+  }
+
+  /**
+   * Enter a fresh `par for` iteration scope binding `name` to `value`
+   * (identical per-iteration freshness to `bindIterationVariable`), but
+   * additionally marked as a write boundary (bug 0396 belt layer, mirroring
+   * `childFnActivation`'s boundary shape). A body write that walks out of
+   * this scope to an outer binding is exactly the CTRL-4 hazard — concurrent
+   * workers racing on shared mutable state — the parse-side scan exists to
+   * refuse; the boundary rejects it here too rather than letting it land.
+   * Reads keep crossing (`resolve()` does not consult the boundary), so an
+   * outer binding stays readable inside the body per CTRL-4's read/write
+   * split.
+   */
+  public bindParIterationVariable(name: string, value: ThetaValue): LexicalEnvironment {
+    const scope = this.bindIterationVariable(name, value);
+    scope.parIterationBoundary = true;
     return scope;
   }
 

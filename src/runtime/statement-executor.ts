@@ -1663,7 +1663,11 @@ async function runParForIteration(
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
 ): Promise<ParForIterationOutcome> {
-  const scope = env.bindIterationVariable(expr.variable, element);
+  // A `par for` iteration scope is a write boundary (bug 0396 belt): a body
+  // write that walks out to an outer binding is the CTRL-4 concurrent-write
+  // hazard the parse-side scan exists to refuse, so this must reject rather
+  // than land silently if the scan ever misses.
+  const scope = env.bindParIterationVariable(expr.variable, element);
   const collectedDiagnostics: Diagnostic[] = [];
   const baseHost = deps.host;
   // Wrap the host so each effect result's optional `childDiagnostics` transport

@@ -1,6 +1,6 @@
 # Bug 0396 — The CTRL-4 `par-shared-mutation` scan's `bodyLocals` set leaks out of nested `if`/`while`/`for` blocks, so a dead block-scoped `let mut x` masks the refusal for every later body statement: `par for i in [1,2] { if true { let mut x = 9 } x = 5 }` loads clean and the write LANDS on the outer `let mut x` from concurrent workers — the block-EXPRESSION arm copies the set precisely to prevent this
 
-- **Status:** open.
+- **Status:** fixed (0.385.0).
 - **Kind:** defect against CTRL-4. `docs/spec_topics/control-flow.md:76`
   (CTRL-4): "assignment to a `let mut` declared outside the body is
   `theta/parse/par-shared-mutation`." The masked spelling assigns to exactly
@@ -165,3 +165,18 @@ d63c5148, then confirming the runtime landing through the 0370-fixed
 `writeBinding` walk (no boundary at iteration scopes). All four rows probed
 offline through the production executor harness before filing. Scratch probes
 deleted.
+
+## Fix (0.385.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — `scanParForStmt`'s `if` (then + `else`-block), `while`, and `for` arms now recurse with `new Set(bodyLocals)` (§Fix part 1), so a dead block-scoped `let mut` no longer leaks into `bodyLocals` and masks a later outer write's CTRL-4 refusal. The `if` else-if STMT leg and the block-EXPRESSION arm are unchanged (the latter already copied).
+  - `src/runtime/lexical-environment.ts` — new `parIterationBoundary` field and `bindParIterationVariable`, plus a `writeBinding` stop at that boundary returning `{ accepted: false }` (§Fix part 2 belt), mirroring the `fnActivationBoundary` stop (bug 0370). `resolve()` is untouched, so reads keep crossing the boundary (CTRL-4 read/write split); a rejected write surfaces loudly through the pre-existing `RejectedWriteDefectError` path (no new taxonomy).
+  - `src/runtime/statement-executor.ts` — `runParForIteration` binds the loop variable via `bindParIterationVariable`, activating the belt only for `par for` iteration scopes; plain `for`/`while` (`executeFor`/`executeWhile`) still bind via `bindIterationVariable` and keep landing legal outer writes.
+- Gates: witness `npx vitest run tests/b0396-par-shared-mutation-dead-shadow.test.ts` 11/11 green (on fix revert: 4 red — E1/E3/E5 parse `[]`, E1 runtime value=5 — then byte-exact restored); full default suite green modulo the known parallel-interference flake family (8 files red under concurrent load, all green isolated 230/230, none on this surface); `npm run typecheck` clean; `npm run lint` clean; live `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/par-for-body-return-live-cell.test.ts` 1/1 green.
+- Review: 2 rounds — R1 (`bug-fix-reviewer`, deep): src fix CORRECT; one `test`-class finding (belt accept-direction lacked a runtime regression guard). R2 (`bug-fix-reviewer-fast`): CLEAN after the accept-direction cell (`BODYLOCAL_RUN`) was added.
+- Verification: SOLID — the witness reds for the doc's exact symptom on revert and restores byte-exact; default-suite reds are all load-noise (green isolated); typecheck + lint clean; the live obligation is discharged by the orchestrator via the adjacent `par-for-body-return` cell.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the runtime belt is defense-in-depth — the parse scan is primary, and post-fix the belt is unreachable from parse-clean source (witnessed only via the runtime-only drive). The flat `this.bindings` mutability-map dead-shadow leaks (bug 0370 residual 2 / bug 0386) are a DIFFERENT map and remain out of scope here.
+
+Witness: `tests/b0396-par-shared-mutation-dead-shadow.test.ts` (E1/E3/E5 parse refusal + E1 runtime belt landing; controls E2/E4/E6/BODYLOCAL/PLAINFOR + BODYLOCAL_RUN accept-direction).

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.385.0]
+
+### Fixed
+
+- **Bug 0396** — the par-for CTRL-4 shared-mutation scan was masked by a dead shadow: the parse-side scan seeded each control-flow arm with the SAME `bodyLocals` set object, so a `let` inside one arm registered the name as iteration-local for every later arm — a `par for` body that mutated a genuinely-shared outer binding scanned clean (parse `[]`) whenever any earlier arm declared a same-named local, and the write then landed on the shared binding at runtime with no diagnostic (the doc's E1: parallel iterations racing an outer accumulator, silent). Fixed per the settled §Fix on both layers: (1) parse — the CTRL-4 scan copies (`new Set(bodyLocals)`) into each if/while/for arm so an arm-local `let` shadows only within its arm and the shared-mutation refusal fires for the sibling arms; (2) runtime — `LexicalEnvironment` gains a `parIterationBoundary` + `bindParIterationVariable`, and `writeBinding` STOPS at the iteration boundary for names not bound inside it, so a laundered cross-iteration write that survives parse cannot silently mutate the shared frame (`runParForIteration` binds through the new method). Witnessed by `tests/b0396-par-shared-mutation-dead-shadow.test.ts` (11 cells; 4 red at fork — E1/E3/E5 parse `[]`, E1 runtime landing 5 on the shared accumulator; revert-proof byte-exact). 0370's reassign-target scope law untouched (different map: CTRL-4's scan-local `bodyLocals`, not the parser's flat mutability `bindings`). Live: `par-for-body-return-live-cell` 1/1 under the lock (adjacent par-for drive witness; recorded WHY).
+
 ## [0.384.0]
 
 ### Fixed

@@ -5701,10 +5701,17 @@ class BodyParser {
         return;
       case "if":
         this.scanParForExpr(s.condition, outerMutables, bodyLocals, loopDepth);
-        this.scanParForBlock(s.then, outerMutables, bodyLocals, loopDepth);
+        // The `then` block runs in a child scope at runtime (`executeIf` ->
+        // `env.child()`), so a COPY of `bodyLocals` keeps a `let` declared
+        // inside it from masking a sibling statement's shared-mutation
+        // refusal once the block ends (mirrors the block-expression arm
+        // below).
+        this.scanParForBlock(s.then, outerMutables, new Set(bodyLocals), loopDepth);
         if (s.otherwise !== null) {
           if ("statements" in s.otherwise) {
-            this.scanParForBlock(s.otherwise, outerMutables, bodyLocals, loopDepth);
+            // Same child-scope reasoning as `then`: an `else` block's `let`s
+            // must not leak into statements after the `if`.
+            this.scanParForBlock(s.otherwise, outerMutables, new Set(bodyLocals), loopDepth);
           } else {
             this.scanParForStmt(s.otherwise, outerMutables, bodyLocals, loopDepth);
           }
@@ -5712,11 +5719,15 @@ class BodyParser {
         return;
       case "while":
         this.scanParForExpr(s.condition, outerMutables, bodyLocals, loopDepth);
-        this.scanParForBlock(s.body, outerMutables, bodyLocals, loopDepth + 1);
+        // The loop body runs in a child scope per iteration, so copy
+        // `bodyLocals` for the same reason as the `if` arms above.
+        this.scanParForBlock(s.body, outerMutables, new Set(bodyLocals), loopDepth + 1);
         return;
       case "for":
         this.scanParForExpr(s.iterand, outerMutables, bodyLocals, loopDepth);
-        this.scanParForBlock(s.body, outerMutables, bodyLocals, loopDepth + 1);
+        // The loop body runs in a child scope per iteration, so copy
+        // `bodyLocals` for the same reason as the `if` arms above.
+        this.scanParForBlock(s.body, outerMutables, new Set(bodyLocals), loopDepth + 1);
         return;
       case "query":
         this.diagnostics.push({
