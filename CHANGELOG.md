@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.383.0]
+
+### Fixed
+
+- **Bug 0387** — a `@`-query in a block-expression's TAIL position bound its raw brand-less payload on the Ok side (bug 0351's exact pre-fix symptom one spelling over: `let r = { …; @`q` }` gave `r` the naked payload instead of `Ok(payload)`, so match arms over the Result contract missed) and rode 0307's terminal law wrong on the Err side. Root cause: `executeBlock` evaluated its tail expression with the same `atTerminal` disposition as a statement position — the block boundary lost the value-position context, so the 0351 `asResultValue`-gated-`!atTerminal` wrap never fired for block tails. Fixed per the settled §Fix: `executeBlock` gains an `atTerminal: boolean = true` parameter threaded to its tail evaluation, and `evalExpr`'s `"block"` arm — the sole value-position caller — passes its OWN `atTerminal` through, so a block tail in value position wraps `Ok(payload)`/binds Err exactly as a direct value-position query does, while statement-position blocks keep terminal semantics byte-identical. 0351's `asResultValue` gate and 0307's value-position Err-binding law are reused untouched (0326 anti-fork). Witnessed by `tests/b0387-block-expr-tail-query-consumption.test.ts` (6 cells: B1/B2/B4 + 3 byte-neighbour controls; red at fork — B1/B4 MatchError on the raw payload, B2 `fail`) and NEW live cell `tests/live/b0387live-block-tail-query-consumption-live-cell.test.ts` (real drive through the production host; red-direction neutralisation proven: `aborted: MatchError: no arm matched 867`).
+
 ## [0.382.0]
 
 ### Fixed

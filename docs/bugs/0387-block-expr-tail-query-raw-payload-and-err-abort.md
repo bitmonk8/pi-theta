@@ -1,6 +1,6 @@
 # Bug 0387 — a query at a block-expression tail (`let r = { @`q` }`, the grammar's let-init BlockExpr position) binds the RAW payload on success and FAILS the theta on Err, because `executeBlock` hard-codes every block tail as a terminal position
 
-- **Status:** open.
+- **Status:** fixed (0.383.0).
 - **Sev/Diff estimate:** S1-2/D2 — the Ok side re-creates bug 0351's exact
   pre-fix symptom one spelling over: `r` binds a brand-less raw payload, so the
   documented consumption (`match r { Ok(v) …, Err(e) … }`) panics `MatchError`
@@ -158,3 +158,58 @@ dispositions. Implementation read: statement-executor.ts:906-1183 (evalExpr
 effect arm), :2048-2077 (executeBlock), :1534-1575 (evalMatch). Dup check:
 README index has no block-tail report; 0351/0307 are fixed and both scope
 themselves away from this spelling.
+
+## Fix (0.383.0)
+
+- What shipped:
+  - `src/runtime/statement-executor.ts` — `executeBlock` gained a fourth
+    parameter `atTerminal: boolean = true`; its tail now evaluates with
+    `evalExpr(block.tail, env, deps, atTerminal)` instead of the hard-coded
+    `true`, and `evalExpr`’s `"block"` arm threads its own `atTerminal` down
+    (the sole non-default call site) — exactly the settled §Fix. A
+    value-position BlockExpr tail now disposes as a consumed value (success
+    wraps `asResultValue`, failure binds `makeErr`, via the existing
+    0351/0307 effect-arm gating); the default `true` keeps every body /
+    statement / control-flow / par-for call site terminal, byte-identical.
+  - `tests/b0387-block-expr-tail-query-consumption.test.ts` — offline
+    witness over the real `executeBody` with the b0351 ScriptedHost harness:
+    B1/B2/B4 (block-expr tail + match-arm block body flip to bind) and the
+    controls C-B3 (brace-less 0351 path), C-bodytail-ok / C-bodytail-fail
+    (body bare tail stays RAW / terminal-fail — STL-6, no double-wrap).
+  - `tests/live/b0387live-block-tail-query-consumption-live-cell.test.ts` —
+    end-to-end live cell driving `let r = { @`q` }` consumed by an outer
+    `match` through the real shipped load + drive path.
+- Gates: witness `npx vitest run tests/b0387-block-expr-tail-query-consumption.test.ts`
+  6/6 green (RED pre-fix: B1/B4 `MatchError: no arm matched PAYLOAD`, B2
+  outcome `fail`). Full default suite `npm test` 557 files / 10313 tests green
+  (5 files flaked on timeout under parallel machine load — all green on isolated
+  re-run, none referencing the fixed surface). `npm run typecheck` clean;
+  `npm run lint` clean. Live cell green post-fix (arm tag rendered, no
+  fail-closed note) and RED with the fix neutralised
+  (`theta /... aborted: MatchError: no arm matched 867`) — both directions.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec
+  finding; fidelity to §Fix exact, call-site sweep confirmed `:947` the sole
+  non-default site, non-goals byte-identical, both witness directions proved
+  in a scratch worktree). Four non-blocking residuals (see Residuals).
+- Verification: `bug-fix-verifier` SOLID — (1) witness genuinely witnesses
+  (revert→red→restore→green, byte-exact); (2) full suite green (load-noise
+  reds green isolated); (3) live owned by the orchestrator, run both
+  directions; (4) typecheck + lint clean. Non-goals 0307/0351/0316/0082 green.
+- Residuals:
+  1. Dead copied harness helpers/imports in the witness
+     (`arrayExpr`/`objectExpr`/`callExpr`/`tryExpr`/`returnStmt`,
+     `makeOk`/`makeErr`/`ResultValue`) — the b0351 clone kept verbatim as a
+     faithful sibling; harmless (no `noUnusedLocals`; eslint scopes `src/**`).
+  2. Witness comment line cites (`:2048`/`:2073`) describe the PRE-FIX seam
+     per house precedent (b0082/b0316 keep pre-fix cites) — the fix shifts
+     them to `:2052`/`:2084`; left as pre-fix narrative by convention.
+  3. Minor prose in the witness (`just`, one dated line pointer) — STYLE.md
+     binds user-facing docs, not tests; 26 existing test files use `just`.
+  4. `.npm-ci.log` untracked install noise at the worktree root — pre-existing,
+     must not ride into the commit.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the BODY bare-tail / `return @`q`` disposition
+  (0307/0351 raw-then-rewrapped, Err→fail), statement-form control-flow block
+  tails, and 0316’s non-effect scrutinee rule are all unchanged — the default
+  `atTerminal = true` preserves them (controls C-bodytail-ok / C-bodytail-fail
+  and the 0307/0351/0316 suites lock this).

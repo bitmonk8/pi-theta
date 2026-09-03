@@ -940,7 +940,11 @@ async function evalExpr(
   // `executeBlock` call sites, lifted onto `EvalResult` here because a block is
   // an EXPRESSION, not a statement.
   if (expr.kind === "block") {
-    const flow = await executeBlock(expr.body, env.child(), deps);
+    // The enclosing position threads down: a value-position block's tail is a
+    // consumed value, not a returned/discarded one, so `executeBlock` must
+    // dispose its tail query the same way this `block` expression itself is
+    // disposed.
+    const flow = await executeBlock(expr.body, env.child(), deps, atTerminal);
     switch (flow.kind) {
       case "normal":
         return { flow: "value", value: flow.value };
@@ -2045,7 +2049,12 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
  * then, if none fired, produce the block's final value (its tail expression, or
  * the literal `null` for a statement-terminated / empty block — FN-5).
  */
-async function executeBlock(block: Block, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
+async function executeBlock(
+  block: Block,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  atTerminal: boolean = true,
+): Promise<Flow> {
   // A trailing bare-expression statement contributes the block's FN-5 final
   // value (V20e). The parser promotes a trailing bare expression form to the
   // block `tail` and leaves only lone call/invoke/query actions (and non-
@@ -2066,11 +2075,13 @@ async function executeBlock(block: Block, env: LexicalEnvironment, deps: Execute
     trailingExprValue = stmt.kind === "expr" ? { value: flow.value } : undefined;
   }
   if (block.tail !== null) {
-    // A block's tail value flows onward: for a `let r = { … }` block-expr it is
-    // that block's own value (still terminal for THIS block); for the body's
-    // outer block it is the body's returned/discarded final value — either way
-    // a terminal/returning/discarding position.
-    const r = await evalExpr(block.tail, env, deps, true);
+    // A block's tail is a consumed VALUE at a value-position block-expr (the
+    // caller binds/matches it, so no re-wrap runs downstream) but a
+    // returned/discarded value at a body/statement block (the caller's own
+    // terminal boundary re-wraps once) — the two positions need opposite
+    // `atTerminal` dispositions, so the caller-supplied flag (not a hard-coded
+    // terminal default) decides how THIS tail's query outcome disposes.
+    const r = await evalExpr(block.tail, env, deps, atTerminal);
     return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
   }
   return { kind: "normal", value: trailingExprValue !== undefined ? trailingExprValue.value : null };
