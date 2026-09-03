@@ -1,6 +1,6 @@
 # Bug 0402 — A laundered fractional / NaN / Infinity number under `slice`'s `integer` parameters silently JS-truncates on both hosts (`f([1,2,3], 1.5)` → `[2,3]`, `0 % 0` → the full copy, `1 / 0` → `[]`), while the byte-identical direct spelling is parse-refused and the identical value under INDEX position panics `theta/runtime/index-out-of-bounds`
 
-- **Status:** open.
+- **Status:** fixed (0.400.0).
 - **Kind:** defect — the runtime evaluates a value the signature excludes by
   JS coercion, against `expressions.md:122`'s twice-stated "never a JS-coerced
   runtime value", and against the runtime integrality discipline the sibling
@@ -176,3 +176,77 @@ was never adjudicated there (witness rows are wrong-KIND only) nor in 0365
 (`tests/scratch-fr4-residuals.test.ts`, deleted). Dup check: README index
 carries no stdlib-argument integrality report; `docs/bugs/0365` §Non-goals
 and `docs/bugs/0394` §Pinned dispositions read in full.
+
+## Fix (0.400.0)
+
+- What shipped (settled §Fix — extend the 0394 kind belt with one integrality
+  conjunct; belt-law straight case, NO new registry row):
+  - `src/runtime/stdlib-string.ts` — `assertStdlibArgumentKinds`'s `"integer"`
+    arm widened from `typeof arg !== "number"` to
+    `typeof arg !== "number" || !Number.isInteger(arg)`. `Number.isInteger`
+    excludes fractional, `NaN`, and `±Infinity` in one predicate while admitting
+    negative integers and `-0` (§Non-goals guard). The existing
+    `StdlibMethodArgumentKindDefectError` message and its
+    `surfaceUnexpectedThrow` → `theta/runtime/internal-error` route are
+    unchanged — no new error class, no message change, no new registry row. Both
+    hosts move in lockstep because the belt lives in the shared stdlib
+    evaluator (`evaluateArrayMember`, reached by the executor
+    `applyStdlibMethod` and the pure-host `evaluateStdlibMethod`). The `slice`
+    signature `["integer", "integer"]` covers BOTH `start` and `end`.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — the §Fix
+    same-commit DIAG-2 obligation: one additive `Also …` clause on the
+    `theta/runtime/internal-error` row's *Trigger* cell naming the integrality
+    rejection (a non-integral `number` reaching the runtime kind belt under an
+    `integer` descriptor; the parse-time `theta/parse/stdlib-arg-type-mismatch`
+    check refuses only statically-resolvable mismatches, and a statically-
+    `integer`-typed operand can still evaluate non-integral at runtime —
+    `n % m`, runtime-zero `m`). Message/Code/Sev/Phase/Spec-rule cells
+    byte-identical; no new row; `docs/reference/diagnostics.md` untouched (it
+    transcribes Code/Sev/Phase/Message only, none changed).
+  - `tests/b0402-slice-integer-arg-fractional-nan-belt.test.ts` (new) — the
+    witness (9 cells), mirroring the b0394 harness: executor FLIPs S7/S8/S9
+    (`1.5`→[2,3], `0 % 0`/NaN→[1,2,3] full copy, `1 / 0`/Infinity→[]), the
+    `end`-arg FLIP S12 (`2.5`→[1,2], proving the optional `end` shares the
+    descriptor + fix site), the pure-host FLIP S13 (interpolation renders + sends
+    the truncated text at HEAD), and controls K1–K4 including the negative-
+    integral guards K3 (`slice(-1)`→[3]) / K4 (`slice(-2,-1)`→[2]).
+- Gates: witness 9/9 green; full default suite 571 files / 10440 tests green
+  (one run showed `tests/shared-subtree-judged-once-per-pass-not-once-per-path.test.ts`
+  timing out under 16-lane parallel load — green isolated 7/7, touches zero of
+  this surface: recorded load noise, not a regression; a later full run was
+  571/571 clean); `npx tsc --noEmit` clean; `npm run lint` clean; adjacent live
+  cell `tests/live/acceptance/b0315live-stdlib-arg-refusal.test.ts` green (5.3s
+  real `pi -p` turn over the same stdlib-arg dispatcher surface).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`) — FINDINGS: F1 (spec,
+  blocking) the Trigger clause's causal tail misdescribed the emission
+  conditions (the belt also fires with no parse deferral, e.g.
+  `[1,2,3].slice(4 % y)` with runtime-zero `y`); residuals R1 (witness cited
+  pre-fix line coords), R2 (pre-existing 0394 belt message imprecision, OUT OF
+  SCOPE per §Fix "no message change"). Code/tests/fidelity/house-rules clean;
+  the 0394-tension adjudicated: the widening extends 0394's open-ended trigger,
+  it does not flip it. Fixer round (`bug-fix-fixer`) reworded F1 (doc prose) and
+  R1 (witness comment) — no executable line. Round 2 (`bug-fix-reviewer-fast`)
+  — CLEAN.
+- Verification: SOLID (`bug-fix-verifier`). (1) Revert-witness: neutralising
+  the `Number.isInteger` conjunct reds the 5 FLIP rows naming their coerced HEAD
+  values (S7 [2,3], S8 [1,2,3], S9 [], S12 [1,2], S13 sent ["v=[2,3]"]),
+  controls K1–K4 stay green; restored byte-exact, witness 9/9 green. (2) Full
+  suite 571/571 green. (3) tsc + lint exit 0. (4) Live: runtime belt changes no
+  registration/load/drive outcome for any input class; adjacent b0315 cell run
+  by the orchestrator.
+- Residuals:
+  1. (prose) The pre-existing `StdlibMethodArgumentKindDefectError` message
+     (`src/runtime/runtime-panics.ts`, 0394-shipped) says "did not reject this
+     laundered-receiver site", which is imprecise for the non-laundered
+     emission paths this fix newly admits (e.g. a resolvable receiver with a
+     runtime-non-integral arg). Explicitly OUT OF SCOPE — the §Fix pins "no
+     message change". Code-side twin of the round-1 F1 wording; follow-up sweep
+     material, per the 0394 residual-3 precedent.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: extends the 0394 kind belt, does not weaken
+  or flip it (no new registry row; the `internal-error` open-ended trigger still
+  covers the belt — the added clause is an example, not a closure change). The
+  parse-side gate untouched (still refuses resolvable `number` under `integer`);
+  negative integral starts admitted (K3/K4 byte-identical); the
+  `"element"`/`"string"`/`"array"` descriptors and the 0365 index-position belt
+  untouched; correct-kind integer calls byte-identical.

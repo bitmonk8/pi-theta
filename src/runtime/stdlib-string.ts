@@ -79,6 +79,11 @@ export interface StdlibMemberSignature {
  * of even indexing `args[i]`), so a wrong-kind argument on a laundered
  * receiver fails loudly here instead of reaching the switch below and
  * JS-coercing (or, for `replace`'s `from` position, diverging — bug 0394).
+ * The `"integer"` arm rejects more than `typeof arg !== "number"`: a
+ * non-integral `number` — fractional, `NaN`, or `±Infinity` — laundered
+ * under an `integer` descriptor is the same kind of ToIntegerOrInfinity
+ * coercion trap as a wrong-`typeof` value (bug 0402), so `Number.isInteger`
+ * closes both the kind gap and the integrality gap in one conjunct.
  * `"element"` and an out-of-range index (an omitted optional argument) are
  * unchecked: `includes`/`indexOf` compare with `valuesEqual`, which is total
  * over any argument kind, and there is no descriptor to check for an argument
@@ -95,7 +100,7 @@ export function assertStdlibArgumentKinds(
     if (kind === "string" && typeof arg !== "string") {
       throw new StdlibMethodArgumentKindDefectError(member, i, "a string", arg);
     }
-    if (kind === "integer" && typeof arg !== "number") {
+    if (kind === "integer" && (typeof arg !== "number" || !Number.isInteger(arg))) {
       throw new StdlibMethodArgumentKindDefectError(member, i, "an integer", arg);
     }
     if (kind === "array" && !Array.isArray(arg)) {

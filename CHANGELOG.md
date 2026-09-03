@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.400.0]
+
+### Fixed
+
+- **Bug 0402** — `slice`'s integer arguments accepted fractional/`NaN`/`±Infinity` values and silently JS-truncated (`s.slice(1.9)` behaved as `s.slice(1)` with zero diagnostics — a laundered non-integral index produced silently wrong substrings/subarrays on both hosts), because bug 0394's argument-KIND belt checked `typeof arg !== "number"` only: integrality was never asserted. Fixed per the settled §Fix: the `assertStdlibArgumentKinds` `"integer"` arm widens to `typeof arg !== "number" || !Number.isInteger(arg)` (rejects fractional, `NaN`, `±Infinity`; admits negatives and `-0`), throwing the same `StdlibMethodArgumentKindDefectError` → `surfaceUnexpectedThrow` → `theta/runtime/internal-error` route — no new registry row (the belt law); the DIAG-2 same-commit obligation discharged by one additive Trigger-cell clause on the `internal-error` row (the widening 0394's identical belt omitted, directed by 0402's own §Fix — additive, flips nothing of 0394's). Witnessed by NEW `tests/b0402-slice-integer-arg-fractional-nan-belt.test.ts` (9 cells: fractional/NaN/±Infinity refused on both hosts, negative/-0/integral admitted controls; red at fork). Live: `b0315live` stdlib-arg-refusal adjacent cell 1/1 under the lock (recorded WHY — same belt surface, deterministic rejection).
+
 ## [0.399.0]
 
 ### Fixed
