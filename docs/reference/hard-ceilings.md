@@ -65,7 +65,7 @@ enforcement point:
 |---|---|---|
 | Typed-query response | theta code | `Err(QueryError { kind: "validation", cause: "schema_validation", validation_errors: [{ schema_keyword: "maxDepth", ... }], ... })` |
 | Tool-call args, model-driven (`@`...`` loop) | the model (loop continues; round counts against `tool_loop.max_rounds`) | tool-error result fed back as next user turn; no `QueryError` unless the loop later hits ceiling #2 |
-| Tool-call args, code-driven (`<name>(args)`) | theta code | `Err(CodeToolError { cause: "validation", validation_errors: [...], ... })` |
+| Tool-call args, code-driven (`<name>(args)`) | theta code | `Err(CodeToolError { cause: "validation", ... })` |
 | `params` validation | depends on call site | `invoke(...)`: `Err(InvokeInfraError { cause: "validation", ... })`. Slash-load: routes through ceiling #3's no-retry classification; not an evaluation outcome |
 | `invoke<T>` return value | invoke parent | `Err(InvokeInfraError { cause: "return_validation", ... })` |
 

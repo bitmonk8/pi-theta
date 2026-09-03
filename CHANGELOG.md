@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.371.0]
+
+### Fixed
+
+- **Bug 0356** — three normative pages described ceiling #4's code-driven breach as carrying a `CodeToolError.validation_errors[]` field that the owning schema (`queryerror-variants.md`, four fields) does not declare and the implementation does not carry: an author writing the hard-ceilings table's `match` arm destructured a field that can never bind, and PIC-1 (c)(ii)'s `code_tool` co-fire eligibility was stated over the non-existent field (unevaluable as written; moot in V1 only because that site's mask domain is empty). PARENT ADJUDICATION Option 1 (recorded): reword the citing sites to the owning schema — the code-driven rows in `hard-ceilings/ceilings-3-and-4.md` and `schema-subset.md` drop the phantom field (the surface stays fully specified by `cause: "validation"` + the canonical depth message), and PIC-1 (c)(ii) restates eligibility over what the event actually carries, correcting the stale ordinal in the same edit (the code-driven boundary is row 3 of 5, not "the fifth row"); Option 2's variant widening is a GOV-scale `QueryError`-surface change with no demonstrated need. PARENT-SCOPE WIDENING at merge (recorded in the fix record): the reference-layer mirrors `docs/reference/hard-ceilings.md` and `docs/reference/schema-subset.md` carried the identical phantom row — same one-line drop applied to both (their QueryError/ValidationError rows legitimately keep the field). No implementation change; no test flips (no cell asserts the changed strings); zero-flip suite + doc gates 49/49. Live: adjacent `fn-call-arity` cell (the code-driven `<name>(args)` boundary the reworded rows describe) 1/1 under the lock.
+
 ## [0.370.0]
 
 ### Fixed

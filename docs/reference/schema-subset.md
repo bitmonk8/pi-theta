@@ -178,7 +178,7 @@ that is not a literal AJV keyword. Routing is boundary-dependent (per the ceilin
 |---|---|---|
 | #1 Typed-query response | theta code | `Err(QueryError { kind: "validation", cause: "schema_validation", validation_errors: [{ schema_keyword: "maxDepth", ... }], ... })` |
 | #2 Tool-call args, model-driven | the model | tool-error result fed back as next user turn; round counts against `tool_loop.max_rounds`; not `ModelToolError` |
-| #3 Tool-call args, code-driven | theta code | `Err(CodeToolError { cause: "validation", validation_errors: [...], ... })` |
+| #3 Tool-call args, code-driven | theta code | `Err(CodeToolError { cause: "validation", ... })` |
 | #4 `params` validation | depends on call site | `invoke(...)`: `Err(InvokeInfraError { cause: "validation", ... })`. Slash-load: routes through ceiling #3's no-retry classification (binder AJV-on-`args`); not an evaluation outcome |
 | #5 `invoke<T>` return value | invoke parent | `Err(InvokeInfraError { cause: "return_validation", ... })` |
 

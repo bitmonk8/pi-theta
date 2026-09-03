@@ -1,6 +1,6 @@
 # Bug 0356 — Ceiling #4's code-driven row and PIC-1 (c)(ii) describe a `CodeToolError.validation_errors[]` field that `queryerror-variants.md`'s schema does not declare and the implementation does not carry: two normative tables show `Err(CodeToolError { …, validation_errors: [{ schema_keyword: "maxDepth", … }] })` while the variant is `{ kind, message, tool_name, cause }`, and PIC-1's co-fire eligibility predicate for the `code_tool` event reads the non-existent field
 
-- **Status:** open.
+- **Status:** fixed (0.371.0).
 - **Sev/Diff estimate:** S4/D1 — S4 because the reachable-observable surface is
   documentation truth: the implementation consistently ships the four-field
   variant (matching the owning schema page), so no wrong bytes are emitted;
@@ -159,3 +159,12 @@ Options:
   `src/runtime/tool-call.ts:560–700`.
 - No probe needed beyond reading; the divergence is textual and the
   implementation side was verified at the two builder sites.
+
+## Fix (0.371.0)
+- What shipped: `docs/spec_topics/hard-ceilings/ceilings-3-and-4.md` — code-driven row (row 3 of 5) drops the phantom `validation_errors` from its `Err(CodeToolError { … })` shape (§Fix opt 1); `docs/spec_topics/schema-subset.md` — mirror row #3 drops the same field; `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — PIC-1 (c)(ii) restated over what the `code_tool` event actually carries (`CodeToolError.cause` is `"validation"` and the failure is the depth walk's, carrying the canonical message `"JSON document depth exceeds 5"`) and the stale ordinal corrected from "the fifth row" to "the third row". No implementation change (parent adjudication: `queryerror-variants.md`'s four-field variant is right and the code matches it; Option 2 variant-widening rejected).
+- Gates: witness (docs-only) — RED at fork = the three sites quoting `Err(CodeToolError { cause: "validation", validation_errors: […], … })` / `validation_errors[].schema_keyword === "maxDepth"` (rg at fork); GREEN = reworded rows agreeing with the owning schema + shipped type. Full suite `npx vitest run` = 550 files / 10232 tests passed (baseline match, zero flips). `npm run typecheck` = exit 0. `npm run lint` = exit 0. Doc-consistency gates (citation-symbol-form, cross-cutting-gates, b0357 doc-comment-anchors, registry-closed-set-corpus) = 49/49 passed.
+- Review: docs-only reword under a settled parent adjudication; no reviewer/fixer rounds dispatched (no executable line, no assertion, no fixture touched — proportionate to a three-row prose reword). Self-verified by direct string-flip search (no test asserts the changed strings) + full-suite backstop.
+- Verification: witness both directions established (contradictory text at fork vs. schema-agreeing text after). Full default suite green. Live witness: `tests/live/fn-call-arity-live-cell.test.ts` (adjacent code-driven `<name>(args)` boundary — the surface the reworded rows describe) driven under the shared live lock = 1/1 passed. Lint + typecheck green.
+- Residuals: (1) DISCHARGED AT MERGE by parent-scope widening: `docs/reference/hard-ceilings.md` and `docs/reference/schema-subset.md` each carried the IDENTICAL phantom `validation_errors` on their code-driven `CodeToolError` row; the parent applied the same one-line drop to both mirror rows in this commit (the QueryError/ValidationError rows on those pages legitimately keep the field). Original lane disposition: the mirrors were — NOT named in this bug's §Affected or the parent adjudication (which enumerates exactly three `spec_topics/` sites). Left unedited for parent adjudication rather than silently widening scope into the hand-maintained reference-doc layer under parallel-lane contention (evidence: `rg "validation_errors" docs/reference/{hard-ceilings,schema-subset}.md`; owning schema `queryerror-variants.md:160–166`; impl `src/runtime/query-error.ts:113–119`). Same class, same fix (drop the field) if the parent widens scope.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: no implementation change; no variant widening (Option 2 rejected by parent); `masked` domain at the code-driven site remains empty (unchanged).
