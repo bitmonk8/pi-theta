@@ -12,7 +12,7 @@ import {
   withActiveSetGate,
 } from "../src/runtime/tool-registration";
 
-// V9f-T — failing tests for the paired `V9f` "tool-registration lifetime and
+// V9f-T — tests for the paired `V9f` "tool-registration lifetime and
 // visibility" implementation.
 //
 // Spec: pi-integration-contract/tool-registration-lifetime.md
@@ -27,13 +27,10 @@ import {
 // extension-bootstrap-and-per-theta.md §Per-theta registration `ToolDefinition.label`
 //   derivation (GOV-22 un-anchored residue).
 //
-// These tests red because the V9f bodies are absent: `deriveToolLabel` returns
-// `""`, `withActiveSetGate` runs the body with no snapshot/swap/restore and emits
-// nothing, and `registerToolInCache` always re-registers a base name without a
-// byte-equality check or collision diagnostic. Each test reds on its own primary
-// assertion — an absent install vector, an absent restore-failure diagnostic/note,
-// an absent internal-error routing, an absent collision diagnostic, a wrong label
-// — not on a compile error, missing fixture, or harness throw.
+// The V9f implementation is in place (`src/runtime/tool-registration.ts`); each
+// test below exercises it on its own primary observable — the step-2 install
+// vector, the restore-failure diagnostic/note, the internal-error routing, the
+// collision diagnostic, the derived label.
 
 // Diagnostic codes sourced from the runtime diagnostics registry
 // (diagnostics/code-registry-runtime.md).

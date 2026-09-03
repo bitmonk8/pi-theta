@@ -52,9 +52,10 @@ export type ToolLabelInput =
 /**
  * Derive the materialised `ToolDefinition.label`.
  *
- * V9f-T stub: returns `""` so the paired label tests red on their own
- * assertion (the absent capitalisation / absent literal). The V9f
- * implementation fills this in.
+ * The label rule (fixed `"Theta typed-query response"` literal for the respond
+ * kind; leading-capitalised basename with interior hyphens preserved otherwise)
+ * is implemented below and locked by the label cases in
+ * `tests/tool-registration-lifetime.test.ts`.
  */
 export function deriveToolLabel(input: ToolLabelInput): string {
   if (input.kind === "typed-query-respond") {
@@ -241,11 +242,8 @@ export function createRegistrationCache(): RegistrationCache {
  * registration; a byte-mismatch fires `theta/runtime/registration-cache-collision`,
  * refuses to dedup, and registers under a disambiguated per-slug-counter name.
  *
- * V9f-T stub: always mints the base content-addressed name and calls
- * `registerTool` unconditionally, never storing or byte-comparing canonical-form
- * bytes and never emitting a collision — so the reuse-on-byte-equality and
- * disambiguate-on-mismatch tests red on their own assertions. The V9f
- * implementation fills this in.
+ * This cache is implemented below and locked by the cache-collision / reuse
+ * cases in `tests/tool-registration-lifetime.test.ts`.
  */
 export function registerToolInCache(
   cache: RegistrationCache,

@@ -1,6 +1,6 @@
 # Bug 0390 — `deriveToolLabel` and `registerToolInCache` docstrings still claim to be red-by-design "V9f-T stubs" while each sits atop its full V9f implementation, asserting behaviour the code's own body contradicts
 
-- **Status:** open.
+- **Status:** fixed (0.384.0).
 - **Sev/Diff estimate:** S5/D1 — comment-only falsity; no runtime bytes
   involved. D1: delete/replace two stale docstring paragraphs and the test
   file's header claim.
@@ -107,3 +107,19 @@ docstrings unprospected. Verified at d63c5148 by reading
 tool-registration.ts:48-70/:230-280 and the green lifetime test. Dup check:
 README index — 0372 covered the PIC-8 stub docstring in the same file; these
 two functions' docstrings are the explicitly-deferred remainder.
+
+## Fix (0.384.0)
+- What shipped:
+  - `src/runtime/tool-registration.ts` — replaced `deriveToolLabel`'s false "V9f-T stub: returns `""`" paragraph with a truthful note of the implemented label rule (fixed respond literal / leading-capitalised basename) and its test lock; deleted `registerToolInCache`'s false "V9f-T stub: … never emitting a collision" paragraph, kept the accurate PIC-44 first paragraph, added a truthful test-lock pointer (§Fix sites 1-2).
+  - `tests/tool-registration-lifetime.test.ts` — corrected the file-header comment: "failing tests" → "tests", and replaced the false "These tests red because the V9f bodies are absent…" block with a truthful "the V9f implementation is in place; each test exercises it" statement (§Fix site 3).
+- Gates:
+  - Witness (documentary, both directions): `grep -c "V9f-T stub"` src at HEAD → 2, fixed → 0; header "failing tests"/"These tests red…" at HEAD → present, fixed → gone.
+  - Paired suite: `npx vitest run tests/tool-registration-lifetime.test.ts` → 11/11 green.
+  - Full default suite: 10307 tests; all full-suite reds confirmed parallel-load noise (failing set varied run-to-run — "registerCommand host seam absent" / 5000ms timeouts; every implicated file green isolated with 0 failed assertions, e.g. shared-subtree 7/7 in 3.5s).
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/typed-query-wire-shapes.test.ts` → 3/3 green (incl. the `__theta_respond_<canonical slug>` registration cell) under the lane live lock.
+  - `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round — bug-fix-reviewer CLEAN; one non-blocking prose residual (R1: `registerToolInCache` docstring lost its paragraph separator and repeated "PIC-44") resolved in-place as a comment-only polish.
+- Verification: VERIFIED — documentary witness both directions; paired suite 11/11; full suite green modulo isolated-confirmed load noise; comment-only diff (every changed line begins `*` or `//`); typecheck + lint clean.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the five `describe("V9f-T — …")` titles and `tool-registration.ts:1` module header are phase-origin labels, not falsities — left untouched per §Non-goals.

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.384.0]
+
+### Fixed
+
+- **Bug 0390** — `src/runtime/tool-registration.ts`'s docstrings still described the V9f-T scaffolding era as PRESENT reality: `deriveToolLabel` and `registerToolInCache` claimed to be "V9f-T stubs" backed by "failing tests" with "bodies absent", when 0372's fix (0.363.0) had landed the real one-gate implementation and replaced the gate-surface docstrings — these tool-registration siblings were its recorded Residual 2. A reader (or a coverage tool keying on the stub markers) was told working production code was unimplemented scaffolding. Fixed as the settled §Fix prescribes — comment-only truthing: both docstrings now state the actual disposition (implemented, unit-pinned, wired through the 0372 one-gate `withActiveSetGate` path), and the `tests/tool-registration-lifetime.test.ts` header drops the false "failing tests"/"bodies absent" block for a description of what the cells actually pin. Zero behaviour bytes moved (comment/header-only; suite counts unchanged). Documentary witness both directions: `V9f-T stub` occurrences 2 → 0; the header's false claims present at fork → gone. Live: `typed-query-wire-shapes` 3/3 under the lock (adjacent registration-surface witness incl. the `__theta_respond_<canonical slug>` cell; recorded WHY — no registration/drive outcome changes).
+
 ## [0.383.0]
 
 ### Fixed
