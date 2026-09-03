@@ -728,6 +728,30 @@ export class BinaryNonNumericError extends Error {
 }
 
 /**
+ * Bug 0392 (docs/bugs/0392-unary-minus-no-operand-discipline.md) belt: the
+ * sibling of `BinaryNonNumericError` for unary `-`'s single operand. The
+ * parse-time gate (`type-layer-checks.ts`'s `checkUnaryArithmeticOperand`)
+ * refuses a statically-resolvable non-numeric operand; an operand it DEFERRED
+ * on (an unannotated fn param, WITHHELD) can still reach `evalBinary`'s unary
+ * arm, and casting it to `number` there would silently JS-coerce (the
+ * original defect: `-"5"` → `-5`, `-true` → `-1`, `-null` → `-0`). The
+ * direct spelling is now gated at parse, so this belt fires only on a
+ * laundered operand that was never judged — the message carries no false
+ * "deferred" clause. A plain `Error`, NOT a `ThetaPanic` — it propagates
+ * uncaught out of `executeBody` and is reframed one layer up through
+ * `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
+ * `BinaryNonNumericError` is.
+ */
+export class UnaryNonNumericError extends Error {
+  public constructor(value: ThetaValue) {
+    super(
+      `internal defect: unary operator '-' requires a number, got ${typeof value}; a non-number operand reached the unary negation without a parse refusal (bug 0392)`,
+    );
+    this.name = "UnaryNonNumericError";
+  }
+}
+
+/**
  * Bug 0368 (docs/bugs/0368-plus-and-ordering-laundered-operands-silent-js-coercion.md)
  * belt: the sibling of `BinaryNonNumericError` for `+` and the four ordering
  * operators. Their parse-time gates (`type-layer-checks.ts`'s
@@ -776,19 +800,23 @@ export class ForIterandKindDefectError extends Error {
  * boolean-position consumer — an `if`/`while`/ternary condition, and an
  * operand of `&&`/`||`/`!`. The static layer's boolean-position check
  * (expressions.md §Truthiness) refuses every statically-resolvable
- * non-boolean at parse; a value it DEFERRED on can still reach one of these
- * sites, and the prior fallbacks (a strict `=== true` comparison for the
- * conditions/`&&`/`||`, raw JS `!` for the negation) would silently fabricate
- * a boolean verdict instead of interpreting the actual value (the original
- * defect: `if 1` steering false, `!0` fabricating `true`). A plain `Error`,
- * NOT a `ThetaPanic` — it propagates uncaught out of `executeBody` and is
- * reframed one layer up through `surfaceUnexpectedThrow` to
- * `INTERNAL_ERROR_CODE`, exactly as `BinaryMixedOperandError` is.
+ * non-boolean at parse; a value can still reach one of these sites without a
+ * parse refusal — either because the parse layer DEFERRED on it (an
+ * unannotated fn param, statically unresolvable), or, for `!` in
+ * interpolation position, because `checkInterpolationOperands` never judges
+ * boolean position at all (bug 0395) — and the prior fallbacks (a strict
+ * `=== true` comparison for the conditions/`&&`/`||`, raw JS `!` for the
+ * negation) would silently fabricate a boolean verdict instead of
+ * interpreting the actual value (the original defect: `if 1` steering false,
+ * `!0` fabricating `true`). A plain `Error`, NOT a `ThetaPanic` — it
+ * propagates uncaught out of `executeBody` and is reframed one layer up
+ * through `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
+ * `BinaryMixedOperandError` is.
  */
 export class BooleanPositionKindDefectError extends Error {
   public constructor(value: ThetaValue) {
     super(
-      `internal defect: a boolean-position operand (condition, '&&', '||', or '!') requires a boolean, got ${typeof value}; a non-boolean value reached the runtime after the boolean-position type gate deferred (bug 0369)`,
+      `internal defect: a boolean-position operand (condition, '&&', '||', or '!') requires a boolean, got ${typeof value}; a non-boolean value reached the runtime without a parse refusal (bug 0369)`,
     );
     this.name = "BooleanPositionKindDefectError";
   }
@@ -1228,7 +1256,10 @@ async function evalBinary(expr: BinaryExpr, env: LexicalEnvironment, deps: Execu
     if (right.flow !== "value") {
       return right;
     }
-    return { flow: "value", value: -(right.value as number) };
+    if (typeof right.value !== "number") {
+      throw new UnaryNonNumericError(right.value);
+    }
+    return { flow: "value", value: -right.value };
   }
   const left = await evalExpr(expr.left, env, deps);
   if (left.flow !== "value") {

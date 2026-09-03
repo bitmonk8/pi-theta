@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.388.0]
+
+### Fixed
+
+- **Bug 0395** — `!` had no parse-time operand gate (a resolvable non-boolean operand loaded clean where the spec's §Truthiness closed-list — `!` included since 0369 — prescribes refusal) and the 0369-landed runtime belt's message LIED about why it fired: `BooleanPositionKindDefectError`'s tail claimed the parse layer "deferred" the operand when for these shapes the parse layer had simply never judged `!` at all. Fixed per the settled §Fix: `"!"` joins `BooleanPosition` in the type-layer walk (`walkExpr` gains the `!` branch judging `e.right`), so a statically-resolvable non-boolean `!` operand is parse-refused with the existing registered boolean-position code (REUSED, no mint — DIAG-2 Trigger widening sentence same-commit), and the belt's message tail is corrected `deferred` → `without a parse refusal` (honest: it now fires only for genuinely-laundered operands). 0369's Route-1 belt machinery untouched (prior art reused). Witnessed by `tests/b0395-bang-operand-parse-gate-honest-belt.test.ts` (6 cells, red at fork). Live: b0301live 1/1 under the lock (adjacent boolean-position drive witness; recorded WHY). Co-landed with 0392 (same lane, shared type-layer/executor/producer surfaces, disjoint hunks, 0395 sequenced after 0392).
+
+## [0.387.0]
+
+### Fixed
+
+- **Bug 0392** — unary `-` had no operand discipline at ANY layer: `let s = "5"` / `-s` loaded clean and silently bound the number `-5` on both evaluation hosts, and a laundered boolean/null/array/enum operand fabricated `-1`/`-0`/`-1`/`NaN` — while the byte-identical operand under binary `0 - x` threw the 0332/0338 belt and the direct spelling `0 - s` was parse-refused (`expressions.md` §"Other arithmetic" prescribes the same rule for unary `-`, the implementation never applied it). Fixed on both layers per the settled §Fix: (1) parse — `checkUnaryArithmeticOperand` in the type-layer walk judges the unary `-` operand under the SAME rule as binary arithmetic, refusing with the existing registered `theta/parse/non-numeric-arithmetic-operands` (REUSED code, no mint — DIAG-2 Trigger widening sentence landed same-commit); (2) runtime — `UnaryNonNumericError` belt on both hosts (statement-executor + pure host) for laundered operands that survive parse, routed `surfaceUnexpectedThrow` → `theta/runtime/internal-error` per the standing belt law; a spec sentence at expressions.md names the unary discipline explicitly; a discharge note on 0332's family record. 0367's `unary:true` marker is the parse-side keying (prior art reused, not forked). Witnessed by `tests/b0392-unary-minus-operand-discipline.test.ts` (20 cells, red at fork for the doc's B-rows). Live: b0367live 1/1 under the lock (the unary-refusal adjacent cell; recorded WHY).
+
 ## [0.386.0]
 
 ### Fixed

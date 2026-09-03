@@ -560,17 +560,19 @@ function compareOrdered(
 
 /**
  * The boolean positions of expressions.md §Truthiness: the `if` / `while`
- * scrutinees, the ternary condition, and the `&&` / `||` operands. Each accepts
- * only `boolean`; a non-`boolean` there is `theta/parse/non-boolean-condition`.
+ * scrutinees, the ternary condition, the `&&` / `||` operands, and the unary
+ * `!` operand. Each accepts only `boolean`; a non-`boolean` there is
+ * `theta/parse/non-boolean-condition`.
  */
-export type BooleanPosition = "if" | "while" | "ternary-condition" | "&&" | "||";
+export type BooleanPosition = "if" | "while" | "ternary-condition" | "&&" | "||" | "!";
 
 /**
  * The type-phase boolean-position check. Reports
- * `theta/parse/non-boolean-condition` when the value used in an `if` / `while` /
- * ternary condition or as a `&&` / `||` operand has a static type other than
- * `boolean` — theta performs no truthiness coercion (expressions.md §Truthiness).
- * Returns no diagnostic for a `boolean`-typed operand.
+ * `theta/parse/non-boolean-condition` for any of the six `BooleanPosition`
+ * values above (`if` / `while` / ternary condition, `&&` / `||` operand, or
+ * the unary `!` operand) whose static type is other than `boolean` — theta
+ * performs no truthiness coercion (expressions.md §Truthiness). Returns no
+ * diagnostic for a `boolean`-typed operand.
  *
  * V3a-T stubs this inert (no diagnostics); the paired V3a leaf fills it in.
  */

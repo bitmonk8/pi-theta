@@ -1,6 +1,6 @@
 # Bug 0392 — Unary `-` has no operand discipline at any layer: `let s = "5"` / `-s` loads clean and silently binds the number `-5` on both evaluation hosts, `-x` over a laundered boolean/null/array/enum fabricates `-1`/`-0`/`-1`/`NaN` — while the byte-identical operand under binary `0 - x` throws the bug-0332/0338 belt and the direct spelling `0 - s` is parse-refused
 
-- **Status:** open.
+- **Status:** fixed (0.387.0).
 - **Kind:** spec gap with a hazardous implementation disposition (the
   0365/0369 framing). `docs/spec_topics/expressions.md:236` §"Other
   arithmetic" opens with "`-`, `*`, `/`, `%` accept only numeric operands;
@@ -186,3 +186,19 @@ records during the runtime-belts-3 sweep at d63c5148 — the unary `-` arm is
 the one arm in both hosts' operator switches with neither gate nor belt. All
 twelve rows probed offline through the production executor harness before
 filing. Scratch probes deleted.
+
+## Fix (0.387.0)
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — `walkExpr`'s binary arm gains a unary sibling branch (`ARITHMETIC_OPS.has(e.op) && e.unary === true`) dispatching the new `checkUnaryArithmeticOperand`, which judges only `e.right` via `classifyOperand` and refuses a statically-resolvable non-numeric operand with the REUSED `theta/parse/non-numeric-arithmetic-operands` code (§Fix 1; no new registry mint; `permitted-codes.json` byte-identical).
+  - `src/runtime/statement-executor.ts` — new `UnaryNonNumericError` (sibling of `BinaryNonNumericError`); `evalBinary`'s unary arm throws it on a non-`number` operand instead of the bare `as number` cast (§Fix 2, executor host). `NaN`/`±Infinity` stay admitted (`typeof number`); `-0` byte-identical.
+  - `src/extension/production-theta-producer.ts` — `evaluateBinaryExpression`'s unary arm mirrors the belt in lockstep, importing `UnaryNonNumericError` (§Fix 2, pure host — the 0338 obligation).
+  - `docs/spec_topics/expressions.md` §"Other arithmetic" — one sentence naming the unary operand's parse refusal (resolvable) and laundered-path runtime abort (§Fix 3).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — Trigger-column widening of the reused code naming the unary single-operand position (DIAG-2; the 0314 `mixed-plus-operands` widening is the precedent). Message column byte-identical.
+  - `docs/bugs/0332-spelled-arithmetic-non-numeric-operands-no-parse-gate.md` — same-commit discharge note narrowing its "unary `-` NOT gated" disposition to numeric operands only.
+- Gates: witness `tests/b0392-unary-minus-operand-discipline.test.ts` 20/20 (11 flips red on byte-identical revert, 9 numeric controls green); full default suite 557 files / 10327 tests green; `npm run typecheck` exit 0; `npm run lint` exit 0; live witness `tests/live/b0367live-null-left-minus-refusal-live-cell.test.ts` PASSED (genuine numeric unary minus still registers at live production load; the null-left / arithmetic-refusal path is intact).
+- Review: 1 round — `bug-fix-reviewer` returned 3 findings. F2 (house-rule: the `provableArgType` comment still cited the now-deleted `-(right.value as number)`) fixed via `bug-fix-fixer-light` (comment reworded to current reality). F1 (spec: registry Message-column divergence) dispositioned — see Pinned dispositions. F3 (prose: the `v0.387.0` version marker) is the mandated lane placeholder the parent substitutes at merge, not a defect. Post-polish: net review-loop change is comment/doc-only; confirmation round skipped per the gate-diff rule (suite / typecheck / lint green).
+- Verification: `bug-fix-verifier` verdict SOLID — (1) witness reds on a byte-identical temporary revert (11 red / 9 green) and restores to 20/20; (2) default suite 557 / 10327 green on first run (no isolated re-run needed); (3) live exercised by the orchestrator (b0367live PASSED); (4) `typecheck` + `lint` exit 0.
+- Residuals: none.
+- Discharge notes appended: `docs/bugs/0332-spelled-arithmetic-non-numeric-operands-no-parse-gate.md` (narrows the unary-`-` NOT-gated disposition to numeric operands; the N1a/N1b controls, over `-3` / `-(2 + 3)`, stay green byte-identical).
+- Pinned dispositions / non-goals: The reused code's registry Message column keeps the two-operand template `'<op>' requires two numeric operands; got <left> and <right>` as the registered form; the unary parse emission `unary '-' requires a numeric operand; got <type>` is a sanctioned divergence documented in the Trigger column (the §Fix's "one adjudication"). Recording both templates in the Message cell (review F1) was attempted and reverted: `registryMessage` / `extractMessage` (`tools/code-registry/index.js`) extract the span between the first and last backtick, so a second backticked template corrupts the extraction and reds 13 existing bug-0142 / bug-0152 tests that source the template from that cell via `registryMessage`. The 0369 `!` belt, the 0367 `unary` marker semantics, the V3a `expression-evaluator.ts` unary arm, and the 0166 `params:`-default sublanguage are untouched (§Non-goals).

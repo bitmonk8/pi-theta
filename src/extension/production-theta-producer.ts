@@ -135,6 +135,7 @@ import {
   executeBody,
   IndexKindDefectError,
   ThetaFnArityError,
+  UnaryNonNumericError,
   type BodyExecution,
   type ExecuteBodyDeps,
 } from "../runtime/statement-executor";
@@ -7915,8 +7916,11 @@ function evaluateBinaryExpression(
 ): ThetaValue {
   if (op === "!") {
     // Bug 0369 belt: mirrors the executor's `!` belt into this pure host, so a
-    // statically-deferred non-boolean operand throws loudly instead of being
-    // cast to `boolean` and JS-negated (`!0` → `true`).
+    // non-boolean operand that reached here without a parse refusal — either
+    // because the parse layer deferred on it (statically unresolvable), or,
+    // for `!` in interpolation position, because `checkInterpolationOperands`
+    // never judges boolean position (bug 0395) — throws loudly instead of
+    // being cast to `boolean` and JS-negated (`!0` → `true`).
     const right = evaluatePureExpression(rightExpr, env, chain);
     if (typeof right !== "boolean") {
       throw new BooleanPositionKindDefectError(right);
@@ -7924,7 +7928,15 @@ function evaluateBinaryExpression(
     return !right;
   }
   if (op === "-" && unary === true) {
-    return -(evaluatePureExpression(rightExpr, env, chain) as number);
+    // Bug 0392 belt: mirrors the executor's unary `-` belt into this pure
+    // host, so a laundered non-numeric operand reaching an interpolation or
+    // invoke argument throws loudly instead of JS-coercing (`NaN`/`Infinity`
+    // stay admitted — both are `typeof "number"`).
+    const right = evaluatePureExpression(rightExpr, env, chain);
+    if (typeof right !== "number") {
+      throw new UnaryNonNumericError(right);
+    }
+    return -right;
   }
   const left = evaluatePureExpression(leftExpr, env, chain);
   if (op === "&&") {

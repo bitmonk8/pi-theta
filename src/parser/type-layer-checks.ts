@@ -2798,13 +2798,12 @@ class TypeLayerWalk {
           // A negation's value type is the OPERATOR's, not the operand's:
           // expressions.md §"Other arithmetic" gives unary `-` `integer` for an
           // `integer` operand and `number` for a `number` one and admits no
-          // other result, and the runtime reaches that result by coercion
-          // (`evalBinary`: `-(right.value as number)`,
-          // ../runtime/statement-executor.ts), so `-"5"` evaluates to the
-          // number `-5` while the operand's own proof says `string`. The
-          // operand's proof is therefore a proof of the negation only inside
-          // the numeric shapes; outside them it names a type the value cannot
-          // have, and withholding can only suppress an emission.
+          // other result. Outside those two shapes the negation itself never
+          // reaches a value: a statically resolvable non-numeric operand is
+          // parse-refused by `checkUnaryArithmeticOperand`, and a laundered
+          // one throws `UnaryNonNumericError` at the runtime belt — so there
+          // is no value left for the operand's proof to describe, and
+          // withholding is the only sound answer outside the numeric shapes.
           //
           // `classifyOperand` is this module's one numeric test, shared with
           // the A5 `+` and A6 ordering operand checks over the same operator
@@ -3088,6 +3087,21 @@ class TypeLayerWalk {
               }),
             );
           }
+        } else if (e.op === "!") {
+          // `!` is a boolean position (expressions.md §Truthiness, six-position
+          // list). `parseUnary` models `!` as a binary carrying a synthetic
+          // `null` left operand (bug 0367's `unary` marker discipline) — judge
+          // `e.right` only, the real operand; judging `e.left` would refuse a
+          // phantom. `checkCompatible`'s existing `unknown` deferral keeps a
+          // laundered `!c` (an unannotated fn param) flowing to the bug 0369
+          // runtime belt.
+          this.diagnostics.push(
+            ...checkBooleanPosition({
+              position: "!",
+              operandType: this.typeOf(e.right, bindings),
+              site: { file: this.file, range: e.right.range },
+            }),
+          );
         } else if (e.op === "+") {
           this.checkPlusOperands(e, bindings);
         } else if (ORDERING_OPS.has(e.op)) {
@@ -3105,6 +3119,14 @@ class TypeLayerWalk {
           // that pairing is AST-identical to the synthetic node except for
           // the marker, and the spec names `null` in the refusal set.
           this.checkArithmeticOperands(e, bindings);
+        } else if (ARITHMETIC_OPS.has(e.op) && e.unary === true) {
+          // The marked unary node's placeholder `null` left operand is not a
+          // real pairing (see the comment above), but its single `right`
+          // operand IS the real unary `-` operand — expressions.md §"Other
+          // arithmetic" applies the same numeric-only rule to it (bug 0392;
+          // bug 0332's Non-goals scope-excluded unary `-`, but the belt law
+          // now brings it into the family as this arm's sibling).
+          this.checkUnaryArithmeticOperand(e, bindings);
         }
         this.walkExpr(e.left, bindings, flow);
         this.walkExpr(e.right, bindings, flow);
@@ -3855,6 +3877,33 @@ class TypeLayerWalk {
       message: `'${e.op}' requires two numeric operands; got ${displayType(
         leftType,
       )} and ${displayType(rightType)}`,
+    });
+  }
+
+  /**
+   * Bug 0392 — unary `-`'s single-operand sibling of `checkArithmeticOperands`.
+   * expressions.md §"Other arithmetic" gives unary `-` the same numeric-only
+   * rule as the binary operators, judged against the marked node's real
+   * operand (`e.right`; `e.left` is the synthetic placeholder — bug 0367).
+   * Reuses the binary check's code rather than minting one (the 0326
+   * anti-fork law; the 0314 `mixed-plus-operands` widening is the DIAG-2
+   * precedent) — permitted-codes.json stays unchanged.
+   */
+  private checkUnaryArithmeticOperand(
+    e: Expr & { kind: "binary" },
+    bindings: ReadonlyMap<string, CompatType>,
+  ): void {
+    const rightType = this.typeOf(e.right, bindings);
+    const right = classifyOperand(rightType, this.env);
+    if (right === "unknown" || right === "numeric") {
+      return;
+    }
+    this.diagnostics.push({
+      severity: "error",
+      code: "theta/parse/non-numeric-arithmetic-operands",
+      file: this.file,
+      range: e.range,
+      message: `unary '-' requires a numeric operand; got ${displayType(rightType)}`,
     });
   }
 }

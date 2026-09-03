@@ -357,3 +357,18 @@ message.
   red beyond the doc's enumerated collateral set. Unary `-` in expression
   position is NOT gated (§Non-goals; pinned by the N1 controls). Bug 0115 is
   untouched.
+
+## Discharge note (v0.387.0, bug 0392)
+
+Bug 0392 narrows this report's "unary `-` in expression position is NOT
+gated" disposition (§Non-goals; the N1a/N1b controls above, and
+`tests/b0332-spelled-arithmetic-non-numeric-operands.test.ts:361-362`):
+unary `-` over a NUMERIC operand stays ungated and clean — N1a/N1b
+(`-3`, `-(2 + 3)`) remain green, byte-identical. A RESOLVABLE non-numeric
+operand under unary `-` is now refused at parse, reusing this report's
+`theta/parse/non-numeric-arithmetic-operands` code with a Trigger-column
+widening (0392 §Fix; the 0314 `mixed-plus-operands` widening is the DIAG-2
+precedent) — not a new mint. A LAUNDERED non-numeric operand (an
+unannotated `fn` param) aborts loudly at a new sibling belt,
+`UnaryNonNumericError`, on both hosts. The N1 controls' scope — a numeric
+operand under unary `-` — is unaffected.
