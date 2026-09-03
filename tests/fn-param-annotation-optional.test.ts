@@ -47,9 +47,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 //       reads exactly `Ident (":" Type)?`, in the `fn`-declarations fence at
 //       docs/reference/grammar.md:308.
 //   a2. docs/spec_topics/grammar.md — the same, at
-//       docs/spec_topics/grammar.md:140.
+//       docs/spec_topics/grammar.md:145.
 //   a3. docs/spec_topics/grammar.md — the `fn`-declarations prose paragraph
-//       (docs/spec_topics/grammar.md:143) must DROP the sentence fragment
+//       (docs/spec_topics/grammar.md:148) must DROP the sentence fragment
 //       ``Each `FnParam` is an `Ident ":" Type` pair`` and must CARRY the
 //       phrase `parameter type annotation is optional`.
 //   a4. docs/reference/grammar.md — the `fn`-declarations prose paragraph
@@ -162,7 +162,7 @@ function fnDeclarationsSection(page: string, path: string): string {
  * The right-hand side of the single `FnParam ::= …` production line of a
  * grammar page's `fn`-declarations fence, whitespace-collapsed. Uniqueness is
  * asserted: each mirror writes the production once
- * (docs/reference/grammar.md:308, docs/spec_topics/grammar.md:140).
+ * (docs/reference/grammar.md:308, docs/spec_topics/grammar.md:145).
  */
 function fnParamRhs(page: string, path: string): string {
   const hits = page
@@ -203,7 +203,7 @@ const NEITHER_PHASE_PHRASE =
 /** a5's pinned reason the deferral's usual safety net is unavailable here. */
 const NO_AJV_PHRASE = "no runtime AJV safety net applies";
 
-/** The sentence route 2 removes from docs/spec_topics/grammar.md:143. */
+/** The sentence route 2 removes from docs/spec_topics/grammar.md:148. */
 const MANDATORY_SENTENCE = 'Each `FnParam` is an `Ident ":" Type` pair';
 
 describe("0150 (a) — route 2's documentation edit: both mirrors, both prose paragraphs, and the missing typing rule", () => {
@@ -247,7 +247,7 @@ describe("0150 (a) — route 2's documentation edit: both mirrors, both prose pa
 
   it("a3: docs/spec_topics/grammar.md's `fn` prose drops the mandatory-pair sentence and states the optionality", () => {
     // The prose restatement is the third normative statement of the same rule
-    // (docs/spec_topics/grammar.md:143). Relaxing the production and leaving
+    // (docs/spec_topics/grammar.md:148). Relaxing the production and leaving
     // the sentence would leave the page self-contradicting.
     const path = "docs/spec_topics/grammar.md";
     const section = flat(fnDeclarationsSection(corpus(`../${path}`), path));
@@ -536,7 +536,7 @@ describe("0150 (b) — the admitted shape's measured bytes, pinned so re-enforce
   });
 
   it("A6: `fn h(p,): number { 1 }` — trailing comma plus no annotation", () => {
-    // `FnParams ::= FnParam ("," FnParam)* ","?` (docs/spec_topics/grammar.md:139
+    // `FnParams ::= FnParam ("," FnParam)* ","?` (docs/spec_topics/grammar.md:144
     // / docs/reference/grammar.md:307) admits the trailing comma; the relaxed
     // `FnParam` admits the missing annotation. Both at once.
     const doc = theta("fn h(p,): number { 1 }\n");

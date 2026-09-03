@@ -1,4 +1,4 @@
-// H8a live witness — bug 0241: `docs/spec_topics/grammar.md:221`'s fourth sink
+// H8a live witness — bug 0241: `docs/spec_topics/grammar.md:230`'s fourth sink
 // bullet, "the element type of an array-typed sink that this literal is itself
 // an element of (recursive descent)", must reach the NESTED array literal, so a
 // rule-3 union written one level down admits through the real

@@ -159,8 +159,13 @@ const SUPPORTED_FORMS = "## Supported forms";
 /** §Fix constraint 3's pins: 74 inbound citations name line numbers above 54.
  * REF pin re-derived 697→701 at 0.251.0 under bug 0256's DIAG-2 authority: its
  * residual-exclusion rewrite adds +4 lines to docs/reference/grammar.md below
- * the line-54 region this cell guards (bug 0049's own edit stays line-count-true). */
-const SPEC_GRAMMAR_LINES = 223;
+ * the line-54 region this cell guards (bug 0049's own edit stays line-count-true).
+ * SPEC pin 223→232: the `subagent fn` grammar mirror (`WithClause?` + the
+ * SubagentMod/WithClause/WithField/WithKey/WithValue productions + two prose
+ * paragraphs, +9 lines in §`fn` declarations) is additive, so C4's own resolution
+ * clause applies — the +9-shifted inbound `spec_topics/grammar.md:N` line-cites are
+ * re-pinned in the same commit rather than the line count held. */
+const SPEC_GRAMMAR_LINES = 232;
 const REF_GRAMMAR_LINES = 701;
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */

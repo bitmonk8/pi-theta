@@ -150,7 +150,7 @@ const BARE_OBJECT_CODE = "theta/parse/bare-object-literal";
 // --- §Reproduction sources -------------------------------------------------
 
 /**
- * §Reproduction source #1 — docs/spec_topics/grammar.md:155–164's own worked
+ * §Reproduction source #1 — docs/spec_topics/grammar.md:164–173's own worked
  * example of the block arm body, wrapped in the bug's minimal frontmatter.
  *
  * Transcribed as the bug doc §Reproduction transcribes it: the doc substitutes

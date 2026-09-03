@@ -26,7 +26,7 @@ import { codes, parseDoc } from "./helpers/e2e-s1";
 // `parseThetaDocument`.
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:170–177 — `SchemaShape` has THREE
+//   - docs/spec_topics/grammar.md:179–186 — `SchemaShape` has THREE
 //     alternatives: the object form, `"=" AliasRhs`, and
 //     `"by" Ident "=" UnionRhs`, with `AliasRhs ::= Type ("|" Type)*` and
 //     `UnionRhs ::= Type ("|" Type)+`. None is marked deferred. `:179` prescribes

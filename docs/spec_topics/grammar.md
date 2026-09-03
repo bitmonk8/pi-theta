@@ -135,12 +135,21 @@ A statement-form `if` / `for` / `while` (the `IfStmt` / `WhileStmt` / `ForStmt` 
 <a id="fn-declarations"></a>
 
 ```
-FnDecl       ::= SubagentMod? "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody
+FnDecl       ::= SubagentMod? "fn" Ident "(" FnParams? ")" (":" ReturnType)? WithClause? FnBody
+SubagentMod  ::= "subagent"                                     // top-level fn only (theta 1.2)
+WithClause   ::= "with" "{" WithField ("," WithField)* ","? "}" // subagent fn only (theta 1.2)
+WithField    ::= WithKey ":" WithValue
+WithKey      ::= "system" | "model" | "tools" | "tool_loop" | "respond_repair"
+WithValue    ::= <value matching the like-named frontmatter field's shape/validation>
 FnParams     ::= FnParam ("," FnParam)* ","?
 FnParam      ::= Ident (":" Type)?
 ```
 
 A `FnDecl` is a top-level `fn` declaration; its placement, nesting, call-position, and documentation rules are owned by [Function Definitions](./functions.md). The parameter list is parenthesised in every case — a zero-parameter function is written `fn f()`, never bare `fn f` — with parameters separated by `,` and a trailing comma admitted; a parameter list not closed by a matching `)` is `theta/parse/fn-param-list-unclosed`. A `FnParam`'s `Ident` name is mandatory and its parameter type annotation is optional, admitting an absent annotation only — not a `:` written with no `Type` behind it, a distinct capture this optional tail does not derive — and an unannotated parameter's argument goes unchecked at both phases (see [Type system — Type compatibility](./type-system.md#type-compatibility)); a name-position token the `Ident` half derives from no reading (a closed list holding one) is `theta/parse/fn-param-not-identifier`; a `fn` parameter carries no default (theta 1.0 admits literal-valued defaults only on `params:` frontmatter fields, see [Parameters and Frontmatter — Defaults](./frontmatter.md)), so every `fn` parameter is non-defaulted for the argument-arity count at [Invocation — Argument arity](./invocation.md#argument-binding), and a `mut` modifier on a `fn` parameter is `theta/parse/mut-on-immutable-context` (see [Bindings — Immutable contexts](./bindings.md)). The `: ReturnType` annotation is optional; when present, the body type-checks its tail and every `return` operand against it, and when absent the return type is inferred per [Function Definitions — Theta return type](./functions.md#theta-return-type) (an annotation-less body whose last form is a statement infers `null` per [Empty-tail body](./functions.md#empty-tail-body)). `FnBody` is the relaxed function-body block defined under [Block expressions](#block-expressions) above.
+
+The `SubagentMod` and `WithClause` slots are the `subagent fn` surface form (theta 1.2); their semantics — isolation, argument-by-value, return, query targeting, inherit-vs-`with`, prompt-mode admissibility, `.thetalib` helpers, self-reference ban, depth accounting — are owned normatively by [Function Definitions — `subagent fn`](./functions.md#subagent-fn) (FN-6…FN-9). `SubagentMod` is admissible only on a top-level `fn`; `WithClause` is admissible only on a `subagent fn` and overrides any subset of the five inherited session-config keys (`system`, `model`, `tools`, `tool_loop`, `respond_repair`), each `WithField` value obeying the same grammar and validation as the like-named frontmatter field. The `(":" ReturnType)?` and `WithClause?` slots are consecutive optional slots: `ReturnType` parsing terminates at the contextual keyword `with` opening a `WithClause`, so in `): T with { … }` the return type ends before `with` and never spans into the clause.
+
+**Contextual keywords.** `subagent` and `with` are contextual keywords (theta 1.2), as is `par` before `for` (theta 1.1): each is recognised as a keyword only in its one syntactic position and is an ordinary identifier everywhere else. `subagent` is recognised only immediately before a top-level `fn` (the `subagent fn` modifier; the same word as the `mode: subagent` frontmatter value is unaffected); `with` is recognised only between a `subagent fn`'s parameter list — or its optional `: ReturnType` — and its body block (the session-config clause). `par`, `subagent`, and `with` are the three contextual keywords in theta 1.2.0. The reserved-keyword set is owned by [Lexical Structure — Reserved keywords](./lexical.md).
 
 ## `match` arm body
 

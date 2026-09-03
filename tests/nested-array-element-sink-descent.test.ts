@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { findCode, parseDoc } from "./helpers/e2e-s1";
 
-// Bug 0241 — `docs/spec_topics/grammar.md:221`'s FOURTH sink bullet, "the
+// Bug 0241 — `docs/spec_topics/grammar.md:230`'s FOURTH sink bullet, "the
 // element type of an array-typed sink that this literal is itself an element of
 // (recursive descent)", is unwired at all three type-layer routes, so a nested
 // array literal under a written, in-scope element sink reaches the sink-LESS
@@ -47,7 +47,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //     in the sunk arm of the same relation (src/parser/type-compat.ts:603).
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:221 — fourth sink bullet, "The element type
+//   - docs/spec_topics/grammar.md:230 — fourth sink bullet, "The element type
 //     of an array-typed sink that this literal is itself an element of
 //     (recursive descent)", under `:216`'s "The sink set is exhaustive".
 //     Prose mirror: docs/reference/grammar.md:461–471.

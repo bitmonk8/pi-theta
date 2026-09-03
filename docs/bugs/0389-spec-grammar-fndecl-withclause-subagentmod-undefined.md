@@ -1,6 +1,6 @@
 # Bug 0389 — `docs/spec_topics/grammar.md`'s `FnDecl` production cites the undefined nonterminal `SubagentMod` and omits `WithClause?`, so the file `functions.md` names as the normative owner of the `with { … }` surface form cannot derive it
 
-- **Status:** open.
+- **Status:** fixed (0.395.0).
 - **Sev/Diff estimate:** S5/D1 — doc-layer only, no runtime bytes involved;
   but the inconsistency is normative-on-normative: FN-5x/FN-7 semantics are
   specced against a surface form whose designated normative grammar cannot
@@ -111,6 +111,69 @@ Mirror `docs/reference/grammar.md:311-313` into
 (`:128`) that two parser comments (`theta-document.ts:3097-3099`, `:3109`)
 cite against this file. Docs-only; the b0357 doc-consistency
 gates and the citation-symbol-form gate are the regression net.
+
+## Fix (0.395.0)
+
+Applied as the parent adjudicated (Option 1 — C4's own prescribed amendment
+path); one atomic change-set.
+
+- What shipped:
+  - `docs/spec_topics/grammar.md` (+9 lines, 223→232) — mirrored
+    `docs/reference/grammar.md` §`fn` declarations into `#fn-declarations`:
+    `FnDecl` gains `WithClause?`; added the `SubagentMod` / `WithClause` /
+    `WithField` / `WithKey` / `WithValue` productions, the `ReturnType`-
+    termination note, and a **Contextual keywords** paragraph. The `with`-clause
+    semantics stay owned by functions.md FN-6…FN-9 (unchanged).
+  - `tests/grammar-literal-forbidden-access-naming.test.ts` — `SPEC_GRAMMAR_LINES`
+    223→232. NOT a weakening: C4's own assertion message prescribes this —
+    *"A resolution is an in-place, line-count-preserving rewrite unless it
+    re-pins those citations in the same commit (§Fix constraint 3)"*.
+  - 11 test files — re-pinned every +9-shifted inbound prefix-form
+    `docs/spec_topics/grammar.md:N` line-cite to identical content: 139→144,
+    140→145, 143→148, ranges 155–164→164–173 / 170–177→179–186 /
+    171–176→180–185 / 216–221→225–230, plus 175→184 and 221→230.
+- Gates: witness documentary both-directions — fork (`SubagentMod` used at :138
+  but defined nowhere, no `WithClause`, 223 lines, C4@223) vs fixed (productions
+  present, `FnDecl` carries `WithClause?`, 232 lines, C4@232); the C4 pairing is
+  load-bearing (temp `SPEC_GRAMMAR_LINES`→223 reds "expected 232 to be 223",
+  restored byte-exact, green). Full default suite green — residual reds are
+  non-deterministic timeout / hook-timeout load noise under concurrent lanes
+  (the failing set differs each run; every named file passes isolated); the 15
+  grammar/citation gate files are deterministically green. `npm run typecheck`
+  and `npm run lint` clean.
+- Live: `tests/live/nested-array-element-sink-descent-live-cell.test.ts` green
+  (1 test, real drive to sentinel, 5.4s) under the live lock — one adjacent
+  existing cell (its own comment was re-pinned here). WHY: docs + comments + one
+  test constant, zero registration/drive-outcome change for any input class.
+- Review: 1 round — `bug-fix-reviewer` CLEAN, no correctness/fidelity/spec
+  finding; 4 non-blocking prose residuals (below).
+- Verification: `bug-fix-verifier` SOLID — witness both-directions ✓, default
+  suite green with load-noise reds green-in-isolation ✓, live WHY adequate ✓,
+  lint+typecheck ✓, citation content-preservation ✓ for every re-pinned cite.
+- Residuals:
+  1. Bare / continuation-form `grammar.md:N` spec-grammar line-cites (outside
+     the parent's ratified prefix-form `spec_topics/grammar.md:N` enumeration)
+     remain un-repinned — e.g. `tests/fn-param-not-identifier.test.ts:19`,
+     `tests/ctor-field-type-check.test.ts:63,432,434,446`, assertion-message
+     `:221`s in `tests/nested-array-element-sink-descent.test.ts`. None reds an
+     assertion; disambiguating them spec-vs-reference is not provably bounded and
+     risks corrupting reference-side cites (staleness law governs readers). A
+     follow-up sweep bug is warranted.
+  2. `tests/fn-param-list-unclosed.test.ts:13-16` — the contrast comment "the
+     reference mirror adds `SubagentMod?` and `WithClause?`" is falsified now
+     that the spec mirror carries both slots (line 138 did not shift, so the
+     shift-driven sweep did not reach it). Comment-only; no gate reads it.
+  3. Stale reference-side cite halves beside the re-pinned spec halves
+     (pre-existing drift; reference-side re-pin was outside the parent mandate).
+  4. The mirror omits the reference's contextual-keyword totality sentence
+     ("`par`, `subagent`, and `with` are the three contextual keywords") —
+     intentional: the preserved-verbatim edit routes reserved-keyword ownership
+     to `./lexical.md` rather than duplicating the closed-set claim.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the `with`-clause semantics (FN-7), the
+  reference grammar, and the parser are unchanged and already mutually agreed
+  (bug §Non-goals); `docs/reference/grammar.md` is NOT edited — it is the
+  sanctioned mirror source.
 
 ## Provenance
 

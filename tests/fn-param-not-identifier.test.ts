@@ -13,7 +13,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0225-fn-param-list-foreign-close-paren-silent.md).
 //
 // THE RULE. `FnParam ::= Ident ":" Type` — symbol `FnParam`, the third line of
-// the `fn`-declarations production block at docs/spec_topics/grammar.md:140,
+// the `fn`-declarations production block at docs/spec_topics/grammar.md:145,
 // mirrored as `FnParam` at docs/reference/grammar.md:301 — makes the FIRST
 // element of every parameter an `Ident`. `FnParams ::= FnParam ("," FnParam)*
 // ","?` (symbol `FnParams`, grammar.md:139 / docs/reference/grammar.md:300)

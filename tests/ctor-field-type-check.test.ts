@@ -59,7 +59,7 @@ import { codes, errors, parseDoc } from "./helpers/e2e-s1";
 //
 // Spec anchors (line numbers measured at this HEAD; where the bug doc's own
 // citation has drifted, both are given):
-//   - docs/spec_topics/grammar.md:216–221 — §`array<T>` literal type-sink rule.
+//   - docs/spec_topics/grammar.md:225–230 — §`array<T>` literal type-sink rule.
 //     The sink set is declared EXHAUSTIVE at :216 and :220 lists "The declared
 //     type of a surrounding constructor field (`Schema { items: [...] }`)". w4
 //     is an implementation defect against a normative rule whose code is

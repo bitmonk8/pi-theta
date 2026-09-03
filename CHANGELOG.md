@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.395.0]
+
+### Fixed
+
+- **Bug 0389** — `docs/spec_topics/grammar.md` used `SubagentMod` in its `FnDecl` row while defining it nowhere and omitted the `WithClause?` slot entirely: the spec-side grammar page contradicted the reference-side page (`docs/reference/grammar.md`) that 0357's fix reconciled, so the subagent-fn surface form (theta 1.2) had no spec-topics grammar definition — a reader deriving the grammar from the spec page produced a parser that refuses every `subagent fn … with { … }` (0357's recorded residual). Fixed via PARENT ADJUDICATION Option 1 — C4's OWN prescribed amendment path (the first lane attempt STOPPED correctly: the +9-line mirror reds bug 0049's C4 gate pinning the file at 223 lines; C4's assertion message itself sanctions "re-pins those citations in the same commit"): ONE atomic change-set (i) mirrors the reference productions (FnDecl gains `WithClause?`; `SubagentMod`/`WithClause`/`WithField`/`WithKey`/`WithValue` defined; the ReturnType-termination note; the Contextual-keywords paragraph) — 223→232 lines; (ii) re-pins `SPEC_GRAMMAR_LINES` 223→232 (load-bearing proven: temporarily restoring 223 reds "expected 232 to be 223"); (iii) re-pins the +9-shifted inbound `spec_topics/grammar.md:N` cites across the living surfaces (11 test/live-cell comments; era-pinned bug-doc bodies excluded by adjudication; LPA untouched); (iv) reviewer-verified content-preservation for every re-pinned cite + mirror fidelity vs `reference/grammar.md:311-316`. Documentary witness both directions (fork: SubagentMod undefined, 223, C4@223; fixed: productions present, 232, C4@232). Live: `nested-array-element-sink-descent-live-cell` 1/1 under the lock (recorded WHY — docs/comments/one-constant change, no registration/drive outcome moves). Lane history: outage-interrupted, resumed headless; the verifier overstepped by drafting the bug-doc Fix record and the orchestrator reverted it byte-exact and authored it itself.
+
 ## [0.394.0]
 
 ### Fixed

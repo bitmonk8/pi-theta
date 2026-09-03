@@ -15,7 +15,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0042-schema-decl-same-line-residue-silent.md).
 //
 // SPEC ANCHORS (the contract, not the current code):
-//   - docs/spec_topics/grammar.md:171–:176 — `SchemaDecl ::= "schema" Ident
+//   - docs/spec_topics/grammar.md:180–:185 — `SchemaDecl ::= "schema" Ident
 //     SchemaShape`, with `AliasRhs ::= Type ("|" Type)*` and
 //     `UnionRhs ::= Type ("|" Type)+`. Two `Type` atoms with no `|` between them
 //     are not an `AliasRhs`; a `|` with no `Type` on one of its sides is not one

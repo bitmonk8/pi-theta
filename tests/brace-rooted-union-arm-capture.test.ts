@@ -36,7 +36,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - docs/spec_topics/grammar.md:109 §"Inline object types" — "`ObjectType`
 //     admits an anonymous object type `{ field: T, ... }` in **any** `Type`
 //     position."
-//   - docs/spec_topics/grammar.md:175 — `AliasRhs ::= Type ("|" Type)*`. The
+//   - docs/spec_topics/grammar.md:184 — `AliasRhs ::= Type ("|" Type)*`. The
 //     alias right-hand side is the same union of the same `Type`, which makes
 //     its capture the reference implementation rather than a special case.
 //   - docs/spec_topics/grammar.md:77 (`LetStmt`) and :138/:143 (`FnDecl` /

@@ -53,7 +53,7 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //     element type is inferred from context (binding annotation, parameter
 //     type, or surrounding constructor field)". The parameter type is one of
 //     the three sinks by name, on the same footing as the two that are wired;
-//     docs/spec_topics/grammar.md:216–221 calls the same set "exhaustive" and
+//     docs/spec_topics/grammar.md:225–230 calls the same set "exhaustive" and
 //     lists "A function parameter type at a call site" as its second bullet.
 //   - docs/spec_topics/expressions.md:226, rule 1 — once a sink IS in scope
 //     "every element must satisfy `T_element ⊑ T_sinkElement`; a mismatch is
@@ -666,7 +666,7 @@ describe("0156 (g) — the boundaries of the new dispatch", () => {
   });
 
   it("a nested array sink narrows at the argument route and at the binding route alike — the nested boundary, symmetric", () => {
-    // PAIRED. `docs/spec_topics/grammar.md:221`'s fourth sink bullet —
+    // PAIRED. `docs/spec_topics/grammar.md:230`'s fourth sink bullet —
     // recursive descent into an array-typed sink's element — is one relation
     // shared by both dispatches, so the two routes owe the same verdict on the
     // same source: this cell exists to hold them together. A route that
