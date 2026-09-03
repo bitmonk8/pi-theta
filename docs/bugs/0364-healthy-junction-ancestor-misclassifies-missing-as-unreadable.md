@@ -1,6 +1,6 @@
 # Bug 0364 — `ancestorsClean` answers false for a HEALTHY directory junction (or symlinked directory) on the ancestor chain, so a cleanly-missing settings/CLI path under one is classified `unreadable-source` instead of `missing-source`: the settings row's mandated error degrades to a warning whose message asserts unreadability about a chain the same walk happily enumerates when the leaf exists
 
-- **Status:** open.
+- **Status:** fixed (0.377.0).
 - **Sev/Diff estimate:** S3/D1 — the wrong-diagnostic class (impact 4): code,
   message, and — on the settings source — severity are all wrong for the input
   (DISC-2's *Missing path* cell for settings is **error**; the emitted
@@ -173,3 +173,73 @@ windows-paths bug-hunt sweep, af476df2 (v0.347.0). Probe:
 the run) — real NTFS junction created via `cmd /c mklink /J`, driven through
 `discoverThetas` with the production `PiFileSystem`; outputs as quoted in
 §Reproduction.
+
+## Fix (0.377.0)
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `ancestorsClean` now resolves a
+    healthy link ancestor: on an ancestor that `lstat`s ok but is not itself a
+    directory, if it is a symbolic link the walk resolves it via
+    `realpathOutcome` and `lstat`s the target, treating a directory target as
+    enterable (chain stays clean) and anything else as unclean — the new
+    `resolvedAncestorIsDir` helper (reusing the existing `realpathOutcome`),
+    mirroring `classifyResolvedTarget`'s candidate treatment. `lstatOutcome`'s
+    ok arm gained `isSymlink` (additive; every prior consumer reads
+    `isDir`/`isFile` only). A cleanly-missing settings/CLI leaf under a
+    junctioned/symlinked ancestor now classifies `theta/load/missing-source`
+    (settings error, CLI error) per DISC-2's *Missing path* cell instead of
+    `theta/load/unreadable-source`.
+  - `docs/spec_topics/discovery/discovery-sources.md` — the DISC-2 clean-leaf
+    `ENOENT` implementation note gained the healthy-link arm: an ancestor that
+    `lstat`s as a symbolic link is probed via its resolved target (`realpath`
+    then `lstat`), a directory target counting the ancestor as a directory so
+    the walk continues, anything else — or a broken link whose `realpath`
+    rejects — classifying *unreadable*. The existing broken-symlink sentence
+    ("Use `lstat` (not `stat`) … so a broken symlink at an ancestor classifies
+    as *unreadable*") and the conventional-root exemption are unchanged.
+- Gates:
+  - Witness `tests/b0364-healthy-junction-ancestor-misclassifies-missing.test.ts`
+    RED at fork on cells 1 (settings junction-missing → warning
+    unreadable-source, want error missing-source) and 4 (CLI → error
+    unreadable-source, want error missing-source); GREEN after (7/7).
+  - Full default suite: 551 files / 10239 tests green (a lower-load window
+    run; a concurrent-campaign run showed 9 files failing on known parallel
+    worker-crash/timeout families — b0331, 0276 IDENT-BROKEN, invoke-arg-*
+    worker-skips — all green when re-run isolated, none in `src/discovery/`).
+  - `npm run typecheck` clean; `npm run lint` clean.
+- Review: 3 rounds. Round 1 (deep) — 2 non-blocking findings: F1 spec clause
+  over-claimed *missing* from a single ancestor (reworded to defer to the
+  every-ancestor quantifier); F2 the broken-link arm had no witness (added
+  cell 6). Round 2 (fast) — CLEAN, one residual R1 (cell-6 comment overclaimed
+  its mutation-killing power; comment corrected). Round 3 (fast) — CLEAN.
+- Verification: witness genuinely witnesses — under the fork arm cells 1/4
+  red; under an unconditional-`continue` corruption of the symlink arm cell 7
+  reds (broken-link leaf misclassifies missing) while cells 1–6 stay green;
+  both directions restored to 7/7 green. Full suite green (load-flakes
+  reconfirmed isolated). One adjacent live cell
+  (`tests/live/b0268live-load-note-path-spelling-live-cell.test.ts`) exercises
+  the real discovery→registration walk over a live provider: 1/1 green — the
+  live obligation is discharged by an adjacent cell because the fix changes no
+  registration/drive outcome for any registrable theta (the leaf is missing
+  either way). Lint/typecheck clean.
+- Residuals:
+  1. During the review/verify phases a phase-agent's mutate-and-restore cycle
+     transiently corrupted `ancestorsClean` (dropped the
+     `&& resolvedAncestorIsDir(...)` guard, making it dead code and treating
+     broken links as clean). The verifier caught it; the guard was restored to
+     the round-1-reviewed state and locked permanently by discriminating
+     cell 7 (immediate broken-link ancestor → *unreadable*). No residual
+     defect remains.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - Against the 0075 (0.195.0) pin "`ancestorsClean` stays on `lstat`": the
+    pin survives intact. `lstat` remains the ancestor probe and the FIRST
+    check; the added `realpath`+`lstat`-target resolve runs ONLY on the
+    lstat-ok-but-`isSymbolicLink` arm the 0075 record never adjudicated, and a
+    broken link still classifies unclean because its `realpath` rejects — the
+    pin's stated rationale (broken-link discrimination) is preserved, not
+    weakened. The rejected alternative (probe ancestors with `stat`) would have
+    lost that discrimination and is not taken.
+  - Non-goals from the report stand: broken links on the chain stay
+    *unreadable*; the candidate-path-is-a-link case remains 0075's; UNC and
+    conventional-root cases are unchanged.

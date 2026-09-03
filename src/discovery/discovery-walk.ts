@@ -261,24 +261,47 @@ function hasOverridePrefix(operand: string): boolean {
 }
 
 type LstatOutcome =
-  | { readonly ok: true; readonly isDir: boolean; readonly isFile: boolean }
+  | { readonly ok: true; readonly isDir: boolean; readonly isFile: boolean; readonly isSymlink: boolean }
   | { readonly ok: false; readonly code: string | undefined };
 
 async function lstatOutcome(fs: FileSystem, path: string): Promise<LstatOutcome> {
   return fs.lstat(path).then(
-    (stat) => ({ ok: true as const, isDir: stat.isDirectory(), isFile: stat.isFile() }),
+    (stat) => ({
+      ok: true as const,
+      isDir: stat.isDirectory(),
+      isFile: stat.isFile(),
+      isSymlink: stat.isSymbolicLink(),
+    }),
     (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
   );
 }
 
 /** True when an `ENOENT` candidate is a *clean leaf*: every proper ancestor
- *  `lstat`s ok as a directory (DISC-2 clean-leaf-ENOENT walk). */
+ *  `lstat`s ok as a directory, OR `lstat`s ok as a link whose resolved target
+ *  is a directory (DISC-2 clean-leaf-ENOENT walk). The link arm mirrors
+ *  `classifyResolvedTarget`'s candidate treatment: a healthy directory
+ *  junction/symlink is an ordinary enterable ancestor, while a broken one's
+ *  `realpath` rejects and the chain stays unclean — `lstat` remains the
+ *  probe the spec pins, the resolve only disambiguates the link case. */
 async function ancestorsClean(fs: FileSystem, path: string): Promise<boolean> {
   for (const ancestor of properAncestors(path)) {
     const outcome = await lstatOutcome(fs, ancestor);
-    if (!outcome.ok || !outcome.isDir) {
+    if (!outcome.ok) {
       return false;
     }
+    if (outcome.isDir) {
+      continue;
+    }
+    // A healthy directory junction / symlinked directory `lstat`s ok but
+    // reports isDirectory()=false / isSymbolicLink()=true — the same shape
+    // `classifyResolvedTarget` resolves for a link CANDIDATE. Probe it via
+    // its resolved target: a directory target means the chain is enterable
+    // (DISC-2 *missing*), anything else unclean. A BROKEN link's `realpath`
+    // rejects → unclean, so `lstat` stays the discriminator the spec pins.
+    if (outcome.isSymlink && (await resolvedAncestorIsDir(fs, ancestor))) {
+      continue;
+    }
+    return false;
   }
   return true;
 }
@@ -304,6 +327,18 @@ async function realpathOutcome(fs: FileSystem, path: string): Promise<RealpathOu
     (resolved) => ({ ok: true as const, path: normalizePath(resolved) }),
     (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
   );
+}
+
+/** `ancestorsClean`'s link-arm probe: resolve a healthy-`lstat` link ancestor
+ *  to its target and ask whether THAT is a directory, so a junction/symlinked
+ *  directory on the chain counts as enterable the way a real directory does. */
+async function resolvedAncestorIsDir(fs: FileSystem, ancestor: string): Promise<boolean> {
+  const target = await realpathOutcome(fs, ancestor);
+  if (!target.ok) {
+    return false;
+  }
+  const outcome = await lstatOutcome(fs, target.path);
+  return outcome.ok && outcome.isDir;
 }
 
 // --------------------------------------------------------------------------

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.377.0]
+
+### Fixed
+
+- **Bug 0364** — `ancestorsClean` answered FALSE for a HEALTHY directory junction (or symlinked directory) on the ancestor chain — a junction `lstat`s ok with `isDirectory() === false`, falling in neither of the spec's two arms — so a cleanly-missing settings/CLI leaf under one classified `theta/load/unreadable-source` instead of the DISC-2-mandated `theta/load/missing-source`: on the settings source the mandated ERROR degraded to a WARNING whose message asserted unreadability about a chain the same walk happily enumerates when the leaf exists (probe 3: the identical junctioned root registers thetas clean), pointing the author at permissions instead of at their typo'd `thetaPaths` entry. `ancestorsClean` now resolves a `lstat`-ok-but-link ancestor via its target (`realpathOutcome` + `lstat`, the new `resolvedAncestorIsDir` — mirroring `classifyResolvedTarget`'s 0075 candidate treatment): directory target → clean, anything else or a broken link (realpath rejects) → unclean; `lstatOutcome` gains `isSymlink`. Spec: `discovery-sources.md`'s DISC-2 clean-leaf note gains the healthy-link arm, keeping the existing broken-symlink sentence true and making the missing cell reachable under junctioned ancestors. THE 0075 PIN stated against explicitly in the fix record (the doc's own requirement): `lstat` STAYS the ancestor probe and first check; the resolve step runs only on the lstat-ok-but-link arm 0075 never adjudicated; broken links stay unclean — the pin's rationale survives intact. Witnessed by `tests/b0364-healthy-junction-ancestor-misclassifies-missing.test.ts` (7 cells over a REAL NTFS junction via `mklink /J`: junction-spelled missing settings leaf red at fork [warning unreadable → error missing], real-spelled twin control, traversability control [0075 holds], CLI direction, broken-link arm locked by the discriminating cell 7). Verifier note recorded: a phase-agent mutate/restore corrupted the fix surface mid-run (dropped guard → dead code); the verifier caught it, the reviewed state was restored and locked by cell 7 — re-verified clean. Live: `b0268live` discovery-walk cell 1/1 under the lock (no registration/drive outcome changes).
+
 ## [0.376.0]
 
 ### Fixed
