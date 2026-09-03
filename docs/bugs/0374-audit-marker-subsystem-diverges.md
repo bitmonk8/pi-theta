@@ -1,6 +1,6 @@
 # Bug 0374 — The published audit's exemption-marker subsystem diverges from the pinned rules on three axes: the multi-line originating-line rules (ii)/(iii) are not honoured (a spec-placed marker draws a violation; the spec-malformed placement is what actually authorises), stale sub-kinds (s1)/(s2) never fire, and malformed clauses (a)–(g) collapse onto one `malformed-grammar` symptom token
 
-- **Status:** open.
+- **Status:** fixed (0.382.0).
 - **Sev/Diff estimate:** S3/D2 — S3: build-time gate only. Today's tree
   carries three `// allow-pi-surface:` markers
   (`src/extension/production-composition.ts:38`,
@@ -145,3 +145,19 @@ core-local; the gate test needs the new fixtures only.
 
 Rules extracted from audit-resolution.md / audit-failures.md; every claimed
 divergence witnessed mechanically through the exported core (probe deleted).
+
+## Fix (0.382.0)
+- What shipped (all in `src/extension/inventory-closure-audit.ts`, gate fixtures in `tests/inventory-closure-audit-gate.test.ts`):
+  - Per-shape originating-line map: cat-(1) `pi.<member>` keeps the property line; cat-(3) `ctx.<member>` now attributes to the `ctx` identifier line (`n.expression.getStart`, rule (iii)); cat-(2) named imports attribute to BOTH the specifier line and the declaration's `import`-keyword line (`authLines`, rules (ii)/(iv) — either authorises).
+  - `classifyMarker` returns the violated clause; the six grammar clauses (a)-(g minus contextual e) each mint their own family-(5) `<symptom>` token (`missing-colon`, `bad-citation`, `bad-separator`, `bad-justification`, `non-lowercase-keyword`, `block-comment-form`); the placement clause (e) → `off-originating-line`; the family-(4)-line clause (h) → `marker-on-non-exemptible-family-4-line` (already present).
+  - Two stale passes over ALL real comment trivia (collected via `getLeadingCommentRanges`/`getTrailingCommentRanges` over `getChildren`, so a `//` quoted inside prose or a block comment is never a candidate): well-formed marker on a line with zero recognised refs → `no-surface-on-line` (s1); marker whose line's every ref resolved upstream → `all-in-inventory` (s2). Ten family-(5) tokens total.
+  - Gate test gains one fixture per family-(5) token and one per multi-line surface-placement shape (cat-1/cat-2/cat-3 split + per-symbol placement, exercising the originating-line rule for each).
+- Premeasure (the parent's STOP condition): the three real in-tree markers — `production-composition.ts:39` (`VERSION`, rule-(iv) per-symbol line in a multi-line import), `production-subagent-host.ts:32` (`CONFIG_DIR_NAME`), `seams/pi-file-system.ts:21` (`CONFIG_DIR_NAME`, `getAgentDir`) — all sit on UNRESOLVED (non-inventoried) symbols, so under the new attribution + stale passes all three still AUTHORISE (none flips to s1/s2/e). Verified empirically: zero violations over the real walked tree (162 files). No STOP.
+- Gates: full default suite `npx vitest run` = 550 files / 10261 tests pass; `tsc --noEmit` exit 0; `eslint` clean; live obligation covered by the same run as 0373 — 0374 is build-time-only (no runtime code path, no registration/drive outcome changes for any input class), so the b0351 typed-query live cell green under lock confirms the shared module did not break runtime plumbing. WHY build-time-only suffices: the audit is a `npm test`-side gate over an in-memory file map; it has no live/registration surface of its own.
+- Review: 2 rounds. Round 1 (bug-fix-reviewer): F2 valid-citation-prefix misroute [spec] — fixed (citation regex bounded to the whitespace-delimited slot via `(?=\s|$)`). Round 2 (bug-fix-reviewer-fast): CLEAN.
+- Verification: SOLID. cat-3 line-attribution revert reds the `cat-3-ctx-line` placement fixture with the doc's pinned signature (spec-placed marker no longer authorises), restores green; full suite green; typecheck+lint exit 0.
+- Residuals:
+  1. A marker on a comma-only/brace-only interior line of a multi-line import, or the tail line of a multi-hop chain, routes to (s1) `no-surface-on-line` rather than clause (e) — accepted per this doc's own §Fix routing ("well-formed marker with zero recognised refs → (s1)") and the spec's (s1) placement-error sub-case; both are family-(5) branch-(4) reds, nothing silently authorises. The deliberate (i)/(iii) asymmetry lines (the confusable ones) ARE correctly clause (e).
+  2. The clause-(c) separator match tightened from any-whitespace (`\s+`) to literal ASCII space (` +`), aligning code with the pinned grammar ("an ASCII space on each side"); no real marker uses a tab separator (green-on-main holds).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: honoured — separator tolerance (em-dash vs hyphen-minus) unchanged; malformed-marker dual-emission of the underlying surface preserved (a malformed/off-line marker does not add its line to `authorisedLines`, so the underlying family-(1)/(2)/(3) record still fires); clause (h) token unchanged. Note appended for `tests/inventory-closure-audit.test.ts` (a sibling core unit test, not this doc's named surface): two fixtures carried a redundant `// allow-pi-surface:` marker on the inventoried `ExtensionAPI`/`ExtensionContext` carrier import, which the new (s2) rule correctly flags stale; the redundant markers were removed (fixture-input only, assertions untouched) — a DISCLOSED deviation.

@@ -64,13 +64,16 @@ function recordsOfClass(res: AuditResult, cls: string): AuditRecord[] {
 describe("inventory-closure audit — family (1): off-inventory pi.<member>", () => {
   it("an off-inventory pi.<member> access fires a violation-class audit/<class>/<family>/<symptom> record naming the offending member; an in-inventory access does not", () => {
     // The canonical `pi: ExtensionAPI` carrier per audit-target-categories.md
-    // (1). The `ExtensionAPI` type-only import is a category-(2) surface with no
-    // inventory row, so it carries a same-line marker; `pi.registerCommand`
-    // resolves (SDK_SURFACE_INVENTORY, rightmost-segment join key);
-    // `pi.notARealMember` does not and must surface under family (1).
+    // (1). The `ExtensionAPI` type-only import resolves via its category-(2)
+    // inventory row (so no marker is needed); `pi.registerCommand` resolves
+    // (SDK_SURFACE_INVENTORY, rightmost-segment join key); `pi.notARealMember`
+    // does not and must surface under family (1).
     const path = "src/extension/factory-family1.ts";
     const src = [
-      `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#sdk-capability-inventory — carrier type import`,
+      // Bug 0374 §Fix: `ExtensionAPI` resolves as a category-(2) inventory entry,
+      // so the carrier-type import needs no marker; a marker here would now be a
+      // stale (s2) all-in-inventory violation per audit-failures.md.
+      `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";`,
       `export default function factory(pi: ExtensionAPI): void {`,
       `  pi.registerCommand("demo");`,
       `  pi.notARealMember("boom");`,
@@ -105,7 +108,10 @@ describe("inventory-closure audit — recognised exemptions and typebox allow-li
   it("a well-formed // allow-pi-surface: marker authorises an off-inventory surface: the reference is recognised and no violation is emitted", () => {
     const path = "src/extension/factory-exempt.ts";
     const src = [
-      `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#sdk-capability-inventory — carrier type import`,
+      // Bug 0374 §Fix: the carrier-type import resolves via the inventory, so it
+      // carries no marker (a marker would be a stale (s2) violation); the
+      // off-inventory `pi.notARealMember` below is what the marker authorises.
+      `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";`,
       `export default function factory(pi: ExtensionAPI): void {`,
       `  pi.notARealMember("ok"); // allow-pi-surface: PIC#sdk-capability-inventory — intentional off-inventory touch`,
       `}`,
@@ -219,7 +225,9 @@ describe("inventory-closure audit — family (4): non-exemptible out-of-scope sh
     // ExtensionContext is a prohibited off-canonical-name shape.
     const path = "src/extension/off-name-ctx.ts";
     const src = [
-      `import type { ExtensionContext } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#sdk-capability-inventory — carrier type import`,
+      // The `ExtensionContext` carrier type resolves via its category-(2)
+      // inventory row, so no marker is needed (a marker would be a stale (s2)).
+      `import type { ExtensionContext } from "@earendil-works/pi-coding-agent";`,
       `export function handler(context: ExtensionContext): void { void context; }`,
       ``,
     ].join("\n");

@@ -4774,6 +4774,22 @@ function respondToolExecuteResult(text: string, isError: boolean): RespondToolEx
 }
 
 /**
+ * Bug 0373 §Fix: the narrow ExtensionAPI subset `LivePromptQueryModel` stores.
+ * A stored `#pi: ExtensionAPI` class field is the inventory-closure audit's
+ * prohibited non-parameter carrier binding (audit-recognised-shapes.md family
+ * (4)) — it would let any `this.#pi.<member>` reach escape audit coverage. A
+ * `Pick`-narrowed structural cap consumes exactly the members used and is not a
+ * carrier binding, mirroring production-host-loop-dispatch.ts's `HostLoopPi`.
+ * `getActiveTools`/`setActiveTools` are threaded whole into `ActiveSetGateDeps`.
+ */
+type LivePromptQueryPi = Pick<
+  ExtensionAPI,
+  "sendMessage" | "sendUserMessage" | "getActiveTools" | "setActiveTools"
+>;
+/** Bug 0373 §Fix: the narrow ExtensionCommandContext subset the model stores (see `LivePromptQueryPi`). */
+type LivePromptQueryCtx = Pick<ExtensionCommandContext, "abort" | "isIdle" | "signal" | "waitForIdle">;
+
+/**
  * The live prompt-mode `QueryModelDriver` (`V12a`/`V9c`): it drives real
  * user-visible turns into the shared user session. `nextFreePhaseTurn` issues
  * the rendered query as a streamed user turn (`pi.sendUserMessage`) and awaits
@@ -4789,8 +4805,8 @@ function respondToolExecuteResult(text: string, isError: boolean): RespondToolEx
  * tool (`dispatchForcedRespondTurn`), attaching no session turn.
  */
 class LivePromptQueryModel implements QueryModelDriver {
-  readonly #pi: ExtensionAPI;
-  readonly #ctx: ExtensionCommandContext;
+  readonly #pi: LivePromptQueryPi;
+  readonly #ctx: LivePromptQueryCtx;
   readonly #clock: Clock;
   readonly #queryText: string;
   readonly #readMessages: () => readonly Message[];
@@ -4835,8 +4851,8 @@ class LivePromptQueryModel implements QueryModelDriver {
   #promptCancelPropagated = false;
 
   constructor(deps: {
-    readonly pi: ExtensionAPI;
-    readonly ctx: ExtensionCommandContext;
+    readonly pi: LivePromptQueryPi;
+    readonly ctx: LivePromptQueryCtx;
     readonly clock: Clock;
     readonly queryText: string;
     readonly readMessages: () => readonly Message[];

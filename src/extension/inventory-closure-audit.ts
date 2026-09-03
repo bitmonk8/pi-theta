@@ -152,41 +152,211 @@ function isInScopeSpecifier(spec: string): boolean {
   return isPeerPackage(spec) || isTypebox(spec);
 }
 
-/**
- * Parse a same-line trailing `// allow-pi-surface:` marker on `lineText`.
- * Returns `"well-formed"`, `"malformed"` (candidate prefix but bad grammar), or
- * `null` (no candidate prefix at all — not a lexical exemption candidate).
- * (audit-resolution.md §Exemption mechanism / Malformed-marker discriminator.)
- */
-function classifyMarker(lineText: string): "well-formed" | "malformed" | null {
-  // Candidate prefix: a `//` line-comment whose letter/`-` run case-folds to
-  // `allow-pi-surface`. Block-comment (`/*`) candidates are malformed (clause g).
-  const blockCandidate = /\/\*\s*allow-pi-surface/i.test(lineText);
-  const lineCandidate = /\/\/\s*([A-Za-z-]+)/.exec(lineText);
-  const candidateRun = lineCandidate?.[1];
-  const isCandidate =
-    (candidateRun !== undefined && candidateRun.toLowerCase() === "allow-pi-surface") ||
-    blockCandidate;
-  if (!isCandidate) return null;
+/** A single grammar clause (a)-(g) of the malformed-marker discriminator (clause (e)/(h) are contextual). */
+type MarkerClause = "a" | "b" | "c" | "d" | "f" | "g";
+type MarkerVerdict =
+  | { readonly kind: "none" }
+  | { readonly kind: "well-formed" }
+  | { readonly kind: "malformed"; readonly clause: MarkerClause };
 
-  // Well-formed grammar: single-line `//`, lowercase-ASCII run, trailing `:`,
-  // a REQ-<n> or PIC#<kebab> citation, an em-dash or hyphen-minus separator with
-  // surrounding spaces, and a >=4-char justification carrying a non-punct char.
-  const wf =
-    /\/\/\s*allow-pi-surface:\s*(REQ-[0-9]+|PIC#[a-z0-9]+(?:-[a-z0-9]+)*)\s+(?:—|-)\s+(.+)$/.exec(
-      lineText,
-    );
-  if (!wf) return "malformed";
-  const justification = (wf[2] ?? "").trim();
-  if (justification.length < 4) return "malformed";
-  // At least one char that is neither ASCII whitespace nor ASCII punctuation.
-  if (!/[^\s!-/:-@[-`{-~]/.test(justification)) return "malformed";
-  return "well-formed";
+/**
+ * The stable family-(5) `<symptom>` token each malformed grammar clause routes
+ * to (bug 0374 §Fix). `satisfies` (not a bare object-literal binding) both keeps
+ * the exhaustive clause coverage and keeps this off the H2a module-level
+ * mutable-binding gate (conventions.md "no globals/statics").
+ */
+const MALFORMED_CLAUSE_TOKEN = {
+  a: "missing-colon",
+  b: "bad-citation",
+  c: "bad-separator",
+  d: "bad-justification",
+  f: "non-lowercase-keyword",
+  g: "block-comment-form",
+} satisfies Record<MarkerClause, string>;
+
+/**
+ * Classify a same-line `// allow-pi-surface:` marker by its GRAMMAR, returning
+ * the FIRST violated clause (bug 0374 §Fix: per-clause routing, no collapsing).
+ * `commentText` is a REAL comment's trivia text (the `//` / `/*` opener anchors
+ * the candidate at the start, so a `// allow-pi-surface` quoted inside the
+ * comment's prose is not a candidate). Clauses (a)-(g) here are grammar; the
+ * placement clause (e) and the family-(4)-line clause (h) are contextual and
+ * applied by pass 2 (audit-resolution.md §Malformed-marker discriminator).
+ * Returns `none` when the token-prefix is not a lexical exemption candidate.
+ */
+function classifyMarker(commentText: string): MarkerVerdict {
+  const lineText = commentText;
+  const m = /^(\/\/|\/\*)\s*([A-Za-z-]+)/.exec(lineText);
+  const run = m?.[2];
+  if (m === null || run === undefined || run.toLowerCase() !== "allow-pi-surface") {
+    return { kind: "none" };
+  }
+  // (g) a block-comment opener is not the single-line `//` well-formed shape.
+  if (m[1] === "/*") return { kind: "malformed", clause: "g" };
+  // (f) the `allow-pi-surface` run must be byte-for-byte lowercase ASCII.
+  if (run !== "allow-pi-surface") return { kind: "malformed", clause: "f" };
+  const rest = lineText.slice(m.index + m[0].length);
+  // (a) the trailing `:` immediately after the keyword run.
+  if (!rest.startsWith(":")) return { kind: "malformed", clause: "a" };
+  const afterColon = rest.slice(1);
+  // (b) a REQ-<n> or PIC#<kebab> citation token filling the whole
+  // whitespace-delimited slot (a valid PREFIX with trailing junk, e.g.
+  // `REQ-12x`, is a clause-(b) violation, not a separator one).
+  const cite = /^\s*(REQ-[0-9]+|PIC#[a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/.exec(afterColon);
+  if (cite === null) return { kind: "malformed", clause: "b" };
+  // (c) an em-dash or hyphen-minus separator with an ASCII space on each side.
+  const sep = /^ +(?:—|-) +/.exec(afterColon.slice(cite[0].length));
+  if (sep === null) return { kind: "malformed", clause: "c" };
+  // (d) a >=4-char justification with at least one non-whitespace non-punct char.
+  const justification = afterColon.slice(cite[0].length + sep[0].length).trim();
+  if (justification.length < 4) return { kind: "malformed", clause: "d" };
+  if (!/[^\s!-/:-@[-`{-~]/.test(justification)) return { kind: "malformed", clause: "d" };
+  return { kind: "well-formed" };
 }
 
 /** The explicit textual type annotation of a parameter, or `null` if absent. */
 function paramTypeText(p: ts.ParameterDeclaration, sf: ts.SourceFile): string | null {
   return p.type ? p.type.getText(sf).trim() : null;
+}
+
+/** Which canonical carrier a bare literal name denotes (`ExtensionAPI` -> pi, the two ctx literals -> ctx). */
+type CarrierKind = "pi" | "ctx";
+function carrierKindOfName(name: string): CarrierKind | null {
+  if (name === PI_TYPE) return "pi";
+  if (CTX_TYPES.has(name)) return "ctx";
+  return null;
+}
+
+/**
+ * The carrier a type node names when it is the BARE literal `ExtensionAPI` /
+ * `ExtensionContext` / `ExtensionCommandContext` (a type-reference with no type
+ * arguments), or `null`. A generic-applied form (`Pick<ExtensionAPI, ...>`) is
+ * deliberately NOT a bare literal, so a `Pick`-narrowed structural cap is not a
+ * carrier binding (bug 0373 §Fix).
+ */
+function bareCarrierLiteral(t: ts.TypeNode | undefined, sf: ts.SourceFile): CarrierKind | null {
+  if (t === undefined || !ts.isTypeReferenceNode(t) || t.typeArguments !== undefined) return null;
+  return carrierKindOfName(t.typeName.getText(sf).trim());
+}
+
+/**
+ * The carrier a PARAMETER annotation wraps directly (bug 0373 §Fix, family-(4)
+ * wrapped/intersected/union/generic-applied clause): a top-level type-operator
+ * or generic wrapper carrying the bare carrier as a direct type-argument
+ * (`Readonly<ExtensionAPI>`), a direct union/intersection member
+ * (`ExtensionAPI & Mixin`), or the carrier's own generic application
+ * (`ExtensionAPI<T>`). Bounded to the direct wrapping so a higher-order
+ * signature whose INNER parameter is a canonical carrier (`(pi: ExtensionAPI)
+ * => void`) is not itself flagged — its inner `pi` is the canonical carrier.
+ */
+function wrappedCarrierAnnotation(t: ts.TypeNode, sf: ts.SourceFile): CarrierKind | null {
+  if (ts.isTypeReferenceNode(t)) {
+    const own = carrierKindOfName(t.typeName.getText(sf).trim());
+    if (own !== null && t.typeArguments !== undefined) return own;
+    for (const ta of t.typeArguments ?? []) {
+      const k = bareCarrierLiteral(ta, sf);
+      if (k !== null) return k;
+    }
+    return null;
+  }
+  if (ts.isIntersectionTypeNode(t) || ts.isUnionTypeNode(t)) {
+    for (const m of t.types) {
+      const k = bareCarrierLiteral(m, sf);
+      if (k !== null) return k;
+    }
+    return null;
+  }
+  if (ts.isTypeOperatorNode(t)) return bareCarrierLiteral(t.type, sf);
+  return null;
+}
+
+/**
+ * The carrier a declaration subtypes by naming it in `extends` / `implements` /
+ * `&` position, or aliases directly (`type API = ExtensionAPI`). The generic
+ * type-argument position is deliberately excluded, so `Pick<ExtensionAPI, ...>`
+ * is not a subtype creation (bug 0373 §Fix).
+ */
+function subtypeCreationCarrier(n: ts.Node, sf: ts.SourceFile): CarrierKind | null {
+  if (ts.isInterfaceDeclaration(n) || ts.isClassDeclaration(n)) {
+    for (const h of n.heritageClauses ?? []) {
+      for (const t of h.types) {
+        const k = carrierKindOfName(t.expression.getText(sf).trim());
+        if (k !== null) return k;
+      }
+    }
+    return null;
+  }
+  if (ts.isTypeAliasDeclaration(n)) {
+    const members = ts.isIntersectionTypeNode(n.type) ? [...n.type.types] : [n.type];
+    for (const m of members) {
+      const k = bareCarrierLiteral(m, sf);
+      if (k !== null) return k;
+    }
+  }
+  return null;
+}
+
+/** Verbatim node text truncated before any `{ ... }` body (declaration heads stay bounded). */
+function declHeadText(n: ts.Node, sf: ts.SourceFile): string {
+  const full = n.getText(sf);
+  const brace = full.indexOf("{");
+  return brace === -1 ? full : full.slice(0, brace).trim();
+}
+
+/**
+ * True iff a `pi.<member>` / `ctx.<member>` property access is CAPTURED into a
+ * durable binding rather than reached and used in place (bug 0373 §Fix
+ * captured-rebinding context check). The prohibited scope is exactly the spec's
+ * (audit-recognised-shapes.md family (4)): "any local variable, field, or
+ * closure-captured binding ... whose initialiser is a reference to ... a
+ * descendant member-access" — so a variable-declaration initialiser
+ * (`const cwd = ctx.cwd`) or an `=` assignment RHS onto a variable/field
+ * (`this.foo = ctx.foo`) is a capture, while an object-literal property value
+ * (`{ modelRegistry: ctx.modelRegistry }` — in-place argument carriage at a
+ * composition site, not a variable/field/closure binding) is NOT. A member
+ * access that is the callee of a call (`pi.getFlag("x")`) has the CallExpression
+ * as its parent and is likewise not a capture — the surface is reached through
+ * the canonical carrier in place.
+ */
+function isCapturedRebinding(n: ts.PropertyAccessExpression): boolean {
+  // Walk out through grouping / cast wrappers (`(pi.x)`, `pi.x as T`, `pi.x!`)
+  // so a wrapped capture is still recognised (spec: "read broadly").
+  let outer: ts.Node = n;
+  while (outer.parent !== undefined && isOuterExprWrapperOf(outer.parent, outer)) {
+    outer = outer.parent;
+  }
+  const p = outer.parent;
+  if (p === undefined) return false;
+  if (ts.isVariableDeclaration(p) && p.initializer === outer) return true;
+  if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.EqualsToken && p.right === outer) {
+    return true;
+  }
+  return false;
+}
+
+/** True iff `parent` is a grouping/cast wrapper whose wrapped operand is `child`. */
+function isOuterExprWrapperOf(parent: ts.Node, child: ts.Node): boolean {
+  if (ts.isParenthesizedExpression(parent)) return parent.expression === child;
+  if (ts.isAsExpression(parent)) return parent.expression === child;
+  if (ts.isSatisfiesExpression(parent)) return parent.expression === child;
+  if (ts.isNonNullExpression(parent)) return parent.expression === child;
+  if (ts.isTypeAssertionExpression(parent)) return parent.expression === child;
+  return false;
+}
+
+/** Unwrap grouping/cast wrappers (`(x)`, `x as T`, `x satisfies T`, `x!`, `<T>x`) to the inner expression. */
+function skipOuterWrappers(node: ts.Expression): ts.Expression {
+  let cur = node;
+  while (
+    ts.isParenthesizedExpression(cur) ||
+    ts.isAsExpression(cur) ||
+    ts.isSatisfiesExpression(cur) ||
+    ts.isNonNullExpression(cur) ||
+    ts.isTypeAssertionExpression(cur)
+  ) {
+    cur = cur.expression;
+  }
+  return cur;
 }
 
 /**
@@ -234,11 +404,9 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
   paths.forEach((path, fileIndex) => {
     walked += 1;
     const content = input.files.get(path) ?? "";
-    const lines = content.split("\n");
     const sf = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const lineOfPos = (pos: number): number =>
       sf.getLineAndCharacterOfPosition(pos).line + 1;
-    const lineTextAt = (n: number): string => lines[n - 1] ?? "";
 
     // Lines carrying a non-exemptible family-(4) shape (clause-(h) + no-authorise).
     const familyFourLines = new Set<number>();
@@ -345,6 +513,120 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
           emitFamilyFour(n.getStart(sf), "off-canonical-name-pi", n.getText(sf));
         }
       }
+      // Destructured carrier parameter: `function f({ ui }: ExtensionContext)`.
+      if (ts.isParameter(n) && !ts.isIdentifier(n.name) && bareCarrierLiteral(n.type, sf) !== null) {
+        emitFamilyFour(n.getStart(sf), "destructured-carrier", n.getText(sf));
+      }
+      // Wrapped / intersected / union / generic-applied carrier annotation on a
+      // non-canonical-named parameter (canonical `pi`/`ctx` names route to the
+      // off-canonical-annotation arms above).
+      if (ts.isParameter(n) && ts.isIdentifier(n.name) && n.type !== undefined) {
+        const pname = n.name.text;
+        if (pname !== "pi" && pname !== "ctx" && bareCarrierLiteral(n.type, sf) === null) {
+          const wrapped = wrappedCarrierAnnotation(n.type, sf);
+          if (wrapped !== null) emitFamilyFour(n.getStart(sf), "wrapped-annotation", n.getText(sf));
+        }
+      }
+      // Type-parameter constraint laundering: `function wrap<C extends ExtensionContext>(c: C)`.
+      if (ts.isTypeParameterDeclaration(n) && bareCarrierLiteral(n.constraint, sf) !== null) {
+        emitFamilyFour(n.getStart(sf), "type-parameter-constraint", n.getText(sf));
+      }
+      // Subtype creation in extends / implements / & position, and pure carrier aliases.
+      if (subtypeCreationCarrier(n, sf) !== null) {
+        emitFamilyFour(n.getStart(sf), "subtype-creation", declHeadText(n, sf));
+      }
+      // Non-parameter carrier binding: a class field or `const`/`let`/`var`
+      // whose explicit annotation is the bare carrier literal (interface /
+      // object-type PROPERTY SIGNATURES are not `PropertyDeclaration`s and are
+      // out of this clause). `deps.pi` object-type carriage is unaffected.
+      if (
+        (ts.isPropertyDeclaration(n) || ts.isVariableDeclaration(n)) &&
+        bareCarrierLiteral(n.type, sf) !== null
+      ) {
+        emitFamilyFour(n.getStart(sf), "non-parameter-binding", n.getText(sf));
+      }
+      // Computed access `pi[..]` / `ctx[..]` on a canonical carrier identifier.
+      if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression)) {
+        const recv = n.expression.text;
+        if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
+          emitFamilyFour(n.getStart(sf), "computed-access", n.getText(sf));
+        }
+      }
+      // Namespace destructuring `const { ui } = ctx` and whole-carrier value-binding
+      // aliases `const c = ctx` / `const api = pi` (initialiser is the bare carrier).
+      if (ts.isVariableDeclaration(n) && n.initializer !== undefined) {
+        const init = skipOuterWrappers(n.initializer);
+        const recv = ts.isIdentifier(init) ? init.text : "";
+        const inCarrier =
+          (recv === "pi" && inPiCarrier(init)) || (recv === "ctx" && inCtxCarrier(init));
+        if (inCarrier) {
+          if (ts.isObjectBindingPattern(n.name) || ts.isArrayBindingPattern(n.name)) {
+            emitFamilyFour(n.getStart(sf), "namespace-destructuring", n.getText(sf));
+          } else {
+            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+          }
+        }
+      }
+      // Captured rebinding via `=` assignment of the bare carrier: `this.pi = pi`.
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const rhs = skipOuterWrappers(n.right);
+        const recv = ts.isIdentifier(rhs) ? rhs.text : "";
+        if ((recv === "pi" && inPiCarrier(rhs)) || (recv === "ctx" && inCtxCarrier(rhs))) {
+          emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+        }
+      }
+      // `Object.assign(..., pi)` spread of a canonical carrier.
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        ts.isIdentifier(n.expression.expression) &&
+        n.expression.expression.text === "Object" &&
+        n.expression.name.text === "assign"
+      ) {
+        for (const arg of n.arguments) {
+          if (
+            ts.isIdentifier(arg) &&
+            ((arg.text === "pi" && inPiCarrier(arg)) || (arg.text === "ctx" && inCtxCarrier(arg)))
+          ) {
+            emitFamilyFour(n.getStart(sf), "object-assign", n.getText(sf));
+            break;
+          }
+        }
+      }
+      // `keyof typeof pi` / `keyof typeof ctx` in a canonical carrier scope.
+      if (
+        ts.isTypeOperatorNode(n) &&
+        n.operator === ts.SyntaxKind.KeyOfKeyword &&
+        ts.isTypeQueryNode(n.type) &&
+        ts.isIdentifier(n.type.exprName)
+      ) {
+        const recv = n.type.exprName.text;
+        if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
+          emitFamilyFour(n.getStart(sf), "keyof-typeof", n.getText(sf));
+        }
+      }
+      // CJS reach: `require("<in-scope>")` and `createRequire(...)("<in-scope>")`.
+      // The `createRequire(...).resolve("<spec>")` path-read is carved out (its
+      // callee is a `.resolve` property access, matched by neither arm).
+      if (ts.isCallExpression(n)) {
+        const arg0 = n.arguments[0];
+        if (arg0 !== undefined && ts.isStringLiteral(arg0) && isInScopeSpecifier(arg0.text)) {
+          const bareRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
+          // `createRequire(...)("<spec>")` and `M.createRequire(...)("<spec>")` —
+          // the callee is a call whose OWN callee names `createRequire` (bare or
+          // via a `module` namespace import). Aliased-binding indirection needs
+          // data-flow and is the spec's type-aware MAY, out of this static arm.
+          const createRequireCall =
+            ts.isCallExpression(n.expression) &&
+            ((ts.isIdentifier(n.expression.expression) &&
+              n.expression.expression.text === "createRequire") ||
+              (ts.isPropertyAccessExpression(n.expression.expression) &&
+                n.expression.expression.name.text === "createRequire"));
+          if (bareRequire || createRequireCall) {
+            emitFamilyFour(n.getStart(sf), "cjs-require", n.getText(sf));
+          }
+        }
+      }
       ts.forEachChild(n, visitShapes);
     };
     visitShapes(sf);
@@ -353,23 +635,32 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     interface Ref {
       readonly pos: number;
       readonly line: number;
+      /** Bug 0374 §Fix: the line(s) a marker may trail to authorise this ref (the per-shape originating-line map). */
+      readonly authLines: readonly number[];
       readonly family: string;
       readonly resolved: boolean;
       readonly symbol: string;
       readonly proposedResolution: string;
     }
     const refs: Ref[] = [];
+    // Bug 0374 §Fix: physical lines that are a NON-originating line of a
+    // recognised multi-line member-access surface span — a well-formed marker
+    // trailing one is off-originating-line (malformed clause (e)).
+    const clauseELines = new Set<number>();
     const resolveRef = (
       pos: number,
       family: string,
       resolvedByInventoryOrAllowList: boolean,
       symbol: string,
       proposedResolution: string,
+      authLines?: readonly number[],
     ): void => {
       recognised += 1;
+      const line = lineOfPos(pos);
       refs.push({
         pos,
-        line: lineOfPos(pos),
+        line,
+        authLines: authLines ?? [line],
         family,
         resolved: resolvedByInventoryOrAllowList,
         symbol,
@@ -403,9 +694,13 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
         const spec = n.moduleSpecifier.text;
         const ic = n.importClause;
         if (ic && ic.namedBindings && ts.isNamedImports(ic.namedBindings)) {
+          // Bug 0374 §Fix rule (ii)/(iv): a named import is authorised by a marker
+          // on EITHER the specifier's own line OR the `import`-keyword line.
+          const importKwLine = lineOfPos(n.getStart(sf));
           for (const el of ic.namedBindings.elements) {
             if (el.propertyName) continue; // aliased → family (4), handled in pass 1
             const nm = el.name.text;
+            const authLines = [lineOfPos(el.getStart(sf)), importKwLine];
             if (isTypebox(spec)) {
               resolveRef(
                 el.getStart(sf),
@@ -413,6 +708,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
                 typeboxNamed.has(nm),
                 `typebox#${nm}`,
                 "promote-to-typebox-named-allow-list-or-add-allow-pi-surface-marker",
+                authLines,
               );
             } else if (isPeerPackage(spec)) {
               resolveRef(
@@ -421,6 +717,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
                 cat2Names.has(nm),
                 `${spec}#${nm}`,
                 "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+                authLines,
               );
             }
           }
@@ -431,21 +728,43 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
         const recv = n.expression.text;
         const member = n.name.text;
         if (recv === "pi" && inPiCarrier(n)) {
-          resolveRef(
-            n.name.getStart(sf),
-            "pi-member",
-            cat1Members.has(member),
-            member,
-            "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
-          );
+          if (isCapturedRebinding(n)) {
+            // The member is captured into a binding rather than reached in place
+            // (bug 0373 §Fix): family (4), not a category-(1) reference.
+            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+          } else {
+            // Bug 0374 §Fix rule (i): a `pi.<member>` split across lines
+            // originates on the property line; a marker on the `pi` line is
+            // off-originating-line (clause (e)).
+            const memberLine = lineOfPos(n.name.getStart(sf));
+            const carrierLine = lineOfPos(n.expression.getStart(sf));
+            if (carrierLine !== memberLine) clauseELines.add(carrierLine);
+            resolveRef(
+              n.name.getStart(sf),
+              "pi-member",
+              cat1Members.has(member),
+              member,
+              "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+            );
+          }
         } else if (recv === "ctx" && inCtxCarrier(n)) {
-          resolveRef(
-            n.name.getStart(sf),
-            "ctx-member",
-            cat3Members.has(member),
-            member,
-            "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
-          );
+          if (isCapturedRebinding(n)) {
+            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+          } else {
+            // Bug 0374 §Fix rule (iii): a `ctx`-rooted chain originates on the
+            // `ctx` identifier line (deliberately asymmetric with rule (i)); a
+            // marker on any property line of the chain is off-originating-line.
+            const ctxLine = lineOfPos(n.expression.getStart(sf));
+            const memberLine = lineOfPos(n.name.getStart(sf));
+            if (memberLine !== ctxLine) clauseELines.add(memberLine);
+            resolveRef(
+              n.expression.getStart(sf),
+              "ctx-member",
+              cat3Members.has(member),
+              member,
+              "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+            );
+          }
         } else if (recv === "Type" && typeboxTypeIsImported) {
           resolveRef(
             n.name.getStart(sf),
@@ -461,50 +780,90 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
 
     visitRefs(sf);
 
-    // ---- Pass 2: markers, scoped to lines carrying a reference or family-(4)
-    // shape. Orphan / standalone markers on lines with no such surface are not
-    // classified (a documented divergence: family-(5) (s1) no-surface-on-line
-    // and stale sub-kinds are deferred). ----
+    // Bug 0374 §Fix: the REAL comment trivia by line. Comment RANGES (leading /
+    // trailing trivia between tokens) treat a whole `/** ... */` block as one
+    // range, so a `// allow-pi-surface` quoted inside a block comment's or a
+    // line comment's prose is never a separate marker candidate. The trailing /
+    // last comment on a line wins.
+    const commentByLine = new Map<number, string>();
+    const seenComment = new Set<number>();
+    const recordComment = (range: ts.CommentRange): void => {
+      if (seenComment.has(range.pos)) return;
+      seenComment.add(range.pos);
+      commentByLine.set(lineOfPos(range.pos), content.slice(range.pos, range.end));
+    };
+    const collectComments = (node: ts.Node): void => {
+      for (const range of ts.getLeadingCommentRanges(content, node.getFullStart()) ?? []) {
+        recordComment(range);
+      }
+      for (const range of ts.getTrailingCommentRanges(content, node.getEnd()) ?? []) {
+        recordComment(range);
+      }
+      // `getChildren` (not `forEachChild`) descends into punctuation tokens too
+      // (`}`, `,`), so a marker trailing the last specifier before a closing
+      // brace on a multi-line import is captured as that brace's leading trivia.
+      for (const child of node.getChildren(sf)) collectComments(child);
+    };
+    collectComments(sf);
+
+    // ---- Pass 2: markers over every real comment line (bug 0374 §Fix). A well-formed
+    // marker authorises the UNRESOLVED in-scope references whose originating line
+    // it trails (inventory-first resolution short-circuits before the marker, so
+    // an all-resolved line is (s2)); malformed grammar (a)-(g), off-originating-
+    // line placement (e), family-(4)-line placement (h), and the two stale
+    // sub-kinds (s1)/(s2) each route to family (5) under their own token. ----
     const authorisedLines = new Set<number>();
-    const referenceLines = new Set(refs.map((r) => r.line));
-    const markerLines = new Set<number>([...referenceLines, ...familyFourLines]);
-    for (const ln of markerLines) {
-      const kind = classifyMarker(lineTextAt(ln));
-      if (kind === null) continue;
+    const refsByAuthLine = new Map<number, Ref[]>();
+    for (const r of refs) {
+      for (const ln of r.authLines) {
+        const bucket = refsByAuthLine.get(ln);
+        if (bucket === undefined) refsByAuthLine.set(ln, [r]);
+        else bucket.push(r);
+      }
+    }
+    const emitFamilyFive = (pos: number, ln: number, symptom: string, resolution: string): void => {
+      push(pos, "violation", "stale-or-malformed-marker", symptom, String(ln), NA, resolution);
+    };
+    const STALE = "see bump-step-2b-stale-rewrite";
+    for (const [ln, commentText] of commentByLine) {
+      const verdict = classifyMarker(commentText);
+      if (verdict.kind === "none") continue;
       const pos = sf.getPositionOfLineAndCharacter(ln - 1, 0);
+      if (verdict.kind === "malformed") {
+        emitFamilyFive(pos, ln, MALFORMED_CLAUSE_TOKEN[verdict.clause], `rewrite-marker-grammar (${STALE})`);
+        continue;
+      }
+      // Clause (h): a marker on a non-exemptible family-(4) line; the family-(4)
+      // record fires independently in pass 1 (dual emission).
       if (familyFourLines.has(ln)) {
-        // Clause (h): a marker on a non-exemptible family-(4) line is malformed
-        // and routes to family (5); the family-(4) record fired independently.
-        push(
-          pos,
-          "violation",
-          "stale-or-malformed-marker",
-          "marker-on-non-exemptible-family-4-line",
-          String(ln),
-          NA,
-          "delete-marker-and-rewrite-shape (see bump-step-2b-stale-rewrite)",
-        );
+        emitFamilyFive(pos, ln, "marker-on-non-exemptible-family-4-line", `delete-marker-and-rewrite-shape (${STALE})`);
         continue;
       }
-      if (kind === "malformed") {
-        push(
-          pos,
-          "violation",
-          "stale-or-malformed-marker",
-          "malformed-grammar",
-          String(ln),
-          NA,
-          "rewrite-marker-grammar (see bump-step-2b-stale-rewrite)",
-        );
+      const attributed = refsByAuthLine.get(ln) ?? [];
+      if (attributed.length > 0) {
+        if (attributed.every((r) => r.resolved)) {
+          // (s2) all-in-inventory: every reference this line authorises already
+          // resolves upstream, so the marker authorises nothing.
+          emitFamilyFive(pos, ln, "all-in-inventory", `delete-stale-marker-surface-now-in-inventory (${STALE})`);
+        } else {
+          authorisedLines.add(ln);
+        }
         continue;
       }
-      authorisedLines.add(ln);
+      // Clause (e): a marker on a non-originating line of a multi-line surface.
+      if (clauseELines.has(ln)) {
+        emitFamilyFive(pos, ln, "off-originating-line", `move-marker-to-originating-line (${STALE})`);
+        continue;
+      }
+      // (s1) no-surface-on-line: a well-formed marker on a line carrying zero
+      // recognised in-scope references (placement error or all-removed leftover).
+      emitFamilyFive(pos, ln, "no-surface-on-line", `delete-stale-marker-no-surface-on-line (${STALE})`);
     }
 
     // ---- Pass 4: emit reference violations (skip resolved / marker-authorised). ----
     for (const r of refs) {
       if (r.resolved) continue;
-      if (authorisedLines.has(r.line)) continue;
+      if (r.authLines.some((ln) => authorisedLines.has(ln))) continue;
       push(r.pos, "violation", r.family, "off-inventory", String(r.line), r.symbol, r.proposedResolution);
     }
   });
