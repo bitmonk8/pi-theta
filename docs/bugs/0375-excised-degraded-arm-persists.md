@@ -1,6 +1,6 @@
 # Bug 0375 — The excised degraded-state machinery still ships: `ThetaRegistry.markRuntimeDegraded`, the `"degraded-needs-reload"` tag value, a three-arm `routeDrainStateArm`, the retired `"extension degraded; /reload to recover"` note, and an orphan slash-site read-failover that routes a `readDrainState` throw to the retired arm (c) instead of PIC-31's arm (b)
 
-- **Status:** open.
+- **Status:** fixed (0.380.0).
 - **Sev/Diff estimate:** S4/D1 — S4: none of the retained machinery is
   reachable from a production entry point at this HEAD (the shipped slash path
   uses `resolveSlashDispatchWithReadFailover`, whose catch correctly routes to
@@ -120,3 +120,18 @@ assertions in the same commit; `npm test` will localise any others.
 Found by diffing drain-state-contract.md's supersession header against the
 shipped drain-state surface; caller topology via `rg`; the latent note
 witnessed through the exported helpers.
+
+## Fix (0.380.0)
+
+- What shipped:
+  - `src/extension/reload-wiring.ts` — deleted `ThetaRegistry.markRuntimeDegraded`; narrowed `DrainStateTag` to the single literal `"shutting-down"`; swept the drain-state contract prose to the three-method / two-writer / single-literal surface (§Fix items 1–2).
+  - `src/extension/drain-state.ts` — collapsed `DispatchArm` to `"dispatch" | "shutting-down"`, deleted `degradedNote`, deleted `routeDrainStateArm`'s arm-(c) branch, deleted the orphan `routeSlashDispatchWithReadFailover`, and removed `resolveSlashDispatch`'s arm-(c) branch; swept the three-arm header prose (§Fix items 3–5). The production `resolveSlashDispatchWithReadFailover(name, read, registry)` (PIC-31 arm (b)) and `evalShutdownShortCircuitWithReadFailover` are untouched.
+  - `tests/drain-state-contract.test.ts` — retired the doc's own excised-arm enumeration to the two-arm contract: the degraded tuple rows, the degraded short-circuit + note cells, the PIC-30 three-arm enumeration, the two PIC-31 arm-(c) failover cells, and the "vestigial" comment; imports of the deleted exports removed.
+  - `tests/session-swap-tripwire.test.ts` (parent-ratified, subject-preserving) — dropped the `markRuntimeDegraded` spy and its `.not.toHaveBeenCalled()` use, re-anchored `.not.toBe("degraded-needs-reload")` → `.toBe("shutting-down")` (the session-only teardown runs `drain()` then `initDrainStateTag()`); the `RUNTIME_DEGRADED_CODE` import + emission check and the file-level header are intact. Exact edited lines: the `degradeSpy` declaration (was ~:208), its `expect(...).not.toHaveBeenCalled()` use (was ~:225), the re-anchored tag assertion (was ~:226), and the comment describing them (was ~:222–224).
+  - `tests/b0375-degraded-excision-witness.test.ts` (new, offline) — witnesses the surface + export absence of the retired members and the behavioural death of the latent degraded note (a marked registry now dispatches instead of returning the retired note), plus a two-arm `routeDrainStateArm` surface pin.
+- Gates: witness `tests/b0375-degraded-excision-witness.test.ts` 4/4 green (red-at-fork 3/4 proven by a HEAD-blob revert, restored byte-exact); full default suite 552 files / 10236 tests green (baseline 10234 + 4 witness − 2 retired contract cells); `npm run typecheck` exit 0; `npm run lint` exit 0.
+- Review: 1 review round (`bug-fix-reviewer`) — FINDINGS, all prose (stale three-arm / fourth-arm / three-writers / all-three-throw prose), no correctness/fidelity/spec blocker; 1 polish round (`bug-fix-fixer-light`) swept 8 comment/title sites; post-polish confirmation round skipped (gate-diff shows comment/title-only hunks, gates green).
+- Verification: SOLID — (1) the witness reds when the four tracked files are reverted to HEAD (cells 1–3 red for the documented reasons, cell 4 green) then greens 4/4 after byte-exact restore (5/5 `git hash-object` match); (2) full default suite green; (3) live adjacent cell `tests/live/double-session-start-live.test.ts` green (a real `session_start → session_shutdown → dispose` and a `/greetlive` dispatch through the retained drain-state arm-(b) "extension shutting down" path — 0375 changes no registration/drive outcome); (4) `typecheck` + `lint` clean.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: no currently-reachable wrong value (S4) — grep confirmed no production caller reached any deleted export (the only surviving `markRuntimeDegraded` / `degraded-needs-reload` mentions in `src/` are spec-citation comments in `session-shutdown.ts` and `session-swap-tripwire.ts` describing what the code does NOT do). 0371's landed tripwire wiring is untouched beyond the two parent-ratified references.

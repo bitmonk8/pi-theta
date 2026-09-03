@@ -205,7 +205,6 @@ describe("cka-27 — arming the session-swap tripwire", () => {
   it("cka-27: on a session-only session_shutdown the handler runs full teardown, arms the tripwire, and writes NO degraded branch", async () => {
     const harness = makeShutdownHarness();
     const drainSpy = vi.spyOn(harness.registry, "drain");
-    const degradeSpy = vi.spyOn(harness.registry, "markRuntimeDegraded");
     harness.deps.activeInvocations.add(makeEntry("plan", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
 
     await driveShutdown(eventWith("new"), harness);
@@ -219,11 +218,10 @@ describe("cka-27 — arming the session-swap tripwire", () => {
     // and sub-step 4 closed the watchers.
     expect(drainSpy).toHaveBeenCalledTimes(1);
     expect(harness.deps.discoveryWatcher.close).toHaveBeenCalledTimes(1);
-    // NO degraded branch: no `markRuntimeDegraded` transition, no
-    // `"degraded-needs-reload"` tag, and no `session-shutdown-runtime-degraded`
-    // emission.
-    expect(degradeSpy).not.toHaveBeenCalled();
-    expect(harness.registry.readDrainState().tag).not.toBe("degraded-needs-reload");
+    // NO degraded branch: the full teardown sets the `"shutting-down"` tag (the
+    // excised degraded tag no longer exists in the union) and emits no
+    // `session-shutdown-runtime-degraded` row.
+    expect(harness.registry.readDrainState().tag).toBe("shutting-down");
     const degradedEmits = harness.sink.emit.mock.calls.filter((call) =>
       String(call[0]).includes(RUNTIME_DEGRADED_CODE),
     );

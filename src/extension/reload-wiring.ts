@@ -127,12 +127,12 @@ export interface ParsedTheta {
 // --- drain-state contract types (drain-state-contract.md) ---
 
 /**
- * The closed two-arm `drainStateTag` value set the `ThetaRegistry` maintains.
+ * The single-literal `drainStateTag` value set the `ThetaRegistry` maintains.
  * The unset runtime state (`undefined`) is an implementation-side artefact of
- * the **Per-step isolation** swallow rule rather than a third literal value
+ * the **Per-step isolation** swallow rule rather than a second literal value
  * (drain-state-contract.md *Fields* (2)).
  */
-export type DrainStateTag = "shutting-down" | "degraded-needs-reload";
+export type DrainStateTag = "shutting-down";
 
 /**
  * The snapshot `ThetaRegistry.readDrainState()` returns — the two drain-state
@@ -201,10 +201,10 @@ export class ThetaRegistry {
   //
   // The `ThetaRegistry` carries exactly two drain-related fields — a boolean
   // `drained` flag and the `drainStateTag` field — mediated through the closed
-  // four-method call surface below; no third boolean drain-state field and no
-  // fifth drain-state method are added (PIC-30, *Non-normative editorial
+  // three-method call surface below; no third boolean drain-state field and no
+  // fourth drain-state method are added (PIC-30, *Non-normative editorial
   // convention*). V9m-T declares the surface and the two backing fields; the
-  // paired V9m implementation fills in the three writers. `readDrainState` is
+  // paired V9m implementation fills in the two writers. `readDrainState` is
   // the single read API the slash handler and the `session_shutdown` handler
   // consult.
 
@@ -241,7 +241,7 @@ export class ThetaRegistry {
   /**
    * `ThetaRegistry.initDrainStateTag(): void` — sets `drainStateTag =
    * "shutting-down"` iff `drainStateTag === undefined` (a no-op once the tag is
-   * a member of the closed two-arm set).
+   * set).
    *
    * V9m-T stub: a no-op (the paired V9m sets the tag).
    */
@@ -249,16 +249,6 @@ export class ThetaRegistry {
     if (this.#drainStateTag === undefined) {
       this.#drainStateTag = "shutting-down";
     }
-  }
-
-  /**
-   * `ThetaRegistry.markRuntimeDegraded(): void` — sets `drainStateTag =
-   * "degraded-needs-reload"` unconditionally.
-   *
-   * V9m-T stub: a no-op (the paired V9m sets the tag).
-   */
-  markRuntimeDegraded(): void {
-    this.#drainStateTag = "degraded-needs-reload";
   }
 
   /**
@@ -287,7 +277,7 @@ export class ThetaRegistry {
    * fields. The single read API consulted at the slash-handler and
    * `session_shutdown` handler-entry call sites (PIC-29/PIC-31). This reader is
    * a trivial field read and is implemented here; the V9m behaviour under test
-   * is the three writers above and the routing in `drain-state.ts`.
+   * is the two writers above and the routing in `drain-state.ts`.
    */
   readDrainState(): DrainStateSnapshot {
     return { drained: this.#drained, tag: this.#drainStateTag };

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.380.0]
+
+### Fixed
+
+- **Bug 0375** — the excised degraded-state machinery still shipped: `ThetaRegistry.markRuntimeDegraded` (the public writer the drain-state page says was excised — one future call from the retired note), the `"degraded-needs-reload"` tag value (PIC-30 forbids the third observable state; the spec pins the tag type `"shutting-down" | undefined`), a three-arm `routeDrainStateArm` with the retired `degradedNote` (`extension degraded; /reload to recover`), and the orphan `routeSlashDispatchWithReadFailover` whose catch routed a `readDrainState` throw to the retired arm (c) where PIC-31 pins the slash-site fail-safe at arm (b) — two exports differing only by `route`/`resolve` prefix implementing OPPOSITE PIC-31 fail-safes, with the wrong one's JSDoc claiming compliance (the V9r tripwire rework landed beside the old machinery instead of replacing it). All deleted per the settled §Fix: the writer, the tag arm, `degradedNote`, the orphan helper, and the arm-(c) branches (DispatchArm collapsed to two arms + note); three-arm module-header prose swept; the production `resolveSlashDispatchWithReadFailover` and `evalShutdownShortCircuitWithReadFailover` byte-untouched; 0371's landed tripwire wiring undisturbed. FLIPS exactly per authority: the doc's own enumeration in `tests/drain-state-contract.test.ts` (degraded tuple rows, short-circuit + note cells, three-arm PIC-30 enumeration, PIC-31 arm-(c) failover cells, the "vestigial" comment — retired to the two-arm contract) + the PARENT RATIFICATION for `tests/session-swap-tripwire.test.ts` (the spy on the deleted writer dropped; `.not.toBe("degraded-needs-reload")` re-anchored to `.toBe("shutting-down")` — subject-preserving, the guarded absence now structurally enforced by the narrowed union). First attempt STOPPED correctly on that un-enumerated flip; ratified and completed in a continuation. Witnessed by `tests/b0375-degraded-excision-witness.test.ts` (surface/export absence + the latent note's behavioural death; red at fork 3/4). Live: `double-session-start-live` (real `session_shutdown` + arm-(b) dispatch) under the lock.
+
 ## [0.379.0]
 
 ### Fixed
