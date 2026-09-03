@@ -346,14 +346,26 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
       kind: "api-coverage",
       payload: {
         // The pinned pi-ai `Api` literal-union snapshot (the `KnownApi` members
-        // at the theta 1.0 Pi-SDK pin). `Api = KnownApi | (string & {})` is not
-        // runtime-enumerable, so the seed-field `Api`-coverage gate enumerates
-        // this pinned snapshot; a new pi-ai `Api` value lands here on a bump.
+        // at the theta 1.0 Pi-SDK pin, `dist/types.d.ts` `KnownApi`). `Api =
+        // KnownApi | (string & {})` is not runtime-enumerable, so the
+        // `Api`-coverage gate enumerates this pinned snapshot; a new pi-ai `Api`
+        // value lands here on a bump. Bug 0417 refreshed it from the stale
+        // four-member set (which predated `openai-responses` and carried the two
+        // non-`KnownApi` legacy spellings `mistral`/`amazon-bedrock`) to the ten
+        // installed `KnownApi` members, so the coverage gate over the
+        // forced-tool-choice / temperature / seed tables can actually fire on a
+        // Responses-family api the host registry serves.
         apiUnionSnapshot: [
           "openai-completions",
-          "mistral",
+          "mistral-conversations",
+          "openai-responses",
+          "azure-openai-responses",
+          "openai-codex-responses",
           "anthropic-messages",
-          "amazon-bedrock",
+          "bedrock-converse-stream",
+          "google-generative-ai",
+          "google-vertex",
+          "pi-messages",
         ],
       },
     },

@@ -312,7 +312,11 @@ import {
   type SystemPromptParamField,
 } from "../binder/binder-system-prompt";
 import { deriveBinderSeed } from "../binder/binder-seed";
-import { forcedToolChoiceForApi } from "../binder/forced-tool-choice";
+import {
+  binderSupportsApi,
+  binderUnsupportedApiMessage,
+  forcedToolChoiceForApi,
+} from "../binder/forced-tool-choice";
 import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaulting";
 import { matchAvailableModel } from "../binder/binder-model";
 import {
@@ -945,6 +949,36 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // surface the malformed failure note rather than crash the dispatch, and
       // do not run the body.
       this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" }, binderInput.invocationTicket);
+      return { bound: false };
+    }
+    // Bug 0417 (parent adjudication Option A): the binder's supported-api gate,
+    // synthesize-BEFORE-dispatch. An api with no MEASURED forced-tool-choice row
+    // would ship the outside-the-table `{type:"tool",name}` default the provider
+    // rejects as a request-shape 400 (measured on `openai-responses`), burning
+    // BOTH budgeted binder calls per invocation before failing on `argument
+    // binder unavailable`. Mirror the typed-query respond path's gate (the
+    // `synthesizeUnsupportedProviderTransportError` branch that carries a
+    // `gateError` on the respond context): refuse HERE, before any provider
+    // call (zero spend), routed
+    // through the existing transport failure surface + the bug 0397
+    // `details.event` machinery — no new failure class, no new registry code.
+    // The check changes no registration outcome and is registry-drift-safe.
+    //
+    // A pre-call ABORT takes precedence over an api refusal: an invocation the
+    // user already cancelled surfaces the `cancelled` binder note through the
+    // binder-call checkpoint below, not an unsupported-api transport note (the
+    // abort is the higher-priority pre-dispatch guard, CANCEL-4).
+    const preAborted = binderInput.thetaAbort?.signal.aborted === true;
+    if (!preAborted && !binderSupportsApi(String(model.api))) {
+      this.#emitBinderFailureNote(
+        binderInput.theta.slashName,
+        {
+          kind: "transport",
+          provider: String(model.api),
+          message: binderUnsupportedApiMessage(),
+        },
+        binderInput.invocationTicket,
+      );
       return { bound: false };
     }
     const envelopeSchema = buildBinderEnvelopeSchema({

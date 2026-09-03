@@ -41,14 +41,16 @@
  * the resolved binder model's `Model<Api>.api`.
  *
  *   - `placement: "sent"` — the api sends `temperature` by default; a model id
- *     listed in `refusedByModelId` is the measured exception that omits it.
- *     Every row at theta 1.0 is `"sent"` — no api has (yet) been measured to
- *     refuse the field API-WIDE.
+ *     listed in `refusedByModelId` is the measured exception that omits it. No
+ *     api has been measured to refuse the field API-WIDE, so no `"sent"` row
+ *     lists a whole-api refusal.
  *   - `placement: "omitted"` — the api never sends `temperature`, for every
  *     model id (symmetric with the seed-field table's own `"omitted"` rows);
- *     `refusedByModelId` is not consulted when this arm is taken. No row
- *     currently uses this arm; it exists so a future whole-api deprecation
- *     needs only a row edit, not a shape change.
+ *     `refusedByModelId` is not consulted when this arm is taken. The binder
+ *     gate-refused apis (bug 0417) use this arm as their documented coverage
+ *     disposition — the temperature key never reaches the wire for them because
+ *     the binder refuses their dispatch before it is built, so `"omitted"`
+ *     records that absence rather than a measured whole-api deprecation.
  *
  * `refusedByModelId` is the closed, MEASURED set of model ids under this api
  * that have answered `temperature` with a 400 — never a computed or
@@ -76,7 +78,19 @@ function row(
  * seed-field table (`tests/version-bump-gates.test.ts`) guards this table too.
  * `anthropic-messages` is the one row a live provider response has measured a
  * refusal on, at the two model ids in its `refusedByModelId` (bug 0064's live
- * census); the other three rows carry no refusal.
+ * census); every other row carries no refusal.
+ *
+ * Bug 0417 widened the row keys to the ten `KnownApi` members the refreshed
+ * `api-coverage` snapshot enumerates. The Responses-family and the KnownApi
+ * mistral/bedrock alias spellings that the binder gate ADMITS
+ * (`binderSupportsApi`) send `temperature: 0` by default — `openai-responses`'s
+ * tolerated-temperature:0 was live-measured (bug 0417 §Fix), the alias rows
+ * mirror their legacy siblings. The apis the binder gate REFUSES before
+ * dispatch (`azure-openai-responses`, `openai-codex-responses`,
+ * `google-generative-ai`, `google-vertex`, `pi-messages`) never reach this
+ * table at runtime; their `"omitted"` rows are the documented coverage
+ * disposition ("no temperature sent to an unmeasured, gated-out api"), never a
+ * behavioural claim.
  */
 export const BINDER_TEMPERATURE_TABLE: Readonly<Record<string, BinderTemperatureRow>> =
   Object.freeze(
@@ -85,6 +99,18 @@ export const BINDER_TEMPERATURE_TABLE: Readonly<Record<string, BinderTemperature
       mistral: row("sent", []),
       "anthropic-messages": row("sent", ["claude-fable-5", "claude-sonnet-5"]),
       "amazon-bedrock": row("sent", []),
+      // Bug 0417 — gate-admitted apis send temperature:0 by default.
+      "mistral-conversations": row("sent", []),
+      "bedrock-converse-stream": row("sent", []),
+      "openai-responses": row("sent", []),
+      // Bug 0417 — gate-refused, unmeasured apis: temperature is never sent to
+      // them (the binder gate refuses before dispatch); the documented coverage
+      // disposition is `"omitted"`.
+      "azure-openai-responses": row("omitted", []),
+      "openai-codex-responses": row("omitted", []),
+      "google-generative-ai": row("omitted", []),
+      "google-vertex": row("omitted", []),
+      "pi-messages": row("omitted", []),
     }),
   );
 

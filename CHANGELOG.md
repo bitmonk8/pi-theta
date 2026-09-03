@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.401.0]
+
+### Fixed
+
+- **Bug 0417** — every `openai-responses` binder call shipped the outside-the-table forced-`toolChoice` default `{type:"tool",name}`, a request shape the OpenAI Responses API rejects with a hard 400: a `bind_model:` naming such a model registered cleanly, then every slash invocation burned both budgeted binder calls (the transport retry re-issuing the identical doomed request) and terminated on `argument binder unavailable` — the whole `params:` feature dead on a served api family, at two provider calls per invocation; root cause shared with the stale `apiUnionSnapshot` (four members vs the installed pi-ai's ten `KnownApi`), which disarmed the coverage gate that should have forced rows. PARENT ADJUDICATION Option A (recorded): the binder gains the supported-api bound its own spelling-table header presumed — an api outside the measured set now synthesizes the transport refusal BEFORE any provider call (zero spend), mirroring the respond path's gate mechanism; Option B (total table) was rejected because it would mint UNMEASURED google-*/pi-messages spellings — the measurement law forbids exactly this bug's guessed-spelling class. Shipped: the Reach-1-measured flat `{type:"function",name}` Responses arm in `FORCED_TOOL_CHOICE_BY_API`; `binderSupportsApi` + the synthesized pre-dispatch refusal in the producer; `apiUnionSnapshot` refreshed to the ten installed `KnownApi` members with explicit measured rows or documented unmeasured exclusions across all three per-api tables (forced-tool/temperature/seed — no silent absence); spec same-commit (`#complete-forced-tool-presupposition` clarification + the binder-inference supported-api contract sentence). Doc-sanctioned flip: cka-34's outside-the-table default pin; ratified 0322-class maintenance: the version-bump-gates red-exemplar re-target (synthetic never-`KnownApi` name) + the step-6 two-bucket coverage cell, both entailed by the snapshot refresh. Witnessed by NEW `tests/b0417-responses-binder-toolchoice-gate.test.ts` (Face A spelling + Face B zero-spend gate) and NEW live cell `tests/live/b0417live-responses-binder-toolchoice-live-cell.test.ts` (red at fork on the Reach-2 observables; green ×2 under the lock — `bind_echo` fired, no `argument binder unavailable`). No new registry codes.
+
 ## [0.400.0]
 
 ### Fixed

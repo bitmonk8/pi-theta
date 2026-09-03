@@ -655,15 +655,22 @@ describe("V9j-T — complete() binder envelope (cka-34)", () => {
     });
   });
 
-  it("cka-34: mistral spells the forced tool choice {type:'function',function:{name}}; an api outside the table takes the normalized spelling", () => {
+  it("cka-34: mistral spells {type:'function',function:{name}}; openai-responses spells the FLAT {type:'function',name} (bug 0417 Reach 1 — the Responses-family row)", () => {
     const mistral = buildBinderCompleteCall(callInput("mistral", 7));
     expect((mistral.options as Record<string, unknown>)["toolChoice"]).toEqual({
       type: "function",
       function: { name: binderToolName("triage") },
     });
-    const outside = buildBinderCompleteCall(callInput("unknown-api", 7));
-    expect((outside.options as Record<string, unknown>)["toolChoice"]).toEqual({
-      type: "tool",
+    // Bug 0417: the Responses API rejects BOTH shipped spellings — the
+    // outside-the-table {type:'tool',name} default 400s on the `type` value and
+    // the nested {function:{name}} form 400s on the missing flat `name` — so
+    // the Responses family takes a THIRD arm producing the flat function form.
+    // An api with no measured row is now refused by the binder gate
+    // (`binderSupportsApi`) BEFORE dispatch, so the pure-function default arm is
+    // never shipped to an unlisted provider on the binder path.
+    const responses = buildBinderCompleteCall(callInput("openai-responses", 7));
+    expect((responses.options as Record<string, unknown>)["toolChoice"]).toEqual({
+      type: "function",
       name: binderToolName("triage"),
     });
   });

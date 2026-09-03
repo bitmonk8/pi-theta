@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BINDER_TEMPERATURE_TABLE } from "../src/binder/binder-temperature";
+import {
+  FORCED_TOOL_CHOICE_API_KEYS,
+  FORCED_TOOL_CHOICE_UNMEASURED_APIS,
+} from "../src/binder/forced-tool-choice";
 import { SDK_SURFACE_INVENTORY } from "../src/extension/sdk-inventory";
 import {
   PROVIDER_SEED_FIELD_TABLE,
@@ -177,10 +181,13 @@ describe("version-bump gate — step 6 provider seed-field Api-coverage", () => 
     expect(apiCoverageFailures(apiSnapshot, tableKeys)).toEqual([]);
 
     // A new/unlisted Api value not present as a row key → red, naming the value
-    // (provider-error-mapping.md #provider-seed-field-mapping).
-    const withNewApi = [...apiSnapshot, "google-generative-ai"];
+    // (provider-error-mapping.md #provider-seed-field-mapping). Bug 0417
+    // widened the pinned snapshot to the ten installed `KnownApi` members, so
+    // the red-direction exemplar is a synthetic never-`KnownApi` name (the
+    // former `google-generative-ai` exemplar is now a covered row key).
+    const withNewApi = [...apiSnapshot, "a-future-unlisted-api"];
     expect(apiCoverageFailures(withNewApi, tableKeys)).toContain(
-      "google-generative-ai",
+      "a-future-unlisted-api",
     );
   });
 
@@ -196,10 +203,41 @@ describe("version-bump gate — step 6 provider seed-field Api-coverage", () => 
     expect(apiCoverageFailures(apiSnapshot, temperatureTableKeys)).toEqual([]);
 
     // A new/unlisted Api value not present as a row key → red, naming the value.
-    const withNewApi = [...apiSnapshot, "google-generative-ai"];
+    // Bug 0417 widened the pinned snapshot to the ten installed `KnownApi`
+    // members, so the red-direction exemplar is a synthetic never-`KnownApi`
+    // name (the former `google-generative-ai` exemplar is now a covered row key).
+    const withNewApi = [...apiSnapshot, "a-future-unlisted-api"];
     expect(apiCoverageFailures(withNewApi, temperatureTableKeys)).toContain(
-      "google-generative-ai",
+      "a-future-unlisted-api",
     );
+  });
+
+  it("step 6 (bug 0417): every KnownApi member is a forced-tool-choice row key OR a documented unmeasured exclusion (the coverage gate's two-direction assertion over the forced-tool table)", () => {
+    const apiSnapshot = inventoryPayload("api-coverage")
+      .apiUnionSnapshot as readonly string[];
+    // The forced-tool table cannot be TOTAL over the snapshot without minting
+    // guessed spellings (bug 0417's own defect class), so its coverage domain
+    // is the union of the MEASURED row keys and the documented unmeasured
+    // exclusions. Every KnownApi member must fall in one bucket → no failures.
+    const coverageDomain = [
+      ...FORCED_TOOL_CHOICE_API_KEYS,
+      ...FORCED_TOOL_CHOICE_UNMEASURED_APIS,
+    ];
+    expect(apiCoverageFailures(apiSnapshot, coverageDomain)).toEqual([]);
+
+    // A new/unlisted Api value in neither bucket → red, naming the value: a
+    // pi-ai bump that adds an api forces an explicit disposition (a measured
+    // row or a documented exclusion), never a silent fall-through to the
+    // 400-prone {type:'tool',name} default.
+    expect(
+      apiCoverageFailures([...apiSnapshot, "a-future-unlisted-api"], coverageDomain),
+    ).toContain("a-future-unlisted-api");
+
+    // The two buckets are disjoint (an api is measured XOR documented-out).
+    const keySet = new Set(FORCED_TOOL_CHOICE_API_KEYS);
+    expect(
+      FORCED_TOOL_CHOICE_UNMEASURED_APIS.filter((api) => keySet.has(api)),
+    ).toEqual([]);
   });
 
   it("step 6: per-provider seed-field fixture reds when a supported provider's seed field is renamed or moved across the supporting/omitted sets", () => {

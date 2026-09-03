@@ -90,6 +90,21 @@ export const PROVIDER_SEED_FIELD_TABLE: Readonly<Record<string, string>> =
     mistral: "random_seed",
     "anthropic-messages": "omitted",
     "amazon-bedrock": "omitted",
+    // Bug 0417 widened the coverage domain to the ten `KnownApi` members. None
+    // of the widened rows sends a binder seed: the runtime seed table
+    // (`BINDER_SEED_FIELD_BY_API`) keys the legacy `mistral`/`amazon-bedrock`
+    // spellings, so a `KnownApi`-spelled model resolves no seed field; the
+    // Responses family and the google/pi-messages apis have no measured seed
+    // field either. All widened rows are therefore `"omitted"` (documented
+    // absence, never silent), matching the runtime `no-row → no seed` behaviour.
+    "mistral-conversations": "omitted",
+    "bedrock-converse-stream": "omitted",
+    "openai-responses": "omitted",
+    "azure-openai-responses": "omitted",
+    "openai-codex-responses": "omitted",
+    "google-generative-ai": "omitted",
+    "google-vertex": "omitted",
+    "pi-messages": "omitted",
   });
 
 // --- step 2(a): positive surface-inventory presence -------------------------

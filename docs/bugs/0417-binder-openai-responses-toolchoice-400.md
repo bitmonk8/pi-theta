@@ -1,6 +1,6 @@
 # Bug 0417 — The binder's outside-the-table forced-`toolChoice` default `{type:"tool",name}` is a hard HTTP 400 on every `openai-responses` model: a `bind_model:` naming one registers cleanly, then every slash invocation burns both budgeted binder calls and terminates on `argument binder unavailable` — the 0064 mechanism on the neighbouring request field, and the binder is the one forced-tool dispatch site with no provider gate in front of it
 
-- **Status:** open.
+- **Status:** fixed (0.401.0).
   end to end through the shipped composition root).
 - **Sev/Diff estimate:** S2/D3 — loud-but-fatal: every `params:` theta on a whole served api family burns two budgeted provider calls per invocation and terminates on a transport note; fix needs a third spelling row plus the stale `apiUnionSnapshot` refresh (forcing rows in three tables), a binder-gate design decision, and a live witness.
 - **Kind:** defect — implementation fails to deliver documented behaviour
@@ -302,3 +302,25 @@ Constraint-pinned; the route mirrors bug 0064's settled Option 1:
   (`/hcresp`) with registration precondition, note, empty `userTexts`, and
   `details.event` recorded verbatim above. Scratch probes deleted after
   recording, per hunt protocol.
+
+## Fix (0.401.0)
+
+- **What shipped:**
+  - `src/binder/forced-tool-choice.ts` — new `"responses-function"` arm in `FORCED_TOOL_CHOICE_BY_API` producing the flat `{type:"function",name}` for `openai-responses` (live-measured, Reach 1) and `openai-codex-responses` (code-read: `dist/api/openai-codex-responses.js` passes `options.toolChoice` through verbatim, `openai-responses-shared` family); the binder supported-api gate `binderSupportsApi` (the six measured rows' apis + `openai-responses`), `binderUnsupportedApiMessage`, and `FORCED_TOOL_CHOICE_UNMEASURED_APIS` (documented exclusions: `azure-openai-responses` [adapter drops `toolChoice`], `google-generative-ai`, `google-vertex`, `pi-messages`).
+  - `src/extension/production-theta-producer.ts` — `runBinder` synthesizes the transport-class refusal BEFORE any provider call for an outside-the-gate api (zero spend), routed through `#emitBinderFailureNote` + the 0397 `details.event` machinery; a pre-call abort takes precedence (surfaces `cancelled` via the binder-call checkpoint).
+  - `src/extension/sdk-inventory.ts` — `apiUnionSnapshot` refreshed from the stale four-member set to the ten installed pi-ai `KnownApi` members.
+  - `src/binder/binder-temperature.ts` — `BINDER_TEMPERATURE_TABLE` widened to the ten members (gate-admitted apis `"sent"`; gate-refused apis documented `"omitted"`, never reaching the wire).
+  - `src/extension/version-bump-gates.ts` — `PROVIDER_SEED_FIELD_TABLE` widened to the ten members (all widened rows `"omitted"`, matching the runtime `no-row → no seed` behaviour).
+  - `docs/spec_topics/pi-integration-contract/conversation-drive.md` — the `#complete-forced-tool-presupposition` flat-Responses-spelling + supported-api-bound pin clarification (`(bug 0417 fix)`).
+  - `docs/spec_topics/pi-integration-contract/binder-inference.md` — the `#binder-supported-api-bound` contract sentence pinning the supported-api bound.
+  - Tests: `tests/b0417-responses-binder-toolchoice-gate.test.ts` (offline: Face A flat-spelling; Face B zero-spend synthesize-before-dispatch); `tests/live/b0417live-responses-binder-toolchoice-live-cell.test.ts` (the mandated live witness); the sanctioned cka-34 flip in `tests/binder-inference-provider-mapping.test.ts`; the coverage-gate maintenance in `tests/version-bump-gates.test.ts`.
+- **Gates:**
+  - Witness (offline): `tests/b0417-responses-binder-toolchoice-gate.test.ts` 5/5 green; red-under-revert proven — Face A reds `{type:'tool'}` ≠ `{type:'function'}`, Face B reds `complete() call count: 2 … expected 2 to be +0`.
+  - Live witness: `tests/live/b0417live-responses-binder-toolchoice-live-cell.test.ts` GREEN ×2 (3.6s, 7.0s) under the global live lock — `bind_echo` fired, `argument binder unavailable` absent, `263 + 514 = 777` arithmetic oracle present.
+  - Full default suite: `npm test` — 571 files / 10437 tests green (isolated re-run law: four parallel-load-flake files each green isolated).
+  - Typecheck: `npm run typecheck` exit 0. Lint: `npm run lint` exit 0.
+- **Review:** 2 rounds. Round 1 (`bug-fix-reviewer`) — clean on correctness/fidelity/spec/house-rule; two non-blocking findings (F1: stale `BinderTemperatureRow` interface doc-comment [prose]; F2: live-cell title claimed an unasserted `bind_echo` [test]), both fixed. Round 2 (`bug-fix-reviewer-fast`, confirmation) — CLEAN, no new findings; re-ran the full offline suite green + lint clean.
+- **Verification:** SOLID (`bug-fix-verifier`). (A) revert-witness reds both faces and greens under byte-exact restore; (B) full suite green modulo isolated-green load flakes; (C) tsc + lint clean; (D) no new registry code — `permitted-codes.json` unchanged, the refusal reuses the pre-existing transport `BinderFailureSurface`.
+- **Residuals:** none. Two observations recorded but not filed: (i) if a gate-refused api is later live-measured and admitted, its temperature `"omitted"` disposition must be re-reviewed (flagged in the module header as a non-behavioural coverage disposition); (ii) a pre-call abort combined with a BNDR-9 transcript-unsafe `bind_context: session` corner surfaces the BNDR-9 note rather than `cancelled` — a pre-existing check ordering, inherited, not introduced.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** `openai-codex-responses` carries the flat spelling row (code-read-derived) but is DELIBERATELY outside the binder gate until an end-to-end live drive measures it; `azure-openai-responses` gets no row (its adapter drops `options.toolChoice`); `google-generative-ai` / `google-vertex` / `pi-messages` stay unmeasured and gated-out (the measurement law forbids minting a guessed spelling — this bug's own defect class). The `tests/version-bump-gates.test.ts` coverage edit (re-target the red-direction exemplar `google-generative-ai` → synthetic `a-future-unlisted-api`, add the forced-tool coverage cell) is mechanical coverage-gate maintenance entailed by the parent-adjudicated ten-member `apiUnionSnapshot` refresh (item 3's "satisfy the coverage gate's two-direction assertion"), not an independent flip beyond the sanctioned cka-34 — the round-1 reviewer confirmed the entailment holds. The transport-retry re-issuing an identical request, the 120-code-point note cap, and the `unity-responses` litellm/Azure gateway specifics remain non-goals (unchanged from the report body).
