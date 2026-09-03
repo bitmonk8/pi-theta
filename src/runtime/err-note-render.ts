@@ -164,11 +164,16 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
       // SNK-h — `last_tool_name` can be null: an untyped query under
       // `tool_loop.max_rounds: 0` exhausts at initialisation (slot_count ==
       // max_rounds, 0 == 0) before any tool call exists to name (bug 0308).
-      // A null renders through `summariseErrorField` per the bug-0177 law
-      // (`String(null) === "null"`), the same as every other SNK field —
-      // no fabricated tool name is substituted.
+      // `renderNoteField(null)` collapses to the same "null" string as bare
+      // `summariseErrorField(null)`, so the null case stays byte-identical.
+      // `last_tool_name` is otherwise model-controlled (the recorded tool
+      // name from the raw provider reply, unfiltered by the callable-set
+      // check), so it goes through the same SLSH-4 line-break collapse as
+      // the other SNK string fields to stop a break from forging a second
+      // physical `Err`-note line (bug 0400). `rounds` is numeric and not a
+      // break carrier, so it stays on bare `summariseErrorField`.
       const e = leaf as ToolLoopExhaustedError;
-      return `${prefix} returned Err: tool-call loop exhausted after ${summariseErrorField(e.rounds)} rounds (last tool: ${summariseErrorField(e.last_tool_name)})`;
+      return `${prefix} returned Err: tool-call loop exhausted after ${summariseErrorField(e.rounds)} rounds (last tool: ${renderNoteField(e.last_tool_name)})`;
     }
     case "invoke_infra": {
       // SNK-i

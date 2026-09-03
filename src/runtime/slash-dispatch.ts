@@ -141,7 +141,7 @@ export interface SlashPromptPi {
     readonly customType: string;
     readonly content: string;
     readonly display: boolean;
-    readonly details: SystemNoteDetails;
+    readonly details?: SystemNoteDetails; // optional: this test-only surface omits it (bug 0401 adjudication — no `RuntimeEvent` exists here to attach), on the same footing as the informational notes runtime-event-channel.md pins detail-less.
   }): void;
 }
 
@@ -180,11 +180,12 @@ export async function driveSlashPromptTurn(
   deps.pi.sendUserMessage(queryText);
   await deps.ctx.waitForIdle();
   if (deps.outcome.kind !== "ok") {
+    // Test-only surface with no `src/` caller: omit `details` rather than fabricate
+    // the runtime-event key (bug 0401 adjudication — no `RuntimeEvent` to attach).
     deps.pi.sendMessage({
       customType: SYSTEM_NOTE_CHANNEL,
       content: deps.outcome.note,
       display: true,
-      details: { event: {} },
     });
   }
 }

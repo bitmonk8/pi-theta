@@ -1,6 +1,6 @@
 # Bug 0400 — SNK-h interpolates `last_tool_name` without the SLSH-4 line-break collapse: a model-supplied tool name carrying U+000A renders the top-level `Err` note across two physical lines, and a crafted name forges a byte-perfect second `theta /<name> returned Err:` line — the 0382 discipline's conceded field, fed by an unsanitised model-controlled channel
 
-- **Status:** open.
+- **Status:** fixed (0.389.0).
 - **Kind:** defect — implementation diverges from the SLSH-4 sentence 0382's
   fix added ("any line break in an interpolated placeholder's content … is
   collapsed to a single space before insertion … so interpolated content
@@ -156,3 +156,13 @@ sentence, SNK-h row). Implementation read:
 `src/runtime/query-error.ts:96–110, 300–330`. Prior bugs read in full: 0382
 (§Fix, §Pinned dispositions), 0308, 0105 (residual-3 class), 0177, 0243.
 Probes P6a/P6b/P6c run at `d63c5148` (scratch file deleted).
+
+## Fix (0.389.0)
+
+- What shipped: `src/runtime/err-note-render.ts` — the SNK-h (`tool_loop_exhausted`) arm of `renderLeafKindNote` now wires `last_tool_name` through the existing `renderNoteField` (= `normaliseLiteralValueLineBreaks` ∘ `summariseErrorField`) exactly as SNK-c/d/g/k, per §Fix. `rounds` stays on bare `summariseErrorField` (numeric, no break carrier); `renderNoteField(null)` is byte-identical to `summariseErrorField(null)`, so bug 0308's null pin holds. No spec edit, no registry Message moves.
+- Gates: witness `tests/b0400-snk-h-last-tool-name-line-discipline.test.ts` 10/10 green (red at fork: 8 failed on the two-physical-line / forged-second-line output; break-free and null controls green both directions); full default suite 557 files / 10317 tests green; `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec findings; sole residual is a pre-existing untracked `.npm-ci.log`, outside the diff).
+- Verification: VERIFIED — the witness reds without the fix on the two-line / forged-second-line assertions and greens restored byte-exact; full suite green (5 transient parallel-load timeouts, all green isolated); typecheck + lint clean; adjacent SNK-h live cell `tests/live/hardening/b0308-cap0-exhaustion-note.test.ts` green under the shared live lock (run by the orchestrator — the fix is a render-seam string collapse with no registration/drive-outcome change for any input class, so one adjacent live cell witnesses the SNK-h note path).
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: SNK-i `callee_path` / the SLSH-5 chain paths (0105 residual-3 out-of-scope class); the numeric `rounds`/`attempts` interpolations (no break carrier); `summariseErrorField` itself (the 0177 law) — all unchanged, per §Non-goals.

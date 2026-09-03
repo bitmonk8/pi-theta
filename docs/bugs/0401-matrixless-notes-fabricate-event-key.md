@@ -1,6 +1,6 @@
 # Bug 0401 — Four production informational notes outside the four-shape `details` matrix fabricate the runtime-event key: the binder success echo, the SLSH-1 overflow note, the drain-state shutting-down/superseded note, and the repeat-start supersession note all ship `details: { event: {} }`, so the partition rule "distinguished by which key is present" classifies each as an empty runtime event — and the spec assigns these notes no `details` shape at all
 
-- **Status:** open.
+- **Status:** fixed (0.390.0).
 - **Kind:** spec gap + defect. Gap: `runtime-event-channel.md:20` enumerates
   four normative `details` payload shapes "distinguished by which key is
   present" and the per-variant matrix (`:27`) pairs each with
@@ -163,3 +163,13 @@ policy), `pi-integration-contract/registration-steps.md` (PIC-29..32 context),
 Prior bugs read in full: 0383 (§Residuals 2 — the sanctioning record), 0311,
 0378, 0021. Probes P1/P3 run at `d63c5148` (scratch files deleted);
 `rg "event: \{\}" src/` quoted in §Reproduction.
+
+## Fix (0.390.0)
+
+- What shipped (Option (b), parent-adjudicated; option (a) — a fifth `details` shape — rejected per 0326 anti-fork): `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — a new additive “Informational notes carry no `details`” clause landed FIRST-IN-COMMIT (DIAG-2), pinning the four informational notes detail-less and stating explicitly it is the absence of `details`, not a fifth shape; `src/extension/production-theta-producer.ts` — `#emitBinderEchoNote` and `#emitNoParamsOverflowNote` omit `details` on the wire; `src/extension/factory.ts` — the drain-state dispatch-refusal note and the repeat-start supersession note omit `details`; `src/runtime/slash-dispatch.ts` — `SlashPromptPi.sendMessage`'s `details` made optional and `driveSlashPromptTurn` (test-only surface, no `src/` caller) omits it. All four sites move in the same change set (constraint 2).
+- Gates: witness `tests/b0401-informational-notes-omit-details.test.ts` 10/10 green (red at fork: the five site witnesses failed on the `details`-present / `"event"`-substring signature; the five content/display controls green both directions); full default suite 558 files / 10327 tests green; `npm run typecheck` clean; `npm run lint` clean; DIAG-2 corpus gate and the b0265 spec-text gate green (the additive clause did not flip b0265).
+- Review: 1 round — `bug-fix-reviewer` CLEAN. Verified the spec clause is additive-only (the group-A / binder-failure / custom-type-unsafe rows untouched), the five sites omit `details` while the two owned-elsewhere sibling notes keep theirs byte-unchanged, the witness captures each note non-vacuously, and STOP-VALVE cleared. One prose residual (the site-5 comment) applied as a comment-only polish; gate-diff green, so no confirmation round.
+- Verification: VERIFIED — all five site witnesses red without the fix on the `details`/`"event"` signature and green restored byte-exact; full suite green (2 transient parallel-load failures, both green isolated); spec-text + corpus gates green with the DIAG-2 baseline fixture byte-identical to HEAD; typecheck + lint clean; adjacent echo-note live cell `tests/live/echo-array-per-element-live-cell.test.ts` green under the shared live lock (run by the orchestrator — the notes still emit with unchanged content/display, so no drive outcome changes for any input class; the cell witnesses the BND-1 echo path still delivers on a real provider drive).
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the binder-failure note (`#emitBinderFailureNote`, group A — bug 0397) and the custom-type-unsafe note (`#emitCustomTypeUnsafeNote`, group B — bug 0398) are OWNED ELSEWHERE and left byte-unchanged with their `details: { event: {} }`; the `content`/`display` bytes of all four notes are conformant and unchanged; removing `driveSlashPromptTurn` (a dead-code question) is a separate concern, out of scope. STOP-VALVE record: Option (b)'s valve (detail-omission impossible if the host type required `details`) was checked and cleared — `@earendil-works/pi-coding-agent`'s `CustomMessage.details?: T` is optional and `ExtensionAPI.sendMessage` takes `Pick<CustomMessage<T>, … | "details">`, preserving the `?`, so omission typechecks.

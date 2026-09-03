@@ -1159,12 +1159,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const content = capSystemNote(
       renderArgumentEcho({ thetaName: theta.slashName, params: echoParams }),
     );
+    // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
     this.#input.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
         content,
         display: true,
-        details: { event: {} },
       },
       { triggerTurn: false },
     );
@@ -1592,12 +1592,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     if (trimSlashArgumentWhitespace(binderInput.args).length === 0) {
       return;
     }
+    // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
     this.#input.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
         content: renderNoParamsOverflowNote(binderInput.theta.slashName),
         display: true,
-        details: { event: {} },
       },
       { triggerTurn: false },
     );

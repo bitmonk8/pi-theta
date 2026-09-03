@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.390.0]
+
+### Fixed
+
+- **Bug 0401** — four production informational notes fabricated the runtime-event key: the binder success echo (`#emitBinderEchoNote`), the SLSH-1 no-params overflow note (`#emitNoParamsOverflowNote`), and the two factory lifecycle notes (drain-gated dispatch refusal, bug-0021 repeat-start supersession) all shipped `details: { event: {} }` — the `event` key is load-bearing for the channel's closed four-shape partition ("distinguished by which key is present"), so a conforming key-switching consumer classified every success echo as a group-A runtime failure event with an empty payload, strict RuntimeEvent validation failed on the channel's happiest-path note, and the fabricated empty object was durably serialised into every subsequent provider call (custom-message persistence). The spec assigned these notes NO details shape at all (the gap half). PARENT ADJUDICATION Option (b) (recorded — (a)'s fifth informational shape rejected: a payload-less arm forks the taxonomy for nothing, 0326 anti-fork; the notes' information IS the content string): the DIAG-2 spec clause landed FIRST-IN-COMMIT — `runtime-event-channel.md` now states informational notes carry no `details` — and `details` is omitted on the wire at ALL FIVE sites in the same commit (the four production emitters + the test-only `slash-dispatch.ts` `driveSlashPromptTurn` site, per the doc's constraint 2: a partial fix leaves the partition violated). The 0397/0398 sibling notes (spec-pinned payloads, other lanes) byte-unchanged. Witnessed by `tests/b0401-informational-notes-omit-details.test.ts` (10 cells; 5 red at fork on the `{event:{}}` signature). Live: `echo-array-per-element-live-cell` green under the lock (the echo note through a real drive; recorded WHY). Co-landed with 0400 (same lane, shared producer surface, disjoint note sites).
+
+## [0.389.0]
+
+### Fixed
+
+- **Bug 0400** — the SNK-h exhaustion note's `last_tool_name` field bypassed the render seam 0382 built: a tool name carrying a raw line break (reachable through the model-authored tool-call surface) rendered verbatim into the note's `content`, splitting it into a forged second `theta-system-note` line — 0382's exact mechanism reopened on the sibling field its fix record left un-threaded (0382 wired the SNK error/message rows through `renderNoteField = normaliseLiteralValueLineBreaks ∘ summariseErrorField`; the SNK-h row's tool-name interpolation stayed raw). Fixed per the settled §Fix: `last_tool_name` is wired through the SAME `renderNoteField` seam (0348's normaliser + 0382's composition REUSED, not forked — 0326 anti-fork law), collapsing embedded breaks to the escaped form so the note stays one line and no second note is forged. Witnessed by `tests/b0400-snk-h-last-tool-name-line-discipline.test.ts` (10 cells; 8 red at fork on the two-line/forged output). Live: the adjacent SNK-h cell `b0308-cap0-exhaustion-note` green under the lock (recorded WHY — same note class, render-seam adjacency).
+
 ## [0.388.0]
 
 ### Fixed

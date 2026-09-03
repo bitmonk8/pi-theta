@@ -692,12 +692,12 @@ export function createThetaExtension(
             registry,
           );
           if (outcome.kind === "note") {
+            // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
             pi.sendMessage(
               {
                 customType: SYSTEM_NOTE_CHANNEL,
                 content: outcome.content,
                 display: true,
-                details: { event: {} },
               },
               { triggerTurn: false },
             );
@@ -757,13 +757,13 @@ export function createThetaExtension(
       // pass.
       if (repeatStartWithoutShutdown) {
         try {
+          // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
           pi.sendMessage(
             {
               customType: SYSTEM_NOTE_CHANNEL,
               content:
                 "theta: repeat session_start without session_shutdown; superseding prior hot-reload generation",
               display: true,
-              details: { event: {} },
             },
             { triggerTurn: false },
           );
