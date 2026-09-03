@@ -13,17 +13,29 @@
 //     function has no JSON Schema): it parses clean and is preserved on the
 //     AST as human-facing documentation, but lowers nowhere.
 //   - `lowerDescription`'s `variant` arm is a dead-seam artifact with no
-//     production call site (the variant `///` above never lowers); its
-//     disposition is tracked by bug 0360.
+//     production call site (the variant `///` above never lowers) — seam-only,
+//     per *Module disposition* below.
 //   - `theta/parse/doc-comment-misplaced` — a `///` above any other production
 //     (`let`, `import`, `export`, expression / control-flow statements).
 //   - Consecutive `///` lines join with newlines; common leading whitespace is
 //     stripped (same algorithm as query-template dedent); empty `///` lines
 //     become blank lines; a regular `//` comment is never propagated.
 //
-// V5c-T (tests-task) declares these seam shapes and stubs the behaviour-bearing
-// functions so the failing tests compile and red on their own primary
-// assertions. The paired V5c implementation leaf fills these in.
+// Module disposition. `joinDocComment` and `checkDocCommentPlacement` are
+// production-wired: the parser's `///` scan (`scanDocComments` in
+// theta-document.ts) joins each run with `joinDocComment` and delegates each
+// run's placement to `checkDocCommentPlacement`, over the five anchors
+// `classifyDocAnchor` now mints (schema/enum/fn AND schema-field/enum-variant).
+// The integrated lowering attaches a run's joined text onto its AST anchor
+// (`attachDocDescriptions`, theta-document.ts) and the schema lowering carries
+// it into the `$defs` fragment; production does not route the lowering through
+// `lowerDescription`, and `extractDescription`'s run-FORMATION rule is
+// re-expressed inline by `scanDocComments`'s forward `///` scan.
+// `extractDescription` and `lowerDescription` therefore have no production
+// caller and are exercised only as seam-level implementation tests
+// (tests/descriptions.test.ts). The end-to-end pipeline is witnessed by
+// tests/b0357-* (placement over field/variant anchors) and tests/b0358-*
+// (lowered `$defs` description bytes).
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 

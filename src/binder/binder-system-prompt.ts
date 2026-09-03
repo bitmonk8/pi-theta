@@ -245,9 +245,15 @@ export interface BuildBinderSystemPromptInput {
  * `ParamRequirement.literal`) that may itself carry a line break, so both are
  * passed through `normaliseParamLineBreaks` before interpolation — the two
  * tokens *Type display* and *Default-literal rendering* govern. `description`
- * receives no such transform: it is a caller-supplied string, and no
- * `params:` field populates one, so this segment carries no author-controlled
- * line break to normalise.
+ * receives no such transform: it is a caller-supplied string, and no theta 1.0
+ * authoring surface populates one — the ` — <description>` slot is RESERVED
+ * with no theta 1.0 carrier (binder-bypass-and-envelope.md §System-prompt
+ * structure item 4). `binderPromptParamField`
+ * (`src/extension/production-theta-producer.ts`) sets no `description`, so for
+ * every registrable theta this branch is unreached and pins renderer-oracle
+ * bytes only. A future carrier MUST first extend the *Type display* /
+ * *Default-literal rendering* line-break discipline to this slot before wiring
+ * it, since it interpolates the description with no collapse-and-trim.
  *
  * The requirement token is `required` or `default=<literal>` (item 4,
  * Default-literal rendering); the ` — <description>` segment (U+0020 U+2014

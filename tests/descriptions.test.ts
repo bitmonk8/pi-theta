@@ -8,8 +8,14 @@ import {
 } from "../src/parser/descriptions";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 
-// V5c-T — failing tests for the paired `V5c` "Descriptions (`///`)"
-// implementation.
+// V5c-T — seam-level implementation tests for the "Descriptions (`///`)" model
+// (src/parser/descriptions.ts). Each `describe` asserts one exported function in
+// isolation. The END-TO-END descriptions.md pipeline (parse-source → placement
+// diagnostics / lowered `$defs` description bytes) is witnessed by
+// tests/b0357-doc-comment-field-variant-anchors.test.ts and
+// tests/b0358-doc-comment-descriptions-lower.test.ts; the coverage-matrix cka-9
+// row cites those witnesses. These seam tests stay as secondary implementation
+// coverage.
 //
 // Spec: descriptions.md (§Placement — the eligible anchor list and the
 // `theta/parse/doc-comment-misplaced` production; §Multi-line — newline-join +
@@ -17,19 +23,25 @@ import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 // byte-for-byte lowering; §`//` is a regular code comment — not propagated) and
 // the normative anchor list at grammar.md §`///` placement.
 //
-// The lowering, multi-line join, and placement checks are asserted against the
-// standalone `joinDocComment` / `extractDescription` / `lowerDescription` /
-// `checkDocCommentPlacement` seams (src/parser/descriptions.ts) — the resolved
-// doc-comment model the tokeniser does not carry.
+// Production wiring (see the descriptions.ts module header): `joinDocComment`
+// and `checkDocCommentPlacement` are production-called by the parser's `///`
+// scan, and the placement `describe` below exercises the SAME five anchors
+// production now mints — including `field` and `variant`, which
+// `classifyDocAnchor` classifies structurally (production-reachable since the
+// field/variant-anchor fix, not seam-only). `extractDescription` and
+// `lowerDescription` have no production caller: their cases here — including
+// `lowerDescription`'s `field`/`variant` arms — are seam-only implementation
+// coverage of the resolved doc-comment model the tokeniser does not carry.
 //
 // Diagnostic *Message* strings are sourced from the diagnostics registry
 // (diagnostics/code-registry-parse.md) per the *Diagnostic message anchors*
 // rule.
 //
-// These tests red because the V5c description lowering is absent: every seam is
-// an inert stub. Each test reds on its own primary assertion (an absent
-// description / an absent diagnostic / an empty join), not on a compile error,
-// missing fixture, or harness throw.
+// Each test asserts its seam function's own primary contract (the lowered
+// description text, the placement diagnostic, the joined string). They are not
+// pipeline witnesses: a green here proves the seam function works, not that the
+// parser routes through it — that end-to-end claim is discharged by the
+// b0357-* / b0358-* witnesses named above.
 
 /** A throwaway 1:1–1:2 span for the seam calls. */
 function span(): SourceRange {
@@ -48,6 +60,13 @@ function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | unde
 
 // --- descriptions.md §No transformation / §Placement — `///` lowering -------
 
+// SEAM-ONLY: `lowerDescription` has no production caller (production attaches a
+// description onto the AST anchor in `attachDocDescriptions` and the schema
+// lowering carries it into `$defs`). Its `field`/`variant` arms are seam
+// contract only — in the integrated pipeline a schema FIELD `///` does lower,
+// but an enum VARIANT `///` is accepted-but-AST-only (the flat enum wire shape
+// has no per-value description slot), like a `fn`. End-to-end lowering is
+// witnessed by tests/b0358-*.
 describe("V5c-T — `///` lowering into `description:` (DESC code-keyed area)", () => {
   it("a `///` above a schema/enum/field/variant lowers byte-for-byte into `description:`; a `fn` `///` stays AST-only", () => {
     // descriptions.md §No transformation: "Theta emits description text
@@ -89,6 +108,12 @@ describe("V5c-T — `///` lowering into `description:` (DESC code-keyed area)", 
 
 // --- descriptions.md §Placement / grammar.md §`///` placement ---------------
 
+// PRODUCTION-WIRED: `checkDocCommentPlacement` is called by `scanDocComments`
+// over `classifyDocAnchor`'s verdict. The `field`/`variant` eligible cases
+// below match production reality — `classifyDocAnchor` mints those anchors
+// structurally, so production DOES accept a `///` above a schema field or enum
+// variant (end-to-end acceptance witnessed by tests/b0357-*); they are no
+// longer arms production cannot reach.
 describe("V5c-T — doc-comment placement (theta/parse/doc-comment-misplaced)", () => {
   it("theta/parse/doc-comment-misplaced: a `///` not above an eligible target fires; an eligible anchor does not", () => {
     // descriptions.md §Placement + grammar.md §`///` placement: a `///` above

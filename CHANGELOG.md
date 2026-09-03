@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.374.0]
+
+### Fixed
+
+- **Bug 0360** — the DESC coverage gate could not witness what it claimed: `cka-9` mapped descriptions.md to leaf V5c whose tests drove the four seam functions in isolation, three then-production-uncalled, the fourth fed only anchors the tests' eligible cases never took — the mechanism by which 0357 and 0358 survived 347 releases under a green gate. Landed AFTER both siblings' fixes with the doc's stale premises RE-MEASURED at head (the settled §Fix applied to current reality): `joinDocComment` and `checkDocCommentPlacement` are now production-wired (0358's `attachDocDescriptions` / 0357's `classifyDocAnchor`), field/variant anchors are production-reachable, `extractDescription`/`lowerDescription` remain seam-only — so (1) the `cka-9` coverage-matrix row is re-pointed at the witnesses that NOW bind the pipeline (the b0357/b0358 witness files, with `descriptions.test.ts` as secondary implementation tests; sole-leaf mapping widened to the discharging set), (2) `src/parser/descriptions.ts`'s stale V5c-T "stubs … so the failing tests compile and red" header is replaced with the module's actual post-0357/0358 disposition (which functions are production-called and from where), and (3) the previously-misleading `"field"`/`"variant"` unit-case comments in `tests/descriptions.test.ts` are corrected to the truth (those arms are now production-reached; labels state what each cell binds). Records-only (comment/prose edits verified by `git diff -U0`): zero behaviour change, zero assertion changes, suite byte-identical at baseline. Live: the b0358 `///`-lowering cell under the lock (no registration/drive change).
+
+## [0.373.0]
+
+### Fixed
+
+- **Bug 0359** — the binder Parameters-block ` — <description>` segment was prescribed, normatively reference-rendered (three MUST-reproduce "Theta source" rows), and UNAUTHORABLE: no theta 1.0 surface attaches a description to a `params:` field (the `///` anchor list has no params-field position; the `params:` RHS grammar has no description half), `binderPromptParamField` hard-codes the segment absent, and the three description-bearing Parameter-line reference renderings were dead oracles no input reaches. PARENT ADJUDICATION Arm (b) (recorded): PIN THE SEGMENT RESERVED, spec-first, zero behaviour change — item 4's conditional arm now states no theta 1.0 carrier exists and the segment is reserved, with the near-carrier acknowledged explicitly (a schema-typed field's TYPE declaration may carry a `///` description per 0358's landed lowering — that is the TYPE's description in `$defs`, not the field's, and it does not flow to the parameter line; primitive-typed rows could never carry one); the three reference-rendering rows are re-labelled from "Theta source" claims to RENDERER-LEVEL oracles with their byte sequences kept normative for `renderBinderParamLine` (a future carrier inherits pinned bytes); the Descriptions cross-reference is corrected; a forward pin makes any future carrier owe the item-2/3 line-break discipline on the third slot BEFORE wiring (0060 residual (iii) made discoverable); and `binderPromptParamField`/`renderBinderParamLine` comments become mirrors of the stated spec disposition instead of private knowledge. Premise re-measured post-0358 and HOLDS (the mapper still sets no description). The three hand-built-descriptor cells in `tests/binder-system-prompt.test.ts` are annotated as the renderer oracles (kept, no assertion changes). Records-only: suite byte-identical at baseline. Live: adjacent H9a-T(d) params-binder cell under the lock (no registration/drive change).
+
 ## [0.372.0]
 
 ### Fixed

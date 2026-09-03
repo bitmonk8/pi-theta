@@ -224,6 +224,15 @@ describe("V11d-T — Default-literal rendering (cka-45 item 4, Default-literal r
 
 // ============================================================================
 // Item 4 — Parameter-line reference renderings (byte-exact table)
+//
+// RENDERER-LEVEL ORACLES. The three description-bearing cells hand-build a
+// `SystemPromptParamField` with a `description`, which no registrable theta
+// produces: the ` — <description>` slot is RESERVED with no theta 1.0 carrier
+// (binder-bypass-and-envelope.md §System-prompt structure item 4;
+// `binderPromptParamField` sets no `description`). They pin the exact bytes of
+// `renderBinderParamLine`'s description branch so a future carrier inherits
+// them; they are NOT theta-source obligations and are kept, not deleted, on
+// that footing.
 // ============================================================================
 
 describe("V11d-T — Parameter-line reference renderings (cka-45 item 4, Parameter-line reference renderings)", () => {

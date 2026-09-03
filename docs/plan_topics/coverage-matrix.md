@@ -131,7 +131,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 | `cka-6` | `bindings.md` (BNDS) | `V3b` |
 | `cka-7` | `functions.md` (FN), `return.md` (RET) — retired as a code-keyed-area row: the pages' obligations are now coined as numbered `FN-1 … FN-5` / `RET-1 … RET-3` REQ-IDs (GOV-22 drain) and mapped to their closing leaf `V3d` in the *Numbered REQ-IDs* table above; no residual un-anchored / code-keyed obligation remains | *(numbered above)* |
 | `cka-8` | `schemas.md` (SCHM) | `V5a`, `V5b` |
-| `cka-9` | `descriptions.md` (DESC) | `V5c` |
+| `cka-9` | `descriptions.md` (DESC) | `V5c` (pipeline witnesses — bugs 0357/0358 fixes: tests/b0357-doc-comment-field-variant-anchors.test.ts and tests/b0358-doc-comment-descriptions-lower.test.ts drive parse-source through the parser and assert doc-comment-misplaced diagnostics and lowered-schema description bytes end-to-end; tests/descriptions.test.ts binds the joinDocComment / checkDocCommentPlacement / extractDescription / lowerDescription seams as secondary implementation tests) |
 | `cka-10` | `schema-subset.md` (SUBS) | `V5d`, `V5e`, `V5f`, `V15j` (co-witness — delegated live-carrier witness for V5e's ceiling-#4 routing at the runtime invoke boundary) |
 | `cka-11` | `frontmatter/frontmatter-fields-a.md`, `frontmatter-fields-b-and-templates.md` (FRNT) | `V6a`, `V6b`, `V6c`, `V6d`, `V6e` |
 | `cka-12` | `query/` (QRY) — retired as a code-keyed-area row: the subtree's obligations are now coined as numbered `QRY-1 … QRY-21` REQ-IDs (GOV-22 drain) and mapped per closing leaf in the *Numbered REQ-IDs* table above; no residual un-anchored / code-keyed obligation remains on the `query/` pages | *(numbered above)* |

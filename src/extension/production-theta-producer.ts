@@ -751,7 +751,11 @@ interface BinderForcedToolDispatch {
  * schema is built from the lowering, so the prompt line beside it must
  * describe the same field), the requirement token `required` or
  * `default=<literal>` from the parser-retained default RHS. The `params:`
- * syntax carries no per-field description, so that segment is always absent.
+ * syntax carries no per-field description — no theta 1.0 authoring surface
+ * attaches one, so the prompt line's ` — <description>` slot is RESERVED with
+ * no carrier (binder-bypass-and-envelope.md §System-prompt structure item 4).
+ * This mapper therefore sets no `description` and that segment is always
+ * absent from the rendered line.
  */
 function binderPromptParamField(field: BypassParamsField): SystemPromptParamField {
   return {

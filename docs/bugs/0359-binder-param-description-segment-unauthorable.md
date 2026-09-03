@@ -1,6 +1,6 @@
 # Bug 0359 — the binder Parameters-block ` — <description>` segment is prescribed, normatively reference-rendered, and unauthorable: no theta 1.0 surface attaches a description to a `params:` field, `binderPromptParamField` hard-codes the segment absent, and all three description-bearing rows of the MUST-reproduce Parameter-line reference renderings are unreachable from any input
 
-- **Status:** open.
+- **Status:** fixed (0.373.0).
 - **Sev/Diff estimate:** S3/D1 — the same verification-gap class bug 0349
   filed at S3 ("a documented shape no … input can fire"): three normative
   byte-sequences (binder-bypass-and-envelope.md *Parameter-line reference
@@ -231,3 +231,18 @@ normative renderings; 0060 records the implementation-side deadness as a
 `binder-system-prompt.ts:175–181/:246–272`, `frontmatter.ts:1050–1090`.
 Spec read: `binder-bypass-and-envelope.md:83/:110–152`,
 `descriptions.md:35–38`, `frontmatter/frontmatter-fields-a.md:58–60`.
+
+## Fix (0.373.0)
+
+- What shipped (records-only; Arm (b) — pin the segment RESERVED):
+  - `docs/spec_topics/binder/binder-bypass-and-envelope.md` — §System-prompt structure item 4's conditional ` — <description>` arm rewritten to pin the segment RESERVED with no theta 1.0 carrier: no authoring surface attaches a description to a `params:` field, the `params:` RHS grammar is `type [= default]` with no description half, and the Descriptions `///` anchor list (schema/enum decl, schema field, enum variant, `fn`) carries no `params:`-field position, so its normalisation never reaches the slot (items 1+3). The near-carrier is acknowledged: a schema-typed field's `///` on its named TYPE lowers into the type's `$defs` description, NOT the field's, and does not flow onto the parameter line; a primitive-typed field has no named type to carry one. The *Parameter-line reference renderings* table re-labelled from "Theta source" MUST-reproduce rows to RENDERER-LEVEL oracles normative for `renderBinderParamLine` alone, marked unreachable from any registrable theta, byte sequences kept verbatim (item 2). Forward pin added: any future carrier MUST first extend items 2/3's line-break discipline to the third slot before wiring it (item 4; 0060 residual (iii) made discoverable; no code transform now).
+  - `src/extension/production-theta-producer.ts` — `binderPromptParamField` comment now mirrors the spec disposition (RESERVED slot, no carrier) and cites §System-prompt structure item 4 (item 5; comment-only).
+  - `src/binder/binder-system-prompt.ts` — `renderBinderParamLine` doc now mirrors the spec disposition and states the future-carrier line-break obligation, citing the spec section (item 5; comment-only).
+  - `tests/binder-system-prompt.test.ts` — the three hand-built description-bearing descriptor cells annotated as RENDERER-LEVEL oracles (reserved-slot byte pins for a future carrier), kept not deleted (item 6; comment-only).
+- Re-measured premise (holds): `binderPromptParamField` sets no `description` post-0358 — it returns `{wireName, type, requirement}` only. The adjudication's premise stands.
+- Gates: full suite `npx vitest run` → 550 files / 10232 tests green (identical to fork baseline 074740b1); `npm run typecheck` clean; `npm run lint` clean; live `npx vitest run --config config/vitest/vitest.live.config.ts tests/live/acceptance/noninteractive-acceptance.test.ts -t "runs the binder off-session"` → PASS under the live lock (H9a-T(d) params binder off-session render — adjacent existing cell; NO registration/drive change, so no new cell).
+- Review: 1 round. R1 (`bug-fix-reviewer`, deep) — CLEAN. Independently re-derived the diff, confirmed all six adjudication items, confirmed no assertion / no executable line changed, STYLE/CLAUDE compliance.
+- Verification: PASS. `bug-fix-verifier` (lean) plus orchestrator gate re-runs and the independent deep review all discharge the obligations (records-only fix: no behavioural Phase-1 witness to revert→red; every `.ts` change is comment-only and every `.md` change prose-only by `git diff -U0`; the RESERVED-slot disposition verified TRUE against re-measured production — `binderPromptParamField` returns `{wireName, type, requirement}` only).
+- Residuals: R1 (non-blocking, follow-up) — the `### Binder system prompt` illustration intro still reads "a conforming implementation MUST emit those bytes verbatim for the inputs shown"; now true (it defers to the renderer-oracle table) but carries no reserved qualifier. Naming it would widen scope beyond adjudication items 1–6 / §Fix constraint 1, so left for a follow-up.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Arm (a) (an authoring surface for a `params:`-field description) is NOT taken — the segment is pinned reserved. No behaviour change for any registrable theta; the shipped description-omitted rendering is byte-stable. The renderer's description branch and its byte pins are retained for a future carrier.
