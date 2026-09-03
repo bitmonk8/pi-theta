@@ -1,6 +1,6 @@
 # Bug 0386 — a dead block-scoped `let x` overwrites the flat parse mutability map file-linearly, so a later legal write to a live outer `let mut x` is refused with a false `theta/parse/immutable-rebinding` and the theta fails to load
 
-- **Status:** open.
+- **Status:** fixed (0.398.0).
 - **Sev/Diff estimate:** S2/D2 — S2: a legal program (per the lexical-shadowing
   rule) is refused at parse, so the theta never registers; the diagnostic names
   a rebinding of an immutable binding that does not exist at that position (the
@@ -145,3 +145,97 @@ expressions.md:51, bindings.md (whole page), functions.md FN-1. Implementation
 read: theta-document.ts:2640-2775. Dup check: README index has no
 block-scoping / mutability-map report; 0370 is fixed and explicitly excludes
 this class from its scope.
+
+## Fix (0.398.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — §Fix realised as its first option (the
+    `withImmutableBindings` save/restore shape generalised to declaration-carrying
+    blocks). `parseBlock()` — the single production for every non-top-level
+    `{ … }` block (if/else, while, for/par-for and fn bodies via
+    `withImmutableBindings`, match-arm and other block-exprs via
+    `parseBlockExprNode`) — now snapshots `this.bindings` (`new Map(this.bindings)`)
+    on entry and restores it (clear + repopulate, mutating the `readonly` field in
+    place) in a `finally`. A block-scoped `let`/`let mut` therefore stops leaking
+    its mutability onto an enclosing same-named entry once the block's `}` closes
+    (expressions.md:51 lexical shadowing). `parseBody()` → `parseForms()` parses the
+    top level directly and never calls `parseBlock`, so top-level file-linear
+    behaviour (redeclaration) is structurally untouched; fn bodies restore across the
+    whole body because a fn body IS one `parseBlock` (row A5).
+  - `tests/b0386-dead-block-let-scope.test.ts` (new, 8 cells) — the offline witness
+    over the b0370 `codesOf` harness: forward rows A1/A3/A4/A5/A6 (a dead-block `let`
+    shadow no longer falsely refuses the later legal write to the outer `let mut`),
+    the reverse-direction control R1 (a dead-block `let mut` shadow of an immutable
+    outer `let` is now refused AT PARSE — the §Fix "reverse-direction control",
+    proving the NEW parse-refusal disposition per parent ratification, NOT the old
+    belt), and the two byte-identical controls A2/A7.
+  - `tests/live/b0386-dead-block-let-scope-live-cell.test.ts` (new, H8a) — the live
+    registration cell: the legal dead-block-shadow theta now REGISTERS (fork denied it
+    via the false `immutable-rebinding`), the reverse shadow is ABSENT (now
+    parse-refused), a no-shadow control registers. Registration-only observable
+    (`handle.command` / `registeredNames`); no model turn driven.
+  - `tests/b0370-reassign-target-scope.test.ts` — the two PARENT-RATIFIED sibling-cell
+    flips (spec-correct consequences of block-scoping, beyond 0386's own enumeration):
+    (F1) the dead-block-shadow RESIDUAL cell flips from parse-clean-`[]`-plus-runtime-
+    belt to the parse refusal `[theta/parse/immutable-rebinding]` (belt drive removed —
+    the write never reaches runtime now); (F2) the sibling-fn-leak WITNESS cell flips
+    `[immutable-rebinding]` → `[unknown-identifier]` (`w` is genuinely out of `f`'s
+    closure-free scope once `g`'s `let w` stops leaking). The "loud-belt residuals"
+    describe header is updated (three residual classes → two; the dead-block-shadow
+    class is superseded by 0386). The other two belt residuals (non-writable root,
+    params-shadow) keep their subjects untouched.
+- Gates:
+  - Witness: `npx vitest run tests/b0386-dead-block-let-scope.test.ts` → 8/8 GREEN
+    after fix; RED at fork (A1/A3/A4/A5/A6/R1 red for the false-refusal symptom, A2/A7
+    controls green), verifier-reproduced by neutralising the `parseBlock` hunk.
+  - Full suite: `npx vitest run` → 559 files / 10332 tests green (baseline 558/10324 +
+    the new offline witness's 8 cells; the verifier's run was 559/10332 all green).
+  - Typecheck: `npm run typecheck` clean. Lint: `npm run lint` clean.
+  - Live: `npx vitest run --config config/vitest/vitest.live.config.ts
+    tests/live/b0386-dead-block-let-scope-live-cell.test.ts` GREEN after fix,
+    RED-proven at fork (both directions: legal theta absent, reverse present), run under
+    the lane live lock.
+- Review: 1 round. R1 (`bug-fix-reviewer`) — CLEAN, no correctness/fidelity/spec
+  finding; three non-blocking residuals (recorded below), deep re-review not
+  recommended.
+- Verification: SOLID (`bug-fix-verifier`). (i) Witness genuinely witnesses — the
+  `parseBlock` hunk neutralised byte-exact → b0386 6/8 red for the doc's symptom and the
+  two flipped b0370 cells (F1, F2) red; restored byte-exact (`git hash-object`
+  `72a5eef1…` match) → b0386 8/8 + b0370 33/33 green. (ii) Full suite 559/10332 green.
+  (iii) Live confirmed present + asserting registration observables (orchestrator-
+  discharged, not re-run by the verifier per lane rule). (iv) Typecheck + lint clean.
+- Residuals:
+  1. Doc-was-wrong, recorded per the 0362 pattern (the §Non-goals body is NOT silently
+     rewritten): 0386's own §Non-goals says the reverse leak "its disposition is already
+     documented as the belt." The mechanism this same doc mandates (block-scoping the
+     flat map) UNAVOIDABLY fixes the reverse leak too — it becomes a parse-time
+     `theta/parse/immutable-rebinding` refusal, not a belt hit. The reverse leak is
+     FIXED, not preserved; the §Non-goals sentence is falsified by the §Fix. The prior
+     orchestrator's STOP (`.pi/tmp/fixes/0386-report.md`) surfaced this contradiction and
+     the two b0370 flips; the parent adjudicated and RATIFIED both flips as spec-correct
+     before this run — and ratified that R1 (the reverse-direction control) now proves the
+     new parse-refusal disposition instead of the belt.
+  2. Doc imprecision: the §Fix constraint names `theta/parse/duplicate-binding`; that
+     code appears nowhere in `src/` or the parse registry. The invariant it names
+     (top-level redeclaration untouched) IS verified (parseBody bypasses parseBlock;
+     A2/A7 and the b0370 same-scope controls stay byte-identical), but the code name is a
+     phantom and is not propagated into this record's claims.
+  3. Two neighbouring 0370 comments (`theta-document.ts:494`, `:2275`) describe the map
+     as "file-linear" unqualified; post-fix it is file-linear only within a scope level.
+     :2275's claim still holds for the TOP-LEVEL params-seed shadow it explains; :494 is a
+     general descriptor. Left as a prose follow-up — not this §Fix's surface, and not
+     load-bearing.
+  4. An UNPINNED top-level shape — `if true { let x = 2 }` with no outer `x`, then
+     `x = 3` — moves from the false `[immutable-rebinding]` to the honest
+     `[unknown-identifier]` (same class as F2, at top level). No committed cell asserts
+     it (full suite green with only the two ratified flips), so it is not a third
+     committed-cell flip; recorded for completeness.
+- Discharge notes appended: `docs/bugs/0370-…md` (dated coordination note: its Residual
+  1(c) candidate follow-up landed as 0386; the dead-block-shadow case moved from the
+  layer-2 belt to parse-time refusal).
+- Pinned dispositions / non-goals: no new registry rows (0326 anti-fork — the fix reuses
+  `immutable-rebinding` / `unknown-identifier` at truer positions). The layer-2 runtime
+  belt stays for values that still launder past parse (0370's non-writable-root and
+  params-shadow residuals keep their subjects, untouched). 0396's separate CTRL-4
+  `bodyLocals` map is a different mechanism, untouched. `0.398.0` is a literal placeholder
+  the lane parent substitutes at merge.

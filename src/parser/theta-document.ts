@@ -2370,15 +2370,37 @@ class BodyParser {
   }
 
   private parseBlock(): Block {
-    // Consumes a `{ ... }` StmtBlock / FnBody.
+    // Consumes a `{ ... }` StmtBlock / FnBody. `parseBlock` is the single
+    // production for EVERY non-top-level block (if/else/while/for/fn-body/
+    // match-arm block-exprs); the top-level document parses through
+    // `parseBody` → `parseForms` directly and never calls `parseBlock`, so
+    // this snapshot/restore cannot touch top-level file-linear behaviour.
+    // Local bindings shadow lexically, the same as Rust or TypeScript
+    // (expressions.md:51): a name `let`-declared inside this block must stop
+    // shadowing once the block's `}` closes, so the outer same-named entry
+    // (if any) is exactly as it was before the block. `this.bindings` is
+    // otherwise a flat, file-linear map with no such boundary; a block-scoped
+    // `let`/`let mut` would permanently overwrite an outer entry of the same
+    // name for the rest of the file, producing a false — or falsely absent —
+    // `theta/parse/immutable-rebinding` on a later write to the outer binding
+    // (bug 0386). Snapshotting and restoring the whole map around the block
+    // body closes that leak without reassigning the `readonly` field.
+    const savedBindings = new Map(this.bindings);
     if (this.isPunct("{")) {
       this.advance();
     }
-    const block = this.parseForms(() => this.isPunct("}") || this.atEnd());
-    if (this.isPunct("}")) {
-      this.advance();
+    try {
+      const block = this.parseForms(() => this.isPunct("}") || this.atEnd());
+      if (this.isPunct("}")) {
+        this.advance();
+      }
+      return block;
+    } finally {
+      this.bindings.clear();
+      for (const [n, m] of savedBindings) {
+        this.bindings.set(n, m);
+      }
     }
-    return block;
   }
 
   /** Parse forms until `isEnd`, promoting a trailing tail `Expr` per grammar. */

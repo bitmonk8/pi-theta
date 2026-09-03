@@ -313,3 +313,36 @@ spelled) in one run. Scratch probes deleted.
   (Layer 2) is a loud defect, not a new registry row (0314/0332 belt law);
   block-scoping the flat mutability map is a pre-existing separate defect
   (residual 2); the sibling 0367 unary surface is untouched.
+
+## Coordination note — bug 0386 block-scoped the parse mutability map (2026-09-03)
+
+Bug 0386 (a dead block-scoped `let` leaks into the flat parse mutability map
+`this.bindings` and falsely refuses a later legal write) lands the block-scoping
+this report's §Fix Residual 2 named as the candidate follow-up ("Block-scoping the
+map is the fix") and its Residual 1(c) anticipated ("The clean-parse-refusal ideal
+… needs block-scoping the flat mutability map — a PRE-EXISTING limitation …
+candidate follow-up bug"). 0386 wraps `parseBlock()` in a whole-map snapshot/restore,
+so a block-scoped `let`/`let mut` stops leaking its mutability past the block's `}`.
+
+Two consequences touch this report's committed witness cells, both ratified by the
+lane parent as spec-correct before 0386 landed, subjects preserved:
+
+- The `RESIDUAL (dead block-shadow …)` cell (`let x = 1` / `if true { let mut x = 2 }`
+  / `x = 3`) moves from the layer-2 loud belt (parse `[]` + runtime
+  `internal-error`) to a parse-time `theta/parse/immutable-rebinding` refusal: with
+  the map block-scoped, the dead block's `let mut x` no longer leaks, the outer
+  immutable `let x` is restored after `}`, and `buildReassign` sees the correct
+  (immutable) mutability for the live target. This is Residual 1(c)'s
+  "clean-parse-refusal ideal", now realised. The write no longer reaches runtime.
+- The `WITNESS (sibling-fn-leak)` cell (`fn g() { let w = 1 }` / `fn f() { w = 2 }`)
+  moves from `theta/parse/immutable-rebinding` to `theta/parse/unknown-identifier`:
+  `g`'s local `let w` no longer leaks past `g`'s `}`, so `w` is genuinely out of
+  `f`'s closure-free scope (functions.md:20, FN-1) and the ident walk refuses it as
+  unknown, not as a rebinding of a leaked immutable. The write is still refused —
+  only the diagnostic code (and the reason it names) changed.
+
+The other two doc-faithful loud-belt residuals in this report (a write to a
+non-writable root; a `params:` field shadowed by a top-level `let mut` written from a
+fn body) do NOT involve a block-scoped `let` leak and are unaffected — they remain
+loud-belt residuals. `0.398.0` is the version 0386 ships in (the lane parent substitutes
+at merge).

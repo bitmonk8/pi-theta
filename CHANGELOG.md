@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.398.0]
+
+### Fixed
+
+- **Bug 0386** — the parser's flat mutability map leaked DEAD block bindings into the enclosing scope: a `let x` inside any non-top-level block (if/for/while/match arm, fn body) stayed in `this.bindings` after `}`, so a later top-level write to a genuinely-mutable outer `let mut x` was falsely refused `theta/parse/immutable-rebinding` (S2: correct programs refused; the doc's A-rows) — and symmetrically a dead `let mut` shadow made a write to an immutable outer `let` parse-clean. Fixed per the ratified continuation: `parseBlock()` snapshots `this.bindings` and restores in a `finally`, block-scoping the map (top level bypasses parseBlock — invariant intact). The first lane attempt STOPPED correctly: the mechanism unavoidably flips two committed b0370 cells beyond 0386's enumeration, and 0386's own §Non-goals contradicted its §Fix. PARENT RATIFICATION (recorded): (F1) b0370's dead-block-shadow RESIDUAL cell flips `[]`+runtime-belt → parse-time `[immutable-rebinding]` — the cell's own comment anticipated exactly this follow-up; (F2) the sibling-fn-leak WITNESS cell flips `[immutable-rebinding]` → `[unknown-identifier]` (`w` is genuinely out of `f`'s scope; subject preserved — the write is still refused, now for the honest reason). No third flip. Paperwork: a dated coordination note appended to 0370's doc (era-pinning), and 0386's fix record documents the §Non-goals falsification per the 0362 doc-was-wrong pattern (the reverse leak is FIXED, not preserved; also records the doc's phantom `duplicate-binding` code). Witnessed by `tests/b0386-dead-block-let-scope.test.ts` (8 cells: A-rows + reverse R1 + controls; red at fork) and NEW live cell `tests/live/b0386-dead-block-let-scope-live-cell.test.ts` (H8a registration; red-proven both directions at fork, green under the lock). 0396's separate CTRL-4 `bodyLocals` map untouched.
+
 ## [0.397.0]
 
 ### Fixed

@@ -419,16 +419,22 @@ describe("bug 0370 FIX A — the immutableRebindingEmitted flag fixes redeclarat
     ).toEqual([]);
   });
 
-  it("WITNESS (sibling-fn-leak): a write to a `let` that leaked from a SIBLING fn body draws [immutable-rebinding] ALONE — no double-code", () => {
-    // `fn g() { let w = 1 }` / `fn f() { w = 2 }`: `buildReassign`'s file-linear
-    // map still holds the immutable `w` that leaked out of `g`'s body, so it
-    // draws immutable-rebinding and sets the flag. The positional guess ALSO let
-    // the walk fire `unknown-identifier` (w is out of `f`'s closure-free scope),
-    // producing a double-code; the flag defer suppresses the walk's second code.
+  it("WITNESS (sibling-fn-leak): a write to a name that never escapes a SIBLING fn body draws [unknown-identifier] (0386 block-scoping)", () => {
+    // PARENT RATIFICATION (bug 0386 Phase 2): "(F2) the sibling-fn-leak WITNESS
+    // cell flips [immutable-rebinding] → [unknown-identifier] — w is genuinely
+    // out of f's scope." Bug 0386 block-scopes `this.bindings` around every
+    // `parseBlock` (which a `fn` body is, whole-body), so `g`'s local `let w`
+    // no longer survives past `g`'s closing `}`; `buildReassign` sees `w` as
+    // UNDECLARED in `f` and draws nothing. The write is still correctly
+    // refused — now for the honest reason: `w` is genuinely out of `f`'s
+    // closure-free scope (functions.md:20, FN-1), so the ident walk refuses it
+    // as unknown, not as a rebinding of a leaked immutable. The cell still
+    // witnesses that the sibling-fn write is refused; only the diagnostic code
+    // (and the reason it names) changed.
     expect(
       codesOf("fn g() { let w = 1 }\n fn f() { w = 2\n 3 }\n f()"),
-      "sibling-fn-leak: single immutable-rebinding, no spurious second unknown-identifier",
-    ).toEqual(["theta/parse/immutable-rebinding"]);
+      "sibling-fn-leak: w does not leak past g's `}`; f's write to w is refused as unknown-identifier",
+    ).toEqual(["theta/parse/unknown-identifier"]);
   });
 });
 
@@ -535,26 +541,32 @@ describe("bug 0370 Layer-2 belt (ii) — the reassign arm throws on a rejected w
 
 // ===========================================================================
 // FIX-B — doc-faithful loud-belt residuals (rejected write AFTER the gates hold).
-// Three input classes parse `[]` — the Layer-1 gates correctly HOLD: the target
+// Two input classes parse `[]` — the Layer-1 gates correctly HOLD: the target
 // is in scope, declared, and not a parse-distinguishable immutable context, so
-// neither `buildReassign` nor the ident walk has grounds to refuse. All three
-// are one family: an immutable-or-non-writable write target the scope-blind
-// FLAT `this.bindings` map (docs/bugs/0370-…md §Affected: "no fn/loop scoping")
+// neither `buildReassign` nor the ident walk has grounds to refuse. Both are
+// one family: an immutable-or-non-writable write target the scope-blind FLAT
+// `this.bindings` map (docs/bugs/0370-…md §Affected: "no fn/loop scoping")
 // cannot statically distinguish from a genuinely writable one — a non-writable
-// root (callable slot), a `params:` field shadowed by a top-level `let mut` of
-// the same name, and a dead block-scoped `let mut` that leaked its (wrong)
-// mutability into the map. Their write is rejected only at RUNTIME (a callable
-// slot / a cross-activation caller binding / the immutable outer `let` the flat
-// map lost track of), where the settled §Fix routes it to the LOUD Layer-2
-// belt: doc §Fix Layer 2 — "a rejected write AFTER THE GATES HOLD throws a loud
-// defect routed to theta/runtime/internal-error"; Layer 1 refuses only
-// out-of-scope/undeclared and the bindings.md:29-34 immutable contexts, NONE of
-// which these are. This is the intended disposition (theta un-registers/errors
-// LOUDLY), NOT the pre-fix silent no-op — refusing them at parse would invent a
-// fourth Layer-1 gate the §Fix does not specify, or (for the block-shadow class)
-// require block-scoping the flat mutability map, a PRE-EXISTING limitation out
-// of bug 0370's §Fix scope (candidate follow-up bug). These cells pin parse
-// `[]` AND the loud-belt routing.
+// root (callable slot) and a `params:` field shadowed by a top-level `let mut`
+// of the same name. Their write is rejected only at RUNTIME (a callable slot /
+// a cross-activation caller binding), where the settled §Fix routes it to the
+// LOUD Layer-2 belt: doc §Fix Layer 2 — "a rejected write AFTER THE GATES HOLD
+// throws a loud defect routed to theta/runtime/internal-error"; Layer 1
+// refuses only out-of-scope/undeclared and the bindings.md:29-34 immutable
+// contexts, NONE of which these are. This is the intended disposition (theta
+// un-registers/errors LOUDLY), NOT the pre-fix silent no-op — refusing them at
+// parse would invent a fourth Layer-1 gate the §Fix does not specify. These
+// cells pin parse `[]` AND the loud-belt routing.
+//
+// A THIRD class — the dead block-scoped `let mut` shadow of an outer
+// immutable `let` — was recorded here as a loud-belt residual too, but bug
+// 0386 SUPERSEDES that disposition: block-scoping `this.bindings` around
+// every `parseBlock` means the dead block's `let mut` no longer leaks past
+// its `}`, so the outer immutable `let` is restored and the later write is
+// now refused AT PARSE with `theta/parse/immutable-rebinding` (see the cell
+// below) instead of reaching the runtime belt. The other two residuals
+// (non-writable root, params-shadow) are unaffected — neither involves a
+// block-scoped `let` leak — and remain loud-belt residuals unchanged.
 // ===========================================================================
 
 describe("bug 0370 — doc-faithful loud-belt residuals (rejected write after the gates hold)", () => {
@@ -594,37 +606,27 @@ describe("bug 0370 — doc-faithful loud-belt residuals (rejected write after th
     );
   });
 
-  it("RESIDUAL (dead block-shadow: a block-scoped `let mut` leaks into the flat map, hiding an outer immutable `let`): parses [] and drives to internal-error", async () => {
-    // A dead block (`if true { ... }`, never taken as a control-flow refusal —
-    // it always runs, but the BINDING it declares is block-scoped and gone once
-    // the block closes) declares `let mut x` shadowing an outer immutable
-    // `let x`. `buildReassign`'s `this.bindings` map is FLAT — it has "no
-    // fn/loop scoping" (docs/bugs/0370-…md §Affected) — so the block-scoped
-    // `let mut x` overwrites the map entry to mutable=true and nothing restores
-    // it when the block closes. The later top-level `x = 3` reads that leaked
-    // `true`, so `buildReassign` cannot statically tell the write's live target
-    // is the IMMUTABLE outer `x`; the write passes both parse gates (in scope,
-    // declared, no parse-visible immutable context) and Layer 1 holds — parse is
-    // `[]`. At runtime the write reaches the outer immutable slot and the belt
-    // throws loudly: the doc §Fix Layer-2 disposition, not the pre-fix silent
-    // no-op. The clean-parse-refusal ideal (drawing `immutable-rebinding` here)
-    // needs block-scoping the flat mutability map — a PRE-EXISTING limitation
-    // out of bug 0370's §Fix scope (candidate follow-up bug). The reverse shape
-    // (`let mut x = 1` outer, `if true { let x = 2 }` block-scoped immutable)
-    // draws a pre-existing FALSE `immutable-rebinding` from the same leak,
-    // likewise out of scope — not pinned here since it is a parse-time false
-    // positive, not a runtime-belt residual.
+  it("RESIDUAL (dead block-shadow: a block-scoped `let mut` no longer leaks) is refused at parse with [immutable-rebinding] (0386 block-scoping)", () => {
+    // PARENT RATIFICATION (bug 0386 Phase 2): "(F1) the dead-block-shadow
+    // RESIDUAL cell flips from parse-clean-[]-plus-runtime-belt to the parse
+    // refusal [theta/parse/immutable-rebinding]." Bug 0386 block-scopes
+    // `this.bindings` around every `parseBlock`, so the dead block's
+    // `let mut x` shadow of the outer immutable `let x` ends at its own `}`:
+    // the outer immutable entry is restored exactly as it was before the
+    // block, and the later top-level `x = 3` now targets that restored
+    // immutable outer binding. `buildReassign` sees the correct (immutable)
+    // mutability for the live target and refuses the write AT PARSE — this
+    // is 0370's Residual 1(c) "clean-parse-refusal ideal", which needed
+    // block-scoping the flat mutability map; that landed as bug 0386. The
+    // write no longer reaches runtime, so the belt drive is removed (a
+    // `probeSource(..., "parse-clean")` would throw on non-empty
+    // diagnostics). The cell's subject is unchanged: a dead-block `let mut`
+    // shadow does NOT license writing the immutable outer `let`.
     const src = "let x = 1\nif true { let mut x = 2 }\nx = 3\nx";
     expect(
       codesOf(src),
-      "dead-block-shadow residual: Layer-1 gates hold — in scope, declared, no parse-visible immutable context",
-    ).toEqual([]);
-    const probe = await probeSource(src, "parse-clean");
-    assertLoudThrow(
-      probe,
-      "a write reaching the immutable outer `let` behind the flat map's leaked mutability is the doc §Fix Layer-2 loud belt, not a silent no-op",
-      "residual/dead-block-shadow",
-    );
+      "dead-block-shadow: block-scoping restores the outer immutable `let x` after `}`; `x = 3` is refused at parse",
+    ).toEqual(["theta/parse/immutable-rebinding"]);
   });
 });
 
