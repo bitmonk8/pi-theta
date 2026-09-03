@@ -1,6 +1,6 @@
 # Bug 0377 — the cka-19 version-bump acceptance gate is a pure seam nothing feeds: `runtimeEvidenceAcceptanceFailures` and `verifyRevertSequence` have no caller outside hand-operand unit tests, the composition their module header promises ("wires the live `H4a` harness run and the re-run `V18c` static gates into these seams") exists nowhere, and the plan leaf the spec cites as owning the harness contract is a pruned tombstone
 
-- **Status:** open.
+- **Status:** fixed (0.379.0).
 - **Sev/Diff estimate:** S4/D2 — no wrong runtime bytes: the subject is a
   release-procedure gate, and the six surfaces its acceptance run must drive
   are each exercised by ordinary suite tests today. S4 rather than S5 because
@@ -185,7 +185,11 @@ with a red or surface-incomplete run trips nothing.
 
 ## Fix
 
-Not yet decided; constraints any fix must satisfy:
+Parent adjudication: **option (b) — re-anchor, do not wire**. Option (a)'s
+bump-time driver was rejected: it would mint a hand-maintained surface→cell
+map (a fresh 0376-class drift channel) to feed a gate for a procedure that
+stays operator-/contributor-run; the 0360 / 0112 records-fix shape is the
+honest disposition. Constraints the shipped fix satisfied:
 
 1. Either wire it or re-anchor it — do not leave both the promise and the
    tombstone: (a) a bump-time driver (script or gated test) that runs the
@@ -204,6 +208,59 @@ Not yet decided; constraints any fix must satisfy:
    point at a page that owns the stated contract or state the contract
    inline; a normative sentence must not cite a pruned tombstone as its
    authority.
+
+## Fix (0.379.0)
+
+- What shipped:
+  - `src/extension/version-bump-acceptance.ts` (module-header comment only) —
+    replaced the phantom wiring promise ("the paired `V18d` implementation
+    wires the live `H4a` harness run and the re-run `V18c` static gates into
+    these seams") and the `V18d-T` stub-narration with the actual disposition:
+    pure seam functions, unit-tested in both directions over hand-built
+    operands, no shipped composition feeds them, and the bump-time acceptance
+    run is a contributor-executed `npm test` step per `version-bump-triggers.md`
+    (§Fix 1(b), 3). Seam bodies and `tests/version-bump-acceptance.test.ts`
+    byte-untouched (§Non-goals).
+  - `docs/spec_topics/pi-integration-contract/version-bump-triggers.md` —
+    replaced the pruned-tombstone citation with the harness contract stated
+    inline plus a cite of the real offline factory-shell harness at
+    `tests/harness/` (§Fix 3); the tombstone page is left filename-only.
+  - `docs/plan_topics/coverage-matrix.md` — re-anchored `cka-19` and the
+    version-bump-procedure category of `cka-56` (middle cell only; closing-leaf
+    column stays `V18d`) to the concrete suite cells that severally exercise
+    each of the six named surfaces (typed query, tool loop, invoke, schema
+    validation, binder, cancellation) plus
+    `tests/version-bump-acceptance.test.ts` as the seam-function implementation
+    tests, and stated that no single cell composes all six in one run — the
+    composed acceptance run is exactly the contributor-executed bump-time
+    procedure (§Fix 1(b)).
+- Gates: documentary witness (option (b) adds no new red-able assertion by
+  adjudication) — the fork phantom-promise/tombstone text (`git show HEAD:…`)
+  is replaced by the re-anchored truth, seam bodies + unit cells byte-identical
+  to HEAD; full default suite `npx vitest run` 550/550 files, 10232/10232 tests
+  green; `npm run typecheck` clean; `npm run lint` clean; live witness
+  `tests/live/typed-query-wire-shapes.test.ts` (adjacent — drives the typed-query
+  acceptance surface) 3/3 green under the shared live lock.
+- Review: 3 rounds (`bug-fix-reviewer` each). R1 — F1 fidelity (two of six
+  surface cells were parse/lowering-only) + F2 prose ("operator" glossary
+  misuse); both fixed. R2 — F1 fidelity (round-1 over-claimed H7a "drives all
+  six surfaces" and the comment mis-attributed the several exercise to
+  `tests/harness/`); fixed. R3 — CLEAN, no findings.
+- Verification: VERIFIED. Obl.1 documentary witness established (fork vs
+  re-anchored; seams byte-identical); Obl.2 full suite 550/550; Obl.3 machinery
+  no-regression (live-corpus-release-gate + closing-gate + version-bump-* +
+  warn-only-canary + inventory-closure-audit + cross-cutting-gates = 96/96 over
+  the real edited docs); Obl.4 lint + typecheck clean.
+- Residuals: none. The seam functions (`runtimeEvidenceAcceptanceFailures`,
+  `verifyRevertSequence`) and their hand-operand unit cells intentionally stay
+  (§Non-goals).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: option (a) (bump-time driver feeding the
+  seams / a new red-able gate) rejected as a fresh 0376-class drift channel;
+  the `H4a-factory-shell-and-harness.md` tombstone is retained filename-only for
+  the leaf-ID universe (NOT resurrected); doc constraint 2 (loud surface-tagging)
+  is (a)-only — N/A under (b); the `V18c` build-time gates
+  (`version-bump-gates.ts`) are out of scope per §Non-goals.
 
 ## Provenance
 

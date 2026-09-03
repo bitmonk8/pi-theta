@@ -11,16 +11,19 @@
 // whose runtime-evidence run is red MUST NOT be merged at the candidate pin —
 // the merge-blocking MUST this module's revert path binds.
 //
-// Both seams are PURE functions over injected operands so the paired failing
-// tests can drive the conformant (green) and the drifted (red) direction by
-// construction, and neither reads an ambient primitive or the live SDK / harness
-// directly — the paired `V18d` implementation wires the live `H4a` harness run
-// and the re-run `V18c` static gates into these seams.
+// Both seams are PURE functions over injected operands so their unit tests can
+// drive the conformant (green) and the drifted (red) direction by construction,
+// and neither reads an ambient primitive or the live SDK / harness directly.
+// `tests/version-bump-acceptance.test.ts` exercises each seam in both directions
+// over hand-built `HarnessRunOutcome` / `StaticGateReRun` operands.
 //
-// V18d-T (this tests-task) declares both seams and stubs each with an inert
-// sentinel result — never the real composition — so the paired failing tests
-// compile and red on their own primary assertions. The paired `V18d`
-// implementation leaf fills the bodies in.
+// No shipped composition feeds these seams. The runtime-evidence acceptance run
+// of output (c) is a contributor-executed step of the bump procedure
+// (`version-bump-triggers.md`), not a driver in this repository: the contributor
+// runs `npm test` against the bumped pin — where the six acceptance surfaces are
+// severally exercised (typed query, tool loop, invoke, schema validation,
+// binder, cancellation) — and reads its verdict. These seams give that procedure
+// the acceptance and revert predicates in reusable, unit-tested form.
 
 // --- runtime-evidence acceptance gate (output (c)) --------------------------
 

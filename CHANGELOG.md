@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.379.0]
+
+### Fixed
+
+- **Bug 0377** — the cka-19 version-bump acceptance gate was a pure seam nothing fed: `runtimeEvidenceAcceptanceFailures` and `verifyRevertSequence` had no caller outside hand-operand unit tests, the module header promised a composition ("wires the live H4a harness run and the re-run V18c static gates into these seams") that existed nowhere, and the plan leaf the spec cited as owning the harness contract was a pruned tombstone — so the merge-blocking MUST ("a bump whose runtime-evidence run is red MUST NOT be merged") was computed by no code during any real bump while both cka rows reported the area closed (the 0216 "holds only inside a unit test" shape on a process gate; the second observed instance of the 0360 mechanism). PARENT ADJUDICATION Option (b) (recorded): re-anchor, do not wire — (a)'s bump-time driver would mint a hand-maintained surface→cell map, a NEW drift channel of exactly the 0376 class, to feed a gate for a procedure that remains operator-run. Landed: (1) `coverage-matrix.md` cka-19 + cka-56's version-bump category re-anchored to the witnesses that actually discharge the six-surface claim (the concrete suite cells covering each named surface, with `tests/version-bump-acceptance.test.ts` as the seam-function implementation tests; closing-leaf column stays V18d); (2) the module header states the actual disposition — pure seam functions, unit-tested in both directions, no shipped composition, the bump-time acceptance run is a contributor-executed procedure per the spec; (3) `version-bump-triggers.md`'s normative sentence states the harness contract inline and cites the real `tests/harness/` offline factory shell instead of the tombstone (which is retained filename-only for the leaf-ID universe, not resurrected). Seam bodies and unit cells byte-untouched (§Non-goals). Documentary witness (fork phantom-promise/tombstone text vs re-anchored truth, both quoted in the report); doc gates 96/96 over the edited pages. Live: `typed-query-wire-shapes` 3/3 under the lock (adjacent six-surface witness; no registration/drive change). Residual recorded (follow-up candidate): sibling `version-bump-gates.ts` (V18c) carries a same-shaped header promise — §Non-goals here, untouched.
+
 ## [0.378.0]
 
 ### Fixed
