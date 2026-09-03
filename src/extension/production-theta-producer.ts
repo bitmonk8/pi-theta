@@ -5034,18 +5034,20 @@ class LivePromptQueryModel implements QueryModelDriver {
         // (`runToolBatch` is a no-op below).
         return this.#exhaustionTurn();
       }
-      // PIC-51: probe the driven turn's trailing `assistant` `stopReason` before
-      // extracting text. A `stopReason: "error"` turn maps to
-      // `Err(TransportError)` (never masked as `Ok(text)`); the cancellation and
-      // plain-text paths are unchanged (cancellation is handled by the
-      // enclosing loop's signal guards (bug 0010 F1 / bug 0012), so only a
-      // `transport` verdict diverts here).
+      // PIC-51/PIC-51b: probe the driven turn's trailing `assistant`
+      // `stopReason` before extracting text. `extractPromptModeQueryResult`
+      // classifies `stopReason: "error"`, the PIC-51b non-normal-terminator
+      // arms (`"length"` → context_overflow, every other non-normal terminator
+      // → transport), and the absent-trailing-assistant case; every non-`Ok`
+      // verdict except `cancelled` diverts here (cancellation is handled by the
+      // enclosing loop's signal guards — bug 0010 F1 / bug 0012 — so it is
+      // excluded, not re-classified).
       const probe = extractPromptModeQueryResult(this.#readMessages(), {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
       });
-      if (!probe.ok && probe.error.kind === "transport") {
-        return { kind: "transport", error: probe.error as TransportError };
+      if (!probe.ok && probe.error.kind !== "cancelled") {
+        return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
       }
       // Completed within the cap: the terminating plain-text turn.
       return { kind: "text", text: extractTrailingTurnText(this.#readMessages()) };
@@ -5143,9 +5145,11 @@ class LivePromptQueryModel implements QueryModelDriver {
       // the loop; AJV does not). Pinned by the degraded-arm cells in
       // tests/typed-two-phase-live.test.ts / tests/off-session-two-phase.test.ts.
       await this.#driveUserVisibleTurn(false);
-      // PIC-50/51: a transport failure on the fused turn (send sync-throw or
-      // trailing `stopReason: "error"`) surfaces as the typed query's
-      // `Err(TransportError)` rather than being parsed as a structured payload.
+      // PIC-50/51/51b: a transport failure on the fused turn (send sync-throw,
+      // trailing `stopReason: "error"`, a PIC-51b non-normal terminator, or an
+      // absent-trailing-assistant settled turn) surfaces as the typed query's
+      // `Err(TransportError | ContextOverflowError)` rather than being parsed as
+      // a structured payload.
       if (this.#transportFromThrow !== undefined) {
         return { kind: "transport", error: this.#transportFromThrow };
       }
@@ -5153,8 +5157,8 @@ class LivePromptQueryModel implements QueryModelDriver {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
       });
-      if (!probe.ok && probe.error.kind === "transport") {
-        return { kind: "transport", error: probe.error as TransportError };
+      if (!probe.ok && probe.error.kind !== "cancelled") {
+        return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
       }
       const text = extractTrailingTurnText(this.#readMessages());
       const parse = await parseStructuredPayload(text);
@@ -5482,6 +5486,18 @@ class LivePromptQueryModel implements QueryModelDriver {
           // `theta/runtime/internal-error`, never a swallowed `Ok("")`) and return
           // without issuing a turn; the driver surfaces it as the query's transport
           // `Err`. The gate's `finally` still restores the ambient active set.
+          // Bug 0414 (conversation-drive.md:16 PIC-70): an abort observed inside
+          // the pre-send-gate window must short-circuit the send. `#pollWhile`
+          // exits on the aborted signal but returns the SESSION idle-state, so an
+          // Esc burst that both idles the ambient run and aborts `thetaAbort`
+          // clears the gate; without this guard the straight-line path issues a
+          // post-cancel user-visible turn that is never torn down (the bug-0319
+          // teardown listener refuses to attach on an already-aborted signal).
+          // The PIC-51 probe's cancelled short-circuit already answers
+          // `Err(cancelled)`; mirrors `driveRepairAttempt`'s boundary abort check.
+          if (this.#thetaAbort.signal.aborted) {
+            return;
+          }
           try {
             this.#pi.sendUserMessage(text);
           } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — PIC-50 sendUserMessage sync-throw → TransportError

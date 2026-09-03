@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.403.0]
+
+### Fixed
+
+- **Bug 0414** — a prompt-mode drive whose abort fired in the window after the run was admitted but before the first user message was sent still ISSUED that send: `#driveUserVisibleTurn` checked cancellation only at coarser boundaries, so a pre-abort invocation paid for a full provider turn (user-visible, token-debited) that the drive then discarded — the run was never torn down at the point the abort demanded. Fixed per the settled §Fix: one abort guard in `#driveUserVisibleTurn` immediately before `sendUserMessage` — an already-aborted drive short-circuits into the established cancelled disposition with zero provider spend. Witnessed by NEW `tests/b0414-preabort-send-issued-witness.test.ts` (2 cells: pre-abort short-circuit red at fork; post-send abort control). Live: adjacent `b0351live` cell green over the combined 0413+0414 tree under the lock.
+
+## [0.402.0]
+
+### Fixed
+
+- **Bug 0413** — PIC-51b's non-error terminators were extracted as success: `extractPromptModeQueryResult` treated every settled prompt-mode turn that was not an explicit error as `Ok`, so a provider turn ending on a NON-NORMAL stop reason (`length` truncation, refusals, other abnormal terminators) bound its partial/empty text as the query's `Ok(text)` — a truncated answer indistinguishable from a real one, on both consumer sites. Fixed per the settled §Fix: the extractor now classifies by the settled turn's stop reason through a local closed map — `length` → the `context_overflow` failure class, other non-normal stop reasons → `transport`, an absent assistant turn → the `transport` fallback, `normal` → the PIC-53 `Ok` extraction — and both consumer sites in the producer divert every `kind !== "cancelled"` failure into the established failure path instead of the Ok bind. Stop-reason arm only; no new registry codes. Witnessed by NEW `tests/b0413-pic51b-non-error-terminators-witness.test.ts` (10 cells over the terminator taxonomy; 8 red at fork, 2 controls). Live: adjacent `b0351live` cell green under the lock (recorded WHY — the drive-outcome seam it exercises).
+
 ## [0.401.0]
 
 ### Fixed

@@ -27,6 +27,19 @@
 //     NOT to `theta/runtime/internal-error`. The `message` is derived through the
 //     underlying-error coercion rule so a non-Error throw yields a deterministic
 //     non-null string.
+//   - PIC-51b non-error-terminator classification (bug 0413): downstream of the
+//     cancellation short-circuit and the `stopReason: "error"` arm, the driven
+//     turn's trailing `assistant` `stopReason` is classified through the
+//     stop-reason arm ONLY (provider-error-mapping.md §"Stop-reason
+//     classification"): `"length"` maps to `Err(ContextOverflowError)`; every
+//     other non-normal terminator (a raw provider string outside pi-ai's typed
+//     `StopReason` union included) maps to `Err(TransportError)` carrying the
+//     turn's `errorMessage` or the fixed fallback; a settled turn with NO
+//     trailing `assistant` message at all maps to the same fixed
+//     `Err(TransportError)` rather than `Ok("")`. A normal boundary
+//     (`end_turn`/`stop`/`toolUse`/`tool_use`, or an absent/non-string
+//     `stopReason`) falls through to PIC-53's `Ok(string)` extraction.
+//     Spec: conversation-drive.md:16 (PIC-51b), provider-error-mapping.md:33.
 //
 // The synthesised `provider` field is NOT derived here — it is supplied by the
 // caller from V9j's provider-error-mapping surface (the resolved
@@ -43,13 +56,33 @@
 // diagnostics/placeholder-rendering-b.md (§underlying-error coercion).
 
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import type { CancelledError, QueryError, TransportError } from "./query-error";
+import type {
+  CancelledError,
+  ContextOverflowError,
+  QueryError,
+  TransportError,
+} from "./query-error";
 import { makeCancelledError } from "./cancellation-core";
 import { extractTrailingTurnText } from "./conversation-drive";
 import { coerceUnderlyingString } from "../diagnostics/placeholder";
 
 /** The fixed transport `message` when a `stopReason: "error"` turn carries no `errorMessage` (PIC-51). */
 export const PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE = "provider transport failure";
+
+/**
+ * PIC-51b's normal-terminator set for the prompt-mode (on-session) probe. Same
+ * concept as `production-theta-producer.ts`'s off-session
+ * `OFF_SESSION_NORMAL_STOP_REASONS` (pi-ai's `"stop"`/`"toolUse"` plus the
+ * spec's `"end_turn"`/`"tool_use"` spellings) — duplicated rather than
+ * imported because this runtime module sits below the extension layer that
+ * const lives in.
+ */
+const PROMPT_MODE_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
+  "stop",
+  "end_turn",
+  "toolUse",
+  "tool_use",
+]);
 
 // --- Bug 0288 §Fix items 1/2/4 — turn-lifecycle bound-expiry messages -------
 //
@@ -178,9 +211,58 @@ export function extractPromptModeQueryResult(
     return { ok: false, error: transport };
   }
 
-  // PIC-53: downstream of both short-circuits, the `Ok(string)` value is V9c's
-  // trailing-turn assistant-text extraction.
-  return { ok: true, value: extractTrailingTurnText(messages) };
+  // PIC-51b case (ii): a settled turn with NO trailing `assistant` message at
+  // all is a failed turn, not `Ok("")` — the fixed transport fallback applies
+  // verbatim (no `errorMessage` exists to read).
+  if (trailing === undefined) {
+    const transport: TransportError = {
+      kind: "transport",
+      message: PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
+      http_status: null,
+      provider: probeCtx.provider,
+      retryable: false,
+    };
+    return { ok: false, error: transport };
+  }
+
+  // Read `stopReason` defensively as an open string (mirrors
+  // `classifyOffSessionReply`): a raw provider terminator outside pi-ai's typed
+  // `StopReason` union (e.g. `"content_filter"`) and a fabricated double's
+  // absent/non-string field both classify through this arm rather than
+  // crashing or falling through by accident.
+  const stopReason = (trailing as { readonly stopReason?: string }).stopReason;
+  if (typeof stopReason !== "string" || PROMPT_MODE_NORMAL_STOP_REASONS.has(stopReason)) {
+    // PIC-53: a normal boundary (or non-string/absent fixture shorthand) falls
+    // through to V9c's trailing-turn assistant-text extraction.
+    return { ok: true, value: extractTrailingTurnText(messages) };
+  }
+
+  // PIC-51b non-normal terminator: `"length"` is the stop-reason arm's overflow
+  // signal; every other non-normal terminator (content filter, `"aborted"`,
+  // anything unrecognised) is transport. Neither arm reuses
+  // `classifyProviderResponse` (its transport arm treats a `null` http status
+  // as retryable and its overflow arm applies signature matching to
+  // `errorMessage` beyond the stop reason itself) — PIC-51b is the stop-reason
+  // arm ONLY, so this is a local closed map pinning `retryable: false`.
+  if (stopReason === "length") {
+    const text = extractTrailingTurnText(messages);
+    const overflow: ContextOverflowError = {
+      kind: "context_overflow",
+      message: trailing.errorMessage ?? "",
+      tokens_used: null,
+      tokens_limit: null,
+      raw_response: text !== "" ? text : null,
+    };
+    return { ok: false, error: overflow };
+  }
+  const transport: TransportError = {
+    kind: "transport",
+    message: trailing.errorMessage ?? PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
+    http_status: null,
+    provider: probeCtx.provider,
+    retryable: false,
+  };
+  return { ok: false, error: transport };
 }
 
 /**
