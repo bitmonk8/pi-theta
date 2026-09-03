@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.399.0]
+
+### Fixed
+
+- **Bug 0418** — a binder-model reference that is simultaneously a valid `provider/modelId` reference and an existing slash-carrying bare `Model.id` (live-real: four openrouter-mirrored strings including the live suite's own preferred `anthropic/claude-sonnet-5`) resolved silently by the provider/id reading — the spec's `#binder-model-parse-rule` accepted both readings and ordered neither, while its only stated ambiguity posture elsewhere is refuse-not-pick. PARENT ADJUDICATION Option A — ORDERING (recorded): refusal would make the spec's own taught canonical form unusable for every openrouter-mirrored model (a registry acquiring a mirror retroactively breaking existing thetas) and reds the LPA-pinned derived-string cells; the refuse-not-pick precedents are same-reading multi-target cases with no canonical disambiguator, whereas the qualified reading is the taught primary and the shadowed bare id keeps the double-qualified escape. Fixed at spec level (the defect per the doc's own Non-goals is THE SILENCE, not the pick): one ordering sentence in `binder-model-and-context.md` `#binder-model-parse-rule` — the first-slash split is the sole discriminator, the bare-id reading applies only to slash-free references, a slash-carrying bare id is nameable only double-qualified — plus a third worked example (`openrouter/anthropic/claude-sonnet-5`). No matcher/production change (the shipped behaviour IS the pinned behaviour), no new diagnostics. Witnessed by NEW `tests/b0418-binder-model-reference-first-slash-ordering.test.ts` (8 tests pinning BOTH matchers — `createModelReferenceMatcher` and `matchAvailableModel` — over a synthetic collision registry: reading-1 win, double-qualified escape reaches the openrouter id, 0169 cross-provider ambiguity controls intact; green-at-fork pin red-proven per matcher by inversion). Live: adjacent `withheld-binder-provenance-live-cell` 1/1 under the lock (real resolution against the collider-serving registry).
+
 ## [0.398.0]
 
 ### Fixed

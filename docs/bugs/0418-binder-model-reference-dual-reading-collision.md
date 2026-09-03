@@ -1,6 +1,6 @@
 # Bug 0418 — A binder-model reference that is simultaneously a valid `provider/modelId` reference and an existing slash-carrying bare `Model.id` resolves silently by the provider/id reading: against the current host registry (openrouter ids like `anthropic/claude-sonnet-5`) the same string names two distinct available models under the spec's two accepted readings, the parse rule orders neither, and its own ambiguity posture elsewhere is refuse-not-pick
 
-- **Status:** open.
+- **Status:** fixed (0.399.0).
   registry computation); the collision class is live-real — the registry the
   live suite runs against exhibits it today, and the winning reading decides
   which provider serves every subsequent binder call.
@@ -178,3 +178,13 @@ ordering is chosen, a worked example naming a slash-carrying id
 - Live registry evidence at `c2c25d81`: the hunt census
   (`.pi/bug-hunt/logs/live-binder-hc3.md`) recording both colliding entries
   in `getAvailable()`.
+
+## Fix (0.399.0)
+
+- What shipped: `docs/spec_topics/binder/binder-model-and-context.md` `#binder-model-parse-rule` — one ordering sentence pinning the shipped first-slash split (a reference containing a slash is parsed exclusively as `provider/modelId`, split at the FIRST slash; the bare-`Model<Api>.id` reading applies only to a slash-free reference; a model whose bare id itself contains a slash is shadowed by the provider/id reading and is nameable only in double-qualified form), plus a third worked example (`bind_model: openrouter/anthropic/claude-sonnet-5` → provider `openrouter`, id `anthropic/claude-sonnet-5`) beside the existing two. No matcher/production change, no new diagnostic code, LPA never edited (§Fix Option A — ORDERING, parent-adjudicated).
+- Gates: witness `tests/b0418-binder-model-reference-first-slash-ordering.test.ts` — 8/8 green at fork (this pins EXISTING behaviour, so green-by-design; the witness is the REVERSE red-proof: inverting either matcher's ordering to try both readings reds the double-readable cell — `expected 'ambiguous' to be 'resolved'` — restored byte-exact by `git hash-object`). Full default suite 571 files / 10439 tests green (one real-spawn flake, `shared-subtree-…` bug 0276, green isolated in 13.8s — parallel-load noise, off surface). Typecheck `tsc -p tsconfig.json --noEmit` exit 0. Lint `eslint "src/**/*.ts"` exit 0.
+- Review: 1 round — `bug-fix-reviewer` CLEAN. Counterfactual analysis proved the test reds under both-readings, bare-id-first, and last-slash implementations; fidelity to Option A, spec correctness against both matchers (`matchAvailableModel`, `createModelReferenceMatcher`), and the 0169 cross-provider refuse-not-pick controls all verified; scope confirmed spec-doc + new test only.
+- Verification: `bug-fix-verifier` PASS — (1) witness genuine via reverse red-proof, restored byte-exact (hash `eefd2bd3…`); (2) full suite 571/10439 green; (3) live adjacent binder cell `tests/live/withheld-binder-provenance-live-cell.test.ts` 1/1 (rc=0, orchestrator-run under the global live lock) driving real binder-model resolution through `bootShippedExtension` against the live registry serving the colliding openrouter ids; (4) typecheck + lint clean; scope confirmed — only the spec doc modified and the b0418 test added, with the LPA, `tests/fixtures/h7a/permitted-codes.json`, and the 14864-line `tests/live/live-production-acceptance.test.ts` all untouched.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Option B (REFUSAL) is NOT taken. The parent adjudicated Option A (ORDERING): the qualified `provider/modelId` reading is the spec's taught primary (the worked example's shape), the shadowed slash-carrying bare id keeps the well-defined double-qualified escape spelling, and A is total and stable over `getAvailable()`, whereas B would retroactively break existing thetas on any registry acquiring a mirror, red the LPA-pinned derived-string cells (`live-production-acceptance.test.ts:6474`/`:10948`, uneditable under the LPA law), and make load outcomes host-config-dependent. The defect, per the doc's own Non-goals, was THE SILENCE — cured at spec level; "which model authors really mean" and registry hygiene stay out of scope. No behaviour change, so no new live cell was owed.
