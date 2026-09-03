@@ -90,13 +90,15 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 //                   rule, NOT category 5's `<key>` rule (which double-quotes a
 //                   key that is not identifier-shaped).
 //   <receiver kind> the closed set `an enum value` | `a Result value` |
-//                   `a string` | `a number` | `a boolean`. `null` is outside
-//                   that set and is NOT the gate's: `null[i]` / `null.field`
-//                   raise the dedicated null-index-access / null-member-access
-//                   panics, which fire ahead of the gate. A receiver outside
-//                   the set that is not `null` either — a host value outside
-//                   the theta value model, reaching the widened index guard —
-//                   carries theta/runtime/internal-error instead (control i7).
+//                   `a string` | `a number` | `a boolean` | `null` — the
+//                   sixth `null` member (bug 0393) is the gate's ONLY at the
+//                   stdlib-method-call read. At the index / member reads `null`
+//                   is NOT the gate's: `null[i]` / `null.field` raise the
+//                   dedicated null-index-access / null-member-access panics,
+//                   which fire ahead of the gate. A receiver outside the set —
+//                   a host value outside the theta value model, reaching the
+//                   widened index guard — carries theta/runtime/internal-error
+//                   instead (control i7).
 //
 // Rendered examples (asserted verbatim by group (h)):
 //   non-object receiver: cannot read .keys() on an enum value

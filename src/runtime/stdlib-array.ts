@@ -26,7 +26,7 @@
 import { displayType, type CompatType, type CompatSite } from "../parser/type-compat";
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import { StdlibMethodArgumentDefectError, summariseNonResultOperand } from "./runtime-panics";
-import type { StdlibMemberSignature } from "./stdlib-string";
+import { assertStdlibArgumentKinds, type StdlibMemberSignature } from "./stdlib-string";
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**
@@ -83,10 +83,15 @@ export function evaluateArrayMember(
   // `evaluateStringMember` (`stdlib-string.ts`): a laundered `array<T>`
   // receiver reaches here without the parse-time arity check, so a
   // wrong-arity call (e.g. `[1,2].includes()`) would otherwise fall through
-  // to the unchecked `args[i] as …` casts below.
+  // to the unchecked `args[i] as …` casts below. The arity check is followed
+  // by the bug-0394 KIND check (same laundered-receiver gap, one level down),
+  // so the belt now covers both arity and kind.
   const signature = ARRAY_MEMBER_SIGNATURES.get(member);
-  if (signature !== undefined && (args.length < signature.min || args.length > signature.max)) {
-    throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+  if (signature !== undefined) {
+    if (args.length < signature.min || args.length > signature.max) {
+      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+    }
+    assertStdlibArgumentKinds(member, signature, args);
   }
   switch (member) {
     // `length` — the element count.

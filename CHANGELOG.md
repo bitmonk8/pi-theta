@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.397.0]
+
+### Fixed
+
+- **Bug 0394** — stdlib methods coerced wrong-KIND arguments through raw JS semantics (0315's belt covered arity only): laundered non-string `replace` arguments JS-coerced (and one shape — a laundered object pattern argument — could HANG the replace loop), wrong-kind args elsewhere silently coerced or produced JS-semantics garbage instead of the loud defect the belt law prescribes. Fixed per the settled §Fix (a straight belt-law case — no existing registered code owns the argument-kind concept, unlike 0393's receiver): `assertStdlibArgumentKinds` extends the runtime belt from arity to argument KIND across the three shared member evaluators, throwing the new `StdlibMethodArgumentKindDefectError` → `surfaceUnexpectedThrow` → `theta/runtime/internal-error` (no new registry row per the standing law); closes the `replace` hang and all coercion rows; 0315's arity belt and parse deferral untouched. Witnessed by `tests/b0394-stdlib-wrong-kind-args-belt.test.ts` (19 cells; hang row C3 timeout-guarded and safe only post-fix — recorded residual: never run C3 at a belt-reverted tree). Live: the b0315 cell shared with the co-landed 0393 run under the lock. Lane notes: one REAL flip caught and fixed (the bug-0134 citation gate — not load noise); three phase-agent scope excursions reverted byte-exact (sibling citation edits, b0366 header left deliberately stale at HEAD). Co-landed with 0393 (same dispatch surfaces, 0394 sequenced with 0393 landed).
+
+## [0.396.0]
+
+### Fixed
+
+- **Bug 0393** — a stdlib method call on a laundered `number`/`boolean`/`null` receiver silently evaluated to `null` on both hosts (`f(5)` for `fn f(x) { x.toUpperCase() }` bound `null` with zero diagnostics, indistinguishable from an authored null and flowing into interpolations as the text `null`) — while the identical receiver under INDEX access was the registered `theta/runtime/non-object-receiver` rejection (0027), under member access panicked loudly, and the resolvable spelling was parse-refused: four different behaviours for the same wrong receiver by spelling. Both dispatchers' terminal `return null` (a V3f/V3g scaffolding sentinel whose docstring survived into production) matched no arm for these kinds. PARENT ADJUDICATION doc-Option-1 (recorded, with the belt-law reconciliation: the standing law forbids NEW registry rows for belts — this widens the Trigger of the row that already OWNS the concept; the senior 0326 anti-fork law is decisive, since belting to internal-error would fork one concept across two codes INSIDE the same dispatcher, where the 0027 enum/Result gate already emits `non-object-receiver`): the registered rejection is widened to the method-call read on primitive/`null` receivers in BOTH dispatchers (`applyStdlibMethod`, `evaluateStdlibMethod`), with the sixth bare-`null` `GatedReceiverKind` + the GOV-7-versioned `placeholder-rendering-b.md` §7 closed-enum amendment + the DIAG-2 Trigger widening + an `expressions.md` sentence naming the laundered-receiver runtime disposition — all same-commit. No new registry row; permitted-codes byte-identical; string/array/object receivers byte-identical; the 0027 gate untouched; hosts in lockstep. Witnessed by `tests/b0393-stdlib-method-call-primitive-receiver.test.ts` (11 cells over the doc's B-rows + contrasts; red at fork on silent null). Live: the b0315 stdlib-surface cell green under the lock (recorded WHY — deterministic model-independent rejection; adjacent cell proportionate).
+
 ## [0.395.0]
 
 ### Fixed

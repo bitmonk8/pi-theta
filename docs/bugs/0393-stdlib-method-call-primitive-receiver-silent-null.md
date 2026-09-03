@@ -1,6 +1,6 @@
 # Bug 0393 — A stdlib method call on a laundered `number`/`boolean`/`null` receiver silently evaluates to `null` on both hosts: `f(5)` for `fn f(x) { x.toUpperCase() }` binds `null` with zero diagnostics — while the identical receiver under INDEX access is the registered `theta/runtime/non-object-receiver` rejection, under MEMBER access panics loudly, and the resolvable spelling is parse-refused `theta/parse/unknown-method`
 
-- **Status:** open.
+- **Status:** fixed (0.396.0).
 - **Kind:** spec gap with a hazardous implementation disposition.
   `docs/spec_topics/expressions.md:122` prescribes parse-time refusal for
   unknown members ("Anything not on this list is `theta/parse/unknown-method`
@@ -169,3 +169,83 @@ Found by reading `applyStdlibMethod`'s fall-through against the sibling
 `evaluateIndexAccess`/`evaluateMemberAccess` dispositions during the
 runtime-belts-3 sweep at d63c5148. All ten rows probed offline through the
 production executor harness before filing. Scratch probes deleted.
+
+## Fix (0.396.0)
+
+- What shipped (parent-adjudicated Doc Option 1 — widen the existing
+  `theta/runtime/non-object-receiver` row's Trigger; NO new registry row):
+  - `src/runtime/statement-executor.ts` — `applyStdlibMethod`'s terminal
+    `return null` fall-through replaced by a `throw nonObjectReceiverRejection(...)`
+    on the method-call read `.<method>()` (executor host; §Fix mechanic vi).
+  - `src/extension/production-theta-producer.ts` — `evaluateStdlibMethod`'s
+    byte-identical fall-through change (pure host, in lockstep; §Fix mechanic vi).
+  - `src/runtime/runtime-panics.ts` — `GatedReceiverKind` gains the sixth bare
+    `null` member; `gatedReceiverKind` classifies `null` explicitly (JS
+    `typeof null === "object"` would otherwise fall through to `undefined`);
+    the `GatedReceiverKind` / `nonObjectReceiverRejection` docstrings re-scoped
+    to six gated sites and the raw-`Error` arm now covering only a value
+    outside the theta 1.0 model (§Fix mechanic i).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §7 `<receiver
+    kind>` closed set widened to six (bare `null`, no article) with the GOV-7
+    breaking-change note (§Fix mechanic i — the GOV-versioned closed-enum
+    amendment).
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — the
+    `theta/runtime/non-object-receiver` Trigger widened: the stdlib-method-call
+    read now rejects a `number`/`boolean`/`null` receiver; `null` carries the
+    code only at that read (index/member `null` hits the dedicated null panics
+    first); six-member closed set (§Fix mechanic ii — DIAG-2 Trigger widening).
+  - `docs/spec_topics/expressions.md` — one sentence at §Built-in methods
+    naming the laundered-receiver runtime disposition (§Fix mechanic iii).
+  - `tests/non-object-receiver-gate.test.ts` — comment-only: the spec-mirror
+    `<receiver kind>` restatement updated to the widened six-member set (the
+    file's own contract forbids drift from the registry).
+  - `tests/b0393-stdlib-method-call-primitive-receiver.test.ts` (new) — the
+    witness (11 cells): 5 executor + 2 pure-host FLIPs on both hosts, 4
+    byte-identical string/array/object controls.
+  Belt-law reconciliation (recorded per parent adjudication): Option 1 mints
+  NO new registry row — it widens the Trigger of the row that already owns the
+  concept. The 0326 anti-fork law is decisive: belting this cell to
+  internal-error would fork ONE concept (laundered receiver with no read
+  surface) across two codes inside the SAME dispatcher — `non-object-receiver`
+  under `x[0]` (0027) and `internal-error` under `x.trim()`.
+- Gates: witness 11/11 green; full default suite 557 files / 10318 tests green
+  (3 files timed out under parallel-machine load, each green isolated —
+  recorded load noise, not this surface); `tsc -p tsconfig.json --noEmit`
+  clean; `npm run lint` clean; adjacent live cell
+  `tests/live/acceptance/b0315live-stdlib-arg-refusal.test.ts` green (20.9s
+  real `pi -p` turn over the same two dispatchers).
+- Review: 1 round (`bug-fix-reviewer`). Round 1 — FINDINGS, two non-blocking:
+  F1 (fidelity) both dispatcher docstrings overclaimed index-arm symmetry for
+  `null`; F2 (test) the 0027-gate spec-mirror header restated the pre-widening
+  five-member set. Both comment-only, fixed by the orchestrator; polish
+  verified by gate-diff (all hunks comment-only, gate green) — confirmation
+  round skipped per charter. No correctness/fidelity-blocker/spec finding.
+- Verification: SOLID (`bug-fix-verifier`). Revert-witness: reverting both
+  throws to `return null` reds the 7 FLIP rows naming `success value null` /
+  `sent=["v=null"]`, controls stay green; restored byte-exact (single-line
+  diff, no residue), witness green. Full suite green (load-noise reds green
+  isolated). tsc + lint clean. Live: no pre-existing cell drives the exact
+  fixed input class; adjacent b0315 cell over the same dispatchers run live.
+- Residuals:
+  1. No pre-existing live cell exercises the exact 0393 input class (a
+     live-driven laundered-receiver stdlib method call → `non-object-receiver`).
+     The fixed disposition is a deterministic, model-independent runtime
+     rejection witnessed offline on BOTH production hosts (executor via
+     `executeBody`; pure host via the interpolation-render path); a real-model
+     turn cannot be steered to emit `x.trim()` on a number. The adjacent
+     b0315 live cell drives the identical dispatchers end-to-end and is green.
+     Recorded as the proportionate live witness; a bespoke 0393 live cell was
+     not authored.
+  2. `code-registry-runtime.md` (reviewer R1): the internal-error disposition
+     sentence still names only "the indexed-access check"; an out-of-model host
+     value (e.g. raw `undefined`) reaching either stdlib-method fall-through
+     also routes to internal-error with the byte-preserved "indexed access
+     requires…" wording. Defensively unreachable from theta source (`ThetaValue`
+     admits no such value); the parent adjudication settled the raw-`Error`
+     arm's coverage without a message change. Not fixed — out of scope, no
+     behavioural impact.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the 0027 enum/`Result` gate untouched
+  (byte-identical); the 0314 X1 member-access mis-attributed number panic
+  untouched; the parse deferral on unresolvable receivers kept;
+  string/array/object receivers byte-identical.

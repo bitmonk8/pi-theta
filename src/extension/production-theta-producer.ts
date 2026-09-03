@@ -7922,18 +7922,21 @@ function evaluatePureIf(
  * (expressions.md §"Built-in methods and properties"), reusing the runtime
  * stdlib modules so `replace`'s `$`-literal insertion and the `valuesEqual`
  * structural equality of `includes` / `indexOf` match the reference semantics.
- * A receiver with no stdlib member surface (number / boolean / null) has no
- * theta-1.0 method and yields the inert `null` safety net rather than throwing
- * out of the executor. An enum value or a `Result` value satisfies the object
- * arm's `typeof` test but is gated ahead of `evaluateObjectMember` (bug 0027
- * §Fix): neither is an object value in the language's sense, so the call
- * rejects with `theta/runtime/non-object-receiver` rather than answering the
- * carrier's own enumerable properties — including on the QRY-18 interpolation
- * render path (`stringifyInterpolation`), so a receiver that would leak into a
- * rendered query template is rejected before any text reaches the model. This
- * pure host and the effectful executor's `applyStdlibMethod`
- * (statement-executor.ts) move in lockstep — a gate on one alone leaves the
- * other leaking.
+ * A receiver kind with no built-in method surface — a `number`, a `boolean`,
+ * or `null` — is rejected loudly with `theta/runtime/non-object-receiver`
+ * (bug 0393 §Fix), the disposition the index arm (`evaluateIndexAccess`)
+ * already gives a laundered primitive — a `null` receiver at the index or
+ * member read raises its dedicated null-access panic ahead of that gate, so
+ * `null` carries this code only at the method-call read — including on the
+ * QRY-18 interpolation render path (`stringifyInterpolation`), so a receiver
+ * that would otherwise leak into a rendered query template is rejected before
+ * any text reaches the model. An enum value or a `Result` value satisfies the
+ * object arm's `typeof` test but is gated ahead of `evaluateObjectMember`
+ * (bug 0027 §Fix): neither is an object value in the language's sense, so
+ * the call rejects with `theta/runtime/non-object-receiver` rather than
+ * answering the carrier's own enumerable properties. This pure host and the
+ * effectful executor's `applyStdlibMethod` (statement-executor.ts) move in
+ * lockstep — a gate on one alone leaves the other leaking.
  */
 function evaluateStdlibMethod(
   receiver: ThetaValue,
@@ -7952,7 +7955,7 @@ function evaluateStdlibMethod(
     }
     return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
   }
-  return null;
+  throw nonObjectReceiverRejection(`.${method}()`, receiver);
 }
 
 /**

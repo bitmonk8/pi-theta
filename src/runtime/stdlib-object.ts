@@ -50,7 +50,7 @@ import {
   type TypeEnv,
 } from "../parser/type-compat";
 import { StdlibMethodArgumentDefectError } from "./runtime-panics";
-import type { StdlibMemberSignature } from "./stdlib-string";
+import { assertStdlibArgumentKinds, type StdlibMemberSignature } from "./stdlib-string";
 import type { ThetaValue } from "./value";
 
 /**
@@ -133,10 +133,15 @@ export function evaluateObjectMember(
   // only past the bug-0027 non-object-receiver gate, which the two call sites
   // apply BEFORE this dispatcher — see this module's header comment), so a
   // wrong-arity call (e.g. `o.has()`) would otherwise fall through to the
-  // unchecked `args[0] as …` cast below.
+  // unchecked `args[0] as …` cast below. The arity check is followed by the
+  // bug-0394 KIND check (same laundered-receiver gap, one level down), so the
+  // belt now covers both arity and kind.
   const signature = OBJECT_MEMBER_SIGNATURES.get(member);
-  if (signature !== undefined && (args.length < signature.min || args.length > signature.max)) {
-    throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+  if (signature !== undefined) {
+    if (args.length < signature.min || args.length > signature.max) {
+      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+    }
+    assertStdlibArgumentKinds(member, signature, args);
   }
   switch (member) {
     // `keys()` — the theta-side field names as an `array<string>`, in the

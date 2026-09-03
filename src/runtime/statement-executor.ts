@@ -1404,8 +1404,13 @@ function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): The
  * Dispatch a stdlib method on resolved operands by the receiver's runtime type —
  * mirrors the pure host's `evaluateStdlibMethod`, reusing the same exported
  * member surfaces (`stdlib-string` / `stdlib-array` / `stdlib-object`); a
- * non-string/array/object receiver yields the inert `null`. An enum value or a
- * `Result` value satisfies the object arm's `typeof` test but is gated ahead of
+ * receiver kind with no built-in method surface — a `number`, a `boolean`, or
+ * `null` — is rejected loudly with `theta/runtime/non-object-receiver` (bug
+ * 0393 §Fix), the disposition the index arm (`evaluateIndexAccess`) already
+ * gives a laundered primitive; a `null` receiver at the index or member read
+ * instead raises its dedicated null-access panic ahead of that gate, so `null`
+ * carries this code only at the method-call read. An enum value or a `Result`
+ * value satisfies the object arm's `typeof` test but is gated ahead of
  * `evaluateObjectMember` (bug 0027 §Fix): neither is an object value in the
  * language's sense, so the call rejects with `theta/runtime/non-object-receiver`
  * rather than answering the carrier's own enumerable properties. This
@@ -1426,7 +1431,7 @@ function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly 
     }
     return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
   }
-  return null;
+  throw nonObjectReceiverRejection(`.${method}()`, receiver);
 }
 
 /**

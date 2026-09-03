@@ -1,6 +1,6 @@
 # Bug 0394 — Correct-arity stdlib calls with wrong-KIND arguments on a laundered receiver silently JS-coerce against expressions.md:122's "never a JS-coerced runtime value" — and `s.replace(n, "z")` with a laundered number/boolean `from` INFINITE-LOOPS the interpreter (`cursor = at + from.length` → `NaN`), wedging the host with unbounded string growth
 
-- **Status:** open.
+- **Status:** fixed (0.397.0).
 - **Kind:** defect against the stdlib signature rule on the laundered runtime
   path, plus one non-termination hazard.
   `docs/spec_topics/expressions.md:122` (post-0315): "A call on a LISTED
@@ -185,3 +185,77 @@ re-running row-by-row, and confirmed by simulating `replaceLiteral`'s scan
 directly (5 iterations, `cursor=NaN` stable, result growing). All rows probed
 offline through the production executor harness before filing. Scratch probes
 deleted.
+
+## Fix (0.397.0)
+
+- What shipped (settled §Fix — belt arity→kind; belt-law straight case, NO new
+  registry row):
+  - `src/runtime/runtime-panics.ts` — new `StdlibMethodArgumentKindDefectError
+    extends Error`, the bug-0315 arity belt's KIND sibling; its message names
+    the method, argument index, expected kind, and actual value
+    (`summariseNonResultOperand`); routes through the existing
+    `surfaceUnexpectedThrow` → `theta/runtime/internal-error` exactly as the
+    arity defect and the 0366 element defect do.
+  - `src/runtime/stdlib-string.ts` — new exported
+    `assertStdlibArgumentKinds(member, signature, args)` (the shared KIND check
+    over the `params` descriptors: `"string"`→typeof string, `"integer"`→typeof
+    number, `"array"`→Array.isArray; `"element"` and an omitted optional arg
+    stay UNCHECKED); `evaluateStringMember`'s belt restructured to call it
+    after the arity check.
+  - `src/runtime/stdlib-array.ts`, `src/runtime/stdlib-object.ts` — import and
+    call `assertStdlibArgumentKinds` after the arity check in
+    `evaluateArrayMember` / `evaluateObjectMember`.
+  - `tests/b0394-stdlib-wrong-kind-args-belt.test.ts` (new) — the witness (19
+    cells): 8 coercion FLIPs + C3n (non-hanging wrong-kind `from`) + PC1
+    (pure-host) across BOTH hosts; the C3 hang row (guarded per-test timeout,
+    asserting the kind-belt message so a host `RangeError` cannot masquerade);
+    and K1–K8 byte-identical correct-kind controls (K8 pins the untouched
+    `"element"` descriptor).
+  This closes the hang (the belt fires BEFORE `replaceLiteral` is entered) and
+  every silent-coercion row in one pattern precedented by 0315/0366. Both
+  hosts move in lockstep because the belt lives in the shared stdlib
+  evaluators. No spec/registry/permitted-codes edit: `internal-error`'s
+  open-ended trigger already covers the belt (as it covers the 0315 arity and
+  0366 element belts); expressions.md §methods' "never a JS-coerced runtime
+  value" is the sentence the fix makes hold.
+- Gates: witness 19/19 green (C3 prompt, not a hang); full default suite 558
+  files / 10337 tests green (a fully clean verifier run); `tsc -p
+  tsconfig.json --noEmit` clean; `npm run lint` clean; adjacent live cell
+  `tests/live/acceptance/b0315live-stdlib-arg-refusal.test.ts` green (23.7s
+  real `pi -p` turn over the same three dispatchers, belt landed).
+- Review: 1 round (`bug-fix-reviewer`), verdict CLEAN, no findings; one
+  non-blocking prose residual (see Residuals 3). No correctness/fidelity/spec
+  finding.
+- Verification: all four functional obligations SOLID (`bug-fix-verifier`);
+  the report's "NOT SOLID" line was solely this §Fix record being unwritten at
+  verification time (now written). Revert-witness: neutralising
+  `assertStdlibArgumentKinds` reds the 10 terminating FLIP rows naming their
+  coerced HEAD values (C3 excluded from the reverted-belt run — it would
+  diverge), controls stay green; restored, witness 19/19 green. Full suite
+  clean. tsc + lint clean.
+- Residuals:
+  1. No pre-existing live cell drives a wrong-KIND stdlib argument. The belt
+     is a deterministic, model-independent runtime rejection witnessed offline
+     on both hosts; a real-model turn cannot be steered to emit
+     `s.replace(1, "z")`. The adjacent b0315 live cell drives the identical
+     dispatchers end-to-end and is green. Proportionate live witness; a
+     bespoke 0394 live cell was not authored.
+  2. The C3 hang row's per-test `{ timeout }` guard cannot preempt a
+     synchronous CPU divergence at a belt-absent tree (vitest timers do not
+     fire during a sync loop) — at such a tree it grows an unbounded string
+     toward a host `RangeError`. Post-fix (the shipped, committed state) C3
+     throws promptly and is safe; the terminating C3n row is the bounded
+     regression guard for the same rejection. Do NOT run C3 at a
+     belt-reverted tree.
+  3. (prose) `tests/b0366-join-element-laundered-belt.test.ts`'s header quotes
+     the pre-0394 design-brief sentence in `stdlib-string.ts` whose wording
+     this fix updated; that quote/line-citation is now stale. b0366 is outside
+     0394's §Fix scope and not on the citation-symbol-form-gate ratchet — left
+     byte-exact at HEAD deliberately (this lane does not chase sibling
+     citations). Follow-up sweep material.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the 0315 arity belt unchanged
+  (byte-identical message + placement); the 0366 join element-VALUE belt
+  unchanged; `includes`/`indexOf`'s `"element"` descriptor stays
+  total/unchecked; correct-kind calls byte-identical (K1–K8; `slice`'s
+  omitted-`end` `undefined`); the parse checks unchanged.

@@ -114,28 +114,34 @@ export class InvokeDepthExceededPanic extends ThetaPanic {
 }
 
 /**
- * The closed `<receiver kind>` set the `theta/runtime/non-object-receiver`
- * registry row registers (code-registry-runtime.md, and the §7 closed-enum
- * placeholder entry that sources its values from that row). A receiver whose
- * kind is outside this set is outside the row's registered *trigger* too, so
- * it must not carry the code — see {@link nonObjectReceiverRejection}.
+ * The closed, six-value `<receiver kind>` set the
+ * `theta/runtime/non-object-receiver` registry row registers
+ * (code-registry-runtime.md, and the §7 closed-enum placeholder entry that
+ * sources its values from that row): five article-plus-noun phrases plus the
+ * bare `null` sixth member (bug 0393 §Fix — the stdlib-method-call read's
+ * laundered-`null` receiver). A receiver whose kind is outside this set is
+ * outside the row's registered *trigger* too, so it must not carry the code
+ * — see {@link nonObjectReceiverRejection}.
  */
 type GatedReceiverKind =
   | "an enum value"
   | "a Result value"
   | "a string"
   | "a number"
-  | "a boolean";
+  | "a boolean"
+  | "null";
 
 /**
- * A gated receiver rejection (bug 0027 §Fix, code-registry-runtime.md
- * `theta/runtime/non-object-receiver`): raised by the widened
- * `evaluateIndexAccess` guard below, `evaluateMemberAccess`'s enum/`Result`
- * guard, and both stdlib-method hosts' object-arm gate (`applyStdlibMethod`
- * in statement-executor.ts, `evaluateStdlibMethod` in
- * production-theta-producer.ts) ahead of their `evaluateObjectMember` call —
- * all four through {@link nonObjectReceiverRejection}, which is what keeps
- * this code off receiver kinds the registry row does not register.
+ * A gated receiver rejection (bug 0027 §Fix, widened by bug 0393 §Fix,
+ * code-registry-runtime.md `theta/runtime/non-object-receiver`): raised by
+ * the widened `evaluateIndexAccess` guard below, `evaluateMemberAccess`'s
+ * enum/`Result` guard, both stdlib-method hosts' object-arm gate
+ * (`applyStdlibMethod` in statement-executor.ts, `evaluateStdlibMethod` in
+ * production-theta-producer.ts) ahead of their `evaluateObjectMember` call,
+ * and those same two hosts' terminal fall-through for a receiver kind with
+ * no built-in method surface (a `number`, a `boolean`, or `null`) — all six
+ * through {@link nonObjectReceiverRejection}, which is what keeps this code
+ * off receiver kinds the registry row does not register.
  * Deliberately NOT a `ThetaPanic` subclass: the six-source panic list
  * (error-model.md §"Runtime panics") is closed and stays closed — this is
  * instead the second registered runtime-defect-surface code alongside
@@ -162,6 +168,13 @@ function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
   if (isResultValue(value)) {
     return "a Result value";
   }
+  // JS `typeof null === "object"`, so without this check `null` would fall
+  // through to the `default: return undefined` arm below and lose its
+  // sixth-kind classification (bug 0393 §Fix — the bare `null` receiver kind,
+  // no article).
+  if (value === null) {
+    return "null";
+  }
   switch (typeof value) {
     case "string":
       return "a string";
@@ -176,25 +189,26 @@ function gatedReceiverKind(value: ThetaValue): GatedReceiverKind | undefined {
 
 /**
  * The single construction point for a gated-read rejection of `read` on
- * `receiver`; all four gated sites route through it.
+ * `receiver`; all six gated sites route through it.
  *
  * A receiver {@link gatedReceiverKind} cannot classify keeps its PRE-0027
  * disposition — a raw `Error` the runtime-defect surface classifies
  * `theta/runtime/internal-error`, whose trigger is open-ended and covers it —
  * because the registry row registers such a receiver neither as a trigger nor
  * as a `<receiver kind>`, so emitting the registered code on it would be a
- * DIAG-4 registry/behaviour mismatch. This arm is now defensive, not
- * reachable from theta source: bug 0032's fix
- * (docs/bugs/0032-absent-member-binds-undefined.md) closed the feeder that
- * used to land `undefined` here — an absent member no longer binds raw JS
- * `undefined`, because the presence gate {@link evaluateMemberAccess} shares
- * with the index path panics on the absent name first, so `x.absent[0]` can
- * no longer reach this guard with `undefined` as its receiver. The
- * `indexed access` wording is that guard's own pre-0027 message, preserved
- * byte-for-byte: the guard is the only one of the four sites that can reach
- * this arm, because the other three admit only a `typeof "object"` value
- * {@link isObjectValue} rejects — an enum value or a `Result` value, both in
- * the closed set.
+ * DIAG-4 registry/behaviour mismatch. This arm now covers only a value
+ * {@link gatedReceiverKind} cannot classify at all — a host value outside the
+ * theta 1.0 value model (e.g. raw JS `undefined`). `null` is NOT such a
+ * value: bug 0393 §Fix widened {@link gatedReceiverKind} to classify it as
+ * the sixth `GatedReceiverKind` member, so a `null` receiver reaching one of
+ * the two stdlib-method-call fall-throughs (`applyStdlibMethod`,
+ * `evaluateStdlibMethod`) carries the REGISTERED
+ * `theta/runtime/non-object-receiver` code, not this raw-`Error` arm. A
+ * `null` receiver at `evaluateIndexAccess` / `evaluateMemberAccess` never
+ * reaches this function at all — the dedicated `NullIndexAccessPanic` /
+ * `NullMemberAccessPanic` checks ahead of each of those gates intercept it
+ * first. The `indexed access` wording is `evaluateIndexAccess`'s own
+ * pre-0027 message, preserved byte-for-byte.
  */
 export function nonObjectReceiverRejection(read: string, receiver: ThetaValue): Error {
   const kind = gatedReceiverKind(receiver);
@@ -464,6 +478,32 @@ export class StdlibMethodArgumentDefectError extends Error {
       `internal defect: stdlib method '${method}' called with ${provided} argument(s), outside its declared arity (expects ${arity}); the parse-time stdlib-arity-mismatch gate (theta/parse/stdlib-arity-mismatch) did not reject this site — a laundered-receiver gate gap (bug 0315)`,
     );
     this.name = "StdlibMethodArgumentDefectError";
+  }
+}
+
+/**
+ * Bug 0394 (docs/bugs/0394-stdlib-wrong-kind-args-coerce-and-replace-hangs.md)
+ * belt-and-braces: the bug-0315 arity belt's KIND sibling. A correct-arity
+ * stdlib call with a wrong-KIND positional argument on a laundered receiver
+ * reaches the same three dispatchers past the arity check with its
+ * `theta/parse/stdlib-arg-type-mismatch` precondition deferred (the parse gate
+ * only resolves it for a statically-resolvable receiver), so the unchecked
+ * `args[i] as …` casts below would otherwise forward the raw value into a host
+ * JS method that either coerces it (e.g. `endsWith(null)` answering over the
+ * literal spelling "null") or, for `replace`'s `from` position, diverges (a
+ * `NaN` cursor makes the scan loop forever). Each dispatcher throws this
+ * instead, AFTER the arity check and BEFORE the switch/cast, on a `typeof` /
+ * `Array.isArray` mismatch against the member's `params` descriptor. It
+ * routes through `surfaceUnexpectedThrow` to `theta/runtime/internal-error`
+ * exactly as `StdlibMethodArgumentDefectError` and
+ * `StdlibJoinElementDefectError` do — no new registry row.
+ */
+export class StdlibMethodArgumentKindDefectError extends Error {
+  public constructor(method: string, argIndex: number, expectedKind: string, actual: ThetaValue) {
+    super(
+      `internal defect: stdlib method '${method}' argument ${argIndex} expects ${expectedKind}, got ${summariseNonResultOperand(actual)}; the parse-time stdlib-arg-type-mismatch gate (theta/parse/stdlib-arg-type-mismatch) did not reject this laundered-receiver site (bug 0394)`,
+    );
+    this.name = "StdlibMethodArgumentKindDefectError";
   }
 }
 
