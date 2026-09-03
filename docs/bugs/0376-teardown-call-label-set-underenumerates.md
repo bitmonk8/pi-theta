@@ -1,6 +1,6 @@
 # Bug 0376 — `TEARDOWN_STEP_CALL_LABELS[4]` omits `"debouncer.whenIdle(awaitCap)"`: the exported constant that documents itself as the closed normative `details.call` set (wire contract) under-enumerates the label the same module emits five hundred lines later
 
-- **Status:** open.
+- **Status:** fixed (0.372.0).
 - **Sev/Diff estimate:** S4/D1 — S4: pure registry/constant inconsistency; the
   emission site uses the correct spec literal inline, so emitted diagnostics
   are right and no operator-visible value is wrong. The exported constant is
@@ -101,3 +101,48 @@ constant's row), closing the drift channel structurally.
 Found while mapping the spec's closed `details.call` set onto the teardown
 implementation's emission sites; verified by reading both cited sites and the
 constant's single test consumer.
+
+## Fix (0.372.0)
+
+- What shipped: `src/extension/session-shutdown.ts` — (§Fix act 1) added the
+  fourth spec label `"debouncer.whenIdle(awaitCap)"` to the
+  `TEARDOWN_STEP_CALL_LABELS` step-4 row, bringing the exported closed set to
+  the spec's four members; (§Fix act 2) routed the sub-step-4 quiesce-catch
+  emission through the constant (`TEARDOWN_STEP_CALL_LABELS[4][3]`) so the sole
+  literal occurrence lives in the constant and the emitter cannot drift from
+  the declared closed set. The emitted wire value is byte-identical
+  (`"debouncer.whenIdle(awaitCap)"`, `step 4`). A pre-existing doc comment on
+  `TeardownAwareDebouncer` that re-quoted the literal was reworded to cite the
+  constant, preserving the single-source invariant. No spec edit (spec, DIAG
+  registry, constant and emission all agree at four members).
+- Gates: witness `tests/b0376-teardown-call-label-set-underenumerates.test.ts`
+  RED→GREEN (2/2; reverting `session-shutdown.ts` to HEAD reds both assertions
+  with the bug signature — three-member row / emitted label not a member — and
+  restoring the byte-identical fix greens them); full default suite
+  `npx vitest run` green (one unrelated `shared-subtree-…` test-timeout under
+  16-lane load, green isolated, no `session-shutdown` reference — load noise);
+  `npm run typecheck` (`tsc --noEmit`) clean; `npm run lint` (eslint) clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (full-module sweep confirmed all
+  12 emitted labels ∈ constant = spec's 12; `[4][3]` guarded by
+  `reload-teardown-quiesce.test.ts` which pins the emitted label byte-exact;
+  spec = registry = constant = emission), one non-blocking `test` residual
+  (R1) recorded below.
+- Verification: `bug-fix-verifier` SOLID — (1) witness reds-then-greens with a
+  byte-identical restore (post-fix blob `c12dc8ea`); (2) full suite green
+  modulo one isolated-green load-noise timeout; (3) live obligation — an
+  adjacent existing shutdown/teardown cell run under the mandatory live-lock
+  (`tests/live/double-session-start-live.test.ts`, PIC-57 quiesce path) passed
+  (1/1, 5.47 s), the proportionate witness since 0376 changes no
+  registration/drive outcome; (4) lint + typecheck clean.
+- Residuals: (R1, non-blocking, test) the structural drift-closer test drives
+  only the quiesce arm's emission; a hypothetical future out-of-set label at a
+  *different* teardown arm would not red it. Accepted: every current emission
+  site was swept in-set during review, step-5 labels are additionally union-
+  typed, `as const` tuples make a row shrink a compile error, and the spec's
+  same-commit closed-set rule governs future additions. The filed drift
+  channel (the quiesce inline literal) is closed and locked.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the emitted `details.call` value and the
+  spec's closed set are unchanged — only the in-repo constant that lagged the
+  emitter was corrected (bug-doc *Non-goals*).
+

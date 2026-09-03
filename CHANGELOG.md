@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.372.0]
+
+### Fixed
+
+- **Bug 0376** — `TEARDOWN_STEP_CALL_LABELS[4]` (the exported constant documenting itself as the closed normative `details.call` set for teardown sub-step 4, the wire-contract source dedup consumers key on) enumerated three labels while the spec's closed set (`session-shutdown-semantics.md` §Per-step isolation) has four and the same module emitted the fourth — `"debouncer.whenIdle(awaitCap)"` — inline at the quiesce arm five hundred lines later (the 0034-era PIC-57 work extended the spec set and the emission but never the constant; the 0117/0323 enumeration-lag class). The label is added to the constant's step-4 row and the inline emission now routes through the constant, with a structural drift-closer test asserting every emitted `details.call` is a member of the constant's row — the emitted bytes are unchanged (spec and emission already agreed; only the in-repo mirror lagged). Witnessed by `tests/b0376-teardown-call-label-set-underenumerates.test.ts` (red at fork on the membership assert, green after; direct + structural cells). Live: `double-session-start-live` (the PIC-57 quiesce path) 1/1 under the lock.
+
 ## [0.371.0]
 
 ### Fixed

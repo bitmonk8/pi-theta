@@ -65,7 +65,12 @@ export type TeardownStep = 1 | 3 | 4 | 5;
 export const TEARDOWN_STEP_CALL_LABELS = {
   1: ["thetaRegistry.drain", "thetaRegistry.initDrainStateTag"],
   3: ["Clock.now()", "Clock.setTimeout(awaitCap)", "Clock.clearTimeout(awaitCap)"],
-  4: ["discoveryWatcher.close", "settingsWatcher.close", "Clock.clearTimeout(debounce)"],
+  4: [
+    "discoveryWatcher.close",
+    "settingsWatcher.close",
+    "Clock.clearTimeout(debounce)",
+    "debouncer.whenIdle(awaitCap)",
+  ],
   5: [
     "ctx.signal.removeEventListener",
     "toolSignal.removeEventListener",
@@ -117,8 +122,9 @@ export interface EmissionSink {
  * awaits `whenIdle()` so an already-in-flight rebuild completes (or no-ops)
  * against the still-live `ctx` before the handler returns and Pi invalidates the
  * runtime. `whenIdle` takes an optional cap purely for label symmetry with the
- * closed-set `details.call: "debouncer.whenIdle(awaitCap)"`; the handler bounds
- * the await itself against the shared deadline rather than passing a budget in.
+ * closed-set `details.call` quiesce label at `TEARDOWN_STEP_CALL_LABELS[4]`;
+ * the handler bounds the await itself against the shared deadline rather than
+ * passing a budget in.
  */
 export interface TeardownAwareDebouncer {
   markTornDown(): void;
@@ -604,9 +610,10 @@ export async function runSessionShutdown(
         await quiesceDebouncer(debouncer, disposeAwait.deadline, deps.clock);
       }
     } catch (quiesceError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
+      // Sourced from the constant (not a duplicate literal) so the emitted label cannot drift from the declared closed set (bug 0376).
       emitTeardownDiagnostic(
         deps.sink,
-        teardownStepFailedDiagnostic(4, "debouncer.whenIdle(awaitCap)", quiesceError),
+        teardownStepFailedDiagnostic(4, TEARDOWN_STEP_CALL_LABELS[4][3], quiesceError),
       );
     }
   }
