@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.376.0]
+
+### Fixed
+
+- **Bug 0378** — the step-5 watch-root union deduped by separator-normalised STRING only, so two case-variant spellings of one physical directory (a legal settings + `--theta` pair naming the same dir — the 0331-blessed warning-only configuration) armed chokidar over BOTH: every add/unlink under the dir delivered once per spelling, the structural-change note reported `theta watcher: 2 file(s) added or removed` for one physical add (violating the registration-steps worked example's `N = 1`), `details.structural.added` carried the same physical file under both spellings, and a same-window rename reported 4 instead of the PIC-38-pinned 2 — the union-build comment's claim that "one physical directory is one Set member" was falsified by case variance on a case-insensitive filesystem. `discoveryWatchRoots` (and the import-closure fold) now dedupe by canonical physical-directory identity — each member maps through the existing `canonicalizePath` with an exists-gated fallback to the normalised spelling (the bug-0329 pattern; the 0326 anti-fork law: same canonicaliser as 0361/0362, no new identity concept) — so one physical dir arms once whatever each source spelled; case-sensitive hosts are byte-identical (realpath preserves spelling) and distinct physical dirs keep distinct members. The rejected event-batch-realpath alternative stays rejected (it would leave the double watch + doubled change traffic in place). Spec: one sentence under `registration-steps.md` step 5 pins the armed set to physical-directory identity, mirroring (referencing, not forking) 0361's landed identity sentence. Witnessed by `tests/b0378-watch-root-case-variant-double-arming.test.ts` (4 cells, the 0310/0311 harness shape: armed-set count red at fork [2 members → 1], note count red at fork ["2 file(s)" → "1 file(s)"] through the shipped debounce+note chain; distinct-dir and identical-spelling controls byte-identical). Live: `double-session-start-live` (adjacent watcher/session_start cell) green under the lock — no registration/drive outcome changes.
+
 ## [0.375.0]
 
 ### Fixed

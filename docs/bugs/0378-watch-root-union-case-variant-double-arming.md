@@ -1,6 +1,6 @@
 # Bug 0378 — The watch-root union dedupes by separator-normalised string only, so two case-variant spellings of one physical directory (a legal settings + `--theta` pair naming the same dir) arm chokidar over both: every file add/unlink under the dir delivers once per spelling, and the structural-change note reports `theta watcher: 2 file(s) added or removed` — with `details.structural.added` carrying the same physical file twice — for one physical add
 
-- **Status:** open.
+- **Status:** fixed (0.376.0).
 - **Sev/Diff estimate:** S3/D2 — the wrong-diagnostics class (impact 4): the
   note's `<N>` and the wire payload `details.structural.added` both
   double-count one physical file, and the only spec-licensed double-count
@@ -197,3 +197,66 @@ arming, real-chokidar event counts variant + control, shipped debounce+note
 chain) and `tests/scratch-pi2-trailslash.test.ts` (trailing-slash sibling,
 armed-list duplicate with single event — §Non-goals) — both deleted after the
 run; outputs as quoted in §Reproduction.
+
+## Fix (0.376.0)
+- What shipped:
+  - `src/extension/production-composition.ts` — the step-5 `discoveryWatchRoots`
+    union is built through the new `dedupeWatchRootsByIdentity(fileSystem, …)`
+    helper, which maps each member through the corpus's existing
+    `canonicalizePath` (`src/runtime/invocation.ts`) with an exists-gated
+    fallback to the forward-slashed spelling (the bug-0329 drop-target
+    canonicalisation pattern), so one physical directory is one armed root
+    whatever each source spelled — case variance no longer double-arms
+    chokidar. The later `watchRoots` fold canonicalises the import-closure dirs
+    (`canonicalClosureDirs`) to the same physical-directory identity BEFORE the
+    nesting-exclusion filter, so a case-variant closure-dir spelling cannot
+    escape the exclusion and double-arm a directory a discovery root already
+    covers. The falsified comment claiming the forward-slash form alone makes
+    one physical directory one Set member is corrected to attribute identity to
+    the `realpath` dedup.
+  - `docs/spec_topics/pi-integration-contract/registration-steps.md` — step 5
+    gains one sentence pinning the armed set to physical-directory identity
+    (canonical `FileSystem.realpath`, forward-slash-normalised), mirroring the
+    landed bug-0361 identity sentence at `imports.md` and cross-referencing
+    `../invocation.md`'s Resolution paragraph (no taxonomy fork per 0326).
+  - `tests/b0378-watch-root-case-variant-double-arming.test.ts` — the offline
+    witness (shipped composition + a `CaseVariantFanoutFileWatcher` modelling
+    chokidar per-root-string arming + `FakeClock`).
+- Gates:
+  - Witness: `npx vitest run tests/b0378-watch-root-case-variant-double-arming.test.ts`
+    — 4/4 GREEN after the fix; RED at the fork (cell 1 armed count 2 not 1;
+    cell 2 note "2 file(s)" not "1"); verifier confirmed the revert-to-red with
+    byte-exact restoration (`git hash-object` match).
+  - Full default suite: `npm test` — 551 files / 10236 tests GREEN (6 timeout
+    flakes under parallel-lane load, all 141/141 GREEN re-run isolated).
+  - Typecheck: `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) — clean.
+  - Lint: `npm run lint` (`eslint … "src/**/*.ts"`) — clean.
+  - Live: `tests/live/double-session-start-live.test.ts` — GREEN (real model,
+    7.25s) under the lane live lock; the adjacent existing watcher/session_start
+    live cell (no registration/drive outcome changes, so no new live cell owed).
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`): F1 house-rule (two new
+  helpers inserted between the `runComposePass` doc block and its declaration,
+  orphaning the doc comment) — fixed by `bug-fix-fixer-light` code-motion; F2
+  (`0.376.0` placeholders) rejected — mandated by the parallel-lane protocol;
+  R1 (bare-`mkdtempSync` witness convention) accepted as residual. Round 2
+  (`bug-fix-reviewer-fast`): CLEAN; raised R2 (a comment's "above" pointer to
+  the 0329 pattern that actually sits below) — fixed as a bounded comment-only
+  correction.
+- Verification: `bug-fix-verifier` verdict SOLID. Witness reds-on-revert with
+  byte-exact restore (hash `85501f82…` before and after); full suite green
+  (flakes exonerated isolated); typecheck+lint clean; live discharged by the
+  orchestrator.
+- Residuals:
+  1. The witness compares armed roots via bare `mkdtempSync` + lowercase
+     `norm()` (forward-slash + lowercase only), a convention shared by sibling
+     watch-root tests (`b0310`, `b0312`); tolerates case rewrites but not a
+     non-case spelling rewrite (8.3 short names, symlinked tmp). Green on this
+     Windows host and convention-wide; harden with `realpathSync(mkdtempSync(…))`
+     if ever ported. Non-blocking.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the rejected alternative (dedupe the event
+  batch by `realpath` at note-derivation time) stays rejected — the fix lives
+  at the watch-root union build, and `hot-reload.ts` is unchanged. The
+  cross-source file-level shadow warning's separator-only identity, the trailing-
+  slash armed-list duplicate (no event-level observable), and INV-1 containment
+  are untouched (bug doc §Non-goals).

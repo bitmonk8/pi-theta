@@ -135,7 +135,7 @@ import {
 } from "../parser/callable-set";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
-import { checkInvokePathAtLoad } from "../runtime/invocation";
+import { canonicalizePath, checkInvokePathAtLoad } from "../runtime/invocation";
 import {
   buildInvokeGraph,
   checkInvokeStaticResolution,
@@ -426,6 +426,48 @@ export async function discoverAndComposeFixtures(
 }
 
 /**
+ * Map one watch-root spelling to its physical-directory identity: the
+ * canonical `realpath` form (forward-slash-normalised) when the path exists,
+ * else the forward-slashed spelling as-is. Exists-gated the same way bug
+ * 0329's drop-target callee canonicalisation elsewhere in this file is —
+ * every member reaching this function came from a
+ * successful classify or enumerate, so it can be present-but-empty but is
+ * never missing; the fallback exists only for that edge, not for a genuinely
+ * absent path.
+ */
+async function canonicalWatchRootIdentity(
+  fs: Pick<FileSystem, "exists" | "realpath">,
+  root: string,
+): Promise<string> {
+  return (await fs.exists(root)) ? canonicalizePath(fs, root) : root.replace(/\\/g, "/");
+}
+
+/**
+ * Dedupe a list of watch-root spellings by physical-directory identity,
+ * preserving first-seen order. Separator-only normalisation (`.replace(/\\/g,
+ * "/")`) collapses separator variance but not case variance, which a
+ * case-insensitive filesystem accepts as the same physical directory: two
+ * such spellings survived as two Set members, arming chokidar twice, so every
+ * event under the directory was delivered — and structural-note-counted —
+ * once per spelling (bug 0378).
+ */
+async function dedupeWatchRootsByIdentity(
+  fs: Pick<FileSystem, "exists" | "realpath">,
+  roots: readonly string[],
+): Promise<string[]> {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const root of roots) {
+    const identity = await canonicalWatchRootIdentity(fs, root);
+    if (!seen.has(identity)) {
+      seen.add(identity);
+      result.push(identity);
+    }
+  }
+  return result;
+}
+
+/**
  * One discovery + compose pass against an already-constructed runtime root.
  * Factored out of `discoverAndComposeFixtures` so `composeExtensionInstance`
  * can re-run it on every hot-reload (the "hot-reload re-runs the computation"
@@ -690,21 +732,25 @@ async function runComposePass(
   // via `joinPosix(fs.cwd(), …)` and `PiFileSystem.cwd()` returns the host-native
   // `ctx.cwd` verbatim, so on Windows it carries the same mixed separators as
   // `activeRoots`. Both file-derived copies (`activeRoots` and `packageWalk.roots`)
-  // are canonicalised below to the same forward-slash comparison form so one
-  // physical directory is one Set member; deleting either `.replace` map
-  // double-arms that copy's physical dirs as distinct Set members.
+  // are forward-slashed below BEFORE the identity dedup so every copy compares
+  // on the same separator form; that separator normalisation alone collapses
+  // separator variance only, not case variance, which a case-insensitive
+  // filesystem accepts as one physical directory. Physical-directory identity
+  // (one dir is one Set member, whatever spelling or casing each source used)
+  // is established by `dedupeWatchRootsByIdentity` below, which canonicalises
+  // each member through `realpath` (bug 0378: two case-variant spellings of
+  // one physical directory previously survived as two Set members and armed
+  // chokidar twice).
   // `activeRoots` itself is untouched — its INV-1 consumers keep the native form.
   // Bug 0312's closure dirs are unioned in AFTER the per-theta compose loop
   // below (they are only known once `checkThetaImports` has walked each
   // theta's import graph), against this discovery-derived base — additive only,
   // so folding the package source in here does not disturb that later fold.
-  const discoveryWatchRoots = Array.from(
-    new Set([
-      ...activeRoots.map((r) => r.replace(/\\/g, "/")),
-      ...walk.roots,
-      ...packageWalk.roots.map((r) => r.replace(/\\/g, "/")),
-    ]),
-  );
+  const discoveryWatchRoots = await dedupeWatchRootsByIdentity(fileSystem, [
+    ...activeRoots.map((r) => r.replace(/\\/g, "/")),
+    ...walk.roots,
+    ...packageWalk.roots.map((r) => r.replace(/\\/g, "/")),
+  ]);
 
   // PIC-64 host-loop-dispatch rung availability is NOT regime-gated — the probe
   // below reads only the Pi surfaces. `subagentRootRegime` itself is hoisted
@@ -1233,7 +1279,15 @@ async function runComposePass(
   // (`root === dir` and `dir` strictly under `root`) since a closure dir CAN
   // equal a discovery root exactly (a lib living directly in a root's own
   // directory).
-  const outOfRootClosureDirs = [...importClosureDirs].filter(
+  // Bug 0378: canonicalise the closure dirs to the SAME physical-directory
+  // identity as `discoveryWatchRoots` before the nesting filter, so the
+  // exclusion compares like against like — a case-variant closure-dir spelling
+  // must not escape the filter and double-arm a directory already covered by
+  // a discovery root.
+  const canonicalClosureDirs = await dedupeWatchRootsByIdentity(fileSystem, [
+    ...importClosureDirs,
+  ]);
+  const outOfRootClosureDirs = canonicalClosureDirs.filter(
     (dir) =>
       !discoveryWatchRoots.some(
         (root) => dir === root || dir.startsWith(root.endsWith("/") ? root : `${root}/`),
