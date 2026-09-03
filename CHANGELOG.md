@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.406.0]
+
+### Fixed
+
+- **Bug 0408** — a scalar-union-typed param (`'string | number'`) was routed to the JSON row at `system:` render time, so a plain string value rendered quoted (`"hello"`) where every scalar surface renders it bare — the union's static kind, not the value's runtime kind, drove the row choice. Fixed per the settled §Fix: the union arm renders `valueDriven` via `interpolationTypeOfValue` — the RUNTIME kind of the bound value picks the row (bare scalars for scalar values, compact JSON for composites), with the `resolvePath` null-guard hardening the walk. Witnessed in `tests/b0408-scalar-union-params-render-json-row.test.ts` (red at fork; scalar/composite rows + null control). Live: folded into the b0406live acceptance cell. Residual (recorded): QRY-18's table itself never states the union-row disposition — a spec gap the fix record documents as a filing candidate (spec amendment out of this fix's authority).
+
+## [0.405.0]
+
+### Fixed
+
+- **Bug 0407** — on the branch that DID classify as object (body-schema-typed params), the `system:` render skipped outbound wire translation: a schema field carrying a wire rename reached the rendered JSON under its theta-side name instead of the declared wire name, diverging from the QRY-18 object row every other rendering surface honours. Fixed per the settled §Fix: the object/array arms of `toSystemParamType` carry outbound wire sidecars and `lowerOutbound` gains the array-element sidecar, so the `system:` render's compact JSON is wire-translated exactly like the query surfaces. Witnessed in `tests/b0407-system-interp-object-render-skips-wire-translation.test.ts` (red at fork; rename + nested-array rows). Live: folded into the b0406live acceptance cell (same construction site). Residual (filing candidates, recorded): nested-container renames beyond the element sidecar remain untranslated; alias/head-only schema spellings still render `[object Object]` on a distinct unfixed branch.
+
+## [0.404.0]
+
+### Fixed
+
+- **Bug 0406** — `toSystemParamType` classified inline-object-typed, imported-schema-typed, and recursive-schema-field params as `string`-kind, so a spec-valid `${param.field}` in `system:` drew a spurious `theta/parse/system-interp-bad-field` refusal (a diagnostic firing outside its registered Trigger — three ordinary authoring patterns un-registerable) and a spec-valid bare `${param}` rendered the literal `[object Object]` into the spawned child's system prompt with zero diagnostics — the exact silent-prompt-corruption QRY-18's static-type table exists to prevent, on the surface conditioning every child turn. PARENT ADJUDICATION Option (a) full field-carry, amended to Rec A after the lane's E1–E5 premeasure proved the registry's Phase=parse pin blocks BOTH of the doc's §Fix-(a) ordering routes for the imported-schema carry (parse is sync/FS-free; imports resolve strictly after parse; no load-phase system-interp code exists) — a doc-was-wrong-in-part falsification recorded per the 0362 pattern. Shipped: (i) inline-object `typeSource` parsed through the parseParams inline-object machinery into real field maps; (iii) a recursive schema's self-typed field carries a lazy cyclic object shell — never `string`; (ii) an imported symbol classifies as an ADMITTING `opaque-object` (any `.Ident` chain admitted at parse — no false refusal; rendered by runtime kind through the object/JSON row — no `[object Object]`), with the imported-field-typo case a DOCUMENTED residual (measured: a walked-off path renders the W7 `undefined` disposition; filing candidate). `${param}` stays admitted for every declared param; `bad-field` still fires for every parse-visible-field class; the 0041/0059 refused cascade and the unresolved-atom permissive fallback are untouched; no new codes. Witnessed in `tests/b0406-object-typed-params-misclassified-string.test.ts` (red at fork on the doc's repro rows) and NEW live acceptance cell `tests/live/acceptance/b0406live-object-param-system-interp-registration.test.ts` — the child answers from an interpolated `${cfg.addend}` reaching its real `--system-prompt` (fork-RED token-free; green ×2 under the lock).
+
 ## [0.403.0]
 
 ### Fixed

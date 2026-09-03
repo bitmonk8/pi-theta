@@ -38,7 +38,7 @@
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type ThetaMode } from "./frontmatter";
-import { type ThetaValue } from "../runtime/value";
+import { isEnumValue, isResultValue, type ThetaValue } from "../runtime/value";
 import {
   stringifyInterpolatedValue,
   type InterpolationType,
@@ -100,6 +100,13 @@ export const SYSTEM_INTERP_UNTERMINATED_MESSAGE =
  *     in this slot);
  *   - `array` / `object` optionally carry the wire-name-translation sidecars so
  *     the compact `JSON.stringify` rendering applies outbound translation.
+ *   - `opaque-object` is an imported-`.thetalib` schema whose fields are
+ *     invisible at frontmatter-parse (the sync parser carries no `FileSystem`
+ *     to resolve the import): it ADMITS any `.Ident` chain — refusing nothing
+ *     at parse, the documented imported-field residual (bug 0406 parent
+ *     Rec A) — and renders value-driven at resolve time: a walked scalar
+ *     renders through its scalar row, an object value through the object/JSON
+ *     row with no sidecars (imported wire renames are unavailable at parse).
  */
 export type SystemParamType =
   | { readonly kind: "string" }
@@ -119,7 +126,8 @@ export type SystemParamType =
       readonly sidecars?: Extract<InterpolationType, { kind: "object" }>["sidecars"];
       readonly rootDef?: string;
     }
-  | { readonly kind: "discriminated-union" };
+  | { readonly kind: "discriminated-union" }
+  | { readonly kind: "opaque-object" };
 
 // --- Parsed template shape --------------------------------------------------
 
@@ -135,6 +143,16 @@ export type SystemTemplatePart =
       readonly kind: "path";
       readonly segments: readonly string[];
       readonly type: InterpolationType;
+      /**
+       * When set, the render selects the canonical row from the RESOLVED
+       * value's runtime kind (mirroring the query surface's value-driven
+       * `interpolationTypeOf`) rather than from `type` — used for the
+       * `opaque-object` and `discriminated-union` terminals, whose static
+       * type alone cannot tell a scalar-union arm from an object-schema arm,
+       * or an imported object field from a walked-off one. `type` remains
+       * the object-row fallback used when this flag is absent.
+       */
+      readonly valueDriven?: true;
     };
 
 /** A successfully-parsed `system:` template: its ordered parts. */
@@ -362,6 +380,11 @@ function parseInterpolationPath(
         return undefined;
       }
       current = next;
+    } else if (current.kind === "opaque-object") {
+      // An imported schema's fields are invisible at parse (bug 0406 parent
+      // Rec A) — the step is admitted opaquely, refusing nothing; `current`
+      // stays `opaque-object` so a chain of steps all admit.
+      continue;
     } else {
       // A non-object type terminates the path: a `.Ident` step into an array,
       // discriminated union, or scalar is a bad-field error.
@@ -377,6 +400,9 @@ function parseInterpolationPath(
     }
   }
 
+  if (current.kind === "opaque-object" || current.kind === "discriminated-union") {
+    return { kind: "path", segments, type: { kind: "object" }, valueDriven: true };
+  }
   return { kind: "path", segments, type: toInterpolationType(current) };
 }
 
@@ -414,6 +440,12 @@ function toInterpolationType(type: SystemParamType): InterpolationType {
         ...(type.rootDef !== undefined ? { rootDef: type.rootDef } : {}),
       };
     case "discriminated-union":
+      return { kind: "object" };
+    case "opaque-object":
+      // Fallback only — an `opaque-object` terminal is always paired with
+      // `valueDriven: true` (parseInterpolationPath's terminal `return`), so
+      // `renderSystemPrompt` overrides this with the resolved value's own
+      // runtime kind before it reaches `stringifyInterpolatedValue`.
       return { kind: "object" };
   }
 }
@@ -477,13 +509,50 @@ export function renderSystemPrompt(
     // resolved value through the shared canonical renderer (QRY-18) so the model
     // sees one rendering of a given value regardless of surface.
     const value = resolvePath(input.params, part.segments);
-    const rendered = stringifyInterpolatedValue(value, part.type);
+    const effectiveType = part.valueDriven ? interpolationTypeOfValue(value) : part.type;
+    const rendered = stringifyInterpolatedValue(value, effectiveType);
     if (!rendered.ok) {
       return { ok: false, diagnostic: rendered.diagnostic };
     }
     text += rendered.text;
   }
   return { ok: true, text };
+}
+
+/**
+ * The canonical-table row a RESOLVED value selects by its own runtime kind
+ * (mirrors `production-theta-producer.ts`'s `interpolationTypeOf` exactly):
+ * used for the `opaque-object` and `discriminated-union` terminals, whose
+ * static type alone cannot distinguish a scalar-union arm from an
+ * object-schema arm, or an imported-schema field from a walked-off one. A
+ * walked-off imported field resolves to JS `undefined`, which falls through
+ * to the `object` row — `JSON.stringify(undefined)` yields the literal text
+ * `undefined`. That is the documented residual bug 0406 W7 pins, not a case
+ * to special-case away here.
+ */
+function interpolationTypeOfValue(value: ThetaValue): InterpolationType {
+  if (typeof value === "string") {
+    return { kind: "string" };
+  }
+  if (typeof value === "number") {
+    return { kind: "number" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean" };
+  }
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (isEnumValue(value)) {
+    return { kind: "enum" };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array" };
+  }
+  if (isResultValue(value)) {
+    return { kind: "result" };
+  }
+  return { kind: "object" };
 }
 
 /** Resolve a validated `Ident ('.' Ident)*` path against the params object. */
@@ -493,6 +562,14 @@ function resolvePath(
 ): ThetaValue {
   let current: ThetaValue = params[segments[0] as string] as ThetaValue;
   for (let s = 1; s < segments.length; s++) {
+    // The opaque/value-driven path admits `.Ident` chains over intermediates the
+    // closed-schema paths never could — a null or absent intermediate reachable
+    // here has no field to index, so the walk yields `undefined` rather than
+    // throwing a TypeError out of the render (which the spawn's `!ok` fallback
+    // would not catch, crashing on admitted input).
+    if (current === null || current === undefined) {
+      return undefined as unknown as ThetaValue;
+    }
     current = (current as { readonly [key: string]: ThetaValue })[
       segments[s] as string
     ] as ThetaValue;

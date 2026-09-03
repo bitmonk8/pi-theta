@@ -1,6 +1,6 @@
 # Bug 0408 — A scalar-union `params:` type (`string | null`, `number | null`) routes a `system:` `${param}` through the JSON-object row: a string value renders JSON-quoted, `NaN` renders as the four bytes `null`, and `1e21` renders in the scientific notation the canonical table forbids — three renderings the query surface and the canonical table both contradict
 
-- **Status:** open.
+- **Status:** fixed (0.406.0).
 - **Sev/Diff estimate:** S2/D2 — the mainstream `T | null` optional-param idiom silently ships JSON-quoted strings (and `null` for `NaN`, scientific notation past 1e21) into the child's system prompt, diverging from the query surface with zero diagnostics; fix is the recommended (a)+(c) pair — render-time value routing plus a same-commit QRY-18 table row — within one subsystem.
 - **Kind:** defect against
   `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md:46`'s
@@ -151,3 +151,17 @@ Fresh find. Probed at c2c25d81 with scratch vitest
 `tests/scratch-system-templates.test.ts` (E rows + control; deleted).
 Query-surface contrast from code read of `interpolationTypeOf`
 (`production-theta-producer.ts:7578–7607`).
+
+## Fix (0.406.0)
+
+- What shipped:
+  - `src/parser/system-interpolation.ts` — a `discriminated-union` (and `opaque-object`) terminal renders VALUE-DRIVEN: `renderSystemPrompt` derives the canonical row from the resolved value's runtime kind (`interpolationTypeOfValue`, mirroring the query surface's `interpolationTypeOf`). A scalar-union value takes its matching scalar row — a string renders unquoted, `NaN` renders `NaN`, a number renders shortest-round-trip decimal (never scientific), `null` renders `null` — while an object-schema union value takes the JSON row. This is §Fix option (a) (render-time value routing); the parse-time refusal of `.Ident` into a union is preserved.
+- Gates: witnesses `tests/b0408-*.test.ts` 7/7 green (W1 `string \| null` unquoted, W2 `number \| null` `NaN`, W3 `1e21` → `1000000000000000000000`, W4 `null`, G1 plain-`number` `NaN`, G2 object-union stays JSON, G3 `.Ident`-into-union refused), red at fork (`"hello"` quoted / `null` / `1e+21`); full suite `npm test` 573/10450 green; typecheck + lint clean.
+- Live: folded into the shared `b0406` acceptance cell (recorded WHY: the render surface and spawn boundary are shared with 0406/0407; the scalar-union render bytes are deterministically pinned offline by W1–W4).
+- Review: 2 rounds (shared with 0406). R1 finding F1 (an inline object `{a: string \| null}` was misclassified as a `discriminated-union` because the union split ran before, and brace-blind to, the inline-object check — regressing the 0406(i) × 0408 `T \| null` composition) fixed by reordering the inline-object structural check before the generic/union split; R2 (`bug-fix-reviewer-fast`) CLEAN.
+- Verification: `bug-fix-verifier` SOLID (shared): revert-red/restore-green byte-exact, full suite, typecheck, lint; live orchestrator-run.
+- Residuals:
+  1. Spec-gap (0408 §Fix c): the QRY-18 table still has NO union-of-scalars row. The fix pins option (a)'s value-driven behaviour, but the parent adjudication forbade a spec-phase amendment, so the `NaN` face rests on the same-table sentence (`frontmatter-fields-b-and-templates.md:46`) plus the gap, not a row naming `number \| null`. Filing candidate (DIAG-2 same-commit spec edit deferred).
+  2. A `discriminated-union`-of-schemas renders the JSON row without arm wire renames (shared with 0407 residual 2).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `null` renders as `null`; object-schema unions stay on the JSON row; the parse-time refusal of `.Ident` into unions is preserved (committed `system-interpolation.test.ts` + G3); only render-time value routing (option a) was adopted — no `SystemParamType` union-arm modelling (option b), no QRY-18 table row (option c, deferred).

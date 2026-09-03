@@ -611,7 +611,12 @@ function lowerOutbound(
     return value.valueOf();
   }
   if (Array.isArray(value)) {
-    return value.map((element) => lowerOutbound(element, undefined, sidecars));
+    // An `array<Schema>`'s elements conform to the array's OWN element schema,
+    // so QRY-18's "translation applied recursively" (renames every level, not
+    // just the container's own object keys) must rename them under that
+    // schema's sidecar too — passing `undefined` here dropped every
+    // element-level rename (bug 0407).
+    return value.map((element) => lowerOutbound(element, sidecar, sidecars));
   }
   if (!isPlainObject(value)) {
     return value;

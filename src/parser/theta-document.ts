@@ -8254,10 +8254,8 @@ function checkSchemaDeclarationGraph(
   const out: Diagnostic[] = [];
   // The object-form field lists, by name — the resolved-declaration input
   // `checkDiscriminatedUnion`'s variants are built from. Kept local (rather
-  // than reusing `StructuralRefs.schemas`, which carries field NAMES only, or
-  // `FrontmatterBodyTypes.schemas`, whose `wireName`-less field type loses the
-  // rename a discriminator's wire-name detection needs) so the full
-  // `SchemaFieldSource` — typeSource AND wireName — survives to
+  // than reusing `StructuralRefs.schemas`, which carries field NAMES only) so
+  // the full `SchemaFieldSource` — typeSource AND wireName — survives to
   // `discriminatorCandidateFields`.
   const objectFields = new Map<string, readonly SchemaFieldSource[]>();
   const graphNodes: SchemaGraphNode[] = [];

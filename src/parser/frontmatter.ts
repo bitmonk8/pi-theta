@@ -34,6 +34,8 @@ import { type LoweredSchema } from "../seams/schema-validator";
 import {
   parseParams,
   splitTopLevel,
+  isSingleEnclosingBraceGroup,
+  topLevelColon,
   type ParamFieldInput,
   type BodyTypeDeclaration,
 } from "./params";
@@ -42,6 +44,11 @@ import {
   type SystemParamType,
   type SystemTemplate,
 } from "./system-interpolation";
+import {
+  buildSidecar,
+  type SchemaSidecar,
+  type SidecarFieldInput,
+} from "./schema-lowering";
 import {
   classifyBinderBypass,
   type BypassParamsField,
@@ -236,6 +243,14 @@ export interface FrontmatterParseResult {
 export interface FrontmatterSchemaField {
   readonly name: string;
   readonly typeSource: string;
+  /**
+   * The explicit `as "Wire"` rename, when present (schemas.md §Wire-name
+   * renaming). Needed so `toSystemParamType` can build the outbound
+   * wire-name-translation sidecars for a body-schema `system:` render
+   * (bug 0407) — without it, the `system:` surface would have no way to know
+   * a field's wire spelling differs from its theta-side name.
+   */
+  readonly wireName?: string;
 }
 
 /**
@@ -811,26 +826,163 @@ function checkMethodology(
 }
 
 /**
+ * The body-schema name a `typeSource` names directly, or names as the element
+ * of `array<...>` (recursively) — the root a `system:` outbound sidecar walk
+ * needs to start from. `undefined` when `typeSource` names neither (an inline
+ * object, a primitive, a union, an unresolved atom, or an imported symbol).
+ */
+function namedSchemaOf(
+  typeSource: string | undefined,
+  schemas: FrontmatterBodyTypes["schemas"],
+): string | undefined {
+  if (typeSource === undefined) {
+    return undefined;
+  }
+  const s = typeSource.trim();
+  if (schemas.has(s)) {
+    return s;
+  }
+  const arrayMatch = /^array<(.+)>$/.exec(s);
+  if (arrayMatch !== null) {
+    return namedSchemaOf(arrayMatch[1], schemas);
+  }
+  return undefined;
+}
+
+/**
+ * Build the outbound wire-name-translation sidecar for a body-schema
+ * `system:` render (bug 0407): the sidecar path (`translateOutbound`) was
+ * producer-less/dead before this fix (bug 0120) — this is its first
+ * production input. Builds ONE sidecar from `rootSchema`'s own fields, keyed
+ * under the root schema name (the key `translateOutbound` reads via
+ * `rootDef`). `undefined` when `rootSchema` names no body schema (an imported
+ * name, or no root at all) or is head-only/alias (`fields === undefined`).
+ *
+ * Nested body-schema field renames inside a container/param are NOT translated
+ * on a `system:` render: two schema-typed fields sharing a wire spelling at
+ * different depths would collide in one flat wire-key namespace and resolve
+ * the wrong schema's rename map, so only the root's own flat renames are
+ * carried. This is a DOCUMENTED RESIDUAL of the same class as the
+ * imported-schema and inline-object residuals (bug 0406 parent Rec A): a
+ * nested rename renders theta-side, never as a WRONG wire name.
+ */
+function buildOutboundSidecars(
+  rootSchema: string | undefined,
+  schemas: FrontmatterBodyTypes["schemas"],
+): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } | undefined {
+  if (rootSchema === undefined || !schemas.has(rootSchema)) {
+    return undefined;
+  }
+  const fields = schemas.get(rootSchema);
+  if (fields === undefined) {
+    return undefined;
+  }
+  const inputs: SidecarFieldInput[] = fields.map((f) => {
+    const wire = f.wireName ?? f.name;
+    return {
+      thetaName: f.name,
+      ...(f.wireName !== undefined ? { wireName: f.wireName } : {}),
+      pointer: `/properties/${wire}`,
+      type: { kind: "other" },
+    };
+  });
+  return {
+    sidecars: new Map([
+      [
+        rootSchema,
+        buildSidecar(
+          inputs,
+          inputs.map((i) => i.thetaName),
+        ),
+      ],
+    ]),
+    rootDef: rootSchema,
+  };
+}
+
+/**
+ * Parse an inline object type's own field set into a `SystemParamType`
+ * (bug 0406 (i)): `s` is the flow-mapping source (`{name: string, role: string}`)
+ * `isSingleEnclosingBraceGroup` already gated. Mirrors `hoistInlineObjectType`'s
+ * accept/reject split (params.ts) so the `system:` field set matches the
+ * lowering's: a top-level entry with no colon, or an empty name / type either
+ * side of it, is skipped rather than refused — the lowering's own diagnostics
+ * cover a malformed entry; this seam only needs to know which fields resolve.
+ * An inline object type carries no `as` renames of its own, so it produces no
+ * sidecars.
+ */
+function inlineObjectType(
+  s: string,
+  bodyTypes: FrontmatterBodyTypes | undefined,
+  resolving: Map<string, SystemParamType>,
+): SystemParamType {
+  const interior = s.slice(1, -1);
+  const map = new Map<string, SystemParamType>();
+  for (const entry of splitTopLevel(interior, ",", "angle-and-brace")) {
+    const colon = topLevelColon(entry);
+    if (colon < 0) {
+      continue;
+    }
+    const fieldName = entry.slice(0, colon).trim();
+    const fieldType = entry.slice(colon + 1).trim();
+    if (fieldName.length === 0 || fieldType.length === 0) {
+      continue;
+    }
+    map.set(fieldName, toSystemParamType(fieldType, bodyTypes, resolving));
+  }
+  return { kind: "object", fields: map };
+}
+
+/**
  * Map a `params:` field type-expression source to the `SystemParamType` the
- * `system:` interpolation surface consumes. Primitives map to their scalar
- * kinds; `array<T>` terminates as an array; a top-level union / other generic
- * terminates as a compact-object value; a `NamedType` resolving to a body
- * `enum` is an enum, one resolving to an object `schema` carries its typed
- * fields (so `.Ident` steps validate), and any other / unresolved atom
+ * `system:` interpolation surface consumes. An inline object type is
+ * classified FIRST (matching `lowerTypeSource`'s structural order,
+ * body-type-lowering.ts) so a top-level `|` inside its braces (`{a: string |
+ * null}`) is not split as a discriminated union before the brace group is
+ * recognised. Primitives map to their scalar kinds; `array<T>` terminates as
+ * an array (carrying outbound sidecars when its element names a body schema);
+ * a top-level union / other generic terminates as a compact-object value; a
+ * `NamedType` resolving to a body `enum` is an enum, one
+ * resolving to an object `schema` carries its typed fields (so `.Ident` steps
+ * validate) plus the outbound wire-name-translation sidecars (bug 0407); one
+ * resolving to an imported `.thetalib` symbol is `opaque-object` (bug 0406
+ * parent Rec A: fields are invisible at parse, so the type admits any
+ * `.Ident` step rather than refusing it); and any other / unresolved atom
  * terminates as a scalar (so `${param}` is admitted but `${param.field}` is a
- * bad-field). `seen` guards a self-referential schema against unbounded
- * descent.
+ * bad-field). `resolving` is a schema-name → partially-built shell map that
+ * both guards a self-referential schema against unbounded descent AND gives
+ * lazy cyclic reuse: a schema reached a second time while its own field map is
+ * still being built reuses the SAME (mutable) shell object, so the cycle
+ * closes over itself rather than degrading to a scalar.
  */
 function toSystemParamType(
   typeSource: string,
   bodyTypes: FrontmatterBodyTypes | undefined,
-  seen: ReadonlySet<string>,
+  resolving: Map<string, SystemParamType>,
 ): SystemParamType {
   const s = typeSource.trim();
+  // A single enclosing brace group is an inline object type — recognised
+  // before the generic and union checks so a top-level `|` inside its braces
+  // belongs to a field type, not a discriminated-union arm. A genuine union of
+  // brace groups (`{a: X} | {b: Y}`) is not a single enclosing group — its
+  // first `{` does not close at end — so it still reaches the union split.
+  if (isSingleEnclosingBraceGroup(s)) {
+    return inlineObjectType(s, bodyTypes, resolving);
+  }
   const lt = s.indexOf("<");
   if (lt > 0 && s.endsWith(">")) {
     const ctor = s.slice(0, lt).trim();
-    return ctor === "array" ? { kind: "array" } : { kind: "discriminated-union" };
+    if (ctor === "array") {
+      const element = s.slice(lt + 1, -1).trim();
+      const sc =
+        bodyTypes !== undefined
+          ? buildOutboundSidecars(namedSchemaOf(element, bodyTypes.schemas), bodyTypes.schemas)
+          : undefined;
+      return sc !== undefined
+        ? { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef }
+        : { kind: "array" };
+    }
+    return { kind: "discriminated-union" };
   }
   if (splitTopLevel(s, "|").length > 1) {
     return { kind: "discriminated-union" };
@@ -854,17 +1006,33 @@ function toSystemParamType(
       return { kind: "enum" };
     }
     if (bodyTypes.schemas.has(s)) {
-      const fields = bodyTypes.schemas.get(s);
-      if (fields !== undefined && !seen.has(s)) {
-        const nextSeen = new Set(seen);
-        nextSeen.add(s);
-        const map = new Map<string, SystemParamType>();
-        for (const field of fields) {
-          map.set(field.name, toSystemParamType(field.typeSource, bodyTypes, nextSeen));
-        }
-        return { kind: "object", fields: map };
+      const existing = resolving.get(s);
+      if (existing !== undefined) {
+        return existing;
       }
-      return { kind: "string" };
+      const fields = bodyTypes.schemas.get(s);
+      if (fields === undefined) {
+        // Head-only / alias schema — out of scope for this fix; unchanged from
+        // the fork's fall-through.
+        return { kind: "string" };
+      }
+      const map = new Map<string, SystemParamType>();
+      const sc = buildOutboundSidecars(s, bodyTypes.schemas);
+      const shell: SystemParamType =
+        sc !== undefined
+          ? { kind: "object", fields: map, sidecars: sc.sidecars, rootDef: sc.rootDef }
+          : { kind: "object", fields: map };
+      resolving.set(s, shell);
+      for (const f of fields) {
+        map.set(f.name, toSystemParamType(f.typeSource, bodyTypes, resolving));
+      }
+      return shell;
+    }
+    if (bodyTypes.imports.has(s)) {
+      // An imported schema resolves (no `unresolved-named-type`) but its
+      // fields are invisible at parse — admit any `.Ident` step rather than
+      // refusing it (bug 0406 parent Rec A's E1-compatible disposition).
+      return { kind: "opaque-object" };
     }
   }
   return { kind: "string" };
@@ -1744,7 +1912,7 @@ export function parseFrontmatter(
       for (const fieldInput of fieldInputs) {
         systemParams.set(
           fieldInput.name,
-          toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Set()),
+          toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Map()),
         );
       }
       // `systemValue ?? ""`: on the `mode: prompt` branch

@@ -1,6 +1,6 @@
 # Bug 0407 — A `system:` object/array interpolation renders theta-side field names into the child's system prompt: `toSystemParamType` never populates the translation sidecars, so the shared renderer's outbound wire-name pass is silently skipped on the one surface QRY-18 says shares the query-template rendering
 
-- **Status:** open.
+- **Status:** fixed (0.405.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently render into the child's system prompt against the single-rendering guarantee, teaching the model names its typed responses must not emit, with zero diagnostics; fix needs one adjudication (sidecar wiring vs the brand-driven route 0120's line favours) plus discriminated-union threading within one subsystem.
 - **Kind:** defect — implementation diverges from a stated rule:
   `docs/spec_topics/query/query-escapes-stringification.md:26–27` (the
@@ -177,3 +177,20 @@ contrast established by code read of `stringifyInterpolation` /
 `translateInterpolationOutbound` (`production-theta-producer.ts:7415–7560`)
 and the hand-built-sidecar unit test at
 `tests/system-interpolation.test.ts:309–318`.
+
+## Fix (0.405.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — `toSystemParamType` attaches outbound wire-name sidecars (`buildOutboundSidecars`, the root schema's own flat field renames) + `rootDef` to the `object` and `array<Schema>` arms, reviving the sidecar outbound path that was producer-less/dead since bug 0120 so a body-schema `system:` render applies theta→wire translation through the shared `stringifyInterpolatedValue` → `translateOutbound`.
+  - `src/parser/frontmatter.ts` — `FrontmatterSchemaField` now carries `wireName?` so the construction site sees each field's `as "Wire"` rename (the runtime data already flowed via `SchemaFieldSource`; the interface widening exposes it).
+  - `src/runtime/wire-translation.ts` — `lowerOutbound`'s array branch threads the enclosing sidecar into elements (was `undefined`), so an `array<Schema>`'s element renames apply. Reached in production only via `translateOutbound` (bug 0120 dead arm, now fed by this fix); committed wire-translation tests cover only flat objects, so no observable flips.
+- Gates: witnesses `tests/b0407-*.test.ts` 3/3 green (W1 flat `${author}` → `{"FirstName":…}`, W2 `array<Author>` → `[{"FirstName":…}]`, G1 rename-free byte-identical), red at fork (theta-side names leaked); full suite `npm test` 573/10450 green; typecheck + lint clean.
+- Live: folded into the shared `b0406` acceptance cell (recorded WHY: one subagent spawn boundary covers the object-param `system:` render; a wire-rename flip changes KEY NAMES not VALUES, so it is not deterministically discriminable through a value-answer discriminator without a 0243-prone verbatim-echo demand — the offline W1/W2 pin the exact rendered bytes, and the live cell proves the object-param render reaches the real `--system-prompt` end to end).
+- Review: 2 rounds (shared with 0406). R1 finding F2 (nested-sidecar wire-key collision → silent WRONG wire name) fixed by flattening `buildOutboundSidecars` to the root schema only; R2 (`bug-fix-reviewer-fast`) CLEAN.
+- Verification: `bug-fix-verifier` SOLID (shared): revert-red/restore-green byte-exact, full suite, typecheck, lint; live orchestrator-run.
+- Residuals:
+  1. Nested body-schema field renames inside a container / inline-object param are NOT translated on a bare-container render (`buildOutboundSidecars` root-flat; round-1 F2) — renders theta-side, never a WRONG wire name. Filing candidate.
+  2. A `discriminated-union`-of-schemas (`Cat \| Dog`) renders the JSON row WITHOUT arm wire renames (0407 §Fix's union-arm threading not adopted; 0408 non-goal) — pinned by `b0408` G2.
+  3. Imported-schema bare render carries no renames (0406 residual 2) — sidecars unavailable at parse.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the sidecar route was chosen over the brand-driven route (0407 §Fix's stated primary route, parent-minimal — zero `production-theta-producer.ts` hunks); sidecar-less primitive renders stay byte-identical; the `Result` arm stays unreachable; no re-render of `\${` escapes.
