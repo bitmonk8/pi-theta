@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.386.0]
+
+### Fixed
+
+- **Bug 0388** — an effect dispatched from INSIDE a cross-file `fn` body counted against the bind-level invoke chain, not the executor-accumulated one: the effect resolvers (`resolveQuery`, invoke/tool dispatch, subagent-fn) are closures minted at BIND time over the per-drive chain, so every countable frame reached from a cross-file fn body counted from the chain as it stood before the fn segment — the fn frames 0354 taught the executor to count vanished from effect-side pushes, and a composed chain the spec caps at 32 (INV-4: "the count of countable frames on the active call chain") reached ~32×32 frames before any push saw 33 (the doc's R1: seed 31 + `app→outer` + render-side `olib→vf` = 33 countable frames, no panic; the all-executor-path control panicked correctly). 0354's own fix record flagged exactly this reverse direction as Residual 1. PARENT ADJUDICATION Option (a) (recorded — the faithful full-thread; (b)'s render-only scope would have minted a second residual of the same class for invoke/subagent-fn): the live `ExecuteBodyDeps.invokeChain` is threaded into effect dispatch via an optional `chain?` on the `StatementEvalHost`/`EffectfulStatementHostDeps` seam with `overrideChain ?? <bind chain>` in the three production hosts, and `evalSubagentFnCall` advances the body chain by one `subagent-fn` frame. Doc constraints held and verified: the bind-level chain stays the SEED (INV-4 wire carriage unchanged), no double-count when both lanes are visible, the committed b0354 witness rows byte-identical and green, param/schema defaults still evaluate chainless, intra-file recursion stays uncounted (NOCEIL-3/-4). Witnessed by `tests/b0388-crossfile-fnbody-effect-undercount.test.ts` (R1 render-in-fn-body, R1-control executor fn→fn, R2 render-in-subagent-fn-body; red at fork for the doc symptom). Live: `imports-thetalib-fn` IMP-G + `off-session-overflow-classification` (a)/(b) — 3/3 under the lock (cross-file fn drive + chain-adjacent witnesses; recorded WHY).
+
 ## [0.385.0]
 
 ### Fixed

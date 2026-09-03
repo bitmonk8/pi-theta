@@ -1,6 +1,6 @@
 # Bug 0388 — an effect dispatched from inside a cross-file `fn` body counts against the bind-level invoke chain, not the executor-accumulated one, so a chain INV-4 caps at 32 runs to ~32×32 countable frames without a panic
 
-- **Status:** open.
+- **Status:** fixed (0.386.0).
 - **Sev/Diff estimate:** S2-3/D3 — no wrong value binds, but a normative hard
   ceiling (INV-4's 32-frame cap over "the active call chain") admits chains an
   order of magnitude past its bound: every render-side or effect-side countable
@@ -154,3 +154,17 @@ paragraphs). Implementation read: production-theta-producer.ts:1869-1939,
 :2084, :2986, :6407; statement-executor.ts:489-495. Dup check: README index
 carries no bind-scope / undercount report; 0354 is fixed and its record scopes
 this direction out.
+
+## Fix (0.386.0)
+
+- What shipped:
+  - `src/runtime/statement-executor.ts` — widened the `StatementEvalHost` seam (`evaluatePure` / `runEffect` / `spawnSubagentSession`) and `EffectfulStatementHostDeps` with an optional trailing `chain?: InvokeChain`; every executor effect-dispatch call site now threads its live `ExecuteBodyDeps.invokeChain`; `evalSubagentFnCall` advances the body's chain by one `subagent-fn` frame before running it (parallel to the producer's `childChain`), so a query / invoke / nested `subagent fn` reached from inside a `subagent fn` body counts from the active depth.
+  - `src/runtime/effectful-statement-host.ts` — `runQueryEffect` / `runToolCallEffect` / `runInvokeEffect` and `createEffectfulStatementHost` forward the threaded chain into `resolveQuery` / `resolveCallAsInvoke` / `resolveInvoke` / `spawnSubagentFnSession` (`resolveToolCall` untouched — a Pi tool is not a countable frame).
+  - `src/extension/production-theta-producer.ts` — the three effect-host constructions (prompt-mode, subagent-mode, in-process `subagent fn`) take an `overrideChain` on each effect closure and use `overrideChain ?? <bind-level chain>`, so top-level dispatch is byte-identical and only fn-body-nested dispatch counts from the active depth.
+  - This is Option (a) — the faithful full-thread (parent-adjudicated). Option (b) (render-path-only) was rejected.
+- Gates: witness `tests/b0388-crossfile-fnbody-effect-undercount.test.ts` 3/3 (R1 render-lane breach, R1-control executor-lane, R2 subagent-fn-lane); `tests/b0354-crossfile-fn-depth-uncounted.test.ts` 10/10 (behaviour-pinned rows 1-7 green); full default suite 557 files / 10310 tests green; `npx tsc --noEmit` clean; `npm run lint` clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep): one correctness blocker F1 — the override regressed the `subagent fn` body path, dropping the subagent-fn frame from body-internal effects; fixed. Round 2 (`bug-fix-reviewer-fast`): CLEAN; one prose residual (a witness assertion message de-bracketed).
+- Verification: SOLID. (1) revert to RED to restore to GREEN proven byte-exact for BOTH defect directions (R1 render lane; R2 subagent-fn lane). (2) full suite 557 / 10310 green. (3) live discharged by the orchestrator — `tests/live/hardening/imports-thetalib-fn.test.ts` IMP-G (a `.thetalib` fn's `@`-query driven live end to end) and `tests/live/off-session-overflow-classification.test.ts` (a)/(b) green. (4) tsc + lint clean.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the two production `pushCountableFrame` sites, `evalUserFnCall`, and `evaluatePureFnCall` push logic are untouched (0354-landed accounting, sanctioned); the bind-level chain remains the INV-4 wire-carriage seed; the fn / subagent-fn segment counts exactly once (producer `childChain` and executor `bodyDeps` are parallel chains at the same depth — the resolver reads the override); param / schema defaults still evaluate chainless; intra-file fn recursion stays uncounted (NOCEIL-3/-4). `tests/b0354-crossfile-fn-depth-uncounted.test.ts` kept byte-identical to HEAD.

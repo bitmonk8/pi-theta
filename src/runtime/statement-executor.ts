@@ -119,7 +119,7 @@ export interface CheckpointDescriptor {
  *     `Checkpoint.before(...)` signal read.
  */
 export interface StatementEvalHost {
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue;
+  evaluatePure(expr: Expr, env: LexicalEnvironment, chain?: InvokeChain): ThetaValue;
   checkpointFor(expr: Expr): CheckpointDescriptor | null;
   /**
    * Run one checkpointed effect. `evaluatedToolArgs` (RFC 0002) carries a
@@ -132,6 +132,7 @@ export interface StatementEvalHost {
     expr: Expr,
     env: LexicalEnvironment,
     evaluatedToolArgs?: Record<string, ThetaValue>,
+    chain?: InvokeChain,
   ): Promise<OperationResult>;
   /**
    * RFC 0002 pre-evaluation gate. Classify a `<name>(args)` call by its resolved
@@ -168,7 +169,7 @@ export interface StatementEvalHost {
    * a host with no isolation substrate omits both, and a `subagent fn` body then
    * runs against the same host with no session switch.
    */
-  spawnSubagentSession?(config: SubagentSessionConfig): string | Promise<string>;
+  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): string | Promise<string>;
   exitSubagentSession?(): void | Promise<void>;
 }
 
@@ -598,9 +599,24 @@ async function evalSubagentFnCall(
   let entered = false;
   let flow: Flow;
   try {
-    await deps.host.spawnSubagentSession?.(fn.sessionConfig ?? {});
+    await deps.host.spawnSubagentSession?.(fn.sessionConfig ?? {}, deps.invokeChain);
     entered = true;
-    flow = await executeBlock(fn.body, scope, deps);
+    // INV-4 / FN-6: the `subagent-fn` frame is a countable frame on the active
+    // chain, so the executor advances its OWN live chain by that frame before
+    // running the body. This parallels the producer's spawned-session
+    // `childChain` (which pushes the same frame on the bind lane) at the SAME
+    // depth, so a query / invoke / nested `subagent fn` reached from inside the
+    // body threads its override at the active depth and the spawned session's
+    // `overrideChain ?? childChain` reads the override — counting the
+    // subagent-fn frame exactly once (the producer's `childChain` is then only
+    // the fallback / cap-breach / nested-spawn seed). Kept inside the boundary
+    // `try` so a cap breach on this push still downgrades to
+    // `Err(InvokeInfraError{cause:"panic"})`.
+    const bodyDeps: ExecuteBodyDeps =
+      deps.invokeChain !== undefined
+        ? { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, "subagent-fn") }
+        : deps;
+    flow = await executeBlock(fn.body, scope, bodyDeps);
   } catch (thrown) { // allow-broad-catch: FN-6 subagent boundary — invocation.md §Failures
     // An uncatchable host fatal (NOCEIL-3) must terminate the process and is
     // rethrown unwrapped — never downgraded to an Err at the subagent boundary.
@@ -1115,7 +1131,7 @@ async function evalExpr(
     // Pure, synchronous, non-checkpointed work — runs to completion regardless
     // of the abort signal (a straight-line statement boundary is not a
     // checkpoint).
-    return { flow: "value", value: deps.host.evaluatePure(expr, env) };
+    return { flow: "value", value: deps.host.evaluatePure(expr, env, deps.invokeChain) };
   }
 
   // A checkpointed effect: segment it onto the real `runCancellableSequence` so
@@ -1136,7 +1152,7 @@ async function evalExpr(
     binding: "_effect",
     kind: checkpoint.kind,
     site: checkpoint.site,
-    run: () => deps.host.runEffect(expr, env, preArgs.args),
+    run: () => deps.host.runEffect(expr, env, preArgs.args, deps.invokeChain),
   };
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },
@@ -1452,7 +1468,7 @@ async function evalAsResult(
 
   const checkpoint = deps.host.checkpointFor(operand);
   if (checkpoint === null) {
-    return { flow: "value", value: deps.host.evaluatePure(operand, env) };
+    return { flow: "value", value: deps.host.evaluatePure(operand, env, deps.invokeChain) };
   }
 
   // RFC 0002: pre-evaluate a Pi-tool call's computed field values left-to-right
@@ -1467,7 +1483,7 @@ async function evalAsResult(
     binding: "_effect",
     kind: checkpoint.kind,
     site: checkpoint.site,
-    run: () => deps.host.runEffect(operand, env, preArgs.args),
+    run: () => deps.host.runEffect(operand, env, preArgs.args, deps.invokeChain),
   };
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },
@@ -1673,10 +1689,10 @@ async function runParForIteration(
   // Wrap the host so each effect result's optional `childDiagnostics` transport
   // is captured for this iteration (RFC 0003 obligation (A)).
   const iterationHost: StatementEvalHost = {
-    evaluatePure: (e, en) => baseHost.evaluatePure(e, en),
+    evaluatePure: (e, en, chain) => baseHost.evaluatePure(e, en, chain),
     checkpointFor: (e) => baseHost.checkpointFor(e),
-    runEffect: async (e, en, args) => {
-      const result = await baseHost.runEffect(e, en, args);
+    runEffect: async (e, en, args, chain) => {
+      const result = await baseHost.runEffect(e, en, args, chain);
       const childDiagnostics = (
         result as { readonly childDiagnostics?: readonly Diagnostic[] }
       ).childDiagnostics;
@@ -1777,7 +1793,7 @@ async function evalParFor(
   // at loop entry (CTRL-1).
   let iterandValue: ThetaValue;
   if (deps.host.checkpointFor(expr.iterand) === null) {
-    iterandValue = deps.host.evaluatePure(expr.iterand, env);
+    iterandValue = deps.host.evaluatePure(expr.iterand, env, deps.invokeChain);
   } else {
     const iterand = await evalExpr(expr.iterand, env, deps);
     if (iterand.flow !== "value") {

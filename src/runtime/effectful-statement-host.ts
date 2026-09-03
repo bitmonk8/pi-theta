@@ -50,6 +50,7 @@ import type { Checkpoint, CheckpointSite } from "../seams/checkpoint";
 import type { OperationResult } from "./cancellation-core";
 import { makeCancelledError } from "./cancellation-core";
 import type { CheckpointDescriptor, StatementEvalHost } from "./statement-executor";
+import type { InvokeChain } from "./invoke-depth-cycle";
 import type { LexicalEnvironment } from "./lexical-environment";
 import type { ThetaValue } from "./value";
 import { makeErr, makeOk } from "./value";
@@ -133,8 +134,8 @@ export interface EffectfulStatementHostDeps {
   readonly sink: ToolLoweringSink;
   /** The theta source file the checkpoint site is stamped with. */
   readonly file: string;
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue;
-  resolveQuery(expr: QueryExpr, env: LexicalEnvironment): QueryHostDispatch;
+  evaluatePure(expr: Expr, env: LexicalEnvironment, chain?: InvokeChain): ThetaValue;
+  resolveQuery(expr: QueryExpr, env: LexicalEnvironment, chain?: InvokeChain): QueryHostDispatch;
   /**
    * Bind one code-side `<name>(args)` call to its `CodeSideToolCall`.
    * `evaluatedToolArgs` (RFC 0002) carries the Pi-tool argument's field values
@@ -148,7 +149,7 @@ export interface EffectfulStatementHostDeps {
     env: LexicalEnvironment,
     evaluatedToolArgs?: Record<string, ThetaValue>,
   ): CodeSideToolCall;
-  resolveInvoke(expr: InvokeExpr, env: LexicalEnvironment): InvokeChild;
+  resolveInvoke(expr: InvokeExpr, env: LexicalEnvironment, chain?: InvokeChain): InvokeChild;
   /**
    * Bug 0088 (slash-invocation.md SLSH-5): record this executed hop's
    * provenance against the `invoke_callee` wrapper its producer built, so
@@ -183,7 +184,7 @@ export interface EffectfulStatementHostDeps {
    * returns the callee's typed top-level `Result` across the boundary (FN-5).
    * Consulted only when `classifyCall` returns `"theta-callable"`.
    */
-  resolveCallAsInvoke?(expr: CallExpr, env: LexicalEnvironment): InvokeChild;
+  resolveCallAsInvoke?(expr: CallExpr, env: LexicalEnvironment, chain?: InvokeChain): InvokeChild;
   /**
    * RFC 0001 (`subagent fn`) production spawn seam. Spawn a REAL fresh isolated
    * subagent session for a `subagent fn` body under the resolved
@@ -198,6 +199,7 @@ export interface EffectfulStatementHostDeps {
    */
   spawnSubagentFnSession?(
     config: SubagentSessionConfig,
+    chain?: InvokeChain,
   ): SubagentFnSession | Promise<SubagentFnSession>;
 }
 
@@ -232,8 +234,9 @@ async function runQueryEffect(
   expr: QueryExpr,
   env: LexicalEnvironment,
   deps: EffectfulStatementHostDeps,
+  chain?: InvokeChain,
 ): Promise<OperationResult> {
-  const dispatch = deps.resolveQuery(expr, env);
+  const dispatch = deps.resolveQuery(expr, env, chain);
   // QRY-6 empty-rendered-template short-circuit (errors-and-results.md
   // ValidationError cause `empty_template`): when the fully-rendered template
   // body is empty or ASCII-whitespace-only, the runtime MUST refuse to issue a
@@ -319,6 +322,7 @@ async function runToolCallEffect(
   env: LexicalEnvironment,
   deps: EffectfulStatementHostDeps,
   evaluatedToolArgs?: Record<string, ThetaValue>,
+  chain?: InvokeChain,
 ): Promise<OperationResult> {
   // A `<name>(args)` call bound to a `.theta`-callable (frontmatter `tools:`) is
   // semantically an invoke (tool-calls.md:38/46): drive it through the real
@@ -333,7 +337,7 @@ async function runToolCallEffect(
     deps.classifyCall?.(expr, env) === "theta-callable" &&
     deps.resolveCallAsInvoke !== undefined
   ) {
-    const child = deps.resolveCallAsInvoke(expr, env);
+    const child = deps.resolveCallAsInvoke(expr, env, chain);
     const invokeOutcome = await runInvokeChild(
       deps.checkpoint,
       deps.signal,
@@ -450,8 +454,9 @@ async function runInvokeEffect(
   expr: InvokeExpr,
   env: LexicalEnvironment,
   deps: EffectfulStatementHostDeps,
+  chain?: InvokeChain,
 ): Promise<OperationResult> {
-  const child = deps.resolveInvoke(expr, env);
+  const child = deps.resolveInvoke(expr, env, chain);
   const outcome = await runInvokeChild(deps.checkpoint, deps.signal, siteOf(expr, deps.file), child);
   switch (outcome.kind) {
     case "value": {
@@ -551,8 +556,8 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
       ? baseDeps
       : (sessions[sessions.length - 1] as SubagentFnSession).deps;
   const host: StatementEvalHost = {
-    evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-      return active().evaluatePure(expr, env);
+    evaluatePure(expr: Expr, env: LexicalEnvironment, chain?: InvokeChain): ThetaValue {
+      return active().evaluatePure(expr, env, chain);
     },
     // RFC 0002 pre-evaluation gate: expose the H8b call classifier so the
     // executor's `preEvaluateToolArgs` only pre-evaluates a Pi-tool call's
@@ -586,6 +591,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
       expr: Expr,
       env: LexicalEnvironment,
       evaluatedToolArgs?: Record<string, ThetaValue>,
+      chain?: InvokeChain,
     ): Promise<OperationResult> {
       // Dispatch the checkpointed effect through the REAL host against the
       // currently-active conversation (the caller's, or the top spawned
@@ -596,16 +602,16 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
       const deps = active();
       switch (expr.kind) {
         case "query":
-          return runQueryEffect(expr, env, deps);
+          return runQueryEffect(expr, env, deps, chain);
         case "call":
-          return runToolCallEffect(expr, env, deps, evaluatedToolArgs);
+          return runToolCallEffect(expr, env, deps, evaluatedToolArgs, chain);
         case "invoke":
-          return runInvokeEffect(expr, env, deps);
+          return runInvokeEffect(expr, env, deps, chain);
         default:
           // `checkpointFor` only classifies query / tool-call / invoke as
           // checkpointed effects, so `runEffect` is never invoked for any other
           // expression kind; treat a pure value inertly if it ever is.
-          return { ok: true, value: deps.evaluatePure(expr, env) };
+          return { ok: true, value: deps.evaluatePure(expr, env, chain) };
       }
     },
   };
@@ -617,7 +623,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
   if (baseDeps.spawnSubagentFnSession !== undefined) {
     return {
       ...host,
-      async spawnSubagentSession(config: SubagentSessionConfig): Promise<string> {
+      async spawnSubagentSession(config: SubagentSessionConfig, chain?: InvokeChain): Promise<string> {
         // INV-4 / FN-6 depth accumulation: route the nested spawn through the
         // ACTIVE session's seam, NOT the fixed `baseDeps` closure. Each spawned
         // session's `effectHostDeps.spawnSubagentFnSession` is bound to THAT
@@ -630,7 +636,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
         // falls back to `baseDeps` at the top level (empty session stack), so
         // the first spawn still pushes the depth-1 frame.
         const seam = active().spawnSubagentFnSession ?? baseDeps.spawnSubagentFnSession!;
-        const session = await seam(config);
+        const session = await seam(config, chain);
         sessions.push(session);
         return `subagent-fn-${sessions.length}`;
       },

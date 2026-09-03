@@ -1924,8 +1924,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: theta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, chain),
-      resolveQuery: (expr, env) => {
+      evaluatePure: (expr, env, overrideChain) => evaluatePureExpression(expr, env, overrideChain ?? chain),
+      resolveQuery: (expr, env, overrideChain) => {
         // SLSH-2: EVERY non-short-circuit prompt-mode query is a user-visible
         // streamed turn against the user session — assistant tokens for every
         // query (not just the first) stream into the transcript in real time.
@@ -1935,8 +1935,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // to `Err(empty_template)` with NO provider turn (not user-visible — no
         // turn is issued at all). Bug 0354: the render is chain-threaded so a
         // cross-file `fn` interpolation call breaches here, BEFORE any turn.
+        // Bug 0388: `overrideChain` is the executor's LIVE `ExecuteBodyDeps.
+        // invokeChain`, which carries any cross-file `.thetalib` fn frames
+        // accumulated since bind — so a query reached from inside a fn body
+        // counts from the chain as it stands NOW, not the bind-time seed.
+        // Falling back to `chain` at the top level (where the executor's
+        // chain IS the bind-level chain) keeps this byte-identical there.
+        const activeChain = overrideChain ?? chain;
         const shortCircuits =
-          renderEmptyShortCircuit(renderQueryText(expr, env, chain)) !== undefined;
+          renderEmptyShortCircuit(renderQueryText(expr, env, activeChain)) !== undefined;
         const userVisible = !shortCircuits;
         return this.#resolvePromptQuery(expr, env, {
           pi,
@@ -1946,7 +1953,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages,
           userVisible,
-          chain,
+          chain: activeChain,
         });
       },
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
@@ -1954,19 +1961,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // CANCEL-5 / cross-mode: the caller's mode (`prompt`) is threaded to
       // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
       // session (prompt→prompt) rather than spawning fresh.
-      resolveInvoke: (expr, env) => this.#resolveInvoke(theta, expr, env, ctx, chain, signal, "prompt"),
+      resolveInvoke: (expr, env, overrideChain) =>
+        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt"),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
-      resolveCallAsInvoke: (expr, env) => this.#resolveCallAsInvoke(theta, expr, env, ctx, chain, signal, "prompt"),
+      resolveCallAsInvoke: (expr, env, overrideChain) =>
+        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt"),
       // RFC 0001 (`subagent fn`, FN-8): a prompt-mode theta may call a
       // `subagent fn` — the safe prompt→subagent direction. Each call spawns a
       // fresh isolated session under the resolved config; the depth frame
       // (INV-4 / FN-6) is pushed on `chain` inside the spawn.
-      spawnSubagentFnSession: (config) =>
-        this.#spawnSubagentFnSession(theta, config, ctx, chain, signal),
+      spawnSubagentFnSession: (config, overrideChain) =>
+        this.#spawnSubagentFnSession(theta, config, ctx, overrideChain ?? chain, signal),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -2225,8 +2234,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: theta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, chain),
-      resolveQuery: (expr, env) =>
+      evaluatePure: (expr, env, overrideChain) => evaluatePureExpression(expr, env, overrideChain ?? chain),
+      // Bug 0388: `overrideChain` (present only for a dispatch nested inside a
+      // cross-file `.thetalib` fn body) takes priority over the bind-level
+      // `chain` seed; absent, this is byte-identical to the pre-fix dispatch.
+      resolveQuery: (expr, env, overrideChain) =>
         this.#resolvePromptQuery(expr, env, {
           pi: this.#input.pi,
           ctx,
@@ -2235,20 +2247,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages: () => [],
           userVisible: false,
-          chain,
+          chain: overrideChain ?? chain,
         }),
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
-      resolveInvoke: (expr, env) => this.#resolveInvoke(theta, expr, env, ctx, chain, signal, "subagent"),
+      resolveInvoke: (expr, env, overrideChain) =>
+        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent"),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
-      resolveCallAsInvoke: (expr, env) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, chain, signal, "subagent"),
-      spawnSubagentFnSession: (config) =>
-        this.#spawnSubagentFnSession(theta, config, ctx, chain, signal),
+      resolveCallAsInvoke: (expr, env, overrideChain) =>
+        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent"),
+      spawnSubagentFnSession: (config, overrideChain) =>
+        this.#spawnSubagentFnSession(theta, config, ctx, overrideChain ?? chain, signal),
     };
 
     const executeDeps: ExecuteBodyDeps = {
@@ -2868,8 +2881,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       signal,
       sink: noopSink(),
       file: overriddenTheta.slashName,
-      evaluatePure: (expr, env) => evaluatePureExpression(expr, env, childChain),
-      resolveQuery: (expr, env) =>
+      evaluatePure: (expr, env, overrideChain) => evaluatePureExpression(expr, env, overrideChain ?? childChain),
+      resolveQuery: (expr, env, overrideChain) =>
         this.#resolvePromptQuery(expr, env, {
           pi: this.#input.pi,
           ctx: isolatedCtx,
@@ -2878,21 +2891,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaAbort,
           readMessages: () => [],
           userVisible: false,
-          chain: childChain,
+          chain: overrideChain ?? childChain,
         }),
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(overriddenTheta, expr, env, signal, evaluatedToolArgs),
-      resolveInvoke: (expr, env) =>
-        this.#resolveInvoke(overriddenTheta, expr, env, isolatedCtx, childChain, signal, "subagent"),
+      resolveInvoke: (expr, env, overrideChain) =>
+        this.#resolveInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent"),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(overriddenTheta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(overriddenTheta, expr),
-      resolveCallAsInvoke: (expr, env) =>
-        this.#resolveCallAsInvoke(overriddenTheta, expr, env, isolatedCtx, childChain, signal, "subagent"),
-      spawnSubagentFnSession: (nestedConfig) =>
-        this.#spawnSubagentFnSession(overriddenTheta, nestedConfig, isolatedCtx, childChain, signal),
+      resolveCallAsInvoke: (expr, env, overrideChain) =>
+        this.#resolveCallAsInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent"),
+      spawnSubagentFnSession: (nestedConfig, overrideChain) =>
+        this.#spawnSubagentFnSession(overriddenTheta, nestedConfig, isolatedCtx, overrideChain ?? childChain, signal),
     };
 
     // Decision 6 / Increment B1: register the in-flight invocation so the
