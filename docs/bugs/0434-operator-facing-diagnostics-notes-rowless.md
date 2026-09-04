@@ -1,6 +1,6 @@
 # Bug 0434 — Every registered `theta/runtime/*` code that reaches `emitDiagnostic` without top-level panic framing — 21 registry rows at HEAD — ships as a single-element `details: { diagnostics: [d] }` note with serialised-line content, a pairing no per-variant matrix row selects: row 1's selector admits only parse/load/type batches, row 2 only the top-level panic framing, and 0404's row 3 only the BNDR-9 rejection
 
-- **Status:** open.
+- **Status:** fixed (0.433.0).
 - **Sev/Diff estimate:** S5/D1 — S5: doc/registry inconsistency, crisp and
   consumer-relevant (a matrix-driven conformance checker finds no row for
   21 shipped note classes; the matrix header declares the pairings
@@ -228,3 +228,20 @@ surface only through the group-A `invoke_infra` cascade (row `:34`); that
 was FALSE for the diagnostic half — each row additionally records an
 operator-triage diagnostic through `emitDiagnostic`
 (`subagent-launcher.ts:624–635`), so the twelve rows are counted.
+
+## Fix (0.433.0)
+
+- What shipped: `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — generalised the per-variant matrix's parse/load/type-batch row selector (§Fix OPTION 1) to also cover "a registered operator-facing `theta/runtime/*` diagnostic routed as a note rather than a top-level panic"; the content cell (serialised `<code>: <message>` line(s)) is unchanged, so the 21 rowless note classes now select exactly that row while BNDR-9 (content = the custom-type-unsafe failure-mode template) stays pinned to its own row by the (selector, content) pairing.
+- Gates: witness `tests/b0434-operator-facing-note-matrix-row-coverage.test.ts` RED at fork (cells 1-2: 0 selecting rows / 21-of-21 codes uncovered) then 5/5 GREEN after; full default suite green (601 files / 10611 tests; a bug-0276 / b0331 5000ms timeout appeared only under ~16-lane parallel load and is green isolated and off-surface); `tsc -p tsconfig.json --noEmit` clean; `eslint src/**/*.ts` clean.
+- Review: 1 round — bug-fix-reviewer CLEAN, no blocking findings (two non-blocking prose residuals R1/R2 below).
+- Verification: bug-fix-verifier SOLID — revert row-32 selector to HEAD form -> RED (Found 0 / 21 uncovered), byte-exact restore (git hash-object f1aca46c on revert == HEAD blob; d2fdfa9d on restore == fix blob) -> GREEN; full suite green; no-flip on b0404 / b0265 / b0436 / b0432 / DIAG-2; typecheck + lint clean. Live (orchestrator-run, not the verifier): `tests/live/err-note-render-record-error-field-live-cell.test.ts` — a real spawned subagent child emitting an SLSH-3 note on the `theta-system-note` channel — green under the global live lock.
+- Residuals:
+  1. R1 (prose, follow-on) — the `details: { diagnostics }` five-shape partition bullet's per-case content tail still enumerates three arms; the 21-class serialised content is stated in the matrix but not restated in the bullet. Incompleteness (not contradiction) under the settled restrictive-parenthetical reading; the matrix is the page's normative pairing owner. 0436-genre follow-on, out of OPTION 1's one-line scope.
+  2. R2 (prose, inherent) — the generalised row-32 selector label-admits the BNDR-9 note; exactly-one uniqueness holds via the (selector, content) pairing (BNDR-9's failure-template content fails row 32's serialised-content cell), locked by witness cell 3. Inherent to the parent's no-BNDR-9-naming constraint; a future editorial note could state the most-specific-content pairing rule for selector-only consumers.
+  3. L8-cross (stale cite, era-pinned) — §Affected worked examples 8-9 cite `statement-executor.ts:1887` / `:1905` for the par-max codes; bug 0438's merged fix shifted those emission sites (now par-max-non-positive at :1895, par-max-non-integer at :1912 and :1930). NOT refreshed: this §Fix record does not touch that body region and era-pinning forbids rewriting unrelated body regions. Left for a doc-truthing pass / the owning card.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: OPTION 2 (add a sibling row under `:33`) rejected by parent adjudication on the predecessor's premeasure (32 sibling cite shifts across 6 files + the b0404 exactly-one-BNDR-9 count risk). The shutdown clean-cancel row is disjoint from the generalised selector (outer `details` key `shutdown` vs `diagnostics`) — witness cell 4 locks both directions. The b0265 panic-row substring and pin are untouched; the note bytes (`content` / `display` / `details`) are unchanged (docs-only).
+
+### Adjudication record
+
+Parent adjudication (binding, verbatim intent): §Fix OPTION 1 — generalise row `:31`'s selector (re-derived by content as the per-variant matrix row whose selector cell is ``details: { diagnostics: Diagnostic[] }``, parse / load / type batch; the literal `:31` is stale after bug 0432's merged fifth `shutdown` partition arm and matrix row). NOT OPTION 2 (the sibling row under `:33`), rejected on the premeasure. Constraints honoured: the edited line carries no `runtime panic (single-element batch` substring (b0265 `locateSite` uniqueness); row `:33`'s BNDR-9 pin is intact (its content differs); the DIAG-2 corpus gate stays green; and the generalised selector composes with the shutdown row as disjoint note classes (different `details` key), verified by witness cell 4 — it does not capture the shutdown row.

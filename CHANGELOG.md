@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.433.0]
+
+### Fixed
+
+- **Bug 0434** — operator-facing diagnostics notes were rowless: 21 registered `theta/runtime/*` codes route to the note channel as diagnostics-keyed notes, but the per-variant matrix's parse/load/type-batch row selector did not name the operator-facing-routed class — every such note satisfied NO matrix row (the group-B sibling of the 0432 gap, the 0404 family's remaining rung). Fixed per the parent-adjudicated §Fix option 1 (chosen on the lane's premeasure: option 2's sibling row would shift 32 cite occurrences across 6 files and risk b0404's exactly-one-BNDR-9-row count): ONE line — the matrix row's SELECTOR generalised to cover a registered operator-facing `theta/runtime/*` diagnostic routed as a note; content cell byte-identical, no line shift, b0265 substring constraint honoured, BNDR-9 row intact, the 0432 `shutdown` row disjoint by content. Witnessed by NEW `tests/b0434-operator-facing-note-matrix-row-coverage.test.ts` (registry-driven, 5 cells: 21-of-21 codes covered by exactly one row; red at fork with 0 selecting rows). Live: `err-note-render-record-error-field` cell green under the lock (recorded WHY). L8-cross residual recorded: the doc body's pre-0438 `statement-executor.ts` cites stay era-pinned (not refreshed).
+
 ## [0.432.0]
 
 ### Fixed
