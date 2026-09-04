@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNote } from "../src/extension/system-note-channel";
 import {
+  type ActiveSetAdvisoryNote,
   type ActiveSetGateDeps,
   type ActiveSetPi,
   type RegistrationCacheDeps,
@@ -79,7 +79,11 @@ class FakeActiveSetPi implements ActiveSetPi {
 
 interface Recorders {
   readonly diagnostics: Diagnostic[];
-  readonly notes: SystemNote[];
+  // bug 0433 §Fix: the PIC-8(c) advisory is informational and carries no
+  // `details` (runtime-event-channel.md "Informational notes carry no
+  // `details`") — recorded at its actual (details-less) shape rather than
+  // the four-shape `SystemNote` type.
+  readonly notes: ActiveSetAdvisoryNote[];
   readonly internalErrors: Error[];
 }
 

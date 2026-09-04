@@ -1,6 +1,6 @@
 # Bug 0432 — The clean-cancel note's spec-pinned `details: { event: { reason, theta, invocation_id } }` payload presents the `event` key without a `RuntimeEvent`, satisfying no arm of the channel's closed four-shape partition, no per-variant matrix row, and not the informational no-`details` clause — and its `display: false` + non-empty `content` pairing is one the matrix's only `display: false` row forbids
 
-- **Status:** open.
+- **Status:** fixed (0.424.0).
 - **Sev/Diff estimate:** S4/D2 — S4: two normative surfaces contradict on a
   note emitted once per cleanly-cancelled invocation at every session
   shutdown; a `diagnostic-shape.md:20`-conformant key-switching consumer
@@ -206,3 +206,86 @@ method applied to the `event` key). Spec read:
 Probe P2 run at `04579e12` (scratch deleted; bytes quoted above). Dup check:
 README index + 0073/0208/0383/0397/0398/0401/0404 read in full — none
 covers the note-vs-partition conflict.
+
+## Fix (0.424.0)
+
+- **Adjudication rationale (parent, binding):** option **(b)** — re-key the clean-cancel
+  NOTE's payload off `event`. Option (a) rejected: qualifying the partition's
+  disjoint-by-key contract with `kind`-presence sniffing would permanently weaken the
+  machine-checkable contract 0383/0397/0401/0404 built — the clean-cancel payload is not
+  a `RuntimeEvent` and presenting it under `event` is exactly the type-pun 0401 condemns.
+  Option (c) rejected: it entangles in-flight bug 0434's rowless group-B ground and churns
+  a deeper path for the same consumer break. Only the NOTE (the `theta-system-note`
+  channel's OUTER `CustomMessage.details`) re-keys; the console-row twin
+  (`console.error`-only, excluded from the channel partition per §Non-goals) keeps
+  `details.event`.
+- **What shipped:**
+  - `src/extension/system-note-channel.ts` — `SystemNoteDetails` gains the fifth arm
+    `{ shutdown: Record<string, unknown> }`; doc "four"→"five".
+  - `src/extension/session-shutdown.ts` — `emitCancelledBySessionShutdownNote` re-keys the
+    note's OUTER `details` `{ event }`→`{ shutdown }`, reading the `{reason, theta,
+    invocation_id}` object off the builder's own diagnostic (single construction site);
+    `cancelledBySessionShutdownDiagnostic` and the console-row twin unchanged; production
+    caller `#emitCleanCancelNote` untouched.
+  - `docs/spec_topics/pi-integration-contract/session-shutdown-semantics.md`:19 —
+    clean-cancel rule's note-wire `details.event.{reason,theta,invocation_id}` →
+    `details.shutdown.*`; the group-A `details: { event: RuntimeEvent }` ref kept.
+  - `docs/spec_topics/diagnostics/diagnostic-shape.md` — :42 outer-set gains the
+    `{ shutdown: {…} }` carve-out; conventions anchor clarified (the `Diagnostic` object's
+    `details.event` nesting stays; the note's OUTER key is `shutdown`; shared field shape).
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — fifth partition
+    arm (`shutdown`, cross-ref diagnostic-shape#session-shutdown-details-conventions as
+    shape owner) + one matrix row (`display: false`, non-empty `content` = registry
+    Message); :14/:20/:41 "four"→"five"; :43 (0433's informational clause) "four-shape"→
+    "five-shape" and "a fifth"→"a sixth" composed on top; :18 "only ever" untouched
+    (the shutdown note is non-empty-content). b0265 gate honoured (no additive row carries
+    `runtime panic (single-element batch`).
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md`:41 — additive clause: the
+    note's OUTER `CustomMessage.details` is keyed `shutdown`; the row's existing
+    `details.event.*` refs (console Diagnostic / shape-owner / disambiguation-log
+    correlation) kept.
+  - `docs/spec_topics/pi-integration-contract/unknown-reason-rule.md`:4 — the note-wire
+    "reused as `details.event.reason` by every …note" → `details.shutdown.reason`; the two
+    disambiguation occurrences (console Diagnostic) kept at `details.event.reason`.
+  - `tests/b0432-clean-cancel-note-shutdown-key.test.ts` — NEW witness (note has `shutdown`
+    key, no `event`; fields intact; matrix pairing; cell 3 console-twin control at `event`).
+  - `tests/cancelled-by-session-shutdown-note.test.ts` — cells (a),(e) `row.details?.event`
+    →`.shutdown`; cell (d) console-EmissionSink twin kept at `event`.
+  - `tests/post-deadline-dual-surface.test.ts` — `noteRow.details?.event`→`.shutdown`;
+    sink/console assertions kept.
+- **Gates:** witness `tests/b0432-*.test.ts` 4/4 (RED at fork on the event-keyed
+  non-`RuntimeEvent` signature → GREEN after: `shutdown` present, no `event`, fields intact
+  one level down, matrix pairing) — both directions proven; full default suite
+  `npx vitest run` 589 files / 10541 tests green; `npm run typecheck` clean; `npm run lint`
+  clean; live `tests/live/err-note-render-record-error-field-live-cell.test.ts` 1/1 green
+  under the global live lock (the `theta-system-note` channel end-to-end through a real
+  spawned subagent child — nearest adjacency; the clean-cancel path is not offline-drivable
+  in a live drive, so no new live cell is owed).
+- **Review:** 2 rounds. R1 (`bug-fix-reviewer`, deep) FINDINGS — F1 `:14` same-file count
+  four→five; F2 note-wire spelling on unknown-reason-rule.md:4 (occ1) [fixed] plus
+  active-invocation-registry.md refs [residual, console-true]; F3/F4 corpus-wide count
+  staleness [residual, bug 0436's ground]. Fixer applied F1 + F2-occ1 + one my-file prose
+  edit. R2 (`bug-fix-reviewer-fast`, confirmation) CLEAN.
+- **Verification:** `bug-fix-verifier` VERIFIED — witness RED↔GREEN both directions with
+  byte-exact restore (`git hash-object` identical); full suite green; live discharged by
+  orchestrator; lint + typecheck clean; flip scope + 0433-delta integrity confirmed.
+- **Residuals:**
+  1. `unknown-reason-rule.md`:4 occ2/occ3 and `active-invocation-registry.md`:5
+     `details.event.*` refs left at `event` — they remain TRUE of the code's
+     console-emitted `Diagnostic` (disambiguation reads the `console.error` log; the
+     per-invocation `finally` constructs `details.event.*` on the twin). Not
+     contradictions; precise note-vs-console re-anchoring is editorial.
+  2. Corpus-wide "four shapes" / "four normative arms" enumeration staleness
+     (`coverage-matrix.md`:183, `src/runtime/runtime-event-channel.ts`:4, test headers
+     b0383/b0398/b0404) — bug **0436**'s ground (shape-enumeration-sentences-stale);
+     deliberately left for 0436.
+  3. Citation line drift from this fix's line shifts (session-shutdown.ts sendSystemNote
+     +4; runtime-event-channel.md +2) leaves some `docs/bugs/*` and test-header citations
+     stale (e.g. 0437 `session-shutdown.ts:492`) — left byte-exact / unowned; universal in
+     this campaign and re-shifted at rebase.
+- **Discharge notes appended:** none (no sibling bug docs edited; the implementer's
+  incidental `docs/bugs/0437` and `tests/b0433-*` citation edits were reverted byte-exact).
+- **Pinned dispositions / non-goals:** console-row twin (`Diagnostic.details.event`),
+  content bytes, `display: false`, fallback forms, `{reason}` value spaces — all unchanged.
+  `theta/host/session-swap-instance-survived` (console-only) untouched. No new registry
+  code — `permitted-codes` (blob a4a8da04) untouched; payload key only.

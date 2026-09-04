@@ -7,8 +7,9 @@
 // `SHUTDOWN_AWAIT_CAP_MS` window of sub-step 3, "the cancellation path inside
 // that invocation's own `finally` block emits exactly one
 // `theta/runtime/cancelled-by-session-shutdown` (E, runtime) note on
-// `theta-system-note` with `display: false`", carrying
-// `details.event: { reason, theta, invocation_id }`
+// `theta-system-note` with `display: false`", carrying (as of bug 0432's
+// option (b) re-key) the note's OUTER `details.shutdown: { reason, theta,
+// invocation_id }`
 // (`diagnostics/diagnostic-shape.md` §"Runtime-constructed sibling carve-out")
 // and the message `theta /<name> cancelled by session shutdown (<reason>)`
 // (`diagnostics/code-registry-runtime.md`, the row's message column).
@@ -22,7 +23,7 @@
 //   (a) a slash-dispatched theta in flight across `runSessionShutdown({reason:
 //       "reload"})`, whose barrier settles inside the bounded await, emits the
 //       row exactly once, byte-exact, `display: false`, with the pinned
-//       `details.event`. RED at HEAD: the only note on the wire is the SLSH-4
+//       `details.shutdown`. RED at HEAD: the only note on the wire is the SLSH-4
 //       `theta /<name> cancelled` row (`src/runtime/err-note-render.ts`, SNK-f).
 //   (b) predicate control: an Esc-style abort (no `session_shutdown`, so
 //       `shutdownReason` stays `undefined`) draws NO such row.
@@ -385,7 +386,7 @@ afterEach(() => {
 });
 
 describe("bug 0073 — the per-invocation cancelled-by-session-shutdown note", () => {
-  it("(a) a clean-cancelled slash dispatch emits exactly one byte-exact display:false note carrying details.event", async () => {
+  it("(a) a clean-cancelled slash dispatch emits exactly one byte-exact display:false note carrying details.shutdown", async () => {
     const dispatch = await dispatchParkedInBody();
 
     await driveCleanCancelShutdown(dispatch);
@@ -399,8 +400,10 @@ describe("bug 0073 — the per-invocation cancelled-by-session-shutdown note", (
     // `display: false`: operator-visible via the structured payload only.
     expect(row.display).toBe(false);
     // Runtime construction obligation: a fresh `{ reason, theta, invocation_id }`
-    // with static property names, sourced from the registry entry.
-    expect(row.details?.event).toEqual({
+    // with static property names, sourced from the registry entry. The NOTE's
+    // outer key is `shutdown` (bug 0432 option (b)); the console-row twin below
+    // (cell (d)) keeps `details.event`.
+    expect(row.details?.shutdown).toEqual({
       reason: SHUTDOWN_REASON,
       theta: THETA_NAME,
       invocation_id: dispatch.entry.invocationId,
@@ -540,7 +543,8 @@ describe("bug 0073 — the per-invocation cancelled-by-session-shutdown note", (
     ).toBe(1);
     const row = rows[0] as RecordedMessage;
     expect(row.display).toBe(false);
-    expect(row.details?.event).toEqual({
+    // The NOTE's outer key is `shutdown`, not `event` (bug 0432 option (b)).
+    expect(row.details?.shutdown).toEqual({
       reason: SHUTDOWN_REASON,
       theta: THETA_NAME,
       invocation_id: dispatch.entry.invocationId,

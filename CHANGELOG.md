@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.425.0]
+
+### Fixed
+
+- **Bug 0433** — the PIC-8(c) active-set-restore advisory note fabricated an event code: its `details` carried `{ event: { code: "theta/runtime/active-set-restore-failed" } }` — a code-shaped literal registered NOWHERE, presented under the `event` key with no `RuntimeEvent`, so the advisory claimed a runtime-event identity that does not exist (the 0401 partition-hole class with a fabricated identity on top). Fixed per §Fix option 1: the advisory note omits `details` entirely (an informational note per the channel's informational clause — the enumeration widens Five→Six same-commit per DIAG-2); the fabricated code literal is gone from the wire (three producer wirings + `tool-registration.ts`, with the `invoke-prompt-suspend.ts` type ripple). Witnessed by NEW `tests/b0433-active-set-advisory-note-no-details.test.ts` (2 cells; red on the exact fabricated signature at fork). Live: shares the lane's `err-note-render` adjacency run (recorded WHY).
+
+## [0.424.0]
+
+### Fixed
+
+- **Bug 0432** — the clean-cancel note's spec-pinned payload sat outside the channel partition: `details: { event: { reason, theta, invocation_id } }` presented the `event` key without a `RuntimeEvent`, satisfying no arm of the closed four-shape partition and no matrix row (its `display: false` + non-empty `content` pairing was one the only `display: false` row forbids) — a `diagnostic-shape.md:20`-conformant key-switching consumer mis-classified every clean cancel as a group-A runtime failure with missing required fields. Fixed per the parent-adjudicated option (b): the note's OUTER details re-keys to `{ shutdown: { reason, theta, invocation_id } }` (fields intact one level down; content/display/console-twin/fallbacks unchanged), keeping the partition disjoint-by-key UNQUALIFIED — no kind-sniffing (the type-pun 0401's rationale condemns is removed rather than normalized); DIAG-2 same-commit across all five spec surfaces (PIC clean-cancel rule, diagnostic-shape closed outer set, the channel page's additive fifth partition arm + matrix row, registry row). The console-row twin (partition-exempt, console.error-only) keeps `details.event`. Enumerated flips only: the committed clean-cancel note assertions (`cancelled-by-session-shutdown-note` cells (a)/(e), `post-deadline-dual-surface` ×3) move `details.event`→`details.shutdown`. Witnessed by NEW `tests/b0432-clean-cancel-note-shutdown-key.test.ts` (red at fork on the event-keyed non-RuntimeEvent signature). Live: `err-note-render-record-error-field` cell 1/1 under the lock (note-channel adjacency; recorded WHY).
+
 ## [0.423.0]
 
 ### Fixed

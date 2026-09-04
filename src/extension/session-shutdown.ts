@@ -484,13 +484,17 @@ export function emitCancelledBySessionShutdownNote(
     entry,
   });
 
-  // `details.event` is read off the builder's OWN diagnostic — never re-derived,
-  // never spread — so the builder stays the single construction site
-  // (diagnostic-shape.md Runtime construction obligation). The one cast is safe:
-  // `cancelledBySessionShutdownDiagnostic` always nests `details.event`.
-  const details = diagnostic.details as { readonly event: Record<string, unknown> };
+  // The channel partition (runtime-event-channel.md) keys the clean-cancel
+  // note's OUTER `CustomMessage.details` under `shutdown`: presenting `event`
+  // without a `RuntimeEvent` would select the runtime-event arm and validate as
+  // nothing (bug 0432). The `{ reason, theta, invocation_id }` object is read
+  // off the builder's OWN diagnostic — never re-derived, never spread — so the
+  // builder stays the single construction site (diagnostic-shape.md Runtime
+  // construction obligation); the console-row twin keeps `details.event`.
+  const shutdown = (diagnostic.details as { readonly event: Record<string, unknown> })
+    .event;
   sendSystemNote(
-    { content: diagnostic.message, display: false, details },
+    { content: diagnostic.message, display: false, details: { shutdown } },
     deps.channel,
   );
 }

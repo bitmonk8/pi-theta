@@ -1,6 +1,6 @@
 # Bug 0433 — The PIC-8(c) active-set-restore advisory note fabricates the runtime-event key with a `{ code }` stub: `details: { event: { code: "theta/runtime/active-set-restore-failed" } }` selects the partition's runtime-event arm while carrying no `RuntimeEvent`, on a `display: true` note whose spec pins content and display only
 
-- **Status:** open.
+- **Status:** fixed (0.425.0).
 - **Sev/Diff estimate:** S3/D1 — S3: the 0401 defect mechanism (fabricated
   `event` key, empty of every required `RuntimeEvent` field) on a
   user-visible `display: true` note; rarer than 0401's echo (requires a
@@ -171,3 +171,55 @@ Tests read: `tests/b0372-active-set-restore-protocol.test.ts` (no `details`
 pin). Probe P1 run at `04579e12` (scratch deleted; bytes quoted). Dup
 check: 0401 affected-list + fix clause (five sites/notes, this one absent),
 0372 fix record, README index.
+
+## Fix (0.425.0)
+
+- What shipped:
+  - `src/runtime/tool-registration.ts` — `restoreActiveSet` emits the PIC-8(c)
+    advisory as an INFORMATIONAL note with no `details` (was the fabricated
+    `details: { event: { code: ACTIVE_SET_RESTORE_FAILED } }`); added the
+    `ActiveSetAdvisoryNote` type (`{ content, display }`) and narrowed
+    `ActiveSetGateDeps.emitSystemNote` to it. §Fix option 1.
+  - `src/extension/production-theta-producer.ts` — the three
+    `emitSystemNote` wirings drop the `details:` line: true wire omission,
+    matching the informational success-echo at `:1199`.
+  - `src/runtime/invoke-prompt-suspend.ts` — type-only ripple:
+    `PromptSuspendInput.emitSystemNote` retyped to `ActiveSetAdvisoryNote`
+    (the one other `withActiveSetGate` caller).
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — the
+    `:41` informational-notes clause Five -> Six, enumerating the PIC-8(c)
+    advisory note (DIAG-2, same changeset), cross-referencing PIC-8(c) and
+    `code-registry-runtime.md`. Matrix table, four-shape partition, b0265
+    pins and 0404-family rows untouched.
+  - `tests/b0433-active-set-advisory-note-no-details.test.ts` — NEW witness
+    (2 cells: unit over `withActiveSetGate`; one production wire window). Pins
+    both no `event` key and strict `details` omission on the wire.
+  - `tests/tool-registration-lifetime.test.ts` — type-only ripple
+    (`Recorders.notes` -> `ActiveSetAdvisoryNote[]`); no assertion changed.
+- Gates: witness 2/2 green; full default suite 588 files / 10537 tests green
+  (one `shared-subtree-judged-once-per-pass` parallel-load timeout, green
+  isolated 7/7 — the campaign's known flake family); `npm run typecheck`
+  clean; `npm run lint` clean; `committed-fixture-parse-gate` 36/36 +
+  `registry-closed-set-corpus-gate` 6/6.
+- Live: adjacent note-channel witness
+  `tests/live/err-note-render-record-error-field-live-cell.test.ts` green 1/1
+  under the global lock (the err-note-render adjacency drives the
+  `theta-system-note` channel end-to-end through the real production
+  pipeline). No new cell owed — registration/drive outcomes are unchanged
+  (event-code field only), and the advisory fires only on a double-restore
+  failure, not a live-drivable outcome.
+- Review: 2 rounds — R1 (deep) CLEAN + two non-blocking residuals (R1 test
+  strengthening: pin strict wire omission; R2 prose fork-tense); R2 (fast,
+  after a `bug-fix-fixer-light` pass applied both residuals) CLEAN.
+- Verification: VERIFIED — witness reds on the re-added
+  `{ event: { code: "theta/runtime/active-set-restore-failed" } }` signature
+  then greens byte-exact on restore; full suite green modulo the confirmed
+  load flake; typecheck + lint clean; the diag2 baseline fixture reverted
+  byte-exact to HEAD.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the two 0401-pinned fabrication sites (the
+  `#emitBinderFailureNote` `{ event: {} }` at `production-theta-producer.ts`,
+  0397-harness-pinned; the caller-less `slash-dispatch.ts` site) left
+  untouched; the diagnostic half's missing matrix row is bug 0434's ground;
+  `SystemNote` stays required-`details` for the four canonical channel shapes.

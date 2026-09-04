@@ -21,7 +21,6 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
-import type { SystemNote } from "../extension/system-note-channel";
 
 // Runtime diagnostics-registry codes this module emits
 // (diagnostics/code-registry-runtime.md).
@@ -77,6 +76,17 @@ export interface ActiveSetPi {
   setActiveTools(names: string[]): void;
 }
 
+/**
+ * The PIC-8(c) advisory note shape: informational
+ * (pi-integration-contract/runtime-event-channel.md "Informational notes
+ * carry no `details`"), so it carries no `details` field — the structured
+ * half of the failure travels separately on the sibling `emitDiagnostic` call.
+ */
+export interface ActiveSetAdvisoryNote {
+  readonly content: string;
+  readonly display: boolean;
+}
+
 /** Construction dependencies for the active-set gating window. */
 export interface ActiveSetGateDeps {
   /** The `pi.getActiveTools` / `pi.setActiveTools` snapshot/restore surface. */
@@ -92,7 +102,7 @@ export interface ActiveSetGateDeps {
   /** Submit a constructed `Diagnostic` through the standard diagnostics channel. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
   /** Deliver a `theta-system-note` (the PIC-8 `display: true` advisory). */
-  readonly emitSystemNote: (note: SystemNote) => void;
+  readonly emitSystemNote: (note: ActiveSetAdvisoryNote) => void;
   /**
    * Route a setup-side (step-1/step-2) failure onto the
    * `theta/runtime/internal-error` runtime-defect channel (PIC-19); the routing
@@ -178,11 +188,13 @@ function restoreActiveSet(deps: ActiveSetGateDeps, snapshot: string[]): void {
       hint: snapshot.join(", "),
     });
     // PIC-8(c): a `display: true` note carrying the verbatim template — only
-    // `<name>` is substituted; every other character ships verbatim.
+    // `<name>` is substituted; every other character ships verbatim. The
+    // note is informational and carries no `details` — the structured half
+    // (code, severity, message, hint) already travels on the `emitDiagnostic`
+    // call above, so no `details` key is fabricated here.
     deps.emitSystemNote({
       content: `theta: failed to restore tool active-set after /${deps.thetaName}; the user session may have unexpected tools active. Run /reload to reset.`,
       display: true,
-      details: { event: { code: ACTIVE_SET_RESTORE_FAILED } },
     });
   }
 }

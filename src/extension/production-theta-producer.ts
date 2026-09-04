@@ -4133,7 +4133,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
                 customType: SYSTEM_NOTE_CHANNEL,
                 content: note.content,
                 display: note.display,
-                details: note.details,
               },
               { triggerTurn: false },
             );
@@ -5534,7 +5533,6 @@ class LivePromptQueryModel implements QueryModelDriver {
             customType: SYSTEM_NOTE_CHANNEL,
             content: note.content,
             display: note.display,
-            details: note.details,
           },
           { triggerTurn: false },
         );
@@ -7101,7 +7099,6 @@ async function driveStreamedUserTurn(deps: {
           customType: SYSTEM_NOTE_CHANNEL,
           content: note.content,
           display: note.display,
-          details: note.details,
         },
         { triggerTurn: false },
       );

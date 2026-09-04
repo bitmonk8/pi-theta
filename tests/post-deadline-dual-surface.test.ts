@@ -6,7 +6,9 @@
 // either emits `theta/runtime/cancelled-by-session-shutdown` or contributes to
 // the single `theta/runtime/reload-teardown-timeout` `<list>` of sub-step 3,
 // "never both", and the sanctioned dual appearance carries the
-// `"<unreadable>"` sentinel in `details.event.reason`
+// `"<unreadable>"` sentinel in the note's `details.shutdown.reason` (bug 0432
+// re-keyed the note's outer key off `event`; the field shape one level down is
+// unchanged)
 // (`pi-integration-contract/session-only-degraded-state.md` §*Accepted theta
 // 1.0 residual gap — sub-step-2 stamp-throw case*). `diagnostics/
 // code-registry-runtime.md` §`cancelled-by-session-shutdown` mutual exclusion
@@ -15,8 +17,8 @@
 // This cell locks the measured post-deadline arm: an entry stamped and aborted
 // by sub-step 2 whose `disposeBarrier` settles AFTER the
 // `SHUTDOWN_AWAIT_CAP_MS` cap appears in BOTH surfaces, on one
-// `session_shutdown` event, with a fully stamped `details.event.reason` of
-// `"reload"` — not the sentinel. The `"<unreadable>"` sentinel, and not the
+// `session_shutdown` event, with a fully stamped note `details.shutdown.reason`
+// of `"reload"` — not the sentinel. The `"<unreadable>"` sentinel, and not the
 // dual appearance, is therefore what discriminates the stamp-throw residual
 // gap; that is the discriminator this cell pins.
 //
@@ -93,7 +95,9 @@ import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 
 /** The canonical lowercase 8-4-4-4-12 `invocationId` the entry carries verbatim
- *  into `details.event.invocation_id` (placeholder-rendering-b.md §7). */
+ *  into the note's `details.shutdown.invocation_id` (the console-row twin
+ *  keeps `details.event.invocation_id` unchanged; placeholder-rendering-b.md
+ *  §7). */
 const INVOCATION_ID = "11111111-2222-3333-4444-555555555555";
 const THETA_NAME = "demo";
 const SHUTDOWN_REASON = "reload";
@@ -318,7 +322,9 @@ describe("bug 0208 — the post-deadline dual surface", () => {
     ).toBe(1);
     const noteRow = cleanCancelNotes[0] as RecordedMessage;
     expect(noteRow.display).toBe(false);
-    expect(noteRow.details?.event).toEqual({
+    // The NOTE's outer key is `shutdown`, not `event` (bug 0432 option (b));
+    // the structured console-row twin below keeps `details.event`.
+    expect(noteRow.details?.shutdown).toEqual({
       reason: SHUTDOWN_REASON,
       theta: THETA_NAME,
       invocation_id: inFlight.invocationId,
@@ -343,7 +349,7 @@ describe("bug 0208 — the post-deadline dual surface", () => {
       `the teardown-timeout message names no /demo:<invocation-id>; message: ${timeoutRow.message}`,
     ).toBeDefined();
     expect(
-      (noteRow.details?.event as { invocation_id?: unknown } | undefined)
+      (noteRow.details?.shutdown as { invocation_id?: unknown } | undefined)
         ?.invocation_id,
       `the clean-cancel row and the teardown-timeout <list> name different invocations; <list> id: ${String(listedId)}; wire: ${wireSummary(notes)}`,
     ).toBe(listedId);
@@ -352,7 +358,7 @@ describe("bug 0208 — the post-deadline dual surface", () => {
     // stamped reason, so the sentinel — not the pair — is what marks the
     // stamp-throw residual gap.
     const observedReason = (
-      noteRow.details?.event as { reason?: unknown } | undefined
+      noteRow.details?.shutdown as { reason?: unknown } | undefined
     )?.reason;
     expect(
       observedReason,

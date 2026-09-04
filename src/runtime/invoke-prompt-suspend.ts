@@ -36,8 +36,7 @@
 
 import type { CrossModeCell } from "./invoke-cross-mode";
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import type { SystemNote } from "../extension/system-note-channel";
-import { withActiveSetGate, type ActiveSetPi } from "./tool-registration";
+import { withActiveSetGate, type ActiveSetAdvisoryNote, type ActiveSetPi } from "./tool-registration";
 
 /**
  * The narrow `pi` subset the prompt→prompt suspend window touches: the
@@ -80,7 +79,7 @@ export interface PromptSuspendInput<T> {
    */
   readonly thetaName: string;
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-  readonly emitSystemNote: (note: SystemNote) => void;
+  readonly emitSystemNote: (note: ActiveSetAdvisoryNote) => void;
   readonly routeInternalError: (error: Error) => void;
 }
 

@@ -59,9 +59,9 @@ function normaliseDiagnosticSpelling(diagnostic: Diagnostic): Diagnostic {
  * Spell every `details.diagnostics[].file` / `.related[].file` with the
  * pinned POSIX convention (bug 0268 §Fix constraint 1) so the structured
  * payload agrees with the rendered `content` string. Keys ONLY on the
- * `diagnostics` shape — the `event` / `structural` / `recovery` shapes carry
- * author- and host-supplied strings that are not `Diagnostic.file` and pass
- * through byte-identical.
+ * `diagnostics` shape — the `event` / `structural` / `recovery` / `shutdown`
+ * shapes carry author- and host-supplied strings that are not `Diagnostic.file`
+ * and pass through byte-identical.
  */
 function normaliseDetailsFileSpelling(details: SystemNoteDetails): SystemNoteDetails {
   if (!("diagnostics" in details)) {
@@ -97,7 +97,7 @@ export const SYSTEM_NOTE_DELIVERY_FAILED_CODE =
   "theta/runtime/system-note-delivery-failed";
 
 /**
- * The four normative `details` payload shapes the `theta-system-note` channel
+ * The five normative `details` payload shapes the `theta-system-note` channel
  * carries, distinguished by which key is present (runtime-event-channel.md
  * §"system-note-details-shapes"). The shapes are disjoint by key.
  */
@@ -110,7 +110,11 @@ export type SystemNoteDetails =
         readonly removed: readonly string[];
       };
     }
-  | { readonly recovery: { readonly thetas: readonly string[] } };
+  | { readonly recovery: { readonly thetas: readonly string[] } }
+  // The per-invocation clean-cancel note's closed session-shutdown payload; the
+  // `{ reason, theta, invocation_id }` field shape is owned by
+  // diagnostic-shape.md#session-shutdown-details-conventions (bug 0432).
+  | { readonly shutdown: Record<string, unknown> };
 
 /** A `theta-system-note` to deliver through the best-effort channel. */
 export interface SystemNote {
