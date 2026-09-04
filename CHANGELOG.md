@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.416.0]
+
+### Fixed
+
+- **Bug 0420** — bug 0411's context-bounding of the doc-comment scan overreached: the template-line exclusion keyed on "column-1 inside a backtick template span" alone, so a column-1 `///` inside a multi-line `${…}` interpolation — genuine expression ground, not template prose — was silently dropped instead of drawing the misplacement diagnostic. Fixed per the settled §Fix (Option 1, predicate refinement, no spec edit): `isTemplateLine` excludes a line iff column-1 is inside the template span AND NOT inside a `${…}` interpolation sub-span (nested-brace depth-counted), so the interpolation case draws the pre-existing `theta/parse/doc-comment-misplaced` while template prose stays excluded (0411's contract intact — b0411 witnesses byte-identical green). No new registry rows. Witnessed by NEW `tests/b0420-doc-comment-interp-line-exclusion.test.ts` (6 arms; P1 + NEST red at fork, controls green both sides). Live: existing `b0411live` acceptance cell 1/1 under the lock (adjacency + regression proof — the novel outcome is an offline-observable refusal).
+
 ## [0.415.0]
 
 ### Fixed

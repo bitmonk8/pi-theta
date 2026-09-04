@@ -1,6 +1,6 @@
 # Bug 0420 — A column-1 `///` line inside a multi-line `${…}` interpolation loads cleanly and the line silently vanishes from the expression, where `lexical.md:24` pins that comments inside an interpolation "behave exactly as in any other expression position" — the byte-identical line in a multi-line parenthesised expression draws `theta/parse/doc-comment-misplaced` and refuses the load
 
-- **Status:** open.
+- **Status:** fixed (0.416.0).
 - **Sev/Diff estimate:** S3/D2 — S3: silent permissive acceptance of a
   spec-refused input on a narrow but legal input class, with an
   author-intent hazard (one brace deeper than template prose — where the
@@ -210,6 +210,47 @@ hazard in §Why it matters stays unsignalled.
 
 Recommendation: option 1's token walk extension — it follows the ratified
 Kind = defect reading (the implementation is the divergent artefact).
+
+## Fix (0.416.0)
+
+- What shipped: `src/parser/theta-document.ts` — the 0411 template-span walk
+  now additionally tracks `${…}` interpolation sub-spans (a `{` punct preceded
+  by a `$` punct while a backtick is open at interpolation depth 0 opens a
+  sub-span; nested `{`/`}` are depth-counted; the `}` returning depth to 0
+  closes it), and `isTemplateLine` excludes a body line iff column-1 sits
+  inside a template span AND NOT inside an interpolation sub-span — Option 1's
+  predicate refinement. No spec edit, no new registry row: P1 draws the
+  pre-existing `theta/parse/doc-comment-misplaced` (§Fix constraints a/b/c all
+  held — prose stays excluded, prose-line-containing-`${…}` stays excluded).
+- Gates: witness `tests/b0420-doc-comment-interp-line-exclusion.test.ts` 6/6
+  (P1 + NEST RED at fork for the right reason — the line silently vanishes —
+  GREEN after fix; P2/P1b/PC/PROSE controls GREEN both); full suite `npm test`
+  588 files green modulo the campaign's known parallel-load timeout noise
+  (each noise file passes 100% isolated, zero references to this surface);
+  `npm run typecheck` exit 0; `npm run lint` exit 0.
+- Review: 2 rounds — round 1 (`bug-fix-reviewer`): FINDINGS, one `[test]` gap
+  (nested-brace interpolation branch unwitnessed) + one non-blocking successor
+  residual; round 2 (`bug-fix-reviewer-fast`): CLEAN.
+- Verification: `bug-fix-verifier` SOLID — (1) both witness directions proven
+  (P1 + NEST go RED under the 0411-only predicate, controls stay GREEN, fix
+  restored byte-identical); (2) full suite green modulo isolated-green load
+  noise; (3) lint + typecheck exit 0; (4) live b0411 acceptance cell 1/1
+  register+drive (real `pi -p`, 263 + 514 = 777), run by the orchestrator
+  under the global live lock — the fix's own novel outcome is an offline-
+  observable refuse, so no new live cell was owed; the b0411 cell is the
+  adjacency + regression proof that the prose class still registers.
+- Residuals: 1. `src/lexer/lexer.ts` `inTemplateBody`
+  (`contextualDiagnostics`) skips interpolation interiors span-wide — the same
+  whole-span-vs-prose shape as this bug on a different surface, but with no
+  demonstrated observable divergence (interior keyword misuse is refused by the
+  main expression parse anyway) and outside 0420's §Affected; successor-report
+  material only, not a blocker.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Option 2 (lexical.md:24 spec carve-out) not
+  taken — parent-adjudicated to Option 1 (the implementation is the divergent
+  artefact, Kind = defect). §Non-goals honoured: template-prose `///` rendering
+  (0411 axis) unchanged; `//`/`/*` and single-line interpolations untouched; no
+  new registry row; `permitted-codes.json` untouched.
 
 ## Provenance
 

@@ -1054,40 +1054,87 @@ export function parseThetaDocument(
   const parser = new BodyParser(lex.tokens, file, split.bodyText, paramFieldNames);
   const body = parser.parseBody();
 
-  // Bug 0411 §Fix option 1 — `scanDocComments` is the one line-oriented pass
-  // over the body text with no `@`...`` template guard (lexical.md:24: text
-  // inside a query template is rendered prompt, not a comment); the lexer's
-  // own `inTemplateProse` and `contextualDiagnostics`'s `inTemplateBody` both
-  // already toggle on backtick puncts to skip template interiors, so this
-  // scan gets the same toggle over the already-in-scope `lex.tokens`. Backticks
-  // are template delimiters and always pair (matching lexer.ts's own toggle);
-  // a backtick lexed inside a `${…}` interpolation is ordinary punctuation, not
-  // a delimiter (lexer.ts), but any document containing one already refused
-  // upstream of this call, so on an accepted document every backtick token here
-  // is a genuine open/close pair. Walking the stream once and recording (open,
-  // close) position pairs therefore recovers every template span. A
-  // body line is excluded iff its column-1 position sits strictly inside a
-  // span: `docLine` anchors matches at `^`, so a line with real code before an
-  // opening backtick, or after a closing one, is correctly left un-excluded.
+  // Bug 0411 §Fix option 1, refined by bug 0420 §Fix option 1 — `scanDocComments`
+  // is the one line-oriented pass over the body text with no `@`...`` template
+  // guard (lexical.md:24 sentence 1: text inside a query template is rendered
+  // prompt, not a comment); the lexer's own `inTemplateProse` and
+  // `contextualDiagnostics`'s `inTemplateBody` both already toggle on backtick
+  // puncts to skip template interiors, so this scan gets the same toggle over
+  // the already-in-scope `lex.tokens`. Backticks are template delimiters and
+  // always pair (matching lexer.ts's own toggle) EXCEPT when lexed inside a
+  // `${…}` interpolation, where a backtick is ordinary punctuation, not a
+  // delimiter (lexer.ts) — so the toggle only fires at interpolation depth 0.
+  // Any document containing an unpaired top-level backtick already refused
+  // upstream of this call, so on an accepted document every depth-0 backtick
+  // token here is a genuine open/close pair, and `templateLineSpans` recovers
+  // every template span exactly as 0411 left it.
+  //
+  // 0411 excluded a template span's lines wholesale, which over-reached into
+  // `${…}` interpolation interiors: lexical.md:24 sentence 2 puts interpolation
+  // contents in expression position, where the SAME `///` line one production
+  // over already draws `doc-comment-misplaced` (grammar.md:204). The walk below
+  // additionally tracks interpolation sub-spans — the lexer marks entry with an
+  // adjacent `$` `{` punct pair (only ever emitted together, from template
+  // prose) and nested `{`/`}` puncts while inside, so a depth counter over
+  // those puncts between a template's `${` and its matching `}` recovers each
+  // sub-span. `isTemplateLine` then excludes a line iff column-1 sits inside a
+  // template span AND NOT inside one of its interpolation sub-spans: prose
+  // stays excluded (sentence 1), interpolation interiors are treated as
+  // ordinary expression position (sentence 2). A line whose column-1 is prose
+  // but that merely CONTAINS a later `${…}` stays excluded — the interpolation
+  // sub-span for that occurrence opens at a column > 1 on the same line, so
+  // column-1 never falls strictly inside it. `docLine` anchors matches at `^`,
+  // so a line with real code before an opening backtick, or after a closing
+  // one, is correctly left un-excluded either way.
   const templateLineSpans: { open: Position; close: Position }[] = [];
+  const interpSpans: { open: Position; close: Position }[] = [];
   let openBacktick: Position | undefined;
+  let interpDepth = 0;
+  let interpOpen: Position | undefined;
+  let prevTok: (typeof lex.tokens)[number] | undefined;
   for (const tok of lex.tokens) {
-    if (tok.kind === "punct" && tok.text === "`") {
+    if (tok.kind === "punct" && tok.text === "`" && interpDepth === 0) {
       if (openBacktick === undefined) {
         openBacktick = tok.range.start;
       } else {
         templateLineSpans.push({ open: openBacktick, close: tok.range.start });
         openBacktick = undefined;
       }
+    } else if (tok.kind === "punct" && tok.text === "{") {
+      if (
+        openBacktick !== undefined &&
+        interpDepth === 0 &&
+        prevTok?.kind === "punct" &&
+        prevTok.text === "$"
+      ) {
+        interpDepth = 1;
+        interpOpen = prevTok.range.start;
+      } else if (interpDepth > 0) {
+        interpDepth += 1;
+      }
+    } else if (tok.kind === "punct" && tok.text === "}" && interpDepth > 0) {
+      interpDepth -= 1;
+      if (interpDepth === 0 && interpOpen !== undefined) {
+        interpSpans.push({ open: interpOpen, close: tok.range.start });
+        interpOpen = undefined;
+      }
     }
+    prevTok = tok;
   }
   const posBefore = (a: Position, b: Position): boolean =>
     a.line < b.line || (a.line === b.line && a.column < b.column);
   const isTemplateLine = (line: number): boolean => {
     const lineStart: Position = { line, column: 1 };
-    return templateLineSpans.some(
+    const inTemplate = templateLineSpans.some(
       (span) => posBefore(span.open, lineStart) && posBefore(lineStart, span.close),
     );
+    if (!inTemplate) {
+      return false;
+    }
+    const inInterp = interpSpans.some(
+      (span) => posBefore(span.open, lineStart) && posBefore(lineStart, span.close),
+    );
+    return !inInterp;
   };
 
   // The `///` doc-comment runs are lexed away (the lexer emits no comment
