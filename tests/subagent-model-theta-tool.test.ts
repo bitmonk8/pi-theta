@@ -88,9 +88,13 @@ import { SUBAGENT_MODEL_UNRESOLVED_CODE } from "../src/runtime/subagent-isolatio
 /** A `ModelDrivenThetaCall` recording the positional `argValues` it was driven with. */
 function recordingSpec(
   paramOrder: readonly string[],
-  drive: (argValues: readonly ThetaValue[]) => Promise<ResultValue>,
-): { spec: ModelDrivenThetaCall; driven: { argValues: readonly ThetaValue[] }[]; setupThrows: unknown[] } {
-  const driven: { argValues: readonly ThetaValue[] }[] = [];
+  // Bug 0409: the trampoline records honest ABSENCE (`undefined`) for an omitted
+  // model argument so `#driveCallee` can recover the callee's declared default —
+  // the `?? null` seam conflated omitted with explicit null. The recorded slot
+  // type therefore widens to `ThetaValue | undefined`.
+  drive: (argValues: readonly (ThetaValue | undefined)[]) => Promise<ResultValue>,
+): { spec: ModelDrivenThetaCall; driven: { argValues: readonly (ThetaValue | undefined)[] }[]; setupThrows: unknown[] } {
+  const driven: { argValues: readonly (ThetaValue | undefined)[] }[] = [];
   const setupThrows: unknown[] = [];
   const spec: ModelDrivenThetaCall = {
     paramOrder,
@@ -128,10 +132,13 @@ describe("SUBAG-2 (A) — lowerModelDrivenThetaCall model-driven core", () => {
     expect(lowered).toEqual({ text: "DONE", isError: false });
   });
 
-  it("binds a missing model argument to null (declaration order preserved)", async () => {
+  it("records a missing model argument as absent (undefined), not null (declaration order preserved)", async () => {
+    // Bug 0409: the trampoline must distinguish an OMITTED model argument from an
+    // explicit `null` so `#driveCallee` can recover the callee's declared default;
+    // `args[name] ?? null` conflated them, fabricating `null` for the absent slot.
     const { spec, driven } = recordingSpec(["a", "b"], () => Promise.resolve(makeOk("X")));
     await lowerModelDrivenThetaCall({ a: "A" }, spec, signal);
-    expect(driven[0]!.argValues).toEqual(["A", null]);
+    expect(driven[0]!.argValues).toEqual(["A", undefined]);
   });
 
   it("lowers an Ok(non-string) value to its JSON form", async () => {

@@ -4064,9 +4064,32 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // keeps resolving there.
     const returnSite = this.#resolveReturnSite(theta, returnTyping, callee);
     const paramNames = callee.frontmatter.params?.fields.map((field) => field.wireName) ?? [];
+    // An omitted slot (`argValues[index] === undefined`, the presence check —
+    // `noUncheckedIndexedAccess`) recovers the DECLARED default via
+    // `#recoverDeclaredDefaults`, the same value the slash/binder path already
+    // fills (0165/0181/0186 lineage), restoring inter-path consistency; an
+    // in-range value INCLUDING an explicit `null` is a first-class value bound
+    // as-is (invocation.md:50 arity admission; frontmatter-fields-b-and-templates.md:46
+    // resolves the `system:` template against the validated params object).
+    // `??` would conflate absence with `null`, which is bug 0409.
+    const defaultedFields = callee.frontmatter.params?.defaultedFields ?? [];
+    const omittedDefaulted = defaultedFields.filter(
+      (wireName) => argValues[paramNames.indexOf(wireName)] === undefined,
+    );
+    const recovered =
+      omittedDefaulted.length > 0 ? await this.#recoverDeclaredDefaults(callee, omittedDefaulted) : [];
+    const recoveredByName = new Map(recovered.map((field) => [field.wireName, field.defaultValue as ThetaValue]));
     const paramBindings = new Map<string, ThetaValue>();
     paramNames.forEach((name, index) => {
-      paramBindings.set(name, argValues[index] ?? null);
+      const supplied = argValues[index];
+      if (supplied !== undefined) {
+        paramBindings.set(name, supplied);
+        return;
+      }
+      // A slot with no recoverable default (non-defaulted, or best-effort
+      // recovery failed) falls back to `null` — the pre-existing behaviour for
+      // those cases; only the defaulted+recovered case is new.
+      paramBindings.set(name, recoveredByName.get(name) ?? null);
     });
     // Prompt→prompt cross-mode cell (invocation.md §Cross-mode semantics): an
     // `invoke`d prompt-mode callee whose caller is ALSO prompt-mode ATTACHES to
@@ -6502,7 +6525,7 @@ export interface ModelDrivenThetaCall {
    * arguments, returning the callee's top-level `Result` (FN-5).
    */
   readonly driveCallee: (
-    argValues: readonly ThetaValue[],
+    argValues: readonly (ThetaValue | undefined)[],
     toolSignal: AbortSignal,
   ) => Promise<ResultValue>;
   /**
@@ -6547,7 +6570,15 @@ export async function lowerModelDrivenThetaCall(
   if (argDepthBreach !== undefined) {
     return { text: argDepthBreach.message, isError: true };
   }
-  const argValues = spec.paramOrder.map((name) => (args[name] ?? null) as ThetaValue);
+  // Own-key guard distinguishes an explicit JSON `null` from the model (an own
+  // key → stays `null`, preserved end-to-end, symmetric with the invoke path)
+  // from an omitted key (→ `undefined` → default recovery downstream at
+  // `#driveCallee`); `??` conflates the two, which is bug 0409. `Object.hasOwn`
+  // (not `in`) so an inherited `Object.prototype` member cannot be read as a
+  // present param.
+  const argValues: readonly (ThetaValue | undefined)[] = spec.paramOrder.map((name) =>
+    Object.hasOwn(args, name) ? (args[name] as ThetaValue) : undefined,
+  );
   try {
     return lowerThetaCallableModelResult(await spec.driveCallee(argValues, toolSignal));
   } catch (thrown: unknown) { // allow-broad-catch: theta/runtime/internal-error — `.theta`-adapter pre-eval setup throw (tool-calls.md §"Outcome enumeration")

@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.409.0]
+
+### Fixed
+
+- **Bug 0409** — an `invoke(...)` or `.theta`-callable call that legally omitted a trailing defaulted param bound `null` in its place (`argValues[index] ?? null` / `args[name] ?? null` conflated absent with `null` at the two non-binder binding sites): the `system:` template rendered the four bytes `null` where the declared default was promised, the marshalled `{p: null}` failed the child's schema intake for a non-nullable param (a spec-legal call refused fail-closed with an opaque validation error), and for a nullable param the declared default was silently dead on every non-slash invocation path — an inter-path divergence (slash fills defaults; invoke/tool-call fabricated null) no author could predict. PARENT ADJUDICATIONS (recorded): primary §Fix over the omit-the-key alternative (which would change the child-visible PIC-60 params contract); presence-check DIRECTED (`Object.hasOwn`, never `??` — explicit null stays a first-class value); and ONE un-enumerated flip RATIFIED (`tests/subagent-model-theta-tool.test.ts` `["A", null]` → `["A", undefined]` — the pin canonized the exact absent→null conflation §Expected condemns; premeasured as the sole red, LPA not implicated). Shipped in three minimal producer hunks: `#driveCallee` recovers the declared default for omitted slots via the existing `#recoverDeclaredDefaults` machinery; the model trampoline maps presence-checked (`Object.hasOwn(args,name) ? args[name] : undefined`); the `driveCallee` param type widens to `(ThetaValue|undefined)[]`. Witnessed by NEW `tests/b0409-omitted-defaulted-binds-default.test.ts` (the doc's three-arm witness: omit→default incl. system render + marshal; explicit-null stays null on BOTH paths; model-trampoline same treatment; red at fork both directions) and NEW live cell `tests/live/b0409live-omitted-defaulted-invoke-child-intake-live-cell.test.ts` (deterministic Face-2: green 3/3 on the fixed tree + red-proven on the reverted seam, both under the lock). Residuals recorded (fallback arm unwitnessed; no in-terms invoke-leg spec sentence; prompt-mode body-scope stays §Non-goal).
+
 ## [0.408.0]
 
 ### Fixed

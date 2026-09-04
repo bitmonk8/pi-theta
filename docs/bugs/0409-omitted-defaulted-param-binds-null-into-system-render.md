@@ -1,6 +1,6 @@
 # Bug 0409 — An `invoke(...)` or `.theta`-callable call that legally omits a trailing defaulted param binds `null` in its place: the `system:` template renders the four bytes `null` where the declared default was promised, and the marshalled `{p: null}` then either fails the child's schema validation (non-nullable param — spec-legal call refused) or silently discards the default end-to-end (nullable param)
 
-- **Status:** open.
+- **Status:** fixed (0.409.0).
 - **Sev/Diff estimate:** S1/D2 — a nullable defaulted param's declared default is silently dead on every non-slash invocation path (and the system prompt renders `null`), while a non-nullable one turns a spec-legal call into a fail-closed child-intake refusal; fix binds recovered defaults at the two `?? null` sites reusing existing machinery, with an adjudication against the omit-the-key alternative and a three-arm witness.
 - **Kind:** defect — the `system:` render resolves against a params record
   that is not "the validated params object"
@@ -191,3 +191,21 @@ c2c25d81 with scratch vitest `tests/scratch-system-defaults.test.ts`
 (deleted): production lowered schema + production `AjvSchemaValidator` +
 `renderSystemPrompt` composed exactly as the parent/child seams compose
 them; the two `?? null` fabrication sites verified by code read.
+
+## Fix (0.409.0)
+
+- What shipped:
+  - `src/extension/production-theta-producer.ts` — `#driveCallee` binding walk (§Fix primary arm): an omitted trailing slot (presence-checked `argValues[index] === undefined`, never `??`) recovers the DECLARED default via the existing `#recoverDeclaredDefaults` and binds it; an in-range value including an explicit `null` is bound as-is; a non-defaulted / unrecoverable omission keeps the pre-existing `null`. The model trampoline `lowerModelDrivenThetaCall` uses `Object.hasOwn(args, name) ? args[name] : undefined` (own-key presence, `__proto__` discipline; never `??`), and `ModelDrivenThetaCall.driveCallee` widened to `readonly (ThetaValue | undefined)[]`. The rejected omit-the-key alternative was not implemented.
+- Gates:
+  - Witness (offline) `tests/b0409-omitted-defaulted-binds-default.test.ts` — RED at fork (arm a `Lang: null` / `{p:null}`; arm c `["A", null]`), GREEN after fix (7/7); face-2 AJV repro pins `{p:null}` refused while `{}` / `{p:"x"}` validate.
+  - Ratified flip `tests/subagent-model-theta-tool.test.ts` — the sole enumerated committed cell (`["A", null]` → `["A", undefined]`), GREEN after fix (19/19).
+  - Full default suite `npm test` — green modulo the campaign’s parallel-load timeout flakes (each re-run green isolated, off the fix surface); both corpus gates (registry-closed-set, citation-symbol-form) green with the two new files present; typecheck and lint clean.
+  - Live `tests/live/b0409live-omitted-defaulted-invoke-child-intake-live-cell.test.ts` — GREEN on the fixed tree (3/3) and RED-proven on the reverted seam under the global live lock (OMITTED reds with `invoke of …b0409livekid.theta failed (validation)`; the SUPPLIED explicit-arg control stays green both directions).
+- Review: 2 rounds. R1 `bug-fix-reviewer` — CLEAN, five non-blocking residuals; R1 (house-rule) applied as `Object.hasOwn`, R3 (type asymmetry) assessed a non-hole, R2/R4/R5 recorded below. R2 `bug-fix-reviewer-fast` — CLEAN, no findings, no deep-review recommendation.
+- Verification: `bug-fix-verifier` SOLID — revert-witness red-proof both directions incl. the ratified flip, source restored byte-exact (blob `a8085fea`); full suite green (one off-surface flake green-isolated); typecheck + lint clean. The live obligation was discharged by the orchestrator (above); the verifier ran no live per the parallel-lane brief.
+- Residuals:
+  1. R2 (test) — the failed-recovery fallback arm (`recoveredByName.get(name) ?? null` for a non-defaulted or unrecoverable-default omission) is unwitnessed; it is correct per §Fix and `#recoverDeclaredDefaults`’s best-effort contract, and witnesses (a)/(b)/(c) are all delivered.
+  2. R4 (spec) — the invoke-leg default fill still has no in-terms spec sentence (`frontmatter-fields-a.md:60` stays slash-scoped); the fill is prescribed by the arity admission + validated-params render rule + the settled §Fix, not by a new sentence. No DIAG-2 row owed (no diagnostic added or widened).
+  3. R5 (test) — the prompt→prompt invoke cell now binds the recovered default in `projectForValidation` wire form (brand/tag-stripped); the subagent leg re-brands at its own child intake. Prompt-cell body-scope semantics stay a §Non-goal.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the slash/binder path (0165/0181/0186 lineage), the union→JSON render of a bound `null` (bug 0408 / system-templates candidate), and prompt-mode invoke body-scope semantics remain §Non-goals — untouched by this fix.
