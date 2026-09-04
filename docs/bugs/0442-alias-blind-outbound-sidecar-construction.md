@@ -1,6 +1,6 @@
 # Bug 0442 — Outbound sidecar construction is alias-blind everywhere except the direct param position: `xs: 'array<A>'` over `schema A = Cat` and a body-schema field typed by an alias (`pet: A`) both render `Cat`'s `as` renames theta-side, while `p: A` translates
 
-- **Status:** open.
+- **Status:** fixed (0.438.0).
 - **Sev/Diff estimate:** S2/D1 — theta-side names silently reach the child's
   system prompt on registering documents, and the trigger is the exact
   refactor aliases exist for (naming a type once and reusing it): swapping
@@ -211,3 +211,12 @@ documented in the `buildOutboundSidecars` doc comment
 C5 green; deleted). Alias presence in the `schemas` map verified by code
 read of `collectBodyTypes` (`theta-document.ts`, `stmt.name → stmt.fields`
 for every schema statement).
+
+## Fix (0.438.0)
+- What shipped: `src/parser/frontmatter.ts` -- `namedSchemaOf` widened to take `bodyTypes` and, on a matched name with `fields === undefined`, chase a SINGLE-arm alias RHS (`schema A = Cat`, transitively `A2 = A` and `L = array<Cat>`) with a `seen` cycle guard, returning the terminal object-schema name; a multi-arm/union RHS returns `undefined` (bug 0443's ground). Both blind construction sites -- the `array<...>` element arm and the BFS field loop -- funnel through it, so an alias element (`array<A>`) or an alias-typed field (`pet: A`) now descends into the real object schema and translates (§Fix option (a)).
+- Gates: witness `tests/b0442-alias-blind-outbound-sidecar-construction.test.ts` 8/8 (W1-W4 red->green witnessing both faces + the two-hop chain; G1-G4 controls byte-identical); full suite 612 files / 10689 tests green (fork 609/10667 + the trio's 3 files / 22 cells; the lone red, `bug 0276` discovery, is concurrent-lane load noise -- green isolated); `npx tsc --noEmit` exit 0; `npm run lint` exit 0; b0422live green isolated (9.9 s), exercising the sidecar-render -> child `--system-prompt` wire-name boundary.
+- Review: 2 rounds -- R1 (deep) FINDINGS: one `correctness` blocker (unbounded recursion through the shared inline descent -- see bug 0441 record -- fixed with a construction-stack `building` guard); R2 (fast) CLEAN.
+- Verification: SOLID -- witnesses revert-red (13/22 with the fix reverted to HEAD) / restore-green (22/22), byte-exact restoration (`git hash-object` identical before/after); default suite green; lint + typecheck clean; live delegated to the orchestrator's b0422live.
+- Residuals: (1) an alias whose RHS is an inline object (`schema A = {y: Inner}`) used at a field/element position stays theta-side (byte-identical, never a wrong wire name) -- outside this report's name->name single-arm §Fix; filing candidate in the 0424/0427-residual pattern.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: union positions (`p: 'A | B'`, `p: UU`, `array<UU>`) are bugs 0443/0444, untouched here; genuinely head-only schemas stay refused at declaration; a WRONG wire name never renders.

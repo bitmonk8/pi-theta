@@ -850,25 +850,48 @@ function checkMethodology(
 }
 
 /**
- * The body-schema name a `typeSource` names directly, or names as the element
- * of `array<...>` (recursively) — the root a `system:` outbound sidecar walk
- * needs to start from. `undefined` when `typeSource` names neither (an inline
- * object, a primitive, a union, an unresolved atom, or an imported symbol).
+ * The body OBJECT-schema name a `typeSource` resolves to — directly, as the
+ * element of `array<...>` (recursively), or through a SINGLE-arm alias chain
+ * (`schema A = Cat`, and transitively `schema A2 = A`, `schema L = array<Cat>`)
+ * — the root a `system:` outbound sidecar walk needs to start from. An alias is
+ * the type it names (schemas.md:60), so the walk must resolve past it; before
+ * bug 0442 an alias name was returned verbatim and then refused by
+ * `buildOutboundSidecars` (`fields === undefined`), leaving the aliased
+ * schema's renames theta-side at the array-element and schema-field positions.
+ * `undefined` when the source resolves to no object schema: an inline object, a
+ * primitive, a MULTI-arm (union) alias (bug 0443's ground), an unresolved atom,
+ * or an imported symbol. `seen` guards a pure-alias cycle (refused at
+ * declaration by `type-alias-cycle`; a stack-overflow backstop only).
  */
 function namedSchemaOf(
   typeSource: string | undefined,
-  schemas: FrontmatterBodyTypes["schemas"],
+  bodyTypes: FrontmatterBodyTypes,
+  seen: ReadonlySet<string> = new Set(),
 ): string | undefined {
   if (typeSource === undefined) {
     return undefined;
   }
   const s = typeSource.trim();
-  if (schemas.has(s)) {
-    return s;
+  if (bodyTypes.schemas.has(s)) {
+    if (bodyTypes.schemas.get(s) !== undefined) {
+      return s;
+    }
+    // An alias/head-only declaration (`fields === undefined`): chase a
+    // single-arm alias RHS to the object schema it names. A multi-arm (union)
+    // RHS names no single object root (bug 0443), and a re-entered alias is a
+    // cycle backstop — both return `undefined`.
+    if (seen.has(s)) {
+      return undefined;
+    }
+    const arms = bodyTypes.aliasArms.get(s);
+    if (arms === undefined || arms.length !== 1) {
+      return undefined;
+    }
+    return namedSchemaOf(arms[0], bodyTypes, new Set([...seen, s]));
   }
   const arrayMatch = /^array<(.+)>$/.exec(s);
   if (arrayMatch !== null) {
-    return namedSchemaOf(arrayMatch[1], schemas);
+    return namedSchemaOf(arrayMatch[1], bodyTypes, seen);
   }
   return undefined;
 }
@@ -882,26 +905,43 @@ function namedSchemaOf(
  * as an `array<Schema>` element) — each schema-typed field's input carries its
  * `$ref` target (the referenced schema's name), so `translateOutbound`'s
  * `$ref` recursion (`wire-translation.ts`) can descend past depth 0.
- * `undefined` when `rootSchema` names no body schema (an imported name, or no
- * root at all) or is head-only/alias (`fields === undefined`).
+ * `undefined` when `rootSchema` names no object body schema (an imported name,
+ * an alias, or no root at all) — callers resolve an alias/`array<...>` source
+ * through `namedSchemaOf` before reaching here.
  *
  * Lookup stays per-`$defs` (keyed by schema name), never one flat wire-key
  * namespace, so the round-1 F2 collision (two same-spelled wire names at
  * different depths resolving the wrong schema's rename map) cannot recur: a
  * position recurses through its OWN field's `refTarget`, never through a wire
- * name matched against an unrelated schema. A reachable schema that is itself
- * head-only/alias (`fields === undefined`) gets no sidecar entry; the runtime
- * walk finds none for it and leaves that nested value theta-side — never a
- * wrong wire name.
+ * name matched against an unrelated schema. A field whose type names an object
+ * schema (directly, through an alias chain, or as an `array<...>` element) is
+ * enqueued; a field whose type is an inline object embedding a schema
+ * (`x: {y: Inner}`) is descended into a minted intermediate `$defs` so the
+ * embedded schema's own renames still translate (bug 0441). `reserved`
+ * accumulates every minted inline `$defs` name across the whole construction
+ * so sibling/nested inline layers never share a key.
+ *
+ * `building` is the set of schema names whose sidecar is already being
+ * constructed up the call stack. The BFS `seen` set only guards name→name
+ * cycles WITHIN one call; an inline layer re-enters this function through
+ * `refTargetInto` with a fresh BFS, so a schema that references itself through
+ * an inline-object field (`schema Node { next: {n: Node} }`) would recurse
+ * unbounded without it. `refTargetInto` skips re-entering a name already in
+ * `building`: that schema's sidecar is produced by the in-progress call up the
+ * stack and merges into the single top-level map before the render reads it,
+ * so recording the `$ref` name alone is sufficient (a stack-overflow backstop
+ * for a legal recursive shape, mirroring `namedSchemaOf`'s alias `seen`).
  */
 function buildOutboundSidecars(
   rootSchema: string | undefined,
-  schemas: FrontmatterBodyTypes["schemas"],
+  bodyTypes: FrontmatterBodyTypes,
+  reserved: Set<string> = new Set(),
+  building: Set<string> = new Set(),
 ): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } | undefined {
-  if (rootSchema === undefined || !schemas.has(rootSchema)) {
+  if (rootSchema === undefined || !bodyTypes.schemas.has(rootSchema)) {
     return undefined;
   }
-  if (schemas.get(rootSchema) === undefined) {
+  if (bodyTypes.schemas.get(rootSchema) === undefined) {
     return undefined;
   }
   const sidecars = new Map<string, SchemaSidecar>();
@@ -909,22 +949,30 @@ function buildOutboundSidecars(
   const queue: string[] = [rootSchema];
   while (queue.length > 0) {
     const name = queue.shift() as string;
-    const fields = schemas.get(name);
+    building.add(name);
+    const fields = bodyTypes.schemas.get(name);
     if (fields === undefined) {
       continue;
     }
     const inputs: SidecarFieldInput[] = fields.map((f) => {
       const wire = f.wireName ?? f.name;
-      // A field whose type is an inline object embedding a schema reference
-      // (`x: {y: Inner}`) is not descended here: `namedSchemaOf` matches only a
-      // bare schema name or `array<Schema>`, so such a field carries no
-      // `refTarget` and its nested renames render theta-side on a bare
-      // container render — never a wrong wire name (bug 0424 residual, same
-      // disposition class as the pre-fix root-flat residual).
-      const refTarget = namedSchemaOf(f.typeSource, schemas);
-      if (refTarget !== undefined && !seen.has(refTarget)) {
-        seen.add(refTarget);
-        queue.push(refTarget);
+      // A field's type names an object schema (directly, through an alias
+      // chain, or as an `array<...>` element): record its `$ref` target and
+      // enqueue it. An inline-object type source (`x: {y: Inner}`) names no
+      // single schema, so descend it into a minted intermediate `$defs` whose
+      // schema-typed fields carry their own `$ref` targets (bug 0441).
+      let refTarget = namedSchemaOf(f.typeSource, bodyTypes);
+      if (refTarget !== undefined) {
+        if (!seen.has(refTarget)) {
+          seen.add(refTarget);
+          queue.push(refTarget);
+        }
+      } else if (f.typeSource !== undefined && isSingleEnclosingBraceGroup(f.typeSource.trim())) {
+        const inline = buildInlineSidecars(f.typeSource.trim(), bodyTypes, reserved, building);
+        for (const [defName, sidecar] of inline.sidecars) {
+          sidecars.set(defName, sidecar);
+        }
+        refTarget = inline.rootDef;
       }
       return {
         thetaName: f.name,
@@ -946,6 +994,104 @@ function buildOutboundSidecars(
 }
 
 /**
+ * Resolve one field/element type source to its outbound `$ref` target,
+ * merging every sidecar the target needs into `sidecars` (bug 0441). A source
+ * naming a body object schema (directly, through an alias chain, or as an
+ * `array<...>` element) merges that schema's transitive sidecars and returns
+ * its name; an inline-object source descends into a minted intermediate
+ * `$defs` (`buildInlineSidecars`); anything else returns `undefined` (no hop).
+ * `reserved` threads the minted-name accumulator so inline mints stay globally
+ * unique across the construction; `building` guards a schema that is reachable
+ * from itself through an inline layer — a name already under construction up
+ * the stack is recorded as a `$ref` without re-entering `buildOutboundSidecars`
+ * (its sidecar merges into the top-level map from the in-progress call).
+ */
+function refTargetInto(
+  typeSource: string,
+  bodyTypes: FrontmatterBodyTypes,
+  sidecars: Map<string, SchemaSidecar>,
+  reserved: Set<string>,
+  building: Set<string>,
+): string | undefined {
+  const named = namedSchemaOf(typeSource, bodyTypes);
+  if (named !== undefined) {
+    if (building.has(named)) {
+      return named;
+    }
+    const nested = buildOutboundSidecars(named, bodyTypes, reserved, building);
+    if (nested === undefined) {
+      return undefined;
+    }
+    for (const [defName, sidecar] of nested.sidecars) {
+      sidecars.set(defName, sidecar);
+    }
+    return named;
+  }
+  if (isSingleEnclosingBraceGroup(typeSource.trim())) {
+    const inline = buildInlineSidecars(typeSource.trim(), bodyTypes, reserved, building);
+    for (const [defName, sidecar] of inline.sidecars) {
+      sidecars.set(defName, sidecar);
+    }
+    return inline.rootDef;
+  }
+  return undefined;
+}
+
+/**
+ * Build the outbound sidecars for an inline-object type source (`{y: Inner}`)
+ * used at a container position that carries sidecars (bug 0441): mint a
+ * collision-free intermediate `$defs` name for the inline layer and emit a
+ * sidecar whose schema-typed fields carry their real `$ref` targets, so the
+ * runtime `$ref` recursion descends past the inline wrapper to the embedded
+ * schema's own renames. An inline object carries no `as` renames of its own,
+ * so its fields contribute only `$ref` hops, never wire-name entries. The
+ * minted name cannot collide with an author schema (those are capitalised;
+ * `__inline*` is not) but `reserved` keeps sibling/nested inline mints distinct
+ * from each other, so no minted sidecar clobbers another in the per-`$defs`
+ * map.
+ */
+function buildInlineSidecars(
+  braceSource: string,
+  bodyTypes: FrontmatterBodyTypes,
+  reserved: Set<string>,
+  building: Set<string>,
+): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } {
+  const sidecars = new Map<string, SchemaSidecar>();
+  let rootDef = "__inline";
+  while (bodyTypes.schemas.has(rootDef) || reserved.has(rootDef)) {
+    rootDef = `${rootDef}_`;
+  }
+  reserved.add(rootDef);
+  const inputs: SidecarFieldInput[] = [];
+  for (const entry of splitTopLevel(braceSource.slice(1, -1), ",", "angle-and-brace")) {
+    const colon = topLevelColon(entry);
+    if (colon < 0) {
+      continue;
+    }
+    const fieldName = entry.slice(0, colon).trim();
+    const fieldType = entry.slice(colon + 1).trim();
+    if (fieldName.length === 0 || fieldType.length === 0) {
+      continue;
+    }
+    const refTarget = refTargetInto(fieldType, bodyTypes, sidecars, reserved, building);
+    inputs.push({
+      thetaName: fieldName,
+      pointer: `/properties/${encodePointerSegment(fieldName)}`,
+      type: { kind: "other" },
+      ...(refTarget !== undefined ? { refTarget } : {}),
+    });
+  }
+  sidecars.set(
+    rootDef,
+    buildSidecar(
+      inputs,
+      inputs.map((i) => i.thetaName),
+    ),
+  );
+  return { sidecars, rootDef };
+}
+
+/**
  * Parse an inline object type's own field set into a `SystemParamType`
  * (bug 0406 (i)): `s` is the flow-mapping source (`{name: string, role: string}`)
  * `isSingleEnclosingBraceGroup` already gated. Mirrors `hoistInlineObjectType`'s
@@ -954,14 +1100,14 @@ function buildOutboundSidecars(
  * side of it, is skipped rather than refused — the lowering's own diagnostics
  * cover a malformed entry; this seam only needs to know which fields resolve.
  * An inline object type carries no `as` renames of its own, but a FIELD of one
- * can name a body schema (`{inner: Inner}`) whose own renames still need to
- * translate on a bare render (bug 0424) — so a schema-typed field collects a
- * root-position `$ref` input plus that schema's transitive sidecars (BFS via
- * `buildOutboundSidecars`), merged under a minted root `$defs` name (no
- * existing schema is keyed `__inline*`, so it cannot collide with — or be
- * mistaken for a recursion into — a real schema). A purely scalar inline
- * object (no schema-typed field) produces no sidecars, byte-identical to the
- * pre-fix shape.
+ * can name a body schema (`{inner: Inner}`) or embed a further inline object
+ * that names one (`{x: {y: Inner}}`) whose own renames still need to translate
+ * on a bare render (bug 0424, bug 0441) — so each such field collects a
+ * root-position `$ref` input plus that target's transitive sidecars via
+ * `refTargetInto`, merged under minted `$defs` names (no author schema is keyed
+ * `__inline*`, and `reserved` keeps the root mint distinct from any nested
+ * inline mint). A purely scalar inline object (no schema-hopping field)
+ * produces no sidecars, byte-identical to the pre-fix shape.
  */
 function inlineObjectType(
   s: string,
@@ -972,6 +1118,8 @@ function inlineObjectType(
   const map = new Map<string, SystemParamType>();
   const rootInputs: SidecarFieldInput[] = [];
   const merged = new Map<string, SchemaSidecar>();
+  const reserved = new Set<string>();
+  const building = new Set<string>();
   for (const entry of splitTopLevel(interior, ",", "angle-and-brace")) {
     const colon = topLevelColon(entry);
     if (colon < 0) {
@@ -986,15 +1134,9 @@ function inlineObjectType(
     if (bodyTypes === undefined) {
       continue;
     }
-    const refTarget = namedSchemaOf(fieldType, bodyTypes.schemas);
+    const refTarget = refTargetInto(fieldType, bodyTypes, merged, reserved, building);
     if (refTarget === undefined) {
       continue;
-    }
-    const nested = buildOutboundSidecars(refTarget, bodyTypes.schemas);
-    if (nested !== undefined) {
-      for (const [defName, sidecar] of nested.sidecars) {
-        merged.set(defName, sidecar);
-      }
     }
     rootInputs.push({
       thetaName: fieldName,
@@ -1007,7 +1149,7 @@ function inlineObjectType(
     return { kind: "object", fields: map };
   }
   let rootName = "__inline";
-  while (bodyTypes.schemas.has(rootName)) {
+  while (bodyTypes.schemas.has(rootName) || reserved.has(rootName)) {
     rootName = `${rootName}_`;
   }
   merged.set(
@@ -1047,16 +1189,19 @@ function stringLiteralOf(typeSource: string): string | undefined {
 
 /**
  * Build the `system:` union's per-arm data (bug 0425 §Fix route (a)): for
- * each `|`-separated arm source that is the DIRECT name of a body object
- * schema with a buildable outbound-sidecar map, an arm carrying that schema's
- * rename sidecars, its field-name set (for the render-time structural pick),
- * and its literal-discriminator table (for the render-time literal-match
- * pick). Arm sources are matched against `schemas` directly, NOT through
- * `namedSchemaOf`, because `namedSchemaOf` would UNWRAP an `array<Cat>` source
- * to a phantom `Cat` object arm. So an arm source that is not a direct
- * body-schema name — an `array<...>` element wrapper, an imported name, a
- * scalar, or a literal — an alias/head-only schema (`fields === undefined`),
- * or a schema `buildOutboundSidecars` cannot build a sidecar map for is
+ * each `|`-separated arm source that names a body object schema — directly, or
+ * through a SINGLE-arm alias chain (`schema A = Cat`, bug 0443) — with a
+ * buildable outbound-sidecar map, an arm carrying that schema's rename
+ * sidecars, its field-name set (for the render-time structural pick), and its
+ * literal-discriminator table (for the render-time literal-match pick). Arm
+ * sources are NOT unwrapped through `namedSchemaOf`, because that would unwrap
+ * an `array<Cat>` source to a phantom `Cat` object arm (bug 0425 F2); the
+ * alias chase here follows only a pure name→name single-arm chain and stops at
+ * the first object schema, never entering an `array<...>` or multi-arm
+ * (union-in-union) RHS. So an arm source that resolves to no object schema —
+ * an `array<...>` element wrapper, an imported name, a scalar, a literal, a
+ * multi-arm alias, or a schema `buildOutboundSidecars` cannot build a sidecar
+ * map for — is
  * SKIPPED, not pushed as a degraded arm, so the render-time pick never
  * chooses a half-built arm; a value that would have matched a SHAPE-DISJOINT
  * skipped arm source (an `array<...>` element wrapper, a scalar, or a
@@ -1079,7 +1224,24 @@ function buildSystemUnionArms(
 ): readonly SystemUnionArm[] {
   const arms: SystemUnionArm[] = [];
   for (const rawArm of armSources) {
-    const s = rawArm.trim();
+    // Chase a single-arm alias arm source (`A` over `schema A = Cat`) to the
+    // body object schema it names, WITHOUT unwrapping an `array<...>` source
+    // (which would mint a phantom object arm — bug 0425 F2) and WITHOUT
+    // entering a multi-arm (union-in-union) RHS (kept conservative — bug 0443).
+    let s = rawArm.trim();
+    const seenArm = new Set<string>();
+    while (
+      bodyTypes.schemas.has(s) &&
+      bodyTypes.schemas.get(s) === undefined &&
+      !seenArm.has(s)
+    ) {
+      seenArm.add(s);
+      const chain = bodyTypes.aliasArms.get(s);
+      if (chain === undefined || chain.length !== 1) {
+        break;
+      }
+      s = chain[0]!.trim();
+    }
     const schemaName = bodyTypes.schemas.has(s) ? s : undefined;
     if (schemaName === undefined) {
       continue;
@@ -1088,7 +1250,7 @@ function buildSystemUnionArms(
     if (fields === undefined) {
       continue;
     }
-    const sc = buildOutboundSidecars(schemaName, bodyTypes.schemas);
+    const sc = buildOutboundSidecars(schemaName, bodyTypes);
     if (sc === undefined) {
       continue;
     }
@@ -1182,13 +1344,23 @@ export function toSystemParamType(
     const ctor = s.slice(0, lt).trim();
     if (ctor === "array") {
       const element = s.slice(lt + 1, -1).trim();
-      const sc =
-        bodyTypes !== undefined
-          ? buildOutboundSidecars(namedSchemaOf(element, bodyTypes.schemas), bodyTypes.schemas)
-          : undefined;
-      return sc !== undefined
-        ? { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef }
-        : { kind: "array" };
+      if (bodyTypes !== undefined) {
+        // An element naming a body object schema (directly, through an alias
+        // chain, or as a nested `array<...>`) carries that schema's sidecars
+        // (bug 0407/0442); an inline-object element (`array<{y: Inner}>`)
+        // descends into a minted intermediate `$defs` (bug 0441).
+        const named = namedSchemaOf(element, bodyTypes);
+        if (named !== undefined) {
+          const sc = buildOutboundSidecars(named, bodyTypes);
+          if (sc !== undefined) {
+            return { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef };
+          }
+        } else if (isSingleEnclosingBraceGroup(element)) {
+          const inline = buildInlineSidecars(element, bodyTypes, new Set(), new Set());
+          return { kind: "array", sidecars: inline.sidecars, rootDef: inline.rootDef };
+        }
+      }
+      return { kind: "array" };
     }
     return { kind: "discriminated-union" };
   }
@@ -1248,15 +1420,20 @@ export function toSystemParamType(
           }
           return toSystemParamType(arms[0]!, bodyTypes, resolving, new Set([...aliasChain, s]));
         }
-        // Two or more arms: the same 0408 value-driven `discriminated-union`
-        // terminal the INLINE spelling (`p: 'Cat | Dog'`) already renders
-        // through — naming the union via an alias must not change its render
-        // (bug 0427 §Fix; arm-rename translation for this terminal is bug
-        // 0425's ground, not this fix's).
-        return { kind: "discriminated-union" };
+        // Two or more arms: the `discriminated-union` terminal the INLINE
+        // spelling (`p: 'Cat | Dog'`) renders through — naming the union via an
+        // alias must not change its render (bug 0427 §Fix). Thread the SAME
+        // per-arm rename machinery the inline split uses (bug 0443): arms
+        // naming a body object schema (alias-chased) translate; when none do
+        // (a scalar/imported/array union) the conservative bare terminal
+        // stands, unchanged from the pre-0443 behaviour.
+        const unionArms = buildSystemUnionArms(arms, bodyTypes);
+        return unionArms.length > 0
+          ? { kind: "discriminated-union", arms: unionArms }
+          : { kind: "discriminated-union" };
       }
       const map = new Map<string, SystemParamType>();
-      const sc = buildOutboundSidecars(s, bodyTypes.schemas);
+      const sc = buildOutboundSidecars(s, bodyTypes);
       const shell: SystemParamType =
         sc !== undefined
           ? { kind: "object", fields: map, sidecars: sc.sidecars, rootDef: sc.rootDef }

@@ -1,6 +1,6 @@
 # Bug 0441 — A body schema reachable only through an inline-object-typed field is not descended by the outbound-sidecar BFS: `schema Outer { x: {y: Inner} }`, `p: '{x: {y: Inner}}'`, and `xs: 'array<{y: Inner}>'` all render `Inner`'s `as` renames theta-side on a bare `system:` container render
 
-- **Status:** open.
+- **Status:** fixed (0.439.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt against the recursive-translation rule, on documents that
   register with zero diagnostics, and the same one-hop-longer inconsistency
@@ -177,3 +177,12 @@ fresh at 401a425b with scratch vitest
 `tests/scratch-render-sidecars-6.test.ts` (rows C1a–C1c; deleted).
 Renderer-capability contrast by code read of `lowerOutbound`
 (`wire-translation.ts:612–663`).
+
+## Fix (0.439.0)
+- What shipped: `src/parser/frontmatter.ts` -- a new `buildInlineSidecars` mints a collision-free intermediate `$defs` name for an inline-object type source and emits a sidecar whose schema-typed fields carry their own `$ref` targets; a new `refTargetInto` resolves any field/element source (named schema, alias chain, or inline object) into a shared sidecar map. The BFS field loop, `inlineObjectType`'s field loop, and the `array<...>` param arm now descend an inline-object source (`{y: Inner}`, `array<{y: Inner}>`), so the embedded schema's `as` renames translate at any depth (§Fix option (a)). A `reserved` set keeps sibling/nested inline mints distinct; a `building` set (schema names under construction up the stack) guards a schema reachable from itself through an inline layer so construction terminates.
+- Gates: witness `tests/b0441-inline-object-embedded-schema-refs-not-descended.test.ts` 8/8 (W1-W3 red->green for all three container positions; F1 sibling-mint distinctness; R1/R2 self- and mutual-recursion-through-inline terminate and translate at depth; G1/G2 controls byte-identical); full suite 612 files / 10689 tests green (fork 609/10667 + the trio's 3 files / 22 cells; lone red `bug 0276` load noise, green isolated); `npx tsc --noEmit` exit 0; `npm run lint` exit 0; b0422live green isolated (9.9 s), the sidecar-render -> child `--system-prompt` boundary.
+- Review: 2 rounds -- R1 (deep) FINDINGS: one `correctness` blocker -- the inline descent re-entered `buildOutboundSidecars` with a fresh BFS, so a schema referencing itself through an inline layer (`schema Node { next: {n: Node} }`, and the mutual `{x: {y: B}}`/`{z: {w: A}}` pair) stack-overflowed at parse on legal zero-diagnostic input; fixed with the `building` construction-stack guard (`refTargetInto` records a name already under construction as a bare `$ref` without re-entering; its sidecar merges into the single top-level map). R2 (fast) CLEAN.
+- Verification: SOLID -- witnesses revert-red (with the fix reverted the three container rows leak theta-side names) / restore-green (22/22), byte-exact restoration (`git hash-object` identical); default suite green; lint + typecheck clean; live delegated to b0422live.
+- Residuals: (1) an inline object used as an `array<...>` ELEMENT of a body-schema FIELD (`schema Outer { xs: array<{y: Inner}> }`) is not descended (the field-loop tests the whole `array<...>` source, not its element) -- byte-identical, never a wrong wire name; the param-level `array<{y: Inner}>` IS covered (W3). Filing candidate in the same residual pattern.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: alias-typed fields/elements are bug 0442; union-typed array elements are bug 0444; imported schemas in static container positions are bug 0445; inline-object union ARMS stay spec-pinned untranslated (QRY-18 value-driven note). The per-`$defs` F2/F3 collision-safety is preserved (minted names never share a key).

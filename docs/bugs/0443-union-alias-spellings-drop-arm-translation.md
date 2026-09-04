@@ -1,6 +1,6 @@
 # Bug 0443 — The alias spellings of a union of renamed schemas drop the bug-0425 arm translation: `p: UU` over `schema UU = Cat | Dog` carries no arms (renders theta-side) against QRY-18's own arm-pick clause, and `p: 'A | B'` over per-arm aliases is skipped by the arm builder — while the inline `p: 'Cat | Dog'` translates
 
-- **Status:** open.
+- **Status:** fixed (0.440.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt on registering documents, and for the `p: UU` face the shipped
   bytes now DIVERGE from the QRY-18 value-driven note bug 0426 wrote to match
@@ -210,3 +210,12 @@ green; deleted). The two fixes' non-meeting verified by code read:
 `buildSystemUnionArms` call sites (`frontmatter.ts:1177` only) vs the alias
 2+-arm return (`:1261`); QRY-18 note wording read at
 `query-escapes-stringification.md:35` as amended by bug 0426 (0.432.0).
+
+## Fix (0.440.0)
+- What shipped: `src/parser/frontmatter.ts` -- (face 1) `toSystemParamType`'s 2+-arm alias route now returns `buildSystemUnionArms(arms, bodyTypes)` threaded exactly as the inline `|` split does (empty -> the conservative bare `discriminated-union` terminal), so `p: UU` over `schema UU = Cat | Dog` picks the arm and translates; (face 2) `buildSystemUnionArms` alias-chases each arm source through a single-arm name->name chain to a terminal body object schema before the keep/skip decision (never unwrapping an `array<...>` source to a phantom object arm -- bug 0425 F2 -- and never entering a multi-arm union-in-union RHS), so `p: 'A | B'` over per-arm aliases translates (§Fix (a)+(b)).
+- Gates: witness `tests/b0443-union-alias-spellings-drop-arm-translation.test.ts` 6/6 (W1/W3 alias-of-union Cat/Dog arms, W2 union-of-aliases, all red->green; G1 inline control byte-identical, G2 rename-free alias-union byte-identical, G3 no-match value stays untranslated / never-guess); full suite 612 files / 10689 tests green (fork 609/10667 + the trio's 3 files / 22 cells; lone red `bug 0276` load noise, green isolated); `npx tsc --noEmit` exit 0; `npm run lint` exit 0; b0422live green isolated (9.9 s).
+- Review: 2 rounds -- R1 (deep) confirmed both faces thread the existing arm machinery correctly (name->name chase, no phantom `array<Cat>` arm, multi-arm RHS stays skipped); its one blocker was the shared inline-descent recursion (bugs 0441/0442), not this bug's union seams. R2 (fast) CLEAN.
+- Verification: SOLID -- witnesses revert-red (both alias spellings render theta-side with the fix reverted) / restore-green (22/22), byte-exact restoration; default suite green; lint + typecheck clean; live delegated to b0422live.
+- Residuals: none for the two probe faces; the QRY-18 note's "directly" wording tension is settled by implementing routes (a)+(b) (no spec edit owed -- the alias arms name body object schemas directly per schemas.md:60).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: which VALUES pick which arm is bug 0425's pinned dispositions (`unionArmObjectType` reused unchanged -- a value matching zero or two arms keeps today's untranslated bytes); array-typed arm sources stay spec-pinned untranslated; imported alias arms are bug 0445; non-union alias positions are bug 0442.

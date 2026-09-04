@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.440.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0443 — union-alias spellings drop arm translation**: a union reached through an alias (both spellings: aliased union type and alias-of-alias arm) skipped `buildSystemUnionArms`' arm-sidecar threading, so arm renames vanished. The alias 2+-arm route now threads arm renames through both spellings per the 0425 brand-then-discriminator machinery. (`src/parser/frontmatter.ts`; witness `tests/b0443-union-alias-spellings-drop-arm-translation.test.ts`)
+
+## [0.439.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0441 — inline-object embedded schema refs not descended**: `buildInlineSidecars` treated an inline-object type as a leaf, so schema references embedded inside it (three container positions) got no `$defs` sidecar and rendered theta-side field names. The builder now descends inline-object sources via `refTargetInto`, minting per-position `$defs` with a `building` construction-stack guard against unbounded recursion on self-referential legal input. (`src/parser/frontmatter.ts`; witness `tests/b0441-inline-object-embedded-schema-refs-not-descended.test.ts`)
+
+## [0.438.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0442 — alias-blind outbound sidecar construction**: outbound wire-name sidecars were built only for direct schema references; a single-arm `alias` chain at an array-element or schema-field position fell through `namedSchemaOf` unchased, so imported renames silently rendered theta-side names on the wire. `namedSchemaOf` now alias-chases single-arm chains (cycle-guarded) before classification, and both container positions translate. (`src/parser/frontmatter.ts`; witness `tests/b0442-alias-blind-outbound-sidecar-construction.test.ts`)
+
 ## [0.437.0]
 
 ### Fixed
