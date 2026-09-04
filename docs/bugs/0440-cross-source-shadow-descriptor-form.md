@@ -1,6 +1,6 @@
 # Bug 0440 — `theta/load/cross-source-shadow` interpolates `<higher>`/`<lower>` as bare resolved file paths instead of the normative descriptor form `<kind>:"<value>"`, so the live note names neither the winning source kind nor either source's own configuration text — and on Windows the interpolated winner path carries the mixed Win32-root-plus-POSIX-tail spelling the 0268 convention removed from every other rendered surface
 
-- **Status:** open.
+- **Status:** fixed (0.420.0).
   `bindExtensions` boot of the shipped extension through the H8a live harness
   (real settings source + real `--theta` CLI source, real model host resolved).
 - **Sev/Diff estimate:** S4/D2 — S4: wrong-diagnostics class; no registration,
@@ -227,3 +227,26 @@ the hunt log): `npx vitest run --config config/vitest/vitest.live.config.ts
 tests/live/scratch-h9a-watcher-live.test.ts` — 2/2 green with the note bytes
 quoted in §Reproduction captured via `console.log` from the settled
 `SessionManager`.
+
+## Fix (0.420.0)
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — threaded each candidate's descriptor VALUE (`SourcedCandidate.descriptorValue`, `ParsedSettingsEntry.raw`) through the walk and rendered `theta/load/cross-source-shadow`'s `<higher>`/`<lower>` as the normative `<kind>:"<value>"` descriptor (`descriptorKindOf` + `renderDescriptor`) at the `resolveSlashNames` mint site; dropped the placeholder-supplied per-path single quotes on both `theta/load/cross-format-collision` `<paths>` arms (Option 1 + rider D).
+  - `docs/spec_topics/diagnostics/placeholder-rendering-b.md` — §5 `<descriptor>` closed kind set widened three→five (adds `project`, `global`) and repointed to the new discovery-sources anchor (A/B).
+  - `docs/spec_topics/discovery/discovery-sources.md` — new anchored `#descriptor-kinds` definition of the five kinds and their value derivations; the Source-priority prose reworded from bare-path sanction to descriptor wording, keeping the no-`details`-payload sentence (B/C).
+  - `tests/b0440-cross-source-shadow-descriptor-form.test.ts` — the offline RED→GREEN witness (three arms: cli-flag-vs-settings byte-exact; project-vs-global byte-exact; collision bare-path no-quotes), located by message fragment so no code literal enters the corpus gate.
+  - `tests/registry-closed-set-corpus-gate.test.ts` — the `load/cross-source-shadow` carve-out reason updated to record the new fragment-located witness (carve-out set unchanged — the extractor still sees no code literal).
+- GOV-7 additive-disposition (A; 0417 KnownApi-widening precedent):
+  - Old set (three): `settings`, `cli-flag`, `package`. New set (five): the same three plus `project`, `global`.
+  - Why additive: the three existing kinds' values render byte-identically (settings entry text / CLI flag string / npm package name, verbatim) — every existing §5/§7 test vector, including the `:84` shadow vector, is unchanged; the widening only makes two previously-unrenderable kinds renderable.
+  - Why existing renders unchanged: `descriptorKindOf` returns the prior spelling for the three, and their `descriptorValue` is still the verbatim operator source text; no existing candidate's `source` maps to a new kind.
+  - The two new kinds' values are the conventional root's resolved directory path in the 0268 forward-slash convention (project `<cwd>/<config-dir>/theta`, global `<globalAgentDir>/theta`) — conventional roots carry no operator-typed source text, so the root path is the source's identifying operand.
+- Gates: witness `npx vitest run tests/b0440-cross-source-shadow-descriptor-form.test.ts` 3/3 GREEN (RED→GREEN, revert-red proven byte-exact); full suite `npx vitest run` 588 files / 10538 tests GREEN; `npm run typecheck` clean; `npm run lint` clean.
+- Review: 1 round — bug-fix-reviewer (deep): 2 prose findings (F1 stale corpus-gate carve-out reason; F2 `<source>`-vs-`<descriptor>` misattribution in the new spec sentence) + 2 out-of-scope residuals; 1 bug-fix-fixer-light round resolved F1/F2/R2 (prose/comment/data only); polish verified by gate-diff, confirmation round skipped.
+- Verification: SOLID — witness reverts RED with the doc's exact signature (bare paths / placeholder quotes) and restores GREEN byte-exact; full default suite green; typecheck/lint clean; no unintended flips (b0331 fragments, discovery-walk, rebind, corpus-gate carve-out set, citation gate all green).
+- Live: adjacent discovery-family cell `tests/live/b0268live-load-note-path-spelling-live-cell.test.ts` GREEN (1/1) under the global lock — registration/drive outcomes are unchanged (S4, message-bytes class), so no new or extended live cell is owed.
+- Residuals:
+  1. `emitSourceFailure` renders the failure-mode rows' `<descriptor>` as category text (`settings entry index 0`, `--theta flag #1`) while placeholder-rendering-b.md §5 vector 2 pins `settings:"~/work/theta"` — a PRE-EXISTING corpus divergence outside 0440's §Affected/§Fix scope; file separately (round-1 review R1).
+  2. `theta/load/cross-format-collision` `<paths>` ORDER (§7 priority-then-path pin vs candidate insertion order) is untouched — 0440 §Non-goals excludes it (round-1 review R2).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: registration, priority, dedup, and winner-selection outcomes unchanged; no registry code or row added; `code-registry-load.md` Message templates unchanged; permitted-codes (blob a4a8da04) untouched (message rendering only).

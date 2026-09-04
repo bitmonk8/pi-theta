@@ -688,6 +688,14 @@ function emitSourceFailure(
 interface SourcedCandidate extends RawCandidate {
   readonly source: DiscoverySource;
   readonly sourceLabel: string;
+  /** The descriptor VALUE per placeholder-rendering-b.md §5: the source's own
+   *  configuration text verbatim (the `--theta` operand, the settings entry,
+   *  the package name) or, for the two conventional-root sources with no
+   *  operator-typed text, the root's resolved directory path (0268
+   *  forward-slashed). Rendered at the cross-source-shadow/collision mint
+   *  sites via `renderDescriptor`, never read for candidate identity or
+   *  ordering. */
+  readonly descriptorValue: string;
 }
 
 /** Resolve intra-source case-collisions (DISC-3): two `*.theta` paths differing
@@ -907,6 +915,11 @@ interface ParsedSettingsEntry {
   readonly abs: string;
   readonly glob: boolean;
   readonly operand: string;
+  /** The entry's own array text, verbatim (prefix included) — the descriptor
+   *  VALUE this entry's candidates carry (placeholder-rendering-b.md §5: "the
+   *  settings entry"). Distinct from `operand`, which is prefix-stripped for
+   *  the override-grammar comparisons. */
+  readonly raw: string;
 }
 
 /** Resolve one raw operand to an absolute POSIX path: a bare `~` / `~/…`
@@ -940,7 +953,7 @@ async function resolveSettingsSource(
   settings: ThetaSettings,
   diagnostics: Diagnostic[],
   roots: Set<string>,
-): Promise<RawCandidate[]> {
+): Promise<(RawCandidate & { readonly descriptorValue: string })[]> {
   const entries = settings.thetaPaths ?? [];
   if (entries.length === 0) {
     return [];
@@ -957,12 +970,15 @@ async function resolveSettingsSource(
       abs: resolveSettingsOperand(operand, baseDir, fs),
       glob: isGlobPattern(operand),
       operand,
+      raw,
     };
   });
 
   // `selected` is keyed by the candidate `.theta` file's absolute path (dedup by
   // resolved absolute path); dir entries have already been expanded to files.
-  const selected = new Map<string, RawCandidate>();
+  // Each stored candidate also carries the descriptor VALUE of the entry that
+  // selected it (placeholder-rendering-b.md §5) alongside the on-disk answer.
+  const selected = new Map<string, RawCandidate & { readonly descriptorValue: string }>();
   const treeCache = new Map<string, TreeWalk>();
   // A universe failure is attributed to the entry whose glob first triggered
   // the walk that observed it: `treeCache` shares one universe across every
@@ -981,13 +997,13 @@ async function resolveSettingsSource(
     return tree.entries;
   };
 
-  const addDir = async (dir: string, descriptor: string): Promise<void> => {
+  const addDir = async (dir: string, descriptor: string, descriptorValue: string): Promise<void> => {
     roots.add(normalizePath(dir));
     for (const cand of await enumerateDirectory(fs, dir, descriptor, SETTINGS_MODES, diagnostics)) {
-      selected.set(cand.path, cand);
+      selected.set(cand.path, { ...cand, descriptorValue });
     }
   };
-  const addFile = async (absPath: string, index: number): Promise<void> => {
+  const addFile = async (absPath: string, index: number, descriptorValue: string): Promise<void> => {
     // A file match must end in `.theta` (byte-exact lowercase); anything else is
     // an `invalid-extension` error, reported per match, and does not register.
     // This check stays over the ENTRY text `absPath` (Lexical §Extension matching):
@@ -1006,7 +1022,7 @@ async function resolveSettingsSource(
     // `!`/`-` drop operands, which compare against `entry.abs`, still match this
     // entry; only the stored candidate's path/stem carry the on-disk answer
     // (bug 0363).
-    selected.set(absPath, await onDiskFileCandidate(fs, absPath));
+    selected.set(absPath, { ...(await onDiskFileCandidate(fs, absPath)), descriptorValue });
   };
 
   // A literal (non-glob) entry classifies directly, preserving the per-entry
@@ -1019,10 +1035,10 @@ async function resolveSettingsSource(
     const descriptor = `settings entry index ${entry.index}`;
     switch (cls.kind) {
       case "dir":
-        await addDir(entry.abs, descriptor);
+        await addDir(entry.abs, descriptor, entry.raw);
         return;
       case "file":
-        await addFile(entry.abs, entry.index);
+        await addFile(entry.abs, entry.index, entry.raw);
         return;
       case "missing":
         emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, descriptor, entry.abs, diagnostics, "missing");
@@ -1046,9 +1062,9 @@ async function resolveSettingsSource(
     for (const universeEntry of tree) {
       if (!globMatches(universeEntry, entry.abs, entry.operand, baseDir)) continue;
       if (universeEntry.isDir) {
-        await addDir(universeEntry.abs, `settings entry index ${entry.index}`);
+        await addDir(universeEntry.abs, `settings entry index ${entry.index}`, entry.raw);
       } else if (universeEntry.isFile) {
-        await addFile(universeEntry.abs, entry.index);
+        await addFile(universeEntry.abs, entry.index, entry.raw);
       }
     }
   };
@@ -1127,6 +1143,9 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       // question is about what the operator typed, and `~` expansion cannot
       // itself introduce or remove a leading `!`/`+`/`-`.
       enoentPolicy: hasOverridePrefix(raw) ? ("missing" as const) : ("ancestor-walk" as const),
+      // The cli-flag descriptor VALUE is the raw operand as passed — verbatim,
+      // no `expandHome`/`normalizePath` (placeholder-rendering-b.md §5).
+      descriptorValue: `--theta ${raw}`,
     })),
     "cli",
     CLI_MODES,
@@ -1210,7 +1229,17 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     }
     await collectFromEntries(
       fs,
-      [{ path: root.path, descriptor: root.descriptor, enoentPolicy: "ancestor-walk" }],
+      [
+        {
+          path: root.path,
+          descriptor: root.descriptor,
+          enoentPolicy: "ancestor-walk",
+          // No operator-typed source text for a conventional root: the
+          // descriptor VALUE is the root's own resolved directory path,
+          // 0268 forward-slashed (placeholder-rendering-b.md §5).
+          descriptorValue: normalizePath(root.path),
+        },
+      ],
       root.source,
       CONVENTIONAL_MODES,
       false,
@@ -1240,6 +1269,7 @@ async function collectFromEntries(
     readonly path: string;
     readonly descriptor: string;
     readonly enoentPolicy: EnoentPolicy;
+    readonly descriptorValue: string;
   }[],
   source: DiscoverySource,
   modes: FailureModes,
@@ -1261,7 +1291,7 @@ async function collectFromEntries(
       roots,
     );
     for (const candidate of raw) {
-      out.push({ ...candidate, source, sourceLabel });
+      out.push({ ...candidate, source, sourceLabel, descriptorValue: entry.descriptorValue });
     }
   }
 }
@@ -1283,6 +1313,33 @@ function sourceLabelOf(source: DiscoverySource): string {
     case "global":
       return "global thetas directory";
   }
+}
+
+/** The closed descriptor-kind spelling for a discovery source
+ *  (discovery-sources.md#descriptor-kinds): distinct from `sourceLabelOf`'s
+ *  prose category labels — this is the `<kind>` half of the normative
+ *  `<kind>:"<value>"` descriptor form (placeholder-rendering-b.md §5). */
+function descriptorKindOf(source: DiscoverySource): string {
+  switch (source) {
+    case "cli":
+      return "cli-flag";
+    case "settings":
+      return "settings";
+    case "project":
+      return "project";
+    case "package":
+      return "package";
+    case "global":
+      return "global";
+  }
+}
+
+/** Render one candidate as the normative `<kind>:"<value>"` descriptor
+ *  (placeholder-rendering-b.md §5/§7) — the mint site for the
+ *  cross-source-shadow `<higher>`/`<lower>` placeholders must render this
+ *  form, not a bare candidate path. */
+function renderDescriptor(candidate: SourcedCandidate): string {
+  return `${descriptorKindOf(candidate.source)}:"${candidate.descriptorValue}"`;
 }
 
 /** Apply case-collision resolution independently within each source. */
@@ -1403,7 +1460,7 @@ async function resolveSlashNames(
         severity: "error",
         code: CROSS_FORMAT_COLLISION,
         message: `slash name '${name}' collides at the same priority: ${group
-          .map((candidate) => `'${candidate.path}'`)
+          .map((candidate) => candidate.path)
           .join(", ")} (Pi-owned command '${name}' survives)`,
       });
       continue;
@@ -1441,7 +1498,7 @@ async function resolveSlashNames(
         severity: "error",
         code: CROSS_FORMAT_COLLISION,
         message: `slash name '${name}' collides at the same priority: ${topTier
-          .map((candidate) => `'${candidate.path}'`)
+          .map((candidate) => candidate.path)
           .join(", ")}`,
       });
       continue;
@@ -1453,7 +1510,7 @@ async function resolveSlashNames(
       diagnostics.push({
         severity: "warning",
         code: CROSS_SOURCE_SHADOW,
-        message: `slash name '${name}' shadowed across discovery sources: '${winner.path}' wins over '${shadowed.path}'`,
+        message: `slash name '${name}' shadowed across discovery sources: '${renderDescriptor(winner)}' wins over '${renderDescriptor(shadowed)}'`,
       });
     }
     thetas.push({ name, path: winner.path, source: winner.source });

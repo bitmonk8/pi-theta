@@ -124,10 +124,13 @@ const CODE_PREFIX = "theta" + "/";
 const CARVE_OUT: Record<string, string> = {
   "load/cross-source-shadow":
     "Emitted in `resolveSlashNames` (src/discovery/discovery-walk.ts) on the " +
-    "different-priority shadow branch of the discovery walk; no test asserts the code or exercises " +
-    "that emission, and this carve-out table is the code's only occurrence under " +
-    "tests/, so no witness exists at HEAD and this entry records the absence " +
-    "rather than hiding it.",
+    "different-priority shadow branch of the discovery walk, and genuinely witnessed at " +
+    "tests/b0440-cross-source-shadow-descriptor-form.test.ts (arms 1-2 byte-exactly assert the " +
+    "rendered shadow message) and tests/b0331-root-winner-preempt.test.ts (message fragment); both " +
+    "locate the diagnostic by message FRAGMENT, never by the namespaced code literal, because the " +
+    "shipped extractor treats any code-shaped literal under tests/ as an assertion — a literal here " +
+    "would itself close the gap and empty this carve-out — which is why the extractor still cannot " +
+    "see the assertion.",
   "runtime/subagent-wire-parse-failed":
     "Emitted at src/runtime/subagent-json-driver.ts:146 and genuinely witnessed at " +
     "tests/subagent-wire-parse-failed-emitter.test.ts:182-207 through a " +

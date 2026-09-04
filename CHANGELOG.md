@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.420.0]
+
+### Fixed
+
+- **Bug 0440** — `theta/load/cross-source-shadow` interpolated `<higher>`/`<lower>` as bare resolved file paths (Windows: the mixed Win32-root-plus-POSIX-tail spelling) instead of the normative descriptor form `<kind>:"<value>"`, so the note named neither source kind nor either source's configuration text — the row's "Remove the lower-priority entry" Hint undecidable. Fixed per §Fix option 1 with the adjudicated A–D: each candidate's descriptor VALUE (settings entry text / CLI flag string verbatim; package name; resolved root path forward-slashed for the conventional sources) threads through the walk to the mint site, which renders the pinned descriptor form; the placeholder-rendering §5 closed kind set widened 3→5 (+`project`, +`global`) under GOV-7 ADDITIVE discipline (existing three kinds byte-identical; disposition note in the bug doc); the dangling "defined in Discovery" cross-ref repaired with a real `#descriptor-kinds` definition home in discovery-sources.md; the "both paths are carried" prose moved to descriptor wording same-commit; rider D taken — the sibling `cross-format-collision` arms drop their placeholder-supplied per-path quotes to match the registry template (flip census: zero committed cells). Witnessed by NEW `tests/b0440-cross-source-shadow-descriptor-form.test.ts` (3 arms; red at fork). Live: `b0268live-load-note-path-spelling` 1/1 under the lock (message-bytes adjacency; recorded WHY).
+
 ## [0.419.0]
 
 ### Fixed
