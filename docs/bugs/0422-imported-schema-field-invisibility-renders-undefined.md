@@ -1,6 +1,6 @@
 # Bug 0422 — An imported-schema `system:` param admits any `.Ident` chain: `${author.typo}` draws no `theta/parse/system-interp-bad-field`, renders the literal text `undefined` into the child's system prompt, and a `Result`-valued opaque param silently drops the entire system prompt
 
-- **Status:** open.
+- **Status:** fixed (0.435.0).
 - **Sev/Diff estimate:** S1/D3 — a typo'd field name loads with zero
   diagnostics and ships the eight bytes `undefined` into the surface that
   conditions every turn of the spawned child (the silent-wrong-value class),
@@ -211,7 +211,8 @@ the `result` arm instead and fails the render, which the spawn site swallows
 
 ## Fix
 
-Not yet decided; the 0406 premeasure constrains the space. E1–E5 falsified
+**Adjudicated (parent): route (a) + (c).** Shipped in 0.435.0 — see
+`## Fix (0.435.0)` below. The 0406 premeasure constrains the space. E1–E5 falsified
 both parse-phase routes (the registry `Phase = parse` pin plus the
 synchronous `FileSystem`-free parser block moving `checkSystemInterpolation`
 after import resolution AND a post-import second parse pass). Remaining
@@ -240,6 +241,72 @@ Any fix must keep: bare `${author}` admitted for every declared param; the
 `opaque-object` chain admit at parse (until a load-phase field carry exists,
 parse cannot distinguish typo from valid); zero new diagnostics on the
 already-refused local-schema classes.
+
+## Fix (0.435.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — route (a): a LOAD-phase re-walk
+    inside `checkThetaImports` builds the real object shell for each
+    directly-imported schema a `system:` template names (reusing
+    `collectBodyTypes` + `toSystemParamType` over the resolved `.thetalib`'s
+    own body) and refuses a walked-off `.Ident` step with the minted
+    `theta/load/system-interp-bad-field`; an `opaque-object` (nested-import)
+    intermediate admits, a non-object head shape (imported alias/head-only —
+    0427's ground) is left admitted.
+  - `src/parser/system-interpolation.ts` — mints/exports
+    `LOAD_SYSTEM_INTERP_BAD_FIELD_CODE`.
+  - `src/parser/frontmatter.ts` — exports `toSystemParamType`; adds
+    `ParsedFrontmatter.systemRange` so the load diagnostic is Located.
+  - `src/parser/theta-document.ts` — exports `collectBodyTypes`.
+  - `src/extension/production-theta-producer.ts` — route (c): the spawn-site
+    `!ok` render arm emits a `theta-system-note` naming the failed `system:`
+    slot and refuses the spawn via `InvokeInfraCauseError("internal_error")`,
+    instead of silently dropping the whole prompt to the host default.
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — new DIAG-2/DIAG-4
+    row (GOV-15 diagnostic-registry carve-out; Located; direct-import scope).
+    Premeasure: the *Phase* taxonomy is single-valued and closed (no compound
+    `parse|load` cell; the only per-diagnostic resolution is *Sev* E/W; 0412
+    widened a *Trigger* within one phase, not the *Phase* value), so the fix
+    mints a sibling LOAD-phase code rather than widening the parse row's
+    *Phase*. `docs/reference/diagnostics.md` mirror row;
+    `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`
+    two-stage-enforcement sentence (directly-imported).
+- Gates: witness `tests/b0422-imported-schema-field-invisibility-load-refusal.test.ts`
+  RED→GREEN (W(a1) load refusal, route(c) note+refuse; controls W(a2)/W(a3)/
+  W(a4) nested-import admit / W(a5) alias-import admit); `tests/b0406-*.test.ts`
+  W7 flipped to the load refusal; full default suite green (parallel-load
+  hook/test timeouts on real-spawn files are known rotating noise, green
+  isolated); `tsc -p tsconfig.json --noEmit` clean; `npm run lint` clean;
+  `permitted-codes.json` byte-identical.
+- Review: 2 rounds. R1 (deep) — 3 blockers: F1 nested-import intermediate
+  wrongly refused, F2 imported alias-of-object head wrongly refused (0427's
+  ground), F3 registry/spec prose overstated the whole imported class vs the
+  direct-only impl; + residual R2 (stale W7 comment). Fixer resolved all + added
+  W(a4)/W(a5) admit controls. R2 (fast) — CLEAN.
+- Verification: VERIFIED — witness reds genuinely (neutralise-then-restore,
+  byte-exact); full suite green modulo isolated-noise timeout; tsc + lint clean;
+  non-regression (bare `${author}`, valid `${author.name}` load clean; zero new
+  diagnostics on local-schema classes b0406 W1–W6/G1/G2, b0407, b0408). LIVE:
+  `tests/live/acceptance/b0422live-imported-schema-system-interp-wire-and-refusal.test.ts`
+  DIRECTION 2 — a walked-off imported field un-registers the callee at LOAD
+  (real `pi -p`, real `.thetalib` import) → `invoke` resolves `Err` → prober
+  answers 100; GREEN under the global lock, RED-proven (neutralised → the
+  offline attribution guard reds: no `theta/load/system-interp-bad-field`).
+- Residuals:
+  1. Direct-import-only scope: a schema reached only through an
+     `export … from` re-export chain is not re-walked at load (builds no shape)
+     — documented residual mirroring the file's existing `importedFns`
+     re-export withhold; the registry Trigger + frontmatter sentence are
+     qualified to the directly-imported class to match.
+  2. No dedicated cell for the in-scope scalar-*intermediate* load refusal
+     (`${author.role.x}`, `role: string` — bug doc Summary consequence 2); the
+     code path is present and correct (verified by review read).
+  3. An imported *enum* param in `system:` stays unjudged at load (consistent
+     with the imported-*schema* scope) — follow-up family material.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: opaque-object admit AT PARSE stays (load
+  replaces the parse gap); bare `${author}` admitted for every declared param;
+  body-expression sites (bug 0429) and L4's 0424/0425/0426 untouched.
 
 ## Provenance
 

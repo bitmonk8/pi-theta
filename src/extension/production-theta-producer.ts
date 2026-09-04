@@ -2301,8 +2301,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // SUBAG-1: render the theta's `system:` frontmatter into the child's
     // `--system-prompt` (subagent.md §state-isolation matrix: `system:` inherited
     // from frontmatter, `${param}` interpolation resolved at spawn time). A
-    // malformed `system:` was rejected at load; on the unexpected `!ok` path fall
-    // back to no system prompt rather than crashing the spawn.
+    // malformed `system:` was rejected at load; a render-time `!ok` (bug 0422
+    // route (c) — e.g. a bound `Result` value reaching a value-driven
+    // opaque-object terminal) refuses the spawn below rather than silently
+    // proceeding under the host's built-in default prompt.
     let systemPrompt: string | undefined;
     const systemTemplate = theta.frontmatter.system;
     if (systemTemplate !== undefined) {
@@ -2317,6 +2319,45 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const rendered = renderSystemPrompt({ template: systemTemplate, params });
       if (rendered.ok) {
         systemPrompt = rendered.text;
+      } else {
+        // Bug 0422 route (c): the OLD arm here had no `else` at all, so a
+        // failed render silently left `systemPrompt` undefined and the child
+        // spawned under the host's built-in default (`--system-prompt ""`,
+        // below) with no observable on any channel — the whole declared
+        // `system:` prompt vanishing invisibly. Emit an operator-visible note
+        // naming the failed slot THROUGH the bug-0437 fallback chain
+        // (`sendSystemNote`; raw `pi.sendMessage` note sends were retired by
+        // that fix — the chain supplies the toast → delivery-failed →
+        // terminal containment) and refuse the spawn through the same
+        // `InvokeInfraCauseError` carrier the pre-spawn model guard above
+        // uses, rather than proceeding with a silently empty system prompt.
+        // Channel construction mirrors `#emitCleanCancelNote`'s: the
+        // extension-instance channel when the composition root wired one,
+        // else the pi-built fallback that keeps a `pi`-only harness (and the
+        // offline witness cells) delivering.
+        const renderFailChannel: SystemNoteChannelDeps = this.#input.systemNoteChannel ?? {
+          pi: {
+            sendMessage: (message, options): void => {
+              this.#input.pi.sendMessage(message, options);
+            },
+          },
+          emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+          ui: {
+            notify: (): void => {},
+          },
+        };
+        sendSystemNote(
+          {
+            content: `'system:' interpolation for '${theta.slashName}' failed to render (${rendered.diagnostic.code}); refusing to spawn rather than silently drop the system prompt`,
+            display: true,
+            details: { diagnostics: [rendered.diagnostic] },
+          },
+          renderFailChannel,
+        );
+        throw new InvokeInfraCauseError(
+          `'system:' render failed for '${theta.slashName}': ${rendered.diagnostic.code}`,
+          "internal_error",
+        );
       }
     }
 

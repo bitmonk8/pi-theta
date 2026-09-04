@@ -194,6 +194,17 @@ export interface ParsedFrontmatter {
    */
   readonly system?: SystemTemplate;
   /**
+   * The `system:` value's located range, present iff `system` is present
+   * (bug 0422 route (a)): the load-phase template-revalidation consumer
+   * (`import-static-checks.ts`) needs a range to site its own diagnostic on
+   * when a walked-off imported field is found post-load, and `SystemTemplate`
+   * itself carries no range of its own (it is built once, at parse, from a
+   * `systemValue` string with no positional trailer). Carrying it here —
+   * rather than re-deriving it — keeps the load-phase diagnostic Located
+   * (file + range) per diagnostic-shape.md's located-site classification.
+   */
+  readonly systemRange?: SourceRange;
+  /**
    * The resolved `bind_context:` value (BNDR-10) — `"session"` when the theta
    * declares `bind_context: session` (prompt-mode only; on a subagent-mode theta
    * it is inert and treated as `"none"`), else `"none"`. Drives whether the
@@ -268,6 +279,17 @@ export interface FrontmatterBodyTypes {
   readonly schemas: ReadonlyMap<string, readonly FrontmatterSchemaField[] | undefined>;
   readonly enums: ReadonlySet<string>;
   readonly imports: ReadonlySet<string>;
+  /**
+   * The alias/union right-hand side arms captured on `SchemaDecl.arms`
+   * (theta-document.ts), keyed by schema name — present iff the decl is the
+   * `schema X = A | B` alias/union form (bug 0427 §Fix). Empty for a schema
+   * with an object body (its shape is already on `schemas`) and for a
+   * genuinely head-only decl (unreachable in a registering doc). Lets
+   * `toSystemParamType`'s `fields === undefined` arm dispatch on what the
+   * alias actually names instead of falling to the permissive `string`
+   * terminal.
+   */
+  readonly aliasArms: ReadonlyMap<string, readonly string[]>;
   /**
    * The lowered JSON-Schema fragment each body-level named type contributes,
    * keyed by name: a body `schema` lowers to its object body, a body `enum` to
@@ -1109,11 +1131,27 @@ function buildSystemUnionArms(
  * lazy cyclic reuse: a schema reached a second time while its own field map is
  * still being built reuses the SAME (mutable) shell object, so the cycle
  * closes over itself rather than degrading to a scalar.
+ *
+ * `aliasChain` is the disjoint guard for PURE-alias cycles (a `schema A = B`
+ * chain that never hops through an object body): it carries the alias names on
+ * the current descent and RESETS to empty when descent enters an object
+ * schema's fields, because from there `resolving`'s parked shell already closes
+ * a legal object-hop cycle. Aliases park nothing in `resolving`, so a legal
+ * object-hop cycle (`schema A = Node`, `schema Node { next: A }`) classifies
+ * `p: A` and `p: Node` identically instead of reading back an alias sentinel.
+ *
+ * Exported (bug 0422 route (a)): the load-phase template-revalidation
+ * consumer (`import-static-checks.ts`) reuses this exact function, called with
+ * an imported `.thetalib`'s OWN `FrontmatterBodyTypes`, to build the real
+ * object shell the parser could not see at parse time — rather than
+ * reimplementing this dispatch a second time against a different field-source
+ * shape.
  */
-function toSystemParamType(
+export function toSystemParamType(
   typeSource: string,
   bodyTypes: FrontmatterBodyTypes | undefined,
   resolving: Map<string, SystemParamType>,
+  aliasChain: ReadonlySet<string> = new Set(),
 ): SystemParamType {
   const s = typeSource.trim();
   // A single enclosing brace group is an inline object type — recognised
@@ -1179,9 +1217,43 @@ function toSystemParamType(
       }
       const fields = bodyTypes.schemas.get(s);
       if (fields === undefined) {
-        // Head-only / alias schema — out of scope for this fix; unchanged from
-        // the fork's fall-through.
-        return { kind: "string" };
+        const arms = bodyTypes.aliasArms.get(s);
+        if (arms === undefined || arms.length === 0) {
+          // Genuinely head-only: neither an object body nor alias arms — the
+          // `empty-schema-body` family refuses this at declaration, so no
+          // registering document reaches here. Keep the permissive terminal
+          // for that unreachable case rather than inventing a behaviour for
+          // it (bug 0427 §Fix).
+          return { kind: "string" };
+        }
+        if (arms.length === 1) {
+          // One arm: the alias IS the type it names one step in (an alias-of-
+          // object gets the object shell with sidecars, alias-of-array the
+          // array kind, alias-of-primitive the scalar kind) — `schemas.md:60`.
+          // Pure-alias cycles are guarded by `aliasChain` — the set of alias
+          // names on the current descent — NOT by parking a sentinel in the
+          // shared `resolving` shell map: a sentinel there is read back by the
+          // object-schema arm's early `resolving.get(s)` return and would
+          // mis-classify a LEGAL object-hop cycle (`schema A = Node`,
+          // `schema Node { next: A }`), rendering `${p.next}` as
+          // `[object Object]` and making `p: A` and `p: Node` classify
+          // differently in one document. `aliasChain.has(s)` means a pure-alias
+          // re-entry, which `type-alias-cycle` already refuses at declaration
+          // (so no registering document reaches it) — this is a
+          // stack-overflow backstop only. A legal chain
+          // (`schema A = B; schema B = Cat`) still resolves because each name
+          // is added to a fresh copy that is discarded when descent unwinds.
+          if (aliasChain.has(s)) {
+            return { kind: "string" };
+          }
+          return toSystemParamType(arms[0]!, bodyTypes, resolving, new Set([...aliasChain, s]));
+        }
+        // Two or more arms: the same 0408 value-driven `discriminated-union`
+        // terminal the INLINE spelling (`p: 'Cat | Dog'`) already renders
+        // through — naming the union via an alias must not change its render
+        // (bug 0427 §Fix; arm-rename translation for this terminal is bug
+        // 0425's ground, not this fix's).
+        return { kind: "discriminated-union" };
       }
       const map = new Map<string, SystemParamType>();
       const sc = buildOutboundSidecars(s, bodyTypes.schemas);
@@ -1191,7 +1263,12 @@ function toSystemParamType(
           : { kind: "object", fields: map };
       resolving.set(s, shell);
       for (const f of fields) {
-        map.set(f.name, toSystemParamType(f.typeSource, bodyTypes, resolving));
+        // RESET the alias chain when descending into an object schema's own
+        // fields: the object shell parked in `resolving` above already closes
+        // any legal cycle reached from inside it (b0406 W6, the recursive
+        // schema), so a pure-alias name seen on the way in must not stay
+        // in-flight and short-circuit a legal object-hop back to this schema.
+        map.set(f.name, toSystemParamType(f.typeSource, bodyTypes, resolving, new Set()));
       }
       return shell;
     }
@@ -2128,6 +2205,7 @@ export function parseFrontmatter(
     respondRepair,
     ...(toolsValue !== undefined ? { tools: toolsValue } : {}),
     ...(systemTemplate !== undefined ? { system: systemTemplate } : {}),
+    ...(systemTemplate !== undefined && systemRange !== undefined ? { systemRange } : {}),
     // BNDR-10: retain `bind_context: session` so the binder can source the
     // Recent session context block. A subagent-mode `session` is inert (a
     // warning was emitted above) and is normalised to `none`.

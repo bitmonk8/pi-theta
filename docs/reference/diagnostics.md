@@ -263,6 +263,7 @@ trigger.
 | `theta/load/typed-query-unsupported-provider` | W | load | `provider '<provider>' (model '<model>') is outside the theta 1.0 typed-query supported set; typed queries will fail at runtime` |
 | `theta/load/schema-slug-collision` | E | load | `schema-slug collision on slug <slug>: two distinct inline schemas hash alike` |
 | `theta/load/malformed-system-field` | E | load | `malformed 'system:' field; expected a scalar system prompt` |
+| `theta/load/system-interp-bad-field` | E | load | `'system:' interpolation '.<field>' does not name a reachable object field on <path>` |
 
 ## `theta/runtime/*`
 

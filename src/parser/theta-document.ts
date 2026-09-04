@@ -1694,14 +1694,23 @@ function parseInterpolationSource(source: string): {
  * the symbols pulled in by body `import` declarations. Supplying the names is
  * sufficient to decide `theta/parse/unresolved-named-type`; the schema field
  * sources let the `system:` surface descend `.Ident` steps.
+ *
+ * Exported (bug 0422 route (a)): the load-phase template-revalidation
+ * consumer (`import-static-checks.ts`) calls this over a resolved
+ * `.thetalib`'s OWN body statements to build that lib's own named-type set,
+ * the input `toSystemParamType` (frontmatter.ts) needs to build a real object
+ * shell for an imported schema — the same whole-file collection this module
+ * already runs for the IMPORTING theta's own body, reused rather than
+ * reimplemented for the imported lib's body.
  */
-function collectBodyTypes(
+export function collectBodyTypes(
   statements: readonly Stmt[],
   file: string,
 ): { readonly bodyTypes: FrontmatterBodyTypes; readonly diagnostics: readonly Diagnostic[] } {
   const schemas = new Map<string, readonly SchemaFieldSource[] | undefined>();
   const enums = new Set<string>();
   const imports = new Set<string>();
+  const aliasArms = new Map<string, readonly string[]>();
   const schemaDecls: SchemaDecl[] = [];
   const enumDecls: EnumDecl[] = [];
   const importNames: string[] = [];
@@ -1709,6 +1718,9 @@ function collectBodyTypes(
   for (const stmt of statements) {
     if (stmt.kind === "schema") {
       schemas.set(stmt.name, stmt.fields);
+      if (stmt.arms !== undefined) {
+        aliasArms.set(stmt.name, stmt.arms);
+      }
       schemaDecls.push(stmt);
       rangeByName.set(stmt.name, stmt.range);
     } else if (stmt.kind === "enum") {
@@ -1766,7 +1778,7 @@ function collectBodyTypes(
       ? { severity: "error", code: "theta/load/schema-slug-collision", file, message }
       : { severity: "error", code: "theta/load/schema-slug-collision", file, range, message };
   });
-  return { bodyTypes: { schemas, enums, imports, lowered }, diagnostics };
+  return { bodyTypes: { schemas, enums, imports, aliasArms, lowered }, diagnostics };
 }
 
 // --------------------------------------------------------------------------

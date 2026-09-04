@@ -78,6 +78,7 @@ import {
   type ThetaLibModuleForms,
 } from "../parser/imports";
 import {
+  collectBodyTypes,
   resolveSubagentSessionConfigAt,
   type EnumDecl,
   type FnDecl,
@@ -88,7 +89,15 @@ import {
   type ThetaDocument,
 } from "../parser/theta-document";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
-import type { ParsedFrontmatter } from "../parser/frontmatter";
+import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
+import {
+  LOAD_SYSTEM_INTERP_BAD_FIELD_CODE,
+  systemInterpBadFieldMessage,
+  toInterpolationType,
+  type SystemParamType,
+  type SystemTemplate,
+  type SystemTemplatePart,
+} from "../parser/system-interpolation";
 import {
   enumDeclaringKey,
   type EnumRegistration,
@@ -296,6 +305,33 @@ function materializeSymbol(
   return undefined;
 }
 
+/**
+ * Build the bug 0422 route (a) load-phase refusal for a walked-off imported
+ * field: same message text as the parse-phase sibling
+ * (`systemInterpBadFieldMessage`, DIAG-4 — the two codes name the same
+ * authoring mistake at two phases, so sharing the message-string producer is
+ * an implementation reuse, not a registry violation; each code still carries
+ * its own *Message* cell in its own registry row), Located (file + range) when
+ * `input.frontmatter.systemRange` was threaded through from the parse pass,
+ * file-only otherwise (the range genuinely being unavailable never happens for
+ * a theta whose `system:` produced a template, but the fallback keeps this
+ * total rather than assuming the invariant).
+ */
+function loadSystemInterpBadFieldDiagnostic(
+  sourceFile: string,
+  range: SourceRange | undefined,
+  field: string,
+  path: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: LOAD_SYSTEM_INTERP_BAD_FIELD_CODE,
+    file: sourceFile,
+    ...(range !== undefined ? { range } : {}),
+    message: systemInterpBadFieldMessage(field, path),
+  };
+}
+
 /** Only error-severity parse/load diagnostics block registration (warnings still register). */
 function isRegistrationError(diagnostic: Diagnostic): boolean {
   return (
@@ -419,6 +455,32 @@ export interface ThetaImportCheck {
    * to `diagnostics` when no pass cache is threaded (non-production callers).
    */
   readonly undelivered: readonly Diagnostic[];
+  /**
+   * Bug 0423 route (a): the `system:` template with a load-phase rename-map
+   * carry applied — present ONLY when at least one BARE `${param}` path part
+   * (a root object terminal, `segments.length === 1`) resolved to a
+   * directly-imported schema THAT CARRIES A REAL WIRE RENAME (its outbound
+   * sidecar has a non-empty `wireNames` set — a field whose wire name differs
+   * from its theta name), in which case that part's `type` is replaced with
+   * the schema's real `InterpolationType` (carrying its `sidecars` /
+   * `rootDef`) and `valueDriven` is dropped, so the render applies wire-name
+   * translation instead of serialising the theta-side value unchanged. Every
+   * other part (text, scalar-terminal paths, nested/multi-segment paths — the
+   * latter is bug 0424's ground) AND a bare param over a RENAME-FREE imported
+   * schema are carried over unchanged. Byte-identity for the rename-free
+   * class therefore holds by ABSENCE: a rename-free schema is not patched, so
+   * its value-driven render keeps today's bytes for every value kind; only a
+   * schema carrying a real rename is patched (its bytes SHOULD change to the
+   * wire names, which is outside the rename-free constraint). Absent when no
+   * renamed-schema bare param exists, so a rename-free import or a theta with
+   * no `system:` import dependency renders byte-identically to before this
+   * fix — the caller composes the effective template as
+   * `patchedSystemTemplate ?? input.frontmatter.system`, mirroring how
+   * {@link imports} is threaded. This is a NEW returned value, not an
+   * in-place mutation: the parsed `ParsedFrontmatter` / `SystemTemplate` stay
+   * readonly.
+   */
+  readonly patchedSystemTemplate?: SystemTemplate;
 }
 
 /**
@@ -1005,6 +1067,17 @@ export async function checkThetaImports(
   // variant list for `checkImportedEnumVariantAccess` to judge each
   // `MemberExpr` access site against.
   const importedEnums = new Map<string, readonly string[]>();
+  // Bug 0422 route (a): the real object `SystemParamType` shell for an
+  // imported schema, keyed by the LOCAL binding name (`params:` names an
+  // imported schema by this name, e.g. `author: Author`) — built ONLY when
+  // the schema declares directly in the resolved lib this specifier names
+  // (mirrors `materializeSymbol`'s own direct-match arm, not the re-export
+  // chain `materializeChain` falls through to below): a schema reached only
+  // through a re-export chain stays out of scope for this load-phase
+  // revalidation, the same deferral `importedFns` above already documents
+  // for its own re-export-chain withhold. Populated below, consumed by the
+  // template-revalidation pass after this loop.
+  const importedSchemaShapes = new Map<string, SystemParamType>();
   // Bug 0304 fix 2: `isRegistrationError` must fire for every `parseCache`
   // entry exactly once. A DIRECT decl's own resolved lib is filtered inline
   // below, in the same position bug 0138's own test pins (`isRegistrationError`
@@ -1158,10 +1231,164 @@ export async function checkThetaImports(
       if (materialized !== undefined) {
         imports.push(materialized);
       }
+      // Bug 0422 route (a): a direct schema match (the same body this
+      // specifier's own decl loop already parsed, `parsed.document.body`)
+      // builds the real object shell for the load-phase template
+      // revalidation below. `collectBodyTypes` over the LIB's own body gives
+      // `toSystemParamType` the lib's own named-type set (nested fields
+      // referencing another schema/enum IN THE SAME LIB resolve; a nested
+      // import stays `opaque-object`, admitting further — unchanged from the
+      // parse-time disposition for that deeper case).
+      const directSchema = parsed.document.body.statements.find(
+        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
+      );
+      if (directSchema !== undefined) {
+        const { bodyTypes: libBodyTypes } = collectBodyTypes(
+          parsed.document.body.statements,
+          resolvedPath,
+        );
+        importedSchemaShapes.set(
+          specifier.local,
+          toSystemParamType(specifier.source, libBodyTypes, new Map()),
+        );
+      }
     }
 
     // Seed the cycle graph from this resolved `.thetalib`.
     await walkThetaLib(resolvedPath);
+  }
+
+  // Bug 0422 route (a) — LOAD-phase `system:` template revalidation, joined by
+  // bug 0423 route (a) — LOAD-phase sidecar carry (same pass, same walk: 0423
+  // needs the identical head resolution 0422 already performs to find a bare
+  // param's imported-schema shape). The PARSE-phase `system:` check
+  // (system-interpolation.ts) admits any `.Ident` step off an imported schema
+  // opaquely, because the sync parser cannot see the `.thetalib`'s fields;
+  // `importedSchemaShapes` above now holds the real field set — fields AND
+  // wire-rename sidecars/rootDef (`toSystemParamType`'s schema arm already
+  // attaches them via `buildOutboundSidecars`) — for every directly-imported
+  // schema this theta's `params:` names. Re-walk each already-parsed template
+  // PATH part whose head resolves to one of those schemas — not a re-parse, a
+  // re-walk of the SAME segments `checkSystemInterpolation` already validated
+  // — and refuse a step that names no real field with the newly-minted
+  // load-phase sibling code (0422). A BARE `${author}` (no further segments)
+  // has nothing to re-walk for 0422's refusal, but IS exactly 0423's scope:
+  // its terminal shape's `sidecars`/`rootDef` are converted to a real
+  // `InterpolationType` and written into a PATCHED COPY of this part
+  // (`patchedParts`, built lazily so a theta with no patchable part returns
+  // `patchedSystemTemplate: undefined` — byte-identical to before this fix).
+  // A `discriminated-union` terminal is also `valueDriven: true` but its
+  // head's `typeSource` never matches an entry in `importedSchemaShapes`
+  // (only a schema-kind import populates it), so it is left untouched here —
+  // out of this fix's scope (bug 0425's ground).
+  let patchedParts: SystemTemplatePart[] | undefined;
+  if (input.frontmatter?.system !== undefined && importedSchemaShapes.size > 0) {
+    const systemSourceFile = input.sourcePath;
+    const systemRange = input.frontmatter.systemRange;
+    const paramTypeSourceByName = new Map(
+      (input.frontmatter.params?.fields ?? []).map((field) => [field.wireName, field.type]),
+    );
+    const originalParts = input.frontmatter.system.parts;
+    for (let partIndex = 0; partIndex < originalParts.length; partIndex++) {
+      const part = originalParts[partIndex] as SystemTemplatePart;
+      if (part.kind !== "path" || part.valueDriven !== true) {
+        continue;
+      }
+      const head = part.segments[0] as string;
+      const typeSource = paramTypeSourceByName.get(head);
+      if (typeSource === undefined) {
+        continue;
+      }
+      const shape = importedSchemaShapes.get(typeSource.trim());
+      if (shape === undefined) {
+        continue;
+      }
+      // Bug 0422 F2: a non-object head shape is an imported alias-of-object /
+      // head-only schema, whose `.field` steps this load re-walk cannot judge
+      // (its true field set is not built here). Leave the head admitted — its
+      // pre-fix load behaviour — and defer its classification to bug 0427's
+      // arm dispatch in the shared `toSystemParamType`, which propagates here
+      // automatically once it lands. Only a genuinely-known object schema
+      // whose fields are in hand enters the walk (or 0423's patch, below).
+      if (shape.kind !== "object") {
+        continue;
+      }
+      // Bug 0423 route (a): a BARE param (no further segments) is the root
+      // object terminal — the only case this fix patches (nested renames are
+      // bug 0424's ground). Its rename map is already in `shape` (the direct
+      // schema match built above), so converting it to an `InterpolationType`
+      // and dropping `valueDriven` is enough to route the render through the
+      // canonical object row's wire-name translation instead of the
+      // sidecar-less value-driven row.
+      if (part.segments.length === 1) {
+        // Bug 0423 F3/F4: patch ONLY a schema carrying at least one ACTUAL
+        // wire rename — its outbound sidecar records a `wireNames` entry, and
+        // `buildSidecar` records one per field whose wire name differs from
+        // its theta name (a rename-free schema's sidecar `wireNames` is
+        // empty). A rename-free imported schema is left value-driven, so its
+        // bare `${param}` renders byte-identically for EVERY value kind:
+        // both a conforming object AND an out-of-schema non-object value
+        // (a bound `"hello"`, an array element) keep today's bytes, because
+        // the wire-name-translating object row would otherwise re-serialise
+        // an out-of-schema value through the schema's static shape. So
+        // byte-identity for the rename-free class holds by ABSENCE: the part
+        // is not patched at all, and `patchedSystemTemplate` stays absent
+        // when no renamed-schema bare param exists.
+        const rootDef = shape.rootDef;
+        const hasWireRename =
+          rootDef !== undefined && (shape.sidecars?.get(rootDef)?.wireNames.length ?? 0) > 0;
+        if (!hasWireRename) {
+          continue;
+        }
+        patchedParts = patchedParts ?? [...originalParts];
+        patchedParts[partIndex] = {
+          kind: "path",
+          segments: part.segments,
+          type: toInterpolationType(shape),
+        };
+        continue; // nothing further to walk on a bare param (0422's own loop below is a no-op here too).
+      }
+      let current: SystemParamType = shape;
+      for (let s = 1; s < part.segments.length; s++) {
+        const field = part.segments[s] as string;
+        if (current.kind === "opaque-object") {
+          // Bug 0422 F1: the walk reached an intermediate whose fields the
+          // shape builder did not resolve (a lib schema field typed by the
+          // LIB's own import stays `opaque-object`). Mirror the parse-phase
+          // sibling's `opaque-object` arm (system-interpolation.ts, which
+          // `continue`s): STOP judging and admit the remainder — the nested
+          // lib's fields are not in hand, so a deeper step cannot be refused.
+          break;
+        }
+        if (current.kind !== "object") {
+          // A real declared scalar / array / union field followed by a further
+          // `.step` is a genuine walked-off path (bug doc Summary consequence
+          // 2) — refuse it, matching the parse-phase sibling's non-object arm.
+          diagnostics.push(
+            loadSystemInterpBadFieldDiagnostic(
+              systemSourceFile,
+              systemRange,
+              field,
+              part.segments.slice(0, s).join("."),
+            ),
+          );
+          break;
+        }
+        const next = current.fields.get(field);
+        if (next === undefined) {
+          diagnostics.push(
+            loadSystemInterpBadFieldDiagnostic(
+              systemSourceFile,
+              systemRange,
+              field,
+              part.segments.slice(0, s).join("."),
+            ),
+          );
+          break;
+        }
+        current = next;
+      }
+    }
   }
 
   // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
@@ -1396,5 +1623,19 @@ export async function checkThetaImports(
   // Bug 0312: `walked` already holds every `.thetalib` resolved path this
   // theta's transitive import walk reached (`walkThetaLib`'s own dedup set),
   // so surfacing it is a read, not a second walk.
-  return { diagnostics, imports, undelivered, resolvedLibs: [...walked] };
+  //
+  // Bug 0423: `patchedSystemTemplate` is present only when the re-walk above
+  // patched at least one bare-param part — which happens ONLY for a schema
+  // carrying a real wire rename (F3/F4 rename-gate). A rename-free imported
+  // schema is never patched, so a theta importing only rename-free schemas
+  // (or no `system:` import at all) renders through the unpatched fallback
+  // the caller already has (`??`): byte-identity holds by ABSENCE, not by a
+  // no-op patch.
+  return {
+    diagnostics,
+    imports,
+    undelivered,
+    resolvedLibs: [...walked],
+    ...(patchedParts !== undefined ? { patchedSystemTemplate: { parts: patchedParts } } : {}),
+  };
 }

@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.437.0]
+
+### Fixed
+
+- **Bug 0427** — an alias-schema `system:` param fell to the permissive `string` terminal: `toSystemParamType`'s `fields === undefined` arm classified every alias declaration (`schema A = B`, alias-of-array, alias-of-union) as a bare string-kind cast — a WORSE terminal than the imported class (JSON values coerced through string rendering, `.Ident` paths mis-admitted against the alias's real shape). Fixed per the settled §Fix (primary route): the alias arms carry into the classifier and dispatch on them — one arm recurses `toSystemParamType(arm)` (alias-of-object gets the 0406 object shell with sidecars, alias-of-array the array kind, alias-of-primitive the scalar kind), 2+ arms route to the `discriminated-union` terminal (consistent with 0425's landed arm-sidecar disposition; no arm-rename machinery implemented here — L4's ground); the cycle guard is an `aliasChain` reset-on-object-entry (no `resolving` sentinel leak; pure alias cycles already refuse at declaration). `b0406`/`b0407`/`b0408` witnesses green unchanged. Witnessed by NEW `tests/b0427-alias-schema-param-string-terminal.test.ts` (red at fork). Recorded residual (filing candidate): `array<Alias>` element sidecars still render theta-side names (pre-existing 0407-class). Live: `b0406live` green under the lock (recorded WHY — the classifier's system-template surface).
+
+## [0.436.0]
+
+### Fixed
+
+- **Bug 0423** — a bare `${author}` over an imported-schema param rendered THETA-SIDE field names into the child's system prompt: no sidecars exist at parse for an imported `.thetalib` schema, so the wire-name guarantee 0407 restored for local schemas stayed violated for the imported class — moving a schema into a library silently changed the system-prompt bytes and taught the model names its typed responses must not emit. Fixed per the parent-adjudicated route (a) — load-phase sidecar carry: the same import-resolution pass 0422 uses attaches the imported schema's flat rename map + rootDef to the parsed template's opaque-object parts (post-load template patch, no re-parse), threaded onto BOTH the slash and invoke-callee spawn paths; rename-gated so rename-free imported schemas render byte-identically (family-coherent with 0424's sidecar route — the brand route was rejected because invoke-path bindings are plain unbranded records). Enumerated flip: `b0406` W5 only (theta-side → wire bytes). Witnessed by NEW `tests/b0423-imported-schema-bare-render-wire-names.test.ts` (red at fork) + the `b0422live` cell's wire-names direction (877 wire bytes proven live under the lock).
+
+## [0.435.0]
+
+### Fixed
+
+- **Bug 0422** — an imported-schema `system:` param admitted any `.Ident` chain: `${author.typo}` drew no diagnostic and rendered the literal text `undefined` into the child's system prompt, and a `Result`-valued opaque param silently deleted the ENTIRE `system:` prompt via the spawn site's bare `!ok` fallback (the 0406 Rec-A designated residual, the S1 silent-wrong-value class on the surface that conditions every child turn). Fixed per the parent-adjudicated route (a)+(c): (a) load-phase template revalidation in `checkThetaImports` — the pass that has the resolved `.thetalib` re-walks the template's opaque-object paths against the now-known field sets and REFUSES a walked-off directly-imported field with the NEWLY-MINTED sibling code `theta/load/system-interp-bad-field` (the adjudication's else-branch: the premeasured Phase taxonomy is single-valued/closed, so the parse code's Phase could not honestly widen — mint recorded, DIAG-2 row same-commit; permitted-codes untouched, no H9a evidence); (c) the spawn-site `!ok` arm emits a `theta-system-note` naming the failed slot and REFUSES the spawn instead of silently shipping the host's default prompt (QRY-18's prescribed containment). Bare `${author}` stays admitted; the parse-time chain admit stays (load replaces the parse gap); zero new diagnostics on local-schema classes. Enumerated flip: `b0406` W7 only (undefined-render → load refusal). Scope recorded: directly-imported schemas (re-export-chain deferred, spec prose qualified to match). Witnessed by NEW `tests/b0422-imported-schema-field-invisibility-load-refusal.test.ts` (red at fork) + NEW live acceptance cell `tests/live/acceptance/b0422live-imported-schema-wire-and-refusal.test.ts` (real `.thetalib`; both directions red-proven, green under the lock).
+
 ## [0.434.0]
 
 ### Fixed

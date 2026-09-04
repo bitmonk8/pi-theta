@@ -1,6 +1,6 @@
 # Bug 0423 — A bare `${author}` over an imported-schema `system:` param renders theta-side field names into the child's system prompt: no outbound sidecars exist at parse for an imported `.thetalib` schema, so the wire-name guarantee bug 0407 restored for local schemas is still violated for the imported class
 
-- **Status:** open.
+- **Status:** fixed (0.436.0).
 - **Sev/Diff estimate:** S2/D3 — theta-side names silently render into the
   child's system prompt against the single-rendering / no-second-map
   guarantee, teaching the model names its typed responses must not emit, with
@@ -159,7 +159,9 @@ only their field lists are visible at parse.
 
 ## Fix
 
-Not yet decided; two routes, both load-or-later:
+**Adjudicated (parent): route (a) — load-phase sidecar carry.** Shipped in
+0.436.0 — see `## Fix (0.436.0)` below. Two routes were on the table, both
+load-or-later:
 
 - (a) **Load-phase sidecar carry**: import resolution already parses the
   `.thetalib` (the same per-load-pass parse cache `tools:`/`invoke` use);
@@ -186,6 +188,66 @@ Not yet decided; two routes, both load-or-later:
 Either way: rename-free imported schemas must render byte-identically to
 today (`b0407` G1's class), and the `b0406` W5 pin flips from theta-side to
 wire bytes in the same commit.
+
+## Fix (0.436.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — route (a): in the SAME
+    load-phase pass 0422 uses, a bare `${param}` (root object terminal,
+    `segments.length === 1`) resolving to a directly-imported schema that
+    carries at least one ACTUAL wire rename gets its part replaced with the
+    schema's real object `InterpolationType` (its outbound `sidecars`/`rootDef`,
+    built by 0422's `importedSchemaShapes` via `toSystemParamType` →
+    `buildOutboundSidecars`) and `valueDriven` dropped, so the render applies
+    wire-name translation. Returned on a new `ThetaImportCheck.patchedSystemTemplate`
+    (no in-place mutation of the readonly parse structures). RENAME-GATED: a
+    rename-free imported schema is left value-driven → byte-identical for every
+    value kind (byte-identity by absence).
+  - `src/parser/system-interpolation.ts` — exports `toInterpolationType`.
+  - `src/extension/production-composition.ts` — threads
+    `patchedSystemTemplate` onto the composed frontmatter of BOTH spawn entry
+    paths: the slash-registered `runComposePass` and the `invoke`/`.theta`-
+    callable dispatch (`parseCalleeTheta` via the callee structural-check path
+    that already runs `checkThetaImports`), so an invoked subagent callee
+    renders wire names too.
+- Gates: witness `tests/b0423-imported-schema-bare-render-wire-names.test.ts`
+  RED→GREEN (W1 bare wire bytes, F1 invoke-path cell; controls W2 rename-free
+  byte-identical + `patchedSystemTemplate` absent, W3 0422-refusal, scalar
+  terminal); `tests/b0406-*.test.ts` W5 flipped theta-side→wire bytes; full
+  default suite green (rotating parallel-load timeouts green isolated); tsc
+  clean; lint clean; `permitted-codes.json` byte-identical.
+- Review: 2 rounds. R1 (deep) — blockers: F1 the invoke/`.theta`-callable spawn
+  rendered the UNPATCHED template (fixed by threading the patch through the
+  callee structural-check path; the verdict-memo never drops the patch for the
+  invoke dispatch — its per-dispatch fresh `getAllTools` snapshot guarantees a
+  memo miss); F3+F4 rename-gated the patch so byte-identity holds by absence for
+  the rename-free class (incl. out-of-schema non-object values); F2 test
+  controls exercise the patched/absent surface. R2 (fast) — CLEAN (F1 memo
+  argument verified against `pass-verdict-memo.ts`).
+- Verification: SOLID — both directions red-proved (carry no-op → W1/F1/W5 red;
+  rename-gate off → W2 red), byte-exact restore; full suite green modulo
+  isolated-noise timeout; tsc + lint clean; non-regression (0422 refusal fires;
+  b0407/b0408 untouched). LIVE:
+  `tests/live/acceptance/b0422live-imported-schema-system-interp-wire-and-refusal.test.ts`
+  DIRECTION 1 — an imported schema's bare `${cfg}` renders WIRE keys into the
+  spawned child's system prompt (real `pi -p`, real `.thetalib` import; the
+  child keys arithmetic off the wire spelling `"Addend"` → 500+277=777 → prober
+  877); GREEN under the global lock, RED-proven (neutralised → attribution guard
+  reds: `patchedSystemTemplate` absent, theta-side render → 600).
+- Residuals:
+  1. Nested-object renames (a nested schema-typed field's own renames) and
+     union-arm renames are NOT translated — bugs 0424 / 0425 (lane L4). Only the
+     bare root-object terminal is patched here, mirroring `buildOutboundSidecars`'
+     own flat-root scope.
+  2. For a RENAMED schema, an out-of-schema non-object value bound to the bare
+     param renders via the static object row (matching the body-declared class,
+     QRY-18 by-static-type) — a documented correct corner, not a regression
+     (recorded in `.pi/tmp/fixes/0423-notes.md`).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: brand route rejected (invoke-path bindings
+  are plain unbranded records — the sidecar route needs no brand); rename-free
+  imported schemas render byte-identically; body-expression sites (0429) and
+  L4's 0424/0425/0426 untouched.
 
 ## Provenance
 

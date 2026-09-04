@@ -59,6 +59,20 @@ export const SYSTEM_INTERP_UNKNOWN_PARAM_CODE =
   "theta/parse/system-interp-unknown-param";
 /** `theta/parse/system-interp-bad-field` (E). */
 export const SYSTEM_INTERP_BAD_FIELD_CODE = "theta/parse/system-interp-bad-field";
+/**
+ * `theta/load/system-interp-bad-field` (E, phase=load; bug 0422 route (a)). The
+ * PARSE-phase sibling above admits any `.Ident` step off an imported-`.thetalib`
+ * schema (the `opaque-object` arm just below) because the sync, `FileSystem`-free
+ * parser cannot see a `.thetalib`'s field set. Once import resolution DOES know
+ * that field set (load phase), a walked-off step is the same authoring mistake
+ * the parse-phase code exists to catch, but the DIAG-2 *Phase* taxonomy is
+ * single-valued and closed — no compound `parse|load` cell exists — so the
+ * fix mints this sibling code rather than widening the parse row's *Phase*
+ * (docs/spec_topics/diagnostics/code-registry-load.md). Emitted by the
+ * load-phase template-revalidation consumer in `import-static-checks.ts`, not
+ * by this module.
+ */
+export const LOAD_SYSTEM_INTERP_BAD_FIELD_CODE = "theta/load/system-interp-bad-field";
 /** `theta/parse/system-interp-unterminated` (E). */
 export const SYSTEM_INTERP_UNTERMINATED_CODE =
   "theta/parse/system-interp-unterminated";
@@ -452,8 +466,14 @@ function parseInterpolationPath(
  * never include `Result` — so the `Result<T, E>` row can never arise here. A
  * discriminated union renders as a compact-JSON object (it is an object value
  * at runtime); the `system:` grammar rejects descending *into* one.
+ *
+ * Exported for bug 0423's load-phase sidecar carry
+ * (`import-static-checks.ts`): the object arm already threads `sidecars` /
+ * `rootDef` through unchanged, so converting an imported schema's
+ * `SystemParamType` shell into the `InterpolationType` a patched template part
+ * carries is a call, not a reimplementation.
  */
-function toInterpolationType(type: SystemParamType): InterpolationType {
+export function toInterpolationType(type: SystemParamType): InterpolationType {
   switch (type.kind) {
     case "string":
       return { kind: "string" };
@@ -570,10 +590,15 @@ export function renderSystemPrompt(
  * used for the `opaque-object` and `discriminated-union` terminals, whose
  * static type alone cannot distinguish a scalar-union arm from an
  * object-schema arm, or an imported-schema field from a walked-off one. A
- * walked-off imported field resolves to JS `undefined`, which falls through
- * to the `object` row — `JSON.stringify(undefined)` yields the literal text
- * `undefined`. That is the documented residual bug 0406 W7 pins, not a case
- * to special-case away here.
+ * walked-off field resolves to JS `undefined`, which falls through to the
+ * `object` row — `JSON.stringify(undefined)` yields the literal text
+ * `undefined`. Bug 0422's fix moved bug 0406 W7's pin to a LOAD refusal for
+ * the directly-imported schema class (a walked-off `.field` there now draws
+ * `theta/load/system-interp-bad-field` before render). This value-driven
+ * `undefined` render therefore remains only for the still-admitted classes:
+ * the imported alias / head-only head (bug 0427's ground), a nested-import
+ * intermediate the load re-walk admits opaquely, and a schema reached only
+ * through a re-export chain — not the direct-import walked-off field.
  */
 function interpolationTypeOfValue(value: ThetaValue): InterpolationType {
   if (typeof value === "string") {

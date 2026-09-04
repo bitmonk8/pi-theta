@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, parseDeps } from "./helpers/e2e-s1";
 import {
   renderSystemPrompt,
   SYSTEM_INTERP_BAD_FIELD_CODE,
+  type SystemTemplate,
 } from "../src/parser/system-interpolation";
+import { parseThetaDocument } from "../src/parser/theta-document";
+import { checkThetaImports } from "../src/extension/import-static-checks";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
+import type { FileSystem } from "../src/seams/file-system";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Witness tests for bug 0406
@@ -27,6 +33,97 @@ import type { ThetaValue } from "../src/runtime/value";
 /** Error-severity diagnostic codes from a parsed doc, in source order. */
 function errorCodes(doc: ReturnType<typeof parseDoc>): string[] {
   return doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
+}
+
+// W7 LOAD-path support (bug 0422 flip). W7 no longer pins the parse-only
+// `undefined` render (parse behaviour is unchanged and still admits the typed
+// path opaquely): bug 0422 route (a) re-points it at the LOAD outcome, where a
+// walked-off imported field draws the phase=load sibling
+// `theta/load/system-interp-bad-field` and the theta does not register. Driving
+// that needs the import pass over a real `.thetalib` fixture, so W7 alone gains
+// the b0303 LOAD-path harness below.
+
+/** The load-phase sibling code bug 0422 route (a) mints. */
+const LOAD_SYSTEM_INTERP_BAD_FIELD_CODE = "theta/load/system-interp-bad-field";
+
+/** The imported `.thetalib` W7 resolves: fields `{name, role}`, so `typo` names none. */
+const W7_TYPES_LIB = [
+  "schema Author {",
+  '  name as "FullName": string,',
+  "  role: string,",
+  "}",
+  "",
+].join("\n");
+
+/** In-memory `FileSystem` serving only the fixture `.thetalib` (the b0303 double). */
+function w7FakeFs(files: Record<string, string>): FileSystem {
+  const dirs = new Map<string, string[]>();
+  for (const path of Object.keys(files)) {
+    const slash = path.lastIndexOf("/");
+    const parent = path.slice(0, slash);
+    const entries = dirs.get(parent) ?? [];
+    entries.push(path.slice(slash + 1));
+    dirs.set(parent, entries);
+  }
+  const reject = (): Promise<never> =>
+    Promise.reject(new Error("filesystem member not exercised by this test"));
+  return {
+    readText: reject,
+    writeText: reject,
+    exists: reject,
+    homedir: (): string => "/home",
+    cwd: (): string => "/proj",
+    configDirName: (): string => ".pi",
+    globalAgentDir: (): string => "/home/.pi/agent",
+    lstat: reject,
+    realpath: reject,
+    readdir: (path: string): Promise<readonly string[]> => {
+      const entries = dirs.get(path);
+      return entries === undefined
+        ? Promise.reject(new Error(`ENOENT: ${path}`))
+        : Promise.resolve(entries);
+    },
+    readBytes: (path: string): Promise<Uint8Array> => {
+      const content = files[path];
+      return content === undefined
+        ? Promise.reject(new Error(`ENOENT: ${path}`))
+        : Promise.resolve(new TextEncoder().encode(content));
+    },
+  } as FileSystem;
+}
+
+/** Parse the W7 importing theta, then run the real import pass over the fixture. */
+async function w7Load(): Promise<{ errorCodes: string[]; materialised: string[] }> {
+  const src = [
+    "---",
+    "mode: subagent",
+    "system: 'Hi ${author.typo}'",
+    "params:",
+    "  author: Author",
+    "---",
+    'import { Author } from "./types.thetalib"',
+    "let x = 1",
+    "",
+  ].join("\n");
+  const app = parseThetaDocument(
+    { path: "/proj/app.theta", bytes: new TextEncoder().encode(src) },
+    parseDeps(),
+  );
+  const input: ThetaCompositionInput = {
+    slashName: "app",
+    sourcePath: "/proj/app.theta",
+    frontmatter: app.frontmatter as ParsedFrontmatter,
+    body: app.body,
+  };
+  const check = await checkThetaImports(input, {
+    fs: w7FakeFs({ "/proj/types.thetalib": W7_TYPES_LIB }),
+    parseDeps: parseDeps(),
+  });
+  const diagnostics = [...app.diagnostics, ...check.diagnostics];
+  return {
+    errorCodes: diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
+    materialised: check.imports.map((m) => `${m.kind} ${m.name}`),
+  };
 }
 
 describe("bug 0406 — object-typed params misclassified as string", () => {
@@ -120,28 +217,67 @@ let x = 1`);
     expect(r.ok && r.text).toBe("Hi Ada");
   });
 
-  // W5 — a bare `${author}` off an imported-schema param must render the object
-  // row, killing `[object Object]`. The rendered JSON keeps theta-side names:
-  // imported-schema fields carry no wire-translation sidecars at this seam, so
-  // the residual is by design here (parent Recommendation A) — this asserts
-  // exactly that residual, not the wire-translated form.
-  it("W5: imported-schema bare `${author}` renders compact JSON with theta-side names", () => {
-    const doc = parseDoc(`---
-mode: subagent
-system: 'Hi \${author}'
-params:
-  author: Author
----
-import { Author } from "./types.thetalib"
-let x = 1`);
-    expect(errorCodes(doc)).toEqual([]);
-    const tmpl = doc.frontmatter?.system;
-    expect(tmpl).toBeDefined();
+  // W5 — bug 0423 flip (route (a) LOAD-phase sidecar carry). A bare `${author}`
+  // off an imported schema with a wire rename (`name as "FullName"`) must render
+  // the WIRE name into the child's system prompt, matching the body-declared
+  // class (b0407 W1) — QRY-18:34 does not qualify by where the schema is
+  // declared. Parse behaviour is DELIBERATELY unchanged (the imported param is
+  // still `opaque-object` at parse, so a parse-only render keeps theta-side
+  // names); the fix carries the rename map onto the parsed template during
+  // import resolution, so this is driven over the LOAD path — `parseThetaDocument`
+  // + `checkThetaImports` over the real `./types.thetalib` fixture (`W7_TYPES_LIB`,
+  // `name as "FullName"`). Per the decided (binding) surface the pass RETURNS the
+  // patched template on `check.patchedSystemTemplate` (no in-place mutation of the
+  // readonly `frontmatter.system`) and production-composition threads it onto the
+  // composed frontmatter the spawn renders, so this cell renders the effective
+  // template `check.patchedSystemTemplate ?? app.frontmatter.system`. RED at the
+  // fork: `patchedSystemTemplate` is absent, so `?? fallback` yields the unpatched
+  // template and the value-driven object row serialises the theta-side keys
+  // unchanged (`Hi {"name":"Ada","role":"dev"}`).
+  it("W5: imported-schema bare `${author}` renders wire names via the LOAD-phase sidecar carry", async () => {
+    const src = [
+      "---",
+      "mode: subagent",
+      "system: 'Hi ${author}'",
+      "params:",
+      "  author: Author",
+      "---",
+      'import { Author } from "./types.thetalib"',
+      "let x = 1",
+      "",
+    ].join("\n");
+    const app = parseThetaDocument(
+      { path: "/proj/app.theta", bytes: new TextEncoder().encode(src) },
+      parseDeps(),
+    );
+    const input: ThetaCompositionInput = {
+      slashName: "app",
+      sourcePath: "/proj/app.theta",
+      frontmatter: app.frontmatter as ParsedFrontmatter,
+      body: app.body,
+    };
+    const check = (await checkThetaImports(input, {
+      fs: w7FakeFs({ "/proj/types.thetalib": W7_TYPES_LIB }),
+      parseDeps: parseDeps(),
+    })) as Awaited<ReturnType<typeof checkThetaImports>> & {
+      readonly patchedSystemTemplate?: SystemTemplate;
+    };
+    expect(
+      check.imports.map((m) => `${m.kind} ${m.name}`),
+      "precondition: the imported `Author` schema resolves and materialises",
+    ).toContain("schema Author");
+    const tmpl = app.frontmatter?.system;
+    expect(tmpl, "the `system:` template must be present for the spawn site to render").toBeDefined();
+    // WHY: mirror production-composition threading the load-phase-patched
+    // template onto the composed frontmatter (the object the spawn site renders);
+    // the decided surface RETURNS it on `check.patchedSystemTemplate` (no in-place
+    // mutation), `undefined` at the fork → unpatched fallback → theta-side bytes.
+    const effectiveTemplate = check.patchedSystemTemplate ?? tmpl;
     const r = renderSystemPrompt({
-      template: tmpl!,
+      template: effectiveTemplate!,
       params: { author: { name: "Ada", role: "dev" } as unknown as ThetaValue },
     });
-    expect(r.ok && r.text).toBe('Hi {"name":"Ada","role":"dev"}');
+    expect(r.ok && r.text).toBe('Hi {"FullName":"Ada","role":"dev"}');
   });
 
   // W6 — a recursive schema is legal and the path grammar has no depth bound,
@@ -168,13 +304,17 @@ let x = 1`);
     expect(r.ok && r.text).toBe("Node leaf");
   });
 
-  // W7 — DOCUMENTED RESIDUAL for imported-schema field-invisibility (parent
-  // Recommendation A). An imported schema is admitted opaquely, so a walked-off
-  // field (`.typo`, absent from the runtime value) cannot be refused at parse
-  // time; it resolves to JS `undefined` and the value-driven object row yields
-  // the literal text `undefined`. Pinned as documented behaviour / filing
-  // candidate for the next hunt — not a second bug this fix must close.
-  it("W7: imported-schema walked-off `${author.typo}` renders the literal `undefined`", () => {
+  // W7 — bug 0422 flip (route (a) LOAD refusal). Parse behaviour is DELIBERATELY
+  // unchanged: at parse the imported-schema field step is still admitted
+  // opaquely (the parse-only branch below stays true), so the old
+  // `renders undefined` residual persists AT PARSE. The flip re-points W7 at the
+  // LOAD outcome: after import resolution the now-known `.thetalib` field set
+  // `{name, role}` is re-walked, and the walked-off `typo` draws the phase=load
+  // sibling `theta/load/system-interp-bad-field` so the theta does NOT register.
+  // RED at the fork: the load pass emits zero error diagnostics and the theta
+  // registers clean (no load-phase revalidation exists yet).
+  it("W7: imported-schema walked-off `${author.typo}` refuses at LOAD (theta does not register)", async () => {
+    // Parse is unchanged — the typed path is admitted opaquely, no parse refusal.
     const doc = parseDoc(`---
 mode: subagent
 system: 'Hi \${author.typo}'
@@ -183,14 +323,21 @@ params:
 ---
 import { Author } from "./types.thetalib"
 let x = 1`);
-    expect(errorCodes(doc), "an imported-schema field step is admitted opaquely").toEqual([]);
-    const tmpl = doc.frontmatter?.system;
-    expect(tmpl).toBeDefined();
-    const r = renderSystemPrompt({
-      template: tmpl!,
-      params: { author: { name: "Ada" } as unknown as ThetaValue },
-    });
-    expect(r.ok && r.text).toBe("Hi undefined");
+    expect(
+      errorCodes(doc),
+      "parse behaviour is unchanged: an imported-schema field step is admitted opaquely at parse",
+    ).toEqual([]);
+
+    // Load re-walks the resolved field set and refuses the walked-off field.
+    const load = await w7Load();
+    expect(
+      load.materialised,
+      "precondition: the imported `Author` schema resolves and materialises",
+    ).toContain("schema Author");
+    expect(
+      load.errorCodes,
+      "a walked-off imported field must draw the load-phase `system-interp-bad-field` sibling (bug 0422 route (a))",
+    ).toContain(LOAD_SYSTEM_INTERP_BAD_FIELD_CODE);
   });
 
   // --- Constraint guards: refusals the fix must PRESERVE (green at fork) -----

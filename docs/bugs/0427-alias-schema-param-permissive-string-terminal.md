@@ -1,6 +1,6 @@
 # Bug 0427 — An alias-declared schema in a `system:` param keeps the permissive `string` terminal: `p: B` over `schema B = Cat | Dog` renders `[object Object]`, an alias-of-array renders the comma-joined `a,b`, and a spec-legal `${p.field}` through an alias-of-object draws a spurious `theta/parse/system-interp-bad-field`
 
-- **Status:** open.
+- **Status:** fixed (0.437.0).
 - **Sev/Diff estimate:** S1/D2 — the two renders are QRY-18's own named
   corruption examples (`[object Object]`, comma-joined arrays) landing
   silently in the child's system prompt on documents that register with zero
@@ -189,6 +189,74 @@ permissive terminal; and routing 2+-arm aliases into the
 system-templates-2/04`'s rename-dropping ground — the two fixes must land
 consistently on arm-rename behaviour (coordinate the alias routing with
 whatever disposition /04 adopts).
+
+## Fix (0.437.0)
+
+- What shipped (primary route, as settled):
+  - `src/parser/theta-document.ts` — `collectBodyTypes` carries each schema's
+    alias/union RHS arms (`SchemaDecl.arms`) into a new
+    `FrontmatterBodyTypes.aliasArms` map beside the object-form `fields`.
+  - `src/parser/frontmatter.ts` — `toSystemParamType`'s `fields === undefined`
+    arm dispatches on `aliasArms.get(s)`: undefined/empty → the permissive
+    `{kind:"string"}` terminal (genuinely head-only — refused at declaration
+    by the empty-schema-body family, unreachable in a registering doc); exactly
+    1 arm → recurse `toSystemParamType(arm)` (alias-of-object → the 0406 object
+    shell with sidecars, alias-of-array → array kind, alias-of-primitive →
+    scalar); 2+ arms → the 0408 value-driven `{kind:"discriminated-union"}`
+    terminal. Pure-alias cycles are guarded by a separate `aliasChain` set that
+    RESETS on entry to an object schema (the object's parked `resolving` shell
+    closes any LEGAL object-hop cycle; a sentinel in the shared `resolving` map
+    would leak into that legal cycle and mis-render it — round-1 F1).
+- Gates: witness `tests/b0427-alias-schema-param-permissive-string-terminal.test.ts`
+  RED→GREEN (W1 union→JSON, W2 array→`["a","b"]`, W3 alias-of-object→JSON,
+  W4 `${p.kind}` admits; R1a object-hop-cycle parity, R1b legal alias chain,
+  R1c pure self-cycle terminates; G1/G2 controls); flips NO existing test
+  (b0406/b0407/b0408 green); full default suite green (590/590, 10555/10555);
+  tsc clean; lint clean; `permitted-codes.json` byte-identical.
+- Review: 2 rounds. R1 (deep) — blocker F1: the 1-arm cycle guard parked a
+  `{kind:"string"}` sentinel in the shared `resolving` shell map, which the
+  object-schema arm's early return read back and mis-classified a LEGAL
+  object-hop cycle (`schema A = Node; schema Node { next: A }` → `[object
+  Object]`, and `p:A` vs `p:Node` diverged) — a SILENT wrong where the fork was
+  a loud refusal; + residuals R1 (add cycle/parity cells), R2 (array<Alias>
+  element-sidecar theta-side names — pre-existing 0407-class gap, filing
+  candidate), R3 (stale sibling cite). Fixer: replaced the sentinel with the
+  `aliasChain`-reset-on-object-entry guard, added R1a/R1b/R1c cells, fixed R3.
+  R2 (fast) — CLEAN (the reset proven sufficient AND non-leaky: a pure-alias
+  cycle never crosses an object hop, so the reset cannot erase it; an object-hop
+  cycle is closed by the `resolving` shell the reset does not touch).
+- Verification: VERIFIED — both faces red-proved (primary arm neutralised →
+  W1–W4 red; old sentinel reintroduced → R1a red), byte-exact restore; full
+  suite green; tsc + lint clean; non-regression (b0406/b0407/b0408 and the
+  imported-schema family b0422/b0423 green — the new `aliasChain` param does not
+  disturb the imported/opaque-object classification). LIVE: 0427's alias render
+  flows through the IDENTICAL system-interp → `--system-prompt` spawn path that
+  `tests/live/acceptance/b0406live-object-param-system-interp-registration.test.ts`
+  exercises end-to-end through the real `pi -p`; the alias classification
+  itself is a pure parse-time decision (no imports, no FS, no model) fully
+  witnessed offline by b0427. Ran b0406live as the adjacent live witness —
+  GREEN under the global lock. WHY a bespoke alias live cell was not minted:
+  no real-host behaviour differs for the alias class beyond the offline
+  classifier's verdict, so a bespoke cell would add a provider round trip to a
+  decision no model participates in.
+- Residuals:
+  1. R2 — `array<Alias>` element sidecars render theta-side names (an
+     alias-blind `buildOutboundSidecars` for the array element): a pre-existing
+     0407-class wire-name gap, byte-identical pre/post this fix, outside the
+     §Fix's prescribed `toSystemParamType` `fields === undefined` edit. Filing
+     candidate in the 0406-residual pattern; not this fix's concern.
+  2. The brace-group-union arms-capture caveat (`schema X = { a: string | null }`
+     splits into 2 per-`|`-SEGMENT arms → discriminated-union) renders correct
+     bytes via the value-driven object row (strict improvement over the fork's
+     `[object Object]`); the mis-granularity is the documented bug-0033
+     residual (ii) family, not new corruption.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: 2+-arm alias arm-rename translation is bug
+  0425 (lane L4) — the discriminated-union terminal here carries NO arm-rename;
+  the alias→union routing is CONSISTENT with L4's union-terminal mechanism (do
+  not implement arm-rename here). Genuinely head-only decls keep the permissive
+  terminal. Imported-schema load path (0422/0423), body-expression sites (0429),
+  and L4's 0424/0425/0426 untouched.
 
 ## Provenance
 

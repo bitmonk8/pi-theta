@@ -148,6 +148,7 @@ import {
 } from "./subagent-fn-static-checks";
 import { checkThetaImports } from "./import-static-checks";
 import type { ThetaMode } from "../parser/frontmatter";
+import type { SystemTemplate } from "../parser/system-interpolation";
 import {
   matchAvailableModel,
   resolveBinderModel,
@@ -1216,6 +1217,17 @@ async function runComposePass(
     const composedInput: ThetaCompositionInput = {
       ...input,
       ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
+      // Bug 0423 route (a): thread the load-phase-patched `system:` template
+      // (wire-name sidecars applied to bare imported-schema params) onto the
+      // composed frontmatter exactly as `imports` above is threaded — a NEW
+      // frontmatter object, not an in-place mutation of the readonly parsed
+      // one, preserving every other frontmatter field (systemRange, params,
+      // etc.). Absent `patchedSystemTemplate` (no patchable part, or no
+      // `system:` at all) leaves `frontmatter` untouched, so the byte-identical
+      // constraint holds without a branch here.
+      ...(importCheck.patchedSystemTemplate !== undefined
+        ? { frontmatter: { ...input.frontmatter, system: importCheck.patchedSystemTemplate } }
+        : {}),
       ...(toolResult.callableSet !== undefined
         ? { callableSet: toolResult.callableSet }
         : {}),
@@ -2755,7 +2767,12 @@ async function calleeFailsOwnStructuralChecksBody(
   getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
-): Promise<{ fails: boolean; ownEscapes: boolean; consultedVisited: boolean }> {
+): Promise<{
+  fails: boolean;
+  ownEscapes: boolean;
+  consultedVisited: boolean;
+  patchedSystemTemplate?: SystemTemplate;
+}> {
   const calleeInput: ThetaCompositionInput = {
     slashName: thetaBasename(calleeAbsolutePath),
     sourcePath: calleeAbsolutePath,
@@ -2767,6 +2784,15 @@ async function calleeFailsOwnStructuralChecksBody(
     parseDeps: deps,
     claimDelivery: false,
   });
+  // Bug 0423 F1: the SAME import-resolution pass already computes the callee's
+  // load-phase-patched `system:` template (wire-name sidecars applied to a
+  // bare imported-schema param). Surface it so `parseCalleeTheta`'s invoke
+  // dispatch can thread it onto the callee's composed frontmatter and the
+  // parent renders WIRE names into the invoked child's `--system-prompt` —
+  // the slash-registration path already threads it (the `runComposePass`
+  // compose site), and an invoked callee must reach the same wire bytes. No
+  // second resolution pass: this is a read of the check that already ran here.
+  const patchedSystemTemplate = importCheck.patchedSystemTemplate;
   if (importCheck.diagnostics.some((d) => d.severity === "error")) {
     // Bug 0275 §Fix constraint 1: the early returns carry `ownEscapes: false`
     // — an import-error frame never reached its own `tools:` loop, so it
@@ -2776,7 +2802,12 @@ async function calleeFailsOwnStructuralChecksBody(
 
   const toolsList = frontmatter.tools;
   if (toolsList === undefined || toolsList.length === 0) {
-    return { fails: false, ownEscapes: false, consultedVisited: false };
+    return {
+      fails: false,
+      ownEscapes: false,
+      consultedVisited: false,
+      ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
+    };
   }
 
   // Bug 0276 §Fix constraint 4: true iff THIS frame took withhold (c) for any
@@ -2990,7 +3021,12 @@ async function calleeFailsOwnStructuralChecksBody(
           d.code === "theta/load/unresolvable-theta-path" ||
           d.code === "theta/load/prompt-mode-callable"),
     ) || [...grandchildFails.values()].some((f) => f);
-  return { fails, ownEscapes, consultedVisited };
+  return {
+    fails,
+    ownEscapes,
+    consultedVisited,
+    ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
+  };
 }
 
 /**
@@ -3016,11 +3052,25 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
   bytes: Uint8Array,
-): Promise<{ fails: boolean; ownEscapes: boolean; consultedVisited: boolean }> {
+): Promise<{
+  fails: boolean;
+  ownEscapes: boolean;
+  consultedVisited: boolean;
+  patchedSystemTemplate?: SystemTemplate;
+}> {
   const memo = deps.passVerdictMemo;
   if (memo !== undefined) {
     const hit = memo.read(getAllTools, activeRoots, calleeAbsolutePath, bytes);
     if (hit !== undefined) {
+      // Bug 0423 F1: the memo stores only the `{ fails, ownEscapes }` verdict,
+      // so a HIT returns no `patchedSystemTemplate`. This is safe for the sole
+      // consumer of the patched template — `parseCalleeTheta`'s invoke
+      // dispatch — because that call site builds a FRESH `getAllTools`
+      // registry-snapshot closure per dispatch (the `parseCallee` closure), so
+      // its verdict-memo key never matches a prior entry: its body ALWAYS runs
+      // and always carries the freshly-computed patched template. The load-
+      // side `parseCalleeForTools` caller, which does share a snapshot and can
+      // HIT, reads only `fails` and never the patched template.
       return { fails: hit.fails, ownEscapes: hit.ownEscapes, consultedVisited: false };
     }
   }
@@ -3373,26 +3423,42 @@ async function parseCalleeTheta(
   // registration and this drive-time re-check cannot diverge in opposite
   // directions over the same callee. Bug 0293: this stays `unreadable` (→
   // `load_failure`) — the callee's bytes parsed, so it is not the parse class.
-  if (
-    await calleeFailsOwnStructuralChecks(
-      fs,
-      ctx,
-      deps,
-      absolute,
-      document.frontmatter,
-      document.body,
-      getAllTools,
-      undefined,
-      new Set([absolute]),
-      bytes,
-    )
-  ) {
+  // Bug 0423 F1: read the structural verdict through the taint wrapper (the
+  // memo delegate the boolean entry point uses) rather than the boolean entry,
+  // so this dispatch also receives the callee's load-phase-patched `system:`
+  // template computed by the SAME `checkThetaImports` the structural check
+  // already runs — no second resolution pass. `.fails` is consumed exactly as
+  // before; `ownEscapes` stays discarded here (the boolean entry's contract).
+  const structural = await calleeFailsOwnStructuralChecksWithTaint(
+    fs,
+    ctx,
+    deps,
+    absolute,
+    document.frontmatter,
+    document.body,
+    getAllTools,
+    undefined,
+    new Set([absolute]),
+    bytes,
+  );
+  if (structural.fails) {
     return { kind: "unreadable" };
   }
   const input: ThetaCompositionInput = {
     slashName: thetaBasename(absolute),
     sourcePath: absolute,
-    frontmatter: document.frontmatter,
+    // Bug 0423 F1: thread the load-phase-patched `system:` template onto the
+    // callee's composed frontmatter through a NEW frontmatter object (not an
+    // in-place mutation of the readonly parsed one), exactly as the
+    // slash-registration compose site threads it, so the parent renders WIRE
+    // names into the invoked child's `--system-prompt`. Absent when the
+    // callee's imported schema carries no rename (or it has no `system:`
+    // import dependency), leaving the parsed frontmatter untouched —
+    // byte-identical to before this fix.
+    frontmatter:
+      structural.patchedSystemTemplate !== undefined
+        ? { ...document.frontmatter, system: structural.patchedSystemTemplate }
+        : document.frontmatter,
     body: document.body,
   };
   // Resolve and attach the callee's OWN frozen `tools:` callable set so an
