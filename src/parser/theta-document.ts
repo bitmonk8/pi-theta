@@ -32,7 +32,7 @@
 
 import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
-import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
+import { firstInvalidUtf8Offset, lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
 import { validatePathLiteral } from "../lexer/literals";
 import {
   checkImportDanglingAlias,
@@ -44,7 +44,7 @@ import {
   type ImportSpecifier,
   type ThetaLibTopLevelForm,
 } from "./imports";
-import type { SystemNoteChannelDeps } from "../extension/system-note-channel";
+import { emitDiagnosticBatch, type SystemNoteChannelDeps } from "../extension/system-note-channel";
 import {
   parseFrontmatter,
   type FrontmatterBodyTypes,
@@ -937,16 +937,19 @@ export interface ThetaDocument {
   /** The whole-file body statement-list AST the interpreter walks. */
   readonly body: ThetaBody;
   /**
-   * Every diagnostic aggregated across the whole file in one pass (no
-   * fast-fail), sorted `(file, line, col)` per
-   * diagnostics.md §"Multi-error reporting".
+   * Every diagnostic aggregated across the whole file in one pass, sorted
+   * `(file, line, col)` per diagnostics.md §"Multi-error reporting" — with
+   * one fast-fail exception: the invalid-encoding refusal arm (lexical.md
+   * §Encoding) short-circuits before the aggregation pass runs.
    */
   readonly diagnostics: readonly Diagnostic[];
   /**
-   * The {@link diagnostics} subset `lexTheta` already delivered through the
-   * V7d seam (bug 0255: same `Diagnostic` objects, unmapped by
-   * `assembleDiagnostics` — a re-delivering caller must exclude this subset
-   * by object identity, not by code prefix, to avoid double-delivery).
+   * The {@link diagnostics} subset already delivered through the V7d seam —
+   * by `lexTheta`, or (on the invalid-UTF-8 refusal arm) by the pre-decode
+   * encoding gate (bug 0410) — same `Diagnostic` objects, unmapped by
+   * `assembleDiagnostics` (bug 0255) — a re-delivering caller must exclude
+   * this subset by object identity, not by code prefix, to avoid
+   * double-delivery.
    */
   readonly deliveredDiagnostics: readonly Diagnostic[];
 }
@@ -975,6 +978,32 @@ export function parseThetaDocument(
   deps: ParseThetaDocumentDeps,
 ): ThetaDocument {
   const file = source.path;
+
+  // Bug 0410 §Fix option 1 — validate the RAW, pre-decode bytes before
+  // `decodeSource` runs. `decodeSource` uses a non-fatal `TextDecoder` that
+  // silently substitutes U+FFFD for invalid sequences, so a gate placed after
+  // it (or fed re-encoded text, as the `lexTheta` call below is) can never
+  // observe the original invalid byte or its offset. lexical.md §Encoding
+  // requires `theta/load/invalid-encoding` naming the zero-based offset of
+  // the first invalid byte in the ORIGINAL file content, offset 0 for a
+  // non-UTF-8 BOM — both only recoverable from `source.bytes` itself.
+  const invalidOffset = firstInvalidUtf8Offset(source.bytes);
+  if (invalidOffset >= 0) {
+    const encodingDiag: Diagnostic = {
+      severity: "error",
+      code: "theta/load/invalid-encoding",
+      file,
+      message: `invalid UTF-8 encoding at byte offset ${invalidOffset}`,
+    };
+    emitDiagnosticBatch([encodingDiag], deps.systemNote);
+    return {
+      frontmatter: null,
+      body: { statements: [], tail: null },
+      diagnostics: [encodingDiag],
+      deliveredDiagnostics: [encodingDiag],
+    };
+  }
+
   const text = decodeSource(source.bytes);
 
   // Separate the optional `---` frontmatter fence from the executable body.
@@ -1025,12 +1054,50 @@ export function parseThetaDocument(
   const parser = new BodyParser(lex.tokens, file, split.bodyText, paramFieldNames);
   const body = parser.parseBody();
 
+  // Bug 0411 §Fix option 1 — `scanDocComments` is the one line-oriented pass
+  // over the body text with no `@`...`` template guard (lexical.md:24: text
+  // inside a query template is rendered prompt, not a comment); the lexer's
+  // own `inTemplateProse` and `contextualDiagnostics`'s `inTemplateBody` both
+  // already toggle on backtick puncts to skip template interiors, so this
+  // scan gets the same toggle over the already-in-scope `lex.tokens`. Backticks
+  // are template delimiters and always pair (matching lexer.ts's own toggle);
+  // a backtick lexed inside a `${…}` interpolation is ordinary punctuation, not
+  // a delimiter (lexer.ts), but any document containing one already refused
+  // upstream of this call, so on an accepted document every backtick token here
+  // is a genuine open/close pair. Walking the stream once and recording (open,
+  // close) position pairs therefore recovers every template span. A
+  // body line is excluded iff its column-1 position sits strictly inside a
+  // span: `docLine` anchors matches at `^`, so a line with real code before an
+  // opening backtick, or after a closing one, is correctly left un-excluded.
+  const templateLineSpans: { open: Position; close: Position }[] = [];
+  let openBacktick: Position | undefined;
+  for (const tok of lex.tokens) {
+    if (tok.kind === "punct" && tok.text === "`") {
+      if (openBacktick === undefined) {
+        openBacktick = tok.range.start;
+      } else {
+        templateLineSpans.push({ open: openBacktick, close: tok.range.start });
+        openBacktick = undefined;
+      }
+    }
+  }
+  const posBefore = (a: Position, b: Position): boolean =>
+    a.line < b.line || (a.line === b.line && a.column < b.column);
+  const isTemplateLine = (line: number): boolean => {
+    const lineStart: Position = { line, column: 1 };
+    return templateLineSpans.some(
+      (span) => posBefore(span.open, lineStart) && posBefore(lineStart, span.close),
+    );
+  };
+
   // The `///` doc-comment runs are lexed away (the lexer emits no comment
   // tokens), so they are recovered by a line scan over the body text and
   // merged into the statement list in source order; each run's placement is
   // delegated to V5c's `checkDocCommentPlacement` over the following
-  // production.
-  const docScan = scanDocComments(split.bodyText, file, body.statements);
+  // production. `isTemplateLine` (above) excludes template-interior lines so
+  // this recovery never reads rendered prompt prose as a doc comment (bug
+  // 0411 §Fix).
+  const docScan = scanDocComments(split.bodyText, file, body.statements, isTemplateLine);
   // Attach schema-DECL / enum-DECL / FIELD descriptions to their anchor decls
   // BEFORE the floating `DocComment` nodes are folded back in, so every
   // downstream consumer of `statements` (params loweredSchema, the binder
@@ -1747,11 +1814,18 @@ function classifyDocAnchor(
  * by sniffing the following line's leading word — the leading word cannot
  * distinguish a schema field or enum variant (which lead with their own name)
  * from any other statement.
+ *
+ * `isTemplateLine` (bug 0411 §Fix) reports whether a 1-indexed line's
+ * column-1 position sits inside a `@`...`` query template body; per
+ * lexical.md:24 such a line is rendered prompt text, never a comment, so both
+ * scans below treat it as an ordinary non-doc, non-anchor line regardless of
+ * what it textually looks like.
  */
 function scanDocComments(
   bodyText: string,
   file: string,
   statements: readonly Stmt[],
+  isTemplateLine: (line: number) => boolean,
 ): {
   nodes: DocComment[];
   diagnostics: Diagnostic[];
@@ -1762,10 +1836,14 @@ function scanDocComments(
   const diagnostics: Diagnostic[] = [];
   const attachments: DocDescriptionAttachment[] = [];
   const docLine = /^[ \t]*\/\/\/(?!\/)(.*)$/;
+  // A `///`-shaped line inside a template body is prompt prose, not a doc
+  // comment (lexical.md:24) — never let it seed or extend a run.
+  const matchDocLine = (idx: number): RegExpExecArray | null =>
+    isTemplateLine(idx + 1) ? null : docLine.exec(lines[idx] ?? "");
 
   let i = 0;
   while (i < lines.length) {
-    const first = docLine.exec(lines[i] ?? "");
+    const first = matchDocLine(i);
     if (first === null) {
       i += 1;
       continue;
@@ -1773,7 +1851,7 @@ function scanDocComments(
     const startLine = i + 1; // 1-indexed
     const content: string[] = [];
     while (i < lines.length) {
-      const m = docLine.exec(lines[i] ?? "");
+      const m = matchDocLine(i);
       if (m === null) {
         break;
       }
@@ -1790,11 +1868,14 @@ function scanDocComments(
     // line number — NOT its leading word (a field or variant line leads with
     // its own name, which the classifier must not read). `undefined` when no
     // such line exists (EOF): `classifyDocAnchor` maps that to "other", so a
-    // trailing `///` with no following production stays misplaced.
+    // trailing `///` with no following production stays misplaced. A
+    // template-interior line is skipped here too (bug 0411 §Fix): it is
+    // rendered prose, not a candidate anchor, exactly like a blank or `//`
+    // line.
     let anchorLine: number | undefined;
     for (let j = i; j < lines.length; j += 1) {
       const raw = lines[j] ?? "";
-      if (raw.trim() === "" || /^[ \t]*\/\//.test(raw)) {
+      if (raw.trim() === "" || /^[ \t]*\/\//.test(raw) || isTemplateLine(j + 1)) {
         continue;
       }
       anchorLine = j + 1;

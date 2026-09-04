@@ -1,6 +1,6 @@
 # Bug 0412 — Every malformed `\u` escape FORM (`\u{00000041}` overlong, `\u{}`, braceless `\u1234`, unclosed `\u{41`) draws `theta/parse/invalid-unicode-escape` with the message "value is not a Unicode scalar value", though the registered Trigger requires "a recognised `\u{...}` escape whose value" is out of range — for `\u{00000041}` the value U+0041 IS a scalar value, and the unconsumed residue leaks into the token's decoded value (`"41}"`, `"1234"`)
 
-- **Status:** open.
+- **Status:** fixed (0.412.0).
 - **Sev/Diff estimate:** S3/D2 — every arm is a refused load, so the harm is a lying diagnostic (false predicate + wrong Hint) on a narrow input class; fix re-scopes emission in one lexer arm with a same-commit one-phrase registry Trigger widening and a GOV-15 stability note.
 - **Kind:** defect (code fired outside its registered Trigger, message asserts
   a falsehood) for the overlong-digits case; spec gap for the braceless /
@@ -148,3 +148,84 @@ well-formed and malformed inputs alike.
 - Probe: throwaway `tests/scratch-uesc.test.ts` (deleted); outputs quoted in
   §Reproduction.
 - Spec read: lexical.md §String literals; code-registry-parse.md rows 11-12.
+
+## Fix (0.412.0)
+
+- What shipped:
+  - `src/lexer/lexer.ts` (the `\u` escape arm of the string-literal scan) —
+    implement option 1 (the only 1.x-admissible route): consume the whole
+    braced/braceless hex run (removed the 6-digit cap) into BOTH `hex` and
+    `raw`; `wellFormed = braced && braceClosed && hex.length >= 1 && hex.length <= 6`;
+    three-way verdict — well-formed+in-range decodes; well-formed but
+    out-of-range/surrogate draws `theta/parse/invalid-unicode-escape` (its
+    EXISTING message, unchanged, kept exactly on its registered value trigger);
+    every MALFORMED FORM (missing `{`, empty `{}`, > 6 digits, or missing `}`)
+    draws `theta/parse/illegal-escape` with the EXISTING registered message
+    template rendered for `u` (`illegal escape sequence: \u`), range
+    `{start: escStart, end: pos()}`. This also fixes the second face: appending
+    the consumed hex digits to `raw` restores the verbatim-source-slice contract
+    (token `text`) for well-formed and malformed inputs alike, and stops the
+    residue leak into `value`.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` (same commit, DIAG-2) —
+    widened the `theta/parse/illegal-escape` row's Trigger from "unrecognised
+    character" to "unrecognised or malformed escape" (that one cell only). No
+    Message/Severity/Phase/Hint change; the `invalid-unicode-escape` and
+    `illegal-template-escape` rows are byte-untouched. DIAG-4 respected — the
+    illegal-escape message is the pre-existing `illegal escape sequence: \<char>`
+    template with `<char>` = `u`; no new wording.
+- Gates:
+  - Witness `tests/b0412-malformed-u-escape.test.ts`: RED at fork (forms 1-4 drew
+    `invalid-unicode-escape`; residue "41}"/"1234" in `value`; second-face token
+    `text` was `"\u{}"`); GREEN after fix (10 passed); controls (`\u{110000}`,
+    `\u{D800}` keep `invalid-unicode-escape`; `\u{41}` decodes "A") green both
+    directions. Revert-witness: byte-exact restore (`git hash-object` matched),
+    RED<->GREEN reversible.
+  - Full default suite: 573 files / 10448 tests green; `committed-fixture-parse-gate`
+    green (discharges the no-shipped-source-moves claim).
+  - `npx tsc -p tsconfig.json --noEmit`: clean. `npm run lint`: clean.
+- Review: 2 rounds. Round 1 `bug-fix-reviewer` — CLEAN on correctness/fidelity/spec;
+  governance verdict DIAG-2/DIAG-4/GOV-15 all SATISFIED; three non-blocking
+  residuals (R1 shadowed inner `closed`, R2 `\u{GG}` non-hex-interior residue,
+  R3 pre-widening "unrecognised" prose). Round-1 fixer (`bug-fix-fixer`) resolved
+  R1 (rename inner flag -> `braceClosed`, 3 sites) and the R3 lexer-comment
+  alignment (lexical.md left untouched — out of the settled §Fix scope). Round 2
+  `bug-fix-reviewer-fast` — CLEAN, confirmed the rename+comment carried no logic
+  change. No correctness/fidelity/spec findings in either round.
+- Verification: `bug-fix-verifier` — obligations 1/2/4 solidly met (witness
+  reverses byte-exact RED->GREEN; full suite + committed-fixture-parse-gate green;
+  tsc+lint clean). Obligation 3 (live): the malformed-`\u` class is a refused load
+  whose registration outcome is UNCHANGED (refused before and after — only the
+  diagnostic code re-scopes), so no new live cell is owed; ran ONE adjacent
+  existing load-refusal cell,
+  `tests/live/acceptance/escaped-quote-inline-rename-load-refusal.test.ts` (a
+  string-escape parse-refusal through the real `pi -p` with a registering
+  escape-free neighbour — the same real-host refusal channel), GREEN under the
+  global live lock (5.5s).
+- Residuals:
+  1. **Bug 0121 example-table staleness (era-pinned; FOR THE PARENT).** Braceless
+     `\u0030` now draws `theta/parse/illegal-escape` (one of the malformed FORMS
+     §Fix routes there), whereas the CLOSED bug
+     `0121-integer-like-wire-rename-escapes-order-guarantee.md`'s §example table
+     (row `E1 as \u0030`) records the pre-0412 `invalid-unicode-escape`. This is
+     the correct, settled behaviour and flips NO test (the full suite is green;
+     `tests/ctor-declaration-order.test.ts`'s bug-0121 row exercises only braced
+     `\u{30}`). Per the era-pinning standing adjudication a closed bug doc's body
+     is history and is NOT rewritten here; a dated note would need parent
+     ratification. Flagged for the parent to disposition.
+  2. `\u{GG}` (non-hex braced interior) correctly draws `illegal-escape` but leaves
+     an inert "GG}" residue in `value` (load refused, so inert). Not in
+     §Reproduction's four filed forms; scanning arbitrarily far to a later `}`
+     would be worse. Follow-up material, not a blocker; no witness added (out of
+     the settled §Fix scope).
+- Discharge notes appended: none (bug 0121 note deferred to parent per residual 1).
+- Pinned dispositions / non-goals: GOV-15 standing — all four malformed `\u`
+  inputs emit error-severity diagnostics under BOTH theta 1.0.0 and the fix (they
+  never load cleanly), so they sit OUTSIDE GOV-15's loads-cleanly equivalence input
+  set; the DIAG-2 Trigger widening is a carve-out-covered, 1.x-admissible
+  re-scoping (in-scope as a removal from `invalid-unicode-escape` and an addition
+  to `illegal-escape`), reusing an existing registered code rather than minting
+  (0326 anti-fork / 0393 precedent). No cleanly-loading input changes its observed
+  code (controls prove the value-trigger inputs unchanged). permitted-codes fixture
+  NOT touched (holds no parse codes). Option 2 (new message arm) correctly NOT
+  taken (DIAG-4). Non-goals (in-range/surrogate rejection, well-formed decode,
+  unterminated-string handling) untouched.

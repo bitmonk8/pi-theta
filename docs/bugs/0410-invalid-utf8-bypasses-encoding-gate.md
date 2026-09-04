@@ -1,6 +1,6 @@
 # Bug 0410 — `parseThetaDocument` decodes source bytes with a non-fatal `TextDecoder` before any UTF-8 validation runs, so `theta/load/invalid-encoding` is unreachable on the production path: an invalid byte inside a string literal loads with ZERO diagnostics and silently binds U+FFFD mojibake, and a UTF-16LE file draws 49 `unsupported-feature`/`unknown-identifier` errors instead of the pinned code at byte offset 0
 
-- **Status:** open.
+- **Status:** fixed (0.410.0).
 - **Sev/Diff estimate:** S1/D2 — invalid bytes silently bind U+FFFD mojibake with zero diagnostics on the only production parse path; fix hoists the existing validator into `parseThetaDocument` plus a refused-document arm and intake tests, one subsystem.
 - **Kind:** defect — implementation diverges from a stated rule
   (`docs/spec_topics/lexical.md:5` §Encoding), plus a test-infrastructure
@@ -158,3 +158,56 @@ with invalid bytes, both the silent-content case and the UTF-16 case.
   outputs quoted verbatim in §Reproduction.
 - Spec read: `docs/spec_topics/lexical.md` (whole page), `grammar.md`
   §Newline continuation, `query/query-forms.md` §Dedent and newline-trim.
+
+## Fix (0.410.0)
+
+- What shipped:
+  - `src/lexer/lexer.ts` — `export`ed `firstInvalidUtf8Offset` (the existing
+    UTF-8 validator, logic unchanged) so the whole-document path can reuse it
+    (option 1: "Requires exporting `firstInvalidUtf8Offset`").
+  - `src/parser/theta-document.ts` — pre-decode gate at the top of
+    `parseThetaDocument`, BEFORE `decodeSource`: `firstInvalidUtf8Offset(source.bytes)`
+    over the raw bytes; on fault emits `theta/load/invalid-encoding` (message
+    `invalid UTF-8 encoding at byte offset <offset>`, matching the lexer
+    emitter) through `deps.systemNote` via `emitDiagnosticBatch` and returns a
+    refused document (`frontmatter: null`, empty body, the diag in both
+    `diagnostics` and `deliveredDiagnostics`). No double-emission: the later
+    `lexTheta` sees valid re-encoded bytes and stays silent. Two `ThetaDocument`
+    docstrings reworded (deliverer attribution + the one fast-fail exception).
+    Constraints kept: (i) offset on original pre-normalisation bytes;
+    (ii) offset 0 for a non-UTF-8 BOM; (iii) leading UTF-8 BOM accepted;
+    (iv) an intake test drives `parseThetaDocument` for both the silent-content
+    and UTF-16 cases.
+- Gates:
+  - Witness `tests/b0410-encoding-gate-document-path.test.ts`: RED at fork
+    (a) `codes []`, (c) `codes [theta/parse/unknown-identifier,
+    theta/parse/unsupported-feature]`; GREEN after fix (3 passed); BOM control
+    green both directions. Revert-witness: byte-exact restore
+    (`git hash-object` matched), RED<->GREEN reversible.
+  - Full default suite: green (570 baseline files + this witness file); the
+    only reds were load-noise flakes in timing-sensitive discovery/subagent
+    files (e.g. `shared-subtree-judged-once-per-pass`), each green isolated,
+    none on the lexer/parser encoding surface.
+  - `npx tsc -p tsconfig.json --noEmit`: clean. `npm run lint`: clean.
+- Review: 1 round. `bug-fix-reviewer` round 1 — one `prose` finding (the
+  `deliveredDiagnostics` docstring named `lexTheta` as sole deliverer, now
+  false); fixed comment-only by `bug-fix-fixer-light`; polish verified by
+  gate-diff (comment-only hunks, gates green), confirmation round skipped. No
+  correctness/fidelity/spec findings.
+- Verification: `bug-fix-verifier` SOLID. Obligation 1 (witness reverses):
+  byte-exact restore, RED for the right reason, GREEN after. Obligation 2
+  (full suite): green modulo named load-noise flakes. Obligation 3 (live):
+  adjacent existing intake cell `b0263live-frontmatter-yaml-parse-failure`
+  (same load-time document-intake refusal channel) PASSED under a real host
+  (9.5s) under the global live lock — a new live cell is NOT owed: the change
+  alters only the invalid-UTF-8 refusal arm, a committed invalid-UTF-8 fixture
+  is infeasible (it would trip `committed-fixture-parse-gate`), the class is
+  witnessed offline at the exact production entry point, and valid-input
+  registration is byte-identical. Obligation 4 (lint+typecheck): clean.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `theta/load/invalid-encoding` is a
+  pre-existing registered code — no registry edit and no permitted-codes
+  change owed. Non-goals (validator correctness, valid-UTF-8 BOM handling,
+  CRLF/LF parity) untouched. `pass-parse-cache.ts` / `production-composition.ts`
+  (listed callers) not edited — the fix is internal to `parseThetaDocument`.

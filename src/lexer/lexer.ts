@@ -222,8 +222,15 @@ function isIdentPart(c: string): boolean {
  * well-formedness (including lone surrogates and overlong-range continuation
  * bytes), or `-1` when the whole sequence is valid UTF-8. A valid leading
  * UTF-8 BOM (`EF BB BF`) is itself well-formed UTF-8 and passes.
+ *
+ * Exported (bug 0410 §Fix option 1) so `parseThetaDocument`
+ * (`../parser/theta-document.ts`) can run this same validator over raw
+ * pre-decode bytes: that whole-document path otherwise decodes with a
+ * non-fatal `TextDecoder` before this module's own gate (`lexTheta` above)
+ * ever sees the bytes, so re-encoded, always-valid text reaches the gate and
+ * `theta/load/invalid-encoding` never fires on the shipped pipeline.
  */
-function firstInvalidUtf8Offset(bytes: Uint8Array): number {
+export function firstInvalidUtf8Offset(bytes: Uint8Array): number {
   const n = bytes.length;
   let i = 0;
   while (i < n) {
@@ -434,9 +441,9 @@ function scanTokens(
     // String literals: single- or double-quoted, single-line. The escape table
     // (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) is decoded into the
     // token's `value`; `text` keeps the verbatim source slice. An unrecognised
-    // escape is `theta/parse/illegal-escape`; a `\u{...}` whose scalar value is
-    // out of range or names a surrogate is `theta/parse/invalid-unicode-escape`
-    // (lexical.md §"String literals").
+    // or malformed escape is `theta/parse/illegal-escape`; a `\u{...}` whose
+    // scalar value is out of range or names a surrogate is
+    // `theta/parse/invalid-unicode-escape` (lexical.md §"String literals").
     if (c === '"' || c === "'") {
       const quote = c;
       const start = pos();
@@ -482,25 +489,48 @@ function scanTokens(
             raw += advance();
           } else if (e === "u") {
             raw += advance(); // the `u`
-            // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar value.
+            // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
+            // value (lexical.md §"String literals"). Consume the whole
+            // bracketed (or braceless) digit run before judging the form, so
+            // no unconsumed digit ever re-enters the loop as string content.
             let hex = "";
-            let wellFormed = false;
+            let braced = false;
+            let braceClosed = false;
             if (text[i] === "{") {
+              braced = true;
               raw += advance(); // `{`
-              while (i < n && isHexDigit(text[i] ?? "") && hex.length < 6) {
-                hex += advance();
+              while (i < n && isHexDigit(text[i] ?? "")) {
+                const digit = advance();
+                hex += digit;
+                raw += digit;
               }
               if (text[i] === "}") {
                 raw += advance(); // `}`
-                wellFormed = hex.length >= 1;
+                braceClosed = true;
+              }
+            } else {
+              // Braceless `\uXXXX` has no in-form value to judge either, but
+              // the digit run still must not leak into `value` as content.
+              while (i < n && isHexDigit(text[i] ?? "")) {
+                const digit = advance();
+                hex += digit;
+                raw += digit;
               }
             }
+            // A malformed FORM (missing `{`, `}`, zero digits, or more than
+            // six) has no in-form value to judge, so it draws
+            // `illegal-escape`, not `invalid-unicode-escape` — that code
+            // stays exactly on its registered out-of-range/surrogate value
+            // trigger and is computed only once the form itself is
+            // well-formed (bug 0412 §Fix).
+            const wellFormed =
+              braced && braceClosed && hex.length >= 1 && hex.length <= 6;
             const cp = wellFormed ? parseInt(hex, 16) : NaN;
             const isScalar =
               wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
             if (isScalar) {
               value += String.fromCodePoint(cp);
-            } else {
+            } else if (wellFormed) {
               diagnostics.push({
                 severity: "error",
                 code: "theta/parse/invalid-unicode-escape",
@@ -508,6 +538,14 @@ function scanTokens(
                 range: { start: escStart, end: pos() },
                 message:
                   "invalid Unicode escape: value is not a Unicode scalar value",
+              });
+            } else {
+              diagnostics.push({
+                severity: "error",
+                code: "theta/parse/illegal-escape",
+                file,
+                range: { start: escStart, end: pos() },
+                message: "illegal escape sequence: \\u",
               });
             }
           } else {

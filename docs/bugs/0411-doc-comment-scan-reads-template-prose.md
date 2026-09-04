@@ -1,6 +1,6 @@
 # Bug 0411 — `scanDocComments` line-scans the body with no `@`...`` template awareness, so a prose line starting `///` inside a query template refuses the theta with `theta/parse/doc-comment-misplaced`, and a template ending in a `///`-led closing line silently injects its prose into the following schema's lowered `description:` — merging with (and prepending to) the schema's real `///` run
 
-- **Status:** open.
+- **Status:** fixed (0.411.0).
 - **Sev/Diff estimate:** S1/D2 — template prose silently lowers into wire-visible schema `description:` bytes (post-0358) with zero diagnostics, plus a valid-input refusal; fix is a template-region exclusion in one scan with the token stream already in scope.
 - **Kind:** defect — `docs/spec_topics/lexical.md:24` pins "Comments inside
   the *text* of a `@`...`` query template are not comments — they are part of
@@ -192,3 +192,66 @@ Recommendation: option 1.
   `scanDocComments` / `attachDocDescriptions` / `classifyDocAnchor`
   (theta-document.ts), `joinDocComment` / `checkDocCommentPlacement`
   (descriptions.ts), lexer template-prose state machine (lexer.ts).
+
+## Fix (0.411.0)
+
+- What shipped:
+  - `src/parser/theta-document.ts` — implement option 1 (Recommended): at the
+    `scanDocComments` call site, walk the in-scope `lex.tokens`, toggling on
+    backtick puncts to record each template span `{open, close}`; a body line is
+    excluded from the doc-comment scan iff its column-1 position lies STRICTLY
+    inside a span (`posBefore(open, (L,1)) && posBefore((L,1), close)`).
+    `scanDocComments` gains an `isTemplateLine` 4th parameter; `matchDocLine`
+    returns null for template lines so an in-template `///` neither STARTS nor
+    EXTENDS a run, and the anchor-line forward scan skips template lines too.
+    Template slicing and rendering are untouched (only the doc-comment scan's
+    line classification changed). `src/lexer/lexer.ts` not edited — the token
+    stream already exposes the backtick puncts option 1 needs.
+  - Constraints kept: (a-line) `///` prose still renders into the prompt; run
+    formation across a template boundary does NOT merge (repro c forms the real
+    run alone); 0357's field/variant anchors intact (`classifyDocAnchor`
+    untouched; b0357/b0358 green).
+- Gates:
+  - Witness `tests/b0411-doc-comment-template-prose.test.ts`: RED at fork
+    (a) `doc-comment-misplaced` fires, (b) `S.description === "injected
+    description`"`, (c) the two runs merged into one description across the boundary;
+    GREEN after fix (4 passed); CONTROL (ordinary `///` above `schema T` lowers)
+    green both directions. Revert-witness: byte-exact restore
+    (`git hash-object` matched), RED<->GREEN reversible.
+  - Full default suite: 572 files / 10438 tests green (an intervening run under
+    concurrent-lane load showed one hook-timeout flake in
+    `production-tools-load-resolution`, green isolated — not on the doc-comment
+    surface).
+  - `npx tsc -p tsconfig.json --noEmit`: clean. `npm run lint`: clean.
+- Review: 1 round. `bug-fix-reviewer` round 1 — one `prose` finding (a call-site
+  comment overclaimed that `${…}` interpolations never emit backtick puncts;
+  false for a nested template, though such a document refuses to load — no
+  behavioural defect); fixed comment-only by `bug-fix-fixer-light`; polish
+  verified by gate-diff, confirmation round skipped. No correctness/fidelity/spec
+  findings.
+- Verification: `bug-fix-verifier` SOLID. Obligation 1 (witness reverses):
+  byte-exact restore, RED for the right reason, GREEN after. Obligation 2 (full
+  suite): green modulo a named load-noise flake. Obligation 3 (live): a NEW
+  live acceptance cell was owed and authored —
+  `tests/live/acceptance/b0411live-template-prose-doc-comment-registration.test.ts`
+  (arm (a) flips a committable valid input refuse->register): it PASSED under a
+  real host (4.5s) under the global live lock; token-free offline attribution
+  guards (arm a: no `doc-comment-misplaced`; arm b: no injected schema
+  description) red-prove the direction, and a byte-exact src revert confirmed the
+  SUBJECT draws `doc-comment-misplaced` pre-fix. Obligation 4 (lint+typecheck):
+  clean.
+- Residuals:
+  1. A column-1 `///` line inside a MULTI-LINE `${…}` interpolation no longer
+     draws `theta/parse/doc-comment-misplaced` (option 1 excludes at line
+     granularity across the whole backtick span, per the settled §Fix). This is
+     the §Fix-prescribed mechanism, never wrong wire bytes (the schema stays
+     undescribed, diagnostics `[]`); reachable only via a multi-line
+     interpolation whose interior line starts with `///`. Follow-up material for
+     the operator (a lexical.md:24 scope clarification or a narrow successor
+     report), NOT a blocker.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: option 2 (AST ranges) not taken — option 1
+  recommended. No registry / permitted-codes change (no code added or widened;
+  `theta/parse/doc-comment-misplaced` simply stops firing on non-comment input).
+  Non-goals (`//`/`/*` in prose, 0357 anchor classification, `////` rule, note
+  render) untouched.

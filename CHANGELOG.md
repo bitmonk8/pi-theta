@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.412.0]
+
+### Fixed
+
+- **Bug 0412** — malformed `\u` escape forms produced a lying code and message: the lexer split malformed unicode escapes across inconsistent classifications (the braceless `\u0030` spelling drew `theta/parse/invalid-unicode-escape` with a message misdescribing the author's text, while sibling malformed forms drew different codes for the same defect class) — one concept forked across codes with untrue messages. Fixed per the settled §Fix: all malformed `\u` escape forms classify to the concept-owning `theta/parse/illegal-escape` row with honest per-form messages — reuse-over-mint (the 0326 anti-fork law; no permitted-codes move), with the `code-registry-parse.md` Trigger widened SAME-COMMIT (DIAG-2) and the GOV-15 never-conformant standing recorded. RATIFIED era-pinning disposition: the closed bug-0121 doc's example row still showed the old code — a dated coordination note appended (era-pinned history, not current behaviour; the 0386→0370 note precedent), body untouched. Witnessed by NEW `tests/b0412-malformed-u-escape.test.ts` (red at fork; the malformed-form taxonomy + well-formed controls). Live: adjacent `escaped-quote-inline-rename-load-refusal` cell green under the lock (recorded WHY — the escape-lexing load-refusal seam).
+
+## [0.411.0]
+
+### Fixed
+
+- **Bug 0411** — the doc-comment scan read template prose: lexing a document whose `system:`/template body contained doc-comment-shaped text (`///` at line starts inside the template) attributed that prose to the surrounding declaration as documentation, so template CONTENT leaked into binder/prompt documentation surfaces — the scan keyed on line shape alone, not on lexical context. Fixed per the settled §Fix: the scan is context-bounded (template/string interiors excluded), so only genuine doc-comment positions contribute documentation; template prose stays inert content. Witnessed by NEW `tests/b0411-doc-comment-template-prose.test.ts` (red at fork; leak rows + genuine-doc-comment controls) and NEW live acceptance cell `tests/live/acceptance/b0411live-template-prose-doc-comment-registration.test.ts` (registration-surface witness, both directions proven at fork, green under the lock).
+
+## [0.410.0]
+
+### Fixed
+
+- **Bug 0410** — invalid UTF-8 in a theta document bypassed the encoding gate: the document path decoded the bytes permissively (replacement characters flowing silently into source text, names, and rendered surfaces) instead of the loud encoding refusal the intake contract pins — a document that is not valid UTF-8 could register with mangled content and zero diagnostics. Fixed per the settled §Fix at the intake seam (lexer + document path): invalid UTF-8 is detected at the gate and refused loudly through the established load-refusal machinery; well-formed documents are byte-identical through the gate. No new registry codes. Witnessed by NEW `tests/b0410-encoding-gate-document-path.test.ts` (red at fork; malformed-byte rows + clean-pass controls). Live: adjacent `b0263` frontmatter-YAML load-refusal cell green under the lock (recorded WHY — same intake seam).
+
 ## [0.409.0]
 
 ### Fixed

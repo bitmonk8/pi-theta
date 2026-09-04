@@ -1060,3 +1060,12 @@ controls.
 - **Lane protocol:** this change is left **uncommitted** in the lane worktree.
   No `package.json` bump, no `CHANGELOG.md` entry, no `docs/bugs/README.md`
   edit; the version above is the literal placeholder `0.245.0`.
+
+---
+
+**Coordination note (2026-09-04, bug 0412 era):** the example row above cites
+`theta/parse/invalid-unicode-escape` for the braceless `\u0030` spelling as
+observed in this bug's era. Bug 0412's fix (v0.412.0) reclassified malformed
+`\u` escape forms to the concept-owning `theta/parse/illegal-escape` row
+(Trigger widened same-commit in `code-registry-parse.md`); the example is
+era-pinned history, not current behaviour.
