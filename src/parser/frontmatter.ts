@@ -43,9 +43,11 @@ import {
   checkSystemInterpolation,
   type SystemParamType,
   type SystemTemplate,
+  type SystemUnionArm,
 } from "./system-interpolation";
 import {
   buildSidecar,
+  encodePointerSegment,
   type SchemaSidecar,
   type SidecarFieldInput,
 } from "./schema-lowering";
@@ -850,21 +852,25 @@ function namedSchemaOf(
 }
 
 /**
- * Build the outbound wire-name-translation sidecar for a body-schema
- * `system:` render (bug 0407): the sidecar path (`translateOutbound`) was
- * producer-less/dead before this fix (bug 0120) — this is its first
- * production input. Builds ONE sidecar from `rootSchema`'s own fields, keyed
- * under the root schema name (the key `translateOutbound` reads via
- * `rootDef`). `undefined` when `rootSchema` names no body schema (an imported
- * name, or no root at all) or is head-only/alias (`fields === undefined`).
+ * Build the outbound wire-name-translation sidecars for a body-schema
+ * `system:` render (bug 0407, extended by bug 0424): the sidecar path
+ * (`translateOutbound`) was producer-less/dead before bug 0407 (bug 0120).
+ * Builds a REAL per-`$defs` sidecar map by a transitive BFS over every body
+ * schema reachable from `rootSchema` through a field's own type (directly, or
+ * as an `array<Schema>` element) — each schema-typed field's input carries its
+ * `$ref` target (the referenced schema's name), so `translateOutbound`'s
+ * `$ref` recursion (`wire-translation.ts`) can descend past depth 0.
+ * `undefined` when `rootSchema` names no body schema (an imported name, or no
+ * root at all) or is head-only/alias (`fields === undefined`).
  *
- * Nested body-schema field renames inside a container/param are NOT translated
- * on a `system:` render: two schema-typed fields sharing a wire spelling at
- * different depths would collide in one flat wire-key namespace and resolve
- * the wrong schema's rename map, so only the root's own flat renames are
- * carried. This is a DOCUMENTED RESIDUAL of the same class as the
- * imported-schema and inline-object residuals (bug 0406 parent Rec A): a
- * nested rename renders theta-side, never as a WRONG wire name.
+ * Lookup stays per-`$defs` (keyed by schema name), never one flat wire-key
+ * namespace, so the round-1 F2 collision (two same-spelled wire names at
+ * different depths resolving the wrong schema's rename map) cannot recur: a
+ * position recurses through its OWN field's `refTarget`, never through a wire
+ * name matched against an unrelated schema. A reachable schema that is itself
+ * head-only/alias (`fields === undefined`) gets no sidecar entry; the runtime
+ * walk finds none for it and leaves that nested value theta-side — never a
+ * wrong wire name.
  */
 function buildOutboundSidecars(
   rootSchema: string | undefined,
@@ -873,31 +879,48 @@ function buildOutboundSidecars(
   if (rootSchema === undefined || !schemas.has(rootSchema)) {
     return undefined;
   }
-  const fields = schemas.get(rootSchema);
-  if (fields === undefined) {
+  if (schemas.get(rootSchema) === undefined) {
     return undefined;
   }
-  const inputs: SidecarFieldInput[] = fields.map((f) => {
-    const wire = f.wireName ?? f.name;
-    return {
-      thetaName: f.name,
-      ...(f.wireName !== undefined ? { wireName: f.wireName } : {}),
-      pointer: `/properties/${wire}`,
-      type: { kind: "other" },
-    };
-  });
-  return {
-    sidecars: new Map([
-      [
-        rootSchema,
-        buildSidecar(
-          inputs,
-          inputs.map((i) => i.thetaName),
-        ),
-      ],
-    ]),
-    rootDef: rootSchema,
-  };
+  const sidecars = new Map<string, SchemaSidecar>();
+  const seen = new Set<string>([rootSchema]);
+  const queue: string[] = [rootSchema];
+  while (queue.length > 0) {
+    const name = queue.shift() as string;
+    const fields = schemas.get(name);
+    if (fields === undefined) {
+      continue;
+    }
+    const inputs: SidecarFieldInput[] = fields.map((f) => {
+      const wire = f.wireName ?? f.name;
+      // A field whose type is an inline object embedding a schema reference
+      // (`x: {y: Inner}`) is not descended here: `namedSchemaOf` matches only a
+      // bare schema name or `array<Schema>`, so such a field carries no
+      // `refTarget` and its nested renames render theta-side on a bare
+      // container render — never a wrong wire name (bug 0424 residual, same
+      // disposition class as the pre-fix root-flat residual).
+      const refTarget = namedSchemaOf(f.typeSource, schemas);
+      if (refTarget !== undefined && !seen.has(refTarget)) {
+        seen.add(refTarget);
+        queue.push(refTarget);
+      }
+      return {
+        thetaName: f.name,
+        ...(f.wireName !== undefined ? { wireName: f.wireName } : {}),
+        pointer: `/properties/${encodePointerSegment(wire)}`,
+        type: { kind: "other" },
+        ...(refTarget !== undefined ? { refTarget } : {}),
+      };
+    });
+    sidecars.set(
+      name,
+      buildSidecar(
+        inputs,
+        inputs.map((i) => i.thetaName),
+      ),
+    );
+  }
+  return { sidecars, rootDef: rootSchema };
 }
 
 /**
@@ -908,8 +931,15 @@ function buildOutboundSidecars(
  * lowering's: a top-level entry with no colon, or an empty name / type either
  * side of it, is skipped rather than refused — the lowering's own diagnostics
  * cover a malformed entry; this seam only needs to know which fields resolve.
- * An inline object type carries no `as` renames of its own, so it produces no
- * sidecars.
+ * An inline object type carries no `as` renames of its own, but a FIELD of one
+ * can name a body schema (`{inner: Inner}`) whose own renames still need to
+ * translate on a bare render (bug 0424) — so a schema-typed field collects a
+ * root-position `$ref` input plus that schema's transitive sidecars (BFS via
+ * `buildOutboundSidecars`), merged under a minted root `$defs` name (no
+ * existing schema is keyed `__inline*`, so it cannot collide with — or be
+ * mistaken for a recursion into — a real schema). A purely scalar inline
+ * object (no schema-typed field) produces no sidecars, byte-identical to the
+ * pre-fix shape.
  */
 function inlineObjectType(
   s: string,
@@ -918,6 +948,8 @@ function inlineObjectType(
 ): SystemParamType {
   const interior = s.slice(1, -1);
   const map = new Map<string, SystemParamType>();
+  const rootInputs: SidecarFieldInput[] = [];
+  const merged = new Map<string, SchemaSidecar>();
   for (const entry of splitTopLevel(interior, ",", "angle-and-brace")) {
     const colon = topLevelColon(entry);
     if (colon < 0) {
@@ -929,8 +961,131 @@ function inlineObjectType(
       continue;
     }
     map.set(fieldName, toSystemParamType(fieldType, bodyTypes, resolving));
+    if (bodyTypes === undefined) {
+      continue;
+    }
+    const refTarget = namedSchemaOf(fieldType, bodyTypes.schemas);
+    if (refTarget === undefined) {
+      continue;
+    }
+    const nested = buildOutboundSidecars(refTarget, bodyTypes.schemas);
+    if (nested !== undefined) {
+      for (const [defName, sidecar] of nested.sidecars) {
+        merged.set(defName, sidecar);
+      }
+    }
+    rootInputs.push({
+      thetaName: fieldName,
+      pointer: `/properties/${encodePointerSegment(fieldName)}`,
+      type: { kind: "other" },
+      refTarget,
+    });
   }
-  return { kind: "object", fields: map };
+  if (rootInputs.length === 0 || bodyTypes === undefined) {
+    return { kind: "object", fields: map };
+  }
+  let rootName = "__inline";
+  while (bodyTypes.schemas.has(rootName)) {
+    rootName = `${rootName}_`;
+  }
+  merged.set(
+    rootName,
+    buildSidecar(
+      rootInputs,
+      rootInputs.map((i) => i.thetaName),
+    ),
+  );
+  return { kind: "object", fields: map, sidecars: merged, rootDef: rootName };
+}
+
+/**
+ * The unquoted text of a single string-literal type source (`"cat"` →
+ * `cat`), or `undefined` when `typeSource` is not one. Mirrors
+ * `classifyDiscriminatorFieldType` (theta-document.ts) exactly: a top-level
+ * `|` split is tested FIRST, so a literal-UNION field type (`"low" | "high"`,
+ * the inline-enumeration idiom, schemas.md:93) — which starts and ends with a
+ * quote yet is not a single literal — contributes NO literal-table entry
+ * rather than the bogus literal (`low" | "high`) its endpoint quotes would
+ * otherwise yield. This keeps a `system:` union arm's literal table in
+ * agreement with the parser's own discriminator detection.
+ */
+function stringLiteralOf(typeSource: string): string | undefined {
+  const s = typeSource.trim();
+  // A top-level `|` marks a literal UNION, not a single literal, so its
+  // endpoint quotes belong to two different literals — reject before the
+  // endpoint-quote test so `"low" | "high"` yields no literal-table entry.
+  if (splitTopLevel(s, "|").length > 1) {
+    return undefined;
+  }
+  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+    return s.slice(1, -1);
+  }
+  return undefined;
+}
+
+/**
+ * Build the `system:` union's per-arm data (bug 0425 §Fix route (a)): for
+ * each `|`-separated arm source that is the DIRECT name of a body object
+ * schema with a buildable outbound-sidecar map, an arm carrying that schema's
+ * rename sidecars, its field-name set (for the render-time structural pick),
+ * and its literal-discriminator table (for the render-time literal-match
+ * pick). Arm sources are matched against `schemas` directly, NOT through
+ * `namedSchemaOf`, because `namedSchemaOf` would UNWRAP an `array<Cat>` source
+ * to a phantom `Cat` object arm. So an arm source that is not a direct
+ * body-schema name — an `array<...>` element wrapper, an imported name, a
+ * scalar, or a literal — an alias/head-only schema (`fields === undefined`),
+ * or a schema `buildOutboundSidecars` cannot build a sidecar map for is
+ * SKIPPED, not pushed as a degraded arm, so the render-time pick never
+ * chooses a half-built arm; a value that would have matched a SHAPE-DISJOINT
+ * skipped arm source (an `array<...>` element wrapper, a scalar, or a
+ * literal — none of which an object value can ever be picked as) falls
+ * through to today's untranslated bytes (the §Fix's "never guess" constraint
+ * applies to the whole pipeline, not only the render step). A RECORD-shaped
+ * skipped arm source (an inline-brace arm, or an imported-schema arm) that
+ * shares a field set with a kept schema arm is instead picked as that kept
+ * arm — never a wrong wire name, since the value is a valid instance of the
+ * kept schema by every observable the parse-time type system has; it is a
+ * statically-ambiguous pick the never-guess constraint does not reach, not a
+ * guess. Zero
+ * resolvable arms (a scalar union, a union of imported-only names, or a union
+ * of `array<...>` sources) yields an empty list, and the caller keeps the
+ * bare `discriminated-union` shape.
+ */
+function buildSystemUnionArms(
+  armSources: readonly string[],
+  bodyTypes: FrontmatterBodyTypes,
+): readonly SystemUnionArm[] {
+  const arms: SystemUnionArm[] = [];
+  for (const rawArm of armSources) {
+    const s = rawArm.trim();
+    const schemaName = bodyTypes.schemas.has(s) ? s : undefined;
+    if (schemaName === undefined) {
+      continue;
+    }
+    const fields = bodyTypes.schemas.get(schemaName);
+    if (fields === undefined) {
+      continue;
+    }
+    const sc = buildOutboundSidecars(schemaName, bodyTypes.schemas);
+    if (sc === undefined) {
+      continue;
+    }
+    const literals = new Map<string, string>();
+    for (const f of fields) {
+      const lit = stringLiteralOf(f.typeSource);
+      if (lit !== undefined) {
+        literals.set(f.name, lit);
+      }
+    }
+    arms.push({
+      name: schemaName,
+      sidecars: sc.sidecars,
+      rootDef: sc.rootDef,
+      fieldNames: fields.map((f) => f.name),
+      literals,
+    });
+  }
+  return arms;
 }
 
 /**
@@ -962,12 +1117,27 @@ function toSystemParamType(
 ): SystemParamType {
   const s = typeSource.trim();
   // A single enclosing brace group is an inline object type — recognised
-  // before the generic and union checks so a top-level `|` inside its braces
+  // before the union and generic checks so a top-level `|` inside its braces
   // belongs to a field type, not a discriminated-union arm. A genuine union of
   // brace groups (`{a: X} | {b: Y}`) is not a single enclosing group — its
   // first `{` does not close at end — so it still reaches the union split.
   if (isSingleEnclosingBraceGroup(s)) {
     return inlineObjectType(s, bodyTypes, resolving);
+  }
+  // The top-level union split is tested BEFORE the generic `<>` check, matching
+  // the canonical structural order of `lowerTypeExpr` (params.ts: union split
+  // then generic) and of `classifyDiscriminatorFieldType` (theta-document.ts).
+  // A union whose arms carry generics (`Cat | array<Cat>`) both contains a `<`
+  // and ends with `>`, so testing the generic branch first would swallow the
+  // whole expression as a malformed generic and discard its arms; splitting the
+  // union first routes each arm source to `buildSystemUnionArms`.
+  const unionArmSources = splitTopLevel(s, "|");
+  if (unionArmSources.length > 1) {
+    if (bodyTypes === undefined) {
+      return { kind: "discriminated-union" };
+    }
+    const arms = buildSystemUnionArms(unionArmSources, bodyTypes);
+    return arms.length > 0 ? { kind: "discriminated-union", arms } : { kind: "discriminated-union" };
   }
   const lt = s.indexOf("<");
   if (lt > 0 && s.endsWith(">")) {
@@ -982,9 +1152,6 @@ function toSystemParamType(
         ? { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef }
         : { kind: "array" };
     }
-    return { kind: "discriminated-union" };
-  }
-  if (splitTopLevel(s, "|").length > 1) {
     return { kind: "discriminated-union" };
   }
   switch (s) {

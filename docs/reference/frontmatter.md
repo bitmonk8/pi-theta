@@ -299,7 +299,16 @@ discriminated unions, and scalars terminate the path. A `\${` is a literal `${`.
 Parse errors (all at frontmatter-parse time): `theta/parse/system-interp-not-path`,
 `theta/parse/system-interp-unknown-param`, `theta/parse/system-interp-bad-field`,
 `theta/parse/system-interp-unterminated`. Stringification uses the canonical
-interpolation-stringification table shared with `@`...`` templates.
+interpolation-stringification table shared with `@`...`` templates. A union-typed
+or opaque-imported-schema interpolation renders by the
+**resolved value's runtime kind** (value-driven row selection), not its static
+type: a union of object schemas translates through the arm the value matches —
+the value's schema brand when it names an arm, else (on the `system:` bare-path
+render) an exact field-set / literal-discriminator match; a value matching
+no arm — or more than one — renders untranslated, as does an array arm, an
+opaque-imported-schema value, and (on the `@`...`` query surface) any unbranded
+union value. A non-finite `number`-carrying union renders `NaN` / `±Infinity`
+like a plain `number`.
 
 ## `respond_repair:`
 

@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.432.0]
+
+### Fixed
+
+- **Bug 0426** — the QRY-18 table had no union-of-scalars row (0408's spec gap, the amendment its fix lacked authority to make): a union-typed value's rendering was prescribed nowhere — the table's rows covered scalars, containers, and schemas, but not the union terminal 0408's fix made value-driven, leaving four committed witnesses pinning behaviour no spec sentence owned. Fixed per the settled §Fix, SPEC-ONLY, sequenced after 0425 per the doc's ordering constraint: the union row added to the QRY-18 table with its translation clause matching 0425-(a)'s landed behaviour (per-arm translation, brand-then-discriminator pick, no-match untranslated), the `frontmatter-fields-b-and-templates.md` NaN clause widened to non-finite doubles reaching ANY number-carrying union, the value-driven row-selection rule stated once (opaque-imported terminal named), and the `docs/reference/` mirror of each touched sentence updated. Witnessed by NEW `tests/b0426-qry18-union-row.test.ts` (the row/clause pins). Live: N/A (spec-only; recorded WHY).
+
+## [0.431.0]
+
+### Fixed
+
+- **Bug 0425** — union-of-schemas arm renames were dropped: the `discriminated-union` system-template terminal rendered the resolved value with NO arm's sidecars consulted, so a union-typed param's wire renames vanished on the system surface (the third wire-translation gap of the 0406–0408 family). Fixed per the parent-adjudicated route (a) — arm-sidecar threading: the union type carries per-arm `{name, sidecars, rootDef}`, and the render picks the arm by the value's BRAND when present, else by exact-field/literal-discriminator match against the arm schemas; a value matching NO arm keeps today's untranslated bytes (never guess). The doc's own constraint decided (a) over the brand-only route: invoke-path bindings are plain unbranded records, so the discriminator fallback is needed regardless. Rename-free unions byte-identical (`b0408` G2 green); scalar-union rows preserved (W1–W4 green); the parse-time `.Ident` refusal stays (G3). Witnessed by NEW `tests/b0425-union-arm-renames.test.ts` (9 cells; red at fork). Live: `b0406live` green under the lock (recorded WHY).
+
+## [0.430.0]
+
+### Fixed
+
+- **Bug 0424** — nested schema renames were not translated on the bare-container render (the 0407 residual): the 0407 sidecars were root-flat — schema-typed FIELDS lowered to `{ kind: "other" }`, so a nested schema's wire renames vanished on the bare `${param}` system-template render while the runtime path translated them. Fixed per the settled §Fix: REAL per-`$defs` sidecars at the construction site (`parseFrontmatter` emits, per reachable body schema, a `SchemaSidecar` whose schema-typed fields carry their `$ref` target via `refTarget` recursion — the shape `translateOutbound` already consumes, per-`$defs` lookup so the F2 collision class cannot recur; `encodePointerSegment` exported from schema-lowering for the pointer spelling); the inline-object arm gets the same treatment. Rename-free renders byte-identical. Witnessed by NEW `tests/b0424-nested-schema-renames-bare-container.test.ts` (6 cells; red at fork). Live: `b0406live` acceptance cell green under the lock (the system-template surface adjacency; recorded WHY).
+
 ## [0.429.0]
 
 ### Fixed

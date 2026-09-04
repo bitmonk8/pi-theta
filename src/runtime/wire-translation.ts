@@ -588,23 +588,37 @@ function orderedEntries(
  * Outbound wire-name translation (theta value → JSON). Walks the theta-side value
  * and produces wire-named JSON before AJV validation: object keys are rewritten
  * theta→wire, enum values collapse to their bare wire string, and the walk
- * recurses through arrays and nested objects.
+ * recurses through arrays, nested objects, and — per-position, via the
+ * sidecar's `refTargets` — `$ref` targets (bug 0424: a schema-typed field's
+ * OWN renames translate at any depth, not only at the root).
  */
 export function translateOutbound(input: OutboundTranslationInput): unknown {
-  return lowerOutbound(input.value, input.sidecars.get(input.rootDef), input.sidecars);
+  return lowerOutbound(input.value, input.sidecars.get(input.rootDef), "", input.sidecars);
 }
 
 /**
  * Recursively lower one theta-side value to its wire-named JSON form under
- * `sidecar`. Renames object keys theta→wire, collapses an enum value to its bare
- * wire string (the declaring-enum tag never appears in JSON output), and
- * recurses through arrays and nested objects.
+ * `sidecar`, tracked by `pointer` (the JSON Pointer into `sidecar`'s own
+ * lowered fragment that `value` occupies). Renames object keys theta→wire,
+ * collapses an enum value to its bare wire string (the declaring-enum tag
+ * never appears in JSON output), and recurses through arrays and nested
+ * objects. At a position whose sidecar carries a `$ref` target for `pointer`,
+ * the walk re-enters `sidecars.get(refTarget)` at that schema's OWN root
+ * (pointer reset to `""`) rather than continuing under the enclosing
+ * sidecar — the same per-`$defs` recursion `translateInbound` already uses,
+ * so a nested schema's renames apply at any depth without a flat wire-key
+ * namespace (the round-1 F2 collision this recursion must not reintroduce).
  */
 function lowerOutbound(
   value: ThetaValue,
   sidecar: SchemaSidecar | undefined,
+  pointer: string,
   sidecars: ReadonlyMap<string, SchemaSidecar>,
 ): unknown {
+  const refTarget = sidecar?.refTargets?.find((rt) => rt.pointer === pointer)?.defName;
+  if (refTarget !== undefined) {
+    return lowerOutbound(value, sidecars.get(refTarget), "", sidecars);
+  }
   if (value instanceof String) {
     // An enum value is a boxed string carrying a non-enumerable declaring-enum
     // tag; its wire form is the bare string (the tag never crosses the wire).
@@ -615,15 +629,21 @@ function lowerOutbound(
     // so QRY-18's "translation applied recursively" (renames every level, not
     // just the container's own object keys) must rename them under that
     // schema's sidecar too — passing `undefined` here dropped every
-    // element-level rename (bug 0407).
-    return value.map((element) => lowerOutbound(element, sidecar, sidecars));
+    // element-level rename (bug 0407). Elements keep the SAME pointer: an
+    // `array<Schema>`'s element sidecar is already the element schema's own
+    // root (0407), so the element position carries no `$ref` of its own here.
+    return value.map((element) => lowerOutbound(element, sidecar, pointer, sidecars));
   }
   if (!isPlainObject(value)) {
     return value;
   }
 
+  // Renames apply at the fragment's OWN root only (`pointer === ""`): a
+  // deeper position's rename lives on the schema it `$ref`s to, reached above
+  // by re-entering that schema's sidecar at pointer `""`, never by continuing
+  // to read the enclosing sidecar's wire-name map at a non-root pointer.
   const thetaToWire = new Map<string, string>();
-  if (sidecar !== undefined) {
+  if (sidecar !== undefined && pointer === "") {
     for (const entry of sidecar.wireNames) {
       thetaToWire.set(entry.theta, entry.wire);
     }
@@ -635,8 +655,9 @@ function lowerOutbound(
   // restriction and may spell `__proto__` too.
   const result: { [k: string]: unknown } = Object.create(null) as { [k: string]: unknown };
   for (const [thetaKey, fieldValue] of Object.entries(value)) {
-    const wireKey = thetaToWire.get(thetaKey) ?? thetaKey;
-    result[wireKey] = lowerOutbound(fieldValue as ThetaValue, sidecars.get(wireKey), sidecars);
+    const wireKey = (pointer === "" ? thetaToWire.get(thetaKey) : undefined) ?? thetaKey;
+    const fieldPointer = `${pointer}/properties/${encodePointerSegment(wireKey)}`;
+    result[wireKey] = lowerOutbound(fieldValue as ThetaValue, sidecar, fieldPointer, sidecars);
   }
   return result;
 }

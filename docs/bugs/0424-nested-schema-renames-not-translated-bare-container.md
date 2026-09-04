@@ -1,6 +1,6 @@
 # Bug 0424 — A `system:` bare-container render translates only the root schema's own field renames: a nested body-schema field's `as` rename renders theta-side, so one template renders the same nested object two ways — `${p}` yields `{"inner":{"deep":"x"}}` while `${p.inner}` yields `{"D":"x"}`
 
-- **Status:** open.
+- **Status:** fixed (0.430.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt against the recursive-translation rule, with an
   internal-inconsistency face (two spellings of one value in ONE rendered
@@ -156,6 +156,60 @@ the invoke path carry no brand, so the sidecar route is the only one that
 covers every binding path. Constraints: rename-free renders byte-identical;
 `b0407` W1/W2 and `b0406` W5/W7 pins that stay true must stay green, and the
 row-1 bytes flip in the same commit as a new witness.
+
+## Fix (0.430.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — `buildOutboundSidecars` now emits a REAL
+    per-`$defs` sidecar map by transitive BFS over every body schema reachable
+    from the root through a field’s own type (directly or as an `array<Schema>`
+    element); each schema-typed field carries its `$ref` target instead of a
+    bare `{kind:"other"}` leaf. `inlineObjectType` gets the same treatment: a
+    schema-typed field collects a root-position `$ref` input and merges that
+    schema’s transitive sidecars under a minted collision-free root `$defs`
+    name. JSON-Pointer segments are RFC-6901-encoded to match the runtime
+    keying (review F1).
+  - `src/runtime/wire-translation.ts` — `lowerOutbound` now recurses
+    per-`$defs` via the sidecar’s `refTargets` (re-entering the referenced
+    fragment at its own root, pointer reset to `""`) instead of by wire-name
+    coincidence; wire-name renames apply at the fragment root (`pointer===""`)
+    only. The round-1 F2 flat-wire-key collision cannot recur (lookup is by
+    schema name, never one flat namespace). Byte-identical for any sidecar
+    carrying no `refTargets` (the 0407 root-flat and rename-free paths).
+  - `src/parser/schema-lowering.ts` — `encodePointerSegment` exported so the
+    construction site shares the canonical lowering encoder (review F1).
+- Gates: witness `tests/b0424-nested-schema-renames-not-translated-bare-container.test.ts`
+  6/6 green (W1/W2/W3 nested renames, G1 rename-free byte-identical, F3
+  per-`$defs` collision non-recurrence, F4 `/`-bearing rename); full `npm test`
+  588 files / 10541 tests green (7 files flaked under parallel load, all green
+  isolated and off-surface); `npm run typecheck` clean; `npm run lint` clean.
+- Review: 2 rounds. Round 1 (`bug-fix-reviewer`, deep) — 3 findings: F1
+  [correctness] unencoded construction-site pointers (silent miss on a
+  `/`/`~`-bearing rename; pathological alias → wrong-wire), F2 [correctness]
+  a schema reachable only via an inline-object-typed field stays untranslated,
+  F3 [test] no collision-non-recurrence witness; all addressed (F1 fixed via
+  `encodePointerSegment`, F2 recorded as a documented residual, F3 witness
+  added). Round 2 (`bug-fix-reviewer-fast`) — CLEAN.
+- Verification: `bug-fix-verifier` SOLID — witness reds on the neutralised fix
+  with the doc’s theta-side signature (`deep` for `D`) and restores byte-exact
+  green; full default suite green (7 timeouts green isolated, off-surface);
+  lint + typecheck clean; live obligation discharged by the orchestrator
+  (`tests/live/acceptance/b0406live-object-param-system-interp-registration.test.ts`
+  green under the global live lock — render-bytes class, registration outcome
+  unchanged, so an adjacent existing cell witnesses the surface).
+- Residuals:
+  1. A body schema reachable ONLY through an inline-object-typed field
+     (`schema Outer { x: {y: Inner} }`, `p: '{x: {y: Inner}}'`,
+     `xs: array<{y: Inner}>`) is not descended by the BFS (`namedSchemaOf`
+     matches only a bare schema name or `array<Schema>`): its nested renames
+     render theta-side, never a wrong wire name — the same two-faces class one
+     hop deeper, outside §Fix’s named scope. Recorded in a WHY comment at the
+     BFS classification site; filing candidate.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the never-wrong-wire non-goal holds (a
+  nested rename renders theta-side OR correct-wire, never wrong-wire).
+  Imported-schema renames (bug 0423, lane L3) and union-arm renames (bug 0425)
+  remain out of scope; the query-template surface already conforms.
 
 ## Provenance
 

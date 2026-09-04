@@ -38,7 +38,7 @@
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type ThetaMode } from "./frontmatter";
-import { isEnumValue, isResultValue, type ThetaValue } from "../runtime/value";
+import { isEnumValue, isResultValue, schemaTagOf, type ThetaValue } from "../runtime/value";
 import {
   stringifyInterpolatedValue,
   type InterpolationType,
@@ -126,8 +126,25 @@ export type SystemParamType =
       readonly sidecars?: Extract<InterpolationType, { kind: "object" }>["sidecars"];
       readonly rootDef?: string;
     }
-  | { readonly kind: "discriminated-union" }
+  | { readonly kind: "discriminated-union"; readonly arms?: readonly SystemUnionArm[] }
   | { readonly kind: "opaque-object" };
+
+/**
+ * One arm of a `discriminated-union` `system:` param's static type (bug 0425
+ * §Fix route (a)): the object schema it names, plus enough to pick it at
+ * render time by the resolved value's own runtime shape when the static type
+ * alone (a bare `discriminated-union`) cannot. `literals` is the arm's
+ * literal-discriminator table (theta field name → the one wire-free literal
+ * value that field must hold in this arm, schemas.md §Discriminated unions) —
+ * empty when the arm carries no literal-discriminator field.
+ */
+export interface SystemUnionArm {
+  readonly name: string;
+  readonly sidecars: Extract<InterpolationType, { kind: "object" }>["sidecars"];
+  readonly rootDef: string;
+  readonly fieldNames: readonly string[];
+  readonly literals: ReadonlyMap<string, string>;
+}
 
 // --- Parsed template shape --------------------------------------------------
 
@@ -153,6 +170,15 @@ export type SystemTemplatePart =
        * the object-row fallback used when this flag is absent.
        */
       readonly valueDriven?: true;
+      /**
+       * The union's arm sidecars, present iff the terminal's static
+       * `discriminated-union` type carried arms (bug 0425 §Fix route (a)):
+       * `renderSystemPrompt` uses these to pick the resolved value's arm
+       * (by schema brand, else by field-set / literal-discriminator match)
+       * and translate through that arm's sidecars rather than rendering the
+       * bare value-driven object row untranslated.
+       */
+      readonly unionArms?: readonly SystemUnionArm[];
     };
 
 /** A successfully-parsed `system:` template: its ordered parts. */
@@ -400,6 +426,20 @@ function parseInterpolationPath(
     }
   }
 
+  // A `discriminated-union` terminal carrying arms (bug 0425 §Fix route (a))
+  // threads them through so the value-driven render can pick and translate
+  // through the resolved value's arm; an arm-less union (scalar arms, or an
+  // arm the static type could not resolve) falls through to the pre-existing
+  // untranslated value-driven row below, unchanged.
+  if (current.kind === "discriminated-union" && current.arms !== undefined) {
+    return {
+      kind: "path",
+      segments,
+      type: { kind: "object" },
+      valueDriven: true,
+      unionArms: current.arms,
+    };
+  }
   if (current.kind === "opaque-object" || current.kind === "discriminated-union") {
     return { kind: "path", segments, type: { kind: "object" }, valueDriven: true };
   }
@@ -509,7 +549,12 @@ export function renderSystemPrompt(
     // resolved value through the shared canonical renderer (QRY-18) so the model
     // sees one rendering of a given value regardless of surface.
     const value = resolvePath(input.params, part.segments);
-    const effectiveType = part.valueDriven ? interpolationTypeOfValue(value) : part.type;
+    const effectiveType =
+      part.valueDriven && part.unionArms !== undefined
+        ? (unionArmObjectType(value, part.unionArms) ?? interpolationTypeOfValue(value))
+        : part.valueDriven
+          ? interpolationTypeOfValue(value)
+          : part.type;
     const rendered = stringifyInterpolatedValue(value, effectiveType);
     if (!rendered.ok) {
       return { ok: false, diagnostic: rendered.diagnostic };
@@ -553,6 +598,70 @@ function interpolationTypeOfValue(value: ThetaValue): InterpolationType {
     return { kind: "result" };
   }
   return { kind: "object" };
+}
+
+/**
+ * Pick the resolved value's arm from a `discriminated-union`'s static arm
+ * list and mint the object `InterpolationType` that arm's sidecars translate
+ * through (bug 0425 §Fix route (a)). Two pick strategies, tried in order:
+ *
+ *   1. schema brand — `schemaTagOf` reads the non-enumerable tag
+ *      `brandSchemaValue` installs; an exact arm-name match wins outright.
+ *   2. structural (no brand, or a brand naming no arm) — an arm ADMITS iff
+ *      its field-name set is EXACTLY the value's own key set (same size,
+ *      every field name present) and every literal-discriminator field's
+ *      value in `arm.literals` matches. The UNIQUE admitting arm wins; zero
+ *      or more-than-one admitting arm returns `undefined` — the §Fix's "never
+ *      guess" constraint — so the caller falls back to today's untranslated
+ *      value-driven row.
+ *
+ * `undefined` also when `value` is not a plain schema-shaped record (a
+ * scalar, `null`, an array, an enum, or a `Result`) — those runtime kinds
+ * never reach this helper today (bug 0408 kept them on their own scalar
+ * rows), but the guard keeps the predicate honest if that ever changes.
+ */
+function unionArmObjectType(
+  value: ThetaValue,
+  arms: readonly SystemUnionArm[],
+): InterpolationType | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    isEnumValue(value) ||
+    isResultValue(value)
+  ) {
+    return undefined;
+  }
+  const armType = (arm: SystemUnionArm): InterpolationType => ({
+    kind: "object",
+    ...(arm.sidecars !== undefined ? { sidecars: arm.sidecars } : {}),
+    rootDef: arm.rootDef,
+  });
+  const brand = schemaTagOf(value);
+  if (brand !== undefined) {
+    const byBrand = arms.find((a) => a.name === brand);
+    if (byBrand !== undefined) {
+      return armType(byBrand);
+    }
+  }
+  const keys = Object.keys(value as Readonly<Record<string, ThetaValue>>);
+  const record = value as Readonly<Record<string, ThetaValue>>;
+  const admitting = arms.filter((arm) => {
+    if (arm.fieldNames.length !== keys.length) {
+      return false;
+    }
+    if (!arm.fieldNames.every((fn) => keys.includes(fn))) {
+      return false;
+    }
+    for (const [field, literal] of arm.literals) {
+      if (record[field] !== literal) {
+        return false;
+      }
+    }
+    return true;
+  });
+  return admitting.length === 1 ? armType(admitting[0] as SystemUnionArm) : undefined;
 }
 
 /** Resolve a validated `Ident ('.' Ident)*` path against the params object. */

@@ -1,6 +1,6 @@
 # Bug 0426 — The QRY-18 stringification table has no row for a union static type: the shipped value-driven row selection (`number | null` → `NaN`, unquoted strings, scalar rows) is pinned by tests only, and the table's own "render by the static type" headline now describes a rule the implementation does not follow for union and opaque terminals
 
-- **Status:** open.
+- **Status:** fixed (0.432.0).
 - **Sev/Diff estimate:** S4/D2 — doc/spec drift with a crisp, mechanically
   demonstrable gap: the behaviour is correct and test-pinned, but a second
   implementer reading the normative table cannot derive it (no row keys a
@@ -155,6 +155,58 @@ the new row's translation clause must FOLLOW `candidate
 system-templates-2/04`'s disposition — file/fix the two together (or /04
 first); writing the clause before /04 settles would pin spec text a
 behaviour fix then contradicts.
+
+## Fix (0.432.0)
+
+- What shipped (spec-only — no runtime bytes change):
+  - `docs/spec_topics/query/query-escapes-stringification.md` — QRY-18 gains a
+    **Union type** row (rendered by the row of the resolved value’s runtime
+    kind, not the static union type) and a **Value-driven row selection** note
+    stating the rule once: the row is selected from the resolved value’s runtime
+    kind (a scalar value takes its scalar row — `null` → `null`, a non-finite
+    `number`-carrying union → `NaN` / `±Infinity` per the `number` row; an object
+    value takes the Schema-typed object row); the opaque-imported terminal is
+    named. The object-row translation clause MATCHES bug 0425-(a)’s landed
+    behaviour: the arm is picked by the value’s schema brand when it names an
+    arm, otherwise (on the `system:` bare-path render) by an exact theta-side
+    field set plus any literal discriminator; a value matching no arm — or more
+    than one — renders untranslated (never a guessed arm). The `@`...`` query
+    surface translates a union value by schema brand alone; array / inline /
+    imported arms and opaque-imported object values render untranslated.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` — the
+    NaN-reachability clause is widened from a plain `number`-typed param to any
+    number-carrying union type (`number | null`) whose resolved value is a
+    `number`, tied to the value-driven row selection.
+  - `docs/reference/frontmatter.md` — the condensed mirror of each touched
+    sentence (value-driven row selection; the union-arm pick and its surface
+    split; the widened non-finite clause).
+- Gates: witness `tests/b0426-qry18-no-union-of-scalars-row.test.ts` (reads the
+  three docs, asserts the settled normative substrings incl. the union row
+  itself, the brand pick, the untranslated consequent, and both never-guess
+  cases; control cell D) green; full `npm test` 590 files / 10561 tests green;
+  `tests/citation-symbol-form-gate.test.ts` (bug 0134) green; `npm run
+  typecheck` and `npm run lint` clean. No runtime bytes changed — b0408 W1–W4/
+  G2/G3, b0425 (9), b0424 (6) all green.
+- Review: 3 rounds. Round 1 (`bug-fix-reviewer`, deep) — F1 [spec] the note
+  over-claimed surface-uniform arm-matching (the `@`-query surface is
+  brand-only), F2 [spec] array/opaque values routed to a row promising
+  translation the renderer does not apply, F3 [spec] mirror dropped the
+  "more than one" case, F4 [test] witness did not gate the row / untranslated
+  consequent / brand clause; all addressed. Round 2 (deep) — F1 residual: the
+  structural pick applies whenever the brand names NO arm (not only unbranded);
+  reworded. Round 3 (`bug-fix-reviewer-fast`, scoped) — CLEAN.
+- Verification: `bug-fix-verifier` SOLID — the witness reds on reverting each
+  settled substring and restores byte-exact green; full suite green; citation
+  gate green; lint + typecheck clean; byte-invariance pins green. Live: N/A
+  (spec-only, no live-observable surface).
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the rejected STATIC reading ("unions render
+  as JSON") is absent — it would re-open bug 0408’s fixed defect. The
+  ordering constraint is satisfied: bug 0425-(a) landed first in this lane, so
+  the union row’s translation clause matches its shipped behaviour. GOV-30
+  aggregator lock-step is not triggered (a topic-page table row is not a
+  `spec.md` aggregator item).
 
 ## Provenance
 

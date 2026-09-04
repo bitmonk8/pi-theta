@@ -686,7 +686,7 @@ export function buildInboundTranslationPlan(
 }
 
 /** Encode an RFC 6901 JSON Pointer segment (`~`→`~0`, `/`→`~1`). */
-function encodePointerSegment(segment: string): string {
+export function encodePointerSegment(segment: string): string {
   return segment.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 

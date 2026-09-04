@@ -1,6 +1,6 @@
 # Bug 0425 — A discriminated-union-of-schemas `system:` param (`pet: Cat | Dog`) renders the JSON row with NO arm wire renames: the value-driven object row carries no sidecar slot, so `${pet}` renders theta-side field names for every union arm
 
-- **Status:** open.
+- **Status:** fixed (0.431.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt against the recursive-translation / no-second-map rules, with
   zero diagnostics (the 0407 calibration); D2 because 0407 §Fix already named
@@ -167,6 +167,71 @@ scalar-union values keep their scalar rows (`b0408` W1–W4 green); the
 parse-time `.Ident` refusal stays (`G3`); a value matching NO arm (possible
 on the permissive invoke path) must keep today's untranslated bytes rather
 than guess an arm.
+
+## Fix (0.431.0)
+
+- What shipped (route (a) — arm-sidecar threading, per parent adjudication):
+  - `src/parser/frontmatter.ts` — a top-level `|` union of body object
+    schemas now builds per-arm data (`buildSystemUnionArms`): one arm per
+    `|`-separated source naming a direct body object schema, carrying that
+    schema’s outbound rename sidecars, its theta-side field-name set, and its
+    literal-discriminator table. The union split now runs BEFORE the generic
+    `<...>` branch (matching the canonical `lowerTypeExpr` order), so a
+    `X | array<Y>` union is no longer swallowed whole as a malformed generic.
+    `stringLiteralOf` extracts a field’s literal discriminator, mirroring
+    `classifyDiscriminatorFieldType` (a top-level `|` pre-test excludes a
+    literal-union field so it contributes no bogus literal).
+  - `src/parser/system-interpolation.ts` — the `discriminated-union`
+    `SystemParamType` and the value-driven `path` template part carry the
+    arms; `renderSystemPrompt` picks the resolved value’s arm via
+    `unionArmObjectType` — by schema brand (`schemaTagOf`) first, else by an
+    EXACT field-set + literal-discriminator match — and translates through
+    that arm’s sidecars. The UNIQUE admitting arm wins; zero or ≥2 admitting
+    arms return `undefined`, so the value keeps today’s untranslated bytes
+    (never guess). `src/render/query-render.ts` needed no change (its
+    translation gate already fires on `sidecars !== undefined`).
+- Gates: witness `tests/b0425-union-of-schemas-arm-renames-dropped.test.ts`
+  9/9 green (W1/W2 field-set arms, W3 literal discriminator, W4 brand pick,
+  W5 literal-union-field ambiguity → untranslated, W6 `Cat | array<Cat>`
+  object translates, W7 `Dog | array<Cat>` real arm not blocked, G1 no-match
+  & R1 renamed same-field-set → untranslated); full `npm test` 589 files /
+  10550 tests green; `npm run typecheck` clean; `npm run lint` clean.
+- Review: 2 code rounds + 1 comment-only polish. Round 1 (`bug-fix-reviewer`,
+  deep) — 4 findings: F1 [correctness] `stringLiteralOf` false-positive on a
+  literal-union field type (bogus literal → wrong-arm → wrong-wire), F2
+  [correctness] `array<Schema>` arm source unwrapped into a phantom object
+  arm, F3 [house-rule] detached JSDoc, R1 [test] ambiguity pin; all addressed
+  (F1 `|` pre-test, F2 direct-name-only arm resolution + the union/generic
+  reorder needed to reach the arms, F3 helpers moved, R1/W5/W6/W7 witnesses).
+  Round 2 (`bug-fix-reviewer`, deep, chosen over fast for the reorder) —
+  CLEAN. Polish (`bug-fix-fixer-light`, comment-only JSDoc rescope of the
+  skipped-arm fallback) — verified by gate-diff, confirmation round skipped.
+- Verification: `bug-fix-verifier` — witness reds on the neutralised fix
+  (6 arms untranslated) and restores byte-exact green; full suite green
+  (parallel-load flakes green isolated, off-surface); lint + typecheck clean;
+  b0408 W1–W4/G2/G3 and b0424 green; the union/generic reorder flipped no
+  committed test. Live discharged by the orchestrator
+  (`b0406live-object-param-system-interp-registration` green under the global
+  live lock — render-bytes class, registration unchanged).
+- Residuals:
+  1. An `array<Schema>` union arm source is skipped (not unwrapped): an array
+     value on such a union keeps the untranslated array row — never a wrong
+     wire name, a documented residual (array-arm-element renames not
+     translated on this surface).
+  2. A RECORD-shaped skipped arm source (an inline-brace arm, or an imported
+     schema arm) that shares a field set with a kept schema arm is picked as
+     the kept arm rather than falling through to untranslated — never a wrong
+     wire name (the value is a valid instance of the kept schema by every
+     parse-time observable), a statically-ambiguous pick the never-guess
+     constraint does not reach.
+  3. A literal-discriminated union whose arms share an identical field set AND
+     carry no distinguishing string literal (only int/bool/null literals)
+     renders untranslated (conservative), never wrong-wire.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: route (b) (brand-driven whole-value render
+  via `translateInterpolationOutbound`) NOT taken — invoke-path bindings are
+  unbranded, so route (a)’s structural fallback is load-bearing. The QRY-18
+  union spec row is bug 0426 (spec side, this lane).
 
 ## Provenance
 
