@@ -1,6 +1,6 @@
 # Bug 0403 — The unary-`-` parse refusal emits `unary '-' requires a numeric operand; got <type>` under a code whose normative *Message* column pins `'<op>' requires two numeric operands; got <left> and <right>`, violating DIAG-4's character-for-character rule — and the Trigger-column documentation bug 0392's pinned disposition claims sanctions the divergence never landed in the registry
 
-- **Status:** open.
+- **Status:** fixed (0.413.0).
 - **Kind:** defect — a shipped diagnostic message diverges from the DIAG-4
   normative *Message* template (the bug-0261 class), plus a fix-record
   fidelity gap: 0392's §Pinned dispositions states the divergence is
@@ -171,3 +171,13 @@ verified against the shipped registry at `c2c25d81`. Probe D1
 message; `git -S` established the template never existed in the registry
 file. Dup check: README index — 0261 is the fixed sibling (different row);
 no open report covers this row's message divergence; 0392 read in full.
+
+## Fix (0.413.0)
+
+- What shipped: option 1 (the doc-recommended fix), docs-only. `docs/spec_topics/diagnostics/code-registry-parse.md` — the `theta/parse/non-numeric-arithmetic-operands` row's *Trigger* cell now documents the shipped position-specific unary template `unary '-' requires a numeric operand; got <type>` as prose-with-inline-code, cross-referenced to DIAG-4 (the *Message* cell is byte-unchanged). `docs/spec_topics/diagnostics/diagnostic-shape.md` — DIAG-4 gains one additive sentence admitting a *Trigger*-column-documented position-specific template for a code reused across emission positions, without relaxing the *Message* column's character-for-character normativity. Delivers 0392's own pinned compensation, which had never landed in the registry.
+- Gates: witness `tests/b0403-unary-minus-message-registry-divergence.test.ts` 5/5 (RED at fork on cells A/B, green after); full default suite 571 files / 10436 tests green (baseline 570/10431 + the new witness's 5 tests; all per-run reds were parallel-interference, green on isolated re-run); `npm run typecheck` clean; `npm run lint` clean.
+- Review: 2 rounds. Round 1 (bug-fix-reviewer) — 1 blocking spec finding F1 (DIAG-4 mis-attributed an "anti-fork discipline" to GOV-15; it is the 0326 anti-fork law) + prose R1 (*Message* column→cell) + test R2 (tighten cell A to bind `<type>`); all resolved by a bug-fix-fixer round. Round 2 (bug-fix-reviewer-fast) — 1 consistency finding (the sibling Trigger clause still said *Message* column) resolved by a bug-fix-fixer-light round; that hunk was doc-prose only with green gate-diff, so per the post-polish rule the confirmation review round was skipped (polish verified by gate-diff).
+- Verification: bug-fix-verifier verdict SOLID. Revert-witness — removing the Trigger clause reds cell A, removing the DIAG-4 sentence reds cell B, both restore to 5/5 byte-exact (numstat 1/1 per file, 0 EOL churn). Full suite green (4 load-noise flakes green isolated). Typecheck + lint clean. Live: the orchestrator ran the adjacent registration-only live cell `tests/live/b0367live-null-left-minus-refusal-live-cell.test.ts` green (WHY: docs-only, emission byte-unchanged, no drive/registration outcome changes; the cell witnesses the `theta/parse/non-numeric-arithmetic-operands` refusal path is unaffected).
+- Residuals: 1. `docs/reference/diagnostics.md` still carries only the binary *Message* template for this row and no *Trigger* column, so it remains a second surface that under-predicts the unary bytes; the reference mirror transcribes only Code/Sev/Phase/Message verbatim by design, so there is no *Trigger*-column home for the note there — §Fix option 1 deliberately scopes the normative repair to the spec-topic Trigger cell + DIAG-4 and does not target the reference mirror.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: honoured 0392 (the unary gate, code reuse, firing conditions, and the belt messages are untouched), the 0326 anti-fork settlement (no new registry row), and DIAG-4's *Message*-column normativity (the binary template and the 13 registryMessage-sourcing 0142/0152 tests stay green). The reference-mirror residual above is the only surface left unaddressed.

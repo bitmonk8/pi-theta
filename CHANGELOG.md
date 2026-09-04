@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.415.0]
+
+### Fixed
+
+- **Bug 0405** — the bare-form spec-grammar cites went stale after bug 0389's +9 line shift (v0.395.0): sixteen living-surface citations in three test files still pointed at pre-shift `grammar.md` lines, so the citation gate's premise (cites name the lines they claim) was false for the bare-form family. Fixed per the settled §Fix with the C4/SPEC_GRAMMAR_LINES settled precedent: sixteen enumerated re-pins across the three test files plus ONE recorded same-class self-authorized re-pin (`:140→:145`, the F1 the review surfaced — same mechanical class as the enumerated sixteen), era-pinned bug-doc bodies excluded, the LPA untouched. Witnessed by NEW `tests/b0405-grammar-cite-sweep-gate.test.ts` (5 cells; the citation gate green over the re-pinned set). Live: adjacent `b0367live` cell green under the lock. Residuals deferred (recorded): b0366's header citation is SEMANTIC drift (deliberately stale at HEAD, carried from s32) and b0345's cite staleness is a DIFFERENT shift — both filing candidates, not this fix's class.
+
+## [0.414.0]
+
+### Fixed
+
+- **Bug 0404** — the custom-type-unsafe note's pairing sat outside the `runtime-event-channel.md` variant matrix (bug 0398's recorded Residual 1): the note landed on a surface the matrix's closed row set did not name, so the matrix under-enumerated a real operator-facing pairing. Fixed docs-only per the settled §Fix with three additive edits: a new operator-facing-note row, the bullet case naming the pairing, and the panic-row narrowing that keeps the rows disjoint. The b0265 pins are preserved (gate green). Witnessed by NEW `tests/b0404-custom-type-unsafe-note-matrix-row.test.ts` (6 cells asserting the matrix enumeration against the shipped pairing surfaces; red at fork). Live: adjacent err-note-render cell green under the lock. Residual (recorded, non-blocking): the +1 line shift staled sibling comment-cites of `runtime-event-channel.md:N≥33` — comment-only follow-on sweep candidate.
+
+## [0.413.0]
+
+### Fixed
+
+- **Bug 0403** — the unary-minus refusal message diverged from the DIAG-4 sanction that never landed: bug 0392's fix (v0.387.0) shipped a message template the registry's Trigger cell did not document, so the registered surface and the shipped rendering disagreed (S4 documentation defect — the code was right, the registry silent). Fixed docs-only per the settled §Fix: the `code-registry-parse.md` Trigger cell documents the unary template and `diagnostic-shape.md` gains the DIAG-4 additive sentence — registry and rendering agree; no behaviour change, no new codes. Witnessed by NEW `tests/b0403-unary-minus-message-registry-divergence.test.ts` (5 cells asserting the registry text against the shipped template; red at fork on the divergence). Live: adjacent `b0367live` cell green under the lock (recorded WHY — the unary-minus parse seam).
+
 ## [0.412.0]
 
 ### Fixed

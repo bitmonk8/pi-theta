@@ -16,7 +16,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // the `fn`-declarations production block at docs/spec_topics/grammar.md:145,
 // mirrored as `FnParam` at docs/reference/grammar.md:301 — makes the FIRST
 // element of every parameter an `Ident`. `FnParams ::= FnParam ("," FnParam)*
-// ","?` (symbol `FnParams`, grammar.md:139 / docs/reference/grammar.md:300)
+// ","?` (symbol `FnParams`, grammar.md:144 / docs/reference/grammar.md:300)
 // admits no other element, and `FnDecl ::= "fn" Ident "(" FnParams? ")" (":"
 // ReturnType)? FnBody` (symbol `FnDecl`, grammar.md:138 /
 // docs/reference/grammar.md:294) is the whole surface. `Ident` is
@@ -413,7 +413,7 @@ describe("0225 (a) — a parameter-name position holding a token no `Ident` deri
     const doc = theta("fn h(a: string,\nx = 1\n) { 1 }\n");
     expect(
       triples(doc),
-      `grammar.md:140 makes the first element of a FnParam an \`Ident\` and lexical.md:13 gives \`Ident\` as [A-Za-z_][A-Za-z0-9_]*, which no punct token derives; diagnostics=${render(doc)}`,
+      `grammar.md:145 makes the first element of a FnParam an \`Ident\` and lexical.md:13 gives \`Ident\` as [A-Za-z_][A-Za-z0-9_]*, which no punct token derives; diagnostics=${render(doc)}`,
     ).toEqual([e(NOTID, "5:3-5:4")]);
     expect(quads(doc), "DIAG-4 — the rendered prose is the registry's Message column").toEqual([
       q(NOTID, "5:3-5:4"),
@@ -709,7 +709,7 @@ describe("0225 (c) — the predicate's edges: the `mut` exemption's scope, a dou
     const doc = theta("fn h(a: string,,) { 1 }\n");
     expect(
       triples(doc),
-      `\`FnParams\` admits ONE trailing comma (grammar.md:139), not a comma at a name position; diagnostics=${render(doc)}`,
+      `\`FnParams\` admits ONE trailing comma (grammar.md:144), not a comma at a name position; diagnostics=${render(doc)}`,
     ).toEqual([e(NOTID, "4:16-4:17")]);
     expect(quads(doc)).toEqual([q(NOTID, "4:16-4:17")]);
     expect(paramsOf(doc)).toEqual([
