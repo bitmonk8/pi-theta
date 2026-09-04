@@ -909,3 +909,14 @@ corpus already says the form is.
   controls; and the empty-path resolution. Run on the outputs quoted above,
   then deleted per scratch policy. No file in the tree was written by the
   probes.
+
+## Coordination note (2026-09-05) — bug 0431
+
+This bug's §Non-goals left one question open: "The from-bearing form in a
+`.theta` parses clean today and keeps doing so under this fix. Deciding whether
+a `.theta` `export` is itself an error is a separate adjudication." Bug 0431 (v0.434.0)
+is that adjudication. A from-bearing `export … from` at a `.theta` top level
+is now refused with a parse-time E, `theta/parse/export-in-theta` — a `.theta`
+file is never importable, so its re-export can never be read. This 0058 body
+is unchanged: the from-less form and the no-local-binding contract this bug
+established both hold exactly as filed.

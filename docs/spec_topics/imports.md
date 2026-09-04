@@ -51,6 +51,13 @@ statement names it, once per `export` statement and ranged over that statement â
 the path belongs to the statement, not to each of its specifiers, so a
 specifier list of any length draws one such error).
 
+A from-bearing `export â€¦ from` at a `.theta` top level (not a `.thetalib`) is
+a parse error `theta/parse/export-in-theta`: a `.theta` file is never
+importable, so its re-export can never be read. The check keys on a non-empty
+`ExportDecl` path; the from-less form (`export { X }`, no `path`) is
+unaffected in either file kind, and a `.thetalib` host is unaffected
+regardless of the path.
+
 A re-export's name is provided when the least fixpoint of the reachable
 `.thetalib` file set provides it: every file's resolved export set starts at its
 own declarations and grows by each re-export whose source file's set already

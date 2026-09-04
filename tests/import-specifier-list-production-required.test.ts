@@ -22,7 +22,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // a question asked of the two facts the parser records about those paths —
 // `hasBraces` beside the specifier count (:3007, :3009) and
 // `aliasConsumedWithNoAlias` (:3021, :3033–3034) — which is what
-// `checkImportMalformedSpecifierList` (src/parser/imports.ts:405–425) and
+// `checkImportMalformedSpecifierList` (src/parser/imports.ts:413–433) and
 // `checkImportDanglingAlias` (:437–451) read. Left unrefused, the dangling `as`
 // is not inert: `local` is the key the identifier scope, the collision check,
 // bug 0040's reserved-name check, materialisation and a `.thetalib`'s published

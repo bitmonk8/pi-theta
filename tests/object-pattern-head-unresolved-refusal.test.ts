@@ -11,6 +11,7 @@ import type {
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -342,6 +343,20 @@ function readRepoFile(relative: string): string {
 }
 
 const REGISTRY = parseRegistry(readRepoFile(REGISTRY_PARSE_PAGE)) as RegistryRow[];
+
+// Bug 0431's co-emitted refusal renders from the registry's *Message* column
+// (DIAG-4), read through the same `parseRegistry` / `registryMessage` path this
+// file already uses; the message carries no placeholder, so the row text is the
+// exact expectation. A missing row fails loudly rather than yielding undefined.
+function exportInThetaMessage(): string {
+  const message = registryMessage(REGISTRY, EXPORT_IN_THETA_CODE);
+  if (message === undefined) {
+    throw new Error(
+      `${REGISTRY_PARSE_PAGE} carries no row for ${EXPORT_IN_THETA_CODE} — bug 0431's oracle for that row has no source`,
+    );
+  }
+  return message;
+}
 
 function registryLine(code: string): string {
   // Match the row whose FIRST cell is the code, not any row whose prose
@@ -842,9 +857,14 @@ describe("0221 (u) — the whole-file pattern-head universe", () => {
   });
 
   it("u8: an EXPORT specifier name at the head DEFERS", () => {
+    // Bug 0431 §Fix Option 1: the top-level `export … from` statement is
+    // itself now refused (a from-bearing re-export at a `.theta` top level),
+    // co-emitting beside the pattern-head deferral this row measures — u8's
+    // own point (the pattern head defers, drawing no refusal of its own) is
+    // unaffected; only the statement-level refusal is newly recorded here.
     expectDiagnostics(
       'export { helper } from "./lib.thetalib"\n' + armBody("helper { a: 1 }"),
-      [],
+      [existing(EXPORT_IN_THETA_CODE, exportInThetaMessage(), range(4, 1, 4, 40))],
       "the universe admits `import` and `export` specifier names alike; neither statement kind's names may become a pattern-head refusal",
     );
   });

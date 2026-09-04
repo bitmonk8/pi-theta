@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.434.0]
+
+### Fixed
+
+- **Bug 0431** — a from-bearing `export { X } from "./lib.thetalib"` inside a `.theta` file was wholly inert with zero diagnostics: no consumer read a theta's own export statements (the closure seeds from imported libs only), so the path was never resolved and the specifier never checked — every fault class silently accepted where the identical statement in a `.thetalib` refuses loudly (the last unpoliced corner of the re-export surface, 0101's deferred adjudication). Fixed per the parent-adjudicated Option 1: MINTED `theta/parse/export-in-theta` (the ratified reuse-vs-mint judgement — no existing Trigger honestly extends; folding would fork the taxonomy) with a `.theta`-keyed `checkExportInTheta` refusing the from-bearing top-level form, the ExportDecl node preserved so shape and reserved-keyword rules keep firing; DIAG-2 registry row + mirror + imports.md sentence same-commit; GOV-15 never-conformant standing recorded. SIX ratified flips, no seventh (all additive, registry-sourced): reserved-keyword B3/a8/a9/w3, bug 0058's d-export (its assertion reversed under the ADJUDICATED SUPERSESSION — 0058's §Non-goals deferred exactly this question and 0431 answers it; a dated append-only coordination note on the closed 0058 doc, body untouched), object-pattern u8. D2 no-binding behaviour, `.thetalib`-side behaviour, and the from-less form untouched; permitted-codes untouched. Witnessed by NEW `tests/b0431-export-in-theta-refused.test.ts` (red at fork `observed: []`; 8 assertions revert-proven). Live: `b0428live` 1/1 under the lock (parse-class refusal, offline-equivalent; recorded WHY).
+
 ## [0.433.0]
 
 ### Fixed

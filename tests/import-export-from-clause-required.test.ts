@@ -7,6 +7,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
@@ -556,10 +557,19 @@ describe("bug 0058 (d) — an `export` statement does not widen a `.theta`'s ide
       withCode(doc.diagnostics, UNKNOWN_IDENTIFIER_CODE).length,
       `§Fix constraint 2 — the \`export\` arm of \`collectIdentRoots\` / \`checkLexicalCallSites\` narrows to \`import\`, so this document's diagnostics match the bare control's. Rendered: ${JSON.stringify(diagLines(doc.diagnostics))}`,
     ).toBe(1);
+    // Bug 0431 §Fix Option 1 is the adjudication this bug's own §Non-goals left
+    // open: a from-bearing `export … from` at a `.theta` top level is now
+    // refused via `theta/parse/export-in-theta`, sorted first (column 1) ahead
+    // of the unresolved-call diagnostic. The unresolved call remains its own
+    // diagnostic — the export statement still creates no local binding
+    // (§Fix constraint 2 above, unaffected).
     expect(
       diagLines(doc.diagnostics),
-      "the from-bearing form in a `.theta` keeps parsing cleanly on its own terms (bug doc §Non-goals), so the only diagnostic is the unresolved call",
-    ).toEqual([unknownIdentifierLine("Ghost")]);
+      "the from-bearing form in a `.theta` is refused by bug 0431's export-in-theta; the call stays unresolved because the export still creates no local binding",
+    ).toEqual([
+      `error ${EXPORT_IN_THETA_CODE}: ${normativeMessage(EXPORT_IN_THETA_CODE)}`,
+      unknownIdentifierLine("Ghost"),
+    ]);
   });
 
   it(`GREEN (d-import): a from-bearing \`import { Ghost } from\` still binds the name`, () => {

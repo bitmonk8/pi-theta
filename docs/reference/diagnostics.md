@@ -182,6 +182,7 @@ trigger.
 | `theta/parse/bind-context-session-on-subagent` | W | parse | `'bind_context: session' has no effect on a mode: subagent theta` |
 | `theta/parse/bind-echo-on-bypass` | W | parse | `'bind_echo: true' has no effect on a single-string-bypass theta` |
 | `theta/parse/thetalib-top-level-statement` | E | parse | `top-level statement not permitted in .thetalib file; move into a fn body` |
+| `theta/parse/export-in-theta` | E | parse | `a from-bearing 'export … from' is not permitted at a .theta top level; a .theta file is not importable, so its export is never read` |
 | `theta/parse/import-name-collision` | E | parse | `imported symbol '<name>' collides with another import or top-level declaration` |
 | `theta/parse/import-unknown-symbol` | E | parse | `imported symbol '<name>' is not declared or re-exported by '<path>'` |
 | `theta/parse/import-reserved-synthesised-name` | E | parse | `imported symbol '<name>' binds a reserved synthesised name` |

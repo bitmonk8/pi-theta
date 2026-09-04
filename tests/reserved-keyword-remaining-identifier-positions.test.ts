@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
+import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -292,6 +293,16 @@ function reservedAt(keyword: string, line: number, column: number): string {
   return at(RESERVED, reservedMsg(keyword), line, column, column + keyword.length);
 }
 
+/**
+ * Bug 0431 §Fix Option 1: a from-bearing `export … from` at a `.theta` top
+ * level co-emits `theta/parse/export-in-theta`, ranged over the whole
+ * statement starting at column 1 (`stmt.range`); `endColumn` is the
+ * statement's own 1-indexed exclusive end column.
+ */
+function exportInThetaAt(line: number, endColumn: number): string {
+  return at(EXPORT_IN_THETA_CODE, msg(EXPORT_IN_THETA_CODE, []), line, 1, endColumn);
+}
+
 /** `parseFor` / `parseParFor`'s own modifier verdict, ranged on `mut`. */
 function mutAt(line: number, column: number): string {
   return at(MUT_IMMUTABLE, msg(MUT_IMMUTABLE, []), line, column, column + "mut".length);
@@ -543,19 +554,25 @@ describe("0153 (a) — a reserved keyword at each of the six identifier position
     // `parseImportExport` (src/parser/theta-document.ts:3187) serves both
     // statement kinds through one specifier loop, so one emission covers both
     // and this row is what proves the `export` spelling is not a second site.
+    // Bug 0431 §Fix Option 1: this statement is also a from-bearing `.theta`
+    // top-level export, so it additionally co-emits export-in-theta, sorted
+    // first by `assembleDiagnostics`' (file,line,col) order.
     const doc = theta('export { a as let } from "./lib.thetalib"\n1\n');
     expect(
       lines(doc),
       "`import` and `export … from` share one specifier loop and one emission",
-    ).toEqual([reservedAt("let", 4, IMPORT_ALIAS_COL)]);
+    ).toEqual([exportInThetaAt(4, 42), reservedAt("let", 4, IMPORT_ALIAS_COL)]);
   });
 
   it("a9: `export { let } from \"./lib.thetalib\"` reports it at the SOURCE slot", () => {
+    // Bug 0431 §Fix Option 1: this statement is also a from-bearing `.theta`
+    // top-level export, so it additionally co-emits export-in-theta, sorted
+    // first by `assembleDiagnostics`' (file,line,col) order.
     const doc = theta('export { let } from "./lib.thetalib"\n1\n');
     expect(
       lines(doc),
       "the `export` spelling's SOURCE slot is the same slot as a6's",
-    ).toEqual([reservedAt("let", 4, IMPORT_BARE_COL)]);
+    ).toEqual([exportInThetaAt(4, 37), reservedAt("let", 4, IMPORT_BARE_COL)]);
   });
 });
 
@@ -857,7 +874,11 @@ describe("0153 (m) — the wrong-subject faces report the name the author chose 
   });
 
   it("w3: `export { let as x } from …` reports the same single diagnostic", () => {
+    // Bug 0431 §Fix Option 1: this statement is also a from-bearing `.theta`
+    // top-level export, so it additionally co-emits export-in-theta, sorted
+    // first by `assembleDiagnostics`' (file,line,col) order.
     expect(lines(theta('export { let as x } from "./lib.thetalib"\n1\n'))).toEqual([
+      exportInThetaAt(4, 42),
       reservedAt("let", 4, IMPORT_BARE_COL),
     ]);
   });

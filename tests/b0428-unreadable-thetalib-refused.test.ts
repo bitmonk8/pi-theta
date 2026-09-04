@@ -28,8 +28,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 // `theta/load/unresolvable-thetalib-path` sited on the importing file/statement,
 // exactly as the resolution-failure arm does today, at direct + transitive +
 // re-export depths. The registered code and message are pinned in
-// src/parser/imports.ts:134 (`UNRESOLVABLE_THETALIB_PATH_CODE`) and
-// src/parser/imports.ts:139 (`unresolvableThetaLibPathMessage`).
+// src/parser/imports.ts:142 (`UNRESOLVABLE_THETALIB_PATH_CODE`) and
+// src/parser/imports.ts:147 (`unresolvableThetaLibPathMessage`).
 //
 // TIER: unit, offline, deterministic, provider-free. The whole class settles
 // inside one `parseThetaDocument` over a string plus one `checkThetaImports`

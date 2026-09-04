@@ -41,6 +41,9 @@ import {
   checkImportReservedSynthesisedName,
   checkImportSeparatorDegenerateSpecifierList,
   checkThetaLibTopLevelForm,
+  EXPORT_IN_THETA_CODE,
+  EXPORT_IN_THETA_HINT,
+  EXPORT_IN_THETA_MESSAGE,
   type ImportSpecifier,
   type ThetaLibTopLevelForm,
 } from "./imports";
@@ -1347,6 +1350,17 @@ export function parseThetaDocument(
     ? checkThetaLibTopLevel({ statements, tail: resolvedTail }, file)
     : [];
 
+  // Bug 0431 §Fix Option 1: a from-bearing `export … from` (non-empty path) at
+  // a `.theta` top level is refused — a `.theta` is never importable, so the
+  // export can never be read. The inverse key of `thetalibTopLevelDiags`
+  // above: this fires only for a `.theta` host, never a `.thetalib`. The
+  // ExportDecl node itself is left untouched so the shape rules
+  // (import-missing-from-clause, import-malformed-specifier-list) and the
+  // reserved-keyword rule keep firing on the same statement.
+  const exportInThetaDiags = file.endsWith(".thetalib")
+    ? []
+    : checkExportInTheta({ statements, tail: resolvedTail }, file);
+
   const diagnostics = assembleDiagnostics([
     frontmatterDiags,
     lex.diagnostics,
@@ -1358,6 +1372,7 @@ export function parseThetaDocument(
     callSiteLexicalDiags,
     typeLayerDiags,
     thetalibTopLevelDiags,
+    exportInThetaDiags,
     resolvedQuery.diagnostics,
   ]);
 
@@ -1588,6 +1603,32 @@ function checkThetaLibTopLevel(block: Block, file: string): Diagnostic[] {
     if (diag !== undefined) {
       diagnostics.push(diag);
     }
+  }
+  return diagnostics;
+}
+
+/**
+ * Check a `.theta` file's top-level `export` statements, emitting
+ * `theta/parse/export-in-theta` for each from-bearing one (non-empty `path`)
+ * (bug 0431 §Fix Option 1). A from-less export (`export { X }`, bug 0058's
+ * settled ground) is untouched — its `path` is empty. The ExportDecl node is
+ * not otherwise altered, so the shape / reserved-keyword rules that also read
+ * it keep firing on the same statement.
+ */
+function checkExportInTheta(block: Block, file: string): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const stmt of block.statements) {
+    if (stmt.kind !== "export" || stmt.path === "") {
+      continue;
+    }
+    diagnostics.push({
+      severity: "error",
+      code: EXPORT_IN_THETA_CODE,
+      file,
+      range: stmt.range,
+      message: EXPORT_IN_THETA_MESSAGE,
+      hint: EXPORT_IN_THETA_HINT,
+    });
   }
   return diagnostics;
 }

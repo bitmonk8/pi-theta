@@ -1,6 +1,6 @@
 # Bug 0431 — A from-bearing `export { X } from "./lib.thetalib"` inside a `.theta` file is wholly inert with zero diagnostics: its path is never resolved (a missing file draws nothing where the same statement in a `.thetalib` draws IMP-1), its specifier is never checked (a name the resolved lib does not provide draws nothing where the lib spelling draws `import-unknown-symbol`), and no spec sentence gives the `.theta` position any disposition
 
-- **Status:** open.
+- **Status:** fixed (0.434.0).
 - **Sev/Diff estimate:** S4/D2 — S4: dropped author intent with zero
   diagnostics, but no wrong value can flow (nothing can import a `.theta`, so
   the statement is meaningless whatever it spells); the hazard is purely the
@@ -146,7 +146,8 @@ the statement. Result: parse-clean, load-ignored.
 
 ## Fix
 
-Not yet decided — an adjudication with three coherent options:
+**Option 1 taken** (settled by the operator). The adjudication weighed three
+coherent options:
 
 1. **Refuse the form in `.theta` files** (recommended): a parse-time E
    (either a new registered row `theta/parse/export-in-theta` or an
@@ -165,6 +166,72 @@ Not yet decided — an adjudication with three coherent options:
 Constraints any fix must satisfy: D2's no-binding behaviour is preserved
 (`unknown-identifier` on body use); `.thetalib`-side behaviour is untouched;
 GOV-15 applies to option 1 (newly-refused spellings currently load clean).
+
+## Fix (0.434.0)
+
+- What shipped: `src/parser/imports.ts` — mint `EXPORT_IN_THETA_CODE`
+  (`theta/parse/export-in-theta`) + message + hint (reuse-vs-mint ratified as
+  MINT: no existing top-level-form Trigger honestly extends; folding forks the
+  taxonomy, 0326). `src/parser/theta-document.ts` — new `.theta`-keyed
+  `checkExportInTheta` (the inverse key of `checkThetaLibTopLevel`) emits the
+  code for each top-level `export` with a non-empty `path`, ranged over the
+  whole statement, wired into `assembleDiagnostics`; the `ExportDecl` node is
+  left untouched so the shape rules (import-missing-from-clause,
+  import-malformed-specifier-list) and the reserved-keyword rule keep firing on
+  the same statement (§Fix Option 1). `docs/spec_topics/diagnostics/code-registry-parse.md`
+  + `docs/reference/diagnostics.md` — the DIAG-2 registry row and its mirror
+  (same commit). `docs/spec_topics/imports.md` — one §Re-exports disposition
+  sentence (same commit).
+- Gates: witness `tests/b0431-export-in-theta-refused.test.ts` 5/5 green (D1
+  missing-path + D3 unknown-name refuse via the minted code; D2 no-binding
+  control; `.thetalib` control; from-less control); full default suite 598
+  files / 10590 tests green; `npm run typecheck` clean; `npm run lint` clean;
+  live obligation discharged by the adjacent import-family cell
+  `tests/live/acceptance/b0428live-unreadable-thetalib-load-refusal.test.ts`
+  green under the global lock (the refusal is a parse class, offline-equivalent
+  — no model participates — so the adjacent cell proves the live import/export
+  intake path registers and drives end-to-end through `pi -p`).
+- Six-flip record (all additive, parent-ratified, no seventh): each gains
+  exactly one sorted-first `theta/parse/export-in-theta` entry, its own verdict
+  unchanged — `tests/reserved-keyword-misfire-faces.test.ts` B3;
+  `tests/reserved-keyword-remaining-identifier-positions.test.ts` a8, a9, w3;
+  `tests/import-export-from-clause-required.test.ts` d-export (its
+  `UNKNOWN_IDENTIFIER` count assertion stays 1; the all-diags assertion gains
+  the entry); `tests/object-pattern-head-unresolved-refusal.test.ts` u8
+  (`[]` → one entry). Each flip file sources the expected message from the
+  registry read, not the impl constant (DIAG-4).
+- 0058 supersession record: 0058 §Non-goals explicitly deferred this exact
+  question ("Deciding whether a `.theta` `export` is itself an error is a
+  separate adjudication"); this fix is that adjudication landing. The d-export
+  cell flips from parse-clean to the minted refusal and its comment now cites
+  0431's disposition; a DATED coordination note was appended to the closed
+  `docs/bugs/0058-…md` (append-only, body untouched, era-pinning law). 0101's
+  doc is untouched (its "separate adjudication" framing stays true).
+- Review: 2 rounds — R1 (`bug-fix-reviewer`): F1 spec (emitted message diverged
+  from both registry rows — backticks vs single quotes), F2 test (flip
+  assertions sourced the message from the impl constant, not the registry —
+  DIAG-4), F3 prose (0058 note quoted 0101's wording, misattributed as 0058's)
+  — all three resolved by `bug-fix-fixer`. R2 (`bug-fix-reviewer-fast`): CLEAN.
+- Verification: VERIFIED — witness + six flips red on fix revert (8 assertions,
+  correct reason) and restore byte-identical green (256/256); full suite
+  598/10590 green; typecheck + lint clean; scope integrity (exactly six flips,
+  no seventh; message byte-identical to both registry rows).
+- Residuals: (1) a nested from-bearing `export` (inside an `if`/`fn` body) in a
+  `.theta` remains wholly inert — `checkExportInTheta` walks top-level
+  statements only, exactly as the sibling `.thetalib` top-level rule does; a
+  pre-existing top-level-only architecture, deserves its own filing, out of the
+  ratified scope. (2) the `checkImportDanglingAlias` citations (`:437`) in
+  `tests/import-specifier-list-production-required.test.ts` /
+  `…-separator-production-required.test.ts` were already drifted at the fork and
+  were not chased (do-not-chase convention); a follow-up citation sweep owes
+  them.
+- Discharge notes appended: `docs/bugs/0058-fromless-export-form-parses-without-spec-production.md`
+  (dated coordination note, v0.434.0 placeholder).
+- Pinned dispositions / non-goals: Options 2 (resolve-and-check) and 3
+  (spec-pin inertness) not taken. GOV-15 never-conformant standing — the
+  from-bearing `.theta` export was never spec-legal, so the DIAG-2 registry
+  carve-out covers the code addition and NO permitted-codes move is owed. D2
+  no-binding, the `.thetalib` side, and the from-less form are untouched.
 
 ## Provenance
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
+import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -259,6 +260,16 @@ function atRange(
  */
 function reservedAt(keyword: string, line: number, column: number): string {
   return at(RESERVED, reservedMsg(keyword), line, column, column + keyword.length);
+}
+
+/**
+ * Bug 0431 §Fix Option 1: a from-bearing `export … from` at a `.theta` top
+ * level co-emits `theta/parse/export-in-theta`, ranged over the whole
+ * statement starting at column 1 (`stmt.range`); `endColumn` is the
+ * statement's own 1-indexed exclusive end column.
+ */
+function exportInThetaAt(line: number, endColumn: number): string {
+  return at(EXPORT_IN_THETA_CODE, msg(EXPORT_IN_THETA_CODE, []), line, 1, endColumn);
 }
 
 /** The `controlHeads` scan's verdict, ranged on the head token. */
@@ -528,8 +539,13 @@ describe("0242 (B) — a member name spelled with a declarator head reports the 
 
   it("B3: `export { let as x } from …` reports `let` @4:10-4:13 alone", () => {
     // One specifier loop serves both statement kinds, so one region rule must
-    // classify both `import {` and `export {` as member regions.
+    // classify both `import {` and `export {` as member regions. Bug 0431
+    // §Fix Option 1: the statement is also a from-bearing `.theta` top-level
+    // export, so it additionally co-emits export-in-theta, sorted first by
+    // `assembleDiagnostics`' (file,line,col) order (column 1 precedes the
+    // reserved-keyword refusal's column 10).
     expect(lines(theta('export { let as x } from "./lib.thetalib"\n1\n'))).toEqual([
+      exportInThetaAt(4, 42),
       reservedAt("let", 4, IMPORT_BARE_COL),
     ]);
   });

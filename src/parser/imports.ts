@@ -86,6 +86,14 @@ export function checkThetaLibTopLevelForm(
   };
 }
 
+// ── theta/parse/export-in-theta ──────────────────────────────────────────────────
+
+export const EXPORT_IN_THETA_CODE = "theta/parse/export-in-theta";
+export const EXPORT_IN_THETA_MESSAGE =
+  "a from-bearing 'export … from' is not permitted at a .theta top level; a .theta file is not importable, so its export is never read";
+export const EXPORT_IN_THETA_HINT =
+  ".theta files are not importable — remove the `from` clause or move this export into a .thetalib.";
+
 // ── theta/parse/import-non-thetalib-extension ────────────────────────────────────
 
 export const IMPORT_NON_THETALIB_EXTENSION_CODE = "theta/parse/import-non-thetalib-extension";

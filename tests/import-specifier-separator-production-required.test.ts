@@ -24,7 +24,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // adds a specifier the author never wrote, and `{ a, 42 }` drops the `42`.
 // None of it is reported: bug 0100's statement arm returns `undefined` for
 // `hasBraces && specifierCount > 0` (`checkImportMalformedSpecifierList`,
-// src/parser/imports.ts:405) and its specifier arm reads a per-specifier
+// src/parser/imports.ts:413) and its specifier arm reads a per-specifier
 // boolean that a taken alias leaves false (`checkImportDanglingAlias`, :437),
 // so a degeneracy recovered into a non-empty, alias-complete list has no
 // subject in either arm.
