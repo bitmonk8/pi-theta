@@ -5032,7 +5032,7 @@ class LivePromptQueryModel implements QueryModelDriver {
         // `last_tool_name` (ERR-19). The native turn already committed its side
         // effects (ERR-13 no-rollback); this batch is not re-executed
         // (`runToolBatch` is a no-op below).
-        return this.#exhaustionTurn();
+        return this.#exhaustionTurn(this.#exhaustion?.lastToolName);
       }
       // PIC-51/PIC-51b: probe the driven turn's trailing `assistant`
       // `stopReason` before extracting text. `extractPromptModeQueryResult`
@@ -5049,6 +5049,21 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (!probe.ok && probe.error.kind !== "cancelled") {
         return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
       }
+      // Bug 0415 route (b): an untyped query (`#respond === undefined`) whose
+      // native loop consumed all `max_rounds` allowed rounds then terminated
+      // with text has spent its budget even though the governor never blocked a
+      // round (no round beyond the cap was attempted). CIO-4 pins
+      // Err(tool_loop_exhausted) at this boundary for untyped queries; fold to
+      // the same synthetic exhaustion round as the over-cap path, discarding the
+      // terminating answer, and note the divergence once (typed queries route
+      // through the exempt forced-respond terminator and are untouched).
+      // PIC-51 cancellation precedence: under abort the enclosing loop's guards
+      // surface `cancelled` (no note); the boundary fold and its note must not
+      // pre-empt them with a false exhaustion claim.
+      if (!this.#thetaAbort.signal.aborted && this.#budgetConsumedWithoutBlock()) {
+        this.#emitUntypedBoundaryDiscardNote();
+        return this.#exhaustionTurn(this.#exhaustion?.lastAllowedToolName);
+      }
       // Completed within the cap: the terminating plain-text turn.
       return { kind: "text", text: extractTrailingTurnText(this.#readMessages()) };
     }
@@ -5056,7 +5071,14 @@ class LivePromptQueryModel implements QueryModelDriver {
     // `tool_use` round until `runUntypedQueryLoop`'s slot count reaches
     // `max_rounds` and it surfaces `tool_loop_exhausted`.
     if (this.#exhaustion?.exhausted === true) {
-      return this.#exhaustionTurn();
+      return this.#exhaustionTurn(this.#exhaustion?.lastToolName);
+    }
+    // Bug 0415 route (b): the round-0 fold above only fires once; a multi-round
+    // boundary drive (`max_rounds > 1`) needs the loop to keep consuming this
+    // synthetic round until `slotCount` reaches `max_rounds`, so the same
+    // budget-spent predicate is re-checked on every subsequent round.
+    if (this.#budgetConsumedWithoutBlock()) {
+      return this.#exhaustionTurn(this.#exhaustion?.lastAllowedToolName);
     }
     // Defensive: a non-exhausted round beyond the first is unreachable (round 0
     // returned text) — a terminating turn keeps the loop total.
@@ -5064,15 +5086,51 @@ class LivePromptQueryModel implements QueryModelDriver {
   }
 
   /**
+   * True when an untyped query's governed round consumed exactly its
+   * `max_rounds` budget without any round being blocked — the CIO-4
+   * `max_rounds`-final boundary the governor's block-only signal cannot see
+   * (bug 0415). Typed queries (`#respond` present) route the boundary through
+   * the exempt off-session forced-respond terminator and are excluded here.
+   */
+  #budgetConsumedWithoutBlock(): boolean {
+    return (
+      this.#respond === undefined &&
+      this.#exhaustion !== undefined &&
+      this.#exhaustion.exhausted === false &&
+      this.#maxRounds > 0 &&
+      this.#exhaustion.slotCount === this.#maxRounds
+    );
+  }
+
+  /**
+   * Emit ONCE the informational divergence note for the bug 0415 boundary
+   * fold: the model's terminating answer streamed into the user-visible
+   * transcript but is discarded because the round budget was already spent.
+   * Bug 0401 law: an informational note carries no `details` key.
+   */
+  #emitUntypedBoundaryDiscardNote(): void {
+    this.#pi.sendMessage(
+      {
+        customType: SYSTEM_NOTE_CHANNEL,
+        content:
+          `theta /${this.#thetaName}: the untyped @-query reached its tool_loop.max_rounds budget ` +
+          `(${this.#maxRounds}); the model's terminating answer arrived in an over-budget turn ` +
+          "and is discarded \u2014 the query surfaces Err(tool_loop_exhausted) (ceiling #2 / CIO-4).",
+        display: true,
+      },
+      { triggerTurn: false },
+    );
+  }
+
+  /**
    * The synthetic single-call `tool_use` round that drives `runUntypedQueryLoop`
    * to its `max_rounds`-final branch on the exhausted path. Its `toolName` is the
-   * last tool the model tried (surfaced as ERR-19 `last_tool_name`). This method
-   * only runs under `#exhaustion.exhausted === true`, which the governor sets
-   * only while recording a concrete non-null `lastToolName` in the same
-   * `#onToolCall` event, so the name is always recorded on this path.
+   * caller-supplied last tool name (surfaced as ERR-19 `last_tool_name`) — the
+   * over-cap path's `lastToolName` or the bug-0415 budget-consumed-without-block
+   * boundary's `lastAllowedToolName`; either way a concrete non-null name is
+   * expected on this path.
    */
-  #exhaustionTurn(): FreePhaseTurn {
-    const toolName = this.#exhaustion?.lastToolName;
+  #exhaustionTurn(toolName: string | null | undefined): FreePhaseTurn {
     if (toolName === undefined || toolName === null) {
       throw new Error(
         "prompt-mode exhaustion turn reached without a recorded last tool name",

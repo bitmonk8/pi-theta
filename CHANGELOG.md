@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.408.0]
+
+### Fixed
+
+- **Bug 0416** — PIC-18's closed event-consumption enumeration was contradicted by the shipped governor: `prompt-tool-loop-governor.ts` consumes pi events outside PIC-18's stated closed set, so the spec's "the extension consumes exactly these events" claim was false at HEAD — a documentation/conformance defect (S4), not a behaviour change. Fixed doc-only per the settled §Fix: PIC-18's enumeration widened to the events the governor actually consumes, and `version-bump-step2.md` gains item (at) (the governor's event consumption re-verified on every pi bump) with item (ah) scoped to its original surface. Witnessed by NEW `tests/b0416-pic18-governor-event-enumeration.test.ts` — the doc enumeration is asserted against the governor's REAL subscription set (red at fork on the missing members; revert-proven), so future governor/event drift reds the gate instead of silently falsifying the spec. No live obligation (doc-only; no behaviour change).
+
+## [0.407.0]
+
+### Fixed
+
+- **Bug 0415** — the prompt-mode governor never fired CIO-4's `max_rounds`-final branch when the model terminated: an untyped query whose model used exactly `max_rounds` tool rounds and then answered got the extra provider turn issued and its answer bound as `Ok(text)`, where CIO-4 pins `Err(tool_loop_exhausted)` — and the off-session production driver enforces exactly that, so identical model behaviour flipped Err/Ok across the two drivers. PARENT ADJUDICATION route (b) — settle-fold enforcement (recorded): route (a) is impossible (no pi hook can veto a provider request at the pin) and route (c) was rejected (it would loosen a HARD ceiling for both drivers and force the off-session driver into extra boundary spend); (b) adds NO spend versus the bug (the extra turn was already being issued — the defect was the binding). Shipped: when the governor snapshot shows `slotCount == maxRounds` and the settled trailing turn is text, the untyped prompt-mode query folds to the exhaustion outcome `Err(tool_loop_exhausted)` — the discarded terminating text threads as `raw_response` per 0327's landed machinery (the answer is preserved, not lost), the SNK-h row stays honest per 0308/0327, and an explicit TEXT-only informational note witnesses the transcript/value divergence (the `runtime-event-channel.md` enumeration widens four→five); the off-session driver is UNTOUCHED (already letter-compliant); cross-driver OUTCOME parity is witnessed both drivers; a NON-normative implementation note in `ceilings-3-and-4.md` acknowledges the platform-forced sunk turn (normative branch text unchanged). Witnessed by NEW `tests/b0415-governor-max-rounds-final-boundary.test.ts` (red at fork on `Ok(text)`/no-note; revert-proven). Live: the PL-1 prompt-loop cell + control green under the lock (recorded WHY — the governed drive seam).
+
 ## [0.406.0]
 
 ### Fixed

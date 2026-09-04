@@ -1,6 +1,6 @@
 # Bug 0415 — The prompt-mode governor never fires CIO-4's `max_rounds`-final branch when the model terminates: an untyped query whose model uses exactly `max_rounds` tool rounds and then answers returns `Ok(text)` after an extra provider turn, where CIO-4 pins `Err(tool_loop_exhausted)` "before any further turn is issued" — and the production off-session sibling enforces exactly that
 
-- **Status:** open.
+- **Status:** fixed (0.407.0).
 - **Sev/Diff estimate:** S2/D3 — the author's hard round budget is silently exceeded by one provider turn (extra tokens, extra user-visible turn) and the pinned `Err` becomes `Ok(text)`, with a cross-driver Err/Ok flip on identical model behaviour; §Fix is undecided among three routes including a spec amendment, so an in-run adjudication is required.
 - **Kind:** defect — implementation diverges from a stated rule (CIO-4's
   boundary disposition for untyped queries), with a cross-driver
@@ -120,24 +120,82 @@ written against CIO-4's letter cannot pass on the prompt path.
 - The typed query's exempt forced respond turn — off-session, ungoverned by
   design.
 
-## Fix
+## Fix (0.407.0)
 
-Not yet decided; constraints any fix must satisfy:
-
-- The governor cannot pre-empt pi's native provider request, so exact CIO-4
-  letter-compliance in prompt mode requires either (a) blocking the round-
-  boundary via a pi hook that can veto a provider request (none exists at the
-  pin), or (b) treating a settled turn whose governor snapshot shows
-  `slotCount == maxRounds` AND whose trailing turn is text as the exhaustion
-  outcome anyway (discarding the extra answer — enforces the letter at the
-  cost of provider spend already sunk and a user-visible answer the query
-  then refuses; the transcript/value divergence needs an explicit note), or
-  (c) a spec amendment pinning the prompt-mode approximation (exhaustion =
-  attempted round beyond cap; one extra terminating turn is admissible and
-  binds), bringing the off-session driver level with it for cross-mode
-  consistency.
-- Whichever direction, the two production drivers must agree on the boundary
-  case; today they demonstrably do not.
+- What shipped (parent-adjudicated route (b), settle-fold enforcement):
+  - `src/extension/prompt-tool-loop-governor.ts` — new `lastAllowedToolName`
+    snapshot field on `PromptToolLoopExhaustion`, recorded on the allowed-call
+    path in `#onToolCall`; the block-only `lastToolName` is byte-unchanged. It
+    supplies the ERR-19 `last_tool_name` for the CIO-4 `max_rounds`-final
+    boundary where NO round was blocked.
+  - `src/extension/production-theta-producer.ts` — `LivePromptQueryModel` settle
+    fold: `#budgetConsumedWithoutBlock()` (untyped `#respond === undefined` AND
+    `slotCount === maxRounds` AND `maxRounds > 0` AND not `exhausted`); the
+    round-0 fold, gated `!thetaAbort.signal.aborted` (PIC-51 cancellation
+    precedence), folds the untyped boundary to `Err(tool_loop_exhausted)` via the
+    synthetic exhaustion round (raw_response = the discarded terminating text,
+    `last_tool_name` = `lastAllowedToolName`); a round>0 re-check drives
+    `runUntypedQueryLoop` to `slotCount == maxRounds` for `maxRounds > 1`.
+    `#exhaustionTurn` is parameterised by tool name (over-cap path passes
+    `lastToolName`, boundary passes `lastAllowedToolName`).
+    `#emitUntypedBoundaryDiscardNote()` emits ONE informational
+    `theta-system-note` (no `details`, bug 0401 law) witnessing the discarded-
+    answer divergence. The off-session driver and typed forced-respond path are
+    UNTOUCHED.
+  - `docs/spec_topics/hard-ceilings/ceilings-3-and-4.md` — a NON-normative
+    implementation note appended to CIO-4 acknowledging the platform-forced sunk
+    provider turn in prompt mode; the normative branch text is UNCHANGED.
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — the
+    closed informational-note enumeration widened four → five, adding the untyped
+    `max_rounds`-final discard note (bug 0401's same-commit informational-note
+    law).
+- Gates: witness `tests/b0415-governor-max-rounds-final-boundary.test.ts` 5/5 —
+  (A1)/(A2) prompt-mode boundary → `Err(tool_loop_exhausted)` (rounds ==
+  max_rounds, last_tool_name = final budgeted round, raw_response = discarded
+  text) and (B) the divergence note RED at fork → green; (C) within-cap control
+  and (D) cross-driver off-session parity green both directions. Full default
+  suite 571 files / 10436 tests green (isolated re-run law: the campaign's
+  bug-0276 / production-tools-load-resolution timeouts are parallel-load noise,
+  green isolated). `tsc -p tsconfig.json --noEmit` exit 0; `eslint src/**/*.ts`
+  clean.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep) — F1 `spec` (add the fifth
+  note to runtime-event-channel.md's closed enumeration, same commit), F2
+  `correctness` (gate the fold/note on `!thetaAbort.signal.aborted` so a
+  cancellation landing at the boundary does not emit a false exhaustion note),
+  F3 `test` (assert note-count == 1 on the multi-round path), plus a prose
+  residual (`#exhaustionTurn` comment) — all applied by `bug-fix-fixer`. R2
+  (`bug-fix-reviewer-fast`) — CLEAN.
+- Verification: VERIFIED. (1) revert-witness — disabling the round-0 fold reds
+  (A1)/(A2)/(B) with the exact bug signature (Ok(text) / no note), restored
+  byte-exact, green; (2) full default suite 10436/10436 green; (3) live — the
+  orchestrator ran `tests/live/hardening/session-promptloop.test.ts` (PL-1
+  over-cap exhaustion + control) GREEN under the shared cross-worktree live
+  lock; the exact-boundary fold is not deterministically forceable on a live
+  model, so the offline scripted-governor witnesses carry that proof; (4) tsc
+  exit 0, lint clean.
+- Residuals:
+  1. No dedicated cancellation-path witness cell for the F2 abort gate. The
+     round>0 fold is unreachable under abort (`runUntypedQueryLoop`'s loop-top
+     `signal.aborted` guard preempts it) and the round-0 gate is the only race
+     site, closed by `!thetaAbort.signal.aborted`; defended by code-reading and
+     the existing cancellation suites (b0288 etc.) staying green. A faithful
+     mid-settle abort in the instant-settle witness harness is disproportionate
+     / fragile. Non-blocking (test-coverage, not correctness).
+  2. No deterministic live witness for the exact-boundary fold (a live model
+     cannot be forced to use exactly `max_rounds` tool rounds then answer); the
+     adjacent PL-1 live cell was run as witness with recorded WHY; the offline
+     (A1)/(A2) cells carry the proof.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the off-session driver
+  (`query-tool-loop.ts:396-405`) is UNTOUCHED (already letter-compliant); the
+  typed forced-respond exemption, the `max_rounds: 0` initialisation-exhaustion
+  path, and the over-cap blocking path (ERR-19 / SNK-h / bug 0327 raw_response)
+  are unchanged. Parent adjudication: route (b) — route (a) is impossible (no pi
+  hook vetoes a provider request at the pin), route (c) rejected (it loosens a
+  HARD ceiling and forces the letter-compliant off-session driver to spend an
+  extra turn). Version placeholder `0.407.0` per the parallel-lane brief (the
+  parent substitutes at merge); package.json / CHANGELOG / README untouched, not
+  committed in this lane.
 
 ## Provenance
 

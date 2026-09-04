@@ -62,6 +62,12 @@ export interface PromptToolLoopExhaustion {
   /** The last tool the model tried in the blocked round (ERR-19 `last_tool_name`). */
   readonly lastToolName: string | null;
   /**
+   * The last tool the model called in the last ALLOWED round (the ERR-19
+   * `last_tool_name` for the CIO-4 `max_rounds`-final boundary where NO round
+   * was blocked) — distinct from block-only `lastToolName`.
+   */
+  readonly lastAllowedToolName: string | null;
+  /**
    * The number of tool-use rounds the governor ALLOWED to open (the fresh
    * `tool_loop` slot count actually consumed, capped at `max_rounds`). A
    * repair-attempt drive reads this as the follow-up's OWN post-increment slot
@@ -85,6 +91,8 @@ interface ActiveBound {
   exhausted: boolean;
   /** The last tool name blocked (surfaced as ERR-19 `last_tool_name`). */
   lastToolName: string | null;
+  /** The last tool called in the last ALLOWED round (CIO-4 boundary case). */
+  lastAllowedToolName: string | null;
 }
 
 /**
@@ -125,6 +133,7 @@ export class PromptToolLoopGovernor {
       currentRoundBlocked: false,
       exhausted: false,
       lastToolName: null,
+      lastAllowedToolName: null,
     };
   }
 
@@ -136,13 +145,14 @@ export class PromptToolLoopGovernor {
     const active = this.#active;
     this.#active = null;
     if (active === null) {
-      return { exhausted: false, rounds: 0, lastToolName: null, slotCount: 0 };
+      return { exhausted: false, rounds: 0, lastToolName: null, lastAllowedToolName: null, slotCount: 0 };
     }
     return {
       exhausted: active.exhausted,
       // ERR-19: `rounds == max_rounds` on exhaustion.
       rounds: active.maxRounds,
       lastToolName: active.lastToolName,
+      lastAllowedToolName: active.lastAllowedToolName,
       // The slots actually consumed (a repair follow-up reads this as its own
       // post-increment `tool_loop` slot count, PIC-1 (d)).
       slotCount: active.roundsAllowed,
@@ -191,6 +201,11 @@ export class PromptToolLoopGovernor {
       active.lastToolName = event.toolName;
       return { block: true, reason: TOOL_LOOP_EXHAUSTED_REASON };
     }
+    // Records the last tool called in an ALLOWED round, for the CIO-4
+    // `max_rounds`-final boundary where no round was ever blocked (route (b),
+    // bug 0415): the settle fold needs the last tool of the final budgeted
+    // round, distinct from the block-only `lastToolName` above.
+    active.lastAllowedToolName = event.toolName;
     // Ceiling #4 (model-driven row / CIO-3): within an allowed round, depth-walk
     // the MODEL-produced arguments (`event.input`) before the tool body runs. A
     // depth-6+ argument document is blocked with the canonical depth message as

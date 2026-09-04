@@ -1,6 +1,6 @@
 # Bug 0416 — PIC-18's closed event-consumption claim is false at HEAD: the governor consumes a sixth `pi.on` event (`before_provider_request`) in a load-bearing role, and its `tool_call` handler BLOCKS calls — contradicting PIC-18's "sole prompt-mode role is cancellation forwarding, so cross-fire … is harmless" — while the version-bump audit that protects the five pinned events never covers the sixth
 
-- **Status:** open.
+- **Status:** fixed (0.408.0).
 - **Sev/Diff estimate:** S4/D2 — the present-tense defect is a false closed enumeration plus an audit fence excluding the governor's load-bearing sixth event (both runtime consequences are latent at HEAD per the verified reachability analysis); fix is spec-side across PIC-18, the bump checklist, and the cross-fire scoping caveat, no code change.
 - **Kind:** spec gap / doc-registry inconsistency — spec and implementation
   together fail to deliver the documented property: the spec's closed
@@ -156,18 +156,62 @@ future maintainer will rely on when reasoning about multi-session hosts.
   reachability of consequence 1 is stated with its precondition; consequence
   2 (the audit hole) needs no concurrency at all.
 
-## Fix
+## Fix (0.408.0)
 
-Spec-side (recommended): widen PIC-18 to enumerate the governor's two
-subscriptions and their roles; scope the harmless-cross-fire sentence to the
-cancellation-forwarding handlers and add the armed-window session-scoping
-caveat (or an explicit theta 1.0 acceptance that a concurrent in-process
-session's tool calls may be mis-governed during an armed drive); add a bump-
-checklist item for `before_provider_request` delivery + `tool_call` handler
-`block` honouring. Implementation-side alternative (session-scoping the
-governor's handlers) is not available at the pin — the events carry no
-per-session origin marker, which is the documented property; that fact
-belongs in the spec text.
+- What shipped (spec-side, doc-only — the recommended §Fix; no code change):
+  - `docs/spec_topics/pi-integration-contract/conversation-drive.md` (PIC-18) —
+    the closed "exactly the five members" claim is scoped to the
+    cancellation-forwarding handlers, and PIC-18 now enumerates the
+    `PromptToolLoopGovernor`'s two subscriptions and their roles:
+    `before_provider_request` (round-boundary detection) and the `tool_call`
+    handler returning a `ToolCallEventResult` that can `block` a call (the
+    prompt-mode enforcement point for ceiling #2 exhaustion and ceiling #4's
+    model-driven depth row). The harmless-cross-fire sentence is scoped to the
+    five cancellation-forwarding handlers, and an *armed*-window caveat is added:
+    while a drive is armed (`begin` → settle → `end`) a concurrent in-process
+    `AgentSession`'s tool calls may be debited against / blocked by the driven
+    theta's budget; theta 1.0 accepts this (subagents are child processes,
+    the TUI drives one session, so the reachable hosts are SDK embeddings /
+    live harnesses), and session-scoping the governor's handlers is unavailable
+    at the pin because the events carry no per-session origin marker.
+  - `docs/spec_topics/pi-integration-contract/version-bump-step2.md` — a new
+    bump-checklist item (at) audits `before_provider_request` delivery and the
+    host honouring a `tool_call` handler's `block`; item (ah)'s harmless-cross-
+    fire clause is scoped to the five cancellation-forwarding handlers with the
+    governor's armed-window exception cross-linked to PIC-18.
+- Gates: witness `tests/b0416-pic18-governor-event-enumeration.test.ts` 5/5 —
+  (A) shipped-surface control (the governor subscribes `before_provider_request`
+  + `tool_call` and the `tool_call` handler blocks) green both directions;
+  (B) PIC-18 enumerates every subscribed event, (C) PIC-18 describes the
+  `tool_call` blocking role, (D) PIC-18 carries the armed-window caveat,
+  (E) the bump checklist audits `before_provider_request` — all RED at fork,
+  green after. Full default suite 572 files / 10441 tests green; `tsc
+  -p tsconfig.json --noEmit` exit 0; `eslint src/**/*.ts` clean; the citation
+  gate (bug 0134) green (the witness header uses symbol form, no bare
+  `path:line` continuations).
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep) — F1 `spec` (the unscoped
+  harmless-cross-fire claim survived in bump item (ah); scoped it in the same
+  edit) plus two prose residuals (drop the undefined "STAGE-B" codename; add the
+  `#ceiling-4-table` cross-ref) — all applied. R2 (`bug-fix-reviewer-fast`) — CLEAN.
+- Verification: VERIFIED. (1) revert-witness — reverting the PIC-18 widening +
+  the bump item reds (B)/(C)/(D)/(E) (the spec text lacks the enumeration / role
+  / caveat / audit) with (A) green, restored byte-exact and EOL-preserved,
+  green; (2) full suite 10441/10441 green; (3) no live (doc-only, no drive-
+  outcome change); (4) tsc exit 0, lint clean; a corpus sweep confirms no
+  unscoped harmless-cross-fire claim remains and the new anchors resolve.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the five cancellation-forwarding
+  subscriptions (`subscribePromptModeCancelForwarding`) and their conformance
+  test (`conversation-drive.test.ts` V9c-T) are UNTOUCHED (§Non-goal — they
+  match PIC-18 as written); bump item (ah)'s process-global / no-origin-marker
+  audit is unchanged apart from scoping its harmless clause. Both derived
+  runtime consequences remain latent at v0.398.0 (a second in-process session
+  is not run by any shipped host; `before_provider_request` is still delivered)
+  — this fix closes the spec/audit contradiction, not a live regression. The
+  implementation-side alternative (session-scoping the governor's handlers) is
+  not available at the pin. Version placeholder `0.408.0` per the parallel-lane
+  brief; package.json / CHANGELOG / README untouched, not committed in this lane.
 
 ## Provenance
 
