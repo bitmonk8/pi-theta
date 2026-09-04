@@ -1,6 +1,6 @@
 # Bug 0429 — An imported-schema constructor's field set is judged at no phase: parse defers by design (FS-free), the load pass holds the declaring lib's full field list and never checks the theta's constructor sites, and the runtime brands the record AS-IS — so `Author { junk: 1 }` against an imported `schema Author { name: string }` mints a branded Author value with a wrong field set and zero diagnostics
 
-- **Status:** open.
+- **Status:** fixed (0.422.0).
 - **Sev/Diff estimate:** S1/D2 — S1: silent wrong value end-to-end. The
   same-file spelling draws two `E`-severity refusals
   (`theta/parse/extra-object-field`, `theta/parse/missing-object-field`); the
@@ -216,3 +216,12 @@ imports-exports-2 bug-hunt sweep, 04579e12 (v0.415.0). Probe:
 verbatim. Spec read: expressions.md §Object construction;
 code-registry-parse.md rows 50–51, 144, 148–149. No non-scratch file
 modified.
+
+## Fix (0.422.0)
+- What shipped: `src/extension/invoke-static-checks.ts` — new `checkImportedSchemaCtorFields` walks the importing body's `ObjectExpr` constructor sites (a `objectExprs` collector added to the shared walk) whose `typeName` is an imported-schema binding (direct-declaration-only, `collectLocalBinderNames` shadow-defer) and emits `theta/parse/extra-object-field` + `theta/parse/missing-object-field` (reusing `checkObjectLiteralFields`) sited on the theta, alias-name rendered (§Fix Option 1). `src/extension/import-static-checks.ts` — an `importedSchemas` map populated beside `importedFns`, the new checker wired once after `checkImportedFnCallArgs`. `docs/spec_topics/diagnostics/code-registry-parse.md` rows for `extra-object-field`/`missing-object-field` amended with the load-pass wiring + GOV-15 notes (DIAG-2); `docs/spec_topics/expressions.md:218` softened to name the load-pass route.
+- Gates: witness `tests/b0429-imported-schema-ctor-field-set.test.ts` 7/7 green (A1 same-file control, A2 imported RED→green, A3 valid, A4 shadow-defer, A5 re-export fence, A6 alias rendering, A7 lib-internal fence); full default suite green (one machine-load hook-timeout flake, green isolated); `npm run typecheck` clean; `npm run lint` clean; code-registry + grammar-cite gates green. Live: adjacent `tests/live/acceptance/ctor-unresolved-load-refusal.test.ts` green under the global lock — WHY: 0429's refusal un-registers via the identical error-severity load-diagnostic channel proven end-to-end by the new `b0428live` cell; the offline A1–A7 witnesses cover the constructor-specific behaviour and no model participates in a constructor field set.
+- Review: 1 deep round + 1 polish round — R1 (bug-fix-reviewer): F1 house-rule (wiring comment misstated same-file parity), R1 prose (registry fence vocabulary), R2 test (alias + lib-internal witnesses absent); bug-fix-fixer-light resolved all three (comment/prose/test only). Post-polish confirmation skipped per gate-diff + orchestrator inspection of the A6/A7 cells (green at HEAD, additive).
+- Verification: SOLID — witness reds on fix revert (A2/A6 lose both codes), restores green; full suite green; typecheck+lint clean; DIAG-2 registry-consistency gate green.
+- Residuals: 1. An imported alias-form / head-only / enum-name constructor stays silent (this route judges FIELD SETS only; the same-file position REFUSES such a name with `theta/parse/unresolved-named-type` — a sibling of bug 0430's class, out of 0429 scope). Evidence: the `import-static-checks.ts` wiring comment + the A5 fence.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `match` object-pattern heads (registry defers); field-VALUE typing for imported schemas (bug 0031's separate mechanism); render/system-template consequences (bug 0406 residuals); Option 2 (thread fields) rejected as primary, Option 3 (spec-only) rejected. Also touched `tests/arg-mismatch-diagnostic-count-by-surface.test.ts` — comment/message-only citation freshness from the line shift (self-authorized citation-only: charter permits comment-only bounded edits; git diff confirms no assertion touched; the test stays 98/98 green).

@@ -65,9 +65,14 @@ import type {
   FnDecl,
   FnParam,
   InvokeExpr,
+  MemberExpr,
+  ObjectExpr,
+  SchemaFieldSource,
   ThetaBody,
   Stmt,
 } from "../parser/theta-document";
+import { checkObjectLiteralFields } from "../parser/literal-sublanguage";
+import { checkVariantAccess } from "../parser/schema-declarations";
 import type { CallableSetSnapshot } from "../parser/callable-set";
 import {
   checkFnCallArity,
@@ -126,6 +131,19 @@ function normalizePath(path: string): string {
 interface CollectedCallSites {
   readonly invokeExprs: InvokeExpr[];
   readonly callExprs: CallExpr[];
+  /**
+   * Bug 0429: every `ObjectExpr` constructor site reachable in the body,
+   * bare and named alike — filtered to named (`typeName !== null`) sites by
+   * consumers, mirroring `callExprs`' own unresolved-collection-then-filter
+   * shape rather than pre-filtering during the walk.
+   */
+  readonly objectExprs: ObjectExpr[];
+  /**
+   * Bug 0430: every `MemberExpr` (`target.field`) reachable in the body,
+   * unfiltered — consumers test `target.kind === "ident"` themselves,
+   * mirroring `objectExprs`' own unresolved-collection-then-filter shape.
+   */
+  readonly memberExprs: MemberExpr[];
 }
 
 /**
@@ -144,7 +162,7 @@ export function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
 
 /** Run the shared call-site walk once (`CollectedCallSites`) over a theta body. */
 function collectCallSites(body: ThetaBody): CollectedCallSites {
-  const out: CollectedCallSites = { invokeExprs: [], callExprs: [] };
+  const out: CollectedCallSites = { invokeExprs: [], callExprs: [], objectExprs: [], memberExprs: [] };
   walkBlock({ statements: body.statements, tail: body.tail }, out);
   return out;
 }
@@ -230,6 +248,10 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
       for (const arg of expr.args) walkExpr(arg, out);
       return;
     case "member":
+      // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
+      // 0429 `object` arm's own-node-plus-descend shape), in addition to the
+      // pre-existing descent into the target.
+      out.memberExprs.push(expr);
       walkExpr(expr.target, out);
       return;
     case "index":
@@ -237,6 +259,10 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
       walkExpr(expr.index, out);
       return;
     case "object":
+      // Bug 0429: the constructor NODE itself joins `objectExprs` (a bare
+      // `{ … }` included — filtered by `typeName` downstream), in addition to
+      // the pre-existing descent into each field's value expression.
+      out.objectExprs.push(expr);
       for (const field of expr.fields) walkExpr(field.value, out);
       return;
     case "match":
@@ -1464,6 +1490,190 @@ export function checkImportedFnCallArgs(
           site: { file: importingFile, range: argExpr.range },
         }),
       );
+    }
+  }
+  return diagnostics;
+}
+
+/**
+ * Bug 0429 §Fix Option 1 — judge an imported-`.thetalib` `schema`'s
+ * CONSTRUCTOR field set at the COMPOSE layer, mirroring
+ * `checkImportedFnCallArgs` above exactly. Parse defers on an imported
+ * constructor name (the `imports.has(e.typeName)` arm,
+ * ../parser/theta-document.ts `checkObjectExpr` — the FS-free parser holds no
+ * library body), so this is where that route is SERVED, not where it moves.
+ * No new diagnostic code: the two rows `checkObjectExpr` already emits for a
+ * same-file constructor carry the route — `theta/parse/extra-object-field`
+ * (pushed inline, mirroring `checkObjectExpr`'s own inline push) and
+ * `theta/parse/missing-object-field` (reusing `checkObjectLiteralFields`,
+ * ../parser/literal-sublanguage.ts, exactly as `checkObjectExpr` does).
+ *
+ * `importedSchemas` keys by the CONSTRUCTOR-SITE local binding name (the
+ * `as`-alias where written, else the source name) — the same key
+ * `importedFns` above uses — and its value is the directly-resolved
+ * library's own `SchemaDecl.fields`. A DIRECT top-level declaration only
+ * (bug 0138's `ImportedFnCallee` restriction, mirrored): a schema reached
+ * only through a re-export chain is absent from the map, so this route
+ * withholds a verdict for it rather than duplicating `materializeChain`'s own
+ * chain-follow at a second call site.
+ *
+ * Shadowing outranks import resolution (expressions.md §"Identifier
+ * resolution" arm (1) over arm (3)): a constructor name bound anywhere in the
+ * importing body as a `let`, loop variable, match-arm pattern, `fn`
+ * parameter, or frontmatter `params:` field is never judged here, the same
+ * `shadowedNames` test (`collectLocalBinderNames`) `checkImportedFnCallArgs`
+ * applies to call sites.
+ *
+ * `<schema>` on every diagnostic renders the CONSTRUCTOR-SITE spelling (the
+ * local/alias name written at the `Ident { … }` site), matching
+ * `checkObjectExpr`'s same-file rendering and `checkImportedFnCallArgs`'s
+ * `<name>` convention (placeholder-rendering-b.md §"5. Source-derived
+ * placeholders").
+ *
+ * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
+ * never reached, because this function walks the IMPORTING THETA's own body
+ * only, never a library body — the same fence `checkImportedFnCallArgs`
+ * states for call sites.
+ */
+export function checkImportedSchemaCtorFields(
+  importingBody: ThetaBody,
+  importingFile: string,
+  paramsFieldNames: readonly string[],
+  importedSchemas: ReadonlyMap<string, readonly SchemaFieldSource[]>,
+): Diagnostic[] {
+  if (importedSchemas.size === 0) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
+  const { objectExprs } = collectCallSites(importingBody);
+  for (const ctor of objectExprs) {
+    if (ctor.typeName === null) {
+      // A bare `{ … }` object literal names no schema at all; this route
+      // judges named constructor sites only.
+      continue;
+    }
+    const typeName = ctor.typeName;
+    if (shadowedNames.has(typeName)) {
+      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
+      // a constructor of a locally-bound name never denotes the imported
+      // schema at this site — the same test `checkImportedFnCallArgs`
+      // applies to its call sites.
+      continue;
+    }
+    const declaredFields = importedSchemas.get(typeName);
+    if (declaredFields === undefined) {
+      // Not an imported schema this route reaches: a same-file schema, a
+      // non-`schema` imported symbol, an unresolved name, or a re-export-
+      // chain schema `importedSchemas`' own doc comment (above) defers on.
+      continue;
+    }
+    const declaredNames = declaredFields.map((field) => field.name);
+    const declaredSet = new Set(declaredNames);
+    const present = ctor.fields.map((field) => field.name);
+    for (const field of present) {
+      if (!declaredSet.has(field)) {
+        diagnostics.push({
+          severity: "error",
+          code: "theta/parse/extra-object-field",
+          file: importingFile,
+          range: ctor.range,
+          message: `extra field '${field}' on schema '${typeName}'`,
+        });
+      }
+    }
+    diagnostics.push(
+      ...checkObjectLiteralFields(
+        { name: typeName, fields: declaredNames },
+        present,
+        { file: importingFile, range: ctor.range },
+      ),
+    );
+  }
+  return diagnostics;
+}
+
+/**
+ * Bug 0430 §Fix Option 1 — judge an imported-`.thetalib` `enum`'s VARIANT
+ * ACCESS at the COMPOSE layer, mirroring `checkImportedSchemaCtorFields`
+ * above exactly. Parse defers on an imported member access (the body walk's
+ * `member` arm, ../parser/theta-document.ts, whose `refs.enums.get` answers
+ * from `hoistEnumVariants` over same-file `enum` statements only — the
+ * FS-free parser holds no library variant set), so this is where that route
+ * is SERVED, not where it moves. No new diagnostic code: reuses the EXISTING
+ * `theta/parse/unknown-variant` row via the parser's own, UNCHANGED
+ * `checkVariantAccess` (../parser/schema-declarations.ts) — the same
+ * code+message the same-file `member` arm emits (bug 0185's binding
+ * code-identity adjudication: declared-enum head + undeclared tail is
+ * `theta/parse/unknown-variant`, no new code, no registry row edited).
+ *
+ * `importedEnums` keys by the MEMBER-TARGET local binding name (the `as`-alias
+ * where written, else the source name) — the same key `importedSchemas` above
+ * uses — and its value is the directly-resolved library's own `EnumDecl`
+ * variant list. A DIRECT top-level declaration only (bug 0138's
+ * `ImportedFnCallee` restriction, mirrored): an enum reached only through a
+ * re-export chain is absent from the map, so this route withholds a verdict
+ * for it rather than duplicating `materializeChain`'s own chain-follow at a
+ * second call site.
+ *
+ * Shadowing outranks import resolution (expressions.md §"Identifier
+ * resolution" arm (1) over arm (3)): a member-target name bound anywhere in
+ * the importing body as a `let`, loop variable, match-arm pattern, `fn`
+ * parameter, or frontmatter `params:` field is never judged here, the same
+ * `shadowedNames` test (`collectLocalBinderNames`) `checkImportedSchemaCtorFields`
+ * applies to constructor sites.
+ *
+ * `<enum>` on every diagnostic renders the MEMBER-TARGET spelling (the
+ * local/alias name written at the `Ident.Variant` site), matching the
+ * same-file `member` arm's rendering and `checkImportedSchemaCtorFields`'s
+ * `<schema>` convention (placeholder-rendering-b.md §"5. Source-derived
+ * placeholders").
+ *
+ * DEFERRED, by construction: a `MemberExpr` INSIDE a `.thetalib` body is
+ * never reached, because this function walks the IMPORTING THETA's own body
+ * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * states for constructor sites.
+ */
+export function checkImportedEnumVariantAccess(
+  importingBody: ThetaBody,
+  importingFile: string,
+  paramsFieldNames: readonly string[],
+  importedEnums: ReadonlyMap<string, readonly string[]>,
+): Diagnostic[] {
+  if (importedEnums.size === 0) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
+  const { memberExprs } = collectCallSites(importingBody);
+  for (const access of memberExprs) {
+    if (access.target.kind !== "ident") {
+      // Only a bare `Ident.field` denotes a possible imported-enum variant
+      // access; a member off any other expression shape names no import
+      // binding at all.
+      continue;
+    }
+    const enumName = access.target.name;
+    if (shadowedNames.has(enumName)) {
+      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
+      // a member access of a locally-bound name never denotes the imported
+      // enum at this site — the same test `checkImportedSchemaCtorFields`
+      // applies to its constructor sites.
+      continue;
+    }
+    const knownVariants = importedEnums.get(enumName);
+    if (knownVariants === undefined) {
+      // Not an imported enum this route reaches: a same-file enum, a
+      // non-`enum` imported symbol, an unresolved name, or a re-export-chain
+      // enum `importedEnums`' own doc comment (above) defers on.
+      continue;
+    }
+    const diagnostic = checkVariantAccess(
+      { enumName, variant: access.field, knownVariants },
+      { file: importingFile, range: access.range },
+    );
+    if (diagnostic !== undefined) {
+      diagnostics.push(diagnostic);
     }
   }
   return diagnostics;

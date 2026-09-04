@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.423.0]
+
+### Fixed
+
+- **Bug 0430** — an imported enum's unknown variant panicked with a null member: referencing a non-existent variant of an imported enum (`Status.Typo`) passed the load checks (imported member sets invisible) and reached runtime as a null member access — a panic carrying the wrong story instead of the parse-class refusal body-declared enums draw. Fixed per the doc's Option 1: the load pass judges imported-enum variant references with the existing `theta/parse/unknown-variant` (reuse-over-mint) — parity with body-declared enums; the defense-in-depth runtime belt was recorded as a residual, `src/runtime` untouched (0185 witnesses green unchanged). Witnessed by NEW `tests/b0430-imported-enum-unknown-variant.test.ts` (5 cells; red at fork). Live: shares the `b0428live` intake channel (recorded WHY — same import-resolution seam).
+
+## [0.422.0]
+
+### Fixed
+
+- **Bug 0429** — an imported schema's ctor field set was never judged: the body-expression sites constructing an imported schema (`Author { … }`) validated field names/arity only for body-declared schemas — the parser is `FileSystem`-free so imported field sets do not exist at parse, and no load-phase consumer filled the gap, so extra and missing fields on imported-schema ctors flowed silently into runtime values. Fixed per the settled §Fix: the load pass (which has the resolved `.thetalib` parse) judges imported-schema ctor field sets at body expression sites, refusing with the existing extra/missing-object-field codes (reuse-over-mint) — declaration-site parity with body-declared schemas. Witnessed by NEW `tests/b0429-imported-schema-ctor-field-set.test.ts` (7 cells; red at fork). Live: adjacent `ctor-unresolved-load-refusal` cell green under the lock (recorded WHY — the ctor load-refusal seam).
+
+## [0.421.0]
+
+### Fixed
+
+- **Bug 0428** — a listed-but-unreadable `.thetalib` was silently accepted: import resolution treated an unreadable resolved library (EACCES/EPERM on the file, broken link) as absent rather than faulted, so the import contributed nothing with zero diagnostics — the theta registered with its imported symbols simply missing (the silent-acceptance class at the import intake seam). Fixed per the settled §Fix: the resolved-but-unreadable case refuses loudly with the existing `theta/load/unresolvable-thetalib-path` (reuse-over-mint) at direct, transitive, and re-export depths. Witnessed by NEW `tests/b0428-unreadable-thetalib-refused.test.ts` (4 cells; red at fork). Live: NEW acceptance cell `tests/live/acceptance/b0428live-unreadable-thetalib-load-refusal.test.ts` (real `.thetalib` fixture, red-proven both directions, green under the lock).
+
 ## [0.420.0]
 
 ### Fixed

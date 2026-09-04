@@ -44,11 +44,11 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 //   S2 same-file `fn` call — `checkFnCallArgs`, the per-slot loop
 //      `src/parser/type-layer-checks.ts:2600–2651`, no `break`.
 //   S3 `.theta`-callable call — the per-slot loop in
-//      `src/extension/invoke-static-checks.ts`, whose `break;` at `:1149`
+//      `src/extension/invoke-static-checks.ts`, whose `break;` at `:1198`
 //      ("First mismatch only: this row's *Message* names neither the slot
-//      index nor the parameter …", `:1142–1148`) is the per-site cap.
+//      index nor the parameter …", `:1191–1197`) is the per-site cap.
 //   S4 imported-`.thetalib` `fn` call — `checkImportedFnCallArgs`, the per-slot
-//      loop `src/extension/invoke-static-checks.ts:1393–1444`, no `break`. This
+//      loop `src/extension/invoke-static-checks.ts:1442–1491`, no `break`. This
 //      arm is the second half of `theta/parse/fn-arg-type-mismatch`'s own
 //      *Trigger* (`docs/spec_topics/diagnostics/code-registry-parse.md`, the
 //      `theta/parse/fn-arg-type-mismatch` row: "The same-file half is judged at
@@ -1013,7 +1013,7 @@ describe("bug 0147 cell X — the adjudicated per-row multiplicity, stated as on
     expect(
       measured,
       "S3 (`.theta`-callable) no longer caps at one diagnostic per call site — the " +
-        "`break` at src/extension/invoke-static-checks.ts:1149 is the mechanism the " +
+        "`break` at src/extension/invoke-static-checks.ts:1198 is the mechanism the " +
         "adjudicated per-site ruling names",
     ).toEqual({ m2: 1, m3: 1, two: 2, arrbool: 1 });
   });

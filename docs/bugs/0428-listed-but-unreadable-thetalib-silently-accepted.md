@@ -1,6 +1,6 @@
 # Bug 0428 — A resolved `.thetalib` whose bytes cannot be read (EACCES, broken symlink, or a directory named `*.thetalib`) loads the importing theta with zero diagnostics: IMP-1's "exists but is not readable — likewise unresolvable" clause is unenforced, every consumer of the read failure silently `continue`s, no symbol materialises, and the imported-`fn` call site falls through to tool dispatch
 
-- **Status:** open.
+- **Status:** fixed (0.421.0).
 - **Sev/Diff estimate:** S1/D2 — S1 by the silent-acceptance letter: an
   `E`-severity registered code (`theta/load/unresolvable-thetalib-path`) is
   withheld for an input class IMP-1 names verbatim, the theta registers with
@@ -213,3 +213,12 @@ imports-exports-2 bug-hunt sweep, 04579e12 (v0.415.0). Probe:
 C1 (in-memory EACCES), C2 (control), C3 (transitive), C4 (real-NTFS
 directory via `PiFileSystem`), outputs quoted verbatim above. Spec read:
 imports.md IMP-1; code-registry-load.md. No non-scratch file modified.
+
+## Fix (0.421.0)
+- What shipped: `src/extension/import-static-checks.ts` — `parseThetaLib` records a resolved-but-unreadable path (a `readBytes` rejection, distinct from an empty/unparseable lib) in an `unreadablePaths` set; the direct decl loop, the `walkThetaLib` edge loop, and the `closeOverReExports` edge loop each push `theta/load/unresolvable-thetalib-path` (the registered code+message, reused) sited on the importing file/statement at direct, transitive and re-export depths (§Fix Option 1); the direct unreadable arm also seeds `walked` so the lib enters `resolvedLibs` (bug 0312 watch-set symmetry).
+- Gates: witness `tests/b0428-unreadable-thetalib-refused.test.ts` 4/4 green (C1 direct, C2 control byte-identical, C3 transitive, C5 re-export); full default suite 589 files green (one machine-load hook-timeout on `production-tools-load-resolution.test.ts`, green isolated at 60s hook timeout — unrelated surface); `npm run typecheck` clean; `npm run lint` clean; NEW live cell `tests/live/acceptance/b0428live-unreadable-thetalib-load-refusal.test.ts` green under the global lock (a real on-disk directory named `*.thetalib` refused end-to-end through `pi -p`; well-formed control registers and drives).
+- Review: 2 rounds — R1 (bug-fix-reviewer): F1 correctness (re-export depth double-reported a spurious `import-unknown-symbol`), F2 fidelity (direct-unreadable lib absent from `resolvedLibs`), F3 test (re-export depth unwitnessed) — all three resolved by bug-fix-fixer. R2 (bug-fix-reviewer-fast): CLEAN (residual R1 resolvedLibs-witness folded into C1).
+- Verification: SOLID — witness reds on fix revert (C1/C3/C5 lose the code / regain the co-fire), restores byte-identical green; full suite green; typecheck+lint clean; C2 control byte-identical across all runs.
+- Residuals: none — watch-set symmetry closed (C1 pins `resolvedLibs`); C4 real-FS directory covered by the live cell.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: probe-side Option 2 not implemented (§Fix: Option 1 alone closes the observed class); the runtime fall-through of unbound imports is bug 0101's settled ground (non-goal).

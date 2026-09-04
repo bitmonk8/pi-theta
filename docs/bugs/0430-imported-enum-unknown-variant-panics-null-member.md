@@ -1,6 +1,6 @@
 # Bug 0430 — An unknown variant on an IMPORTED enum (`Sev.Nope` against an imported `enum Sev { Low }`) is refused at no static phase and aborts at runtime as `NullMemberAccessPanic: null member access: .Nope` — a panic whose subject is wrong twice (the enum is not null; the fault is the variant) where the registered disposition is the parse-time E `theta/parse/unknown-variant`
 
-- **Status:** open.
+- **Status:** fixed (0.423.0).
 - **Sev/Diff estimate:** S2/D2 — S2: a drive-aborting runtime panic on an
   ordinary authoring typo the spec refuses statically (crash/abort where a
   load refusal is prescribed), compounded by a lying diagnostic (wrong
@@ -237,3 +237,12 @@ load `[]`, `NullMemberAccessPanic: null member access: .Nope` thrown),
 outputs quoted verbatim. Spec read: schemas.md §Variant access;
 code-registry-parse.md:114; error-model.md §Runtime panics. No non-scratch
 file modified.
+
+## Fix (0.423.0)
+- What shipped: `src/extension/invoke-static-checks.ts` — new `checkImportedEnumVariantAccess` walks the importing body's member expressions (a `memberExprs` collector added to the shared walk) whose target is an imported-enum binding (direct-declaration-only, `collectLocalBinderNames` shadow-defer) and emits `theta/parse/unknown-variant` (reusing the parser's own `checkVariantAccess` — no new code) sited on the theta (§Fix Option 1). `src/extension/import-static-checks.ts` — an `importedEnums` map populated beside `importedFns`/`importedSchemas`, the new checker wired after the schema-ctor push. `docs/spec_topics/diagnostics/code-registry-parse.md` row `theta/parse/unknown-variant` amended with the load-pass wiring, the re-export + lib-internal fences, and a GOV-15 note (DIAG-2).
+- Gates: witness `tests/b0430-imported-enum-unknown-variant.test.ts` 5/5 green (B1 same-file control, B2 imported RED→green, B3 valid variant, B4 shadow-defer, B5 re-export fence); full default suite green (one machine-load hook-timeout flake, green isolated); `npm run typecheck` clean; `npm run lint` clean; bug 0185's witnesses (`params-default-enum-access-merge`, `params-default-unresolvable-enum-variant`) green; code-registry gate green. Live: shares the `b0428live` registration-refusal channel — WHY: 0430's refusal un-registers via the identical `invoke`-`Err` channel proven end-to-end by the new `b0428live` cell; the offline B1–B5 witnesses (verifier red-on-revert) cover the variant-specific behaviour and no model participates in variant judgement.
+- Review: 1 round — R1 (bug-fix-reviewer): CLEAN (residuals: state the 0191 §Fix residual-2 move here; witness-comment line citations, non-blocking).
+- Verification: SOLID — witness reds on fix revert (B2 loses the code), restores green; full suite green; typecheck+lint clean; `git diff -- src/runtime` EMPTY (Option 1 only; `resolveEnumVariant` untouched, so 0185's params-position witnesses are trivially preserved).
+- Residuals: 1. Face-2 runtime belt (§Fix Option 2) NOT implemented: an unknown variant on a SHADOWED or RE-EXPORT-CHAIN imported enum (fenced by the static walk) still reaches the runtime `NullMemberAccessPanic` — a documented withhold per §Fix (Option 2 complementary, targeting `statement-executor.ts`, out of Option 1's scope). Evidence: the B5 fence + §Fix. 2. This fix MOVES bug 0191 §Fix residual-2's recorded disposition: an imported enum's unknown-variant access no longer "keeps its pre-fix disposition" — it now draws `theta/parse/unknown-variant` at the load pass. The closed 0191 doc is NOT edited (era-pinning); the move is recorded here per the §Fix instruction.
+- Discharge notes appended: none (bug 0191 is a closed doc — era-pinning; the residual-2 move is recorded in this record rather than by editing 0191).
+- Pinned dispositions / non-goals: Option 2 (runtime belt) complementary/deferred; Option 3 (spec-only) rejected; valid-variant imported-enum semantics (bugs 0305/0306) untouched; member access on imported SCHEMA values (a different rule set — non-goal).

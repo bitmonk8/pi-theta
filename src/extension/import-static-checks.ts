@@ -60,12 +60,15 @@ import {
   IMPORT_NAME_COLLISION_CODE,
   IMPORT_NAME_COLLISION_HINT,
   RelativeThetaLibResolver,
+  UNRESOLVABLE_THETALIB_PATH_CODE,
+  UNRESOLVABLE_THETALIB_PATH_HINT,
   checkImportNameCollisions,
   checkImportUnknownSymbols,
   computeThetaLibExports,
   detectImportCycle,
   importNameCollisionMessage,
   loadThetaLibImport,
+  unresolvableThetaLibPathMessage,
   type ImportSpecifier,
   type ReExportSpecifier,
   type Resolver,
@@ -76,8 +79,11 @@ import {
 } from "../parser/imports";
 import {
   resolveSubagentSessionConfigAt,
+  type EnumDecl,
   type FnDecl,
   type ImportDecl,
+  type SchemaDecl,
+  type SchemaFieldSource,
   type ThetaBody,
   type ThetaDocument,
 } from "../parser/theta-document";
@@ -95,11 +101,35 @@ import {
   checkSubagentFnStaticResolution,
   collectSubagentFns,
 } from "./subagent-fn-static-checks";
-import { checkImportedFnCallArgs, type ImportedFnCallee } from "./invoke-static-checks";
+import {
+  checkImportedEnumVariantAccess,
+  checkImportedFnCallArgs,
+  checkImportedSchemaCtorFields,
+  type ImportedFnCallee,
+} from "./invoke-static-checks";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
+}
+
+/**
+ * `theta/load/unresolvable-thetalib-path` for a spec that RESOLVED (a byte-exact,
+ * `readdir`-listed entry) but whose bytes could not be read (bug 0428): IMP-1's
+ * "exists but is not readable … likewise unresolvable" clause, reported with the
+ * identical code, message and hint the resolution-failure arm
+ * (`loadThetaLibImport`) uses, so a read failure and a resolution failure are
+ * indistinguishable to a reader of the diagnostic.
+ */
+function unreadableThetaLibDiagnostic(site: { file: string; range: SourceRange }, spec: string): Diagnostic {
+  return {
+    severity: "error",
+    code: UNRESOLVABLE_THETALIB_PATH_CODE,
+    file: site.file,
+    range: site.range,
+    message: unresolvableThetaLibPathMessage(spec),
+    hint: UNRESOLVABLE_THETALIB_PATH_HINT,
+  };
 }
 
 /**
@@ -435,16 +465,25 @@ export async function checkThetaImports(
   const probe = new CachingThetaLibProbe(deps.fs);
   const resolver: Resolver = new RelativeThetaLibResolver(probe);
   const parseCache = new Map<string, ParsedThetaLib | undefined>();
+  // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
+  // pipeline's only other `parseThetaLib` outcome (a document, however
+  // unparseable its content) so the three read-failure arms below can push
+  // IMP-1 exactly once per site without conflating "unreadable" with the
+  // already-handled "parses to an illegal `.thetalib`" case. `parseCache`
+  // itself stays `ParsedThetaLib | undefined` (unchanged shape, so every
+  // existing `parsed === undefined` consumer keeps its current behaviour) —
+  // this is an ADDITIONAL fact recorded beside it, not a replacement.
+  const unreadablePaths = new Set<string>();
 
   const parseThetaLib = async (resolvedPath: string): Promise<ParsedThetaLib | undefined> => {
     if (parseCache.has(resolvedPath)) {
       return parseCache.get(resolvedPath);
     }
-    // Resolved-but-unreadable (or unparseable) `.thetalib` → `undefined`, treated as
-    // no forms/exports. The `.then(ok, err)` rejection arm is the pipeline's
-    // sanctioned I/O-boundary pattern (not a broad `try`/`catch`): a read
-    // rejection OR a synchronous parse throw inside the fulfil arm both settle
-    // to `undefined`.
+    // A `readBytes` rejection settles to `undefined` (recorded in
+    // `unreadablePaths` first, bug 0428) and is treated as no forms/exports for
+    // every consumer that does not itself check that set. The `.then(ok, err)`
+    // rejection arm is the pipeline's sanctioned I/O-boundary pattern, not a
+    // broad `try`/`catch`.
     const parsed: ParsedThetaLib | undefined = await deps.fs
       .readBytes(resolvedPath)
       .then(
@@ -455,7 +494,10 @@ export async function checkThetaImports(
           // instead of parsing unconditionally.
           document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
         }),
-        () => undefined,
+        () => {
+          unreadablePaths.add(resolvedPath);
+          return undefined;
+        },
       );
     parseCache.set(resolvedPath, parsed);
     return parsed;
@@ -512,6 +554,18 @@ export async function checkThetaImports(
         if (load.registered && load.resolvedPath !== undefined) {
           targets.push(load.resolvedPath);
           await walkThetaLib(load.resolvedPath);
+          // Bug 0428: the edge RESOLVED (a byte-exact, listed entry) but the
+          // target's bytes could not be read — IMP-1's "likewise unresolvable"
+          // clause at TRANSITIVE depth. Sited on this edge (the importing lib's
+          // statement), matching the resolution-failure arm's siting below.
+          // `export`-kind edges are excluded: `closeOverReExports` is the sole
+          // reporter for a re-export source's read failure (mirrors the existing
+          // resolution-failure division of labour in the comment above).
+          if (edge.kind === "import" && unreadablePaths.has(load.resolvedPath)) {
+            diagnostics.push(
+              unreadableThetaLibDiagnostic({ file: resolvedPath, range: edge.range }, edge.path),
+            );
+          }
         } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
           diagnostics.push(...load.diagnostics);
         }
@@ -591,6 +645,25 @@ export async function checkThetaImports(
         diagnostics.push(...load.diagnostics);
         continue;
       }
+      await closeOverReExports(load.resolvedPath);
+      // Bug 0428: the re-export's source edge RESOLVED but its bytes could not
+      // be read — IMP-1's "likewise unresolvable" clause at RE-EXPORT depth,
+      // sited on this `export … from` statement (the re-exporting lib), matching
+      // the resolution-failure push above. Suppress the edge push exactly as
+      // that arm's `continue` does: an unreadable source contributes no edge, so
+      // the specifiers it names draw no second, unknown-symbol report over the
+      // empty declared-name set `closeOverReExports`'s own `parsed === undefined`
+      // arm seeds for it. That top-level arm stays silent for `resolvedPath`
+      // itself — a read failure reached only as a WALK ROOT (never through a
+      // re-export edge) is already reported by the direct-decl loop or the
+      // transitive walk that resolved it, so reporting it again here would
+      // double-report.
+      if (unreadablePaths.has(load.resolvedPath)) {
+        diagnostics.push(
+          unreadableThetaLibDiagnostic({ file: resolvedPath, range: stmt.range }, stmt.path),
+        );
+        continue;
+      }
       for (const specifier of stmt.specifiers) {
         reExportEdges.push({
           fromLib: resolvedPath,
@@ -601,7 +674,6 @@ export async function checkThetaImports(
           range: specifier.range,
         });
       }
-      await closeOverReExports(load.resolvedPath);
     }
   };
 
@@ -921,6 +993,18 @@ export async function checkThetaImports(
   // below, in the SAME specifiers loop that already holds each resolved and
   // parsed library body (`materializeChain`'s own loop) — no separate walk.
   const importedFns = new Map<string, ImportedFnCallee>();
+  // Bug 0429 route — the constructor-side sibling of `importedFns` above,
+  // keyed the same way (specifier LOCAL name) and populated in the SAME
+  // per-decl loop, holding the directly-resolved library's own
+  // `SchemaDecl.fields` for `checkImportedSchemaCtorFields` to judge each
+  // `ObjectExpr` constructor site against.
+  const importedSchemas = new Map<string, readonly SchemaFieldSource[]>();
+  // Bug 0430 route — the variant-access sibling of `importedSchemas` above,
+  // keyed the same way (specifier LOCAL name) and populated in the SAME
+  // per-decl loop, holding the directly-resolved library's own `EnumDecl`
+  // variant list for `checkImportedEnumVariantAccess` to judge each
+  // `MemberExpr` access site against.
+  const importedEnums = new Map<string, readonly string[]>();
   // Bug 0304 fix 2: `isRegistrationError` must fire for every `parseCache`
   // entry exactly once. A DIRECT decl's own resolved lib is filtered inline
   // below, in the same position bug 0138's own test pins (`isRegistrationError`
@@ -962,6 +1046,27 @@ export async function checkThetaImports(
     // `registrationFilteredPaths` so the post-walk pass does not re-push it.
     const parsed = await parseThetaLib(resolvedPath);
     if (parsed === undefined) {
+      // Bug 0428: resolution succeeded (the entry is byte-exact and listed)
+      // but the bytes could not be read — IMP-1's "likewise unresolvable"
+      // clause at DIRECT depth, sited on this decl exactly as the
+      // resolution-failure arm above sites its own push on `site`. An
+      // unparseable-but-READABLE lib (not this arm; `registrationFilteredPaths`
+      // below handles that) never reaches this branch, since `parsed` would be
+      // a `ParsedThetaLib` carrying parse diagnostics, not `undefined`.
+      if (unreadablePaths.has(resolvedPath)) {
+        diagnostics.push(unreadableThetaLibDiagnostic(site, spec));
+        // Bug 0312: seed the walk set with this resolved-but-unreadable lib so
+        // its resolved path enters `resolvedLibs` (=[...walked]) and thus the
+        // caller's watch set — symmetric with a TRANSITIVE resolved-but-
+        // unreadable lib, which already reaches `walked` through `walkThetaLib`.
+        // Without this a DIRECT unreadable lib would be invisible to the reload
+        // closure, so repairing the permission/directory problem would fire no
+        // recompose (0312's contract). `walkThetaLib` self-guards (`walked.has`),
+        // reparses nothing (the `undefined` is cached in `parseCache`), and sets
+        // empty graph edges — the same terminal state the readable arm's
+        // trailing `walkThetaLib` seed reaches.
+        await walkThetaLib(resolvedPath);
+      }
       continue;
     }
     if (!registrationFilteredPaths.has(resolvedPath)) {
@@ -1013,6 +1118,35 @@ export async function checkThetaImports(
           libraryStatements: parsed.document.body.statements,
         });
       }
+      // Bug 0429 — the object-form `schema` sibling of the `fn` lookup above,
+      // same direct-declaration-only restriction (no re-export chain follow):
+      // at the same-file parse position, a head-only / alias-form `schema`
+      // (no `.fields`) is REFUSED outright (checkObjectExpr's own
+      // `bodySchemas.has` arm draws `theta/parse/unresolved-named-type`,
+      // theta-document.ts's constructor-name classification) because it is
+      // not brace-constructible under any reading. This LOAD route instead
+      // WITHHOLDS on that same shape: it judges FIELD SETS only, and an
+      // alias/head-only decl carries none to judge against, so the imported
+      // alias-form/enum-name constructor stays silent here — a residual
+      // outside this bug's scope (a sibling of bug 0430's enum-variant class).
+      const schemaDecl = parsed.document.body.statements.find(
+        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
+      );
+      if (schemaDecl !== undefined && schemaDecl.fields !== undefined) {
+        importedSchemas.set(specifier.local, schemaDecl.fields);
+      }
+      // Bug 0430 — the `enum` sibling of the `schema` lookup above, same
+      // direct-declaration-only restriction (no re-export chain follow): a
+      // non-`{ … }` enum shape the body parser could not read carries no
+      // `variants` list to judge member accesses against, so it stays absent
+      // from the map (a withhold, matching the `schemaDecl.fields` guard
+      // above).
+      const enumDecl = parsed.document.body.statements.find(
+        (stmt): stmt is EnumDecl => stmt.kind === "enum" && stmt.name === specifier.source,
+      );
+      if (enumDecl !== undefined && enumDecl.variants !== undefined) {
+        importedEnums.set(specifier.local, enumDecl.variants);
+      }
       const materialized = await materializeChain(
         specifier.source,
         specifier.local,
@@ -1043,6 +1177,32 @@ export async function checkThetaImports(
       input.sourcePath,
       (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
       importedFns,
+    ),
+  );
+
+  // Bug 0429: judge every imported-`schema` constructor site's field set,
+  // ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedSchemas` map — the same wiring shape as
+  // the `checkImportedFnCallArgs` push immediately above.
+  diagnostics.push(
+    ...checkImportedSchemaCtorFields(
+      input.body,
+      input.sourcePath,
+      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      importedSchemas,
+    ),
+  );
+
+  // Bug 0430: judge every imported-`enum` variant-access site's variant name,
+  // ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedEnums` map — the same wiring shape as the
+  // `checkImportedSchemaCtorFields` push immediately above.
+  diagnostics.push(
+    ...checkImportedEnumVariantAccess(
+      input.body,
+      input.sourcePath,
+      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      importedEnums,
     ),
   );
 
