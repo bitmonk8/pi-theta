@@ -1,6 +1,6 @@
 # Bug 0419 — `tests/b0366-join-element-laundered-belt.test.ts:21–23` asserts as present-tense fact, quote and line-cite included, the pre-0394 belt design "the belt does not consult `params` — arity is its only concern", which bug 0394 reversed: the cited lines `stdlib-string.ts:65-66` now state the opposite ("the runtime dispatcher belt reads `params` too … arity and kind are its two concerns")
 
-- **Status:** open.
+- **Status:** fixed (0.426.0).
 - **Sev/Diff estimate:** S5/D1 — S5: doc/records drift in a committed test
   header, non-load-bearing for verdicts (b0366's assertions are on the
   element-walk throw and parse codes, not on the quoted sentence); reported
@@ -173,3 +173,43 @@ fix-residuals-5 sweep over the 0402–0418 fix round: developed from
 `grep` proved the quoted sentence absent from `src/**`. Dup check: README
 index carries no report on this header; 0394/0402/0405 read in full — each
 names, none files.
+
+## Fix (0.426.0)
+
+- What shipped: `tests/b0366-join-element-laundered-belt.test.ts` — comment-only
+  historical reframe of the "TWO unbelted sinks" belt-design block (§Fix Option 1,
+  Recommended). The stale line-cites (`stdlib-array.ts:101-106`, `:87-89`,
+  `stdlib-string.ts:65-66`) are converted to symbol form (`evaluateArrayMember`,
+  `assertStdlibArgumentKinds`) per STYLE.md §Citations; the reversed pre-0394
+  quote now sits under an explicit "Pre-0394 … at the time" marker; the
+  present-tense "so no element-kind belt exists" clause is gone; "element-kind
+  belt" attaches to the join VALUE walk this file locks, with
+  `assertStdlibArgumentKinds` named as the argument-kind belt (its `"element"`
+  arm is unchecked) — no verdict/assertion/fixture/title change.
+  `tests/b0419-b0366-header-reversed-belt-design-gate.test.ts` (new) — a
+  content-anchored witness gate (cell A spec-truth belt-reversal drift-guard;
+  cells B & C the re-frame requirement; cell D the b0394-header control).
+- Gates: witness `npx vitest run tests/b0419-…` RED at fork (cells B & C fail
+  for the doc's symptom: present-tense reversed claim, no historical marker),
+  GREEN after (4/4); targeted `tests/b0419-… tests/b0366-…` 15/15 green;
+  `npm run typecheck` clean; `npm run lint` clean. Full `npm test` green modulo
+  documented 16-lane load noise (real-spawn/e2e/timing files flake under
+  concurrent lanes; every flagged file passes isolated — this file-read
+  comment-only change cannot affect a spawn/timing verdict).
+- Review: 2 rounds. R1 (bug-fix-reviewer, deep) — F1 [correctness]: the reframe
+  tail mislabelled `assertStdlibArgumentKinds` as "that element-kind belt";
+  fixed by attaching "element-kind belt" to the walk. R2
+  (bug-fix-reviewer-fast, confirmation) — clean; F1 verified resolved, no new
+  defect.
+- Verification: SOLID. Witness genuinely reds — reverting the header block to
+  fork bytes turns cells B & C RED (A & D stay green), restore returns to the
+  fixed diff. Targeted suite 15/15 green. Typecheck + lint clean. Live: one
+  chain-level live cell (0419→0421→0436→0434) run under the global lock (see
+  fix report) — green.
+- Residuals: 1. The kept pre-0394 quote truncates the source sentence's
+  "…per the design brief" tail without an ellipsis (R1, reviewer round 1) —
+  pre-existing since before this fix, outside §Fix's demand, left as-is.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: no belt implementation or its doc comments
+  touched (correct at pin); the b0394 header untouched (already correctly
+  framed); comment-only — suite verdicts byte-identical.

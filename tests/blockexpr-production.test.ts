@@ -41,8 +41,8 @@ import { buildEnvironment } from "../src/runtime/lexical-environment";
 // Spec: docs/spec_topics/grammar.md:118
 // (`BlockExpr ::= "{" Stmt* Expr "}"` — expression-position, tail Expr
 // required, value is the tail expression), `:114` (the two expression-position
-// block sites: the `let` RHS and a `match`-arm body), `:148–150`
-// (`ArmBody ::= Expr | BlockExpr`), `:153–164` (the worked example this file's
+// block sites: the `let` RHS and a `match`-arm body), `:158–159`
+// (`ArmBody ::= Expr | BlockExpr`), `:164–173` (the worked example this file's
 // cell (a) reproduces); docs/spec_topics/expressions.md:182.
 //
 // Surface, re-derived at HEAD 1848fb65 (line numbers below re-derived again
@@ -154,7 +154,7 @@ const BARE_OBJECT_CODE = "theta/parse/bare-object-literal";
  * example of the block arm body, wrapped in the bug's minimal frontmatter.
  *
  * Transcribed as the bug doc §Reproduction transcribes it: the doc substitutes
- * the integer tail `2` for grammar.md:161's `"fallback"` so both arms produce
+ * the integer tail `2` for grammar.md:170's `"fallback"` so both arms produce
  * `integer` and the example is free of the arm-type question this bug is not
  * about. The braces — the surface under test — are unchanged.
  */
@@ -208,14 +208,14 @@ function kindOf(e: Expr | null): string {
 
 describe("bug 0082 — a `match`-arm block expression parses", () => {
   it("parses grammar.md's worked block-arm example with zero diagnostics", () => {
-    // grammar.md:150 `ArmBody ::= Expr | BlockExpr`; :153–164 prints this
+    // grammar.md:158–159 `ArmBody ::= Expr | BlockExpr`; :164–173 prints this
     // program (see ARM_BLOCK_SOURCE on the tail substitution). Today `tryConsumeArmBodyStatement`
     // (src/parser/theta-document.ts:4392) declines a leading `{`, the arm body
     // falls through to `parseObjectLiteral(null, …)` (:4152–4153) and
     // `checkObjectExpr` (:7581) refuses it at :7593.
     expect(
       diagsOf(FM + ARM_BLOCK_SOURCE),
-      "grammar.md:153–164's worked example must parse clean: an arm body wrapped in `{ … }` is a BlockExpr, not a bare object literal",
+      "grammar.md:164–173's worked example must parse clean: an arm body wrapped in `{ … }` is a BlockExpr, not a bare object literal",
     ).toEqual([]);
   });
 
@@ -286,7 +286,7 @@ describe("bug 0082 — the `BlockExpr` node shape", () => {
     expect(arms.length, "harness: the fixture declares two arms").toBe(2);
     expect(
       kindOf(arms[1]?.body ?? null),
-      "grammar.md:150 `ArmBody ::= Expr | BlockExpr`: the `Err(e) => { … }` arm body is a block node",
+      "grammar.md:158–159 `ArmBody ::= Expr | BlockExpr`: the `Err(e) => { … }` arm body is a block node",
     ).toBe("block");
   });
 });

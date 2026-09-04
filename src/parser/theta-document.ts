@@ -815,7 +815,7 @@ export interface SchemaDecl extends NodeBase {
    * The lowered schema-DECL description: the `///` run that
    * `scanDocComments`/`classifyDocAnchor` resolve to the `schema` keyword via
    * the placement scan, joined byte-for-byte (descriptions.md §Multi-line / §No
-   * transformation; grammar.md:195 for the alias form). Lowering and placement
+   * transformation; grammar.md:204 for the alias form). Lowering and placement
    * agree by construction — blank and `//` lines between the run and the
    * keyword are skipped exactly as the placement scan skips them. Absent when
    * the declaration carries no doc comment.

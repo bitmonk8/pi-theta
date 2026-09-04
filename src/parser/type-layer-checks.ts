@@ -2295,7 +2295,7 @@ class TypeLayerWalk {
   /**
    * The array-literal check every sink dispatch shares (`sinkedArrayOf`'s
    * caller, `checkFnCallArgs`, `checkObjectField`), and the one place
-   * `grammar.md:221`'s fourth sink bullet is wired: an array-typed sink's
+   * `grammar.md:230`'s fourth sink bullet is wired: an array-typed sink's
    * element type is itself a sink for a nested array literal. Returns every
    * node this call judged — `array` itself when a sink is in scope (including
    * on the withheld-binder early return below, since a caller marks that node
@@ -2340,7 +2340,7 @@ class TypeLayerWalk {
       if (sink !== undefined) {
         // Withholding a verdict is NO verdict, not a sink-LESS one: this sink
         // stays in scope at every nested position down the element chain
-        // (`grammar.md:221`), so `theta/parse/array-no-common-type`'s
+        // (`grammar.md:230`), so `theta/parse/array-no-common-type`'s
         // registered *Trigger* — "and no sink to narrow against" — is false
         // there and the sink-less route must not run on those nodes either.
         this.markNestedArrayLiterals(array, judged);

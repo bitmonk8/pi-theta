@@ -1,6 +1,6 @@
 # Bug 0421 — Bug 0405's re-pin sweep enumerated only the three files 0389 §Residuals named as examples, and the same 0389-shift stale class survives at pin in ELEVEN other test files: 36 bare-form `grammar.md:N` cites (12 inside assertion messages/labels) still name pre-shift lines — five `:221` cites in the nested-sink LIVE cell for the sink bullet now at `:230`, `:175` for `AliasRhs` (now `:184`) in four files including the line-pinned LPA, and the falsified `fn-param-list-unclosed` contrast comment 0389's own §Residuals item 2 recorded — plus three same-class comment cites in two `src/` parser files
 
-- **Status:** open.
+- **Status:** fixed (0.427.0).
 - **Sev/Diff estimate:** S5/D1 — S5: doc/records drift, but the exact class
   0405 was filed and fixed for, at the same crispness (each instance is a
   mechanical cited-line-vs-actual-content mismatch with the 0389 +5/+9
@@ -247,3 +247,65 @@ adjudication with `sed` against `docs/spec_topics/grammar.md` at
 `04579e12`. All truth lines quoted in §Affected re-read at pin. Dup check:
 README index — 0405 is fixed and enumerates disjoint instances; 0389
 §Residuals 1–2 read in full; no other citation-sweep report exists.
+
+## Fix (0.427.0)
+
+- What shipped: mechanical content-sensitive re-pin of the enumerated stale
+  `grammar.md:N` cites (comment/message-string only) across eleven test files
+  plus two `src/` parser comments, and the one settled SEMANTIC clause rewrite:
+  - `tests/live/nested-array-element-sink-descent-live-cell.test.ts` — 5×
+    `:221`→`:230` (recursive-descent sink bullet).
+  - `tests/fn-param-list-unclosed.test.ts` — `:139`→`:144`, `:140`→`:145`,
+    `:143`→`:148` (prose), plus lines :14-15 rewritten to state the SPEC
+    `FnDecl` (grammar.md:138) now carries `SubagentMod?`/`WithClause?` (0389
+    §Residuals 2's remedy); the reduced `FnDecl`/`FnParam` QUOTE-shapes at
+    :13/:18 left per §Non-goals (quote-drift sweep).
+  - `tests/b0357-…:217` `:192`→`:201`; `tests/b0358-…` 5× `:195`→`:204`;
+    `tests/blockexpr-production.test.ts` `:150`→`:158–159`, `:153–164`→`:164–173`,
+    `:161`→`:170`; `tests/b0387-…:327` `:150`→`:159`;
+    `tests/schema-alias-union-decl.test.ts` `:170–177`→`:179–186`, `:177`→`:179–186`,
+    `:179`→`:188`; `tests/brace-rooted-union-arm-capture.test.ts` `:143`→`:145`,
+    `:175`→`:184`; `tests/schema-alias-rhs-malformed.test.ts` `:199`/`:212`→`:208`,
+    `:175`→`:184`; `tests/inline-empty-object-type.test.ts:84` `:175`→`:184`;
+    `src/parser/theta-document.ts:818` `:195`→`:204`;
+    `src/parser/type-layer-checks.ts:2298/:2343` `:221`→`:230`.
+  - `tests/b0421-grammar-cite-sweep-remainder-gate.test.ts` (new) — a
+    content-derived sweep gate (SPEC-TRUTH cells lock the re-pin targets by
+    content search; RE-PIN cells assert current-line + pre-shift-absent);
+    extended with continuation-aware cells for the self-authorized F2 twins.
+- Gates: witness `b0421` gate RED at fork (11 RE-PIN cells; 3 SPEC-TRUTH green),
+  GREEN after (14/14); targeted suite over the witness + all edited offline
+  files + `citation-symbol-form-gate` (b0134) + `b0405` gate green;
+  `npm run typecheck` clean; `npm run lint` clean; chain-level live cell
+  `tests/live/nested-array-element-sink-descent-live-cell.test.ts` green under
+  the global lock (real drive, 1/1). Full `npm test` green modulo documented
+  16-lane load noise (real-spawn/e2e/timing files flake, pass isolated).
+- Review: 2 rounds. R1 (bug-fix-reviewer, deep) — F1 [fidelity]: the LPA:2342
+  cite the doc enumerates is carved out (see Residuals); F2 [correctness]: five
+  CONTINUATION-FORM (bare `:N`) stale twins in edited files, outside the doc's
+  prefix-form enumeration — fixed under a recorded bounded self-authorization
+  (comment-only, exact lines, twin of enumerated instances, +9 signature; blockexpr:44
+  `:148–150`→`:158–159`, blockexpr:45/211 `:153–164`→`:164–173`, brace-rooted:42
+  `:143`→`:145`, schema-union:32 `:179`→`:188`) with the witness extended to lock
+  them. R2 (bug-fix-reviewer-fast, confirmation) — clean; F2 verified, no new twin.
+- Verification: SOLID. Witness genuinely reds — reverting three representative
+  files to fork bytes turns their RE-PIN cells RED (SPEC-TRUTH stay green),
+  restore byte-identical (incl. the 950-CRLF/11-LF mixed-EOL profile of
+  fn-param-list-unclosed). Targeted suite green. Typecheck + lint clean. LPA
+  untouched (14864 lines). Live: chain-level cell green under the lock.
+- Residuals:
+  1. `tests/live/live-production-acceptance.test.ts:2342` (`grammar.md:175`→:184)
+     — enumerated in §Affected/§Fix but CARVED OUT: this lane's binding rules
+     forbid editing the line-pinned LPA (14864 lines). The doc's §Fix 0336-precedent
+     same-line refresh is overridden by the lane policy; the cite stays stale.
+     Follow-on: a lane permitted to touch the LPA under its pin applies the one-line
+     `:175`→`:184` refresh.
+  2. Quote-shape drift (`FnParam ::= Ident ":" Type` vs current `Ident (":" Type)?`;
+     the reduced `FnDecl` quote at fn-param-list-unclosed:13) — different commit/class,
+     deferred to a quote-drift sweep per §Non-goals.
+  3. Reference-side (`docs/reference/grammar.md`) cite halves — §Non-goals, separate audit.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: no assertion/verdict change (comment/message-string
+  only, suite verdicts byte-identical); the three 0405-swept files and the b0405 gate
+  untouched; already-current cites protected (schema-alias-union-decl:29,
+  blockexpr:153, brace-rooted:658's :138 half).

@@ -23,7 +23,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - grammar.md:102 — `LiteralType ::= STRING | NUMBER | BOOLEAN | NULL` has no
 //     unary-minus alternative, so `-1` is a `PrimitiveLit` of the VALUE
 //     sublanguage (:20–:24) and spells no `AliasRhs` at all.
-//   - grammar.md:120 (`ThetaBody ::= Stmt* Expr?`), :199 and :212 — statements
+//   - grammar.md:120 (`ThetaBody ::= Stmt* Expr?`), :208 — statements
 //     are separated by newlines, the continuation trigger set is closed, and
 //     there is no semicolon escape: a second statement on the same line has no
 //     derivation. The NEXT-line arrangement is the one the separator already
@@ -515,7 +515,7 @@ function expectMalformedAliasRhs(opts: {
   expect(
     renderCoded(hits),
     `${label} — bug 0042 §Expected: this right-hand side is no ` +
-      `\`AliasRhs ::= Type ("|" Type)*\` (grammar.md:175), so the declaration that loads is not ` +
+      `\`AliasRhs ::= Type ("|" Type)*\` (grammar.md:184), so the declaration that loads is not ` +
       `the declaration that was written and ${CODE} is the registered disposition. Exactly one ` +
       `emission per malformed declaration, at error severity, with the registry's normative ` +
       `message. Whole observed diagnostic list=${JSON.stringify(renderDiags(doc.diagnostics, prelude))}`,
@@ -1384,7 +1384,7 @@ describe("bug 0042 (e) — the fences the rule may not cross", () => {
     // The registry row's second exclusion. `array<integer>` ends in a trailing
     // newline-continuation trigger, so the following `let` sits directly ahead
     // of the cursor with no separator token — yet it is on the next SOURCE
-    // line, which the statement separator already governs (grammar.md:199).
+    // line, which the statement separator already governs (grammar.md:208).
     // This is the cell that keeps the rule's discrimination line-based.
     const doc = parse(F12);
     expect(armsOf(doc, "X", "e8"), "e8 — the generic arm is captured whole").toEqual([

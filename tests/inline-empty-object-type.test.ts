@@ -81,7 +81,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //
 // THE UNION-ARM CELLS ARE WRITTEN AT BOTH POSITIONS. A `Type` position consumes
 // the whole `Type ("|" Type)*` extent wherever it appears — the alias
-// right-hand side of `grammar.md:175` and a schema field type of `:105` are one
+// right-hand side of `grammar.md:184` and a schema field type of `:105` are one
 // grammar (type-system.md:15) — so `schema X = {} | null` and
 // `schema S { f: {} | null }` render the SAME single inline line, and each arm
 // order is asserted at each position (a2 / a2b, c1 / c1b). e5 guards the

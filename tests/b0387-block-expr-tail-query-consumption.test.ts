@@ -324,7 +324,7 @@ describe("bug 0387 B2 — a let-bound block-expr query failure binds Err and is 
 
 describe("bug 0387 B4 — a match-arm block body query success binds Ok(payload) (evalMatch's atTerminal threading survives)", () => {
   it("`let r = match c { _ => { @`q` } }` (success) then `match r { Ok(v)=>v, … }` binds Ok and returns the payload", async () => {
-    // WHY: the block-expr's second admitted position (grammar.md:150,
+    // WHY: the block-expr's second admitted position (grammar.md:159,
     // theta-document.ts:433) is a `match`-arm body. `evalMatch` carefully
     // threads its own non-terminal `atTerminal` into the arm body, but the block
     // arm re-enters `executeBlock` and the tail is evaluated `atTerminal=true`

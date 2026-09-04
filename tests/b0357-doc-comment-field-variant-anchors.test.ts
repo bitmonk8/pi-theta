@@ -214,7 +214,7 @@ describe("bug 0357 B — a `///` above an enum variant parses clean", () => {
     // Verified otherwise parse-clean → exact-empty-set.
     expect(
       parseErrorCodes("B-variant", VARIANT_ONLY),
-      "B: `///` above an enum variant is grammar.md:192 legal; at HEAD it draws doc-comment-misplaced",
+      "B: `///` above an enum variant is grammar.md:201 legal; at HEAD it draws doc-comment-misplaced",
     ).toEqual([]);
   });
 });

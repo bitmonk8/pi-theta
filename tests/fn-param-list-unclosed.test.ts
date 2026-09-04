@@ -11,13 +11,13 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (docs/bugs/0151-unclosed-fn-parameter-list-accepted.md).
 //
 // THE RULE. `FnDecl ::= "fn" Ident "(" FnParams? ")" (":" ReturnType)? FnBody`
-// (docs/spec_topics/grammar.md:138; the reference mirror adds `SubagentMod?`
-// and `WithClause?`, docs/reference/grammar.md:289) makes the closing `)` a
+// (docs/spec_topics/grammar.md:138 — the spec production now carries `SubagentMod?`
+// and `WithClause?` too, theta-1.2 slots the fn-unclosed rule does not exercise) makes the closing `)` a
 // required terminal with no alternative, `FnParams ::= FnParam ("," FnParam)*
-// ","?` (grammar.md:139 / docs/reference/grammar.md:295), with
-// `FnParam ::= Ident ":" Type` (grammar.md:140), derives no `{`, no
+// ","?` (grammar.md:144 / docs/reference/grammar.md:295), with
+// `FnParam ::= Ident ":" Type` (grammar.md:145), derives no `{`, no
 // `let`, no `fn` and no numeric literal at a `FnParam` position, and
-// grammar.md:143 restates it in prose ("The parameter list is parenthesised in
+// grammar.md:148 restates it in prose ("The parameter list is parenthesised in
 // every case"). FN-1 (docs/spec_topics/functions.md:20) makes that production
 // normative for the surface form.
 //
@@ -341,7 +341,7 @@ describe("0151 (a) — an unclosed list whose `{` follows is refused, and the br
     const doc = theta("fn h(p: string { 1 }\n");
     expect(
       triples(doc),
-      `grammar.md:138 makes the closing \`)\` a required terminal and grammar.md:139 derives no \`{\` at a FnParam position; diagnostics=${render(doc)}`,
+      `grammar.md:138 makes the closing \`)\` a required terminal and grammar.md:144 derives no \`{\` at a FnParam position; diagnostics=${render(doc)}`,
     ).toEqual([e(UNCLOSED, "4:5-4:6")]);
     expect(quads(doc), "DIAG-4 — the rendered prose is the registry's Message column").toEqual([
       q(UNCLOSED, "4:5-4:6"),
@@ -529,7 +529,7 @@ describe("0151 (b) — an unclosed list truncated at EOF is refused, beside the 
   });
 
   it("b5: `fn h(a: string,` — a trailing comma at EOF is refused", () => {
-    // `FnParams` admits the trailing comma (grammar.md:139), so the fault here
+    // `FnParams` admits the trailing comma (grammar.md:144), so the fault here
     // is the missing `)` alone and the recorded parameter list stays at one.
     const doc = theta("fn h(a: string,");
     expect(triples(doc), `diagnostics=${render(doc)}`).toEqual([

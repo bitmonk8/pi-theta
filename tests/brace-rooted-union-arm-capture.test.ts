@@ -39,7 +39,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //   - docs/spec_topics/grammar.md:184 — `AliasRhs ::= Type ("|" Type)*`. The
 //     alias right-hand side is the same union of the same `Type`, which makes
 //     its capture the reference implementation rather than a special case.
-//   - docs/spec_topics/grammar.md:77 (`LetStmt`) and :138/:143 (`FnDecl` /
+//   - docs/spec_topics/grammar.md:77 (`LetStmt`) and :138/:145 (`FnDecl` /
 //     `FnParam`) — in both, the type slot is ONE `Type` and what follows it
 //     (`= Expr`, `,`, `)`, `FnBody`) is a separate slot of the same production.
 //   - docs/spec_topics/type-system.md:15 — "The same type grammar applies in
@@ -650,12 +650,12 @@ describe("bug 0095 (2) — a brace-rooted union annotation keeps the `=` initial
 
 describe("bug 0095 (3) — a brace-rooted union in an `fn` signature", () => {
   it("RED 3a: `fn f(p: {} | null) { 1 }` records ONE parameter", () => {
-    // grammar.md:143 makes each `FnParam` an `Ident ":" Type` pair and admits no
+    // grammar.md:145 makes each `FnParam` an `Ident ":" Type` pair and admits no
     // parameter named `|`. The parameter LIST is the whole observable — no
     // diagnostic moves here at all, which is why the shape half is mandatory.
     expect(
       observeFn(body("fn f(p: {} | null) { 1 }")),
-      "3a — grammar.md:138/:143: the type slot is one `Type` and `)` is a separate slot of the " +
+      "3a — grammar.md:138/:145: the type slot is one `Type` and `)` is a separate slot of the " +
         "same production, so `{} | null` is `p`'s whole type and the signature has arity 1",
     ).toEqual({
       diagnostics: [inlineLine()],
@@ -1085,7 +1085,7 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
         emptySecond: observeSchema(body("schema X = null | {}")),
         nonEmpty: observeSchema(body("schema X = {a: integer} | null")),
       },
-      "5a — grammar.md:175's `AliasRhs ::= Type (\"|\" Type)*` is the reference capture this fix " +
+      "5a — grammar.md:184's `AliasRhs ::= Type (\"|\" Type)*` is the reference capture this fix " +
         "generalises; reusing its branch is what keeps 0042's boundary set intact",
     ).toEqual({
       emptyFirst: {
@@ -1098,7 +1098,7 @@ describe("bug 0095 (5) — the capture sites that are already correct do not mov
       },
       // Since bug 0228's fix the alias's own brace-group arm is ALSO a raw
       // slice now (it shares the same `consumeInlineObjectType`), so this
-      // reference capture (grammar.md:175) keeps the author's own spacing
+      // reference capture (grammar.md:184) keeps the author's own spacing
       // too, agreeing byte-for-byte with the widened positions it generalises
       // to.
       nonEmpty: {

@@ -6,6 +6,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.428.0]
+
+### Fixed
+
+- **Bug 0436** — stale shape-enumeration sentences: comments in `binder-model.ts` / `reload-wiring.ts` (and induced siblings) still enumerated the note-channel's payload shapes with pre-0404-era counts and member lists, contradicting the corpus after the matrix/partition work — narration lying about a closed set's size. Fixed per the settled §Fix: the enumeration sentences widened to the current set (with the b0383 induced-stale cite re-pinned under recorded bounded self-authorization), witnessed by NEW `tests/b0436-shape-enumeration-sentences-gate.test.ts` pinning the corrected sentences. Doc/comment-scoped; no behaviour change. NOTE: written pre-0432-merge — the gate asserts the enumeration current as of the lane's fork; the fifth (`shutdown`) arm landed by 0432 composes at rebase (any count drift is caught by the gate and resolved in the rebase hunks). Live: covered by the chain's cell run (recorded WHY).
+
+## [0.427.0]
+
+### Fixed
+
+- **Bug 0421** — 0389-shift stale grammar cites OUTSIDE 0405's enumerated sweep: twelve files still cited pre-shift `grammar.md` lines (0405's fix swept only its enumerated sixteen), plus one semantically-stale narration — the citation gate's premise false for the remainder set. Fixed per the settled §Fix: the remainder re-pinned across 12 files with the semantic rewrite, five continuation-twin cites fixed under recorded bounded self-authorization (same mechanical class), era-pinned bug-doc bodies excluded, witnessed by NEW `tests/b0421-grammar-cite-sweep-remainder-gate.test.ts`. RECORDED CARVE-OUT (blocking residual for a follow-on): `live-production-acceptance.test.ts:2342` still cites `:175` (true line `:184`) — the lane law forbids editing the line-pinned LPA even though the doc's §Fix wanted it; filed forward rather than breached. Live: `nested-array-element-sink-descent` cell (re-pinned by this fix) 1/1 under the lock.
+
+## [0.426.0]
+
+### Fixed
+
+- **Bug 0419** — the `b0366` test header asserted a reversed belt design: the header narrated the join-element gate as a runtime belt ordered BEFORE the static judgement (the reverse of the landed design), teaching future editors a false mechanism (the 0405-deferred deliberate-drift now filed). Fixed per the settled §Fix: the header reframed to the true design (static judgement first; the runtime belt is the 0366-filed residual, not the shipped order), with a NEW gate `tests/b0419-b0366-header-reversed-belt-design-gate.test.ts` pinning the corrected narration against regression. Doc/comment-scoped; no behaviour change. Live: the chain's `nested-array-element-sink-descent` cell 1/1 under the lock (recorded WHY — the surface the chain's cite work touches).
+
 ## [0.425.0]
 
 ### Fixed

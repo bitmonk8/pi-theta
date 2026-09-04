@@ -29,7 +29,7 @@ import { codes, parseDoc } from "./helpers/e2e-s1";
 //   - docs/spec_topics/grammar.md:179–186 — `SchemaShape` has THREE
 //     alternatives: the object form, `"=" AliasRhs`, and
 //     `"by" Ident "=" UnionRhs`, with `AliasRhs ::= Type ("|" Type)*` and
-//     `UnionRhs ::= Type ("|" Type)+`. None is marked deferred. `:179` prescribes
+//     `UnionRhs ::= Type ("|" Type)+`. None is marked deferred. `:188` prescribes
 //     `theta/parse/by-on-object-schema` for `schema X by f { ... }`.
 //   - docs/spec_topics/schemas.md:50–60 — §Type-alias / union schema: "The `=`
 //     form is a top-level type alias. It composes with every shape from the type
@@ -508,7 +508,7 @@ function expectNoResidue(doc: ThetaDocument, why: string): void {
     expect(
       sig,
       `${why} — the shape's tokens must be consumed by the declaration, not re-parsed as ` +
-        `statements (grammar.md:170–177). statements=${JSON.stringify(sig)}; ` +
+        `statements (grammar.md:179–186). statements=${JSON.stringify(sig)}; ` +
         `diagnostics=${JSON.stringify(diagLines(doc))}`,
     ).not.toContain(residue);
   }
@@ -522,7 +522,7 @@ function expectLoadsClean(doc: ThetaDocument, why: string): void {
   expectNoResidue(doc, why);
   expect(
     diagLines(doc),
-    `${why} — the form is normative theta 1.0 (grammar.md:170–177, schemas.md:50–60), so it must ` +
+    `${why} — the form is normative theta 1.0 (grammar.md:179–186, schemas.md:50–60), so it must ` +
       `load with NO diagnostics`,
   ).toEqual([]);
 }
@@ -817,7 +817,7 @@ describe("bug 0033 (a) — the alias and explicit-discriminator declaration shap
   });
 
   it("RED a5: the explicit-discriminator form `schema Animal by kind = Cat | Dog` loads clean", () => {
-    // schemas.md:110 / grammar.md:177. Today the `by kind = Cat` head parses as
+    // schemas.md:110 / grammar.md:179–186. Today the `by kind = Cat` head parses as
     // a REASSIGNMENT and only the trailing `| Dog` draws a diagnostic — one
     // stray token for a whole unparsed declaration.
     const doc = parse(F_BY_KIND);
@@ -886,7 +886,7 @@ describe("bug 0033 (a) — the alias and explicit-discriminator declaration shap
 
 describe("bug 0033 (b) — the seven discriminated-union / cycle codes fire through the parse", () => {
   it("RED b1: `schema X by f { a: string }` fires theta/parse/by-on-object-schema", () => {
-    // grammar.md:179 prescribes this rejection. DRIFT vs the bug doc: at 0.32.0
+    // grammar.md:188 prescribes this rejection. DRIFT vs the bug doc: at 0.32.0
     // this fixture loaded with ZERO diagnostics; at HEAD bug 0025's landed
     // constructor gate rejects the `f { a: string }` residue's re-parse with
     // `unresolved-named-type 'f'` — a name the author never wrote as a type.
@@ -902,7 +902,7 @@ describe("bug 0033 (b) — the seven discriminated-union / cycle codes fire thro
     expectExactly(
       doc,
       line(BY_ON_OBJECT, msg(BY_ON_OBJECT, [])),
-      "b1 — grammar.md:179 / schemas.md:113",
+      "b1 — grammar.md:188 / schemas.md:113",
     );
   });
 

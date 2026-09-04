@@ -13,14 +13,19 @@
 // TWO unbelted sinks, both measured here (both share the `evaluateArrayMember`
 // dispatcher, src/runtime/stdlib-array.ts):
 //   - EXECUTOR: `evaluateArrayMember`'s `join` arm
-//     (src/runtime/stdlib-array.ts:101-106 — the element walk guarding
-//     `return receiver.join(args[0] as string)`). At HEAD before bug 0366 the
-//     comment above it trusted a parse-time `checkArrayJoin` guarantee that
-//     bug 0127 made hold only for STATICALLY-RESOLVABLE receivers; the fix
-//     corrected that comment and added the element walk this file locks. The
-//     bug-0315 arity belt sits in the SAME function (stdlib-array.ts:87-89) and checks
-//     arity ONLY (stdlib-string.ts:65-66: "the belt does not consult `params`
-//     — arity is its only concern"), so no element-kind belt exists.
+//     (the element walk guarding `return receiver.join(args[0] as string)`).
+//     At HEAD before bug 0366 the comment above it trusted a parse-time
+//     `checkArrayJoin` guarantee that bug 0127 made hold only for
+//     STATICALLY-RESOLVABLE receivers; the fix corrected that comment and
+//     added the element walk this file locks. The bug-0315 arity belt sits
+//     in the SAME function, `evaluateArrayMember`. Pre-0394 (stdlib-string.ts's
+//     `StdlibMemberSignature` doc, at the time: "the belt does not consult
+//     `params` — arity is its only concern") it checked arity ONLY;
+//     post-0394 the same belt also reads `params` for kind via
+//     `assertStdlibArgumentKinds` (stdlib-string.ts), but that covers argument
+//     kinds (`join`'s separator), not the receiver's elements — so the
+//     join-specific VALUE walk this file locks remains the only
+//     element-kind belt.
 //   - PURE HOST: the same dispatcher serves `${…}` interpolations and
 //     invoke/`.theta`-callable arguments (production-theta-producer.ts's
 //     `evaluateStdlibMethod`), so both paths coerce identically.

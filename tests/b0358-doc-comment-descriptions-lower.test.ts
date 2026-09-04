@@ -28,7 +28,7 @@ import { parseDoc, errors } from "./helpers/e2e-s1";
 //        `description` slot; variant `///` and fn `///` are accepted-but-AST-only
 //        and lower NOWHERE (the flat enum wire shape
 //        `{type:"string",enum:[…]}` has no per-value description slot; the fn
-//        carve-out is grammar.md:195, "A `///` description on a `fn` lowers
+//        carve-out is grammar.md:204, "A `///` description on a `fn` lowers
 //        nowhere").
 //   B1 — descriptions ENTER the canonical hash: a described schema-DECL fragment
 //        hashes differently from its `///`-stripped twin; a variant-`///`
@@ -180,7 +180,7 @@ let x = 1
 x
 `;
 
-// Alias-form schema-DECL (grammar.md:195: the alias form "lowers as the
+// Alias-form schema-DECL (grammar.md:204: the alias form "lowers as the
 // description of the named type wherever it surfaces in JSON Schema output").
 const ALIAS_DESCRIBED = `---
 mode: prompt
@@ -211,7 +211,7 @@ let x = 1
 x
 `;
 
-// fn `///` control: an accepted-but-AST-only anchor (grammar.md:195). The
+// fn `///` control: an accepted-but-AST-only anchor (grammar.md:204). The
 // undocumented `Plain` schema carries no `///`, so no description lowers in
 // either era; the fn's doc text must reach the lowered schema nowhere.
 const FN_CONTROL = `---
@@ -433,7 +433,7 @@ describe("bug 0358 row 3 — enum-DECL description lowers", () => {
 });
 
 // ===========================================================================
-// Row 4 — alias-form schema-DECL lowers (grammar.md:195).
+// Row 4 — alias-form schema-DECL lowers (grammar.md:204).
 // RED at fork ($defs.Choice has no description key). GREEN after.
 // ===========================================================================
 describe("bug 0358 row 4 — alias-form schema-DECL description lowers", () => {
@@ -483,7 +483,7 @@ describe("bug 0358 row 6 — A1: enum lowers flat, enum-DECL description only", 
 });
 
 // ===========================================================================
-// Row 7 — fn AST-only control (grammar.md:195). GREEN both directions.
+// Row 7 — fn AST-only control (grammar.md:204). GREEN both directions.
 // ===========================================================================
 describe("bug 0358 row 7 — fn `///` lowers nowhere (control)", () => {
   it("CONTROL: a fn `///` parses clean and contributes no schema description", () => {

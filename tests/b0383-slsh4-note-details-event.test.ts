@@ -7,7 +7,7 @@
 // is the same value emitted at the originating failure site (consumers
 // deduplicate on `(kind, query_site, message, occurrence-timestamp)`)". A
 // consumer following `diagnostic-shape.md:20` ("Renderers MUST switch on which
-// key is present and MUST NOT assume both") switches on the present `details`
+// key is present and MUST NOT assume more than one") switches on the present `details`
 // key: `event` is present, so it takes the runtime-event arm — then reads an
 // EMPTY payload. The emitter hardcodes `details: { event: {} }`
 // (src/extension/production-theta-producer.ts:1614, re-derived by symbol —
