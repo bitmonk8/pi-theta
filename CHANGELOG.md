@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.419.0]
+
+### Fixed
+
+- **Bug 0435** — the fallback diagnostic step reinvoked `sendMessage`: `runComposePass`'s channel wiring handed `emitDiagnostic` the raw `sink.emit`, so a diagnostic emitted DURING the fallback path re-entered the same delivery chain that was already failing over — the re-entry the chain's contract forbids (a failing sink could be reinvoked from inside its own fallback step). Fixed per the settled §Fix (option 1): the compose pass's channel routes `emitDiagnostic` through `makeLoadEmit(ctx)` (the off-channel load emitter), so fallback-step diagnostics can never re-enter the note chain; the re-entry MUST NOT is satisfied and the hygiene rider discharged. Witnessed by NEW `tests/b0435-fallback-diagnostic-reentry.test.ts` (2 cells; red at fork, red-when-reverted proven). Live: `unterminated-template-registration-live-cell` 1/1 under the lock (load-diagnostic delivery adjacency; recorded WHY).
+
 ## [0.418.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0435 — The shipped compose wiring routes `sendSystemNote`'s step-2 delivery-failure diagnostic back through `pi.sendMessage`: the fallback's diagnostic step re-invokes the surface that just threw, violating the channel's re-entry MUST NOT, and the failure is additionally teed into the load pass's refusal recorder as if it were a load diagnostic
 
-- **Status:** open.
+- **Status:** fixed (0.419.0).
 - **Sev/Diff estimate:** S3/D2 — S3: no silent value corruption, but the
   channel's mandated failure containment is structurally inverted on the
   two note families riding the re-entrant channel (parse/lex batch notes
@@ -214,3 +214,14 @@ diagnostic) → the `:668` wiring. Spec read:
 at `04579e12` (scratch deleted; send sequence quoted above). Dup check:
 README index (`fallback`, `delivery-failed` hits reviewed — 0018/0030/0023
 adjacent, none on the re-entry rule), 0383/0397/0401 fix records.
+
+## Fix (0.419.0)
+
+- What shipped: `src/extension/production-composition.ts` — `runComposePass`’s parse/producer `theta-system-note` channel now takes an off-channel `emitDiagnostic = makeLoadEmit(ctx)` (was the note-delivering `sink.emit`), mirroring the two conformant sibling wirings (§Fix option 1). The delivery-failure diagnostic step no longer re-invokes `pi.sendMessage` (runtime-event-channel.md:135 re-entry MUST NOT), the terminal `system-note delivery failed:` stderr line is reachable again, and the hygiene rider is discharged by the same change — the delivery-failed diagnostic no longer transits the `recordErrorSeverity` tee, so it cannot enter `recordedErrorDiagnostics`. `tests/lex-drop-single-delivery.test.ts` — one comment citation the change falsified, updated to symbol form (comment-only).
+- Gates: witness `tests/b0435-fallback-diagnostic-reentry.test.ts` 2/2 green; full default suite 588 files / 10537 tests green; `npm run typecheck` exit 0; `npm run lint` clean; live `tests/live/unterminated-template-registration-live-cell.test.ts` 1/1 green under the global live lock (WHY: it drives a real `session_start` parse-batch `theta-system-note` through the exact `runComposePass` channel this fix rewired; on a healthy host the fallback path is never taken, so drive-visible delivery is unchanged — a green witness that the rewiring did not break normal note delivery; premeasure: no drive-visible outcome change, so no new cell).
+- Review: 1 round — bug-fix-reviewer clean on correctness/fidelity/spec; 4 prose findings (comment accuracy + docs/STYLE.md symbol-form citations) fixed by bug-fix-fixer-light; polish gate-diff verified comment-only, confirmation round skipped.
+- Verification: bug-fix-verifier SOLID — witness reds when the one-line fix is reverted (send[1] carries `theta/runtime/system-note-delivery-failed`; terminal line carries the wrong content) and greens byte-exact on restore; full suite green (3 concurrent-lane load flakes, all green isolated and off-surface); typecheck + lint pass.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: §Fix option 2 (centralise the MUST NOT inside `sendSystemNote`) not taken — option 1 is the settled recommendation. Producer raw-send sites (bug 0437) and the delivery-failed matrix-row question (bug 0434) are out of scope.
+

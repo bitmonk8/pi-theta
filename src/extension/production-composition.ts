@@ -665,7 +665,15 @@ async function runComposePass(
     const model = matchAvailableModel(reference, ctx.modelRegistry.getAvailable());
     return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
   };
-  const systemNote = buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate);
+  // Off-channel fallback, mirroring the sibling channel's `emitToast` fallback
+  // in `composeExtensionInstance` and the tier-2 `makeLoadEmit(ctx)` wiring:
+  // `sink.emit` is note-delivering in this pass (it forwards to `outerSink`,
+  // which reaches `pi.sendMessage` via the pre-eval router), so wiring it as
+  // this channel's fallback `emitDiagnostic` would make fallback step 2
+  // re-invoke the very host call that just threw whenever a note's
+  // `pi.sendMessage` delivery throws (runtime-event-channel.md:135 re-entry
+  // MUST NOT).
+  const systemNote = buildSystemNoteDeps(pi, ctx, makeLoadEmit(ctx), rendererGate);
   // Bug 0264: one pass-scoped parse cache, created here (never module-level —
   // no global/static/singleton) and carried on `parseDeps` itself so a file
   // reached by more than one walk in THIS pass is parsed once and its lex rows

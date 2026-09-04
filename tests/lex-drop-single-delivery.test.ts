@@ -32,8 +32,7 @@ import {
 //     error-severity member per-diagnostic through the pre-eval router.
 //
 // Both channels are built off the same `pi.sendMessage` seam — the parse-time
-// channel at src/extension/production-composition.ts:606
-// (`buildSystemNoteDeps(pi, ctx, sink.emit, rendererGate)`) and the
+// channel's `buildSystemNoteDeps` call in `runComposePass` and the
 // load-diagnostic `loadSink`/`channel` pair — so the author reads every lex row
 // twice, while the parse-phase rows of the same file appear once.
 //
