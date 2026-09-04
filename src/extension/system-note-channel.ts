@@ -63,7 +63,16 @@ function normaliseDiagnosticSpelling(diagnostic: Diagnostic): Diagnostic {
  * shapes carry author- and host-supplied strings that are not `Diagnostic.file`
  * and pass through byte-identical.
  */
-function normaliseDetailsFileSpelling(details: SystemNoteDetails): SystemNoteDetails {
+function normaliseDetailsFileSpelling(
+  details: SystemNoteDetails | undefined,
+): SystemNoteDetails | undefined {
+  // Bug 0437 §Fix: an informational note (bug 0401) carries NO `details` on
+  // the wire at all — `undefined` means "omit the key", not "the diagnostics
+  // shape with nothing in it", so this normaliser must pass `undefined`
+  // through rather than dereference into the closed union below.
+  if (details === undefined) {
+    return undefined;
+  }
   if (!("diagnostics" in details)) {
     return details;
   }
@@ -116,11 +125,19 @@ export type SystemNoteDetails =
   // diagnostic-shape.md#session-shutdown-details-conventions (bug 0432).
   | { readonly shutdown: Record<string, unknown> };
 
-/** A `theta-system-note` to deliver through the best-effort channel. */
+/**
+ * A `theta-system-note` to deliver through the best-effort channel.
+ *
+ * `details` is OPTIONAL: an informational note (bug 0401) carries NO
+ * `details` key on the wire — that details-ABSENT wire shape is normative,
+ * so this chain type widens to match it. The closed 4-arm `SystemNoteDetails`
+ * union below is unchanged; there is no "absent" arm because absence is
+ * `undefined`/omission, not a fifth union member.
+ */
 export interface SystemNote {
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
 }
 
 /**
@@ -134,7 +151,9 @@ export interface SystemNoteSender {
       readonly customType: string;
       readonly content: string;
       readonly display: boolean;
-      readonly details: SystemNoteDetails;
+      // Optional to mirror `SystemNote.details` (bug 0437 §Fix): an
+      // informational note (bug 0401) omits this key on the wire entirely.
+      readonly details?: SystemNoteDetails;
     },
     options: { readonly triggerTurn: false },
   ): void;
@@ -311,12 +330,20 @@ export function sendSystemNote(
   try {
     // Best-effort: `pi.sendMessage` returns `void` (synchronous); never await,
     // never attach a `.catch`. Only a synchronous throw is observable.
+    //
+    // Bug 0437 §Fix: an informational note's `details` is `undefined`
+    // (bug 0401's details-ABSENT wire contract). `exactOptionalPropertyTypes`
+    // forbids writing `details: undefined` onto the wire message, and the
+    // 0401 byte contract requires the KEY itself absent (`"details" in note`
+    // must be `false`), not merely `undefined`-valued — so the key is
+    // conditionally spread rather than always assigned.
+    const normalisedDetails = normaliseDetailsFileSpelling(note.details);
     deps.pi.sendMessage(
       {
         customType: SYSTEM_NOTE_CHANNEL,
         content: note.content,
         display: note.display,
-        details: normaliseDetailsFileSpelling(note.details),
+        ...(normalisedDetails !== undefined ? { details: normalisedDetails } : {}),
       },
       { triggerTurn: false },
     );

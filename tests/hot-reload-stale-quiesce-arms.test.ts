@@ -46,7 +46,7 @@ interface SentNote {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
 }
 
 /** A recording (never-throwing) channel: any post-quiesce delivery would RECORD. */

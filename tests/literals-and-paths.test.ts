@@ -50,7 +50,7 @@ function seam(): SeamFixture {
   const delivered: Diagnostic[][] = [];
   const pi: SystemNoteSender = {
     sendMessage: (message): void => {
-      const details: SystemNoteDetails = message.details;
+      const details: SystemNoteDetails = message.details!;
       if ("diagnostics" in details) {
         delivered.push([...details.diagnostics]);
       }

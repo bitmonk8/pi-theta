@@ -46,7 +46,7 @@ interface SentNote {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
 }
 
 function makeChannel(): {
@@ -193,7 +193,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     const note = buildDiagnosticsBatchNote([panicDiag()], content);
     expect(note.display).toBe(true);
     expect(note.content).toBe(content);
-    expect("diagnostics" in note.details).toBe(true);
+    expect("diagnostics" in note.details!).toBe(true);
   });
 
   it("details: { diagnostics: [Diagnostic] } runtime panic → display true, content = aborted framing", () => {
@@ -201,7 +201,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     const note = buildPanicNote(panicDiag(), framing);
     expect(note.display).toBe(true);
     expect(note.content).toBe(framing);
-    const carried = (note.details as { diagnostics: readonly Diagnostic[] }).diagnostics;
+    const carried = (note.details! as { diagnostics: readonly Diagnostic[] }).diagnostics;
     expect(carried).toHaveLength(1);
   });
 
@@ -213,7 +213,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     });
     expect(note.display).toBe(true);
     expect(note.content).toBe(template);
-    expect("event" in note.details).toBe(true);
+    expect("event" in note.details!).toBe(true);
   });
 
   it("details: { event } author-handled / subagent invoke → display false, content = '' (verbatim)", () => {
@@ -223,7 +223,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     });
     expect(note.display).toBe(false);
     expect(note.content).toBe("");
-    expect("event" in note.details).toBe(true);
+    expect("event" in note.details!).toBe(true);
   });
 
   it("details: { structural } → display true, content = verbatim structural template", () => {
@@ -231,7 +231,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     const note = buildStructuralNote({ added: ["/x.theta"], removed: [] }, content);
     expect(note.display).toBe(true);
     expect(note.content).toBe(content);
-    expect("structural" in note.details).toBe(true);
+    expect("structural" in note.details!).toBe(true);
   });
 
   it("details: { recovery } binder-model hot-reload → display true, content = verbatim recovery template", () => {
@@ -239,7 +239,7 @@ describe("V9d-T — per-variant display/content matrix", () => {
     const note = buildRecoveryNote(["/demo"], content);
     expect(note.display).toBe(true);
     expect(note.content).toBe(content);
-    expect("recovery" in note.details).toBe(true);
+    expect("recovery" in note.details!).toBe(true);
   });
 });
 
@@ -257,8 +257,8 @@ describe("V9d-T — group-A/B single-shape routing (no fan-out)", () => {
     );
 
     expect(sent).toHaveLength(1);
-    const eventShape = sent.filter((n) => "event" in n.details);
-    const diagShape = sent.filter((n) => "diagnostics" in n.details);
+    const eventShape = sent.filter((n) => "event" in n.details!);
+    const diagShape = sent.filter((n) => "diagnostics" in n.details!);
     expect(eventShape).toHaveLength(1);
     expect(diagShape).toHaveLength(0);
     expect(sent[0]!.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -271,8 +271,8 @@ describe("V9d-T — group-A/B single-shape routing (no fan-out)", () => {
     emitPanic(panicDiag(), "theta /demo aborted: index out of bounds: 5 not in 0..3", deps);
 
     expect(sent).toHaveLength(1);
-    const diagShape = sent.filter((n) => "diagnostics" in n.details);
-    const eventShape = sent.filter((n) => "event" in n.details);
+    const diagShape = sent.filter((n) => "diagnostics" in n.details!);
+    const eventShape = sent.filter((n) => "event" in n.details!);
     expect(diagShape).toHaveLength(1);
     expect(eventShape).toHaveLength(0);
   });

@@ -35,17 +35,20 @@ interface SeamFixture {
   /** Every batch the lexer delivered through the V7d `theta-system-note` seam. */
   readonly delivered: Diagnostic[][];
   /** Raw `sendMessage` envelopes, to pin batched single-send delivery. */
-  readonly sent: Array<{ customType: string; details: SystemNoteDetails }>;
+  readonly sent: Array<{ customType: string; details?: SystemNoteDetails }>;
 }
 
 function seam(): SeamFixture {
   const delivered: Diagnostic[][] = [];
-  const sent: Array<{ customType: string; details: SystemNoteDetails }> = [];
+  const sent: Array<{ customType: string; details?: SystemNoteDetails }> = [];
   const pi: SystemNoteSender = {
     sendMessage: (message): void => {
-      sent.push({ customType: message.customType, details: message.details });
-      if ("diagnostics" in message.details) {
-        delivered.push([...message.details.diagnostics]);
+      sent.push({
+        customType: message.customType,
+        ...(message.details !== undefined ? { details: message.details } : {}),
+      });
+      if ("diagnostics" in message.details!) {
+        delivered.push([...message.details!.diagnostics]);
       }
     },
   };
@@ -137,7 +140,7 @@ describe("V1a-T — encoding validation", () => {
     expect(fixture.sent.length).toBeGreaterThan(0);
     for (const envelope of fixture.sent) {
       expect(envelope.customType).toBe(SYSTEM_NOTE_CHANNEL);
-      expect("diagnostics" in envelope.details).toBe(true);
+      expect("diagnostics" in envelope.details!).toBe(true);
     }
     const diags = deliveredDiagnostics(fixture);
     expect(diags.some((d) => d.code === "theta/load/invalid-encoding")).toBe(true);

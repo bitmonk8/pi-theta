@@ -136,7 +136,7 @@ interface SentNote {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
 }
 
 interface ChannelFixture {
@@ -157,7 +157,7 @@ function makeChannel(): ChannelFixture {
         customType: message.customType,
         content: message.content,
         display: message.display,
-        details: message.details,
+        ...(message.details !== undefined ? { details: message.details } : {}),
       });
     },
   };

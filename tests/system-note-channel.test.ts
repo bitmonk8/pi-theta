@@ -37,7 +37,7 @@ interface SentNote {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
   readonly options: { readonly triggerTurn: false };
 }
 
@@ -125,7 +125,7 @@ describe("V7d-T — multi-error batch delivery", () => {
     // Full batch serialised into `content`.
     expect(note.content).toBe(renderDiagnosticBatch(batch));
     // Full `Diagnostic[]` carried in `details.diagnostics`.
-    expect("diagnostics" in note.details).toBe(true);
+    expect("diagnostics" in note.details!).toBe(true);
     const carried = (note.details as { diagnostics: readonly Diagnostic[] })
       .diagnostics;
     expect(carried).toHaveLength(batch.length);

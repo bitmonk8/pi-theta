@@ -37,7 +37,7 @@ interface SentNote {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: SystemNoteDetails;
+  readonly details?: SystemNoteDetails;
 }
 
 function makeChannel(): {
@@ -106,7 +106,7 @@ function emitInput(
 /** The single group-A `RuntimeEvent` carried by the one recorded note. */
 function soleEvent(sent: readonly SentNote[]): RuntimeEvent {
   expect(sent).toHaveLength(1);
-  const details = sent[0]!.details;
+  const details = sent[0]!.details!;
   expect("event" in details).toBe(true);
   return (details as { event: RuntimeEvent }).event;
 }

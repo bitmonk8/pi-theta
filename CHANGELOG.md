@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.429.0]
+
+### Fixed
+
+- **Bug 0437** — ten producer note sites bypassed the fallback chain: invocation-time notes went out as raw `pi.sendMessage` calls, so a throwing host killed the producer with none of the chain's toast → delivery-failed-diagnostic → terminal containment (PIC-54's guarantees held only for chain-routed notes). Fixed per the parent-adjudicated option 2 (§Fix amendment recorded, the 0362 doc-was-wrong-in-part pattern — the §Fix premise "the machinery already exists" was false for details-absent notes): `SystemNote.details` becomes OPTIONAL with a conditional wire-spread (the chain's required-details type was itself what contradicted the spec's informational clause 0401 pinned), the ONE wire-write site omits the key when undefined, `normaliseDetailsFileSpelling` guarded — then all TEN sites route through `sendSystemNote`: the 7 details-bearing byte-identical, the 3 informational details-ABSENT through the chain (0401's witnesses green UNCHANGED — the load-bearing invariant). Recorded compiler-forced widening: the `SystemNoteSender` type ripple reaches `production-composition.ts`'s second adapter + 13 test-double narrowings (tsc-forced, byte-neutral). Ratified flip (the only one): `cancelled-by-session-shutdown-note` cell (e) precondition `dispatch.notes`→`channelLog` (routing site 6 moved the SLSH-4 proof-of-life row onto the channel). Witnessed by NEW `tests/b0437-producer-note-raw-send-fallback.test.ts` (5 cells; throwing-host containment + details-absent-through-chain; red at fork). Live: `err-note-render-record-error-field` cell 1/1 under the lock (the rerouted SLSH-3 path). Sibling notice filed forward: `factory.ts` same-class raw sends (follow-up bug).
+
 ## [0.428.0]
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Bug 0437 — The producer's six invocation-time note emitters call `pi.sendMessage` raw, so the channel's mandated best-effort fallback never runs for them: a non-stale host throw on the SLSH-3/panic/echo/overflow/BNDR-9/binder-failure notes walks no `ctx.ui.notify`, emits no delivery-failed diagnostic, produces no terminal stderr line — it escalates through the internal-error surface into a second raw send whose repeat throw aborts the slash handler
 
-- **Status:** open.
+- **Status:** fixed (0.429.0).
 - **Sev/Diff estimate:** S2/D2 — S2: loud-but-wrong plus lost user-visible
   output on a modelled host failure: the invocation-outcome notes (the
   channel's most user-facing traffic) violate "the fallback never aborts
@@ -166,6 +166,23 @@ compose.
 
 ## Fix
 
+> **§Fix amendment (0.429.0, doc-was-wrong-in-part — the 0362 pattern).**
+> The settled §Fix below assumed "the channel machinery already exists"
+> for all ten sites. That premise was false for the three INFORMATIONAL
+> notes (binder-echo BND-1, no-params-overflow SLSH-1,
+> untyped-boundary-discard): landed bug 0401 pinned a details-ABSENT wire
+> as NORMATIVE for them, but `sendSystemNote`'s `SystemNote.details` was a
+> REQUIRED field with no absent arm, so routing them unchanged would
+> fabricate a `details` key and break the 0401 wire contract. Parent
+> adjudication (resolution option 2): extend scope to
+> `system-note-channel.ts` and make `SystemNote.details` (and the
+> `SystemNoteSender` wire field) OPTIONAL, conditionally spreading the key
+> so it is absent on the wire when undefined — the chain type widens to
+> match the wire contract. All ten sites then route through the chain: the
+> seven details-bearing ones byte-identical, the three informational ones
+> details-absent. See the `## Fix (0.429.0)` record below.
+
+
 Route the raw senders (the six emitters, the boundary-discard emitter,
 and the three gate wirings) through `sendSystemNote` over the producer's
 extension-instance channel (present at `#input.systemNoteChannel`;
@@ -180,6 +197,67 @@ toast fires for `display: true` notes, the delivery-failed diagnostic
 reaches the off-channel sink, and a run-level drive completes without the
 handler aborting (red today: P3's `.toThrow` on both public emitters).
 Sequencing: [bug 0435](./0435-fallback-diagnostic-step-reinvokes-sendmessage.md) lands first (see §Related).
+
+## Fix (0.429.0)
+
+- What shipped:
+  - `system-note-channel.ts` — `SystemNote.details` and
+    `SystemNoteSender.sendMessage`'s wire field made OPTIONAL; the one
+    wire-write conditionally spreads `details` (absent when `undefined` →
+    `"details" in <wire>` false); `normaliseDetailsFileSpelling` guarded for
+    `undefined`. The closed four-arm `SystemNoteDetails` union is unchanged
+    (absence is omission, not a new arm).
+  - `production-theta-producer.ts` — all ten note sites routed through
+    `sendSystemNote` over the extension-instance channel (`#systemNoteChannel()`
+    / `LivePromptQueryModel#resolveSystemNoteChannel()`, the `#emitCleanCancelNote`
+    resolution shape): seven details-bearing (custom-type-unsafe,
+    binder-failure ×2, top-level-err, panic, three ActiveSetGate wirings)
+    byte-preserving; three informational (binder-echo, no-params-overflow,
+    untyped-boundary-discard) details-absent. Group-A sites wrap the
+    `Clock.wallNow()`/id stamp in `#buildGroupAEventOrFallback`, reusing
+    `sendSystemNote`'s containment (stale-ctx rethrown; no double send).
+  - `production-composition.ts` — `buildSystemNoteDeps` (the second
+    host-serialization adapter to the real wire) given the identical
+    conditional-`details` spread, so informational notes reach the real host
+    wire with `details` absent.
+- Gates: witness `tests/b0437-producer-note-raw-send-fallback.test.ts` 5/5
+  green (red-before verifier-confirmed by revert: raw-send host-throw
+  propagation + informational bypass + group-A stamp escape); full default
+  suite `npx vitest run` 592 files / 10565 tests green; `npm run typecheck`
+  clean; `npm run lint` clean.
+- Review: 2 rounds — round 1 (deep): correctness/fidelity/spec CLEAN, one
+  test finding (group-A guard unwitnessed) + one prose finding (imprecise
+  doc-comments), both fixed; round 2 (fast): CLEAN.
+- Verification: SOLID — witness bites both reverts (raw-send → host-throw
+  RED; group-A guard → clock RED; restored byte-exact, green); full suite
+  green; lint+typecheck clean; protected invariants (b0401 details-absent,
+  b0397/b0398/b0399 details-bearing byte contracts, b0435 chain) green. Live:
+  `tests/live/err-note-render-record-error-field-live-cell.test.ts` (SLSH-3
+  note delivery at the real slash-dispatch boundary through a real spawned
+  subagent child — the rerouted `emitTopLevelErrNote` path) green under the
+  global lock.
+- Residuals:
+  1. `factory.ts` carries two same-class raw informational sends (drain-state
+     refusal; repeat-`session_start`) OUTSIDE 0437's adjudicated ten-site
+     producer scope — a follow-up bug, not fixed here.
+  2. `emitPanicNote`'s `details.diagnostics[].file` is now POSIX-normalised
+     through the `sendSystemNote`/0268 funnel where the prior raw send bypassed
+     it — a spec-conformance GAIN (diagnostic-shape.md pins POSIX separators on
+     every host), an intended delta, not a break.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the stale-ctx rethrow posture, the notes'
+  payloads/content (0383/0397–0401 ladder), the already-chain-routed
+  clean-cancel note, and the 0435 channel-wiring re-entry remain out of scope.
+- Bounded self-authorization (recorded): the adjudication named a three-file
+  scope; the mandated `SystemNoteSender` widening is compiler-forced onto
+  `production-composition.ts` (the second host-serialization adapter — required
+  to honour the adjudication's own "`details` false on the wire" deliverable)
+  and 13 test-double recording types (type-only `details?:` + read narrowing,
+  zero assertion-meaning change). Every added edit is tsc-forced with a single
+  correct realization and byte-neutral for pre-existing details-bearing
+  traffic. Evidence: the adjudication's "on the wire" deliverable;
+  `buildSystemNoteDeps`'s unconditional re-serialization (tsc TS2379); b0401's
+  `producerWithCapture` never exercising `buildSystemNoteDeps`.
 
 ## Provenance
 

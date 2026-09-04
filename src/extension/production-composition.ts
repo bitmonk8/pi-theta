@@ -3720,12 +3720,17 @@ function buildSystemNoteDeps(
     health,
     pi: {
       sendMessage: (message, _options) => {
+        // Bug 0401: informational notes omit `details` on the wire. This
+        // adapter is the second host-serialization point after
+        // `sendSystemNote`, so it must apply the same conditional spread or
+        // the details-absent contract (`"details" in note` === false) breaks
+        // on the real host wire.
         pi.sendMessage(
           {
             customType: SYSTEM_NOTE_CHANNEL,
             content: message.content,
             display: message.display,
-            details: message.details,
+            ...(message.details !== undefined ? { details: message.details } : {}),
           },
           { triggerTurn: false },
         );

@@ -106,7 +106,8 @@ import {
   emitCancelledBySessionShutdownNote,
   createProductionEmissionSink,
 } from "./session-shutdown";
-import type { SystemNoteChannelDeps } from "./system-note-channel";
+import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
+import { isStaleCtxError } from "./stale-ctx";
 import type {
   BinderRunInput,
   BinderRunResult,
@@ -353,7 +354,6 @@ import { buildRuntimeEventNote } from "../runtime/runtime-event-channel";
 import type { InvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
 import { createInvocationProvenanceLedger } from "../runtime/invoke-provenance-ledger";
 import type { InvokeCallSite } from "../runtime/invoke-provenance";
-import { SYSTEM_NOTE_CHANNEL } from "./system-note-channel";
 import {
   PromptToolLoopGovernor,
   type PromptToolLoopExhaustion,
@@ -1133,9 +1133,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * §"Echo policy" success echo (BND-1): render and emit the one-line
-   * `Running /<name>: <formatted-args>` system note on the theta-system-note
-   * channel — the SAME `pi.sendMessage` delivery the SLSH-1 overflow / SNOTE-1
-   * notes use — unless `bind_echo:` is `false`. Each top-level `params:` field
+   * `Running /<name>: <formatted-args>` system note delivered through
+   * `sendSystemNote` over the extension-instance `theta-system-note` channel —
+   * the SAME best-effort fallback chain the SLSH-1 overflow / SNOTE-1 notes use,
+   * so a host send throw is contained rather than aborting the bind — unless
+   * `bind_echo:` is `false`. Each top-level `params:` field
    * renders in declaration order; a field is tagged `(default)` iff its wire
    * name is in `defaultedWireNames`, the fill step's own report of which
    * fields took their declared default this run
@@ -1144,6 +1146,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * values (value-driven `EchoType` derivation, disambiguating `integer` vs
    * `number` from the lowered schema) and passed through the shared
    * 120-code-point cap.
+   *
+   * Bug 0437 §Fix: this note routes through `sendSystemNote` with `details`
+   * ABSENT — it is one of bug 0401's informational notes, which omit
+   * `details` from the wire entirely, and `SystemNote.details` is now
+   * optional so the chain can carry a details-less note without fabricating
+   * a key the 0401 byte contract forbids.
    */
   #emitBinderEchoNote(
     theta: ConversationBindInput["theta"],
@@ -1195,15 +1203,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const content = capSystemNote(
       renderArgumentEcho({ thetaName: theta.slashName, params: echoParams }),
     );
-    // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
-    this.#input.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        content,
-        display: true,
-      },
-      { triggerTurn: false },
-    );
+    // Informational note (runtime-event-channel.md "Informational notes carry no `details`");
+    // routes through the channel with `details` ABSENT rather than fabricate the runtime-event key.
+    sendSystemNote({ content, display: true }, this.#systemNoteChannel());
   }
 
   /**
@@ -1433,14 +1435,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `emitPanicNote`.
    */
   #emitCustomTypeUnsafeNote(thetaName: string, value: string): void {
-    this.#input.pi.sendMessage(
+    sendSystemNote(
       {
-        customType: SYSTEM_NOTE_CHANNEL,
         content: renderCustomTypeUnsafeNote(thetaName, value),
         display: true,
         details: { diagnostics: [customTypeUnsafeDiagnostic(value)] },
       },
-      { triggerTurn: false },
+      this.#systemNoteChannel(),
     );
   }
 
@@ -1464,31 +1465,28 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     ticket: ActiveInvocationTicket | undefined,
   ): void {
     const content = renderBinderSystemNote(thetaName, surface);
+    const channel = this.#systemNoteChannel();
     if (ticket === undefined) {
-      this.#input.pi.sendMessage(
-        {
-          customType: SYSTEM_NOTE_CHANNEL,
-          content,
-          display: true,
-          details: { event: {} },
-        },
-        { triggerTurn: false },
-      );
+      sendSystemNote({ content, display: true, details: { event: {} } }, channel);
       return;
     }
-    const event: RuntimeEvent = {
-      kind: surface.kind,
-      theta: `/${ticket.theta}`,
-      invocation_id: ticket.invocationId,
-      message: binderFailureMessage(surface),
-      occurred_at: this.#input.root.clock.wallNow(),
-    };
-    this.#input.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        ...buildRuntimeEventNote(event, { topLevelCascade: true, userFacingTemplate: content }),
-      },
-      { triggerTurn: false },
+    const event = this.#buildGroupAEventOrFallback(
+      content,
+      (): RuntimeEvent => ({
+        kind: surface.kind,
+        theta: `/${ticket.theta}`,
+        invocation_id: ticket.invocationId,
+        message: binderFailureMessage(surface),
+        occurred_at: this.#input.root.clock.wallNow(),
+      }),
+      channel,
+    );
+    if (event === undefined) {
+      return;
+    }
+    sendSystemNote(
+      buildRuntimeEventNote(event, { topLevelCascade: true, userFacingTemplate: content }),
+      channel,
     );
   }
 
@@ -1661,21 +1659,22 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * note on the `theta-system-note` channel BEFORE the body runs (a
    * whitespace-only remainder emits no note). `runBinder` is only reached on the
    * slash-invocation path (invoke/tool callers spawn callees directly), so no
-   * caller-kind guard is needed. Routed through `pi.sendMessage` — the same
-   * channel the shipped system-note delivery uses.
+   * caller-kind guard is needed. Routed through `sendSystemNote` — the same
+   * chain every other note on this instance uses.
+   *
+   * Bug 0437 §Fix: this note routes through `sendSystemNote` with `details`
+   * ABSENT — a bug-0401 informational note, and `SystemNote.details` is now
+   * optional so the chain can carry it without fabricating a `details` key.
    */
   #emitNoParamsOverflowNote(binderInput: BinderRunInput): void {
     if (trimSlashArgumentWhitespace(binderInput.args).length === 0) {
       return;
     }
-    // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
-    this.#input.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        content: renderNoParamsOverflowNote(binderInput.theta.slashName),
-        display: true,
-      },
-      { triggerTurn: false },
+    // Informational note (runtime-event-channel.md "Informational notes carry no `details`");
+    // routes through the channel with `details` ABSENT rather than fabricate the runtime-event key.
+    sendSystemNote(
+      { content: renderNoParamsOverflowNote(binderInput.theta.slashName), display: true },
+      this.#systemNoteChannel(),
     );
   }
 
@@ -1691,8 +1690,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * no entry for (the model-invoked `.theta`-callable surface, or a wrapper
    * that crossed the RFC-0006 subagent envelope), or an absent ledger (no
    * `fileSystem` seam) all yield an empty chain, so the renderer's leaf row is
-   * unaffected either way. Routed through the same `pi.sendMessage`
-   * `theta-system-note` delivery as the SLSH-1 overflow note.
+   * unaffected either way. Delivered through `sendSystemNote` over the
+   * extension-instance `theta-system-note` channel — the same best-effort
+   * fallback chain as the SLSH-1 overflow note, so a host send (or group-A
+   * stamp) throw is contained rather than aborting the slash handler.
    */
   emitTopLevelErrNote(thetaName: string, error: QueryError, event?: RuntimeEvent): void {
     const content = renderTopLevelErrNote({
@@ -1708,39 +1709,44 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // holds literally instead of by reconstruction. Mirror the renderer's leaf
     // walk and reuse the shared note builder rather than forking a second
     // RuntimeEvent constructor.
-    const resolvedEvent =
-      event ??
-      (() => {
-        let leaf: QueryError = error;
-        while (isInvokeCalleeError(leaf)) {
-          leaf = leaf.inner;
-        }
-        const built: RuntimeEvent = {
-          kind: leaf.kind,
-          theta: `/${thetaName}`,
-          invocation_id: this.#input.root.idSource.newInvocationId(),
-          message: leaf.message,
-          occurred_at: this.#input.root.clock.wallNow(),
-        };
-        // Bug 0399 constraint 2: preserve the leaf's own `attempts`
-        // (validation) / `tokens_used` (context_overflow) exactly
-        // `buildDiscardEvent`-shaped (query-discard.ts) — no other kind
-        // defines these fields, and `tokens_used` is number-only so a `null`
-        // provider count stays canonically absent rather than leaking `null`.
-        if ("attempts" in leaf && typeof leaf.attempts === "number") {
-          built.attempts = leaf.attempts;
-        }
-        if ("tokens_used" in leaf && typeof leaf.tokens_used === "number") {
-          built.tokens_used = leaf.tokens_used;
-        }
-        return built;
-      })();
-    this.#input.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        ...buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true, userFacingTemplate: content }),
-      },
-      { triggerTurn: false },
+    const channel = this.#systemNoteChannel();
+    const resolvedEvent = this.#buildGroupAEventOrFallback(
+      content,
+      (): RuntimeEvent =>
+        event ??
+        (() => {
+          let leaf: QueryError = error;
+          while (isInvokeCalleeError(leaf)) {
+            leaf = leaf.inner;
+          }
+          const built: RuntimeEvent = {
+            kind: leaf.kind,
+            theta: `/${thetaName}`,
+            invocation_id: this.#input.root.idSource.newInvocationId(),
+            message: leaf.message,
+            occurred_at: this.#input.root.clock.wallNow(),
+          };
+          // Bug 0399 constraint 2: preserve the leaf's own `attempts`
+          // (validation) / `tokens_used` (context_overflow) exactly
+          // `buildDiscardEvent`-shaped (query-discard.ts) — no other kind
+          // defines these fields, and `tokens_used` is number-only so a `null`
+          // provider count stays canonically absent rather than leaking `null`.
+          if ("attempts" in leaf && typeof leaf.attempts === "number") {
+            built.attempts = leaf.attempts;
+          }
+          if ("tokens_used" in leaf && typeof leaf.tokens_used === "number") {
+            built.tokens_used = leaf.tokens_used;
+          }
+          return built;
+        })(),
+      channel,
+    );
+    if (resolvedEvent === undefined) {
+      return;
+    }
+    sendSystemNote(
+      buildRuntimeEventNote(resolvedEvent, { topLevelCascade: true, userFacingTemplate: content }),
+      channel,
     );
   }
 
@@ -1752,22 +1758,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * (`theta /<name> aborted: <message>`) or a catchable interpreter / adapter
    * throw routed to `theta/runtime/internal-error`
    * (`theta /<name> aborted with internal error: <message>`). Mirrors
-   * `emitTopLevelErrNote`'s single `pi.sendMessage` delivery on the same
-   * `theta-system-note` channel, but carries the group-B
+   * `emitTopLevelErrNote`'s single delivery through `sendSystemNote` over the
+   * extension-instance `theta-system-note` channel (the same best-effort
+   * fallback chain), but carries the group-B
    * `details: { diagnostics: [Diagnostic] }` shape (the SAME shape the
    * load-phase pre-eval diagnostics use). Emits
    * EXACTLY ONE note; the session is NOT torn down. `HostFatal` never reaches
    * here — the outer catch re-raises it (fail-fast, NOCEIL-3) before calling.
    */
   emitPanicNote(framing: string, diagnostic: Diagnostic): void {
-    this.#input.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        content: framing,
-        display: true,
-        details: { diagnostics: [diagnostic] },
-      },
-      { triggerTurn: false },
+    sendSystemNote(
+      { content: framing, display: true, details: { diagnostics: [diagnostic] } },
+      this.#systemNoteChannel(),
     );
   }
 
@@ -1842,6 +1844,79 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         }
       }
     };
+  }
+
+  /**
+   * Bug 0437 §Fix: resolve the extension-instance `theta-system-note` channel
+   * for the raw-send sites this fix routes through `sendSystemNote` — the SAME
+   * resolution `#emitCleanCancelNote` uses (below), so a note on any of these
+   * sites observes the one `RendererGate` / `SystemNoteChannelHealth` pair the
+   * composition root wires, and a bare-`pi` harness (the bug doc's
+   * §Reproduction shape) still gets a working fallback chain rather than a raw
+   * throw.
+   */
+  #systemNoteChannel(): SystemNoteChannelDeps {
+    return (
+      this.#input.systemNoteChannel ?? {
+        pi: {
+          sendMessage: (message, options): void => {
+            this.#input.pi.sendMessage(message, options);
+          },
+        },
+        emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+        // No real `ctx.ui` seam is threaded onto `#input`. A production
+        // instance always wires a real `systemNoteChannel` (this branch is a
+        // harness-only degrade, never the live path); `sendSystemNote`'s
+        // `ui.notify` arm is itself best-effort, so a no-op here only costs the
+        // toast half of the fallback on that harness-only path, never the
+        // delivery-failed diagnostic or terminal log.
+        ui: {
+          notify: (): void => {},
+        },
+      }
+    );
+  }
+
+  /**
+   * Bug 0437 §Fix (group-A clock guard, runtime-event-channel.md:130): for a
+   * group-A note, `Clock.wallNow()` during `occurred_at` stamping is an
+   * always-log step the channel's fallback covers alongside the send itself —
+   * a throw here must walk the SAME fallback, not escape uncaught. A
+   * recognised stale-ctx throw still rethrows (the pinned PIC-67 posture); any
+   * other throw is handed to `sendSystemNote` as a SYNTHETIC send failure over
+   * the real channel (same `ui` / `emitDiagnostic` / `health` / `rendererGate`,
+   * a `pi.sendMessage` that immediately re-throws the stamp error) — this
+   * reuses `sendSystemNote`'s own send-throw containment verbatim instead of
+   * replicating its toast/diagnostic/terminal-log steps a second time. Returns
+   * the built `RuntimeEvent` on success, or `undefined` once the fallback has
+   * already delivered the note (the caller must not send again).
+   */
+  #buildGroupAEventOrFallback(
+    content: string,
+    buildEvent: () => RuntimeEvent,
+    channel: SystemNoteChannelDeps,
+  ): RuntimeEvent | undefined {
+    try {
+      return buildEvent();
+    } catch (stampError: unknown) { // allow-broad-catch: pi-sdk-boundary — mirrors sendSystemNote's send-throw containment, runtime-event-channel.md:130
+      if (isStaleCtxError(stampError)) {
+        throw stampError;
+      }
+      const stampFailure =
+        stampError instanceof Error ? stampError : new Error(String(stampError));
+      sendSystemNote(
+        { content, display: true, details: { event: {} } },
+        {
+          ...channel,
+          pi: {
+            sendMessage: (): void => {
+              throw stampFailure;
+            },
+          },
+        },
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -3137,6 +3212,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           ...(respond !== undefined ? { respond } : {}),
           thetaName: deps.theta.slashName,
           emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+          ...(this.#input.systemNoteChannel !== undefined
+            ? { systemNoteChannel: this.#input.systemNoteChannel }
+            : {}),
         })
       : undefined;
     // Bug 0010 increment D: the off-session sibling (`subagent fn` in-process
@@ -3199,6 +3277,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               provider: String(deps.ctx.model?.api ?? "unknown"),
               thetaName: deps.theta.slashName,
               emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+              ...(this.#input.systemNoteChannel !== undefined
+                ? { systemNoteChannel: this.#input.systemNoteChannel }
+                : {}),
             })
           : offModel !== undefined && respond !== undefined
             ? offModel.driveRepairAttempt(prompt)
@@ -4128,14 +4209,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaName: callee.slashName,
           emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
           emitSystemNote: (note): void => {
-            this.#input.pi.sendMessage(
-              {
-                customType: SYSTEM_NOTE_CHANNEL,
-                content: note.content,
-                display: note.display,
-              },
-              { triggerTurn: false },
-            );
+            sendSystemNote(note, this.#systemNoteChannel());
           },
           // PIC-19: a step-1/step-2 setup throw re-propagates out of
           // `withActiveSetGate` (it calls this hook THEN re-throws), with no
@@ -4949,6 +5023,8 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #thetaName: string;
   /** Bug 0372 §Fix: the runtime-defect diagnostic sink the PIC-8(b) restore-failure diagnostic emits through. */
   readonly #emitDiagnostic: (diagnostic: Diagnostic) => void;
+  /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel; `undefined` on a bare-`pi` harness (resolved to a `pi`-built fallback at each use site). */
+  readonly #systemNoteChannel: SystemNoteChannelDeps | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
   /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
@@ -4998,6 +5074,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly thetaName: string;
     /** Bug 0372 §Fix: the runtime-defect diagnostic sink. */
     readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+    /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel, threaded from `#input.systemNoteChannel`. */
+    readonly systemNoteChannel?: SystemNoteChannelDeps;
   }) {
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
@@ -5012,6 +5090,29 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#respond = deps.respond;
     this.#thetaName = deps.thetaName;
     this.#emitDiagnostic = deps.emitDiagnostic;
+    this.#systemNoteChannel = deps.systemNoteChannel;
+  }
+
+  /**
+   * Bug 0437 §Fix: resolve the extension-instance channel for this model's
+   * raw-send sites — the SAME resolution shape the producer's own sites use
+   * (`ProductionThetaProducer#systemNoteChannel`), built over this model's own
+   * `pi` / `emitDiagnostic` seams when the composition root wired no channel.
+   */
+  #resolveSystemNoteChannel(): SystemNoteChannelDeps {
+    return (
+      this.#systemNoteChannel ?? {
+        pi: {
+          sendMessage: (message, options): void => {
+            this.#pi.sendMessage(message, options);
+          },
+        },
+        emitDiagnostic: this.#emitDiagnostic,
+        ui: {
+          notify: (): void => {},
+        },
+      }
+    );
   }
 
   async nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
@@ -5129,18 +5230,21 @@ class LivePromptQueryModel implements QueryModelDriver {
    * fold: the model's terminating answer streamed into the user-visible
    * transcript but is discarded because the round budget was already spent.
    * Bug 0401 law: an informational note carries no `details` key.
+   *
+   * Bug 0437 §Fix: this note routes through `sendSystemNote` with `details`
+   * ABSENT — `SystemNote.details` is now optional so the chain can carry a
+   * bug-0401 informational note without fabricating a `details` key.
    */
   #emitUntypedBoundaryDiscardNote(): void {
-    this.#pi.sendMessage(
+    sendSystemNote(
       {
-        customType: SYSTEM_NOTE_CHANNEL,
         content:
           `theta /${this.#thetaName}: the untyped @-query reached its tool_loop.max_rounds budget ` +
           `(${this.#maxRounds}); the model's terminating answer arrived in an over-budget turn ` +
           "and is discarded \u2014 the query surfaces Err(tool_loop_exhausted) (ceiling #2 / CIO-4).",
         display: true,
       },
-      { triggerTurn: false },
+      this.#resolveSystemNoteChannel(),
     );
   }
 
@@ -5528,14 +5632,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       installVector: computeActiveSetInstall(install),
       emitDiagnostic: this.#emitDiagnostic,
       emitSystemNote: (note): void => {
-        this.#pi.sendMessage(
-          {
-            customType: SYSTEM_NOTE_CHANNEL,
-            content: note.content,
-            display: note.display,
-          },
-          { triggerTurn: false },
-        );
+        sendSystemNote(note, this.#resolveSystemNoteChannel());
       },
       // PIC-19: a step-1/step-2 setup throw re-propagates out of
       // `withActiveSetGate` (it calls this hook THEN re-throws) into this
@@ -7054,6 +7151,8 @@ async function driveStreamedUserTurn(deps: {
   readonly thetaName: string;
   /** Bug 0372 §Fix: the runtime-defect diagnostic sink. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+  /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel, threaded from `#input.systemNoteChannel`. */
+  readonly systemNoteChannel?: SystemNoteChannelDeps;
 }): Promise<string | FollowUpDriveFailure> {
   const readMessages = (): readonly Message[] =>
     buildSessionContext(
@@ -7094,14 +7193,19 @@ async function driveStreamedUserTurn(deps: {
     installVector: [...deps.activeTools],
     emitDiagnostic: deps.emitDiagnostic,
     emitSystemNote: (note): void => {
-      deps.pi.sendMessage(
-        {
-          customType: SYSTEM_NOTE_CHANNEL,
-          content: note.content,
-          display: note.display,
-        },
-        { triggerTurn: false },
-      );
+      const channel: SystemNoteChannelDeps =
+        deps.systemNoteChannel ?? {
+          pi: {
+            sendMessage: (message, options): void => {
+              deps.pi.sendMessage(message, options);
+            },
+          },
+          emitDiagnostic: deps.emitDiagnostic,
+          ui: {
+            notify: (): void => {},
+          },
+        };
+      sendSystemNote(note, channel);
     },
     // PIC-19: propagates via re-throw into this function's caller with no
     // local catch of its own — the same top-level slash-dispatch outer catch

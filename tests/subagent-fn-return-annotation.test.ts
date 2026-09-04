@@ -80,8 +80,8 @@ function recordingDeps(): {
   const delivered: Diagnostic[][] = [];
   const pi: SystemNoteSender = {
     sendMessage: (message): void => {
-      if ("diagnostics" in message.details) {
-        delivered.push([...message.details.diagnostics]);
+      if ("diagnostics" in message.details!) {
+        delivered.push([...message.details!.diagnostics]);
       }
     },
   };

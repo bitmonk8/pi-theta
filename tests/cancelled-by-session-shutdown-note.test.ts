@@ -524,16 +524,24 @@ describe("bug 0073 — the per-invocation cancelled-by-session-shutdown note", (
 
     await driveCleanCancelShutdown(dispatch);
 
-    // Fail loudly if the producer's own `pi` was never live on this dispatch:
-    // without the SLSH-4 row there the "never received the clean-cancel row"
-    // assertion below would hold vacuously.
+    // Fail loudly if the dispatch produced no system-note traffic at all:
+    // without the SLSH-4 row landing SOMEWHERE, the "clean-cancel row never
+    // reaches the producer's own pi" assertion below would hold vacuously.
+    // Bug 0437 corrected the contract this precondition checks: pre-0437,
+    // `emitTopLevelErrNote` (the SLSH-4 cancel-note emitter) sent raw through
+    // the producer's own `pi`, bypassing any injected channel, so the SLSH-4
+    // row was reliable proof-of-life on `dispatch.notes`. Post-0437 it routes
+    // through the SAME injected `systemNoteChannel` as every other note on
+    // this instance, so the SLSH-4 row (and all system-note traffic) now
+    // lands on `channelLog` instead — checking `dispatch.notes` here would be
+    // vacuously false and this precondition would never fire.
     expect(
-      dispatch.notes.some(
+      channelLog.some(
         (note) =>
           note.customType === "theta-system-note" &&
           note.content === SLSH4_CANCEL_NOTE,
       ),
-      "harness precondition unmet: the producer's own pi received no system note at all, so a clean-cancel row missing from it proves nothing",
+      "harness precondition unmet: the injected channel received no system note at all, so a clean-cancel row missing from the producer's own pi proves nothing",
     ).toBe(true);
 
     const rows = cleanCancelNotes(channelLog);
