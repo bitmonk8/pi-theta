@@ -6,6 +6,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.418.0]
+
+### Fixed
+
+- **Bug 0439** — the kind-belt panic message lied on non-laundered paths: the message tail claimed the belt guards ALL non-numeric operands, but the 0394/0402 belts judge only statically-resolvable mismatches — operands arriving through laundered/dynamic routes reach the arithmetic unjudged, so the message overstated the guarantee (S4 message-honesty class). Fixed per the settled §Fix: the `runtime-panics.ts` message TAIL rewords to the true scope ("covers only statically-resolvable mismatches … unjudged (bugs 0394/0402)") with the head byte-stable (b0394/b0402 witnesses green unchanged); the doc comment narrates both routes. The optional value-render extension was deferred per the doc. Witnessed by NEW `tests/b0439-kind-belt-message-scope.test.ts` (9 cells; 4 tail assertions red at fork). No flips. Live: covered by the lane's `b0324live` run (runtime-internal message class; recorded WHY).
+
+## [0.417.0]
+
+### Fixed
+
+- **Bug 0438** — `par … max` with a fractional width silently floored: a non-integer `max` expression (e.g. `2.5`) passed the `<1` clamp and JS array-slicing floored it, so the author's stated width was silently rewritten with no diagnostic (the 0324/0325/0326 par-max family's remaining silent arm). Fixed per the settled §Fix (option 1, reuse-over-mint): a new `!Number.isInteger` arm in `statement-executor.ts` ordered after the `<1` arm clamps to 1 and emits the existing `par-max-non-integer` code with the shared message reworded to cover both trigger classes; registry Trigger + control-flow + diagnostics CTRL-2 docs updated same-commit. Witnessed by NEW `tests/b0438-par-max-fractional-width.test.ts` (8 cells; red at fork — peak width 2 silently, 1 after with the diagnostic). Enumerated flip: two `b0325` `.toContain` substrings tracking the reworded shared message (mechanical consequence, scrutinized at merge). Live: existing `b0324live-max-non-integer-load-refusal` cell 1/1 under the lock (the family's registration adjacency).
+
 ## [0.416.0]
 
 ### Fixed

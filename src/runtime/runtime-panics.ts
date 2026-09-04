@@ -484,14 +484,19 @@ export class StdlibMethodArgumentDefectError extends Error {
 /**
  * Bug 0394 (docs/bugs/0394-stdlib-wrong-kind-args-coerce-and-replace-hangs.md)
  * belt-and-braces: the bug-0315 arity belt's KIND sibling. A correct-arity
- * stdlib call with a wrong-KIND positional argument on a laundered receiver
- * reaches the same three dispatchers past the arity check with its
- * `theta/parse/stdlib-arg-type-mismatch` precondition deferred (the parse gate
- * only resolves it for a statically-resolvable receiver), so the unchecked
- * `args[i] as …` casts below would otherwise forward the raw value into a host
- * JS method that either coerces it (e.g. `endsWith(null)` answering over the
- * literal spelling "null") or, for `replace`'s `from` position, diverges (a
- * `NaN` cursor makes the scan loop forever). Each dispatcher throws this
+ * stdlib call with a wrong-KIND positional argument reaches the same three
+ * dispatchers past the arity check, past the `theta/parse/stdlib-arg-type-mismatch`
+ * gate, by either of two routes: the gate defers because the receiver is
+ * statically unresolvable (laundered) and it never gets a static type to
+ * judge (bug 0394), or the gate runs and passes because the argument's static
+ * type is the declared one (`integer`) while the *value* it evaluates to at
+ * runtime is non-integral — `n % m` with a runtime-zero `m` is `NaN`, still
+ * typed `integer` at parse time — the class bug 0402 admitted with its
+ * integrality conjunct at stdlib-string.ts:103. Either way the unchecked
+ * `args[i] as …` casts below would otherwise forward the raw value into a
+ * host JS method that either coerces it (e.g. `endsWith(null)` answering over
+ * the literal spelling "null") or, for `replace`'s `from` position, diverges
+ * (a `NaN` cursor makes the scan loop forever). Each dispatcher throws this
  * instead, AFTER the arity check and BEFORE the switch/cast, on a `typeof` /
  * `Array.isArray` mismatch against the member's `params` descriptor. It
  * routes through `surfaceUnexpectedThrow` to `theta/runtime/internal-error`
@@ -501,7 +506,7 @@ export class StdlibMethodArgumentDefectError extends Error {
 export class StdlibMethodArgumentKindDefectError extends Error {
   public constructor(method: string, argIndex: number, expectedKind: string, actual: ThetaValue) {
     super(
-      `internal defect: stdlib method '${method}' argument ${argIndex} expects ${expectedKind}, got ${summariseNonResultOperand(actual)}; the parse-time stdlib-arg-type-mismatch gate (theta/parse/stdlib-arg-type-mismatch) did not reject this laundered-receiver site (bug 0394)`,
+      `internal defect: stdlib method '${method}' argument ${argIndex} expects ${expectedKind}, got ${summariseNonResultOperand(actual)}; the parse-time stdlib-arg-type-mismatch gate covers only statically-resolvable mismatches, so this site's argument reached the runtime belt unjudged (bugs 0394/0402)`,
     );
     this.name = "StdlibMethodArgumentKindDefectError";
   }

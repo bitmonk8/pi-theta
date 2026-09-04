@@ -281,7 +281,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/invoke-depth-exceeded` | E | runtime | `invoke chain depth exceeded: <depth> > 32`. |
 | `theta/runtime/system-note-delivery-failed` | E | runtime | `system-note delivery failed: <original content first line>`. |
 | `theta/runtime/registry-swap-failed` | E | runtime | `registry swap failed: <path>`. |
-| `theta/runtime/par-max-non-integer` | E | runtime | `'par for' max operand is not a finite number; in-flight width clamped to 1`. |
+| `theta/runtime/par-max-non-integer` | E | runtime | `'par for' max operand is not a finite integer; in-flight width clamped to 1`. |
 | `theta/runtime/par-max-non-positive` | E | runtime | `'par for' max operand must be at least 1; in-flight width clamped to 1`. |
 | `theta/runtime/watcher-terminated` | E | runtime | `theta watcher terminated; hot-reload halted until /reload`. |
 | `theta/runtime/internal-error` | E | runtime | `internal error: <error.message>`. |

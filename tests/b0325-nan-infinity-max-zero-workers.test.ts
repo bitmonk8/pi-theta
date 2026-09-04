@@ -66,8 +66,9 @@ import { isResultValue, type ThetaValue } from "../src/runtime/value";
 //      UNTHROTTLED at the throttle, a silent width bug, not zero workers.) The
 //      fix adds `&& Number.isFinite(maxResult.value)` so `NaN` AND `±Infinity`
 //      fall to the clamp-to-1 + diagnostic branch, and widens the message to
-//      "'par for' max operand is not a finite number; in-flight width clamped to
-//      1" (code stays `theta/runtime/par-max-non-integer`).
+//      "'par for' max operand is not a finite integer; in-flight width clamped to
+//      1" (code stays `theta/runtime/par-max-non-integer`; bug 0438 rewords the
+//      message again to also cover the finite-non-integral-≥1 class).
 //   2. HOLE-FILLER. The CTRL-3 join `collected[index] = results[index] ??
 //      makeOk(null)` converts every never-written slot into `Ok(null)`. With
 //      zero workers every slot is unwritten, so the fabrication is total and
@@ -362,7 +363,7 @@ describe("bug 0325 — a non-finite `par for max` width spawns zero workers and 
     expect.soft(
       diag?.message ?? "",
       "the widened message names the non-FINITE class (RED today: no diagnostic captured)",
-    ).toContain("not a finite number");
+    ).toContain("not a finite integer");
   });
 
   it("C (Infinity): a `1 / 0` operand runs unthrottled with no diagnostic — the silent pre-0325 path", async () => {
@@ -397,7 +398,7 @@ describe("bug 0325 — a non-finite `par for max` width spawns zero workers and 
     expect.soft(
       diag?.message ?? "",
       "the widened message names the non-FINITE class (RED today: no diagnostic captured)",
-    ).toContain("not a finite number");
+    ).toContain("not a finite integer");
   });
 
   it("D (hole-filler invariant): every produced element must correspond to a dispatched effect", async () => {

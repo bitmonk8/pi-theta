@@ -1,6 +1,6 @@
 # Bug 0438 — A laundered finite non-integral `par for max` operand ≥ 1 is silently `Math.floor`ed into the in-flight width (`max f(2.5)` → width 2, zero diagnostics) — the only silent cell in CTRL-2's runtime width matrix, whose every sibling class (`0.5`, `0`, NaN, `±Infinity`, non-number) is loud and whose direct spelling is parse-refused
 
-- **Status:** open.
+- **Status:** fixed (0.417.0).
 - **Sev/Diff estimate:** S4/D2 — S4: the observable divergence is bounded (the
   loop's collected values, ordering, and effects are all correct; only the
   scheduling width is silently rewritten from the author's stated bound), the
@@ -224,3 +224,54 @@ hunt candidate (`.pi/bug-hunt/candidates/*`) owns it; main-tree
 `docs/bugs/` identical to the pinned worktree at filing time. Sibling
 candidate: `[bug 0439](./0439-kind-belt-message-lies-on-non-laundered-paths.md)` (belt message wording at
 the 0402 seam, found in the same sweep).
+
+## Fix (0.417.0)
+
+- What shipped:
+  - `src/runtime/statement-executor.ts` — §Fix option 1 (reuse the code): a
+    new `else if (!Number.isInteger(maxResult.value))` arm, ordered AFTER the
+    `requested < 1` (`par-max-non-positive`) arm and BEFORE the integer
+    `else`, routes a finite non-integral operand whose floor is ≥ 1 (`2.5`,
+    `63.9`) to the existing `theta/runtime/par-max-non-integer` with the
+    clamp-to-1 disposition. Both `par-max-non-integer` emit sites now carry a
+    shared `PAR_MAX_NON_INTEGER_MESSAGE` = `'par for' max operand is not a
+    finite integer; in-flight width clamped to 1` (the old `is not a finite
+    number` was false of `2.5`; `is not a finite integer` stays true of every
+    trigger member). No new registry row/code; the 64 throttle and the
+    integer path are byte-identical.
+  - `docs/spec_topics/diagnostics/code-registry-runtime.md` — the
+    `par-max-non-integer` Trigger cell widened to the finite-non-integral-≥1
+    class (and its parse-refused direct spelling); its Message cell reworded;
+    the adjacent `par-max-non-positive` row's now-stale sibling
+    cross-description repaired (review F2).
+  - `docs/reference/diagnostics.md` — the reference message mirror updated to
+    match the registry (DIAG-4).
+  - `docs/spec_topics/control-flow.md` — CTRL-2's runtime-disposition
+    sentence widened to the finite non-integral (floor ≥ 1) class (review
+    F1).
+  - `tests/b0438-par-max-fractional-width-silent-floor.test.ts` — the witness
+    (FLIP A1/A1b + controls A2/A3/A4/bnd/D3/A5).
+  - `tests/b0325-nan-infinity-max-zero-workers.test.ts` — the enumerated
+    message-reword propagation: two `.toContain("not a finite number")`
+    assertions and one header-comment quote → `not a finite integer` (intent
+    unchanged; NaN/±Infinity still → `par-max-non-integer`, loud).
+- Gates: witness `npx vitest run tests/b0438-…` → 8/8; full default suite
+  `npx vitest run` → 589 files / 10552 tests green; `npm run typecheck`
+  clean; `npm run lint` clean; live `b0324live-max-non-integer-load-refusal`
+  → 1/1 through the real `pi -p` (lane witness, under the global live lock).
+- Review: 2 rounds. R1 (deep) — 2 `spec` findings: F1 (CTRL-2 omitted the
+  floor-≥1 qualifier, wrongly claiming `0.5`) and F2 (registry
+  `par-max-non-positive` row's stale sibling cross-description) — both fixed.
+  R2 (fast) — CLEAN (one prose residual, an awkward CTRL-2 clause order,
+  copy-edited by the orchestrator).
+- Verification: SOLID — witness reds with the new arm reverted (peak 2 / 5,
+  want 1; silent) and greens restored byte-exact; full suite green (one
+  isolated-green parallel-load timeout flake); typecheck + lint clean; tree
+  reconciled, no stash.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `Math.floor(maxResult.value)` retained in
+  the number branch — now a provable no-op (only integers reach the integer
+  `else`), kept for a minimal diff and harmless. The `< 1` classes (`0.5`,
+  `0`, negatives) stay on `par-max-non-positive` (§Non-goals; controls
+  A3/D3). No new registry row — `par-max-non-integer` reused per option 1.

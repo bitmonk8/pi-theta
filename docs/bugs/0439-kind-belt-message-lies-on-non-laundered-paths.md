@@ -1,6 +1,6 @@
 # Bug 0439 — `StdlibMethodArgumentKindDefectError`'s message asserts "did not reject this laundered-receiver site" on the non-laundered emission paths 0402 admitted: `xs.slice(4 % y)` on a statically-resolvable receiver (runtime-zero `y`) aborts naming a gate deferral that never happened, while the registry's Trigger cell states the true condition
 
-- **Status:** open.
+- **Status:** fixed (0.418.0).
 - **Sev/Diff estimate:** S4/D1 — S4: a lying causal tail inside a
   `theta/runtime/internal-error` message (the code, route, and
   expects/got head are correct; only the diagnosis clause misattributes the
@@ -196,3 +196,49 @@ no report on this message; 0394 residual 3 and 0402 residual 1 read in
 full — both record, neither owns; no sibling hunt candidate touches it.
 Sibling candidate: `[bug 0438](./0438-par-max-fractional-width-silent-floor.md)` (the par-max width
 floor, same sweep).
+
+## Fix (0.418.0)
+
+- What shipped:
+  - `src/runtime/runtime-panics.ts` — the
+    `StdlibMethodArgumentKindDefectError` message tail reworded from the
+    false laundered-receiver-only claim to a diagnosis true of BOTH emission
+    classes: `… the parse-time stdlib-arg-type-mismatch gate covers only
+    statically-resolvable mismatches, so this site's argument reached the
+    runtime belt unjudged (bugs 0394/0402)`. The HEAD (`internal defect:
+    stdlib method '<m>' argument <i> expects <kind>, got <actual>`) is kept
+    byte-stable, so the b0394/b0402 head-only witnesses are untouched. The
+    class doc comment (`:484-500`) rewritten to narrate both routes — the
+    parse gate deferring on a laundered/statically-unresolvable receiver
+    (0394) and the gate running-and-passing a statically-`integer` argument
+    that evaluates non-integral at runtime (`n % m` with runtime-zero `m`,
+    0402's integrality conjunct at `stdlib-string.ts:103`).
+  - `tests/b0439-kind-belt-message-honesty.test.ts` — the witness (FLIP B1 on
+    the non-laundered path + CONTROL C1 on the laundered path both assert the
+    honest tail; B2 parse controls prove the receiver resolvable and the gate
+    live).
+- Gates: witness `npx vitest run tests/b0439-…` → 9/9; kind-belt family
+  `b0394` 19/19 + `b0402` 9/9 green (head byte-stable); full default suite
+  `npx vitest run` → 589 files / 10552 tests green; `npm run typecheck`
+  clean; `npm run lint` clean; live `b0324live-max-non-integer-load-refusal`
+  → 1/1 through the real `pi -p` (lane witness, under the global live lock).
+- Review: 1 round (deep) — CLEAN (one non-blocking prose residual, R1 below).
+- Verification: SOLID — witness reds with the tail reverted (the four
+  B1/C1 tail assertions: `laundered-receiver`/`did not reject` present,
+  `statically-resolvable`/`0402` absent) and greens restored byte-exact;
+  full suite green; typecheck + lint clean; tree reconciled, no stash.
+- Residuals:
+  1. R1 [prose]: `tests/b0394-stdlib-wrong-kind-args-belt.test.ts:56` — the
+     “BELT MESSAGE SHAPE” header comment still quotes the retired tail (`did
+     not reject this laundered-receiver site`). Non-blocking: that file's
+     assertion (`:286`) is head-only and green. Not edited (sibling
+     closed-bug witness, comment-only) — follow-up-sweep material.
+  2. The OPTIONAL offending-value rendering (`a number (1.5)` via
+     `summariseNonResultOperand`) deliberately deferred — §Fix marks it
+     “optional”; deferred to avoid flipping the `QuestionOperandDefectError`
+     messages that share `summariseNonResultOperand`. The author-visible
+     lie (the tail) is fully shipped.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: `summariseNonResultOperand` untouched; the
+  registry not edited (§Non-goals — already accurate via 0402 round-1 F1);
+  `stdlib-string.ts` belt behaviour untouched; no new registry row/code.

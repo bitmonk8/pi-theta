@@ -1678,6 +1678,12 @@ function toRuntimePattern(pattern: PatternNode): Pattern {
  */
 const PAR_FOR_THROTTLE = 64;
 
+// Shared by both `par-max-non-integer` emission sites (finite-non-integral and
+// non-number/non-finite) so the registered message can't drift between them
+// (bug 0438).
+const PAR_MAX_NON_INTEGER_MESSAGE =
+  "'par for' max operand is not a finite integer; in-flight width clamped to 1";
+
 /** The outcome of one `par for` iteration body evaluation. */
 type ParForIterationOutcome =
   | {
@@ -1891,6 +1897,23 @@ async function evalParFor(
           range: expr.max.range,
           message: "'par for' max operand must be at least 1; in-flight width clamped to 1",
         });
+      } else if (!Number.isInteger(maxResult.value)) {
+        // CTRL-2 (`n` is any `integer`-typed expression): a finite value whose
+        // floor is ≥1 but which is itself non-integral (`2.5`) is still not an
+        // `integer` width. The direct spelling is parse-refused
+        // (`theta/parse/integer-narrowing`), so this is only reachable through
+        // the deferred/`unknown` path — the same laundered-fractional class the
+        // 0365/0402 integrality doctrine diagnoses rather than silently
+        // truncates (bug 0438). Routed into the existing non-integer code
+        // rather than a new one: its clamp-to-1 disposition already fits.
+        width = 1;
+        deps.emitDiagnostic?.({
+          severity: "error",
+          code: "theta/runtime/par-max-non-integer",
+          file: deps.file,
+          range: expr.max.range,
+          message: PAR_MAX_NON_INTEGER_MESSAGE,
+        });
       } else {
         width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
       }
@@ -1907,7 +1930,7 @@ async function evalParFor(
         code: "theta/runtime/par-max-non-integer",
         file: deps.file,
         range: expr.max.range,
-        message: "'par for' max operand is not a finite number; in-flight width clamped to 1",
+        message: PAR_MAX_NON_INTEGER_MESSAGE,
       });
     }
   }
