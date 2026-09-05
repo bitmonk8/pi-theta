@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.452.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0447 — nested `import … from` statement inert**: same placement gap for imports — a from-bearing import below top level parsed and silently bound nothing. The 0446 placement walk (renamed `checkStatementPlacement`) gains an import arm: minted `theta/parse/import-not-top-level` in EITHER host; top-level imports stay legal; from-less nested imports keep their `import-missing-from-clause` lane. (witness `tests/b0447-nested-import-inert.test.ts`)
+
+## [0.451.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0446 — nested `export … from` wholly inert in both hosts**: the 0431 check was top-level-only, so a from-bearing export nested in any block (`if`/`for`/`fn`/`par for` bodies, block-expressions, `subagent fn` with-clauses) parsed and then did nothing. A recursive placement walk now emits `theta/parse/export-in-theta` at ANY depth in a `.theta` and the minted `theta/parse/export-not-top-level` for nested `.thetalib` exports (top-level lib exports stay legal). (`src/parser/theta-document.ts`, `src/parser/imports.ts`; witness `tests/b0446-nested-export-inert.test.ts`)
+
 ## [0.450.0]
 
 ### Fixed

@@ -11,10 +11,13 @@ import { Author, persona_block } from "./shared/personas.thetalib"
 **`.thetalib` file rules:**
 
 - Top-level may contain only `import`, `export`, `schema`, `enum`, and `fn` declarations. No top-level statements, `let` bindings, or queries (`theta/parse/thetalib-top-level-statement`).
+- A from-bearing `export … from` nested inside any non-top-level statement position — an `if`/`while`/`for`/`fn` body, a `par for` body, a block-expression, or a `subagent fn` `with`-clause value — rather than at the top level — is a parse error `theta/parse/export-not-top-level`; a top-level `.thetalib` export stays legal.
 - Inside `fn` bodies, the full Theta language is available, including `@`...`` queries. A query inside an imported function executes against the *calling* `.theta`'s conversation when the function is invoked. A **free name** in an imported `fn`'s body — a call to a sibling `fn`, a reference to a `schema` or `enum`, or a name the library itself imports — resolves in the **declaring** `.thetalib`'s own scope: its own hoisted top-level declarations and its own materialised imports, recursively through however many `.thetalib` files the chain crosses. This holds regardless of what the calling `.theta` (or an intermediate `.thetalib` in a lib-to-lib chain) happens to declare or import under the same name; a same-named declaration in the caller is never substituted for the one the library's author wrote. Only the query/effect anchor above — which conversation an `@`...`` query or `invoke(...)` call runs against — is scoped to the calling theta; name resolution is scoped to the declaring file.
 - Never slash-command-discovered. A `.thetalib` file is invisible to the `/<name>` autocomplete; it is only ever reached via `import`.
 - May call `invoke(...)`. The path resolves relative to the `.thetalib` file's location; the invocation executes against the *calling* `.theta`'s conversation (or spawns a fresh isolated one if the callee is subagent-mode), exactly like a `@`...`` query inside a thetalib function. Cycle detection from [Invocation](./invocation.md) walks invoke paths originating from thetalib functions too. A cross-file `.thetalib` `fn` call is itself a countable frame against the invoke-depth bound owned normatively by [Invocation — Invocation depth bound](./invocation.md#inv-4).
 - May declare a `subagent fn` (theta 1.2; [Functions — FN-9](./functions.md#fn-9)). The `subagent` modifier is admissible on a `.thetalib` `fn`, giving a shared, properly isolated in-library helper — the `.thetalib` counterpart of the "spawns a fresh isolated one" rule for a subagent-mode `invoke` callee above. Its `@`...`` queries target a **fresh spawned session** regardless of which theta imported the helper, unlike an ordinary `.thetalib` `fn` whose queries run against the calling `.theta`'s conversation and therefore provide no isolation. The same declaring-scope rule above governs its free names: an imported `subagent fn`'s body resolves a sibling declaration or a further imported name in the DECLARING `.thetalib`'s own scope, not the calling theta's — only the isolated session it spawns is anchored to the caller. With no `with { … }` clause the spawned session inherits the **calling** theta's session configuration — the same "calling theta" anchor as the conversation rule above — and a `with { tools: [ … ] }` clause resolves its tool names against the **calling** theta's callable set (a `.thetalib` has no frontmatter `tools:` of its own), with a name absent there failing through the existing callable-resolution channel. A `subagent fn` call is a countable frame against the invoke-depth bound ([Invocation — INV-4](./invocation.md#inv-4)) whether or not caller and callee share a source file.
+
+**Import placement.** An `import … from` statement nested inside any non-top-level statement position — an `if`/`while`/`for`/`fn` body, a `par for` body, a block-expression, or a `subagent fn` `with`-clause value — rather than at the top level, in EITHER a `.theta` or a `.thetalib` file, is a parse error `theta/parse/import-not-top-level`. A top-level import stays legal in both hosts — it is how a `.theta` or a `.thetalib` consumes a lib.
 
 **Path resolution.** theta 1.0 supports relative paths only: `"./shared/personas.thetalib"`, `"../lib/schemas.thetalib"`. Paths must end in `.thetalib` — the extension match is byte-exact lowercase per [Lexical — Extension matching](./lexical.md#extension-matching); an `import` path whose literal does not end in `.thetalib` (including a `.theta` path or any non-lowercase variant such as `.THETALIB`) is a parse error `theta/parse/import-non-thetalib-extension`. Paths resolve relative to the importing file's directory. Path literals use forward-slash separators only — a backslash is a parse error per the "Path literals" rule in [Lexical Structure](./lexical.md). Project-rooted (`/theta/...`) and package-style (`@scope/pkg`) imports are out of scope for theta 1.0. See [Future Considerations](./future-considerations.md). Once a `.thetalib` import resolves, the file identity every downstream consumer compares under — the declaring-site identity for enum tags and re-export collision keys, the import-edge-graph node, and the per-pass parse cache key — is the resolved path's canonical `FileSystem.realpath` form (forward-slash-normalised), so two case-variant directory spellings of one physical file are one declaring site on a case-insensitive host, exactly as the invoke-path containment check compares on `realpath` output (see [Invocation](./invocation.md)'s Resolution paragraph).
 
@@ -51,12 +54,15 @@ statement names it, once per `export` statement and ranged over that statement �
 the path belongs to the statement, not to each of its specifiers, so a
 specifier list of any length draws one such error).
 
-A from-bearing `export … from` at a `.theta` top level (not a `.thetalib`) is
-a parse error `theta/parse/export-in-theta`: a `.theta` file is never
-importable, so its re-export can never be read. The check keys on a non-empty
-`ExportDecl` path; the from-less form (`export { X }`, no `path`) is
-unaffected in either file kind, and a `.thetalib` host is unaffected
-regardless of the path.
+A from-bearing `export … from` in a `.theta` (not a `.thetalib`) is a parse
+error `theta/parse/export-in-theta`, at any statement depth — top level or
+nested inside a non-top-level statement position (an `if`/`while`/`for`/`fn`
+body, a `par for` body, a block-expression, or a `subagent fn` `with`-clause
+value): a
+`.theta` file is never importable, so its re-export can never be read
+regardless of where it sits. The check keys on a non-empty `ExportDecl` path;
+the from-less form (`export { X }`, no `path`) is unaffected in either file
+kind, and a `.thetalib` host is unaffected regardless of the path.
 
 A re-export's name is provided when the least fixpoint of the reachable
 `.thetalib` file set provides it: every file's resolved export set starts at its

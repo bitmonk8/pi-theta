@@ -94,6 +94,20 @@ export const EXPORT_IN_THETA_MESSAGE =
 export const EXPORT_IN_THETA_HINT =
   ".theta files are not importable — remove the `from` clause or move this export into a .thetalib.";
 
+// ── theta/parse/export-not-top-level ─────────────────────────────────────────
+
+export const EXPORT_NOT_TOP_LEVEL_CODE = "theta/parse/export-not-top-level";
+export const EXPORT_NOT_TOP_LEVEL_MESSAGE =
+  "a from-bearing 'export … from' is only permitted at a .thetalib top level; nested in a fn/if body it is never read";
+export const EXPORT_NOT_TOP_LEVEL_HINT = "Move the export to the .thetalib top level.";
+
+// ── theta/parse/import-not-top-level ─────────────────────────────────────────
+
+export const IMPORT_NOT_TOP_LEVEL_CODE = "theta/parse/import-not-top-level";
+export const IMPORT_NOT_TOP_LEVEL_MESSAGE =
+  "an 'import … from' is only permitted at the top level; nested in a fn/if body it is never resolved or bound";
+export const IMPORT_NOT_TOP_LEVEL_HINT = "Move the import to the top level of the file.";
+
 // ── theta/parse/import-non-thetalib-extension ────────────────────────────────────
 
 export const IMPORT_NON_THETALIB_EXTENSION_CODE = "theta/parse/import-non-thetalib-extension";

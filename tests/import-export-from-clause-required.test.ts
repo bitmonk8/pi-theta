@@ -19,7 +19,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // is a production of no spec page, and it is not inert: in a `.thetalib` its
 // specifier names enter the downstream-visible export set through
 // `extractThetaLibForms` (src/extension/import-static-checks.ts:118, `fromPath:
-// stmt.path`) and `computeThetaLibExports` (src/parser/imports.ts:814–819),
+// stmt.path`) and `computeThetaLibExports` (src/parser/imports.ts:828–833),
 // taking a plain import's local out of `theta/parse/import-unknown-symbol`'s
 // emission set; in a `.theta` its `symbols` reach `collectIdentRoots`
 // (src/parser/theta-document.ts:4509–4542) and `checkLexicalCallSites` (:5174,
@@ -470,7 +470,7 @@ describe("bug 0058 (c) — a from-less export cannot make a plain import's local
 
   it(`GREEN (c-control): a plain import alone does NOT re-export, so the downstream specifier draws ${UNKNOWN_SYMBOL_CODE}`, () => {
     // imports.md :36 is implemented once, by omission: `computeThetaLibExports`
-    // (src/parser/imports.ts:814–819) unions declarations with re-exports and
+    // (src/parser/imports.ts:828–833) unions declarations with re-exports and
     // excludes `forms.plainImports`. This is the enforced half of the rule and
     // the pin the from-less case must not remove.
     return loadImports(APP_BODY, {
@@ -647,7 +647,7 @@ describe("bug 0058 (f) — a from-less export does not offer a downstream-visibl
     return loadImports(APP_BODY, { "/proj/lib.thetalib": "export { Ghost }\n" }).then((result) => {
       expect(
         withCode(result.diagnostics, CODE).length,
-        `bug doc §Expected — "The export set is a function of what the file re-exports": a specifier that names no file is neither of the two sources src/parser/imports.ts:809–812 admits, so the lib must not load cleanly and offer \`Ghost\`. Rendered: ${JSON.stringify(diagLines(result.diagnostics))}`,
+        `bug doc §Expected — "The export set is a function of what the file re-exports": a specifier that names no file is neither of the two sources src/parser/imports.ts:823–826 admits, so the lib must not load cleanly and offer \`Ghost\`. Rendered: ${JSON.stringify(diagLines(result.diagnostics))}`,
       ).toBe(1);
       expect(
         result.diagnostics.some(isRegistrationError),

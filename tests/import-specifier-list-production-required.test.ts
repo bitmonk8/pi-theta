@@ -22,8 +22,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 // a question asked of the two facts the parser records about those paths —
 // `hasBraces` beside the specifier count (:3007, :3009) and
 // `aliasConsumedWithNoAlias` (:3021, :3033–3034) — which is what
-// `checkImportMalformedSpecifierList` (src/parser/imports.ts:430–450) and
-// `checkImportDanglingAlias` (:462–476) read. Left unrefused, the dangling `as`
+// `checkImportMalformedSpecifierList` (src/parser/imports.ts:444–464) and
+// `checkImportDanglingAlias` (:476–490) read. Left unrefused, the dangling `as`
 // is not inert: `local` is the key the identifier scope, the collision check,
 // bug 0040's reserved-name check, materialisation and a `.thetalib`'s published
 // export set all read, so the source name is substituted for the alias the
@@ -70,7 +70,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 //      disposition is widening `theta/parse/import-missing-from-clause`'s
 //      *Trigger*: three of the spellings carry a `from` clause with a
 //      `.thetalib` path literal, so that row's normative *Message* ("requires a
-//      'from' clause with a .thetalib path literal", src/parser/imports.ts:372–373)
+//      'from' clause with a .thetalib path literal", src/parser/imports.ts:386–387)
 //      would misdescribe its own input, and DIAG-4 defers a *Message* reword to
 //      theta 2.0.
 //   2. STATEMENT-level arm (§Fix constraint 2): the specifier list is absent or
@@ -752,7 +752,7 @@ describe("bug 0100 (e) — the specifier arm co-emits with bug 0040's reserved-n
 // The specifier arm is UNGATED, so a dangling `as` on a from-less list draws
 // BOTH codes on one statement (imports.md:57–60, mirrored at
 // docs/reference/grammar.md:56–60, and stated in `checkImportDanglingAlias`'s
-// contract, src/parser/imports.ts:452–476). Group (d) fences the STATEMENT
+// contract, src/parser/imports.ts:466–490). Group (d) fences the STATEMENT
 // arm's gate; nothing there carries a dangling `as`, so without this group a
 // later gating of the specifier arm on `hasFromKeyword` would leave every
 // shipped test green while that normative sentence turned false.
@@ -812,7 +812,7 @@ describe("bug 0100 (f) — the dangling `as`'s downstream consequences, pinned w
   it("RED (f-collision): the collapsed local name still collides, and the specifier is now refused", async () => {
     // The measured pair: `import { a as b }` beside a local `fn a` loads clean,
     // and the dangling spelling reinstates the collision the alias existed to
-    // avoid (`checkImportNameCollisions`, src/parser/imports.ts:597, compares
+    // avoid (`checkImportNameCollisions`, src/parser/imports.ts:611, compares
     // locals). The refusal is what takes the input out of that comparison.
     const appBody = 'import { a as } from "./lib.thetalib"\nfn a(x: string) { x }\nlet x = 1\n';
     const parsed = parseApp(appBody);
@@ -870,7 +870,7 @@ describe("bug 0100 (f) — the dangling `as`'s downstream consequences, pinned w
   it("RED (f-export-set): the module still publishes the source name, and the lib specifier is now refused", async () => {
     // `extractThetaLibForms` records `exported: specifier.local`
     // (src/extension/import-static-checks.ts:128) and
-    // `computeThetaLibExports` publishes it (src/parser/imports.ts:814–819), so
+    // `computeThetaLibExports` publishes it (src/parser/imports.ts:828–833), so
     // a lib whose author wrote `export { greet as hello } from` publishes
     // `greet` and the downstream `import { hello }` is refused as unknown. The
     // refusal at the LIB is what stops the module's public API differing from

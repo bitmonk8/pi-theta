@@ -1,6 +1,6 @@
 # Bug 0446 — A from-bearing `export { X } from "…"` NESTED inside an `if`/`fn` body is wholly inert with zero diagnostics in BOTH hosts: in a `.theta` it escapes `checkExportInTheta` (top-level walk only), and in a `.thetalib` `fn` body it escapes the top-level-form rule, the re-export closure, and IMP-1 alike — while its SHAPE faults (malformed specifier list, non-`.thetalib` extension) are still refused at the same nested position
 
-- **Status:** open.
+- **Status:** fixed (0.451.0).
 - **Sev/Diff estimate:** S4/D2 — S4: dropped author intent with zero
   diagnostics; no wrong value can flow (the nested statement binds nothing and
   executes as a runtime no-op), matching bug 0431's own S4 rating for the
@@ -233,6 +233,19 @@ Options:
 Any fix must keep: N4's shape-rule emissions unchanged; the top-level
 `.theta` refusal and `.thetalib` top-level export semantics byte-identical;
 the runtime no-op arm for whatever remains legal.
+
+## Fix (0.451.0)
+- What shipped:
+  - `src/parser/theta-document.ts` — replaced the top-level-only `checkExportInTheta` with a recursive placement walk (`checkStatementPlacement` + `walkBlock`/`walkStatement`/`walkExpr` `ForStatementPlacement` (renamed from `*ForExportPlacement` when bug 0447 folded nested-import placement into the same walk)) that descends every document-body block-bearer — `if`/`while`/`for`/`fn` bodies, the `else`/`else if` chain, block-expressions, `par for` bodies, and `subagent fn` `with`-clause values — emitting `theta/parse/export-in-theta` for a from-bearing export at ANY depth in a `.theta` (Â§Fix Option 1, widening 0431) and the minted `theta/parse/export-not-top-level` for a NESTED from-bearing export in a `.thetalib` (a top-level lib export stays legal). The `ExportDecl` node is untouched, so the shape / reserved-keyword rules keep firing at every depth (N4).
+  - `src/parser/imports.ts` — minted `EXPORT_NOT_TOP_LEVEL_CODE` / `_MESSAGE` / `_HINT` beside the 0431 trio (reuse-vs-mint ratified as MINT: folding into `thetalib-top-level-statement`, a top-level-placement concept, would fork the taxonomy for the inverse nested position, 0326).
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` + `docs/reference/diagnostics.md` — the DIAG-2 registry row for `export-not-top-level` and its mirror; the `export-in-theta` row's Trigger widened to any statement depth (its Message column byte-identical, DIAG-3).
+  - `docs/spec_topics/imports.md` — a `.thetalib`-rules bullet (nested-export refusal) and the widened Â§Re-exports sentence (any-depth `.theta` refusal).
+- Gates: witness `tests/b0446-nested-export-inert.test.ts` 11/11 green (revert-proven both directions — the 8 export-emitting cells red on a `checkStatementPlacement` no-op, the 3 zero-expecting controls stay green; byte-exact restore confirmed by `git hash-object`); full default suite 606/610 files green (the 4 reds are parallel-load timeout / hook-timeout noise — `b0331-root-winner-preempt`, `shared-subtree-judged-once-per-pass`, two hook-timeout files — all green isolated, none on the parse surface); `npm run typecheck` clean; `npm run lint` clean; DIAG-2 closed set (`code-registry` + `registry-closed-set-corpus-gate`) green.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`, deep): F1 correctness (a nested export inside a `subagent fn` `with`-clause value was not walked), F2 spec (the new registry Trigger omitted a `par for` body), F3 house-rule (the walk comment stated a false reason about query-template interpolations), + a test-strengthening residual — all resolved by `bug-fix-fixer` (with-clause descent added; enumerations widened truthfully; comment corrected to the real rationale; four coverage cells added). R2 (`bug-fix-reviewer-fast`): CLEAN.
+- Verification: VERIFIED — witness revert-proven both directions (byte-exact restore, `git hash-object` match); full suite green modulo load flakiness; typecheck + lint clean; DIAG-2 closed set green; live `tests/live/acceptance/b0428live-unreadable-thetalib-load-refusal.test.ts` 1/1 green under the global lock. WHY the adjacent cell discharges the obligation: the refusal is a parse class, offline-equivalent (no model participates), so the adjacent import/export-intake load-refusal cell proves the intake path registers and drives end-to-end through the real `pi -p` â the identical discharge 0431 took for the same code family.
+- Residuals: (1) a from-bearing `export â¦ from` hidden inside a `@`...`` query-template `${â¦}` interpolation's `par for` body remains inert â the interpolation is re-lexed into a separate throwaway AST (`parseInterpolationSource`) the document-body placement walk does not own; a distinct mechanism (a separate parse pass), out of this fix's seam, deserving its own filing (the per-mechanism discipline that split 0446 from 0447). (2) the reused `export-in-theta` message keeps its âat a .theta top levelâ wording when emitted for a nested `.theta` export â the doc-prescribed reuse (one code, one stable DIAG-3 message); the substantive clause (âa .theta is not importable, so its export is never readâ) holds at any depth.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Options 2 (resolve-and-check) and 3 (spec-pin inertness) not taken. GOV-15 never-conformant standing â a nested from-bearing export was never spec-legal, so the DIAG-2 registry carve-out covers the mint and NO permitted-codes move is owed (permitted-codes.json holds no parse codes). The from-less nested form (0058) and the runtime no-op arm are untouched.
 
 ## Provenance
 
