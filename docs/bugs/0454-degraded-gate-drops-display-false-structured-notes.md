@@ -1,6 +1,6 @@
 # Bug 0454 — Under a degraded `RendererGate` the channel silently drops every `display: false` note in its entirety — no transcript send, no toast, no diagnostic, no stderr — although the degrade rationale ("delivering to the transcript would render nothing") is vacuous for notes that are never rendered: the clean-cancel note's spec-entitled structured payload is lost while `pi.sendMessage` remains fully functional
 
-- **Status:** open.
+- **Status:** fixed (0.441.0).
 - **Sev/Diff estimate:** S4/D2 — S4: loss of spec-entitled operator
   records (the clean-cancel note's `details.shutdown.*`, which operator
   tooling "is entitled to assert" per the clean-cancel contract), silent
@@ -218,3 +218,53 @@ Implementation read: `system-note-channel.ts:180–330`,
 deleted; outputs quoted). Dup check: README index (`renderer`, `degrade`
 hits — 0023 wired the branch, no report on its display interaction);
 0023/0073/0432/0437 read in full.
+
+## Fix (0.441.0)
+
+- What shipped: `src/extension/system-note-channel.ts` — §Fix Option 1: the
+  degraded `RendererGate` branch in `sendSystemNote` is gated on
+  `note.display !== false` as well, so a `display: false` note is carved out
+  of the degrade skip and falls through to the steady-state `pi.sendMessage`
+  transcript arm (renderer-independent — never rendered; its value is the
+  structured payload); `display: true` notes keep the 0023-era toast-only
+  degrade byte-identical. `docs/spec_topics/pi-integration-contract/extension-bootstrap-and-per-theta.md`
+  — the DIAG-2 same-commit carve-out clause on the degrade rule
+  (“…except `display: false` notes, whose transcript delivery is
+  renderer-independent and proceeds normally through `pi.sendMessage`”).
+- Gates: witness `tests/b0454-degraded-gate-drops-display-false-structured-notes.test.ts`
+  RED at fork (cell 1: `sends: []` — the total drop) → GREEN after fix (note
+  delivered with `details.shutdown` intact); default suite 610 files / 10669
+  tests green; `tsc -p tsconfig.json --noEmit` clean; `eslint … src/**/*.ts`
+  clean. Live: `tests/live/double-session-start-live.test.ts` green (the
+  changed `sendSystemNote` still delivers system notes end-to-end on a live
+  host).
+- Review: 1 round — `bug-fix-reviewer` verdict FINDINGS, one `house-rule`
+  finding (F1: WHY-comments in sibling-owned files now describe the pre-fix
+  degrade behaviour) and no correctness/fidelity/spec blocker; recorded as a
+  residual because every F1 site is owned elsewhere or a protected test.
+- Verification: `bug-fix-verifier` verdict SOLID — witness reds/greens both
+  directions (temporary one-line revert → cell 1 reds on the empty `sends`
+  drop → restored byte-exact → green); default suite green; typecheck + lint
+  clean; no existing test weakened. Live witness run by the orchestrator.
+- Residuals: (1) F1 — the following WHY-comments now describe the pre-fix
+  “degrade drops every note” behaviour and, composed with this carve-out,
+  read as the inverse of the shipped contract; they sit in files this lane
+  does not own and were NOT edited: `src/extension/factory.ts:336-338` and
+  `:538-541` (Lane L5 / bug 0451), `src/extension/production-theta-producer.ts:589-597`
+  (the clean-cancel `systemNoteChannel` seam comment — owned-elsewhere
+  producer region), and the title/comment of
+  `tests/extension-bootstrap-nonabort.test.ts:230` (“routes **every** note
+  through ctx.ui.notify” — a protected sibling test; its assertions drive
+  only `display: true` notes and stay valid, only the universal quantifier is
+  now imprecise). A merge-time or sibling reconciliation should widen these
+  to carry the `display: false` carve-out. (2) `docs/spec_topics/diagnostics/code-registry-runtime.md:19`
+  — prose-only: the `system-note-delivery-failed` row’s “after `ctx.ui.notify`
+  has been attempted” trigger wording is imprecise for `display: false`
+  sends (the toast is skipped by rule before the diagnostic fires); predates
+  this fix, no DIAG-2 edit owed.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Option 1 (parent-adjudicated “display
+  gate”), not Option 2 (bless-the-drop) or Option 3 (extra breadcrumb). The
+  `display: true` toast-only degrade, the gate lifecycle, the non-degraded
+  step-2 sink (bug 0453), and Pi-side `display` semantics are non-goals and
+  untouched.

@@ -253,12 +253,14 @@ export interface SystemNoteChannelDeps {
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
   /**
    * The renderer-availability gate (V9p). When present and degraded
-   * (`available() === false`), the persistent-transcript `pi.sendMessage` arm
-   * is skipped and the note routes straight through the `ctx.ui.notify` arm —
-   * the renderer that would render a `theta-system-note` failed to register, so
-   * delivering to the transcript would render nothing. Absent (or available)
-   * means the steady-state `pi.sendMessage`-first path. Consumed by the paired
-   * V9p implementation.
+   * (`available() === false`), a `display: true` note routes straight through
+   * the `ctx.ui.notify` arm — the renderer that would render a
+   * `theta-system-note` failed to register, so delivering it to the transcript
+   * would render nothing; a `display: false` note is renderer-independent (it
+   * is never rendered — its value is the structured payload) and proceeds
+   * through the normal `pi.sendMessage` arm regardless of the gate. Absent (or
+   * available) means the steady-state `pi.sendMessage`-first path for every
+   * note. Consumed by the paired V9p implementation.
    */
   readonly rendererGate?: RendererGate;
   /**
@@ -293,17 +295,22 @@ export function sendSystemNote(
   // Degraded-instance branch (V9p): when the factory-time
   // `pi.registerMessageRenderer` registration failed the `RendererGate` is
   // permanently degraded for this extension instance, so the
-  // persistent-transcript renderer is unavailable and delivering to the
-  // transcript via `pi.sendMessage` would render nothing. Skip the transcript
-  // arm entirely and route straight through the `ctx.ui.notify` arm of the
-  // System-notes fallback chain (extension-bootstrap-and-per-theta.md
-  // §"`pi.registerMessageRenderer` failure"). The renderer failure already
-  // emitted one `theta/load/extension-bootstrap-failed` diagnostic at factory
-  // time, so no per-note delivery-failed diagnostic fires for this expected
-  // degraded route; only a throwing toast falls to the terminal
-  // `console.error` (PIC-54).
-  if (deps.rendererGate?.available() === false) {
-    if (note.display !== false && note.content !== "") {
+  // persistent-transcript renderer is unavailable and delivering a
+  // `display: true` note via `pi.sendMessage` would render nothing. Skip the
+  // transcript arm for such notes and route straight through the
+  // `ctx.ui.notify` arm of the System-notes fallback chain
+  // (extension-bootstrap-and-per-theta.md §"`pi.registerMessageRenderer`
+  // failure"). The renderer failure already emitted one
+  // `theta/load/extension-bootstrap-failed` diagnostic at factory time, so no
+  // per-note delivery-failed diagnostic fires for this expected degraded
+  // route; only a throwing toast falls to the terminal `console.error`
+  // (PIC-54). A `display: false` note is never rendered — its transcript
+  // delivery does not involve the renderer at all — so it is carved out of
+  // this branch entirely and falls through to the normal `pi.sendMessage` arm
+  // below, which remains functional (only registration of the renderer
+  // failed).
+  if (deps.rendererGate?.available() === false && note.display !== false) {
+    if (note.content !== "") {
       try {
         deps.ui.notify(note.content, "error");
       } catch (notifyError: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only

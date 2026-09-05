@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.442.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0452 — system-render-fail note matches no matrix row**: the bug-0422 route-(c) spawn-refusal note (`'system:' interpolation … failed to render`) was emitted by shipped code but named by no runtime-event-channel matrix row, leaving it unsanctioned by the note taxonomy. Added the per-variant matrix row + group-B partition bullet to runtime-event-channel.md; shipped bytes untouched. (docs-only; witness `tests/b0452-render-fail-refusal-note-matrix-row-coverage.test.ts`)
+
+## [0.441.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0454 — degraded gate drops display-false structured notes**: `sendSystemNote`'s degraded branch (channel missing `ui.notify`) dropped every note instead of only the toast half; a `display: false` structured note lost its `pi.sendMessage` delivery entirely. The degraded gate now applies only when `note.display !== false` — display-false notes always deliver via `pi.sendMessage`; DIAG-2 carve-out sentence added to extension-bootstrap-and-per-theta.md. (`src/extension/system-note-channel.ts`; witness `tests/b0454-degraded-gate-drops-display-false-structured-notes.test.ts`)
+
 ## [0.440.0]
 
 ### Fixed

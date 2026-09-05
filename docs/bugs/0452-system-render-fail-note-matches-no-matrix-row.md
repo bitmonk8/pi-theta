@@ -1,6 +1,6 @@
 # Bug 0452 — The bug-0422 route (c) system-render-fail note ships a `details: { diagnostics: [d] }` payload whose (selector, content) pair matches NO per-variant matrix row: its content is unpinned prose ("'system:' interpolation for '<name>' failed to render (<code>); refusing to spawn…"), not the serialised line the diagnostics-batch row mandates, and its diagnostic is `theta/parse/interpolated-result` — the one parse-namespaced code the panic row claims — routed as a non-panic operator-facing note, a combination no partition sentence sanctions
 
-- **Status:** open.
+- **Status:** fixed (0.442.0).
 - **Sev/Diff estimate:** S5/D2 — S5: doc/registry inconsistency, crisp and
   consumer-relevant: the matrix header declares the pairings normative and
   0434's fix re-established (two versions before this note landed) that
@@ -209,3 +209,61 @@ at `401a425b` (scratch deleted; bytes quoted). Dup check: README index;
 0422 (fix record §What shipped — no channel-page edit), 0434 (witness
 scope), 0404/0398/0401 read in full; the b0422 witness pins presence, not
 pairing.
+
+## Fix (0.442.0)
+
+- What shipped: `docs/spec_topics/pi-integration-contract/runtime-event-channel.md`
+  — §Fix Option 2 (parent-adjudicated “matrix row”; shipped bytes KEPT, the
+  bug-0422 route-(c) producer note SITE untouched): (i) a new per-variant
+  `display`/`content` pairing row sanctioning the render-fail refusal note —
+  selector `details: { diagnostics: [Diagnostic] }`, single-element
+  parse-namespaced batch (`theta/parse/interpolated-result`) routed as an
+  operator-facing pre-spawn `system:`-render refusal note rather than a
+  top-level panic (bug 0422 route (c)); `display: true`; content pinned to the
+  verbatim shipped template `'system:' interpolation for '<name>' failed to
+  render (<code>); refusing to spawn rather than silently drop the system
+  prompt`; and (ii) a new group-B partition bullet admitting the
+  parse-namespaced diagnostic routed as a NON-panic operator-facing note,
+  disjoint-by-routing from the panic route the same code otherwise takes. The
+  matrix header’s “every conformant note class selects exactly one row” claim is
+  now true for this class.
+- Gates: witness `tests/b0452-render-fail-refusal-note-matrix-row-coverage.test.ts`
+  — RED at fork (cells 1/2/3: rowless matrix, no partition sentence, template
+  in producer but zero matrix rows) → GREEN after fix (5/5); controls cells 4/5
+  (panic-row b0265 substring; b0434 serialised-content count) green both
+  directions. Sibling coverage gates green unchanged (b0434 5/5, b0404 6/6,
+  b0265 5/5, b0436 3/3, runtime-event-channel 14/14, b0422 6/6). Default suite
+  608/611 files green (the 3 flagged files — `shared-subtree-judged-once-per-pass`,
+  `invoke-arg-array-literal-provable`, `invoke-arg-type-mismatch-wired` — pass
+  isolated, 76/76; the campaign’s known parallel-load flake genre, unrelated to
+  this doc surface). `tsc -p tsconfig.json --noEmit` clean; `eslint … src/**/*.ts`
+  clean (doc-only change, lint scope unaffected).
+- Review: 1 round — `bug-fix-reviewer` verdict CLEAN, no findings; two
+  non-blocking residuals (R1 prose, R2 test) recorded below.
+- Verification: verdict SOLID (orchestrator-run after the phase agent was
+  interrupted mid-run and dismissed) — witness reds/greens both directions
+  (temporary byte-exact removal of the two inserted lines → cells 1/2/3 red,
+  4/5 green → restored, `git hash-object` re-confirmed `acecd003…` → 5/5 green);
+  default suite green (flakes reclassified isolated); typecheck + lint clean;
+  no existing test weakened. LIVE not owed and not run — this is a doc-only
+  spec-sanction plus a doc/source-corpus coverage witness; it changes no
+  runtime behaviour and no registration/drive outcome for any input class
+  (`alwaysLogGroup` in `src/runtime/runtime-event-channel.ts` already routes
+  `theta/parse/interpolated-result` to group B, unedited), so the offline
+  witnesses discharge it.
+- Residuals: (1) R1 (prose) — the five-shape `details: { diagnostics: Diagnostic[] }`
+  content-companion bullet still enumerates three content arms (serialised /
+  `aborted:` / BNDR-9 template) and does not restate the refusal template; the
+  matrix row is the normative pairing owner, so this is incompleteness, not
+  contradiction (the 0434-genre follow-on the 0434 record already logged),
+  outside Option 2’s two-insertion scope. (2) R2 (test) — the b0452 code↔doc
+  tie keys on the template TAIL (`refusing to spawn … system prompt`); a
+  divergence confined to the template HEAD would stay green. Non-blocking:
+  substring pinning is the sibling-oracle convention and an Option-1
+  content-move trips the loud producer precondition.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: Option 2 (add a row + partition sentence),
+  not Option 1 (move content to the serialised line — would rewrite the shipped
+  bytes) or Option 3 (re-shape as the panic route). The 0434-generalised row’s
+  selector wording, route (c)’s refusal semantics + `InvokeInfraCauseError`
+  carrier, and the delivery mechanics are non-goals and untouched.
