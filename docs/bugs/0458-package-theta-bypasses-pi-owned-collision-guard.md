@@ -1,6 +1,6 @@
 # Bug 0458 — A package theta same-named as a Pi-owned `.md` prompt template bypasses the Pi-owned collision guard entirely: the composition-root merge never consults `piOwnedNames`, the theta registers with zero diagnostics, and the pinned host's dispatch order lets it silently preempt the user's template — DISC-4's next-`session_start` re-evaluation also never drops it
 
-- **Status:** open.
+- **Status:** fixed (0.446.0).
 - **Sev/Diff estimate:** S2/D2 — S2: silent wrong dispatch end-to-end (a
   package-shipped `.theta` steals `/name` from a user-authored
   `.pi/prompts/<name>.md` template with zero diagnostics on any channel — the
@@ -233,3 +233,13 @@ log): the divergent registration green, control (walk arm) drops correctly.
 The tier-adjudication faces observed in the same probe are recorded in
 [bug 0462](./0462-package-merge-bypasses-priority-adjudication.md) (which also observed this face as its
 probe cell F4) — each face ships exactly once.
+
+## Fix (0.446.0)
+
+- What shipped: `src/discovery/discovery-walk.ts` — `DiscoveryInput.packageCandidates` added; the walk pushes them into `candidates` as priority-4 `SourcedCandidate`s before `resolveBySource`, so the Pi-owned guard in `resolveSlashNames` (`piNames.has(name)`) now covers source `package` with zero new logic (§Fix option 1); the stale "not plumbed into this walk yet" comment is deleted. `src/extension/production-composition.ts` — the bounded `discoverPackageThetas` scan runs first and its results are handed to `discoverThetas` as `packageCandidates`; the `!claimed.has(pkg.name)` merge loop and the dead `notes.md` reference are deleted. `src/discovery/package-discovery.ts` — `PackageDiscoveredTheta.descriptorValue` (the npm package name) added. `tests/e2e-s6-package-merge.test.ts` re-pinned (comment-only; assertions unchanged).
+- Gates: witness `tests/b0458-package-theta-pi-owned-collision.test.ts` (drop-with-`cross-format-collision` + the DISC-4 re-evaluation clause) red→green; full default suite `npm test` 10677/10677 green; `npx tsc -p tsconfig.json --noEmit` exit 0; `npm run lint` exit 0.
+- Review: 2 rounds. R1 (deep) — F1 correctness (package-identity dedup regression), F2/F3 test-fidelity; all fixed. R2 (fast) — CLEAN, no correctness/fidelity/spec findings.
+- Verification: SOLID — witness-revert red-both-directions proven (neutralize the walk push → all four witnesses red; restore → green, byte-exact); full suite 10677/10677; lint + typecheck clean; one adjacent H9a live cell (area (a) prompt-sentinel via real `pi -p`) green over the reordered composition root.
+- Residuals: none blocking. Live-obligation WHY offline suffices: the fix's delta is the model-independent `session_start` registration decision, fully witnessed offline through the shipped `composeExtensionInstance` over real `node_modules` package fixtures; load diagnostics are not streamed to `pi -p` print-mode stdout (b0334live), so the live host adds no observability for this fix; the unchanged host dispatch chain is already covered by H9a (a)–(i).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: package-level dedup preserved and now runs spec-correctly inside the package walker (`package-and-settings.md:30` / `discovery-sources.md:89`); walk-arm message form untouched (owned by 0459); 0462/0463 rule families landed in the same shared threading.

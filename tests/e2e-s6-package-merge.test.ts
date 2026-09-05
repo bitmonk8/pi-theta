@@ -14,18 +14,20 @@ import { composeExtensionInstance } from "../src/extension/production-compositio
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
-// S6 (PIC / DISC seam at the composition root) — the package-source two-stage
-// merge.
+// S6 (PIC / DISC seam at the composition root) — the package-source
+// walk-routed adjudication.
 //
-// code-surface.md §5 / Summary point 3: the discovery WALK defers package
-// source (`discoverThetas`, `discovery-walk.ts`, "not plumbed into this walk
-// yet"); package thetas are merged in only at the composition root
-// (production-composition.ts:571-584), and ONLY when the package theta's slash
-// name is not already claimed by a higher/lower-priority walk theta. The
-// isolated `discoverPackageThetas` unit tests (tests/package-discovery.test.ts)
-// exercise the walk in isolation but NOT this `claimed.has(pkg.name)` merge
-// tiebreak. This drives the shipped `composeExtensionInstance` over a real temp
-// workspace to pin the merge behaviour end-to-end.
+// code-surface.md §5 / Summary point 3: the composition root runs the bounded
+// package scan (`discoverPackageThetas`) first, then hands its candidates INTO
+// the discovery walk (`discoverThetas`, `discovery-walk.ts`) as priority-4
+// `packageCandidates` — the SAME `resolveBySource` → `validateAndRead` →
+// `resolveSlashNames` chain that adjudicates the other four sources decides
+// priority order and cross-source-shadow for a package theta too (bugs
+// 0458/0462/0463 §Fix). The isolated `discoverPackageThetas` unit tests
+// (tests/package-discovery.test.ts) exercise the scan in isolation but NOT
+// this walk-routed adjudication. This drives the shipped
+// `composeExtensionInstance` over a real temp workspace to pin the merge
+// behaviour end-to-end.
 //
 // Spec: discovery/package-and-settings.md (DISC-5 package source, priority-4);
 // registration-steps.md §slash-handler-registration (PIC-31 survivors).
@@ -152,10 +154,12 @@ describe("S6 — composition-root package two-stage merge", () => {
     // name is unclaimed by the walk).
     expect(harness.commands.has("uniquepkg")).toBe(true);
 
-    // The colliding name is registered exactly once: the package `dup` is
-    // dropped by the `!claimed.has(pkg.name)` tiebreak (production-composition
-    // .ts:319-334), so it never enters the composed set and cannot override /
-    // duplicate the higher-priority project walk theta.
+    // The colliding name is registered exactly once: the project `dup`
+    // out-prioritises the package `dup` inside the walk's own
+    // cross-source-shadow resolution (discovery-walk.ts `resolveSlashNames`
+    // PRIORITY map — project(3) beats package(4)), so the package copy never
+    // enters the composed set and cannot override / duplicate the
+    // higher-priority project walk theta.
     expect(harness.commands.has("dup")).toBe(true);
     expect(harness.registrations.filter((n) => n === "dup")).toHaveLength(1);
 

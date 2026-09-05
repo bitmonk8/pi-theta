@@ -1,21 +1,21 @@
 // e2e-campaign S5 — package-source discovery THROUGH the composition root.
 //
-// code-surface.md §summary gap #3: the discovery WALK defers the package source
-// (`discoverThetas`, discovery-walk.ts, "not plumbed into this walk yet"); package thetas
-// are merged only at the composition root by `discoverPackageThetas`
-// (package-discovery.ts) inside `discoverAndComposeFixtures`
-// (production-composition.ts:571-584), and only when the derived slash name is
-// not already claimed by a higher-priority (CLI/settings/project) or
-// lower-priority (global) walk theta. `tests/package-discovery.test.ts` drives
-// `discoverPackageThetas` in ISOLATION over a FakeFileSystem — it never exercises
-// the composition-root MERGE. This test drives the production compose helper
-// (`discoverAndComposeFixtures`) over a real on-disk temp workspace, so the
-// two-stage merge is actually observed.
+// code-surface.md §summary gap #3: the composition root runs the bounded
+// package scan (`discoverPackageThetas`, package-discovery.ts) first, then
+// hands its candidates INTO the discovery walk (`discoverThetas`,
+// discovery-walk.ts) as priority-4 `packageCandidates` — the walk's own
+// `resolveBySource` → `validateAndRead` → `resolveSlashNames` chain
+// adjudicates them alongside the other four sources (bugs 0458/0462/0463
+// §Fix: route package candidates through the walk). `tests/package-discovery
+// .test.ts` drives `discoverPackageThetas` in ISOLATION over a FakeFileSystem
+// — it never exercises the walk-routed adjudication. This test drives the
+// production compose helper (`discoverAndComposeFixtures`) over a real
+// on-disk temp workspace, so that adjudication is actually observed.
 //
 // Covers: REQ-DISC-1 (packages are one of the five discovery sources),
 // REQ-DISC-25 (a `pi.theta` manifest wins over the `theta/` fallback), and the
 // REQ-DISC-6 priority rule that a project theta shadows a same-name package theta
-// (the composition-root "register only when the slash name is unclaimed" merge).
+// (the walk's own cross-source-shadow resolution, project(3) beats package(4)).
 //
 // Spec: discovery/discovery-sources.md; discovery/package-and-settings.md.
 // Method: M2 (production composition root, no live model).
@@ -119,11 +119,11 @@ describe("e2e-s5 gap#3 — package discovery through the composition root", () =
     ).not.toContain("ignored-e2e-s5");
   });
 
-  it("REQ-DISC-6: a project theta shadows a same-name package theta (composition-root register-only-when-unclaimed merge)", () => {
+  it("REQ-DISC-6: a project theta shadows a same-name package theta (walk cross-source-shadow: project wins)", () => {
     const hits = registered.filter((n) => n === "shadowme-e2e-s5");
     expect(
       hits,
-      "the same-name theta must register exactly once — the project copy claims the name, the package copy is not merged. Registered: " +
+      "the same-name theta must register exactly once — the walk's cross-source-shadow resolution keeps the higher-priority project copy and drops the package copy. Registered: " +
         JSON.stringify(registered),
     ).toHaveLength(1);
   });

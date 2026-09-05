@@ -55,6 +55,7 @@ export interface PackageDiscoveredTheta {
   readonly name: string;
   readonly path: string;
   readonly source: "package";
+  readonly descriptorValue: string;
 }
 
 /** The outcome of one package-discovery walk. */
@@ -688,11 +689,23 @@ export async function discoverPackageThetas(
   let filesRead = 0;
   let aborted = false;
   const registered = new Set<string>(); // absolute `.theta` paths already added
+  // Package-identity dedup (package-and-settings.md:30, discovery-sources.md:89):
+  // a package present in both a project and a global root is deduplicated by
+  // package identity — the project copy wins (project roots enumerate before
+  // global in `packageRoots`, so its identity is seen first) and the global
+  // copy contributes nothing. This is package-level dedup, not a cross-source-
+  // shadow event, so a later same-identity candidate is dropped SILENTLY before
+  // it can consume any read budget or enter the walk as a second tier-4
+  // candidate (which would collide with its own project twin and drop both).
+  // Threaded local Set (never module-scope; no globals).
+  const seenPackages = new Set<string>();
 
   for (const root of packageRoots(fs)) {
     if (aborted) break;
     const candidates = await enumerateRoot(fs, root);
     for (const candidate of candidates) {
+      if (seenPackages.has(candidate.name)) continue;
+      seenPackages.add(candidate.name);
       if (start === undefined) start = clock.now();
       // Cap-check before each new candidate-package read attempt. The file-count
       // predicate is consulted before the elapsed-time predicate, so a tie at
@@ -739,7 +752,7 @@ export async function discoverPackageThetas(
       for (const [abs, stem] of resolved) {
         if (registered.has(abs)) continue;
         registered.add(abs);
-        thetas.push({ name: stem, path: abs, source: "package" });
+        thetas.push({ name: stem, path: abs, source: "package", descriptorValue: candidate.name });
       }
     }
   }

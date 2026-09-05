@@ -1,6 +1,6 @@
 # Bug 0462 — the composition-root package merge substitutes a first-wins name-claim for the five-tier adjudication: a global (priority-5) theta silently beats a same-named package (priority-4) theta, no package-involved shadow ever emits `theta/load/cross-source-shadow`, and two packages shipping the same stem register the enumeration-first copy where DISC-4's own worked example mandates every colliding theta drop with one error
 
-- **Status:** open.
+- **Status:** fixed (0.447.0).
 - **Sev/Diff estimate:** S2/D2 — S2: silent wrong registered set on
   documented-legal configurations. Face (i) is a priority inversion: the spec
   fixes the package copy as the winner and the implementation registers the
@@ -235,3 +235,13 @@ discovery-precedence bug-hunt sweep at 401a425b (v0.437.0), hunt lead (a)
 see the hunt log). Probe `tests/scratch-pkg-merge.test.ts` cells
 F1/F1c/F2/F3 (deleted; outputs quoted verbatim). Merge-point and walk
 citations read at the pin.
+
+## Fix (0.447.0)
+
+- What shipped: `src/discovery/discovery-walk.ts` — package candidates routed through the walk's `resolveBySource → validateAndRead → resolveSlashNames` as priority-4 `SourcedCandidate`s (`DiscoveryInput.packageCandidates`), so all three faces close on the existing adjudicator: (i) package (tier 4) wins over global (tier 5) with the 0440 `cross-source-shadow` rendering, (ii) project-over-package shadow fires, (iii) two same-stem packages drop-all with one `cross-format-collision`. `src/discovery/package-discovery.ts` — `descriptorValue` (npm package name) added for the `package:"<name>"` descriptor, AND package-identity dedup added inside the walker (`seenPackages`, first-in-DISC-6-root-order wins, silent) so a same package present in a project + global root resolves to the project copy without a diagnostic (`package-and-settings.md:30` / `discovery-sources.md:89`), not a spurious drop-all. `src/extension/production-composition.ts` — the `!claimed.has` merge loop and the dead `notes.md` reference deleted.
+- Gates: witnesses `tests/b0462-package-merge-priority-adjudication.test.ts` (faces i/ii/iii + control) and `tests/b0462-package-identity-dedup.test.ts` red→green; full default suite `npm test` 10677/10677 green; `npx tsc -p tsconfig.json --noEmit` exit 0; `npm run lint` exit 0.
+- Review: 2 rounds. R1 (deep) — F1 correctness (this fix's package-identity dedup regression), F2/F3 test-fidelity; all fixed. R2 (fast) — CLEAN.
+- Verification: SOLID — witness-revert red-both-directions proven (neutralize the walk push → faces red; neutralize the dedup skip → only the identity-dedup witness reds, proving separation; restore → green, byte-exact); full suite 10677/10677; lint + typecheck clean; one adjacent H9a live cell green over the reordered composition root.
+- Residuals: none blocking. Live-obligation WHY offline suffices: the tier-adjudication delta is the model-independent `session_start` registration decision, fully witnessed offline through the shipped `composeExtensionInstance` over real `node_modules` package fixtures; load diagnostics are not streamed to `pi -p` stdout (b0334live).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: priority list / DISC-4 drop-all now enforced for the package tier via the single walk adjudicator (no second adjudicator; the 0440-class duplication avoided); Pi-owned face is 0458's, DISC-3 validation face is 0463's, both landed in the same shared threading; walk-mint message rendering untouched (0459).

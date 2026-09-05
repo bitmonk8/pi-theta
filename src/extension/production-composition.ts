@@ -615,36 +615,37 @@ async function runComposePass(
   // delimiter (the walk is platform-independent over already-split paths).
   const cliPaths = readThetaFlagPaths(pi);
   const piOwnedNames = readPiOwnedCommands(pi, excludeOwnedNames);
-  const walk = await discoverThetas({
-    fs: fileSystem,
-    settings,
-    cliPaths,
-    piOwnedNames,
-    markedRoot,
-  });
-  sink.emitGroup(walk.diagnostics);
 
-  // Package source (V10b, priority 4) — merged in at the composition root: a
-  // package theta registers only when its slash name is not already claimed by a
-  // higher-priority (CLI / settings / project) or lower-priority (global)
-  // discovered theta already resolved by the walk. This is the whole-walk merge
-  // point the walk itself defers (discovery-walk.ts "Package … owned by V10b;
-  // not plumbed into this walk yet"). See notes.md for the priority-tiebreak
-  // simplification.
+  // Package source (V10b, priority 4) — the bounded scan runs FIRST (it needs
+  // the injected clock/bounds the walk itself does not carry) and its results
+  // are handed to `discoverThetas` as `packageCandidates`: the walk pushes them
+  // in as ordinary priority-4 `SourcedCandidate`s and adjudicates them through
+  // the SAME `resolveBySource` → `validateAndRead` → `resolveSlashNames` chain
+  // as the other four sources — the Pi-owned guard, priority order,
+  // cross-source-shadow, same-tier drop-all, slash-name validity, intra-source
+  // case-collision, and readability checks all apply to a package candidate
+  // with no separate merge logic (bugs 0458 / 0462 / 0463).
   const packageWalk = await discoverPackageThetas({
     fs: fileSystem,
     clock,
     settings,
   });
   sink.emitGroup(packageWalk.diagnostics);
-  const claimed = new Set(walk.thetas.map((theta) => theta.name));
+
+  const walk = await discoverThetas({
+    fs: fileSystem,
+    settings,
+    cliPaths,
+    piOwnedNames,
+    markedRoot,
+    packageCandidates: packageWalk.thetas.map((pkg) => ({
+      path: pkg.path,
+      stem: pkg.name,
+      descriptorValue: pkg.descriptorValue,
+    })),
+  });
+  sink.emitGroup(walk.diagnostics);
   const discovered: DiscoveredTheta[] = [...walk.thetas];
-  for (const pkg of packageWalk.thetas) {
-    if (!claimed.has(pkg.name)) {
-      claimed.add(pkg.name);
-      discovered.push({ name: pkg.name, path: pkg.path, source: "package" });
-    }
-  }
 
   // Parse + compose each discovered theta into a runnable fixture. The
   // model-reference matcher and the note-channel are constructed once and

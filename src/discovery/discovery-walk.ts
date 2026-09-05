@@ -50,6 +50,18 @@ export interface DiscoveryInput {
   readonly cliPaths?: readonly string[];
   readonly piOwnedNames?: readonly PiOwnedCommand[];
   /**
+   * V10b: package candidates the composition's own bounded package-discovery
+   * walk already resolved (clock/bounds live outside this walk). Pushed into
+   * `candidates` as ordinary `package`-source `SourcedCandidate`s so the
+   * existing `resolveBySource` → `validateAndRead` → `resolveSlashNames`
+   * chain adjudicates them with the other four sources — no new logic.
+   */
+  readonly packageCandidates?: readonly {
+    readonly path: string;
+    readonly stem: string;
+    readonly descriptorValue: string;
+  }[];
+  /**
    * Bug 0331: the marked root's winning source path, as the parent resolved
    * it, threaded from the AUTHENTICATED control plane
    * (`detectMarkedRootWinner`). `undefined` outside the subagent-root regime
@@ -1187,7 +1199,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       path: joinPosix(fs.cwd(), `${configDir}/theta`),
       descriptor: projectSourceLabel(configDir),
     },
-    // Package (priority 4) — owned by V10b; not plumbed into this walk yet.
     {
       source: "global" as const,
       path: joinPosix(fs.globalAgentDir(), "theta"),
@@ -1247,6 +1258,20 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       diagnostics,
       roots,
     );
+  }
+
+  // Package (priority 4) — the candidates the composition's own bounded scan
+  // already resolved, pushed in as ordinary SourcedCandidates so the same
+  // adjudication chain below covers them (V10b: Option 1, route through walk).
+  const packageSourceLabel = sourceLabelOf("package");
+  for (const pc of input.packageCandidates ?? []) {
+    candidates.push({
+      path: pc.path,
+      stem: pc.stem,
+      source: "package",
+      sourceLabel: packageSourceLabel,
+      descriptorValue: pc.descriptorValue,
+    });
   }
 
   // Per-source case-collision, then slash-name validity + per-file readability,

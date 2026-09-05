@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.448.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0463 — package source bypasses DISC-3 validation**: package candidates skipped `validateAndRead` (stem/DISC-3 validation), so a non-conforming package theta registered where a project theta would be refused. Routing through the walk (with the dead `notes.md` ref removed) applies DISC-3 uniformly. (witness `tests/b0463-package-source-disc3-validation.test.ts`)
+
+## [0.447.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0462 — package merge bypasses priority adjudication**: the composition-root `!claimed.has` merge loop registered package thetas without the walk's cross-source-shadow priority adjudication, so shadowing was first-come instead of tier-ranked. The loop is deleted; the walk adjudicates package candidates like every tier, with package-identity dedup added inside the walker. (witnesses `tests/b0462-package-merge-priority-adjudication.test.ts`, `tests/b0462-package-identity-dedup.test.ts`)
+
+## [0.446.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0458 — package theta bypasses the Pi-owned collision guard**: package-tier candidates were merged into the registry by a composition-root side loop that never consulted `readPiOwnedCommands`, so a package theta colliding with a Pi-owned prompt/extension command registered anyway. Package candidates now route through the walk's `resolveBySource → validateAndRead → resolveSlashNames` — the same Pi-owned comparison every other tier runs. (`src/discovery/discovery-walk.ts`, `src/discovery/package-discovery.ts`, `src/extension/production-composition.ts`; witness `tests/b0458-package-theta-pi-owned-collision.test.ts`)
+
 ## [0.445.0]
 
 ### Fixed

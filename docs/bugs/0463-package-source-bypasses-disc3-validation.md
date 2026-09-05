@@ -1,6 +1,6 @@
 # Bug 0463 — package-sourced candidates skip the walk's whole per-candidate validation stage: a package shipping `Foo.theta` registers the slash command `Foo` with zero diagnostics where DISC-3 mandates `theta/load/invalid-slash-name` (error, no registration), and the package source alone never runs the DISC-3 case-collision or DISC-2 rule-1 per-file readability checks
 
-- **Status:** open.
+- **Status:** fixed (0.448.0).
 - **Sev/Diff estimate:** S2/D2 — S2: silent permissive acceptance — a stem the
   spec orders refused at load registers as a live command, under a name
   (`/Foo`) the naming grammar excludes, with no diagnostic anywhere; the
@@ -201,3 +201,13 @@ the validation asymmetry is the same bypass's second rule family. Probe
 `tests/scratch-pkg-merge.test.ts` cell F5 (deleted; output quoted verbatim);
 `rg` sweeps recorded in §Affected. Control behaviour cited from the walk's
 committed suite rather than re-probed.
+
+## Fix (0.448.0)
+
+- What shipped: `src/discovery/discovery-walk.ts` — package candidates routed through the walk's per-candidate stage (`resolveBySource` → `validateAndRead`) as `SourcedCandidate`s, so DISC-3 filename validity (`invalid-slash-name`, error, no registration), DISC-3 intra-source case-collision (`case-collision`, byte-first winner), and DISC-2 rule-1 readability (`unreadable`) now run for source `package` identically to the other four sources; the stage runs BEFORE `resolveSlashNames`, so an invalid stem does not participate in collision detection (`discovery-sources.md:80`). `src/discovery/package-discovery.ts` — `descriptorValue` added. `src/extension/production-composition.ts` — the merge loop that pushed unjudged package survivors straight to registration deleted.
+- Gates: witness `tests/b0463-package-source-disc3-validation.test.ts` (face 1 invalid-name via e2e; faces 2/3 case-collision + readability via `discoverThetas` + `FakeFileSystem`, byte-first winner asserted) red→green; full default suite `npm test` 10677/10677 green; `npx tsc -p tsconfig.json --noEmit` exit 0; `npm run lint` exit 0.
+- Review: 2 rounds. R1 (deep) — F1 correctness (sibling dedup regression), F2 (this report's byte-first-winner assertion), F3 test-fidelity; all fixed. R2 (fast) — CLEAN.
+- Verification: SOLID — witness-revert red-both-directions proven (neutralize the walk push → all three faces red; restore → green, byte-exact); full suite 10677/10677; lint + typecheck clean; one adjacent H9a live cell green over the reordered composition root.
+- Residuals: none blocking. Live-obligation WHY offline suffices: the validation delta is the model-independent `session_start` decision, fully witnessed offline through the shipped `composeExtensionInstance` over real `node_modules` fixtures (face 1) and `discoverThetas` + `FakeFileSystem` (faces 2/3, unconstructible on a case-insensitive host); load diagnostics are not streamed to `pi -p` stdout (b0334live).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: ordering precondition honoured — the validation stage lands WITH 0462's adjudication and runs before it; `non-canonical-extension` for package dirs not claimed (unprobed, as filed); frontmatter/parse judging of package thetas was already correct and is unchanged.

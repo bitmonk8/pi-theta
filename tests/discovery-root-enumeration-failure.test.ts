@@ -93,7 +93,7 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // directory.
 //
 // A denied SUBTREE under a settings glob's static prefix (`listTree`,
-// discovery-walk.ts, and package-discovery.ts:310) is DEFERRED — no spec
+// discovery-walk.ts, and package-discovery.ts:311) is DEFERRED — no spec
 // text prescribes a disposition for a shrunken glob universe (bug doc §Fix,
 // recommendation). No cell here asserts a diagnostic for that sub-case. The
 // latitude that keeps it free is granted per cell, only where a deferred
