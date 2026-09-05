@@ -53,8 +53,8 @@
 //
 // BELT MESSAGE SHAPE (the assertions align to it; the implementer matches it):
 // the kind defect body is `internal defect: stdlib method '<method>' argument
-// <i> expects a <kind>, got <actual>; …did not reject this laundered-receiver
-// site (bug 0394)` with <kind> ∈ {string, integer, array}, and
+// <i> expects a <kind>, got <actual>` (tail per bug 0439) with <kind> ∈
+// {string, integer, array}, and
 // `surfaceUnexpectedThrow` prepends `internal error: `. The message assertion
 // therefore matches `/stdlib method '\w+' argument \d+ expects an? (string|
 // integer|array)/`, which DISTINGUISHES the KIND belt from the bug-0315 ARITY

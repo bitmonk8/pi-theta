@@ -15,7 +15,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // and `WithClause?` too, theta-1.2 slots the fn-unclosed rule does not exercise) makes the closing `)` a
 // required terminal with no alternative, `FnParams ::= FnParam ("," FnParam)*
 // ","?` (grammar.md:144 / docs/reference/grammar.md:295), with
-// `FnParam ::= Ident ":" Type` (grammar.md:145), derives no `{`, no
+// `FnParam ::= Ident (":" Type)?` (grammar.md:145), derives no `{`, no
 // `let`, no `fn` and no numeric literal at a `FnParam` position, and
 // grammar.md:148 restates it in prose ("The parameter list is parenthesised in
 // every case"). FN-1 (docs/spec_topics/functions.md:20) makes that production

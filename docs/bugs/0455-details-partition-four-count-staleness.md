@@ -1,6 +1,6 @@
 # Bug 0455 — Ten surfaces still describe the `theta-system-note` `details` partition as four-membered (or enumerate its diagnostic-batch classes at four terms) after bug 0432's fifth `shutdown` arm and bug 0434's generalised operator-facing row: `overview-and-orientation.md:65`'s ownership sentence, the channel bullet's own three-arm content tail, `coverage-matrix.md:183`'s cka-58 row, `runtime-event-channel.ts:4`, and six test headers — including the b0436 gate, whose comments say "four" while its own control cell asserts five
 
-- **Status:** open.
+- **Status:** fixed (0.443.0).
 - **Sev/Diff estimate:** S5/D1 — S5: pure doc/comment drift, but every
   instance is a count word or enumeration a reader (or a matrix-driven
   conformance author) takes as the closed set, and every one is falsified
@@ -280,3 +280,22 @@ lines) — 0432/0434/0436 fixed with the residuals quoted above; no open or
 candidate report covers any instance. Sibling: [bug 0456](./0456-imports-and-lpa-stale-line-cites.md)
 (citation drift), doc-truthing-6/03 (retired-quote drift) — disjoint
 instance sets.
+
+## Fix (0.443.0)
+
+- What shipped: one mechanical comment/prose/count-word sweep, ten surfaces, zero behaviour change.
+  - `docs/spec_topics/overview-and-orientation.md:65` — the Runtime-observability ownership sentence widened to "parse / load / type / runtime-panic / operator-facing-routed diagnostic batches" (mirrors the 0436 head edit), naming the fifth batch class Diagnostics owns.
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md:22` — the `details: { diagnostics }` bullet gained a fourth content arm for the non-BNDR-9 operator-facing-routed case ("routed as a note other than the BNDR-9 rejection … the serialised line(s), per the per-variant matrix below"); kept one physical line, the bullet prefix, the "runtime-panic case" substring, and the errors-and-results cross-reference.
+  - `docs/plan_topics/coverage-matrix.md:183` (cka-58) and `src/runtime/runtime-event-channel.ts:4` — "four `details` shapes/variants" → "five".
+  - `tests/b0383-…:135`, `tests/b0398-…:101` — classifier doc comment "four normative arms" → "five" (classifier code untouched, §Non-goals).
+  - `tests/b0404-…` (13 sites) — "four-shape" → count-free "partition bullet" / "`details: { diagnostics }`" wording so the file stops re-staling; `fourShapeDiagnosticsBullet`/`fourShapeIntro` identifiers left (adjacent material).
+  - `tests/b0436-…` — header narration aligned to five, including the :47-48 line-range (22–26) and key parenthetical gaining `shutdown` (round-2 finding); `fourShapeIntro` identifier left.
+  - `tests/tool-registration-lifetime.test.ts:85` — "four-shape `SystemNote`" → "five-shape".
+  - `tests/b0401-…:5-7` — "four-arm partition" → "five-arm" and `{ shutdown }` added to the key enumeration; the population counts at :1/:12 left (different referent, §Non-goals).
+- Witness: `tests/b0455-details-partition-count-consistency-gate.test.ts` (new) — cells A–E RED at fork (stale "four"), cell F green control; cell E's corpus scan bans the retired partition phrases (including the generic "four-shape") over the six header files.
+- Gates: witness → 6/6; six touched test files → 39/39; `tests/citation-symbol-form-gate.test.ts` → green (the new gate files carry zero bare `:<line>` continuations); `npx tsc --noEmit` clean; `npm run lint` clean; full default suite green (parallel-load flakes only, all green isolated).
+- Review: 2 rounds. R1 (bug-fix-reviewer) — 2 findings: F1 [fidelity] b0436:47-48 count-vs-enumeration contradiction; F2 [test] cell E missed instance (i)'s "four-shape `SystemNote`" spelling. R2 (bug-fix-reviewer-fast) — CLEAN after both fixed. Round 3 (bug-fix-reviewer-fast, shared with 0456/0457) confirmed the citation-ratchet remediation — CLEAN.
+- Verification: SOLID (bug-fix-verifier) — witness reverts→red→restores→green (coverage-matrix:183 four↔five); full default suite green isolated; typecheck + lint clean.
+- Residuals: none.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the legitimate "four" counts (four registry table pages, four internal-error carve-out codes, four captured event.reason forms, b0401's informational-note population) left intact; the partition, the matrix rows, and the emitted bytes untouched (docs/comments only).

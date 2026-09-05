@@ -3175,7 +3175,7 @@ class BodyParser {
           }
         }
         const pTok = this.advance();
-        // `FnParam ::= Ident ":" Type` (grammar.md) derives an `Ident` at this
+        // `FnParam ::= Ident (":" Type)?` (grammar.md) derives an `Ident` at this
         // position, and `Ident` is `[A-Za-z_][A-Za-z0-9_]*` (lexical.md) — a
         // `punct`, `number`, `string` or `template` token here is not a
         // shorter or malformed identifier, it is a different production

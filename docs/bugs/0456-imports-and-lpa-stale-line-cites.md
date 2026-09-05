@@ -1,6 +1,6 @@
 # Bug 0456 — Fifteen line-citations into `src/parser/imports.ts` (one inside an assertion message) name pre-shift positions after the file's identified insertion chain — the `checkImportDanglingAlias` cites bug 0431 §Fix Residual 2 recorded still say `:437` where the function sits at `:462` — and the line-pinned LPA's `grammar.md:175` cite, carved out by bug 0421's lane policy, still points at arm-body prose where `AliasRhs` sits at `:184`
 
-- **Status:** open.
+- **Status:** fixed (0.444.0).
 - **Sev/Diff estimate:** S5/D1 — S5: doc/records drift, the exact class
   0405/0421 were filed and fixed for. Admission ground first: 10 of the
   16 instances carry independent authorization or a single identified
@@ -280,3 +280,20 @@ grammar.md cites only; its LPA instance is re-filed here as the carved-out
 remainder per its own Follow-on note). Siblings: candidate
 doc-truthing-6/01 (enumeration staleness), doc-truthing-6/03
 (retired-quote drift) — disjoint.
+
+## Fix (0.444.0)
+
+- What shipped: option 1 (mechanical re-pin), sixteen line-cites refreshed to their re-derived current positions, comment/message-string only, zero assertion/behaviour change.
+  - `tests/import-specifier-list-production-required.test.ts` — :25 :413–433→:430–450; :26 :437–451→:462–476; :73 :347–348→:372–373; :755 :437–451→:452–476 (the doc-comment "contract" span 452–461 + function 462–476, per §Affected); :815 :515→:597; :873 :723–728→:814–819.
+  - `tests/import-specifier-separator-production-required.test.ts` — :27 :413→:430; :28 :437→:462; :845 :328→:353; :916 :539→:564.
+  - `tests/import-export-from-clause-required.test.ts` — :22 & :473 :614–619→:814–819; :650 (assertion MESSAGE string) :609–612→:809–812 (the doc-comment contract sentences, not the `.map` publishing arms).
+  - `tests/inline-slug-name-reservation.test.ts:348` — :302→:540 (the `.local` field).
+  - `tests/reexport-chain-resolution.test.ts:79` — :741→:832.
+  - `tests/live/live-production-acceptance.test.ts:2342` — the pre-ratified one-line, same-line LPA refresh `(grammar.md:175)`→`(grammar.md:184)` under the 0336 precedent; file held at 14864 lines.
+- Witness: `tests/b0456-imports-cite-content-anchor-gate.test.ts` (new) — content-anchored (b0405/b0421 shape): reads imports.ts at each cited line and asserts it holds the named construct (RED at fork on the stale numbers, GREEN after); freshness cells assert the stale tokens are gone; the LPA cell is read-only.
+- Gates: witness → 20/20; six edited test files → 211/211; `tests/citation-symbol-form-gate.test.ts` → green; `wc -l` LPA == 14864; `npx tsc --noEmit` clean; `npm run lint` clean; full default suite green (flakes green isolated).
+- Review: 1 round. R1 (bug-fix-reviewer) — CLEAN (all 16 re-pins verified by symbol; LPA one-line same-line, en-dash preserved, from:650 digits-only). Round 3 (bug-fix-reviewer-fast, shared) confirmed the citation-ratchet remediation — CLEAN.
+- Verification: SOLID (bug-fix-verifier) — witness reverts→red→restores→green (sep:28 :462↔:437); LPA 14864 with exactly one changed line; full default suite green isolated; typecheck + lint clean.
+- Residuals: none. Bounded citation-only decision recorded: list:755's truth is :452–476 per §Affected (the citing "contract" word points at the doc-comment 452–461 plus the function 462–476), not the §Fix compressed list's :462–476.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the six multi-era comment-drift cites swept as collateral (§Sev admission); the theta-document.ts continuation cites and the reference-side grammar cites left (§Non-goals, separate audits); imports.ts NOT entered into the 0134 §Citations ratchet (option 2 declined).

@@ -1,6 +1,6 @@
 # Bug 0457 — Six committed surfaces quote retired normative text as current: `b0394`'s "BELT MESSAGE SHAPE" header still carries the message tail bug 0439 retired ("did not reject this laundered-receiver site"), and five surfaces — three test headers, a parser comment, and the `fn-param-not-identifier` registry Trigger — still quote `FnParam ::= Ident ":" Type` after bug 0150's route-2 relaxation made the annotation optional (`FnParam ::= Ident (":" Type)?`)
 
-- **Status:** open.
+- **Status:** fixed (0.445.0).
 - **Sev/Diff estimate:** S5/D1 — S5: comment/prose drift, but unlike a
   shifted line number each instance QUOTES retired text as the current
   contract ("the assertions align to it; the implementer matches it";
@@ -240,3 +240,18 @@ read in context (`fn-param-annotation-optional.test.ts:8–16`,
 open or candidate report covers any instance here. Siblings: candidate
 doc-truthing-6/01 (count-word staleness), doc-truthing-6/02 (line-cite
 drift) — disjoint classes over disjoint sites.
+
+## Fix (0.445.0)
+
+- What shipped: six one-clause quote refreshes, zero behaviour change.
+  - `tests/b0394-stdlib-wrong-kind-args-belt.test.ts:54–57` — the "BELT MESSAGE SHAPE" header truncated at the head the `:286` head-only matcher reads, with "(tail per bug 0439)" replacing the re-quoted retired tail; the retired phrase `did not reject this laundered-receiver` no longer appears in the file; `:286` and every b0394/b0439 assertion untouched.
+  - `tests/fn-param-list-unclosed.test.ts:18`, `tests/fn-param-name-reserved-keyword.test.ts:26`, `tests/fn-param-not-identifier.test.ts:15`, `src/parser/theta-document.ts:3178` — the retired production `FnParam ::= Ident ":" Type` refreshed to the current `FnParam ::= Ident (":" Type)?` (`docs/spec_topics/grammar.md:145`); each surrounding claim was already true of the optional form.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md:26` — the `theta/parse/fn-param-not-identifier` row's *Trigger* prose quote refreshed the same way; *Message*, severity, code, and the compensating sentence untouched.
+- Witness: `tests/b0457-retired-quote-sweep-gate.test.ts` (new) — cell A: the retired belt tail appears in no tests/**|src/** file outside the b0439 absence-witness; cell B: no enforced-scope file quotes the retired mandatory FnParam form; cell C green control. RED at fork at the six sites.
+- Gates: witness → 7/7; four touched test files → 122/122; `tests/b0439-kind-belt-message-honesty.test.ts` → 9/9 (absence assertions unaffected); `tests/registry-closed-set-corpus-gate.test.ts` → 6/6 (DIAG-2 tolerant of the prose-only Trigger edit); `tests/citation-symbol-form-gate.test.ts` → green; `npx tsc --noEmit` clean (including a type-only annotation fix in the pre-written witness — the `readdirSync(…, { withFileTypes: true })` result typed as `Dirent[]`); `npm run lint` clean; full default suite green (flakes green isolated).
+- Review: 2 rounds. R1 (bug-fix-reviewer) — 2 findings: F1 [correctness] three un-enumerated escaped-spelling (`\":\"`) sibling sites survive; F2 [test] the witness over-claimed those were "correctly not scored". R2 (bug-fix-fixer-light + gate-diff confirmation) — witness narration corrected; the three sites recorded as Residual 1 (not edited — see Residuals). Round 3 (bug-fix-reviewer-fast, shared with 0455/0456) confirmed the citation-ratchet remediation — CLEAN.
+- Verification: SOLID (bug-fix-verifier) — witness reverts→red→restores→green (theta-document.ts:3178 optional↔mandatory); full default suite green isolated; typecheck + lint clean.
+- Residuals:
+  1. Three same-class retired-production quotes in backslash-ESCAPED spelling (`FnParam ::= Ident \":\" Type`), invisible to the doc's §Reproduction literal-quote grep and outside the six-instance enumeration, remain: `tests/fn-param-name-reserved-keyword.test.ts:399` and `:534`, and `tests/fn-param-name-case.test.ts:244`. Two of them (:399, :244) tie the quote to the reference-side `docs/reference/grammar.md:254` cite that §Non-goals carves out; `:534`'s "non-conformant … mandatory annotation" rationale is itself falsified by bug 0150 (a re-frame, not a bare quote swap — spec-meaning). Not edited under the strict lane flip-authority (no parent ratification for un-enumerated + spec-meaning sites); a follow-on quote-drift / reference-side sweep owes them. Evidence: `grep -rn 'FnParam ::= Ident \":\" Type'` finds exactly these three plus this gate's own detection needle.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: belt behaviour/message bytes and the b0394:286 / b0439 assertions untouched; the registry *Message* cell is DIAG-4-frozen (only *Trigger* prose moved); reference-side grammar cites and era-framed narrations left.

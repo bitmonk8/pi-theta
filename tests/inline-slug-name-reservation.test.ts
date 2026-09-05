@@ -345,7 +345,7 @@ interface BindingSite {
  * The span of the local binding `name` on the fixture's `import` line.
  *
  * The local binding is the `as` alias where present, else the source name
- * (`ImportSpecifier.local`, src/parser/imports.ts:302) — searching the import
+ * (`ImportSpecifier.local`, src/parser/imports.ts:540) — searching the import
  * LINE rather than the whole source is what keeps the aliased spelling
  * (fixture D) pointing at the alias and not at a `params:` occurrence of the
  * same text.

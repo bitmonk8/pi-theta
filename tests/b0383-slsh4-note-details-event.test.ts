@@ -132,7 +132,7 @@ function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
 /**
  * The disjoint-by-key `details` classifier `diagnostic-shape.md:20` requires
  * renderers to implement ("switch on which key is present"). Returns which of
- * the four normative arms a `details` payload selects — the partition rule the
+ * the five normative arms a `details` payload selects — the partition rule the
  * empty `{ event: {} }` breaks (it selects `event` but carries no RuntimeEvent).
  */
 function presentDetailsKey(

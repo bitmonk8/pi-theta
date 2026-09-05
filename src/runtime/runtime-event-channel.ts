@@ -1,7 +1,7 @@
 // V9d / V9d-T — the runtime-event channel and `masked` hard-ceiling co-fire.
 //
 // This module owns the group-A `details: { event: RuntimeEvent }` runtime-event
-// shape, the `display`/`content` matrix across the four `details` variants, the
+// shape, the `display`/`content` matrix across the five `details` variants, the
 // always-log set with its success-side null-policy, the group-A/B single-shape
 // routing, the dedup tuple, and the PIC-1 `masked` co-fire field
 // (pi-integration-contract/runtime-event-channel.md §"Runtime event channel"

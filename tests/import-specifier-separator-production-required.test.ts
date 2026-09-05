@@ -24,8 +24,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 // adds a specifier the author never wrote, and `{ a, 42 }` drops the `42`.
 // None of it is reported: bug 0100's statement arm returns `undefined` for
 // `hasBraces && specifierCount > 0` (`checkImportMalformedSpecifierList`,
-// src/parser/imports.ts:413) and its specifier arm reads a per-specifier
-// boolean that a taken alias leaves false (`checkImportDanglingAlias`, :437),
+// src/parser/imports.ts:430) and its specifier arm reads a per-specifier
+// boolean that a taken alias leaves false (`checkImportDanglingAlias`, :462),
 // so a degeneracy recovered into a non-empty, alias-complete list has no
 // subject in either arm.
 //
@@ -842,7 +842,7 @@ describe("bug 0211 (d) — the statement arm's co-emissions", () => {
     it(`RED (d-reserved, ${JSON.stringify(spelling)}): co-emits with ${RESERVED_CODE}, which the missing separator conjured`, () => {
       // The missing separator invents the second specifier, whose local binding
       // is a reserved synthesised name — so bug 0040's per-specifier check
-      // (src/parser/imports.ts:328) refuses a name the author wrote as a token
+      // (src/parser/imports.ts:353) refuses a name the author wrote as a token
       // and never as a specifier. §Fix constraint 5 keeps that emission: the
       // input is already outside GOV-15's loads-cleanly set.
       const doc = parseLib(spelling);
@@ -913,7 +913,7 @@ describe("bug 0211 (e) — the recovered list's load-pass reach, pinned with the
 
   it("RED (e-phantom): the `as`-run's phantom specifier still draws the unknown-symbol refusal on a name the author never wrote as a specifier, and the statement is now refused at parse", async () => {
     // Measured at this HEAD: the phantom `(c → c)` reaches
-    // `checkImportUnknownSymbols` (src/parser/imports.ts:539), which refuses
+    // `checkImportUnknownSymbols` (src/parser/imports.ts:564), which refuses
     // `c` — a token the author wrote, never a specifier. The node shape stays
     // put (§Non-goals), so this refusal is pinned as the consequence the parse
     // refusal makes unreachable rather than as a behaviour that changes.

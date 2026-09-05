@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.445.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0457 — retired text quoted as current**: comments in `theta-document.ts`, `runtime-event-channel.ts` and enumerated test headers quoted spec sentences retired by later fixes as if current (the b0394:56 class). Quotes re-pinned to the current text per enumeration; sweep gate rejects the retired spellings. (comments only; witness `tests/b0457-retired-quote-sweep-gate.test.ts`)
+
+## [0.444.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0456 — imports + LPA stale line cites**: post-0431/0446-era edits shifted `src/parser/imports.ts` line numbers, leaving enumerated stale `:N` cites across import-family tests, `inline-slug-name-reservation`, `reexport-chain-resolution`, and one LPA comment (`grammar.md:175`→`:184` — the ratified cite-only LPA edit; file held at 14864 lines). All cites refreshed per the doc's before→after enumeration; content-anchor gate added. (cite text only; witness `tests/b0456-imports-cite-content-anchor-gate.test.ts`)
+
+## [0.443.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0455 — details-partition four-count staleness**: ten surfaces still described the `theta-system-note` `details` partition as four-membered after bug 0432's fifth `shutdown` arm — overview ownership sentence, channel bullet content tail, coverage-matrix cka-58 row, `runtime-event-channel.ts:4`, and six test headers including the b0436 gate whose comments said "four" while its own control cell asserts five. All truthed to the five-shape partition; new derivation gate pins count consistency. (comments/docs only; witness `tests/b0455-details-partition-count-consistency-gate.test.ts`)
+
 ## [0.442.0]
 
 ### Fixed

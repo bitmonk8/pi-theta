@@ -2,9 +2,9 @@
 // notes (plus the test-only slash-dispatch note) omit `details` on the wire.
 //
 // WHY these witnesses exist. `theta-system-note`'s `details` field is a CLOSED
-// four-arm partition keyed on WHICH KEY IS PRESENT
+// five-arm partition keyed on WHICH KEY IS PRESENT
 // (runtime-event-channel.md #system-note-details-shapes): `{ diagnostics }`,
-// `{ event }`, `{ structural }`, `{ recovery }`, "disjoint by key; renderers
+// `{ event }`, `{ structural }`, `{ recovery }`, `{ shutdown }`, "disjoint by key; renderers
 // MUST NOT assume more than one is present". A note that ships
 // `details: { event: {} }` therefore FALSELY selects the runtime-event arm and
 // then validates as an empty `RuntimeEvent` (no required fields) — the one

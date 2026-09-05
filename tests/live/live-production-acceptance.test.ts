@@ -2339,7 +2339,7 @@ describe("H8a-T — bug 0089: an alias-typed fn parameter iterated in a `for` re
 // `Type` position, an optional inline-object field was unwritable. The fix
 // widens `parseType`'s arm-start `{` branch to every `Type` position, so each
 // consumes the same `Type ("|" Type)*` extent the alias right-hand side
-// (grammar.md:175) already consumes.
+// (grammar.md:184) already consumes.
 //
 // The refusal fires at PARSE phase, inside `parseThetaDocument`'s own
 // `document.diagnostics` as an `error`-severity `theta/parse/*` diagnostic, so

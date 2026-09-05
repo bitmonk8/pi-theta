@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 // about the BNDR-9 custom-type-unsafe note. The group-B partition bullet
 // classifies the note's structured half as a single-element `theta/runtime/*`
 // diagnostics batch (an operator-facing note, not a top-level panic), while the
-// four-shape `details: { diagnostics }` bullet and the per-variant `display` /
+// `details: { diagnostics }` partition bullet and the per-variant `display` /
 // `content` matrix enumerate only two content pairings for diagnostics-shaped
 // notes — serialised diagnostic lines, or the `aborted:` panic framing. The
 // shipped note carries the failure-mode template
@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 //
 // THE SETTLED FIX this file scores, from bug 0404 §Fix (three additive edits to
 // runtime-event-channel.md, no runtime behaviour moves):
-//   (1) a third content case in the four-shape `details: { diagnostics }`
+//   (1) a third content case in the `details: { diagnostics }`
 //       bullet for the operator-facing-note routing, paired with the
 //       failure-mode template;
 //   (2) a new per-variant matrix row selecting the single-element registered
@@ -39,17 +39,17 @@ import { describe, expect, it } from "vitest";
 // Two directions:
 //
 //   RED-now cells go GREEN after the fix. They assert the specified behaviour
-//   (the matrix row exists; the four-shape bullet enumerates the third case;
+//   (the matrix row exists; the partition bullet enumerates the third case;
 //   the panic row is narrowed), not the fork's behaviour.
 //
 //   GREEN-control cells are green at the fork AND after the fix. They lock the
 //   b0265-pinned invariants the additive edits must not disturb, so a fix that
 //   drops the panic row's parse-namespaced qualifier, its errors-and-results
-//   cross-reference, the four-shape bullet's single-line shape, or the group-B
+//   cross-reference, the partition bullet's single-line shape, or the group-B
 //   classification bullet reds here.
 //
 // Spec anchors (every line re-derived against this tree):
-//   - runtime-event-channel.md line 22 — the four-shape
+//   - runtime-event-channel.md line 22 — the partition
 //     `details: { diagnostics: Diagnostic[] }` payload bullet.
 //   - runtime-event-channel.md line 27 — the "Per-variant `display` / `content`
 //     pairings (normative)" table header.
@@ -198,10 +198,10 @@ function perVariantMatrixRows(): readonly MatrixRow[] {
   return rows;
 }
 
-/** The four-shape `details: { diagnostics }` bullet (single physical line). */
+/** The `details: { diagnostics }` bullet (single physical line). */
 function fourShapeDiagnosticsBullet(): Site {
   return locateSite(
-    "four-shape `details: { diagnostics: Diagnostic[] }` payload bullet",
+    "`details: { diagnostics: Diagnostic[] }` payload bullet",
     (l) =>
       l.startsWith("- `details: { diagnostics: Diagnostic[] }`") &&
       l.includes("runtime-panic case"),
@@ -227,7 +227,7 @@ function groupBOperatorNoteBullet(): Site {
   );
 }
 
-describe("bug 0404 — the custom-type-unsafe operator-facing note gets a per-variant matrix row and a four-shape content case", () => {
+describe("bug 0404 — the custom-type-unsafe operator-facing note gets a per-variant matrix row and a diagnostics-bullet content case", () => {
   // =========================================================================
   // RED-at-fork cells. Bug 0404 §Fix makes these green.
   // =========================================================================
@@ -254,12 +254,12 @@ describe("bug 0404 — the custom-type-unsafe operator-facing note gets a per-va
     ).toBe(1);
   });
 
-  it("cell 2 (RED-now) — the four-shape `details: { diagnostics }` bullet enumerates the operator-facing-note content case with the failure-mode template", () => {
+  it("cell 2 (RED-now) — the `details: { diagnostics }` bullet enumerates the operator-facing-note content case with the failure-mode template", () => {
     const bullet = fourShapeDiagnosticsBullet();
     expect(
       /operator-facing note/i.test(bullet.text) &&
         bullet.text.includes(FAILURE_TEMPLATE_PHRASE),
-      `cell 2 (bug 0404 §Fix item 1 — "a third content case in the four-shape \`details: { diagnostics }\` bullet for a registered \`theta/runtime/*\` diagnostic routed as an operator-facing note (BNDR-9 custom-type-unsafe) whose content is the failure-mode template"): the bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must name the operator-facing-note case AND the failure-mode template "${FAILURE_TEMPLATE_PHRASE}". At the fork it enumerates only the parse/load/type serialisation and the runtime-panic \`aborted:\` framing. Bullet head: ${bullet.text.slice(0, 320)}`,
+      `cell 2 (bug 0404 §Fix item 1 — "a third content case in the \`details: { diagnostics }\` bullet for a registered \`theta/runtime/*\` diagnostic routed as an operator-facing note (BNDR-9 custom-type-unsafe) whose content is the failure-mode template"): the bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must name the operator-facing-note case AND the failure-mode template "${FAILURE_TEMPLATE_PHRASE}". At the fork it enumerates only the parse/load/type serialisation and the runtime-panic \`aborted:\` framing. Bullet head: ${bullet.text.slice(0, 320)}`,
     ).toBe(true);
   });
 
@@ -292,17 +292,17 @@ describe("bug 0404 — the custom-type-unsafe operator-facing note gets a per-va
     ).toBe(true);
   });
 
-  it("cell 5 (GREEN-control) — the four-shape `details: { diagnostics }` bullet stays a single physical line naming the runtime-panic case and its errors-and-results cross-reference", () => {
+  it("cell 5 (GREEN-control) — the `details: { diagnostics }` bullet stays a single physical line naming the runtime-panic case and its errors-and-results cross-reference", () => {
     // locateSite already enforces exactly-one-line — the single-physical-line
     // invariant the b0265 gate depends on — so reaching this body proves it.
     const bullet = fourShapeDiagnosticsBullet();
     expect(
       bullet.text.includes("runtime-panic case"),
-      `cell 5 (b0265 cell A invariant): the four-shape bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must keep "runtime-panic case" — the b0265 gate locates it by \`startsWith\` + that phrase. Bullet head: ${bullet.text.slice(0, 200)}`,
+      `cell 5 (b0265 cell A invariant): the partition bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must keep "runtime-panic case" — the b0265 gate locates it by \`startsWith\` + that phrase. Bullet head: ${bullet.text.slice(0, 200)}`,
     ).toBe(true);
     expect(
       ERRORS_AND_RESULTS_XREF.test(bullet.text),
-      `cell 5 (b0265 cell A invariant): the four-shape bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must keep its errors-and-results.md cross-reference. Bullet head: ${bullet.text.slice(0, 320)}`,
+      `cell 5 (b0265 cell A invariant): the partition bullet at ${RUNTIME_EVENT_CHANNEL} line ${bullet.line} must keep its errors-and-results.md cross-reference. Bullet head: ${bullet.text.slice(0, 320)}`,
     ).toBe(true);
   });
 

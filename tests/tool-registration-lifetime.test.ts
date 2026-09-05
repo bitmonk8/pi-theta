@@ -82,7 +82,7 @@ interface Recorders {
   // bug 0433 §Fix: the PIC-8(c) advisory is informational and carries no
   // `details` (runtime-event-channel.md "Informational notes carry no
   // `details`") — recorded at its actual (details-less) shape rather than
-  // the four-shape `SystemNote` type.
+  // the five-shape `SystemNote` type.
   readonly notes: ActiveSetAdvisoryNote[];
   readonly internalErrors: Error[];
 }

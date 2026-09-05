@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 //
 // The channel partition is the single owner of the shape vocabulary, so the set
 // of shapes cell (b) demands is DERIVED by reading the channel page's own
-// four-shape bullets (never hard-coded as an unverified literal): whatever keys
+// five-shape bullets (never hard-coded as an unverified literal): whatever keys
 // that partition carries are exactly the keys the sibling summary must name.
 //
 // Every prose match runs over a flattened physical line and every site is
@@ -35,17 +35,17 @@ import { describe, expect, it } from "vitest";
 // Two directions:
 //   RED-now cells go GREEN after the fix — they assert the specified behaviour
 //   (the head names the operator-facing-routed case; the sibling summary names
-//   all four shapes), not the fork's behaviour.
+//   all five shapes), not the fork's behaviour.
 //   The SPEC-TRUTH control cell is green at the fork AND after the fix — it
 //   proves the gate reads real content by pinning the channel partition it
-//   derives cell (b)'s demand from (four `details` shapes: diagnostics, event,
-//   structural, recovery), which the editorial edits do not touch.
+//   derives cell (b)'s demand from (five `details` shapes: diagnostics, event,
+//   structural, recovery, shutdown), which the editorial edits do not touch.
 //
 // Spec anchors (every line re-derived against this tree at fork b2cb3b15):
 //   - runtime-event-channel.md line 20 — "the `details` field carries one of
-//     four normative payload shapes".
-//   - runtime-event-channel.md lines 22–25 — the four `- `details: { <key> }``
-//     partition bullets (diagnostics / event / structural / recovery).
+//     five normative payload shapes".
+//   - runtime-event-channel.md lines 22–26 — the five `- `details: { <key> }``
+//     partition bullets (diagnostics / event / structural / recovery / shutdown).
 //   - runtime-event-channel.md line 22 — the `details: { diagnostics }` bullet
 //     whose head enumeration cell (a) widens.
 //   - diagnostic-shape.md line 20 — the "two `details` payload shapes are
@@ -117,7 +117,7 @@ function locateSite(rel: string, what: string, matches: (line: string) => boolea
 }
 
 /**
- * The channel partition's payload-shape keys, DERIVED by reading the four
+ * The channel partition's payload-shape keys, DERIVED by reading the five
  * `- `details: { <key> … }`` partition bullets on the channel page (the single
  * owner of the shape vocabulary). Order-preserving and de-duplicated. This is
  * the set of shapes cell (b) demands the sibling summary name — never a
@@ -174,7 +174,7 @@ function diagnosticsBulletHeadEnum(): string {
  * widens, located by stable subjects that survive the editorial edit (the
  * enumeration inside them is what changes, not these clauses). Returned as the
  * two flattened physical lines joined, so a match against it finds a key
- * whether the enumeration is the fork's two-shape form or the fixed four-shape
+ * whether the enumeration is the fork's two-shape form or the fixed five-shape
  * form.
  */
 function shapeSummaryRegion(): { readonly text: string; readonly lines: readonly Site[] } {
