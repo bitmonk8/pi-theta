@@ -1,6 +1,6 @@
 # Bug 0451 — The factory's two lifecycle notes bypass the channel's mandated fallback chain: a non-stale host throw on the drain-state refusal note propagates out of the slash handler (violating "the fallback never aborts the slash-command handler") and a throw on the repeat-`session_start` note is swallowed with zero fallback artefacts — no toast, no delivery-failed diagnostic, no terminal stderr line for either
 
-- **Status:** open.
+- **Status:** fixed (0.449.0).
 - **Sev/Diff estimate:** S3/D2 — S3: loud-but-wrong on the drain site (the
   refusal note is the ONLY user feedback for a slash dispatch during
   drain/supersession, and on a host throw the user gets neither the note
@@ -192,6 +192,20 @@ not abort) and the delivery-failed diagnostic reaches the off-channel
 sink; (b) the repeat `session_start` leaves one delivery-failed artefact
 rather than none. Red today: P1a's rejection and P1b's zero-artefact
 observation above.
+
+## Fix (0.449.0)
+- What shipped:
+  - `src/extension/factory.ts` — both lifecycle note sites now route through `sendSystemNote` against `resolveNoteChannel()` instead of raw `pi.sendMessage`: the drain-state dispatch-refusal note in `drainGatedHandler` (a non-stale throw now walks the chain and never aborts the slash handler per `runtime-event-channel.md:137`; a stale-ctx throw marks the channel dead and rethrows for quiesce, bug 0018) and the repeat-`session_start` supersession note in `runComposeInstanceRegistration` (the swallowing `try/catch (void e)` removed — non-stale returns normally so the registration pass survives, stale rethrows). A new optional `ThetaExtensionDeps.systemNoteChannel` accessor is injected by the production default export as the bootstrap sink's latched channel (§Fix option 1); a factory-local `SystemNoteChannelDeps` (over `pi` + the latched session `ctx` + `emitDiagnostic` + `rendererGate` + one factory-scoped `SystemNoteChannelHealth`) is built for harness paths that inject none (§Fix option 2 fallback), preserving the details-ABSENT 0401 wire shape.
+  - `src/extension/production-composition.ts` — `BootstrapDiagnosticSink` exposes `currentChannel()` returning the latched `channelDeps`, so the default export injects the non-re-entering extension-instance channel (off-channel sink = `makeLoadEmit`; no 0435 re-entry).
+- Gates: witness `tests/b0451-factory-lifecycle-notes-fallback-chain.test.ts` 3/3 green (verifier revert of the two source files → red on both P1a/P1b directions, restore → green byte-exact); full default suite `npm test` 611 files / 10677 tests green (three parallel-load timeout files all green isolated, none on this surface); `tsc` clean; `eslint "src/**"` clean.
+- Review: 1 round — `bug-fix-reviewer` CLEAN (no correctness/fidelity/spec findings). Two non-blocking `test` residuals: R1 (the step-1 toast was unasserted) addressed by adding WITNESS 3; R2 recorded below.
+- Verification: `bug-fix-verifier` SOLID — witness reds on revert / greens on restore (byte-exact); full suite green; b0401 sites 3/4 + drain-gated-dispatch-integration + b0435 + cancelled-by-session-shutdown green UNCHANGED; lint + typecheck clean.
+- Live: `tests/live/double-session-start-live.test.ts` green under the campaign live lock — it drives the factory's `session_start` supersession pass (the rewired repeat-start note site) and asserts note-channel observables, confirming the rerouted `sendSystemNote` delivery works on a live host. Happy-path note delivery is byte-identical to the fork; the fix engages only on a host `pi.sendMessage` throw (a fault path not reproducible live), so no other live-visible outcome changes.
+- Residuals:
+  1. The production option-1 injection (`systemNoteChannel: sink.currentChannel`) has no dedicated offline behavioural witness; covered by the full suite + b0435 (drives the real `buildSystemNoteDeps` channel) + `cancelled-by-session-shutdown-note.test.ts` (real producer channel) + the live cell above.
+  2. A `display: true` lifecycle-note delivery failure double-toasts (step 1 + the step-2 sink) on a host throw — the same `display: true` secondary bug 0453 leaves as a residual; out of 0451's scope.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: notes' content templates + details-ABSENT wire shape (0401) unchanged; the producer's ten chain sites + channel wirings (0437/0435) untouched; PIC-31 arm selection untouched.
 
 ## Provenance
 

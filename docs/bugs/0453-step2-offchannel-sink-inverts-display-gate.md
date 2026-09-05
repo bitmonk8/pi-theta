@@ -1,6 +1,6 @@
 # Bug 0453 — The fallback chain inverts its own display gate for a `display: false` note: step 1 SUPPRESSES the toast per the skip rule, then step 2's off-channel sink SHOWS the same content on the transient UI — `makeLoadEmit` toasts every error-severity diagnostic, and the delivery-failed diagnostic's `message` IS the note content, so a failed clean-cancel delivery notifies the user with the exact string the matrix row pins as "operator-visible only via the structured payload"
 
-- **Status:** open.
+- **Status:** fixed (0.450.0).
 - **Sev/Diff estimate:** S3/D2 — S3: no silent wrong value, but the
   display gate — a normative property two spec surfaces state (the step-1
   skip rule's purpose clause and the shutdown row's "operator-visible
@@ -199,6 +199,21 @@ framing prefix while touching the arm). Witness both directions: P2's
 shape — display:false note, non-stale throw → assert `ctx.ui.notify`
 receives nothing (red today: it receives the content); control cell — a
 display:true note's failure still produces exactly one step-1 toast.
+
+## Fix (0.450.0)
+- What shipped:
+  - `src/extension/system-note-channel.ts` — `SystemNoteChannelDeps` gains an optional display-aware `emitDeliveryFailed?(diagnostic, originatingDisplay)`; `sendSystemNote` step 2 routes the delivery-failed diagnostic through it with `note.display` when present, else the prior `emitDiagnostic` (doubles without it keep the pre-0453 path). The structured `Diagnostic` (message = content) is unchanged (§Non-goal).
+  - `src/extension/production-composition.ts` — new exported `makeDeliveryFailedEmit(ctx, loadEmit)`: for `display: false` it skips the toast and runs the headless stderr mirror only (silent on a UI session), for `display: true` it delegates to `makeLoadEmit` (preserving b0435's terminal-line reachability); the stderr arm is factored into a shared `mirrorDiagnosticToStderr`; `buildSystemNoteDeps` wires `emitDeliveryFailed: makeDeliveryFailedEmit(ctx, emitDiagnostic)`, so all three production channels gate `display: false` (§Fix option 1).
+  - `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` — one sentence at step 2 (§Fix option 3): the off-channel realization MUST NOT surface the original `content` on `ctx.ui.notify` when `display` was `false`; it realizes as the structured diagnostic and, on a headless host, the off-channel sink's stderr mirror only.
+- Gates: witness `tests/b0453-offchannel-sink-display-gate.test.ts` 9/9 green (verifier revert of `system-note-channel.ts` → red on cells a/b + the composition cell, restore → green byte-exact; orchestrator mutation-proved the composition cell reds when the `buildSystemNoteDeps` wiring line is deleted); full default suite green; `tsc` clean; `eslint "src/**"` clean; spec edit `git diff --numstat` = 1/1 (CRLF preserved, no EOL flip).
+- Review: 2 rounds — round 1 `bug-fix-reviewer` FINDINGS: F1 (`test` — the production wiring was unwitnessed / mutation-insensitive) + F2 (`spec` — "terminal stderr mirror" collided with PIC-54's "terminal") + R1/R4 prose cite offsets. Round 2 `bug-fix-reviewer` CLEAN (explicitly clean on correctness/fidelity/spec). F1 fixed with the mutation-sensitive composition cell (real `createBootstrapDiagnosticSink` -> `currentChannel` channel); F2 by rewording; R1/R4 by `:134` -> `:134-135` cites.
+- Verification: `bug-fix-verifier` SOLID — witness reds on revert / greens on restore; full suite green (parallel-load timeouts green isolated); b0435 test 2 (display:true delivery-failed toast throwing -> terminal `console.error`) green UNCHANGED — the display-aware invariant holds; system-note-channel.test.ts + cancelled-by-session-shutdown + registry-closed-set-corpus-gate green; lint + typecheck clean.
+- Live: not run — no live-visible outcome changes. The clean-cancel note is `display: false` (never toasts on the happy path); the fix suppresses only the erroneous toast on a host `pi.sendMessage` throw (a fault path not reproducible live). The real clean-cancel delivery path is covered offline by `cancelled-by-session-shutdown-note.test.ts` and the real `buildSystemNoteDeps` composition cell; the adjacent live note-channel cell (`double-session-start-live`) was run for the sibling 0451 fix on the same combined tree and is green.
+- Residuals:
+  1. The `display: true` secondary (a delivery-failed toast still fires for `display: true` notes, duplicating the step-1 toast; on a UI session the delivery-failed code/hint reach no surface) is left unfixed — §Fix option 2's framing prefix is "consider" and the settled recommendation is option 1 + option 3's sentence; NOT gating `display: true` also keeps b0435 green.
+  2. `code-registry-runtime.md`'s `theta/runtime/system-note-delivery-failed` row trigger ("after `ctx.ui.notify` has been attempted") is imprecise for the `display: false` skip — PRE-EXISTING (since the 0018/0073 skip rule), not introduced or worsened; a follow-up alignment, out of 0453's scope.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the re-entry MUST NOT + 0435's off-channel decision unchanged; the step-2 `message = content` mandate preserved; the headless stderr mirror preserved (H9a-grepped); the stale-ctx arm and the `content: ""` / degraded-gate (0454) sites untouched.
 
 ## Provenance
 

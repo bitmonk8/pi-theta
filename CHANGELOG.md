@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.450.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0453 — step-2 off-channel sink inverts the display gate**: the compose-pass `emitDeliveryFailed` sink toasted `display: false` gated content and skipped the toast for `display: true`, inverting the gate. The sink is now display-aware (`display:false` never toasts; `display:true` unchanged, b0435 green) with the sanctioning spec sentence added to runtime-event-channel.md. (`src/extension/production-composition.ts`, `src/extension/system-note-channel.ts`; witness `tests/b0453-offchannel-sink-display-gate.test.ts`)
+
+## [0.449.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0451 — factory lifecycle notes bypass the fallback chain**: both `factory.ts` lifecycle note sites still sent raw `pi.sendMessage`, skipping the bug-0437 `sendSystemNote` chain (toast → delivery-failed → terminal containment). Both sites now route through the chain via injected channel with a factory-local fallback; the b0401 sites stay green unchanged. (`src/extension/factory.ts`; witness `tests/b0451-factory-lifecycle-notes-fallback-chain.test.ts`)
+
 ## [0.448.0]
 
 ### Fixed

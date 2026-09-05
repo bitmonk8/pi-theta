@@ -32,7 +32,12 @@ import type {
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
-import { RendererGate } from "./system-note-channel";
+import {
+  RendererGate,
+  SystemNoteChannelHealth,
+  sendSystemNote,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import type { ThetaRegistry, ParsedTheta } from "./reload-wiring";
 import {
   resolveSlashDispatchWithReadFailover,
@@ -341,6 +346,19 @@ export interface ThetaExtensionDeps {
   readonly rendererGate?: RendererGate;
 
   /**
+   * The extension-instance `theta-system-note` channel the two factory-scope
+   * lifecycle notes (drain-state dispatch-refusal; repeat-`session_start`
+   * supersession) ride, so a host `pi.sendMessage` throw on either walks the
+   * channel's best-effort fallback chain (runtime-event-channel.md:132) instead
+   * of aborting the slash handler or vanishing. The production default export
+   * supplies the bootstrap sink's latched channel (the same non-re-entering
+   * off-channel sink every instance-level note uses); absent on the H4a /
+   * integration harness paths, where the factory builds a local channel over
+   * `pi` + the latched `ctx` + `emitDiagnostic` for these two sites.
+   */
+  readonly systemNoteChannel?: () => SystemNoteChannelDeps | undefined;
+
+  /**
    * The extension-scoped `ThetaRegistry` whose drain-state contract the
    * `session_start` handler MUST NOT touch on a `pi.getCommands()` read failure
    * (drain state is owned by `V9m`'s `ThetaRegistry` contract). Injected so the
@@ -431,6 +449,19 @@ export function createThetaExtension(
     // handler treats as "nothing to tear down".
     let liveRegistry: ThetaRegistry | undefined;
     let liveClock: Clock | undefined;
+    // Bug 0451: the two lifecycle notes ride the extension-instance channel's
+    // fallback chain. In production the default export injects it; on the
+    // harness paths that inject none, the factory builds a local channel over
+    // `pi` + the latched session `ctx` + `emitDiagnostic`, with one health
+    // latch per extension instance (stale-dead + fail-loud-once). Built EAGERLY
+    // at latch time (mirroring `createBootstrapDiagnosticSink`'s
+    // `latchSessionContext`) rather than storing the bare `ctx` carrier itself
+    // (inventory-closure-audit.md's captured-rebinding shape) — the `ctx.ui`
+    // access lives inside the closure below instead.
+    let liveLocalNoteChannel: SystemNoteChannelDeps | undefined;
+    const factoryNoteHealth = new SystemNoteChannelHealth();
+    const resolveNoteChannel = (): SystemNoteChannelDeps | undefined =>
+      deps.systemNoteChannel?.() ?? liveLocalNoteChannel;
     // Bug 0371 — resolve the fail-fast terminator ONCE per extension instance
     // (not once per trip site), falling back to the real `process.exit`-style
     // adapter when the caller injects none (the production default export's
@@ -591,6 +622,32 @@ export function createThetaExtension(
         // e.g. `session_shutdown`) can route through the sink's full
         // System-notes chain instead of the factory-time partial one.
         deps.latchSessionContext?.(ctx);
+        // Bug 0451: build the factory-local note channel (harness paths, no
+        // injected `systemNoteChannel`) over THIS ctx, so its `ctx.ui.notify`
+        // fallback arm notifies on the same session the injected channel would.
+        liveLocalNoteChannel = {
+          pi: {
+            sendMessage: (message, _options): void => {
+              // Mirror buildSystemNoteDeps's serialization: an informational
+              // note (bug 0401) omits `details` on the wire entirely.
+              pi.sendMessage(
+                {
+                  customType: message.customType,
+                  content: message.content,
+                  display: message.display,
+                  ...(message.details !== undefined ? { details: message.details } : {}),
+                },
+                { triggerTurn: false },
+              );
+            },
+          },
+          ui: {
+            notify: (message: string, type: "error"): void => ctx.ui.notify(message, type),
+          },
+          emitDiagnostic: deps.emitDiagnostic ?? ((): void => {}),
+          ...(deps.rendererGate !== undefined ? { rendererGate: deps.rendererGate } : {}),
+          health: factoryNoteHealth,
+        };
         // The H4a in-memory path registers its static fixtures synchronously
         // (the harness fires `session_start` synchronously and reads the
         // registered list immediately). The H8a production path composes an
@@ -692,15 +749,16 @@ export function createThetaExtension(
             registry,
           );
           if (outcome.kind === "note") {
-            // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
-            pi.sendMessage(
-              {
-                customType: SYSTEM_NOTE_CHANNEL,
-                content: outcome.content,
-                display: true,
-              },
-              { triggerTurn: false },
-            );
+            // Bug 0451: route the drain-state refusal note through the channel's
+            // best-effort fallback chain (runtime-event-channel.md:132) — a
+            // non-stale host throw walks ctx.ui.notify → delivery-failed
+            // diagnostic → terminal line and never aborts this slash handler
+            // (:137); only a stale-ctx throw rethrows (bug 0018, mark-dead +
+            // quiesce). Informational note: `details` is omitted on the wire.
+            const channel = resolveNoteChannel();
+            if (channel !== undefined) {
+              sendSystemNote({ content: outcome.content, display: true }, channel);
+            }
             return;
           }
           await outcome.theta.run(args, ctx);
@@ -756,19 +814,22 @@ export function createThetaExtension(
       // Best-effort: a failed diagnostic must not abort this registration
       // pass.
       if (repeatStartWithoutShutdown) {
-        try {
-          // Informational note (runtime-event-channel.md "Informational notes carry no `details`"); omit it rather than fabricate the runtime-event key.
-          pi.sendMessage(
+        // Bug 0451: route the repeat-start supersession note through the
+        // channel's fallback chain. On a non-stale host throw the chain returns
+        // normally after walking ctx.ui.notify → delivery-failed diagnostic →
+        // terminal line, so this registration pass survives (the containment
+        // intent); a stale-ctx throw rethrows for quiesce (bug 0018) rather
+        // than being swallowed. Informational note: `details` omitted on the wire.
+        const channel = resolveNoteChannel();
+        if (channel !== undefined) {
+          sendSystemNote(
             {
-              customType: SYSTEM_NOTE_CHANNEL,
               content:
                 "theta: repeat session_start without session_shutdown; superseding prior hot-reload generation",
               display: true,
             },
-            { triggerTurn: false },
+            channel,
           );
-        } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-          void e;
         }
       }
       // Bugs 0021/0022 (PIC-67/PIC-68), subsuming the bug-0018 arming check:
@@ -1201,6 +1262,9 @@ export default function thetaExtension(pi: ExtensionAPI): void {
     emitDiagnostic: sink.emit,
     rendererGate,
     latchSessionContext: sink.latchSessionContext,
+    // Bug 0451: the two factory lifecycle notes ride the bootstrap sink's
+    // latched extension-instance channel (non-re-entering off-channel sink).
+    systemNoteChannel: sink.currentChannel,
     // Bug 0024 (registration-steps.md#pic-69): forward the factory's
     // own-registration ledger into the composition root so every compose pass
     // — first start, hot-reload, and every supersession/rebind pass alike —

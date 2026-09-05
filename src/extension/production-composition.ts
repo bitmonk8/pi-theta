@@ -241,9 +241,47 @@ function makeLoadEmit(ctx: ExtensionContext): (diagnostic: Diagnostic) => void {
     // not a gated ambient primitive (no-ambient-primitives MEMBER_RULES covers
     // `process.env` / `process.cwd` only), and this write is confined to the
     // no-UI path so the interactive toast surface is unchanged.
-    if (!ctx.hasUI) {
-      process.stderr.write(`theta: ${renderDiagnosticLine(diagnostic)}\n`);
+    mirrorDiagnosticToStderr(ctx, diagnostic);
+  };
+}
+
+/**
+ * The headless stderr mirror shared by `makeLoadEmit` and the bug-0453
+ * display-aware delivery-failed sink. In headless print / RPC mode there is no
+ * UI, so a diagnostic that skips (or lacks) the toast arm would otherwise
+ * vanish; mirror it to stderr (never stdout, which carries the model reply /
+ * `--mode json` event stream). `process.stderr` is not a gated ambient
+ * primitive (no-ambient-primitives covers `process.env` / `process.cwd`).
+ */
+function mirrorDiagnosticToStderr(
+  ctx: ExtensionContext,
+  diagnostic: Diagnostic,
+): void {
+  if (!ctx.hasUI) {
+    process.stderr.write(`theta: ${renderDiagnosticLine(diagnostic)}\n`);
+  }
+}
+
+/**
+ * Bug 0453: the display-aware off-channel sink for the `theta-system-note`
+ * channel's step-2 delivery-failed diagnostic. For a `display: false`
+ * originating note the gated content MUST NOT surface transiently on
+ * `ctx.ui.notify` (runtime-event-channel.md:134-135), so the toast arm is skipped
+ * and only the headless stderr mirror runs (silent on a UI session); the
+ * structured diagnostic is still carried (message = content). For
+ * `display: true` it delegates to the standard toast/stderr router, preserving
+ * the existing surface (and b0435's terminal-line reachability).
+ */
+export function makeDeliveryFailedEmit(
+  ctx: ExtensionContext,
+  loadEmit: (diagnostic: Diagnostic) => void,
+): (diagnostic: Diagnostic, originatingDisplay: boolean) => void {
+  return (diagnostic: Diagnostic, originatingDisplay: boolean): void => {
+    if (originatingDisplay === false) {
+      mirrorDiagnosticToStderr(ctx, diagnostic);
+      return;
     }
+    loadEmit(diagnostic);
   };
 }
 
@@ -3807,6 +3845,7 @@ function buildSystemNoteDeps(
       notify: (message: string, type: "error") => ctx.ui.notify(message, type),
     },
     emitDiagnostic,
+    emitDeliveryFailed: makeDeliveryFailedEmit(ctx, emitDiagnostic),
     ...(rendererGate !== undefined ? { rendererGate } : {}),
   };
 }
@@ -4014,6 +4053,14 @@ export interface BootstrapDiagnosticSink {
   readonly emit: (diagnostic: Diagnostic) => void;
   /** The `ThetaExtensionDeps.latchSessionContext` seam. */
   readonly latchSessionContext: (ctx: ExtensionContext) => void;
+
+  /**
+   * Bug 0451: the currently-latched extension-instance channel, or `undefined`
+   * before the first `session_start` latches a `ctx`. The factory routes its
+   * two lifecycle notes through this so they ride the same non-re-entering
+   * off-channel fallback (makeLoadEmit) as every other instance-level note.
+   */
+  readonly currentChannel: () => SystemNoteChannelDeps | undefined;
 }
 
 export function createBootstrapDiagnosticSink(
@@ -4038,6 +4085,7 @@ export function createBootstrapDiagnosticSink(
         channelDeps: buildSystemNoteDeps(pi, ctx, makeLoadEmit(ctx), rendererGate),
       };
     },
+    currentChannel: (): SystemNoteChannelDeps | undefined => latched?.channelDeps,
   };
 }
 
