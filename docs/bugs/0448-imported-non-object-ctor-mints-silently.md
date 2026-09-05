@@ -1,6 +1,6 @@
 # Bug 0448 — A constructor naming an imported NON-OBJECT declaration — an imported `enum` (`Sev { junk: 1 }`), an imported alias-form `schema` (`S = string`), or an imported `fn` — is judged at no phase and mints a value at runtime: the same-file spelling of each is refused `theta/parse/unresolved-named-type` (E), while the imported spelling registers and produces an unbranded record (enum/fn) or a record BRANDED as a schema that declares no object shape (alias) — bug 0025's pre-fix observable resurfacing through the import seam
 
-- **Status:** open.
+- **Status:** fixed (0.453.0).
 - **Sev/Diff estimate:** S1/D2 — S1: silent wrong value end-to-end. The
   same-file control is a registered `E` (`theta/parse/unresolved-named-type`,
   the brace-constructible clause); the imported spelling loads clean at every
@@ -222,3 +222,67 @@ outputs quoted verbatim; runtime brand mechanics verified by code read
 `import-static-checks.ts:1194–1222`). Spec read: expressions.md §Object
 construction; code-registry-parse.md:50–51, :114, :115. No non-scratch file
 modified.
+
+## Fix (0.453.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — a new `importedNonCtorKinds`
+    map populated in the existing per-specifier decl loop for every imported
+    binding whose DIRECT declaration is non-brace-constructible (an `enum`, a
+    `fn`, or a fields-less/alias-form `schema`), gated on `!hasCtorSchema` so a
+    same-name fields-bearing object schema (0429's class) outranks it exactly
+    as the same-file constructor position resolves schemas first; wired the new
+    checker beside the 0429/0430 pushes. Corrected the stale "residual outside
+    this bug's scope" comment.
+  - `src/extension/invoke-static-checks.ts` — `checkImportedNonCtorTypeNames`,
+    modelled on `checkImportedSchemaCtorFields`: walks the importing body's
+    `ObjectExpr` sites, skips bare `{}` and shadowed names, and refuses a head
+    resolving to an imported non-ctor kind with the REUSED
+    `theta/parse/unresolved-named-type` (no code minted), rendering the
+    call-site spelling.
+  - `docs/spec_topics/diagnostics/code-registry-parse.md` — DIAG-2: row :115's
+    object-constructor clause amended with the load-pass wiring sentence
+    (sibling-row style) and its stale "the field-set checks do not run and this
+    code does not fire" clause corrected (false since 0429).
+- Gates:
+  - Witness: `npx vitest run tests/b0448-imported-non-object-ctor.test.ts` →
+    13 passed (K1a/K2a/K3a controls, K1b/K2b/K3b imported reds now green, K4
+    over-refusal guard, K5 shadow fence, K6 re-export fence, K7 alias render,
+    K8 dual-kind fence).
+  - Full suite: `npm test` → 610 files / 10675 passed, 0 failed.
+  - Typecheck: `npm run typecheck` (tsc -p tsconfig.json --noEmit) clean.
+  - Lint: `npm run lint` (eslint src/**/*.ts) clean.
+  - Live: `tests/live/acceptance/b0422live-imported-schema-system-interp-wire-and-refusal.test.ts`
+    → 2/2 green through the real `pi -p`. Adjacent witness (recorded WHY): its
+    DIRECTION 2 exercises the shared imported-load-refusal → theta-un-registers
+    → `invoke` resolves Err mechanism that the 0448 change lives inside (same
+    `checkThetaImports` load pass); the 0448 constructor-kind path is
+    deterministically witnessed offline through that same production seam, and
+    no new model-observable behaviour arises beyond that shared registration
+    flip.
+- Review: 2 rounds.
+  - Round 1 (bug-fix-reviewer, deep): F1 (correctness) — a lib legally
+    declaring both a fields-bearing `schema X` and a same-name `enum X`/`fn X`
+    was over-refused (same-file spelling parses clean); F2 (house-rule) — the
+    fn-arm comments misattributed the same-file fn-constructor refusal to
+    `refs.fnNames`/`enums.has` instead of the no-declaration fall-through arm.
+    Both fixed (bug-fix-fixer): `hasCtorSchema` gate on all three arms + K8
+    dual-kind fence cell; comments corrected.
+  - Round 2 (bug-fix-reviewer-fast): CLEAN.
+- Verification: bug-fix-verifier SOLID.
+  - Witness genuinely reds without the fix: neutralising the
+    `checkImportedNonCtorTypeNames` push reds K1b/K2b/K3b/K7 for the right
+    reason (empty compose vs owed refusal) and greens on byte-exact restore.
+  - Full default suite green (10675 passed).
+  - Lint + typecheck clean.
+  - Live obligation discharged by the orchestrator (b0422live adjacency above).
+- Residuals: none. The undiscriminated-union alias K-bound and the head-only
+  `schema S` class (`empty-schema-body` refuses the declaring lib first) remain
+  out of reach per §Non-goals; unchanged and unmeasured.
+- Discharge notes appended: none. Bug 0429 §Fix (0.422.0) residual 1 named
+  this class; the closed 0429 doc is not edited (era-pinning — no parent
+  ratification for a dated note).
+- Pinned dispositions / non-goals: imported OBJECT-schema field sets (0429),
+  field-VALUE typing (0031), `match` object-pattern heads naming imported
+  symbols (registry-deferred), the union-alias K-bound, and head-only imported
+  schema all remain untouched, exactly as §Non-goals states.

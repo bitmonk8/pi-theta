@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.455.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0450 — imported-enum system param unjudged**: a `system:` template `.Ident` step over an imported-enum-typed param skipped the load-phase template revalidation (0422's check only judged imported object schemas), rendering `undefined` at spawn. The revalidation now judges imported-enum params too, refusing bad member steps with `theta/load/system-interp-bad-field` at load (reuse, no mint). (`src/extension/import-static-checks.ts`; witness `tests/b0450-imported-enum-system-param.test.ts`)
+
+## [0.454.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0449 — re-export-chain enum unknown variant null panic**: accessing an unknown variant on an enum reached through a re-export chain died as a lying `NullMemberAccessPanic` (the chain hop lost the enum identity). The chain now resolves the enum through the hops and an unknown variant fails loudly as the named runtime failure. (`src/runtime/lexical-environment.ts`, `src/runtime/statement-executor.ts`; witness `tests/b0449-reexport-chain-enum-unknown-variant.test.ts`)
+
+## [0.453.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0448 — imported non-object ctor mints silently**: a ctor expression naming an imported enum, fn, or alias-of-schema minted a fresh opaque object instead of refusing — the import-kind judgement only covered object schemas. The ctor path now refuses non-object imported kinds with `theta/parse/unresolved-named-type` at load (reuse, no mint). (`src/extension/import-static-checks.ts`, `src/extension/invoke-static-checks.ts`; witness `tests/b0448-imported-non-object-ctor.test.ts`)
+
 ## [0.452.0]
 
 ### Fixed

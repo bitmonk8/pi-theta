@@ -900,6 +900,46 @@ export class RejectedWriteDefectError extends Error {
 }
 
 /**
+ * Bug 0449 (docs/bugs/0449-reexport-chain-enum-unknown-variant-null-panic.md)
+ * belt: the async member arm's enum short-circuit falls through to a value
+ * read whenever `resolveEnumVariant` answers `undefined` — collapsing "not an
+ * enum" and "registered enum, unknown variant" into one signal (0185's
+ * information loss, still present by design: `resolveEnumVariant`'s contract
+ * is unchanged). A re-export chain's static walk withholds a variant verdict
+ * on a chain-reached specifier (code-registry-parse.md:114), so an unknown
+ * variant on a chain-imported enum reaches this arm laundered past every
+ * static gate; falling through would evaluate the enum NAME as a value, read
+ * `null` off the pure host's non-`local` safety net, and panic
+ * `NullMemberAccessPanic` — a message asserting a null target that does not
+ * exist and never naming the actual fault. `isRegisteredEnum` splits the two
+ * conditions so this class fails loudly instead.
+ *
+ * Carrier adjudication (DIAG-2): NOT a new `ThetaPanic` subclass and NOT
+ * `NullMemberAccessPanic` (the lying carrier this belt exists to avoid) — the
+ * V1 runtime-panic list is closed (error-model.md §"Runtime panics": six
+ * sources, closed for spec-defined panic sources; runtime-panics.ts's
+ * `ThetaPanic` set mirrors it exactly) and this class is not one of the six.
+ * A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught out of
+ * `executeBody` and is reframed one layer up through `surfaceUnexpectedThrow`
+ * to `INTERNAL_ERROR_CODE`, exactly as `IndexKindDefectError` /
+ * `RejectedWriteDefectError` are (the standing belt law, 0332/0338/0365/0370
+ * family: a laundered wrong-kind value reaching a gated-at-parse site is a
+ * loud, undecorated defect, with no new registry row). The message TEXT reuses `theta/parse/unknown-variant`'s
+ * registered template verbatim (0185's no-new-code adjudication: the natural
+ * carrier for "registered enum, unknown variant" is that code's Message
+ * column, not a fresh mint) — naming the ACCESS-SITE enum spelling
+ * (`enumName`, the `as`-alias where one is written) and the variant, so a
+ * renamed chain (`export { Sev as Level }`) names `Level`, never the
+ * library's own declared `Sev`.
+ */
+export class UnknownVariantDefectError extends Error {
+  public constructor(enumName: string, variant: string) {
+    super(`unknown variant '${variant}' on enum '${enumName}'`);
+    this.name = "UnknownVariantDefectError";
+  }
+}
+
+/**
  * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
  * `+` arm exactly (string+string concatenates, two-number addition, else the
  * bug 0368 belt) — the shared runtime semantics for `+`, since bindings.md
@@ -1111,6 +1151,17 @@ async function evalExpr(
       const variant = env.resolveEnumVariant(expr.target.name, expr.field);
       if (variant !== undefined) {
         return { flow: "value", value: variant };
+      }
+      // Bug 0449: `undefined` is ambiguous ("not an enum" vs "registered enum,
+      // unknown variant") by `resolveEnumVariant`'s own collapsed contract
+      // (0185). A re-export chain's static walk withholds a variant verdict on
+      // a chain-reached specifier, so the registered-enum half of that
+      // ambiguity can reach this arm laundered past every static gate; only
+      // THAT half fails loudly here — a genuinely non-enum ident (the
+      // ambiguity's other half) still falls through to the value read below,
+      // which is correct for a genuinely-null target (§Non-goal).
+      if (env.isRegisteredEnum(expr.target.name)) {
+        throw new UnknownVariantDefectError(expr.target.name, expr.field);
       }
     }
     const target = await evalExpr(expr.target, env, deps);

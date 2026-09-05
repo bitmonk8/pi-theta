@@ -113,8 +113,10 @@ import {
 import {
   checkImportedEnumVariantAccess,
   checkImportedFnCallArgs,
+  checkImportedNonCtorTypeNames,
   checkImportedSchemaCtorFields,
   type ImportedFnCallee,
+  type ImportedNonCtorKind,
 } from "./invoke-static-checks";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
@@ -1067,6 +1069,13 @@ export async function checkThetaImports(
   // variant list for `checkImportedEnumVariantAccess` to judge each
   // `MemberExpr` access site against.
   const importedEnums = new Map<string, readonly string[]>();
+  // Bug 0448 route — the KIND sibling of the `importedSchemas` /
+  // `importedEnums` lookups above, keyed the same way (specifier LOCAL name)
+  // and populated in the SAME per-decl loop: every imported binding whose
+  // DIRECT declaration is not brace-constructible (an `enum`, a `fn`, or a
+  // fields-less/alias-form `schema`), for `checkImportedNonCtorTypeNames` to
+  // judge each `ObjectExpr` constructor site against.
+  const importedNonCtorKinds = new Map<string, ImportedNonCtorKind>();
   // Bug 0422 route (a): the real object `SystemParamType` shell for an
   // imported schema, keyed by the LOCAL binding name (`params:` names an
   // imported schema by this name, e.g. `author: Author`) — built ONLY when
@@ -1175,13 +1184,46 @@ export async function checkThetaImports(
     // when the resolved lib's own body carries no matching declaration, and
     // bound under its local (`as`) name.
     for (const specifier of specifiers) {
-      // Bug 0138 route 2: resolve the specifier's SOURCE name against the
-      // directly-resolved library's own top-level body ONLY — no re-export
-      // chain follow-through here (`ImportedFnCallee`'s own doc comment,
-      // ../extension/invoke-static-checks.ts, states the deferral this
-      // restriction records: a symbol reached only through a re-export
-      // chain stays silent under this route, a withhold rather than a
-      // duplicated chain-walk of `materializeChain`'s own logic below).
+      // Bug 0138 route 2 / bug 0429 / bug 0430 / bug 0448: resolve the
+      // specifier's SOURCE name against the directly-resolved library's own
+      // top-level body ONLY — no re-export chain follow-through here
+      // (`ImportedFnCallee`'s own doc comment, ../extension/invoke-static-checks.ts,
+      // states the deferral this restriction records: a symbol reached only
+      // through a re-export chain stays silent under this route, a withhold
+      // rather than a duplicated chain-walk of `materializeChain`'s own logic
+      // below).
+      //
+      // Bug 0429 — the object-form `schema` lookup: at the same-file parse
+      // position, a head-only / alias-form `schema` (no `.fields`) is REFUSED
+      // outright (checkObjectExpr's own `bodySchemas.has` arm draws
+      // `theta/parse/unresolved-named-type`, theta-document.ts's constructor-
+      // name classification) because it is not brace-constructible under any
+      // reading. This LOAD route judges FIELD SETS only (`importedSchemas`) —
+      // a fields-less decl carries none to judge against — so bug 0448 records
+      // the KIND instead, in `importedNonCtorKinds`, for
+      // `checkImportedNonCtorTypeNames` to judge the constructor-head question
+      // the field-set walk cannot reach (a sibling of bug 0430's enum-variant
+      // class).
+      const schemaDecl = parsed.document.body.statements.find(
+        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
+      );
+      // Bug 0448 — same-file constructor precedence: `checkObjectExpr` consults
+      // the object-form schema set FIRST (`refs.schemas`), so a fields-bearing
+      // `schema X { … }` is brace-constructible and WINS even when the same lib
+      // also declares an `enum` / `fn` / alias-form `schema` named `X` — the
+      // same-file `X { … }` parses clean, the field set owning it. Mirror that
+      // precedence: a specifier whose direct decl carries such a schema is
+      // constructible, so it enters `importedSchemas` (bug 0429's field-set
+      // walk) and NONE of the non-ctor arms below record it. Every
+      // `importedNonCtorKinds` arm is gated on `!hasCtorSchema`, keeping the
+      // map's meaning — non-brace-constructible imported bindings — honest.
+      const hasCtorSchema = schemaDecl !== undefined && schemaDecl.fields !== undefined;
+      if (schemaDecl !== undefined && schemaDecl.fields !== undefined) {
+        importedSchemas.set(specifier.local, schemaDecl.fields);
+      }
+      if (schemaDecl !== undefined && !hasCtorSchema) {
+        importedNonCtorKinds.set(specifier.local, { kind: "schema-alias" });
+      }
       const fnDecl = parsed.document.body.statements.find(
         (stmt): stmt is FnDecl => stmt.kind === "fn" && stmt.name === specifier.source,
       );
@@ -1190,23 +1232,19 @@ export async function checkThetaImports(
           fn: fnDecl,
           libraryStatements: parsed.document.body.statements,
         });
-      }
-      // Bug 0429 — the object-form `schema` sibling of the `fn` lookup above,
-      // same direct-declaration-only restriction (no re-export chain follow):
-      // at the same-file parse position, a head-only / alias-form `schema`
-      // (no `.fields`) is REFUSED outright (checkObjectExpr's own
-      // `bodySchemas.has` arm draws `theta/parse/unresolved-named-type`,
-      // theta-document.ts's constructor-name classification) because it is
-      // not brace-constructible under any reading. This LOAD route instead
-      // WITHHOLDS on that same shape: it judges FIELD SETS only, and an
-      // alias/head-only decl carries none to judge against, so the imported
-      // alias-form/enum-name constructor stays silent here — a residual
-      // outside this bug's scope (a sibling of bug 0430's enum-variant class).
-      const schemaDecl = parsed.document.body.statements.find(
-        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
-      );
-      if (schemaDecl !== undefined && schemaDecl.fields !== undefined) {
-        importedSchemas.set(specifier.local, schemaDecl.fields);
+        // Bug 0448 — a `fn` name is not brace-constructible under any reading
+        // (schemas.md / expressions.md §Object construction), the same ground
+        // the same-file constructor position refuses it on: `checkObjectExpr`
+        // finds no object-form `schema`, `enum`, or import of the name and
+        // draws `theta/parse/unresolved-named-type` from its NO-DECLARATION
+        // fall-through arm (theta-document.ts, "resolves to no declaration at
+        // all"). Recorded here — unless a fields-bearing schema of the same
+        // name outranks it (`hasCtorSchema`, above) — so
+        // `checkImportedNonCtorTypeNames` can judge the constructor question
+        // this loop otherwise drops.
+        if (!hasCtorSchema) {
+          importedNonCtorKinds.set(specifier.local, { kind: "fn" });
+        }
       }
       // Bug 0430 — the `enum` sibling of the `schema` lookup above, same
       // direct-declaration-only restriction (no re-export chain follow): a
@@ -1219,6 +1257,17 @@ export async function checkThetaImports(
       );
       if (enumDecl !== undefined && enumDecl.variants !== undefined) {
         importedEnums.set(specifier.local, enumDecl.variants);
+      }
+      if (enumDecl !== undefined && !hasCtorSchema) {
+        // Bug 0448 — an `enum` name is never brace-constructible (the same
+        // ground `checkObjectExpr`'s `enums.has` arm refuses it on at the
+        // same-file constructor position), independent of whether its
+        // variant SHAPE parsed (`importedEnums`'s own `.variants !== undefined`
+        // guard, above, is a `checkImportedEnumVariantAccess` concern, not a
+        // brace-constructibility one) — recorded on any direct top-level
+        // `enum` match unless a fields-bearing schema of the same name outranks
+        // it (`hasCtorSchema`, above), mirroring same-file precedence.
+        importedNonCtorKinds.set(specifier.local, { kind: "enum" });
       }
       const materialized = await materializeChain(
         specifier.source,
@@ -1281,8 +1330,15 @@ export async function checkThetaImports(
   // head's `typeSource` never matches an entry in `importedSchemaShapes`
   // (only a schema-kind import populates it), so it is left untouched here —
   // out of this fix's scope (bug 0425's ground).
+  // Bug 0450: a theta importing ONLY an enum (no imported schema) has an
+  // EMPTY `importedSchemaShapes`, so the guard below must also open on
+  // `importedEnums` or the enum-head arm just past the typeSource lookup
+  // never runs and the class stays unjudged (the defect this fix closes).
   let patchedParts: SystemTemplatePart[] | undefined;
-  if (input.frontmatter?.system !== undefined && importedSchemaShapes.size > 0) {
+  if (
+    input.frontmatter?.system !== undefined &&
+    (importedSchemaShapes.size > 0 || importedEnums.size > 0)
+  ) {
     const systemSourceFile = input.sourcePath;
     const systemRange = input.frontmatter.systemRange;
     const paramTypeSourceByName = new Map(
@@ -1297,6 +1353,31 @@ export async function checkThetaImports(
       const head = part.segments[0] as string;
       const typeSource = paramTypeSourceByName.get(head);
       if (typeSource === undefined) {
+        continue;
+      }
+      // Bug 0450: a directly-imported ENUM terminates the path the same way
+      // its same-file twin does (frontmatter-fields-b-and-templates.md:42 —
+      // an enum is not an object schema, so EVERY `.Ident` step refuses, valid
+      // variant names included). `importedEnums` never enters
+      // `importedSchemaShapes` (that map is schema-kind only), so this arm
+      // must run BEFORE the schema-shape lookup below or the enum head is
+      // silently skipped exactly as before this fix. Direct declarations
+      // only, mirroring the schema class's chain withhold (bug 0422/0430): a
+      // re-export-chain enum never reaches `importedEnums`.
+      if (importedEnums.has(typeSource.trim())) {
+        if (part.segments.length > 1) {
+          diagnostics.push(
+            loadSystemInterpBadFieldDiagnostic(
+              systemSourceFile,
+              systemRange,
+              part.segments[1] as string,
+              part.segments[0] as string,
+            ),
+          );
+        }
+        // A bare `${sev}` (no further segments) has no `.Ident` step to
+        // refuse — bare `${param}` is always allowed
+        // (frontmatter-fields-b-and-templates.md:42, §Non-goal).
         continue;
       }
       const shape = importedSchemaShapes.get(typeSource.trim());
@@ -1430,6 +1511,20 @@ export async function checkThetaImports(
       input.sourcePath,
       (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
       importedEnums,
+    ),
+  );
+
+  // Bug 0448: judge every imported constructor site whose head resolves to a
+  // NON-brace-constructible declaration (an `enum`, a `fn`, or a fields-less
+  // `schema`), ONCE over the importing theta's own body, now that the
+  // per-decl loop above holds the whole `importedNonCtorKinds` map — the same
+  // wiring shape as the two pushes immediately above.
+  diagnostics.push(
+    ...checkImportedNonCtorTypeNames(
+      input.body,
+      input.sourcePath,
+      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      importedNonCtorKinds,
     ),
   );
 

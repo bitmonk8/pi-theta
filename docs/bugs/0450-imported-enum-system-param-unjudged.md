@@ -1,6 +1,6 @@
 # Bug 0450 — A `system:` `${…}` path stepping into an IMPORTED-enum-typed param (`sev: Sev`, `${sev.Nope}`) is judged at no static phase: the same-file spelling draws `theta/parse/system-interp-bad-field` at parse (any `.Ident` on an enum param refuses — enums terminate the path), while the imported spelling is admitted opaquely at parse AND skipped by the 0422 load re-walk, whose shape map is populated for imported SCHEMAS only — so the theta registers with a path the path grammar's MUST refuses
 
-- **Status:** open.
+- **Status:** fixed (0.455.0).
 - **Sev/Diff estimate:** S1/D2 — S1: the terminal is 0422's established
   silent-wrong-value class: the admitted part stays `valueDriven`, the render
   walks `.Nope` off the enum's runtime wire string, `resolvePath` yields JS
@@ -228,3 +228,88 @@ quoted verbatim; the shape-map skip verified by code read
 (`import-static-checks.ts:1236–1309`). Spec read:
 frontmatter-fields-b-and-templates.md:42; code-registry-load.md:69;
 code-registry-parse.md:131. No non-scratch file modified.
+
+## Fix (0.455.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — §Fix Option 1: an explicit
+    enum-head arm added to the bug-0422 LOAD-phase `system:` re-walk, keyed on
+    `importedEnums` (direct-declaration variant data 0430 already materialises)
+    and placed AHEAD of the `importedSchemaShapes` schema-shape lookup / F2
+    fence (load-bearing — an enum head never enters that map, so an arm after
+    it would skip exactly as before). An enum terminates the path
+    (frontmatter-fields-b-and-templates.md:42): any `.Ident` step
+    (`segments.length > 1`) refuses at the FIRST step with the ALREADY-MINTED
+    `theta/load/system-interp-bad-field` (no new code), byte-consistent with
+    the same-file parse arm E1; a bare `${sev}` admits (§Non-goal). The
+    re-walk loop-entry guard widened from `importedSchemaShapes.size > 0` to
+    `(importedSchemaShapes.size > 0 || importedEnums.size > 0)` so a theta
+    importing ONLY an enum enters the walk. Direct-declarations only (chain
+    withheld — `importedEnums` is direct-only, E5 green with no extra work).
+  - `docs/spec_topics/diagnostics/code-registry-load.md` — DIAG-2: the
+    `theta/load/system-interp-bad-field` Trigger widened from the imported-
+    schema class to "schema or enum", with the enum path-termination semantics,
+    the direct-declaration-only chain withhold, and an explicit GOV-15
+    sibling-style attribution to bug 0450.
+  - `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md` — the
+    :42 two-stage-enforcement sentence widened from "directly-imported schema"
+    to "schema or enum".
+  - No new diagnostic code; `permitted-codes.json` untouched. No sidecar-
+    construction region touched (the enum arm is a pure diagnostics.push +
+    continue) — L1/L2's ownership respected.
+- Gates:
+  - Witness: `npx vitest run tests/b0450-imported-enum-system-param.test.ts`
+    → 7 passed (E1 same-file parse control; E2/E2b/E2c imported reds now green
+    — `${sev.Nope}`, deep chain `${sev.a.b.c}`, valid-variant-name `${sev.Low}`;
+    E3 schema-class asymmetry control; E4 bare `${sev}` guard; E5 chain fence).
+  - Full suite: `npm test` → 612 files / 10691 tests, 0 failed (citation-symbol-
+    form gate green — the initial bare `:42` comment red was fixed to a file-
+    named citation).
+  - Typecheck: `npm run typecheck` clean. Lint: `npm run lint` clean.
+  - Live: `tests/live/acceptance/b0422live-imported-schema-system-interp-wire-and-refusal.test.ts`
+    → 2/2 green through the real `pi -p` (re-run with 0450 in the tree).
+    Adjacent witness (recorded WHY): 0450 adds ONE arm + a guard-widening to the
+    EXACT 0422 re-walk loop b0422live exercises end-to-end; its DIRECTION 2 is
+    the identical registration-flip observable (imported system-interp load
+    refusal → theta un-registers → `invoke` resolves Err) that the enum class
+    now shares, and DIRECTION 1 (wire render) proves the schema path the arm
+    sits beside is undisturbed. My change is a strict no-op for the schema class
+    (a schema head has `importedEnums.has(...) === false`), so a green run
+    witnesses the guard-widening + arm insertion did not regress the live
+    schema re-walk; the enum-class load refusal itself is pinned deterministically
+    offline through the same production `checkThetaImports` seam.
+    (One 196s provider-overload FLAKE observed under 16-lane live contention,
+    green on isolated re-run in 11.5s — recorded parallel-load noise per the
+    lane brief, not chased; offline b0422 stayed green with 0450 present.)
+- Review: 1 round + 1 comment/prose polish.
+  - Round 1 (bug-fix-reviewer, deep): F1 (house-rule) — a new comment's bare
+    `:42` citation tripped the citation-symbol-form gate, reddening the full
+    suite; R1 (prose) — the load row lacked the sibling-style GOV-15 §Fix
+    attribution. Everything else verified clean (arm placement before the
+    schema lookup; guard-widening safety; message byte-consistency; scope
+    fence — no sidecar region touched; E3/E4/E5 fences; DIAG-2 doc accuracy).
+  - Polish (bug-fix-fixer-light): F1 → file-named citation; R1 → GOV-15
+    sentence added. Gate-diff comment/prose-only, gates green (full suite
+    10691, citation gate green) → confirmation review round skipped.
+- Verification: bug-fix-verifier SOLID.
+  - Witness genuinely witnesses: neutralising the enum arm reds E2/E2b/E2c
+    (empty parse+load vs owed load refusal); byte-exact restore → 7 green.
+  - Full default suite green (10691); citation gate green.
+  - Lint + typecheck clean.
+  - No-flip constraints green (b0422, b0423, b0427, b0406, system-interpolation).
+  - Live obligation discharged by the orchestrator (b0422live adjacency above).
+- Residuals: none blocking.
+  1. An imported `EnumDecl` whose variant SHAPE did not parse
+     (`variants === undefined`) misses `importedEnums` and so is not judged by
+     this arm — but such a lib carries its own E-severity parse diagnostics
+     (surfaced by 0304's transitive-lib threading), so the class cannot register
+     silently. Consistent with `importedEnums`' existing `.variants !== undefined`
+     guard (0430's concern), not widened here.
+- Discharge notes appended: none. Bug 0422 §Fix (0.435.0) residual 3 named this
+  class ("follow-up family material"); the closed 0422 doc is not edited
+  (era-pinning — no parent ratification for a dated note).
+- Pinned dispositions / non-goals: the render/sidecar consequences (the
+  `undefined` bytes — render-sidecars ground), the bare `${sev}` admit, re-export-
+  chain schema/enum heads (direct-only withhold), imported alias/head-only schema
+  heads (0427's ground, the F2 fence), and the `opaque-object` parse admit itself
+  (0406 Rec A) all remain untouched, exactly as §Non-goals states.

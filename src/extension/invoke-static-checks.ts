@@ -1678,3 +1678,109 @@ export function checkImportedEnumVariantAccess(
   }
   return diagnostics;
 }
+
+/**
+ * The KIND of one imported binding's DIRECT declaration, for exactly the
+ * three shapes bug 0448 §Fix judges: `"enum"`, `"fn"`, and `"schema-alias"`
+ * (a `schema` declared without an object body — the alias/head-only form).
+ * None of the three is brace-constructible (expressions.md §"Object
+ * construction"; `code-registry-parse.md`'s `theta/parse/unresolved-named-
+ * type` row, the object-constructor clause) — a fields-BEARING object-form
+ * `schema` is the disjoint, already-judged class `importedSchemas` /
+ * `checkImportedSchemaCtorFields` own.
+ */
+export interface ImportedNonCtorKind {
+  readonly kind: "enum" | "fn" | "schema-alias";
+}
+
+/**
+ * Bug 0448 §Fix Option 1 — judge an imported-`.thetalib` constructor site
+ * whose head resolves to a NON-brace-constructible declaration at the COMPOSE
+ * layer, mirroring `checkImportedSchemaCtorFields` above exactly. Parse
+ * defers on an imported constructor name (the `imports.has(e.typeName)` arm,
+ * ../parser/theta-document.ts `checkObjectExpr` — the FS-free parser holds no
+ * library body, so whether the name is even brace-constructible is
+ * undecidable there), so this is where that route is SERVED, not where it
+ * moves. No new diagnostic code: reuses the EXISTING
+ * `theta/parse/unresolved-named-type` row the same-file spelling of an `enum`
+ * / fn / alias-form-`schema` constructor already draws
+ * (../parser/theta-document.ts `checkObjectExpr`: an `enum` head via its
+ * `enums.has` arm, an alias/head-only `schema` head via its `bodySchemas.has`
+ * arm, and a `fn` head via the NO-DECLARATION fall-through arm — "resolves to
+ * no declaration at all", since a `fn` name is in none of `refs.schemas`,
+ * `imports`, `enums`, or `bodySchemas`), with the byte-identical message
+ * template (`unresolved named type '<name>'`).
+ *
+ * `importedNonCtorKinds` keys by the CONSTRUCTOR-SITE local binding name (the
+ * `as`-alias where written, else the source name) — the same key
+ * `importedSchemas` / `importedEnums` above use — and its value is the
+ * directly-resolved library's own declaration KIND. A DIRECT top-level
+ * declaration only (bug 0138's `ImportedFnCallee` restriction, mirrored): a
+ * declaration reached only through a re-export chain is absent from the map,
+ * so this route withholds a verdict for it rather than duplicating
+ * `materializeChain`'s own chain-follow at a second call site.
+ *
+ * Shadowing outranks import resolution (expressions.md §"Identifier
+ * resolution" arm (1) over arm (3)): a constructor name bound anywhere in the
+ * importing body as a `let`, loop variable, match-arm pattern, `fn`
+ * parameter, or frontmatter `params:` field is never judged here, the same
+ * `shadowedNames` test (`collectLocalBinderNames`) `checkImportedSchemaCtorFields`
+ * applies to constructor sites.
+ *
+ * `<name>` on every diagnostic renders the CONSTRUCTOR-SITE spelling (the
+ * local/alias name written at the `Ident { … }` site), matching
+ * `checkObjectExpr`'s same-file rendering and `checkImportedSchemaCtorFields`'s
+ * `<schema>` convention (placeholder-rendering-b.md §"5. Source-derived
+ * placeholders").
+ *
+ * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
+ * never reached, because this function walks the IMPORTING THETA's own body
+ * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * states for its own constructor sites. A fields-BEARING object-form
+ * `schema` constructor stays silent here too — it is not in
+ * `importedNonCtorKinds` at all (bug 0429's already-judged class, disjoint
+ * from this one).
+ */
+export function checkImportedNonCtorTypeNames(
+  importingBody: ThetaBody,
+  importingFile: string,
+  paramsFieldNames: readonly string[],
+  importedNonCtorKinds: ReadonlyMap<string, ImportedNonCtorKind>,
+): Diagnostic[] {
+  if (importedNonCtorKinds.size === 0) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
+  const { objectExprs } = collectCallSites(importingBody);
+  for (const ctor of objectExprs) {
+    if (ctor.typeName === null) {
+      // A bare `{ … }` object literal names no schema at all; this route
+      // judges named constructor sites only.
+      continue;
+    }
+    const typeName = ctor.typeName;
+    if (shadowedNames.has(typeName)) {
+      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
+      // a constructor of a locally-bound name never denotes the imported
+      // binding at this site — the same test `checkImportedSchemaCtorFields`
+      // applies to its own constructor sites.
+      continue;
+    }
+    if (!importedNonCtorKinds.has(typeName)) {
+      // Not a non-brace-constructible imported binding this route reaches: a
+      // same-file declaration, an imported OBJECT-form schema (0429's class),
+      // an unresolved name, or a re-export-chain declaration this map's own
+      // doc comment (above) defers on.
+      continue;
+    }
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/unresolved-named-type",
+      file: importingFile,
+      range: ctor.range,
+      message: `unresolved named type '${typeName}'`,
+    });
+  }
+  return diagnostics;
+}

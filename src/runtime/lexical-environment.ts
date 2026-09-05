@@ -773,9 +773,23 @@ export class LexicalEnvironment {
   }
 
   /**
+   * Whether `name` is a registered top-level or imported `enum` — bug 0449's
+   * additive split of `resolveEnumVariant`'s collapsed `undefined`. A caller
+   * that needs to tell "no such enum" apart from "enum without that variant"
+   * (the async executor's belt) checks this FIRST, rather than widening
+   * `resolveEnumVariant`'s own return shape, so 0185's params witnesses
+   * (which drive the pure-host member arm, untouched here) stay unmoved.
+   */
+  public isRegisteredEnum(name: string): boolean {
+    return this.root().enums.get(name) !== undefined;
+  }
+
+  /**
    * Resolve a registered `enum`'s `Enum.Variant` access to its runtime
    * `EnumValue` (runtime-value-model.md, enum row). Returns `undefined` for an
-   * unregistered enum or an unknown variant.
+   * unregistered enum or an unknown variant — collapsed on purpose (0185); a
+   * caller needing to split the two conditions uses {@link isRegisteredEnum}
+   * first (bug 0449), rather than this method growing a second return shape.
    */
   public resolveEnumVariant(enumName: string, variant: string): ThetaValue | undefined {
     const entry = this.root().enums.get(enumName);

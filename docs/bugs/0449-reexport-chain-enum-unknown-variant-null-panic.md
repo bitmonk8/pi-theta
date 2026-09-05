@@ -1,6 +1,6 @@
 # Bug 0449 — An unknown variant on an enum reached through an `export … from` re-export chain (`import { Sev } from "./mid.thetalib"`, `mid` re-exporting `lib`'s `enum Sev { Low }`, then `Sev.Nope`) loads clean per the 0430 fix's stated direct-declaration fence and then aborts the drive at runtime as `NullMemberAccessPanic: null member access: .Nope` — the deferred face-2 runtime belt (0430 §Fix Option 2) is still absent, so the fenced class keeps a panic whose subject is wrong twice on a theta that REGISTERS
 
-- **Status:** open.
+- **Status:** fixed (0.454.0).
 - **Sev/Diff estimate:** S2/D2 — S2: a drive-aborting runtime panic on an
   ordinary authoring typo (crash/abort on registered, spec-legal-loading
   input), compounded by a lying diagnostic — the enum is not null (it is
@@ -228,3 +228,82 @@ not rejected). Probe: `tests/scratch-ii6-intake.test.ts` (deleted) — cells
 C1/C2/C3, outputs quoted verbatim. Spec read: schemas.md:97;
 code-registry-parse.md:114; error-model.md §Runtime panics. No non-scratch
 file modified.
+
+## Fix (0.454.0)
+
+- What shipped:
+  - `src/runtime/lexical-environment.ts` — added the ADDITIVE
+    `isRegisteredEnum(name)` (root-scope registration lookup) that splits
+    `resolveEnumVariant`'s collapsed `undefined` WITHOUT changing that method's
+    contract, so 0185's params witnesses (pure-host arm) stay unmoved.
+  - `src/runtime/statement-executor.ts` — §Fix Option 1 (runtime belt): in the
+    async `member` arm's enum short-circuit, after `resolveEnumVariant` misses
+    on a non-`local` ident, if `isRegisteredEnum(target.name)` is true the arm
+    throws `UnknownVariantDefectError` naming the ACCESS-SITE enum spelling and
+    the variant with the reused `unknown variant '<variant>' on enum '<enum>'`
+    text, instead of falling through to the value read that fabricated a `null`
+    and panicked `NullMemberAccessPanic`. A genuinely non-enum ident still
+    falls through (the panic is correct for genuine nulls — §Non-goal).
+  - Carrier adjudication (DIAG-2, delegated to the fixer by §Fix; documented in
+    the belt's doc-comment): `UnknownVariantDefectError` is a PLAIN `Error`
+    (NOT a `ThetaPanic` — the V1 panic list is closed, error-model.md §Runtime
+    panics — and NOT the lying `NullMemberAccessPanic`), so it propagates
+    uncaught and is reframed by `surfaceUnexpectedThrow` to
+    `theta/runtime/internal-error` exactly as the `IndexKindDefectError` /
+    `RejectedWriteDefectError` belts are (the standing belt law,
+    0332/0338/0365/0370 family: loud, undecorated, no new registry row). No new
+    diagnostic code minted (0185's no-new-code adjudication); no registry edit.
+- Gates:
+  - Witness: `npx vitest run tests/b0449-reexport-chain-enum-unknown-variant.test.ts`
+    → 4 passed (C1 plain chain, C2 renamed chain now name enum+variant and no
+    longer panic null; C3 valid-variant control, C4 direct-static fence).
+  - Full suite: `npm test` → 611 files / 10684 tests, 0 real failures (two
+    off-surface suites — invoke-arg-type-mismatch-wired, production-tools-load-
+    resolution — hook-timed-out under parallel load, both green isolated:
+    recorded parallel-load noise, not on the runtime surface).
+  - Typecheck: `npm run typecheck` clean. Lint: `npm run lint` clean.
+  - Live: `tests/live/b0342live-forwarded-enum-declaring-file-identity-live-cell.test.ts`
+    → 1/1 green through the real host (H8a). Adjacent witness (recorded WHY):
+    it drives VALID re-export-chain-forwarded enum member accesses (`Sev.Low`)
+    through the exact async executor enum member arm this belt modifies, so a
+    green run witnesses the belt insertion did not regress live valid-variant
+    resolution; the belt fires only on the unknown-variant defect path no live
+    cell exercises, and the offline b0449 witness pins that path
+    deterministically through the same production `executeBody` seam.
+- Review: 1 round + 1 comment-only polish.
+  - Round 1 (bug-fix-reviewer, deep): F1 (prose) — the carrier-adjudication
+    comment mis-attributed belt-law to CLAUDE.md (which carries no belt-law);
+    everything else verified clean (belt guards, production surfacing traced,
+    additive split, access-site spelling, 0185/0430 fences, full suite green).
+  - Polish (bug-fix-fixer-light): F1 corrected to cite the 0332/0338/0365/0370
+    lineage. Polish verified by gate-diff (comment-only, gates green);
+    confirmation review round skipped.
+- Verification: bug-fix-verifier SOLID.
+  - Witness genuinely witnesses: neutralising the belt reds C1/C2 with the
+    exact `NullMemberAccessPanic: null member access: .Nope` pin; byte-exact
+    restore → 4 green.
+  - Full default suite green (10684; the two hook-timeouts green isolated).
+  - Lint + typecheck clean.
+  - 0185 (params-default ×2, pure-host arm) and 0430 (static B5 fence) unmoved.
+  - Live obligation discharged by the orchestrator (b0342live adjacency above).
+- Residuals: none blocking.
+  1. §Fix Option 2 (follow the chain in the static walk to draw the LOAD E for
+     the chain class, like the direct class) is NOT implemented — the recommended
+     Option 1 belt is the shipped, sufficient fix for the runtime terminal; the
+     static direct-only symmetry (0138/0429/0430 registry sentences) is left
+     intact per §Non-goals ("whether to close it by following materializeChain
+     is a fix OPTION here, not a contested disposition"). The shadow face (a
+     local `let Sev` shadowing then `Sev.Nope`) is already covered by parse-tier
+     rows (§Why-it-matters) and is arm==="local", skipping the belt.
+- Discharge notes appended: none. Bug 0430 §Fix (0.423.0) residual 1 named this
+  class (Face-2 belt deferred); the closed 0430 doc and 0191 (era-pinned) are
+  not edited (no parent ratification for a dated note).
+- Pinned dispositions / non-goals: The 0422/0423 directly-imported-only chain
+  deferral (per the dispatch's note) shares the "re-export chain launders past
+  a direct-only static fence" SKELETON with this bug but is a DIFFERENT surface
+  — 0422/0423 is the LOAD-pass system-interp imported-SCHEMA static walk, this
+  is the RUNTIME async enum member arm. 0449's belt (Option 1) touches no static
+  walk, so it neither discharges nor develops the 0422/0423 chain deferral; the
+  two remain distinct gaps. Valid-variant chain semantics (0305/0306), the
+  pure-host params-default position (0185), and member access on genuinely-null
+  non-enum targets all remain untouched, exactly as §Non-goals states.
