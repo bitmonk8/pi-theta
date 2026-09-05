@@ -123,7 +123,7 @@ describe(
   () => {
     it(
       "(bug 0078) registers the precondition control, and the theta-system-note channel " +
-        "carries the literal-path missing-source warning naming --theta flag #1 — never " +
+        "carries the literal-path missing-source warning naming the cli-flag descriptor — never " +
         "unreadable-source — through the real discovery→registration path",
       async () => {
         const provider = await requireLiveProvider();
@@ -173,8 +173,12 @@ describe(
           // about relative-looking prefix segments the operator never typed
           // as directories).
           const notes = systemNoteContents(handle.sessionManager.getEntries());
-          const expectedMissing = fragment(MISSING_SOURCE_CODE, "--theta flag #1");
-          const bannedUnreadable = fragment(UNREADABLE_SOURCE_CODE, "--theta flag #1");
+          // Bug 0461: the failure-mode rows render `<descriptor>` in the
+          // normative `<kind>:"<value>"` form — a cli-flag value is `--theta`
+          // followed by the operand as passed (placeholder-rendering-b.md §5).
+          const cliDescriptor = `cli-flag:"--theta ${absentOperand}"`;
+          const expectedMissing = fragment(MISSING_SOURCE_CODE, cliDescriptor);
+          const bannedUnreadable = fragment(UNREADABLE_SOURCE_CODE, cliDescriptor);
           expect(
             notes.some((note) => note.includes(expectedMissing)),
             "no theta-system-note entry named the literal-path missing-source " +

@@ -139,7 +139,7 @@ describe(
   () => {
     it(
       "(bug 0075) registers the precondition control, and the theta-system-note channel carries the " +
-        "entry-lstat unreadable-source warning naming settings entry index 0, through the real " +
+        "entry-lstat unreadable-source warning naming the settings descriptor, through the real " +
         "discovery→registration path",
       async () => {
         const provider = await requireLiveProvider();
@@ -229,7 +229,10 @@ describe(
           // inside a root that exists. The warning fires at LOAD time, before
           // any drive, so the full entry list is the delta (mirrors cell 62).
           const notes = systemNoteContents(handle.sessionManager.getEntries());
-          const expectedFragment = unreadableSourceFragment("settings entry index 0");
+          // Bug 0461: the unreadable-source row renders `<descriptor>` in the
+          // normative `<kind>:"<value>"` form — the settings value is the
+          // offending `thetaPaths` entry text verbatim (placeholder-rendering-b.md §5).
+          const expectedFragment = unreadableSourceFragment('settings:"g/**/*.theta"');
           expect(
             notes.some((note) => note.includes(expectedFragment)),
             "no theta-system-note entry named the entry-lstat unreadable-source " +

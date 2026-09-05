@@ -110,7 +110,7 @@ interface FakeSpec {
  * hardcodes `".pi"` and `<homedir>/.pi/agent` (and existing suites depend on
  * those defaults), so the host substitution is injected here rather than in the
  * fake. The delegation shape mirrors `ReaddirDenied`
- * (tests/discovery-root-enumeration-failure.test.ts:300-350).
+ * (tests/discovery-root-enumeration-failure.test.ts:302-352).
  *
  * The two recorders serve the NEGATIVE direction: "the `.pi` path was never
  * even consulted" is a stronger statement than "the `.pi` theta did not
@@ -593,7 +593,7 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
     expect(missing).toHaveLength(1);
     expect(missing[0]!.severity).toBe("error");
     expect(missing[0]!.file).toBe("/elsewhere/typo.theta");
-    expect(missing[0]!.message).toContain("--theta flag #1");
+    expect(missing[0]!.message).toContain('cli-flag:"--theta /elsewhere/typo.theta"');
   });
 
   it("13. DISC-2's clean-leaf distinction survives for explicit references: a `--theta` path with an ABSENT intermediate directory is an unreadable-source ERROR, not silence (:66)", async () => {
@@ -616,6 +616,6 @@ describe("A4 — an absent conventional discovery root is silent (discovery-sour
     expect(unreadable).toHaveLength(1);
     expect(unreadable[0]!.severity).toBe("error");
     expect(unreadable[0]!.file).toBe("/gone/deeper/typo.theta");
-    expect(unreadable[0]!.message).toContain("--theta flag #1");
+    expect(unreadable[0]!.message).toContain('cli-flag:"--theta /gone/deeper/typo.theta"');
   });
 });

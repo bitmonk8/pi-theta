@@ -65,11 +65,14 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 // The two `emitSourceFailure` messages, verbatim from discovery-walk.ts
 // (`discovery source path does not exist: <descriptor>` for missing;
 // `discovery source is unreadable: <descriptor>` for unreadable), with the
-// settings/CLI descriptors the walk builds (`settings entry index 0`,
-// `--theta flag #1`). Asserting the whole {severity,code,file,message} shape
-// makes "emits nothing else" observable.
-const SETTINGS_DESCRIPTOR = "settings entry index 0";
-const CLI_DESCRIPTOR = "--theta flag #1";
+// descriptor rendered in the normative `<kind>:"<value>"` form
+// (placeholder-rendering-b.md §5, bug 0461): the settings VALUE is the
+// `thetaPaths` entry's own text verbatim (here, the literal path each cell
+// passes — no override prefix, so `entry.raw` equals the operand), the CLI
+// VALUE is the raw `--theta` operand. Asserting the whole
+// {severity,code,file,message} shape makes "emits nothing else" observable.
+const settingsDescriptor = (entryText: string): string => `settings:"${entryText}"`;
+const cliDescriptor = (operand: string): string => `cli-flag:"--theta ${operand}"`;
 const missingMsg = (descriptor: string): string =>
   `discovery source path does not exist: ${descriptor}`;
 const unreadableMsg = (descriptor: string): string =>
@@ -215,7 +218,7 @@ describe("bug 0364 (1) — settings junction-missing leaf: missing-source error,
         severity: "error",
         code: MISSING_SOURCE,
         file: missingUnderLink,
-        message: missingMsg(SETTINGS_DESCRIPTOR),
+        message: missingMsg(settingsDescriptor(missingUnderLink)),
       },
     ]);
   });
@@ -242,7 +245,7 @@ describe("bug 0364 (2) — settings real-spelled twin: missing-source error (con
         severity: "error",
         code: MISSING_SOURCE,
         file: missingUnderReal,
-        message: missingMsg(SETTINGS_DESCRIPTOR),
+        message: missingMsg(settingsDescriptor(missingUnderReal)),
       },
     ]);
   });
@@ -298,7 +301,7 @@ describe("bug 0364 (4) — CLI junction-missing leaf: code+message flip unreadab
         severity: "error",
         code: MISSING_SOURCE,
         file: missingUnderLink,
-        message: missingMsg(CLI_DESCRIPTOR),
+        message: missingMsg(cliDescriptor(missingUnderLink)),
       },
     ]);
   });
@@ -323,7 +326,7 @@ describe("bug 0364 (5) — CLI real-spelled twin: missing-source error (control,
         severity: "error",
         code: MISSING_SOURCE,
         file: missingUnderReal,
-        message: missingMsg(CLI_DESCRIPTOR),
+        message: missingMsg(cliDescriptor(missingUnderReal)),
       },
     ]);
   });
@@ -390,7 +393,7 @@ describe("bug 0364 (6) — settings broken-link-ancestor: unreadable-source warn
         severity: "warning",
         code: UNREADABLE_SOURCE,
         file: missingUnderBroken,
-        message: unreadableMsg(SETTINGS_DESCRIPTOR),
+        message: unreadableMsg(settingsDescriptor(missingUnderBroken)),
       },
     ]);
   });
@@ -456,7 +459,7 @@ describe("bug 0364 (7) — settings immediate broken-link-ancestor: unreadable-s
         severity: "warning",
         code: UNREADABLE_SOURCE,
         file: missingUnderBroken,
-        message: unreadableMsg(SETTINGS_DESCRIPTOR),
+        message: unreadableMsg(settingsDescriptor(missingUnderBroken)),
       },
     ]);
   });

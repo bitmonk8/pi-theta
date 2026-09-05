@@ -335,7 +335,7 @@ describe("bug 0075 — the neighbouring classes the candidate probe must preserv
         code: MISSING_SOURCE,
         file: "/cli/dangling",
         message: interpolate(loadRowMessage(MISSING_SOURCE), {
-          descriptor: "--theta flag #1",
+          descriptor: `cli-flag:"--theta /cli/dangling"`,
         }),
       },
     ]);
@@ -361,7 +361,7 @@ describe("bug 0075 — the neighbouring classes the candidate probe must preserv
         code: WRONG_TYPE_SOURCE,
         file: "/pipes/fifo",
         message: interpolate(loadRowMessage(WRONG_TYPE_SOURCE), {
-          descriptor: "--theta flag #1",
+          descriptor: `cli-flag:"--theta /pipes/fifo"`,
         }),
       },
     ]);
@@ -409,7 +409,7 @@ describe("bug 0075 — the neighbouring classes the candidate probe must preserv
         code: UNREADABLE_SOURCE,
         file: "/denied/root",
         message: interpolate(loadRowMessage(UNREADABLE_SOURCE), {
-          descriptor: "--theta flag #1",
+          descriptor: `cli-flag:"--theta /denied/root"`,
         }),
       },
     ]);

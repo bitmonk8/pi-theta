@@ -1,6 +1,6 @@
 # Bug 0461 — every `theta/load/missing-source` / `unreadable-source` / `wrong-type-source` emission renders the registry rows' `<descriptor>` as prose category text (`settings entry index 0`, `--theta flag #1`, `global thetas directory`) where placeholder-rendering-b.md §5 pins the normative `<kind>:"<value>"` form with a byte-exact missing-source vector — and the corpus itself is split, DISC-2 rule 2 and package-and-settings.md still exemplifying the category text §5 contradicts
 
-- **Status:** open.
+- **Status:** fixed (0.460.0).
 - **Sev/Diff estimate:** S4/D2 — S4: the wrong-diagnostics/doc-tension class
   (0440's own S4 calibration for the sibling `<higher>`/`<lower>` divergence):
   no registration, severity, or classification outcome moves — the rows fire at
@@ -267,3 +267,66 @@ discovery-precedence bug-hunt sweep at 401a425b (v0.437.0), seed lead 1
 (0440 fix-record residual 1, fixer-named). Probe
 `tests/scratch-disc-precedence.test.ts` cells P1a/P1b/P1c (deleted; outputs
 quoted in §Reproduction verbatim). Spec/impl citations read at the pin.
+
+## Fix (0.460.0)
+
+- What shipped:
+  - `src/discovery/discovery-walk.ts` — `emitSourceFailure` renders `<descriptor>`
+    in the normative `<kind>:"<value>"` form via a new
+    `renderSourceDescriptor(source, descriptorValue)` helper (shared with the
+    0440 `renderDescriptor`); `source` + `descriptorValue` are threaded through
+    `enumerateDirectory`, `resolveEntry`, `collectFromEntries`, and the settings
+    `addDir`/`addLiteral`/`addGlob`/`treeFor`/`emitUniverseFailures` path
+    (carrying `entry.raw`); conventional roots carry `normalizePath(root.path)`.
+    The invalid-extension arm (§Non-goal) is untouched — keyed to §Fix Option 1.
+  - `src/discovery/package-discovery.ts` — the package walker's twin emitters
+    (`thetasInDirectory` + the `resolvePiThetas` universe-failure loop) render
+    `package:"<name>"`.
+  - `docs/spec_topics/discovery/discovery-sources.md` — DISC-2 rule 2's example
+    list rewritten to the descriptor form; the category labels `project
+    .pi/theta/` / `global thetas directory` are retained so the
+    `#descriptor-kinds` (:11) "distinct from" clause keeps its referent.
+  - `docs/spec_topics/discovery/package-and-settings.md` — the `"settings entry
+    index N"` sentence rewritten to the `settings:"<entry>"` descriptor form.
+- Gates: witness `tests/b0461-source-failure-descriptor-form.test.ts` 7/7
+  (revert→RED cells 1/2/4/5/6, restore→GREEN); full default suite 633 files /
+  10823 tests green (`set -o pipefail; npm test` rc 0); `npm run typecheck`
+  clean; `npm run lint` clean.
+- Review: 1 round (`bug-fix-reviewer`, clean of correctness/fidelity/spec
+  blockers) — findings were stale witness titles/contract headers/spec
+  quotations, two now-false `discovery-walk.ts` comments, and one docstring
+  typo, all comment/title/prose; resolved by one `bug-fix-fixer-light` round.
+  Post-polish confirmation round skipped: every fixer-light hunk touched only
+  comments/title strings (executable lines byte-identical), gate-diff verified
+  green.
+- Verification: SOLID (`bug-fix-verifier`) — witness revert-red/restore-green
+  byte-exact; suite green; typecheck + lint clean; the two changed
+  non-line-pinned live cells
+  (`discovery-cli-override-prefix-missing-source-live-cell`,
+  `discovery-entry-lstat-failure-live-cell`) run GREEN under the global live
+  lock (registry-sourced expected strings, fixture-matched descriptor values,
+  fail-loud `requireLiveProvider`); LPA cell-62 exemption bound held
+  (`wc -l` = 14864, `git diff --numstat` = 1/1, the fragment argument only).
+  LPA cell-62 tip-live deferred to the parent post-merge.
+- Residuals:
+  1. `docs/spec_topics/discovery/package-and-settings.md:27` still exemplifies
+     the retired category grammar (`` "package `foo` (pi.theta)" ``) as a
+     `theta/load/manifest-invalid` "source descriptor" — a THIRD counter-sentence
+     outside this §Fix's two-sentence enumeration, and already inaccurate
+     pre-fix (manifest-invalid's registry Message at `code-registry-load.md:62`
+     carries no `<descriptor>`; its emission names the package via `'<name>'`).
+     Left for separate filing, mirroring the 0440→0461 residual precedent;
+     not widened into this fix. Evidence: `grep` `package `foo`` over
+     `docs/spec_topics/` finds only :27; no emitter renders that grammar.
+  2. `package:"<name>"` is minted inline at three `package-discovery.ts` sites
+     rather than through a shared exported `renderSourceDescriptor`; bytes are
+     correct and byte-pinned by tests at all three. A shared-renderer refactor
+     (touching executable lines) was declined to keep this fix message-text-only.
+  3. LPA cell-62's `it()` title and error-prose still name `settings entry
+     index 0` (descriptive, not asserted); the strict one-line LPA exemption
+     forbade touching them — follow-up for the next sanctioned LPA re-pin.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: cross-source-shadow (0440), the
+  case-collision `<source>` category token, and the invalid-extension row are
+  unchanged (Non-goals held; witnessed by b0461 control cell 8 and the
+  untouched invalid-extension emitters).

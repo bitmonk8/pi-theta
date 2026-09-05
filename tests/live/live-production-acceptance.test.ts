@@ -1486,7 +1486,7 @@ describe("H8a-T — cell 62 (bug 0113): a settings thetaPaths glob whose static-
       // warning fires at LOAD time, before any drive, so the full entry list
       // is the delta (mirrors the bug 0110 / bug 0084 cells above).
       const notes = systemNoteContents(handle.sessionManager.getEntries());
-      const expectedFragment = unreadableSourceFragment("settings entry index 0");
+      const expectedFragment = unreadableSourceFragment('settings:"g/**/*.theta"');
       expect(
         notes.some((note) => note.includes(expectedFragment)),
         "no theta-system-note entry named the glob-universe unreadable-source " +

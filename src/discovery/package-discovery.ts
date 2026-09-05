@@ -482,7 +482,7 @@ async function resolvePiThetas(
       for (const [abs, stem] of await thetasInDirectory(
         fs,
         entry.abs,
-        `package \`${pkgName}\` (pi.theta)`,
+        pkgName,
         "error",
         diagnostics,
         roots,
@@ -509,7 +509,7 @@ async function resolvePiThetas(
       severity: "warning",
       code: UNREADABLE_SOURCE,
       file: dir,
-      message: `discovery source is unreadable: package \`${pkgName}\` (pi.theta)`,
+      message: `discovery source is unreadable: package:"${pkgName}"`,
     });
   }
   return thetas;
@@ -537,7 +537,7 @@ async function resolvePiThetas(
 async function thetasInDirectory(
   fs: FileSystem,
   dir: string,
-  descriptor: string,
+  descriptorValue: string,
   missing: Severity | null,
   diagnostics: Diagnostic[],
   roots: Set<string>,
@@ -554,7 +554,7 @@ async function thetasInDirectory(
           severity: missing,
           code: MISSING_SOURCE,
           file: dir,
-          message: `discovery source path does not exist: ${descriptor}`,
+          message: `discovery source path does not exist: package:"${descriptorValue}"`,
         });
       }
     } else {
@@ -562,7 +562,7 @@ async function thetasInDirectory(
         severity: "warning",
         code: UNREADABLE_SOURCE,
         file: dir,
-        message: `discovery source is unreadable: ${descriptor}`,
+        message: `discovery source is unreadable: package:"${descriptorValue}"`,
       });
     }
     return out;
@@ -631,7 +631,7 @@ async function resolvePackage(
     return thetasInDirectory(
       fs,
       joinPosix(candidate.dir, "theta"),
-      `package \`${candidate.name}\` theta/ directory`,
+      candidate.name,
       null,
       diagnostics,
       roots,

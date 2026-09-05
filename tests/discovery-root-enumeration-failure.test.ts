@@ -30,11 +30,11 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //           ship none"), error for `Package pi.theta entry` ("manifest names a
 //           missing path") — one enumeration call, two dispositions.
 //   :61     rule 2 — every such diagnostic "carries the source descriptor in
-//           its `message` so the author can locate the offending
-//           configuration — e.g. `"settings entry index 2"`,
-//           `"--theta flag #1"`, `` "package `foo` (pi.theta[0])" ``,
-//           `` "package `foo` theta/ directory" ``,
-//           `"global thetas directory"`, `"project .pi/theta/"`".
+//           its `message`", and the three source-shaped codes render it in
+//           the normative `<kind>:"<value>"` descriptor form — e.g.
+//           `` settings:"~/work/theta" ``, `` cli-flag:"--theta /opt/plan" ``,
+//           `` package:"foo" ``, `` project:"<config-dir>/theta" ``,
+//           `` global:"<globalAgentDir>/theta" ``.
 //   :62     rule 3 — "Errors are fatal for the offending entry only, not for
 //           the whole discovery pass".
 //   :66     the clean-leaf-`ENOENT` walk — "on `ENOENT`, walk the candidate
@@ -84,13 +84,15 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //                                                    conventional roots)
 //   - `ENOENT`, dirty ancestor chain               → `theta/load/unreadable-source`
 //                                                    at `modes.unreadable`
-// Descriptors are the ones the walk already carries: `"project .pi/theta/"`,
-// `"global thetas directory"`, `"--theta flag #<n>"` 1-based,
-// `"settings entry index <n>"` 0-based; a glob-matched directory
-// carries the matching entry's `"settings entry index <n>"`. The package walker
-// carries `` "package `<name>` theta/ directory" `` for the conventional
-// fallback and `` "package `<name>` (pi.theta)" `` for a `pi.theta`-contributed
-// directory.
+// Descriptors are rendered in the normative `<kind>:"<value>"` form
+// (placeholder-rendering-b.md §5, bug 0461): `project:"<resolved project root>"`,
+// `global:"<resolved global root>"`, `` cli-flag:"--theta <operand>" ``,
+// `settings:"<entry text verbatim>"` (a glob-matched directory carries the
+// matching entry's own text); the package walker carries `` package:"<name>" ``
+// for both the conventional fallback and a `pi.theta`-contributed directory
+// (the same descriptor for both — bug 0461 collapsed the pi.theta-vs-theta/
+// distinction the pre-fix prose carried, since the kind:value form has no
+// slot for it).
 //
 // A denied SUBTREE under a settings glob's static prefix (`listTree`,
 // discovery-walk.ts, and package-discovery.ts:311) is DEFERRED — no spec
@@ -449,7 +451,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: PROJECT_ROOT,
-        descriptor: "project .pi/theta/",
+        descriptor: 'project:"/project/.pi/theta"',
       },
       "the root fails classification, which the walk already reports",
     );
@@ -480,7 +482,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: PROJECT_ROOT,
-        descriptor: "project .pi/theta/",
+        descriptor: 'project:"/project/.pi/theta"',
       },
       "the project root exists as a directory and its enumeration is denied " +
         "(EACCES — the Windows parent-ACL case discovery-sources.md:66 cites)",
@@ -512,7 +514,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: GLOBAL_ROOT,
-        descriptor: "global thetas directory",
+        descriptor: 'global:"/home/theta/.pi/agent/theta"',
       },
       "the global root exists as a directory and its enumeration is denied (EPERM, " +
         "the second code discovery-sources.md:66 names)",
@@ -523,7 +525,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     ).toHaveLength(1);
   });
 
-  it("RED 3: CLI `--theta` root denied ELOOP on readdir emits an unreadable-source ERROR naming `--theta flag #1`", async () => {
+  it("RED 3: CLI `--theta` root denied ELOOP on readdir emits an unreadable-source ERROR naming `cli-flag:\"--theta /opt/loop\"`", async () => {
     // The sharpest cell: DISC-2 (:56) makes every failure mode of the CLI
     // source an error, and :67 names a symlink loop inside an existing root as
     // exactly this state.
@@ -544,7 +546,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "error",
         file: "/opt/loop",
-        descriptor: "--theta flag #1",
+        descriptor: 'cli-flag:"--theta /opt/loop"',
       },
       "the operator named this path on the command line and its enumeration fails " +
         "with a symlink loop (discovery-sources.md:67)",
@@ -575,7 +577,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: PROJECT_ROOT,
-        descriptor: "project .pi/theta/",
+        descriptor: 'project:"/project/.pi/theta"',
       },
       "the project root's enumeration fails with ENOTDIR, the third code " +
         "discovery-sources.md:66 names",
@@ -586,7 +588,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     ).toHaveLength(1);
   });
 
-  it("RED 5: a settings literal directory entry denied EACCES on readdir emits an unreadable-source warning naming `settings entry index 0`", async () => {
+  it("RED 5: a settings literal directory entry denied EACCES on readdir emits an unreadable-source warning naming `settings:\"t\"`", async () => {
     const fs = new ReaddirDenied(
       build({
         dirs: { "/project/.pi/t": ["s.theta"] },
@@ -606,7 +608,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: "/project/.pi/t",
-        descriptor: "settings entry index 0",
+        descriptor: 'settings:"t"',
       },
       "the settings entry resolves to an existing directory whose enumeration is " +
         "denied; the Settings row's Unreadable cell is a warning (:55)",
@@ -617,7 +619,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     ).toHaveLength(1);
   });
 
-  it("RED 6: a settings glob-matched directory denied EPERM on readdir emits an unreadable-source warning naming the matching entry's `settings entry index 0`", async () => {
+  it("RED 6: a settings glob-matched directory denied EPERM on readdir emits an unreadable-source warning naming the matching entry's `settings:\"g/*\"`", async () => {
     // `addGlob` (src/discovery/discovery-walk.ts) reaches
     // `enumerateDirectory` once per matched directory; the descriptor it
     // carries is the matching entry's index, the form DISC-2's descriptor
@@ -643,7 +645,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: "/project/.pi/g/sub",
-        descriptor: "settings entry index 0",
+        descriptor: 'settings:"g/*"',
       },
       "the glob matched an existing directory whose enumeration is denied (EPERM)",
     );
@@ -671,7 +673,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     ).toHaveLength(0);
   });
 
-  it("RED 8: a CLI `--theta` root whose readdir rejects ENOENT with a clean ancestor chain emits a missing-source ERROR naming `--theta flag #1`", async () => {
+  it("RED 8: a CLI `--theta` root whose readdir rejects ENOENT with a clean ancestor chain emits a missing-source ERROR naming `cli-flag:\"--theta /opt/gone\"`", async () => {
     // Same clean-leaf classification as control 7, opposite severity cell: the
     // CLI row's Missing column (:56) is "error (explicit user intent)".
     const fs = new ReaddirDenied(
@@ -688,7 +690,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: MISSING_SOURCE,
         severity: "error",
         file: "/opt/gone",
-        descriptor: "--theta flag #1",
+        descriptor: 'cli-flag:"--theta /opt/gone"',
       },
       "the CLI root's enumeration reports ENOENT and every proper ancestor lstats ok " +
         "as a directory, so the :66 walk classifies it missing — an error for the CLI row",
@@ -722,7 +724,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: PROJECT_ROOT,
-        descriptor: "project .pi/theta/",
+        descriptor: 'project:"/project/.pi/theta"',
       },
       "the denied project root reports its failure while the pass continues",
     );
@@ -856,7 +858,7 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
         code: UNREADABLE_SOURCE,
         severity: "warning",
         file: `${NM}/alpha/theta`,
-        descriptor: "package `alpha` theta/ directory",
+        descriptor: 'package:"alpha"',
       },
       "the package's `theta/` directory exists and its enumeration is denied; the " +
         "Package `theta/` row's Unreadable cell is a warning (:53)",
@@ -941,23 +943,20 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
       diagnostic.severity,
       "the Package `pi.theta` row's Unreadable cell is a warning (:54)",
     ).toBe("warning");
-    // The registry frame is pinned byte-exact (DIAG-4); the descriptor slot is
-    // matched by content because the spec carries two spellings for it —
-    // `` "package `foo` (pi.theta)" `` (package-and-settings.md:25) and
-    // `` "package `foo` (pi.theta[0])" `` (discovery-sources.md:61).
+    // The registry frame is pinned byte-exact (DIAG-4). Post-0461 the
+    // descriptor slot renders the normative `package:"<name>"` form
+    // (placeholder-rendering-b.md §5) — the same bytes for both the
+    // `pi.theta`-contributed directory and the conventional `theta/`
+    // fallback, since the kind:value grammar has no slot for the manifest-key
+    // distinction the pre-fix category prose carried.
     expect(
       diagnostic.message,
       "DIAG-4: the message is the registry row's Message template",
     ).toMatch(templateToRegExp(loadRowMessage(UNREADABLE_SOURCE)));
     expect(
       diagnostic.message,
-      "the descriptor names the offending package (discovery-sources.md:61)",
-    ).toContain("package `beta`");
-    expect(
-      diagnostic.message,
-      "the descriptor names the manifest key that contributed the directory " +
-        "(package-and-settings.md:25)",
-    ).toContain("pi.theta");
+      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
+    ).toContain('package:"beta"');
   });
 
   it("RED 15: a directory a `pi.theta` entry names, whose readdir rejects a clean-leaf ENOENT while lstat reports a directory, emits a missing-source ERROR naming the package", async () => {
@@ -1015,23 +1014,20 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
       diagnostic.severity,
       "the `Package pi.theta entry` row's Missing cell is an error (:54)",
     ).toBe("error");
-    // The registry frame is pinned byte-exact (DIAG-4); the descriptor slot is
-    // matched by content because the spec carries two spellings for it —
-    // `` "package `foo` (pi.theta)" `` (package-and-settings.md:25) and
-    // `` "package `foo` (pi.theta[0])" `` (discovery-sources.md:61).
+    // The registry frame is pinned byte-exact (DIAG-4). Post-0461 the
+    // descriptor slot renders the normative `package:"<name>"` form
+    // (placeholder-rendering-b.md §5) — the same bytes for both the
+    // `pi.theta`-contributed directory and the conventional `theta/`
+    // fallback, since the kind:value grammar has no slot for the manifest-key
+    // distinction the pre-fix category prose carried.
     expect(
       diagnostic.message,
       "DIAG-4: the message is the registry row's Message template",
     ).toMatch(templateToRegExp(loadRowMessage(MISSING_SOURCE)));
     expect(
       diagnostic.message,
-      "the descriptor names the offending package (discovery-sources.md:61)",
-    ).toContain("package `beta`");
-    expect(
-      diagnostic.message,
-      "the descriptor names the manifest key that contributed the directory " +
-        "(package-and-settings.md:25)",
-    ).toContain("pi.theta");
+      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
+    ).toContain('package:"beta"');
   });
 
   it("control 16 (green): a package's conventional `theta/` fallback whose readdir rejects a clean-leaf ENOENT while lstat reports a directory stays SILENT", async () => {

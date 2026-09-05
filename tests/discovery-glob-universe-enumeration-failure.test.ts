@@ -42,8 +42,9 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //   :56     the `Package pi.theta entry` row — *Unreadable path* = warning.
 //   :57     the `Settings thetaPaths entry` row — *Unreadable path* = warning.
 //   :63     rule 2 — each diagnostic "carries the source descriptor in its
-//           `message` so the author can locate the offending configuration —
-//           e.g. `"settings entry index 2"` … `` "package `foo` (pi.theta[0])" ``".
+//           `message`", and the three source-shaped codes render it in the
+//           normative `<kind>:"<value>"` form — e.g. `` settings:"~/work/theta" ``
+//           … `` package:"foo" ``.
 //   :64     rule 3 — "Errors are fatal for the offending entry only, not for
 //           the whole discovery pass".
 //   :68     the clean-leaf-`ENOENT` walk — "on `ENOENT`, walk the candidate
@@ -66,8 +67,9 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //   silent (not an error)"), :31 (the `theta/` fallback ignores subdirectories),
 //   :92 (a directory entry is non-recursive), :97 ("Path-existence and
 //   permission failures … are covered by the *Settings `thetaPaths` entry* row
-//   … carry an `"settings entry index N"` source descriptor identifying the
-//   offending array index").
+//   … carry a `` settings:"<entry>" `` source descriptor in the normative
+//   descriptor form, rendering the offending `thetaPaths` entry text
+//   verbatim").
 // docs/spec_topics/diagnostics/code-registry-load.md:47 — the
 //   `theta/load/unreadable-source` row, whose *Message* column is the only
 //   source of every expected message below (DIAG-4,
@@ -95,12 +97,12 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //      path, POSIX-normalised. Message = the registry row's *Message* template
 //      `discovery source is unreadable: <descriptor>`, sourced from
 //      code-registry-load.md (DIAG-4).
-//   3. Descriptor: settings side `settings entry index N` where N is the array
-//      index of the glob entry that first triggered the walk that observed the
+//   3. Descriptor: settings side `` settings:"<value>" ``, rendering the entry
+//      text of the glob entry that first triggered the walk that observed the
 //      rejection — the universe is cached per static-prefix root, by
 //      `treeFor` (`discovery-walk.ts`), so when several entries share a prefix the
 //      LOWEST such index owns it (deterministic). Package side:
-//      `` package `<name>` (pi.theta) `` (package-and-settings.md:27).
+//      `` package:"<name>" `` (package-and-settings.md:27).
 //   4. The MISSING arm stays SILENT: a clean-leaf `ENOENT` under the static
 //      prefix leaves the pattern resolving to zero paths, which
 //      package-and-settings.md:29 keeps silent — a universe walk NEVER emits
@@ -160,7 +162,7 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // produced for the denied path at all. Witnessing this defect needs `readdir`
 // to reject while `lstat` still reports a directory, so the local
 // `ReaddirDenied` decorator below — the shape bug 0076's witness establishes at
-// tests/discovery-root-enumeration-failure.test.ts:296-351 — rejects `readdir`
+// tests/discovery-root-enumeration-failure.test.ts:298-353 — rejects `readdir`
 // for exactly one configured path with a Node-style `.code` and delegates every
 // other member to an inner `FakeFileSystem`. One addition this bug needs and
 // bug 0076's copy does not: an optional per-path `lstat` denial, so cell S3 can
@@ -171,7 +173,7 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // The registry row (DIAG-4) — every expected message below is sourced from the
 // Message column of docs/spec_topics/diagnostics/code-registry-load.md, never
 // pasted prose. Helper shapes mirror
-// tests/discovery-root-enumeration-failure.test.ts:158-203.
+// tests/discovery-root-enumeration-failure.test.ts:160-205.
 // ===========================================================================
 
 interface RegistryRow {
@@ -323,7 +325,7 @@ function buildPackages(spec: FakeSpec): FakeFileSystem {
  * delegates every other member to an inner `FakeFileSystem`. This is the seam
  * that reaches the defect: the denied directory still `lstat`s as a directory,
  * so the universe walk descends into it and only its enumeration fails.
- * Mirrors tests/discovery-root-enumeration-failure.test.ts:296-351, extended
+ * Mirrors tests/discovery-root-enumeration-failure.test.ts:298-353, extended
  * with the `lstat` denial cell S3 needs for a dirty ancestor chain.
  */
 class ReaddirDenied implements FileSystem {
@@ -504,7 +506,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     ).toHaveLength(0);
   });
 
-  it("RED S1: `g/**/*.theta` whose subtree denies readdir EACCES emits one unreadable-source warning naming `settings entry index 0`", async () => {
+  it("RED S1: `g/**/*.theta` whose subtree denies readdir EACCES emits one unreadable-source warning naming `settings:\"g/**/*.theta\"`", async () => {
     const fs = new ReaddirDenied(build(nestedThetaFixture), DENIED_SUB, "EACCES");
 
     const { thetas, diagnostics } = await discoverThetas(
@@ -521,7 +523,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the static-prefix root `/project/.pi/g` enumerates successfully and the " +
         "failure is one level below it (EACCES — the Windows parent-ACL case " +
         "discovery-sources.md:68 cites)",
@@ -536,7 +538,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "EPERM is the second code discovery-sources.md:68 branches on, and at HEAD it " +
         "is indistinguishable from EACCES and from a clean-leaf ENOENT because no " +
         "code is read at all",
@@ -562,7 +564,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the rejection is ENOENT and an ancestor (`/project/.pi`) lstats EACCES, so " +
         "the :68 ancestor walk classifies the result unreadable for this explicit " +
         "reference",
@@ -600,7 +602,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       denied,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "one denied subtree marks the inventory short while the pass completes " +
         "(discovery-sources.md:64)",
     );
@@ -632,7 +634,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/s.theta"`,
       "two thetaPaths entries share one cached universe walk, so the rejection is " +
         "observed once and attributed to the lowest index that triggered it",
     );
@@ -655,7 +657,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       PREFIX_ROOT,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the static-prefix root itself — the literal directory the author typed — " +
         "cannot be enumerated, and the loss is total",
     );
@@ -689,15 +691,28 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       filePattern.diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the same fixture and the same denied path under a pattern that matches the " +
         "file rather than the directory — at HEAD `g/*` warns and `g/**/*.theta` is " +
         "silent, a difference with no basis in any spec sentence",
     );
+    // Post-0461 the two pattern shapes render DISTINCT descriptors, not the
+    // same one: the normative `<kind>:"<value>"` form (placeholder-rendering-b.md
+    // §5) carries each observing entry's own verbatim text — `g/*` reaches the
+    // denied path through `enumerateDirectory` (descriptor value = its own
+    // `entry.raw`, `"g/*"`), `g/**/*.theta` through the universe walk
+    // (descriptor value = ITS entry's `entry.raw`, `"g/**/*.theta"`). What the
+    // two arms still agree on is the COUNT (adjudication (5), asserted above) —
+    // one diagnostic for the denied path regardless of which observer reports
+    // it first.
+    expect(
+      hitsFor(dirPattern.diagnostics, UNREADABLE_SOURCE, DENIED_SUB)[0]?.message,
+    ).toBe(interpolate(loadRowMessage(UNREADABLE_SOURCE), { descriptor: `settings:"g/*"` }));
     expect(
       hitsFor(filePattern.diagnostics, UNREADABLE_SOURCE, DENIED_SUB)[0]?.message,
-      "the two pattern shapes agree on the descriptor as well as the count",
-    ).toBe(hitsFor(dirPattern.diagnostics, UNREADABLE_SOURCE, DENIED_SUB)[0]?.message);
+    ).toBe(
+      interpolate(loadRowMessage(UNREADABLE_SOURCE), { descriptor: `settings:"g/**/*.theta"` }),
+    );
   });
 
   it("RED S8: a `+` operand recovers the file AND the universe failure is still reported", async () => {
@@ -721,7 +736,7 @@ describe("bug 0113 — a settings glob universe whose readdir rejects reports it
     expectUniverseFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the universe walk entry 0 triggered still failed, and the walk owes the " +
         "report whether or not a later override stage re-admits the path",
     );
@@ -871,14 +886,15 @@ describe("bug 0113 — a package `pi.theta` universe whose readdir rejects repor
       diagnostic.message,
       "DIAG-4: the message is the registry row's Message template",
     ).toMatch(templateToRegExp(loadRowMessage(UNREADABLE_SOURCE)));
+    // Post-0461 the descriptor renders the normative `package:"<name>"` form
+    // (placeholder-rendering-b.md §5) — collapsing the pi.theta-vs-theta/
+    // distinction the pre-fix category prose carried, since the kind:value
+    // grammar has no slot for the manifest key. The manifest-key assertion
+    // ("pi.theta") drops accordingly — there is no substring left to name it.
     expect(
       diagnostic.message,
-      "the descriptor names the offending package (discovery-sources.md:63)",
-    ).toContain("package `beta`");
-    expect(
-      diagnostic.message,
-      "and the manifest key that contributed it (package-and-settings.md:27)",
-    ).toContain("pi.theta");
+      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
+    ).toContain('package:"beta"');
     expect(
       diagnostics.filter((d) => d.code === MISSING_SOURCE),
       "adjudication (4): the package copy treats every ENOENT as clean, and a " +
@@ -1197,10 +1213,10 @@ describe("bug 0113 — the universe-walk warning reaches the theta-system-note c
     expect(
       delivered.message,
       "DIAG-4: the delivered message is the registry row's Message column carrying " +
-        "the `settings entry index N` descriptor (package-and-settings.md:97)",
+        "the normative `settings:\"<entry text>\"` descriptor (placeholder-rendering-b.md §5)",
     ).toBe(
       interpolate(loadRowMessage(UNREADABLE_SOURCE), {
-        descriptor: "settings entry index 0",
+        descriptor: `settings:"g/**/*.theta"`,
       }),
     );
   });

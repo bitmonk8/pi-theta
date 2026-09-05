@@ -494,7 +494,8 @@ interface RawCandidate {
 async function enumerateDirectory(
   fs: FileSystem,
   dir: string,
-  descriptor: string,
+  source: DiscoverySource,
+  descriptorValue: string,
   modes: FailureModes,
   diagnostics: Diagnostic[],
 ): Promise<RawCandidate[]> {
@@ -504,9 +505,9 @@ async function enumerateDirectory(
   );
   if (!entries.ok) {
     if (entries.code === "ENOENT" && (await ancestorsClean(fs, dir))) {
-      emitSourceFailure(modes.missing, MISSING_SOURCE, descriptor, dir, diagnostics, "missing");
+      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, dir, diagnostics, "missing");
     } else {
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, descriptor, dir, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, dir, diagnostics, "unreadable");
     }
     return [];
   }
@@ -624,6 +625,8 @@ async function resolveEntry(
   fs: FileSystem,
   path: string,
   descriptor: string,
+  source: DiscoverySource,
+  descriptorValue: string,
   modes: FailureModes,
   explicitFile: boolean,
   enoentPolicy: EnoentPolicy,
@@ -634,7 +637,7 @@ async function resolveEntry(
   switch (resolved.kind) {
     case "dir":
       roots.add(normalizePath(path));
-      return enumerateDirectory(fs, path, descriptor, modes, diagnostics);
+      return enumerateDirectory(fs, path, source, descriptorValue, modes, diagnostics);
     case "file":
       // A single `.theta` file entry contributes itself directly. Bug 0363: the
       // slash name and candidate path come from the ON-DISK directory entry,
@@ -654,13 +657,13 @@ async function resolveEntry(
       });
       return [];
     case "missing":
-      emitSourceFailure(modes.missing, MISSING_SOURCE, descriptor, path, diagnostics, "missing");
+      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, path, diagnostics, "missing");
       return [];
     case "unreadable":
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, descriptor, path, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, path, diagnostics, "unreadable");
       return [];
     case "wrong-type":
-      emitSourceFailure(modes.wrongType, WRONG_TYPE_SOURCE, descriptor, path, diagnostics, "wrong-type");
+      emitSourceFailure(modes.wrongType, WRONG_TYPE_SOURCE, source, descriptorValue, path, diagnostics, "wrong-type");
       return [];
   }
 }
@@ -681,10 +684,16 @@ function classifyForSource(
   return cls;
 }
 
+// Renders the failure-mode rows' `<descriptor>` in the normative
+// `<kind>:"<value>"` form (placeholder-rendering-b.md §5) — the same grammar
+// the cross-source-shadow mint (`renderDescriptor`) already uses, so one
+// source rejected by two different observers (a shadow note and a failure
+// note) never renders under two grammars for the same pass (bug 0461).
 function emitSourceFailure(
   severity: Severity | null,
   code: string,
-  descriptor: string,
+  source: DiscoverySource,
+  descriptorValue: string,
   path: string,
   diagnostics: Diagnostic[],
   kind: "missing" | "unreadable" | "wrong-type",
@@ -692,6 +701,7 @@ function emitSourceFailure(
   if (severity === null) {
     return; // conventional silent-on-missing
   }
+  const descriptor = renderSourceDescriptor(source, descriptorValue);
   const message =
     kind === "missing"
       ? `discovery source path does not exist: ${descriptor}`
@@ -858,7 +868,7 @@ function emitUniverseFailures(
   severity: Severity,
   diagnostics: Diagnostic[],
 ): void {
-  for (const [path, descriptor] of failures) {
+  for (const [path, descriptorValue] of failures) {
     const file = normalizePath(path);
     const alreadyReported = diagnostics.some(
       (diagnostic) =>
@@ -866,7 +876,7 @@ function emitUniverseFailures(
         (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
     );
     if (alreadyReported) continue;
-    emitSourceFailure(severity, UNREADABLE_SOURCE, descriptor, path, diagnostics, "unreadable");
+    emitSourceFailure(severity, UNREADABLE_SOURCE, "settings", descriptorValue, path, diagnostics, "unreadable");
   }
 }
 
@@ -1002,22 +1012,24 @@ async function resolveSettingsSource(
   // the walk that observed it: `treeCache` shares one universe across every
   // entry with the same static prefix, so at the point of observation no single
   // index owns the rejection, and the first (lowest-index) consumer is the
-  // deterministic choice.
+  // deterministic choice. Maps path → the owning entry's descriptor VALUE
+  // (`entry.raw`), rendered into the normative `<kind>:"<value>"` form at
+  // `emitUniverseFailures` (placeholder-rendering-b.md §5).
   const universeFailures = new Map<string, string>();
-  const treeFor = async (root: string, descriptor: string): Promise<TreeEntry[]> => {
+  const treeFor = async (root: string, descriptorValue: string): Promise<TreeEntry[]> => {
     const cached = treeCache.get(root);
     if (cached !== undefined) return cached.entries;
     const tree = await listTree(fs, root);
     treeCache.set(root, tree);
     for (const path of tree.unreadable) {
-      if (!universeFailures.has(path)) universeFailures.set(path, descriptor);
+      if (!universeFailures.has(path)) universeFailures.set(path, descriptorValue);
     }
     return tree.entries;
   };
 
-  const addDir = async (dir: string, descriptor: string, descriptorValue: string): Promise<void> => {
+  const addDir = async (dir: string, descriptorValue: string): Promise<void> => {
     roots.add(normalizePath(dir));
-    for (const cand of await enumerateDirectory(fs, dir, descriptor, SETTINGS_MODES, diagnostics)) {
+    for (const cand of await enumerateDirectory(fs, dir, "settings", descriptorValue, SETTINGS_MODES, diagnostics)) {
       selected.set(cand.path, { ...cand, descriptorValue });
     }
   };
@@ -1050,22 +1062,21 @@ async function resolveSettingsSource(
     // above already stripped the override character), so an ENOENT here is
     // about ancestor directories the operator actually wrote into the entry.
     const cls = await classifyPath(fs, entry.abs, "ancestor-walk");
-    const descriptor = `settings entry index ${entry.index}`;
     switch (cls.kind) {
       case "dir":
-        await addDir(entry.abs, descriptor, entry.raw);
+        await addDir(entry.abs, entry.raw);
         return;
       case "file":
         await addFile(entry.abs, entry.index, entry.raw);
         return;
       case "missing":
-        emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, descriptor, entry.abs, diagnostics, "missing");
+        emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "missing");
         return;
       case "unreadable":
-        emitSourceFailure(SETTINGS_MODES.unreadable, UNREADABLE_SOURCE, descriptor, entry.abs, diagnostics, "unreadable");
+        emitSourceFailure(SETTINGS_MODES.unreadable, UNREADABLE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "unreadable");
         return;
       case "wrong-type":
-        emitSourceFailure(SETTINGS_MODES.wrongType, WRONG_TYPE_SOURCE, descriptor, entry.abs, diagnostics, "wrong-type");
+        emitSourceFailure(SETTINGS_MODES.wrongType, WRONG_TYPE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "wrong-type");
         return;
     }
   };
@@ -1073,14 +1084,11 @@ async function resolveSettingsSource(
   // A glob entry enumerates the universe under its static-prefix root and
   // contributes per match (file → register, dir → non-recursive scan).
   const addGlob = async (entry: ParsedSettingsEntry): Promise<void> => {
-    const tree = await treeFor(
-      staticPrefixRoot(entry.abs),
-      `settings entry index ${entry.index}`,
-    );
+    const tree = await treeFor(staticPrefixRoot(entry.abs), entry.raw);
     for (const universeEntry of tree) {
       if (!globMatches(universeEntry, entry.abs, entry.operand, baseDir)) continue;
       if (universeEntry.isDir) {
-        await addDir(universeEntry.abs, `settings entry index ${entry.index}`, entry.raw);
+        await addDir(universeEntry.abs, entry.raw);
       } else if (universeEntry.isFile) {
         await addFile(universeEntry.abs, entry.index, entry.raw);
       }
@@ -1129,10 +1137,16 @@ async function resolveSettingsSource(
  * load-phase diagnostics.
  */
 /**
- * The descriptor naming the conventional project discovery root in diagnostics.
- * Built from the HOST's config-dir name so a reader is pointed at the directory
- * that host actually reads (`.pi/theta/` on Pi, `.omp/theta/` on Oh-My-Pi)
- * rather than at the one this extension was authored against.
+ * The category label for the conventional project discovery root, threaded
+ * only into `resolveEntry`'s `descriptor` parameter — whose sole read is the
+ * `invalid-extension` arm, unreachable here because a conventional root is
+ * always called with `explicitFile=false` and so never routes to that arm.
+ * Kept for shape parity with `resolveEntry`'s explicit-entry callers, not
+ * because a reader ever sees it: the path-bearing project/global diagnostics
+ * render `descriptorValue = normalizePath(root.path)` via the normative
+ * `<kind>:"<value>"` descriptor form instead. Still built from the HOST's
+ * config-dir name (`.pi/theta/` on Pi, `.omp/theta/` on Oh-My-Pi) so the
+ * vestigial value stays host-accurate rather than authored-extension-specific.
  */
 function projectSourceLabel(configDirName: string): string {
   return `project ${configDirName}/theta/`;
@@ -1315,6 +1329,8 @@ async function collectFromEntries(
       fs,
       entry.path,
       entry.descriptor,
+      source,
+      entry.descriptorValue,
       modes,
       explicitFile,
       entry.enoentPolicy,
@@ -1335,9 +1351,11 @@ function sourceLabelOf(source: DiscoverySource): string {
       return "settings thetaPaths";
     case "project":
       // The host config-dir name is unavailable at this pure-label seam, so the
-      // Pi spelling stands in for the source CATEGORY here. Every path-bearing
-      // project diagnostic is built with `projectSourceLabel(configDir)` below,
-      // which names the real directory.
+      // Pi spelling stands in for the source CATEGORY here. This label is what
+      // the case-collision message above (`case-insensitive filename collision
+      // in ${sourceLabel}`) names — the path-bearing project diagnostics render
+      // the normative `<kind>:"<value>"` descriptor form instead, so this
+      // prose spelling never has to stand in for a real directory there.
       return "project .pi/theta/";
     case "package":
       return "package theta/ directory";
@@ -1365,12 +1383,21 @@ function descriptorKindOf(source: DiscoverySource): string {
   }
 }
 
+/** Render a source kind + descriptor value as the normative
+ *  `<kind>:"<value>"` descriptor (placeholder-rendering-b.md §5/§7) — the
+ *  one rendering shared by every mint site that renders a discovery source
+ *  as `<descriptor>`, so a source rejected by two different observers
+ *  cannot render under two grammars for the same pass (bug 0461). */
+function renderSourceDescriptor(source: DiscoverySource, descriptorValue: string): string {
+  return `${descriptorKindOf(source)}:"${descriptorValue}"`;
+}
+
 /** Render one candidate as the normative `<kind>:"<value>"` descriptor
  *  (placeholder-rendering-b.md §5/§7) — the mint site for the
  *  cross-source-shadow `<higher>`/`<lower>` placeholders must render this
  *  form, not a bare candidate path. */
 function renderDescriptor(candidate: SourcedCandidate): string {
-  return `${descriptorKindOf(candidate.source)}:"${candidate.descriptorValue}"`;
+  return renderSourceDescriptor(candidate.source, candidate.descriptorValue);
 }
 
 /** Apply case-collision resolution independently within each source. */

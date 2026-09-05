@@ -6,6 +6,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.460.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0461 — source-failure descriptor category text**: the three DISC-2 failure-mode diagnostics (`theta/load/missing-source`, `unreadable-source`, `wrong-type-source`) rendered `<descriptor>` as prose category text (`settings entry index 0`) instead of the normative `<kind>:"<value>"` form the 0440 descriptor work pinned. `emitSourceFailure` and the package walker now render `settings:"…"`/`cli-flag:"…"`/`project:"…"`/`global:"…"`/`package:"…"`; ten witness files re-pinned incl. the LPA cell-62 fragment under a ratified content-only exemption (line count held at 14864). (`src/discovery/discovery-walk.ts`, `src/discovery/package-discovery.ts`; witness `tests/b0461-source-failure-descriptor-form.test.ts`)
+
 ## [0.459.0]
 
 ### Fixed

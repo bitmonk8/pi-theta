@@ -51,7 +51,7 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //   docs/spec_topics/discovery/package-and-settings.md:27 — the
 //     `` package `foo` (pi.theta) `` descriptor form; :29 — "A glob pattern that
 //     resolves to zero files is silent (not an error)"; :97 — the settings
-//     descriptor form `settings entry index N`.
+//     source renders the normative `` settings:"<value>" `` descriptor form.
 //   docs/spec_topics/diagnostics/code-registry-load.md:48 — the
 //     `theta/load/unreadable-source` row, whose *Message* column is the only
 //     source of every expected message below (DIAG-4,
@@ -62,9 +62,9 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //      failure inside a root that exists (:69) ⇒ `theta/load/unreadable-source`
 //      at the source's *Unreadable path* severity — `warning` for both
 //      reachable rows (:56, :57) — with the offending ENTRY path in `file`.
-//   2. Descriptor: `settings entry index N` for the lowest-index entry owning
+//   2. Descriptor: `` settings:"<value>" `` for the lowest-index entry owning
 //      the shared universe (`treeFor` caches per static-prefix root,
-//      `discovery-walk.ts`), `` package `<name>` (pi.theta) `` on the
+//      `discovery-walk.ts`), `` package:"<name>" `` on the
 //      package side (package-and-settings.md:27).
 //   3. An `ENOENT` from that `lstat` stays SILENT: the entry vanished between
 //      the enumeration and the probe — a clean leaf under a parent the
@@ -394,7 +394,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
     ).toHaveLength(0);
   });
 
-  it("cell 1 (RED): a mid-walk entry whose lstat rejects EACCES emits one unreadable-source warning naming `settings entry index 0`", async () => {
+  it("cell 1 (RED): a mid-walk entry whose lstat rejects EACCES emits one unreadable-source warning naming `settings:\"g/**/*.theta\"`", async () => {
     const fs = new LstatDenied(build(nestedThetaFixture), DENIED_SUB, "EACCES");
 
     const { thetas, diagnostics } = await discoverThetas(
@@ -411,7 +411,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
     expectEntryLstatFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "the static-prefix root `/project/.pi/g` enumerates successfully and names " +
         "`sub`, whose own lstat is denied EACCES — the Windows parent-ACL shape",
     );
@@ -425,7 +425,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
     expectEntryLstatFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "EPERM is the second code discovery-sources.md:68 classifies as unreadable, " +
         "and at the drop site it is indistinguishable from EACCES and from a " +
         "vanished entry because no code is read at all",
@@ -443,7 +443,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
     expectEntryLstatFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/*.theta"`,
       "ENOTDIR on an entry the parent just enumerated is a traversal failure " +
         "inside a root that exists, not an absence",
     );
@@ -495,7 +495,7 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (se
     expectEntryLstatFailure(
       diagnostics,
       DENIED_SUB,
-      "settings entry index 0",
+      `settings:"g/**/s.theta"`,
       "two thetaPaths entries share one cached universe walk, so the rejection is " +
         "observed once and attributed to the lowest index that triggered it",
     );
@@ -632,14 +632,14 @@ describe("listTree's per-entry lstat rejection reports its traversal failure (pa
       diagnostic.message,
       "DIAG-4: the message is the registry row's Message template",
     ).toMatch(templateToRegExp(loadRowMessage(UNREADABLE_SOURCE)));
+    // Post-0461 the descriptor renders the normative `package:"<name>"` form
+    // (placeholder-rendering-b.md §5), collapsing the pi.theta-vs-theta/
+    // distinction the pre-fix category prose carried — the kind:value grammar
+    // has no slot for the manifest key, so that assertion drops.
     expect(
       diagnostic.message,
-      "the descriptor names the offending package (discovery-sources.md:63)",
-    ).toContain("package `beta`");
-    expect(
-      diagnostic.message,
-      "and the manifest key that contributed it (package-and-settings.md:27)",
-    ).toContain("pi.theta");
+      "the descriptor names the offending package (placeholder-rendering-b.md §5)",
+    ).toContain('package:"beta"');
     expect(
       diagnostics.filter((d) => d.code === MISSING_SOURCE),
       "a universe walk never emits missing-source",

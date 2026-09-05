@@ -53,8 +53,9 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //   discovery-sources.md:64 — rule 3: "Errors are fatal for the offending entry
 //     only, not for the whole discovery pass".
 //   discovery-sources.md:63 — rule 2: each diagnostic "carries the source
-//     descriptor in its `message` so the author can locate the offending
-//     configuration — e.g. … `"--theta flag #1"`".
+//     descriptor in its `message`", and the three source-shaped codes render
+//     it in the normative `<kind>:"<value>"` form — e.g.
+//     `` cli-flag:"--theta /opt/plan" ``.
 //   docs/spec_topics/discovery/package-and-settings.md:91 — the DISC-5 glob and
 //     `!`/`+`/`-` override grammar, whose home is the settings source.
 //   docs/reference/discovery-cli.md:53 — the operator-facing mirror of the CLI
@@ -70,8 +71,8 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //   2. An `ENOENT` on such a component classifies `missing` ⇒
 //      `theta/load/missing-source`, severity `error` (the CLI row at
 //      discovery-sources.md:58), `file` = the operand text verbatim, message =
-//      the registry row interpolated with the `--theta flag #N` descriptor —
-//      and NOT `theta/load/unreadable-source`.
+//      the registry row interpolated with the `cli-flag:"--theta <operand>"`
+//      descriptor — and NOT `theta/load/unreadable-source`.
 //   3. A non-`ENOENT` rejection on such a component still classifies
 //      `unreadable`: the path exists and cannot be read.
 //   4. Untouched, and pinned here by control cells: DISC-2's ancestor walk for
@@ -209,7 +210,7 @@ function hitsFor(
  * The pin: an override-prefixed `--theta` component that names no path is
  * reported exactly once as `theta/load/missing-source`, `error`, with the
  * operand text verbatim in `file` and the registry-sourced message carrying the
- * `--theta flag #N` descriptor — and the `unreadable-source` code appears
+ * `cli-flag:"--theta <operand>"` descriptor — and the `unreadable-source` code appears
  * nowhere for that path. The PRIMARY assertion quotes every observed diagnostic
  * so the red output names the code that arrives instead.
  */
@@ -318,7 +319,7 @@ describe("an override-prefixed --theta component is a literal path whose absence
     expectLiteralMissing(
       diagnostics,
       `!${T}`,
-      "--theta flag #2",
+      `cli-flag:"--theta !${T}"`,
       "`!/opt/t` is a path whose first character is `!`",
     );
   });
@@ -336,7 +337,7 @@ describe("an override-prefixed --theta component is a literal path whose absence
     expectLiteralMissing(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "`+/opt/t/a.theta` is a path whose first character is `+`",
     );
   });
@@ -353,7 +354,7 @@ describe("an override-prefixed --theta component is a literal path whose absence
     expectLiteralMissing(
       diagnostics,
       `-${T}`,
-      "--theta flag #2",
+      `cli-flag:"--theta -${T}"`,
       "`-/opt/t` is a path whose first character is `-`",
     );
   });
@@ -379,7 +380,7 @@ describe("DISC-2's ancestor walk stays in force for an ordinary --theta componen
     expectUnreadable(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "an ordinary absolute component whose ancestor `/nope` is itself absent " +
         "classifies unreadable (discovery-sources.md:68), and the CLI row makes " +
         "it an error (:58)",
@@ -397,7 +398,7 @@ describe("DISC-2's ancestor walk stays in force for an ordinary --theta componen
     expectLiteralMissing(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "an ordinary absolute component under an entirely enterable chain is a " +
         "clean leaf-`ENOENT`",
     );
@@ -451,7 +452,7 @@ describe("an override-prefixed --theta component keeps literal-path semantics on
     expectUnreadable(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "an EACCES rejection on an override-prefixed component is a path that " +
         "exists and cannot be read (code-registry-load.md:48), so the unreadable " +
         "classification is the truthful one",
@@ -483,7 +484,7 @@ describe("the neighbouring dispositions are unchanged", () => {
     expectLiteralMissing(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "a glob operand's ancestors `/`, `/opt` and `/opt/t` all enumerate, so the " +
         "pattern text is a clean leaf-`ENOENT`",
     );
@@ -535,7 +536,7 @@ describe("hasOverridePrefix boundary cells: computed on the raw operand's first 
     expectLiteralMissing(
       diagnostics,
       "-",
-      "--theta flag #1",
+      `cli-flag:"--theta -"`,
       "a bare `-` operand's first (and only) character is the override prefix `-`",
     );
   });
@@ -558,7 +559,7 @@ describe("hasOverridePrefix boundary cells: computed on the raw operand's first 
     expectUnreadable(
       diagnostics,
       expanded,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "a `~`-prefixed operand is not override-shaped, so DISC-2's ancestor walk " +
         "runs on the expanded path (discovery-sources.md:68); `/home` is absent " +
         "from this fixture, so the chain is dirty and the classification is " +
@@ -581,7 +582,7 @@ describe("hasOverridePrefix boundary cells: computed on the raw operand's first 
     expectUnreadable(
       diagnostics,
       operand,
-      "--theta flag #1",
+      `cli-flag:"--theta ${operand}"`,
       "a Windows-drive-shaped operand is not override-shaped, so DISC-2's " +
         "ancestor walk runs (discovery-sources.md:68) and finds the drive-root " +
         "ancestor `C:/` absent, classifying `unreadable`, not `missing`",
