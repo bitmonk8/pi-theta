@@ -1,6 +1,6 @@
 # Bug 0459 — Both arms of `theta/load/cross-format-collision` diverge from the pinned `<paths>` rendering: the Pi-owned arm appends an off-template ` (Pi-owned command '<name>' survives)` suffix and omits the colliding `.md` sibling from `<paths>` (the extension discards `SlashCommandInfo.sourceInfo`, so the operator is told to rename files it never names), the same-format arm renders candidates in insertion order where §7 pins priority-then-absolute-path, and candidate paths interpolate in the mixed Win32-root-plus-POSIX-tail spelling
 
-- **Status:** open.
+- **Status:** fixed (0.458.0).
 - **Sev/Diff estimate:** S4/D2 — S4: wrong-diagnostics class per the 0440
   calibration (registration outcomes are correct on both arms — the theta
   drops, the Pi-owned entry survives, both same-tier copies drop; only the
@@ -268,3 +268,28 @@ the `sourceInfo` discard in `readPiOwnedCommands`; order/Pi-owned cells P2a/
 P2b from probe `tests/scratch-disc-precedence.test.ts` (deleted; outputs
 quoted verbatim in §Reproduction). `rg` sweeps for other emitters and the §7
 sibling phrase recorded in §Affected.
+
+## Fix (0.458.0)
+
+Option 1 (recommended) implemented verbatim:
+
+- `src/discovery/discovery-walk.ts` — `PiOwnedCommand.path?` (host `sourceInfo.path`);
+  one shared `collisionPathOrder` comparator (PRIORITY then byte-wise normalised path);
+  the Pi-owned arm renders `[theta candidates] ++ [.md-sibling / name-fallback tail]`
+  priority-then-path ordered, forward-slashed, suffix DROPPED; the same-format arm is
+  sorted + forward-slashed. Drop/survive/tier outcomes byte-unchanged.
+- `src/extension/production-composition.ts` — `readPiOwnedCommands` threads
+  `command.sourceInfo?.path` into `PiOwnedCommand` (additive).
+- `docs/spec_topics/diagnostics/placeholder-rendering-b.md:57` — adjudication rider:
+  a path-less foreign extension command renders its registered name as the tail
+  (the fallback the doc left unpinned).
+- `docs/spec_topics/pi-integration-contract/registration-steps.md:16` — PIC-69 sentence
+  scoped: `sourceInfo` non-read is self-vs-sibling disambiguation only; `sourceInfo.path`
+  is read for collision-message rendering.
+- Witness `tests/b0459-cross-format-collision-message-form.test.ts` (5 cells, red-proven
+  both directions at the fork).
+
+Census correction (merge-time, ratified): §Why-it-matters' claim that committed
+assertions match fragments only was FALSE — `tests/b0331-root-winner-preempt.test.ts:287`
+pinned the retired suffix and was re-pinned to the name-fallback tail (`, zqx-review`)
+under parent ratification at merge; no other committed assertion pinned the suffix.

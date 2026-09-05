@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.459.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0460 — `.md`-skill arm of the cross-format collision rule vacuous at the pinned host**: spec-side retirement (Option 1, no behaviour change) — skills occupy a disjoint `skill:` invocation namespace at the theta 1.0 pin and never collide with theta stems; `"skill"` stays in the PIC-69 source set as future-proofing marked unreachable-at-pin; host-prerequisites completeness sentence qualified; re-validation trigger added to the version-bump checklist (`#bump-checklist-getcommands-completeness`). (docs only; witness `tests/b0460-skill-arm-vacuous-at-pin.test.ts` pins coexistence, the live bare-name counterfactual, and the prompt-arm control)
+
+## [0.458.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0459 — cross-format collision message suffix, sibling order, and spelling**: the collision message's `(Pi-owned command '<name>' survives)` suffix is dropped; both mint arms render priority-then-path ordered, forward-slashed `<paths>` with the Pi-owned entry's path (or its registered name when path-less) as the sibling tail; `readPiOwnedCommands` threads `sourceInfo.path`. Ratified census correction: b0331:287 pinned the retired suffix and was re-pinned to the name-fallback tail. (`src/discovery/discovery-walk.ts`, `src/extension/production-composition.ts`; witness `tests/b0459-cross-format-collision-message-form.test.ts`)
+
 ## [0.457.0]
 
 ### Fixed

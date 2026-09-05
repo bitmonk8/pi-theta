@@ -36,6 +36,12 @@ export type DiscoverySource = "cli" | "settings" | "project" | "package" | "glob
 export interface PiOwnedCommand {
   readonly name: string;
   readonly source: "prompt" | "skill" | "extension";
+  /** The host-populated `SlashCommandInfo.sourceInfo.path`, rendered as the
+   *  `.md`-sibling tail of the `theta/load/cross-format-collision` message
+   *  (placeholder-rendering-b.md:57). Absent for a foreign extension command
+   *  whose entry carries no host path — the Pi-owned mint then falls back to
+   *  the command name. */
+  readonly path?: string;
 }
 
 /**
@@ -1451,6 +1457,18 @@ function dedupeByIdentity(group: readonly SourcedCandidate[]): SourcedCandidate[
   return [...byPath.values()];
 }
 
+/** Shared `<paths>` ordering for both `theta/load/cross-format-collision`
+ *  arms (placeholder-rendering-b.md:57): discovery-source PRIORITY first,
+ *  then byte-wise normalised (forward-slash) absolute path — a single
+ *  comparator so the same-format and Pi-owned mints cannot drift apart
+ *  again (0459 §Fix Residual 2). */
+function collisionPathOrder(a: SourcedCandidate, b: SourcedCandidate): number {
+  if (PRIORITY[a.source] !== PRIORITY[b.source]) return PRIORITY[a.source] - PRIORITY[b.source];
+  const na = normalizePath(a.path);
+  const nb = normalizePath(b.path);
+  return na < nb ? -1 : na > nb ? 1 : 0;
+}
+
 /** Resolve cross-source-shadow (different priority → higher wins) and
  *  cross-format-collision (same priority theta-vs-theta, or theta-vs-Pi-owned;
  *  the theta always loses asymmetrically) over the validated candidates.
@@ -1465,6 +1483,15 @@ async function resolveSlashNames(
   markedRoot?: { readonly slug: string; readonly winnerPath: string },
 ): Promise<DiscoveredTheta[]> {
   const piNames = new Set(piOwned.map((command) => command.name));
+  const piOwnedByName = new Map<string, PiOwnedCommand[]>();
+  for (const command of piOwned) {
+    const bucket = piOwnedByName.get(command.name);
+    if (bucket === undefined) {
+      piOwnedByName.set(command.name, [command]);
+    } else {
+      bucket.push(command);
+    }
+  }
   const byName = new Map<string, SourcedCandidate[]>();
   for (const candidate of candidates) {
     const bucket = byName.get(candidate.stem);
@@ -1480,13 +1507,21 @@ async function resolveSlashNames(
     const group = dedupeByIdentity(rawGroup);
 
     // Theta-vs-Pi-owned: the theta always loses; the Pi-owned entry survives.
+    // `<paths>` is the registered theta candidate(s) first (priority-then-path
+    // ordered), then the colliding `.md`-sibling tail (placeholder-rendering-b.md:57);
+    // a foreign extension command carrying no host path falls back to its
+    // registered name (0459 §Fix adjudication rider) — no survives-suffix.
     if (piNames.has(name)) {
+      const thetaPaths = [...group]
+        .sort(collisionPathOrder)
+        .map((candidate) => normalizePath(candidate.path));
+      const siblingPaths = (piOwnedByName.get(name) ?? [])
+        .map((command) => (command.path !== undefined && command.path !== "" ? normalizePath(command.path) : command.name))
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       diagnostics.push({
         severity: "error",
         code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${group
-          .map((candidate) => candidate.path)
-          .join(", ")} (Pi-owned command '${name}' survives)`,
+        message: `slash name '${name}' collides at the same priority: ${[...thetaPaths, ...siblingPaths].join(", ")}`,
       });
       continue;
     }
@@ -1518,12 +1553,15 @@ async function resolveSlashNames(
     const lowerTier = group.filter((candidate) => PRIORITY[candidate.source] !== minPriority);
 
     if (topTier.length > 1) {
-      // Same-priority theta-vs-theta: every colliding theta drops.
+      // Same-priority theta-vs-theta: every colliding theta drops. `<paths>`
+      // is priority-then-absolute-path ordered (placeholder-rendering-b.md:57),
+      // not collection/insertion order.
       diagnostics.push({
         severity: "error",
         code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${topTier
-          .map((candidate) => candidate.path)
+        message: `slash name '${name}' collides at the same priority: ${[...topTier]
+          .sort(collisionPathOrder)
+          .map((candidate) => normalizePath(candidate.path))
           .join(", ")}`,
       });
       continue;

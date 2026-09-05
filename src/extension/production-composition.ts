@@ -3800,7 +3800,7 @@ function readPiOwnedCommands(
     if (command.source === "extension" && excludeOwnedNames?.has(command.name) === true) {
       continue;
     }
-    owned.push({ name: command.name, source: command.source });
+    owned.push({ name: command.name, source: command.source, path: command.sourceInfo?.path });
   }
   return owned;
 }

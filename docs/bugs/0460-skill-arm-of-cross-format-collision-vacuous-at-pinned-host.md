@@ -1,6 +1,6 @@
 # Bug 0460 — The `.md`-skill arm of the cross-format collision rule is vacuous at the pinned host: skills enumerate as `skill:<name>`, the byte-exact comparison can never match a theta stem, so the spec's thrice-stated "`.md` skills preempt a same-named theta" never happens and a same-stem theta and skill silently coexist
 
-- **Status:** open.
+- **Status:** fixed (0.459.0).
 - **Sev/Diff estimate:** S5/D2 — S5: doc/spec drift with a benign shipped
   disposition (the coexistence is harmless at the pin — `/foo` and
   `/skill:foo` are disjoint invocation names, so no dispatch is ambiguous
@@ -183,3 +183,18 @@ reading the pinned host's `getCommands` skill mapping
 `readPiOwnedCommands`; confirmed by scratch probe
 `tests/scratch-pt-skill-arm.test.ts` (deleted; run recorded in the hunt
 log): theta registers, zero diagnostics.
+
+## Fix (0.459.0)
+- What shipped (parent adjudication Option 1 — spec-side retirement of the vacuous skill arm; NO behaviour change, NO source-code change):
+  - `docs/spec_topics/discovery/discovery-sources.md:85/:91` — DISC-4 rule 2 and its prose no longer list `.md` skills among the formats that preempt a same-named theta (the claim now spans `.md` prompts + other extensions' commands only); the slug-conformance clause is reworded to `.md` prompts only so it no longer contradicts the skill disposition; a new *Skills at the theta 1.0 Pi-SDK pin* note states skills occupy a disjoint `skill:` invocation namespace (`/foo` and `/skill:foo` coexist with zero diagnostics). (bound a)
+  - `docs/spec_topics/pi-integration-contract/registration-steps.md:20` — the collision source-set seam note keeps `"skill"` in the three-arm set marked **present-but-unreachable** at the pin, on the same footing as the deferred `"subagent"` widening. (bound b)
+  - `docs/spec_topics/pi-integration-contract/host-prerequisites.md:66` — the `getCommands()` completeness sentence qualified: skills enumerate under `skill:`-prefixed names, disjoint from theta stems, never a cross-format collision candidate. (bound c)
+  - `docs/spec_topics/pi-integration-contract/version-bump-step2.md` item (l) (`#bump-checklist-getcommands-completeness`, the getcommands-completeness re-validation surface) — re-validation trigger added: a Pi minor that enumerates skills under BARE names re-opens the arm (a behaviour flip). (bound d)
+  - `src/**` UNCHANGED — the `"skill"` branch stays live code (bound f); the two live arms (prompt, foreign-extension) stay byte-identical, their only permitted message change being sibling bug 0459's (bound e).
+- Gates: witness `tests/b0460-skill-arm-vacuous-at-pin.test.ts` 3/3 green (spec-only lock — both-directions proof: pinned-host `skill:foo` coexists [cell i] vs bare-named `{name:"foo",source:"skill"}` drops [cell ii]; prompt-arm control drops with 0459's message [cell iii]); `npm run typecheck` clean; `npm run lint` clean; registry-closed-set-corpus-gate + citation-symbol-form gates green. Full default suite: the only deterministic red is sibling `tests/b0331-root-winner-preempt.test.ts` (0459's landed suffix removal, ratification-pending — unrelated to 0460, which is spec-only).
+- Review: 1 round — bug-fix-reviewer (round 1) verdict FINDINGS: the sole finding F1 (`code-registry-load.md:50` trigger still lists `.md skill`) is OUTSIDE the parent's enumerated bounds (a)–(d) and vacuous-not-false under bound (b)'s retained-arm posture; bounds a–f verified faithful with no in-bounds finding. Recorded as residual R1 for parent nod.
+- Verification: spec-only, no behaviour change (bound f) → no live obligation owed (message-text/doc changes only; offline witness + gates suffice). The b0460 both-directions witness is the red-both-ways proof (prefixed-skill-coexists vs bare-skill-drops on inputs differing only by the `skill:` prefix); corpus contradiction sweep across `docs/spec_topics/**` finds no surviving sentence claiming `.md` skills preempt a theta.
+- Residuals:
+  1. R1 (F1) — `docs/spec_topics/diagnostics/code-registry-load.md:50`: the `theta/load/cross-format-collision` Trigger column still enumerates `.md skill` among the cross-format formats. This is a fifth statement site the 0460 doc's §Affected and the parent bounds (a)–(d) both missed. It is vacuous-not-false under bound (b) (the Trigger predicate is collision-conditional; the skill arm is present-but-unreachable at the pin, matching the retained-arm posture). A one-clause at-the-pin qualifier (pointing to the DISC-4 skill-namespace note) is available but sits OUTSIDE the adjudicated bounds, so it needs parent ratification. No test sources the Trigger bytes (touches no assertion; grep-confirmed).
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: implementation code unchanged (bound f); the `"skill"` branch stays live and the arm-3 counterfactual (b0460 cell ii) keeps witnessing it; the two live arms unchanged (bound e). Version rendered as the literal placeholder `0.459.0` per the lane's version-substitution rule.

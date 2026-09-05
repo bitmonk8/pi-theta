@@ -284,7 +284,12 @@ describe("b0331 — the Pi-owned guard is adjudicated before the marked-root pre
     expect(out.notifications.join("\n")).toContain(
       `zqx-review' ${COLLISION_FRAGMENT}`,
     );
-    expect(out.notifications.join("\n")).toContain("(Pi-owned command 'zqx-review'");
+    // Bug 0459 dropped the "(Pi-owned command '<name>' survives)" suffix; the
+    // survivor is now identified by the name-fallback tail of the <paths> list
+    // (a path-less prompt/extension entry renders as its registered name). The
+    // intent -- the Pi-owned guard adjudicates before marked-root pre-emption --
+    // is unchanged; this assertion tracks the ratified message form.
+    expect(out.notifications.join("\n")).toContain(", zqx-review");
   });
 });
 
