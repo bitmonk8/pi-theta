@@ -590,8 +590,9 @@ export interface ProductionProducerInput {
    * rides, carrying the live `RendererGate` and `SystemNoteChannelHealth`. The
    * per-invocation clean-cancel note must degrade and latch exactly like every
    * other note on that channel: on an instance whose
-   * `pi.registerMessageRenderer` failed the gate makes `sendSystemNote` skip
-   * the `pi.sendMessage` arm for a `display: false` note, and a stale-ctx throw
+   * `pi.registerMessageRenderer` failed the gate degrades only DISPLAYED notes
+   * (`display` unset/true) to the `ctx.ui.notify` arm — a `display: false`
+   * note still delivers via `pi.sendMessage` (bug 0454) — and a stale-ctx throw
    * latches the channel dead for every subsequent note rather than only for
    * this one.
    */

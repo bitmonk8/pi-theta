@@ -227,7 +227,7 @@ describe("V9p extension bootstrap — pi.registerMessageRenderer failure (theta/
     expect(gate.available()).toBe(false);
   });
 
-  it("theta/load/extension-bootstrap-failed: a degraded System-notes channel skips the persistent-transcript (pi.sendMessage) arm and routes every note through ctx.ui.notify", () => {
+  it("theta/load/extension-bootstrap-failed: a degraded System-notes channel skips the persistent-transcript (pi.sendMessage) arm for DISPLAYED notes and routes them through ctx.ui.notify (display-false notes keep the transcript arm, bug 0454)", () => {
     // A degraded gate models the post-renderer-failure extension instance: the
     // System-notes fallback chain MUST skip the `pi.sendMessage` (transcript)
     // arm — delivering to a transcript whose renderer failed renders nothing —

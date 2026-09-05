@@ -338,9 +338,11 @@ export interface ThetaExtensionDeps {
   /**
    * The renderer-availability gate (V9p). On a factory-time
    * `pi.registerMessageRenderer` failure the paired V9p implementation calls
-   * `rendererGate.degrade()` so this extension instance's system notes
-   * permanently route through the `ctx.ui.notify` arm of the System-notes
-   * fallback chain. Optional: the `H4a` / `V9k` paths that do not exercise the
+   * `rendererGate.degrade()` so this extension instance's DISPLAYED system notes
+   * (`display` unset/true) permanently route through the `ctx.ui.notify` arm of
+   * the System-notes fallback chain; a `display: false` structured note still
+   * delivers via `pi.sendMessage` (bug 0454 — the transcript write is not
+   * renderer-dependent). Optional: the `H4a` / `V9k` paths that do not exercise the
    * renderer-degrade surface omit it. Declared by `V9p-T`, consumed by `V9p`.
    */
   readonly rendererGate?: RendererGate;
