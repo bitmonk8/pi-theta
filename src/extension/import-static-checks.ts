@@ -90,6 +90,7 @@ import {
 } from "../parser/theta-document";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
+import { encodePointerSegment } from "../parser/schema-lowering";
 import {
   LOAD_SYSTEM_INTERP_BAD_FIELD_CODE,
   systemInterpBadFieldMessage,
@@ -122,6 +123,24 @@ import {
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
+}
+
+/**
+ * Whether a directly-imported schema's OWN root object carries at least one
+ * wire rename (bug 0445): the load-phase static-container patch fires only
+ * then — the SAME root-def-only condition the bug-0423 bare-root patch uses, so
+ * the bare, `array<Import>`, and import-typed-body-field positions agree (a
+ * rename-free or transitive-only-renamed import stays theta-side at every
+ * position — byte-identity by absence, never a bare-vs-container split).
+ */
+function importedRootHasWireRename(
+  shape: SystemParamType,
+): shape is Extract<SystemParamType, { kind: "object" }> {
+  return (
+    shape.kind === "object" &&
+    shape.rootDef !== undefined &&
+    (shape.sidecars?.get(shape.rootDef)?.wireNames.length ?? 0) > 0
+  );
 }
 
 /**
@@ -1468,6 +1487,128 @@ export async function checkThetaImports(
           break;
         }
         current = next;
+      }
+    }
+
+    // Bug 0445 route (a): the STATIC container positions the bug-0423 bare-root
+    // valueDriven patch above excludes — an `array<Import>` param (static array
+    // row, no sidecars at parse because imports are name-only) and a BODY schema
+    // whose field is typed by an import (the imported field drops its `refTarget`
+    // at parse). The LIB-BUILT sidecar fragment for each direct import already
+    // sits in `importedSchemaShapes`, built over the LIB's OWN namespace — so its
+    // internal `$ref`s resolve to the lib's schemas and are immune to an app
+    // schema of the same name (re-deriving in the app namespace would render a
+    // WRONG wire name). Carry that fragment: the array element takes the import's
+    // own root sidecar (the bug-0407 `array<Schema>` element shape), and a body
+    // schema's import-typed field gains a `refTarget` to the import's def plus the
+    // import's fragment merged into the enclosing map under its own def name (the
+    // per-`$defs` merge is collision-safe, bug 0424 F2 discipline). A rename-free
+    // import contributes no wire name, so its part is left unpatched — byte-
+    // identity by absence (the bug-0423 F3/F4 gate, one position over).
+    const appBodyTypes = collectBodyTypes(input.body.statements, input.sourcePath).bodyTypes;
+    for (let partIndex = 0; partIndex < originalParts.length; partIndex++) {
+      const part = originalParts[partIndex] as SystemTemplatePart;
+      if (part.kind !== "path" || part.valueDriven === true || part.segments.length !== 1) {
+        continue;
+      }
+      const typeSource = paramTypeSourceByName.get(part.segments[0] as string)?.trim();
+      if (typeSource === undefined) {
+        continue;
+      }
+      // Array face: `array<Import>` — carry the import's own sidecars/rootDef as
+      // the array element shape (bug 0407's `array<Schema>` element carriage).
+      if (part.type.kind === "array") {
+        const element = /^array<(.+)>$/.exec(typeSource)?.[1]?.trim();
+        const imp = element !== undefined ? importedSchemaShapes.get(element) : undefined;
+        if (imp !== undefined && importedRootHasWireRename(imp) && imp.rootDef !== undefined) {
+          patchedParts = patchedParts ?? [...originalParts];
+          patchedParts[partIndex] = {
+            kind: "path",
+            segments: part.segments,
+            type: {
+              kind: "array",
+              ...(imp.sidecars !== undefined ? { sidecars: imp.sidecars } : {}),
+              rootDef: imp.rootDef,
+            },
+          };
+        }
+        continue;
+      }
+      // Nested face: a body schema wrapping an import. Merge each import-typed
+      // field's LIB-BUILT fragment into the enclosing sidecar map and add the
+      // missing `refTarget`, across every body-schema def the parse-time map
+      // already carries (so a body chain reaching the imported field is covered).
+      if (
+        part.type.kind !== "object" ||
+        part.type.sidecars === undefined ||
+        part.type.rootDef === undefined
+      ) {
+        continue;
+      }
+      const merged = new Map(part.type.sidecars);
+      let patchedAnyField = false;
+      for (const [defName, sidecar] of part.type.sidecars) {
+        const fields = appBodyTypes.schemas.get(defName);
+        if (fields === undefined) {
+          continue;
+        }
+        const refTargets = sidecar.refTargets !== undefined ? [...sidecar.refTargets] : [];
+        let defPatched = false;
+        for (const field of fields) {
+          const imp = importedSchemaShapes.get(field.typeSource.trim());
+          if (
+            imp === undefined ||
+            imp.kind !== "object" ||
+            imp.rootDef === undefined ||
+            imp.sidecars === undefined ||
+            !importedRootHasWireRename(imp)
+          ) {
+            continue;
+          }
+          const pointer = `/properties/${encodePointerSegment(field.wireName ?? field.name)}`;
+          if (refTargets.some((rt) => rt.pointer === pointer)) {
+            continue;
+          }
+          // A flat per-`$defs` map cannot host two namespaces: if any def name in
+          // this import's fragment already names a DIFFERENT fragment in the map
+          // (an app body schema, or another import's same-named internal helper),
+          // merging would make this import's internal `$ref` resolve into the
+          // other namespace and render a WRONG wire name. Decline to translate
+          // this field then — it renders theta-side (never a wrong wire name; the
+          // collision case is a recorded residual). Reference identity holds for
+          // the same import's own fragment reused across two fields, so that is
+          // not a collision.
+          let collides = false;
+          for (const [impDef, impSidecar] of imp.sidecars) {
+            const existing = merged.get(impDef);
+            if (existing !== undefined && existing !== impSidecar) {
+              collides = true;
+              break;
+            }
+          }
+          if (collides) {
+            continue;
+          }
+          refTargets.push({ pointer, defName: imp.rootDef });
+          for (const [impDef, impSidecar] of imp.sidecars) {
+            if (!merged.has(impDef)) {
+              merged.set(impDef, impSidecar);
+            }
+          }
+          defPatched = true;
+          patchedAnyField = true;
+        }
+        if (defPatched) {
+          merged.set(defName, { ...sidecar, refTargets });
+        }
+      }
+      if (patchedAnyField) {
+        patchedParts = patchedParts ?? [...originalParts];
+        patchedParts[partIndex] = {
+          kind: "path",
+          segments: part.segments,
+          type: { kind: "object", sidecars: merged, rootDef: part.type.rootDef },
+        };
       }
     }
   }

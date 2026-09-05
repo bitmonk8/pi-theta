@@ -133,6 +133,13 @@ export type SystemParamType =
       readonly kind: "array";
       readonly sidecars?: Extract<InterpolationType, { kind: "array" }>["sidecars"];
       readonly rootDef?: string;
+      /**
+       * Element-level union arms for `array<Cat | Dog>` / `array<UU>` (bug
+       * 0444 §Fix route (a)): carried so the render can pick each ELEMENT's
+       * own arm independently, mirroring the bug-0425 whole-value arm list
+       * one container level in.
+       */
+      readonly elementArms?: readonly SystemUnionArm[];
     }
   | {
       readonly kind: "object";
@@ -193,6 +200,14 @@ export type SystemTemplatePart =
        * bare value-driven object row untranslated.
        */
       readonly unionArms?: readonly SystemUnionArm[];
+      /**
+       * Element-level union arms, present iff the terminal's static `array`
+       * type carried element arms (bug 0444 §Fix route (a)): `renderSystemPrompt`
+       * maps each resolved array element through `unionArmObjectType` and
+       * translates through the picked arm, independently per element, rather
+       * than rendering the bare array row untranslated.
+       */
+      readonly elementArms?: readonly SystemUnionArm[];
     };
 
 /** A successfully-parsed `system:` template: its ordered parts. */
@@ -457,6 +472,16 @@ function parseInterpolationPath(
   if (current.kind === "opaque-object" || current.kind === "discriminated-union") {
     return { kind: "path", segments, type: { kind: "object" }, valueDriven: true };
   }
+  // An `array` terminal carrying element arms (bug 0444 §Fix route (a)) threads
+  // them through unchanged so the render can pick each element's own arm.
+  if (current.kind === "array" && current.elementArms !== undefined) {
+    return {
+      kind: "path",
+      segments,
+      type: toInterpolationType(current),
+      elementArms: current.elementArms,
+    };
+  }
   return { kind: "path", segments, type: toInterpolationType(current) };
 }
 
@@ -569,6 +594,38 @@ export function renderSystemPrompt(
     // resolved value through the shared canonical renderer (QRY-18) so the model
     // sees one rendering of a given value regardless of surface.
     const value = resolvePath(input.params, part.segments);
+    // Element-level union arms (bug 0444 §Fix route (a)): a compact
+    // `JSON.stringify` of the array is byte-identical to joining the
+    // per-element compact renders with `,` inside `[]`; each element picks its
+    // own arm independently so one unmatched element (`interpolationTypeOfValue`
+    // → untranslated object row) never un-translates its siblings (§Fix
+    // constraint).
+    if (part.elementArms !== undefined && Array.isArray(value)) {
+      const pieces: string[] = [];
+      for (const element of value as readonly ThetaValue[]) {
+        const armType = unionArmObjectType(element, part.elementArms);
+        if (armType !== undefined) {
+          const renderedElem = stringifyInterpolatedValue(element, armType);
+          if (!renderedElem.ok) {
+            return { ok: false, diagnostic: renderedElem.diagnostic };
+          }
+          pieces.push(renderedElem.text);
+        } else {
+          // No arm admits this element: keep its untranslated JSON bytes,
+          // byte-identical to the whole-array JSON.stringify the array row would
+          // produce (§Fix "leaving unmatched ones untranslated"). A scalar
+          // element routed through its scalar interpolation row would emit
+          // invalid JSON inside the array (a bare unquoted string / enum);
+          // JSON.stringify quotes and escapes it correctly and collapses a
+          // boxed-enum value to its bare wire string, matching the pre-fix bytes.
+          // unionArmObjectType returns undefined for any non-object element, so
+          // the matched branch above implies an object element that matched an arm.
+          pieces.push(JSON.stringify(element));
+        }
+      }
+      text += "[" + pieces.join(",") + "]";
+      continue;
+    }
     const effectiveType =
       part.valueDriven && part.unionArms !== undefined
         ? (unionArmObjectType(value, part.unionArms) ?? interpolationTypeOfValue(value))

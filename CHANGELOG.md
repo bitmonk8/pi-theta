@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.457.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0445 — imported renames at static container positions**: statically-typed container positions (imported schema inside array/inline-object) skipped the imported-rename carry, leaking theta-side names; the augmented re-parse also leaked lib namespaces into the root (found in review) — fixed with lib-built fragment carry + collision-skip + root-only gate. Spec reword in query-escapes-stringification.md (net-0). (`src/extension/import-static-checks.ts`; witnesses `tests/b0445-imported-renames-static-container-positions.test.ts` + live `tests/live/acceptance/b0445live-imported-array-element-system-interp.test.ts`)
+
+## [0.456.0]
+
+### Fixed
+
+### Fixed
+- **Bug 0444 — array-of-union element renames dropped**: an `array<Union>` param's element arm-sidecars were never threaded (the 0425 arm machinery only ran at direct union positions), so element renames rendered theta-side names on the wire. Element positions now thread arm-sidecars through the same brand-then-discriminator route. (`src/parser/frontmatter.ts`, `src/parser/system-interpolation.ts`; witnesses `tests/b0444-array-of-union-element-renames-dropped.test.ts` + live `tests/live/acceptance/b0444live-array-union-element-system-interp.test.ts`)
+
 ## [0.455.0]
 
 ### Fixed

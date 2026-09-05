@@ -1344,6 +1344,26 @@ export function toSystemParamType(
     const ctor = s.slice(0, lt).trim();
     if (ctor === "array") {
       const element = s.slice(lt + 1, -1).trim();
+      // A union ELEMENT source (`Cat | Dog`, or a 2+-arm alias `UU`) needs a
+      // per-element arm pick, not a single sidecar map (bug 0444 §Fix route
+      // (a)): `namedSchemaOf` returns `undefined` for a union source, so the
+      // sidecar path below never covered it. Try this BEFORE the sidecar path
+      // so a union element takes `elementArms`; a non-union element falls
+      // through unchanged — including the single-arm alias chase and the
+      // inline-object descent (bugs 0442/0441), which own the non-union lanes.
+      const elementSplit = splitTopLevel(element, "|");
+      const elementUnionSources =
+        elementSplit.length > 1
+          ? elementSplit
+          : bodyTypes !== undefined && (bodyTypes.aliasArms.get(element)?.length ?? 0) >= 2
+            ? (bodyTypes.aliasArms.get(element) as readonly string[])
+            : undefined;
+      if (elementUnionSources !== undefined && bodyTypes !== undefined) {
+        const elementArms = buildSystemUnionArms(elementUnionSources, bodyTypes);
+        if (elementArms.length > 0) {
+          return { kind: "array", elementArms };
+        }
+      }
       if (bodyTypes !== undefined) {
         // An element naming a body object schema (directly, through an alias
         // chain, or as a nested `array<...>`) carries that schema's sidecars
@@ -1360,8 +1380,7 @@ export function toSystemParamType(
           return { kind: "array", sidecars: inline.sidecars, rootDef: inline.rootDef };
         }
       }
-      return { kind: "array" };
-    }
+      return { kind: "array" };    }
     return { kind: "discriminated-union" };
   }
   switch (s) {

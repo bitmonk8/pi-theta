@@ -1,6 +1,6 @@
 # Bug 0444 — An `array<T>`-typed `system:` param whose ELEMENT is a union of renamed schemas renders every element theta-side: `xs: 'array<Cat | Dog>'` (and the alias spelling `array<UU>`) take the static array row with no sidecars, though the row's translation clause is unconditional
 
-- **Status:** open.
+- **Status:** fixed (0.456.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt on registering documents; the static `array<T>` row's
   recursive-translation clause has no union carve-out (the QRY-18 value-driven
@@ -185,6 +185,63 @@ path byte-identically; `b0407` W2, `b0424` W2, `b0425` 9/9 stay green; a
 heterogeneous element list translates each element independently (one
 unmatched element must not un-translate its siblings — decide and witness
 this explicitly); both probe rows flip in the same commit as witnesses.
+
+## Fix (0.456.0)
+
+- What shipped:
+  - `src/parser/frontmatter.ts` — `toSystemParamType`'s `array` arm now
+    detects a union ELEMENT source (a top-level `|` split, or a 2+-arm alias
+    via `bodyTypes.aliasArms`) and builds `buildSystemUnionArms(...)`, carried
+    as `elementArms` on the array `SystemParamType` (§Fix route (a)); a
+    non-union element falls through to the existing one-sidecar path unchanged.
+  - `src/parser/system-interpolation.ts` — `elementArms?` added to the array
+    `SystemParamType` variant and to the `path` `SystemTemplatePart`;
+    `parseInterpolationPath` threads it on the array terminal; `renderSystemPrompt`
+    renders an `elementArms` array per element — a matched element through
+    `unionArmObjectType` (translated via its arm's sidecars), an unmatched
+    element as `JSON.stringify(element)` (untranslated JSON bytes, byte-identical
+    to the whole-array `JSON.stringify` path) — joined compact as `[...]`.
+- Gates: witness `tests/b0444-array-of-union-element-renames-dropped.test.ts`
+  8/8 green (RED-proven both directions: neutralising the `elementArms` return
+  reds W1–W6 on theta-side keys, restore greens); full default suite 610 files
+  / 10675 tests green, bare rc 0; `tsc --noEmit` clean; `eslint` clean.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`) — F1 correctness (a scalar element
+  of `array<Cat | string>` rendered bare/invalid JSON), F2 spec, F3 fidelity,
+  F4 test; F1 + F4 fixed (matched/unmatched split → unmatched keeps JSON bytes;
+  W5/W6 added). R2 (`bug-fix-reviewer-fast`) — CLEAN.
+- Verification: SOLID — witness reds without the fix and greens restored
+  (blob byte-exact); default suite green; live cell well-formed
+  (fails-loudly, task-framed discriminator, offline attribution guard);
+  typecheck + lint clean.
+- Live: `tests/live/acceptance/b0444live-array-union-element-system-interp.test.ts`
+  — a `mode: subagent` child with an `array<Cat | Dog>` `system:` param whose
+  arms rename `weight as "W"`; the parent renders each element's wire key `"W"`
+  into the child's `--system-prompt` at the RFC-0006 spawn boundary. Green under
+  the shared live lock (child sums the two wire-`W` values 10+20, returns
+  500+30=530, prober answers 630); token-free red-proof via neutralising the
+  `elementArms` return (offline attribution guard reds on the theta-side render).
+- Residuals:
+  1. A MULTI-HOP alias element chain (`schema W = UU; schema UU = Cat | Dog;`
+     `xs: 'array<W>'`) renders theta-side: the element alias-chase is single-hop
+     (a direct top-level `|` split or a direct 2+-arm alias), which covers the
+     Reproduction spellings (`array<Cat | Dog>`, one-hop `array<UU>`) exactly.
+     Deeper chains follow the sibling reports' deep-chain-as-residual treatment
+     (bug 0445 §Non-goals re-export/nested-import; bug 0422 residual 1). No wrong
+     wire name — theta-side, zero diagnostics.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - No `docs/spec_topics/` amendment is owed. Unlike bug 0445's §Fix, which
+    carries an explicit "Spec lane:" amendment, 0444's settled §Fix names no
+    spec-wording change; and the never-guess→untranslated disposition the
+    per-element pick applies is already pinned by the value-driven note
+    (`query-escapes-stringification.md:35`, "A value matching no arm ... renders
+    with its theta-side names untranslated rather than a guessed arm's wire
+    names"), which 0444 §Non-goals inherits ("inherits bug 0425's R2/R3 pinned
+    dispositions unchanged"). The `array<T>` row's unconditional recursive
+    translation (`:26`) is what the matched-element translation satisfies.
+  - §Non-goals unchanged: the array-ARM-of-a-union direction (`Cat | array<Cat>`,
+    spec-pinned untranslated, 0425 R1 / 0426); 1-arm alias elements
+    (`array<A>`, bug 0442); imported elements (`array<Author>`, bug 0445).
 
 ## Provenance
 

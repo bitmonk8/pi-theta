@@ -1,6 +1,6 @@
 # Bug 0445 — The bug-0423 load-phase rename carry reaches only the exact bare-root position: `xs: 'array<Author>'` and a body-schema field typed by the imported schema (`schema Wrap { author: Author }`) render the import's `as` renames theta-side under STATIC container rows whose translation clause is unconditional
 
-- **Status:** open.
+- **Status:** fixed (0.457.0).
 - **Sev/Diff estimate:** S2/D2 — theta-side names silently reach the child's
   system prompt on registering documents, triggered by exactly the refactor
   `.thetalib` promotes (bug 0423's own argument), and the nested face shows
@@ -219,6 +219,91 @@ Constraints: rename-free imports stay byte-identical (patch absent — the
 green; b0422's refusal cells unaffected (no new refusals — this is a
 render-bytes carry only); both probe rows flip in the same commit as
 witnesses, including a two-faces cell for row 2.
+
+## Fix (0.457.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — a load-phase static-container
+    patch loop (in the same `checkThetaImports` pass as the bug-0423 bare-root
+    patch, after it, on the STATIC parts it excludes). Array face: for an
+    `array<Import>` param it patches the part to an array `InterpolationType`
+    carrying the import's LIB-BUILT `sidecars`/`rootDef` from
+    `importedSchemaShapes` (the bug-0407 `array<Schema>` element carriage).
+    Nested face: for a body schema wrapping an import it merges each
+    import-typed field's LIB-BUILT fragment into the enclosing per-`$defs` map
+    under its own def name and adds the missing `refTarget`, across every
+    body-schema def the parse-time map carries. Has-rename gate is
+    root-def-only (`importedRootHasWireRename`), the SAME condition the
+    bug-0423 bare-root patch uses, so the bare / array / nested positions
+    agree. A def-name COLLISION (a lib-internal schema clashing with a
+    different fragment already in the map) DECLINES to translate that field —
+    it renders theta-side, never a wrong wire name.
+  - `docs/spec_topics/query/query-escapes-stringification.md` — the §Fix "Spec
+    lane" amendment (QRY-18 value-driven note, single physical line, net-0):
+    the "opaque imported-schema object value renders untranslated" clause
+    scoped to genuinely-opaque residuals (imported alias head, nested-import
+    intermediate, re-export-chain schema, or an imported value reached by a
+    `.field` path step), and the sentence now records that a directly-imported
+    schema's renames translate when rendered as part of a container the load
+    pass patches (the bare `${p}`, and one container in, an `array<Import>`
+    element or an import-typed field of a rendered body schema — bugs
+    0423 / 0445).
+- Gates: witness `tests/b0445-imported-renames-static-container-positions.test.ts`
+  6/6 green (RED-proven both directions: neutralising both container gates reds
+  W1 array + W2 nested on imported theta-side keys, restore greens; blob
+  byte-exact on restore); full default suite 611 files / 10681 tests green,
+  bare rc 0; `tsc --noEmit` clean; `eslint` clean.
+- Review: 3 rounds. R1 (`bug-fix-reviewer`) — F1 correctness (augmented-reparse
+  resolved import-internal refs in the APP namespace → wrong wire name), F2
+  fidelity (transitive lib renames dropped), F3 spec (clause taxonomy), F4
+  fidelity (loop wider than the two faces); the reparse was replaced with a
+  direct-carry (array) + fragment-merge (nested) over the lib-built
+  `importedSchemaShapes`, resolving F1/F2/F4, and the spec reworded (F3). R2
+  (`bug-fix-reviewer`) — F1 (flat merge dropped a colliding lib def → wrong
+  wire name across namespaces), F2 (total-fragment gate diverged from 0423's
+  root-only gate → bare-vs-container split); fixed with a collision-skip and
+  the root-only `importedRootHasWireRename` gate (W5/W6 added). R3
+  (`bug-fix-reviewer-fast`) — CLEAN.
+- Verification: SOLID — witness reds without the fix (W1+W2 red on imported
+  theta-side keys) and greens restored (blob byte-exact); default suite green;
+  live cell well-formed (fails-loudly, task-framed discriminator, offline
+  attribution guard asserting `patchedSystemTemplate` DEFINED + wire render);
+  typecheck + lint clean; spec net-0 lines, LF.
+- Live: `tests/live/acceptance/b0445live-imported-array-element-system-interp.test.ts`
+  — a `mode: subagent` child with an `array<Author>` `system:` param over a
+  REAL imported `.thetalib` whose `Author` renames `weight as "Weight"`; the
+  parent renders each element's wire key `"Weight"` into the child's
+  `--system-prompt` at the RFC-0006 spawn boundary. Green under the shared live
+  lock (child sums the two wire-`Weight` values 10+20, returns 500+30=530,
+  prober answers 630); token-free red-proof via neutralising the array-face
+  gate (offline attribution guard reds on the theta-side render).
+- Residuals:
+  1. A def-name COLLISION — a lib-internal schema the import references sharing
+     a name with a DIFFERENT schema already in the enclosing map (an app body
+     schema, or another import's same-named internal helper) — renders the
+     import-typed field theta-side (the collision-skip; never a wrong wire
+     name). Witnessed by W5. Full translation of the collision case (via
+     collision-free def-name minting) is future work; the §Fix's absolute
+     constraint ("never a wrong wire name") is met.
+  2. A TRANSITIVE-ONLY-renamed import (its OWN root object rename-free, a nested
+     lib schema it references renamed) stays theta-side at every position —
+     bare `${p}`, `array<Import>`, and import-typed body field — because the
+     has-rename gate is root-def-only, matching bug 0423. Witnessed by W6. This
+     is a shared residual with bug 0423's root-only gate, not a bare-vs-
+     container split introduced here.
+  3. Positions outside the two §Fix faces stay theta-side (pre-fix): an
+     inline-object param wrapping an import (`p: '{author: Author}'`), an
+     `${p.field}` path step reaching an imported value directly, and deeper
+     compositions (`array<BodyWrapperWithImport>`). Consistent with the
+     reworded spec clause's "one container in" scoping and bug 0422's
+     direct-import-only / nested-import-intermediate §Non-goals.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals:
+  - §Non-goals unchanged: the bare-root imported render (bug 0423, control
+    green); a body ALIAS of an import (`schema AI = Author`; value-driven
+    opaque row, 0422 F2); re-export chains and nested-import intermediates
+    (bug 0422 residual 1, direct-import-only scope); import LOAD semantics; a
+    WRONG wire name never renders — the collision-skip keeps that.
 
 ## Provenance
 
