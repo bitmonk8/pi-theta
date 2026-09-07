@@ -22,8 +22,23 @@ Thumbs.db
 .env.*
 !.env.example
 
-# Pi local state — entirely local-only (development-harness state was pruned).
-.pi/
+# Pi project layer: .pi/ is COMMITTED (settings.json, theta/). Local-only pi
+# state stays out via the targeted rules below — these directories must remain
+# under .pi/ because pi's discovery only looks there, but they are personal
+# dev-harness state, not project resources.
+.pi/agents/
+.pi/prompts/
+.pi/bug-hunt/
+.pi/tmp/
+.pi/git/
+.pi/npm/
+
+# Local user layer: everything except the README that keeps the dir on clones.
+.localpi/*
+!.localpi/README.md
+
+# Quality-loop transient shard/cluster manifests (the store itself is tracked).
+quality/tmp/
 
 # RFC-0006 host-loop-dispatch prototype scratch (Bug 0001 §Option E acceptance prototype).
 .prototype-hld/

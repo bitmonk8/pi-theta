@@ -1,0 +1,8 @@
+{
+  "D2": {
+    "description": "simplicity & cruft: dead code, vestigial names/flags/params, leftover scaffolding, commented-out code, speculative generality, redundant abstraction layers — over the production TypeScript sources",
+    "include": ["src/"],
+    "exclude": [],
+    "ext": [".ts"]
+  }
+}

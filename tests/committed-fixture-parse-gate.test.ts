@@ -56,8 +56,8 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
  * loudly naming the unmet precondition (`AGENTS.md:60`) rather than passing
  * over fewer files.
  */
-const EXPECTED_SHIPPED_THETA = 31;
-const EXPECTED_SHIPPED_THETALIB = 2;
+const EXPECTED_SHIPPED_THETA = 36;
+const EXPECTED_SHIPPED_THETALIB = 3;
 
 /**
  * Every committed theta source the repository ships, as repo-relative
@@ -65,7 +65,7 @@ const EXPECTED_SHIPPED_THETALIB = 2;
  *
  * The corpus is the git index, not the working tree: a committed fixture is
  * exactly what a fresh clone contains, so an untracked scratch `.theta` and a
- * gitignored `.pi/theta/*.theta` are both never members. `git ls-files`
+ * gitignored `.localpi/*.theta` are both never members. `git ls-files`
  * already emits repo-relative POSIX paths, so no separator remapping is
  * needed. `-z` NUL-separates the output so a path byte containing a newline
  * cannot split into two corpus entries.
@@ -161,11 +161,24 @@ describe("H7b: committed theta sources parse with zero load/parse diagnostics", 
     );
     // The seeded-invalid fixture is never part of the shipped set.
     expect(shippedFixtures).not.toContain(SEEDED_INVALID);
+    // `.pi/` is a committed project layer (settings + the quality-loop
+    // thetas); its still-local-only subtrees and the `.localpi/` user layer
+    // are gitignored, so a corpus member there would be force-added
+    // working-tree state no fresh clone reproduces.
+    expect(shippedFixtures).toContain(".pi/theta/quality-loop.theta");
+    const localOnly = [
+      ".pi/agents/",
+      ".pi/prompts/",
+      ".pi/bug-hunt/",
+      ".pi/tmp/",
+      ".pi/git/",
+      ".pi/npm/",
+      ".localpi/",
+    ];
     expect(
-      shippedFixtures.filter((p) => p.startsWith(".pi/")),
-      "`.gitignore:26` ignores `.pi/`, so a corpus member under it is " +
-        "untracked: the gate would then score local working-tree state no " +
-        "commit records, and would red on a fresh clone for no fixture defect.",
+      shippedFixtures.filter((p) => localOnly.some((d) => p.startsWith(d))),
+      "gitignored local-only layers must not contribute corpus members: the " +
+        "gate would then score state no fresh clone contains.",
     ).toEqual([]);
   });
 

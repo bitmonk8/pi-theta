@@ -1,0 +1,52 @@
+---
+description: "Review the uncommitted fixes of one cluster - are the issues resolved, was anything damaged"
+mode: subagent
+model: "anthropic/claude-fable-5"
+tools: read, grep, bash
+tool_loop:
+  max_rounds: 80
+params:
+  manifest: string
+system: "You are a strict post-fix reviewer. You judge whether uncommitted changes actually resolve the quality issues they claim to resolve, and whether they damaged anything else. You verify against the current working tree with your own eyes, never against claims. You are read-only - no edits, no git write commands."
+---
+let issue_files = read({ path: manifest })?
+let stat = bash({ command: "git status --porcelain" })?
+let diffstat = bash({ command: "git diff --stat | tail -30" })?
+let diff = bash({ command: "git diff | head -c 60000" })?
+
+import { FixReview } from "../lib/quality.thetalib"
+
+let rv: FixReview = @`FIX REVIEW — judge the uncommitted working-tree changes against this cluster's issues.
+
+Issue files (the fixes' intent), one per line:
+${issue_files}
+
+git status --porcelain:
+${stat}
+
+git diff --stat (tail):
+${diffstat}
+
+git diff (possibly truncated — read files and rerun git yourself for anything
+you need):
+${diff}
+
+Judge, in order:
+1. Resolution. For each issue file: read it, then verify in the CURRENT working
+   tree that the described problem is gone — the cited code removed or corrected
+   AND every reference to it cleaned up (grep for the deleted identifiers).
+   Collect the issue basenames you verified resolved.
+2. Collateral. Any change NOT required by an issue in this cluster? Any new
+   cruft introduced? Any weakened or deleted test that guarded live behavior (a
+   test deleted together with the cruft it exercised is fine when an issue's fix
+   implies it)? Untracked leftover files in git status?
+3. Honesty. Do not take the diff's or any report's word for anything you can
+   check directly.
+
+Reply with the requested schema:
+- ok: true ONLY if at least one issue is verifiably resolved AND there is no
+  collateral damage
+- fixed_confirmed: the issue file BASENAMES you verified resolved
+- must_fix: "" when ok; otherwise one concrete paragraph telling the fixer
+  exactly what to correct.`?
+rv

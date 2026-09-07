@@ -1,0 +1,187 @@
+---
+description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens, triage, fix confirmed findings cluster-by-cluster behind the offline gate, commit, repeat until converged (state under quality/)"
+argument-hint: "[max_cycles] [shard_loc] [budget] [parallel] [push true/false]"
+mode: prompt
+bind_model: "anthropic/claude-sonnet-5"
+tools:
+  - bash
+  - ./workers/lens-d2-cruft.theta
+  - ./workers/triage-finding.theta
+  - ./workers/fix-cluster.theta
+  - ./workers/review-fix.theta
+params:
+  max_cycles: integer = 3
+  shard_loc: string = "6000"
+  budget: integer = 10
+  parallel: integer = 4
+  push: boolean = true
+  gate_cmd: string = "npx tsc --noEmit >/dev/null 2>&1 && npm test >/dev/null 2>&1"
+---
+import { TriageVerdict, FixReport, FixReview, lines } from "./lib/quality.thetalib"
+
+// ---------------------------------------------------------------- preflight
+// The loop needs clean revert boundaries (a failed cluster is undone with
+// git restore) and a green baseline (otherwise gate failures cannot be
+// attributed to fixes). Refuse loudly rather than improvise.
+let dirty = bash({ command: "git status --porcelain" })?
+if dirty.trim() != "" {
+  let _ = @`Tell the user: /quality-loop refused to start — the working tree is not clean, and the loop needs clean revert boundaries. Commit or stash first.`?
+  return "refused: dirty worktree"
+}
+let baseline = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+if !baseline.includes("GATE_PASS") {
+  let _ = @`Tell the user: /quality-loop refused to start — the offline gate is already red on the untouched tree, so fix failures could not be attributed. Fix the baseline first (gate: ${gate_cmd}).`?
+  return "refused: red baseline"
+}
+
+let mut cycle = 0
+let mut converged = false
+let mut report = ""
+let mut total_filed = 0
+let mut total_confirmed = 0
+let mut total_questionable = 0
+let mut total_clusters_fixed = 0
+let mut total_clusters_reverted = 0
+
+while cycle < max_cycles && !converged {
+  cycle += 1
+  let wave = bash({ command: "date -u +qw%Y%m%d%H%M%S" })?.trim()
+  let review_sha = bash({ command: "git rev-parse HEAD" })?.trim()
+
+  // ---- 1. what needs review: recorded per-file review state vs git changes ----
+  // Annotated-mut + reassignment keeps these array-typed on the installed
+  // 0.12.0 parser too (its checker treats call results as opaque).
+  let mut need: array<string> = []
+  need = lines(bash({ command: "node tools/quality/store.mjs needs-review --lens D2" })?)
+  let mut leftover: array<string> = []
+  leftover = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null || true" })?)
+  if need.length == 0 && leftover.length == 0 {
+    converged = true
+    report = report + "wave " + wave + ": nothing needs review and intake is empty - converged.\n"
+    break
+  }
+
+  // ---- 2+3. shard the due surface, run the lens over shards in parallel ----
+  if need.length > 0 {
+    let mut shards: array<string> = []
+    shards = lines(bash({ command: "node tools/quality/store.mjs shard --lens D2 --wave " + wave + " --target-loc " + shard_loc })?)
+    let reviews = par for m in shards max parallel {
+      lens_d2_cruft(m, wave, budget)?
+    }
+    let mut i = 0
+    while i < shards.length {
+      let filed = match reviews[i] {
+        Ok(s) => s.filed,
+        Err(_) => -1,
+      }
+      if filed >= 0 {
+        // Reviewed at review_sha: later fix commits re-dirty these files, so
+        // the next cycle re-reviews exactly what the fixes touched.
+        let _ = bash({ command: "node tools/quality/store.mjs mark-reviewed --lens D2 --sha " + review_sha + " --manifest " + shards[i] })?
+        total_filed += filed
+      } else {
+        report = report + "wave " + wave + ": review shard failed (files stay due): " + shards[i] + "\n"
+      }
+      i += 1
+    }
+  }
+
+  // ---- 4. triage every candidate in intake (leftovers included) ----
+  let mut cands: array<string> = []
+  cands = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null || true" })?)
+  let mut confirmed = 0
+  if cands.length > 0 {
+    let verdicts = par for c in cands max parallel {
+      triage_finding(c)?
+    }
+    let mut j = 0
+    while j < cands.length {
+      let v = match verdicts[j] {
+        Ok(t) => t,
+        Err(e) => TriageVerdict { verdict: "questionable", reason: "triage worker failed: " + e.kind },
+      }
+      if v.verdict == "confirmed" {
+        let _ = bash({ command: "node tools/quality/store.mjs accept --finding " + cands[j] })?
+        confirmed += 1
+        total_confirmed += 1
+      } else if v.verdict == "questionable" {
+        // Stays in intake/ as the owner queue; re-triaged next cycle.
+        total_questionable += 1
+      } else {
+        let _ = bash({ command: "node tools/quality/store.mjs reject --finding " + cands[j] + " --verdict " + v.verdict })?
+      }
+      j += 1
+    }
+  }
+
+  // ---- store commit: review state + accepted/rejected findings ----
+  let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " D2 review pass\")" })?
+
+  // ---- 5-7. fix confirmed issues, one cluster at a time, behind the gate ----
+  if confirmed > 0 {
+    let mut clus: array<string> = []
+    clus = lines(bash({ command: "node tools/quality/store.mjs clusters --wave " + wave })?)
+    for cl in clus {
+      let mut cols: array<string> = []
+      cols = cl.split("\t")
+      let key = cols[0]
+      let man = cols[1]
+      let mut attempt = 0
+      let mut done = false
+      let mut guidance = ""
+      while attempt < 2 && !done {
+        attempt += 1
+        let fr = match fix_cluster(man, guidance) {
+          Ok(f) => f,
+          Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
+        }
+        let gate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+        let rv = match review_fix(man) {
+          Ok(r) => r,
+          Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
+        }
+        if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
+          let _ = bash({ command: "node tools/quality/store.mjs resolve --manifest " + man + " --fixed " + rv.fixed_confirmed.join(",") })?
+          let _ = bash({ command: "git add -A && git commit -m \"quality: " + wave + " D2 fix " + key + "\"" })?
+          total_clusters_fixed += 1
+          done = true
+          report = report + "wave " + wave + ": cluster " + key + " fixed and committed\n"
+        } else {
+          guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
+          if attempt >= 2 {
+            let _ = bash({ command: "git restore ." })?
+            let residue = bash({ command: "git status --porcelain" })?
+            if residue.trim() != "" {
+              let _ = @`Tell the user: /quality-loop halted at a safe boundary — after reverting a failed fix for cluster ${key}, the tree still holds leftover changes (likely untracked files a fixer created). Manual cleanup needed:
+${residue}`?
+              return "halted: unclean revert"
+            }
+            total_clusters_reverted += 1
+            report = report + "wave " + wave + ": cluster " + key + " reverted after 2 rejected fix attempts - issues stay open\n"
+          }
+        }
+      }
+    }
+  }
+
+  // ---- 8. push, then next cycle (fix commits re-dirty fixed files) ----
+  if push {
+    let pushed = bash({ command: "git push >/dev/null 2>&1 && echo PUSH_OK || echo PUSH_FAIL" })?
+    if !pushed.includes("PUSH_OK") {
+      report = report + "wave " + wave + ": git push FAILED (continuing; push manually)\n"
+    }
+  }
+  let head = bash({ command: "git log --oneline -1" })?
+  report = report + "wave " + wave + ": done, head now " + head.trim() + "\n"
+}
+
+// ---------------------------------------------------------------- report
+// Prompt mode: the final value is invisible; this closing query IS the
+// user-facing summary.
+@`Report the quality-loop outcome to the user, concisely:
+- cycles run: ${cycle} of ${max_cycles}, converged: ${converged}
+- candidates filed: ${total_filed}, confirmed: ${total_confirmed}, questionable (owner queue in quality/intake/): ${total_questionable}
+- clusters fixed and committed: ${total_clusters_fixed}, clusters reverted: ${total_clusters_reverted}
+- log:
+${report}
+Remind the user: quality/issues/ holds open confirmed issues, quality/resolved/ holds fixed ones, quality/intake/ holds questionable candidates awaiting a human ruling, and quality/state.json records what was reviewed when. Re-running /quality-loop continues from that state.`

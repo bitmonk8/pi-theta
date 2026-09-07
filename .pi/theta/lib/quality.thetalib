@@ -1,0 +1,52 @@
+// Shared schemas and pure helpers for the quality-loop thetas.
+// Imported by the root command (quality-loop.theta) and the workers; the
+// schemas are the typed contracts that cross the subagent boundaries.
+
+/// One shard review's outcome (lens worker final value).
+schema ReviewSummary {
+  shard: string,
+  filed: integer,
+  notes: string
+}
+
+/// Triage verdict over one candidate finding.
+schema TriageVerdict {
+  verdict: "confirmed" | "questionable" | "false-positive" | "duplicate" | "out-of-scope" | "malformed",
+  reason: string
+}
+
+/// One cluster fix attempt's outcome (fixer final value). Entries are issue
+/// file basenames exactly as they appear in the cluster manifest.
+schema FixReport {
+  fixed: array<string>,
+  skipped: array<string>,
+  notes: string
+}
+
+/// Post-fix correctness review (fix-review worker final value).
+schema FixReview {
+  ok: boolean,
+  fixed_confirmed: array<string>,
+  must_fix: string
+}
+
+/// Split tool output into trimmed, non-empty lines.
+fn lines(s: string): array<string> {
+  let t = s.trim()
+  if t == "" {
+    return []
+  }
+  // Two-step binding: 0.12.0-era checkers treat call results as opaque, so an
+  // annotated mut + reassignment is what keeps the iterand array-typed on both
+  // old and new parsers.
+  let mut raw: array<string> = []
+  raw = t.split("\n")
+  let mut out: array<string> = []
+  for l in raw {
+    let c = l.trim()
+    if c != "" {
+      out = out.concat([c])
+    }
+  }
+  out
+}

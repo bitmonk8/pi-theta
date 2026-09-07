@@ -1,0 +1,65 @@
+---
+description: "Triage one candidate finding - re-verify its evidence against the code and issue a verdict"
+mode: subagent
+model: "anthropic/claude-fable-5"
+tools: read, grep, bash, edit
+tool_loop:
+  max_rounds: 60
+params:
+  finding: string
+system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading."
+---
+let candidate = read({ path: finding })?
+let template = read({ path: "quality/TEMPLATE.md" })?
+let prior = bash({ command: "ls -1 quality/issues 2>/dev/null || true; ls -1 quality/resolved 2>/dev/null || true" })?
+let log_tail = bash({ command: "tail -c 4000 quality/TRIAGE_LOG.md 2>/dev/null || true" })?
+
+import { TriageVerdict } from "../lib/quality.thetalib"
+
+let v: TriageVerdict = @`TRIAGE — verify this candidate quality finding. Trust nothing in it.
+
+Candidate file: ${finding}
+Candidate content:
+${candidate}
+
+Method — run every step:
+1. Form. All template fields present and plausible (template below); exactly one
+   root cause; evidence excerpts present; no severity/priority adjectives; no fix
+   design beyond one direction paragraph. Violations that block evaluation =
+   malformed.
+2. Reality. Open every cited file. Verify each excerpt exists at or near the
+   cited lines (content match required; small line drift is tolerated). Re-run
+   any stated searches. For deadness claims, re-run the reference hunt YOURSELF:
+   grep the identifier across src/, extensions/, tools/, tests/; check
+   string-keyed and dynamic access and re-exports. A claim that does not
+   reproduce = false-positive, and your reason must state the refuting evidence.
+3. Anchor. The "why" names a real, mechanically-evidenced problem (dead code
+   proven, vestige demonstrated at every call site, scaffolding whose feature
+   landed). Taste-only reasoning = questionable.
+4. Scope. D2 covers simplicity and cruft in production sources under src/. Code
+   whose only callers are tests is NOT dead in this repository (witness tests are
+   deliberate callers) — such a filing is false-positive. Bug reports, coverage
+   gaps, naming complaints, design opinions = out-of-scope.
+5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
+   the existing file/row. Existing issues and resolved issues:
+${prior}
+   Recent rejections:
+${log_tail}
+
+Template for reference:
+${template}
+
+Then append — using the edit tool, changing nothing else — one line under the
+candidate file's "## Triage" heading, exactly:
+verdict: <your verdict> — <one-line reason> (triage: claude-fable-5)
+
+Finally reply with the requested schema:
+- verdict: one of confirmed | questionable | false-positive | duplicate |
+  out-of-scope | malformed
+- reason: the same one-line reason.
+
+Verdict semantics: confirmed = real, in-scope, anchored, independently verified.
+questionable = a real observation whose anchor is taste or whose fix cost
+plausibly exceeds its benefit — a human should rule. Everything else rejects the
+candidate with your reason on record.`?
+v
