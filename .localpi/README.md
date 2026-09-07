@@ -7,8 +7,9 @@ treats a referenced-but-missing path as a load error while an existing empty
 directory is silent).
 
 - `*.theta` files placed directly in this directory are discovered as personal
-  slash commands (via `thetaPaths: [".localpi"]` in the committed
-  `.pi/settings.json`). A personal theta whose filename stem matches a
+  slash commands (via `thetaPaths: ["../.localpi"]` in the committed
+  `.pi/settings.json` — settings entries resolve relative to the settings
+  file's own directory, i.e. `.pi/`). A personal theta whose filename stem matches a
   committed `.pi/theta/` command shadows it (settings-sourced thetas rank
   higher; pi-theta emits a cross-source-shadow warning).
 - Anything else (scratch, notes, experiments) may live here freely.

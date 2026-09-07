@@ -69,7 +69,7 @@ default `npx tsc --noEmit && npm test`).
 | `resolved/` | fixed issues (moved by `store.mjs resolve`) | yes |
 | `tmp/` | shard + cluster manifests | no (gitignored) |
 | `../.pi/theta/` | the loop: `quality-loop.theta` root command, `workers/`, `lib/` | yes |
-| `../.pi/settings.json` | project settings (`thetaPaths: [".localpi"]` — the local-layer include) | yes |
+| `../.pi/settings.json` | project settings (`thetaPaths: ["../.localpi"]` — entries resolve relative to `.pi/`) | yes |
 | `../.localpi/` | personal thetas + scratch (local user layer) | README only |
 | `../tools/quality/store.mjs` | deterministic store mechanics (state, sharding, minting, moves) | yes |
 
