@@ -19,7 +19,7 @@ let template = read({ path: "quality/TEMPLATE.md" })?
 let prior = bash({ command: "ls -1 quality/issues 2>/dev/null || true; ls -1 quality/resolved 2>/dev/null || true; ls -1 quality/intake 2>/dev/null || true" })?
 let triage_tail = bash({ command: "tail -c 4000 quality/TRIAGE_LOG.md 2>/dev/null || true" })?
 
-import { ReviewSummary } from "../lib/quality.thetalib"
+import { ReviewSummary } from "./quality.thetalib"
 
 let summary: ReviewSummary = @`REVIEW BRIEF — lens D2 (simplicity and cruft), wave ${wave}.
 

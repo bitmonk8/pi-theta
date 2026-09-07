@@ -6,6 +6,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.461.0]
+
+### Fixed
+- **Bug 0464 — on-session settle bound (60 s total) fails every legitimately long tool-loop turn**: `TURN_END_POLL_BOUND` raised 6000 → 180000 polls (30 min ceiling); the bug-0288 60 s total killed any turn whose tool loop runs minutes (review/fix workers) as a spurious settle-phase transport expiry while the run was still streaming. Bound exported as `TURN_END_SETTLE_BOUND_MS`; follow-up recorded for an inactivity-reset budget. Found by the /quality-loop dogfood run. (`src/extension/production-theta-producer.ts`; witness `tests/b0464-turn-settle-bound-floor.test.ts`)
+
 ## [0.460.0]
 
 ### Fixed

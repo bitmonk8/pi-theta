@@ -5913,10 +5913,25 @@ const TURN_START_POLL_BOUND = 1000;
 
 /**
  * Bound on end-phase polls (≈ waiting for the streamed run to go idle again).
- * Bug 0288 §Fix item 4: reduced from 60000 (≈600s, itself above vitest's live
- * per-test timeout — P6) to a bound diagnosable well inside it.
+ * Bug 0288 §Fix item 4 reduced this to 6000 polls (60 s) for diagnosability;
+ * bug 0464 raised it back out: a legitimate on-session turn's tool loop — a
+ * reviewer reading a file set, a fixer running a full offline test suite —
+ * runs for many minutes, and a 60 s total bound failed every such turn by
+ * construction (`transport` expiry while the run was still healthily
+ * streaming). 180000 polls × 10 ms = 30 min. Test diagnosability is
+ * unaffected: the witness harnesses drive `#pollWhile` on an injected fake
+ * `Clock`, so wall time does not scale with the bound. The known follow-up
+ * (recorded in bug 0464) is an inactivity-reset bound — budget renewed on
+ * observed turn progress — instead of one fixed total.
  */
-const TURN_END_POLL_BOUND = 6000;
+const TURN_END_POLL_BOUND = 180000;
+
+/**
+ * The settle-phase bound in milliseconds, exported for the bug-0464 witness:
+ * a regression back to a test-scale total bound must red loudly, because it
+ * kills every legitimately long tool-loop turn in production.
+ */
+export const TURN_END_SETTLE_BOUND_MS = TURN_END_POLL_BOUND * POLL_INTERVAL_MS;
 
 /**
  * Bound (ms) on the `ctx.waitForIdle()` race (§Fix item 4 / D5): replaces the

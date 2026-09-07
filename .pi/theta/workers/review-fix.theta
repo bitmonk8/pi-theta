@@ -14,7 +14,7 @@ let stat = bash({ command: "git status --porcelain" })?
 let diffstat = bash({ command: "git diff --stat | tail -30" })?
 let diff = bash({ command: "git diff | head -c 60000" })?
 
-import { FixReview } from "../lib/quality.thetalib"
+import { FixReview } from "./quality.thetalib"
 
 let rv: FixReview = @`FIX REVIEW — judge the uncommitted working-tree changes against this cluster's issues.
 

@@ -1,3 +1,4 @@
 {
-  "thetaPaths": ["../.localpi"]
+  "thetaPaths": ["../.localpi", "theta/workers"],
+  "theta": { "binderModel": "anthropic/claude-sonnet-5" }
 }

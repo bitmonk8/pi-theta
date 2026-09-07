@@ -75,7 +75,6 @@
   "theta/host/session-swap-instance-",
   "theta/kid",
   "theta/kidp",
-  "theta/lib/quality",
   "theta/load",
   "theta/load/",
   "theta/load/bad",
@@ -124,5 +123,6 @@
   "theta/wireonsession",
   "theta/wireprod",
   "theta/worker",
+  "theta/workers/quality",
   "theta/zqx-root"
 ]

@@ -14,7 +14,7 @@ let template = read({ path: "quality/TEMPLATE.md" })?
 let prior = bash({ command: "ls -1 quality/issues 2>/dev/null || true; ls -1 quality/resolved 2>/dev/null || true" })?
 let log_tail = bash({ command: "tail -c 4000 quality/TRIAGE_LOG.md 2>/dev/null || true" })?
 
-import { TriageVerdict } from "../lib/quality.thetalib"
+import { TriageVerdict } from "./quality.thetalib"
 
 let v: TriageVerdict = @`TRIAGE — verify this candidate quality finding. Trust nothing in it.
 

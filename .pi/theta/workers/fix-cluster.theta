@@ -13,7 +13,7 @@ system: "You are a careful, surgical fixer of confirmed code-quality issues. You
 let issue_files = read({ path: manifest })?
 let extra = guidance == "" ? "(none)" : guidance
 
-import { FixReport } from "../lib/quality.thetalib"
+import { FixReport } from "./quality.thetalib"
 
 let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues (lens D2, cruft).
 

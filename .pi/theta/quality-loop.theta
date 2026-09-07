@@ -17,7 +17,7 @@ params:
   push: boolean = true
   gate_cmd: string = "npx tsc --noEmit >/dev/null 2>&1 && npm test >/dev/null 2>&1"
 ---
-import { TriageVerdict, FixReport, FixReview, lines } from "./lib/quality.thetalib"
+import { TriageVerdict, FixReport, FixReview, lines } from "./workers/quality.thetalib"
 
 // Convention used throughout: branch on COUNTS (wc -l), never on empty output.
 // The host bash tool renders empty stdout as a placeholder string, so a
