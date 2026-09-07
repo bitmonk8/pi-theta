@@ -1204,11 +1204,11 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
 /** Measured at HEAD fdcb0835: bump in the SAME commit that adds/removes a file. */
-const EXPECTED_SHIPPED_THETA = 31;
-const EXPECTED_SHIPPED_THETALIB = 2;
+const EXPECTED_SHIPPED_THETA = 36;
+const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at HEAD fdcb0835: 38 `@`-templates carrying 37 interpolations. */
-const EXPECTED_TEMPLATES = 38;
-const EXPECTED_INTERPOLATIONS = 37;
+const EXPECTED_TEMPLATES = 46;
+const EXPECTED_INTERPOLATIONS = 70;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed
@@ -1320,9 +1320,20 @@ describe("bug 0122 (g) — the corpus census as a GATE: no committed interpolati
       theta: EXPECTED_SHIPPED_THETA,
       thetalib: EXPECTED_SHIPPED_THETALIB,
     });
+    // `.pi/` is a committed project layer (the quality-loop thetas); only its
+    // gitignored local-only subtrees and `.localpi/` must stay corpus-free.
+    const localOnly = [
+      ".pi/agents/",
+      ".pi/prompts/",
+      ".pi/bug-hunt/",
+      ".pi/tmp/",
+      ".pi/git/",
+      ".pi/npm/",
+      ".localpi/",
+    ];
     expect(
-      shippedFixtures.filter((p) => p.startsWith(".pi/")),
-      "`.pi/` is gitignored, so a corpus member under it is untracked working-tree state no commit records",
+      shippedFixtures.filter((p) => localOnly.some((d) => p.startsWith(d))),
+      "gitignored local-only layers must not contribute corpus members",
     ).toEqual([]);
   });
 
