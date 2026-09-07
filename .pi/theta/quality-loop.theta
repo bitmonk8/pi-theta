@@ -19,13 +19,19 @@ params:
 ---
 import { TriageVerdict, FixReport, FixReview, lines } from "./lib/quality.thetalib"
 
+// Convention used throughout: branch on COUNTS (wc -l), never on empty output.
+// The host bash tool renders empty stdout as a placeholder string, so a
+// raw-emptiness check like trim() == "" misfires on clean/empty results.
+
 // ---------------------------------------------------------------- preflight
 // The loop needs clean revert boundaries (a failed cluster is undone with
 // git restore) and a green baseline (otherwise gate failures cannot be
 // attributed to fixes). Refuse loudly rather than improvise.
-let dirty = bash({ command: "git status --porcelain" })?
-if dirty.trim() != "" {
-  let _ = @`Tell the user: /quality-loop refused to start — the working tree is not clean, and the loop needs clean revert boundaries. Commit or stash first.`?
+let dirty_n = bash({ command: "git status --porcelain | wc -l" })?
+if dirty_n.trim() != "0" {
+  let dirty = bash({ command: "git status --porcelain | head -20" })?
+  let _ = @`Tell the user: /quality-loop refused to start — the working tree is not clean, and the loop needs clean revert boundaries. Commit or stash first. git status --porcelain reports:
+${dirty}`?
   return "refused: dirty worktree"
 }
 let baseline = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
@@ -49,20 +55,18 @@ while cycle < max_cycles && !converged {
   let review_sha = bash({ command: "git rev-parse HEAD" })?.trim()
 
   // ---- 1. what needs review: recorded per-file review state vs git changes ----
-  // Annotated-mut + reassignment keeps these array-typed on the installed
-  // 0.12.0 parser too (its checker treats call results as opaque).
-  let mut need: array<string> = []
-  need = lines(bash({ command: "node tools/quality/store.mjs needs-review --lens D2" })?)
-  let mut leftover: array<string> = []
-  leftover = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null || true" })?)
-  if need.length == 0 && leftover.length == 0 {
+  let need_n = bash({ command: "node tools/quality/store.mjs needs-review --lens D2 | wc -l" })?.trim()
+  let leftover_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
+  if need_n == "0" && leftover_n == "0" {
     converged = true
     report = report + "wave " + wave + ": nothing needs review and intake is empty - converged.\n"
     break
   }
 
   // ---- 2+3. shard the due surface, run the lens over shards in parallel ----
-  if need.length > 0 {
+  if need_n != "0" {
+    // Annotated-mut + reassignment keeps these array-typed on older installed
+    // parsers too (their checkers treat call results as opaque).
     let mut shards: array<string> = []
     shards = lines(bash({ command: "node tools/quality/store.mjs shard --lens D2 --wave " + wave + " --target-loc " + shard_loc })?)
     let reviews = par for m in shards max parallel {
@@ -87,10 +91,11 @@ while cycle < max_cycles && !converged {
   }
 
   // ---- 4. triage every candidate in intake (leftovers included) ----
-  let mut cands: array<string> = []
-  cands = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null || true" })?)
+  let cand_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
   let mut confirmed = 0
-  if cands.length > 0 {
+  if cand_n != "0" {
+    let mut cands: array<string> = []
+    cands = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | sort" })?)
     let verdicts = par for c in cands max parallel {
       triage_finding(c)?
     }
@@ -150,8 +155,9 @@ while cycle < max_cycles && !converged {
           guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
           if attempt >= 2 {
             let _ = bash({ command: "git restore ." })?
-            let residue = bash({ command: "git status --porcelain" })?
-            if residue.trim() != "" {
+            let residue_n = bash({ command: "git status --porcelain | wc -l" })?
+            if residue_n.trim() != "0" {
+              let residue = bash({ command: "git status --porcelain | head -20" })?
               let _ = @`Tell the user: /quality-loop halted at a safe boundary — after reverting a failed fix for cluster ${key}, the tree still holds leftover changes (likely untracked files a fixer created). Manual cleanup needed:
 ${residue}`?
               return "halted: unclean revert"
