@@ -796,11 +796,18 @@ type InvokeReturnTyping =
 
 /**
  * A resolved return-type site: the annotation source to lower and the theta
- * body whose `schema` / `enum` declarations resolve the names in it.
+ * body whose `schema` / `enum` declarations resolve the names in it. Bug
+ * 0465: `importedTypeDecls` rides alongside `declarations` so
+ * `#validateInvokeReturn` can merge in the same file's imported schema/enum
+ * decls the lowering seam needs — the CALLER's for `annotated` (the caller
+ * wrote the annotation and its own imports resolve it), the CALLEE's for
+ * `callee-inferred` (the inferred name resolves against the callee's own
+ * decls, imports included).
  */
 interface InvokeReturnSite {
   readonly annotation: string;
   readonly declarations: ThetaBody;
+  readonly importedTypeDecls?: ThetaCompositionInput["importedTypeDecls"];
 }
 
 /**
@@ -3186,8 +3193,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       expr.schema !== null
         ? lowerQueryResponseSchema(
             expr.schema,
-            schemaDeclsOf(deps.theta.body),
-            enumDeclsOf(deps.theta.body),
+            mergedSchemaDeclsOf(deps.theta),
+            mergedEnumDeclsOf(deps.theta),
           )
         : undefined;
     // Bug 0010 (QRY-14 step 2): the typed query's respond-turn machinery —
@@ -3377,8 +3384,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             decodeInboundValue({
               lowered: lowered as unknown as Record<string, unknown>,
               annotation: expr.schema as string,
-              schemaNames: new Set(schemaDeclsOf(deps.theta.body).map((decl) => decl.name)),
-              enumNames: new Set(enumDeclsOf(deps.theta.body).map((decl) => decl.name)),
+              schemaNames: new Set(mergedSchemaDeclsOf(deps.theta).map((decl) => decl.name)),
+              enumNames: new Set(mergedEnumDeclsOf(deps.theta).map((decl) => decl.name)),
               validated,
               schemaValidator: root.schemaValidator,
               // Bug 0337: this theta's OWN typed-query result retags its
@@ -4437,16 +4444,36 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): InvokeReturnSite | null {
     switch (returnTyping.kind) {
       case "annotated":
-        return { annotation: returnTyping.annotation, declarations: theta.body };
+        return {
+          annotation: returnTyping.annotation,
+          declarations: theta.body,
+          ...(theta.importedTypeDecls !== undefined
+            ? { importedTypeDecls: theta.importedTypeDecls }
+            : {}),
+        };
       case "untyped":
         return null;
       case "callee-inferred": {
+        // Bug 0465: feed the SAME merged (imports + same-file) name sets the
+        // lowering seam itself will resolve against, so a constructor tail
+        // naming an imported schema (or an enum-variant tail naming an
+        // imported enum) is recognised here too — the §Non-goal residual
+        // (`inferCalleeReturnAnnotation`'s conservative floor) this fix's
+        // §Fix names as recovering, not filed on its own.
         const annotation = inferCalleeReturnAnnotation(
           callee.body,
-          new Set(schemaDeclsOf(callee.body).map((decl) => decl.name)),
-          new Set(enumDeclsOf(callee.body).map((decl) => decl.name)),
+          new Set(mergedSchemaDeclsOf(callee).map((decl) => decl.name)),
+          new Set(mergedEnumDeclsOf(callee).map((decl) => decl.name)),
         );
-        return annotation === null ? null : { annotation, declarations: callee.body };
+        return annotation === null
+          ? null
+          : {
+              annotation,
+              declarations: callee.body,
+              ...(callee.importedTypeDecls !== undefined
+                ? { importedTypeDecls: callee.importedTypeDecls }
+                : {}),
+            };
       }
     }
   }
@@ -4503,7 +4530,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     if (returnSite === null || !result.ok) {
       return result;
     }
-    const { annotation: returnSchema, declarations } = returnSite;
+    const { annotation: returnSchema, declarations, importedTypeDecls } = returnSite;
+    const mergedSite = { body: declarations, importedTypeDecls };
     // Ceiling #4 (ceilings-3-and-4.md#ceiling-4-table, the `invoke<T>` return-value
     // row; CIO-3): the depth walk is the FIRST sub-check at the return-value AJV
     // boundary, over the payload's WIRE FORM — the JSON document, not the carrier
@@ -4515,8 +4543,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     }
     const lowered = lowerQueryResponseSchema(
       returnSchema,
-      schemaDeclsOf(declarations),
-      enumDeclsOf(declarations),
+      mergedSchemaDeclsOf(mergedSite),
+      mergedEnumDeclsOf(mergedSite),
     );
     if (lowered === undefined) {
       return result;
@@ -4527,8 +4555,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       const decoded = decodeInboundValue({
         lowered: lowered as unknown as Record<string, unknown>,
         annotation: returnSchema,
-        schemaNames: new Set(schemaDeclsOf(declarations).map((decl) => decl.name)),
-        enumNames: new Set(enumDeclsOf(declarations).map((decl) => decl.name)),
+        schemaNames: new Set(mergedSchemaDeclsOf(mergedSite).map((decl) => decl.name)),
+        enumNames: new Set(mergedEnumDeclsOf(mergedSite).map((decl) => decl.name)),
         validated: result.value as unknown,
         schemaValidator: this.#input.root.schemaValidator,
         // Bug 0337 (subagent-leg / tools:-callee-leg adjudication, Option 1):
@@ -6782,14 +6810,54 @@ function schemaDeclsOf(body: ThetaBody): SchemaDecl[] {
 }
 
 /**
- * The theta body's `enum` declarations, for whole-file named-type resolution
- * (bug 0028 §Fix: `schemaDeclsOf`'s enum sibling). Both `lowerQueryResponseSchema`
- * call sites pass this alongside `schemaDeclsOf` so a declared `enum`
- * annotation (`@<Severity>`) resolves at the typed-query / `invoke<T>`
- * lowering exactly as it already does on the `params:` path.
+ * The theta body's SAME-FILE `enum` declarations (bug 0028 §Fix:
+ * `schemaDeclsOf`'s enum sibling). Both `lowerQueryResponseSchema` call sites
+ * pass `mergedEnumDeclsOf` / `mergedSchemaDeclsOf` (bug 0465), which merge
+ * these same-file decls with the theta's imported ones; `enumDeclsOf` /
+ * `schemaDeclsOf` supply the same-file half so a declared `enum` annotation
+ * (`@<Severity>`) resolves at the typed-query / `invoke<T>` lowering exactly
+ * as it does on the `params:` path.
  */
 function enumDeclsOf(body: ThetaBody): EnumDecl[] {
   return body.statements.filter((stmt): stmt is EnumDecl => stmt.kind === "enum");
+}
+
+/**
+ * Bug 0465 — the merged declaration set `lowerQueryResponseSchema` resolves an
+ * annotation against: this theta's OWN `schema` decls, plus every imported
+ * schema `checkThetaImports` materialised for it (`theta.importedTypeDecls`,
+ * absent for a theta with no top-level `import`, matching `imports`). SAME-FILE
+ * WINS a name collision (the existing whole-file rule schema-subset.md already
+ * gives a same-file decl over anything else): an imported decl whose name
+ * collides with a same-file one is filtered out before the merge, so it is
+ * never even offered to `buildBodyTypeSchemas` — not relied on to lose a
+ * `.set()` tie-break downstream. Imported decls are listed FIRST only so a
+ * same-file decl's later `.set()` write is the one that survives if this
+ * filter were ever bypassed; the filter is what actually decides the winner.
+ */
+export function mergedSchemaDeclsOf(theta: {
+  readonly body: ThetaBody;
+  readonly importedTypeDecls?: ThetaCompositionInput["importedTypeDecls"];
+}): SchemaDecl[] {
+  const sameFile = schemaDeclsOf(theta.body);
+  const sameFileNames = new Set(sameFile.map((decl) => decl.name));
+  const imported = (theta.importedTypeDecls?.schemas ?? []).filter(
+    (decl) => !sameFileNames.has(decl.name),
+  );
+  return [...imported, ...sameFile];
+}
+
+/** The `enum` sibling of {@link mergedSchemaDeclsOf} — same same-file-wins filter. */
+export function mergedEnumDeclsOf(theta: {
+  readonly body: ThetaBody;
+  readonly importedTypeDecls?: ThetaCompositionInput["importedTypeDecls"];
+}): EnumDecl[] {
+  const sameFile = enumDeclsOf(theta.body);
+  const sameFileNames = new Set(sameFile.map((decl) => decl.name));
+  const imported = (theta.importedTypeDecls?.enums ?? []).filter(
+    (decl) => !sameFileNames.has(decl.name),
+  );
+  return [...imported, ...sameFile];
 }
 
 /** An identifier-shaped `@<Schema>` annotation names a `schema` decl. */

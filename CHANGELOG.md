@@ -6,6 +6,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.462.0]
+
+### Fixed
+- **Bug 0465 — a typed `@<Schema>` / `invoke<Schema>` annotation naming an IMPORTED `.thetalib` schema lowered to the permissive `{}`, making QRY-22 vacuous**: both producer call sites handed `lowerQueryResponseSchema` the importing file's own `schema`/`enum` decls only, so an imported name missed and lowered `{}` — the respond tool conveyed no shape, AJV accepted every payload, repair never engaged, and a reply missing a required key bound as `Ok` with zero diagnostics (witnessed live by the `/quality-loop` `missing object key: filed` abort). `checkThetaImports` now materialises each directly-imported schema/enum's declaring-lib decl node plus its transitive same-lib closure on a new `importedTypeDecls` channel (schema-subset.md:72 "transitively imported"; direct-declaration fence mirroring 0429/0448/0450, re-export chains deferred); it is threaded through `ParsedTheta`/`ThetaCompositionInput` to both the typed-`@`-query and `invoke<Schema>` seams, which merge it same-file-wins. `lowerQueryResponseSchema` stays a total function — its unresolved-name `{}` arm is unchanged; only its declaration inputs widened (0028 §Fix constraint). (`src/extension/import-static-checks.ts`, `src/extension/reload-wiring.ts`, `src/extension/production-composition.ts`, `src/extension/production-theta-producer.ts`, `src/runtime/query-schema-lowering.ts`; witness `tests/b0465-imported-annotation-vacuous-validation.test.ts`)
+
 ## [0.461.0]
 
 ### Fixed

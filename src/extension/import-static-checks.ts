@@ -88,6 +88,7 @@ import {
   type ThetaBody,
   type ThetaDocument,
 } from "../parser/theta-document";
+import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
 import { encodePointerSegment } from "../parser/schema-lowering";
@@ -216,6 +217,140 @@ function collectTopLevelNames(body: ThetaBody): string[] {
     }
   }
   return names;
+}
+
+/**
+ * Bug 0465 — the `NamedType` identifiers a schema field's / alias arm's type
+ * SOURCE references, e.g. `"Detail"` off `"array<Detail>"` or `"Detail | null"`.
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts) reports every
+ * `NamedType` in `source` that resolves against NONE of `declared` — handing it
+ * an EMPTY declared set turns that refusal list into a plain reference walk:
+ * every named type the source mentions comes back unresolved, since nothing
+ * was ever declared to resolve against. Reused rather than re-deriving a
+ * second identifier scanner over the type-source grammar.
+ */
+function referencedNamedTypes(typeSource: string): readonly string[] {
+  return collectUnresolvedNamedTypes(typeSource, new Set());
+}
+
+/**
+ * Bug 0465 — schema-subset.md:72's "transitively imported" closure: starting
+ * from ONE directly-imported schema or enum (`entrySchema` / `entryEnum`,
+ * already found by the caller's own direct-declaration fence — mirrors
+ * `importedSchemas` / `importedEnums`, NO re-export-chain follow), walk the
+ * named types its fields / alias arms reference, pulling in each one's own
+ * decl from the SAME directly-resolved lib (`libStatements`), recursively.
+ * A referenced name absent from `libStatements` is a NESTED import inside the
+ * lib — opaque here, same disposition as 0422's own nested-import stop — so
+ * the walk does not descend into it; `lowerQueryResponseSchema` then treats
+ * that name as unresolved at its own seam, unchanged.
+ *
+ * Each reached decl is stored under its lib-local (SOURCE) name so a
+ * self-reference, a mutual-cycle back-edge, and every transitive field-ref —
+ * all of which name the source — resolve at the lowering seam. When the
+ * caller renamed the ENTRY (`import { X as Summary }`), the entry is
+ * ADDITIONALLY stored under `outputName` (the specifier's LOCAL `as` binding)
+ * as a `name: outputName` copy, so `@<Summary>` resolves. Storage is
+ * first-wins on each name.
+ *
+ * KNOWN RESIDUAL (rare pathological authoring): when `outputName` equals the
+ * SOURCE name of one of the entry's OWN same-lib dependencies — aliasing an
+ * import to the exact name of a sibling it transitively reaches — the two
+ * schemas contend for one flat-`$defs` name that cannot mean both. First-wins
+ * decides it deterministically: the aliased ENTRY is stored under `outputName`
+ * before the field-walk reaches the sibling, so the ENTRY wins that name and
+ * the same-lib sibling of that name is dropped. No diagnostic is minted for
+ * the collision; the parent report files residuals.
+ */
+function collectImportedTypeDecls(
+  entrySchema: SchemaDecl | undefined,
+  entryEnum: EnumDecl | undefined,
+  outputName: string,
+  libStatements: ThetaBody["statements"],
+): { readonly schemas: ReadonlyMap<string, SchemaDecl>; readonly enums: ReadonlyMap<string, EnumDecl> } {
+  const schemaByName = new Map<string, SchemaDecl>();
+  const enumByName = new Map<string, EnumDecl>();
+  for (const stmt of libStatements) {
+    if (stmt.kind === "schema") {
+      schemaByName.set(stmt.name, stmt);
+    } else if (stmt.kind === "enum") {
+      enumByName.set(stmt.name, stmt);
+    }
+  }
+
+  const schemas = new Map<string, SchemaDecl>();
+  const enums = new Map<string, EnumDecl>();
+  const visitedSchemas = new Set<string>();
+  const visitedEnums = new Set<string>();
+
+  const typeSourcesOf = (decl: SchemaDecl): readonly string[] =>
+    decl.fields !== undefined
+      ? decl.fields.map((f) => f.typeSource)
+      : (decl.arms ?? []);
+
+  const visitSchema = (sourceName: string, asName: string): void => {
+    const decl = schemaByName.get(sourceName);
+    // Head-only (neither `fields` nor `arms`) carries no lowerable shape —
+    // `lowerQueryResponseSchema`'s own unresolved-name arm already handles it
+    // the same as a same-file head-only decl would.
+    const hasShape =
+      decl !== undefined && (decl.fields !== undefined || decl.arms !== undefined);
+    if (decl !== undefined && hasShape) {
+      // Store under the SOURCE name so a self-reference, a cycle back-edge, and
+      // every transitive field-ref (which all spell the source) resolve;
+      // additionally under the alias when the entry was renamed. This runs on
+      // every entry — INCLUDING the renamed entry, before the visited guard's
+      // early return below — so a renamed self-recursive schema's own source
+      // name is recorded rather than lost to the guard.
+      if (!schemas.has(sourceName)) {
+        schemas.set(sourceName, decl);
+      }
+      if (asName !== sourceName && !schemas.has(asName)) {
+        schemas.set(asName, { ...decl, name: asName });
+      }
+    }
+    // The visited guard fences the field-walk recursion alone (cycle
+    // termination); storage above is independent of it.
+    if (visitedSchemas.has(sourceName)) {
+      return;
+    }
+    visitedSchemas.add(sourceName);
+    if (decl === undefined || !hasShape) {
+      return;
+    }
+    for (const typeSource of typeSourcesOf(decl)) {
+      for (const ref of referencedNamedTypes(typeSource)) {
+        visitSchema(ref, ref);
+        visitEnum(ref, ref);
+      }
+    }
+  };
+  const visitEnum = (sourceName: string, asName: string): void => {
+    const decl = enumByName.get(sourceName);
+    if (decl !== undefined && decl.variants !== undefined) {
+      // Same dual storage as `visitSchema`: source name so a schema field
+      // referencing this enum by its lib-local name resolves, plus the alias
+      // when the entry was renamed. An enum has no field body to walk.
+      if (!enums.has(sourceName)) {
+        enums.set(sourceName, decl);
+      }
+      if (asName !== sourceName && !enums.has(asName)) {
+        enums.set(asName, { ...decl, name: asName });
+      }
+    }
+    if (visitedEnums.has(sourceName)) {
+      return;
+    }
+    visitedEnums.add(sourceName);
+  };
+
+  if (entrySchema !== undefined) {
+    visitSchema(entrySchema.name, outputName);
+  }
+  if (entryEnum !== undefined) {
+    visitEnum(entryEnum.name, outputName);
+  }
+  return { schemas, enums };
 }
 
 /**
@@ -502,6 +637,16 @@ export interface ThetaImportCheck {
    * readonly.
    */
   readonly patchedSystemTemplate?: SystemTemplate;
+  /**
+   * Bug 0465 route — the declaring lib's own `SchemaDecl` / `EnumDecl` nodes
+   * for every directly-imported schema/enum this theta's `import` specifiers
+   * name (entry renamed to its LOCAL binding), plus their transitive
+   * lib-of-lib closure (schema-subset.md:72 "transitively imported"), so a
+   * caller can widen `lowerQueryResponseSchema`'s declaration inputs beyond
+   * same-file decls at the typed `@`-query / `invoke<Schema>` seam. Absent a
+   * top-level `import`, both arrays are empty — matching {@link imports}.
+   */
+  readonly importedTypeDecls: { readonly schemas: readonly SchemaDecl[]; readonly enums: readonly EnumDecl[] };
 }
 
 /**
@@ -541,7 +686,13 @@ export async function checkThetaImports(
   const imports: MaterializedImport[] = [];
   const importDecls = collectImports(input.body);
   if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return { diagnostics, imports, undelivered: diagnostics, resolvedLibs: [] };
+    return {
+      diagnostics,
+      imports,
+      undelivered: diagnostics,
+      resolvedLibs: [],
+      importedTypeDecls: { schemas: [], enums: [] },
+    };
   }
 
   const fromFile = normalizePath(input.sourcePath);
@@ -1095,6 +1246,19 @@ export async function checkThetaImports(
   // fields-less/alias-form `schema`), for `checkImportedNonCtorTypeNames` to
   // judge each `ObjectExpr` constructor site against.
   const importedNonCtorKinds = new Map<string, ImportedNonCtorKind>();
+  // Bug 0465 route — the QUERY/INVOKE-LOWERING sibling of `importedSchemas` /
+  // `importedEnums` above: the two producer call sites that lower a typed
+  // `@<Schema>` / `invoke<Schema>` annotation (query-schema-lowering.ts) need
+  // the declaring lib's own `SchemaDecl` / `EnumDecl` decl nodes rather than
+  // field lists, because `lowerQueryResponseSchema` walks `.fields` / `.arms`
+  // directly. Keyed by the name each decl resolves under: its lib-local
+  // (source) name so self-/cycle/transitive refs resolve, plus the specifier's
+  // LOCAL (`as`) name for the entry so `@<Summary>` resolves for
+  // `import { X as Summary }` (`collectImportedTypeDecls` mints both).
+  // First-wins across specifiers/libs — an earlier import's decl is never
+  // displaced by a later one reaching the same name transitively.
+  const importedTypeSchemas = new Map<string, SchemaDecl>();
+  const importedTypeEnums = new Map<string, EnumDecl>();
   // Bug 0422 route (a): the real object `SystemParamType` shell for an
   // imported schema, keyed by the LOCAL binding name (`params:` names an
   // imported schema by this name, e.g. `author: Author`) — built ONLY when
@@ -1287,6 +1451,26 @@ export async function checkThetaImports(
         // `enum` match unless a fields-bearing schema of the same name outranks
         // it (`hasCtorSchema`, above), mirroring same-file precedence.
         importedNonCtorKinds.set(specifier.local, { kind: "enum" });
+      }
+      // Bug 0465: feed the QUERY/INVOKE lowering seam the SAME direct-decl
+      // finds (`schemaDecl` / `enumDecl`) already made above, plus their
+      // transitive lib-of-lib closure, renaming only the entry to the
+      // specifier's LOCAL (`as`) binding (schema-subset.md:72).
+      const { schemas: transitiveSchemas, enums: transitiveEnums } = collectImportedTypeDecls(
+        schemaDecl,
+        enumDecl,
+        specifier.local,
+        parsed.document.body.statements,
+      );
+      for (const [name, decl] of transitiveSchemas) {
+        if (!importedTypeSchemas.has(name)) {
+          importedTypeSchemas.set(name, decl);
+        }
+      }
+      for (const [name, decl] of transitiveEnums) {
+        if (!importedTypeEnums.has(name)) {
+          importedTypeEnums.set(name, decl);
+        }
       }
       const materialized = await materializeChain(
         specifier.source,
@@ -1873,5 +2057,9 @@ export async function checkThetaImports(
     undelivered,
     resolvedLibs: [...walked],
     ...(patchedParts !== undefined ? { patchedSystemTemplate: { parts: patchedParts } } : {}),
+    importedTypeDecls: {
+      schemas: [...importedTypeSchemas.values()],
+      enums: [...importedTypeEnums.values()],
+    },
   };
 }

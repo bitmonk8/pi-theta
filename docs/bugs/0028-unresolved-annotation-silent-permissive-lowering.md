@@ -774,7 +774,14 @@ includes `"schema"`, `src/runtime/lexical-environment.ts:109`) but
 `MaterializedImport` (`:117–125`) carries no field bodies, so an imported
 name counts as *resolved* for the diagnostic while its lowering stays
 permissive until the import machinery carries lowered fragments —
-otherwise the new error rejects legal thetas.
+otherwise the new error rejects legal thetas. Discharged by the 0465 fix
+(0.462.0): the import machinery now carries lowered fragments — `checkThetaImports`
+materialises each directly-imported schema/enum's declaring-lib decl node (plus
+its transitive same-lib closure) on the `importedTypeDecls` channel, and both
+`lowerQueryResponseSchema` call sites merge them (same-file wins) before the
+seam, so an imported annotation resolves to its declared shape rather than the
+permissive `{}`. The seam itself stays total — `lowerQueryResponseSchema`'s
+unresolved-name arm is unchanged; only its declaration inputs widened.
 
 **Hot-reload interaction: none.** Annotation names never resolve across
 `.theta` files (the lowering consults only the theta's own body and its

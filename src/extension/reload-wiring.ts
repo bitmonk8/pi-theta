@@ -28,7 +28,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { SystemNote } from "./system-note-channel";
-import type { ThetaBody } from "../parser/theta-document";
+import type { EnumDecl, SchemaDecl, ThetaBody } from "../parser/theta-document";
 import type { CallableSetSnapshot } from "../parser/callable-set";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import type {
@@ -70,6 +70,21 @@ export interface ParsedTheta {
    * `schema` / `enum` registers. Absent when the theta declares no `import`.
    */
   readonly imports?: readonly MaterializedImport[];
+  /**
+   * Bug 0465 — the declaring lib's own `SchemaDecl` / `EnumDecl` nodes for
+   * every directly-imported schema/enum this theta names (entry renamed to
+   * its local binding), plus their transitive lib-of-lib closure
+   * (schema-subset.md:72 "transitively imported"; `checkThetaImports`'
+   * `importedTypeDecls`). Threaded onto the composed theta so the two
+   * `lowerQueryResponseSchema` call sites (production-theta-producer.ts) can
+   * widen their declaration inputs beyond same-file `schema`/`enum` decls at
+   * the typed `@`-query / `invoke<Schema>` annotation position. Absent when
+   * the theta declares no top-level `import` — mirrors {@link imports}.
+   */
+  readonly importedTypeDecls?: {
+    readonly schemas: readonly SchemaDecl[];
+    readonly enums: readonly EnumDecl[];
+  };
   /**
    * The frozen `tools:` callable-set resolution snapshot resolved at load time
    * (`resolveCallableSet`), threaded onto the runnable theta so the runtime

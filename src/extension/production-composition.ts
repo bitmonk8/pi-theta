@@ -146,7 +146,7 @@ import {
   checkSubagentFnStaticResolution,
   collectSubagentFns,
 } from "./subagent-fn-static-checks";
-import { checkThetaImports } from "./import-static-checks";
+import { checkThetaImports, type ThetaImportCheck } from "./import-static-checks";
 import type { ThetaMode } from "../parser/frontmatter";
 import type { SystemTemplate } from "../parser/system-interpolation";
 import {
@@ -1256,6 +1256,14 @@ async function runComposePass(
     const composedInput: ThetaCompositionInput = {
       ...input,
       ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
+      // Bug 0465: thread the imported schema/enum decls the query/invoke
+      // lowering seam needs, exactly as `imports` above is threaded — spread
+      // only when non-empty, so a theta with no lowerable imported decl stays
+      // byte-identical (no `importedTypeDecls` key at all).
+      ...(importCheck.importedTypeDecls.schemas.length > 0 ||
+      importCheck.importedTypeDecls.enums.length > 0
+        ? { importedTypeDecls: importCheck.importedTypeDecls }
+        : {}),
       // Bug 0423 route (a): thread the load-phase-patched `system:` template
       // (wire-name sidecars applied to bare imported-schema params) onto the
       // composed frontmatter exactly as `imports` above is threaded — a NEW
@@ -2811,6 +2819,7 @@ async function calleeFailsOwnStructuralChecksBody(
   ownEscapes: boolean;
   consultedVisited: boolean;
   patchedSystemTemplate?: SystemTemplate;
+  importedTypeDecls?: ThetaImportCheck["importedTypeDecls"];
 }> {
   const calleeInput: ThetaCompositionInput = {
     slashName: thetaBasename(calleeAbsolutePath),
@@ -2832,6 +2841,14 @@ async function calleeFailsOwnStructuralChecksBody(
   // compose site), and an invoked callee must reach the same wire bytes. No
   // second resolution pass: this is a read of the check that already ran here.
   const patchedSystemTemplate = importCheck.patchedSystemTemplate;
+  // Bug 0465: same read, same reasoning — `parseCalleeTheta`'s invoke
+  // dispatch needs the callee's OWN imported schema/enum decls so the
+  // `callee-inferred` return-annotation leg (`#resolveReturnSite`) can widen
+  // its declaration inputs beyond the callee's same-file decls too.
+  const importedTypeDecls =
+    importCheck.importedTypeDecls.schemas.length > 0 || importCheck.importedTypeDecls.enums.length > 0
+      ? importCheck.importedTypeDecls
+      : undefined;
   if (importCheck.diagnostics.some((d) => d.severity === "error")) {
     // Bug 0275 §Fix constraint 1: the early returns carry `ownEscapes: false`
     // — an import-error frame never reached its own `tools:` loop, so it
@@ -2846,6 +2863,7 @@ async function calleeFailsOwnStructuralChecksBody(
       ownEscapes: false,
       consultedVisited: false,
       ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
+      ...(importedTypeDecls !== undefined ? { importedTypeDecls } : {}),
     };
   }
 
@@ -3065,6 +3083,7 @@ async function calleeFailsOwnStructuralChecksBody(
     ownEscapes,
     consultedVisited,
     ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
+    ...(importedTypeDecls !== undefined ? { importedTypeDecls } : {}),
   };
 }
 
@@ -3096,6 +3115,7 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   ownEscapes: boolean;
   consultedVisited: boolean;
   patchedSystemTemplate?: SystemTemplate;
+  importedTypeDecls?: ThetaImportCheck["importedTypeDecls"];
 }> {
   const memo = deps.passVerdictMemo;
   if (memo !== undefined) {
@@ -3499,6 +3519,15 @@ async function parseCalleeTheta(
         ? { ...document.frontmatter, system: structural.patchedSystemTemplate }
         : document.frontmatter,
     body: document.body,
+    // Bug 0465: thread the callee's OWN imported schema/enum decls
+    // (`calleeFailsOwnStructuralChecksBody`'s fresh `checkThetaImports` read,
+    // never memo-hit at this call site — see the taint wrapper's own
+    // doc-comment) so the `callee-inferred` return-annotation leg resolves an
+    // imported name against the CALLEE's own declarations, mirroring how
+    // `imports`/`patchedSystemTemplate` are threaded here.
+    ...(structural.importedTypeDecls !== undefined
+      ? { importedTypeDecls: structural.importedTypeDecls }
+      : {}),
   };
   // Resolve and attach the callee's OWN frozen `tools:` callable set so an
   // invoked child enforces its callable set at runtime exactly like a discovered

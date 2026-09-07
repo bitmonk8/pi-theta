@@ -1,6 +1,6 @@
 # Bug 0465 — A typed query or `invoke<Schema>` annotation naming an IMPORTED `.thetalib` schema lowers to the permissive `{}` at both producer call sites, so the QRY-22 legs are all vacuous — the respond tool conveys no shape, AJV accepts every payload, repair never engages — and a reply missing a required key binds as `Ok` with zero diagnostics, where the same-file spelling refuses that reply with `must have required property`
 
-- **Status:** open.
+- **Status:** fixed (0.462.0).
 - **Sev/Diff estimate:** S1/D2 — S1: silent wrong value end-to-end. The
   author's typed contract (`let summary: ReviewSummary = @`…`?`) is dropped
   with zero diagnostics at parse, load, and runtime; a schema-violating reply
@@ -308,3 +308,73 @@ Algorithm, QRY-22, invocation.md §Typed return, code-registry-parse.md:115,
 code-registry-load.md:42-43. Incident artifacts read read-only from the main
 tree (`.pi/theta/quality-loop.theta`, `.pi/theta/workers/lens-d2-cruft.theta`,
 `.pi/theta/workers/quality.thetalib`). No non-scratch file modified.
+
+## Fix (0.462.0)
+
+- What shipped:
+  - `src/extension/import-static-checks.ts` — new `importedTypeDecls`
+    channel on `checkThetaImports`: for each directly-imported schema/enum it
+    materialises the declaring lib's own `SchemaDecl`/`EnumDecl` node (entry
+    renamed to its local `as` binding), plus the transitive same-lib closure
+    (`collectImportedTypeDecls`/`referencedNamedTypes`) — schema-subset.md:72's
+    "transitively imported" (§Fix must-settle a). Every reached decl is stored
+    under its SOURCE name (so self/cycle/transitive refs resolve) and
+    additionally under the alias when it differs.
+  - `src/extension/reload-wiring.ts` — `importedTypeDecls` optional field on
+    `ParsedTheta` so it rides `ThetaCompositionInput`.
+  - `src/extension/production-composition.ts` — threads the channel onto the
+    slash-registration input and the `invoke` callee path (spread-when-non-empty,
+    mirroring `imports`/`patchedSystemTemplate`).
+  - `src/extension/production-theta-producer.ts` — `mergedSchemaDeclsOf`/
+    `mergedEnumDeclsOf` (same-file-wins filter, imported-first) feed both
+    `lowerQueryResponseSchema` call sites (typed `@`-query, `#validateInvokeReturn`)
+    and both `decodeInboundValue` name-set sites; `InvokeReturnSite` carries the
+    imported decls (caller's for `annotated`, callee's for `callee-inferred`).
+  - `src/runtime/query-schema-lowering.ts` — comment-only: the unresolved-name
+    arm's `{}`-origins inventory and the param doc re-pinned to the merged-inputs
+    reality. The seam stays a TOTAL function (0028 §Fix); only its inputs widened.
+- Gates: witness `npx vitest run tests/b0465-imported-annotation-vacuous-validation.test.ts`
+  → 24/24; full `npm test` → 635 files / 10854 passed, 0 failed; `npm run typecheck`
+  (tsc --noEmit) clean; `npm run lint` (eslint) clean. Live: H8a
+  `live-production-acceptance` 90/90, acceptance area 42 files / 53 passed
+  (incl. `b0422live` 2/2); a scratch live probe drove an imported-schema typed
+  `invoke<ReviewSummary>` end-to-end (red with the merge neutralised, green with
+  it, deleted — 0033 precedent).
+- Review: 2 rounds. Round 1 (bug-fix-reviewer, deep) — F1 (correctness): the
+  alias-rename family reintroduced silent-vacuous validation for a renamed
+  self-recursive / mutually-cyclic imported schema (nested position lowered `{}`)
+  and a loud-wrong alias-shadows-sibling case; F2 (prose): comments contradicted
+  the merged-inputs behaviour; residuals R1 (merge unwitnessed) / R3 (imported-enum
+  path) / R2 (citation drift). All fixed (bug-fix-fixer): dual source-name+alias
+  storage with the cycle guard fencing only recursion; F1-b/F1-c anti-vacuity
+  witnesses; exported merge helpers + direct cell; imported-enum + wire-rename
+  cells; comment/citation sweep. Round 2 (bug-fix-reviewer-fast) — CLEAN (reviewer
+  reproduced the pre-fix shapes to prove the witnesses genuinely red).
+- Verification: bug-fix-verifier SOLID. Witness reds under two targeted
+  neutralisations (channel emits `{schemas:[],enums:[]}`; merge helpers drop
+  imported decls) — the imported/defect cells red for the symptom — and greens on
+  byte-exact restore (blob-hash confirmed). Full suite green; live obligation
+  discharged (shipped H8a/acceptance + the imported-annotation scratch probe,
+  red-with-neutralised / green-with-fix). Lint + typecheck clean.
+- Residuals:
+  1. Face (a) — aliasing an import to the EXACT source name of one of its own
+     same-lib transitive dependencies (`import { ReviewSummary as Detail }` where
+     ReviewSummary references a sibling `schema Detail`): a genuine flat-`$defs`
+     namespace collision with no clean resolution. Deterministic first-wins (the
+     aliased entry claims the name, the sibling is dropped); documented in
+     `collectImportedTypeDecls`'s doc-comment. Rare pathological authoring; no
+     diagnostic minted. Cell `F1-a` pins the deterministic behaviour.
+  2. Cross-lib closure (a nested IMPORT inside a lib, beyond the directly-resolved
+     lib's own top-level decls) stays opaque/deferred, mirroring 0422's nested-import
+     disposition; consistent with the 0429/0448/0450 direct-declaration fence.
+  3. Re-export-chain-only imported bindings stay deferred (same fence).
+- Discharge notes appended: 0028 §Fix "Import nuance" (the deferral this fix
+  closes — the import machinery now carries lowered fragments).
+- Pinned dispositions / non-goals: the `binder-model-strict-capability-unknown`
+  load note is unrelated (§Non-goals, unchanged). The callee-inferred return leg's
+  conservative floor (`inferCalleeReturnAnnotation`) DOES now recover — its name
+  sets are widened with the merged imported decls, so a constructor/enum-variant
+  tail naming an imported type is recognised (§Non-goals anticipated this). Wire-
+  rename sidecars (must-settle d) ride automatically: lowering the imported
+  schema's real `.fields` carries each field's `wireName` through the outbound
+  sidecars exactly as a same-file schema (cell `R3-wire-rename`).

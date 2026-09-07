@@ -36,12 +36,19 @@
 // reachable from a LOADABLE theta:
 //
 //   - THE UNRESOLVED-NAME ARM, for a name in scope that carries no lowerable
-//     body here: a symbol a body `import` pulls in (both call sites hand this
-//     seam the importing file's OWN `schema` / `enum` decls, and the imported
-//     symbol's fields live in the other file), or a `schema` decl the parser
-//     retained no field list for (it retains one only for a plain
-//     `ident: Type` object body). Both names are in scope, so
-//     `theta/parse/unresolved-named-type` admits them by design. A name
+//     body in the declaration set the caller passed. Bug 0465: the production
+//     call sites now hand this seam the MERGED set — the importing file's own
+//     `schema` / `enum` decls PLUS the ones its `import`s pull in
+//     (`mergedSchemaDeclsOf` / `mergedEnumDeclsOf`,
+//     production-theta-producer.ts) — so an imported symbol resolves here. The
+//     `{}` this arm still mints narrows to: a name whose decl lives in a
+//     NESTED import inside the lib (not carried across that second hop), the
+//     bug-0465 alias-collision residual (an import aliased to the source name
+//     of one of its own same-lib dependencies, where first-wins drops the
+//     sibling), and a `schema` decl the parser retained no field list for (it
+//     retains one only for a plain `ident: Type` object body). Every such name
+//     is in scope, so `theta/parse/unresolved-named-type` admits them by
+//     design. A name
 //     resolving to NO declaration lands on the same arm but is refused from
 //     source (theta-document.ts), making the `{}` for THAT input defence in
 //     depth behind the parse gate rather than reachable behaviour — true of a
@@ -144,11 +151,14 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * Lower a typed query's declared response-schema annotation to its
  * AJV-validatable JSON Schema (QRY-22 / SUBS-1), or `undefined` when the
  * annotation carries no lowerable shape. `annotation` is the verbatim
- * `@<Schema>` text; `schemas` and `enums` are the theta body's `schema` /
- * `enum` declarations, used to resolve a named reference whole-file to its
- * retained object body or its wire-value enum (bug 0028 §Fix: `enums`
- * defaults to `[]` so the two shipped seam-contract pins that call this with
- * two arguments keep compiling).
+ * `@<Schema>` text; `schemas` and `enums` are the declarations a named
+ * reference resolves against. In production both call sites pass the MERGED
+ * set — this file's own `schema` / `enum` decls plus the ones its `import`s
+ * pull in (`mergedSchemaDeclsOf` / `mergedEnumDeclsOf`,
+ * production-theta-producer.ts, bug 0465) — so an imported name lowers to its
+ * declared shape here. `enums` defaults to `[]` so the two shipped
+ * seam-contract pins that call this with two arguments keep compiling (bug
+ * 0028 §Fix).
  */
 export function lowerQueryResponseSchema(
   annotation: string,
