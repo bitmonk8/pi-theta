@@ -1,0 +1,108 @@
+---
+id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+title: checkDiscardedQueryResult's two discriminating inputs are compile-time constants at its only integration call site, which pre-decides the one shape the function checks
+lens: D2                     # the lens that filed this
+status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
+verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+locations:                   # every cited site, repo-relative path:line-range
+  - src/runtime/query-discard.ts:98-116
+  - src/runtime/query-discard.ts:62-86
+  - src/parser/theta-document.ts:9309-9327
+sites: 3                     # count of occurrences cited in Evidence
+fix_scope: cross-module      # localized | module | cross-module — mechanical size proxy, NOT a priority
+wave: qw20260907130901
+reported_by: lens-d2-cruft (anthropic/claude-sonnet-5)
+date: 2026-09-07
+---
+
+# checkDiscardedQueryResult's two discriminating inputs are compile-time constants at its only integration call site, which pre-decides the one shape the function checks
+
+## Observation
+`checkDiscardedQueryResult` (QRY-19) branches on `stmt.isQuery` and a four-arm
+`QueryStatementDisposition`. Its only non-test caller — the parser's `walkStmt`
+`"query"` arm — passes both discriminators as literals (`isQuery: true`,
+`disposition: "bare-expr-statement"`), and the caller's own comment states the
+parser can produce no other disposition at that position: the `?`/`let _ =`/
+`let x =` forms parse to `try`/`let` nodes and a trailing query is promoted to
+the tail. The function's guard therefore re-tests, at runtime, facts the call
+site fixes at compile time, and three of the four `QueryStatementDisposition`
+arms plus the `isQuery: false` case have no producer in the parse pipeline.
+
+## Evidence
+src/runtime/query-discard.ts:98-108 (the guard over both inputs):
+```ts
+export function checkDiscardedQueryResult(
+  stmt: QueryStatement,
+): Diagnostic | undefined {
+  // QRY-19: only a must-use `@`...`` query result in bare expression-statement
+  // position drops the `Result` without acknowledgement. The `?`-propagate,
+  // `let _ =`-discard, and `let x = ...?`-bind forms acknowledge it at the call
+  // site and are accepted.
+  if (!stmt.isQuery || stmt.disposition !== "bare-expr-statement") {
+    return undefined;
+  }
+```
+
+src/parser/theta-document.ts:9309-9327 (the sole src call site; both
+discriminators literal, with the caller documenting why no other value can
+arise):
+```ts
+    case "query":
+      // QRY-19 (query-escapes-stringification.md#qry-19): a bare `@`...`` in
+      // expression-statement position drops the must-use `Result` without
+      // acknowledgement. A `QueryStmt` is produced only for a NON-tail bare
+      // query — `parseForms` promotes a trailing line-start query to the
+      // body/void tail (the accepted void-tail discard, QRY-20 territory), and
+      // the `?`-propagate / `let _ =`-discard / `let x = …` binding forms parse
+      // to `try` / `let` nodes — so its disposition is always
+      // `bare-expr-statement`, the sole QRY-19 trigger.
+      pushDiag(
+        out,
+        checkDiscardedQueryResult({
+          isQuery: true,
+          disposition: "bare-expr-statement",
+          file,
+          range: s.range,
+        }),
+      );
+```
+
+src/runtime/query-discard.ts:62-86 declares the four-arm
+`QueryStatementDisposition` (`"bare-expr-statement" | "propagate" |
+"discard-let-underscore" | "bind"`) and the `isQuery` flag the sole caller
+never varies. Call-site search for `checkDiscardedQueryResult` across src/,
+extensions/, tools/: exactly one hit (theta-document.ts:9320); tests call it
+directly in tests/query-discard.test.ts:119-138.
+
+## Why this is a problem
+Vestigial parameters: at every production call site (there is exactly one)
+both discriminating inputs receive the same literal values, so the function's
+disposition model — a four-arm union plus a boolean — selects nothing at
+integration. The AST already encodes the disposition structurally (distinct
+`try`/`let`/tail node kinds), which is why the caller can only ever supply the
+one triggering shape; the generality survives from the V13g-T seam declaration
+(module header, query-discard.ts:22-31) rather than from any current selector.
+
+## Suggested direction (non-binding, optional)
+Let the parse-side integration carry only what varies (the site), with the
+QRY-19 diagnostic minted for the one statement shape the parser routes here;
+the accepted-forms facts are already encoded by the AST node kinds the caller
+enumerates.
+
+## False-positive check
+- Call-site search: `checkDiscardedQueryResult` across src/, extensions/,
+  tools/ — one production caller (theta-document.ts:9320), constants cited
+  verbatim; tests/query-discard.test.ts:119-138 drives all four dispositions
+  and `isQuery: false` directly.
+- Test-only-caller rule: respected — this finding makes no deadness claim
+  against the non-trigger arms (they are test-reachable witness surface for
+  QRY-19's accepted forms); the claim is confined to the vestigial inputs at
+  the sole integration site.
+- Dynamic access: no string-keyed or re-exported alias of the function found
+  (`export *` absent in src).
+- Producer check for other arms: searched `"propagate"`, `"discard-let-underscore"`,
+  `"bind"` as `disposition:` values across src/ — zero constructions outside
+  the type declaration; the caller comment (theta-document.ts:9312-9317)
+  confirms the parser cannot emit them at this position.
+
+## Triage

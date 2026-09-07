@@ -1,0 +1,100 @@
+---
+id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+title: FollowUpSurfacingTurn.turnKind declares a "free_phase" arm that no producer in the repository ever constructs
+lens: D2                     # the lens that filed this
+status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
+verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+locations:                   # every cited site, repo-relative path:line-range
+  - src/runtime/query-respond-repair.ts:105-117
+  - src/runtime/typed-query-validation.ts:286-289
+  - src/runtime/typed-query-validation.ts:332
+  - src/runtime/query-tool-loop.ts:814-821
+sites: 4                     # count of occurrences cited in Evidence
+fix_scope: localized         # localized | module | cross-module — mechanical size proxy, NOT a priority
+wave: qw20260907130901
+reported_by: lens-d2-cruft (anthropic/claude-sonnet-5)
+date: 2026-09-07
+---
+
+# FollowUpSurfacingTurn.turnKind declares a "free_phase" arm that no producer in the repository ever constructs
+
+## Observation
+`FollowUpSurfacingTurn` (the respond-repair follow-up's PIC-1 (d) surfacing
+scalars) types its `turnKind` as `"forced_respond" | "free_phase"`. Every
+construction of a `FollowUpSurfacingTurn` in the repository — production and
+tests alike — sets `turnKind: "forced_respond"`. The single consumer read
+falls back to `"forced_respond"` when the record is absent, so the expression
+that consumes the field can only ever evaluate to `"forced_respond"` today.
+
+## Evidence
+src/runtime/query-respond-repair.ts:114-117 (declaration):
+```ts
+export interface FollowUpSurfacingTurn {
+  readonly slotCountAtDispatch: number;
+  readonly turnKind: "forced_respond" | "free_phase";
+}
+```
+
+All constructions (search `turnKind` across all `*.ts` in src/, tests/,
+extensions/, tools/ — every `FollowUpSurfacingTurn` producer listed):
+src/runtime/typed-query-validation.ts:286-289:
+```ts
+          const surfacing: FollowUpSurfacingTurn = {
+            slotCountAtDispatch: reply.slotCountAtDispatch ?? 0,
+            turnKind: "forced_respond",
+          };
+```
+src/runtime/typed-query-validation.ts:332:
+```ts
+          surfacing: { slotCountAtDispatch: 0, turnKind: "forced_respond" },
+```
+tests/query-tool-loop.test.ts:335 and
+tests/inline-object-quoted-field-name-refusal.test.ts:815 likewise construct
+`turnKind: "forced_respond"`. Zero `"free_phase"` constructions of this type
+exist (the two `"free_phase"` literals in tests/runtime-event-channel.test.ts:118,122
+target `computeMasked`'s own input type, runtime-event-channel.ts:106, a
+different declaration).
+
+The only read, src/runtime/query-tool-loop.ts:816-821:
+```ts
+  const followUpSurfacing = error.attempts >= 1 ? surfacing : undefined;
+  const masked = computeMasked({
+    kind: "validation",
+    validationCause: error.cause,
+    atTypedQueryResponse: true,
+    turnKind: followUpSurfacing?.turnKind ?? "forced_respond",
+```
+
+## Why this is a problem
+Speculative generality on a union arm: the `"free_phase"` alternative has zero
+instantiations anywhere in the repository (production, tests, extensions,
+tools), and the sole consumer neutralises absence to `"forced_respond"`, so
+the arm models a case no code path can produce. `computeMasked`
+(runtime-event-channel.ts:138) requires `turnKind === "forced_respond"` for
+its only positive outcome, so even a hypothetical `"free_phase"` value could
+only reproduce the already-default negative result. The arm widens the type
+without a producer or a distinguishable consumer effect.
+
+## Suggested direction (non-binding, optional)
+Narrow `FollowUpSurfacingTurn.turnKind` to the one value producers mint (it
+remains assignable to `computeMasked`'s wider input), or land a real
+free-phase surfacing producer if one is specified; the current arm is carried
+by no code.
+
+## False-positive check
+- Producer search: `turnKind` grepped across all `*.ts` under src/, tests/,
+  extensions/, tools/ — 12 hits total, all enumerated above; every
+  `FollowUpSurfacingTurn` construction is `"forced_respond"`.
+- Type-confusion check: the two `"free_phase"` literals found are arguments to
+  `computeMasked` in tests/runtime-event-channel.test.ts, exercising
+  runtime-event-channel.ts:106's separate `turnKind` member — that module is
+  outside this claim and its arm IS test-exercised.
+- Dynamic access: no string-keyed access or spread-based construction of
+  `FollowUpSurfacingTurn` found beyond the object literals cited.
+- Test-only-caller rule: respected — no test constructs the `"free_phase"`
+  arm either, so this is not test-reachable production code being misfiled.
+- Assignability check: narrowing the member would not break the consumer —
+  `followUpSurfacing?.turnKind ?? "forced_respond"` stays assignable to
+  `computeMasked`'s `"forced_respond" | "free_phase"` input.
+
+## Triage
