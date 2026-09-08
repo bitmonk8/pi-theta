@@ -2,7 +2,7 @@
 id: PTQ-0059
 title: PackageDiscoveredTheta.source is a constant literal field written at one site and read by nothing
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/package-discovery.ts:54-59

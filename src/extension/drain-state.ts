@@ -6,9 +6,8 @@
 // Spec: pi-integration-contract/drain-state-contract.md (PIC-29/30/31/32),
 // pi-integration-contract/registration-steps.md (#superseded-entry-dispatch).
 //
-// V9m-T (tests-task) declares these seams and stubs the behaviour-bearing
-// functions so the failing tests compile and red on their own primary
-// assertions; the paired V9m implementation fills them in.
+// V9m-T (tests-task) declared these seams; the paired V9m implementation
+// supplies the behaviour-bearing functions.
 
 import type {
   DrainStateSnapshot,

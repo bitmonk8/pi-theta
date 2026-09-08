@@ -177,7 +177,7 @@ describe("b0459 cell 2 — Pi-owned arm tails the colliding .md sibling and drop
   it("renders the theta candidate then the .md sibling, no suffix", async () => {
     const fs = fsWithPlanIn(["/opt/zz"]);
     const piOwned: readonly PiOwnedWithPath[] = [
-      { name: "plan", source: "prompt", path: "/project/.pi/prompts/plan.md" },
+      { name: "plan", path: "/project/.pi/prompts/plan.md" },
     ];
     const input: DiscoveryInput = {
       fs,
@@ -211,7 +211,7 @@ describe("b0459 cell 3 — path-less extension-source sibling renders the comman
       fs,
       settings: {},
       cliPaths: ["/opt/zz"],
-      piOwnedNames: [{ name: "plan", source: "extension" }],
+      piOwnedNames: [{ name: "plan" }],
     };
     const { diagnostics } = await discoverThetas(input);
     expect(soleCollision(diagnostics).message).toBe(

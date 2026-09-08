@@ -8,11 +8,9 @@
 // slash name (the filename stem, taken verbatim) and emitting the load-phase
 // diagnostics the failure-modes table and collision rules mandate.
 //
-// V10a-T (tests-task) declares the seam shape and stubs `discoverThetas` with an
-// inert result (no thetas, no diagnostics) so the failing tests compile and red
-// on their own primary assertions — the discovery walk is absent, not throwing.
-// The paired V10a implementation leaf fills this in (and extends `DiscoveryInput`
-// with the package-source plumbing V10b owns).
+// V10a-T (tests-task) declared the seam shape; the paired V10a implementation
+// leaf supplies `discoverThetas`, and V10b extended `DiscoveryInput` with the
+// package-source plumbing it owns.
 //
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1…DISC-4), with the
 // `theta/load/*` diagnostic codes/messages sourced from
@@ -35,7 +33,6 @@ export type DiscoverySource = "cli" | "settings" | "project" | "package" | "glob
  */
 export interface PiOwnedCommand {
   readonly name: string;
-  readonly source: "prompt" | "skill" | "extension";
   /** The host-populated `SlashCommandInfo.sourceInfo.path`, rendered as the
    *  `.md`-sibling tail of the `theta/load/cross-format-collision` message
    *  (placeholder-rendering-b.md:57). Absent for a foreign extension command
@@ -620,11 +617,14 @@ async function onDiskFileCandidate(fs: FileSystem, path: string): Promise<RawCan
 }
 
 /** Resolve one source entry (a directory root, or a single `.theta` file) into
- *  raw candidates, emitting the per-source failure diagnostic on any miss. */
+ *  raw candidates, emitting the per-source failure diagnostic on any miss.
+ *  `descriptor` names an EXPLICIT file entry (CLI `--theta` / settings
+ *  `thetaPaths`) for the `invalid-extension` message; a conventional root is
+ *  directory-only, never routes to that arm, and so carries none. */
 async function resolveEntry(
   fs: FileSystem,
   path: string,
-  descriptor: string,
+  descriptor: string | undefined,
   source: DiscoverySource,
   descriptorValue: string,
   modes: FailureModes,
@@ -648,12 +648,15 @@ async function resolveEntry(
       // An explicit file reference (CLI `--theta` / settings `thetaPaths`) that
       // resolves to a non-`.theta` regular file is an `invalid-extension` error
       // per Lexical §"Extension matching" — the settings/CLI extension check —
-      // not `wrong-type-source`. The file does not register.
+      // not `wrong-type-source`. The file does not register. Only an explicit
+      // entry reaches this arm (`classifyForSource` gates the kind on
+      // `explicitFile`) and every explicit entry names itself, so `descriptor`
+      // is present here.
       diagnostics.push({
         severity: "error",
         code: INVALID_EXTENSION,
         file: normalizePath(path),
-        message: `'${descriptor}' resolves to '${normalizePath(path)}' which does not end in .theta`,
+        message: `'${descriptor!}' resolves to '${normalizePath(path)}' which does not end in .theta`,
       });
       return [];
     case "missing":
@@ -1132,26 +1135,11 @@ async function resolveSettingsSource(
 }
 
 /**
- * Walk the (currently four — package source is V10b's) discovery sources,
- * resolve priority and collisions, and return the registrable thetas plus the
- * load-phase diagnostics.
+ * Walk the five discovery sources — CLI, Settings, Project, Packages (the
+ * candidates the composition's own bounded scan pushes in as
+ * `input.packageCandidates`), and Global — resolve priority and collisions, and
+ * return the registrable thetas plus the load-phase diagnostics.
  */
-/**
- * The category label for the conventional project discovery root, threaded
- * only into `resolveEntry`'s `descriptor` parameter — whose sole read is the
- * `invalid-extension` arm, unreachable here because a conventional root is
- * always called with `explicitFile=false` and so never routes to that arm.
- * Kept for shape parity with `resolveEntry`'s explicit-entry callers, not
- * because a reader ever sees it: the path-bearing project/global diagnostics
- * render `descriptorValue = normalizePath(root.path)` via the normative
- * `<kind>:"<value>"` descriptor form instead. Still built from the HOST's
- * config-dir name (`.pi/theta/` on Pi, `.omp/theta/` on Oh-My-Pi) so the
- * vestigial value stays host-accurate rather than authored-extension-specific.
- */
-function projectSourceLabel(configDirName: string): string {
-  return `project ${configDirName}/theta/`;
-}
-
 export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryResult> {
   const { fs } = input;
   const diagnostics: Diagnostic[] = [];
@@ -1212,17 +1200,14 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   const conventionalRoots: readonly {
     readonly source: DiscoverySource;
     readonly path: string;
-    readonly descriptor: string;
   }[] = [
     {
       source: "project" as const,
       path: joinPosix(fs.cwd(), `${configDir}/theta`),
-      descriptor: projectSourceLabel(configDir),
     },
     {
       source: "global" as const,
       path: joinPosix(fs.globalAgentDir(), "theta"),
-      descriptor: "global thetas directory",
     },
   ];
   for (const root of conventionalRoots) {
@@ -1263,7 +1248,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       [
         {
           path: root.path,
-          descriptor: root.descriptor,
           enoentPolicy: "ancestor-walk",
           // No operator-typed source text for a conventional root: the
           // descriptor VALUE is the root's own resolved directory path,
@@ -1312,7 +1296,10 @@ async function collectFromEntries(
   fs: FileSystem,
   entries: readonly {
     readonly path: string;
-    readonly descriptor: string;
+    /** Present only on an EXPLICIT file entry (CLI `--theta` / settings
+     *  `thetaPaths`), whose `invalid-extension` diagnostic names it; a
+     *  conventional root is directory-only and carries none. */
+    readonly descriptor?: string;
     readonly enoentPolicy: EnoentPolicy;
     readonly descriptorValue: string;
   }[],
@@ -1509,7 +1496,6 @@ async function resolveSlashNames(
   diagnostics: Diagnostic[],
   markedRoot?: { readonly slug: string; readonly winnerPath: string },
 ): Promise<DiscoveredTheta[]> {
-  const piNames = new Set(piOwned.map((command) => command.name));
   const piOwnedByName = new Map<string, PiOwnedCommand[]>();
   for (const command of piOwned) {
     const bucket = piOwnedByName.get(command.name);
@@ -1538,7 +1524,7 @@ async function resolveSlashNames(
     // ordered), then the colliding `.md`-sibling tail (placeholder-rendering-b.md:57);
     // a foreign extension command carrying no host path falls back to its
     // registered name (0459 §Fix adjudication rider) — no survives-suffix.
-    if (piNames.has(name)) {
+    if (piOwnedByName.has(name)) {
       const thetaPaths = [...group]
         .sort(collisionPathOrder)
         .map((candidate) => normalizePath(candidate.path));

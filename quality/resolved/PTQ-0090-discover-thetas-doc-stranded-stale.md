@@ -2,7 +2,7 @@
 id: PTQ-0090
 title: The discoverThetas doc block is stranded above projectSourceLabel and still says the walk covers four sources with the package source pending
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1134-1138

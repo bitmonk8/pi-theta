@@ -10,10 +10,9 @@
 //   project: `<FileSystem.cwd()>/<FileSystem.configDirName()>/settings.json`
 //   global:  `<FileSystem.globalAgentDir()>/settings.json`
 //
-// V10c-T (tests-task) declares the seam shape and stubs the two behaviour-
-// bearing functions with inert, empty results so the failing tests compile and
-// red on their own primary assertions (no diagnostics emitted, no merged keys
-// produced). The paired V10c implementation leaf fills these in.
+// V10c-T (tests-task) declared the seam shape; the paired V10c implementation
+// leaf supplies the two behaviour-bearing functions — the file reads, the
+// validation surface, and the merge.
 //
 // Spec: discovery/package-and-settings.md (DISC-7, the settings file reads,
 // the top-level / scalar-key validation surface, and the `thetaPaths` entry
@@ -73,9 +72,6 @@ export interface SettingsLoadResult {
  * DISC-7 deep merge of two parsed settings objects: `project` over `global`,
  * deep-merging nested objects key-by-key, replacing arrays and scalars
  * wholesale. Keys present in only one operand are kept as-is.
- *
- * V10c-T stub: returns an empty object so the merge tests red on their own
- * assertions; V10c implements the recursive merge.
  */
 export function mergeSettings(global: JsonObject, project: JsonObject): JsonObject {
   const merged: JsonObject = { ...global };
@@ -352,10 +348,6 @@ async function loadOneFile(
  * independently (top-level shape, scalar-key type/range, `thetaPaths` entries),
  * emit one load-phase diagnostic per offending key/entry per file, then merge
  * the two cleaned objects per `mergeSettings`.
- *
- * V10c-T stub: returns an empty settings view and no diagnostics so the
- * file-read / validation / merge tests red on their own assertions; V10c
- * implements the reads, validation, and merge.
  */
 export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> {
   // Both locations come from the RUNNING host, not from this extension's

@@ -2,7 +2,7 @@
 id: PTQ-0132
 title: "`resolveSlashNames` builds the `piNames` Set for one membership test the adjacent `piOwnedByName` Map already answers"
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1512-1521

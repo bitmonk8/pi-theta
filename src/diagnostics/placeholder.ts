@@ -9,11 +9,8 @@
 // 8) for the same source defect. Throughout, *byte-identical* means equal as
 // UTF-8 byte sequences (GOV-15).
 //
-// V7c-T (tests-task) declares this seam and stubs the per-category renderers so
-// the failing tests compile and red on their own primary assertions. The paired
-// V7c implementation leaf fills these in. Each stub returns a benign wrong value
-// (the empty string) so the byte-identical vector assertion reds for the
-// intended reason (implementation absent), never on a thrown harness error.
+// V7c-T (tests-task) declared this seam; the paired V7c implementation leaf
+// supplies the per-category renderers.
 //
 // Host-derived inputs (category 8's `node-floor` `<observed>`, the running
 // `process.versions.node` string) are passed in by the caller, never read from

@@ -2,7 +2,7 @@
 id: PTQ-0062
 title: Five modules still carry present-tense "tests-task stubs this function" narration although the paired implementations replaced the stubs
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/settings.ts:77-78

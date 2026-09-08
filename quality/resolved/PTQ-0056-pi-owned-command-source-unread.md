@@ -2,7 +2,7 @@
 id: PTQ-0056
 title: PiOwnedCommand.source is a required field every constructor must fill and no consumer ever reads
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:36-45

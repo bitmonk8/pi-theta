@@ -2,7 +2,7 @@
 id: PTQ-0119
 title: "`enumerateRoot`'s doc comment refers the reader to `notes.md` twice, a file deleted from the repository"
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/package-discovery.ts:254-265

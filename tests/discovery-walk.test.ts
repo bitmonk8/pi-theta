@@ -318,7 +318,7 @@ describe("V10a-T — DISC-4 cross-format collision", () => {
       dirs: { [PROJECT_ROOT]: ["code-review.theta"] },
       files: { [`${PROJECT_ROOT}/code-review.theta`]: "mode: prompt\n---\n" },
     });
-    const piOwned: readonly PiOwnedCommand[] = [{ name: "code-review", source: "prompt" }];
+    const piOwned: readonly PiOwnedCommand[] = [{ name: "code-review" }];
     const { thetas, diagnostics } = await discoverThetas(
       input(fs, { piOwnedNames: piOwned }),
     );

@@ -2,7 +2,7 @@
 id: PTQ-0064
 title: DEFAULT_SCAN_PACKAGES, DEFAULT_SCAN_PACKAGES_MAX_FILES, and DEFAULT_SCAN_PACKAGES_TIMEOUT_MS are exported but nothing outside package-discovery.ts imports them
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/package-discovery.ts:72-75

@@ -17,11 +17,9 @@
 // through the injected `Clock.setTimeout` seam, and the whole walk is skipped
 // when `theta.scanPackages` is `false`.
 //
-// V10b-T (tests-task) declares the seam shape and stubs `discoverPackageThetas`
-// with an inert result (no thetas, no diagnostics) so the failing tests compile
-// and red on their own primary assertions — the walk is absent, not throwing.
-// The paired V10b implementation leaf fills this in and wires it into the
-// priority-4 Package source of `discoverThetas`.
+// V10b-T (tests-task) declared the seam shape; the paired V10b implementation
+// leaf supplies `discoverPackageThetas` and wires it into the priority-4
+// Package source of `discoverThetas`.
 //
 // Spec: discovery/package-and-settings.md (DISC-5 `pi.theta` shape + minimatch
 // override order, DISC-6 bounded walk + per-read deadline), with the
@@ -50,11 +48,12 @@ export interface PackageDiscoveryInput {
   readonly settings: ThetaSettings;
 }
 
-/** One package-discovered, registrable theta: its slash name, absolute path, and source. */
+/** One package-discovered, registrable theta: its slash name, absolute path, and
+ *  descriptor value. The priority-4 `package` source label is assigned where
+ *  these candidates enter `discoverThetas`. */
 export interface PackageDiscoveredTheta {
   readonly name: string;
   readonly path: string;
-  readonly source: "package";
   readonly descriptorValue: string;
 }
 
@@ -70,9 +69,9 @@ export interface PackageDiscoveryResult {
 }
 
 /** Built-in bound defaults (DISC-6 upper bounds, not target performance). */
-export const DEFAULT_SCAN_PACKAGES = true;
-export const DEFAULT_SCAN_PACKAGES_MAX_FILES = 2000;
-export const DEFAULT_SCAN_PACKAGES_TIMEOUT_MS = 2000;
+const DEFAULT_SCAN_PACKAGES = true;
+const DEFAULT_SCAN_PACKAGES_MAX_FILES = 2000;
+const DEFAULT_SCAN_PACKAGES_TIMEOUT_MS = 2000;
 
 // --------------------------------------------------------------------------
 // Diagnostic codes (sourced from diagnostics/code-registry-load.md).
@@ -256,12 +255,12 @@ function packageRoots(fs: FileSystem): readonly PackageRoot[] {
  * child as a package, unwrapping `@scope` directories one level (the on-disk
  * layout for scoped packages). git-style roots (`<host>/<path>` layout, whose
  * `<path>` segment count is not fixed by the spec) descend until a directory
- * that directly contains a `package.json` is found — see notes.md.
+ * that directly contains a `package.json` is found.
  *
  * npm-style children are not `lstat`-pre-filtered: a non-directory / symlink
- * child simply fails its `package.json` read and contributes nothing (see the
- * dated notes.md divergence — this keeps the walk's await budget within the
- * `FakeClock`-driven per-read-deadline test's timing model).
+ * child simply fails its `package.json` read and contributes nothing (this
+ * keeps the walk's await budget within the `FakeClock`-driven
+ * per-read-deadline test's timing model).
  */
 async function enumerateRoot(fs: FileSystem, root: PackageRoot): Promise<CandidatePackage[]> {
   const names = await readdirOr(fs, root.path);
@@ -752,7 +751,7 @@ export async function discoverPackageThetas(
       for (const [abs, stem] of resolved) {
         if (registered.has(abs)) continue;
         registered.add(abs);
-        thetas.push({ name: stem, path: abs, source: "package", descriptorValue: candidate.name });
+        thetas.push({ name: stem, path: abs, descriptorValue: candidate.name });
       }
     }
   }

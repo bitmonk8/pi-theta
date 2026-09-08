@@ -2,7 +2,7 @@
 id: PTQ-0043
 title: projectSourceLabel and the conventional-root descriptor strings are computed and threaded into resolveEntry, whose only descriptor read is unreachable for conventional roots
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1138-1152

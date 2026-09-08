@@ -8,6 +8,7 @@ import {
 } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
+  type PackageDiscoveredTheta,
   type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -303,9 +304,9 @@ function packageInput(fs: FileSystem): PackageDiscoveryInput {
 }
 
 function named(
-  thetas: readonly DiscoveredTheta[],
+  thetas: readonly (DiscoveredTheta | PackageDiscoveredTheta)[],
   name: string,
-): DiscoveredTheta | undefined {
+): DiscoveredTheta | PackageDiscoveredTheta | undefined {
   return thetas.find((t) => t.name === name);
 }
 

@@ -2,7 +2,7 @@
 // at the pinned host: the pinned Pi SDK enumerates every skill as
 // `skill:<name>` (agent-session.js:1841 maps a skill to
 // `` name: `skill:${skill.name}` ``) and dispatches it only as `/skill:<name>`,
-// so the byte-exact `piNames.has(stem)` membership test in `resolveSlashNames`
+// so the byte-exact `piOwnedByName.has(stem)` membership test in `resolveSlashNames`
 // (src/discovery/discovery-walk.ts) can never match a conforming theta stem —
 // no skill ever drops a theta.
 // (docs/bugs/0460-skill-arm-of-cross-format-collision-vacuous-at-pinned-host.md).
@@ -159,7 +159,7 @@ describe("b0460 — the skill arm is vacuous at the pinned host (spec-side retir
   // ------------------------------------------------------------------------
   // Cell (i) — PINNED-HOST SKILL COEXISTS. `skill:foo` is the EXACT shape the
   // pinned host emits for a skill named `foo` (agent-session.js:1841). The
-  // byte-exact `piNames.has("foo")` test cannot match `"skill:foo"`, so the
+  // byte-exact `piOwnedByName.has("foo")` test cannot match `"skill:foo"`, so the
   // theta registers with zero diagnostics beside the same-stem skill.
   //
   // WHY: this locks the disjoint-`skill:`-namespace coexistence the spec
