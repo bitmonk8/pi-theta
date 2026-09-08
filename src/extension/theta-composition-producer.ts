@@ -13,8 +13,9 @@
 //     cancelled) short-circuits so the theta body never runs;
 //   - it routes on the theta's `mode:` and drives `V19d`'s effectful executor
 //     (`executeBody`) against the appropriate conversation: prompt-mode against
-//     the user session via the `V12a`/`V9c` prompt driver, subagent-mode against
-//     a freshly spawned isolated `AgentSession` via `V9i`'s spawn seam; and
+//     the user session via the `V12a`/`V9c` prompt driver; subagent-mode
+//     resolves through the `V9i` spawn seam's binding, whose `drive` (RFC-0006,
+//     PIC-59) runs the whole body in a spawned child `pi` process; and
 //   - it surfaces the mode's return value from the terminal execution
 //     (prompt-mode extracts the trailing-turn `Ok(string)` per `PIC-53`).
 //
@@ -47,7 +48,6 @@ import {
   type BodyExecution,
   type ExecuteBodyDeps,
 } from "../runtime/statement-executor";
-import type { EffectfulStatementHostDeps } from "../runtime/effectful-statement-host";
 import type { ThetaValue, ResultValue } from "../runtime/value";
 import type { SchemaValidator } from "../seams/schema-validator";
 import { bindParamsInbound } from "../runtime/inbound-boundary";
@@ -236,17 +236,6 @@ export interface ConversationBindInput {
 export interface ConversationBinding {
   readonly drivenAgainst: DrivenConversation;
   readonly executeDeps: ExecuteBodyDeps;
-  /**
-   * RFC 0001 (`subagent fn`): the raw `EffectfulStatementHostDeps` used to build
-   * `executeDeps.host`. A `subagent fn`'s production spawn seam
-   * (`spawnSubagentFnSession`) spawns a fresh isolated session by re-binding the
-   * enclosing theta under the resolved session config and hands these
-   * session-scoped resolvers back to the calling body's effectful host so the
-   * body's `@`-queries / calls / invokes route through the spawned session
-   * (FN-6 isolation). Present on the production binds; absent on non-production
-   * harnesses that never drive a `subagent fn`.
-   */
-  readonly effectHostDeps?: EffectfulStatementHostDeps;
   surface(execution: BodyExecution): ResultValue;
   /**
    * RFC-0006 (PIC-59): a fully self-contained drive that resolves the
@@ -339,8 +328,10 @@ export interface ThetaProducerDeps {
   /** Prompt-mode (`V12a`/`V9c`): bind `V19d`'s executor to the user session. */
   bindPromptConversation(input: ConversationBindInput): ConversationBinding;
   /**
-   * Subagent-mode (`V9i`): spawn an isolated `AgentSession` and bind `V19d`'s
-   * executor to that private session rather than the user conversation.
+   * Subagent-mode (`V9i`): bind the callee for a private, isolated drive rather
+   * than the user conversation. Under RFC-0006 the returned binding carries a
+   * `drive` (see `ConversationBinding.drive`) that launches a child `pi`
+   * process and awaits its `theta_result` envelope.
    */
   spawnSubagentConversation(
     input: ConversationBindInput,
@@ -411,8 +402,9 @@ export interface ThetaProducerDeps {
  *      (needs-info / ambiguous / cancelled) short-circuits so the theta body
  *      never runs;
  *   2. route on `theta.frontmatter.mode` — prompt-mode binds `V19d`'s executor
- *      to the user session (`V12a`/`V9c`), subagent-mode spawns an isolated
- *      `AgentSession` and binds the executor to that private session (`V9i`);
+ *      to the user session (`V12a`/`V9c`), subagent-mode binds through the
+ *      `V9i` spawn seam, whose `drive` runs the body in a spawned child `pi`
+ *      process (RFC-0006, PIC-59);
  *   3. drive `executeBody(theta.body, binding.executeDeps)` against the bound
  *      conversation and surface the mode's return value (prompt-mode extracts
  *      the trailing-turn `Ok(string)`, `PIC-53`).

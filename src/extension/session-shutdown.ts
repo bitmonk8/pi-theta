@@ -9,12 +9,6 @@
 // bare-`code` / two-token / three-token fallback forms and the construction-site
 // self-wrap).
 //
-// V9g-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions inertly so the failing tests compile and red on their own primary
-// assertions (the sub-step orchestration, the emission isolation, the reason
-// synthesis, and the per-invocation / timeout diagnostics are absent). The
-// paired V9g implementation leaf fills these in.
-//
 // Spec: pi-integration-contract/session-shutdown-semantics.md (§`session_shutdown`
 // five-sub-step sequence, **Per-step isolation**, sub-step 3 `cka-31` settle-all
 // bounded by `SHUTDOWN_AWAIT_CAP_MS`), pi-integration-contract/
@@ -121,14 +115,15 @@ export interface EmissionSink {
  * handler marks it torn-down so no *new* watcher-driven rebuild starts, then
  * awaits `whenIdle()` so an already-in-flight rebuild completes (or no-ops)
  * against the still-live `ctx` before the handler returns and Pi invalidates the
- * runtime. `whenIdle` takes an optional cap purely for label symmetry with the
- * closed-set `details.call` quiesce label at `TEARDOWN_STEP_CALL_LABELS[4]`;
- * the handler bounds the await itself against the shared deadline rather than
- * passing a budget in.
+ * runtime. The handler owns the bound: it races the await against the shared
+ * deadline rather than passing a budget in, so the signature takes none. The
+ * closed-set `details.call` quiesce label at `TEARDOWN_STEP_CALL_LABELS[4]`
+ * spells the call with an `awaitCap` argument regardless — it is wire text for
+ * a diagnostic field, not a claim about this signature.
  */
 export interface TeardownAwareDebouncer {
   markTornDown(): void;
-  whenIdle(awaitCapMs?: number): Promise<void>;
+  whenIdle(): Promise<void>;
 }
 
 /** Construction dependencies for the `session_shutdown` teardown handler. */
@@ -159,16 +154,12 @@ export interface SessionShutdownDeps {
   readonly sink: EmissionSink;
 }
 
-// --- Behaviour-bearing seams (V9g-T stubs; V9g fills in) ---
+// --- Behaviour-bearing seams ---
 
 /**
  * Synthesise the CNCL-4 abort reason: a JavaScript `Error` whose `message` is
  * byte-exact `"theta cancelled by session shutdown"`, propagated so that
  * `thetaAbort.signal.reason === source.reason` is observable downstream.
- *
- * V9g-T stub: returns a placeholder `Error` so the CNCL-4 message-and-identity
- * assertions red on their primary check (the paired V9g synthesises the pinned
- * reason).
  */
 export function synthesiseSessionShutdownReason(): Error {
   return new Error(SESSION_SHUTDOWN_ABORT_MESSAGE);
@@ -207,9 +198,6 @@ function coerceUnderlyingError(error: unknown): string {
  * diagnostic for a caught per-step throw, carrying
  * `details: { step, call, error }` (session-shutdown-semantics.md
  * **Per-step isolation**; diagnostics/code-registry-host.md).
- *
- * V9g-T stub: returns a placeholder diagnostic so the DIAG-1 host-row shape
- * assertions red on their primary check.
  */
 export function teardownStepFailedDiagnostic(
   step: TeardownStep,
@@ -232,7 +220,7 @@ export function teardownStepFailedDiagnostic(
  * `cancelledBySessionShutdownDiagnostic` and the emission wrap below share the
  * one byte-identical read instead of each re-deriving it.
  */
-export function cancelledBySessionShutdownReason(
+function cancelledBySessionShutdownReason(
   entry: ActiveInvocationEntry,
 ): string {
   return entry.shutdownReason ?? "<unreadable>";
@@ -243,8 +231,6 @@ export function cancelledBySessionShutdownReason(
  * runtime) note with `display: false` and the nested
  * `details.event: { reason, theta, invocation_id }` shape
  * (diagnostics/diagnostic-shape.md session-shutdown-details-conventions).
- *
- * V9g-T stub: returns a placeholder diagnostic so the shape assertions red.
  */
 export function cancelledBySessionShutdownDiagnostic(
   entry: ActiveInvocationEntry,
@@ -272,8 +258,6 @@ export function cancelledBySessionShutdownDiagnostic(
  * the sub-step 3 cap: the message names each still-in-flight entry as
  * `/<slash-name>:<invocation-id>` (insertion order, `, `-joined), and `hint`
  * carries the *elapsed* wall time (diagnostics/code-registry-runtime.md).
- *
- * V9g-T stub: returns a placeholder diagnostic so the shape assertions red.
  */
 export function reloadTeardownTimeoutDiagnostic(
   stillInFlight: readonly ActiveInvocationEntry[],
@@ -301,10 +285,6 @@ export function reloadTeardownTimeoutDiagnostic(
  * serialiser throw the catch arm emits the bare-`code` string (PIC-25); a throw
  * out of `console.error` is swallowed (PIC-27) and the count is measured at the
  * invocation site (PIC-28).
- *
- * V9g-T stub: does nothing, so the "emits the serialised payload" / "falls back
- * to bare code" / "swallows a sink throw" assertions red on their primary
- * `sink.emit`-spy checks.
  */
 export function emitTeardownDiagnostic(
   sink: EmissionSink,
@@ -375,15 +355,11 @@ export interface NestedShapeEmission {
 /**
  * Emit a nested-shape teardown-handler diagnostic (`runtime-degraded` /
  * `cancelled-by-session-shutdown`). On a serialiser throw the catch arm emits
- * the two-token `` `${code} ${detailsEventReason}` `` form, or the three-token
- * `` `${code} ${entry.theta} <unreadable>` `` form for the per-invocation note
- * (PIC-25). A throw out of the payload-construction site is caught by a
+ * the two-token `` `${code} ${detailsEventReason}` `` form, for both
+ * nested-shape codes (PIC-25). A throw out of the payload-construction site is caught by a
  * dedicated self-wrap that emits the `` `${code} <unreadable>` `` /
  * `` `${code} ${entry.theta} <unreadable>` `` fallback and swallows an inner
  * `console.error` throw (PIC-26/27). Count is invocation-site framed (PIC-28).
- *
- * V9g-T stub: does nothing, so the fallback-form assertions red on their
- * primary `sink.emit`-spy checks.
  */
 export function emitNestedShapeDiagnostic(
   sink: EmissionSink,
@@ -523,10 +499,6 @@ export function createProductionEmissionSink(): EmissionSink {
  * `thetaAbort` with the synthesised CNCL-4 reason; sub-step 3 awaits every
  * entry's `disposeBarrier` via `Promise.allSettled`, bounded by
  * `SHUTDOWN_AWAIT_CAP_MS`, emitting `reload-teardown-timeout` at the cap.
- *
- * V9g-T stub: does nothing (returns a resolved promise), so the spy-based
- * per-sub-step / isolation / cap / abort-reason assertions red on their primary
- * checks. The paired V9g implementation orchestrates the sequence.
  */
 export async function runSessionShutdown(
   event: SessionShutdownEventLike,

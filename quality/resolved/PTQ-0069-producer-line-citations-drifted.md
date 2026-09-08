@@ -2,7 +2,7 @@
 id: PTQ-0069
 title: "Five line-number citations in production-theta-producer.ts comments no longer point at the constructs they cite"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:8421-8423

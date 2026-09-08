@@ -2,7 +2,7 @@
 id: PTQ-0156
 title: cancelledBySessionShutdownReason is exported from session-shutdown.ts but called only by two functions in the same module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/session-shutdown.ts:228-239

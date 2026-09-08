@@ -2,7 +2,7 @@
 id: PTQ-0014
 title: TeardownAwareDebouncer.whenIdle declares an awaitCapMs parameter that no caller passes and no implementation reads
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/session-shutdown.ts:119-132

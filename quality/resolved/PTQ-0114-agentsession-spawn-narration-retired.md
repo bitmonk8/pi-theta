@@ -2,7 +2,7 @@
 id: PTQ-0114
 title: Three narration sites in theta-composition-producer.ts describe subagent-mode as spawning an isolated in-process AgentSession, a drive RFC-0005 replaced with a child pi process
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/theta-composition-producer.ts:14-17

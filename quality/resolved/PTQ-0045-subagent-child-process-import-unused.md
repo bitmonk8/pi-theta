@@ -2,7 +2,7 @@
 id: PTQ-0045
 title: "The `SubagentChildProcess` type import in production-theta-producer.ts is referenced nowhere in the module"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:35

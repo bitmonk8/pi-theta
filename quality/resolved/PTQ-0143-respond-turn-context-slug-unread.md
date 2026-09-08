@@ -2,7 +2,7 @@
 id: PTQ-0143
 title: RespondTurnContext.slug is populated at its single construction site and read by no code
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:4995-5002

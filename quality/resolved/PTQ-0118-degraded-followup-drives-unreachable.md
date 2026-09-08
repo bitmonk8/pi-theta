@@ -2,7 +2,7 @@
 id: PTQ-0118
 title: driveFollowUp's two respond-less arms are gated on a condition its only consumer's construction excludes, leaving driveStreamedUserTurn and offSessionFollowUp with no reachable caller
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3208-3209

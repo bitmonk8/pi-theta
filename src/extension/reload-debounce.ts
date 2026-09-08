@@ -17,12 +17,6 @@
 //     releases on the in-flight rebuild's single synchronous publish or its
 //     `theta/runtime/registry-swap-failed` discard.
 //
-// V10d-T (tests-task) declares the seam shape and stubs the behaviour-bearing
-// method so the failing tests compile and red on their own primary assertions
-// (no reload ever fires, so the debounce and serialization tests red because
-// the implementation under test is absent). The paired V10d implementation
-// leaf fills this in.
-//
 // Spec: discovery/package-and-settings.md (§Caching and reload, reload-debounce
 // code-keyed area `cka-36`), pi-integration-contract/registration-steps.md
 // (PIC-49 cross-window rebuild serialization; PIC-36 publish/discard completion

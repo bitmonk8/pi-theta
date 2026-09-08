@@ -2,7 +2,7 @@
 id: PTQ-0139
 title: emitNestedShapeDiagnostic's doc says its serialiser-throw arm can emit the three-token per-invocation fallback, but that arm's only emit is the two-token form
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/session-shutdown.ts:375-383

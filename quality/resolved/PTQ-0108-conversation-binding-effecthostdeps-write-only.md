@@ -2,7 +2,7 @@
 id: PTQ-0108
 title: ConversationBinding.effectHostDeps is written at both production bind sites but read by nothing since the RFC-0006 child-process drive removed its consumer
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/theta-composition-producer.ts:239-249

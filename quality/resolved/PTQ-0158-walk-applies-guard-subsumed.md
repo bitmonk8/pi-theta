@@ -2,7 +2,7 @@
 id: PTQ-0158
 title: "#buildBinderSessionContext re-tests walk.applies after an early return that already establishes both conditions walkSessionContext computes it from"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1409-1425

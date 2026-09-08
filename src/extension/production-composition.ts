@@ -410,7 +410,9 @@ interface ComposePassResult {
   readonly activeRoots: readonly string[];
   /** The watch-list root union: the file-derived `activeRoots` unioned with the
    *  discovery walk's resolved present-directory union (its four sources:
-   *  cli/settings/project/global) AND (bug 0312) every `.thetalib` resolved
+   *  cli/settings/project/global), the package walk's present contributing
+   *  directories (bug 0339, discovery-sources.md's package row) AND (bug 0312)
+   *  every `.thetalib` resolved
    *  parent directory this pass's per-theta import walks reached that is not
    *  already nested under one of those roots — the out-of-root closure
    *  (`../lib/x.thetalib`, imports.md:19's blessed form) is otherwise outside
@@ -1746,8 +1748,9 @@ export async function composeExtensionInstance(
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
-  // with the discovery walk's resolved four-source (cli/settings/project/global) present-directory union;
-  // production-composition.ts's own `watchRoots` computation) plus the two
+  // with the discovery walk's resolved four-source (cli/settings/project/global)
+  // present-directory union and the package walk's present contributing dirs
+  // (bug 0339); production-composition.ts's own `watchRoots` computation) plus the two
   // settings-file paths (project `<config-dir>/settings.json` and global
   // `<global-agent-dir>/settings.json`, both resolved against the running host —
   // `.pi` on Pi, `.omp` on Oh-My-Pi, and a relocated global directory under
@@ -2714,7 +2717,7 @@ async function onDiskCalleeName(fs: FileSystem, absolute: string): Promise<strin
  *       route (ii) above): the pre-resolution probe below records each
  *       readable-and-parsed spec's declared `mode`, keyed exactly as
  *       `readable` is, and the stub returns it instead of a constant.
- *       `resolveEntry` (`callable-set.ts:442`) is the one implementation that
+ *       `resolveEntry` (`callable-set.ts`) is the one implementation that
  *       raises `theta/load/prompt-mode-callable`, so this frame raises the
  *       same code the depth-1 path raises — one code site, every depth, no
  *       divergence between depths (bug 0248's class). A declared mode is a
@@ -2730,9 +2733,9 @@ async function onDiskCalleeName(fs: FileSystem, absolute: string): Promise<strin
  *
  * Returns the verdict triple `{ fails, ownEscapes, consultedVisited }`; every
  * diagnostic this walk produces, at every depth, is discarded (no
- * `deps.emitDiagnostic?.(…)` call belongs here). The bare boolean the two call
- * sites see is `calleeFailsOwnStructuralChecks`'s, three functions down, which
- * returns this triple's shallow `fails` alone. The callee's
+ * `deps.emitDiagnostic?.(…)` call belongs here). The bare boolean
+ * `parseCalleeForTools` sees is `calleeFailsOwnStructuralChecks`'s, three
+ * functions down, which returns this triple's shallow `fails` alone. The callee's
  * OWN rows are emitted by the callee's own `runComposePass` iteration; the
  * CALLER's row is the existing V15f `theta/load/callee-has-errors` push in
  * `resolveThetaToolsAtLoad`, reached because this helper's input widened.
@@ -2778,10 +2781,12 @@ async function onDiskCalleeName(fs: FileSystem, absolute: string): Promise<strin
  *     calls, so a memo hit deep in one branch can short-circuit the rest of
  *     that branch's own recursion.
  *   - `calleeFailsOwnStructuralChecks` (below) is the boolean-returning entry
- *     point `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate
- *     call, taking the callee's `bytes` too (both call sites already hold
- *     them) so the memo can byte-guard at the top of the recursion exactly as
- *     it does at every depth beneath it. It keeps returning the SHALLOW
+ *     point `parseCalleeForTools` calls, taking the callee's `bytes` too (that
+ *     call site already holds them) so the memo can byte-guard at the top of
+ *     the recursion exactly as it does at every depth beneath it.
+ *     `parseCalleeTheta`'s dispatch gate reads the wrapper directly instead,
+ *     for the load-phase-patched `system:` template it also returns (bug 0423
+ *     F1). It keeps returning the SHALLOW
  *     `fails` — `ownEscapes` is discarded at the entry point, never folded
  *     in — which is what makes bug 0275 §Fix constraint 2 hold with no
  *     special case: at the caller's immediate callee the relocation already
@@ -3155,7 +3160,7 @@ async function calleeFailsOwnStructuralChecksWithTaint(
 
 /**
  * Bug 0276 §Fix constraint 6: the boolean-returning entry point
- * `parseCalleeForTools` and `parseCalleeTheta`'s dispatch gate call, taking
+ * `parseCalleeForTools` calls, taking
  * the callee's already-read `bytes` so
  * {@link calleeFailsOwnStructuralChecksWithTaint} can byte-guard the memo at
  * the top of the recursion exactly as it does at every depth beneath it.
@@ -3356,16 +3361,15 @@ function builtinToolDefinition(
 type GetAllToolsSnapshot = () => readonly HostToolSnapshotEntry[];
 
 /**
- * The load-time resolved shape a `pi-tool` callable-set entry carries.
- * `execute` is present for host built-ins only; an extension entry is
- * execute-less by construction (the public extension API strips `execute`) and
- * dispatches through the PIC-64 ladder instead.
+ * The load-time resolved shape an EXTENSION `pi-tool` callable-set entry
+ * carries. Execute-less by construction (the public extension API strips
+ * `execute`); such an entry dispatches through the PIC-64 ladder instead. The
+ * built-in arm carries its own `execute` on `resolvePiTool`'s return type.
  */
 interface PiToolLoadEntry {
   readonly toolName: string;
   /** The tool's registered input schema (RFC-0002 disjointness check reads it). */
   readonly parameters?: unknown;
-  execute?: (id: string, params: unknown, signal: AbortSignal) => Promise<{ readonly content: readonly { readonly type: string }[] }>;
 }
 
 /**
@@ -3736,8 +3740,8 @@ async function parseDiscoveredTheta(
           });
     // Bug 0255: `lexTheta` already delivered `document.deliveredDiagnostics`
     // through the V7d seam (`src/lexer/lexer.ts:131`/`:109`) before this parse
-    // ran; re-delivering them here (`:808`'s `sink.emitGroup`) would double-
-    // deliver every lex row. Exclude by object identity (a `Set`, not a code-
+    // ran; re-delivering them here (`runComposePass`'s
+    // `sink.emitGroup(parsed.dropped)`) would double-deliver every lex row. Exclude by object identity (a `Set`, not a code-
     // prefix test — `theta/parse/*` spans both the lex and parse phases, so a
     // prefix cannot tell them apart). `subagentFnFraming` is computed here, not
     // by the lexer, so it is never in `deliveredDiagnostics` and always ships.
@@ -4193,7 +4197,8 @@ function emitBootstrapTerminal(diagnostic: Diagnostic): void {
  * by the schema slug of the lowered per-query schema document, per the
  * canonical schema hash (schema-subset.md §Canonical schema hash). Exported
  * (not an inline closure) so the byte comparison the seam performs — the
- * 64-bit-collision arm at src/seams/schema-validator.ts:126-136 — is a
+ * 64-bit-collision arm in `AjvSchemaValidator.compile`
+ * (src/seams/schema-validator.ts) — is a
  * property of THIS function under test, not of a source-text pattern over the
  * module that happens to contain it.
  */

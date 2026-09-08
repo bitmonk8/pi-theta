@@ -632,7 +632,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
       async spawnSubagentSession(config: SubagentSessionConfig, chain?: InvokeChain): Promise<string> {
         // INV-4 / FN-6 depth accumulation: route the nested spawn through the
         // ACTIVE session's seam, NOT the fixed `baseDeps` closure. Each spawned
-        // session's `effectHostDeps.spawnSubagentFnSession` is bound to THAT
+        // session's own `deps.spawnSubagentFnSession` is bound to THAT
         // session's chain-advanced `childChain` (production-theta-producer.ts
         // `#spawnSubagentFnSession` → `spawnSubagentConversation({ chain:
         // childChain })`), so spawning through `active()` pushes the new

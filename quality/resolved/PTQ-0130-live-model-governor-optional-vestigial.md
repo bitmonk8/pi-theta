@@ -2,7 +2,7 @@
 id: PTQ-0130
 title: LivePromptQueryModel's governor dependency is typed as possibly-undefined and guarded twice, while its single construction site passes a readonly field that is never undefined
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:5135-5136

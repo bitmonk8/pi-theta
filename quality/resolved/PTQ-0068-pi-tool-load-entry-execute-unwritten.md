@@ -2,7 +2,7 @@
 id: PTQ-0068
 title: PiToolLoadEntry declares an optional execute member that its only constructor never populates and no reader consumes
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:3364-3369

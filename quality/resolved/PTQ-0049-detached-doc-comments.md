@@ -2,7 +2,7 @@
 id: PTQ-0049
 title: "Three doc comments in production-theta-producer.ts sit stacked above declarations they do not describe, while their real subjects are undocumented or documented elsewhere"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:722-752

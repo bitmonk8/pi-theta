@@ -2,7 +2,7 @@
 id: PTQ-0117
 title: calleeFailsOwnStructuralChecks is documented as the entry point two call sites call, but parseCalleeTheta's dispatch gate now calls the taint wrapper directly and one call site remains
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:3156-3159

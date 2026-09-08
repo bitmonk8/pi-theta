@@ -2,7 +2,7 @@
 id: PTQ-0148
 title: "#openInvocationTicket is documented as the single place the registry-side setup runs and two docs enumerate two registration choke points, while #spawnSubagentFnSession runs a third inline copy"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1977-1980

@@ -2,7 +2,7 @@
 id: PTQ-0153
 title: The module header says the producer composes three injected collaborators and spawns an isolated AgentSession for subagent mode, while ThetaProducerDeps has nine members and the subagent bind launches a child pi process
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1-15

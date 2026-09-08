@@ -1,14 +1,17 @@
 // H8a — the production `ThetaProducerDeps` for the shipped composition root.
 //
 // The `V19e` composition producer (`composeThetaFixture`) maps a parsed `.theta`
-// to a runnable `ThetaFixture` by composing three injected collaborators:
+// to a runnable `ThetaFixture` by composing the injected collaborators
+// `ThetaProducerDeps` declares (theta-composition-producer.ts). The
+// mode-routing members are:
 //
 //   - `runBinder` — the `V11a` frontmatter binder over the slash arguments,
 //     run before the theta interpreter; a non-binding envelope short-circuits;
 //   - `bindPromptConversation` — bind `V19d`'s effectful executor to the shared
 //     user session (`V12a`/`V9c`) so `@`-queries drive real user-visible turns;
-//   - `spawnSubagentConversation` — spawn an isolated `AgentSession` (`V9i`) and
-//     bind the executor to that private session for subagent-mode thetas.
+//   - `spawnSubagentConversation` — bind a subagent-mode theta for its private
+//     drive (`V9i`); under RFC-0006 the binding's `drive` runs the whole body
+//     in a spawned child `pi` process.
 //
 // This module assembles those collaborators against the live host `pi` surface
 // and the runtime root's seams, so the shipped extension drives real
@@ -32,7 +35,6 @@ import { parseDocument } from "yaml";
 // drive spawns a child `pi` process (subagent.md, RFC-0005).
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import { runSubagentChildTeardown } from "../runtime/subagent-isolation";
-import type { SubagentChildProcess } from "../runtime/subagent-launcher";
 import {
   inferChildTrust,
   launchSubagentChild,
@@ -179,7 +181,6 @@ import {
 } from "../runtime/tool-call";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { InvokeChild, DrivenInvokeResult, InvokeResultSource } from "../runtime/invoke-cancellation";
-import { runInvokeChild } from "../runtime/invoke-cancellation";
 import type {
   CodeToolError,
   ContextOverflowError,
@@ -278,7 +279,6 @@ import {
   nonObjectReceiverRejection,
   QuestionOperandDefectError,
 } from "../runtime/runtime-panics";
-import { routeThetaCallableSetupThrow } from "../runtime/tool-call-off-surface";
 import {
   createRegistrationCache,
   deriveToolLabel,
@@ -339,7 +339,7 @@ import {
   renderCustomTypeUnsafeNote,
 } from "../binder/compact-transcript";
 import { coerceUnderlyingString } from "../diagnostics/placeholder";
-import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
+import type { Diagnostic } from "../diagnostics/diagnostic";
 import { capSystemNote, classifyModelContent } from "../binder/system-note";
 import {
   renderArgumentEcho,
@@ -555,9 +555,11 @@ export interface ProductionProducerInput {
    * REAL entries. Each `bindPromptConversation` / `spawnSubagentConversation`
    * choke point registers one `ActiveInvocationEntry` here (covering all four
    * invocation types: top-level prompt/subagent + nested prompt/subagent
-   * callees via `#driveCallee`). Absent on non-production harnesses, in which
-   * case the choke points register nothing (the `?.` no-ops) — the pre-B1
-   * behaviour.
+   * callees via `#driveCallee`), and `#spawnSubagentFnSession` registers a
+   * third kind for the in-process `subagent fn` session, removing it from its
+   * own `dispose` rather than a `finishInvocation`. Absent on non-production
+   * harnesses, in which case the choke points register nothing (the `?.`
+   * no-ops) — the pre-B1 behaviour.
    */
   readonly activeInvocations?: ActiveInvocationRegistry;
   /**
@@ -569,7 +571,9 @@ export interface ProductionProducerInput {
    * choke point pushes one `ForwardingSignalSource` per invocation-scoped
    * forward (the bind-time `ctx.signal` forward; the derived-child parent-invoke
    * listener) and splices+detaches them in `finishInvocation`, so only a
-   * still-in-flight-at-shutdown invocation leaves entries for sub-step 5. Absent
+   * still-in-flight-at-shutdown invocation leaves entries for sub-step 5;
+   * `#spawnSubagentFnSession` pushes and detaches its own forward from
+   * `dispose` on the same terms. Absent
    * on non-production harnesses, in which case the choke points push nothing
    * (the `?.` no-ops). PER-TURN forwards (the query-loop `ctx.signal` re-forward)
    * are deliberately NOT collected — their `{once:true}` listeners sit on
@@ -687,7 +691,14 @@ function signalGuard(signal: AbortSignal): { readonly cancellationSurfaced: bool
   };
 }
 
-/** A fresh `ToolLoweringSink` that discards every channel — the test thetas carry no code-tool calls. */
+/**
+ * A fresh `ToolLoweringSink` that discards every channel. The one channel a
+ * compliant lowering reaches is `sink.diagnostic` on a non-conforming
+ * `execute()` return shape, and that diagnostic also rides on the
+ * `ToolReturnShapeDefectError` carrier the seam throws — the top-level catch
+ * frames it as the single operator note, so an independently-delivering sink
+ * here would double-deliver.
+ */
 function noopSink(): ToolLoweringSink {
   return {
     runtimeEvent(): void {},
@@ -720,15 +731,6 @@ class NoopConversationMutator implements CommittedConversationMutator {
 class UnknownHostToolError extends Error {}
 
 /**
- * The per-dispatch binder forced-tool call ingredients (binder-inference.md
- * §"Binder inference call"), built ONCE per slash invocation and reused across
- * every budgeted attempt: the resolved binder model, the rendered V11d system
- * prompt, the TRUE anyOf envelope schema plus its content-addressed slug and
- * derived `__theta_bind_<slug>` tool name, the FNV-1a seed, and the
- * memoising envelope-validator accessor (compiled at most once per dispatch —
- * the malformed retry re-issues against the SAME schema).
- */
-/**
  * The post-default-merge outcome `runBinder` routes on: the merged `args`, the
  * `params`-boundary classification the named hook computed over them, and the
  * wire names `fillDefaultsAndRevalidate` actually filled — the echo's `(default)`
@@ -741,6 +743,15 @@ interface MergedDeclaredDefaults {
   readonly defaultedWireNames: readonly string[];
 }
 
+/**
+ * The per-dispatch binder forced-tool call ingredients (binder-inference.md
+ * §"Binder inference call"), built ONCE per slash invocation and reused across
+ * every budgeted attempt: the resolved binder model, the rendered V11d system
+ * prompt, the TRUE anyOf envelope schema plus its content-addressed slug and
+ * derived `__theta_bind_<slug>` tool name, the FNV-1a seed, and the
+ * memoising envelope-validator accessor (compiled at most once per dispatch —
+ * the malformed retry re-issues against the SAME schema).
+ */
 interface BinderForcedToolDispatch {
   readonly model: Model<Api>;
   readonly systemPrompt: string;
@@ -1041,7 +1052,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       },
     };
     // OFF-session completion via pi-ai `complete()` against the resolved binder
-    // model (never `driveStreamedUserTurn`, never `ctx.model`): the envelope is
+    // model (never a user-visible session turn, never `ctx.model`): the envelope is
     // extracted from the forced ToolCall's arguments and is NEVER sent to the
     // user session. Auth is resolved off the model registry and threaded into
     // the constructed options — the out-of-band `complete()` free function does
@@ -1150,7 +1161,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * name is in `defaultedWireNames`, the fill step's own report of which
    * fields took their declared default this run
    * (defaulting-system-note-echo.md:9; `defaulting.ts:70–75`,
-   * `argument-echo.ts:74`). The echo is rendered off the resolved runtime
+   * `EchoParam.tookDefault` in `argument-echo.ts`). The echo is rendered off the resolved runtime
    * values (value-driven `EchoType` derivation, disambiguating `integer` vs
    * `number` from the lowered schema) and passed through the shared
    * 120-code-point cap.
@@ -1385,13 +1396,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * Emit the mapped binder failure-mode system note (BND-3) on the
-   * theta-system-note channel: `needs_info` / `ambiguous` render their
-   * fixed-phrase row with the model's message; a non-parse / empty-message reply
-   * is the malformed-envelope row (`could not parse arguments`). The raw
-   * envelope JSON is NEVER surfaced.
-   */
-  /**
    * BNDR-10 (binder/binder-model-and-context.md §Binder context): build the
    * binder's *Recent session context* transcript body for a `bind_context:
    * session` prompt-mode theta. Sources the chronological message list from the
@@ -1420,7 +1424,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       mode: fm.mode,
       bindContext: "session",
     });
-    if (!walk.applies || walk.includedMessages.length === 0) {
+    // The early return above is the BNDR-10 fence, so `walk.applies` is already
+    // true here (`walkSessionContext` computes it from the same two conditions,
+    // and `bindContext` is passed as the literal `"session"`); the residual case
+    // is BNDR-7i void truncation.
+    if (walk.includedMessages.length === 0) {
       return { kind: "none" };
     }
     const rendered = renderCompactTranscript(walk.includedMessages);
@@ -1455,9 +1463,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * Bug 0397 §Fix: the binder-failure note is a group-A always-log member
-   * (runtime-event-channel.md:40, runtime-event-channel.md:46-53) whose
+   * (runtime-event-channel.md §"Runtime event channel") whose
    * `details.event` is sourced from the dispatch-site `ActiveInvocationRegistry`
-   * entry (runtime-event-channel.md:83) — THREADED in via `ticket` (the
+   * entry (runtime-event-channel.md §"Binder-failure sourcing") — THREADED in via `ticket` (the
    * `BinderRunInput.invocationTicket` the real dispatch always
    * supplies; `beginInvocation` inserts the entry ahead of the awaited binder
    * step). A ticket-less direct-`runBinder` harness (no dispatch-level
@@ -1782,50 +1790,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * SUBAG-2 / tool-calls.md:30 (`.theta`-callable adapter pre-eval setup-throw
-   * row). A GENUINE pre-dispatch dispatch-setup throw inside the model-driven
-   * `.theta` adapter (raised before the callee body runs) is routed through
-   * `routeThetaCallableSetupThrow`. Gap-1: a callee-BODY panic no longer reaches
-   * here — `driveCallee` drives through `runInvokeChild`, which converts a
-   * callee-subtree throw into an `Err(InvokeInfraError{cause:"panic"|
-   * "internal_error"})` VALUE that lowers as a plain `isError` result with no
-   * operator note. This routes only the true setup throw:
-   * `routeThetaCallableSetupThrow` returns the clean `{ isError: true }`
-   * envelope carrying the BARE callable-set name (never `/<name>`), and emits
-   * exactly one `theta/runtime/internal-error` diagnostic + one
-   * `theta-system-note`. The sink captures the diagnostic and delivers the ONE
-   * framed note through `emitPanicNote` — the SAME group-B
-   * `details: { diagnostics: [Diagnostic] }` `theta-system-note` shape/channel
-   * the top-level internal-error surface uses — so the model observes the tool
-   * failure while the operator observes the framed defect.
-   */
-  #emitThetaCallableSetupThrow(
-    thrown: unknown,
-    callableName: string,
-    theta: ConversationBindInput["theta"],
-  ): LoweredThetaCallableResult {
-    let captured: Diagnostic | undefined;
-    const sink: ToolLoweringSink = {
-      runtimeEvent: (): void => {},
-      diagnostic: (diag): void => {
-        captured = diag;
-      },
-      systemNote: (framing): void => {
-        if (captured !== undefined) {
-          this.emitPanicNote(framing, captured);
-        }
-      },
-    };
-    const routed = routeThetaCallableSetupThrow(
-      thrown,
-      callableName,
-      { file: theta.sourcePath ?? theta.slashName, range: ZERO_BODY_RANGE },
-      sink,
-    );
-    return { text: routed.content[0]?.text ?? "", isError: routed.isError };
-  }
-
-  /**
    * Decision 6 / Increment B2: push the invocation-scoped forwarding sources
    * onto the shared `forwardingSignals` sink and return a teardown closure that
    * detaches each listener and splices it back off. `finishInvocation` runs the
@@ -1886,7 +1850,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * Bug 0437 §Fix (group-A clock guard, runtime-event-channel.md:130): for a
+   * Bug 0437 §Fix (group-A clock guard, runtime-event-channel.md §"best-effort
+   * `pi.sendMessage`" fallback): for a
    * group-A note, `Clock.wallNow()` during `occurred_at` stamping is an
    * always-log step the channel's fallback covers alongside the send itself —
    * a throw here must walk the SAME fallback, not escape uncaught. A
@@ -1906,7 +1871,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): RuntimeEvent | undefined {
     try {
       return buildEvent();
-    } catch (stampError: unknown) { // allow-broad-catch: pi-sdk-boundary — mirrors sendSystemNote's send-throw containment, runtime-event-channel.md:130
+    } catch (stampError: unknown) { // allow-broad-catch: pi-sdk-boundary — mirrors sendSystemNote's send-throw containment, runtime-event-channel.md best-effort fallback
       if (isStaleCtxError(stampError)) {
         throw stampError;
       }
@@ -1975,9 +1940,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * dispatch calls this AHEAD OF its awaited binder step and hands the returned
    * ticket to the bind, so the entry's span covers the binder window too, not
    * only the body window the bind used to open on its own. Delegates to
-   * `#openInvocationTicket`, which stays the single place the registry-side
-   * setup runs so `invocationId` keeps minting through the producer's PIC-20
-   * `IdSource` seam.
+   * `#openInvocationTicket` so `invocationId` keeps minting through the
+   * producer's PIC-20 `IdSource` seam.
    */
   beginInvocation(input: {
     readonly theta: ThetaCompositionInput;
@@ -1994,6 +1958,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `Set.add`. Shared by `beginInvocation` (the pre-binder slash entry point)
    * and the bind methods below, whose own insertion becomes a no-op reuse of an
    * already-open ticket once one was handed in via `bindInput.invocationTicket`.
+   * `#spawnSubagentFnSession` runs the same sequence inline instead: it owns no
+   * `finish` closure, settling the barrier and removing the entry from its own
+   * `dispose`.
    * `finish` is idempotent so a dispatch `finally` and a bind's own
    * `finishInvocation` can both call it without double-removal;
    * `settleDisposeBarrier` is exposed separately because subagent-mode teardown
@@ -2208,9 +2175,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     return {
       drivenAgainst: "prompt-user-session",
       executeDeps,
-      // RFC 0001 (`subagent fn`): expose the session-scoped effect resolvers so a
-      // `subagent fn` spawn can re-bind them for a fresh isolated session.
-      effectHostDeps: hostDeps,
       // PIC-53: the prompt-mode return value is the trailing turn's accumulated
       // assistant text of the driven user session on the SUCCESS path. A failed
       // run surfaces its real terminal outcome (mirroring the subagent surface):
@@ -2247,12 +2211,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * stdout envelope, and maps `ok`/`err` to `Ok`/`Err` — the parent runs no
    * per-query extraction and never executes the callee body in-process. The
    * legacy RFC-0005 RPC drive is retired (deleted, not a fallback).
-   *
-   * The binding also exposes an IN-PROCESS `effectHostDeps` for the RFC-0001
-   * `subagent fn` inline-body path (`#spawnSubagentFnSession`), which has no
-   * `.theta` file / slug to launch and so runs its inline body against an
-   * isolated off-session conversation in the parent; that path uses
-   * `effectHostDeps` and never triggers the child launch inside `drive()`.
    */
   async spawnSubagentConversation(
     bindInput: ConversationBindInput,
@@ -2436,13 +2394,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // envelope failures). Absent on non-production harnesses (a no-op).
     const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
 
-    // ---- IN-PROCESS host for the RFC-0001 `subagent fn` inline-body path ----
-    // A `subagent fn` body has no slug/file to launch, so it runs in the parent
-    // against an isolated OFF-SESSION conversation (queries resolve via
-    // `#resolvePromptQuery(..., userVisible: false)` — a private `complete()`
-    // conversation, never the caller's). `#spawnSubagentFnSession` consumes this
-    // `effectHostDeps`; the file-callee path (below) uses `drive()` and never
-    // touches it.
+    // ---- IN-PROCESS host backing `executeDeps.host` ----
+    // Queries resolve via `#resolvePromptQuery(..., userVisible: false)` — a
+    // private `complete()` conversation, never the caller's. The file-callee
+    // path (below) uses `drive()` and never runs the body in-process.
     const signal = thetaAbort.signal;
     const hostDeps: EffectfulStatementHostDeps = {
       checkpoint: root.checkpoint,
@@ -2695,7 +2650,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     return {
       drivenAgainst: "subagent-private-session",
       executeDeps,
-      effectHostDeps: hostDeps,
       drive,
       // Bug 0342 §Fix: hands the subagent leg's per-position declaring-enum
       // tags (captured by `drive()`, above) to `#validateInvokeReturn`'s
@@ -2707,8 +2661,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // XMODE-1 wrap without re-deriving it from the settled `Result`'s `kind`.
       driveSource: (): InvokeResultSource => lastDriveSource,
       // FN-5: on the in-process `subagent fn` path the caller's executor runs the
-      // inline body against `effectHostDeps`, then surfaces the body's terminal
-      // final value the same way the file-callee `drive()` maps its envelope.
+      // inline body against the spawned session's own host deps, then surfaces the
+      // body's terminal final value the same way the file-callee `drive()` maps
+      // its envelope.
       surface: (execution: BodyExecution): ResultValue =>
         surfaceCalleeFinalValue(execution),
       teardown,
@@ -3288,51 +3243,28 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         : undefined;
     const model: QueryModelDriver = liveModel ?? (offModel as OffSessionQueryModel);
 
-    // The respond-repair follow-up drive (QRY-22 / QRY-14 ¶3), four arms with
+    // The respond-repair follow-up drive (QRY-22 / QRY-14 ¶3), two arms with
     // explicit WHY (bug 0010 increments C+D):
-    //  - LIVE TYPED (respond context present): each attempt RESTARTS the whole
-    //    two-phase loop — the QRY-12 follow-up opens a fresh ON-SESSION free
-    //    phase (respond tool active, capture re-armed, governor re-armed with a
-    //    fresh budget) terminated by a FRESH off-session forced respond
-    //    dispatch (query-tool-loop.md QRY-14 ¶3: follow-ups "restart the
-    //    *whole* two-phase loop"). The old text-parse drive is retired here.
+    //  - LIVE TYPED: each attempt RESTARTS the whole two-phase loop — the
+    //    QRY-12 follow-up opens a fresh ON-SESSION free phase (respond tool
+    //    active, capture re-armed, governor re-armed with a fresh budget)
+    //    terminated by a FRESH off-session forced respond dispatch
+    //    (query-tool-loop.md QRY-14 ¶3: follow-ups "restart the *whole*
+    //    two-phase loop"). The old text-parse drive is retired here.
     //  - OFF-SESSION TYPED (increment D): the same restart over the HELD
     //    conversation — the QRY-12 follow-up joins it as a user message, the
     //    free-phase tool loop re-runs with a fresh budget, then a fresh forced
     //    respond dispatch terminates the attempt.
-    //  - LIVE DEGRADED (typed but unlowerable annotation, `respond` absent):
-    //    the pre-0010 fused streamed drive stays — there is no respond tool to
-    //    force, so the follow-up reply text is parsed as the candidate payload,
-    //    keeping typed behaviour total for unlowerable schemas.
-    //  - OFF-SESSION DEGRADED: the fused single-turn `complete()` drive stays;
-    //    the classified wrapper maps a provider failure to the discriminated
-    //    `FollowUpDriveFailure` (bug 0007) so the proximate `QueryError`
-    //    terminates repair instead of laundering into the schema-validation
-    //    channel.
-    // Untyped queries build no validation collaborator, so `driveFollowUp` is
-    // never consulted for them.
+    // Only `#buildTypedValidation` consults this closure, and it is built only
+    // when `lowered !== undefined` — which implies `respond !== undefined`, so
+    // no respond-less (degraded) follow-up drive is reachable. Untyped queries
+    // build no validation collaborator at all.
     const driveFollowUp = (
       prompt: string,
     ): Promise<string | FollowUpDriveFailure | FollowUpRespondOutcome> =>
-      liveModel !== undefined && respond !== undefined
+      liveModel !== undefined
         ? liveModel.driveRepairAttempt(prompt)
-        : liveModel !== undefined
-          ? driveStreamedUserTurn({
-              pi: deps.pi,
-              ctx: deps.ctx,
-              clock: root.clock,
-              queryText: prompt,
-              activeTools,
-              provider: String(deps.ctx.model?.api ?? "unknown"),
-              thetaName: deps.theta.slashName,
-              emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-              ...(this.#input.systemNoteChannel !== undefined
-                ? { systemNoteChannel: this.#input.systemNoteChannel }
-                : {}),
-            })
-          : offModel !== undefined && respond !== undefined
-            ? offModel.driveRepairAttempt(prompt)
-            : offSessionFollowUp(deps.ctx.model, prompt);
+        : (offModel as OffSessionQueryModel).driveRepairAttempt(prompt);
     const validation =
       lowered !== undefined
         ? this.#buildTypedValidation(
@@ -3343,8 +3275,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             lowered,
             // F6: the QRY-12 follow-ups must name the REGISTERED respond tool
             // (collision-disambiguated when applicable), byte-equal to the
-            // forced choice. Absent only on the (unreachable-here) respond-less
-            // arm — lowered !== undefined implies respond !== undefined.
+            // forced choice. Always present here — lowered !== undefined implies
+            // respond !== undefined.
             respond?.toolName,
           )
         : undefined;
@@ -3463,7 +3395,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? synthesizeUnsupportedProviderTransportError(String(respondModel.api))
         : undefined;
     return {
-      slug,
       toolName,
       lowered,
       ...(gateError !== undefined ? { gateError } : {}),
@@ -4598,14 +4529,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 }
 
 /**
- * QTL-4. The underlying Pi-tool names in the theta's frozen `tools:` callable set
- * — the host tool each `pi-tool` entry dispatches to (an `as`-rename entry
- * carries the underlying tool's own registered name, which is what the model's
- * active-tool set must reference). A theta with no snapshot (an in-memory
- * fixture) or no Pi tools yields `[]`, so the prompt-mode active set stays empty
- * and no ambient tool is installed.
- */
-/**
  * FN-5 (invocation.md §Final-value propagation across callees): project an
  * `invoke` callee body's terminal execution onto the `Result` value that crosses
  * the invoke boundary. Shared by the subagent spawn path and the prompt→prompt
@@ -4665,6 +4588,14 @@ function subagentFnCallableSet(
   return Object.freeze({ entries });
 }
 
+/**
+ * QTL-4. The underlying Pi-tool names in the theta's frozen `tools:` callable set
+ * — the host tool each `pi-tool` entry dispatches to (an `as`-rename entry
+ * carries the underlying tool's own registered name, which is what the model's
+ * active-tool set must reference). A theta with no snapshot (an in-memory
+ * fixture) or no Pi tools yields `[]`, so the prompt-mode active set stays empty
+ * and no ambient tool is installed.
+ */
 function callableSetPiToolNames(
   theta: ConversationBindInput["theta"],
 ): readonly string[] {
@@ -4679,20 +4610,6 @@ function callableSetPiToolNames(
     }
   }
   return names;
-}
-
-/** SUBAG-2: a resolved model-callable `.theta` in a subagent's callable set. */
-interface ResolvedThetaCallable {
-  /** The callable-set name the model calls (post-`as`, post-hyphen→underscore). */
-  readonly presentedName: string;
-  /** The callee `.theta` path relative to the caller's directory. */
-  readonly calleePath: string;
-  /** The callee's declared `params:` wire names, in DECLARATION ORDER. */
-  readonly paramOrder: readonly string[];
-  /** The callee's lowered `params:` object schema (the model-facing `parameters`). */
-  readonly loweredSchema: LoweredSchema | undefined;
-  /** The callee's frontmatter `description` (the model-facing tool description). */
-  readonly description: string;
 }
 
 /** SUBAG-2: the model-facing text/`isError` pair a `.theta` model call lowers to. */
@@ -4770,16 +4687,6 @@ function lowerThetaCallableModelResult(result: ResultValue): LoweredThetaCallabl
     isError: true,
   };
 }
-
-/**
- * The zero-width body range for a `.theta`-adapter internal-error diagnostic that
- * carries no source position of its own (mirrors the top-level panic-note site's
- * `ZERO_BODY_RANGE` in `theta-composition-producer.ts`).
- */
-const ZERO_BODY_RANGE: SourceRange = {
-  start: { line: 0, column: 0 },
-  end: { line: 0, column: 0 },
-} as const;
 
 /**
  * The callable-set entry (a `./x.theta` path) that a call name resolves to, or
@@ -4999,7 +4906,6 @@ interface RespondCaptureHost {
  * verdict, and the producer's capture-slot accessor.
  */
 interface RespondTurnContext {
-  readonly slug: string;
   /** The PIC-44 registered tool name (collision-disambiguated when applicable). */
   readonly toolName: string;
   readonly lowered: LoweredSchema;
@@ -5083,7 +4989,7 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #activeTools: readonly string[];
   readonly #thetaAbort: AbortController;
   /** STAGE B: bounds the native tool loop (armed for typed and untyped alike — bug 0010). */
-  readonly #governor: PromptToolLoopGovernor | undefined;
+  readonly #governor: PromptToolLoopGovernor;
   readonly #maxRounds: number;
   /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
   readonly #provider: string;
@@ -5133,7 +5039,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     /** CANCEL-2: the per-invocation controller `ctx.signal` is re-forwarded into per turn. */
     readonly thetaAbort: AbortController;
     /** STAGE B / CIO-4: the round-cap governor for the driven free-phase turns. */
-    readonly governor: PromptToolLoopGovernor | undefined;
+    readonly governor: PromptToolLoopGovernor;
     /** STAGE B: the theta's `tool_loop.max_rounds` for this query. */
     readonly maxRounds: number;
     /** PIC-50/51: the resolved provider for a synthesised `TransportError`. */
@@ -5465,8 +5371,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     const respond = this.#respond;
     if (respond === undefined) {
       // Unreachable by construction: `#resolvePromptQuery` wires this drive
-      // only when the respond context exists (the degraded arm keeps the old
-      // streamed drive). Kept total rather than throwing across the seam.
+      // only when the respond context exists. Kept total rather than throwing
+      // across the seam.
       return {
         kind: "provider_failure",
         error: {
@@ -5642,7 +5548,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     // exhaustion snapshot is read by `nextFreePhaseTurn` after this resolves.
     // Bug 0010: typed free-phase turns are bound too (CIO-4); only the degraded
     // fused arm passes `bound: false`.
-    if (bound && this.#governor !== undefined) {
+    if (bound) {
       this.#governor.begin(this.#maxRounds);
     }
     // PIC-17 active-set gating (QTL-4 / bug 0010): install exactly
@@ -5883,7 +5789,7 @@ class LivePromptQueryModel implements QueryModelDriver {
       teardownSignal.removeEventListener("abort", onThetaAbortTeardown);
       // STAGE B: disarm the governor and capture the exhaustion snapshot the
       // moment the turn settles, even on an error/abort path.
-      if (bound && this.#governor !== undefined) {
+      if (bound) {
         this.#exhaustion = this.#governor.end();
       }
     }
@@ -6377,8 +6283,7 @@ class OffSessionQueryModel implements QueryModelDriver {
     const respond = this.#respond;
     if (respond === undefined) {
       // Unreachable by construction: `#resolvePromptQuery` wires this drive
-      // only when the respond context exists (the degraded arm keeps the
-      // fused `offSessionFollowUp` drive). Kept total rather than throwing
+      // only when the respond context exists. Kept total rather than throwing
       // across the seam.
       return {
         kind: "provider_failure",
@@ -7211,194 +7116,6 @@ async function dispatchForcedRespondTurn(
 }
 
 /**
- * The off-session respond-repair follow-up drive (QRY-10 §respond-repair): map
- * the classified wrapper for `driveFollowUp` — reply text on success, the
- * discriminated `FollowUpDriveFailure` on a provider failure so the proximate
- * `QueryError` terminates repair with no `attempts` debit (bug 0007: the
- * unclassified drive laundered the failure into the schema-validation channel,
- * re-driving the dead provider once per attempt).
- */
-async function offSessionFollowUp(
-  model: Model<Api> | undefined,
-  prompt: string,
-): Promise<string | FollowUpDriveFailure> {
-  const completion = await offSessionComplete(model, prompt);
-  return completion.kind === "text"
-    ? completion.text
-    : { kind: "provider_failure", error: completion.error };
-}
-
-/**
- * Drive ONE user-visible streamed turn against the shared user session and
- * return its trailing-turn assistant text. Mirrors `LivePromptQueryModel`'s turn
- * drive: install the caller-supplied active tools for the turn, issue the
- * fire-and-forget `pi.sendUserMessage`, then observe the run through
- * `ctx.isIdle()` (wait for it to begin streaming, then to go idle again) and the
- * `ctx.waitForIdle()` completion barrier — all bounded on the injected `Clock`.
- *
- * Bug 0010 increment C: this is NO LONGER the typed repair drive — the live
- * typed path repairs through `LivePromptQueryModel.driveRepairAttempt` (the
- * QRY-14 ¶3 two-phase restart). The sole remaining caller is the DEGRADED
- * typed arm (`respond` context absent: an unlowerable annotation), whose
- * repair follow-ups still drive one streamed turn and text-parse its trailing
- * reply so typed behaviour stays total for unlowerable schemas.
- *
- * Bug 0288 §Fix item 5: brought onto the SAME turn-completion contract as
- * `LivePromptQueryModel.#driveUserVisibleTurn` — the pre-send idle gate,
- * the settled-slice-aware start poll, the bounded end poll / bounded
- * `waitForIdle` race / bounded settle poll — rather than duplicated as a
- * second copy of the OLD idle-poll hole (bug doc P7: this free function was
- * exactly that second copy). Chosen over deleting it: this is the DEGRADED
- * arm's only repair-follow-up drive (no respond tool to restart through
- * `driveRepairAttempt`), so removing it would drop repair follow-ups for
- * unlowerable schemas entirely rather than fix their contract — the smaller,
- * more honest change keeps the call site and widens its return type to the
- * `FollowUpDriveFailure` shape the caller (`driveFollowUp`,
- * production-theta-producer.ts's `#resolvePromptQuery`) already accepts for
- * every other arm, giving a bound expiry here the same home a transport
- * failure has everywhere else.
- */
-async function driveStreamedUserTurn(deps: {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionCommandContext;
-  readonly clock: Clock;
-  readonly queryText: string;
-  /**
-   * QTL-4: the active tool names to install for the turn — the theta's
-   * callable-set underlying Pi-tool names for a query follow-up. (The binder
-   * never drives a streamed user turn: it runs off-session through the forced
-   * structured-output `complete()` call, binder-inference.md.)
-   */
-  readonly activeTools: readonly string[];
-  /** PIC-50/51: the resolved provider for a synthesised `TransportError` on a bound expiry. */
-  readonly provider: string;
-  /** Bug 0372 §Fix: the bare theta name (no leading `/`) for the PIC-8(c) note template. */
-  readonly thetaName: string;
-  /** Bug 0372 §Fix: the runtime-defect diagnostic sink. */
-  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-  /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel, threaded from `#input.systemNoteChannel`. */
-  readonly systemNoteChannel?: SystemNoteChannelDeps;
-}): Promise<string | FollowUpDriveFailure> {
-  const readMessages = (): readonly Message[] =>
-    buildSessionContext(
-      deps.ctx.sessionManager.getEntries(),
-      deps.ctx.sessionManager.getLeafId(),
-    ).messages as unknown as readonly Message[];
-  // Every bounded wait below also stops promptly on an observed cancellation:
-  // a cancelled dispatch must not sit out the full bound before answering.
-  const pollWhile = async (condition: () => boolean, bound: number): Promise<boolean> => {
-    for (let i = 0; i < bound && condition() && deps.ctx.signal?.aborted !== true; i += 1) {
-      await macrotask(deps.clock, POLL_INTERVAL_MS);
-    }
-    return !condition();
-  };
-  /**
-   * A bounded wait's expiry, UNLESS the dispatch was cancelled. This arm has no
-   * `thetaAbort` in scope, so it mints no cancellation classification of its
-   * own: on an observed abort it returns exactly what HEAD returned from every
-   * exit of this function — the trailing turn's text — leaving the caller's
-   * own cancellation handling in charge.
-   */
-  const expired = (
-    phase: PromptModeTurnLifecyclePhase,
-    boundMs: number,
-  ): string | FollowUpDriveFailure =>
-    deps.ctx.signal?.aborted === true
-      ? extractTrailingTurnText(readMessages())
-      : {
-          kind: "provider_failure",
-          error: mapPromptModeTurnLifecycleExpiry(phase, boundMs, deps.provider),
-        };
-  // Bug 0372 §Fix: the compliant PIC-8/PIC-19 gate, byte-identical in shape to
-  // the other two converted windows — a restore throw here gets the single
-  // re-attempt + diagnostic + note instead of masking the follow-up's result.
-  const activeSetGateDeps: ActiveSetGateDeps = {
-    pi: deps.pi,
-    thetaName: deps.thetaName,
-    installVector: [...deps.activeTools],
-    emitDiagnostic: deps.emitDiagnostic,
-    emitSystemNote: (note): void => {
-      const channel: SystemNoteChannelDeps =
-        deps.systemNoteChannel ?? {
-          pi: {
-            sendMessage: (message, options): void => {
-              deps.pi.sendMessage(message, options);
-            },
-          },
-          emitDiagnostic: deps.emitDiagnostic,
-          ui: {
-            notify: (): void => {},
-          },
-        };
-      sendSystemNote(note, channel);
-    },
-    // PIC-19: propagates via re-throw into this function's caller with no
-    // local catch of its own — the same top-level slash-dispatch outer catch
-    // that owns `theta/runtime/internal-error` for the sibling query window.
-    routeInternalError: (): void => {},
-  };
-  return withActiveSetGate(activeSetGateDeps, async () => {
-    // §Fix item 1: the same pre-send gate as the method — no send while the
-    // session reports a run in flight, and no settledness demand over the
-    // user's ambient conversation (see the method's own gate for why).
-    const gateCleared = await pollWhile(() => !deps.ctx.isIdle(), PRE_SEND_GATE_POLL_BOUND);
-    if (!gateCleared) {
-      return expired("pre-send-gate", PRE_SEND_GATE_POLL_BOUND * POLL_INTERVAL_MS);
-    }
-    const turnStart = readMessages().length;
-    deps.pi.sendUserMessage(deps.queryText);
-    // §Fix item 3: settled-slice-aware start poll — a turn that starts and
-    // finishes inside one poll interval is not an unstarted turn.
-    const startCleared = await pollWhile(
-      () => deps.ctx.isIdle() && !thisTurnSettled(readMessages(), turnStart),
-      TURN_START_POLL_BOUND,
-    );
-    if (!startCleared) {
-      return expired("start", TURN_START_POLL_BOUND * POLL_INTERVAL_MS);
-    }
-    if (!deps.ctx.isIdle()) {
-      // §Fix item 4: bounded end poll, bounded `waitForIdle` race, bounded
-      // settle poll — skipped entirely on the fast path (settled without the
-      // run ever being observed non-idle).
-      const endCleared = await pollWhile(() => !deps.ctx.isIdle(), TURN_END_POLL_BOUND);
-      if (!endCleared) {
-        return expired("settle", TURN_END_POLL_BOUND * POLL_INTERVAL_MS);
-      }
-      // The losing leg's timer is cleared after the race, so the common path
-      // (`waitForIdle()` wins) leaves no live timer holding the event loop.
-      let idleSettled = false;
-      let idleBoundTimer: TimerHandle | undefined;
-      const idleBound = new Promise<void>((resolve) => {
-        idleBoundTimer = deps.clock.setTimeout(() => resolve(), WAIT_FOR_IDLE_BOUND_MS);
-      });
-      try {
-        await Promise.race([ // allow: cka-62 — pi-integration-contract/conversation-drive.md
-          deps.ctx.waitForIdle().then(() => {
-            idleSettled = true;
-          }),
-          idleBound.then(() => {}),
-        ]);
-      } finally {
-        if (idleBoundTimer !== undefined) {
-          deps.clock.clearTimeout(idleBoundTimer);
-        }
-      }
-      if (!idleSettled) {
-        return expired("settle", WAIT_FOR_IDLE_BOUND_MS);
-      }
-      const settleCleared = await pollWhile(
-        () => !thisTurnSettled(readMessages(), turnStart),
-        TURN_SETTLE_POLL_BOUND,
-      );
-      if (!settleCleared) {
-        return expired("settle", TURN_SETTLE_POLL_BOUND * POLL_INTERVAL_MS);
-      }
-    }
-    return extractTrailingTurnText(readMessages());
-  });
-}
-
-/**
  * Derive the argument-echo `EchoType` for a bound value, VALUE-driven so it can
  * never mismatch the value's runtime shape and crash the renderer. The lowered
  * params property (when available) disambiguates `integer` from `number`; every
@@ -7968,12 +7685,14 @@ function interpolationTypeOf(value: ThetaValue): InterpolationType {
 
 /**
  * Evaluate a pure (non-checkpointed) sub-expression against the environment.
- * The shipped test thetas' pure sub-expressions are literal / identifier reads;
- * an identifier that resolves to a local binding yields its value, any other
- * resolution arm (a bare `fn` / callable name, or an unresolved name) has no
- * first-class readable value and yields `null` — this evaluator's own inert
- * fallback (bug 0116: no such rule is stated in expressions.md) — rather than
- * throwing out of the executor.
+ * The switch below covers the whole pure expression grammar (literals,
+ * identifiers, arrays, objects, member/index reads, `fn` calls, `Result`
+ * constructors, method calls, `try`, binary/ternary operators and block
+ * expressions). An identifier that resolves to a local binding yields its
+ * value; any other resolution arm (a bare `fn` / callable name, or an
+ * unresolved name) has no first-class readable value and yields `null` — this
+ * evaluator's own inert fallback (bug 0116: no such rule is stated in
+ * expressions.md) — rather than throwing out of the executor.
  */
 function evaluatePureExpression(
   expr: Expr,
@@ -8419,7 +8138,7 @@ function evaluateBinaryExpression(
     case "/":
     case "%": {
       // Bug 0338 belt: mirrors the executor's `applyBinaryScalar` bug 0332 belt
-      // (statement-executor.ts:1060) into this pure host, so a statically-deferred
+      // (statement-executor.ts) into this pure host, so a statically-deferred
       // non-numeric operand (a WITHHELD fn param reaching an interpolation or an
       // invoke argument) throws loudly instead of being cast to `number` and
       // JS-coerced. `NaN`/`Infinity` are `typeof "number"`, so the guard does not

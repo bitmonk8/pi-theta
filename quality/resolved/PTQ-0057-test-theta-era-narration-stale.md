@@ -2,7 +2,7 @@
 id: PTQ-0057
 title: "Two comments in the production producer still describe the 'test thetas' era and contradict the code beneath them"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:690

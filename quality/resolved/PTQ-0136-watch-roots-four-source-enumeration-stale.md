@@ -2,7 +2,7 @@
 id: PTQ-0136
 title: Two comments describe watchRoots as the four-source cli/settings/project/global union although the same function folds packageWalk.roots in as a fifth source
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:411-418

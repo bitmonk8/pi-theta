@@ -2,7 +2,7 @@
 id: PTQ-0041
 title: "`#emitThetaCallableSetupThrow`, `ResolvedThetaCallable`, and the `runInvokeChild` import survive in production-theta-producer.ts with no callers since the RFC-0005 child-process rework"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1795-1821

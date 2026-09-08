@@ -13,10 +13,9 @@
 // (snapshot / swap-install / run body / single-re-attempt restore, with a
 // setup-side throw routed to `theta/runtime/internal-error`) and is the ONE
 // gating window every production caller threads its computed `installVector`
-// into (bug 0372 §Fix) — the three shipped snapshot/restore windows
-// (the producer query turn, the `driveStreamedUserTurn` follow-up, and the
-// prompt→prompt cross-mode `invoke` hop) all call it rather than restoring
-// bare. `deriveToolLabel` derives the materialised `ToolDefinition.label`;
+// into (bug 0372 §Fix) — the shipped snapshot/restore windows (the producer
+// query turn and the prompt→prompt cross-mode `invoke` hop) all call it rather
+// than restoring bare. `deriveToolLabel` derives the materialised `ToolDefinition.label`;
 // `registerToolInCache` implements the PIC-44 registration cache.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";

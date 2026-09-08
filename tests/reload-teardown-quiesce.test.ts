@@ -269,12 +269,12 @@ describe("PIC-57 — ReloadDebouncer.whenIdle (unit)", () => {
 /**
  * The teardown-aware debouncer dependency sub-step 4 requires. Declared here as
  * the interface the implementation must satisfy so this file type-checks while
- * `SessionShutdownDeps` does not yet carry a `debouncer` field. `whenIdle`
- * accepts the shared-deadline bound (spec `details.call: "debouncer.whenIdle(awaitCap)"`).
+ * `SessionShutdownDeps` does not yet carry a `debouncer` field. The caller owns
+ * the shared-deadline bound (spec `details.call: "debouncer.whenIdle(awaitCap)"`).
  */
 interface TeardownAwareDebouncerDep {
   markTornDown(): void;
-  whenIdle(awaitCapMs?: number): Promise<void>;
+  whenIdle(): Promise<void>;
 }
 
 /** Widened deps carrying the not-yet-declared `debouncer` sub-step 4 reads. */

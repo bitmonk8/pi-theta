@@ -2,7 +2,7 @@
 id: PTQ-0080
 title: Three hardcoded line citations in production-composition.ts doc comments point at code that has moved, naming the wrong sites
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:3733-3736
