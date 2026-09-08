@@ -50,6 +50,10 @@ function rootDouble(): RuntimeRoot {
     checkpoint: new RecordingCheckpoint(),
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
     clock: {
+      // `now()` (monotonic) is exercised by the PIC-65 teardown's measured-elapsed
+      // read (bug 0468 face (b)) in addition to `wallNow()`; both read 0 here since
+      // this double drives no timing assertions of its own.
+      now: () => 0,
       wallNow: () => 0,
       setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
       clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),

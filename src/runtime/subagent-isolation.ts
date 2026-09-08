@@ -10,7 +10,7 @@
 //     SIGKILL elsewhere; the stdin release it also issues is an advisory no-op
 //     — the child's stdin is spawned closed per bug 0002), advisory
 //     `theta/runtime/subagent-dispose-failure` on a teardown-step throw, `theta/runtime/subagent-teardown-timeout` on the
-//     kill fallback; bounded by `SHUTDOWN_AWAIT_CAP_MS`.
+//     kill fallback; bounded by `SUBAGENT_DISPOSE_BUDGET_MS`.
 //   - PIC-22 parallel spawn conformance witness (`spawnSubagentsInParallel`).
 //
 // RETIRED with the RFC-0005 RPC drive (moved elsewhere): the PIC-62 pre-spawn
@@ -25,7 +25,6 @@
 // cancellation.md.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { SHUTDOWN_AWAIT_CAP_MS } from "../extension/capability-probe";
 import type { SubagentChildProcess } from "./subagent-launcher";
 import type { Clock } from "../seams/clock";
 
@@ -34,13 +33,19 @@ import type { Clock } from "../seams/clock";
 // ---------------------------------------------------------------------------
 
 /**
- * PIC-65. The bounded budget (milliseconds) the subagent disposal phase runs
- * under. The compliant `V9i` sources this from the single `SHUTDOWN_AWAIT_CAP_MS`
- * declaration site (`V9a`), so `SUBAGENT_DISPOSE_BUDGET_MS === SHUTDOWN_AWAIT_CAP_MS`.
- * There is no separate budget for disposal; it is covered by the single
- * `SHUTDOWN_AWAIT_CAP_MS` declaration site.
+ * PIC-65. The bounded budget (milliseconds) the per-invocation subagent
+ * child-process EXIT wait runs under, decoupled from the `session_shutdown`
+ * drain cap (`SHUTDOWN_AWAIT_CAP_MS`). This wait runs in the drive `finally`
+ * AFTER the child's envelope is already consumed, so it never bounds
+ * execution (execution is bounded upstream — `tool_loop.max_rounds`, the
+ * turn-settle bound) — its magnitude only chooses graceful exit vs. a
+ * process-tree kill. 30000ms matches the Kubernetes
+ * `terminationGracePeriodSeconds` default — 15× the 2000 ms bound that every
+ * observed real child overran (bug 0468 §Provenance did not measure the
+ * natural wind-down time), so a child that did real provider work is observed
+ * to exit instead of routinely killed.
  */
-export const SUBAGENT_DISPOSE_BUDGET_MS = SHUTDOWN_AWAIT_CAP_MS;
+export const SUBAGENT_DISPOSE_BUDGET_MS = 30000;
 
 // ---------------------------------------------------------------------------
 // PIC-62 — pre-spawn model-guard diagnostic codes / message / renderer.
@@ -141,7 +146,7 @@ export async function spawnSubagentsInParallel(
 
 /**
  * `theta/runtime/subagent-teardown-timeout` — the per-child kill-fallback event:
- * the child did not exit within the `SHUTDOWN_AWAIT_CAP_MS` budget, so the
+ * the child did not exit within the `SUBAGENT_DISPOSE_BUDGET_MS` budget, so the
  * runtime killed it (process-tree kill on Windows). Owned here (teardown owner).
  */
 export const SUBAGENT_TEARDOWN_TIMEOUT_CODE = "theta/runtime/subagent-teardown-timeout";
@@ -163,7 +168,7 @@ export interface SubagentChildTeardownDeps {
 /**
  * PIC-65. Tear the subagent child down: detach the one-shot abort listener,
  * release any residual parent-held stdin handle, await child exit within the
- * `SHUTDOWN_AWAIT_CAP_MS` budget, and — if the child does not exit in time —
+ * `SUBAGENT_DISPOSE_BUDGET_MS` budget, and — if the child does not exit in time —
  * kill it (process-tree kill on Windows) and emit
  * `theta/runtime/subagent-teardown-timeout`. On the normal path the child has
  * ALREADY exited when teardown runs (one invocation per process: envelope →
@@ -221,8 +226,11 @@ export async function runSubagentChildTeardown(
     return;
   }
 
-  // Bounded await of observed child exit within `SHUTDOWN_AWAIT_CAP_MS`, timed
-  // by the injected `Clock` seam (PIC-12) — never the ambient global timer.
+  // Bounded await of observed child exit within `SUBAGENT_DISPOSE_BUDGET_MS`,
+  // timed by the injected `Clock` seam (PIC-12) — never the ambient global
+  // timer. `waitStart` lets the kill-fallback report the MEASURED elapsed wait
+  // (registry-promised in `hint`) rather than the configured budget.
+  const waitStart = deps.clock.now();
   let timer: import("../seams/clock").TimerHandle | undefined;
   const timedOut = await Promise.race<boolean>([ // allow: PIC-65 — pi-integration-contract/subagent.md
     exitObserved.then(() => false),
@@ -237,13 +245,16 @@ export async function runSubagentChildTeardown(
     return;
   }
   // Budget elapsed: kill fallback (process-tree on Windows) + the per-child
-  // timeout event.
+  // timeout event. `hint` carries the MEASURED elapsed wall time at kill
+  // (registry-promised), so a flood of these events records how long each
+  // child actually overran rather than the identical configured budget.
   killChild(child, deps);
+  const elapsedMs = deps.clock.now() - waitStart;
   deps.emitDiagnostic({
     severity: "error",
     code: SUBAGENT_TEARDOWN_TIMEOUT_CODE,
     message: `subagent child did not exit within ${budgetMs}ms; killed`,
-    hint: `${budgetMs}ms`,
+    hint: `${elapsedMs}ms`,
   });
 }
 

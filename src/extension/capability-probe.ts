@@ -70,8 +70,10 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
  * `session_shutdown` teardown awaits in-flight invocation drainage before
  * proceeding. Semantics are owned by `V17a`; the value is sourced from
  * session-shutdown-semantics.md §`session_shutdown` sub-step 3. `V9a` is the
- * single declaration site `V9g`, `V9i`, and `V17a` import (rather than
- * redeclare) and that `V18c`'s build-time literal-read assertion reads.
+ * single declaration site the shutdown-leg consumers `V9g` and `V17a` import
+ * (rather than redeclare) and that `V18c`'s build-time literal-read assertion
+ * reads. `V9i` no longer imports it: bug 0468 decoupled the per-invocation
+ * subagent child-exit wait onto its own `SUBAGENT_DISPOSE_BUDGET_MS`.
  */
 export const SHUTDOWN_AWAIT_CAP_MS = 2000;
 

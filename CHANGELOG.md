@@ -6,6 +6,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.464.0]
+
+### Fixed
+- **Bug 0468 — the subagent child's post-envelope exit wait reused the session-shutdown drain cap (`SUBAGENT_DISPOSE_BUDGET_MS === SHUTDOWN_AWAIT_CAP_MS === 2000` ms), so every child that ran real provider work outlived the 2 s budget and the success path ended in a process-tree kill plus an error-severity `theta/runtime/subagent-teardown-timeout`** — the one signal meaning "stuck child" fired on effectively every invocation (the seeding incident's 73/73 successful lens workers included), and the same registry row promised a child identifier in `message` and elapsed wall time in `hint` that the emission never carried. The child-exit wait is now its own `SUBAGENT_DISPOSE_BUDGET_MS = 30000` ms constant — a graceful-exit wait past a delivered envelope (execution stays bounded upstream by `tool_loop.max_rounds`), calibrated to the Kubernetes `terminationGracePeriodSeconds` 30 s default — decoupled from `SHUTDOWN_AWAIT_CAP_MS`, which stays 2000 ms for the `session_shutdown` drain. The `theta/runtime/subagent-teardown-timeout` `hint` now carries the measured elapsed wall time, and the registry row's Trigger prose is reconciled to the (identifier-less) emission; adding the per-child identifier to `message` rewords a shipped Message-column template and is deferred to theta 2.0 per DIAG-4. Spec: subagent.md PIC-65/PIC-66, code-registry-runtime.md, session-shutdown-semantics.md, version-bump-step2.md. (`src/runtime/subagent-isolation.ts`, `src/extension/capability-probe.ts`; witness `tests/b0468-subagent-teardown-budget-decoupled.test.ts`, `tests/subagent-isolation.test.ts`)
+
 ## [0.463.0]
 
 ### Fixed

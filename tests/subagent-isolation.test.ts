@@ -16,7 +16,7 @@
 //     cancellation short-circuit, transport short-circuit on trailing
 //     `stopReason: "error"`, chronological assistant-text concatenation);
 //   - PIC-65 (successor of the retired PIC-9) — child teardown (bounded await
-//     SHUTDOWN_AWAIT_CAP_MS → kill, process-tree on Windows; the residual
+//     SUBAGENT_DISPOSE_BUDGET_MS → kill, process-tree on Windows; the residual
 //     stdin release is an advisory no-op against the production child, whose
 //     stdin is spawned closed per bug 0002; disposeBarrier settles on observed
 //     child exit; dispose-failure advisory on a teardown-step throw);
@@ -219,8 +219,29 @@ describe("RFC-0005 — PIC-65 subagent child-process teardown", () => {
     expect(rendered).toBe("subagent teardown failed: stdin close exploded");
   });
 
-  it("PIC-65: SHUTDOWN_AWAIT_CAP_MS covers teardown — the subagent teardown budget equals the shared cap", () => {
-    expect(SUBAGENT_DISPOSE_BUDGET_MS).toBe(SHUTDOWN_AWAIT_CAP_MS);
+  it("PIC-65 / bug 0468: SUBAGENT_DISPOSE_BUDGET_MS is decoupled from the shutdown drain cap and pinned to the 30s graceful-exit budget", () => {
+    // Bug 0468 §Fix — option (A) decouple. `SUBAGENT_DISPOSE_BUDGET_MS` is the
+    // per-invocation child-EXIT wait that runs in the drive `finally` AFTER the
+    // child's envelope is already consumed, so it never bounds execution
+    // (execution is bounded upstream — `tool_loop.max_rounds` and the bug-0464
+    // settle bound); its magnitude buys only graceful-exit grace before a
+    // process-tree kill. Aliasing it to `SHUTDOWN_AWAIT_CAP_MS` — the
+    // `session_shutdown` drain cap, where smallness IS the feature — made every
+    // real model-turn child overrun 2000ms and draw a kill plus an
+    // error-severity `subagent-teardown-timeout` on the SUCCESS path. The
+    // decouple gives the exit wait its own literal at the graceful-exit norm
+    // (Kubernetes `terminationGracePeriodSeconds` default is 30s; Docker `stop`
+    // grace is 10s), leaving the shutdown drain cap at 2000ms. The shutdown cap
+    // is NOT raised to reach this — that would stretch session_shutdown /
+    // reload-teardown / supersession quiesce into user-visible exit latency for
+    // a wait whose cost profile never wanted to move.
+    expect(SUBAGENT_DISPOSE_BUDGET_MS).not.toBe(SHUTDOWN_AWAIT_CAP_MS);
+    expect(SHUTDOWN_AWAIT_CAP_MS).toBe(2000);
+    expect(SUBAGENT_DISPOSE_BUDGET_MS).toBe(30000);
+    // Margin invariant, held independently of the exact literal: the exit wait
+    // must sit in the 10-30s graceful-exit band, well clear of the 2000ms that
+    // mis-fired for every real child.
+    expect(SUBAGENT_DISPOSE_BUDGET_MS).toBeGreaterThanOrEqual(10000);
   });
 });
 
