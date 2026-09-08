@@ -123,3 +123,4 @@ already stated); drop the now-unneeded argument at the eight call sites.
   field, file, and call sites are disjoint from it.
 
 ## Triage
+verdict: questionable — field at :102, the `void deps.registry` discard at :197 and all 8 registry-passing call sites verify verbatim, but the field is the deliberate subject of PIC-55's MUST-NOT witness (watcher-terminated-recovery.test.ts:163-167 asserts no drain tag on the registry it handed in), which removal renders tautological rather than "unaffected" as claimed; structural-vs-witness enforcement of that clause is a human call (triage: claude-opus-5)

@@ -131,3 +131,4 @@ discriminates nothing.
   emit-input record and shares no cited line or claim with it.
 
 ## Triage
+verdict: questionable — `form` verifiably has zero readers ever (pickaxe `input.form`: no commit; no dynamic/spread access), but its whole seam has no production caller by recorded design (.pi/bug-hunt/logs/note-channel-6.md:51-54 "filed residual/non-goal"), so prune-vs-stamp is the QRY-20 owner's call, and the site set is mis-stated (4 writes incl. tests/query-discard.test.ts:186-189, which iterates both DiscardForm members, not 3) (triage: claude-opus-5)

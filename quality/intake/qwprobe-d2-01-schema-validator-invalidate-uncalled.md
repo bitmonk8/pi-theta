@@ -145,3 +145,4 @@ entry point that nothing reaches.
   no commit ever added a caller.
 
 ## Triage
+verdict: questionable — zero callers independently reproduced (`.invalidate(` in src/ = 1 unrelated comment; tools//extensions/ = 0; tests/ only the wrapper's own uncalled delegation body; string-keyed/dynamic/non-TS/re-export = 0; git shows no caller ever added), but host-interfaces-services.md:48 is a NORMATIVE "Architectural constraints" sentence ("the file watcher calls into the service's invalidate path") that the :50 non-binding disclaimer covers only for the illustration's member set, so the resolution is delete-plus-spec-change vs. wire-the-watcher (a behaviour change the D2 brief excludes) — a human should rule. (triage: claude-opus-5)

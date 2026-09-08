@@ -141,3 +141,4 @@ output is already identical.
   → no hits; src/render/canonical-number.ts is cited by no existing finding.
 
 ## Triage
+verdict: questionable — every excerpt, the 6-call/5-caller census and both test claims reproduced exactly and `kind` is provably unobservable, but the "vestigial" anchor is refuted by git history (arms born byte-identical in the sole implementing commit e78482b9 with today's rationale doc already present — no removed feature, no dead code, no scaffolding); BNDR-4/BNDR-5 are separately normative (spec:36-37) and the header pins kind-from-static-type as the caller's obligation, so this is the shape question the candidate itself concedes, and collapsing it touches 5 production callers plus 21 test call sites and merges the two spec-anchored describes — a human should rule (triage: claude-opus-5)

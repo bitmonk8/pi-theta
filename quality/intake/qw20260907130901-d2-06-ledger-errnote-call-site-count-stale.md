@@ -79,3 +79,4 @@ to the bug doc; or at minimum correct the count and tense.
   header speaks in the present tense about the current tree.
 
 ## Triage
+verdict: questionable — the count is verifiably wrong (one call site, theta-composition-producer.ts:581), but git shows "two" was never true (one site at 670875c8 and its parent), so the stale-narration anchor fails and the "no ChainHop[]" clause is the header's own problem statement resolved by its next paragraph; residual is one wrong numeral in prose (triage: claude-opus-5)

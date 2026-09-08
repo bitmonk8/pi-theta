@@ -103,3 +103,4 @@ other can carry the spec pointer without the restatement.
   `fillDefaultsAndRevalidate` exists at `src/binder/defaulting.ts`.
 
 ## Triage
+verdict: out-of-scope — every excerpt and search reproduces verbatim, but the sole anchor is duplication between live, factually-current prose copies, which the D2 lens brief explicitly lists as do-not-file ("duplication between live copies") and README assigns to the D4 lens (triage: claude-opus-5)

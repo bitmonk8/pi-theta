@@ -107,3 +107,4 @@ The two lines are the tail of an already-completed deletion.
   exhaustive rather than a sample.
 
 ## Triage
+verdict: questionable — all cited facts reproduce exactly (lines 506/589, commits 984796c1/eed66a89, awk 2 hits in scope), but the anchor is semantically inert whitespace (no doc generator, no formatter, eslint clean) and the named root cause recurs repo-wide at 22 sites in 8 files with identical stub-deletion provenance (query-error.ts/aef88150, stdlib-array.ts/d0679392), so sites:2 + localized misframes it; human should rule (triage: claude-opus-5)

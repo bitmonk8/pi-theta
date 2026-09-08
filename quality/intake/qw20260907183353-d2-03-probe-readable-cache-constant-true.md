@@ -103,3 +103,4 @@ stays as `ThetaLibDirectoryProbe` requires.
   birth, never varied by any later commit.
 
 ## Triage
+verdict: questionable — all three cites reproduce (:510 decl, :558 sole write of literal `true`, :572 sole read, single commit a13ef7fc, no other writer), but nothing is dead: the write is load-bearing for all resolution and the boolean backs the live `ThetaLibDirectoryProbe.entryReadable` contract (src/parser/imports.ts:200/:256, value varies in the double at tests/imports.test.ts:77), and bug 0428 (fixed 0.421.0) pins probe-side `readable=false` as un-implemented §Fix Option 2 while calling the combined route "the coherent end state", so Map→Set is a type-shape call a human should rule (triage: claude-opus-5)

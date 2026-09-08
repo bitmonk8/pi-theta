@@ -73,3 +73,4 @@ Either drop `inlineFragments` from `parseParams`'s `LowerCtx` (matching the fiel
 - Git intent check: `git log -S "const inlineFragments = new Map" -- src/parser/params.ts` and `-S "share ONE scope"` both resolve to the same commit (52e257bc, bug-0039), i.e. the threading was introduced together with the comment stating it never fires here — inert from birth, not a regression from a removed consumer.
 
 ## Triage
+verdict: questionable — inertness re-derived and reproduces (defs/retention share one identity all pass, adjacent writes, no defs deletes, map never escapes), but the anchor is a design trade, not a proven vestige: git shows it inert-by-design from birth, the code states so at :190-192, and bug 0039 §Fix's posture wires the same sink triple at all three mint sites (the finding miscounts them as two, omitting query-schema-lowering.ts:192) — a human should rule on uniform posture threading vs. per-site minimalism (triage: claude-opus-5)

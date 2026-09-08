@@ -124,3 +124,4 @@ identical either way.
   discarded probe result readable.
 
 ## Triage
+verdict: questionable — the `probe(...) && false` conjunction and its unobservable probe call reproduce exactly (production-composition.ts:842-849), but the two-conjunct rung-1 record is normative spec ("Both conjuncts are required", capability-probe.md:84, subagent.md:137), the proposed plain-`false` spelling is precisely what bug-0001's fix deliberately replaced (git b8d4fd2c), and the surface-exposed-without-dispatcher shape is e2e-pinned — zero-behavior cleanup against documented contract, a human should rule (triage: claude-opus-5)

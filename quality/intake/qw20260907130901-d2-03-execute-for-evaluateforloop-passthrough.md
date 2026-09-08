@@ -144,3 +144,5 @@ need to carry the real per-iteration work rather than a recorder.
 
 ## Triage
 
+verdict: questionable — drive verified behavior-free (plan is an identity copy of snapshot, index unbound, sole production call at :2352, evalParFor iterates directly), but the shape is the module header's documented original design that never carried behavior, and inlining it leaves evaluateForLoop/ForLoopHost test-only — the dead-seam-duplicate shape this repo tolerates elsewhere; anchor is simplicity taste, so a human should rule (triage: claude-opus-5)
+

@@ -124,3 +124,4 @@ owns the choice.
   it does not create a reader.
 
 ## Triage
+verdict: questionable — mechanics reproduce (`void cause;` load-pre-eval.ts:107, sole src caller production-composition.ts:1682, zero hot-reload reuse), but preEvalCauseOf is production-called and deliberately witness-tested, and the unbranched cause parameter is an explicit settled §Non-goal in bugs 0109 and 0260, so the residual is a cosmetic design call a human should rule (triage: claude-opus-5)

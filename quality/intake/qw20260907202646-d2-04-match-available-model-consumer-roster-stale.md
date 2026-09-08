@@ -148,3 +148,4 @@ to the six current sites.
   count, not the subject of the finding.
 
 ## Triage
+verdict: confirmed — reproduced exactly: comment verbatim at 112-114, `grep -rnE "matchAvailableModel\(" src extensions tools` returns precisely the 6 cited production call sites with the stated subsystem attributions, and git proves the narration (comment born in a215e1f8 when exactly the 2 named sites existed, block never revised since); in-scope src/ historical-narration comment, no dedupe (the only other binder-model.ts candidate targets the 32-36 header). (triage: claude-opus-5)

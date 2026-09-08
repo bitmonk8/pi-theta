@@ -129,3 +129,4 @@ encoded by the `"named-enum"`-only inclusion test and stays intact without the
 extra variant.
 
 ## Triage
+verdict: questionable — deadness reproduces exactly (only :377/:552 read the kind, both `=== "named-enum"`; `SchemaSidecar` carries no `type`, so it cannot escape), but git blame 68bf05b1 shows the variant was born unread as a deliberate mirror of schema-subset.md step 5(2)'s named category, so "vestigial discriminant" is unsupported and collapsing it is a modeling-taste call a human should rule (triage: claude-opus-5)

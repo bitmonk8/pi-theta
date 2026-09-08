@@ -122,3 +122,4 @@ tests' "nothing emitted" assertions become type-level facts.
   routing signature carry the settlement or the channels as data.
 
 ## Triage
+verdict: questionable — mechanics reproduce exactly (both params unread in both bodies; 3 production sites fabricate noopSwallowChannels; no member of either interface invoked anywhere), but git f53245b3/0d55d094 shows `channels` is the deliberate red/green observation seam for cka-33 channels 2-3, so the "pure threading" anchor is contested and a human should rule (triage: claude-opus-5)

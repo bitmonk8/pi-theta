@@ -188,3 +188,4 @@ the fix stage's call.
   intentional no-op since; no commit ever removed a read of `mutator`.
 
 ## Triage
+verdict: questionable — every excerpt and search reproduces and both fields are provably unread in src/, but the "vestigial" anchor is refuted: git history shows the only mutator.* calls were a deliberately non-compliant V4c-T red-stub and the empty body IS the landed ERR-8/ERR-9 contract, while statement-executor.test.ts:585-638 threads a RecordingMutator through these exact fields to witness it (red under the stub, green under the no-op) — leaving a design trade-off across 29 test construction sites for a human to rule (triage: claude-opus-5)

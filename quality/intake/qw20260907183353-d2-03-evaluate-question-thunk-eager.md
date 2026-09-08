@@ -134,3 +134,4 @@ the unit tests then witness bypass at the caller level instead.
   (grep over quality/intake for `evaluateQuestion` — no hits).
 
 ## Triage
+verdict: questionable — excerpts, census (2 prod call sites) and the eager-caller shape all reproduce, but the anchor is design economy: the laziness's sole deliberate exerciser is the live V4b-T `?`-bypass witness (6 passing tests over throwing thunks) and git refutes the "unfulfilled seam" intent claim (thunk arrived test-first in 10d797bd with that witness), so a human should weigh two `() =>` wrappers against dismantling that witness (triage: claude-opus-5)

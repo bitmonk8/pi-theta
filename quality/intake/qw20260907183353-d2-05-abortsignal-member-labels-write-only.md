@@ -94,3 +94,4 @@ so no fail-closed obligation reads the step-(b) labels. The comment at
 getter list alone preserves; it does not depend on the labels.
 
 ## Triage
+verdict: questionable — labels verified unread by any code (typeofMembers only at :299/:311, `[, get]` discards them, no member field on the abortsignal-shape arm, no test/tool reader), but capability-probe.md ¶6 and sub-step (b) pin the AbortSignal/AbortController member-name list as a constant living in the extension module, so these strings are a spec-mirroring record rather than proven cruft — a human should rule (triage: claude-opus-5)

@@ -106,3 +106,4 @@ enumerates.
   confirms the parser cannot emit them at this position.
 
 ## Triage
+verdict: questionable — reproduced (sole src caller theta-document.ts:9320 passes `isQuery: true` / `"bare-expr-statement"` literals; no other `QueryStatement` producer in src/extensions/tools; type predates the integration commit), but the only unused surface is the spec's accepted-form arms that tests/query-discard.test.ts:119-138 deliberately witnesses, so removing it is a design call with cross-module cost — a human should rule (triage: claude-opus-5)

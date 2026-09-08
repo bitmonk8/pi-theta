@@ -98,3 +98,4 @@ the reference matches the 1–3 list the module actually carries.
   of the paragraph is accurate and only the lettered reference is not.
 
 ## Triage
+verdict: questionable — excerpts reproduce verbatim at :3-12/:14-27 and grep confirms line 11 is the file's only (a)-(f) hit, but the anchor is weak: line 40 of the same header already names the spec section holding (a)-(f) (PIC-64 #subagent-host-loop-dispatch), which is the candidate's own first suggested remedy, and the "two counts (three, six)" argument is a category error (spec's six = contract details at subagent.md:141; module's three = HostLoopDispatchDeps members), leaving a one-word prose imprecision that is none of D2's smells — a human should rule (triage: claude-opus-5)

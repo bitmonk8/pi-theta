@@ -138,3 +138,4 @@ or give the two discriminants an observable effect at the consumer.
   direct import at theta-document.ts:54.
 
 ## Triage
+verdict: questionable — facts reproduce exactly (one production consumer, set-membership only, identical diagnostic for all three non-permitted forms), but the anchor is taste not proven cruft: the union mirrors imports.md:13's own three-way enumeration of non-permitted forms, tests/imports.test.ts:165-174 deliberately witnesses each named category, and git shows the arms landing with the feature rather than as scaffolding (triage: claude-opus-5)

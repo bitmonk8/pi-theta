@@ -61,3 +61,4 @@ Import `checkCompatible` directly like the module's six other `type-compat` impo
 - Not a deadness claim about the class or `typeOf`/`infer` (both alive in production); the finding is the constant-valued dependency alone.
 
 ## Triage
+verdict: questionable — all 11 sites reproduce binding the same production `checkCompatible`, but the anchor is contested by explicit in-repo rationale (type-compat.ts:749-758 names and rejects "importing `checkCompatible` into the inference pass"; static-type-inference.ts:616-624 "rather than reach for a copy that would silently bypass it"), and the deps interface, constructor and per-site literal all survive for `enumNames`, so the fix buys one field against documented intent — a human should rule (triage: claude-opus-5)

@@ -91,3 +91,5 @@ variable-cadence caller is genuinely expected.
 
 ## Triage
 
+verdict: questionable — both current call sites do pass POLL_INTERVAL_MS (verified exhaustively; helper is module-local, no other refs), but the parameter is live rather than dead and the filing's git check is refuted: commit fed12acd called `macrotask(this.#clock, SUBAGENT_MID_STREAM_CANCEL_MS)`, so "configurability nothing uses" is a taste call a human should rule. (triage: claude-opus-5)
+

@@ -135,3 +135,4 @@ file currently disagree.
   or :333.
 
 ## Triage
+verdict: confirmed — re-verified: :133-141 does claim "consumers reuse it rather than restating it" and names the parse-cache key, while :317/:333 inline the helper's exact body and runStaticResolutionPass appears in no canonicalizePath call site (re-grepped src/ tests/ extensions/ tools/); the blame narrative is wrong (the clause dates to 24f68d562 2026-07-01, not the 2bc691576 Loom->Theta rename), but that commit's own diff converted the containment check's two inlines and left the pass's, so the mismatch and its intent stand (triage: claude-opus-5)

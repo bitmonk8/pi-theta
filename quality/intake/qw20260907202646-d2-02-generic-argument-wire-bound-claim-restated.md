@@ -240,3 +240,4 @@ comments reference it rather than restate it.
   copies" exclusion does not apply.
 
 ## Triage
+verdict: questionable — all 12 excerpts and the stated grep (13 hits, exact lines) verify and the no-depth-parameter claim holds, but the narration is accurate rather than historical/stale, only 9 sites carry the full claim (:62-66 defers its ground by cross-reference, refuting "none is a cross-reference"), and the tallies are loose (hits fall in 9 not 8 passages; 4 name lowerTypeExpr, 3 name code-registry-parse.md) — real repetition on an editorial anchor, human should rule (triage: claude-opus-5)

@@ -98,3 +98,5 @@ single exported entry and let the parse-time site call it.
   through in the same order with no pre- or post-processing.
 
 ## Triage
+
+verdict: questionable — wrapper reproduces verbatim at :1486-1500 as a pure two-arg forward to :1433 (identical param/return types, sole production caller import-static-checks.ts:437, no barrel/re-export/dynamic access), but it is live not dead and the anchor is simplicity taste: `...At` is the deliberately documented FN-9 dispatch-time seam the tests bind to (subagent-fn.test.ts:1289 "the offline seam for the FN-9 obligation") and collapsing it merges two distinct RFC doc blocks, so a human should rule (triage: claude-opus-5)

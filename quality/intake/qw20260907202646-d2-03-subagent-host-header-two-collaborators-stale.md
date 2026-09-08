@@ -168,3 +168,4 @@ doc-comments that already carry them.
   (2026-07-24), `22306e5d4` (2026-07-25) for the later collaborators.
 
 ## Triage
+verdict: questionable — header does omit the two RFC-0006 collaborators the module owns (verified, as are all excerpts/line cites), but the ambient half is refuted (ppid/pid/tmpdir/fs are ungated by tools/arch-checks/no-ambient-primitives.js, which reports zero non-exempt refs here, and `process.pid` shipped in the header's own commit fda23a4b6), the header WAS revised after both RFC-0006 landings (21937ef5b, 2026-07-25), and "the two collaborators the launcher seam consumes" is defensible as scoped — a human should rule (triage: claude-opus-5)

@@ -140,3 +140,4 @@ choice.
   constructor line). No commit ever added an importer.
 
 ## Triage
+verdict: questionable — all cited searches reproduce exactly, but nothing is dead (the interface types the live constructor and #deps field; only the unreached `export` keyword is at issue) and 19 of 40 exported `*Deps` interfaces in src/ share that identical condition, so this is a constructor-injection house convention for a human to rule on wholesale, not one arbitrary site (triage: claude-opus-5)

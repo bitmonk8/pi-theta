@@ -56,3 +56,4 @@ Either de-export the six anchors (keeping them module-internal), or have the wit
 - Test-only-caller rule: does not apply — not even tests import these six exports; the code bodies remain alive through their internal callers, so this finding names only the export modifiers, not the declarations.
 
 ## Triage
+verdict: questionable — all six facts reproduce exactly, but un-imported diagnostic-anchor exports are the repo norm (12/19 _HINT exports in src/, plus FN_ARITY_TOO_FEW/TOO_MANY_CODE and fnArity*Message in the header-named mirror invoke-diagnostics.ts, all have zero external refs) and the doc comments make these the citable source for code-registry-parse.md:153-154, so the anchor is convention-preference across ~16 unsurveyed sibling sites rather than proven cruft; a human should rule (triage: claude-opus-5)

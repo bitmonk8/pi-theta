@@ -103,3 +103,4 @@ and 3a8732da (H8a) touching the surrounding text; no commit ever added a
 `deps.registry` read.
 
 ## Triage
+verdict: questionable — field at :371, the sole supplier at extension-bootstrap-nonabort.test.ts:340 and zero `deps.registry` reads in factory.ts all reproduce (git confirms the string only ever lived in a comment, 37b0098e→3a8732da), but the doc names the field an injection seam making V9p's MUST-NOT-touch-drain-state falsifiable and the factory closure DOES hold the reference via `deps`, refuting the candidate's decisive "no reference either way" step (its "zero hits across src/" claim is also wrong — 9 hits on other deps types); structural-vs-witness removal is a human call, same shape as d2-03 (triage: claude-opus-5)

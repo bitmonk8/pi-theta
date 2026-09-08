@@ -98,3 +98,4 @@ by no code.
   `computeMasked`'s `"forced_respond" | "free_phase"` input.
 
 ## Triage
+verdict: questionable — all four excerpts and the zero-`free_phase`-producer search reproduce exactly, but the anchor is taste: the arm mirrors the spec-named two-valued scalar it feeds (`MaskedPredicateInput.turnKind`, runtime-event-channel.ts:106 / PIC-1 (d), whose `free_phase` IS exercised), the "no distinguishable consumer effect" claim is refuted (the `?? "forced_respond"` default is `computeMasked`'s positive-enabling arm, so a `free_phase` value would suppress an otherwise-emitted `["ceiling#2"]`), and the commit that introduced it (0dc66dcf) already logged this as non-blocking residual R2 in docs/bugs/0355-repair-terminal-masked-parent-slot-count.md:270 — a human should rule (triage: claude-opus-5)

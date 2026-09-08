@@ -177,3 +177,4 @@ alive that the shipped pipeline never uses.
   cover different members; none names `ToolsField` or `splitEntries`.
 
 ## Triage
+verdict: questionable — every excerpt and search reproduces (both production call sites pass kind "list"; no src construction of the other arms), but the absent/scalar arms are held alive by deliberate spec-anchored witness tests (callable-set.test.ts's "both YAML spellings parse to the same callable set" and absent-tools cells, 10 resolveScalar sites), leaving only a duplicated comma-split plus a stale header ownership claim — a layer-ownership judgement a human should rule (triage: claude-opus-5)
