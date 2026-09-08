@@ -1,7 +1,7 @@
 ---
 description: "Triage one candidate finding - re-verify its evidence against the code and issue a verdict"
 mode: subagent
-model: "anthropic/claude-fable-5"
+model: "anthropic/claude-opus-5"
 tools: read, grep, bash, edit
 tool_loop:
   max_rounds: 60
