@@ -58,8 +58,6 @@ export interface ForIterand {
  * `kind` test decided on: the registry *Message* template is `got <type>`,
  * and under TYPE-11 the alias's right-hand side IS the type, so rendering
  * anything else would name a type this check no longer sees.
- *
- * V3c-T stubs this inert (always `undefined`); the paired V3c leaf fills it in.
  */
 export function checkForIterand(
   iterand: ForIterand,
@@ -97,8 +95,6 @@ export interface BreakStatement {
  *     `break` takes no value).
  * Returns `undefined` for a valueless `break` inside a loop body
  * (control-flow.md §`break` / `continue`).
- *
- * V3c-T stubs this inert (always `undefined`); the paired V3c leaf fills it in.
  */
 export function checkBreakStatement(
   brk: BreakStatement,
@@ -140,8 +136,6 @@ export interface ContinueStatement {
  * `theta/parse/continue-outside-loop` when `continue` sits outside any loop
  * body. Returns `undefined` for a `continue` inside a loop body
  * (control-flow.md §`break` / `continue`).
- *
- * V3c-T stubs this inert (always `undefined`); the paired V3c leaf fills it in.
  */
 export function checkContinueStatement(
   cont: ContinueStatement,

@@ -9,11 +9,10 @@
 // user turn via `pi.sendUserMessage(...)` and awaits the streamed assistant
 // response with `ctx.waitForIdle()`, leaving exactly one appended turn.
 //
-// This file is the seam the `M-T` tests pin and the `M` implementation fills
-// in. Until `M` lands the parse + prompt-mode drive, the body below is an inert
-// stub: it registers the command (so the harness can dispatch it) but drives no
-// turn, so the `M-T` SLSH-2 assertions red on the absent prompt-mode pipeline —
-// the intended-reason red for the tests task.
+// This file is the seam the `M-T` tests pin. `M-T` (tests-task) declared it and
+// stubbed the body — it registered the command so the harness could dispatch it,
+// but drove no turn; `M` (this leaf) implements the parse + prompt-mode drive
+// the `M-T` SLSH-2 assertions pin.
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../extension/factory";

@@ -2,7 +2,7 @@
 id: PTQ-0093
 title: Six lexer/parser/mvp seam modules still narrate their tests-task stub state as current ("stubs X as an inert no-op", "until V1b fills in", "the body below is an inert stub") after every paired implementation leaf landed
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/lexer/lexer.ts:11-14

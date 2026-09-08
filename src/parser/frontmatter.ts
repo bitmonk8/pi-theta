@@ -11,11 +11,10 @@
 // `theta/load/model-unresolved` through the model-reference-matcher injection
 // seam this leaf defines.
 //
-// V6a-T (tests-task) declares the seam shapes — `parseFrontmatter`, the
+// V6a-T (tests-task) declared the seam shapes — `parseFrontmatter`, the
 // `ModelReferenceMatcher` injection interface, and the result/option records —
-// and stubs `parseFrontmatter` as an inert seam so the failing tests compile and
-// red on their own primary assertions. The paired V6a implementation leaf fills
-// it in.
+// and stubbed `parseFrontmatter`; V6a (this leaf) implements the whole field
+// contract above.
 
 import {
   normaliseLiteralValueLineBreaks, type Diagnostic,

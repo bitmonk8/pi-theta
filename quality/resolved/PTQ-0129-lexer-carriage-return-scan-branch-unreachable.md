@@ -2,7 +2,7 @@
 id: PTQ-0129
 title: The `c === "\r"` disjunct in the lexer's whitespace-skip branch can never match — scanTokens' only caller hands it text from which normaliseNewlines has already removed every carriage return
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/lexer/lexer.ts:416-419

@@ -22,12 +22,11 @@
 //     explicitly-listed callables appear, and an absent / empty `tools:` yields
 //     the empty callable set.
 //
-// V6c-T (tests-task) declares the seam shapes — `resolveCallableSet`, the
+// V6c-T (tests-task) declared the seam shapes — `resolveCallableSet`, the
 // injected `CallableSetDeps` lookups, the `ToolsField` input, and the
-// `CallableSetSnapshot` / result records — and stubs `resolveCallableSet` as an
-// inert seam (registers an empty, unfrozen snapshot; raises no diagnostic) so
-// the failing V6c-T tests compile and red on their own primary assertions. The
-// paired V6c implementation leaf fills it in.
+// `CallableSetSnapshot` / result records — and stubbed `resolveCallableSet`;
+// V6c (this leaf) implements the per-entry grammar, the nine rejections, and the
+// frozen resolution snapshot.
 //
 // Spec: frontmatter/frontmatter-fields-a.md (§`tools`, FRNT-2, FRNT-3),
 // frontmatter/frontmatter-fields-b-and-templates.md (§Resolution snapshot),

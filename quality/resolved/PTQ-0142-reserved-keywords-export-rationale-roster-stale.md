@@ -2,7 +2,7 @@
 id: PTQ-0142
 title: reservedKeywords' export rationale names src/parser/params.ts as the one importer it exists for, while three production modules import it and one of those names the other two
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/lexer/lexer.ts:152-166

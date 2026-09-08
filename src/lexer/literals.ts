@@ -21,12 +21,21 @@
 //     seam has no per-entry source range for this ranged checker to attach to.
 //   - `checkIntegerNarrowing` — the one-way `integer → number` widening rule from
 //     lexical.md §"Number literals" (`theta/parse/integer-narrowing` when a
-//     `number` value reaches an `integer` position). The full type-compatibility
-//     engine (V2b) consumes this literal-level check.
+//     `number` value reaches an `integer` position) — seam-only, per *Module
+//     disposition* below.
 //
-// V1b-T (tests-task) declares the seam shapes and stubs both functions as inert
-// no-ops so the failing tests compile and red on their own primary assertions
-// (no diagnostic produced). The paired V1b implementation leaf fills them in.
+// V1b-T (tests-task) declared these seam shapes and stubbed both functions; V1b
+// (this leaf) implements both checks.
+//
+// Module disposition. `validatePathLiteral` is production-wired: the document
+// parser calls it against the path literal as written, from `parseImportExport`
+// and `parseInvoke` (src/parser/theta-document.ts). `checkIntegerNarrowing`
+// has no production caller — the type-compatibility engine decides
+// `number → integer` itself (`checkCompatible`, src/parser/type-compat.ts) and
+// each of its per-site checkers builds `theta/parse/integer-narrowing` from that
+// verdict, as does the type layer's `par-for` `max` sink (`walkExpr`,
+// src/parser/type-layer-checks.ts) — so this function is exercised only as a
+// seam-level implementation test (tests/literals-and-paths.test.ts).
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 

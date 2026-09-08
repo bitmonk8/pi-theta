@@ -8,10 +8,9 @@
 // are delivered through the V7d producer-facing diagnostic-emission seam
 // (`emitDiagnosticBatch`), never via a direct `pi.sendMessage` call.
 //
-// V1a-T (tests-task) declares this seam shape and stubs `lexTheta` as an inert
-// no-op so the failing tests compile and red on their own primary assertions
-// (the tokeniser / validator / continuation logic is absent). The paired V1a
-// implementation leaf fills it in.
+// V1a-T (tests-task) declared this seam shape and stubbed `lexTheta`; V1a (this
+// leaf) implements the encoding validator, the newline normalisation, the
+// tokeniser, and the continuation pass.
 
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import {
@@ -41,15 +40,13 @@ export interface Token {
   /**
    * For `string` tokens: the decoded literal value with the escape table
    * (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) lowered to its characters
-   * (lexical.md §"String literals"). Absent on non-string tokens and until V1b
-   * fills in escape decoding.
+   * (lexical.md §"String literals"). Absent on non-string tokens.
    */
   readonly value?: string;
   /**
    * For `number` tokens: the integer/number type classification — a literal
    * with no fractional or exponent part is `integer`, otherwise `number`
-   * (lexical.md §"Number literals"). Absent on non-number tokens and until V1b
-   * fills in numeric typing.
+   * (lexical.md §"Number literals"). Absent on non-number tokens.
    */
   readonly numericType?: "integer" | "number";
   readonly range: {
@@ -151,10 +148,10 @@ interface RawToken {
 
 /**
  * The reserved keywords that cannot be used as identifiers (lexical.md).
- * Exported for `src/parser/params.ts`'s reserved-keyword classification: a
- * parser leaf needs the same 32-member set this module already enforces at
- * the token level (`NamedType ::= Ident`, and a reserved spelling is never an
- * `Ident`), rather than a second copy of it.
+ * Exported for the parser leaves that classify a reserved spelling at an
+ * identifier slot: each needs the same 32-member set this module already
+ * enforces at the token level (`NamedType ::= Ident`, and a reserved spelling
+ * is never an `Ident`), rather than a second copy of it.
  */
 export function reservedKeywords(): ReadonlySet<string> {
   return new Set([
@@ -413,7 +410,10 @@ function scanTokens(
       tokens.push({ kind: "newline", text: "\n", range: { start, end: pos() } });
       continue;
     }
-    if (c === " " || c === "\t" || c === "\r") {
+    // Insignificant whitespace. The stream this scanner walks has already been
+    // newline-normalised (`normaliseNewlines`), so no carriage return survives
+    // to reach here and the `\n` branch above is the sole line-break handler.
+    if (c === " " || c === "\t") {
       advance();
       continue;
     }

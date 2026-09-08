@@ -2,7 +2,7 @@
 id: PTQ-0077
 title: literals.ts's header claims the V2b type-compatibility engine consumes checkIntegerNarrowing, but type-compat.ts emits theta/parse/integer-narrowing itself and no src/ file calls the function
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/lexer/literals.ts:22-25
