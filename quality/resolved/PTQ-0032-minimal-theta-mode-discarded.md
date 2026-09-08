@@ -2,7 +2,7 @@
 id: PTQ-0032
 title: parseMinimalTheta extracts a `mode` field whose only downstream use is the discard statement `void parsed.mode`
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/mvp/minimal-theta.ts:30-35
