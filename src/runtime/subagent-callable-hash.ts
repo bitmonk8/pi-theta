@@ -37,7 +37,13 @@ export function renderCallableHashMismatchMessage(callableName: string): string 
 
 /** One source file in a callable's transitive closure (root `.theta` or a `.thetalib` import). */
 export interface ClosureSource {
-  /** The file path (used only for deterministic ordering; not hashed into content). */
+  /**
+   * The file path (used only for deterministic ordering; not hashed into
+   * content). The digest is invariant under this path's separator spelling:
+   * the sort key normalizes `\` to `/` before comparing (bug 0268's
+   * repo-wide forward-slash convention), so the same content set hashes
+   * identically whether a member arrives spelled with `\` or `/`.
+   */
   readonly path: string;
   /** The file's exact on-disk content. */
   readonly content: string;
@@ -48,17 +54,25 @@ export interface ClosureSource {
  * `.thetalib` it transitively imports. The hash MUST change when any closure
  * member's content changes (an import edit changes behaviour as much as a
  * root-file edit) and MUST be independent of the input array's order (the
- * closure is a set). The parent records this at load; the child recomputes it
- * from its own parse and compares.
+ * closure is a set), and is a function of member CONTENT only: it is
+ * invariant under a member path's separator spelling. The parent records
+ * this at load; the child recomputes it from its own parse and compares.
  */
 export function hashCallableClosure(sources: readonly ClosureSource[]): string {
   // Order-independent: sort by path so the closure is treated as a set. The path
   // itself is NOT hashed into content (per `ClosureSource`); only each member's
   // exact content contributes, length-prefixed so no concatenation ambiguity
-  // ("ab"+"c" vs "a"+"bc") can collide two distinct closures.
-  const sorted = [...sources].sort((a, b) =>
-    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
-  );
+  // ("ab"+"c" vs "a"+"bc") can collide two distinct closures. The sort key
+  // normalizes `\` to `/` (bug 0268 forward-slash convention) so the two
+  // production capture routes' differing separator spellings of one file
+  // (node `resolve` vs discovery joins) still land in the same order and
+  // digest identically.
+  const sortKey = (source: ClosureSource): string => source.path.replace(/\\/g, "/");
+  const sorted = [...sources].sort((a, b) => {
+    const keyA = sortKey(a);
+    const keyB = sortKey(b);
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
   const hash = createHash("sha256");
   for (const source of sorted) {
     hash.update(String(source.content.length));

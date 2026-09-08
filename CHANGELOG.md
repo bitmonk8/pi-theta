@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.463.0]
+
+### Fixed
+- **Bug 0467 — the subagent callable-closure digest depended on path-separator spelling, so on Windows every `.theta` callee whose imported `.thetalib` sorts before the callee root was refused `theta/runtime/subagent-callable-hash-mismatch` on every parent→child tool-call/`invoke` dispatch, byte-identical files and no edit** (the live incident: 212/212 `triage_finding(...)` calls refused in one `/quality-loop` run, all degraded to the theta's `Err` fallback). `hashCallableClosure` sorted closure members by their raw `source.path`, but the parent's dispatch-parse capture spelled the root with node `resolve` (backslash) while the child's discovery recompute spelled it with forward-slash joins — so a `.thetalib` sorting before the root flipped the concatenation order between the two routes and the sha256 diverged over identical bytes. The digest is now invariant under a member's path-separator spelling: `hashCallableClosure` sorts on a forward-slash-normalised key, and `collectCallableClosureSources` stores each `ClosureSource.path` forward-slash-normalised (the seam all four capture routes converge through) — the repo-wide bug-0268 convention. Content stays the only hashed input and the closure stays order-independent; the 0329 edit-refuses arm stays red-able. Spec: subagent.md:94 gains the separator-invariance sentence. (`src/runtime/subagent-callable-hash.ts`, `src/extension/production-composition.ts`, `docs/spec_topics/pi-integration-contract/subagent.md`; witness `tests/b0467-callable-hash-path-spelling.test.ts`)
+
+
 ## [0.462.0]
 
 ### Fixed

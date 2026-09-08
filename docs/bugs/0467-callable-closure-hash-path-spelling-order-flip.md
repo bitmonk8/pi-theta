@@ -1,6 +1,6 @@
 # Bug 0467 — the callable-closure digest depends on path-separator spelling, so a subagent-mode `.theta` callee importing a `.thetalib` whose path sorts before the callee root in backslash form is refused `theta/runtime/subagent-callable-hash-mismatch` on every tool-call/`invoke` dispatch from a parent theta, with byte-identical files and no edit — while the same callee dispatched directly by slash runs
 
-- **Status:** open.
+- **Status:** fixed (0.463.0).
 - **Sev/Diff estimate:** S2/D2 — S2: loud-but-wrong at production scale. Every
   parent→child tool-call invocation of an affected callee fails closed before
   any model turn; in the seeding incident 212/212 `triage_finding(...)` calls
@@ -411,3 +411,68 @@ by the coordinator's live incident (both trees, v0.462.0, four model
 spellings, both arities); mechanism re-derived independently from source at
 c9a1a45a and confirmed offline in both directions plus end-to-end with real
 spawned children. Probe file deleted after confirmation.
+
+## Fix (0.463.0)
+
+- What shipped:
+  - `src/runtime/subagent-callable-hash.ts` — `hashCallableClosure` sorts on a
+    forward-slash-normalised key (`source.path.replace(/\\/g, "/")`); content
+    is still the only hashed input and the closure is still order-independent,
+    so the digest is now invariant under a member path's separator spelling
+    (§Fix option-C seam / bug 0268 convention). The pure-function backstop the
+    witnesses drive directly.
+  - `src/extension/production-composition.ts` — `collectCallableClosureSources`
+    stores each `ClosureSource.path` forward-slash-normalised (§Fix option B, the
+    seam all four capture routes converge through — dispatch parse, discovered-
+    root capture, child pass-2 fallback, child snapshot pass); native `absPath`
+    retained for `fs.readBytes` and the `seen` set (the raw-key `seen` dedup
+    stays a §Non-goal, untouched). This is the production-effective seam: parent
+    capture and child recompute both flow through it, so both sides digest one
+    spelling.
+  - `docs/spec_topics/pi-integration-contract/subagent.md:94` — one sentence added
+    to `#subagent-theta-callable-hash`: the digest is content-only and invariant
+    under a member's path-separator spelling (`\` vs `/`), extending the
+    "separator-normalized path identity" convention already pinned at `:96`. No
+    `docs/reference/` mirror carries this contract (grep-confirmed) — none owed.
+- Gates: witness `tests/b0467-callable-hash-path-spelling.test.ts` 5/5 (RED
+  pre-fix: the two order-flip cells; the control + two non-vacuity guards green);
+  full `npm test` 636 files / 10859 tests passed; `npm run typecheck` exit 0;
+  `npm run lint` exit 0; DIAG-2 corpus gate green.
+- Review: 2 rounds. R1 (`bug-fix-reviewer`): F1 [spec] the added sentence's
+  em-dash clause overclaimed full path-spelling invariance (casing is a §Non-goal
+  per 0361/0363) — narrowed to the separator axis; F2 [fidelity] the committed
+  witness drives the unit seams rather than the §Fix-named "real dispatch route
+  (Reproduction §3 shape)" — resolved by record (below) + the Phase-4 e2e proof;
+  R1/R2 prose residuals. R2 (`bug-fix-reviewer`): CLEAN (F1 narrowing accurate;
+  the unbypassable-backstop argument confirmed — `hashCallableClosure` is the sole
+  digest producer, called at exactly two sites, so no route computes a digest
+  around it).
+- Verification: PASS. (1) Witness reds on revert — neutralising the sort-key
+  normalisation reds exactly the two order-flip cells, control + guards stay
+  green; restored byte-exact (`git hash-object` 8bb05422). (2) Full default suite
+  10859/10859. (3) End-to-end live: H8a `tests/live/live-production-acceptance`
+  90/90 and H9a `tests/live/acceptance/` 83/0 exercise the real subagent child-
+  launch path with the fix (no regression, no `subagent-teardown-timeout`); plus
+  a deleted scratch e2e (0033 precedent) drove the Reproduction §3 flip through
+  the real child-load path (`discoverAndComposeFixtures`) — the flip callee
+  (`quality.thetalib` < `triage-finding.theta`) REGISTERS post-fix and is REFUSED
+  `theta/runtime/subagent-callable-hash-mismatch` pre-fix on a pristine tree,
+  while the control (`lens-d2-cruft.theta` < `quality.thetalib`) registers on both
+  routes; both fix files restored byte-exact after. (4) Lint + typecheck clean.
+- Residuals:
+  1. `tests/b0328-root-closure-hash-marshalled.test.ts:206-209` comment now
+     states a falsified sensitivity ("the separator flavour affects sort order")
+     — the cell stays green (both its sides route through the now-normalising
+     `hashCallableClosure`); comment-only, left untouched because 0467's doc does
+     not pre-authorise editing that existing test. Follow-up prose.
+  2. The spec sentence's leading conjunct "a function of member CONTENT only"
+     strictly overclaims on the casing axis (a case-respelled member can still
+     flip order); this is §Fix's own prescribed wording and the pre-existing
+     module-contract phrasing, casing being an explicit §Non-goal owned by 0361/
+     0363. Follow-up for whichever bug takes the casing axis.
+- Discharge notes appended: none.
+- Pinned dispositions / non-goals: the raw-spelling `seen` dedup in
+  `collectCallableClosureSources` (§Non-goals) is left native/unaddressed;
+  casing-axis path identity (0361/0363) is out of scope; bug 0329's root-drop
+  enforcement and bug 0328's marshalled-root row are correct at this pin and
+  untouched; the teardown budget (bug 0468) is untouched.

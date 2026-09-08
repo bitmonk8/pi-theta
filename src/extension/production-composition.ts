@@ -3617,7 +3617,11 @@ async function collectCallableClosureSources(
     if (bytes === undefined) {
       return;
     }
-    sources.push({ path: absPath, content: decoder.decode(bytes) });
+    // Store the path canonicalized to forward-slash (bug 0268 convention): this
+    // is the seam production's four capture routes converge through, so a
+    // digest input never sees the two routes' differing native separator
+    // spellings (node `resolve` vs discovery joins) for one file.
+    sources.push({ path: absPath.replace(/\\/g, "/"), content: decoder.decode(bytes) });
     // Bug 0264: this closure walk re-parses each member on its own
     // (doc-comment above); route through the pass cache so a member already
     // parsed this pass — by the discovery walk, an importer, or another
