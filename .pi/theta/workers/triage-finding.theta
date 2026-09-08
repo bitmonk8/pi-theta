@@ -51,7 +51,7 @@ ${template}
 
 Then append — using the edit tool, changing nothing else — one line under the
 candidate file's "## Triage" heading, exactly:
-verdict: <your verdict> — <one-line reason> (triage: claude-fable-5)
+verdict: <your verdict> — <one-line reason> (triage: claude-opus-5)
 
 Finally reply with the requested schema:
 - verdict: one of confirmed | questionable | false-positive | duplicate |
