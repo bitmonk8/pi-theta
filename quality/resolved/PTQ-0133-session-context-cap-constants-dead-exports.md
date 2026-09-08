@@ -2,7 +2,7 @@
 id: PTQ-0133
 title: SESSION_CONTEXT_TOKEN_CAP and SESSION_CONTEXT_TURN_CAP are exported but no module outside session-context-walk.ts references them
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/session-context-walk.ts:32-36

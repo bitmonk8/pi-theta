@@ -2,7 +2,7 @@
 id: PTQ-0010
 title: Eight binder/diagnostics modules carry tests-task stub narration describing implemented functions as inert stubs
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/system-note.ts:68-69

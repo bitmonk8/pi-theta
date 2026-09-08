@@ -25,10 +25,7 @@
 //     unsafe row of binder/determinism-cancellation-failure.md §"Failure-mode
 //     templates (normative)".
 //
-// V11b-T (tests-task) declares these seams and stubs the behaviour-bearing
-// functions inertly so the failing BNDR-7/8/9 tests compile and red on their own
-// primary assertions; the paired V11b implementation leaf fills them in. The
-// `bind_context: session` on `mode: subagent` parse diagnostic
+// The `bind_context: session` on `mode: subagent` parse diagnostic
 // (`theta/parse/bind-context-session-on-subagent`) is emitted by the frontmatter
 // parser (src/parser/frontmatter.ts) and is not a seam of this module.
 //
@@ -83,8 +80,6 @@ export type CompactTranscriptResult =
  * non-empty and contains none of U+000A (`\n`), U+000D (`\r`), `]` (U+005D), or
  * the two-byte sequence `: ` (U+003A U+0020). Only the two-byte `: ` sequence is
  * out of class — a lone `:` not followed by U+0020 is safe.
- *
- * The paired V11b implementation implements the out-of-class detection.
  */
 export function isTranscriptSafeCustomType(customType: string): boolean {
   if (customType.length === 0) {

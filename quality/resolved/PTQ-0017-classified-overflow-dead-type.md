@@ -2,7 +2,7 @@
 id: PTQ-0017
 title: provider-error-mapping.ts exports the type alias ClassifiedOverflow that nothing in the repository references
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/provider-error-mapping.ts:406-409

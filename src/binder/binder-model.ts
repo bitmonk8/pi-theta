@@ -28,12 +28,6 @@
 // #strict-capability-requirement, #binder-model-parse-rule, #binder-model-hot-reload,
 // BNDR-11), binder.md; diagnostic codes/messages from
 // diagnostics/code-registry-load.md.
-//
-// V11a-T (tests-task) declares these seams and stubs the behaviour-bearing
-// functions with inert results so the failing tests compile and red on their own
-// primary assertions (the resolution, probe, chain-fallback, recovery-note, and
-// BNDR-11 behaviours are absent). The paired V11a implementation leaf fills them
-// in.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type {

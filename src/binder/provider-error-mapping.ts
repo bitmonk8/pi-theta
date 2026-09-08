@@ -20,12 +20,6 @@
 //     on an unsupported provider, returns the pinned
 //     `TransportError { retryable: false, http_status: null, … }`.
 //
-// V9j-T (tests-task) declares these seam shapes and stubs every behaviour-
-// bearing function with an inert sentinel result so the failing tests compile
-// and red on their own primary assertions (the classification table, the
-// context-overflow extraction, the load warning, and the unsupported-provider
-// synthesis are all absent). The paired V9j implementation leaf fills them in.
-//
 // Spec: pi-integration-contract/provider-error-mapping.md (§Provider error
 // mapping, §`TransportError.retryable` population, §Overflow signatures,
 // §Overflow token-count extraction, §Stop-reason classification, §Provider
@@ -104,11 +98,6 @@ export interface TypedQueryProviderCheckInput {
  * the warning diagnostic when the theta carries a typed query and its provider is
  * outside the supported set; return `null` otherwise (no typed query, or a
  * supported provider). The theta still loads either way.
- *
- * V9j-T stub: returns a fixed non-matching sentinel diagnostic so BOTH the
- * unsupported case (expecting the registry code/message) and the supported /
- * no-typed-query cases (expecting `null`) red on their own assertions. The
- * paired V9j implementation fills this in.
  */
 export function checkTypedQueryProviderSupport(
   input: TypedQueryProviderCheckInput,
@@ -138,9 +127,6 @@ export function checkTypedQueryProviderSupport(
  * query against a provider outside the supported set returns
  * `TransportError { retryable: false, http_status: null, provider, … }` — a
  * load-time capability gap, not a provider response.
- *
- * V9j-T stub: returns a wrong sentinel so the paired test reds on its own
- * assertion. The paired V9j implementation fills this in.
  */
 export function synthesizeUnsupportedProviderTransportError(
   provider: string,
@@ -364,11 +350,6 @@ export interface ProviderClassifierInput {
  * response to `ContextOverflowError` (with deterministic token-count
  * extraction), every other classifier-reaching response to `TransportError`
  * with `retryable` populated by transport-error class.
- *
- * V9j-T stub: returns a sentinel `CancelledError` (a valid `QueryError` variant
- * the classifier never produces) so every paired classification test reds on its
- * own `kind` / `retryable` / token-count assertion. The paired V9j
- * implementation fills this in.
  */
 export function classifyProviderResponse(
   input: ProviderClassifierInput,
@@ -402,8 +383,3 @@ export function classifyProviderResponse(
     retryable: transportRetryable(input.httpStatus),
   };
 }
-
-// A type-only reference so `ContextOverflowError` stays part of this module's
-// declared surface for the paired implementation (the classifier's overflow arm
-// returns it). Erased at compile time.
-export type ClassifiedOverflow = ContextOverflowError;

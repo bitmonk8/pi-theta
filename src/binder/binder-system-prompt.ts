@@ -298,10 +298,10 @@ export function renderBinderParamLine(field: SystemPromptParamField): string {
  * string: a single- (`'...'`) or double-quoted (`"..."`) span in which a
  * backslash and the character immediately after it form one escape unit, so
  * `\"` does not close the span. The span walk below mirrors the string-token
- * loop in `tokeniseExpr` (src/parser/literal-sublanguage.ts:136–150),
- * including its unterminated-quote disposition: an opening quote with no
- * match runs to end of text. A backtick or `@` byte never opens a span here —
- * template and query-template forms are outside the literal sublanguage
+ * loop in `tokeniseExpr` (src/parser/literal-sublanguage.ts), including its
+ * unterminated-quote disposition: an opening quote with no match runs to end of
+ * text. A backtick or `@` byte never opens a span here — template and
+ * query-template forms are outside the literal sublanguage
  * (docs/spec_topics/grammar.md §Theta literal sublanguage) and outside this
  * scan, so a line break next to one takes the collapse arm below.
  */

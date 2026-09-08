@@ -2,7 +2,7 @@
 id: PTQ-0138
 title: applyBinderBypass's `binder` switch arm and the `bypassed` flag it exists to signal are unreached — every call site pre-branches on the decision kind
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/binder-envelope.ts:253-285

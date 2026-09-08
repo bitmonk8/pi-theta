@@ -30,13 +30,6 @@
 //     AJV-on-`args` class with the depth-walk-synthesised summary, an AJV
 //     failure classifies with the joined summary, and a clean value is `ok`.
 //
-// V11f-T (tests-task) declares these seam shapes and stubs every behaviour-
-// bearing function inertly — the renderers return the `UNIMPLEMENTED` sentinel,
-// `runBinderWithRetries` returns a zero-call sentinel result without issuing any
-// attempt, and `classifyBinderArgs` always reports `ok` — so the failing tests
-// compile and red on their own primary assertions. The paired V11f
-// implementation leaf fills them in.
-//
 // Spec: binder/determinism-cancellation-failure.md (§"Failure-class taxonomy",
 // §"Failure-mode templates", §"Per-invocation retry budget"),
 // hard-ceilings/ceilings-3-and-4.md (§HC3, CIO-1 / CIO-3).

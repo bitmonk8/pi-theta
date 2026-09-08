@@ -2,7 +2,7 @@
 id: PTQ-0085
 title: "normaliseParamLineBreaks's doc comment cites the tokeniseExpr string-token loop at literal-sublanguage.ts:136–150, where the loop no longer sits (now 145–160)"
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-system-prompt.ts:300-301

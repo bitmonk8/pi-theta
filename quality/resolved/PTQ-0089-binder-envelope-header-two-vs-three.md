@@ -2,7 +2,7 @@
 id: PTQ-0089
 title: "binder-envelope.ts's module header says the module owns \"two mechanisms\" and then enumerates three top-level bullets"
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-envelope.ts:3-23

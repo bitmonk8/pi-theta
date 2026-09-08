@@ -5,10 +5,6 @@
 // `(file, line, col)` ordering across an entry `.theta` and its transitively
 // imported `.thetalib` modules (per diagnostics/diagnostic-shape.md and
 // implementation-notes.md "Static-resolution load pass").
-//
-// V7a-T (tests-task) declares the seam shape and stubs the three behaviour-
-// bearing functions so the failing tests compile and red on their own primary
-// assertions. The paired V7a implementation leaf fills these in.
 
 /** Diagnostic severity. */
 export type Severity = "error" | "warning";

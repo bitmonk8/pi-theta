@@ -64,9 +64,6 @@ export type ModelContentClass = "present" | "empty-malformed";
  * set to one U+0020, and trim that set from both ends. Non-ASCII whitespace
  * (U+00A0, the U+2000–U+200A range) lies outside the set and is preserved
  * verbatim.
- *
- * V11e-T stubs this inertly (returns {@link UNIMPLEMENTED}); the paired V11e
- * implementation leaf fills in the whitespace collapse/trim.
  */
 export function sanitizeSystemNoteSubstring(raw: string): string {
   // Replacing each CR/LF/CRLF with one space is subsumed by collapsing runs of
@@ -92,9 +89,6 @@ export function sanitizeSystemNoteSubstring(raw: string): string {
  * Unicode code points, truncating at scalar boundaries and appending a trailing
  * `…` (U+2026) that counts toward the cap; a note already ≤ the cap is returned
  * unchanged (no `…`).
- *
- * V11e-T stubs this inertly (returns {@link UNIMPLEMENTED}); the paired V11e
- * implementation leaf fills in the scalar-aligned truncation.
  */
 export function capSystemNote(rendered: string): string {
   // `Array.from` iterates by Unicode scalar (code point), so slicing operates at
@@ -124,9 +118,6 @@ export interface FailureNoteInput {
  * `theta /<name>: <fixed-phrase> — <sanitised-suffix>`: the em-dash marks the
  * theta-controlled-prefix ↔ model-or-runtime-controlled-suffix boundary. The
  * suffix is passed through rule 1 and the whole note through rule 2.
- *
- * V11e-T stubs this inertly (returns {@link UNIMPLEMENTED}); the paired V11e
- * implementation leaf fills in the composition.
  */
 export function renderFailureNote(input: FailureNoteInput): string {
   const suffix = sanitizeSystemNoteSubstring(input.suffix);
@@ -148,9 +139,6 @@ export interface ModelContentInput {
  * every entry is empty after stripping; `present` otherwise. An
  * `empty-malformed` arm is routed to the malformed-envelope failure row (its
  * template owned by V11f), never surfaced as an empty note.
- *
- * V11e-T stubs this inertly (always returns `"present"`); the paired V11e
- * implementation leaf fills in the empty-content detection.
  */
 export function classifyModelContent(input: ModelContentInput): ModelContentClass {
   // A `message` empty after rule-1 stripping (binder returned only whitespace)
@@ -176,9 +164,6 @@ export function classifyModelContent(input: ModelContentInput): ModelContentClas
  * Rule 5 — derive the `ambiguous` arm's suffix: the rule-1-sanitised `message`
  * only. theta 1.0 never surfaces `candidates` on the user-facing note, so the
  * `candidates` field is not read into the suffix.
- *
- * V11e-T stubs this inertly (returns {@link UNIMPLEMENTED}); the paired V11e
- * implementation leaf fills in the message-only rendering.
  */
 export function renderAmbiguousSuffix(input: ModelContentInput): string {
   // theta 1.0 surfaces only the model's `message`; `candidates` is never read.

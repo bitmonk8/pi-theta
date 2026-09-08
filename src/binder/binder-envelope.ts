@@ -1,6 +1,6 @@
 // V11c / V11c-T — Binder bypass and the dynamic envelope schema.
 //
-// This module owns two mechanisms of binder/binder-bypass-and-envelope.md:
+// This module owns three mechanisms of binder/binder-bypass-and-envelope.md:
 //
 //   - The binder-bypass decision (§Binder bypass): computed at theta-load time
 //     from the static `params:` schema. Two shapes skip the binder call (and the
@@ -19,12 +19,6 @@
 //     `needs_info` row (`argument binding needs more info`) and the `ambiguous`
 //     row (`ambiguous arguments`) stay distinct.
 //
-// V11c-T (tests-task) declares these seam shapes and stubs every behaviour-
-// bearing function with an inert result so the failing tests compile and red on
-// their own primary assertions (the bypass classification, envelope schema
-// construction, relaxed copy, and distinct template prefixes are all absent).
-// The paired V11c implementation leaf fills them in.
-//
 // Spec: binder/binder-bypass-and-envelope.md (§Binder bypass, §Binder envelope,
 // BNDR-1, BNDR-2, BNDR-3), schema-subset.md; failure-mode template rows from
 // binder/determinism-cancellation-failure.md#failure-mode-templates-normative.
@@ -35,9 +29,6 @@ import type { LoweredSchema } from "../seams/schema-validator";
 
 /** The three envelope arms' `kind` discriminator tokens, in schema order (BNDR-1). */
 export const BINDER_ENVELOPE_KINDS = ["ok", "needs_info", "ambiguous"] as const;
-
-/** One of the three envelope-arm discriminator tokens. */
-export type BinderEnvelopeKind = (typeof BINDER_ENVELOPE_KINDS)[number];
 
 /**
  * The `maxLength` budget on `message` and on each `candidates[i]` in the
@@ -244,16 +235,17 @@ export function trimSlashArgumentWhitespace(raw: string): string {
 
 /** Inputs to applying a bypass decision to a slash invocation. */
 export interface ApplyBinderBypassInput {
-  /** The load-time bypass decision. */
-  readonly decision: BinderBypassDecision;
+  /**
+   * The load-time bypass decision, narrowed to the two bypass kinds: a `binder`
+   * decision is not applied here, it runs the binder.
+   */
+  readonly decision: Exclude<BinderBypassDecision, { readonly kind: "binder" }>;
   /** The raw slash text after the command name (untrimmed). */
   readonly slashArguments: string;
 }
 
 /** The result of applying a bypass decision — no binder/LLM call is made. */
 export interface BinderBypassArgs {
-  /** Whether the invocation was bypassed (true for both bypass kinds). */
-  readonly bypassed: boolean;
   /**
    * The typed params object produced without any binder call: `{}` for the
    * no-params bypass, `{ [wireName]: <trimmed slash arguments> }` for the
@@ -266,21 +258,17 @@ export interface BinderBypassArgs {
  * Apply a bypass decision to a slash invocation without calling the binder or
  * the LLM (§Binder bypass): the single-string bypass sets the sole field to the
  * entire slash-argument string with leading/trailing slash-argument whitespace
- * trimmed; the no-params bypass yields `{}`. Returns `bypassed: false` for a
- * `binder` decision (the caller runs the binder).
+ * trimmed; the no-params bypass yields `{}`.
  */
 export function applyBinderBypass(input: ApplyBinderBypassInput): BinderBypassArgs {
   const { decision } = input;
   switch (decision.kind) {
     case "no-params-bypass":
-      return { bypassed: true, args: {} };
+      return { args: {} };
     case "single-string-bypass":
       return {
-        bypassed: true,
         args: { [decision.wireName]: trimSlashArgumentWhitespace(input.slashArguments) },
       };
-    case "binder":
-      return { bypassed: false, args: {} };
   }
 }
 

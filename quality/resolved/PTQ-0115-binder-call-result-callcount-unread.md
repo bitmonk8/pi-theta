@@ -2,7 +2,7 @@
 id: PTQ-0115
 title: BinderCallResult's completed-arm `callCount` is computed and returned but no consumer reads it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/binder-cancellation.ts:44-55

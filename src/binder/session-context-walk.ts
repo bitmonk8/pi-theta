@@ -18,10 +18,6 @@
 //     for binder-input construction — the walk is skipped and no *Recent session
 //     context* block is emitted.
 //
-// V11i-T (tests-task) declares these seams and stubs the walk inertly so the
-// failing tests compile and red on their own primary assertions; the paired
-// V11i implementation fills the walk in.
-//
 // Spec: binder/binder-model-and-context.md (§"Session-context truncation
 // (`bind_context: session`)", BNDR-10).
 
@@ -30,10 +26,10 @@ import type { ThetaMode } from "../parser/frontmatter";
 import type { TokenEstimator } from "../seams/token-estimator";
 
 /** The inclusive running-token-total cap of the truncation walk (8000 tokens). */
-export const SESSION_CONTEXT_TOKEN_CAP = 8000;
+const SESSION_CONTEXT_TOKEN_CAP = 8000;
 
 /** The inclusive running-turn-count cap of the truncation walk (20 turns). */
-export const SESSION_CONTEXT_TURN_CAP = 20;
+const SESSION_CONTEXT_TURN_CAP = 20;
 
 /** The `bind_context:` field value governing whether the walk runs at all. */
 export type BindContext = "none" | "session";
@@ -79,9 +75,8 @@ export interface SessionContextWalkResult {
 
 /**
  * Run the `bind_context: session` truncation walk (or the BNDR-10 subagent-mode
- * skip). The paired V11i implementation walks turns newest-to-oldest under the
- * inclusive 8000-token / 20-turn caps and returns the included slice
- * chronological oldest-to-newest.
+ * skip): turns are walked newest-to-oldest under the inclusive 8000-token /
+ * 20-turn caps.
  *
  * Included turns are returned chronological oldest-to-newest, ready for the
  * V11b compact-transcript renderer. The result record is constructed fresh per

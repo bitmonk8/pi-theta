@@ -2,7 +2,7 @@
 id: PTQ-0063
 title: "`BinderEnvelopeKind` in binder-envelope.ts is an exported type nothing in the repository references"
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-envelope.ts:39-40

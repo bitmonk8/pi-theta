@@ -501,15 +501,15 @@ export function buildBinderCompleteCall(
  *   - `match-malformed` — a ToolCall named the binder tool but its `arguments`
  *     are unusable (not a non-null object, or no `envelope` key): the
  *     malformed-envelope class, never a transport failure.
- *   - `no-match` — no ToolCall names the binder tool. `hasAnyToolCall`
- *     distinguishes a wrong-name ToolCall from a plain-text reply (both are the
- *     malformed-envelope condition on a clean stop; the caller consults
- *     stopReason / errorMessage / HTTP status for the failure routing).
+ *   - `no-match` — no ToolCall names the binder tool. A wrong-name ToolCall and
+ *     a plain-text reply are both the malformed-envelope condition on a clean
+ *     stop; the caller consults stopReason / errorMessage / HTTP status for the
+ *     failure routing.
  */
 export type BinderEnvelopeExtraction =
   | { readonly kind: "match"; readonly envelope: unknown }
   | { readonly kind: "match-malformed" }
-  | { readonly kind: "no-match"; readonly hasAnyToolCall: boolean };
+  | { readonly kind: "no-match" };
 
 /**
  * Extract the binder envelope from a resolved binder reply per the
@@ -530,7 +530,7 @@ export function extractBinderEnvelope(
   );
   const match = calls.find((call) => call.name === toolName);
   if (match === undefined) {
-    return { kind: "no-match", hasAnyToolCall: calls.length > 0 };
+    return { kind: "no-match" };
   }
   const args: unknown = match.arguments;
   if (

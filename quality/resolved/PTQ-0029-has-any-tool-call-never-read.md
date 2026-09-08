@@ -2,7 +2,7 @@
 id: PTQ-0029
 title: BinderEnvelopeExtraction's no-match arm carries a hasAnyToolCall field that is computed but never read
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/binder-inference.ts:504-512

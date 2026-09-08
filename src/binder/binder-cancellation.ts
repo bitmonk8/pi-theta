@@ -43,16 +43,11 @@ import { renderBinderSystemNote } from "./retry-taxonomy";
  *     surfaced and the theta does not run; no `Result` reaches theta code.
  *   - `completed` — the binder chain settled without an abort. `outcome` is the
  *     V11f most-recent-attempt outcome that flows to the normal binder surfacing
- *     / theta-start path, and `callCount` is the number of binder LLM calls
- *     issued (1 … {@link MAX_BINDER_LLM_CALLS}).
+ *     / theta-start path.
  */
 export type BinderCallResult =
   | { readonly kind: "cancelled"; readonly note: string }
-  | {
-      readonly kind: "completed";
-      readonly callCount: number;
-      readonly outcome: BinderAttemptOutcome;
-    };
+  | { readonly kind: "completed"; readonly outcome: BinderAttemptOutcome };
 
 /** Inputs to {@link runBinderCallWithCancellation}. */
 export interface BinderCallInput {
@@ -82,9 +77,6 @@ export interface BinderCallInput {
  * and — when an abort is observed before or during any attempt (initial or
  * budgeted retry) — suppress that attempt/retry and surface the cancelled-binder
  * system note immediately, so the theta does not run.
- *
- * V11j-T stubs this inert: it issues no attempt, forwards no signal, and never
- * surfaces cancellation. The paired V11j leaf implements it.
  */
 export async function runBinderCallWithCancellation(
   input: BinderCallInput,
@@ -140,6 +132,6 @@ export async function runBinderCallWithCancellation(
     // Terminal outcome (or a retry-eligible class whose budget is exhausted):
     // the chain settled without an abort, so the most-recent outcome flows to
     // the normal V11f binder surfacing / theta-start path.
-    return { kind: "completed", callCount, outcome };
+    return { kind: "completed", outcome };
   }
 }

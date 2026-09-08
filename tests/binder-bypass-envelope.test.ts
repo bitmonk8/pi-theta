@@ -248,7 +248,6 @@ describe("V11c-T — binder bypass path (skips the LLM call)", () => {
     });
     // The bypass skips the LLM call: the value is produced purely from the raw
     // slash text with leading/trailing slash-argument whitespace trimmed.
-    expect(result.bypassed).toBe(true);
     expect(result.args).toEqual({ prompt: "hello world" });
   });
 
@@ -257,7 +256,6 @@ describe("V11c-T — binder bypass path (skips the LLM call)", () => {
       decision: { kind: "no-params-bypass" },
       slashArguments: "ignored",
     });
-    expect(result.bypassed).toBe(true);
     expect(result.args).toEqual({});
   });
 
