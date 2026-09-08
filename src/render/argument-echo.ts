@@ -20,12 +20,10 @@
 // #echo-policy, BNDR-6 reference-rendering table) and §Defaulting
 // (fill-if-absent `(default)` tagging).
 //
-// V11h-T (tests-task) declares these seam shapes — the `EchoType` static-type
+// V11h-T (tests-task) declared these seam shapes — the `EchoType` static-type
 // descriptor, the `EchoField` / `EchoParam` / `ArgumentEchoInput` inputs, the
 // per-value `renderEchoValue` renderer, and the whole-line `renderArgumentEcho`
-// — and stubs the two renderers inertly so the failing tests compile and red on
-// their own primary assertions (the format-rule renderer is absent). The paired
-// V11h implementation leaf fills these in.
+// — and stubbed the two renderers; V11h (this leaf) implements both.
 
 import { sanitizeSystemNoteSubstring } from "../binder/system-note";
 import type { ThetaValue } from "../runtime/value";

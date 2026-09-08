@@ -2,7 +2,7 @@
 id: PTQ-0070
 title: Four render/runtime seam modules still narrate their tests-task stub state as current ("stubs ... inertly", "The paired ... leaf fills these in") although every named function is implemented
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/render/argument-echo.ts:23-28

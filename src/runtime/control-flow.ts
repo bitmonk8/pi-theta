@@ -14,13 +14,10 @@
 // `ForLoopHost` so the one observable effect (iterand evaluation) and the body
 // runs are recordable, not ambient.
 //
-// V3c-T (tests-task) declares the seam — the `ForLoopHost` collaborator and the
-// `evaluateForLoop` entry point — and stubs `evaluateForLoop` inertly: it
-// neither evaluates the iterand nor runs the body, so the CTRL-1 assertions red
-// on their own primary expectations (the iterand-evaluation count is `0` rather
-// than `1`, and no body iteration is recorded), not on a compile error, a
-// missing fixture, or a harness throw. The paired V3c implementation leaf fills
-// it in.
+// V3c-T (tests-task) declared the seam — the `ForLoopHost` collaborator and the
+// `evaluateForLoop` entry point — and stubbed `evaluateForLoop`; V3c (this
+// leaf) implements the CTRL-1 once-only iterand snapshot and the per-element
+// body run.
 
 import { type ThetaValue } from "./value";
 
@@ -45,9 +42,6 @@ export interface ForLoopHost {
  * commits once even when the snapshot is empty (the body never runs), and the
  * snapshot is fixed before iteration so a body-side `let mut` reassignment does
  * not change the iterated sequence.
- *
- * V3c-T stubs this inert: it neither evaluates the iterand nor runs the body.
- * The paired V3c leaf implements it.
  */
 export function evaluateForLoop(host: ForLoopHost): void {
   // CTRL-1: evaluate the iterand exactly once at loop entry, committing its

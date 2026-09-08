@@ -24,14 +24,11 @@
 // §Edge cases). The `@`-query-dispatch, tool-call, and `invoke` per-site
 // presence arms are witnessed on their feature leaves (V13c / V14g / V15m).
 //
-// V17c-T (tests-task) declares this surface and stubs the behaviour-bearing
-// functions inertly: `runCheckpointedForLoop` fires no checkpoint and runs no
-// iteration, and `runCheckpointedBinderCall` fires no checkpoint and never
-// dispatches the call (returning a cancelled outcome). The granularity
-// assertions therefore red on their own primary expectation — the expected
-// `loop-iter` / `binder-call` checkpoints are absent and the body / call never
-// runs — not on a compile error, a missing fixture, or a harness throw. The
-// paired V17c implementation leaf fills these in.
+// V17c-T (tests-task) declared this surface and stubbed both behaviour-bearing
+// functions; V17c (this leaf) implements them: `runCheckpointedForLoop` fires
+// the `loop-iter` checkpoint and runs each iteration, and
+// `runCheckpointedBinderCall` fires the `binder-call` checkpoint and dispatches
+// the call.
 //
 // Spec: cancellation.md §Granularity; host-interfaces-services.md PIC-10.
 
@@ -65,9 +62,6 @@ export type CheckpointedBinderOutcome<T> =
  * Run a `for`/`while` loop under the cancellation-checkpoint granularity rule:
  * await `checkpoint.before("loop-iter", site)` immediately before each
  * iteration, then read `signal.aborted` and stop iterating once it has fired.
- *
- * V17c-T stubs this inert: it fires no checkpoint and runs no iteration. The
- * paired V17c leaf implements it.
  */
 export async function runCheckpointedForLoop(
   checkpoint: Checkpoint,
@@ -96,9 +90,6 @@ export async function runCheckpointedForLoop(
  * call, then read `signal.aborted`; if the checkpoint observes the abort the
  * call is skipped and a cancelled outcome is returned, otherwise the call is
  * dispatched and its value returned.
- *
- * V17c-T stubs this inert: it fires no checkpoint and never dispatches the
- * call. The paired V17c leaf implements it.
  */
 export async function runCheckpointedBinderCall<T>(
   checkpoint: Checkpoint,

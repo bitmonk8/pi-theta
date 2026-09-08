@@ -19,12 +19,10 @@
 //     `ValidationError{cause: "empty_template", attempts: 0}` (never the
 //     respond-repair path).
 //
-// V13a-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions inertly so the failing tests compile and red on their own primary
-// assertions (the render pipeline is an identity stub, the lexer emits no
-// escape/termination diagnostics, stringification returns empty text, and both
-// degenerate-template defences are no-ops). The paired V13a implementation leaf
-// fills these in.
+// V13a-T (tests-task) declared the seam shapes and stubbed the behaviour-bearing
+// functions; V13a (this leaf) implements the render pipeline, the lexer's
+// escape/termination diagnostics, stringification, and both degenerate-template
+// defences.
 //
 // Spec: query/query-forms.md, query/query-escapes-stringification.md.
 
