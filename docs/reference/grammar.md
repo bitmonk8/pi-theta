@@ -512,9 +512,13 @@ CallWithField  ::= CallWithKey ":" Expr
 CallWithKey    ::= "cwd"                                                   // closed set in theta 1.3
 ```
 
-A postfix clause on the clause-bearing call surfaces — a `.theta`-callable
-call, `invoke(path, args…)` / `invoke<T>(path, args…)`, and a `subagent fn`
-call. Attaches immediately after the call's closing `)`, before any other
+A postfix clause on the two clause-bearing call surfaces — a `.theta`-callable
+call through `tools:`, and `invoke(path, args…)` / `invoke<T>(path, args…)`.
+Every other callee rejects the clause at parse time (a Pi-tool call draws
+`theta/parse/with-clause-pi-tool`; any other callee — a `subagent fn`, a plain
+or imported `fn`, a `.thetalib`-body call — draws
+`theta/parse/with-clause-in-process-callee`: the callee runs in-process and
+spawns no child process). Attaches immediately after the call's closing `)`, before any other
 postfix operator (`.`, `[`, method-call, `?`): in `f(a) with { cwd: t }?` the
 clause binds to the call and `?` applies to the call's `Result`. `with` here is
 the second recognition position of the contextual keyword described under

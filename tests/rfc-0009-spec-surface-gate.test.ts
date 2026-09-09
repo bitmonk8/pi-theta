@@ -51,7 +51,7 @@ const REGISTRY = "docs/spec_topics/diagnostics/code-registry-parse.md";
 const MIRROR = "docs/reference/diagnostics.md";
 const MATRIX = "docs/plan_topics/coverage-matrix.md";
 
-/** The three parse codes RFC 0009 mints, with their registry-pinned Message templates. */
+/** The four parse codes RFC 0009 mints (errata A/A′ included), with their registry-pinned Message templates. */
 const CODES: ReadonlyArray<readonly [code: string, message: string]> = [
   ["theta/parse/with-clause-unknown-key", "unknown key '<key>' in call-site with clause"],
   [
@@ -59,6 +59,13 @@ const CODES: ReadonlyArray<readonly [code: string, message: string]> = [
     "with clause requires a subagent-mode callee; '<callee>' is prompt-mode",
   ],
   ["theta/parse/with-clause-pi-tool", "with clause is not applicable to Pi tool '<name>'"],
+  // Errata A/A′ (2026-09-09): default-reject — the clause is legal only on the
+  // two child-spawning surfaces; every other callee (subagent fn, plain or
+  // imported fn, .thetalib-body call) rejects with this code.
+  [
+    "theta/parse/with-clause-in-process-callee",
+    "with clause is not applicable to '<callee>': the callee runs in-process and spawns no child process",
+  ],
 ];
 
 describe("RFC 0009 spec surface — call-site with clause (theta 1.3)", () => {
@@ -86,6 +93,8 @@ describe("RFC 0009 spec surface — call-site with clause (theta 1.3)", () => {
     expect(text).toContain('<a id="inv-8"></a> **INV-8.**');
     expect(text).toMatch(/INV-8\.\*\*[^\n]*MUST be rejected at parse time with `theta\/parse\/with-clause-prompt-mode-callee`/);
     expect(text).toMatch(/INV-8\.\*\*[^\n]*Err\(InvokeInfraError \{ cause: "validation", … \}\)/);
+    // Errata A/A′: the default-reject arm is INV-8's too.
+    expect(text).toMatch(/INV-8\.\*\*[^\n]*`theta\/parse\/with-clause-in-process-callee`/);
   });
 
   it("TOOL-1 — the Argument-shape site carries the Pi-tool clause rejection in GOV-1 dual form on tool-calls.md", () => {
@@ -94,7 +103,7 @@ describe("RFC 0009 spec surface — call-site with clause (theta 1.3)", () => {
     expect(text).toMatch(/TOOL-1\.\*\*[^\n]*MUST be rejected at parse time with `theta\/parse\/with-clause-pi-tool`/);
   });
 
-  it("the three with-clause parse codes are registered and mirrored with identical Message templates", () => {
+  it("the four with-clause parse codes are registered and mirrored with identical Message templates", () => {
     const registry = readCorpus(REGISTRY);
     const mirror = readCorpus(MIRROR);
     for (const [code, message] of CODES) {

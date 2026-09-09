@@ -173,15 +173,15 @@ const SUPPORTED_FORMS = "## Supported forms";
  * resolution clause applies: the line count moves and is re-pinned here rather
  * than held, since the addition lands at end-of-file (verified: `wc -l
  * docs/spec_topics/grammar.md` = 246 at RFC 0009 Phase 3).
- * REF pin 701→751 (RFC 0009, theta 1.3): the reference mirror gains the
+ * REF pin 701→751→755 (RFC 0009, theta 1.3; 755 = errata A/A′ default-reject rewording of the clause-bearing-surfaces sentence): the reference mirror gains the
  * corresponding `### Call-site \`with\` clause` subsection under §Expression
  * sublanguage, a cross-reference sentence in §`fn` declarations, and the
  * contextual-keywords paragraph rewrite in §Reserved keywords — all below the
  * line-54 region this cell guards. Re-pinned here per the same clause
- * (verified: `wc -l docs/reference/grammar.md` = 751 at RFC 0009 Phase 3,
+ * (verified: `wc -l docs/reference/grammar.md` = 755 at RFC 0009 erratum A′,
  * including the §Provenance bullet naming the new section). */
 const SPEC_GRAMMAR_LINES = 246;
-const REF_GRAMMAR_LINES = 751;
+const REF_GRAMMAR_LINES = 755;
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */
 const INDEXED_ACCESS = /indexed access/i;

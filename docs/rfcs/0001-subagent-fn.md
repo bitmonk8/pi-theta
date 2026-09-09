@@ -146,14 +146,20 @@ subagent fn step(objective: string) with { tools: [read, bash], system: "…" } 
 
 **Extended by RFC 0009.** [RFC 0009](./0009-per-call-subagent-cwd.md) adds a
 distinct **call-site** `with { cwd: … }` clause on call expressions
-(`.theta`-callable calls, `invoke(...)`, and `subagent fn` call sites) — a
+(`.theta`-callable calls and `invoke(...)`; a clause on a `subagent fn` call
+site — as on every other in-process bare-identifier callee, per the
+default-reject rule — is the parse error
+`theta/parse/with-clause-in-process-callee` — RFC 0009 Errata A/A′, because
+the body runs in-process with no child process to relocate)
+— a
 different production from this section's declaration-site clause, with its own
 closed key set (`cwd` only, v1) and its own unknown-key severity (parse error,
 not a warning). The declaration-site `with { … }` clause described above is
 unchanged: its five session-config keys do not gain a `cwd` key, and a
-`subagent fn`'s spawned session still takes its working directory from the
-launch contract's default (the forwarded `ctx.cwd`), overridable only per call
-via RFC 0009's clause, never per declaration.
+`subagent fn` body's file tools and `bash` keep operating in the enclosing
+process's working directory (the body runs in-process — RFC 0009 Erratum A);
+per-call cwd relocation belongs to the two child-spawning surfaces, never to a
+`subagent fn`, per declaration or per call.
 
 ### Library helpers
 

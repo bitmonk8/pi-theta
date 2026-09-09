@@ -199,6 +199,7 @@ trigger.
 | `theta/parse/with-clause-unknown-key` | E | parse | `unknown key '<key>' in call-site with clause` |
 | `theta/parse/with-clause-prompt-mode-callee` | E | parse | `with clause requires a subagent-mode callee; '<callee>' is prompt-mode` |
 | `theta/parse/with-clause-pi-tool` | E | parse | `with clause is not applicable to Pi tool '<name>'` |
+| `theta/parse/with-clause-in-process-callee` | E | parse | `with clause is not applicable to '<callee>': the callee runs in-process and spawns no child process` |
 | `theta/parse/fn-arity-too-few` | E | type | `fn '<name>' passes too few arguments: expected <required>, got <provided>` |
 | `theta/parse/fn-arity-too-many` | E | type | `fn '<name>' passes too many arguments: expected <required>, got <provided>` |
 | `theta/parse/stdlib-arity-mismatch` | E | type | `stdlib method '<method>' on type <type> expects <required> argument(s); got <provided>` |

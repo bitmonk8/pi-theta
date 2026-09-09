@@ -8,11 +8,15 @@
 
 ## Summary
 
-Add an optional postfix `with { cwd: <expr> }` clause to the call surfaces that
-dispatch a subagent-mode callee — `.theta`-callable calls, `invoke(...)`, and
-`subagent fn` calls — which sets the spawned child `pi` process's working
+Add an optional postfix `with { cwd: <expr> }` clause to the two call surfaces
+that spawn a subagent-mode callee as a child process — `.theta`-callable calls
+and `invoke(...)` — which sets the spawned child `pi` process's working
 directory for that one invocation. Everything else about the launch is
-unchanged.
+unchanged. (As accepted, this RFC also admitted the clause on `subagent fn`
+calls; **Erratum A** removed that surface, and **Erratum A′** generalises its
+rejection to a default-reject rule over every in-process bare-identifier
+callee — a clause anywhere but the two child-spawning surfaces is a parse
+error. See §Erratum log.)
 
 ```theta
 let cluster_list = "src/parser,src/runtime"
@@ -57,9 +61,11 @@ hazard ([RFC 0007](./0007-print-mode-observability.md), motivation 1).
 ### 1. Surface and grammar
 
 Postfix clause on a call expression: `Callee(args…) with { cwd: Expr }`.
-Applies to `.theta`-callable calls (frontmatter `tools:` entries), to
-`invoke(path, args…)` / `invoke<T>(path, args…)`, and to `subagent fn` call
-sites. It reuses RFC-0001's `with`-clause parse machinery (`WithClause` /
+Applies to `.theta`-callable calls (frontmatter `tools:` entries) and to
+`invoke(path, args…)` / `invoke<T>(path, args…)` — the two child-spawning
+surfaces. A clause on any other bare-identifier call site —
+a `subagent fn`, a plain or imported `fn`, a Pi tool — is a parse error (§2
+Mode gating; Errata A/A′). It reuses RFC-0001's `with`-clause parse machinery (`WithClause` /
 `WithField`, `src/parser/theta-document.ts`).
 
 [Grammar](../spec_topics/grammar.md) today carries **no call-expression
@@ -133,9 +139,23 @@ is what has a working directory. Rules:
   in-process against the parent session; there is no child cwd. (Future work
   may define per-call cwd for the bash tool, but that is Pi's surface, not
   theta's.)
-- `subagent fn` call sites take the clause under the same rules; a
-  `subagent fn` body is always a subagent session, so the prompt-mode arms
-  cannot arise there.
+- A clause on **every other bare-identifier callee** MUST be rejected at
+  parse time with `theta/parse/with-clause-in-process-callee` (**Erratum A**
+  as generalised by **Erratum A′**, human-approved principle 2026-09-09):
+  callee admission is default-reject, classified against the caller's frozen
+  callable set alone — a `subagent fn` call (the body runs in-process against
+  an isolated off-session conversation and does not go through the
+  child-launch `spawnSubagentConversation` — RFC-0006 note,
+  `src/extension/production-theta-producer.ts:3029`), a plain same-file `fn`
+  call, an imported `.thetalib` `fn` call (re-export chains included — the
+  chain case rejects because it is no callable-set `.theta` entry, with no
+  `fn`-kind resolution), and any other callee the set does not classify; in a
+  `.thetalib` body, which has no callable set, every clause-bearing
+  bare-identifier call rejects at the library's own parse. No child process
+  exists on any of those surfaces and no per-call cwd can apply; silent
+  acceptance would be the no-op/inherit drift this design refuses (Resolved
+  questions, item 6), and the rejection joins the same fail-closed family as
+  the Pi-tool arm. The prompt-mode arms cannot arise on those surfaces.
 
 ### 3. Value semantics
 
@@ -249,9 +269,22 @@ launcher API does not change shape (`SubagentLaunchRequest` already carries
    position, exactly how the grammar already disambiguates contextual
    keywords.
 2. **Surfaces in v1.** *Decision:* both `.theta`-callable calls and
-   `invoke(...)` (plus `subagent fn` call sites). Same lowering into the one
-   launch-request bind site, and `invoke` is the dynamic-path escape hatch the
-   worktree pattern needs.
+   `invoke(...)`. Same lowering into the one launch-request bind site, and
+   `invoke` is the dynamic-path escape hatch the worktree pattern needs.
+   *Amended by Erratum A (human-approved 2026-09-09):* as ratified this
+   decision also admitted `subagent fn` call sites; ground truth is that a
+   `subagent fn` body runs in-process against an isolated off-session
+   conversation and does not go through the child-launch
+   `spawnSubagentConversation` (RFC-0006 note,
+   `src/extension/production-theta-producer.ts:3029`), so there is no child
+   process and no per-call cwd — the clause applies to the two child-spawning
+   surfaces only. *Generalised by Erratum A′ (2026-09-09):* the rejection is
+   default-reject over every in-process bare-identifier callee — a
+   `subagent fn` call, a plain or imported `fn` call (re-export chains
+   included), anything the frozen callable set does not classify as a
+   `.theta` callee — via the parse error
+   `theta/parse/with-clause-in-process-callee`, which replaces the unreleased
+   subagent-fn-specific code (§New diagnostics; §Erratum log).
 3. **`par for` per-element ergonomics.** *Decision:* defer. Row-splitting in
    the loop body is acceptable for v1; an indexed `par for` form is a separate
    proposal if evidence accumulates. Not 0009's surface.
@@ -282,9 +315,71 @@ launcher API does not change shape (`SubagentLaunchRequest` already carries
    keys are per-call runtime options, closed by this RFC. The registry rows
    and the amended spec text state the divergence explicitly.
 
+## Erratum log
+
+- **Erratum A — `subagent fn` is not a clause-bearing surface** (human-approved
+  2026-09-09). As ratified, the Summary, Proposal §§1–2, Resolved question 2,
+  the draft registry rows, and the landed spec text admitted the clause on
+  three surfaces. Implementation ground truth contradicts the third: a
+  `subagent fn` body runs **in-process** against an isolated off-session
+  conversation — it does not go through the child-launch
+  `spawnSubagentConversation` (`#spawnSubagentFnSession` and its RFC-0006 note,
+  `src/extension/production-theta-producer.ts:2978`, `:3029`) — so no child
+  process exists and no per-call cwd can apply; threading the value anywhere
+  else would be a silent half-semantic. The erratum narrows the clause to the
+  two child-spawning surfaces (`.theta`-callable calls through `tools:`, and
+  `invoke(...)`) and makes a clause on a `subagent fn` call a parse error via a
+  fourth registry code, `theta/parse/with-clause-subagent-fn` — the same
+  fail-closed family as the Pi-tool arm, because silent acceptance would be the
+  no-op/inherit drift the closed design refuses (Resolved questions, item 6).
+  Amended in this RFC: Summary, Proposal §1 and §2, Resolved question 2, §New
+  diagnostics, §Specification impact, §Testing strategy. Amended in the landed
+  spec: [Grammar Appendix — Call-site `with`
+  clause](../spec_topics/grammar.md#call-site-with-clause), [Invocation —
+  Options surface / INV-8](../spec_topics/invocation.md#options-surface),
+  [Tool Calls — TOOL-1](../spec_topics/tool-calls.md), the
+  [`theta/parse/*` registry](../spec_topics/diagnostics/code-registry-parse.md)
+  (fourth row; the unknown-key and prompt-mode-callee Triggers; the INV-6
+  Trigger widening on the two arg-type rows), and RFC 0001's cross-note.
+
+- **Erratum A′ — the rejection generalises to default-reject over every
+  in-process callee** (the Erratum A fail-closed principle, human-approved,
+  applied in full; 2026-09-09). Erratum A rejected the clause on `subagent fn`
+  call sites by `fn`-kind resolution, which left two adjacent holes open: a
+  clause on a plain or imported (non-`subagent`) `fn` call had no disposition
+  and would have been silently ignored at runtime (`resolveUserFn`,
+  `src/runtime/statement-executor.ts:430`, intercepts the call before any
+  effect path), and a clause on a callee reached only through an
+  `export … from` re-export chain drew no verdict (the fn-arity rows'
+  withhold). Applying the approved principle in full closes both: the static
+  rule flips polarity to **default-reject** — a clause is legal on exactly two
+  surfaces, a bare-identifier call whose callee the caller's frozen callable
+  set classifies as a `.theta` callee (a `tools:` `.theta` entry) and
+  `invoke(...)`; a callee the set classifies as a Pi tool keeps
+  `theta/parse/with-clause-pi-tool`; and EVERY other bare-identifier callee —
+  `subagent fn`, plain `fn`, imported `fn` including re-export chains, and
+  anything else the set does not classify — draws one generalised code,
+  `theta/parse/with-clause-in-process-callee`, which REPLACES Erratum A's
+  unreleased `theta/parse/with-clause-subagent-fn` (a rename plus a widened
+  Trigger; no release ever shipped the old code). Classification consults the
+  frozen callable set alone and never resolves `fn` kinds, so the chain case
+  rejects with no chain walk; in a `.thetalib` body, which has no callable
+  set, the classification is vacuous and every clause-bearing bare-identifier
+  call rejects at the library's own parse. Amended in this RFC: Summary,
+  Proposal §1 and §2, Resolved question 2, §New diagnostics, §Specification
+  impact, §Testing strategy. Amended in the landed spec: [Grammar Appendix —
+  Call-site `with` clause](../spec_topics/grammar.md#call-site-with-clause),
+  [Invocation — Options surface /
+  INV-8](../spec_topics/invocation.md#options-surface), [Tool Calls —
+  TOOL-1](../spec_topics/tool-calls.md), the [`theta/parse/*`
+  registry](../spec_topics/diagnostics/code-registry-parse.md) (fourth row
+  replaced; the unknown-key and prompt-mode-callee Triggers reworded), and
+  RFC 0001's cross-note.
+
 ## New diagnostics
 
-Three new `theta/parse/*` codes, drafted in the registry's column format
+Four new `theta/parse/*` codes — the fourth minted by Erratum A and
+generalised by Erratum A′ — drafted in the registry's column format
 ([`code-registry-parse.md`](../spec_topics/diagnostics/code-registry-parse.md);
 nearest naming precedent `theta/parse/invoke-non-theta-extension`). Exact
 Phase cells and Message templates become normative when the rows land in the
@@ -292,9 +387,10 @@ registry (DIAG-4); these are drafts.
 
 | Code | Sev | Phase | Trigger | Spec rule | Hint | Message |
 |---|---|---|---|---|---|---|
-| `theta/parse/with-clause-unknown-key` | E | parse | A call-site `with` clause field key outside the closed set (`cwd`), on any clause-bearing call surface (`.theta`-callable call, `invoke(...)`, `subagent fn` call). Declaration-site `subagent fn … with { … }` keys are not judged by this row — they keep the `theta/load/unknown-frontmatter-field` warning (Resolved questions, item 6). | [Invocation — Options surface](../spec_topics/invocation.md) | theta 1.x call-site options admit `cwd` only. | `unknown key '<key>' in call-site with clause` |
+| `theta/parse/with-clause-unknown-key` | E | parse | A call-site `with` clause field key outside the closed set (`cwd`), on any call surface the clause parses on — the key judgement precedes callee-kind classification, so it fires alike on the two clause-bearing surfaces (`.theta`-callable call, `invoke(...)`) and on a clause the static pass then rejects by callee kind (`subagent fn` call, Pi-tool call). Declaration-site `subagent fn … with { … }` keys are not judged by this row — they keep the `theta/load/unknown-frontmatter-field` warning (Resolved questions, item 6). | [Invocation — Options surface](../spec_topics/invocation.md) | theta 1.x call-site options admit `cwd` only. | `unknown key '<key>' in call-site with clause` |
 | `theta/parse/with-clause-prompt-mode-callee` | E | parse | A call-site `with` clause on a statically resolvable callee ([Invocation — Static resolution](../spec_topics/invocation.md#static-resolution)) whose `mode:` is `prompt`. A callee that is not statically resolvable defers to the runtime `Err(InvokeInfraError { cause: "validation", … })` arm; no parse code fires. | [Invocation — Options surface](../spec_topics/invocation.md) | `cwd` addresses the spawned child process; a prompt-mode callee runs in the caller's conversation. Make the callee subagent-mode or remove the clause. | `with clause requires a subagent-mode callee; '<callee>' is prompt-mode` |
 | `theta/parse/with-clause-pi-tool` | E | parse | A call-site `with` clause on a Pi-tool call. A Pi tool executes in-process against the parent session; no child working directory exists. | [Tool Calls — Argument shape](../spec_topics/tool-calls.md) | Remove the clause; per-call options apply to `.theta`-callable and `invoke(...)` dispatch only. | `with clause is not applicable to Pi tool '<name>'` |
+| `theta/parse/with-clause-in-process-callee` | E | parse | A call-site `with` clause on a bare-identifier call whose callee the caller's frozen callable set does not classify as a `.theta` callee (Erratum A′ default-reject; the legal surfaces are exactly a callable-set `tools:` `.theta` entry and `invoke(...)`, and a Pi-tool callee keeps `theta/parse/with-clause-pi-tool`): a `subagent fn` call, a plain same-file `fn` call, an imported `.thetalib` `fn` call — declared directly or reached through an `export … from` re-export chain — and any other callee the set does not bind. Classification consults the callable set alone (never `fn`-kind resolution), so the chain case rejects with no chain walk; in a `.thetalib` body, which has no callable set, every clause-bearing bare-identifier call rejects at the library's own parse. Every such callee runs in-process — no child `pi` process is spawned — so no child working directory exists for the clause to set. A callee resolving to no binding at all keeps `theta/parse/unknown-identifier` alone. | [Invocation — Options surface](../spec_topics/invocation.md#options-surface) | The clause applies to the two child-spawning surfaces only; move the work into a subagent-mode `.theta` callee and dispatch it through `tools:` or `invoke(...)` with the clause. | `with clause is not applicable to '<callee>': the callee runs in-process and spawns no child process` |
 
 Not minted: a type mismatch on the `cwd` value reuses the ordinary
 type-diagnostic path; the two runtime failure arms (empty string, runtime
@@ -315,7 +411,7 @@ by the Phase 1 inventory):
 | `docs/spec_topics/tool-calls.md` | Argument shape paragraph (evaluation-order rule) | `.theta`-callable call shape gains the clause; Pi-tool rejection rule (`theta/parse/with-clause-pi-tool`). |
 | `docs/spec_topics/pi-integration-contract/subagent.md` | [`#subagent-launch-contract`](../spec_topics/pi-integration-contract/subagent.md#subagent-launch-contract) — the launch-contract table row "forwarded `ctx.cwd` → child working directory" and the lede sentence; [`#subagent-control-plane-authentication`](../spec_topics/pi-integration-contract/subagent.md#subagent-control-plane-authentication) | cwd row becomes "per-call resolved cwd, default forwarded `ctx.cwd`"; lede updated to match; env paragraph gains the `<cwd>/.env` operator-responsibility note (Resolved questions, item 5). |
 | `docs/spec_topics/future-considerations/surface-extensions.md` | [`#surface-extensions-v1-leaves-a-seam`](../spec_topics/future-considerations/surface-extensions.md#surface-extensions-v1-leaves-a-seam), the per-call-timeouts bullet's "Anchored at" list | Options-surface seam marked partially consumed (`cwd` on the tool-call/invoke surfaces). [GOV-31](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-31) arithmetic: the seam enumeration neither gains nor loses an item, so the seam-count aggregator literal on spec.md (`overview-and-orientation.md`, Scope) is **unchanged**; if the amendment does add or remove an enumerated item, the literal moves in the same edit per GOV-31's lock-step MUST. |
-| `docs/spec_topics/diagnostics/code-registry-parse.md` | `theta/parse/*` table | Three new rows (§New diagnostics). |
+| `docs/spec_topics/diagnostics/code-registry-parse.md` | `theta/parse/*` table | Four new rows (§New diagnostics; the fourth added by Erratum A and generalised by Erratum A′). |
 | `docs/reference/grammar.md` | "fn declarations"; "Expression sublanguage" | Mirror the new production and its postfix attachment. |
 | `docs/reference/errors-and-results.md` | "InvokeInfraError" (under "QueryError variants") | Prose for the `cause: "validation"` arm enumerates the empty-string and runtime prompt-mode-callee cases; no schema change. |
 | `docs/reference/coverage-matrix.md` | "Reference coverage" table | Update the Spec-sources / Surface cells of the affected reference-page rows. This matrix is **doc-set-keyed** (page-keyed), not code-keyed — the inventory corrected the design here. |
@@ -330,8 +426,15 @@ Offline (default gate, provider-free):
 - **Parser:** accept/reject matrix as inline template-literal sources through
   `parseThetaDocument` (the `tests/subagent-fn.test.ts` convention — parser
   unit tests embed source inline; no fixture directories). Coverage: each new
-  code, all clause-bearing call surfaces, expression values including
-  interpolations, clause-before-`?` ordering, and `with` staying an ordinary
+  code, both clause-bearing call surfaces, the rejection cells (a clause on
+  any non-`.theta`-callable bare-identifier callee →
+  `theta/parse/with-clause-in-process-callee`: a `subagent fn` call, a plain
+  same-file `fn` call, an imported `fn` call — declared directly or reached
+  through an `export … from` re-export chain — plus a clause-free
+  `subagent fn` / plain-`fn` call unchanged, and a `.thetalib`-body
+  clause-bearing call rejected at the library's own parse; a clause on a
+  Pi-tool call → `theta/parse/with-clause-pi-tool`), expression
+  values including interpolations, clause-before-`?` ordering, and `with` staying an ordinary
   identifier outside its two recognition positions.
 - **Committed-fixture gate:** any new committed `.theta` fixture joins
   `tests/committed-fixture-parse-gate.test.ts`; its pinned corpus-count
