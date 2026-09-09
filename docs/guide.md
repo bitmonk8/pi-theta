@@ -106,7 +106,12 @@ which Pi APIs the runtime calls; see the
 
 The two modes compose. A theta can invoke another theta with `invoke(...)`, and the
 *callee's* mode decides whether the child attaches to the caller's conversation
-or spawns its own. The full cross-mode matrix — what a prompt-mode parent sees
+or spawns its own. A call that dispatches a subagent-mode callee — a `.theta`-callable
+call through `tools:` or `invoke(...)` — may carry a postfix `with { cwd: Expr }`
+clause (theta 1.3) setting the spawned child's working directory for that one
+call; see [Grammar — Call-site `with` clause](./reference/grammar.md#call-site-with-clause)
+and [How to fan out into git worktrees](./how-to/fan-out-into-git-worktrees.md).
+The full cross-mode matrix — what a prompt-mode parent sees
 when it invokes a subagent-mode child, and the three other combinations — is in
 the [invoke invocation reference](./reference/discovery-cli.md#invoke-invocation).
 

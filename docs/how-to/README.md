@@ -34,6 +34,9 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   in a bounded loop until the job is done (the Ralph-loop pattern).
 - [Fan out in parallel](./fan-out-in-parallel.md) — run independent, typed work
   concurrently with `par for` and reduce the per-element results.
+- [Fan out into git worktrees](./fan-out-into-git-worktrees.md) — combine
+  `par for` with the per-call `with { cwd }` clause to run fixers in disjoint
+  git worktrees, then integrate the results sequentially.
 
 ## Hosting the runtime
 

@@ -80,7 +80,11 @@ value flows.
 
 The inline-path form `let s: Sentiment = invoke<Sentiment>("./sentiment.theta",
 text)?` is equivalent; use it for one-off calls, and `tools:` for repeated or
-model-exposed callees.
+model-exposed callees. Either call form may carry a postfix `with { cwd: Expr }`
+clause to run the spawned child in a different working directory for that one
+call (theta 1.3) — see [Grammar — Call-site `with`
+clause](../reference/grammar.md#call-site-with-clause) and [How to fan out into
+git worktrees](./fan-out-into-git-worktrees.md).
 
 ## Large params cross the same way
 
