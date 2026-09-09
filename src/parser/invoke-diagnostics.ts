@@ -88,6 +88,21 @@ export const FN_ARITY_TOO_FEW_CODE = "theta/parse/fn-arity-too-few";
 /** `theta/parse/fn-arity-too-many` (code-registry-parse.md; bug 0131). */
 export const FN_ARITY_TOO_MANY_CODE = "theta/parse/fn-arity-too-many";
 
+/** `theta/parse/with-clause-prompt-mode-callee` (code-registry-parse.md; RFC 0009). */
+export const WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE =
+  "theta/parse/with-clause-prompt-mode-callee";
+
+/** `theta/parse/with-clause-pi-tool` (code-registry-parse.md; RFC 0009). */
+export const WITH_CLAUSE_PI_TOOL_CODE = "theta/parse/with-clause-pi-tool";
+
+/**
+ * `theta/parse/with-clause-in-process-callee` (code-registry-parse.md; RFC 0009
+ * Erratum A′ — the default-reject arm of the call-site clause's callee
+ * classification).
+ */
+export const WITH_CLAUSE_IN_PROCESS_CALLEE_CODE =
+  "theta/parse/with-clause-in-process-callee";
+
 // --------------------------------------------------------------------------
 // Registry-anchored message + hint builders (real, pure — the *Message*/*Hint*
 // columns of the registry are the single source of truth per the
@@ -351,6 +366,41 @@ export function checkInvokeReturnType(input: InvokeReturnTypeInput): Diagnostic[
       hint: INVOKE_RETURN_TYPE_MISMATCH_HINT,
     },
   ];
+}
+
+// --------------------------------------------------------------------------
+// Call-site `with { cwd }` clause — callee-mode gate + callee classification
+// (RFC 0009; invocation.md #options-surface / INV-8; tool-calls.md TOOL-1)
+// --------------------------------------------------------------------------
+
+/** Hint of `theta/parse/with-clause-prompt-mode-callee` (registry-verbatim). */
+export const WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT =
+  "`cwd` addresses the spawned child process; a prompt-mode callee runs in the caller's conversation. Make the callee subagent-mode or remove the clause.";
+
+/** `with clause requires a subagent-mode callee; '<callee>' is prompt-mode`. */
+export function withClausePromptModeCalleeMessage(callee: string): string {
+  return `with clause requires a subagent-mode callee; '${callee}' is prompt-mode`;
+}
+
+/** Hint of `theta/parse/with-clause-pi-tool` (registry-verbatim). */
+export const WITH_CLAUSE_PI_TOOL_HINT =
+  "Remove the clause; per-call options apply to `.theta`-callable and `invoke(...)` dispatch only.";
+
+/** `with clause is not applicable to Pi tool '<name>'`. */
+export function withClausePiToolMessage(name: string): string {
+  return `with clause is not applicable to Pi tool '${name}'`;
+}
+
+/** Hint of `theta/parse/with-clause-in-process-callee` (registry-verbatim). */
+export const WITH_CLAUSE_IN_PROCESS_CALLEE_HINT =
+  "The clause applies to the two child-spawning surfaces only; move the work into a subagent-mode `.theta` callee and dispatch it through `tools:` or `invoke(...)` with the clause.";
+
+/**
+ * `with clause is not applicable to '<callee>': the callee runs in-process and
+ * spawns no child process`.
+ */
+export function withClauseInProcessCalleeMessage(callee: string): string {
+  return `with clause is not applicable to '${callee}': the callee runs in-process and spawns no child process`;
 }
 
 // --------------------------------------------------------------------------

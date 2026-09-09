@@ -57,7 +57,7 @@
 // diagnostics/code-registry-load.md.
 
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type {
   Block,
   CallExpr,
@@ -71,6 +71,9 @@ import type {
   ThetaBody,
   Stmt,
 } from "../parser/theta-document";
+import { callWithClauseValues } from "../parser/theta-document";
+import type { CallWithClause } from "../parser/theta-document";
+import type { ThetaMode } from "../parser/frontmatter";
 import { checkObjectLiteralFields } from "../parser/literal-sublanguage";
 import { checkVariantAccess } from "../parser/schema-declarations";
 import type { CallableSetSnapshot } from "../parser/callable-set";
@@ -79,6 +82,17 @@ import {
   checkInvokeArity,
   checkInvokeCall,
   checkCalleeHasErrors,
+  invokeArgTypeMismatchMessage,
+  withClauseInProcessCalleeMessage,
+  withClausePiToolMessage,
+  withClausePromptModeCalleeMessage,
+  INVOKE_ARG_TYPE_MISMATCH_CODE,
+  WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+  WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+  WITH_CLAUSE_PI_TOOL_CODE,
+  WITH_CLAUSE_PI_TOOL_HINT,
+  WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+  WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
@@ -226,7 +240,10 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
   switch (expr.kind) {
     case "invoke":
       out.invokeExprs.push(expr);
-      for (const arg of expr.args) walkExpr(arg, out);
+      // RFC 0009: a call-site `with` clause value is an expression position with
+      // an argument's exact rules, so nested call sites inside one are
+      // collected exactly as an argument's are.
+      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
       return;
     case "array":
       for (const el of expr.elements) walkExpr(el, out);
@@ -245,7 +262,7 @@ function walkExpr(expr: Expr, out: CollectedCallSites): void {
       return;
     case "call":
       out.callExprs.push(expr);
-      for (const arg of expr.args) walkExpr(arg, out);
+      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
       return;
     case "member":
       // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
@@ -381,6 +398,96 @@ export function collectThetaCallableCallSites(
   return resolveThetaCallableCallSites(collectCallSites(body).callExprs, callableSet);
 }
 
+/**
+ * INV-6 (invocation.md `#options-surface`) — judge a call-site `with` clause's
+ * `cwd` value as an ordinary argument slot of expected type `string`: "a type
+ * mismatch is the ordinary type diagnostic; no dedicated code is minted". The
+ * per-surface row is exactly the surface's own argument row —
+ * `theta/parse/invoke-arg-type-mismatch` on the `invoke(...)` surface,
+ * `theta/parse/tool-arg-type-mismatch` on the `.theta`-callable surface (both
+ * Triggers name the clause value; no registry change).
+ *
+ * Provable-only, the same posture the per-argument loops keep: an emission
+ * needs EVERY value the expression can take to be explicitly incompatible with
+ * `string`; anything past the parser's static view defers to the runtime
+ * validation arm. `string` is a primitive, so the verdict is decidable under
+ * the empty callee-annotation env the argument loops also judge in.
+ */
+function checkClauseCwdType(input: {
+  readonly clause?: CallWithClause;
+  readonly surface:
+    | { readonly kind: "invoke"; readonly providedCount: number }
+    | { readonly kind: "theta-callable"; readonly name: string };
+  readonly file: string;
+  readonly fallbackRange: SourceRange;
+  readonly typeEnv: TypeEnv;
+  readonly typePass: StaticTypeInferencePass;
+}): Diagnostic[] {
+  const clause = input.clause;
+  if (clause === undefined) {
+    return [];
+  }
+  const expected: CompatType = { kind: "prim", name: "string" };
+  const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+  const out: Diagnostic[] = [];
+  for (const field of clause.fields) {
+    if (field.key !== "cwd") {
+      // An unknown key already drew `theta/parse/with-clause-unknown-key` at
+      // parse and un-registered the theta; it has no expected type here.
+      continue;
+    }
+    const valueTypes = collectProvableArgTypes(field.value, input.typeEnv, input.typePass);
+    if (valueTypes === undefined) {
+      continue;
+    }
+    if (
+      !valueTypes.every(
+        (valueType) =>
+          checkCompatible(valueType, expected, emptyCalleeAnnotationEnv) === "incompatible",
+      )
+    ) {
+      continue;
+    }
+    const actual = renderCollectedTypes(valueTypes);
+    if (input.surface.kind === "invoke") {
+      out.push({
+        severity: "error",
+        code: INVOKE_ARG_TYPE_MISMATCH_CODE,
+        file: input.file,
+        range: field.value.range,
+        // `<i>` renders the provided positional-argument count: the clause's
+        // slot follows the last real argument, so that count is the slot
+        // number an author reads off the call site. `<param>` is the key.
+        message: invokeArgTypeMismatchMessage(
+          input.surface.providedCount,
+          "cwd",
+          displayType(expected),
+          actual,
+        ),
+      });
+      continue;
+    }
+    out.push(
+      ...checkToolCallArguments({
+        toolName: input.surface.name,
+        calleeKind: "theta-callable",
+        // Neutralises the shared arity arm, exactly as the per-argument loop
+        // below does: this site's real arity is checked by `checkInvokeArity`.
+        positionalCount: 1,
+        file: input.file,
+        range: input.fallbackRange,
+        staticResolution: {
+          resolvable: true,
+          matches: false,
+          expected: displayType(expected),
+          actual,
+        },
+      }),
+    );
+  }
+  return out;
+}
+
 /** Resolve an `invoke` path literal to a forward-slash-normalised absolute path. */
 function resolveCalleeAbsolute(callerPath: string, literalPath: string): string {
   const baseDir = dirname(callerPath);
@@ -474,6 +581,16 @@ export interface CalleeArity {
    * binding").
    */
   readonly fields: readonly CalleeArityField[];
+  /**
+   * The callee's declared frontmatter `mode:` (RFC 0009; invocation.md INV-8's
+   * static mode gate). Carried here rather than resolved separately because
+   * `arity !== undefined` is already this pass's static-resolvability predicate
+   * (invocation.md §Static resolution) and the mode gate keys on exactly that
+   * value — so the gate costs no second callee read. Present on every
+   * `resolveCalleeArity` return: `mode:` is a required frontmatter field
+   * (`theta/load/missing-mode`), so a resolvable callee always has one.
+   */
+  readonly mode: ThetaMode;
 }
 
 /**
@@ -1001,6 +1118,42 @@ export async function checkInvokeStaticResolution(
       // excludes the leading path-literal argument.
       const providedCount = Math.max(0, invoke.args.length - 1);
       const arity = await deps.resolveCalleeArity(resolvedPath);
+      // RFC 0009 (invocation.md INV-8 static mode gate): a call-site `with`
+      // clause addresses the spawned child process, so a statically-resolvable
+      // PROMPT-mode callee under a clause is refused here, before the
+      // arity/type block. `arity === undefined` means the callee is not
+      // statically resolvable, and then NO parse code fires — the runtime
+      // validation arm owns that case (registry row Trigger). `<callee>`
+      // renders the verbatim path literal, this arm's existing rendering rule.
+      let clauseRefused = false;
+      if (invoke.withClause !== undefined && arity !== undefined && arity.mode === "prompt") {
+        diagnostics.push({
+          severity: "error",
+          code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+          file: site.file,
+          range: site.range,
+          message: withClausePromptModeCalleeMessage(invoke.path),
+          hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
+        });
+        clauseRefused = true;
+      }
+      // INV-6: the clause's `cwd` value is judged exactly as an argument slot —
+      // expected `string`, the ordinary type diagnostic, no dedicated code
+      // (registry `invoke-arg-type-mismatch` Trigger). Independent of the
+      // arity/type block below (a mismatched argument AND a mismatched cwd each
+      // report), withheld only when this site already drew a clause refusal.
+      if (!clauseRefused) {
+        diagnostics.push(
+          ...checkClauseCwdType({
+            ...(invoke.withClause !== undefined ? { clause: invoke.withClause } : {}),
+            surface: { kind: "invoke", providedCount },
+            file: callerPath,
+            fallbackRange: invoke.range,
+            typeEnv,
+            typePass,
+          }),
+        );
+      }
       if (arity !== undefined) {
         // Bug 0137 — `checkInvokeCall`, not a direct `checkInvokeArity` call:
         // it runs arity FIRST and returns its diagnostics ALONE when arity
@@ -1080,6 +1233,38 @@ export async function checkInvokeStaticResolution(
       const arity = await deps.resolveCalleeArity(resolvedPath);
       if (arity === undefined) {
         continue;
+      }
+      // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
+      // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
+      // prompt-mode `.theta` in `tools:` already un-registers the theta at load
+      // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
+      // caller can hold this site — the arm exists so the gate is uniform
+      // across both clause-bearing surfaces (and for harness inputs). `<callee>`
+      // is the PRESENTED callable name here, not the callee path
+      // (placeholder-rendering-b.md §7), as this surface's other rows render it.
+      let clauseRefused = false;
+      if (site.call.withClause !== undefined && arity.mode === "prompt") {
+        diagnostics.push({
+          severity: "error",
+          code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+          file: callerPath,
+          range: site.call.range,
+          message: withClausePromptModeCalleeMessage(site.name),
+          hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
+        });
+        clauseRefused = true;
+      }
+      if (!clauseRefused) {
+        diagnostics.push(
+          ...checkClauseCwdType({
+            ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
+            surface: { kind: "theta-callable", name: site.name },
+            file: callerPath,
+            fallbackRange: site.call.range,
+            typeEnv,
+            typePass,
+          }),
+        );
       }
       const arityDiags = checkInvokeArity({
         // The `invoke(...)` arm above renders `<callee>` as the verbatim path
@@ -1196,6 +1381,69 @@ export async function checkInvokeStaticResolution(
         // #argument-mismatch-multiplicity), distinct from the per-slot rule
         // the invoke and `fn` rows draw.
         break;
+      }
+    }
+
+    // RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
+    // DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
+    // verdict against the frozen callable set. The clause is legal on exactly
+    // two surfaces, so this loop convicts everything else on the bare-ident
+    // call surface: a callee the set classifies `theta` is the legal surface
+    // (the mode gate above owns it), a callee it classifies `pi-tool` draws
+    // `theta/parse/with-clause-pi-tool`, and EVERY other callee — `subagent
+    // fn`, plain `fn`, imported `fn` including re-export chains, locals,
+    // builtins, anything the set does not bind — draws
+    // `theta/parse/with-clause-in-process-callee`. The verdict is the
+    // callable-set classification ALONE: no fn-kind resolution and no chain
+    // walk, which is exactly what closes the re-export-chain case on the same
+    // stroke (a chain-reached callee convicts as a set MISS). `ResolvedCallable`
+    // is the closed two-kind union, so the three arms are total.
+    //
+    // PRECEDENCE: this loop runs only for a parse-clean theta —
+    // `parseDiscoveredTheta` (production-composition.ts) drops any
+    // error-severity parse diagnostic before the compose pass calls this
+    // function — so an input that drew `theta/parse/unknown-identifier`,
+    // `theta/parse/shadowed-callable-call` or
+    // `theta/parse/with-clause-unknown-key` never reaches it, and those keep
+    // their refusal ALONE on a `.theta` host. Driven directly at the unit
+    // level the loop still emits for such inputs; the pipeline-level
+    // precedence is a composition-level property, not this loop's own.
+    if (deps.callableSet !== undefined) {
+      for (const call of callSites.callExprs) {
+        if (call.withClause === undefined) {
+          continue;
+        }
+        // Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get`
+        // plus an explicit `!== undefined` test — a callee name is
+        // author-controlled source text.
+        const entry = deps.callableSet.entries.get(call.callee);
+        if (entry !== undefined && entry.kind === "theta") {
+          continue;
+        }
+        if (entry !== undefined && entry.kind === "pi-tool") {
+          diagnostics.push({
+            severity: "error",
+            code: WITH_CLAUSE_PI_TOOL_CODE,
+            file: callerPath,
+            // The Pi-tool arm ranges over the CALL: a Pi tool is never a
+            // clause-bearing surface at all, so the whole call site is the
+            // fault, not just the clause.
+            range: call.range,
+            message: withClausePiToolMessage(call.callee),
+            hint: WITH_CLAUSE_PI_TOOL_HINT,
+          });
+          continue;
+        }
+        diagnostics.push({
+          severity: "error",
+          code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+          file: callerPath,
+          // The default arm ranges over the CLAUSE: the callee is fine (it is a
+          // legal in-process call), the clause is what cannot apply to it.
+          range: call.withClause.range,
+          message: withClauseInProcessCalleeMessage(call.callee),
+          hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+        });
       }
     }
 

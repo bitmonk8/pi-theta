@@ -2549,7 +2549,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           model: model.id,
           projectTrust,
         },
-        cwd: ctx.cwd,
+        // RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract):
+        // the child working directory is the call site's validated, resolved
+        // `cwd` when the dispatching call carried a `with { cwd }` clause,
+        // otherwise the forwarded `ctx.cwd` — the pre-0009 value, byte-identical
+        // in the absent-clause case. NOTHING else in this launch assembly reads
+        // the field (subagent.md #subagent-cwd-identity-location): the clause
+        // relocates the callee's side effects, never its identity.
+        cwd: bindInput.resolvedCwd ?? ctx.cwd,
         parentEnv,
         parentPid: this.#input.subagentParentPid ?? 0,
         // INV-4: marshal the CURRENT per-chain depth so the child continues the
@@ -3926,9 +3933,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
     const argValues = expr.args.slice(1).map((arg) => evaluatePureExpression(arg, env, chain));
-    // INV-6: the `invoke<Schema>` return annotation drives the runtime AJV
+    // The `invoke<Schema>` return annotation drives the runtime AJV
     // return-value validation on the child's `Ok` payload (invocation.md §Typed
-    // return; hard-ceilings ceiling #4). invocation.md §"Typed return": untyped
+    // return, anchor `#typed-return`; hard-ceilings ceiling #4). Untyped
     // `invoke(...)` carries no return type at all, so no schema is derived for
     // it here.
     return this.#buildInvokeChild(
@@ -3942,6 +3949,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         : { kind: "untyped" },
       parentSignal,
       callerMode,
+      evaluateCallSiteCwd(expr, env, chain),
     );
   }
 
@@ -3963,6 +3971,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): InvokeChild {
     const calleePath = thetaCalleePath(theta, expr.callee) ?? `./${expr.callee}.theta`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
+    const rawCwd = evaluateCallSiteCwd(expr, env, chain);
     // A `.theta`-callable call through `tools:` carries no `invoke<Schema>`
     // annotation, so there is no parse-time return-type site. tool-calls.md
     // §"Return type" types the row by INFERENCE over the statically resolved
@@ -3976,6 +3985,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       { kind: "callee-inferred" },
       parentSignal,
       callerMode,
+      rawCwd,
     );
   }
 
@@ -3989,6 +3999,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     returnTyping: InvokeReturnTyping,
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
+    /**
+     * The call-site `with { cwd }` clause's evaluated value (RFC 0009 INV-6),
+     * `undefined` when the dispatching call carried no clause (or an empty
+     * one). Validated and resolved in `#driveCallee`, pre-spawn.
+     */
+    rawCwd: ThetaValue | undefined,
   ): InvokeChild {
     return {
       calleePath,
@@ -4036,6 +4052,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             returnTyping,
             parentSignal,
             callerMode,
+            rawCwd,
           ),
           signalGuard(parentSignal),
           noopSwallowChannels(),
@@ -4063,6 +4080,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     returnTyping: InvokeReturnTyping,
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
+    rawCwd: ThetaValue | undefined,
   ): Promise<DrivenInvokeResult> {
     // INV-1 (invocation.md §Resolution): re-run the realpath + discovery-root
     // containment check at the moment the runtime opens the callee,
@@ -4085,6 +4103,38 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // argument — the callee never ran (bug 0294 provenance).
         return { source: "boundary-minted", result: breach.result };
       }
+    }
+
+    // RFC 0009 INV-6 (invocation.md `#options-surface`): validate and resolve the
+    // call-site `cwd` before any dispatch work. An empty string and a non-string
+    // are authoring bugs — `Err(InvokeInfraError { cause: "validation" })`, never
+    // a silent parent-cwd inherit. A relative value resolves against the parent
+    // invocation's effective cwd (`ctx.cwd`, the exact value the default launch
+    // bind forwards), which composes across nesting because a child's `ctx.cwd`
+    // IS its spawn cwd. `path.resolve` is also the Windows separator-spelling
+    // normalisation (the bug 0467 class): both spellings of one directory
+    // converge on the host-native resolved form, which is the spelling the spawn
+    // option wants (diagnostic rendering's POSIX spelling is a separate concern
+    // and is not applied here). This guard is THIS hop's own, pre-spawn,
+    // boundary-minted (bug 0294 provenance).
+    let resolvedCwd: string | undefined;
+    if (rawCwd !== undefined) {
+      if (typeof rawCwd !== "string" || rawCwd === "") {
+        const error: InvokeInfraError = {
+          kind: "invoke_infra",
+          message:
+            typeof rawCwd !== "string"
+              ? `invoke callee '${calleePath}' with-clause cwd is not a string`
+              : `invoke callee '${calleePath}' with-clause cwd is empty`,
+          callee_path: calleePath,
+          cause: "validation",
+        };
+        return {
+          source: "boundary-minted",
+          result: makeErr(error as unknown as ThetaValue),
+        };
+      }
+      resolvedCwd = resolvePath(ctx.cwd, rawCwd);
     }
 
     const escape = await this.#recheckCalleeContainment(theta, calleePath);
@@ -4117,6 +4167,25 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return { source: "boundary-minted", result: makeErr(error as unknown as ThetaValue) };
     }
     const callee = parsed.input;
+    // RFC 0009 INV-8 runtime arm: a clause whose callee was NOT statically
+    // resolvable and turns out prompt-mode at runtime refuses here — the same
+    // `"validation"` arm the clause's input-shape violations use, minting no new
+    // runtime code (DIAG-2). Placed BEFORE the prompt-attach branch below so no
+    // prompt-mode callee ever attaches OR spawns under a clause; the
+    // statically-resolvable case never reaches this line (its parse error
+    // un-registers the caller).
+    if (resolvedCwd !== undefined && callee.frontmatter.mode === "prompt") {
+      const error: InvokeInfraError = {
+        kind: "invoke_infra",
+        message: `invoke callee '${calleePath}' is prompt-mode; with-clause cwd requires a subagent-mode callee`,
+        callee_path: calleePath,
+        cause: "validation",
+      };
+      return {
+        source: "boundary-minted",
+        result: makeErr(error as unknown as ThetaValue),
+      };
+    }
     // tool-calls.md §"Return type" (registered-theta row): the return type of a
     // `.theta`-callable call is the callee's INFERRED return type, which is
     // legible only now that the callee is parsed — and it resolves against the
@@ -4177,7 +4246,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // Decision 6 / Increment B1: the child bind registered an
       // ActiveInvocationRegistry entry; the `finally` calls its
       // `finishInvocation` AFTER the child body (`runPromptSuspendInvoke`, whose
-      // `childBody` runs `executeBody`) + the INV-6 return validation, so the
+      // `childBody` runs `executeBody`) + the typed-return validation, so the
       // entry SPANS the nested callee's real in-flight window.
       try {
         const outcome = await runPromptSuspendInvoke<ResultValue>({
@@ -4216,7 +4285,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // The child's own body ran and settled `outcome.result` — callee-returned
         // (bug 0294 provenance), whatever `kind` its `Err` (if any) carries.
         const bodySource: InvokeResultSource = "callee-returned";
-        // INV-6 (invocation.md §Typed return): apply the `invoke<Schema>` return
+        // invocation.md §Typed return (anchor `#typed-return`): apply the `invoke<Schema>` return
         // validation to the child's `Ok` payload, exactly as the spawn path below.
         const validated = this.#validateInvokeReturn(
           calleePath,
@@ -4246,11 +4315,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       paramBindings,
       chain,
       parentSignal,
+      // RFC 0009 INV-8: the validated, `path.resolve`-normalised call-site cwd.
+      // Guarded spread, not a bare `resolvedCwd` — `exactOptionalPropertyTypes`
+      // distinguishes an omitted key from one explicitly set to `undefined`,
+      // and an absent clause must leave the launch bind byte-identical.
+      ...(resolvedCwd !== undefined ? { resolvedCwd } : {}),
     });
     // Decision 6 / Increment B1: the spawn bind registered an
     // ActiveInvocationRegistry entry; the `finally` calls its `finishInvocation`
     // AFTER `executeBody` + `surface` (which runs the spawned session's
-    // `dispose()`) + the INV-6 return validation, so the entry SPANS the nested
+    // `dispose()`) + the typed-return validation, so the entry SPANS the nested
     // subagent callee's real in-flight window and its barrier settles
     // post-dispose.
     try {
@@ -4275,7 +4349,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         result = binding.surface(await executeBody(callee.body, binding.executeDeps));
         bodySource = "callee-returned";
       }
-      // INV-6 (invocation.md §Typed return; hard-ceilings ceiling #4): AJV-validate
+      // invocation.md §Typed return (anchor `#typed-return`; hard-ceilings ceiling #4): AJV-validate
       // the child's returned value against the `invoke<Schema>` annotation. A
       // mismatch (e.g. a `string` under `invoke<number>`) is
       // `Err(InvokeInfraError{cause:"return_validation"})`, aborting the parent.
@@ -4410,7 +4484,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
-   * INV-6 runtime return-value validation: lower the resolved return-type
+   * Typed-return runtime validation (invocation.md §Typed return, anchor
+   * `#typed-return`): lower the resolved return-type
    * site's annotation against the declarations it resolves in, compile it, and
    * AJV-validate the child's `Ok` payload. A site-less call (`returnSite ===
    * null` — an untyped `invoke(...)`, or a `.theta`-callable call whose callee
@@ -7681,6 +7756,42 @@ function interpolationTypeOf(value: ThetaValue): InterpolationType {
   }
   // A plain object schema value — compact JSON.
   return { kind: "object" };
+}
+
+/**
+ * Evaluate a call site's `with { cwd: Expr }` clause value (RFC 0009 INV-6,
+ * invocation.md `#options-surface`), or `undefined` when the call carries no
+ * clause — or an empty one, whose semantics are exactly an absent clause's
+ * (nothing is requested, so the default cwd applies).
+ *
+ * Evaluation order is normative: the call's argument expressions evaluate
+ * left-to-right first (the caller's own `argValues` map, which runs before this
+ * call), THEN the clause's `cwd` expression, THEN dispatch. The SAME pure
+ * evaluator and environment the arguments use, so a panic or a `?`-on-`Err`
+ * inside the clause value takes an argument position's exact abort route and
+ * nothing is spawned (the `InvokeChild` is never built).
+ *
+ * Duplicate `cwd` keys all evaluate, in source order, and the LAST wins — the
+ * object-literal duplicate-field disposition; a panic in an earlier one still
+ * aborts pre-spawn.
+ */
+function evaluateCallSiteCwd(
+  expr: CallExpr | InvokeExpr,
+  env: LexicalEnvironment,
+  chain: InvokeChain,
+): ThetaValue | undefined {
+  const clause = expr.withClause;
+  if (clause === undefined) {
+    return undefined;
+  }
+  let raw: ThetaValue | undefined;
+  for (const field of clause.fields) {
+    if (field.key !== "cwd") {
+      continue;
+    }
+    raw = evaluatePureExpression(field.value, env, chain);
+  }
+  return raw;
 }
 
 /**

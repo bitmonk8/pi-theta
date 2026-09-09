@@ -1958,6 +1958,10 @@ async function resolveCalleeArity(
     // (frontmatter.ts's `splitParamValue` sets `type` unchanged; `wireName` is
     // the `params:` YAML key exactly as written, `BypassParamsField`).
     fields: fields.map((field) => ({ typeSource: field.type, name: field.wireName })),
+    // RFC 0009 (invocation.md INV-8): the call-site `with` clause's static mode
+    // gate reads the callee's declared mode off the SAME pass-cached parse the
+    // arity counts come from — no second callee read.
+    mode: document.frontmatter.mode,
   };
 }
 

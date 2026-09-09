@@ -137,6 +137,14 @@ import {
   lexQueryTemplate,
   queryTemplateStaticBody,
 } from "../render/query-render";
+// RFC 0009: the call-site `with` clause's in-process-callee rejection strings
+// live beside the other invoke parse diagnostics; the `.thetalib` half of that
+// one judgement is emitted here (invocation.md INV-8).
+import {
+  WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+  WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+  withClauseInProcessCalleeMessage,
+} from "./invoke-diagnostics";
 
 // --------------------------------------------------------------------------
 // Expression AST (the `Expr` node family; grammar.md §Expression sublanguage)
@@ -218,6 +226,14 @@ export interface CallExpr extends NodeBase {
   readonly kind: "call";
   readonly callee: string;
   readonly args: readonly Expr[];
+  /**
+   * The call-site `with { cwd: … }` options clause (grammar.md
+   * `#call-site-with-clause`), absent when unwritten. Optional for the same
+   * reason `QueryExpr.ascriptionWritten` is: committed tests
+   * construct `kind: "call"` literals directly, and a required field would red
+   * their typecheck for zero behavioural gain.
+   */
+  readonly withClause?: CallWithClause;
 }
 
 /** An `invoke(...)` / `invoke<T>(...)` call expression (invocation.md). */
@@ -240,6 +256,13 @@ export interface InvokeExpr extends NodeBase {
    * closed its own `>`.
    */
   readonly returnSchemaAbsorbed?: boolean;
+  /**
+   * The call-site `with { cwd: … }` options clause (grammar.md
+   * `#call-site-with-clause`), absent when unwritten — `invoke(...)` is the
+   * second of the clause's two legal surfaces (invocation.md INV-8). Optional
+   * for the same directly-constructed-literal reason as `CallExpr.withClause`.
+   */
+  readonly withClause?: CallWithClause;
 }
 
 /** An `@`…`` model-query expression (query.md). */
@@ -590,6 +613,51 @@ export interface WithField {
  * theta (FN-7).
  */
 export type WithClause = readonly WithField[];
+
+/**
+ * One field of a CALL-SITE `with { … }` options clause (grammar.md
+ * `#call-site-with-clause` `CallWithField`). Deliberately distinct from the
+ * declaration-site `WithField` — the grammar's "the two productions do
+ * not share nonterminals" rule mirrored in the AST: the value here is a FULL
+ * expression evaluated at call time (invocation.md INV-6), not a
+ * frontmatter-shaped literal, and a key outside the closed set is a parse
+ * ERROR (`theta/parse/with-clause-unknown-key`) rather than the
+ * declaration-site's forward-compatible frontmatter warning.
+ */
+export interface CallWithField {
+  /** The field key as written (closed set `{cwd}` in theta 1.3; judged at parse). */
+  readonly key: string;
+  /** The key token's range — the unknown-key diagnostic's anchor. */
+  readonly keyRange: SourceRange;
+  /** The value expression (full expression grammar; brace-suppression cleared). */
+  readonly value: Expr;
+}
+
+/**
+ * A call-site `with { cwd: Expr }` options clause (grammar.md
+ * `#call-site-with-clause`; invocation.md `#options-surface`).
+ */
+export interface CallWithClause {
+  readonly fields: readonly CallWithField[];
+  /** Spans the `with` keyword through the closing `}`. */
+  readonly range: SourceRange;
+}
+
+/**
+ * The call-site `with` clause's value expressions on a call/invoke node, in
+ * source order (empty when no clause is written). Every expression walker that
+ * recurses a call node's `args` recurses these too: a clause value is an
+ * ordinary expression position with an argument's exact rules (invocation.md
+ * INV-6), so names, types and effects inside it must be judged by the same
+ * passes — the alternative is a position the whole checker is blind to.
+ */
+export function callWithClauseValues(
+  expr: CallExpr | InvokeExpr,
+): readonly Expr[] {
+  return expr.withClause === undefined
+    ? []
+    : expr.withClause.fields.map((field) => field.value);
+}
 
 /**
  * The resolved session configuration a `subagent fn` call spawns its fresh
@@ -1356,6 +1424,17 @@ export function parseThetaDocument(
     ? checkThetaLibTopLevel({ statements, tail: resolvedTail }, file)
     : [];
 
+  // RFC 0009 (invocation.md INV-8 default-reject): the `.thetalib` half of the
+  // call-site `with` clause's callee classification. A lib body holds no
+  // callable set, so the classification is vacuous and every clause-bearing
+  // bare-identifier call there is rejected at the library's own parse — keyed on
+  // the same `.thetalib` discriminator as the top-level-form check above. The
+  // `.theta` half lives in the load pass's classifying loop
+  // (`checkInvokeStaticResolution`), which is where the frozen callable set is.
+  const thetalibCallWithClauseDiags = file.endsWith(".thetalib")
+    ? checkThetaLibCallWithClauses({ statements, tail: resolvedTail }, file)
+    : [];
+
   // Bug 0446 §Fix Option 1 (widening bug 0431's top-level-only `.theta`
   // refusal): a from-bearing `export … from` (non-empty path) is refused at
   // ANY statement depth, in BOTH hosts — a `.theta` export is never
@@ -1383,6 +1462,7 @@ export function parseThetaDocument(
     callSiteLexicalDiags,
     typeLayerDiags,
     thetalibTopLevelDiags,
+    thetalibCallWithClauseDiags,
     statementPlacementDiags,
     resolvedQuery.diagnostics,
   ]);
@@ -1619,6 +1699,150 @@ function checkThetaLibTopLevel(block: Block, file: string): Diagnostic[] {
 }
 
 /**
+ * Reject every clause-bearing bare-identifier call in a `.thetalib` body with
+ * `theta/parse/with-clause-in-process-callee` (invocation.md INV-8's
+ * default-reject arm; code-registry-parse.md row 4).
+ *
+ * A `.thetalib` carries no frontmatter and can therefore never hold a callable
+ * set, so the classification INV-8 states over the caller's frozen callable set
+ * is VACUOUS here: every bare-identifier callee is a set MISS by construction
+ * and draws the default arm, with no set to consult and no `fn`-kind resolution
+ * anywhere. That is why the lib half is decided at the library's OWN parse
+ * rather than in the load pass's classifying loop (which walks the importing
+ * theta's body only). `invoke(...)` inside a lib `fn` body is an `InvokeExpr`,
+ * never a `CallExpr`, so it stays clause-legal — the second of the clause's two
+ * legal surfaces — and its mode gate rides the load pass or the runtime arm.
+ *
+ * Keyed off the same byte-exact lowercase `.thetalib` discriminator
+ * `checkThetaLibTopLevel` above uses, over the same statement tree.
+ */
+function checkThetaLibCallWithClauses(block: Block, file: string): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  for (const call of collectClauseBearingCalls(block)) {
+    // `call.withClause` is what `collectClauseBearingCalls` filters on.
+    const clause = call.withClause as CallWithClause;
+    out.push({
+      severity: "error",
+      code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+      file,
+      // The callee is fine; the CLAUSE is the fault — so the range is the
+      // clause's, not the call's (matching the load-pass default arm).
+      range: clause.range,
+      message: withClauseInProcessCalleeMessage(call.callee),
+      hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+    });
+  }
+  return out;
+}
+
+/**
+ * Every `CallExpr` carrying a call-site `with` clause anywhere in `block`'s
+ * statement tree. The descent mirrors `walkBlockForStatementPlacement`'s reach
+ * below — every `if`/`while`/`for`/`fn` body (a lib's clause-bearing call is
+ * necessarily inside an `fn` body, since `theta/parse/thetalib-top-level-statement`
+ * forbids the rest), every `par for` body, every block expression, and every
+ * `subagent fn` `with`-clause value — and stops at the document body AST for the
+ * same reason that walk does (a `query` template's text is re-lexed by a
+ * separate throwaway parse).
+ */
+function collectClauseBearingCalls(block: Block): CallExpr[] {
+  const out: CallExpr[] = [];
+  collectClauseBearingCallsInBlock(block, out);
+  return out;
+}
+
+function collectClauseBearingCallsInBlock(block: Block, out: CallExpr[]): void {
+  for (const stmt of block.statements) {
+    collectClauseBearingCallsInStmt(stmt, out);
+  }
+  if (block.tail !== null) {
+    collectClauseBearingCallsInExpr(block.tail, out);
+  }
+}
+
+function collectClauseBearingCallsInStmt(stmt: Stmt, out: CallExpr[]): void {
+  switch (stmt.kind) {
+    case "let":
+      if (stmt.init !== null) {
+        collectClauseBearingCallsInExpr(stmt.init, out);
+      }
+      return;
+    case "reassign":
+      collectClauseBearingCallsInExpr(stmt.value, out);
+      return;
+    case "if":
+      collectClauseBearingCallsInExpr(stmt.condition, out);
+      collectClauseBearingCallsInBlock(stmt.then, out);
+      if (stmt.otherwise !== null) {
+        if ("statements" in stmt.otherwise) {
+          collectClauseBearingCallsInBlock(stmt.otherwise, out);
+        } else {
+          collectClauseBearingCallsInStmt(stmt.otherwise, out);
+        }
+      }
+      return;
+    case "while":
+      collectClauseBearingCallsInExpr(stmt.condition, out);
+      collectClauseBearingCallsInBlock(stmt.body, out);
+      return;
+    case "for":
+      collectClauseBearingCallsInExpr(stmt.iterand, out);
+      collectClauseBearingCallsInBlock(stmt.body, out);
+      return;
+    case "fn":
+      collectClauseBearingCallsInBlock(stmt.body, out);
+      for (const field of stmt.withClause ?? []) {
+        collectClauseBearingCallsInExpr(field.value, out);
+      }
+      return;
+    case "return":
+      if (stmt.operand !== null) {
+        collectClauseBearingCallsInExpr(stmt.operand, out);
+      }
+      return;
+    case "query":
+      collectClauseBearingCallsInExpr(stmt.query, out);
+      return;
+    case "tool-call":
+      collectClauseBearingCallsInExpr(stmt.call, out);
+      return;
+    case "invoke":
+      collectClauseBearingCallsInExpr(stmt.invoke, out);
+      return;
+    case "expr":
+      collectClauseBearingCallsInExpr(stmt.expr, out);
+      return;
+    default:
+      // `break` / `continue` / `schema` / `enum` / `import` / `export` /
+      // `doc-comment` carry no nested Block or Expr this walk needs to reach.
+      return;
+  }
+}
+
+function collectClauseBearingCallsInExpr(e: Expr, out: CallExpr[]): void {
+  if (e.kind === "call" && e.withClause !== undefined) {
+    out.push(e);
+  }
+  switch (e.kind) {
+    case "par-for":
+      collectClauseBearingCallsInExpr(e.iterand, out);
+      if (e.max !== null) {
+        collectClauseBearingCallsInExpr(e.max, out);
+      }
+      collectClauseBearingCallsInBlock(e.body, out);
+      return;
+    case "block":
+      collectClauseBearingCallsInBlock(e.body, out);
+      return;
+    default:
+      for (const child of expressionChildExprs(e)) {
+        collectClauseBearingCallsInExpr(child, out);
+      }
+      return;
+  }
+}
+
+/**
  * Check a from-bearing `export … from` / `import … from` statement's
  * PLACEMENT at every depth reachable from the document body AST, in both
  * hosts:
@@ -1800,12 +2024,10 @@ function walkExprForStatementPlacement(
       walkExprForStatementPlacement(e.operand, file, isThetaLib, out);
       return;
     case "call":
-      for (const arg of e.args) {
-        walkExprForStatementPlacement(arg, file, isThetaLib, out);
-      }
-      return;
     case "invoke":
-      for (const arg of e.args) {
+      // RFC 0009: a call-site `with` clause value is an expression position with
+      // an argument's exact rules, so it is walked beside the arguments.
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkExprForStatementPlacement(arg, file, isThetaLib, out);
       }
       return;
@@ -3611,6 +3833,59 @@ class BodyParser {
     return fields;
   }
 
+  /**
+   * Parse a CALL-SITE `with "{" CallWithField ("," CallWithField)* ","? "}"`
+   * options clause (grammar.md `#call-site-with-clause`; invocation.md
+   * `#options-surface`). The cursor is on the `with` identifier.
+   *
+   * Deliberately forked from `parseWithClause` rather than reusing it,
+   * because the two clauses differ in all three grammar-pinned dimensions: the
+   * key set is the closed per-call options set (`cwd` in theta 1.3), an unknown
+   * key is the parse ERROR `theta/parse/with-clause-unknown-key` rather than
+   * the declaration-site's forward-compatible frontmatter warning, and each
+   * value is a FULL expression parsed with brace-suppression cleared
+   * (`parseBracketedExpression`, as a call argument is) rather than a
+   * frontmatter-shaped literal. The recovery envelope mirrors
+   * `parseWithClause`: the `:` is optional, `,` separates, and a missing `}` at
+   * EOF is tolerated.
+   */
+  private parseCallWithClause(): CallWithClause {
+    const withTok = this.advance(); // `with`
+    const fields: CallWithField[] = [];
+    if (this.isPunct("{")) {
+      this.advance();
+      while (!this.isPunct("}") && !this.atEnd()) {
+        const keyTok = this.advance();
+        const key = keyTok.text;
+        if (this.isPunct(":")) {
+          this.advance();
+        }
+        const value = this.parseBracketedExpression() ?? nullExpr(keyTok.range);
+        // The closed set has one member in theta 1.3, so it is compared
+        // directly; a `CALL_WITH_CLAUSE_KEYS` constant lands with key 2. NOT
+        // `WITH_CLAUSE_KEYS` — different clause, different severity.
+        if (key !== "cwd") {
+          this.diagnostics.push({
+            severity: "error",
+            code: "theta/parse/with-clause-unknown-key",
+            file: this.file,
+            range: keyTok.range,
+            message: `unknown key '${key}' in call-site with clause`,
+            hint: "theta 1.3 call-site options admit `cwd` only.",
+          });
+        }
+        fields.push({ key, keyRange: keyTok.range, value });
+        if (this.isPunct(",")) {
+          this.advance();
+        }
+      }
+      if (this.isPunct("}")) {
+        this.advance();
+      }
+    }
+    return { fields, range: spanRange(withTok.range, this.prevRange()) };
+  }
+
   private parseReturn(): Stmt {
     const kw = this.advance();
     let operand: Expr | null = null;
@@ -5169,6 +5444,29 @@ class BodyParser {
     if (expr === null) {
       return null;
     }
+    // grammar.md `#call-site-with-clause`: the call-site `with` clause attaches
+    // immediately after the call's closing `)`, BEFORE any other postfix
+    // operator — so it is recognised exactly once, here, on the bare call node
+    // `parsePrimary` just produced, and never inside the postfix loop below
+    // (there it would attach to post-postfix nodes such as `f(a)?.b`, and in
+    // `f(a) with { cwd: t }?` the `?` must apply to the clause-bearing call's
+    // Result instead). This is `with`'s second contextual-keyword recognition
+    // position (grammar.md §"Contextual keywords"): only on a `call`/`invoke`
+    // node, only the ident `with`, only when the next token is `{`; everywhere
+    // else `with` stays an ordinary identifier.
+    if (
+      (expr.kind === "call" || expr.kind === "invoke") &&
+      this.peek().kind === "ident" &&
+      this.peek().text === "with" &&
+      this.isPunct("{", 1)
+    ) {
+      const clause = this.parseCallWithClause();
+      expr = {
+        ...expr,
+        withClause: clause,
+        range: spanRange(expr.range, this.prevRange()),
+      };
+    }
     for (;;) {
       if (this.isPunct("?")) {
         // Postfix error-propagation `?` vs ternary head `cond ? a : b`. A `?`
@@ -6250,7 +6548,8 @@ class BodyParser {
         return;
       case "call":
       case "invoke":
-        for (const arg of e.args) {
+        // RFC 0009: the clause value is walked as an argument is.
+        for (const arg of [...e.args, ...callWithClauseValues(e)]) {
           this.scanParForExpr(arg, outerMutables, bodyLocals, loopDepth);
         }
         return;
@@ -6339,9 +6638,11 @@ class BodyParser {
     // INV-1 / INV-2 (invocation.md §Resolution; lexical.md §"Path literals" /
     // §"Extension matching"): the callee path is a string literal — validate its
     // byte-exact-lowercase `.theta` suffix and forward-slash-only rule at parse
-    // time. INV-8: a non-literal (runtime-computed) path is not supported in
-    // theta 1.0, so surface it as a parse error rather than degrading to a silent
-    // empty-path no-op at runtime.
+    // time. Per invocation.md §Resolution (the string-literal requirement), a
+    // non-literal (runtime-computed) path is not supported in theta 1.0, so
+    // surface it as a parse error rather than degrading to a silent empty-path
+    // no-op at runtime. (The private ordinal formerly cited here predates the
+    // spec's own INV-8, which now pins the clause mode gate — bug 0112 class.)
     if (first !== undefined) {
       if (first.kind === "string") {
         this.diagnostics.push(
@@ -7079,7 +7380,9 @@ function walkIdentExpr(
       // here — the value-position refusal is a different sentence
       // (imports.md:50) for a different position.
       emitUnknownIdentifier(e.callee, e.range, scope, walkCtx, file, out, "call");
-      for (const arg of e.args) {
+      // RFC 0009: identifiers inside a call-site `with` clause value resolve as
+      // an argument's do.
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkIdentExpr(arg, scope, walkCtx, file, out);
       }
       return;
@@ -7097,7 +7400,7 @@ function walkIdentExpr(
       return;
     case "invoke":
       // The callee path is a string literal, not an identifier.
-      for (const arg of e.args) {
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkIdentExpr(arg, scope, walkCtx, file, out);
       }
       return;
@@ -8033,7 +8336,10 @@ function walkCallSiteExpr(
           }
         }
       }
-      for (const arg of e.args) {
+      // RFC 0009: the clause values are recursed as arguments are (the direct
+      // bare-object carve-out above is about the ARGUMENT list only — a clause
+      // value holds no `ToolArg` position).
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkCallSiteExpr(arg, locals, walkCtx);
       }
       return;
@@ -8051,7 +8357,7 @@ function walkCallSiteExpr(
       walkCallSiteExpr(e.operand, locals, walkCtx);
       return;
     case "invoke":
-      for (const arg of e.args) {
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkCallSiteExpr(arg, locals, walkCtx);
       }
       return;
@@ -9662,6 +9968,15 @@ function walkExpr(
         const directBareObject = arg.kind === "object" && arg.typeName === null;
         walkExpr(arg, scope, refs, file, out, directBareObject);
       }
+      // A `with { … }` clause value is an ordinary expression position judged by
+      // an argument's exact rules (invocation.md INV-6), so it is walked here
+      // like the sibling `invoke` arm does. The direct-argument bare-object
+      // carve-out above does NOT extend to it: the §Object construction carve-out
+      // is keyed to a Pi-tool callee's direct arguments, and a clause value is
+      // never one — so it is walked with `bareObjectAllowed` at its default false.
+      for (const value of callWithClauseValues(e)) {
+        walkExpr(value, scope, refs, file, out);
+      }
       return;
     case "invoke":
       // The `<T>` return-type annotation sits ahead of the argument list in
@@ -9718,7 +10033,7 @@ function walkExpr(
           }
         }
       }
-      for (const arg of e.args) {
+      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkExpr(arg, scope, refs, file, out);
       }
       return;
@@ -10102,7 +10417,7 @@ function firstForbiddenInterpolationForm(e: Expr): string | null {
   if (e.kind === "query") {
     return "@-query template";
   }
-  for (const child of interpolationChildExprs(e)) {
+  for (const child of expressionChildExprs(e)) {
     const found = firstForbiddenInterpolationForm(child);
     if (found !== null) {
       return found;
@@ -10111,8 +10426,14 @@ function firstForbiddenInterpolationForm(e: Expr): string | null {
   return null;
 }
 
-/** The direct child expressions of `e` (for the interpolation-form scan). */
-function interpolationChildExprs(e: Expr): readonly Expr[] {
+/**
+ * The direct child expressions of `e` (for the interpolation-form scan and the
+ * `.thetalib` clause collector above). A call/invoke node's call-site `with`
+ * clause values are children exactly as its arguments are (RFC 0009: the
+ * positional restrictions inside a clause value are an argument's), so every
+ * consumer of this accessor judges them.
+ */
+function expressionChildExprs(e: Expr): readonly Expr[] {
   switch (e.kind) {
     case "binary":
       return [e.left, e.right];
@@ -10122,7 +10443,7 @@ function interpolationChildExprs(e: Expr): readonly Expr[] {
       return [e.operand];
     case "call":
     case "invoke":
-      return e.args;
+      return [...e.args, ...callWithClauseValues(e)];
     case "member":
       return [e.target];
     case "index":
@@ -10241,7 +10562,9 @@ function typedQueryInExpr(expr: Expr): boolean {
       return typedQueryInExpr(expr.operand);
     case "call":
     case "invoke":
-      return expr.args.some(typedQueryInExpr);
+      // RFC 0009: a typed query inside a call-site `with` clause value counts
+      // exactly as one inside an argument.
+      return [...expr.args, ...callWithClauseValues(expr)].some(typedQueryInExpr);
     case "member":
       return typedQueryInExpr(expr.target);
     case "index":

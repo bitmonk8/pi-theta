@@ -16,7 +16,7 @@
 // load.md (`theta/load/subagent-executable-unresolved`), diagnostics/code-
 // registry-runtime.md (`theta/runtime/subagent-spawn-failed`).
 
-import { delimiter as PATH_DELIMITER } from "node:path";
+import { delimiter as PATH_DELIMITER, resolve as resolvePath } from "node:path";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import {
   normalizeToolSnapshot,
@@ -625,7 +625,19 @@ export function launchSubagentChild(
     // A spawn throw (ENOENT/EPERM/immediate exit) records the operator-triage
     // diagnostic here; the caller additionally routes it through the
     // runtime-defect surface via `routeSubagentSpawnFailure`.
-    const message = spawnError instanceof Error ? spawnError.message : String(spawnError);
+    const raw = spawnError instanceof Error ? spawnError.message : String(spawnError);
+    // INV-7 (invocation.md): a spawn failure MUST be diagnosable naming the
+    // offending working directory — the per-call `with { cwd }` clause makes a
+    // bad cwd a first-class authoring mistake, and Node's ENOENT names the
+    // EXECUTABLE, not the cwd. Enrich the `<error.message>` slot when the OS
+    // error does not already carry the directory: slot CONTENT, not a template
+    // change, so DIAG-4's pinned `subagent child spawn failed: <error.message>`
+    // Message holds and the hint stays the attempted executable. Unconditional
+    // on clause presence — the launcher cannot know, and a default-cwd failure
+    // gains the same diagnosability. Existence is never pre-checked (INV-7):
+    // the OS error at spawn is the authoritative verdict.
+    const attemptedCwd = resolvePath(request.cwd);
+    const message = raw.includes(request.cwd) ? raw : `${raw} (cwd: ${attemptedCwd})`;
     deps.emitDiagnostic({
       severity: "error",
       code: SUBAGENT_SPAWN_FAILED_CODE,

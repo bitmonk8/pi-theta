@@ -398,6 +398,24 @@ async function runToolCallEffect(
         return { ok: false, error: makeCancelledError() };
     }
   }
+  // RFC 0009 (invocation.md INV-8; tool-calls.md TOOL-1): a call-site
+  // `with { cwd }` clause on a PI-TOOL dispatch fails closed. Statically
+  // unreachable for a registered theta — the load pass rejects it with
+  // `theta/parse/with-clause-pi-tool` — so this is the belt for snapshot-less
+  // harness inputs and unknown callees: a Pi tool executes in-process against
+  // the parent session, has no child working directory, and must never silently
+  // ignore the clause. Same `"validation"` arm as the runtime mode gate.
+  if (expr.withClause !== undefined) {
+    return {
+      ok: true,
+      value: makeErr({
+        kind: "invoke_infra",
+        message: `with clause is not applicable to Pi tool '${expr.callee}'`,
+        callee_path: expr.callee,
+        cause: "validation",
+      } as unknown as ThetaValue),
+    };
+  }
   const call = deps.resolveToolCall(expr, env, evaluatedToolArgs);
   const outcome = await runCodeSideToolCall(
     deps.checkpoint,

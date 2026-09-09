@@ -208,6 +208,15 @@ export interface ConversationBindInput {
    */
   readonly parentSignal?: AbortSignal;
   /**
+   * RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract): the
+   * call-site `with { cwd }` clause's validated, `path.resolve`-normalised
+   * value. Present only when the dispatching call carried a clause; the
+   * SUBAGENT launch bind uses it as the child working directory, defaulting to
+   * the forwarded `ctx.cwd`. Prompt-mode bindings and the binder path never
+   * read it — `cwd` addresses a spawned child process, and neither has one.
+   */
+  readonly resolvedCwd?: string;
+  /**
    * The `ActiveInvocationRegistry` insertion the dispatch entry already
    * performed for this invocation (active-invocation-registry.md §"Registry
    * contract": insertion happens at handler entry, before any awaitable

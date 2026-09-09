@@ -53,7 +53,7 @@ import type {
   ThetaBody,
   Stmt,
 } from "./theta-document";
-import { parseExpressionSource } from "./theta-document";
+import { callWithClauseValues, parseExpressionSource } from "./theta-document";
 import {
   INTERPOLATED_RESULT_CODE,
   INTERPOLATED_RESULT_MESSAGE,
@@ -753,7 +753,9 @@ function walkExprForLocalBinders(expr: Expr, names: Set<string>): void {
       return;
     case "call":
     case "invoke":
-      for (const arg of expr.args) {
+      // RFC 0009: a call-site `with` clause value is an expression position with
+      // an argument's exact rules, so a binder inside one is collected too.
+      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) {
         walkExprForLocalBinders(arg, names);
       }
       return;
@@ -3202,6 +3204,14 @@ class TypeLayerWalk {
         for (const arg of e.args) {
           this.walkExpr(arg, bindings, flow, sunkArgs);
         }
+        // RFC 0009: the clause values walk with the ordinary posture — they are
+        // no `fn` parameter slot, so `checkFnCallArgs`' per-argument element
+        // sink does not extend to them (the clause carries no clause arm in
+        // that check by design; invocation.md INV-8's rejection is the load
+        // pass's, never an fn-kind resolution's).
+        for (const value of callWithClauseValues(e)) {
+          this.walkExpr(value, bindings, flow);
+        }
         return;
       }
       case "invoke":
@@ -3209,7 +3219,7 @@ class TypeLayerWalk {
         // in the registry: it carries its own row
         // (`theta/parse/invoke-arg-type-mismatch`) and its own, separately
         // unwired emitter — a different open defect this walk does not fix.
-        for (const arg of e.args) {
+        for (const arg of [...e.args, ...callWithClauseValues(e)]) {
           this.walkExpr(arg, bindings, flow);
         }
         return;
@@ -3925,7 +3935,9 @@ function childExprs(e: Expr): readonly Expr[] {
       return e.elements;
     case "call":
     case "invoke":
-      return e.args;
+      // RFC 0009: a `?` inside a call-site `with` clause value is scanned as one
+      // inside an argument is.
+      return [...e.args, ...callWithClauseValues(e)];
     case "object":
       return e.fields.map((f) => f.value);
     case "match":

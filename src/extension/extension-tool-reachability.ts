@@ -50,6 +50,7 @@ import type {
   Stmt,
   ThetaBody,
 } from "../parser/theta-document";
+import { callWithClauseValues } from "../parser/theta-document";
 import {
   resolveDispatchLadder,
   type DispatchLadderProbe,
@@ -126,7 +127,13 @@ function walkExpr(expr: Expr, out: Set<string>): void {
   switch (expr.kind) {
     case "call":
       out.add((expr as CallExpr).callee);
-      for (const arg of (expr as CallExpr).args) walkExpr(arg, out);
+      // RFC 0009: a call-site `with` clause value is an expression position with
+      // an argument's exact rules, so a call nested in one is reached too.
+      for (const arg of [
+        ...(expr as CallExpr).args,
+        ...callWithClauseValues(expr as CallExpr),
+      ])
+        walkExpr(arg, out);
       return;
     case "array":
       for (const el of expr.elements) walkExpr(el, out);
@@ -144,7 +151,7 @@ function walkExpr(expr: Expr, out: Set<string>): void {
       walkExpr(expr.operand, out);
       return;
     case "invoke":
-      for (const arg of expr.args) walkExpr(arg, out);
+      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
       return;
     case "member":
       walkExpr(expr.target, out);

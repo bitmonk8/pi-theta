@@ -145,6 +145,9 @@ async function run(root: string): Promise<Ran> {
           requiredCount: fields.filter((f) => !f.hasDefault && f.optional !== true).length,
           totalCount: fields.length,
           fields: fields.map((f) => ({ typeSource: f.type, name: f.wireName })),
+          // RFC 0009 widened `CalleeArity` with the callee's declared mode (the
+          // INV-8 clause mode gate reads it off this same parse).
+          mode: doc.frontmatter.mode,
         };
       },
       () => undefined,

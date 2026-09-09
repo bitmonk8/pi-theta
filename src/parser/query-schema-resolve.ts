@@ -56,6 +56,7 @@ import type {
   TryExpr,
   IndexExpr,
   CallExpr,
+  CallWithClause,
 } from "./theta-document";
 import {
   checkExplicitSchemaMismatch,
@@ -469,6 +470,7 @@ class QuerySchemaResolveWalk {
           args: expr.args.map((arg, i) =>
             this.rewriteExpr(arg, [this.callArgFrame(expr.callee, i), ...frames]),
           ),
+          ...this.rewriteCallWithClause(expr, frames),
         } satisfies CallExpr;
       case "invoke":
         // DOCUMENTED PARSE-TIME LIMITATION (query-forms.md:41 lists invoke args
@@ -482,6 +484,7 @@ class QuerySchemaResolveWalk {
           args: expr.args.map((arg) =>
             this.rewriteExpr(arg, [{ kind: "call-arg" }, ...frames]),
           ),
+          ...this.rewriteCallWithClause(expr, frames),
         } satisfies InvokeExpr;
       case "object":
         // Object construction is not a transparent sink position; each field
@@ -548,6 +551,36 @@ class QuerySchemaResolveWalk {
    * files resolved at load/runtime. Those args therefore have no resolvable
    * parameter type here and stay untyped (the walk stops at the call boundary).
    */
+  /**
+   * Rewrite a call-site `with { cwd: … }` clause's value expressions (RFC 0009),
+   * so a `@`-query inside one resolves exactly as one inside an argument does
+   * (invocation.md INV-6: the value is a full expression, judged by the same
+   * passes and with an argument's rules — no clause-specific carve-out). The
+   * frame is the untyped `call-arg`, not `callArgFrame`: a clause key is not a
+   * callee `params:` entry, so no declared parameter type is in reach and the
+   * walk stops at the call boundary as the `invoke` argument arm's does.
+   * Returns the guarded partial (never a bare `withClause: undefined`, which
+   * `exactOptionalPropertyTypes` distinguishes from an omitted key).
+   */
+  private rewriteCallWithClause(
+    expr: CallExpr | InvokeExpr,
+    frames: readonly OriginFrame[],
+  ): { withClause?: CallWithClause } {
+    const clause = expr.withClause;
+    if (clause === undefined) {
+      return {};
+    }
+    return {
+      withClause: {
+        ...clause,
+        fields: clause.fields.map((field) => ({
+          ...field,
+          value: this.rewriteExpr(field.value, [{ kind: "call-arg" }, ...frames]),
+        })),
+      },
+    };
+  }
+
   private callArgFrame(callee: string, index: number): OriginFrame {
     const fn = this.fns.get(callee);
     if (fn === undefined) {
