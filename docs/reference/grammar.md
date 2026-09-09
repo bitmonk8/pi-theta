@@ -135,8 +135,12 @@ parsing. `par` (theta 1.1) is recognised only immediately before `for`
 same word is the `mode: subagent` frontmatter value, which is unaffected. `with`
 (theta 1.2) is recognised only between a `subagent fn`'s parameter list (or its
 optional `: ReturnType`) and its body block (the session-config clause,
-[`fn` declarations](#fn-declarations)). `par`, `subagent`, and `with` are the
-three contextual keywords in theta 1.2.0.
+[`fn` declarations](#fn-declarations)) — and, since theta 1.3, in a second
+position, immediately after a call expression's argument list and only when the
+next token is `{` (the call-site options clause, [Call-site `with`
+clause](#call-site-with-clause)). `par`, `subagent`, and `with` are the
+three contextual keywords in theta 1.2.0; theta 1.3 adds `with`'s second
+recognition position, not a new keyword, so the set stays three.
 
 ## Comments
 
@@ -347,6 +351,12 @@ return, query targeting, inherit-vs-`with`, prompt-mode admissibility, `.thetali
 helpers, self-reference ban, depth accounting) are owned by
 [Functions — FN-6…FN-9](../spec_topics/functions.md#subagent-fn).
 
+Theta 1.3 adds a syntactically distinct **call-site** `with` clause on call
+expressions (`Callee(args…) with { cwd: … }`). It shares this section's `with`
+contextual keyword but is a different production with a different key set and
+no session-config semantics — see [Call-site `with`
+clause](#call-site-with-clause) under [Expression sublanguage](#expression-sublanguage).
+
 ## `match` arm body
 
 ```
@@ -491,6 +501,41 @@ panic (`theta/parse/interpolated-result`). The operand must have static type
 (a static, load-fail check). The enclosing scope's return type must be compatible
 with `Result<U, QueryError>` — otherwise `theta/parse/question-outside-result-fn`.
 `?` desugars to `return Err(e)`.
+
+### Call-site `with` clause
+
+<a id="call-site-with-clause"></a>
+
+```
+CallWithClause ::= "with" "{" CallWithField ("," CallWithField)* ","? "}"  // call-site options clause (theta 1.3)
+CallWithField  ::= CallWithKey ":" Expr
+CallWithKey    ::= "cwd"                                                   // closed set in theta 1.3
+```
+
+A postfix clause on the clause-bearing call surfaces — a `.theta`-callable
+call, `invoke(path, args…)` / `invoke<T>(path, args…)`, and a `subagent fn`
+call. Attaches immediately after the call's closing `)`, before any other
+postfix operator (`.`, `[`, method-call, `?`): in `f(a) with { cwd: t }?` the
+clause binds to the call and `?` applies to the call's `Result`. `with` here is
+the second recognition position of the contextual keyword described under
+[Reserved keywords](#reserved-keywords) — recognised only immediately after a
+call expression's argument list and only when the next token is `{`.
+
+Distinct from the declaration-site `WithClause` of [`fn`
+declarations](#fn-declarations): the key sets differ (`CallWithKey` is the
+closed per-call options set, first key `cwd`; the declaration-site `WithKey` is
+the five session-config keys); the value grammars differ (`CallWithField`
+admits any `Expr`; a declaration-site `WithValue` obeys the like-named
+frontmatter field's literal shape); and the unknown-key severities differ — a
+`CallWithKey` outside the closed set is `theta/parse/with-clause-unknown-key`
+(error), where an unknown declaration-site `WithKey` keeps the
+`theta/load/unknown-frontmatter-field` warning (declaration-site keys mirror
+forward-compatible frontmatter fields; call-site keys are per-call runtime
+options closed in theta 1.3). Value semantics, evaluation order, mode gating,
+and failure arms are owned by [Invocation — Options
+surface](../spec_topics/invocation.md#options-surface); the Pi-tool rejection
+(`theta/parse/with-clause-pi-tool`) by [Tool Calls — Argument
+shape](../spec_topics/tool-calls.md#options-surface).
 
 ## Built-in methods & properties
 
@@ -667,6 +712,11 @@ ToolField ::= Ident ":" Expr
   `WithClause` / `WithField`, top-level-only modifier, five session-config keys)
   and semantics (FN-6…FN-9): `docs/spec_topics/functions.md#subagent-fn`;
   `docs/rfcs/0001-subagent-fn.md` (accepted; Proposal — Semantics).
+- Call-site `with` clause grammar (contextual `with` second recognition
+  position, `CallWithClause` / `CallWithField` / `CallWithKey`, closed key set):
+  `docs/spec_topics/grammar.md#call-site-with-clause`; semantics (value rules,
+  mode gating, launch threading): `docs/spec_topics/invocation.md#options-surface`;
+  `docs/rfcs/0009-per-call-subagent-cwd.md` (accepted; Proposal §1).
 - `return` (RET-1…RET-3): `docs/spec_topics/return.md`.
 - Bindings & mutability: `docs/spec_topics/bindings.md`.
 - Imports and re-exports (`ImportDecl` / `ExportDecl` grammar, binding rules,

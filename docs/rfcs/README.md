@@ -28,7 +28,7 @@ shipped behaviour until specified and implemented.
 - [0006 — Child-process theta execution (remote theta)](./0006-child-process-theta-execution.md) — draft (depends on 0005)
 - [0007 — Fail-closed observability on the print-mode surface](./0007-print-mode-observability.md) — draft
 - [0008 — Type match pattern bindings from the scrutinee](./0008-match-binding-type-inference.md) — draft
-- [0009 — Per-call working directory for subagent-mode dispatch](./0009-per-call-subagent-cwd.md) — draft
+- [0009 — Per-call working directory for subagent-mode dispatch](./0009-per-call-subagent-cwd.md) — accepted
 
 Reclassified out of the RFC series:
 

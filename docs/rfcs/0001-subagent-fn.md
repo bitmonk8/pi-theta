@@ -144,6 +144,17 @@ subagent fn step(objective: string) with { tools: [read, bash], system: "…" } 
   *does* have a private spawned session, so setting its `system` prompt is
   well-defined and useful precisely where the enclosing theta cannot.
 
+**Extended by RFC 0009.** [RFC 0009](./0009-per-call-subagent-cwd.md) adds a
+distinct **call-site** `with { cwd: … }` clause on call expressions
+(`.theta`-callable calls, `invoke(...)`, and `subagent fn` call sites) — a
+different production from this section's declaration-site clause, with its own
+closed key set (`cwd` only, v1) and its own unknown-key severity (parse error,
+not a warning). The declaration-site `with { … }` clause described above is
+unchanged: its five session-config keys do not gain a `cwd` key, and a
+`subagent fn`'s spawned session still takes its working directory from the
+launch contract's default (the forwarded `ctx.cwd`), overridable only per call
+via RFC 0009's clause, never per declaration.
+
 ### Library helpers
 
 The `subagent` modifier is admissible on a `.thetalib` `fn`, giving a shared,

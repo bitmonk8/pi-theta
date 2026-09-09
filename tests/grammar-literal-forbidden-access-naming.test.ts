@@ -164,9 +164,24 @@ const SUPPORTED_FORMS = "## Supported forms";
  * SubagentMod/WithClause/WithField/WithKey/WithValue productions + two prose
  * paragraphs, +9 lines in §`fn` declarations) is additive, so C4's own resolution
  * clause applies — the +9-shifted inbound `spec_topics/grammar.md:N` line-cites are
- * re-pinned in the same commit rather than the line count held. */
-const SPEC_GRAMMAR_LINES = 232;
-const REF_GRAMMAR_LINES = 701;
+ * re-pinned in the same commit rather than the line count held.
+ * SPEC pin 232→246 (RFC 0009, theta 1.3): the call-site `with` clause section
+ * (`## Call-site \`with\` clause`, its production block, and the contextual-
+ * keywords paragraph rewrite in §`fn` declarations) is appended below the
+ * line-54 region this cell guards, so this cell's own scope (the forbidden-
+ * inside-a-literal bullet, above line 54) is untouched by the RFC — C4's own
+ * resolution clause applies: the line count moves and is re-pinned here rather
+ * than held, since the addition lands at end-of-file (verified: `wc -l
+ * docs/spec_topics/grammar.md` = 246 at RFC 0009 Phase 3).
+ * REF pin 701→751 (RFC 0009, theta 1.3): the reference mirror gains the
+ * corresponding `### Call-site \`with\` clause` subsection under §Expression
+ * sublanguage, a cross-reference sentence in §`fn` declarations, and the
+ * contextual-keywords paragraph rewrite in §Reserved keywords — all below the
+ * line-54 region this cell guards. Re-pinned here per the same clause
+ * (verified: `wc -l docs/reference/grammar.md` = 751 at RFC 0009 Phase 3,
+ * including the §Provenance bullet naming the new section). */
+const SPEC_GRAMMAR_LINES = 246;
+const REF_GRAMMAR_LINES = 751;
 
 /** expressions.md:10's name for the bracket form; the name the bullet lacks. */
 const INDEXED_ACCESS = /indexed access/i;

@@ -94,6 +94,8 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |
 | INV-5 | RFC 0006 (child-process theta execution — envelope return propagation) |
+| INV-6 … INV-8 | RFC 0009 (per-call subagent cwd — options-surface value semantics, no existence pre-check, mode gating) |
+| TOOL-1 | RFC 0009 (per-call subagent cwd — Argument shape: Pi-tool clause rejection) |
 | DIAG-1 | `V7a` |
 | DIAG-2, DIAG-3 | `V7b` |
 | DIAG-4 | `V7b`, `V7c` |
@@ -187,6 +189,7 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 | `cka-62` | `conversation-drive.md` (PIC) — the leftover prompt-mode-driver MUSTs re-pointed to their shipped closer: the `ctx.waitForIdle()` no-rejection consumption-posture presupposition and the *mid-theta user-session replacement* seam MUST (the driver reads `pi` from a single factory-captured reference; consumers MUST NOT re-acquire `pi` from another surface during an invocation) (un-anchored; GOV-22 residue) | `V9c` |
 | `cka-63` | `drain-state-contract.md` (PIC) — the leftover drain-state method-surface MUST re-pointed to its shipped closer: an editorial rename of any of the closed three-method surface MUST sweep all referencing sites in the same edit (un-anchored; GOV-22 residue) | `V9m` |
 | `cka-64` | `host-prerequisites.md` (PIC) — the leftover build-toolchain MUST re-pointed to its shipped closer: the TypeScript `tsc` version floor is load-bearing because the build-time `SessionShutdownEvent['reason']` type-equality assertion relies on `tsc` surfacing the `theta/typecheck/session-shutdown-reason-snapshot` brand string verbatim and grep-ably (un-anchored; GOV-22 residue) | `H1a` |
+| `cka-65` | `grammar.md` (GRAM), `invocation.md` (INV) §Options surface, `tool-calls.md` (TOOL) §Argument shape — RFC 0009's call-site `with { cwd: … }` clause (theta 1.3): the three new parse codes `theta/parse/with-clause-unknown-key`, `theta/parse/with-clause-prompt-mode-callee`, `theta/parse/with-clause-pi-tool`; the mode-gate MUSTs (statically-resolvable prompt-mode callee rejected at parse time, not-statically-resolvable prompt-mode callee rejected at runtime via the existing `InvokeInfraError { cause: "validation" }` arm, Pi-tool call rejected at parse time); and the launch-request threading MUST (the resolved `cwd` value replaces the forwarded `ctx.cwd` at the `SubagentLaunchRequest.cwd` bind site, with the empty-string validation arm, relative-path resolution against the parent's effective cwd, and parent-side Windows separator normalisation) (sites anchored: `invocation.md` INV-6/INV-7/INV-8, `tool-calls.md` TOOL-1, coined per GOV-22; the grammar-appendix section carries no RFC-2119 tokens) | <new> |
 
 ## Governance REQ-IDs (GOV-*) — corpus governance, not runtime obligations
 

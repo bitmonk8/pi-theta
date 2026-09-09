@@ -330,6 +330,12 @@ schema InvokeInfraError {
 }
 ```
 
+The `validation` cause (theta 1.3) also covers two call-site `with { cwd: … }`
+clause arms: an empty-string `cwd` value, and a clause whose callee is not
+statically resolvable but turns out `mode: prompt` at runtime. Both reuse this
+existing member — no schema change. See [Invocation — Options
+surface](../spec_topics/invocation.md#options-surface).
+
 ### `InvokeCalleeError`
 
 Wraps an `Err` the callee itself returned.

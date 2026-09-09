@@ -1,6 +1,6 @@
 # RFC 0009 — Per-call working directory for subagent-mode dispatch
 
-- **Status:** draft
+- **Status:** accepted
 - **Scope:** theta 1.x language surface (governed by
   [`../spec_topics/governance/release-version-naming.md`](../spec_topics/governance/release-version-naming.md))
 - **Affects:** grammar, parse diagnostics, invocation and tool-call semantics,
