@@ -134,7 +134,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // src/parser/body-type-lowering.ts:428, `lowerParamsFieldType`
 // src/parser/params.ts), one `respondToolWireSchema`
 // (src/runtime/respond-tool-wire.ts:92) or one real `AjvSchemaValidator.compile`
-// (src/seams/schema-validator.ts:390, `#build` at :441). Two live halves cover
+// (src/seams/schema-validator.ts:384, `#build` at :435). Two live halves cover
 // the registration-facing surface this tier cannot reach —
 // tests/live/inline-object-wire-name-rename-live-cell.test.ts (H8a) and
 // tests/live/acceptance/inline-object-wire-name-rename-load-refusal.test.ts
@@ -1203,7 +1203,7 @@ describe("bug 0160 (E) — the duplicate family bug 0159 closed, and the AJV out
     expect(
       () => first.validator.compile(d2 as unknown as LoweredSchema),
       "E3 — D4: AJV's meta-schema is applied to the ROOT document " +
-        "(src/seams/schema-validator.ts:441), which constrains `required` to unique items",
+        "(src/seams/schema-validator.ts:435), which constrains `required` to unique items",
     ).toThrow("schema is invalid: data/required must NOT have duplicate items (items ## 1 and 0 are identical)");
 
     const d8 = lowerQueryResponseSchema('{p: {a as "w": integer}, q: integer, q: string}', [], []);

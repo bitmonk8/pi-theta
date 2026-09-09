@@ -99,8 +99,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (`lowerQueryResponseSchema` src/runtime/query-schema-lowering.ts:153,
 // `buildBodyTypeSchemas` src/parser/body-type-lowering.ts:428,
 // `lowerParamsFieldType` src/parser/params.ts), one real
-// `AjvSchemaValidator.compile` (src/seams/schema-validator.ts:390, `#build` at
-// :441) or one real `buildTypedQueryValidation`
+// `AjvSchemaValidator.compile` (src/seams/schema-validator.ts:384, `#build` at
+// :435) or one real `buildTypedQueryValidation`
 // (src/runtime/typed-query-validation.ts:169) drive over a SCRIPTED follow-up.
 // An integration tier would add a session round-trip and could assert none of
 // these more sharply; a live tier would make the group (E) assertion stochastic
@@ -636,7 +636,7 @@ describe("bug 0176 (D) — the fragment compiles cleanly and is unsatisfiable by
     const compiled = validator.compile(L1_FRAGMENT as unknown as LoweredSchema);
     expect(
       emitted.map((d) => d.code),
-      "D1 v1 — `#build` (src/seams/schema-validator.ts:441) compiles the document with no " +
+      "D1 v1 — `#build` (src/seams/schema-validator.ts:435) compiles the document with no " +
         "meta-schema complaint and no cache-collision diagnostic",
     ).toEqual([]);
 

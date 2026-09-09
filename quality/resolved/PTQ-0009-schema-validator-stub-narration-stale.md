@@ -2,7 +2,7 @@
 id: PTQ-0009
 title: schema-validator.ts still carries the V8c-T section narration describing an inert stub after the V8c AJV implementation replaced it
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/seams/schema-validator.ts:41-49

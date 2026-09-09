@@ -30,7 +30,7 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 //      two more installed-package roots (`node_modules`, the fifth, is neither).
 //      A theta must resolve all of those against the host actually running it,
 //      not the one this extension was authored against
-//      (src/seams/file-system.ts:28-73). Cells 1-6 run a `".omp"` host and plant
+//      (src/seams/file-system.ts:28-74). Cells 1-6 run a `".omp"` host and plant
 //      a `.pi` DECOY at the path a hardcoded spelling would reach; cell 7 runs a
 //      RELOCATED global agent directory and plants the decoy at the
 //      `<homedir>/<config-dir>/agent` path a SYNTHESISED global spelling would

@@ -30,11 +30,12 @@ export interface FileSystem {
    * bare name, not a path, and so only sound where the host itself composes the
    * path from that same static constant. That is exactly the PROJECT-relative
    * set: the `<cwd>/<configDirName>/theta/` discovery root and the descriptor
-   * naming it, `<cwd>/<configDirName>/settings.json`, and the project
-   * installed-package roots `<cwd>/<configDirName>/npm` and `.../git`. Both
-   * hosts do build the project directory from the static constant (Pi's
-   * `CONFIG_DIR_NAME`; Oh-My-Pi's `getProjectAgentDir`), so reconstructing
-   * those from the name is exact rather than a guess.
+   * naming it, `<cwd>/<configDirName>/settings.json`, the project
+   * installed-package roots `<cwd>/<configDirName>/npm` and `.../git`, and the
+   * project arm of `thetaPathsBaseDir`. Both hosts do build the project
+   * directory from the static constant (Pi's `CONFIG_DIR_NAME`; Oh-My-Pi's
+   * `getProjectAgentDir`), so reconstructing those from the name is exact
+   * rather than a guess.
    *
    * It is NOT sound for the GLOBAL locations — those come from
    * `globalAgentDir()`, because neither host derives its global agent directory

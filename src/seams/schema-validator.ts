@@ -40,12 +40,6 @@ export interface SchemaValidator {
 
 // --------------------------------------------------------------------------
 // V8c / V8c-T — the production `SchemaValidator` implementation (PIC-11).
-//
-// V8c-T (tests-task) declares the production class shape and an inert stub so
-// the failing tests compile and red on their own primary assertions; the paired
-// V8c leaf fills the AJV-backed behaviour in (one-pass multi-error, no
-// coercion / no default-fill, in-document `$ref`, silent unknown `format`,
-// deterministic, per-runtime, slug-cache byte-verify).
 // --------------------------------------------------------------------------
 
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";

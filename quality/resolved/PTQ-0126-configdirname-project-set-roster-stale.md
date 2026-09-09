@@ -2,7 +2,7 @@
 id: PTQ-0126
 title: The `configDirName()` doc names "exactly the PROJECT-relative set" in four items while a fifth production consumer, the project arm of `thetaPathsBaseDir`, reads it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/seams/file-system.ts:28-37

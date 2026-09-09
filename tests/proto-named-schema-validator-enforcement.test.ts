@@ -119,8 +119,8 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 /**
  * A content-addressing function deriving a distinct slug per distinct schema —
- * production's canonical-bytes discipline (`schema-validator.ts:397`, the
- * byte-equality check inside `compile` at `:390`) reduced to
+ * production's canonical-bytes discipline (`schema-validator.ts:391`, the
+ * byte-equality check inside `compile` at `:384`) reduced to
  * `JSON.stringify`. Identical to 0210's witness `jsonSlug`.
  */
 const jsonSlug: SchemaSlugFn = (schema) => {
@@ -130,7 +130,7 @@ const jsonSlug: SchemaSlugFn = (schema) => {
 
 /**
  * A real AJV validator (the `V8c` seam), configured exactly as production is
- * (`schema-validator.ts:384`: `{ strict: false, allErrors: true, logger: false }`).
+ * (`schema-validator.ts:378`: `{ strict: false, allErrors: true, logger: false }`).
  * The `emit` sink fails LOUDLY: the only diagnostic this seam emits is
  * `theta/runtime/validator-cache-collision`, and no cell here compiles two
  * documents through one instance, so a diagnostic arriving means the cell is
@@ -301,7 +301,7 @@ describe("bug 0212 (A) — a single declared `__proto__: string` property is enf
     const document = loweredParams([{ name: "__proto__", typeSource: "string" }], "cell A0");
     expect(
       JSON.stringify(document),
-      "CONTROL (bug 0212, cell A0): schema-subset.md:78's emission for one declared `__proto__: string` field. 0212 §Fix constraint 1 pins these bytes — the schema-slug cache compares them (`schema-validator.ts:397`) — so they must not move",
+      "CONTROL (bug 0212, cell A0): schema-subset.md:78's emission for one declared `__proto__: string` field. 0212 §Fix constraint 1 pins these bytes — the schema-slug cache compares them (`schema-validator.ts:391`) — so they must not move",
     ).toBe(EXPECTED_A_BYTES);
     const properties = Object.getOwnPropertyDescriptor(document, "properties")?.value as object;
     expect(
@@ -428,7 +428,7 @@ describe("bug 0212 (A) — a single declared `__proto__: string` property is enf
           errors,
           "required",
           "",
-          'PRIMARY (bug 0212, cell A4): `allErrors: true` (schema-validator.ts:384) reports every failing keyword in one pass, so a payload that ALSO omits the required `__proto__` draws the `required` entry beside the `additionalProperties` one. HEAD reports no `required` entry',
+          'PRIMARY (bug 0212, cell A4): `allErrors: true` (schema-validator.ts:378) reports every failing keyword in one pass, so a payload that ALSO omits the required `__proto__` draws the `required` entry beside the `additionalProperties` one. HEAD reports no `required` entry',
         ),
       ),
       // `schemaPath` deliberately unpinned — see §SCHEMAPATH POSTURE.
@@ -592,7 +592,7 @@ describe("bug 0212 (C) — the declared type is enforced with `additionalPropert
 // "The sibling-name control's verdicts (`@@ P1e`) are the shape every one of
 // these must take". GREEN BEFORE AND AFTER THE FIX. Both cells assert emitted
 // BYTES as well as verdicts, because the schema-slug cache compares those bytes
-// (`schema-validator.ts:397`), and both pin `schemaPath` in full.
+// (`schema-validator.ts:391`), and both pin `schemaPath` in full.
 // ===========================================================================
 
 describe("bug 0212 (D) — a document declaring no `__proto__` field is unmoved", () => {
@@ -932,7 +932,7 @@ describe("bug 0212 (G) — a colliding `^__proto__$` pattern entry keeps its con
       params: { type: "string" },
     });
     // Neither half can be satisfied by a boolean, and `allErrors: true`
-    // (schema-validator.ts:384) reports every failing keyword in one pass, so
+    // (schema-validator.ts:378) reports every failing keyword in one pass, so
     // BOTH entries arrive together — the direct witness that the constraints
     // coexist rather than one having replaced the other, and that no payload
     // passes the intersection.

@@ -151,7 +151,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     this report still attributes nothing there), W22 RED.
 //   - (E) E1/E2, the AJV cells over the shipped validator's configuration
 //     (`new Ajv({ strict: false, allErrors: true })`,
-//     src/seams/schema-validator.ts:384). E1 GREEN, E2 RED — the registered
+//     src/seams/schema-validator.ts:378). E1 GREEN, E2 RED — the registered
 //     contract presently FORBIDS the field the author declared.
 //   - (U) the direct unit cells over `splitTopLevelSegments` / `topLevelColon`,
 //     the changed arithmetic. The well-formed-nesting fences are GREEN; the
@@ -824,7 +824,7 @@ describe("bug 0238 (P) — the same class at a second position", () => {
 // ===========================================================================
 // (E) THE RUNTIME CONSEQUENCE — §Reproduction (E). The lowered envelope
 // validated with the configuration `AjvSchemaValidator` uses
-// (src/seams/schema-validator.ts:384).
+// (src/seams/schema-validator.ts:378).
 // ===========================================================================
 
 /** The call `{"p": {"a": 1, "m": 2}}` — every field the author declared. */
@@ -847,7 +847,7 @@ function validate(type: string): { declared: boolean; undeclared: boolean } {
       "measure",
   ).toBeDefined();
   // The shipped configuration, `AjvSchemaValidator`'s own
-  // (src/seams/schema-validator.ts:384), constructed per call: no globals,
+  // (src/seams/schema-validator.ts:378), constructed per call: no globals,
   // statics or singletons (CLAUDE.md §Code Style).
   const ajv = new Ajv({ strict: false, allErrors: true });
   const compiled = ajv.compile(lowered as object);
